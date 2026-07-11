@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Cheat Engine
+Comment=Memory scanner and debugger for Linux
+Exec=cheatengine
+Icon=cheatengine
+Categories=Development;Debugger;
+Terminal=false

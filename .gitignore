@@ -1,0 +1,30 @@
+build/
+
+# Kernel module build artifacts (out-of-tree build leaves these in kernel/)
+*.o
+*.ko
+*.mod
+*.mod.c
+*.mod.o
+.*.cmd
+*.symvers
+modules.order
+Module.symvers
+.tmp_versions/
+
+# Built shared libraries / AppImage output
+*.so
+*.AppImage
+AppDir/
+
+# Local caches
+.cache/
+
+# Editor / tool / agent config (local, not project)
+.vscode/
+.claude/
+.codex/
+.opencode/
+
+# Compiled test target (source sample_game.c is tracked)
+/sample_game

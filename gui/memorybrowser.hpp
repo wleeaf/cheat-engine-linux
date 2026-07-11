@@ -1,0 +1,247 @@
+#pragma once
+
+#include "platform/process_api.hpp"
+#include "core/ct_file.hpp"
+#include "arch/disassembler.hpp"
+#include <memory>
+#include "symbols/elf_symbols.hpp"
+#include "symbols/dwarf_symbols.hpp"
+
+#include <QMainWindow>
+#include <QSplitter>
+#include <QAbstractScrollArea>
+#include <QLineEdit>
+#include <QToolBar>
+#include <QFont>
+#include <QTimer>
+#include <functional>
+#include <set>
+#include <map>
+#include <cstdio>
+
+namespace ce::gui {
+
+// ── Hex View Widget ──
+class HexView : public QAbstractScrollArea {
+    Q_OBJECT
+public:
+    explicit HexView(QWidget* parent = nullptr);
+
+    // How the hex grid interprets memory (CE's "Display type"). Byte is the
+    // classic per-byte hex; wider types group N bytes into one displayed value.
+    enum class DisplayType { Byte, Word, Dword, Qword, Float, Double };
+    void setDisplayType(DisplayType t) { displayType_ = t; viewport()->update(); }
+    DisplayType displayType() const { return displayType_; }
+
+    void setProcess(ce::ProcessHandle* proc) { proc_ = proc; }
+    void setAddress(uintptr_t addr);
+    uintptr_t currentAddress() const { return address_; }
+    /// Address of the byte under the most recent cursor position, or `address_` if unknown.
+    uintptr_t cursorAddress() const;
+    void refresh();
+
+signals:
+    void requestFindWhatAccesses(uintptr_t addr, bool writesOnly);
+    void requestGoto(uintptr_t addr);
+    void cursorMoved(uintptr_t addr);
+
+protected:
+    void paintEvent(QPaintEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+    void contextMenuEvent(QContextMenuEvent* event) override;
+
+private:
+    void updateScrollBar();
+    int visibleRows() const;
+    /// Translate a viewport-local point into a byte offset from `address_`,
+    /// or -1 if outside the hex grid.
+    int byteOffsetAt(QPoint p) const;
+    /// Pixel width of the hex column for the current display type (shared by
+    /// paintEvent/byteOffsetAt/mousePressEvent so their layouts can't drift).
+    int hexColWidth() const;
+
+    ce::ProcessHandle* proc_ = nullptr;
+    uintptr_t address_ = 0;
+    int bytesPerRow_ = 16;
+    DisplayType displayType_ = DisplayType::Byte;
+    QFont monoFont_{"Monospace", 10};
+    int charW_ = 0;
+    int charH_ = 0;
+    int selectedOffset_ = -1;  // Byte offset within the visible window, -1 if none
+    int editNibble_ = 0;       // 0 = high nibble next, 1 = low nibble next
+    bool editAscii_ = false;   // selection is in the ASCII column (type chars)
+    std::vector<uint8_t> cache_;
+
+    /// Write a single byte to the target, making the page writable if needed.
+    bool pokeByte(uintptr_t addr, uint8_t value);
+};
+
+// ── Disassembler View Widget ──
+class DisasmView : public QAbstractScrollArea {
+    Q_OBJECT
+public:
+    explicit DisasmView(QWidget* parent = nullptr);
+
+    void setProcess(ce::ProcessHandle* proc) { proc_ = proc; }
+    void setResolver(ce::SymbolResolver* resolver) { resolver_ = resolver; }
+    void setDwarf(const ce::DwarfRegistry* dwarf) { dwarf_ = dwarf; viewport()->update(); }
+    void setAddress(uintptr_t addr);
+    uintptr_t currentAddress() const { return address_; }
+    void setActiveBreakpoints(const std::set<uintptr_t>& addrs) { breakpoints_ = addrs; viewport()->update(); }
+    void setComment(uintptr_t addr, const std::string& text) {
+        if (text.empty()) comments_.erase(addr); else comments_[addr] = text;
+        viewport()->update();
+    }
+    std::string comment(uintptr_t addr) const {
+        auto it = comments_.find(addr); return it == comments_.end() ? std::string() : it->second;
+    }
+    const std::map<uintptr_t, std::string>& comments() const { return comments_; }
+    void clearComments() { comments_.clear(); viewport()->update(); }
+    /// Address of the currently selected instruction, or 0 if none.
+    uintptr_t selectedAddress() const;
+    /// Size in bytes of the currently selected instruction.
+    int selectedSize() const;
+    void refresh();
+
+signals:
+    void addressChanged(uintptr_t addr);
+    void requestSetSoftBreakpoint(uintptr_t addr);
+    void requestSetHwExecBreakpoint(uintptr_t addr);
+    void requestRemoveBreakpoint(uintptr_t addr);
+    void requestNop(uintptr_t addr, int size);
+    void requestAssemble(uintptr_t addr, int size, const QString& current);
+    void requestXrefs(uintptr_t addr);
+    void requestSetSymbol(uintptr_t addr);
+    void requestSetComment(uintptr_t addr);
+    void requestSaveRegion(uintptr_t addr);
+    // Generate a pre-filled auto-assembler injection template for this address.
+    void requestInjection(uintptr_t addr, bool aob);
+
+protected:
+    void paintEvent(QPaintEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
+    void contextMenuEvent(QContextMenuEvent* event) override;
+
+private:
+    int visibleRows() const;
+    uintptr_t scrollBack(uintptr_t addr, int count);
+    int rowAtY(int y) const;
+    bool followRow(int row);   // follow a row's branch target / RIP-relative data
+    static uintptr_t parseImmediate(const std::string& operands);
+
+    ce::ProcessHandle* proc_ = nullptr;
+    ce::SymbolResolver* resolver_ = nullptr;
+    const ce::DwarfRegistry* dwarf_ = nullptr;
+    std::unique_ptr<ce::Disassembler> disasm_ = std::make_unique<ce::Disassembler>(ce::Arch::X86_64);
+public:
+    /// Decode in 32- or 64-bit mode (set from the target's code bitness so a
+    /// 32-bit process shows eax, not rax).
+    void setArch(ce::Arch arch) { disasm_ = std::make_unique<ce::Disassembler>(arch); viewport()->update(); }
+private:
+    uintptr_t address_ = 0;
+    int selectedRow_ = -1;
+    QFont monoFont_{"Monospace", 10};
+    int charW_ = 0;
+    int charH_ = 0;
+    int gutterW_ = 0;
+    std::vector<ce::Instruction> instructions_;
+    std::set<uintptr_t> breakpoints_;
+    std::map<uintptr_t, std::string> comments_;   // user-defined inline comments
+};
+
+// ── Memory Browser Window ──
+class MemoryBrowser : public QMainWindow {
+    Q_OBJECT
+public:
+    explicit MemoryBrowser(ce::ProcessHandle* proc, QWidget* parent = nullptr);
+
+    void gotoAddress(uintptr_t addr);
+
+    /// Hooks for actions the browser cannot perform alone (need MainWindow's BpManager etc.).
+    using BpToggle = std::function<void(uintptr_t addr, bool hardware)>;
+    using BpQuery = std::function<std::set<uintptr_t>()>;
+    using CodeFinderLauncher = std::function<void(uintptr_t addr, bool writesOnly)>;
+    void setBreakpointSetter(BpToggle fn) { bpSetter_ = std::move(fn); refreshBreakpoints(); }
+    void setBreakpointRemover(std::function<void(uintptr_t)> fn) { bpRemover_ = std::move(fn); }
+    void setBreakpointQuery(BpQuery fn) { bpQuery_ = std::move(fn); refreshBreakpoints(); }
+    void setCodeFinderLauncher(CodeFinderLauncher fn) { cfLauncher_ = std::move(fn); }
+
+    /// Persistent disassembler comments (saved with the cheat table). The store is
+    /// owned by MainWindow and keyed by module-relative address EXPRESSION so it
+    /// survives ASLR. setAnnotationStore installs the initial set (applied now) and
+    /// a saver called whenever a comment changes.
+    void setAnnotationStore(std::vector<ce::DisassemblerComment> initial,
+                            std::function<void(std::vector<ce::DisassemblerComment>)> saver);
+
+    /// Hook to open a script editor pre-loaded with a generated injection script
+    /// (MainWindow owns the AutoAssembler and creates the editor).
+    void setAutoAssembleOpener(std::function<void(const QString&)> fn) {
+        autoAssembleOpener_ = std::move(fn);
+    }
+
+private slots:
+    void onGotoAddress();
+    void onRefresh();
+
+private:
+    void refreshBreakpoints();
+    // Navigation history (back/forward, like a browser). navigateTo records the
+    // current spot before moving; goBack/goForward replay the stacks.
+    void navigateTo(uintptr_t addr);
+    void syncViews(uintptr_t addr);
+    void goBack();
+    void goForward();
+    void updateNavActions();
+
+    // Find a byte pattern or ASCII text forward from the current address.
+    void findInMemory(bool findNext);
+    uintptr_t searchMemory(const std::vector<uint8_t>& pattern, uintptr_t start,
+                           bool inclusive = false);
+
+    void writeNop(uintptr_t addr, int size);
+    void assembleAt(uintptr_t addr, int origSize, const QString& current);
+    bool patchBytes(uintptr_t addr, const std::vector<uint8_t>& bytes);
+    void showXrefs(uintptr_t addr);
+    void saveRegionToFile(uintptr_t addr);
+
+    ce::ProcessHandle* proc_;
+    ce::SymbolResolver resolver_;
+    ce::DwarfRegistry dwarf_;
+    DisasmView* disasmView_;
+    HexView* hexView_;
+    QLineEdit* addressEdit_;
+    QTimer* refreshTimer_;
+
+    std::vector<uintptr_t> backStack_;
+    std::vector<uintptr_t> forwardStack_;
+    uintptr_t currentAddr_ = 0;
+    std::vector<uint8_t> lastSearch_;
+    QAction* backAct_ = nullptr;
+    QAction* fwdAct_ = nullptr;
+
+    std::set<uintptr_t> bookmarks_;
+    QMenu* bookmarksMenu_ = nullptr;
+    void toggleBookmark();
+    void rebuildBookmarksMenu();
+
+    BpToggle bpSetter_;
+    std::function<void(uintptr_t)> bpRemover_;
+    BpQuery bpQuery_;
+    CodeFinderLauncher cfLauncher_;
+
+    std::function<void(const QString&)> autoAssembleOpener_;
+    // Persistent-comment plumbing (see setAnnotationStore).
+    std::function<void(std::vector<ce::DisassemblerComment>)> annotationSaver_;
+    std::string addrToExpr(uintptr_t addr) const;   // absolute -> "module+0xoff"
+    uintptr_t exprToAddr(const std::string& expr) const; // inverse (0 if unresolved)
+    void persistComments();                         // gather + call annotationSaver_
+};
+
+} // namespace ce::gui

@@ -1,0 +1,94 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ubuntu-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout cecore
+        uses: actions/checkout@v4
+        with:
+          path: cecore
+
+      # Cheat Engine's upstream Pascal repo is the source of Lua 5.3 sources
+      # (built into liblua.a) and ceserver C sources. Sparse-checkout to keep
+      # the clone cheap — we only need lua53/ and ceserver/.
+      - name: Sparse-checkout upstream Cheat Engine for Lua + ceserver
+        run: |
+          git clone --filter=blob:none --no-checkout --depth=1 \
+            https://github.com/cheat-engine/cheat-engine.git "Cheat Engine"
+          cd "Cheat Engine"
+          git sparse-checkout init --no-cone
+          git sparse-checkout set "Cheat Engine/lua53" "Cheat Engine/ceserver"
+          git checkout
+          # The repo's top-level dir is "Cheat Engine/" — flatten that one level
+          # so cecore's CMake finds ../Cheat Engine/lua53/... etc.
+          if [ -d "Cheat Engine/lua53" ]; then
+            mv "Cheat Engine"/* . 2>/dev/null || true
+          fi
+
+      - name: Install apt dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            ninja-build \
+            qt6-base-dev \
+            libcapstone-dev \
+            libreadline-dev \
+            zlib1g-dev \
+            libdw-dev \
+            libasound2-dev \
+            libsoundtouch-dev \
+            linux-headers-generic \
+            ca-certificates
+
+      - name: Build Lua 5.3 (sibling tree)
+        run: |
+          cd "Cheat Engine/lua53/lua53"
+          make linux MYCFLAGS="-fPIC" -j"$(nproc)"
+          ls -la src/liblua.a
+
+      - name: Cache FetchContent + build directory
+        uses: actions/cache@v4
+        with:
+          path: |
+            cecore/build/_deps
+          key: cecore-deps-${{ runner.os }}-keystone-0.9.2-capstone-system-v1
+          restore-keys: |
+            cecore-deps-${{ runner.os }}-
+
+      - name: Configure cecore
+        run: |
+          cmake -S cecore -B cecore/build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build cecore
+        run: cmake --build cecore/build -j"$(nproc)"
+
+      - name: Run regression suite
+        run: ./cecore/build/cecore_test
+
+      - name: Verify cescan launches
+        run: ./cecore/build/cescan list | head -5
+
+      - name: Build kernel module (out-of-tree)
+        run: |
+          set -e
+          KDIR=/lib/modules/$(uname -r)/build
+          if [ -d "$KDIR" ]; then
+            make -C "$KDIR" M="$PWD/cecore/kernel" modules || \
+              echo "kernel module build skipped: kernel headers missing required pieces on the runner"
+          else
+            echo "kernel module build skipped: $KDIR not present on the runner"
+          fi
+        # The runner image may not always ship matching kernel headers; the
+        # main build is what's enforced.
+        continue-on-error: true

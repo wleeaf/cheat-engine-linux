@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/">
+    <file alias="icon.png">../packaging/cheatengine.png</file>
+  </qresource>
+</RCC>

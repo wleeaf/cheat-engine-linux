@@ -29,8 +29,12 @@ cecore this session.
 - ✅ Auto Assembler: templates, Syntax Check, Execute (real inject), Disable/restore,
   **auto code-injection generator** (with original-bytes db), **AOB injection**
   (aobscanmodule + alloc near symbol), mprotect-on-write for r-x pages.
-- ✅ Debugger: software bp (POKETEXT), HW watchpoint find-what-writes/accesses
-  (**multithread**, all threads), exception bp, breakpoint list.
+- 🟡 Debugger: **HW watchpoint find-what-writes/accesses (multithread, all
+  threads)** is the fully-wired, functional GUI feature. Software bp (int3/
+  POKETEXT), exception bp, and breakpoint-list arming exist as real, unit-tested
+  backends (`DebugSession`, `BreakpointManager`) but are NOT yet wired into the
+  shipped GUI/Lua — corrected by the 2026-07-11 code audit; being wired up by the
+  interactive step-debugger work.
 - ✅ Register editor (GP+XMM/YMM), stack view, thread list, module list, memory
   regions, heap regions.
 - ✅ Code analysis: strings, calls, jumps, RIP-relative, code caves, find statics.

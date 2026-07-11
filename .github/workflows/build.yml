@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Lua 5.3 is vendored under third_party/lua and built by CMake, so no
       # upstream checkout is needed — the repo is self-contained.
@@ -32,7 +32,7 @@ jobs:
             ca-certificates
 
       - name: Cache FetchContent + build directory
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             build/_deps

@@ -2648,6 +2648,103 @@ static void test_multithread_watchpoint() {
            ok ? "OK" : "FAILED", results.size(), survived ? "survived" : "KILLED");
 }
 
+// Interactive-debugger multithread verification. bp_child_hot is called ONLY by
+// sibling worker threads (never the main thread), so catching it proves the
+// debugger traces every thread. g_free_counter is bumped by a SEPARATE thread
+// that never touches bp_child_hot — freezing it at a breakpoint hit proves
+// all-stop reaches the whole target, not just the thread that trapped.
+static volatile long g_free_counter = 0;
+__attribute__((noinline)) static void bp_child_hot() {
+    static volatile int sink = 0;
+    sink = sink + 1;
+}
+static void bp_hot_worker() {
+    for (;;) { bp_child_hot(); usleep(200); }
+}
+static void free_counter_worker() {
+    for (;;) { g_free_counter = g_free_counter + 1; usleep(50); }
+}
+
+static void test_multithread_software_breakpoint() {
+    printf("\n── Test: Multithread software breakpoint (all-stop) ──\n");
+
+    int fds[2];
+    if (pipe(fds) != 0) { printf("  mt soft bp: FAILED\n"); return; }
+
+    pid_t child = fork();
+    if (child == 0) {
+        close(fds[0]);
+        std::thread(bp_hot_worker).detach();       // two workers hit the bp
+        std::thread(bp_hot_worker).detach();
+        std::thread(free_counter_worker).detach();  // a third only bumps the counter
+        write(fds[1], "x", 1);
+        for (;;) usleep(100000);
+        _exit(0);
+    }
+    close(fds[1]);
+    if (child < 0) { close(fds[0]); printf("  mt soft bp: FAILED\n"); return; }
+    char tok = 0; (void)read(fds[0], &tok, 1); close(fds[0]);
+    usleep(80000);   // let all four threads spin up before attaching
+
+    LinuxProcessHandle proc(child);
+    DebugSession session;
+    std::atomic<bool> hit{false};
+    std::atomic<uintptr_t> hitAddr{0};
+    std::atomic<pid_t> hitTid{0};
+    std::atomic<int> stepEvents{0};
+    std::atomic<uintptr_t> stepRip{0};
+    session.setEventCallback([&](const DebugEvent& e) {
+        if (e.type == DebugEventType::BreakpointHit) {
+            hitAddr.store(e.address); hitTid.store(e.tid); hit.store(true);
+        } else if (e.type == DebugEventType::SingleStep) {
+            stepRip.store(e.address); stepEvents.fetch_add(1);
+        }
+    });
+    auto hotAddr = reinterpret_cast<uintptr_t>(&bp_child_hot);
+    auto counterAddr = reinterpret_cast<uintptr_t>(&g_free_counter);
+
+    bool attached = session.attach(child, &proc);
+    int bpId = attached ? session.setSoftwareBreakpoint(hotAddr) : -1;
+    if (attached) session.continueExecution();
+
+    for (int i = 0; i < 300 && !hit.load(); ++i) usleep(10000);   // up to ~3s
+
+    // All-stop: the free counter (a thread that never calls bp_child_hot) must be
+    // frozen while we sit at the breakpoint.
+    long c1 = 0, c2 = 0;
+    proc.read(counterAddr, &c1, sizeof(c1));
+    usleep(60000);
+    proc.read(counterAddr, &c2, sizeof(c2));
+    bool allStop = hit.load() && (c1 == c2);
+
+    bool alive = (kill(child, 0) == 0);   // child-thread bp must not kill the target
+
+    // Step the trapped sibling thread one instruction; expect a moved RIP.
+    uintptr_t beforeStep = session.getStopContext().rip;
+    session.step(StepMode::Into);
+    bool stepped = stepEvents.load() >= 1 && stepRip.load() != 0 &&
+                   stepRip.load() != beforeStep;
+
+    // Resume the world; the free counter must advance again.
+    long c3 = 0, c4 = 0;
+    proc.read(counterAddr, &c3, sizeof(c3));
+    session.continueExecution();
+    usleep(90000);
+    proc.read(counterAddr, &c4, sizeof(c4));
+    bool resumed = (c4 > c3);
+
+    if (session.isAttached()) session.detach();
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
+
+    bool ok = attached && bpId > 0 && hit.load() && hitAddr.load() == hotAddr &&
+              allStop && alive && stepped && resumed;
+    printf("  mt soft bp: %s (hit tid=%d, all-stop=%s, alive=%s, stepped=%s, resumed=%s)\n",
+           ok ? "OK" : "FAILED", (int)hitTid.load(),
+           allStop ? "yes" : "no", alive ? "yes" : "no",
+           stepped ? "yes" : "no", resumed ? "yes" : "no");
+}
+
 static void test_structure_tools() {
     printf("\n── Test: Structure tools ──\n");
 
@@ -5624,6 +5721,7 @@ int main(int argc, char* argv[]) {
     test_exception_breakpoint();
     test_software_breakpoint();
     test_multithread_watchpoint();
+    test_multithread_software_breakpoint();
     test_structure_tools();
     test_lua_memrec();
     test_autoassembler_unregister_symbol(targetPid);

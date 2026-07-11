@@ -3,6 +3,7 @@
 #include "core/expression.hpp"
 #include "gui/processlistdialog.hpp"
 #include "gui/registereditor.hpp"
+#include "gui/debuggerwindow.hpp"
 #include "gui/memorybrowser.hpp"
 #include "gui/scripteditor.hpp"
 #include "gui/pointerscan_dialog.hpp"
@@ -253,6 +254,12 @@ void MainWindow::setupMenus() {
     view->addAction("Register Editor", this, [this]() {
         if (!process_) return;
         auto* w = new RegisterEditorWindow(process_.get(), this);
+        w->setAttribute(Qt::WA_DeleteOnClose);
+        w->show();
+    });
+    view->addAction("Debugger", this, [this]() {
+        if (!process_) return;
+        auto* w = new ce::gui::DebuggerWindow(process_.get(), this);
         w->setAttribute(Qt::WA_DeleteOnClose);
         w->show();
     });

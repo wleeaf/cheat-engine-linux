@@ -8,9 +8,10 @@ cecore this session.
 > repository at the top level (no `cecore/` subdir); Lua 5.3 is vendored under
 > `third_party/lua` and the build is offline. Note that Cheat Engine 7.7 (2026-05-29)
 > shipped an official native Linux build — see `VS_OFFICIAL_CE_LINUX.md` for the
-> repositioning discussion. Still-open items (not counting intentional Windows-kernel
-> omissions): the **interactive step-debugger UI** (🔧, not shipped) and
-> **speedhack-by-injection timing** (🟡, only LD_PRELOAD scales time).
+> repositioning discussion. The **interactive step-debugger UI** shipped
+> 2026-07-12 (✅ all-stop multi-thread; verified). Remaining open item (not
+> counting intentional Windows-kernel omissions): **speedhack-by-injection
+> timing** (🟡, only LD_PRELOAD scales time).
 
 ## Legend
 ✅ have (verified in GUI) · 🟡 partial · ❌ missing · 🔧 in progress
@@ -29,12 +30,14 @@ cecore this session.
 - ✅ Auto Assembler: templates, Syntax Check, Execute (real inject), Disable/restore,
   **auto code-injection generator** (with original-bytes db), **AOB injection**
   (aobscanmodule + alloc near symbol), mprotect-on-write for r-x pages.
-- 🟡 Debugger: **HW watchpoint find-what-writes/accesses (multithread, all
-  threads)** is the fully-wired, functional GUI feature. Software bp (int3/
-  POKETEXT), exception bp, and breakpoint-list arming exist as real, unit-tested
-  backends (`DebugSession`, `BreakpointManager`) but are NOT yet wired into the
-  shipped GUI/Lua — corrected by the 2026-07-11 code audit; being wired up by the
-  interactive step-debugger work.
+- ✅ Debugger: **interactive step-debugger** (Tools → Debugger, shipped 2026-07-12):
+  attach, software breakpoints (int3/POKETEXT), continue / step into-over-out /
+  run-to-cursor, live registers + disassembly + stack, over **all-stop
+  multi-thread** targets (`PTRACE_O_TRACECLONE`; a breakpoint hit by any thread
+  freezes the whole target and does not kill it). Plus HW watchpoint
+  find-what-writes/accesses (multithread), exception breakpoints, breakpoint list.
+  Verified: `test_multithread_software_breakpoint` (backend all-stop) + an
+  offscreen `gui_debugger_smoke` driving the real window.
 - ✅ Register editor (GP+XMM/YMM), stack view, thread list, module list, memory
   regions, heap regions.
 - ✅ Code analysis: strings, calls, jumps, RIP-relative, code caves, find statics.
@@ -307,13 +310,19 @@ cecore this session.
 
 - ✅ Address-list "Enable all" / "Disable all" context actions.
 
-### Debugger (interactive break/step)
-- 🔧 Interactive debugger UI drafted (attach + set software BP + register view +
-  continue/step) but NOT shipped: DebugSession::attach only PTRACE_ATTACHes the
-  main tid (no PTRACE_O_TRACECLONE / task-iteration), so an int3 in a child
-  thread (e.g. target2's worker pthread) fires in an untraced thread and kills
-  the target. Needs multi-thread tracing in the tracer event loop first — a
-  focused effort, not a loop iteration. (UI code saved in scratchpad.)
+### Debugger (interactive break/step) — ✅ SHIPPED 2026-07-12
+- ✅ Interactive step-debugger shipped (Tools → Debugger, `gui/debuggerwindow.*`).
+  The prior blocker (single-tid PTRACE_ATTACH → an int3 in a child thread killed
+  the target) is fixed: `DebugSession` now SEIZEs every thread with
+  `PTRACE_O_TRACECLONE`, waits `__WALL`, and runs **all-stop** — on any thread's
+  breakpoint the whole target freezes (race-free int3 step-over: lift, single-step,
+  re-arm while siblings are stopped), and continue/step resume correctly. UI:
+  attach, set/remove software breakpoints, continue / step into-over-out /
+  run-to-cursor, live registers + disassembly + stack; tracer→UI event marshalling.
+  Verified: `test_multithread_software_breakpoint` proves a sibling-thread bp is
+  caught, all-stop freezes a separate counter thread, the target survives, and
+  step+resume work; `gui_debugger_smoke` drives the real window headlessly to the
+  same conclusion.
 
 ## Recent verifications (loop, appended)
 - ✅ ExpressionParser: multi-level `[[...]]` pointers + single-digit/hex-letter offsets fixed; permanent unit test (173/173 pass).

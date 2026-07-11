@@ -8,6 +8,7 @@
 #include <functional>
 #include <unordered_map>
 #include <unordered_set>
+#include <set>
 #include <mutex>
 #include <condition_variable>
 #include <deque>
@@ -95,17 +96,33 @@ private:
     void tracerThread();
     long postCommand(Command cmd);
     long performCommand(const Command& cmd);
-    void handleStop(int status);
-    void captureRegs();  // GETREGS on the tracer thread → stopContext_
+    void handleStop(pid_t tid, int status);
+    void captureRegs(pid_t tid);  // GETREGS on the tracer thread → stopContext_
     void tracerCleanup();
     // These run ONLY on the tracer thread.
     void doContinue();
     void doStep(StepMode mode, uintptr_t targetAddress);
     long doSetSoftBp(uintptr_t address);
     void doRemoveSoftBp(int id);
-    void rewindOverBreakpoint(int status, uintptr_t bpAddr);
+    void rewindOverBreakpoint(pid_t tid, int status, uintptr_t bpAddr);
+    // ── All-stop multi-thread helpers (tracer thread only) ──
+    // Seize every thread of the target with PTRACE_O_TRACECLONE and leave them
+    // stopped. Populates traced_/stoppedTids_. Returns false if none seized.
+    bool seizeAllThreads();
+    // Interrupt every traced thread except `active` and drain it to a stop, so
+    // the whole target is frozen (all-stop) while the user inspects `active`.
+    void stopOtherThreads(pid_t active);
+    // Resume every stopped thread, stepping any thread that sits on an armed
+    // software breakpoint over it first (restore byte, single-step, re-arm).
+    void resumeAllThreads();
+    // If `tid` is stopped exactly on an armed int3, step it past the original
+    // instruction with the breakpoint temporarily lifted. Returns true if it did.
+    bool stepThreadOverBp(pid_t tid);
 
     pid_t pid_ = 0;
+    pid_t activeTid_ = 0;               // thread currently stopped/reported
+    std::set<pid_t> traced_;            // all seized tids (tracer thread only)
+    std::set<pid_t> stoppedTids_;       // currently ptrace-stopped tids
     ProcessHandle* proc_ = nullptr;
     std::atomic<bool> attached_{false};
     std::atomic<bool> stopped_{false};

@@ -310,6 +310,7 @@ if(Qt6_FOUND)
         gui/canvaswidget.cpp
         gui/findstaticswindow.cpp
         gui/globalhotkeys.cpp
+        gui/debuggerwindow.cpp
         scripting/lua_gui.cpp
         scripting/lua_bitmap.cpp
     )
@@ -326,6 +327,16 @@ if(Qt6_FOUND)
         message(STATUS "Global hotkeys: disabled (X11 not found)")
     endif()
     message(STATUS "Qt6 found — building GUI")
+
+    # Headless offscreen smoke test for the interactive debugger window.
+    if(CECORE_BUILD_TESTS)
+        qt_add_executable(gui_debugger_smoke
+            test/gui_debugger_smoke.cpp
+            gui/debuggerwindow.cpp
+        )
+        target_include_directories(gui_debugger_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
+        target_link_libraries(gui_debugger_smoke PRIVATE cecore Qt6::Widgets)
+    endif()
 else()
     message(STATUS "Qt6 not found — skipping GUI build")
 endif()

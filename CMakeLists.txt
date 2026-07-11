@@ -242,6 +242,11 @@ target_link_libraries(cescan PRIVATE cecore)
 # ── Speedhack .so ──
 add_library(speedhack SHARED plugins/speedhack.c)
 target_link_libraries(speedhack PRIVATE dl rt)
+# -Bsymbolic-functions: the lib's own references to its wrapper functions (e.g.
+# taking &nanosleep for the GOT-patch table) must bind to OUR definitions, not
+# to libc's global one. Without it, a dlopen-injected lib patches GOT slots back
+# to libc (no-op). Exported symbols still interpose for the LD_PRELOAD path.
+target_link_options(speedhack PRIVATE -Wl,-Bsymbolic-functions)
 set_target_properties(speedhack PROPERTIES PREFIX "lib")
 
 # ── In-process VEH shim (LD_PRELOAD library) ──

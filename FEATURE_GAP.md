@@ -9,9 +9,10 @@ cecore this session.
 > `third_party/lua` and the build is offline. Note that Cheat Engine 7.7 (2026-05-29)
 > shipped an official native Linux build — see `VS_OFFICIAL_CE_LINUX.md` for the
 > repositioning discussion. The **interactive step-debugger UI** shipped
-> 2026-07-12 (✅ all-stop multi-thread; verified). Remaining open item (not
-> counting intentional Windows-kernel omissions): **speedhack-by-injection
-> timing** (🟡, only LD_PRELOAD scales time).
+> 2026-07-12 (✅ all-stop multi-thread; verified), and **speedhack-by-injection
+> timing** is fixed the same day (✅ in-process GOT patching; verified ~10x scaling
+> on a dlopen-injected process). No tracked feature gaps remain outside the
+> intentional Windows-kernel omissions (DBVM/DBK/Ultimap/full Mono dissector).
 
 ## Legend
 ✅ have (verified in GUI) · 🟡 partial · ❌ missing · 🔧 in progress
@@ -228,15 +229,18 @@ cecore this session.
   i64 5000000000 (beyond int32), float 3.14, double 2.718281828 all set+read back correctly.
 - ✅ Verified readString/writeString round-trip (read 'HelloWorld', wrote 'PWNED!', read back).
   writeString now returns a success boolean like CE (was returning nothing).
-- 🟡 GUI 'Speedhack...' Apply injects libspeedhack.so into the running target (verified: 5 segments
-  mapped) then writes the speed. BUT injected speedhack does NOT scale time: libspeedhack.c relies
-  on SYMBOL INTERPOSITION (defining clock_gettime/nanosleep), which only overrides callers under
-  LD_PRELOAD (bound at load time). A dlopen-injected lib doesn't re-bind already-resolved PLT/GOT,
-  so its interposers never run. VERIFIED by MEASURING EFFECT (not just the map): a 50ms-nanosleep
-  target stays ~20 lines/sec with the lib injected and shm=10 (LD_PRELOAD 10x -> ~200). LD_PRELOAD
-  speedhack works. REAL FIX (substantial): plugin constructor must actively hook the target's time
-  funcs (GOT patch via dl_iterate_phdr, or inline-hook libc prologues) instead of interposition.
-  Lesson: verify the actual runtime EFFECT, not just that injection mapped the lib.
+- ✅ FIXED (2026-07-12) — GUI 'Speedhack...' Apply / any dlopen-injected speedhack now scales time.
+  Root cause: libspeedhack.c relied purely on SYMBOL INTERPOSITION (defining clock_gettime/nanosleep),
+  which only overrides callers under LD_PRELOAD (bound at load time); a dlopen-injected lib doesn't
+  re-bind already-resolved PLT/GOT, so its wrappers never ran. Fix: the constructor now does
+  **in-process GOT patching** — `dl_iterate_phdr` over every module, and for the time symbols
+  (clock_gettime/gettimeofday/nanosleep/clock_nanosleep/usleep/sleep/select/poll/SDL_*) it rewrites
+  the JUMP_SLOT/GLOB_DAT GOT entries (mprotect + overwrite) to point at our wrappers. The lib is
+  linked `-Wl,-Bsymbolic-functions` so `&nanosleep` inside the lib binds to OUR definition (not
+  libc's global one, which would make the patch a no-op). LD_PRELOAD path unchanged. VERIFIED by
+  MEASURING EFFECT: `test_speedhack_got_injection` dlopen-injects the lib into a process that has
+  already bound nanosleep to libc and measures ~10x scaling (161ms -> 17ms) via a raw-syscall clock
+  immune to the patch. Lesson kept: verify the actual runtime EFFECT, not just that injection mapped the lib.
 - ✅ Added a permanent unit test 'Disassembler RIP resolution' (test/main.cpp): the lea at
   codeBase resolves to [0x2000], ripTarget==stringBase, and 'rip' is gone from the operand.
   172/172 tests pass. Locks in the RIP feature deterministically (the GUI screenshot was flaky).

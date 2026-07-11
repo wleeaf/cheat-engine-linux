@@ -19,6 +19,8 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <link.h>    // dl_iterate_phdr, struct dl_phdr_info
+#include <elf.h>
 
 static double speed_factor = 1.0;
 static struct timespec base_real_time;
@@ -100,11 +102,19 @@ static void init_speedhack() {
     fprintf(stderr, "[speedhack] initialized, speed=%.2f\n", speed_factor);
 }
 
+// Repoint every loaded module's GOT slots for the time functions at our
+// wrappers, so we also take effect when injected via dlopen (defined below).
+static void speedhack_install_got_hooks(void);
+
 // Capture the baseline race-free before any game thread runs, matching the
 // constructor approach used by audiohack/inprocess_veh.
 __attribute__((constructor))
 static void speedhack_ctor(void) {
     init_speedhack();
+    // Symbol interposition (the wrappers) only fires under LD_PRELOAD; when we
+    // are dlopen-injected into a running process the GOT is already bound to
+    // libc, so also patch it directly.
+    speedhack_install_got_hooks();
 }
 
 static double get_speed() {
@@ -302,4 +312,112 @@ void SDL_Delay(unsigned int ms) {
     double spd = get_speed();
     if (spd <= 0) spd = 1.0;
     real_fn((unsigned int)(ms / spd));
+}
+
+// ── In-process GOT patching (covers dlopen injection) ──
+// The wrappers above interpose by name, which only works when we load first
+// (LD_PRELOAD). When cecore injects libspeedhack.so into an already-running
+// process, every module's GOT is already bound to the real libc functions, so
+// the wrappers never run. We walk each loaded module's relocations and repoint
+// the GOT slots for the time functions at our wrappers. Only modules that
+// *import* these functions carry such slots, so libc's own definitions are
+// untouched and our wrappers (which call the real function via dlsym(RTLD_NEXT))
+// don't recurse.
+
+typedef struct { const char* name; void* fn; } sh_hook_t;
+
+static const sh_hook_t sh_hooks[] = {
+    {"clock_gettime",   (void*)clock_gettime},
+    {"gettimeofday",    (void*)gettimeofday},
+    {"nanosleep",       (void*)nanosleep},
+    {"clock_nanosleep", (void*)clock_nanosleep},
+    {"usleep",          (void*)usleep},
+    {"sleep",           (void*)sleep},
+    {"select",          (void*)select},
+    {"poll",            (void*)poll},
+    {"SDL_GetTicks",    (void*)SDL_GetTicks},
+    {"SDL_Delay",       (void*)SDL_Delay},
+};
+static const int sh_nhooks = (int)(sizeof(sh_hooks) / sizeof(sh_hooks[0]));
+static void* sh_self_base = NULL;
+
+// DT_* pointers are absolute on some libcs and load-base-relative on others;
+// normalise to an absolute runtime address. Relocation r_offsets are always
+// base-relative and handled separately.
+static uintptr_t sh_fix(struct dl_phdr_info* info, uintptr_t v) {
+    return (v < info->dlpi_addr) ? v + info->dlpi_addr : v;
+}
+
+static void sh_patch_slot(void** slot, void* newval) {
+    if (*slot == newval) return;
+    long ps = sysconf(_SC_PAGESIZE);
+    if (ps <= 0) ps = 4096;
+    uintptr_t page = (uintptr_t)slot & ~(uintptr_t)(ps - 1);
+    // Make the containing page(s) writable (GOT is read-only under RELRO/BIND_NOW).
+    size_t span = ((uintptr_t)slot + sizeof(void*) > page + (uintptr_t)ps)
+                      ? (size_t)(2 * ps) : (size_t)ps;
+    if (mprotect((void*)page, span, PROT_READ | PROT_WRITE) != 0) return;
+    *slot = newval;
+}
+
+static void sh_scan_rela(struct dl_phdr_info* info, const Elf64_Rela* rela,
+                         size_t sz, const Elf64_Sym* symtab, const char* strtab) {
+    if (!rela || !sz) return;
+    size_t n = sz / sizeof(Elf64_Rela);
+    for (size_t i = 0; i < n; i++) {
+        uint32_t type = ELF64_R_TYPE(rela[i].r_info);
+        if (type != R_X86_64_JUMP_SLOT && type != R_X86_64_GLOB_DAT) continue;
+        uint32_t si = ELF64_R_SYM(rela[i].r_info);
+        const char* name = strtab + symtab[si].st_name;
+        if (!name || !name[0]) continue;
+        for (int h = 0; h < sh_nhooks; h++) {
+            if (strcmp(name, sh_hooks[h].name) == 0) {
+                void** slot = (void**)(info->dlpi_addr + rela[i].r_offset);
+                sh_patch_slot(slot, sh_hooks[h].fn);
+                break;
+            }
+        }
+    }
+}
+
+static int sh_phdr_cb(struct dl_phdr_info* info, size_t size, void* data) {
+    (void)size; (void)data;
+    if (sh_self_base && (void*)info->dlpi_addr == sh_self_base) return 0;  // skip self
+
+    const Elf64_Dyn* dyn = NULL;
+    for (int i = 0; i < info->dlpi_phnum; i++) {
+        if (info->dlpi_phdr[i].p_type == PT_DYNAMIC) {
+            dyn = (const Elf64_Dyn*)(info->dlpi_addr + info->dlpi_phdr[i].p_vaddr);
+            break;
+        }
+    }
+    if (!dyn) return 0;
+
+    const Elf64_Sym* symtab = NULL; const char* strtab = NULL;
+    const Elf64_Rela* jmprel = NULL; size_t pltrelsz = 0;
+    const Elf64_Rela* rela = NULL;   size_t relasz = 0;
+    for (const Elf64_Dyn* d = dyn; d->d_tag != DT_NULL; d++) {
+        switch (d->d_tag) {
+            case DT_SYMTAB:   symtab = (const Elf64_Sym*)sh_fix(info, d->d_un.d_ptr); break;
+            case DT_STRTAB:   strtab = (const char*)sh_fix(info, d->d_un.d_ptr); break;
+            case DT_JMPREL:   jmprel = (const Elf64_Rela*)sh_fix(info, d->d_un.d_ptr); break;
+            case DT_PLTRELSZ: pltrelsz = d->d_un.d_val; break;
+            case DT_RELA:     rela = (const Elf64_Rela*)sh_fix(info, d->d_un.d_ptr); break;
+            case DT_RELASZ:   relasz = d->d_un.d_val; break;
+        }
+    }
+    if (!symtab || !strtab) return 0;
+    sh_scan_rela(info, jmprel, pltrelsz, symtab, strtab);   // .rela.plt (JUMP_SLOT)
+    sh_scan_rela(info, rela, relasz, symtab, strtab);       // .rela.dyn (GLOB_DAT, -fno-plt)
+    return 0;
+}
+
+static void speedhack_install_got_hooks(void) {
+    static int done = 0;
+    if (done) return;
+    done = 1;
+    Dl_info di;
+    if (dladdr((void*)speedhack_install_got_hooks, &di))
+        sh_self_base = di.dli_fbase;   // don't repoint our own GOT
+    dl_iterate_phdr(sh_phdr_cb, NULL);
 }

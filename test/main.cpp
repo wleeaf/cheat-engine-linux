@@ -45,6 +45,8 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/mman.h>
+#include <dlfcn.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 #include <sys/wait.h>
 
@@ -2743,6 +2745,66 @@ static void test_multithread_software_breakpoint() {
            ok ? "OK" : "FAILED", (int)hitTid.load(),
            allStop ? "yes" : "no", alive ? "yes" : "no",
            stepped ? "yes" : "no", resumed ? "yes" : "no");
+}
+
+// Real monotonic time via a raw syscall, so it stays real even after the GOT
+// patch redirects the clock_gettime symbol.
+static double sh_raw_monotonic() {
+    struct timespec ts{};
+    syscall(SYS_clock_gettime, CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + ts.tv_nsec / 1e9;
+}
+static double sh_time_8_sleeps() {
+    double t0 = sh_raw_monotonic();
+    for (int i = 0; i < 8; i++) {
+        struct timespec req{0, 20 * 1000 * 1000};   // 20 ms each -> ~160 ms total
+        nanosleep(&req, nullptr);
+    }
+    return sh_raw_monotonic() - t0;
+}
+
+// Verifies the GOT-patch path: a process that has ALREADY bound nanosleep to
+// libc (the injected scenario) gets its time scaled after libspeedhack.so is
+// dlopen'd, which only works because the constructor repoints the GOT.
+static void test_speedhack_got_injection() {
+    printf("\n── Test: Speedhack GOT injection (dlopen) ──\n");
+
+    char exe[4096];
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    std::string libpath;
+    if (n > 0) {
+        exe[n] = 0;
+        std::string d(exe);
+        libpath = d.substr(0, d.find_last_of('/')) + "/libspeedhack.so";
+    }
+
+    int fds[2];
+    if (pipe(fds) != 0) { printf("  speedhack GOT inject: FAILED (pipe)\n"); return; }
+    pid_t child = fork();
+    if (child == 0) {
+        close(fds[0]);
+        double base = sh_time_8_sleeps();          // GOT bound to real libc here
+        setenv("CE_SPEED", "10", 1);
+        void* h = dlopen(libpath.c_str(), RTLD_NOW);   // ctor GOT-patches this process
+        double scaled = h ? sh_time_8_sleeps() : -1.0;
+        double out[2] = {base, scaled};
+        ssize_t wr = write(fds[1], out, sizeof(out)); (void)wr;
+        _exit(h ? 0 : 3);
+    }
+    close(fds[1]);
+    double out[2] = {0, 0};
+    ssize_t got = read(fds[0], out, sizeof(out));
+    close(fds[0]);
+    waitpid(child, nullptr, 0);
+    shm_unlink("/ce_speedhack");
+
+    double base = out[0], scaled = out[1];
+    // 8x20ms (~160 ms real) at speed=10 should collapse to ~16 ms.
+    bool ok = got == (ssize_t)sizeof(out) && base > 0.05 && scaled > 0 &&
+              scaled < base * 0.5;
+    printf("  speedhack GOT inject: %s (baseline %.0f ms -> injected %.0f ms, %.1fx)\n",
+           ok ? "OK" : "FAILED", base * 1000, scaled * 1000,
+           scaled > 0 ? base / scaled : 0.0);
 }
 
 static void test_structure_tools() {
@@ -5722,6 +5784,7 @@ int main(int argc, char* argv[]) {
     test_software_breakpoint();
     test_multithread_watchpoint();
     test_multithread_software_breakpoint();
+    test_speedhack_got_injection();
     test_structure_tools();
     test_lua_memrec();
     test_autoassembler_unregister_symbol(targetPid);

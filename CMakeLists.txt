@@ -118,15 +118,26 @@ else()
     message(STATUS "CUDA support: disabled (install nvidia-cuda-toolkit to enable)")
 endif()
 
-# ── Lua 5.3 ──
-# Defaults to the sibling upstream Pascal CE checkout but can be overridden:
-#     cmake -B build -DLUA_DIR=/path/to/lua-5.3.6/src
-set(LUA_DIR "${CMAKE_SOURCE_DIR}/../Cheat Engine/lua53/lua53/src" CACHE PATH "Lua 5.3 source dir (must contain a built liblua.a)")
+# ── Lua 5.3 (vendored, built from source) ──
+# Lua 5.3 sources are vendored under third_party/lua and built by CMake, so the
+# repo is self-contained (offline builds, no upstream checkout). Override the
+# tree with: cmake -B build -DLUA_DIR=/path/to/lua-5.3/src
+set(LUA_DIR "${CMAKE_SOURCE_DIR}/third_party/lua/src" CACHE PATH "Lua 5.3 source dir")
 if(NOT EXISTS "${LUA_DIR}/lua.h")
     message(FATAL_ERROR "Lua 5.3 sources not found at LUA_DIR='${LUA_DIR}'. "
-        "Either build the upstream Pascal CE's lua53 sibling tree, or pass "
-        "-DLUA_DIR=/path/to/lua-5.3/src that contains a 'make linux MYCFLAGS=-fPIC'-built liblua.a.")
+        "Expected the vendored tree at third_party/lua/src, or pass -DLUA_DIR=/path/to/lua-5.3/src.")
 endif()
+
+# Compile Lua into a static PIC library (excluding the interpreter/compiler
+# mains). Declared before the project-wide -Wall/-Wextra below so Lua's own C
+# sources don't emit warning noise (-w).
+file(GLOB LUA_LIB_SOURCES CONFIGURE_DEPENDS "${LUA_DIR}/*.c")
+list(REMOVE_ITEM LUA_LIB_SOURCES "${LUA_DIR}/lua.c" "${LUA_DIR}/luac.c")
+add_library(lua_static STATIC ${LUA_LIB_SOURCES})
+target_compile_definitions(lua_static PRIVATE LUA_USE_LINUX)
+target_include_directories(lua_static PUBLIC ${LUA_DIR})
+set_target_properties(lua_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_options(lua_static PRIVATE -w)
 
 # ── First-party hardening & warnings ──
 # Applied only to cecore's own targets (declared below this point); the
@@ -139,31 +150,11 @@ if(CMAKE_BUILD_TYPE MATCHES "Release|RelWithDebInfo|MinSizeRel")
     add_compile_definitions(_FORTIFY_SOURCE=2)
 endif()
 
-# ── ceserver C library (existing code, available for future use) ──
-set(CESERVER_DIR "${CMAKE_SOURCE_DIR}/../Cheat Engine/ceserver" CACHE PATH "ceserver C source dir from upstream Pascal CE checkout")
-
-add_library(ceserver_c STATIC
-    ${CESERVER_DIR}/api.c
-    ${CESERVER_DIR}/threads.c
-    ${CESERVER_DIR}/context.c
-    ${CESERVER_DIR}/symbols.c
-    ${CESERVER_DIR}/extensionfunctions.c
-    ${CESERVER_DIR}/extensionloader.c
-    ${CESERVER_DIR}/porthelp.c
-    ${CESERVER_DIR}/native-api.c
-    ${CESERVER_DIR}/options.c
-)
-target_compile_definitions(ceserver_c PRIVATE CECORE_LIBRARY_MODE=1)
-target_include_directories(ceserver_c PUBLIC ${CESERVER_DIR})
-target_compile_options(ceserver_c PRIVATE
-    -fPIC
-    -Wno-missing-field-initializers
-    -Wno-unused-parameter
-    -Wno-sign-compare
-    -Wno-implicit-function-declaration
-    -Doff64_t=__off64_t
-)
-target_link_libraries(ceserver_c PUBLIC z dl pthread)
+# ── ceserver ──
+# The upstream ceserver C daemon sources were dropped in the single-repo
+# consolidation: the old ceserver_c target was built but never linked, and
+# remote-target support is the first-party C++ client in
+# platform/linux/ceserver_client.cpp (no upstream C sources required).
 
 # ── libcecore C++ library ──
 add_library(cecore SHARED
@@ -222,7 +213,7 @@ target_include_directories(cecore PUBLIC
 )
 target_link_libraries(cecore PRIVATE
     dl pthread z ${CAPSTONE_LIB} ${KEYSTONE_LIB}
-    ${LUA_DIR}/liblua.a m  # Static link Lua
+    lua_static m  # Static Lua (built from third_party/lua)
 )
 
 if(CECORE_HAVE_DWARF)

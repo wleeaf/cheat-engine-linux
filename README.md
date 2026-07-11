@@ -59,11 +59,8 @@ sudo apt install build-essential cmake qt6-base-dev libcapstone-dev \
 
 Keystone (the assembler backend) is not packaged on most distributions. The build fetches and compiles it automatically when no system copy is found, so no manual step is normally required.
 
-Lua 5.3 is taken from the adjacent Cheat Engine source tree:
-
-```bash
-cd "../Cheat Engine/lua53/lua53" && make linux MYCFLAGS="-fPIC" && cd -
-```
+Lua 5.3 is vendored under `third_party/lua` and compiled by CMake, so no
+separate Lua build step is needed and the repository builds offline.
 
 ### Compile
 

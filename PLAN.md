@@ -354,7 +354,7 @@ cecore/ (6200 lines → target ~25K-30K)
 ## Build & Run
 
 ```bash
-cd cecore && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j$(nproc)
+cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j$(nproc)
 
 # Run GUI
 sudo LD_LIBRARY_PATH=build build/cheatengine

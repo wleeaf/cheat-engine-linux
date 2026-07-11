@@ -12,8 +12,9 @@ modules.order
 Module.symvers
 .tmp_versions/
 
-# Built shared libraries / AppImage output
+# Built shared / static libraries + AppImage output
 *.so
+*.a
 *.AppImage
 AppDir/
 

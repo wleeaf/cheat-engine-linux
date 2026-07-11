@@ -3,6 +3,8 @@
 > **Scope:** the `cecore/` C++ Linux-native reimplementation of Cheat Engine **only** (memory scanner, ptrace debugger, auto-assembler, trainer/table system, Lua scripting, ceserver network client, Qt6 GUI, optional privileged kernel module). The upstream Pascal `Cheat Engine/` tree, `dbvm`, `DBKKernel`, and `DBVM UEFI` are explicitly **out of scope**.
 >
 > **Date:** 2026-05-29 · **Analyzed source:** working-tree state (mid-edit; +14231/−646 vs HEAD across 44 files).
+>
+> **⚠️ Dated audit — some build-design notes below are no longer current (updated 2026-07-11):** the project was consolidated into a single top-level repository (no more `cecore/` subdir; the upstream Pascal `Cheat Engine/`, `dbvm`, `DBKKernel`, `DBVM UEFI` trees were deleted). Consequently the "cross-tree coupling to `../Cheat Engine`", the sibling-tree Lua/`liblua.a`, and the `ceserver_c` build-design smells are **resolved**: Lua 5.3 is now vendored under `third_party/lua` and built from source, and the dead `ceserver_c` target was removed. The *code correctness* findings still stand; only the build-topology commentary is stale.
 
 ## How this analysis was produced
 

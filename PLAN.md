@@ -334,12 +334,12 @@ Note: process hiding is implemented in two layers — a user-space `prctl(PR_SET
 ## Architecture
 
 ```
-cecore/ (6200 lines → target ~25K-30K)
+. (repo root — project promoted here 2026-07-11; ~40K lines across ~160 files)
 ├── core/           types, autoasm, expression, config
 ├── platform/linux/  process, ptrace, injector, hotkeys
 ├── arch/           assembler (Keystone), disassembler (Capstone)
 ├── scanner/        memory_scanner, pointer_scanner, code_scanner
-├── symbols/        elf_symbols, dwarf (future)
+├── symbols/        elf_symbols, dwarf (libdw, implemented)
 ├── scripting/      lua_engine, lua_bindings (200+ functions)
 ├── plugins/        plugin_loader, speedhack
 ├── debug/          debugger, breakpoints, tracer, code_finder

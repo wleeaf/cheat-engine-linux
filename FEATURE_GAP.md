@@ -4,6 +4,14 @@ Living document for the "implement everything CE has" effort. Updated each loop
 iteration. Sources: cheat-engine wiki, CE tutorial, and direct GUI testing of
 cecore this session.
 
+> **Repo status (2026-07-11):** the project is now a single self-contained
+> repository at the top level (no `cecore/` subdir); Lua 5.3 is vendored under
+> `third_party/lua` and the build is offline. Note that Cheat Engine 7.7 (2026-05-29)
+> shipped an official native Linux build — see `VS_OFFICIAL_CE_LINUX.md` for the
+> repositioning discussion. Still-open items (not counting intentional Windows-kernel
+> omissions): the **interactive step-debugger UI** (🔧, not shipped) and
+> **speedhack-by-injection timing** (🟡, only LD_PRELOAD scales time).
+
 ## Legend
 ✅ have (verified in GUI) · 🟡 partial · ❌ missing · 🔧 in progress
 

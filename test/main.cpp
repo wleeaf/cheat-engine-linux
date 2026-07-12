@@ -3394,11 +3394,22 @@ static void test_ceserver_roundtrip() {
                 ok = w && *w == (int32_t)sizeof(newval) &&
                      rd && *rd == (int32_t)sizeof(readback) &&
                      readback == 0x0102030405060708L && target == 0x0102030405060708L;
+
+                // Also exercise the region query (VIRTUALQUERYEXFULL): the region
+                // list must include the one containing our target.
+                auto regions = client.virtualQueryExFull(*handle, 0);
+                bool regionFound = false;
+                if (regions) {
+                    uint64_t ta = (uint64_t)(uintptr_t)&target;
+                    for (auto& reg : *regions)
+                        if (ta >= reg.baseAddress && ta < reg.baseAddress + reg.size) { regionFound = true; break; }
+                }
+                ok = ok && regionFound;
             }
         }
     }
     server.stop();
-    printf("  read/write local memory via ceserver protocol: %s%s\n",
+    printf("  read/write + region query via ceserver protocol: %s%s\n",
            ok ? "OK" : "FAILED", connected ? "" : (" (" + err + ")").c_str());
 }
 

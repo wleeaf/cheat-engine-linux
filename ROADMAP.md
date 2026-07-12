@@ -71,10 +71,11 @@ left-armed DR would kill it). **#15 (debugger unification) is complete.**
 
 **#24 (core)** cecore can now BE a ceserver, not just a client: a new
 `CeserverServer` listens on TCP and serves the core CE protocol commands
-(GETVERSION / OPENPROCESS / CLOSEHANDLE / READ- / WRITEPROCESSMEMORY) against
-local process memory. Verified by a full round-trip — our own `CEServerClient`
-connects and reads/writes memory through it. (Extended commands — regions,
-modules/threads, debug, alloc — remain for full parity.)
+(GETVERSION / OPENPROCESS / CLOSEHANDLE / READ- / WRITEPROCESSMEMORY /
+VIRTUALQUERYEXFULL) against local process memory. Verified by a full round-trip —
+our own `CEServerClient` connects, reads/writes memory, and enumerates regions
+through it. (Further commands — modules/threads, debug, alloc — remain for full
+parity.)
 
 Remaining: #21 dissector N-instance/RTTI; more of #24 (extended commands) and #23.
 Genuinely blocked on real-world testing / a strategic call: **#10 Mono/Unity**,

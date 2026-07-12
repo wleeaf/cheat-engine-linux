@@ -16,6 +16,7 @@ constexpr uint8_t CMD_OPENPROCESS        = 3;
 constexpr uint8_t CMD_CLOSEHANDLE        = 7;
 constexpr uint8_t CMD_READPROCESSMEMORY  = 9;
 constexpr uint8_t CMD_WRITEPROCESSMEMORY = 10;
+constexpr uint8_t CMD_VIRTUALQUERYEXFULL = 31;
 
 bool recvAll(int fd, void* buf, size_t n) {
     auto* p = static_cast<uint8_t*>(buf);
@@ -128,6 +129,22 @@ void CeserverServer::serveClient(int fd) {
                                     static_cast<size_t>(size));
                 int32_t written = (r && *r > 0) ? static_cast<int32_t>(*r) : 0;
                 if (!sendAll(fd, &written, 4)) return;
+                break;
+            }
+            case CMD_VIRTUALQUERYEXFULL: {
+                int32_t handle = 0; uint8_t flags = 0;
+                if (!recvAll(fd, &handle, 4) || !recvAll(fd, &flags, 1)) return;
+                LinuxProcessHandle proc(static_cast<pid_t>(handle));
+                auto regions = proc.queryRegions();
+                int32_t count = static_cast<int32_t>(regions.size());
+                if (!sendAll(fd, &count, 4)) return;
+                for (auto& reg : regions) {
+                    uint32_t protection = static_cast<uint32_t>(reg.protection);
+                    uint32_t type = static_cast<uint32_t>(reg.type);
+                    uint64_t base = reg.base, size = reg.size;
+                    if (!sendAll(fd, &protection, 4) || !sendAll(fd, &type, 4) ||
+                        !sendAll(fd, &base, 8) || !sendAll(fd, &size, 8)) return;
+                }
                 break;
             }
             default:

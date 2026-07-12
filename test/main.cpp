@@ -2751,13 +2751,18 @@ static void test_multithread_software_breakpoint() {
     bool stepped = stepEvents.load() >= 1 && stepRip.load() != 0 &&
                    stepRip.load() != beforeStep;
 
-    // Resume the world; the free counter must advance again.
-    long c3 = 0, c4 = 0;
+    // Resume the world; the free counter must advance again. Poll up to ~2s so
+    // this stays reliable under heavy slowdown (e.g. instrumented ASan/CI runs).
+    long c3 = 0;
     proc.read(counterAddr, &c3, sizeof(c3));
     session.continueExecution();
-    usleep(90000);
-    proc.read(counterAddr, &c4, sizeof(c4));
-    bool resumed = (c4 > c3);
+    bool resumed = false;
+    for (int i = 0; i < 200 && !resumed; ++i) {
+        usleep(10000);
+        long c4 = 0;
+        proc.read(counterAddr, &c4, sizeof(c4));
+        if (c4 > c3) resumed = true;
+    }
 
     if (session.isAttached()) session.detach();
     kill(child, SIGKILL);

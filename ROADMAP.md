@@ -78,11 +78,11 @@ our own `CEServerClient` connects, reads/writes memory, enumerates regions, and
 lists threads+modules through it, AND remotely debugs it (STARTDEBUG /
 SETBREAKPOINT / WAITFORDEBUGEVENT / CONTINUEFROMDEBUGEVENT / STOPDEBUG — the
 server drives a DebugSession and marshals breakpoint events back over the wire;
-tested against a forked child, breakpoint fires + tracee survives detach). Only
-ALLOC/FREE remain (they need ptrace injection into a userspace-busy remote
-thread, not cheaply testable in-process).
+tested against a forked child, breakpoint fires + tracee survives detach). ALLOC/FREE
+allocate/free memory in the target via ptrace remoteSyscall mmap (tested: alloc a
+page in a child, write+read it back through the protocol). **#24 is complete.**
 
-Remaining: #21 dissector N-instance/RTTI; #24 remote alloc/free; more of #23.
+Remaining: #21 dissector N-instance/RTTI; more of #23.
 Genuinely blocked on real-world testing / a strategic call: **#10 Mono/Unity**,
 **#11 Vulkan overlay**, **#12 Wayland hotkeys**, #25 ARM, #26 32-bit inject.
 

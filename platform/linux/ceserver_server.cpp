@@ -25,6 +25,8 @@ constexpr uint8_t CMD_CONTINUEFROMDEBUGEVENT  = 14;
 constexpr uint8_t CMD_SETBREAKPOINT           = 15;
 constexpr uint8_t CMD_REMOVEBREAKPOINT        = 16;
 constexpr uint8_t CMD_GETARCHITECTURE    = 21;
+constexpr uint8_t CMD_ALLOC              = 26;
+constexpr uint8_t CMD_FREE               = 27;
 constexpr uint8_t CMD_VIRTUALQUERYEXFULL = 31;
 constexpr uint8_t CMD_CREATETOOLHELP32SNAPSHOTEX = 35;
 constexpr uint32_t TH32CS_SNAPTHREAD = 0x4;
@@ -205,6 +207,26 @@ void CeserverServer::serveClient(int fd) {
                     int32_t count = 0;
                     if (!sendAll(fd, &count, 4)) return;   // unknown snapshot flags
                 }
+                break;
+            }
+            case CMD_ALLOC: {
+                int32_t handle = 0; uint64_t preferredBase = 0; uint32_t size = 0, prot = 0;
+                if (!recvAll(fd, &handle, 4) || !recvAll(fd, &preferredBase, 8) ||
+                    !recvAll(fd, &size, 4) || !recvAll(fd, &prot, 4)) return;
+                LinuxProcessHandle proc(static_cast<pid_t>(handle));
+                auto r = proc.allocate(size, MemProt::All, static_cast<uintptr_t>(preferredBase));
+                uint64_t address = r ? static_cast<uint64_t>(*r) : 0;
+                if (!sendAll(fd, &address, 8)) return;
+                break;
+            }
+            case CMD_FREE: {
+                int32_t handle = 0; uint64_t address = 0; uint32_t size = 0;
+                if (!recvAll(fd, &handle, 4) || !recvAll(fd, &address, 8) ||
+                    !recvAll(fd, &size, 4)) return;
+                LinuxProcessHandle proc(static_cast<pid_t>(handle));
+                auto r = proc.free(static_cast<uintptr_t>(address), size);
+                uint32_t result = r ? 1 : 0;
+                if (!sendAll(fd, &result, 4)) return;
                 break;
             }
             case CMD_STARTDEBUG: {

@@ -3479,6 +3479,49 @@ static void test_ceserver_debug() {
            ok ? "OK" : "FAILED", (int)eventOk, (int)alive, err.empty() ? "" : (", " + err).c_str());
 }
 
+// Remote memory allocation via the ceserver (CMD_ALLOC/FREE -> ptrace remoteSyscall
+// mmap in the target). The child's main thread stays in userspace so the injected
+// syscall has a RIP to work with.
+static void test_ceserver_alloc() {
+    printf("\n── Test: ceserver remote alloc ──\n");
+
+    pid_t child = fork();
+    if (child == 0) {
+        volatile long x = 0;
+        for (;;) { x = x + 1; }   // userspace-busy main thread
+        _exit(0);
+    }
+    if (child < 0) { printf("  ceserver alloc: FAILED (fork)\n"); return; }
+    usleep(50000);
+
+    ce::os::CeserverServer server;
+    uint16_t port = server.start(0);
+    bool ok = false;
+    std::string err;
+    if (port != 0) {
+        ce::os::CEServerClient client;
+        if (client.connectTcp("127.0.0.1", port, err)) {
+            auto handle = client.openProcess(child);
+            if (handle) {
+                auto addr = client.allocateMemory(*handle, 0, 4096, 0x40 /*RWX*/);
+                if (addr && *addr != 0) {
+                    uint64_t val = 0x0102030405060708ULL, readback = 0;
+                    auto w = client.writeProcessMemory(*handle, *addr, &val, (int32_t)sizeof(val));
+                    auto rd = client.readProcessMemory(*handle, *addr, &readback, (uint32_t)sizeof(readback));
+                    ok = w && *w == (int32_t)sizeof(val) &&
+                         rd && *rd == (int32_t)sizeof(readback) && readback == val;
+                    client.freeMemory(*handle, *addr, 4096);
+                }
+            }
+        }
+    }
+    server.stop();
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
+    printf("  remote alloc + write/read via ceserver protocol: %s%s\n",
+           ok ? "OK" : "FAILED", err.empty() ? "" : (", " + err).c_str());
+}
+
 // Real monotonic time via a raw syscall, so it stays real even after the GOT
 // patch redirects the clock_gettime symbol.
 static double sh_raw_monotonic() {
@@ -6854,6 +6897,7 @@ int main(int argc, char* argv[]) {
     test_lua_hw_breakpoint();
     test_ceserver_roundtrip();
     test_ceserver_debug();
+    test_ceserver_alloc();
     test_instruction_access();
     test_nop_instruction();
     test_lua_nop_instruction();

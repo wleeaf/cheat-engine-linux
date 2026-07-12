@@ -3017,6 +3017,43 @@ static void test_pointer_rescan_by_value() {
            ok ? "OK" : "FAILED", (int)derefOk, keptMatch.size(), keptMiss.size());
 }
 
+// 8-byte value written only by a sibling thread, to exercise a non-default
+// (8-byte) hardware watch size in find-what-writes.
+static volatile uint64_t g_cf_watched8 = 0;
+static void cf_writer8() {
+    for (int i = 0; i < 200000; ++i) { g_cf_watched8 = g_cf_watched8 + 1; usleep(100); }
+}
+static void test_codefinder_watch_size() {
+    printf("\n── Test: find-what-writes 8-byte watch size ──\n");
+    int fds[2];
+    if (pipe(fds) != 0) { printf("  8-byte watch: FAILED\n"); return; }
+    pid_t child = fork();
+    if (child == 0) {
+        close(fds[0]);
+        std::thread(cf_writer8).detach();
+        ssize_t wr = write(fds[1], "x", 1); (void)wr;
+        for (;;) usleep(100000);
+        _exit(0);
+    }
+    close(fds[1]);
+    char tk = 0; (void)read(fds[0], &tk, 1); close(fds[0]);
+
+    LinuxProcessHandle proc(child);
+    LinuxDebugger dbg;
+    CodeFinder finder;
+    bool started = finder.start(proc, dbg, reinterpret_cast<uintptr_t>(&g_cf_watched8), true, 8);
+    for (int i = 0; i < 200 && finder.results().empty(); ++i) usleep(10000);
+    auto results = finder.results();
+    finder.stop();
+    usleep(50000);
+    bool survived = (kill(child, 0) == 0);
+    kill(child, SIGKILL); waitpid(child, nullptr, 0);
+
+    bool ok = started && !results.empty() && survived;
+    printf("  8-byte watch catches 8-byte write: %s (%zu sites, target %s)\n",
+           ok ? "OK" : "FAILED", results.size(), survived ? "survived" : "KILLED");
+}
+
 // CE-compat Lua symbol helpers.
 static void test_lua_symbol_info() {
     printf("\n── Test: Lua getSymbolInfo / reinitializeSymbolhandler ──\n");
@@ -6021,6 +6058,7 @@ int main(int argc, char* argv[]) {
     test_symbol_build_id_debuglink();
     test_pointer_rescan_by_value();
     test_lua_symbol_info();
+    test_codefinder_watch_size();
     test_structure_tools();
     test_lua_memrec();
     test_autoassembler_unregister_symbol(targetPid);

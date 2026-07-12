@@ -29,7 +29,10 @@ public:
 
     /// Start monitoring an address for reads (access) or writes only.
     /// Runs in a background thread. Call stop() to finish.
-    bool start(ProcessHandle& proc, Debugger& dbg, uintptr_t address, bool writesOnly = false);
+    // watchSize: bytes to watch (1/2/4/8) — must be watchSize-aligned like any
+    // x86 hardware data breakpoint. Default 4 (a dword).
+    bool start(ProcessHandle& proc, Debugger& dbg, uintptr_t address,
+               bool writesOnly = false, int watchSize = 4);
 
     /// Stop monitoring.
     void stop();
@@ -50,6 +53,7 @@ private:
     Debugger* dbg_ = nullptr;
     uintptr_t targetAddress_ = 0;
     bool writesOnly_ = false;
+    int  watchSize_ = 4;
     std::atomic<bool> running_{false};
     std::atomic<bool> stopRequested_{false};
     std::thread monitorThread_;

@@ -15,13 +15,14 @@
 
 namespace ce {
 
-bool CodeFinder::start(ProcessHandle& proc, Debugger& dbg, uintptr_t address, bool writesOnly) {
+bool CodeFinder::start(ProcessHandle& proc, Debugger& dbg, uintptr_t address, bool writesOnly, int watchSize) {
     if (running_) return false;
 
     proc_ = &proc;
     dbg_ = &dbg;
     targetAddress_ = address;
     writesOnly_ = writesOnly;
+    watchSize_ = (watchSize == 1 || watchSize == 2 || watchSize == 8) ? watchSize : 4;
     stopRequested_ = false;
     running_ = true;
 
@@ -60,7 +61,8 @@ void CodeFinder::monitorLoop() {
     // accesses. SEIZE each thread with PTRACE_O_TRACECLONE so threads created
     // later are auto-traced and can be armed too, then wait with __WALL.
     int bpType = writesOnly_ ? 1 : 3;
-    int bpSize = 3; // 4 bytes (encoded as 3 for x86)
+    // x86 DR7 length encoding: 1 byte->0, 2->1, 8->2, 4->3.
+    int bpSize = (watchSize_ == 1) ? 0 : (watchSize_ == 2) ? 1 : (watchSize_ == 8) ? 2 : 3;
 
     auto armThread = [&](pid_t tid) {
         dbg_->setBreakpoint(tid, 0, targetAddress_, bpType, bpSize);

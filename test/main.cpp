@@ -3159,7 +3159,14 @@ static void test_lua_more_bindings() {
         "assert(stringToMD5String('') == 'd41d8cd98f00b204e9800998ecf8427e', 'md5 empty')\n"
         "assert(stringToMD5String('abc') == '900150983cd24fb0d6963f7d28e17f72', 'md5 abc')\n"
         "assert(stringToMD5String('The quick brown fox jumps over the lazy dog')"
-        " == '9e107d9d372bb6826bd81d3542a419d6', 'md5 fox')\n");
+        " == '9e107d9d372bb6826bd81d3542a419d6', 'md5 fox')\n"
+        // Bitwise-op compat family (width-agnostic cases so 32/64-bit both pass).
+        "assert(bAnd(0xF0, 0x0F) == 0x00, 'bAnd')\n"
+        "assert(bOr(0xF0, 0x0F) == 0xFF, 'bOr')\n"
+        "assert(bXor(0xFF, 0x0F) == 0xF0, 'bXor')\n"
+        "assert(bAnd(bNot(0xFF), 0xFF) == 0x00, 'bNot')\n"
+        "assert(bShl(1, 4) == 16, 'bShl')\n"
+        "assert(bShr(0x100, 4) == 0x10, 'bShr')\n");
 
     bufB[3] = 0xFF;   // now they differ
     std::string err2 = err.empty()

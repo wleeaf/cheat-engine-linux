@@ -585,6 +585,41 @@ static int l_stringToMD5String(lua_State* L) {
     return 1;
 }
 
+// ── Bitwise-op compat family ──
+// CE predates Lua 5.3's native &|~<<>> operators, so its scripts call bAnd/bOr/
+// bXor/bNot/bShl/bShr. Provide them as 64-bit integer ops (matching modern CE and
+// the vendored Lua 5.3 integer semantics). Shift counts are masked to [0,63] so a
+// script-supplied count can never trigger undefined shift behaviour.
+static int l_bAnd(lua_State* L) {
+    lua_pushinteger(L, luaL_checkinteger(L, 1) & luaL_checkinteger(L, 2));
+    return 1;
+}
+static int l_bOr(lua_State* L) {
+    lua_pushinteger(L, luaL_checkinteger(L, 1) | luaL_checkinteger(L, 2));
+    return 1;
+}
+static int l_bXor(lua_State* L) {
+    lua_pushinteger(L, luaL_checkinteger(L, 1) ^ luaL_checkinteger(L, 2));
+    return 1;
+}
+static int l_bNot(lua_State* L) {
+    lua_pushinteger(L, ~luaL_checkinteger(L, 1));
+    return 1;
+}
+static int l_bShl(lua_State* L) {
+    const uint64_t v = static_cast<uint64_t>(luaL_checkinteger(L, 1));
+    const int n = static_cast<int>(luaL_checkinteger(L, 2)) & 63;
+    lua_pushinteger(L, static_cast<lua_Integer>(v << n));
+    return 1;
+}
+static int l_bShr(lua_State* L) {
+    // Logical (unsigned) shift, so high bits fill with zero regardless of sign.
+    const uint64_t v = static_cast<uint64_t>(luaL_checkinteger(L, 1));
+    const int n = static_cast<int>(luaL_checkinteger(L, 2)) & 63;
+    lua_pushinteger(L, static_cast<lua_Integer>(v >> n));
+    return 1;
+}
+
 // ── Local memory read/write functions ──
 //
 // SECURITY (by design): the *Local family reinterpret_casts a script-supplied
@@ -2940,6 +2975,12 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "byteTableToString", l_byteTableToString);
     lua_register(L, "stringToByteTable", l_stringToByteTable);
     lua_register(L, "stringToMD5String", l_stringToMD5String);
+    lua_register(L, "bAnd", l_bAnd);
+    lua_register(L, "bOr", l_bOr);
+    lua_register(L, "bXor", l_bXor);
+    lua_register(L, "bNot", l_bNot);
+    lua_register(L, "bShl", l_bShl);
+    lua_register(L, "bShr", l_bShr);
     lua_register(L, "wordToByteTable", l_wordToByteTable);
     lua_register(L, "dwordToByteTable", l_dwordToByteTable);
     lua_register(L, "qwordToByteTable", l_qwordToByteTable);

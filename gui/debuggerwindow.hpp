@@ -47,6 +47,9 @@ public:
     // whether the session's active thread followed.
     int  threadCount() const;
     bool switchToOtherThreadForTest();
+    // Point the memory/hex pane at `addr` and report whether it rendered the
+    // bytes actually there (verifies the pane against a fresh read).
+    bool memoryViewShowsForTest(uintptr_t addr);
 
 private slots:
     void onContinue();
@@ -59,11 +62,13 @@ private slots:
     void onRemoveBreakpoint();
     void onRegisterEdited(QTableWidgetItem* item);  // edit a GP register in place
     void onThreadSelected(int index);               // switch the active thread
+    void onMemAddrEntered();                         // point the hex pane at an address
     void onDebugEvent(int type);   // marshalled from the tracer thread
 
 private:
     void refreshStopped();
     void updateThreadList();   // repopulate the thread dropdown at a stop
+    void updateMemoryView(uintptr_t addr);   // hex-dump bytes at addr
     void updateRegisters(const ce::CpuContext& ctx);
     void updateDisassembly(const ce::CpuContext& ctx);
     void updateStack(const ce::CpuContext& ctx);
@@ -79,6 +84,9 @@ private:
     QComboBox* threadCombo_ = nullptr;
     QTableWidget* regTable_ = nullptr;
     QPlainTextEdit* stackView_ = nullptr;
+    QLineEdit* memAddrInput_ = nullptr;
+    QPlainTextEdit* memView_ = nullptr;
+    uintptr_t lastMemAddr_ = 0;   // address the hex pane is following (0 = none)
     QLineEdit* bpInput_ = nullptr;
     QListWidget* bpList_ = nullptr;
     QPushButton* contBtn_ = nullptr;

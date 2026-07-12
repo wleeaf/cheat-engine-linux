@@ -61,8 +61,23 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     stackView_->setFont(mono);
     stackView_->setLineWrapMode(QPlainTextEdit::NoWrap);
     leftSplit->addWidget(stackView_);
+
+    auto* memWidget = new QWidget();
+    auto* memLayout = new QVBoxLayout(memWidget);
+    memLayout->setContentsMargins(0, 0, 0, 0);
+    memAddrInput_ = new QLineEdit();
+    memAddrInput_->setPlaceholderText("memory address (hex), then Enter");
+    memLayout->addWidget(memAddrInput_);
+    memView_ = new QPlainTextEdit();
+    memView_->setReadOnly(true);
+    memView_->setFont(mono);
+    memView_->setLineWrapMode(QPlainTextEdit::NoWrap);
+    memLayout->addWidget(memView_);
+    leftSplit->addWidget(memWidget);
+
     leftSplit->setStretchFactor(0, 3);
     leftSplit->setStretchFactor(1, 1);
+    leftSplit->setStretchFactor(2, 1);
     split->addWidget(leftSplit);
 
     auto* right = new QWidget();
@@ -115,6 +130,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     connect(regTable_,  &QTableWidget::itemChanged, this, &DebuggerWindow::onRegisterEdited);
     connect(threadCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &DebuggerWindow::onThreadSelected);
+    connect(memAddrInput_, &QLineEdit::returnPressed, this, &DebuggerWindow::onMemAddrEntered);
 
     // Debug events fire on the tracer thread; publish the event and marshal a
     // refresh onto the UI thread.
@@ -247,6 +263,7 @@ void DebuggerWindow::refreshStopped() {
     updateRegisters(ctx);
     updateDisassembly(ctx);
     updateStack(ctx);
+    if (lastMemAddr_) updateMemoryView(lastMemAddr_);   // keep the hex pane current
     statusLabel_->setText(QStringLiteral("Stopped at %1 (tid %2)")
                               .arg(hex(ctx.rip)).arg(static_cast<int>(session_->activeThread())));
     setRunningUi(false);
@@ -293,6 +310,51 @@ bool DebuggerWindow::switchToOtherThreadForTest() {
         }
     }
     return false;
+}
+
+void DebuggerWindow::updateMemoryView(uintptr_t addr) {
+    if (!memView_ || !proc_) return;
+    lastMemAddr_ = addr;
+    uint8_t buf[128];
+    auto r = proc_->read(addr, buf, sizeof(buf));
+    size_t n = (r && *r) ? *r : 0;
+    if (n == 0) { memView_->setPlainText("  <unreadable at " + hex(addr) + ">"); return; }
+    QString out;
+    for (size_t row = 0; row < n; row += 16) {
+        out += hex(addr + row) + "  ";
+        QString ascii;
+        for (size_t i = 0; i < 16; ++i) {
+            if (row + i < n) {
+                uint8_t b = buf[row + i];
+                out += QString::asprintf("%02x ", b);
+                ascii += (b >= 0x20 && b < 0x7f) ? QChar(b) : QChar('.');
+            } else {
+                out += "   ";
+            }
+        }
+        out += " " + ascii + "\n";
+    }
+    memView_->setPlainText(out);
+}
+
+void DebuggerWindow::onMemAddrEntered() {
+    QString t = memAddrInput_->text().trimmed();
+    if (t.startsWith("0x") || t.startsWith("0X")) t = t.mid(2);
+    bool okv = false;
+    const qulonglong addr = t.toULongLong(&okv, 16);
+    if (okv) updateMemoryView(static_cast<uintptr_t>(addr));
+}
+
+bool DebuggerWindow::memoryViewShowsForTest(uintptr_t addr) {
+    if (!proc_) return false;
+    updateMemoryView(addr);
+    uint8_t buf[4];
+    auto r = proc_->read(addr, buf, sizeof(buf));
+    if (!r || *r < 4) return false;
+    QString expect;
+    for (int i = 0; i < 4; ++i) expect += QString::asprintf("%02x ", buf[i]);
+    const QString text = memView_->toPlainText();
+    return text.contains(hex(addr)) && text.contains(expect.trimmed());
 }
 
 void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {

@@ -76,6 +76,10 @@ int main(int argc, char** argv) {
     // and switching moves the session's active thread.
     bool threadSwitch = hit && win.threadCount() >= 2 && win.switchToOtherThreadForTest();
 
+    // Memory/hex pane: point it at a known global in the child and confirm it
+    // renders the bytes actually there.
+    bool memView = hit && win.memoryViewShowsForTest(reinterpret_cast<uintptr_t>(&g_smoke_counter));
+
     // Detach before reaping: a ptrace tracee can only be waited on by its tracer
     // thread, so waitpid() from main would block until the session detaches.
     QMetaObject::invokeMethod(&win, "onDetach");
@@ -84,8 +88,8 @@ int main(int argc, char** argv) {
     kill(child, SIGKILL);
     waitpid(child, nullptr, 0);
 
-    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch;
-    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d)\n",
-           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch);
+    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView;
+    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d)\n",
+           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView);
     return ok ? 0 : 1;
 }

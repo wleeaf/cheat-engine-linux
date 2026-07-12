@@ -75,10 +75,14 @@ left-armed DR would kill it). **#15 (debugger unification) is complete.**
 VIRTUALQUERYEXFULL / GETARCHITECTURE / CREATETOOLHELP32SNAPSHOTEX for
 threads+modules) against local process memory. Verified by a full round-trip —
 our own `CEServerClient` connects, reads/writes memory, enumerates regions, and
-lists threads+modules through it. (Remaining commands — remote debug, alloc/free —
-need a live remote target to exercise.)
+lists threads+modules through it, AND remotely debugs it (STARTDEBUG /
+SETBREAKPOINT / WAITFORDEBUGEVENT / CONTINUEFROMDEBUGEVENT / STOPDEBUG — the
+server drives a DebugSession and marshals breakpoint events back over the wire;
+tested against a forked child, breakpoint fires + tracee survives detach). Only
+ALLOC/FREE remain (they need ptrace injection into a userspace-busy remote
+thread, not cheaply testable in-process).
 
-Remaining: #21 dissector N-instance/RTTI; more of #24 (extended commands) and #23.
+Remaining: #21 dissector N-instance/RTTI; #24 remote alloc/free; more of #23.
 Genuinely blocked on real-world testing / a strategic call: **#10 Mono/Unity**,
 **#11 Vulkan overlay**, **#12 Wayland hotkeys**, #25 ARM, #26 32-bit inject.
 

@@ -1,10 +1,12 @@
 #include "platform/linux/ceserver_server.hpp"
 #include "platform/linux/linux_process.hpp"
+#include "debug/debug_session.hpp"
 
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <cstring>
+#include <chrono>
 #include <vector>
 
 namespace ce::os {
@@ -16,6 +18,12 @@ constexpr uint8_t CMD_OPENPROCESS        = 3;
 constexpr uint8_t CMD_CLOSEHANDLE        = 7;
 constexpr uint8_t CMD_READPROCESSMEMORY  = 9;
 constexpr uint8_t CMD_WRITEPROCESSMEMORY = 10;
+constexpr uint8_t CMD_STARTDEBUG              = 11;
+constexpr uint8_t CMD_STOPDEBUG               = 12;
+constexpr uint8_t CMD_WAITFORDEBUGEVENT       = 13;
+constexpr uint8_t CMD_CONTINUEFROMDEBUGEVENT  = 14;
+constexpr uint8_t CMD_SETBREAKPOINT           = 15;
+constexpr uint8_t CMD_REMOVEBREAKPOINT        = 16;
 constexpr uint8_t CMD_GETARCHITECTURE    = 21;
 constexpr uint8_t CMD_VIRTUALQUERYEXFULL = 31;
 constexpr uint8_t CMD_CREATETOOLHELP32SNAPSHOTEX = 35;
@@ -72,6 +80,10 @@ void CeserverServer::stop() {
     if (!running_.exchange(false)) return;
     if (listenFd_ >= 0) { ::shutdown(listenFd_, SHUT_RDWR); ::close(listenFd_); listenFd_ = -1; }
     if (thread_.joinable()) thread_.join();
+    // The accept thread (and its serveClient) is gone; tear the debug session
+    // down now so its tracer thread joins before our members are destroyed.
+    dbg_.reset();
+    dbgProc_.reset();
 }
 
 void CeserverServer::acceptLoop() {
@@ -193,6 +205,86 @@ void CeserverServer::serveClient(int fd) {
                     int32_t count = 0;
                     if (!sendAll(fd, &count, 4)) return;   // unknown snapshot flags
                 }
+                break;
+            }
+            case CMD_STARTDEBUG: {
+                int32_t handle = 0;
+                if (!recvAll(fd, &handle, 4)) return;
+                dbg_.reset();
+                { std::lock_guard<std::mutex> lk(dbgMutex_); dbgQueue_.clear(); }
+                dbgProc_ = std::make_unique<LinuxProcessHandle>(static_cast<pid_t>(handle));
+                dbg_ = std::make_unique<ce::DebugSession>();
+                dbg_->setEventCallback([this](const ce::DebugEvent& e) {
+                    // Tracer thread — enqueue only, never block on the socket.
+                    int32_t ev = (e.type == ce::DebugEventType::BreakpointHit ||
+                                  e.type == ce::DebugEventType::ExceptionBreakpointHit) ? 5 : 1;
+                    { std::lock_guard<std::mutex> lk(dbgMutex_);
+                      dbgQueue_.push_back({ev, static_cast<int64_t>(e.tid),
+                                           static_cast<uint64_t>(e.address)}); }
+                    dbgCv_.notify_all();
+                });
+                int32_t result = dbg_->attach(static_cast<pid_t>(handle), dbgProc_.get()) ? 1 : 0;
+                if (!sendAll(fd, &result, 4)) return;
+                break;
+            }
+            case CMD_STOPDEBUG: {
+                int32_t handle = 0;
+                if (!recvAll(fd, &handle, 4)) return;
+                dbg_.reset();       // detaches
+                dbgProc_.reset();
+                { std::lock_guard<std::mutex> lk(dbgMutex_); dbgQueue_.clear(); }
+                int32_t result = 1;
+                if (!sendAll(fd, &result, 4)) return;
+                break;
+            }
+            case CMD_SETBREAKPOINT: {
+                int32_t handle = 0, tid = 0, debugReg = 0, bpType = 0, bpSize = 0;
+                uint64_t address = 0;
+                if (!recvAll(fd, &handle, 4) || !recvAll(fd, &tid, 4) ||
+                    !recvAll(fd, &debugReg, 4) || !recvAll(fd, &address, 8) ||
+                    !recvAll(fd, &bpType, 4) || !recvAll(fd, &bpSize, 4)) return;
+                int32_t result = 0;
+                if (dbg_) {
+                    int id = (bpType == 0)
+                        ? dbg_->setSoftwareBreakpoint(static_cast<uintptr_t>(address))
+                        : dbg_->setHardwareBreakpoint(static_cast<uintptr_t>(address), bpType, bpSize);
+                    result = (id > 0) ? 1 : 0;
+                    dbg_->continueExecution();
+                }
+                if (!sendAll(fd, &result, 4)) return;
+                break;
+            }
+            case CMD_REMOVEBREAKPOINT: {
+                int32_t handle = 0, tid = 0, debugReg = 0, wasWatchpoint = 0;
+                if (!recvAll(fd, &handle, 4) || !recvAll(fd, &tid, 4) ||
+                    !recvAll(fd, &debugReg, 4) || !recvAll(fd, &wasWatchpoint, 4)) return;
+                int32_t result = 1;   // (minimal: removal tracked client-side)
+                if (!sendAll(fd, &result, 4)) return;
+                break;
+            }
+            case CMD_WAITFORDEBUGEVENT: {
+                int32_t handle = 0, timeoutMs = 0;
+                if (!recvAll(fd, &handle, 4) || !recvAll(fd, &timeoutMs, 4)) return;
+                DebugEventRec rec{};
+                bool have = false;
+                {
+                    std::unique_lock<std::mutex> lk(dbgMutex_);
+                    have = dbgCv_.wait_for(lk, std::chrono::milliseconds(timeoutMs < 0 ? 0 : timeoutMs),
+                                           [this] { return !dbgQueue_.empty(); });
+                    if (have) { rec = dbgQueue_.front(); dbgQueue_.pop_front(); }
+                }
+                int32_t result = have ? 1 : 0;
+                if (!sendAll(fd, &result, 4)) return;
+                if (have && (!sendAll(fd, &rec.debugevent, 4) || !sendAll(fd, &rec.tid, 8) ||
+                             !sendAll(fd, &rec.address, 8))) return;
+                break;
+            }
+            case CMD_CONTINUEFROMDEBUGEVENT: {
+                int32_t handle = 0, tid = 0, sig = 0;
+                if (!recvAll(fd, &handle, 4) || !recvAll(fd, &tid, 4) || !recvAll(fd, &sig, 4)) return;
+                if (dbg_) dbg_->continueExecution();
+                int32_t result = 1;
+                if (!sendAll(fd, &result, 4)) return;
                 break;
             }
             default:

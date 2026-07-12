@@ -3421,6 +3421,64 @@ static void test_ceserver_roundtrip() {
            ok ? "OK" : "FAILED", connected ? "" : (" (" + err + ")").c_str());
 }
 
+// Remote debugging THROUGH the ceserver protocol: our client drives the server's
+// DebugSession against a forked child (STARTDEBUG / SETBREAKPOINT / WAIT- /
+// CONTINUEFROMDEBUGEVENT / STOPDEBUG), and the child must survive detach.
+static void test_ceserver_debug() {
+    printf("\n── Test: ceserver remote debug ──\n");
+
+    int fds[2];
+    if (pipe(fds) != 0) { printf("  ceserver debug: FAILED (pipe)\n"); return; }
+    pid_t child = fork();
+    if (child == 0) {
+        close(fds[0]);
+        std::thread(bp_hot_worker).detach();
+        write(fds[1], "x", 1);
+        for (;;) usleep(100000);
+        _exit(0);
+    }
+    close(fds[1]);
+    if (child < 0) { close(fds[0]); printf("  ceserver debug: FAILED (fork)\n"); return; }
+    char tok = 0; (void)read(fds[0], &tok, 1); close(fds[0]);
+    usleep(80000);
+
+    ce::os::CeserverServer server;
+    uint16_t port = server.start(0);
+    bool ok = false, eventOk = false;
+    std::string err;
+    if (port != 0) {
+        ce::os::CEServerClient client;   // scoped: disconnects before server.stop()
+        if (client.connectTcp("127.0.0.1", port, err)) {
+            auto handle = client.openProcess(child);
+            if (handle) {
+                auto sd = client.startDebug(*handle);
+                auto sb = client.setRemoteBreakpoint(
+                    *handle, 0, 0, (uint64_t)(uintptr_t)&bp_child_hot, 0 /*execute*/, 1);
+                for (int i = 0; i < 60 && !eventOk; ++i) {
+                    auto ev = client.waitForDebugEvent(*handle, 100);
+                    if (ev && ev->has_value()) {
+                        const auto& e = ev->value();
+                        if (e.address == (uint64_t)(uintptr_t)&bp_child_hot) eventOk = true;
+                        client.continueFromDebugEvent(*handle, (int32_t)e.threadId, 0);
+                    }
+                }
+                client.stopDebug(*handle);
+                ok = sd && *sd && sb && *sb && eventOk;
+            }
+        }
+    }
+    server.stop();
+
+    usleep(60000);                       // let the detached child run on
+    bool alive = (kill(child, 0) == 0);  // detach must not have killed it
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
+
+    ok = ok && alive;
+    printf("  remote breakpoint fires + tracee survives detach: %s (event=%d alive=%d%s)\n",
+           ok ? "OK" : "FAILED", (int)eventOk, (int)alive, err.empty() ? "" : (", " + err).c_str());
+}
+
 // Real monotonic time via a raw syscall, so it stays real even after the GOT
 // patch redirects the clock_gettime symbol.
 static double sh_raw_monotonic() {
@@ -6795,6 +6853,7 @@ int main(int argc, char* argv[]) {
     test_lua_breakpoint_regwrite();
     test_lua_hw_breakpoint();
     test_ceserver_roundtrip();
+    test_ceserver_debug();
     test_instruction_access();
     test_nop_instruction();
     test_lua_nop_instruction();

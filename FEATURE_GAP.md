@@ -13,6 +13,10 @@ cecore this session.
 > timing** is fixed the same day (✅ in-process GOT patching; verified ~10x scaling
 > on a dlopen-injected process). No tracked feature gaps remain outside the
 > intentional Windows-kernel omissions (DBVM/DBK/Ultimap/full Mono dissector).
+> NOTE: this checklist tracks CE-tutorial parity only. For the *fuller* picture —
+> deeper functional, platform, security and quality gaps (Mono/Unity dissector,
+> debugger-v1 completion, Wayland/overlay, packaging, CI test-gating, licensing,
+> …) — see **`ROADMAP.md`**.
 
 ## Legend
 ✅ have (verified in GUI) · 🟡 partial · ❌ missing · 🔧 in progress

@@ -138,6 +138,28 @@ routing both the disassembler and Lua through it closes many at once.
 
 15. **Unify breakpoints + make the disassembler right-click and Lua `debug_*`
     actually fire**, with HW/data + conditional breakpoints. **[L, high leverage]**
+
+    *Implementation approach (needs one strategic call before coding):* make
+    `DebugSession` the single breakpoint authority — it already owns the sole
+    tracer thread, all-stop, software int3, `setStopContext` (register edit),
+    and marshals events to the UI. Extend its breakpoint record to carry
+    `{kind: exec|hw-exec|hw-read|hw-write, size, condition, callback}` (the HW
+    path already exists in `CodeFinder`/`Debugger::setBreakpoint`; fold it in).
+    Then route both front-ends through one session: the disassembler right-click
+    ("set breakpoint", plus the now-built `findInstructionAccesses` and
+    `nopInstruction`) and the Lua `debug_*` facade (`lua_bindings.cpp:1437`).
+    **The one decision:** the Lua debug API's firing model. CE is async
+    (`debugger_onBreakpoint` callback) — to stay CE-compatible, marshal each hit
+    from the tracer thread onto the thread that owns the Lua state and invoke the
+    callback there (the same queued-invocation pattern `DebuggerWindow` already
+    uses for `onDebugEvent`; never call Lua from the tracer thread). The
+    Linux-native alternative is a blocking `debug_continueFromBreakpoint` /
+    `debug_waitForBreakpoint` — simpler and trivial to test, but not
+    CE-script-compatible. Recommend async-marshaled for CE parity. Increment
+    plan: (a) `LuaEngine` owns a `DebugSession`; (b) `debug_setBreakpoint` plants
+    a real int3 through it + keeps the table for `debug_getBreakpointList`;
+    (c) marshal hits to a main-thread pump that runs `debugger_onBreakpoint`;
+    (d) wire the disassembler menu. Each step is testable against a forked child.
 16. **Debugger window completeness:** register *editing* + full GP/flags/XMM
     (view-only today, missing R8-R15), a thread switcher (all-stop already
     captures every thread; UI shows only the trapping one), a memory/hex + watch

@@ -355,6 +355,27 @@ if(Qt6_FOUND)
         target_include_directories(gui_debugger_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
         target_link_libraries(gui_debugger_smoke PRIVATE cecore Qt6::Widgets)
     endif()
+
+    # Wayland global hotkeys via the XDG GlobalShortcuts portal (QtDBus). Under
+    # Wayland XGrabKey is unavailable, so this is the only path to shortcuts that
+    # fire while the game is focused. Optional: needs the Qt6 DBus module.
+    find_package(Qt6 COMPONENTS DBus QUIET)
+    if(Qt6DBus_FOUND)
+        target_sources(cheatengine PRIVATE gui/wayland_global_shortcuts.cpp)
+        target_link_libraries(cheatengine PRIVATE Qt6::DBus)
+        target_compile_definitions(cheatengine PRIVATE CECORE_HAVE_WAYLAND_HOTKEYS)
+        message(STATUS "Global hotkeys: Wayland portal backend enabled (Qt6::DBus)")
+        if(CECORE_BUILD_TESTS)
+            qt_add_executable(wayland_shortcuts_test
+                test/wayland_shortcuts_test.cpp
+                gui/wayland_global_shortcuts.cpp
+            )
+            target_include_directories(wayland_shortcuts_test PRIVATE ${CMAKE_SOURCE_DIR})
+            target_link_libraries(wayland_shortcuts_test PRIVATE Qt6::Core Qt6::DBus)
+        endif()
+    else()
+        message(STATUS "Global hotkeys: Wayland portal backend disabled (Qt6::DBus not found)")
+    endif()
 else()
     message(STATUS "Qt6 not found — skipping GUI build")
 endif()

@@ -183,8 +183,19 @@ alongside official CE 7.7 Linux. Today each is materially short of the claim.
     **[L]**
 12. **Wayland global hotkeys.** `gui/globalhotkeys.cpp` is entirely
     `XGrabKey`/xcb; on Wayland it degrades to focus-only Qt shortcuts — dead
-    exactly when the game has focus. Add an `xdg-desktop-portal` GlobalShortcuts
-    (or evdev) backend. **[M-L]**
+    exactly when the game has focus. *Backend built + tested:* new
+    `gui/wayland_global_shortcuts.cpp` — a QtDBus `xdg-desktop-portal`
+    GlobalShortcuts client (CreateSession → BindShortcuts via the async
+    Request/Response pattern, plus the Activated signal → `activated(id)`).
+    `test/wayland_shortcuts_test.cpp` drives it against a mock portal that
+    implements the authoritative interface (run under `dbus-run-session` in CI):
+    it validates the message FORMAT against the real spec (`a{sv}` options, the
+    `a(sa{sv})` shortcuts marshalling, the `Activated` signature) plus the
+    round-trip + signal decode. *Remaining:* wiring it into `GlobalHotkeyManager`
+    (the sync X11 API vs the portal's async session flow) + a QKeySequence→trigger
+    mapping, and true end-to-end behaviour against a real compositor's portal
+    (not headlessly automatable — its bind-confirmation UI needs a live session).
+    **[M-L]**
 13. **Native packaging.** ~~Flatpak~~ + AppStream + `.CT` MIME. **DONE (partly),
     with a correction:** a `.deb` + tarball are now produced via CPack (unsandboxed,
     apt-installable, and the release workflow attaches the `.deb`). **Flatpak was

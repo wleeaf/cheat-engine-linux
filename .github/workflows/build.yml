@@ -23,6 +23,7 @@ jobs:
             gcc-multilib \
             g++-multilib \
             libvulkan-dev \
+            dbus \
             cmake \
             ninja-build \
             qt6-base-dev \
@@ -54,6 +55,14 @@ jobs:
 
       - name: Run GUI debugger smoke test (offscreen Qt)
         run: ./build/gui_debugger_smoke
+
+      - name: Run Wayland GlobalShortcuts portal test (mock portal, private bus)
+        run: |
+          if [ -x ./build/wayland_shortcuts_test ]; then
+            dbus-run-session -- ./build/wayland_shortcuts_test
+          else
+            echo "wayland_shortcuts_test not built (Qt6::DBus absent) — skipped"
+          fi
 
       - name: Run cross-process scan test (root)
         run: sudo env "LD_LIBRARY_PATH=$PWD/build" ./build/scan_test

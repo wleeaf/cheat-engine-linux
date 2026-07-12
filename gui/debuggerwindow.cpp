@@ -106,6 +106,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     connect(addBtn,     &QPushButton::clicked, this, &DebuggerWindow::onAddBreakpoint);
     connect(rmBtn,      &QPushButton::clicked, this, &DebuggerWindow::onRemoveBreakpoint);
     connect(bpInput_,   &QLineEdit::returnPressed, this, &DebuggerWindow::onAddBreakpoint);
+    connect(regTable_,  &QTableWidget::itemChanged, this, &DebuggerWindow::onRegisterEdited);
 
     // Debug events fire on the tracer thread; publish the event and marshal a
     // refresh onto the UI thread.
@@ -244,8 +245,64 @@ void DebuggerWindow::refreshStopped() {
 
 void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
     const uintptr_t vals[] = {c.rip, c.rsp, c.rbp, c.rax, c.rbx, c.rcx, c.rdx, c.rsi, c.rdi, c.rflags};
-    for (int i = 0; i < 10; ++i)
-        regTable_->setItem(i, 0, new QTableWidgetItem(hex(vals[i])));
+    // Update items IN PLACE (never setItem here): this runs from within
+    // onRegisterEdited (itemChanged), where replacing an item would delete the
+    // one whose setText is still on the stack (use-after-free). Block signals so
+    // these programmatic fills aren't re-interpreted as user edits.
+    regTable_->blockSignals(true);
+    for (int i = 0; i < 10; ++i) {
+        auto* it = regTable_->item(i, 0);
+        if (!it) {
+            it = new QTableWidgetItem();
+            it->setFlags(it->flags() | Qt::ItemIsEditable);
+            regTable_->setItem(i, 0, it);
+        }
+        it->setText(hex(vals[i]));
+    }
+    regTable_->blockSignals(false);
+}
+
+// The register value column is editable; committing a cell writes the parsed
+// value back to the stopped thread via DebugSession::setStopContext, then
+// re-renders from the canonical post-write context (which also reverts bad hex).
+void DebuggerWindow::onRegisterEdited(QTableWidgetItem* item) {
+    if (!session_ || !item || item->column() != 0) return;
+    if (!session_->isAttached() || !session_->isStopped()) return;
+
+    QString t = item->text().trimmed();
+    if (t.startsWith("0x") || t.startsWith("0X")) t = t.mid(2);
+    bool okParse = false;
+    const qulonglong v = t.toULongLong(&okParse, 16);
+    if (okParse) {
+        ce::CpuContext ctx = session_->getStopContext();
+        switch (item->row()) {
+            case 0: ctx.rip = v; break;
+            case 1: ctx.rsp = v; break;
+            case 2: ctx.rbp = v; break;
+            case 3: ctx.rax = v; break;
+            case 4: ctx.rbx = v; break;
+            case 5: ctx.rcx = v; break;
+            case 6: ctx.rdx = v; break;
+            case 7: ctx.rsi = v; break;
+            case 8: ctx.rdi = v; break;
+            case 9: ctx.rflags = v; break;
+            default: return;
+        }
+        session_->setStopContext(ctx);
+    }
+    updateRegisters(session_->getStopContext());
+}
+
+bool DebuggerWindow::pokeRegisterForTest(int row, uint64_t value) {
+    if (!regTable_ || !session_ || !session_->isStopped()) return false;
+    if (row < 0 || row >= 10) return false;
+    auto* it = regTable_->item(row, 0);
+    if (!it) return false;
+    it->setText(hex(value));   // fires itemChanged -> onRegisterEdited -> setStopContext
+    const ce::CpuContext c = session_->getStopContext();
+    const uint64_t got[] = {c.rip, c.rsp, c.rbp, c.rax, c.rbx,
+                            c.rcx, c.rdx, c.rsi, c.rdi, c.rflags};
+    return got[row] == value;
 }
 
 void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {

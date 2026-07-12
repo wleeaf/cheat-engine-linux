@@ -15,6 +15,7 @@
 class QLineEdit;
 class QPlainTextEdit;
 class QTableWidget;
+class QTableWidgetItem;
 class QLabel;
 class QListWidget;
 class QPushButton;
@@ -35,6 +36,11 @@ public:
     bool debugAttached() const { return session_ && session_->isAttached(); }
     bool debugStopped() const { return session_ && session_->isStopped(); }
     uintptr_t currentStopRip() const { return lastStopRip_; }
+    // Type `value` into register row `row`'s cell exactly as the UI would (routes
+    // through onRegisterEdited -> setStopContext) and report whether the stopped
+    // thread's register now holds it. Row order matches the table:
+    // 0=RIP 1=RSP 2=RBP 3=RAX 4=RBX 5=RCX 6=RDX 7=RSI 8=RDI 9=RFLAGS.
+    bool pokeRegisterForTest(int row, uint64_t value);
 
 private slots:
     void onContinue();
@@ -45,6 +51,7 @@ private slots:
     void onDetach();
     void onAddBreakpoint();
     void onRemoveBreakpoint();
+    void onRegisterEdited(QTableWidgetItem* item);  // edit a GP register in place
     void onDebugEvent(int type);   // marshalled from the tracer thread
 
 private:

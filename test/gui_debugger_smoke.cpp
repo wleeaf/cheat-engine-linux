@@ -68,6 +68,10 @@ int main(int argc, char** argv) {
     bool allStop = hit && (c1 == c2);
     bool alive = (kill(child, 0) == 0);
 
+    // Register editing: type a sentinel into RBX (row 4) through the register
+    // table exactly as a user would; the value must reach the stopped thread.
+    bool regEdit = hit && win.pokeRegisterForTest(4 /*RBX*/, 0x00000000BADF00D5ull);
+
     // Detach before reaping: a ptrace tracee can only be waited on by its tracer
     // thread, so waitpid() from main would block until the session detaches.
     QMetaObject::invokeMethod(&win, "onDetach");
@@ -76,8 +80,8 @@ int main(int argc, char** argv) {
     kill(child, SIGKILL);
     waitpid(child, nullptr, 0);
 
-    bool ok = attached && stoppedInitially && hit && allStop && alive;
-    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d)\n",
-           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive);
+    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit;
+    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d)\n",
+           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit);
     return ok ? 0 : 1;
 }

@@ -30,3 +30,7 @@ AppDir/
 
 # Compiled test target (source sample_game.c is tracked)
 /sample_game
+/ce-upstream-ref/
+
+# CE-derived generated layouts (regenerate with tools/lfm2qt from your own CE checkout)
+gui/generated/*.ui

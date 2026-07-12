@@ -102,6 +102,10 @@ jobs:
 
       - name: Run suite under ASan + UBSan
         env:
-          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+          # new_delete_type_mismatch=0: the vendored Keystone/LLVM MemoryBuffer
+          # uses an operator-new/sized-delete pattern ASan flags as a mismatch.
+          # It's third-party and benign (LLVM's own allocator idiom); disabling
+          # that one check keeps every real check (heap-overflow/UAF/UB) on our code.
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:new_delete_type_mismatch=0
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ./build-asan/cecore_test

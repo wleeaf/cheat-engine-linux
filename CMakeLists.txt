@@ -357,3 +357,29 @@ if(CECORE_BUILD_TESTS)
     add_executable(scan_test test/scan_test.cpp)
     target_link_libraries(scan_test PRIVATE cecore)
 endif()
+
+# ── Install / embeddability ──
+# Makes libcecore.so installable, versioned, and discoverable (pkg-config) so
+# other projects can link the engine. NOTE: the whole header set is installed as
+# "public" for now; a curated public-API subset + a CMake package config with
+# transitive Capstone/Keystone handling is a tracked follow-up (see ROADMAP.md).
+include(GNUInstallDirs)
+set_target_properties(cecore PROPERTIES
+    VERSION ${PROJECT_VERSION}
+    SOVERSION ${PROJECT_VERSION_MAJOR})
+install(TARGETS cecore
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+foreach(dir core platform arch scanner symbols analysis debug scripting plugins)
+    install(DIRECTORY ${dir}/
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/cecore/${dir}
+        FILES_MATCHING PATTERN "*.hpp" PATTERN "*.h")
+endforeach()
+if(TARGET cescan)
+    install(TARGETS cescan RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/packaging/cecore.pc.in
+               ${CMAKE_CURRENT_BINARY_DIR}/cecore.pc @ONLY)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/cecore.pc
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)

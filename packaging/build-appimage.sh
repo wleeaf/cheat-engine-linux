@@ -20,7 +20,9 @@ cp "$BUILD_DIR/cheatengine" "$APPDIR/usr/bin/"
 cp "$BUILD_DIR/cescan" "$APPDIR/usr/bin/"
 
 # Copy libraries
-cp "$BUILD_DIR/libcecore.so" "$APPDIR/usr/lib/"
+# cecore is versioned (SOVERSION), so copy libcecore.so + libcecore.so.N +
+# libcecore.so.N.N.N preserving the symlinks (-a) so the soname resolves.
+cp -a "$BUILD_DIR"/libcecore.so* "$APPDIR/usr/lib/"
 ldd "$BUILD_DIR/cheatengine" | grep "=> /" | awk '{print $3}' | while read lib; do
     case "$lib" in
         /usr/lib/x86_64-linux-gnu/libQt6*|*/libcapstone*|*/libkeystone*)

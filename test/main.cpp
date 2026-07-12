@@ -3017,6 +3017,25 @@ static void test_pointer_rescan_by_value() {
            ok ? "OK" : "FAILED", (int)derefOk, keptMatch.size(), keptMiss.size());
 }
 
+// CE-compat Lua symbol helpers.
+static void test_lua_symbol_info() {
+    printf("\n── Test: Lua getSymbolInfo / reinitializeSymbolhandler ──\n");
+    SymbolResolver resolver;
+    LuaEngine eng;
+    eng.setResolver(&resolver);
+    std::string err = eng.execute(R"(
+        registerSymbol('mysym', 0xdeadbeef)
+        local i = getSymbolInfo('mysym')
+        assert(i ~= nil, 'getSymbolInfo returned nil')
+        assert(i.address == 0xdeadbeef, 'wrong address')
+        assert(getSymbolInfo('nope') == nil, 'unknown symbol should be nil')
+        reinitializeSymbolhandler()
+    )");
+    bool ok = err.empty();
+    printf("  getSymbolInfo + reinitializeSymbolhandler: %s\n",
+           ok ? "OK" : ("FAILED (" + err + ")").c_str());
+}
+
 static void test_structure_tools() {
     printf("\n── Test: Structure tools ──\n");
 
@@ -6001,6 +6020,7 @@ int main(int argc, char* argv[]) {
     test_lua_shellexecute_gate();
     test_symbol_build_id_debuglink();
     test_pointer_rescan_by_value();
+    test_lua_symbol_info();
     test_structure_tools();
     test_lua_memrec();
     test_autoassembler_unregister_symbol(targetPid);

@@ -2507,6 +2507,30 @@ static void registerConstants(lua_State* L) {
 
 // ── Registration function called from LuaEngine ──
 
+// getSymbolInfo(name) -> {address=..., searchkey=name} or nil (CE-compatible).
+static int l_getSymbolInfo(lua_State* L) {
+    const char* name = luaL_checkstring(L, 1);
+    auto* resolver = getResolver(L);
+    if (!resolver) { lua_pushnil(L); return 1; }
+    uintptr_t addr = resolver->lookup(name);
+    if (addr == 0) { lua_pushnil(L); return 1; }
+    lua_newtable(L);
+    lua_pushstring(L, "address");   lua_pushinteger(L, static_cast<lua_Integer>(addr)); lua_settable(L, -3);
+    lua_pushstring(L, "searchkey"); lua_pushstring(L, name);                            lua_settable(L, -3);
+    return 1;
+}
+
+// reinitializeSymbolhandler() -> reload symbols from the attached process (CE-compat).
+static int l_reinitializeSymbolhandler(lua_State* L) {
+    auto* resolver = getResolver(L);
+    auto* proc = getProc(L);
+    if (resolver && proc) {
+        resolver->clear();
+        resolver->loadProcess(*proc);
+    }
+    return 0;
+}
+
 void registerExtendedBindings(lua_State* L) {
     // TODO(security): liblua is C-compiled, so a C++ exception that escapes any
     // lua_CFunction body unwinds through non-exception-aware C frames (UB). The
@@ -2654,6 +2678,8 @@ void registerExtendedBindings(lua_State* L) {
     // Symbols
     lua_register(L, "registerSymbol", l_registerSymbol);
     lua_register(L, "unregisterSymbol", l_unregisterSymbol);
+    lua_register(L, "getSymbolInfo", l_getSymbolInfo);
+    lua_register(L, "reinitializeSymbolhandler", l_reinitializeSymbolhandler);
     lua_register(L, "getUserDefinedSymbolByName", l_getUserDefinedSymbolByName);
     lua_register(L, "getUserDefinedSymbolByAddress", l_getUserDefinedSymbolByAddress);
     lua_register(L, "getOpenedProcesses", l_getOpenedProcesses);

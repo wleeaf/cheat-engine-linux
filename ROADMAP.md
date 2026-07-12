@@ -18,13 +18,21 @@ stealth — Windows-kernel-specific; the Linux kmod + LBR mapper are the analogs
 
 ## Progress (loop, 2026-07-12)
 
-Done and CI-green: **all P0** (1-5); **P1 #7** parser adversarial-input tests;
-**P1 #8** ASan+UBSan build option + CI job (product code is memory-clean);
-**P1 #14** installable/embeddable `libcecore` (SOVERSION + headers + pkg-config);
-**P1 #6 (partial)** `shellExecute` RCE gate (default-deny + env opt-in); **P1 #13**
-`.deb`/tarball via CPack (Flatpak dropped — sandbox blocks ptrace). Remaining:
-#6 exception firewall + `*Local` gate; the differentiators #10-12 (Mono/Unity,
-overlay, Wayland hotkeys); the P2 debugger unification + breadth; P3 reach.
+Done and CI-green:
+- **all P0** (1-5): CI gates on test failures, LICENSE/SECURITY.md, versioning, doc annotations.
+- **P1 #7** parser adversarial-input tests · **P1 #8** ASan+UBSan option + CI job (product
+  code memory-clean) · **P1 #14** installable/embeddable `libcecore` · **P1 #6 (partial)**
+  `shellExecute` RCE gate · **P1 #13** `.deb`/tarball + AppStream + `.CT` MIME
+  (Flatpak dropped — sandbox blocks ptrace).
+- **P2 #20** stripped-binary symbols via build-id / `.gnu_debuglink` · **P2 #19 (partial)**
+  pointer rescan-by-value (game-restart workflow) · **P2 #23 (partial)** Lua `getSymbolInfo`
+  + `reinitializeSymbolhandler` · **P2 #18 (partial)** configurable find-what-writes watch size.
+- **P3 #27** light theme (dead toggle fixed) · **P3 #28** `CONTRIBUTING.md`.
+
+Remaining: #6 exception firewall + `*Local` gate; **#15** debugger unification (the
+big P2 lever); **#17** Break&Trace multi-thread; #16/#21 GUI debugger/dissector work;
+#24 ceserver daemon; more of #23. Genuinely blocked on real-world testing / a strategic
+call: **#10 Mono/Unity**, **#11 Vulkan overlay**, **#12 Wayland hotkeys**, #25 ARM, #26 32-bit inject.
 
 ---
 

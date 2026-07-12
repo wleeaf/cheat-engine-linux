@@ -2937,6 +2937,53 @@ static void test_lua_shellexecute_gate() {
            ok ? "OK" : "FAILED", (int)isBlocked, (int)isAllowed);
 }
 
+// Stripped binaries keep their real symbols in a separate debug file. Build a
+// .so with a used static function (only in .symtab), split the debug info into a
+// sidecar, strip the .so, link them with .gnu_debuglink, and verify the static
+// symbol resolves only when the debug file is reachable.
+static void test_symbol_build_id_debuglink() {
+    printf("\n── Test: separate-debug-file symbols (.gnu_debuglink) ──\n");
+    namespace fs = std::filesystem;
+    auto dir = fs::temp_directory_path();
+    std::string tag = std::to_string(getpid());
+    fs::path src = dir / ("cecore-dl-" + tag + ".c");
+    fs::path so  = dir / ("libcecore-dl-" + tag + ".so");
+    fs::path dbg = dir / ("libcecore-dl-" + tag + ".so.debug");
+    {
+        std::ofstream sf(src);
+        sf << "__attribute__((noinline,used)) static int dbglink_static_probe(int x){return x*3;}\n"
+              "int dbglink_exported(int x){return dbglink_static_probe(x)+1;}\n";
+    }
+    std::string cmd = "cd '" + dir.string() + "' && "
+        "gcc -shared -fPIC -g -o '" + so.filename().string() + "' '" + src.filename().string() + "' && "
+        "objcopy --only-keep-debug '" + so.filename().string() + "' '" + dbg.filename().string() + "' && "
+        "strip '" + so.filename().string() + "' && "
+        "objcopy --add-gnu-debuglink='" + dbg.filename().string() + "' '" + so.filename().string() + "' 2>/dev/null";
+    bool built = (system(cmd.c_str()) == 0) && fs::exists(so) && fs::exists(dbg);
+    if (!built) {
+        printf("  static symbol from .gnu_debuglink: SKIPPED (toolchain unavailable)\n");
+        std::error_code ec; fs::remove(src, ec); fs::remove(so, ec); fs::remove(dbg, ec);
+        return;
+    }
+
+    // Without the debug file, the static symbol is gone (stripped).
+    fs::path hidden = dir / ("cecore-dl-hidden-" + tag);
+    fs::rename(dbg, hidden);
+    SymbolResolver a; a.loadModule(so.string(), "d", 0);
+    bool absentWithoutDebug = (a.lookup("dbglink_static_probe") == 0);
+    fs::rename(hidden, dbg);
+
+    // With the .gnu_debuglink sidecar present, it resolves.
+    SymbolResolver b; b.loadModule(so.string(), "d", 0);
+    bool resolvedWithDebug = (b.lookup("dbglink_static_probe") != 0);
+
+    std::error_code ec;
+    fs::remove(src, ec); fs::remove(so, ec); fs::remove(dbg, ec);
+    bool ok = absentWithoutDebug && resolvedWithDebug;
+    printf("  static symbol from .gnu_debuglink: %s (absent-without=%d resolved-with=%d)\n",
+           ok ? "OK" : "FAILED", (int)absentWithoutDebug, (int)resolvedWithDebug);
+}
+
 static void test_structure_tools() {
     printf("\n── Test: Structure tools ──\n");
 
@@ -5919,6 +5966,7 @@ int main(int argc, char* argv[]) {
     test_speedhack_got_injection();
     test_parser_fuzz_negatives();
     test_lua_shellexecute_gate();
+    test_symbol_build_id_debuglink();
     test_structure_tools();
     test_lua_memrec();
     test_autoassembler_unregister_symbol(targetPid);

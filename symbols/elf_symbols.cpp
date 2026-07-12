@@ -30,7 +30,85 @@ void SymbolResolver::loadModule(const std::string& path, const std::string& modu
     parseElfSymbols(path, moduleName, baseAddr);
 }
 
-void SymbolResolver::parseElfSymbols(const std::string& path, const std::string& moduleName, uintptr_t baseAddr) {
+// Locate a stripped binary's separate debug file: build-id first
+// (/usr/lib/debug/.build-id/<xx>/<rest>.debug), then .gnu_debuglink (next to the
+// binary, in a .debug/ subdir, or under /usr/lib/debug). Returns "" if none.
+static std::string findSeparateDebugFile(const std::vector<Elf64_Shdr>& shdrs,
+                                         const Elf64_Ehdr& ehdr, std::ifstream& f,
+                                         uintmax_t fileSize, const std::string& origPath) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+
+    // 1) build-id note (most reliable; keyed lookup under /usr/lib/debug/.build-id).
+    for (const auto& sh : shdrs) {
+        if (sh.sh_type != SHT_NOTE) continue;
+        if (sh.sh_offset > fileSize || sh.sh_size > fileSize - sh.sh_offset) continue;
+        if (sh.sh_size < sizeof(Elf64_Nhdr) || sh.sh_size > (1u << 20)) continue;
+        std::vector<char> buf(sh.sh_size);
+        f.clear(); f.seekg(sh.sh_offset); f.read(buf.data(), sh.sh_size);
+        if (!f) continue;
+        size_t off = 0;
+        while (off + sizeof(Elf64_Nhdr) <= buf.size()) {
+            Elf64_Nhdr nh;
+            std::memcpy(&nh, buf.data() + off, sizeof(nh));
+            size_t nameOff = off + sizeof(Elf64_Nhdr);
+            size_t descOff = nameOff + ((nh.n_namesz + 3u) & ~3u);
+            size_t descPad = (nh.n_descsz + 3u) & ~3u;
+            if (descOff > buf.size() || nh.n_descsz > buf.size() - descOff) break;
+            if (nh.n_type == NT_GNU_BUILD_ID && nh.n_namesz >= 3 && nh.n_descsz >= 2 &&
+                std::memcmp(buf.data() + nameOff, "GNU", 3) == 0) {
+                static const char* hx = "0123456789abcdef";
+                std::string id;
+                for (uint32_t i = 0; i < nh.n_descsz; ++i) {
+                    unsigned char b = static_cast<unsigned char>(buf[descOff + i]);
+                    id.push_back(hx[b >> 4]); id.push_back(hx[b & 0xf]);
+                }
+                std::string p = "/usr/lib/debug/.build-id/" + id.substr(0, 2) + "/" +
+                                id.substr(2) + ".debug";
+                if (fs::exists(p, ec)) return p;
+            }
+            size_t next = descOff + descPad;
+            if (next <= off) break;   // never stall
+            off = next;
+        }
+    }
+
+    // 2) .gnu_debuglink section (filename + CRC; CRC not verified here).
+    if (ehdr.e_shstrndx < shdrs.size()) {
+        const Elf64_Shdr& shstr = shdrs[ehdr.e_shstrndx];
+        if (shstr.sh_offset <= fileSize && shstr.sh_size <= fileSize - shstr.sh_offset &&
+            shstr.sh_size > 0 && shstr.sh_size < (1u << 20)) {
+            std::vector<char> names(shstr.sh_size);
+            f.clear(); f.seekg(shstr.sh_offset); f.read(names.data(), shstr.sh_size);
+            if (f) {
+                names.back() = '\0';
+                for (const auto& sh : shdrs) {
+                    if (sh.sh_name >= names.size()) continue;
+                    if (std::strcmp(names.data() + sh.sh_name, ".gnu_debuglink") != 0) continue;
+                    if (sh.sh_offset > fileSize || sh.sh_size > fileSize - sh.sh_offset ||
+                        sh.sh_size < 5 || sh.sh_size > 4096) break;
+                    std::vector<char> dl(sh.sh_size);
+                    f.clear(); f.seekg(sh.sh_offset); f.read(dl.data(), sh.sh_size);
+                    if (!f) break;
+                    dl.back() = '\0';
+                    std::string debugName = dl.data();
+                    if (debugName.empty()) break;
+                    fs::path dir = fs::path(origPath).parent_path();
+                    for (const fs::path& cand : { dir / debugName,
+                                                  dir / ".debug" / debugName,
+                                                  fs::path("/usr/lib/debug") / dir.relative_path() / debugName }) {
+                        if (fs::exists(cand, ec)) return cand.string();
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    return "";
+}
+
+void SymbolResolver::parseElfSymbols(const std::string& path, const std::string& moduleName,
+                                     uintptr_t baseAddr, bool followDebugLink) {
     std::ifstream f(path, std::ios::binary);
     if (!f) return;
 
@@ -136,11 +214,22 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
         }
     };
 
+    bool hasSymtab = false;
     for (size_t i = 0; i < shdrs.size(); ++i) {
         if ((shdrs[i].sh_type == SHT_DYNSYM || shdrs[i].sh_type == SHT_SYMTAB) &&
             shdrs[i].sh_link < shdrs.size()) {
+            if (shdrs[i].sh_type == SHT_SYMTAB) hasSymtab = true;
             processSymtab(shdrs[i], shdrs[shdrs[i].sh_link]);
         }
+    }
+
+    // Stripped binary (only .dynsym): pull the full symbols from its separate
+    // debug file (build-id / .gnu_debuglink), as CE-on-Linux and gdb do. Most
+    // system libraries and release game binaries keep symbols in /usr/lib/debug.
+    if (!hasSymtab && followDebugLink) {
+        std::string dbg = findSeparateDebugFile(shdrs, ehdr, f, fileSize, path);
+        if (!dbg.empty() && dbg != path)
+            parseElfSymbols(dbg, moduleName, baseAddr, /*followDebugLink=*/false);
     }
 
     // Second pass: PLT/GOT relocations (.rela.plt / .rela.dyn) name the import

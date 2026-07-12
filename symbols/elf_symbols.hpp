@@ -49,7 +49,11 @@ public:
     size_t count() const { return symbols_.size(); }
 
 private:
-    void parseElfSymbols(const std::string& path, const std::string& moduleName, uintptr_t baseAddr);
+    // followDebugLink: when a stripped binary (no .symtab) is found, look up its
+    // separate debug file via build-id / .gnu_debuglink and load that too. Set
+    // false when recursing into the debug file to avoid loops.
+    void parseElfSymbols(const std::string& path, const std::string& moduleName,
+                         uintptr_t baseAddr, bool followDebugLink = true);
 
     std::vector<Symbol> symbols_;
     // Sorted by address for binary search in resolve()

@@ -1749,9 +1749,16 @@ static int l_inputQuery(lua_State* L) {
 // table's OnActivate) is equivalent to granting native command execution as the
 // cecore user. Treat scripts as trusted code. luaL_checkstring guarantees a
 // non-NULL, NUL-terminated argument so the system() call itself is well-formed.
-// TODO(security): gate behind an explicit user-consent / non-default capability
-// flag, and prefer posix_spawn/execvp with an argv array where no shell is needed.
+// Default-DENY: shellExecute is arbitrary command execution, so loading a
+// malicious table would grant native RCE (usually as root). It now requires an
+// explicit, out-of-band opt-in the script itself cannot set — the process env
+// var CECORE_LUA_ALLOW_UNSAFE, read live (Lua's os library cannot change the
+// process environment, so an untrusted table cannot flip this).
 static int l_shellExecute(lua_State* L) {
+    if (!getenv("CECORE_LUA_ALLOW_UNSAFE"))
+        return luaL_error(L,
+            "shellExecute blocked: it runs arbitrary shell commands. Only enable for "
+            "tables you trust by launching with CECORE_LUA_ALLOW_UNSAFE=1 (see SECURITY.md).");
     const char* cmd = luaL_checkstring(L, 1);
     int ret = system(cmd);
     lua_pushinteger(L, ret);

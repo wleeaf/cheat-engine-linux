@@ -2912,6 +2912,26 @@ static void test_parser_fuzz_negatives() {
     }
 }
 
+// The shellExecute RCE gate: blocked by default, allowed only via the
+// out-of-band CECORE_LUA_ALLOW_UNSAFE env var (a malicious table can't set it).
+static void test_lua_shellexecute_gate() {
+    printf("\n── Test: Lua shellExecute RCE gate ──\n");
+    unsetenv("CECORE_LUA_ALLOW_UNSAFE");
+    LuaEngine eng1;
+    std::string blocked = eng1.execute("return shellExecute('true')");
+    bool isBlocked = blocked.find("blocked") != std::string::npos;
+
+    setenv("CECORE_LUA_ALLOW_UNSAFE", "1", 1);
+    LuaEngine eng2;
+    std::string allowed = eng2.execute("return shellExecute('true')");
+    bool isAllowed = allowed.empty();   // opted in: runs, no error
+    unsetenv("CECORE_LUA_ALLOW_UNSAFE");
+
+    bool ok = isBlocked && isAllowed;
+    printf("  shellExecute default-blocked + env opt-in: %s (blocked=%d allowed=%d)\n",
+           ok ? "OK" : "FAILED", (int)isBlocked, (int)isAllowed);
+}
+
 static void test_structure_tools() {
     printf("\n── Test: Structure tools ──\n");
 
@@ -5893,6 +5913,7 @@ int main(int argc, char* argv[]) {
     test_multithread_software_breakpoint();
     test_speedhack_got_injection();
     test_parser_fuzz_negatives();
+    test_lua_shellexecute_gate();
     test_structure_tools();
     test_lua_memrec();
     test_autoassembler_unregister_symbol(targetPid);

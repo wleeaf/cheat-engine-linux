@@ -22,6 +22,7 @@ jobs:
             build-essential \
             gcc-multilib \
             g++-multilib \
+            libvulkan-dev \
             cmake \
             ninja-build \
             qt6-base-dev \

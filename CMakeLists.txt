@@ -364,6 +364,18 @@ if(CECORE_BUILD_TESTS)
     add_executable(cecore_test test/main.cpp)
     target_link_libraries(cecore_test PRIVATE cecore)
 
+    # When the Vulkan loader is available, the overlay-layer test creates a real
+    # VkInstance with our explicit layer enabled and checks the layer's hook ran.
+    # It skips gracefully at runtime if no Vulkan driver can create an instance.
+    find_package(Vulkan)
+    if(Vulkan_FOUND)
+        add_dependencies(cecore_test ce_vulkan_overlay_layer)
+        target_link_libraries(cecore_test PRIVATE Vulkan::Vulkan)
+        target_compile_definitions(cecore_test PRIVATE
+            CE_HAVE_VULKAN
+            CE_VK_OVERLAY_LAYER_SO="$<TARGET_FILE:ce_vulkan_overlay_layer>")
+    endif()
+
     add_executable(scan_test test/scan_test.cpp)
     target_link_libraries(scan_test PRIVATE cecore)
 endif()

@@ -10,6 +10,11 @@
 #include "platform/network_compression.hpp"
 #include "platform/vulkan_overlay_injector.hpp"
 #include "platform/linux/injector.hpp"
+#ifdef CE_HAVE_VULKAN
+#include <vulkan/vulkan.h>
+#include <vulkan/vk_layer.h>
+#include <dlfcn.h>
+#endif
 #include "scanner/pointer_scanner.hpp"
 #include "scanner/snapshot.hpp"
 #include "core/autoasm.hpp"
@@ -5873,6 +5878,67 @@ static void test_vulkan_overlay_injector() {
         (wrote && error.empty() && manifestOk && envOk) ? "OK" : "FAILED");
 }
 
+#ifdef CE_HAVE_VULKAN
+// Validates the built overlay layer's loader-facing contract by dlopen'ing the
+// real .so and calling its interface directly: the loader-negotiation entry, the
+// vkGetInstanceProcAddr resolution (hooked functions resolve, unknown ones give
+// nullptr), and layer enumeration reporting our layer name. This exercises the
+// error-prone part of Vulkan layer authoring deterministically, without a driver
+// (creating a real VkInstance hangs the headless NVIDIA ICD, so it is avoided).
+static void test_vulkan_overlay_layer_interface() {
+    printf("\n── Test: Vulkan overlay layer interface ──\n");
+
+    void* h = dlopen(CE_VK_OVERLAY_LAYER_SO, RTLD_NOW | RTLD_LOCAL);
+    if (!h) {
+        printf("  layer interface: SKIPPED (dlopen: %s)\n", dlerror());
+        return;
+    }
+
+    auto negotiate = reinterpret_cast<PFN_vkNegotiateLoaderLayerInterfaceVersion>(
+        dlsym(h, "vkNegotiateLoaderLayerInterfaceVersion"));
+    auto gipa = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
+        dlsym(h, "vkGetInstanceProcAddr"));
+    auto eilp = reinterpret_cast<PFN_vkEnumerateInstanceLayerProperties>(
+        dlsym(h, "vkEnumerateInstanceLayerProperties"));
+    bool exportsOk = negotiate && gipa && eilp;
+
+    bool negOk = false;
+    if (negotiate) {
+        VkNegotiateLayerInterface ni{};
+        ni.sType = LAYER_NEGOTIATE_INTERFACE_STRUCT;
+        ni.loaderLayerInterfaceVersion = 2;
+        negOk = negotiate(&ni) == VK_SUCCESS &&
+                ni.pfnGetInstanceProcAddr != nullptr &&
+                ni.pfnGetDeviceProcAddr != nullptr;
+    }
+
+    bool procOk = false;
+    if (gipa) {
+        // Hooked entry points resolve; an unknown name must return nullptr.
+        procOk = gipa(VK_NULL_HANDLE, "vkCreateInstance") != nullptr &&
+                 gipa(VK_NULL_HANDLE, "vkGetInstanceProcAddr") != nullptr &&
+                 gipa(VK_NULL_HANDLE, "vkEnumerateInstanceLayerProperties") != nullptr &&
+                 gipa(VK_NULL_HANDLE, "vkNoSuchFunction_zzz") == nullptr;
+    }
+
+    bool enumOk = false;
+    if (eilp) {
+        uint32_t n = 0;
+        enumOk = eilp(&n, nullptr) == VK_SUCCESS && n == 1;
+        if (enumOk) {
+            VkLayerProperties props{};
+            uint32_t one = 1;
+            enumOk = eilp(&one, &props) == VK_SUCCESS &&
+                     std::string(props.layerName) == "VK_LAYER_CE_linux_overlay";
+        }
+    }
+
+    dlclose(h);
+    printf("  negotiate + proc resolution + enumeration: %s\n",
+           (exportsOk && negOk && procOk && enumOk) ? "OK" : "FAILED");
+}
+#endif // CE_HAVE_VULKAN
+
 static void test_lua_file_aliases() {
     printf("\n── Test: Lua file aliases ──\n");
 
@@ -7477,6 +7543,9 @@ int main(int argc, char* argv[]) {
     test_kernel_symbol_resolver();
     test_kernel_driver_client();
     test_vulkan_overlay_injector();
+#ifdef CE_HAVE_VULKAN
+    test_vulkan_overlay_layer_interface();
+#endif
     test_lua_file_aliases();
     test_lua_local_memory();
     test_lua_autoassemble_check();

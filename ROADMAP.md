@@ -170,10 +170,16 @@ alongside official CE 7.7 Linux. Today each is materially short of the claim.
     **Most Linux/Proton games are Unity** — this remains the niche to win. **[L]**
 11. **In-game overlay actually renders.** `platform/vulkan_overlay_layer.cpp`
     advertises a layer but only forwards `vkCreateInstance/Device` — it never
-    hooks `vkQueuePresentKHR` and draws nothing. The Qt overlay
-    (`gui/overlay.cpp`) uses X11-only window hints, so it won't float over a
-    game on Wayland/gamescope (the Steam Deck reality). Implement a real
-    present-hook that blits an OSD. **[L]**
+    hooks `vkQueuePresentKHR` and draws nothing. *Layer contract now validated:*
+    `test_vulkan_overlay_layer_interface` dlopen's the built layer and checks its
+    loader-facing interface end-to-end (negotiate → GetInstanceProcAddr
+    resolution of hooked vs unknown entry points → layer enumeration), gated on
+    `find_package(Vulkan)` with `libvulkan-dev` in CI. *Remaining:* the actual
+    `vkQueuePresentKHR` present-hook + OSD blit (the renderer), and the X11-only
+    Qt overlay (`gui/overlay.cpp`) for Wayland/gamescope. Real-VkInstance
+    layer-chain testing is blocked locally by the headless NVIDIA ICD hanging in
+    `vkCreateInstance`; it needs a software driver that initialises headlessly.
+    **[L]**
 12. **Wayland global hotkeys.** `gui/globalhotkeys.cpp` is entirely
     `XGrabKey`/xcb; on Wayland it degrades to focus-only Qt shortcuts — dead
     exactly when the game has focus. Add an `xdg-desktop-portal` GlobalShortcuts

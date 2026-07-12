@@ -385,7 +385,30 @@ endforeach()
 if(TARGET cescan)
     install(TARGETS cescan RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
+if(TARGET cheatengine)
+    install(TARGETS cheatengine RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(FILES packaging/cheatengine.desktop
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+    install(FILES packaging/cheatengine.png
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps)
+endif()
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/packaging/cecore.pc.in
                ${CMAKE_CURRENT_BINARY_DIR}/cecore.pc @ONLY)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/cecore.pc
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+
+# ── CPack: apt-installable .deb + tarball ──
+# An unsandboxed native package: unlike Flatpak (whose sandbox isolates the app
+# in its own PID namespace and blocks ptrace/memory access to other processes,
+# defeating a memory scanner), a .deb runs with the user's privileges and works.
+set(CPACK_PACKAGE_NAME "cheat-engine-linux")
+set(CPACK_PACKAGE_VENDOR "wleeaf")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Linux-native Cheat Engine: memory scanner, debugger, injector")
+set(CPACK_PACKAGE_CONTACT "https://github.com/wleeaf/cheat-engine-linux")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_GENERATOR "DEB;TGZ")
+set(CPACK_DEBIAN_PACKAGE_SECTION "devel")
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)         # auto-detect Qt6/capstone/dw/etc.
+set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "cheat-engine-linux")
+include(CPack)

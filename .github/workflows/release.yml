@@ -52,6 +52,9 @@ jobs:
       - name: Run regression suite
         run: ./build/cecore_test
 
+      - name: Build .deb package
+        run: (cd build && cpack -G DEB)
+
       - name: Fetch appimagetool
         run: |
           wget -q -O appimagetool \
@@ -75,6 +78,8 @@ jobs:
       - name: Upload AppImage to the release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/CheatEngine-x86_64.AppImage
+          files: |
+            build/CheatEngine-x86_64.AppImage
+            build/cheat-engine-linux_*_amd64.deb
           fail_on_unmatched_files: true
           generate_release_notes: false

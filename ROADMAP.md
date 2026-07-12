@@ -16,6 +16,16 @@ Effort key: **S** < 1 day · **M** a few days · **L** 1-2 weeks+.
 By-design omissions (NOT gaps): DBVM, DBK kernel driver, Ultimap/BTS, kernel
 stealth — Windows-kernel-specific; the Linux kmod + LBR mapper are the analogs.
 
+## Progress (loop, 2026-07-12)
+
+Done and CI-green: **all P0** (1-5); **P1 #7** parser adversarial-input tests;
+**P1 #8** ASan+UBSan build option + CI job (product code is memory-clean);
+**P1 #14** installable/embeddable `libcecore` (SOVERSION + headers + pkg-config);
+**P1 #6 (partial)** `shellExecute` RCE gate (default-deny + env opt-in); **P1 #13**
+`.deb`/tarball via CPack (Flatpak dropped — sandbox blocks ptrace). Remaining:
+#6 exception firewall + `*Local` gate; the differentiators #10-12 (Mono/Unity,
+overlay, Wayland hotkeys); the P2 debugger unification + breadth; P3 reach.
+
 ---
 
 ## P0 — Integrity & blockers (small, do first)
@@ -82,10 +92,13 @@ alongside official CE 7.7 Linux. Today each is materially short of the claim.
     `XGrabKey`/xcb; on Wayland it degrades to focus-only Qt shortcuts — dead
     exactly when the game has focus. Add an `xdg-desktop-portal` GlobalShortcuts
     (or evdev) backend. **[M-L]**
-13. **Flatpak + AppStream + `.CT` MIME.** `packaging/` ships only an AppImage
-    script; no Flatpak manifest, no `metainfo.xml`, no MIME for `.CT`. Flatpak/
-    Flathub is the discovery channel for Steam Deck / immutable distros — the
-    exact audience. **[S-M]**
+13. **Native packaging.** ~~Flatpak~~ + AppStream + `.CT` MIME. **DONE (partly),
+    with a correction:** a `.deb` + tarball are now produced via CPack (unsandboxed,
+    apt-installable, and the release workflow attaches the `.deb`). **Flatpak was
+    dropped on purpose:** its sandbox runs the app in its own PID namespace and
+    blocks `ptrace`/memory access to other processes — which defeats a memory
+    scanner. AppImage + `.deb` (both unsandboxed) are the right fit. Still open:
+    an AppStream `metainfo.xml` and a `.CT` MIME association. **[S]**
 14. **Make `libcecore` embeddable.** `CMakeLists.txt` has zero `install()`
     rules, no `SOVERSION`, no pkg-config/CMake package, no curated public
     headers — the "reusable engine" differentiator is unrealized. Add install +

@@ -3249,6 +3249,68 @@ static void test_lua_real_breakpoint() {
            ok ? "OK" : ("FAILED (" + err + ")").c_str());
 }
 
+// obs_hot stores RAX to a global as its FIRST instruction (the breakpoint site),
+// so if a Lua handler rewrites RAX at the breakpoint, the store lands the new
+// value where the test can observe it.
+static volatile long g_obs_rax;
+__attribute__((noinline)) static void obs_hot() {
+    asm volatile("movq %%rax, %0" : "=m"(g_obs_rax) : : );
+}
+static void obs_worker() {
+    for (;;) {
+        asm volatile("movq $0x1111111111111111, %%rax" ::: "rax");
+        obs_hot();
+        usleep(1000);
+    }
+}
+
+static void test_lua_breakpoint_regwrite() {
+    printf("\n── Test: Lua breakpoint register edit ──\n");
+
+    int fds[2];
+    if (pipe(fds) != 0) { printf("  reg edit: FAILED (pipe)\n"); return; }
+    pid_t child = fork();
+    if (child == 0) {
+        close(fds[0]);
+        std::thread(obs_worker).detach();
+        write(fds[1], "x", 1);
+        for (;;) usleep(100000);
+        _exit(0);
+    }
+    close(fds[1]);
+    if (child < 0) { close(fds[0]); printf("  reg edit: FAILED (fork)\n"); return; }
+    char tok = 0; (void)read(fds[0], &tok, 1); close(fds[0]);
+    usleep(80000);
+
+    LinuxProcessHandle proc(child);
+    LuaEngine eng;
+    eng.setProcess(&proc);
+    auto hotAddr = reinterpret_cast<uintptr_t>(&obs_hot);
+
+    // The handler rewrites RAX; obs_hot then stores it. We should observe the edit.
+    std::string script =
+        "hits = 0\n"
+        "function debugger_onBreakpoint()\n"
+        "  hits = hits + 1\n"
+        "  RAX = 0x00000000ABCDEF12\n"
+        "end\n"
+        "debug_setBreakpoint(" + std::to_string(hotAddr) + ")\n"
+        "for i = 1, 80 do debug_pumpEvents(100); if hits >= 3 then break end end\n"
+        "assert(hits >= 3, 'no hits')\n";
+    std::string err = eng.execute(script);
+
+    long observed = 0;
+    proc.read(reinterpret_cast<uintptr_t>(&g_obs_rax), &observed, sizeof(observed));
+
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
+
+    bool ok = err.empty() && observed == 0x00000000ABCDEF12L;
+    printf("  handler's RAX edit reaches the thread: %s (observed=0x%lx%s)\n",
+           ok ? "OK" : "FAILED", (unsigned long)observed,
+           err.empty() ? "" : (", " + err).c_str());
+}
+
 // Real monotonic time via a raw syscall, so it stays real even after the GOT
 // patch redirects the clock_gettime symbol.
 static double sh_raw_monotonic() {
@@ -6620,6 +6682,7 @@ int main(int argc, char* argv[]) {
     test_debug_thread_switch();
     test_debug_xmm();
     test_lua_real_breakpoint();
+    test_lua_breakpoint_regwrite();
     test_instruction_access();
     test_nop_instruction();
     test_lua_nop_instruction();

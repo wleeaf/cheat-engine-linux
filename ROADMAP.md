@@ -55,7 +55,9 @@ Done and CI-green:
   publishes the register context (RIP/RSP/RAX.. globals) and fires the
   CE-compatible `debugger_onBreakpoint` handler, then resumes;
   `debug_removeBreakpoint` unplants the real breakpoint (test confirms pumping
-  goes quiet after removal).
+  goes quiet after removal). The handler can also REWRITE registers (assign the
+  RIP/RSP/RAX.. globals) and the pump applies them to the hit thread before
+  resuming (test observes a handler's RAX edit land in a subsequent store).
 - **P3 #27** light theme (dead toggle fixed) · **P3 #28** `CONTRIBUTING.md`.
 
 The debugger window's disassembly now has a right-click menu ("Set breakpoint

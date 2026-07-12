@@ -1537,7 +1537,25 @@ static int l_debug_pumpEvents(lua_State* L) {
         } else {
             lua_pop(L, 1);
         }
-        if (auto* sess = eng->debugSession()) sess->continueExecution();
+        // Apply any register edits the handler made via the RIP/RSP/RAX.. globals
+        // (CE lets debugger_onBreakpoint rewrite registers), then resume. Target
+        // the thread that actually hit, then write it.
+        if (auto* sess = eng->debugSession()) {
+            if (sess->selectThread(hit.tid)) {
+                ce::CpuContext ctx = hit.context;
+                auto applyReg = [&](const char* name, uint64_t& field) {
+                    lua_getglobal(L, name);
+                    if (lua_isinteger(L, -1))     field = (uint64_t)lua_tointeger(L, -1);
+                    else if (lua_isnumber(L, -1))  field = (uint64_t)lua_tonumber(L, -1);
+                    lua_pop(L, 1);
+                };
+                applyReg("RIP", ctx.rip); applyReg("RSP", ctx.rsp);
+                applyReg("RAX", ctx.rax); applyReg("RBX", ctx.rbx);
+                applyReg("RCX", ctx.rcx); applyReg("RDX", ctx.rdx);
+                sess->setStopContext(ctx);
+            }
+            sess->continueExecution();
+        }
     }
     lua_pushinteger(L, processed);
     return 1;

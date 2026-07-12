@@ -421,6 +421,47 @@ static int l_writeRegionFromFile(lua_State* L) {
     return 1;
 }
 
+// getModuleAddress(name) -> base address of the named module, or nil.
+static int l_getModuleAddress(lua_State* L) {
+    const char* name = luaL_checkstring(L, 1);
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); return 1; }
+    for (auto& m : p->modules())
+        if (m.name == name || m.path == name || m.path.find(name) != std::string::npos) {
+            lua_pushinteger(L, (lua_Integer)m.base);
+            return 1;
+        }
+    lua_pushnil(L);
+    return 1;
+}
+
+// compareMemory(address1, address2, size) -> true if the two regions are equal.
+static int l_compareMemory(lua_State* L) {
+    uintptr_t a1 = (uintptr_t)luaL_checkinteger(L, 1);
+    uintptr_t a2 = (uintptr_t)luaL_checkinteger(L, 2);
+    size_t size = (size_t)luaL_checkinteger(L, 3);
+    luaL_argcheck(L, size <= (1u << 24), 3, "size too large");
+    auto* p = getProc(L);
+    if (!p) { lua_pushboolean(L, 0); return 1; }
+    std::vector<uint8_t> b1(size), b2(size);
+    auto r1 = p->read(a1, b1.data(), size);
+    auto r2 = p->read(a2, b2.data(), size);
+    bool equal = r1 && r2 && *r1 == size && *r2 == size &&
+                 std::memcmp(b1.data(), b2.data(), size) == 0;
+    lua_pushboolean(L, equal ? 1 : 0);
+    return 1;
+}
+
+// floatToByteTable(value) -> {b1,b2,b3,b4} (little-endian IEEE-754).
+static int l_floatToByteTable(lua_State* L) {
+    float f = (float)luaL_checknumber(L, 1);
+    uint8_t bytes[4];
+    std::memcpy(bytes, &f, 4);
+    lua_newtable(L);
+    for (int i = 0; i < 4; ++i) { lua_pushinteger(L, bytes[i]); lua_rawseti(L, -2, i + 1); }
+    return 1;
+}
+
 // ── Local memory read/write functions ──
 //
 // SECURITY (by design): the *Local family reinterpret_casts a script-supplied
@@ -2764,6 +2805,9 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "readBytes", l_readBytes);
     lua_register(L, "readRegionToFile", l_readRegionToFile);
     lua_register(L, "writeRegionFromFile", l_writeRegionFromFile);
+    lua_register(L, "getModuleAddress", l_getModuleAddress);
+    lua_register(L, "compareMemory", l_compareMemory);
+    lua_register(L, "floatToByteTable", l_floatToByteTable);
     lua_register(L, "byteTableToString", l_byteTableToString);
     lua_register(L, "stringToByteTable", l_stringToByteTable);
     lua_register(L, "wordToByteTable", l_wordToByteTable);

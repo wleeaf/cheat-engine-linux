@@ -3006,6 +3006,33 @@ static void test_lua_region_file() {
            ok ? "OK" : ("FAILED (" + err + " restored=" + std::to_string(restored) + ")").c_str());
 }
 
+static void test_lua_more_bindings() {
+    printf("\n── Test: Lua getModuleAddress / compareMemory / floatToByteTable ──\n");
+    LuaEngine eng;
+    eng.setOwnedProcess(std::make_unique<LinuxProcessHandle>(getpid()));
+
+    static uint8_t bufA[16], bufB[16];
+    for (int i = 0; i < 16; ++i) { bufA[i] = (uint8_t)(i + 1); bufB[i] = (uint8_t)(i + 1); }
+    const std::string a = std::to_string((uintptr_t)bufA);
+    const std::string b = std::to_string((uintptr_t)bufB);
+
+    std::string err = eng.execute(
+        "assert(getModuleAddress('libc') ~= nil, 'libc module not found')\n"
+        "assert(compareMemory(" + a + ", " + b + ", 16) == true, 'equal buffers')\n"
+        "local ft = floatToByteTable(1.0)\n"                     // 1.0f -> 00 00 80 3F
+        "assert(#ft == 4, 'float byte count')\n"
+        "assert(ft[1]==0x00 and ft[2]==0x00 and ft[3]==0x80 and ft[4]==0x3F, 'float bytes')\n");
+
+    bufB[3] = 0xFF;   // now they differ
+    std::string err2 = err.empty()
+        ? eng.execute("assert(compareMemory(" + a + ", " + b + ", 16) == false, 'differ')")
+        : std::string();
+
+    bool ok = err.empty() && err2.empty();
+    printf("  getModuleAddress + compareMemory + floatToByteTable: %s\n",
+           ok ? "OK" : ("FAILED (" + (err.empty() ? err2 : err) + ")").c_str());
+}
+
 // A hot function with a single store to one global, plus a worker that spins it,
 // for the "find what addresses this instruction accesses" test below.
 static volatile long g_ifa_target;
@@ -6958,6 +6985,7 @@ int main(int argc, char* argv[]) {
     test_nop_instruction();
     test_lua_nop_instruction();
     test_lua_region_file();
+    test_lua_more_bindings();
     test_speedhack_got_injection();
     test_parser_fuzz_negatives();
     test_lua_shellexecute_gate();

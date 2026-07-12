@@ -1,6 +1,8 @@
 #include "gui/debuggerwindow.hpp"
+#include "debug/patch.hpp"
 
 #include <QWidget>
+#include <QMenu>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -55,6 +57,9 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     disasmView_->setReadOnly(true);
     disasmView_->setFont(mono);
     disasmView_->setLineWrapMode(QPlainTextEdit::NoWrap);
+    disasmView_->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(disasmView_, &QPlainTextEdit::customContextMenuRequested,
+            this, &DebuggerWindow::onDisasmContextMenu);
     leftSplit->addWidget(disasmView_);
     stackView_ = new QPlainTextEdit();
     stackView_->setReadOnly(true);
@@ -484,6 +489,36 @@ uintptr_t DebuggerWindow::currentCursorAddress() const {
     if (block >= 0 && block < static_cast<int>(disasmLineAddrs_.size()))
         return disasmLineAddrs_[block];
     return lastStopRip_;
+}
+
+void DebuggerWindow::setBreakpointAtCursor() {
+    addBreakpointAt(currentCursorAddress());
+}
+
+void DebuggerWindow::nopInstructionAtCursor() {
+    if (!proc_ || !session_->isStopped()) return;
+    ce::nopInstruction(*proc_, currentCursorAddress());
+    updateDisassembly(session_->getStopContext());   // show the NOPs
+}
+
+void DebuggerWindow::onDisasmContextMenu(const QPoint& pos) {
+    // Move the caret to the clicked line so currentCursorAddress() targets it.
+    disasmView_->setTextCursor(disasmView_->cursorForPosition(pos));
+    QMenu menu(this);
+    menu.addAction("Set breakpoint here", this, &DebuggerWindow::setBreakpointAtCursor);
+    menu.addAction("Replace with NOPs",  this, &DebuggerWindow::nopInstructionAtCursor);
+    menu.exec(disasmView_->viewport()->mapToGlobal(pos));
+}
+
+bool DebuggerWindow::disasmSetBreakpointForTest(int lineIndex) {
+    QTextCursor c = disasmView_->textCursor();
+    c.movePosition(QTextCursor::Start);
+    c.movePosition(QTextCursor::Down, QTextCursor::MoveAnchor, lineIndex);
+    disasmView_->setTextCursor(c);
+    uintptr_t addr = currentCursorAddress();
+    setBreakpointAtCursor();
+    for (auto& b : bps_) if (b.addr == addr) return true;
+    return false;
 }
 
 } // namespace ce::gui

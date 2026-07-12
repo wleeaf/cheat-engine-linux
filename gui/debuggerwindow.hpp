@@ -52,6 +52,9 @@ public:
     bool memoryViewShowsForTest(uintptr_t addr);
     // Whether the XMM0 register row displays a value whose low 64 bits are `lo`.
     bool xmm0ShowsForTest(uint64_t lo);
+    // Move the caret to disasm line `lineIndex` and set a breakpoint there via the
+    // same path the right-click menu uses; report whether it was planted.
+    bool disasmSetBreakpointForTest(int lineIndex);
 
 private slots:
     void onContinue();
@@ -65,12 +68,15 @@ private slots:
     void onRegisterEdited(QTableWidgetItem* item);  // edit a GP register in place
     void onThreadSelected(int index);               // switch the active thread
     void onMemAddrEntered();                         // point the hex pane at an address
+    void onDisasmContextMenu(const QPoint& pos);     // right-click the disassembly
     void onDebugEvent(int type);   // marshalled from the tracer thread
 
 private:
     void refreshStopped();
     void updateThreadList();   // repopulate the thread dropdown at a stop
     void updateMemoryView(uintptr_t addr);   // hex-dump bytes at addr
+    void setBreakpointAtCursor();            // disasm menu action
+    void nopInstructionAtCursor();           // disasm menu action
     void updateRegisters(const ce::CpuContext& ctx);
     void updateDisassembly(const ce::CpuContext& ctx);
     void updateStack(const ce::CpuContext& ctx);

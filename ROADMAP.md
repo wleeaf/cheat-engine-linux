@@ -58,9 +58,13 @@ Done and CI-green:
   goes quiet after removal).
 - **P3 #27** light theme (dead toggle fixed) · **P3 #28** `CONTRIBUTING.md`.
 
-Remaining: **#15** the rest of unification — route the disassembler right-click
-through the same session and add HW/data + conditional breakpoints (the Lua
-firing model is now settled: async-marshaled `debugger_onBreakpoint`); #21
+The debugger window's disassembly now has a right-click menu ("Set breakpoint
+here" / "Replace with NOPs") wired through the session + the `nopInstruction`
+backend (gui_debugger_smoke `disasmbp=1`).
+
+Remaining: **#15** only HW/data + conditional breakpoints left (the `type` arg to
+`debug_setBreakpoint`; needs a hardware-watchpoint path on `DebugSession`, whose
+machinery already exists in `CodeFinder`/`Debugger::setBreakpoint`); #21
 dissector N-instance/RTTI; #24 ceserver daemon; more of #23. Genuinely blocked on
 real-world testing / a strategic call: **#10 Mono/Unity**, **#11 Vulkan overlay**,
 **#12 Wayland hotkeys**, #25 ARM, #26 32-bit inject.

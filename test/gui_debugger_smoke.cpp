@@ -84,6 +84,10 @@ int main(int argc, char** argv) {
     // thread switch below retargets the register view to another thread).
     bool xmmView = hit && win.xmm0ShowsForTest(0x0102030405060708ULL);
 
+    // Disassembler right-click: set a breakpoint at a disasm line via the cursor
+    // path the context menu uses (while the worker's code is shown).
+    bool disasmBp = hit && win.disasmSetBreakpointForTest(1);
+
     // Thread switcher: the child has >= 2 frozen threads; the dropdown lists them
     // and switching moves the session's active thread.
     bool threadSwitch = hit && win.threadCount() >= 2 && win.switchToOtherThreadForTest();
@@ -100,8 +104,8 @@ int main(int argc, char** argv) {
     kill(child, SIGKILL);
     waitpid(child, nullptr, 0);
 
-    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && xmmView;
-    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d xmm=%d)\n",
-           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, xmmView);
+    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && xmmView && disasmBp;
+    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d xmm=%d disasmbp=%d)\n",
+           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, xmmView, disasmBp);
     return ok ? 0 : 1;
 }

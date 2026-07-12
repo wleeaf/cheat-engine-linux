@@ -3,6 +3,7 @@
 #include "platform/linux/ceserver_client.hpp"
 #include "platform/linux/ceserver_server.hpp"
 #include "platform/linux/mono_debugger_client.hpp"
+#include "platform/linux/process_watcher.hpp"
 #include "platform/linux/ceserver_process.hpp"
 #include "platform/linux/ceserver_debugger.hpp"
 #include "platform/linux/kernel_driver.hpp"
@@ -56,6 +57,8 @@
 #include <stdexcept>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <csignal>
+#include <sys/prctl.h>
 
 using namespace ce;
 using namespace ce::os;
@@ -1211,6 +1214,51 @@ static void test_mono_debugger_client() {
     printf("  VM/AllThreads parse: %s\n", threadsOk ? "OK" : "FAILED");
     printf("  suspend/resume: %s\n", suspendOk ? "OK" : "FAILED");
     printf("  agent error surfaced: %s\n", errorOk ? "OK" : "FAILED");
+}
+
+// ProcessWatcher polls /proc for a newly-appearing process whose comm matches a
+// name. Testing it deterministically hinges on comm being inherited across fork:
+// if the test process sets ITS OWN name to the target before forking, the child
+// is born already matching, so the watcher's single read-on-first-sighting can
+// never race a not-yet-renamed child. start() snapshots the baseline
+// synchronously before spawning its thread, so a child forked after start()
+// returns is guaranteed to be a NEW pid (not in the baseline) and must fire.
+static void test_process_watcher() {
+    printf("\n── Test: process watcher ──\n");
+
+    char original[16] = {0};
+    prctl(PR_GET_NAME, original, 0, 0, 0);
+    const char* target = "ceprocwatch";   // <= 15 chars (TASK_COMM_LEN limit)
+    prctl(PR_SET_NAME, target, 0, 0, 0);
+
+    ce::os::ProcessWatcher watcher;
+    std::atomic<pid_t> firedPid{0};
+    watcher.start(target, [&](pid_t pid, const std::string&) {
+        pid_t expected = 0;
+        firedPid.compare_exchange_strong(expected, pid);  // record the first hit
+    }, /*pollIntervalMs=*/25);
+
+    // Baseline is already captured; a child forked now inherits "ceprocwatch".
+    pid_t child = fork();
+    if (child == 0) {
+        prctl(PR_SET_PDEATHSIG, SIGKILL);  // don't linger if the test process dies
+        for (;;) pause();                  // hold the inherited comm until killed
+        _exit(0);
+    }
+    prctl(PR_SET_NAME, original, 0, 0, 0); // restore ours; child keeps its copy
+
+    bool detected = false;
+    if (child > 0) {
+        for (int i = 0; i < 500 && !detected; ++i) {
+            if (firedPid.load() == child) detected = true;
+            else usleep(10 * 1000);        // up to ~5s
+        }
+    }
+
+    watcher.stop();
+    if (child > 0) { kill(child, SIGKILL); waitpid(child, nullptr, 0); }
+
+    printf("  detects a newly-launched matching process: %s\n", detected ? "OK" : "FAILED");
 }
 
 static void test_ceserver_memory_ops() {
@@ -7173,6 +7221,7 @@ int main(int argc, char* argv[]) {
     test_gdb_remote_client();
     test_ceserver_client();
     test_mono_debugger_client();
+    test_process_watcher();
     test_ceserver_memory_ops();
     test_ceserver_extended_ops();
     test_ceserver_debug_ops();

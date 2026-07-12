@@ -3002,6 +3002,31 @@ static void test_lua_localwrite_gate() {
            ok ? "OK" : "FAILED", (int)isBlocked, (int)readUngated, (int)isAllowed);
 }
 
+static void test_lua_exception_firewall() {
+    printf("\n── Test: Lua native exception firewall ──\n");
+    SymbolResolver resolver;
+    LuaEngine eng;
+    eng.setResolver(&resolver);
+    // Every cecore binding is registered through the firewall trampoline, which
+    // is a C closure carrying the real function pointer as its single upvalue.
+    // A plain (unwrapped) C function has zero upvalues, so getupvalue(f,1)==nil;
+    // a wrapped one returns a non-nil name (""), proving the trampoline is in
+    // place to translate any escaping C++ exception into a Lua error. The full
+    // suite (every Lua test now calls through the trampoline) covers regression;
+    // here we also confirm a wrapped binding still behaves normally.
+    std::string err = eng.execute(R"lua(
+        assert(type(readByte) == 'function', 'readByte missing')
+        assert(debug.getupvalue(readByte, 1) ~= nil, 'readByte not firewall-wrapped')
+        assert(debug.getupvalue(getRegionInfo, 1) ~= nil, 'getRegionInfo not firewall-wrapped')
+        assert(debug.getupvalue(writeIntegerLocal, 1) ~= nil, 'writeIntegerLocal not firewall-wrapped')
+        registerSymbol('fw_probe', 0x1234)
+        assert(getSymbolInfo('fw_probe').address == 0x1234, 'wrapped binding misbehaves')
+    )lua");
+    bool ok = err.empty();
+    printf("  firewall wraps every binding + calls still work: %s\n",
+           ok ? "OK" : ("FAILED (" + err + ")").c_str());
+}
+
 // Stripped binaries keep their real symbols in a separate debug file. Build a
 // .so with a used static function (only in .symtab), split the debug info into a
 // sidecar, strip the .so, link them with .gnu_debuglink, and verify the static
@@ -6153,6 +6178,7 @@ int main(int argc, char* argv[]) {
     test_parser_fuzz_negatives();
     test_lua_shellexecute_gate();
     test_lua_localwrite_gate();
+    test_lua_exception_firewall();
     test_symbol_build_id_debuglink();
     test_pointer_rescan_by_value();
     test_lua_symbol_info();

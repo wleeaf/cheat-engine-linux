@@ -22,8 +22,9 @@ environment variable `CECORE_LUA_ALLOW_UNSAFE=1`, launched with the process:
 
 The `read*Local` functions (host-memory read / info disclosure) and the rest of
 the target-memory API stay available, so the operational rule still holds: only
-load tables you authored or trust. A central Lua exception firewall is tracked in
-`ROADMAP.md`.
+load tables you authored or trust. Every native binding is additionally routed
+through a central exception firewall, so a C++ exception escaping a binding
+becomes a Lua error instead of unwinding through liblua's C frames.
 
 ## Running with least privilege
 

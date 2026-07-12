@@ -2567,15 +2567,35 @@ static int l_getRegionInfo(lua_State* L) {
     return 1;
 }
 
+// Central exception firewall. liblua is C-compiled, so a C++ exception that
+// escapes a lua_CFunction would unwind through non-exception-aware C frames
+// (undefined behavior). This trampoline wraps every cecore binding and converts
+// any escaping exception into a Lua error. The real function pointer travels as
+// a light-userdata upvalue (function-pointer <-> void* is POSIX-guaranteed, and
+// cecore is Linux-only). luaL_error longjmps out; the trampoline holds no
+// non-trivial locals across that jump, so it is the standard Lua/C++ pattern.
+static int ce_lua_firewall(lua_State* L) {
+    auto fn = reinterpret_cast<lua_CFunction>(lua_touserdata(L, lua_upvalueindex(1)));
+    try {
+        return fn(L);
+    } catch (const std::exception& e) {
+        return luaL_error(L, "%s", e.what());
+    } catch (...) {
+        return luaL_error(L, "unhandled C++ exception in a cecore native binding");
+    }
+}
+static inline void ce_register_guarded(lua_State* L, const char* name, lua_CFunction fn) {
+    lua_pushlightuserdata(L, reinterpret_cast<void*>(fn));
+    lua_pushcclosure(L, ce_lua_firewall, 1);
+    lua_setglobal(L, name);
+}
+// Route every lua_register in registerExtendedBindings through the firewall
+// (all 142 registrations funnel through this one macro; write*Local stays
+// double-wrapped by its own gate, which is harmless).
+#undef lua_register
+#define lua_register(L, n, f) ce_register_guarded((L), (n), (f))
+
 void registerExtendedBindings(lua_State* L) {
-    // TODO(security): liblua is C-compiled, so a C++ exception that escapes any
-    // lua_CFunction body unwinds through non-exception-aware C frames (UB). The
-    // sites known to allocate from a script-controlled size or call throwing
-    // scanner/AA code are individually guarded (luaL_argcheck rejects negatives;
-    // try/catch -> luaL_error wraps the allocating reads, l_AOBScan/l_AOBScanEx,
-    // and the createMemScan lambdas), but there is no global firewall wrapping
-    // every registered binding. A systematic fix would route all registrations
-    // through a single exception-translating trampoline.
     // Memory read
     lua_register(L, "readByte", l_readByte);
     lua_register(L, "readSmallInteger", l_readSmallInteger);

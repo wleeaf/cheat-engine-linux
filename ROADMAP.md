@@ -269,10 +269,16 @@ routing both the disassembler and Lua through it closes many at once.
     embedded Linux box as a target. **[M]**
 25. **ARM64/ARM32 support** — `CpuContext` and the injector are x86-64-only;
     excludes Asahi/ARM handhelds. **[L]**
-26. **32-bit / WoW64 injection** — `injector.cpp` refuses 32-bit targets
-    (`:152,:295`), so `injectLibrary`/injected-speedhack don't work on 32-bit
-    Proton games (scanning + AA hooks do). Honestly scope this in the docs
-    meanwhile. **[M]**
+26. **32-bit / WoW64 injection — DONE (library injection).** `injectLibrary`
+    now handles 32-bit targets via a dedicated i386 path (`injectLibrary32` +
+    `remoteSyscall32`/`remoteCall32`: int 0x80, mmap2/munmap, cdecl
+    `__libc_dlopen_mode`), backed by new ELFCLASS32 symbol parsing in
+    `symbols/elf_symbols.cpp`. Verified end-to-end against a real compiled 32-bit
+    target (`test_inject_library_32bit`: exec a 32-bit process, inject a 32-bit
+    .so, confirm it maps; `test_elf32_symbols` covers the symbol path), and CI
+    installs `gcc-multilib` so both run. *Remaining:* `createRemoteThread` is
+    still x86_64-only (32-bit injected-speedhack thread), a smaller follow-up.
+    **[M]**
 27. **Light theme** (the settings toggle is a dead no-op, `gui/main.cpp:56`
     always applies dark) + a HiDPI/fractional-scaling audit of the custom
     painters. **[S]**

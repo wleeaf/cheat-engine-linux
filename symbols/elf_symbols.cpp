@@ -127,7 +127,12 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
     // Verify ELF magic
     if (memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0) return;
 
-    // Only support 64-bit for now
+    // 32-bit (i386) ELFs go through the parallel Elf32 symbol path; the rest of
+    // this function is Elf64-typed.
+    if (ehdr.e_ident[EI_CLASS] == ELFCLASS32) {
+        parseElf32Symbols(path, moduleName, baseAddr);
+        return;
+    }
     if (ehdr.e_ident[EI_CLASS] != ELFCLASS64) return;
 
     // Read section headers
@@ -364,6 +369,92 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
                     }
                 }
             }
+        }
+    }
+}
+
+void SymbolResolver::parseElf32Symbols(const std::string& path, const std::string& moduleName,
+                                       uintptr_t baseAddr) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return;
+
+    std::error_code fsEc;
+    uintmax_t fileSize = std::filesystem::file_size(path, fsEc);
+    if (fsEc) return;
+
+    Elf32_Ehdr ehdr;
+    f.read(reinterpret_cast<char*>(&ehdr), sizeof(ehdr));
+    if (!f) return;
+    if (memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0) return;
+    if (ehdr.e_ident[EI_CLASS] != ELFCLASS32) return;
+    if (ehdr.e_shoff == 0 || ehdr.e_shnum == 0) return;
+
+    std::vector<Elf32_Shdr> shdrs(ehdr.e_shnum);
+    f.clear();
+    f.seekg(ehdr.e_shoff);
+    f.read(reinterpret_cast<char*>(shdrs.data()), ehdr.e_shnum * sizeof(Elf32_Shdr));
+    if (!f) return;
+
+    const bool isPIE = (ehdr.e_type == ET_DYN);
+
+    // Mirror the Elf64 processSymtab, with 16-byte Elf32_Sym entries. Every
+    // section [offset, offset+size) is bounded against the real file size first.
+    auto processSymtab = [&](const Elf32_Shdr& symShdr, const Elf32_Shdr& strShdr) {
+        if (symShdr.sh_entsize != sizeof(Elf32_Sym)) return;
+        if (strShdr.sh_offset > fileSize || strShdr.sh_size > fileSize - strShdr.sh_offset) return;
+        if (symShdr.sh_offset > fileSize || symShdr.sh_size > fileSize - symShdr.sh_offset) return;
+
+        std::vector<char> strtab(strShdr.sh_size);
+        f.clear();
+        f.seekg(strShdr.sh_offset);
+        f.read(strtab.data(), strShdr.sh_size);
+        if (!f) return;
+        if (!strtab.empty()) strtab.back() = '\0';
+
+        size_t numSyms = symShdr.sh_size / sizeof(Elf32_Sym);
+        std::vector<Elf32_Sym> syms(numSyms);
+        f.clear();
+        f.seekg(symShdr.sh_offset);
+        f.read(reinterpret_cast<char*>(syms.data()), numSyms * sizeof(Elf32_Sym));
+        if (!f) return;
+
+        for (auto& sym : syms) {
+            if (sym.st_name == 0 || sym.st_shndx == SHN_UNDEF) continue;
+            if (sym.st_name >= strShdr.sh_size) continue;
+
+            uint8_t type = ELF32_ST_TYPE(sym.st_info);
+            if (type != STT_FUNC && type != STT_OBJECT && type != STT_NOTYPE) continue;
+
+            const char* name = strtab.data() + sym.st_name;
+            if (name[0] == '\0') continue;
+
+            uintptr_t addr = sym.st_value;
+            if (isPIE) addr += baseAddr;
+
+            Symbol s;
+            s.name = name;
+            if (name[0] == '_' && name[1] == 'Z') {
+                int status = 0;
+                char* dem = abi::__cxa_demangle(name, nullptr, nullptr, &status);
+                if (status == 0 && dem) s.name = dem;
+                std::free(dem);
+            }
+            s.address = addr;
+            s.size = sym.st_size;
+            s.module = moduleName;
+
+            size_t idx = symbols_.size();
+            symbols_.push_back(std::move(s));
+            addrIndex_[addr] = idx;
+            if (!nameIndex_.count(name))
+                nameIndex_[std::string(name)] = addr;
+        }
+    };
+
+    for (size_t i = 0; i < shdrs.size(); ++i) {
+        if ((shdrs[i].sh_type == SHT_DYNSYM || shdrs[i].sh_type == SHT_SYMTAB) &&
+            shdrs[i].sh_link < shdrs.size()) {
+            processSymtab(shdrs[i], shdrs[shdrs[i].sh_link]);
         }
     }
 }

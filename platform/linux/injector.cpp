@@ -140,16 +140,218 @@ static uint64_t remoteCall(pid_t pid, uintptr_t funcAddr,
     return result;
 }
 
+// ── i386 (32-bit / compat) remote execution ──
+// A 32-bit tracee on a 64-bit kernel is driven through the same
+// `struct user_regs_struct`: for a compat task the kernel aliases the i386
+// registers into the low 32 bits of the 64-bit fields (eax=rax, ebx=rbx,
+// ecx=rcx, edx=rdx, esi=rsi, edi=rdi, ebp=rbp, eip=rip, esp=rsp), and CS still
+// selects the 32-bit code segment so execution stays in 32-bit mode.
+static constexpr uint32_t NR32_MMAP2  = 192;   // i386 __NR_mmap2 (offset in pages)
+static constexpr uint32_t NR32_MUNMAP = 91;    // i386 __NR_munmap
+
+static int64_t remoteSyscall32(pid_t pid, uint32_t nr,
+    uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5, uint32_t a6)
+{
+    struct user_regs_struct oldRegs, regs;
+    if (ptrace(PTRACE_GETREGS, pid, nullptr, &oldRegs) < 0) return -1;
+
+    regs = oldRegs;
+    regs.rax = nr;   // eax = syscall number
+    regs.rbx = a1;   // i386 syscall args: ebx, ecx, edx, esi, edi, ebp
+    regs.rcx = a2;
+    regs.rdx = a3;
+    regs.rsi = a4;
+    regs.rdi = a5;
+    regs.rbp = a6;
+
+    // int 0x80 = CD 80 (little-endian 0x80CD in the low 16 bits of the word).
+    uint64_t syscallInstr = 0x80CD;
+    errno = 0;
+    uint64_t origInstr = ptrace(PTRACE_PEEKTEXT, pid, (void*)oldRegs.rip, nullptr);
+    if (origInstr == (uint64_t)-1 && errno != 0) return -1;
+    if (ptrace(PTRACE_POKETEXT, pid, (void*)oldRegs.rip,
+               (void*)((origInstr & ~0xFFFF) | syscallInstr)) < 0)
+        return -1;
+
+    int64_t result = -1;
+    if (ptrace(PTRACE_SETREGS, pid, nullptr, &regs) == 0 &&
+        ptrace(PTRACE_SINGLESTEP, pid, nullptr, nullptr) == 0) {
+        int status;
+        if (waitpid(pid, &status, 0) == pid &&
+            WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP) {
+            if (ptrace(PTRACE_GETREGS, pid, nullptr, &regs) == 0)
+                result = (int64_t)(uint32_t)regs.rax;   // eax, zero-extended
+        }
+    }
+
+    ptrace(PTRACE_POKETEXT, pid, (void*)oldRegs.rip, (void*)origInstr);
+    ptrace(PTRACE_SETREGS, pid, nullptr, &oldRegs);
+    return result;
+}
+
+// Call a 32-bit cdecl function: arguments go on the stack (right-to-left), then
+// the return address on top, and the callee returns its result in eax.
+static uint64_t remoteCall32(pid_t pid, uint32_t funcAddr, uint32_t arg1, uint32_t arg2) {
+    struct user_regs_struct oldRegs, regs;
+    if (ptrace(PTRACE_GETREGS, pid, nullptr, &oldRegs) < 0) return (uint64_t)-1;
+
+    regs = oldRegs;
+    regs.orig_rax = (unsigned long long)-1;   // orig_eax = -1: no syscall restart
+
+    // Build the frame a normal CALL would leave: [esp]=retaddr, [esp+4]=arg1,
+    // [esp+8]=arg2, with esp % 16 == 12 so the callee sees a 16-aligned frame
+    // (glibc uses SSE and would fault on a misaligned movaps otherwise).
+    uint32_t esp = (uint32_t)oldRegs.rsp;
+    esp -= 256;          // move well clear of the live stack
+    esp &= ~0xFu;        // 16-align, then...
+    esp -= 4;            // ...back up 4 so (esp % 16) == 12 as after a CALL push
+
+    // Poison return address: an unmapped high address, so the callee's `ret`
+    // faults (SIGSEGV) and that stop is how we learn the call finished.
+    static constexpr uint32_t kPoisonReturn = 0xDEAD0000u;
+    uint32_t frame[4] = { kPoisonReturn, arg1, arg2, 0 };
+    for (int i = 0; i < 4; i += 2) {
+        uint64_t word = (uint64_t)frame[i] | ((uint64_t)frame[i + 1] << 32);
+        if (ptrace(PTRACE_POKETEXT, pid, (void*)(uintptr_t)(esp + i * 4), (void*)word) < 0)
+            return (uint64_t)-1;
+    }
+
+    regs.rip = funcAddr;
+    regs.rsp = esp;
+    if (ptrace(PTRACE_SETREGS, pid, nullptr, &regs) < 0) return (uint64_t)-1;
+    if (ptrace(PTRACE_CONT, pid, nullptr, nullptr) < 0) {
+        ptrace(PTRACE_SETREGS, pid, nullptr, &oldRegs);
+        return (uint64_t)-1;
+    }
+
+    int status;
+    uint64_t result = (uint64_t)-1;
+    if (waitpid(pid, &status, 0) == pid && WIFSTOPPED(status) &&
+        ptrace(PTRACE_GETREGS, pid, nullptr, &regs) == 0) {
+        result = (uint32_t)regs.rax;   // eax
+    }
+
+    ptrace(PTRACE_SETREGS, pid, nullptr, &oldRegs);
+    return result;
+}
+
+// 32-bit sibling of injectLibrary. Kept separate so the hard-won x86_64 path is
+// untouched; the attach / sibling-quiesce / userspace-pick / maps-verify shape
+// mirrors it, only the mmap2/write/dlopen use the i386 ABI.
+static std::expected<uintptr_t, std::string>
+injectLibrary32(ProcessHandle& proc, SymbolResolver& resolver, const std::string& soPath) {
+    pid_t pid = proc.pid();
+
+    if (soPath.empty() || soPath.size() >= 4096)
+        return std::unexpected("invalid shared library path");
+
+    bool usingLibcDlopen = false;
+    uintptr_t dlopenAddr = resolver.lookup("dlopen");
+    if (!dlopenAddr) {
+        dlopenAddr = resolver.lookup("__libc_dlopen_mode");
+        usingLibcDlopen = dlopenAddr != 0;
+    }
+    if (!dlopenAddr)
+        return std::unexpected("dlopen not found in target process symbols");
+
+    if (ptrace(PTRACE_ATTACH, pid, nullptr, nullptr) < 0)
+        return std::unexpected(std::string("ptrace attach failed: ") + strerror(errno));
+
+    int status;
+    if (waitpid(pid, &status, 0) != pid || !WIFSTOPPED(status)) {
+        ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
+        return std::unexpected("target did not stop cleanly after attach");
+    }
+
+    struct SiblingGuard {
+        std::vector<pid_t> tids;
+        ~SiblingGuard() { for (pid_t t : tids) ptrace(PTRACE_DETACH, t, nullptr, nullptr); }
+    } siblings;
+    if (DIR* d = ::opendir(("/proc/" + std::to_string(pid) + "/task").c_str())) {
+        while (struct dirent* e = ::readdir(d)) {
+            pid_t tid = (pid_t)atoi(e->d_name);
+            if (tid <= 0 || tid == pid) continue;
+            if (ptrace(PTRACE_ATTACH, tid, nullptr, nullptr) == 0) {
+                int st; waitpid(tid, &st, __WALL);
+                siblings.tids.push_back(tid);
+            }
+        }
+        ::closedir(d);
+    }
+
+    // Prefer a thread not parked on a 32-bit syscall gadget (int 0x80 / sysenter),
+    // for the same reason as the x86_64 path.
+    auto inUserspace = [](pid_t tid) -> bool {
+        struct user_regs_struct r;
+        if (ptrace(PTRACE_GETREGS, tid, nullptr, &r) < 0) return false;
+        errno = 0;
+        long w = ptrace(PTRACE_PEEKTEXT, tid, (void*)r.rip, nullptr);
+        if (w == -1 && errno != 0) return false;
+        uint16_t op = (uint16_t)(w & 0xFFFF);
+        return op != 0x80CD /*int 0x80*/ && op != 0x340F /*sysenter*/;
+    };
+    pid_t injPid = pid;
+    if (!inUserspace(pid))
+        for (pid_t t : siblings.tids)
+            if (inUserspace(t)) { injPid = t; break; }
+
+    size_t pathLen = soPath.size() + 1;
+    size_t allocSize = (pathLen + 4095) & ~static_cast<size_t>(4095);
+
+    int64_t raw = remoteSyscall32(injPid, NR32_MMAP2,
+        0, (uint32_t)allocSize, 3 /*R|W*/, 0x22 /*PRIVATE|ANON*/, (uint32_t)-1, 0);
+    uint32_t remoteMem = (uint32_t)raw;
+    // mmap2 reports errors as -errno in eax (0xFFFFF001..0xFFFFFFFF once masked).
+    if ((uint32_t)raw >= 0xFFFFF001u || remoteMem == 0) {
+        ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
+        return std::unexpected("Failed to allocate memory in target (32-bit)");
+    }
+
+    const char* pathStr = soPath.c_str();
+    for (size_t i = 0; i < pathLen; i += sizeof(long)) {
+        long word = 0;
+        memcpy(&word, pathStr + i, std::min(sizeof(long), pathLen - i));
+        if (ptrace(PTRACE_POKETEXT, injPid, (void*)(uintptr_t)(remoteMem + i), (void*)word) < 0) {
+            remoteSyscall32(injPid, NR32_MUNMAP, remoteMem, (uint32_t)allocSize, 0, 0, 0, 0);
+            ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
+            return std::unexpected("Failed to write library path into target");
+        }
+    }
+
+    constexpr uint32_t RTLD_NOW = 0x2;
+    constexpr uint32_t RTLD_DLOPEN = 0x80000000u;
+    uint32_t flags = usingLibcDlopen ? (RTLD_NOW | RTLD_DLOPEN) : RTLD_NOW;
+    uint64_t handle = remoteCall32(injPid, (uint32_t)dlopenAddr, remoteMem, flags);
+
+    remoteSyscall32(injPid, NR32_MUNMAP, remoteMem, (uint32_t)allocSize, 0, 0, 0, 0);
+    ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
+
+    if ((uint32_t)handle == 0 || handle == (uint64_t)-1)
+        return std::unexpected("dlopen returned NULL in target process");
+
+    {
+        std::string base = soPath.substr(soPath.find_last_of('/') + 1);
+        std::ifstream maps("/proc/" + std::to_string(pid) + "/maps");
+        std::string line;
+        bool mapped = false;
+        while (std::getline(maps, line))
+            if (line.find(base) != std::string::npos) { mapped = true; break; }
+        if (!mapped)
+            return std::unexpected("dlopen returned " + std::to_string((uint32_t)handle) +
+                                   " but " + base + " is not mapped in the target");
+    }
+
+    return (uintptr_t)(uint32_t)handle;
+}
+
 std::expected<uintptr_t, std::string>
 injectLibrary(ProcessHandle& proc, SymbolResolver& resolver, const std::string& soPath) {
     pid_t pid = proc.pid();
 
-    // remoteSyscall/remoteCall below use the x86_64 syscall ABI (0x050f
-    // opcode, SysV-AMD64 register convention, NR_MMAP=9/NR_MUNMAP=11) and an
-    // 8-byte-word path write. None of that is valid for a 32-bit/compat
-    // tracee, so refuse rather than running the wrong-width ABI against it.
+    // A 32-bit/compat tracee needs the i386 ABI (int 0x80, mmap2, cdecl dlopen),
+    // handled by the dedicated path; remoteSyscall/remoteCall below are x86_64.
     if (!proc.is64bit())
-        return std::unexpected("32-bit target library injection is not supported");
+        return injectLibrary32(proc, resolver, soPath);
 
     // Bound the path length before we attach/allocate. A real .so path is
     // bounded by PATH_MAX; reject anything larger so a bogus oversized string

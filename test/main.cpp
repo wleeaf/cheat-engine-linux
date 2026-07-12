@@ -9,6 +9,7 @@
 #include "platform/linux/kernel_driver.hpp"
 #include "platform/network_compression.hpp"
 #include "platform/vulkan_overlay_injector.hpp"
+#include "platform/linux/injector.hpp"
 #include "scanner/pointer_scanner.hpp"
 #include "scanner/snapshot.hpp"
 #include "core/autoasm.hpp"
@@ -2238,6 +2239,89 @@ static void test_dwarf_symbols() {
         printf("  DWARF address->source line lookup: %s\n", lok ? "OK" : "FAILED");
     }
     std::filesystem::remove(c); std::filesystem::remove(so);
+}
+
+// Symbol resolution for 32-bit (ELFCLASS32) ELFs, the prerequisite for 32-bit
+// library injection (resolving e.g. __libc_dlopen_mode in a 32-bit libc). Skips
+// gracefully when the host lacks a 32-bit toolchain.
+static void test_elf32_symbols() {
+    printf("\n── Test: 32-bit ELF symbol resolution ──\n");
+    const char* src = "int ce32Probe(int x){ return x + 7; }\n";
+    auto dir = std::filesystem::temp_directory_path();
+    auto c  = dir / "ce_elf32_test.c";
+    auto so = dir / "libce_elf32_test.so";
+    { std::ofstream o(c); o << src; }
+    std::string cmd = "gcc -m32 -shared -fPIC -O0 -o '" + so.string() +
+                      "' '" + c.string() + "' 2>/dev/null";
+    if (std::system(cmd.c_str()) == 0) {
+        ce::SymbolResolver res;
+        res.loadModule(so.string(), "e32", 0);
+        uintptr_t addr = res.lookup("ce32Probe");
+        printf("  resolve exported symbol in a 32-bit .so: %s\n",
+               addr != 0 ? "OK" : "FAILED");
+    } else {
+        printf("  resolve exported symbol in a 32-bit .so: SKIPPED (no gcc -m32)\n");
+    }
+    std::filesystem::remove(c); std::filesystem::remove(so);
+}
+
+// End-to-end 32-bit library injection: compile a real 32-bit target + .so, exec
+// the target so it is a genuine i386 process, then inject the .so via the i386
+// ptrace path (int 0x80 / mmap2 / cdecl __libc_dlopen_mode) and confirm it maps.
+// Skips gracefully without a 32-bit toolchain.
+static void test_inject_library_32bit() {
+    printf("\n── Test: 32-bit library injection ──\n");
+
+    auto dir = std::filesystem::temp_directory_path();
+    auto tgtC   = dir / "ce_inj32_target.c";
+    auto tgtBin = dir / "ce_inj32_target";
+    auto libC   = dir / "ce_inj32_lib.c";
+    auto libSo  = dir / "libce_inj32.so";
+
+    // Target: allow any tracer (YAMA), then spin in USERSPACE so the injector can
+    // hijack a userspace thread (a thread parked in a syscall can't be used).
+    {
+        std::ofstream o(tgtC);
+        o << "#include <sys/prctl.h>\n"
+             "int main(){ prctl(PR_SET_PTRACER, -1L, 0, 0, 0);\n"
+             "  for(volatile unsigned long i=0;;++i){} return 0; }\n";
+    }
+    { std::ofstream o(libC); o << "int ceInjected32(){ return 1; }\n"; }
+
+    auto sh = [](const std::string& c){ return std::system(c.c_str()) == 0; };
+    bool built =
+        sh("gcc -m32 -O0 -o '" + tgtBin.string() + "' '" + tgtC.string() + "' 2>/dev/null") &&
+        sh("gcc -m32 -shared -fPIC -O0 -o '" + libSo.string() + "' '" + libC.string() + "' 2>/dev/null");
+    if (!built) {
+        printf("  32-bit .so injected + mapped: SKIPPED (no gcc -m32 toolchain)\n");
+        for (auto* p : {&tgtC, &libC, &tgtBin, &libSo}) std::filesystem::remove(*p);
+        return;
+    }
+
+    pid_t child = fork();
+    if (child == 0) {
+        execl(tgtBin.c_str(), tgtBin.c_str(), (char*)nullptr);
+        _exit(127);
+    }
+
+    bool ok = false;
+    std::string detail;
+    if (child > 0) {
+        usleep(250 * 1000);   // let it exec, set the ptracer, and reach the spin
+        LinuxProcessHandle proc(child);
+        ce::SymbolResolver resolver;
+        resolver.loadProcess(proc);
+        auto res = ce::os::injectLibrary(proc, resolver, libSo.string());
+        ok = res.has_value();
+        if (!res) detail = res.error();
+        kill(child, SIGKILL);
+        waitpid(child, nullptr, 0);
+    }
+
+    if (ok) printf("  32-bit .so injected + mapped: OK\n");
+    else     printf("  32-bit .so injected + mapped: FAILED (%s)\n", detail.c_str());
+
+    for (auto* p : {&tgtC, &libC, &tgtBin, &libSo}) std::filesystem::remove(*p);
 }
 
 static void test_autoasm_lua_blocks() {
@@ -7348,6 +7432,10 @@ int main(int argc, char* argv[]) {
     test_lua_localwrite_gate();
     test_lua_exception_firewall();
     test_symbol_build_id_debuglink();
+    test_elf32_symbols();
+#ifndef __SANITIZE_ADDRESS__
+    test_inject_library_32bit();   // ptrace + poison-ret inject: skip under ASan
+#endif
     test_pointer_rescan_by_value();
     test_lua_symbol_info();
     test_lua_region_info();

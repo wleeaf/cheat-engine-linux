@@ -54,6 +54,11 @@ private:
     // false when recursing into the debug file to avoid loops.
     void parseElfSymbols(const std::string& path, const std::string& moduleName,
                          uintptr_t baseAddr, bool followDebugLink = true);
+    // ELFCLASS32 (i386) symbol tables. Only the .dynsym/.symtab population is
+    // needed here (to resolve e.g. __libc_dlopen_mode in a 32-bit libc for
+    // injection); the PLT/reloc import-naming pass stays 64-bit-only.
+    void parseElf32Symbols(const std::string& path, const std::string& moduleName,
+                           uintptr_t baseAddr);
 
     std::vector<Symbol> symbols_;
     // Sorted by address for binary search in resolve()

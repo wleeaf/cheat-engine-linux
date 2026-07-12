@@ -180,6 +180,7 @@ add_library(cecore SHARED
     platform/network_compression.cpp
     platform/vulkan_overlay_injector.cpp
     platform/linux/ceserver_client.cpp
+    platform/linux/ceserver_server.cpp
     platform/linux/ceserver_process.cpp
     platform/linux/ceserver_debugger.cpp
     platform/linux/mono_debugger_client.cpp

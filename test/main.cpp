@@ -1,6 +1,7 @@
 #include "platform/linux/linux_process.hpp"
 #include "platform/linux/ptrace_wrapper.hpp"
 #include "platform/linux/ceserver_client.hpp"
+#include "platform/linux/ceserver_server.hpp"
 #include "platform/linux/ceserver_process.hpp"
 #include "platform/linux/ceserver_debugger.hpp"
 #include "platform/linux/kernel_driver.hpp"
@@ -3365,6 +3366,40 @@ static void test_lua_hw_breakpoint() {
     printf("  hw write watchpoint fires + tracee survives detach: %s (fired=%d alive=%d%s)\n",
            ok ? "OK" : "FAILED", (int)fired, (int)aliveAfter,
            err.empty() ? "" : (", " + err).c_str());
+}
+
+// The ceserver SERVER side (P2 #24): our own CEServerClient connects to our
+// CeserverServer over the CE protocol and reads/writes memory — a full round-trip.
+static void test_ceserver_roundtrip() {
+    printf("\n── Test: ceserver server round-trip ──\n");
+    ce::os::CeserverServer server;
+    uint16_t port = server.start(0);   // ephemeral localhost port
+    if (port == 0) { printf("  ceserver round-trip: FAILED (start)\n"); return; }
+
+    static volatile long target = 0x1122334455667788L;
+    bool ok = false, connected = false;
+    std::string err;
+    {
+        ce::os::CEServerClient client;   // scoped: disconnects before server.stop()
+        connected = client.connectTcp("127.0.0.1", port, err);
+        if (connected) {
+            auto handle = client.openProcess(getpid());
+            if (handle) {
+                long newval = 0x0102030405060708L;
+                auto w = client.writeProcessMemory(
+                    *handle, (uint64_t)(uintptr_t)&target, &newval, (int32_t)sizeof(newval));
+                long readback = 0;
+                auto rd = client.readProcessMemory(
+                    *handle, (uint64_t)(uintptr_t)&target, &readback, (uint32_t)sizeof(readback));
+                ok = w && *w == (int32_t)sizeof(newval) &&
+                     rd && *rd == (int32_t)sizeof(readback) &&
+                     readback == 0x0102030405060708L && target == 0x0102030405060708L;
+            }
+        }
+    }
+    server.stop();
+    printf("  read/write local memory via ceserver protocol: %s%s\n",
+           ok ? "OK" : "FAILED", connected ? "" : (" (" + err + ")").c_str());
 }
 
 // Real monotonic time via a raw syscall, so it stays real even after the GOT
@@ -6740,6 +6775,7 @@ int main(int argc, char* argv[]) {
     test_lua_real_breakpoint();
     test_lua_breakpoint_regwrite();
     test_lua_hw_breakpoint();
+    test_ceserver_roundtrip();
     test_instruction_access();
     test_nop_instruction();
     test_lua_nop_instruction();

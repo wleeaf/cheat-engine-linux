@@ -69,7 +69,14 @@ address on a `TRAP_HWBKPT`, and detach disarms the debug registers first (a test
 confirms the watchpoint fires on a write AND the tracee survives detach — a
 left-armed DR would kill it). **#15 (debugger unification) is complete.**
 
-Remaining: #21 dissector N-instance/RTTI; #24 ceserver daemon; more of #23.
+**#24 (core)** cecore can now BE a ceserver, not just a client: a new
+`CeserverServer` listens on TCP and serves the core CE protocol commands
+(GETVERSION / OPENPROCESS / CLOSEHANDLE / READ- / WRITEPROCESSMEMORY) against
+local process memory. Verified by a full round-trip — our own `CEServerClient`
+connects and reads/writes memory through it. (Extended commands — regions,
+modules/threads, debug, alloc — remain for full parity.)
+
+Remaining: #21 dissector N-instance/RTTI; more of #24 (extended commands) and #23.
 Genuinely blocked on real-world testing / a strategic call: **#10 Mono/Unity**,
 **#11 Vulkan overlay**, **#12 Wayland hotkeys**, #25 ARM, #26 32-bit inject.
 

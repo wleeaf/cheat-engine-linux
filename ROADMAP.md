@@ -33,11 +33,13 @@ Done and CI-green:
   · **P2 #18 (partial)** configurable
   find-what-writes watch size + instruction effective-address decode
   (`computeEffectiveAddress`: base+index*scale+disp and RIP-relative), the
-  primitive behind "find what addresses this instruction accesses".
+  primitive behind "find what addresses this instruction accesses" · **P2 #16
+  (partial)** register editing backend (`DebugSession::setStopContext` writes the
+  full GP set + RFLAGS to the stopped thread; `getStopContext` now captures r8-r15).
 - **P3 #27** light theme (dead toggle fixed) · **P3 #28** `CONTRIBUTING.md`.
 
-Remaining: **#15** debugger unification (the
-big P2 lever); #16/#21 GUI debugger/dissector work; #24 ceserver daemon; more of #23.
+Remaining: **#15** debugger unification (the big P2 lever); #16 GUI wiring for the
+new register-edit backend + #21 dissector work; #24 ceserver daemon; more of #23.
 Genuinely blocked on real-world testing / a strategic call: **#10 Mono/Unity**,
 **#11 Vulkan overlay**, **#12 Wayland hotkeys**, #25 ARM, #26 32-bit inject.
 

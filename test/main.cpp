@@ -2856,6 +2856,63 @@ static void test_multithread_software_breakpoint() {
            stepped ? "yes" : "no", resumed ? "yes" : "no");
 }
 
+// Editing a stopped thread's registers (the backend behind the debugger's
+// register editor). doSetRegs writes via PTRACE_SETREGS then re-reads via
+// PTRACE_GETREGS, so a matching read-back proves the value round-tripped through
+// the real thread — not just our cache.
+static void test_debug_register_edit() {
+    printf("\n── Test: debugger register editing ──\n");
+
+    int fds[2];
+    if (pipe(fds) != 0) { printf("  register edit: FAILED (pipe)\n"); return; }
+    pid_t child = fork();
+    if (child == 0) {
+        close(fds[0]);
+        std::thread(bp_hot_worker).detach();   // repeatedly calls bp_child_hot
+        write(fds[1], "x", 1);
+        for (;;) usleep(100000);
+        _exit(0);
+    }
+    close(fds[1]);
+    if (child < 0) { close(fds[0]); printf("  register edit: FAILED (fork)\n"); return; }
+    char tok = 0; (void)read(fds[0], &tok, 1); close(fds[0]);
+    usleep(80000);
+
+    LinuxProcessHandle proc(child);
+    DebugSession session;
+    std::atomic<bool> hit{false};
+    session.setEventCallback([&](const DebugEvent& e) {
+        if (e.type == DebugEventType::BreakpointHit) hit.store(true);
+    });
+    auto hotAddr = reinterpret_cast<uintptr_t>(&bp_child_hot);
+
+    bool attached = session.attach(child, &proc);
+    int bpId = attached ? session.setSoftwareBreakpoint(hotAddr) : -1;
+    if (attached) session.continueExecution();
+    for (int i = 0; i < 500 && !hit.load(); ++i) usleep(10000);   // up to ~5s
+
+    bool edited = false, preserved = false;
+    if (hit.load() && session.isStopped()) {
+        CpuContext before = session.getStopContext();
+        CpuContext ctx = before;
+        ctx.r15 = 0x1234CAFE5678BEEFull;   // scratch sentinels
+        ctx.rbx = 0x000000000BADF00Dull;
+        bool set = session.setStopContext(ctx);
+        CpuContext after = session.getStopContext();
+        edited = set && after.r15 == 0x1234CAFE5678BEEFull &&
+                 after.rbx == 0x000000000BADF00Dull;
+        preserved = (after.rip == before.rip);   // only r15/rbx were changed
+    }
+
+    if (session.isAttached()) session.detach();
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
+
+    bool ok = attached && bpId > 0 && edited && preserved;
+    printf("  set + read-back GP registers on a stopped thread: %s (edited=%d preserved=%d)\n",
+           ok ? "OK" : "FAILED", (int)edited, (int)preserved);
+}
+
 // Real monotonic time via a raw syscall, so it stays real even after the GOT
 // patch redirects the clock_gettime symbol.
 static double sh_raw_monotonic() {
@@ -6222,6 +6279,7 @@ int main(int argc, char* argv[]) {
     test_software_breakpoint();
     test_multithread_watchpoint();
     test_multithread_software_breakpoint();
+    test_debug_register_edit();
     test_speedhack_got_injection();
     test_parser_fuzz_negatives();
     test_lua_shellexecute_gate();

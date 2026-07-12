@@ -72,6 +72,12 @@ public:
     /// Get the current stop context.
     CpuContext getStopContext() const;
 
+    /// Overwrite the stopped thread's general-purpose registers and flags
+    /// (register editing in the debugger). Only the managed integer registers
+    /// and RFLAGS are written; everything else the thread had is preserved.
+    /// Returns false if the target is not currently stopped.
+    bool setStopContext(const CpuContext& ctx);
+
     /// Callback for debug events.
     using EventCallback = std::function<void(const DebugEvent&)>;
     void setEventCallback(EventCallback cb) { eventCb_ = std::move(cb); }
@@ -84,13 +90,14 @@ private:
     // be issued by the one thread that attached. So the event-loop thread is the
     // sole tracer; public mutators (continue/step/set-bp/remove-bp) post a
     // command that the tracer thread executes while the tracee is stopped.
-    enum class CmdType { Continue, Step, SetSoftBp, RemoveSoftBp };
+    enum class CmdType { Continue, Step, SetSoftBp, RemoveSoftBp, SetRegs };
     struct Command {
         CmdType type;
         StepMode stepMode{StepMode::Into};
         uintptr_t addr = 0;   // step target / breakpoint address
         int id = 0;           // RemoveSoftBp target
         std::shared_ptr<std::promise<long>> done; // result (bp id, else 0)
+        CpuContext regs{};    // SetRegs payload
     };
 
     void tracerThread();
@@ -104,6 +111,7 @@ private:
     void doStep(StepMode mode, uintptr_t targetAddress);
     long doSetSoftBp(uintptr_t address);
     void doRemoveSoftBp(int id);
+    bool doSetRegs(const CpuContext& ctx);
     void rewindOverBreakpoint(pid_t tid, int status, uintptr_t bpAddr);
     // ── All-stop multi-thread helpers (tracer thread only) ──
     // Seize every thread of the target with PTRACE_O_TRACECLONE and leave them

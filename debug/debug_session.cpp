@@ -72,6 +72,14 @@ void DebugSession::captureRegs(pid_t tid) {
     stopContext_.rsi = regs.rsi;
     stopContext_.rdi = regs.rdi;
     stopContext_.rbp = regs.rbp;
+    stopContext_.r8  = regs.r8;
+    stopContext_.r9  = regs.r9;
+    stopContext_.r10 = regs.r10;
+    stopContext_.r11 = regs.r11;
+    stopContext_.r12 = regs.r12;
+    stopContext_.r13 = regs.r13;
+    stopContext_.r14 = regs.r14;
+    stopContext_.r15 = regs.r15;
     stopContext_.rflags = regs.eflags;
 }
 
@@ -232,8 +240,35 @@ long DebugSession::performCommand(const Command& cmd) {
         case CmdType::Step:         doStep(cmd.stepMode, cmd.addr); return 0;
         case CmdType::SetSoftBp:    return doSetSoftBp(cmd.addr);
         case CmdType::RemoveSoftBp: doRemoveSoftBp(cmd.id); return 0;
+        case CmdType::SetRegs:      return doSetRegs(cmd.regs) ? 1 : 0;
     }
     return 0;
+}
+
+bool DebugSession::setStopContext(const CpuContext& ctx) {
+    if (!attached_.load() || !stopped_.load()) return false;
+    Command cmd;
+    cmd.type = CmdType::SetRegs;
+    cmd.regs = ctx;
+    return postCommand(std::move(cmd)) == 1;
+}
+
+// Runs ONLY on the tracer thread (via performCommand). Read the live registers,
+// overwrite the managed integer/flags fields from ctx, and write them back — so
+// registers we do not model (segment bases, orig_rax, etc.) are left intact.
+bool DebugSession::doSetRegs(const CpuContext& ctx) {
+    if (!stopped_.load() || activeTid_ == 0) return false;
+    struct user_regs_struct regs;
+    if (ptrace(PTRACE_GETREGS, activeTid_, nullptr, &regs) < 0) return false;
+    regs.rip = ctx.rip; regs.rsp = ctx.rsp;
+    regs.rax = ctx.rax; regs.rbx = ctx.rbx; regs.rcx = ctx.rcx; regs.rdx = ctx.rdx;
+    regs.rsi = ctx.rsi; regs.rdi = ctx.rdi; regs.rbp = ctx.rbp;
+    regs.r8  = ctx.r8;  regs.r9  = ctx.r9;  regs.r10 = ctx.r10; regs.r11 = ctx.r11;
+    regs.r12 = ctx.r12; regs.r13 = ctx.r13; regs.r14 = ctx.r14; regs.r15 = ctx.r15;
+    regs.eflags = ctx.rflags;
+    if (ptrace(PTRACE_SETREGS, activeTid_, nullptr, &regs) < 0) return false;
+    captureRegs(activeTid_);   // refresh the cached stop context
+    return true;
 }
 
 int DebugSession::setSoftwareBreakpoint(uintptr_t address) {

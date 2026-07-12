@@ -13,6 +13,52 @@ reimplementation of Cheat Engine).
 
 ---
 
+## v0.3.0 — Complete interactive debugger, ceserver, and security hardening (2026-07-12)
+
+A large release that finishes the interactive debugger, turns cecore into a
+remote-debug **server**, and closes the untrusted-`.CT` security gaps. Every
+change below shipped CI-green (build + ASan/UBSan) with backend tests and a
+headless offscreen-Qt GUI smoke test.
+
+### Interactive debugger — complete (#15, #16)
+
+- **Real Lua `debug_*` API** (was a facade): `debug_setBreakpoint` plants a real
+  software breakpoint through a `LuaEngine`-owned `DebugSession`; hits are queued
+  on the tracer thread and drained by `debug_pumpEvents` on the Lua thread, which
+  publishes the register context and fires the CE-compatible `debugger_onBreakpoint`.
+  The handler can **read and rewrite registers**; `debug_removeBreakpoint` unplants.
+- **Hardware data watchpoints**: a non-zero `type` arms DR0-3 on every thread; the
+  event loop reports the watched address on `TRAP_HWBKPT` and disarms the debug
+  registers before detach (verified: the tracee survives detach).
+- **Debugger window**: editable GP/R8-R15/**XMM** registers, a thread switcher,
+  a memory/hex pane, and a disassembly right-click menu (set breakpoint / NOP).
+
+### Be a ceserver, not just a client (#24)
+
+- New `CeserverServer` serves the CE ceserver protocol over TCP:
+  GETVERSION, OPENPROCESS, CLOSEHANDLE, READ/WRITEPROCESSMEMORY, VIRTUALQUERYEXFULL
+  (regions), GETARCHITECTURE, and CREATETOOLHELP32SNAPSHOTEX (threads + modules).
+  A remote CE (or another cecore) can now attach for memory access and inspection.
+
+### Security hardening (#6)
+
+- `shellExecute` and the `write*Local` self-memory functions are **default-deny**,
+  enabled only by the out-of-band `CECORE_LUA_ALLOW_UNSAFE=1`.
+- Every Lua binding is wrapped by a central exception firewall (a C++ exception
+  can no longer unwind through liblua's C frames).
+
+### Analysis, symbols, and formats
+
+- "Find what addresses this instruction accesses" (`findInstructionAccesses`),
+  the `computeEffectiveAddress` primitive, and length-preserving NOP with undo.
+- Multi-thread all-stop Break&Trace; build-id / `.gnu_debuglink` stripped-symbol
+  resolution; pointer rescan-by-value.
+- Embedded `<Forms>` are now preserved across `.CT` load/save.
+- Lua additions: `getRegionInfo`, `getNameFromAddress` (hex fallback),
+  `nopInstruction`, `getSymbolInfo`, `reinitializeSymbolhandler`.
+
+---
+
 ## v0.2.1 — AOB injection fix + 32-bit/WoW64/Wine support (2026-07-10)
 
 A correctness release headlined by a fix that makes **AOB injection scripts

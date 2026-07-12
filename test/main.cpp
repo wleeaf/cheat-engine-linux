@@ -3021,7 +3021,12 @@ static void test_lua_more_bindings() {
         "assert(compareMemory(" + a + ", " + b + ", 16) == true, 'equal buffers')\n"
         "local ft = floatToByteTable(1.0)\n"                     // 1.0f -> 00 00 80 3F
         "assert(#ft == 4, 'float byte count')\n"
-        "assert(ft[1]==0x00 and ft[2]==0x00 and ft[3]==0x80 and ft[4]==0x3F, 'float bytes')\n");
+        "assert(ft[1]==0x00 and ft[2]==0x00 and ft[3]==0x80 and ft[4]==0x3F, 'float bytes')\n"
+        "assert(byteTableToFloat(floatToByteTable(1.5)) == 1.5, 'float roundtrip')\n"
+        "assert(byteTableToDouble(doubleToByteTable(3.25)) == 3.25, 'double roundtrip')\n"
+        "assert(byteTableToWord({0x34,0x12}) == 0x1234, 'word')\n"
+        "assert(byteTableToDword({0x78,0x56,0x34,0x12}) == 0x12345678, 'dword')\n"
+        "assert(byteTableToQword({8,7,6,5,4,3,2,1}) == 0x0102030405060708, 'qword')\n");
 
     bufB[3] = 0xFF;   // now they differ
     std::string err2 = err.empty()

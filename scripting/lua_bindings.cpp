@@ -461,6 +461,42 @@ static int l_floatToByteTable(lua_State* L) {
     for (int i = 0; i < 4; ++i) { lua_pushinteger(L, bytes[i]); lua_rawseti(L, -2, i + 1); }
     return 1;
 }
+static int l_doubleToByteTable(lua_State* L) {
+    double d = luaL_checknumber(L, 1);
+    uint8_t b[8]; std::memcpy(b, &d, 8);
+    lua_newtable(L);
+    for (int i = 0; i < 8; ++i) { lua_pushinteger(L, b[i]); lua_rawseti(L, -2, i + 1); }
+    return 1;
+}
+// Read the first n bytes of a Lua array into `out` (missing entries pad to 0).
+static void luaTableToBytes(lua_State* L, int idx, uint8_t* out, int n) {
+    for (int i = 0; i < n; ++i) {
+        lua_rawgeti(L, idx, i + 1);
+        out[i] = (uint8_t)lua_tointeger(L, -1);
+        lua_pop(L, 1);
+    }
+}
+// byteTableTo{Float,Double,Word,Dword,Qword}(t) -> value (little-endian).
+static int l_byteTableToFloat(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TTABLE); uint8_t b[4]; luaTableToBytes(L, 1, b, 4);
+    float f; std::memcpy(&f, b, 4); lua_pushnumber(L, f); return 1;
+}
+static int l_byteTableToDouble(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TTABLE); uint8_t b[8]; luaTableToBytes(L, 1, b, 8);
+    double d; std::memcpy(&d, b, 8); lua_pushnumber(L, d); return 1;
+}
+static int l_byteTableToWord(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TTABLE); uint8_t b[2]; luaTableToBytes(L, 1, b, 2);
+    uint16_t v; std::memcpy(&v, b, 2); lua_pushinteger(L, v); return 1;
+}
+static int l_byteTableToDword(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TTABLE); uint8_t b[4]; luaTableToBytes(L, 1, b, 4);
+    uint32_t v; std::memcpy(&v, b, 4); lua_pushinteger(L, v); return 1;
+}
+static int l_byteTableToQword(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TTABLE); uint8_t b[8]; luaTableToBytes(L, 1, b, 8);
+    uint64_t v; std::memcpy(&v, b, 8); lua_pushinteger(L, (lua_Integer)v); return 1;
+}
 
 // ── Local memory read/write functions ──
 //
@@ -2808,6 +2844,12 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "getModuleAddress", l_getModuleAddress);
     lua_register(L, "compareMemory", l_compareMemory);
     lua_register(L, "floatToByteTable", l_floatToByteTable);
+    lua_register(L, "doubleToByteTable", l_doubleToByteTable);
+    lua_register(L, "byteTableToFloat", l_byteTableToFloat);
+    lua_register(L, "byteTableToDouble", l_byteTableToDouble);
+    lua_register(L, "byteTableToWord", l_byteTableToWord);
+    lua_register(L, "byteTableToDword", l_byteTableToDword);
+    lua_register(L, "byteTableToQword", l_byteTableToQword);
     lua_register(L, "byteTableToString", l_byteTableToString);
     lua_register(L, "stringToByteTable", l_stringToByteTable);
     lua_register(L, "wordToByteTable", l_wordToByteTable);

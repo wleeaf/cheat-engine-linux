@@ -401,6 +401,39 @@ static void test_ce_table_import() {
     printf("  save/reload preserves symbolic base + offsets: %s\n", ptrSaveOk ? "OK" : "FAILED");
 }
 
+// A .CT with an embedded <Forms> block must survive load -> save -> load, so
+// editing a table with Delphi forms doesn't silently drop them.
+static void test_ct_forms_roundtrip() {
+    printf("\n── Test: .CT Forms preservation ──\n");
+    namespace fs = std::filesystem;
+    const std::string formsInner = "<Form><Name>frmMain</Name><Data>AABBCC</Data></Form>";
+    auto inPath  = fs::temp_directory_path() / ("cecore-forms-"     + std::to_string(getpid()) + ".CT");
+    auto outPath = fs::temp_directory_path() / ("cecore-forms-out-" + std::to_string(getpid()) + ".CT");
+    {
+        std::ofstream o(inPath);
+        o << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<CheatTable>\n"
+          << "  <CheatEntries>\n"
+          << "    <CheatEntry><ID>1</ID><Description>\"x\"</Description>"
+             "<VariableType>4 Bytes</VariableType><Address>400000</Address></CheatEntry>\n"
+          << "  </CheatEntries>\n"
+          << "  <Forms>" << formsInner << "</Forms>\n"
+          << "</CheatTable>\n";
+    }
+
+    CheatTable t1;
+    bool loaded    = t1.load(inPath.string());
+    bool captured  = t1.rawFormsXml == formsInner;
+    bool saved     = t1.save(outPath.string());
+    CheatTable t2;
+    bool reloaded  = t2.load(outPath.string());
+    bool preserved = t2.rawFormsXml == formsInner;
+
+    std::error_code ec; fs::remove(inPath, ec); fs::remove(outPath, ec);
+    bool ok = loaded && captured && saved && reloaded && preserved && !t1.entries.empty();
+    printf("  <Forms> survives load -> save -> load: %s (captured=%d preserved=%d)\n",
+           ok ? "OK" : "FAILED", (int)captured, (int)preserved);
+}
+
 static void test_trainer_generation() {
     printf("\n── Test: Trainer Generation ──\n");
 
@@ -6417,6 +6450,7 @@ int main(int argc, char* argv[]) {
 
     test_cheat_table_json();
     test_ce_table_import();
+    test_ct_forms_roundtrip();
     test_trainer_generation();
     test_code_analysis_references();
     test_effective_address();

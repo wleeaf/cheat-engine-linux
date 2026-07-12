@@ -67,6 +67,10 @@ struct CheatTable {
     std::vector<CheatEntry> entries;
     std::vector<DisassemblerComment> disassemblerComments;
     std::vector<StructureDefinition> structures;
+    // Raw "<Forms>...</Forms>" block preserved verbatim across load/save. CE
+    // embeds Delphi form designs here; we can't render them on Linux, but we must
+    // not silently drop them when a user edits and re-saves a table that has them.
+    std::string rawFormsXml;
 
     /// Save to .CT XML file.
     bool save(const std::string& path) const;

@@ -328,6 +328,8 @@ bool CheatTable::save(const std::string& path) const {
     for (size_t i = 0; i < entries.size(); ++i)   // orphan sweep (cycles)
         if (!done[i]) writeEntry(static_cast<int>(i));
     f << "  </CheatEntries>\n";
+    if (!rawFormsXml.empty())
+        f << "  <Forms>" << rawFormsXml << "</Forms>\n";
     f << "</CheatTable>\n";
 
     return true;
@@ -776,6 +778,10 @@ bool CheatTable::load(const std::string& path) {
     author = xmlUnescape(getTag(headerXml, "Author"));
     comment = xmlUnescape(getTag(headerXml, "Comment"));
     luaScript = xmlUnescape(getTag(headerXml, "LuaScript"));
+
+    // Preserve the raw <Forms> block (Delphi form designs) verbatim so editing
+    // and re-saving a table that has forms does not silently drop them.
+    rawFormsXml = getTag(xml, "Forms");
 
     structures.clear();
     auto structuresXml = getTag(xml, "Structures");

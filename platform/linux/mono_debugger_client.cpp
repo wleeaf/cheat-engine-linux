@@ -145,34 +145,41 @@ MonoDebuggerClient::sendCommand(uint8_t cmdset, uint8_t cmd,
     if (!sendAll(packet.data(), packet.size(), err))
         return std::unexpected("send: " + err);
 
-    // Reply: [len(4)][id(4)][flags(1)][error(2)][payload...]
-    uint8_t hdr[11] = {0};
-    if (!recvAll(hdr, sizeof(hdr), err))
-        return std::unexpected("recv hdr: " + err);
-    uint32_t replyLen = loadBe32(hdr);
-    int32_t  replyId  = (int32_t)loadBe32(hdr + 4);
-    uint8_t  flags    = hdr[8];
-    uint16_t errCode  = loadBe16(hdr + 9);
-    if (replyId != id) return std::unexpected("reply id mismatch");
-    if (!(flags & 0x80)) return std::unexpected("expected reply, got command flag");
-    if (replyLen < 11 || replyLen > kMaxMonoReply)
-        return std::unexpected("reply length out of range");
+    // The agent interleaves asynchronous EVENT packets (command packets it sends
+    // us, flags bit 0x80 clear -- e.g. VM_START / THREAD_START on suspend) with
+    // the reply to our command. Read framed packets until we see the reply whose
+    // id matches ours; drain and discard any event packets in between. Bounded so
+    // a peer that never sends our reply can't loop forever.
+    // Reply frame:   [len(4)][id(4)][flags=0x80][error(2)][payload...]
+    // Event frame:   [len(4)][id(4)][flags=0x00][cmdset(1)][cmd(1)][payload...]
+    for (int guard = 0; guard < 4096; ++guard) {
+        uint8_t hdr[11] = {0};
+        if (!recvAll(hdr, sizeof(hdr), err))
+            return std::unexpected("recv hdr: " + err);
+        uint32_t replyLen = loadBe32(hdr);
+        int32_t  replyId  = (int32_t)loadBe32(hdr + 4);
+        uint8_t  flags    = hdr[8];
+        uint16_t errCode  = loadBe16(hdr + 9);
+        if (replyLen < 11 || replyLen > kMaxMonoReply)
+            return std::unexpected("reply length out of range");
 
-    std::vector<uint8_t> body(replyLen - 11);
-    if (!body.empty() && !recvAll(body.data(), body.size(), err))
-        return std::unexpected("recv body: " + err);
-    if (errCode != 0)
-        return std::unexpected("mono agent error " + std::to_string(errCode));
-    return body;
+        std::vector<uint8_t> body(replyLen - 11);
+        if (!body.empty() && !recvAll(body.data(), body.size(), err))
+            return std::unexpected("recv body: " + err);
+
+        // An event packet (or a reply to a different command) is not ours: drop
+        // it and keep reading.
+        if (!(flags & 0x80) || replyId != id)
+            continue;
+
+        if (errCode != 0)
+            return std::unexpected("mono agent error " + std::to_string(errCode));
+        return body;
+    }
+    return std::unexpected("no matching reply after draining agent events");
 }
 
 namespace {
-
-uint64_t loadBe64(const uint8_t* p) {
-    uint64_t v = 0;
-    for (int i = 0; i < 8; ++i) v = (v << 8) | (uint64_t)p[i];
-    return v;
-}
 
 std::vector<uint8_t> int32Payload(int32_t v) {
     std::vector<uint8_t> out(4);
@@ -185,45 +192,46 @@ std::vector<uint8_t> int32Payload(int32_t v) {
 
 } // namespace
 
+// Mono debugger-agent CmdVM numbers (mono/mini/debugger-agent.h):
+//   VERSION=1, ALL_THREADS=2, SUSPEND=3, RESUME=4, EXIT=5, DISPOSE=6.
 std::expected<void, std::string> MonoDebuggerClient::vmSuspend() {
-    auto r = sendCommand(/*cmdset=*/1, /*cmd=*/2, {});
-    if (!r) return std::unexpected(r.error());
-    return {};
-}
-
-std::expected<void, std::string> MonoDebuggerClient::vmResume() {
     auto r = sendCommand(/*cmdset=*/1, /*cmd=*/3, {});
     if (!r) return std::unexpected(r.error());
     return {};
 }
 
+std::expected<void, std::string> MonoDebuggerClient::vmResume() {
+    auto r = sendCommand(/*cmdset=*/1, /*cmd=*/4, {});
+    if (!r) return std::unexpected(r.error());
+    return {};
+}
+
 std::expected<void, std::string> MonoDebuggerClient::vmExit(int32_t exitCode) {
-    auto r = sendCommand(/*cmdset=*/1, /*cmd=*/4, int32Payload(exitCode));
+    auto r = sendCommand(/*cmdset=*/1, /*cmd=*/5, int32Payload(exitCode));
     if (!r) return std::unexpected(r.error());
     return {};
 }
 
 std::expected<void, std::string> MonoDebuggerClient::vmDispose() {
-    auto r = sendCommand(/*cmdset=*/1, /*cmd=*/5, {});
+    auto r = sendCommand(/*cmdset=*/1, /*cmd=*/6, {});
     if (!r) return std::unexpected(r.error());
     return {};
 }
 
 std::expected<std::vector<int64_t>, std::string> MonoDebuggerClient::vmAllThreads() {
-    auto body = sendCommand(/*cmdset=*/1, /*cmd=*/6, {});
+    auto body = sendCommand(/*cmdset=*/1, /*cmd=*/2, {});   // CMD_VM_ALL_THREADS
     if (!body) return std::unexpected(body.error());
     if (body->size() < 4) return std::unexpected("AllThreads reply too short");
-    uint32_t count = (uint32_t)((uint32_t)(*body)[0] << 24 |
-                                (uint32_t)(*body)[1] << 16 |
-                                (uint32_t)(*body)[2] << 8  |
-                                (uint32_t)(*body)[3]);
+    uint32_t count = loadBe32(body->data());
     if (count > (1u << 24)) return std::unexpected("AllThreads count out of range");
-    if (body->size() < 4 + (size_t)count * 8)
+    // Mono encodes object ids with buffer_add_id -> buffer_add_int, i.e. a 4-byte
+    // big-endian id (an index into the agent's id table), not an 8-byte pointer.
+    if (body->size() < 4 + (size_t)count * 4)
         return std::unexpected("AllThreads payload truncated");
     std::vector<int64_t> out;
     out.reserve(count);
     for (uint32_t i = 0; i < count; ++i)
-        out.push_back((int64_t)loadBe64(body->data() + 4 + i * 8));
+        out.push_back((int64_t)(int32_t)loadBe32(body->data() + 4 + i * 4));
     return out;
 }
 

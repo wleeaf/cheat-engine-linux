@@ -153,21 +153,22 @@ alongside official CE 7.7 Linux. Today each is materially short of the claim.
     Today: runtime detection, heap object enumeration, and type-name extraction
     all exist and are unit-tested (`analysis/managed_runtime.cpp`,
     `test_managed_runtime_detection` / `_object_enumeration` / `_type_extraction`),
-    and the Mono soft-debugger client now has a mock-agent round-trip test
-    (`test_mono_debugger_client`: handshake + VM/Version/AllThreads/Suspend/Resume
-    framing). *IL2CPP started:* `analysis/il2cpp_metadata.cpp` parses a
+    and the Mono soft-debugger client is now validated against a REAL mono agent
+    (`test_mono_debugger_real_agent`: compiles + runs a C# probe under
+    `mono --debugger-agent`, then checks the handshake + VM/Version + VM/AllThreads
+    against the genuine agent; `test_mono_debugger_client` keeps the deterministic
+    mock for CI). That real-agent test caught two protocol bugs the mock had
+    hidden: `sendCommand` did not drain the agent's asynchronous event packets
+    (VM_START etc.), and the VM command numbers were wrong (ALL_THREADS is 2 not 6;
+    SUSPEND/RESUME/EXIT/DISPOSE were each off) with 4-byte, not 8-byte, object ids.
+    Both are fixed. *IL2CPP started:* `analysis/il2cpp_metadata.cpp` parses a
     `global-metadata.dat` header + both string pools (identifier names + string
-    literals) with full bounds-checking (`test_il2cpp_metadata`, synthetic file).
-    Those leading header fields are version-stable, so the parser is correct for
-    real files, not just the synthetic one, and it already gives offline
-    extraction of every managed name/string with no live process. *Genuinely
-    blocked here:* the full soft-debugger type-introspection chain
-    (AppDomain→Assembly→Type→Field with true offsets + method invocation) and the
-    deeper IL2CPP metadata tables (type definitions, methods — per-Unity-version
-    struct layouts) both need a live Unity/Mono target. Encoding those from the
-    spec alone would pass a synthetic/mock test yet risk being subtly wrong on the
-    real runtime (false confidence), so they wait for a target.
-    **Most Linux/Proton games are Unity** — this remains the niche to win. **[L]**
+    literals) with full bounds-checking (`test_il2cpp_metadata`, synthetic file);
+    those leading header fields are version-stable so it is correct for real files.
+    *Remaining:* the full soft-debugger type-introspection chain
+    (AppDomain→Assembly→Type→Field) — now developable against the real agent — and
+    the deeper per-Unity-version IL2CPP metadata tables. **Most Linux/Proton games
+    are Unity** — this remains the niche to win. **[L]**
 11. **In-game overlay actually renders.** `platform/vulkan_overlay_layer.cpp`
     advertises a layer but only forwards `vkCreateInstance/Device` — it never
     hooks `vkQueuePresentKHR` and draws nothing. *Layer contract now validated:*

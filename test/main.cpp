@@ -1142,9 +1142,6 @@ static void test_mono_debugger_client() {
             v.push_back(static_cast<uint8_t>(x >> 8));
             v.push_back(static_cast<uint8_t>(x));
         };
-        auto be64 = [](std::vector<uint8_t>& v, uint64_t x) {
-            for (int i = 7; i >= 0; --i) v.push_back(static_cast<uint8_t>(x >> (i * 8)));
-        };
 
         // Handshake: the client sends first, the agent echoes it back.
         char hs[13] = {0};
@@ -1167,17 +1164,18 @@ static void test_mono_debugger_client() {
 
             std::vector<uint8_t> body;
             uint16_t error = 0;
+            // Real mono CmdVM numbers: VERSION=1, ALL_THREADS=2, SUSPEND=3, RESUME=4.
             if (cmdset == 1 && cmd == 1) {              // VM/Version
                 const std::string ver = "Mono mock 1.0";
                 be32(body, static_cast<uint32_t>(ver.size()));
                 body.insert(body.end(), ver.begin(), ver.end());
                 be32(body, 2);   // major
                 be32(body, 55);  // minor
-            } else if (cmdset == 1 && cmd == 6) {       // VM/AllThreads
+            } else if (cmdset == 1 && cmd == 2) {       // VM/AllThreads
                 be32(body, 2);
-                be64(body, 0x1111u);
-                be64(body, 0x2222u);
-            } else if (cmdset == 1 && (cmd == 2 || cmd == 3)) {
+                be32(body, 0x1111u);   // 4-byte object ids (buffer_add_id)
+                be32(body, 0x2222u);
+            } else if (cmdset == 1 && (cmd == 3 || cmd == 4)) {
                 // VM/Suspend, VM/Resume: success with an empty body.
             } else {
                 error = 57;                              // unknown command
@@ -1266,6 +1264,87 @@ static void test_process_watcher() {
     if (child > 0) { kill(child, SIGKILL); waitpid(child, nullptr, 0); }
 
     printf("  detects a newly-launched matching process: %s\n", detected ? "OK" : "FAILED");
+}
+
+// Validates MonoDebuggerClient against a REAL mono soft-debugger agent (not just
+// the mock): compiles a tiny C# program, runs it under mono with
+// --debugger-agent server=y,suspend=y, and confirms the client's handshake +
+// VM/Version + VM/AllThreads framing decodes the genuine agent's replies. Proves
+// the wire framing matches real mono, not only our own encoder. Skips without a
+// mono runtime (e.g. in CI, which does not install mono).
+static void test_mono_debugger_real_agent() {
+    printf("\n── Test: Mono soft-debugger client vs real mono agent ──\n");
+
+    if (std::system("which mono mcs >/dev/null 2>&1") != 0) {
+        printf("  real handshake + VM/Version + AllThreads: SKIPPED (no mono runtime)\n");
+        return;
+    }
+
+    auto dir = std::filesystem::temp_directory_path();
+    auto cs  = dir / "ce_mono_probe.cs";
+    auto exe = dir / "ce_mono_probe.exe";
+    {
+        std::ofstream o(cs);
+        o << "class CeMonoProbe { static void Main() {"
+             " System.Threading.Thread.Sleep(60000); } }\n";
+    }
+    if (std::system(("mcs -out:'" + exe.string() + "' '" + cs.string() + "' 2>/dev/null").c_str()) != 0) {
+        printf("  real handshake + VM/Version + AllThreads: SKIPPED (mcs compile failed)\n");
+        std::filesystem::remove(cs);
+        return;
+    }
+
+    // Reserve an ephemeral loopback port (bind then close) for the agent.
+    int probe = ::socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    ::bind(probe, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+    socklen_t al = sizeof(addr);
+    ::getsockname(probe, reinterpret_cast<sockaddr*>(&addr), &al);
+    uint16_t port = ntohs(addr.sin_port);
+    ::close(probe);
+
+    std::string agentArg = "--debugger-agent=transport=dt_socket,server=y,address=127.0.0.1:" +
+        std::to_string(port) + ",suspend=y";
+    pid_t mono = fork();
+    if (mono == 0) {
+        execlp("mono", "mono", agentArg.c_str(), exe.string().c_str(), (char*)nullptr);
+        _exit(127);
+    }
+
+    bool ok = false;
+    std::string detail;
+    if (mono > 0) {
+        ce::os::MonoDebuggerClient client;
+        bool connected = false;
+        for (int i = 0; i < 80 && !connected; ++i) {   // up to ~8s for the agent
+            if (client.connectTcp("127.0.0.1", port)) connected = true;
+            else usleep(100 * 1000);
+        }
+        if (connected) {
+            auto ver = client.getVersion();
+            auto threads = client.vmAllThreads();
+            ok = ver.has_value() && !ver->vmVersion.empty() && ver->majorVersion >= 1 &&
+                 threads.has_value() && !threads->empty();
+            if (!ver) detail = "getVersion: " + ver.error();
+            else if (!threads) detail = "vmAllThreads: " + threads.error();
+            else detail = "version='" + ver->vmVersion + "' threads=" +
+                          std::to_string(threads->size());
+        } else {
+            detail = "could not connect to agent";
+        }
+        client.close();
+        kill(mono, SIGKILL);
+        waitpid(mono, nullptr, 0);
+    }
+
+    printf("  real handshake + VM/Version + AllThreads: %s (%s)\n",
+           ok ? "OK" : "FAILED", detail.c_str());
+
+    std::filesystem::remove(cs);
+    std::filesystem::remove(exe);
 }
 
 static void test_ceserver_memory_ops() {
@@ -7449,6 +7528,7 @@ int main(int argc, char* argv[]) {
     test_gdb_remote_client();
     test_ceserver_client();
     test_mono_debugger_client();
+    test_mono_debugger_real_agent();
     test_process_watcher();
     test_ceserver_memory_ops();
     test_ceserver_extended_ops();

@@ -30,7 +30,8 @@ Done and CI-green:
   build-id / `.gnu_debuglink` · **P2 #19 (partial)** pointer rescan-by-value
   (game-restart workflow) · **P2 #23 (partial)** Lua `getSymbolInfo`
   + `reinitializeSymbolhandler` + `getRegionInfo` + `getNameFromAddress` hex fallback
-  + `nopInstruction`
+  + `nopInstruction` + `readRegionToFile`/`writeRegionFromFile` + `getModuleAddress`
+  + `compareMemory` + the float/double/byteTable conversion family
   · **P2 #18 (partial)** configurable
   find-what-writes watch size + "find what addresses this instruction accesses"
   (`findInstructionAccesses`: a DebugSession execute-breakpoint monitor that

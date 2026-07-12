@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <format>
 #include <cstdio>
+#include <unordered_map>
 
 namespace ce {
 
@@ -60,7 +61,33 @@ static uintptr_t resolveRipRelative(const cs_insn& in, std::string& ops) {
     return 0;
 }
 
-static Instruction buildInstruction(const cs_insn& in) {
+// Decode the first x86 memory operand (base/index/scale/disp) so a consumer can
+// later compute the absolute address it touches from live registers. Follows the
+// same x86-detail assumption as resolveRipRelative above.
+static MemoryOperand extractMemoryOperand(const cs_insn& in, csh handle) {
+    MemoryOperand m;
+    if (!in.detail) return m;
+    const cs_x86& x86 = in.detail->x86;
+    for (int k = 0; k < x86.op_count; ++k) {
+        const cs_x86_op& op = x86.operands[k];
+        if (op.type != X86_OP_MEM) continue;
+        m.present = true;
+        m.disp  = static_cast<int64_t>(op.mem.disp);
+        m.scale = op.mem.scale ? op.mem.scale : 1;
+        if (op.mem.base == X86_REG_RIP) {
+            m.ripRelative = true;
+        } else if (op.mem.base != X86_REG_INVALID) {
+            if (const char* n = cs_reg_name(handle, op.mem.base)) m.baseReg = n;
+        }
+        if (op.mem.index != X86_REG_INVALID) {
+            if (const char* n = cs_reg_name(handle, op.mem.index)) m.indexReg = n;
+        }
+        break; // first memory operand only
+    }
+    return m;
+}
+
+static Instruction buildInstruction(const cs_insn& in, csh handle) {
     Instruction inst;
     inst.address = in.address;
     inst.size = in.size;
@@ -68,6 +95,7 @@ static Instruction buildInstruction(const cs_insn& in) {
     inst.operands = in.op_str;
     inst.bytes.assign(in.bytes, in.bytes + in.size);
     inst.ripTarget = resolveRipRelative(in, inst.operands);
+    inst.memory = extractMemoryOperand(in, handle);
     return inst;
 }
 
@@ -93,7 +121,7 @@ std::vector<Instruction> Disassembler::disassemble(uintptr_t address, std::span<
         InsnGuard guard{insn, n};
 
         for (size_t i = 0; i < n; ++i)
-            result.push_back(buildInstruction(insn[i]));
+            result.push_back(buildInstruction(insn[i], static_cast<csh>(handle_)));
 
         if (n > 0)
             offset = (result.back().address - address) + result.back().size;
@@ -136,6 +164,36 @@ std::optional<Instruction> Disassembler::disassembleOne(uintptr_t address, std::
     auto result = disassemble(address, code, 1);
     if (result.empty()) return std::nullopt;
     return std::move(result[0]);
+}
+
+// Map an x86 register name (64-bit, or its 32-bit alias) to the CpuContext member
+// holding it. Addressing in 64-bit mode uses the full 64-bit registers; 32-bit
+// address-size truncation is not modelled (rare, and irrelevant to data watches).
+static uint64_t registerValueByName(const CpuContext& c, const std::string& name) {
+    static const std::unordered_map<std::string, uint64_t CpuContext::*> kRegs = {
+        {"rax",&CpuContext::rax},{"rbx",&CpuContext::rbx},{"rcx",&CpuContext::rcx},{"rdx",&CpuContext::rdx},
+        {"rsi",&CpuContext::rsi},{"rdi",&CpuContext::rdi},{"rbp",&CpuContext::rbp},{"rsp",&CpuContext::rsp},
+        {"r8",&CpuContext::r8},{"r9",&CpuContext::r9},{"r10",&CpuContext::r10},{"r11",&CpuContext::r11},
+        {"r12",&CpuContext::r12},{"r13",&CpuContext::r13},{"r14",&CpuContext::r14},{"r15",&CpuContext::r15},
+        {"rip",&CpuContext::rip},
+        {"eax",&CpuContext::rax},{"ebx",&CpuContext::rbx},{"ecx",&CpuContext::rcx},{"edx",&CpuContext::rdx},
+        {"esi",&CpuContext::rsi},{"edi",&CpuContext::rdi},{"ebp",&CpuContext::rbp},{"esp",&CpuContext::rsp},
+        {"r8d",&CpuContext::r8},{"r9d",&CpuContext::r9},{"r10d",&CpuContext::r10},{"r11d",&CpuContext::r11},
+        {"r12d",&CpuContext::r12},{"r13d",&CpuContext::r13},{"r14d",&CpuContext::r14},{"r15d",&CpuContext::r15},
+    };
+    auto it = kRegs.find(name);
+    return it == kRegs.end() ? 0 : c.*(it->second);
+}
+
+uintptr_t computeEffectiveAddress(const Instruction& inst, const CpuContext& ctx) {
+    if (!inst.memory.present) return 0;
+    if (inst.memory.ripRelative) return inst.ripTarget;  // pre-resolved
+    int64_t ea = inst.memory.disp;
+    if (!inst.memory.baseReg.empty())
+        ea += static_cast<int64_t>(registerValueByName(ctx, inst.memory.baseReg));
+    if (!inst.memory.indexReg.empty())
+        ea += static_cast<int64_t>(registerValueByName(ctx, inst.memory.indexReg)) * inst.memory.scale;
+    return static_cast<uintptr_t>(ea);
 }
 
 } // namespace ce

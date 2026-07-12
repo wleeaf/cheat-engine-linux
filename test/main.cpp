@@ -706,6 +706,46 @@ static void test_code_analysis_references() {
     printf("  Code caves: %s\n", cavesOk ? "OK" : "FAILED");
 }
 
+// Decoding an instruction's memory operand + resolving the address it accesses
+// from register state (the primitive behind "find what addresses this
+// instruction accesses" and richer disassembly display).
+static void test_effective_address() {
+    printf("\n── Test: instruction effective-address ──\n");
+    Disassembler dis(Arch::X86_64);
+
+    // mov eax, [rbx + rcx*4 + 0x10]  ->  8B 44 8B 10
+    uint8_t code1[] = {0x8B, 0x44, 0x8B, 0x10};
+    auto i1 = dis.disassemble(0x1000, code1, 1);
+    bool ok1 = false;
+    if (!i1.empty()) {
+        CpuContext ctx{}; ctx.rbx = 0x2000; ctx.rcx = 0x3;
+        uintptr_t ea = computeEffectiveAddress(i1[0], ctx);
+        ok1 = i1[0].memory.present && !i1[0].memory.ripRelative &&
+              i1[0].memory.baseReg == "rbx" && i1[0].memory.indexReg == "rcx" &&
+              i1[0].memory.scale == 4 &&
+              ea == static_cast<uintptr_t>(0x2000 + 0x3 * 4 + 0x10);
+    }
+    printf("  base+index*scale+disp: %s\n", ok1 ? "OK" : "FAILED");
+
+    // mov eax, [rip + 0x100]  ->  8B 05 00 01 00 00  (EA = next_rip + 0x100)
+    uint8_t code2[] = {0x8B, 0x05, 0x00, 0x01, 0x00, 0x00};
+    auto i2 = dis.disassemble(0x1000, code2, 1);
+    bool ok2 = false;
+    if (!i2.empty()) {
+        uintptr_t ea = computeEffectiveAddress(i2[0], CpuContext{});
+        ok2 = i2[0].memory.present && i2[0].memory.ripRelative &&
+              ea == static_cast<uintptr_t>(0x1000 + i2[0].size + 0x100);
+    }
+    printf("  rip-relative: %s\n", ok2 ? "OK" : "FAILED");
+
+    // nop  ->  90  (no memory operand)
+    uint8_t code3[] = {0x90};
+    auto i3 = dis.disassemble(0x1000, code3, 1);
+    bool ok3 = !i3.empty() && !i3[0].memory.present &&
+               computeEffectiveAddress(i3[0], CpuContext{}) == 0;
+    printf("  no-memory instruction: %s\n", ok3 ? "OK" : "FAILED");
+}
+
 static void test_managed_runtime_detection() {
     printf("\n── Test: Managed runtime detection ──\n");
 
@@ -2788,13 +2828,16 @@ static void test_multithread_software_breakpoint() {
     bool stepped = stepEvents.load() >= 1 && stepRip.load() != 0 &&
                    stepRip.load() != beforeStep;
 
-    // Resume the world; the free counter must advance again. Poll up to ~2s so
-    // this stays reliable under heavy slowdown (e.g. instrumented ASan/CI runs).
+    // Resume the world; the free counter must advance again. Poll up to ~10s
+    // with an early exit on success: when the resume works (the common case)
+    // this returns in a few ms, but a heavily-loaded instrumented ASan CI runner
+    // can starve the counter thread far past 2s, so give it a generous ceiling
+    // to keep the test from flaking without slowing the passing path.
     long c3 = 0;
     proc.read(counterAddr, &c3, sizeof(c3));
     session.continueExecution();
     bool resumed = false;
-    for (int i = 0; i < 200 && !resumed; ++i) {
+    for (int i = 0; i < 1000 && !resumed; ++i) {
         usleep(10000);
         long c4 = 0;
         proc.read(counterAddr, &c4, sizeof(c4));
@@ -6135,6 +6178,7 @@ int main(int argc, char* argv[]) {
     test_ce_table_import();
     test_trainer_generation();
     test_code_analysis_references();
+    test_effective_address();
     test_cpp_symbol_demangling();
     test_symbol_size0_extent_cap();
     test_plt_import_resolution();

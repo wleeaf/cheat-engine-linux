@@ -9,7 +9,21 @@
 #include <span>
 #include <functional>
 
+#include "core/types.hpp"   // CpuContext
+
 namespace ce {
+
+// Decoded memory operand of an instruction (x86: base + index*scale + disp, or
+// RIP-relative). Register identity travels as its lower-case name so the header
+// stays free of Capstone types; computeEffectiveAddress maps names to registers.
+struct MemoryOperand {
+    bool        present = false;     // instruction references memory
+    bool        ripRelative = false; // operand is [rip + disp]
+    std::string baseReg;             // e.g. "rbx"; empty if none
+    std::string indexReg;            // e.g. "rcx"; empty if none
+    int32_t     scale = 1;
+    int64_t     disp  = 0;
+};
 
 struct Instruction {
     uintptr_t    address;
@@ -21,9 +35,17 @@ struct Instruction {
     // (0 if the instruction has none). The operand text is also rewritten to
     // "[0x<ripTarget>]"; consumers that need the numeric target use this field.
     uintptr_t    ripTarget = 0;
+    // First memory operand (for "what addresses does this instruction access").
+    MemoryOperand memory;
 
     std::string toString() const;
 };
+
+/// Resolve the absolute address that `inst`'s memory operand refers to, given
+/// register state `ctx`. Returns 0 when the instruction has no memory operand.
+/// RIP-relative operands use the pre-resolved ripTarget; base/index/scale forms
+/// compute base + index*scale + disp from the 64-bit registers.
+uintptr_t computeEffectiveAddress(const Instruction& inst, const CpuContext& ctx);
 
 enum class Arch { X86_32, X86_64, ARM32, ARM64 };
 

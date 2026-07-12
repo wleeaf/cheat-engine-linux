@@ -21,8 +21,8 @@ stealth — Windows-kernel-specific; the Linux kmod + LBR mapper are the analogs
 Done and CI-green:
 - **all P0** (1-5): CI gates on test failures, LICENSE/SECURITY.md, versioning, doc annotations.
 - **P1 #7** parser adversarial-input tests · **P1 #8** ASan+UBSan option + CI job (product
-  code memory-clean) · **P1 #14** installable/embeddable `libcecore` · **P1 #6 (partial)**
-  `shellExecute` + `write*Local` RCE gates + central Lua exception firewall (#6 done)
+  code memory-clean) · **P1 #14** installable/embeddable `libcecore` · **P1 #6**
+  `shellExecute` + `write*Local` RCE gates + central Lua exception firewall (done)
   · **P1 #13** `.deb`/tarball + AppStream + `.CT` MIME
   (Flatpak dropped — sandbox blocks ptrace).
 - **P2 #17** Break&Trace multi-thread (all-stop; follows the thread that hits the
@@ -31,7 +31,9 @@ Done and CI-green:
   (game-restart workflow) · **P2 #23 (partial)** Lua `getSymbolInfo`
   + `reinitializeSymbolhandler` + `getRegionInfo` + `getNameFromAddress` hex fallback
   · **P2 #18 (partial)** configurable
-  find-what-writes watch size.
+  find-what-writes watch size + instruction effective-address decode
+  (`computeEffectiveAddress`: base+index*scale+disp and RIP-relative), the
+  primitive behind "find what addresses this instruction accesses".
 - **P3 #27** light theme (dead toggle fixed) · **P3 #28** `CONTRIBUTING.md`.
 
 Remaining: **#15** debugger unification (the

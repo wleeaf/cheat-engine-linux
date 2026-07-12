@@ -57,6 +57,12 @@ public:
     /// Remove a software breakpoint.
     void removeSoftwareBreakpoint(int id);
 
+    /// Plant a hardware DATA watchpoint (DR0-3). type: 1=write, 3=access;
+    /// size: 1/2/4/8 bytes. Returns an id, or -1 if no debug register is free.
+    int setHardwareBreakpoint(uintptr_t address, int type, int size);
+    /// Remove a hardware watchpoint by id.
+    void removeHardwareBreakpoint(int id);
+
     /// Continue execution after a break.
     void continueExecution();
 
@@ -107,14 +113,17 @@ private:
     // be issued by the one thread that attached. So the event-loop thread is the
     // sole tracer; public mutators (continue/step/set-bp/remove-bp) post a
     // command that the tracer thread executes while the tracee is stopped.
-    enum class CmdType { Continue, Step, SetSoftBp, RemoveSoftBp, SetRegs, SelectThread };
+    enum class CmdType { Continue, Step, SetSoftBp, RemoveSoftBp, SetRegs, SelectThread,
+                         SetHwBp, RemoveHwBp };
     struct Command {
         CmdType type;
         StepMode stepMode{StepMode::Into};
         uintptr_t addr = 0;   // step target / breakpoint address
-        int id = 0;           // RemoveSoftBp target
+        int id = 0;           // RemoveSoftBp/RemoveHwBp target
         std::shared_ptr<std::promise<long>> done; // result (bp id, else 0)
         CpuContext regs{};    // SetRegs payload
+        int hwType = 0;       // SetHwBp: watch condition (1=write, 3=access)
+        int hwSize = 0;       // SetHwBp: watch length in bytes
     };
 
     void tracerThread();
@@ -128,6 +137,9 @@ private:
     void doStep(StepMode mode, uintptr_t targetAddress);
     long doSetSoftBp(uintptr_t address);
     void doRemoveSoftBp(int id);
+    long doSetHwBp(uintptr_t address, int type, int size);
+    void doRemoveHwBp(int id);
+    void disarmAllHwBreakpoints();   // clear DR on every thread (cleanup, before detach)
     bool doSetRegs(const CpuContext& ctx);
     bool doSelectThread(pid_t tid);
     void publishStoppedThreads();   // snapshot stoppedTids_ for stoppedThreads()
@@ -174,6 +186,10 @@ private:
     std::mutex bpMutex_;
     std::unordered_map<uintptr_t, SoftBp> softBreakpoints_;
     int nextSoftBpId_ = 1;
+    // Hardware data watchpoints (DR0-3), tracer thread only.
+    struct HwBp { int id; uintptr_t address; int reg; int type; int len; };
+    std::vector<HwBp> hwBreakpoints_;
+    int nextHwBpId_ = 1;
     mutable std::mutex exceptionMutex_;
     std::unordered_set<int> exceptionBreakSignals_;
 

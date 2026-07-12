@@ -1483,10 +1483,13 @@ static int l_debug_setBreakpoint(lua_State* L) {
     // let the target run toward it. Hits are queued on the tracer thread and drained
     // by debug_pumpEvents on the Lua thread. Falls back to bookkeeping-only if no
     // process is attached.
+    // type 0 = execute (software int3); non-zero = hardware DATA watchpoint
+    // (1=write, else access), size bytes wide.
     int realId = -1;
     if (auto* eng = ce::LuaEngine::instanceFromState(L)) {
         if (auto* sess = eng->debugSession()) {
-            realId = sess->setSoftwareBreakpoint(address);
+            realId = (type == 0) ? sess->setSoftwareBreakpoint(address)
+                                 : sess->setHardwareBreakpoint(address, type, size);
             sess->continueExecution();
         }
     }
@@ -1570,11 +1573,16 @@ static int l_debug_removeBreakpoint(lua_State* L) {
         lua_getfield(L, -1, "realId");
         int realId = static_cast<int>(lua_tointeger(L, -1));
         lua_pop(L, 1);
+        lua_getfield(L, -1, "type");
+        int bpType = static_cast<int>(lua_tointeger(L, -1));
+        lua_pop(L, 1);
         if (realId >= 0)
             if (auto* eng = ce::LuaEngine::instanceFromState(L))
                 if (eng->debugAttached())
-                    if (auto* sess = eng->debugSession())
-                        sess->removeSoftwareBreakpoint(realId);
+                    if (auto* sess = eng->debugSession()) {
+                        if (bpType == 0) sess->removeSoftwareBreakpoint(realId);
+                        else             sess->removeHardwareBreakpoint(realId);
+                    }
     }
     lua_pop(L, 1);                          // pop the entry
     lua_pushnil(L);

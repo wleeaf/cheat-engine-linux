@@ -242,6 +242,7 @@ void DebugSession::tracerCleanup() {
             if (bp.active) pokeByte(pid_, addr, bp.originalByte, nullptr);
         softBreakpoints_.clear();
     }
+    disarmAllHwBreakpoints();   // clear DR before detach, or the tracee is killed
     for (pid_t tid : traced_)
         ptrace(PTRACE_DETACH, tid, nullptr, nullptr);
     traced_.clear();
@@ -281,6 +282,8 @@ long DebugSession::performCommand(const Command& cmd) {
         case CmdType::RemoveSoftBp: doRemoveSoftBp(cmd.id); return 0;
         case CmdType::SetRegs:      return doSetRegs(cmd.regs) ? 1 : 0;
         case CmdType::SelectThread: return doSelectThread(static_cast<pid_t>(cmd.id)) ? 1 : 0;
+        case CmdType::SetHwBp:      return doSetHwBp(cmd.addr, cmd.hwType, cmd.hwSize);
+        case CmdType::RemoveHwBp:   doRemoveHwBp(cmd.id); return 0;
     }
     return 0;
 }
@@ -344,6 +347,86 @@ void DebugSession::doRemoveSoftBp(int id) {
             return;
         }
     }
+}
+
+// ── Hardware data watchpoints (DR0-3) ──
+namespace {
+bool armHwBp(pid_t tid, int reg, uintptr_t addr, int cond, int len) {
+    size_t drOff = offsetof(struct user, u_debugreg) + reg * sizeof(long);
+    if (ptrace(PTRACE_POKEUSER, tid, drOff, addr) < 0) return false;
+    size_t dr7Off = offsetof(struct user, u_debugreg) + 7 * sizeof(long);
+    errno = 0;
+    long dr7 = ptrace(PTRACE_PEEKUSER, tid, dr7Off, nullptr);
+    if (dr7 == -1 && errno != 0) return false;
+    dr7 |= (1L << (reg * 2));                        // local enable
+    dr7 &= ~(0xFL << (16 + reg * 4));                // clear condition+length
+    dr7 |= ((long)(cond & 0x3) << (16 + reg * 4));   // 1=write, 3=access
+    dr7 |= ((long)(len & 0x3) << (18 + reg * 4));    // length (0=1,1=2,2=8,3=4)
+    return ptrace(PTRACE_POKEUSER, tid, dr7Off, dr7) >= 0;
+}
+void disarmHwBpReg(pid_t tid, int reg) {
+    size_t dr7Off = offsetof(struct user, u_debugreg) + 7 * sizeof(long);
+    errno = 0;
+    long dr7 = ptrace(PTRACE_PEEKUSER, tid, dr7Off, nullptr);
+    if (!(dr7 == -1 && errno != 0)) {
+        dr7 &= ~(1L << (reg * 2));
+        dr7 &= ~(0xFL << (16 + reg * 4));
+        ptrace(PTRACE_POKEUSER, tid, dr7Off, dr7);
+    }
+    size_t drOff = offsetof(struct user, u_debugreg) + reg * sizeof(long);
+    ptrace(PTRACE_POKEUSER, tid, drOff, 0L);
+}
+} // namespace
+
+int DebugSession::setHardwareBreakpoint(uintptr_t address, int type, int size) {
+    if (!attached_.load()) return -1;
+    Command cmd;
+    cmd.type = CmdType::SetHwBp;
+    cmd.addr = address;
+    cmd.hwType = type;
+    cmd.hwSize = size;
+    return static_cast<int>(postCommand(std::move(cmd)));
+}
+
+void DebugSession::removeHardwareBreakpoint(int id) {
+    if (!attached_.load()) return;
+    Command cmd; cmd.type = CmdType::RemoveHwBp; cmd.id = id;
+    postCommand(std::move(cmd));
+}
+
+// Tracer thread only. Arm a DR on every traced thread (they are stopped when a
+// breakpoint is set during setup, right after attach).
+long DebugSession::doSetHwBp(uintptr_t address, int type, int size) {
+    bool used[4] = {false, false, false, false};
+    for (auto& b : hwBreakpoints_) if (b.reg >= 0 && b.reg < 4) used[b.reg] = true;
+    int reg = -1;
+    for (int i = 0; i < 4; ++i) if (!used[i]) { reg = i; break; }
+    if (reg < 0) return -1;                                   // no free debug register
+    int len  = (size == 1) ? 0 : (size == 2) ? 1 : (size == 8) ? 2 : 3;
+    int cond = (type == 1) ? 1 : 3;                           // 1=write, else access
+    for (pid_t tid : traced_) armHwBp(tid, reg, address, cond, len);
+    int id = nextHwBpId_++;
+    hwBreakpoints_.push_back({id, address, reg, cond, len});
+    return id;
+}
+
+void DebugSession::doRemoveHwBp(int id) {
+    for (auto it = hwBreakpoints_.begin(); it != hwBreakpoints_.end(); ++it) {
+        if (it->id == id) {
+            for (pid_t tid : traced_) disarmHwBpReg(tid, it->reg);
+            hwBreakpoints_.erase(it);
+            return;
+        }
+    }
+}
+
+// Clear every hardware watchpoint on every thread. MUST run before PTRACE_DETACH
+// (which leaves debug registers armed) or the tracee takes a debug exception with
+// no tracer and is killed.
+void DebugSession::disarmAllHwBreakpoints() {
+    for (auto& b : hwBreakpoints_)
+        for (pid_t tid : traced_) disarmHwBpReg(tid, b.reg);
+    hwBreakpoints_.clear();
 }
 
 void DebugSession::continueExecution() {
@@ -475,6 +558,33 @@ void DebugSession::handleStop(pid_t w, int status) {
         if (ptrace(PTRACE_GETREGS, w, nullptr, &regs) < 0) {
             ptrace(PTRACE_CONT, w, nullptr, nullptr);
             return;
+        }
+        // A hardware DATA watchpoint fires with siginfo TRAP_HWBKPT (distinct from
+        // a software int3). Identify which DR triggered via DR6 and report the
+        // watched address. rip points past the accessing instruction.
+        if (!hwBreakpoints_.empty()) {
+            siginfo_t si{};
+            if (ptrace(PTRACE_GETSIGINFO, w, nullptr, &si) == 0 && si.si_code == TRAP_HWBKPT) {
+                size_t dr6Off = offsetof(struct user, u_debugreg) + 6 * sizeof(long);
+                long dr6 = ptrace(PTRACE_PEEKUSER, w, dr6Off, nullptr);
+                uintptr_t hitAddr = regs.rip;
+                for (auto& b : hwBreakpoints_)
+                    if (b.reg >= 0 && b.reg < 4 && (dr6 & (1L << b.reg))) { hitAddr = b.address; break; }
+                ptrace(PTRACE_POKEUSER, w, dr6Off, 0L);   // clear DR6 status bits
+                activeTid_ = w;
+                stoppedTids_.insert(w);
+                stopOtherThreads(w);
+                stopped_ = true;
+                captureRegs(w);
+                DebugEvent evt{};
+                evt.type = DebugEventType::BreakpointHit;
+                evt.tid = w;
+                evt.address = hitAddr;
+                evt.signal = sig;
+                { std::lock_guard lock(contextMutex_); evt.context = stopContext_; }
+                if (eventCb_) eventCb_(evt);
+                return;
+            }
         }
         uintptr_t bpAddr = regs.rip - 1;
         bool hitSoftBp = false;

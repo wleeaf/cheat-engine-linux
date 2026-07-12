@@ -62,14 +62,16 @@ Done and CI-green:
 
 The debugger window's disassembly now has a right-click menu ("Set breakpoint
 here" / "Replace with NOPs") wired through the session + the `nopInstruction`
-backend (gui_debugger_smoke `disasmbp=1`).
+backend (gui_debugger_smoke `disasmbp=1`). And `debug_setBreakpoint`'s non-zero
+`type` now plants a real **hardware DATA watchpoint** (DR0-3 on every thread) via
+a new `DebugSession::setHardwareBreakpoint`; `handleStop` reports the watched
+address on a `TRAP_HWBKPT`, and detach disarms the debug registers first (a test
+confirms the watchpoint fires on a write AND the tracee survives detach — a
+left-armed DR would kill it). **#15 (debugger unification) is complete.**
 
-Remaining: **#15** only HW/data + conditional breakpoints left (the `type` arg to
-`debug_setBreakpoint`; needs a hardware-watchpoint path on `DebugSession`, whose
-machinery already exists in `CodeFinder`/`Debugger::setBreakpoint`); #21
-dissector N-instance/RTTI; #24 ceserver daemon; more of #23. Genuinely blocked on
-real-world testing / a strategic call: **#10 Mono/Unity**, **#11 Vulkan overlay**,
-**#12 Wayland hotkeys**, #25 ARM, #26 32-bit inject.
+Remaining: #21 dissector N-instance/RTTI; #24 ceserver daemon; more of #23.
+Genuinely blocked on real-world testing / a strategic call: **#10 Mono/Unity**,
+**#11 Vulkan overlay**, **#12 Wayland hotkeys**, #25 ARM, #26 32-bit inject.
 
 ---
 

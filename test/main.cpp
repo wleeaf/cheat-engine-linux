@@ -3311,6 +3311,62 @@ static void test_lua_breakpoint_regwrite() {
            err.empty() ? "" : (", " + err).c_str());
 }
 
+// A worker that repeatedly writes a global, for the hardware WRITE watchpoint.
+static volatile long g_hw_target;
+static void hw_worker() {
+    for (;;) { g_hw_target = g_hw_target + 1; usleep(500); }
+}
+
+// debug_setBreakpoint with a non-zero type plants a HARDWARE data watchpoint via
+// DR0-3. This checks it fires on the write AND that the DR is cleaned up on detach
+// (a left-armed debug register would kill the tracee on its next access).
+static void test_lua_hw_breakpoint() {
+    printf("\n── Test: Lua hardware data watchpoint ──\n");
+
+    int fds[2];
+    if (pipe(fds) != 0) { printf("  hw watchpoint: FAILED (pipe)\n"); return; }
+    pid_t child = fork();
+    if (child == 0) {
+        close(fds[0]);
+        std::thread(hw_worker).detach();
+        write(fds[1], "x", 1);
+        for (;;) usleep(100000);
+        _exit(0);
+    }
+    close(fds[1]);
+    if (child < 0) { close(fds[0]); printf("  hw watchpoint: FAILED (fork)\n"); return; }
+    char tok = 0; (void)read(fds[0], &tok, 1); close(fds[0]);
+    usleep(80000);
+
+    LinuxProcessHandle proc(child);
+    auto addr = reinterpret_cast<uintptr_t>(&g_hw_target);
+    std::string err;
+    bool fired = false;
+    {
+        LuaEngine eng;
+        eng.setProcess(&proc);
+        std::string script =
+            "hits = 0\n"
+            "function debugger_onBreakpoint() hits = hits + 1 end\n"
+            "debug_setBreakpoint(" + std::to_string(addr) + ", 1, 8)\n"   // write, 8 bytes
+            "for i = 1, 100 do debug_pumpEvents(100); if hits >= 3 then break end end\n"
+            "assert(hits >= 3, 'hw watchpoint did not fire, hits=' .. hits)\n";
+        err = eng.execute(script);
+        fired = err.empty();
+    }   // eng destroyed -> DebugSession detaches + must disarm the DR
+
+    usleep(60000);   // let the child run past the watched address a few times
+    bool aliveAfter = (kill(child, 0) == 0);
+
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
+
+    bool ok = fired && aliveAfter;
+    printf("  hw write watchpoint fires + tracee survives detach: %s (fired=%d alive=%d%s)\n",
+           ok ? "OK" : "FAILED", (int)fired, (int)aliveAfter,
+           err.empty() ? "" : (", " + err).c_str());
+}
+
 // Real monotonic time via a raw syscall, so it stays real even after the GOT
 // patch redirects the clock_gettime symbol.
 static double sh_raw_monotonic() {
@@ -6683,6 +6739,7 @@ int main(int argc, char* argv[]) {
     test_debug_xmm();
     test_lua_real_breakpoint();
     test_lua_breakpoint_regwrite();
+    test_lua_hw_breakpoint();
     test_instruction_access();
     test_nop_instruction();
     test_lua_nop_instruction();

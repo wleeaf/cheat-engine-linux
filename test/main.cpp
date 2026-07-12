@@ -3154,7 +3154,12 @@ static void test_lua_more_bindings() {
         "assert(byteTableToDouble(doubleToByteTable(3.25)) == 3.25, 'double roundtrip')\n"
         "assert(byteTableToWord({0x34,0x12}) == 0x1234, 'word')\n"
         "assert(byteTableToDword({0x78,0x56,0x34,0x12}) == 0x12345678, 'dword')\n"
-        "assert(byteTableToQword({8,7,6,5,4,3,2,1}) == 0x0102030405060708, 'qword')\n");
+        "assert(byteTableToQword({8,7,6,5,4,3,2,1}) == 0x0102030405060708, 'qword')\n"
+        // Standard RFC 1321 MD5 test vectors: definitive known answers.
+        "assert(stringToMD5String('') == 'd41d8cd98f00b204e9800998ecf8427e', 'md5 empty')\n"
+        "assert(stringToMD5String('abc') == '900150983cd24fb0d6963f7d28e17f72', 'md5 abc')\n"
+        "assert(stringToMD5String('The quick brown fox jumps over the lazy dog')"
+        " == '9e107d9d372bb6826bd81d3542a419d6', 'md5 fox')\n");
 
     bufB[3] = 0xFF;   // now they differ
     std::string err2 = err.empty()

@@ -31,7 +31,7 @@ Done and CI-green:
   (game-restart workflow) · **P2 #23 (partial)** Lua `getSymbolInfo`
   + `reinitializeSymbolhandler` + `getRegionInfo` + `getNameFromAddress` hex fallback
   + `nopInstruction` + `readRegionToFile`/`writeRegionFromFile` + `getModuleAddress`
-  + `compareMemory` + the float/double/byteTable conversion family
+  + `compareMemory` + the float/double/byteTable conversion family + `stringToMD5String`
   · **P2 #18 (partial)** configurable
   find-what-writes watch size + "find what addresses this instruction accesses"
   (`findInstructionAccesses`: a DebugSession execute-breakpoint monitor that
@@ -138,14 +138,18 @@ The reassessment (`VS_OFFICIAL_CE_LINUX.md`) leans on these to justify existing
 alongside official CE 7.7 Linux. Today each is materially short of the claim.
 
 10. **Native Mono / Unity / IL2CPP dissector — the single highest-impact gap.**
-    Today: a detection message box + a heap-scanning heuristic that guesses class
-    names from printable bytes (`analysis/managed_runtime.cpp:213-295`); the Mono
-    soft-debugger client is wired to nothing and needs `--debugger-agent`; zero
-    IL2CPP, zero `mono_*` Lua. CE injects a collector that walks real Mono
-    metadata (Assembly→Class→Field/Method, true offsets, method invocation).
-    **Most Linux/Proton games are Unity** — this is the niche the project says it
-    can win, and it's currently opaque. Build an injected Mono-embedding-API
-    collector; then IL2CPP `global-metadata.dat` parsing. **[L]**
+    Today: runtime detection, heap object enumeration, and type-name extraction
+    all exist and are unit-tested (`analysis/managed_runtime.cpp`,
+    `test_managed_runtime_detection` / `_object_enumeration` / `_type_extraction`),
+    and the Mono soft-debugger client now has a mock-agent round-trip test
+    (`test_mono_debugger_client`: handshake + VM/Version/AllThreads/Suspend/Resume
+    framing). *Genuinely blocked here:* the full soft-debugger type-introspection
+    chain (AppDomain→Assembly→Type→Field with true offsets + method invocation)
+    and IL2CPP `global-metadata.dat` parsing both need a live Unity/Mono target to
+    develop against. Encoding the remaining cmdset/cmd numbers from the spec alone
+    would pass a mock round-trip yet risk being subtly wrong on the real runtime
+    (false confidence), so that step is deferred to when a target is available.
+    **Most Linux/Proton games are Unity** — this remains the niche to win. **[L]**
 11. **In-game overlay actually renders.** `platform/vulkan_overlay_layer.cpp`
     advertises a layer but only forwards `vkCreateInstance/Device` — it never
     hooks `vkQueuePresentKHR` and draws nothing. The Qt overlay

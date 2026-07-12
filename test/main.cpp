@@ -3229,7 +3229,16 @@ static void test_lua_real_breakpoint() {
         "  if hits >= 3 then break end\n"
         "end\n"
         "assert(hits >= 3, 'breakpoint did not fire, hits=' .. hits)\n"
-        "assert(lastRip == " + std::to_string(hotAddr) + ", 'wrong RIP ' .. lastRip)\n";
+        "assert(lastRip == " + std::to_string(hotAddr) + ", 'wrong RIP ' .. lastRip)\n"
+        // Removing the breakpoint must actually unplant it: after draining any
+        // in-flight hits, a pump goes quiet (returns 0). If it were still armed,
+        // every pump would keep returning hits.
+        "debug_removeBreakpoint(bp)\n"
+        "local quiet = false\n"
+        "for i = 1, 12 do\n"
+        "  if debug_pumpEvents(100) == 0 then quiet = true; break end\n"
+        "end\n"
+        "assert(quiet, 'breakpoint kept firing after removal')\n";
     std::string err = eng.execute(script);
 
     kill(child, SIGKILL);

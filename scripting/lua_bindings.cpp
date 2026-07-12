@@ -1545,10 +1545,23 @@ static int l_debug_pumpEvents(lua_State* L) {
 
 static int l_debug_removeBreakpoint(lua_State* L) {
     int id = static_cast<int>(luaL_checkinteger(L, 1));
-    ensureLuaBreakpointList(L);
+    ensureLuaBreakpointList(L);            // pushes the breakpoint table
+    // Remove the REAL software breakpoint recorded under this id, then the entry.
+    lua_rawgeti(L, -1, id);
+    if (lua_istable(L, -1)) {
+        lua_getfield(L, -1, "realId");
+        int realId = static_cast<int>(lua_tointeger(L, -1));
+        lua_pop(L, 1);
+        if (realId >= 0)
+            if (auto* eng = ce::LuaEngine::instanceFromState(L))
+                if (eng->debugAttached())
+                    if (auto* sess = eng->debugSession())
+                        sess->removeSoftwareBreakpoint(realId);
+    }
+    lua_pop(L, 1);                          // pop the entry
     lua_pushnil(L);
-    lua_rawseti(L, -2, id);
-    lua_pop(L, 1);
+    lua_rawseti(L, -2, id);                 // clear the bookkeeping entry
+    lua_pop(L, 1);                          // pop the table
     lua_pushboolean(L, 1);
     return 1;
 }

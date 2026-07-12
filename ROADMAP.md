@@ -53,7 +53,9 @@ Done and CI-green:
   software breakpoint through a `LuaEngine`-owned `DebugSession`, hits are queued
   on the tracer thread and drained by `debug_pumpEvents` on the Lua thread, which
   publishes the register context (RIP/RSP/RAX.. globals) and fires the
-  CE-compatible `debugger_onBreakpoint` handler, then resumes.
+  CE-compatible `debugger_onBreakpoint` handler, then resumes;
+  `debug_removeBreakpoint` unplants the real breakpoint (test confirms pumping
+  goes quiet after removal).
 - **P3 #27** light theme (dead toggle fixed) · **P3 #28** `CONTRIBUTING.md`.
 
 Remaining: **#15** the rest of unification — route the disassembler right-click

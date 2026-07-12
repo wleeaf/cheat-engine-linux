@@ -9,6 +9,8 @@
 #include <QTranslator>
 #include <QLibraryInfo>
 #include <unistd.h>
+#include <cstring>
+#include <cstdio>
 
 static const char* darkStyleSheet = R"(
     QWidget { background-color: #1e1e2e; color: #cdd6f4; }
@@ -50,6 +52,13 @@ static const char* darkStyleSheet = R"(
 )";
 
 int main(int argc, char* argv[]) {
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--version") == 0 || std::strcmp(argv[i], "-v") == 0) {
+            std::printf("cheatengine (cheat-engine-linux) %s\n", CECORE_VERSION);
+            return 0;
+        }
+    }
+
     QApplication app(argc, argv);
     app.setApplicationName("Cheat Engine");
     app.setOrganizationName("cecore");

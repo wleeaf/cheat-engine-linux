@@ -610,6 +610,11 @@ int main(int argc, char** argv) {
 
     const char* cmd = argv[1];
 
+    if (!strcmp(cmd, "--version") || !strcmp(cmd, "-v") || !strcmp(cmd, "version")) {
+        printf("cescan (cheat-engine-linux) %s\n", CECORE_VERSION);
+        return 0;
+    }
+
     if (!strcmp(cmd, "list")) {
         return cmd_list();
     }

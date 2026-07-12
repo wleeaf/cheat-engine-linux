@@ -47,11 +47,34 @@
 #include <sys/mman.h>
 #include <dlfcn.h>
 #include <sys/syscall.h>
+#include <cstdarg>
 #include <unistd.h>
 #include <sys/wait.h>
 
 using namespace ce;
 using namespace ce::os;
+
+// ── Test failure gate ──
+// The suite prints "... FAILED" on a failed check but historically returned 0
+// unconditionally, so CI only caught crashes. Wrap printf to count every line
+// containing "FAILED" (the token appears ONLY in real failure results — there
+// are no "N FAILED" summary lines and no stderr failures) and make main() exit
+// non-zero if any fired. vasprintf avoids truncating long test output.
+static int g_test_failures = 0;
+static int ce_test_printf(const char* fmt, ...) {
+    char* buf = nullptr;
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vasprintf(&buf, fmt, ap);
+    va_end(ap);
+    if (n >= 0 && buf) {
+        if (std::strstr(buf, "FAILED")) g_test_failures++;
+        std::fputs(buf, stdout);
+        std::free(buf);
+    }
+    return n;
+}
+#define printf ce_test_printf
 
 static uint64_t g_traceTargetCounter = 0;
 
@@ -5853,6 +5876,16 @@ int main(int argc, char* argv[]) {
         printf("\nKilled test process %d\n", targetPid);
     }
 
+    // Gate self-check: with this env set, force one failure to prove the exit
+    // code actually flips (CECORE_TEST_FORCE_FAIL=1 ./cecore_test => exit 1).
+    if (std::getenv("CECORE_TEST_FORCE_FAIL")) printf("  gate selfcheck: FAILED\n");
+
+    std::fflush(stdout);
+    if (g_test_failures) {
+        std::fprintf(stderr, "\n%d check(s) reported failure (see FAILED lines above).\n",
+                     g_test_failures);
+        return 1;
+    }
     printf("\nAll tests complete.\n");
     return 0;
 }

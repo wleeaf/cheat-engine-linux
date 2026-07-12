@@ -49,6 +49,12 @@ jobs:
       - name: Run regression suite
         run: ./build/cecore_test
 
+      - name: Run GUI debugger smoke test (offscreen Qt)
+        run: ./build/gui_debugger_smoke
+
+      - name: Run cross-process scan test (root)
+        run: sudo env "LD_LIBRARY_PATH=$PWD/build" ./build/scan_test
+
       - name: Verify cescan launches
         run: ./build/cescan list | head -5
 

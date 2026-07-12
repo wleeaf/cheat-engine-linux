@@ -1,10 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
-project(cecore VERSION 0.1.0 LANGUAGES C CXX)
+project(cecore VERSION 0.2.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# Single source of truth for the version — surfaced via --version in the CLI/GUI.
+add_compile_definitions(CECORE_VERSION="${PROJECT_VERSION}")
 
 # ── Options ──
 option(CECORE_BUILD_TESTS "Build test programs" ON)

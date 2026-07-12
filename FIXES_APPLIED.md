@@ -1,6 +1,8 @@
 # cecore — Remediation Summary ("fix all")
 
 > Companion to [`CODE_ANALYSIS.md`](CODE_ANALYSIS.md). Records the fixes applied for the 123 non-refuted findings. **Date:** 2026-05-29.
+>
+> **Update (2026-07-12):** the "runtime-UNVERIFIED" caveat below (debug/ptrace/injector paths) is now partly stale — software breakpoints, all-stop multi-thread debugging, `createRemoteThread`, and `remoteSyscall`-backed alloc/dealloc now run against a live child in the CI test suite. Also, `cecore_test` now actually **gates CI** on failures (it previously returned 0 unconditionally). Remaining untested-at-runtime surfaces and the current gap list are tracked in `ROADMAP.md`.
 
 ## Verification status
 

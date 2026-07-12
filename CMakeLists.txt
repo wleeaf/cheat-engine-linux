@@ -391,6 +391,10 @@ if(TARGET cheatengine)
             DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
     install(FILES packaging/cheatengine.png
             DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps)
+    install(FILES packaging/io.github.wleeaf.CheatEngineLinux.metainfo.xml
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)
+    install(FILES packaging/cheat-engine-linux.mime.xml
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/mime/packages)
 endif()
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/packaging/cecore.pc.in
                ${CMAKE_CURRENT_BINARY_DIR}/cecore.pc @ONLY)

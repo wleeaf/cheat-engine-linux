@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.wleeaf.CheatEngineLinux</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Cheat Engine for Linux</name>
+  <summary>Memory scanner, debugger, and injector for modding games and apps</summary>
+  <developer id="io.github.wleeaf">
+    <name>wleeaf</name>
+  </developer>
+  <description>
+    <p>
+      A Linux-native reimplementation of Cheat Engine in C++ and Qt6: memory
+      scanning, pointer scanning, an auto-assembler, an interactive multi-thread
+      debugger, structure dissection, cheat tables, and Lua scripting.
+    </p>
+    <p>
+      Focused on single-player game modding and reverse engineering. It does not
+      target multiplayer anti-cheat.
+    </p>
+  </description>
+  <launchable type="desktop-id">cheatengine.desktop</launchable>
+  <provides>
+    <binary>cheatengine</binary>
+    <binary>cescan</binary>
+  </provides>
+  <categories>
+    <category>Development</category>
+    <category>Debugger</category>
+  </categories>
+  <url type="homepage">https://github.com/wleeaf/cheat-engine-linux</url>
+  <url type="bugtracker">https://github.com/wleeaf/cheat-engine-linux/issues</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.2.1" date="2026-07-10">
+      <description>
+        <p>AOB-injection fix, 32-bit/WoW64/Wine support, cheat-table inline editing.</p>
+      </description>
+    </release>
+  </releases>
+</component>

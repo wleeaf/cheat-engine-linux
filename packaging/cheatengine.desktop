@@ -2,7 +2,8 @@
 Type=Application
 Name=Cheat Engine
 Comment=Memory scanner and debugger for Linux
-Exec=cheatengine
+Exec=cheatengine %f
 Icon=cheatengine
 Categories=Development;Debugger;
+MimeType=application/x-cheat-engine-table;application/x-cheat-engine-trainer;
 Terminal=false

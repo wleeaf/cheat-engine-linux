@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <set>
+#include <vector>
 #include <mutex>
 #include <condition_variable>
 #include <deque>
@@ -78,6 +79,17 @@ public:
     /// Returns false if the target is not currently stopped.
     bool setStopContext(const CpuContext& ctx);
 
+    /// The thread ids frozen at the current all-stop (for a thread switcher).
+    /// Snapshot from the last break; meaningful while isStopped().
+    std::vector<pid_t> stoppedThreads() const;
+
+    /// Make `tid` the active thread: getStopContext / setStopContext / step now
+    /// operate on it. Returns false if it isn't currently stopped.
+    bool selectThread(pid_t tid);
+
+    /// The active (currently-selected) thread.
+    pid_t activeThread() const { return activeTid_; }
+
     /// Callback for debug events.
     using EventCallback = std::function<void(const DebugEvent&)>;
     void setEventCallback(EventCallback cb) { eventCb_ = std::move(cb); }
@@ -90,7 +102,7 @@ private:
     // be issued by the one thread that attached. So the event-loop thread is the
     // sole tracer; public mutators (continue/step/set-bp/remove-bp) post a
     // command that the tracer thread executes while the tracee is stopped.
-    enum class CmdType { Continue, Step, SetSoftBp, RemoveSoftBp, SetRegs };
+    enum class CmdType { Continue, Step, SetSoftBp, RemoveSoftBp, SetRegs, SelectThread };
     struct Command {
         CmdType type;
         StepMode stepMode{StepMode::Into};
@@ -112,6 +124,8 @@ private:
     long doSetSoftBp(uintptr_t address);
     void doRemoveSoftBp(int id);
     bool doSetRegs(const CpuContext& ctx);
+    bool doSelectThread(pid_t tid);
+    void publishStoppedThreads();   // snapshot stoppedTids_ for stoppedThreads()
     void rewindOverBreakpoint(pid_t tid, int status, uintptr_t bpAddr);
     // ── All-stop multi-thread helpers (tracer thread only) ──
     // Seize every thread of the target with PTRACE_O_TRACECLONE and leave them
@@ -131,6 +145,7 @@ private:
     pid_t activeTid_ = 0;               // thread currently stopped/reported
     std::set<pid_t> traced_;            // all seized tids (tracer thread only)
     std::set<pid_t> stoppedTids_;       // currently ptrace-stopped tids
+    std::vector<pid_t> stoppedSnapshot_; // published stopped tids (contextMutex_)
     ProcessHandle* proc_ = nullptr;
     std::atomic<bool> attached_{false};
     std::atomic<bool> stopped_{false};

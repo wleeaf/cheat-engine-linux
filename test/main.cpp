@@ -3040,6 +3040,63 @@ static void test_debug_register_edit() {
            ok ? "OK" : "FAILED", (int)edited, (int)preserved);
 }
 
+// The thread switcher: at an all-stop, every thread is frozen; enumerate them
+// and switch the active one so register read/edit/step can target any thread.
+static void test_debug_thread_switch() {
+    printf("\n── Test: debugger thread switcher ──\n");
+
+    int fds[2];
+    if (pipe(fds) != 0) { printf("  thread switch: FAILED (pipe)\n"); return; }
+    pid_t child = fork();
+    if (child == 0) {
+        close(fds[0]);
+        std::thread(bp_hot_worker).detach();        // hits the breakpoint
+        std::thread(free_counter_worker).detach();  // never hits it (frozen at all-stop)
+        std::thread(free_counter_worker).detach();
+        write(fds[1], "x", 1);
+        for (;;) usleep(100000);
+        _exit(0);
+    }
+    close(fds[1]);
+    if (child < 0) { close(fds[0]); printf("  thread switch: FAILED (fork)\n"); return; }
+    char tok = 0; (void)read(fds[0], &tok, 1); close(fds[0]);
+    usleep(80000);
+
+    LinuxProcessHandle proc(child);
+    DebugSession session;
+    std::atomic<bool> hit{false};
+    session.setEventCallback([&](const DebugEvent& e) {
+        if (e.type == DebugEventType::BreakpointHit) hit.store(true);
+    });
+    auto hotAddr = reinterpret_cast<uintptr_t>(&bp_child_hot);
+
+    bool attached = session.attach(child, &proc);
+    int bpId = attached ? session.setSoftwareBreakpoint(hotAddr) : -1;
+    if (attached) session.continueExecution();
+    for (int i = 0; i < 500 && !hit.load(); ++i) usleep(10000);
+
+    bool multi = false, switched = false;
+    if (hit.load() && session.isStopped()) {
+        auto tids = session.stoppedThreads();
+        multi = tids.size() >= 2;   // all-stop froze more than the trapping thread
+        switched = !tids.empty();
+        for (pid_t t : tids) {
+            if (!session.selectThread(t) || session.activeThread() != t ||
+                session.getStopContext().rip == 0) {
+                switched = false; break;
+            }
+        }
+    }
+
+    if (session.isAttached()) session.detach();
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
+
+    bool ok = attached && bpId > 0 && multi && switched;
+    printf("  enumerate + switch stopped threads: %s (threads>=2=%d switched=%d)\n",
+           ok ? "OK" : "FAILED", (int)multi, (int)switched);
+}
+
 // Real monotonic time via a raw syscall, so it stays real even after the GOT
 // patch redirects the clock_gettime symbol.
 static double sh_raw_monotonic() {
@@ -6407,6 +6464,7 @@ int main(int argc, char* argv[]) {
     test_multithread_watchpoint();
     test_multithread_software_breakpoint();
     test_debug_register_edit();
+    test_debug_thread_switch();
     test_instruction_access();
     test_nop_instruction();
     test_lua_nop_instruction();

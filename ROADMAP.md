@@ -40,7 +40,9 @@ Done and CI-green:
   (partial)** register editing end-to-end: backend `DebugSession::setStopContext`
   writes the full GP set + RFLAGS to the stopped thread (`getStopContext` now
   captures r8-r15), and the debugger window's register table is editable and
-  writes back (gui_debugger_smoke verifies the edit reaches the thread).
+  writes back (gui_debugger_smoke verifies the edit reaches the thread); plus a
+  thread-switcher backend (`stoppedThreads`/`selectThread`: enumerate the
+  all-stopped threads and retarget register read/edit/step to any of them).
 - **P3 #27** light theme (dead toggle fixed) · **P3 #28** `CONTRIBUTING.md`.
 
 Remaining: **#15** debugger unification (the big P2 lever); #16 full flags/XMM

@@ -148,6 +148,36 @@ void DebugSession::stopOtherThreads(pid_t active) {
             }
         }
     }
+    publishStoppedThreads();   // record the frozen set for stoppedThreads()
+}
+
+// Snapshot the currently-stopped tids under contextMutex_ so stoppedThreads()
+// (called from any thread) can read them without racing the tracer thread.
+void DebugSession::publishStoppedThreads() {
+    std::lock_guard lk(contextMutex_);
+    stoppedSnapshot_.assign(stoppedTids_.begin(), stoppedTids_.end());
+}
+
+std::vector<pid_t> DebugSession::stoppedThreads() const {
+    std::lock_guard lk(contextMutex_);
+    return stoppedSnapshot_;
+}
+
+bool DebugSession::selectThread(pid_t tid) {
+    if (!attached_.load() || !stopped_.load()) return false;
+    Command cmd;
+    cmd.type = CmdType::SelectThread;
+    cmd.id = static_cast<int>(tid);
+    return postCommand(std::move(cmd)) == 1;
+}
+
+// Tracer thread only (via performCommand): switch the active thread and refresh
+// the cached context so register read/write/step target it.
+bool DebugSession::doSelectThread(pid_t tid) {
+    if (stoppedTids_.count(tid) == 0) return false;
+    activeTid_ = tid;
+    captureRegs(tid);
+    return true;
 }
 
 bool DebugSession::stepThreadOverBp(pid_t tid) {
@@ -241,6 +271,7 @@ long DebugSession::performCommand(const Command& cmd) {
         case CmdType::SetSoftBp:    return doSetSoftBp(cmd.addr);
         case CmdType::RemoveSoftBp: doRemoveSoftBp(cmd.id); return 0;
         case CmdType::SetRegs:      return doSetRegs(cmd.regs) ? 1 : 0;
+        case CmdType::SelectThread: return doSelectThread(static_cast<pid_t>(cmd.id)) ? 1 : 0;
     }
     return 0;
 }

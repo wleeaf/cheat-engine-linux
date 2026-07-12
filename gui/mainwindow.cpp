@@ -180,14 +180,19 @@ void MainWindow::setupMenus() {
     file->addSeparator();
     file->addAction("Quit", this, &QWidget::close, QKeySequence("Ctrl+Q"));
 
-    auto* view = menuBar()->addMenu("&View");
-    view->addAction("Memory Browser", this, &MainWindow::onMemoryView, QKeySequence("Ctrl+M"));
-    view->addAction("Breakpoint List", this, [this]() {
+    // Cheat Engine's top-level menu structure: File / Edit / Process / Table /
+    // Tools / Help. (Created here in order so the menu bar reads like CE.)
+    auto* edit = menuBar()->addMenu("&Edit");
+    auto* process = menuBar()->addMenu("&Process");
+    auto* table = menuBar()->addMenu("&Table");
+    auto* tools = menuBar()->addMenu("&Tools");
+    tools->addAction("Memory Browser", this, &MainWindow::onMemoryView, QKeySequence("Ctrl+M"));
+    tools->addAction("Breakpoint List", this, [this]() {
         auto* w = new BreakpointListWindow(&bpManager_, this);
         w->setAttribute(Qt::WA_DeleteOnClose);
         w->show();
     }, QKeySequence("Ctrl+B"));
-    view->addAction("Memory Regions", this, [this]() {
+    tools->addAction("Memory Regions", this, [this]() {
         if (!process_) return;
         auto* w = new MemoryRegionsWindow(process_.get(), this);
         w->setAttribute(Qt::WA_DeleteOnClose);
@@ -200,7 +205,7 @@ void MainWindow::setupMenus() {
         });
         w->show();
     });
-    view->addAction("Heap Regions", this, [this]() {
+    tools->addAction("Heap Regions", this, [this]() {
         if (!process_) return;
         auto* w = new HeapRegionsWindow(process_.get(), this);
         w->setAttribute(Qt::WA_DeleteOnClose);
@@ -213,7 +218,7 @@ void MainWindow::setupMenus() {
         });
         w->show();
     });
-    view->addAction("Module List", this, [this]() {
+    tools->addAction("Module List", this, [this]() {
         if (!process_) return;
         auto* w = new ModuleListWindow(process_.get(), this);
         w->setAttribute(Qt::WA_DeleteOnClose);
@@ -226,7 +231,7 @@ void MainWindow::setupMenus() {
         });
         w->show();
     });
-    view->addAction("Code References", this, [this]() {
+    tools->addAction("Code References", this, [this]() {
         if (!process_) return;
         auto* w = new CodeReferencesWindow(process_.get(), this);
         w->setAttribute(Qt::WA_DeleteOnClose);
@@ -239,32 +244,32 @@ void MainWindow::setupMenus() {
         });
         w->show();
     });
-    view->addAction("Thread List", this, [this]() {
+    tools->addAction("Thread List", this, [this]() {
         if (!process_) return;
         auto* w = new ThreadListWindow(process_.get(), this);
         w->setAttribute(Qt::WA_DeleteOnClose);
         w->show();
     });
-    view->addAction("Stack View", this, [this]() {
+    tools->addAction("Stack View", this, [this]() {
         if (!process_) return;
         auto* w = new StackViewWindow(process_.get(), this);
         w->setAttribute(Qt::WA_DeleteOnClose);
         w->show();
     });
-    view->addAction("Register Editor", this, [this]() {
+    tools->addAction("Register Editor", this, [this]() {
         if (!process_) return;
         auto* w = new RegisterEditorWindow(process_.get(), this);
         w->setAttribute(Qt::WA_DeleteOnClose);
         w->show();
     });
-    view->addAction("Debugger", this, [this]() {
+    tools->addAction("Debugger", this, [this]() {
         if (!process_) return;
         auto* w = new ce::gui::DebuggerWindow(process_.get(), this);
         w->setAttribute(Qt::WA_DeleteOnClose);
         w->show();
     });
-    view->addSeparator();
-    view->addAction("Settings...", this, [this]() {
+    tools->addSeparator();
+    edit->addAction("Settings...", this, [this]() {
         SettingsDialog dlg(this);
         dlg.exec();
         // Apply the (possibly changed) auto-refresh interval live (restart to
@@ -273,17 +278,18 @@ void MainWindow::setupMenus() {
             valueRefreshTimer_->start(QSettings().value("memview/refreshMs", 500).toInt());
     });
 
-    auto* tools = menuBar()->addMenu("&Tools");
+    // ── Process menu ──
+    process->addAction("Open Process...", this, &MainWindow::onOpenProcess);
     // "Pause the process" toggle (CE's pause-the-game) — SIGSTOP/SIGCONT the target.
-    auto* pauseAct = tools->addAction("Pause the process");
+    auto* pauseAct = process->addAction("Pause the process");
     pauseAct->setCheckable(true);
     connect(pauseAct, &QAction::toggled, this, [this, pauseAct](bool checked) {
         if (!process_ || currentPid_ <= 0) { pauseAct->setChecked(false); return; }
         if (::kill(currentPid_, checked ? SIGSTOP : SIGCONT) != 0)
             pauseAct->setChecked(false);
     });
-    tools->addSeparator();
-    tools->addAction("Auto Assemble...", this, [this]() {
+    // ── Table menu ──
+    table->addAction("Auto Assemble...", this, [this]() {
         auto* editor = new ScriptEditor(process_.get(), &autoAsm_, this);
         editor->setAttribute(Qt::WA_DeleteOnClose);
         editor->setAddToTable([this](const QString& d, const QString& s) {
@@ -328,7 +334,7 @@ void MainWindow::setupMenus() {
         w->setAttribute(Qt::WA_DeleteOnClose);
         w->show();
     });
-    tools->addAction("Form Designer...", this, [this]() {
+    table->addAction("Form Designer...", this, [this]() {
         auto* fd = new FormDesigner(this);
         fd->setAttribute(Qt::WA_DeleteOnClose);
         fd->show();
@@ -343,7 +349,7 @@ void MainWindow::setupMenus() {
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         dlg->show();
     });
-    tools->addAction("Wait for process...", this, [this]() {
+    process->addAction("Wait for process...", this, [this]() {
         bool ok = false;
         auto name = QInputDialog::getText(this, "Wait for process",
             "Process name substring (will auto-attach when seen):",

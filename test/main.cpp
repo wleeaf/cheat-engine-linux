@@ -2984,6 +2984,39 @@ static void test_symbol_build_id_debuglink() {
            ok ? "OK" : "FAILED", (int)absentWithoutDebug, (int)resolvedWithDebug);
 }
 
+// Value-filtered pointer rescan: the game-restart workflow where the target's
+// address changed but its value is known.
+static void test_pointer_rescan_by_value() {
+    printf("\n── Test: pointer rescan by value ──\n");
+    const uintptr_t moduleBase = 0x400000;
+    const uintptr_t heapBase   = 0x10000000;
+    std::vector<uint8_t> module(0x100, 0);
+    std::vector<uint8_t> heap(0x100, 0);
+    std::memcpy(module.data() + 0x10, &heapBase, sizeof(heapBase));  // module+0x10 -> heap
+    int32_t value = 1337;
+    std::memcpy(heap.data() + 0x20, &value, sizeof(value));          // heap+0x20 = 1337
+
+    FakeProcessHandle proc({
+        {{moduleBase, module.size(), MemProt::Read, MemType::Image, MemState::Committed, "/tmp/game"}, module},
+        {{heapBase, heap.size(), MemProt::ReadWrite, MemType::Private, MemState::Committed, "[heap]"}, heap},
+    }, {
+        {moduleBase, module.size(), "game", "/tmp/game", true},
+    });
+
+    PointerPath path;
+    path.module = "game"; path.moduleBase = moduleBase; path.baseOffset = 0x10;
+    path.offsets = {0x20};
+    std::vector<PointerPath> paths = { path };
+
+    bool derefOk = (PointerScanner::dereference(proc, path) == heapBase + 0x20);
+    auto keptMatch = rescanPointerPathsByValue(proc, paths, 1337, 4);
+    auto keptMiss  = rescanPointerPathsByValue(proc, paths, 9999, 4);
+
+    bool ok = derefOk && keptMatch.size() == 1 && keptMiss.empty();
+    printf("  rescan-by-value keeps match / drops mismatch: %s (deref=%d keep=%zu miss=%zu)\n",
+           ok ? "OK" : "FAILED", (int)derefOk, keptMatch.size(), keptMiss.size());
+}
+
 static void test_structure_tools() {
     printf("\n── Test: Structure tools ──\n");
 
@@ -5967,6 +6000,7 @@ int main(int argc, char* argv[]) {
     test_parser_fuzz_negatives();
     test_lua_shellexecute_gate();
     test_symbol_build_id_debuglink();
+    test_pointer_rescan_by_value();
     test_structure_tools();
     test_lua_memrec();
     test_autoassembler_unregister_symbol(targetPid);

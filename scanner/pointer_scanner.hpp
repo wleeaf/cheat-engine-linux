@@ -75,6 +75,15 @@ std::vector<PointerPath> loadPointerPaths(const std::string& path, std::string* 
 std::vector<PointerPath>
 rescanPointerPaths(ProcessHandle& proc, const std::vector<PointerPath>& paths, uintptr_t newTarget);
 
+/// Like rescanPointerPaths, but filter by the VALUE the chain points to rather
+/// than a known new address. Keeps paths whose final dereferenced address holds
+/// `expectedValue` (`valueSize` bytes, 1-8). This is the canonical game-restart
+/// workflow: after a restart the target's address changes, but you still know
+/// its value, so re-narrow the saved paths by value.
+std::vector<PointerPath>
+rescanPointerPathsByValue(ProcessHandle& proc, const std::vector<PointerPath>& paths,
+                          uint64_t expectedValue, size_t valueSize);
+
 enum class PointerSortKey {
     Depth,        // shorter chains first
     BaseOffset,   // smaller module-relative base first

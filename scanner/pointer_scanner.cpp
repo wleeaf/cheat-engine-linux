@@ -391,6 +391,24 @@ rescanPointerPaths(ProcessHandle& proc, const std::vector<PointerPath>& paths, u
     return kept;
 }
 
+std::vector<PointerPath>
+rescanPointerPathsByValue(ProcessHandle& proc, const std::vector<PointerPath>& paths,
+                          uint64_t expectedValue, size_t valueSize) {
+    std::vector<PointerPath> kept;
+    if (valueSize == 0 || valueSize > 8) return kept;
+    kept.reserve(paths.size());
+    const uint64_t mask = (valueSize == 8) ? ~0ull : ((1ull << (valueSize * 8)) - 1);
+    for (const auto& p : paths) {
+        uintptr_t addr = PointerScanner::dereference(proc, p);
+        if (addr == 0) continue;
+        uint64_t val = 0;
+        auto r = proc.read(addr, &val, valueSize);
+        if (r && *r == valueSize && (val & mask) == (expectedValue & mask))
+            kept.push_back(p);
+    }
+    return kept;
+}
+
 void sortPointerPaths(std::vector<PointerPath>& paths, PointerSortKey key) {
     auto offsetSum = [](const PointerPath& p) {
         int64_t sum = 0;

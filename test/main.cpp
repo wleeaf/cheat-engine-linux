@@ -2887,6 +2887,36 @@ static void test_nop_instruction() {
            ok ? "OK" : "FAILED", (int)nopped, (int)restored);
 }
 
+// The nopInstruction Lua binding: same patch, driven from a script, returning the
+// original bytes as a table so a script can undo it with writeBytes.
+static void test_lua_nop_instruction() {
+    printf("\n── Test: Lua nopInstruction ──\n");
+    void* page = mmap(nullptr, 4096, PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (page == MAP_FAILED) { printf("  nopInstruction: FAILED (mmap)\n"); return; }
+    const uint8_t bytes[] = {0x8B, 0x44, 0x8B, 0x10, 0xC3};   // mov (4B) + ret
+    std::memcpy(page, bytes, sizeof(bytes));
+    auto* p = reinterpret_cast<uint8_t*>(page);
+    auto addr = reinterpret_cast<uintptr_t>(page);
+
+    LuaEngine eng;
+    eng.setOwnedProcess(std::make_unique<LinuxProcessHandle>(getpid()));
+    std::string script =
+        "local a = " + std::to_string(addr) + "\n"
+        "local orig = nopInstruction(a)\n"
+        "assert(orig ~= nil, 'nopInstruction returned nil')\n"
+        "assert(#orig == 4, 'expected 4 original bytes, got '..#orig)\n"
+        "assert(orig[1] == 0x8B and orig[4] == 0x10, 'wrong original bytes')\n";
+    std::string err = eng.execute(script);
+    bool luaOk = err.empty();
+    bool patched = p[0] == 0x90 && p[1] == 0x90 && p[2] == 0x90 && p[3] == 0x90 && p[4] == 0xC3;
+    munmap(page, 4096);
+
+    bool ok = luaOk && patched;
+    printf("  nopInstruction patches + returns original bytes: %s\n",
+           ok ? "OK" : ("FAILED (" + err + " patched=" + std::to_string(patched) + ")").c_str());
+}
+
 // A hot function with a single store to one global, plus a worker that spins it,
 // for the "find what addresses this instruction accesses" test below.
 static volatile long g_ifa_target;
@@ -6379,6 +6409,7 @@ int main(int argc, char* argv[]) {
     test_debug_register_edit();
     test_instruction_access();
     test_nop_instruction();
+    test_lua_nop_instruction();
     test_speedhack_got_injection();
     test_parser_fuzz_negatives();
     test_lua_shellexecute_gate();

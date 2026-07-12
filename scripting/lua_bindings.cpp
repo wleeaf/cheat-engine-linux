@@ -8,6 +8,7 @@
 #include "core/autoasm.hpp"
 #include "arch/disassembler.hpp"
 #include "arch/assembler.hpp"
+#include "debug/patch.hpp"
 #include "symbols/elf_symbols.hpp"
 #include "platform/linux/linux_process.hpp"
 #include "platform/linux/injector.hpp"
@@ -870,6 +871,22 @@ static int l_getInstructionSize(lua_State* L) {
     auto insns = dis.disassemble(addr, {buf, *r}, 1);
     if (insns.empty()) { lua_pushnil(L); return 1; }
     lua_pushinteger(L, insns[0].size);
+    return 1;
+}
+// nopInstruction(address) -> table of the instruction's original bytes (for undo),
+// or nil. Overwrites the instruction at `address` with length-preserving NOPs
+// (CE's "replace with code that does nothing"). Restore by writeBytes(address, t).
+static int l_nopInstruction(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); return 1; }
+    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    auto orig = ce::nopInstruction(*p, addr);
+    if (orig.empty()) { lua_pushnil(L); return 1; }
+    lua_newtable(L);
+    for (size_t i = 0; i < orig.size(); ++i) {
+        lua_pushinteger(L, orig[i]);
+        lua_rawseti(L, -2, static_cast<int>(i) + 1);
+    }
     return 1;
 }
 // getPreviousOpcode(address) -> start of the instruction preceding `address`.
@@ -2681,6 +2698,7 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "setSpeed", l_speedhack_setSpeed);   // convenience alias
     lua_register(L, "injectLibrary", l_injectLibrary);
     lua_register(L, "getInstructionSize", l_getInstructionSize);
+    lua_register(L, "nopInstruction", l_nopInstruction);
     lua_register(L, "getPreviousOpcode", l_getPreviousOpcode);
     lua_register(L, "assemble", l_assemble);
     lua_register(L, "autoAssemble", l_autoAssemble);

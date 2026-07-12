@@ -62,6 +62,8 @@ bool DebugSession::attach(pid_t pid, ProcessHandle* proc) {
 void DebugSession::captureRegs(pid_t tid) {
     struct user_regs_struct regs;
     if (ptrace(PTRACE_GETREGS, tid, nullptr, &regs) < 0) return;
+    struct user_fpregs_struct fp;
+    bool haveFp = (ptrace(PTRACE_GETFPREGS, tid, nullptr, &fp) == 0);
     std::lock_guard lock(contextMutex_);
     stopContext_.rip = regs.rip;
     stopContext_.rsp = regs.rsp;
@@ -81,6 +83,13 @@ void DebugSession::captureRegs(pid_t tid) {
     stopContext_.r14 = regs.r14;
     stopContext_.r15 = regs.r15;
     stopContext_.rflags = regs.eflags;
+    // xmm_space is 64 x uint32 = 16 XMM registers of 16 bytes each.
+    if (haveFp) std::memcpy(xmmRegs_.data(), fp.xmm_space, sizeof(xmmRegs_));
+}
+
+std::array<std::array<uint8_t, 16>, 16> DebugSession::getXmmRegisters() const {
+    std::lock_guard lock(contextMutex_);
+    return xmmRegs_;
 }
 
 void DebugSession::detach() {

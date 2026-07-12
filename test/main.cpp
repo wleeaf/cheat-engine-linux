@@ -3130,6 +3130,66 @@ static void test_debug_thread_switch() {
            ok ? "OK" : "FAILED", (int)multi, (int)switched);
 }
 
+// Loads a known value into xmm0 immediately before the breakpoint site, so the
+// XMM-capture test can assert the debugger reads it back. noinline so the real
+// out-of-line entry (where the breakpoint sits) is the one that runs.
+__attribute__((noinline)) static void xmm_probe_hot() { asm volatile("nop"); }
+static void xmm_probe_worker() {
+    for (;;) {
+        asm volatile("movq %0, %%xmm0" :: "r"(0x1122334455667788ULL) : "xmm0");
+        xmm_probe_hot();   // break at entry; xmm0 still holds the value
+        usleep(1000);
+    }
+}
+
+static void test_debug_xmm() {
+    printf("\n── Test: debugger XMM capture ──\n");
+
+    int fds[2];
+    if (pipe(fds) != 0) { printf("  xmm capture: FAILED (pipe)\n"); return; }
+    pid_t child = fork();
+    if (child == 0) {
+        close(fds[0]);
+        std::thread(xmm_probe_worker).detach();
+        write(fds[1], "x", 1);
+        for (;;) usleep(100000);
+        _exit(0);
+    }
+    close(fds[1]);
+    if (child < 0) { close(fds[0]); printf("  xmm capture: FAILED (fork)\n"); return; }
+    char tok = 0; (void)read(fds[0], &tok, 1); close(fds[0]);
+    usleep(80000);
+
+    LinuxProcessHandle proc(child);
+    DebugSession session;
+    std::atomic<bool> hit{false};
+    session.setEventCallback([&](const DebugEvent& e) {
+        if (e.type == DebugEventType::BreakpointHit) hit.store(true);
+    });
+    auto hotAddr = reinterpret_cast<uintptr_t>(&xmm_probe_hot);
+
+    bool attached = session.attach(child, &proc);
+    int bpId = attached ? session.setSoftwareBreakpoint(hotAddr) : -1;
+    if (attached) session.continueExecution();
+    for (int i = 0; i < 500 && !hit.load(); ++i) usleep(10000);
+
+    bool xmmOk = false;
+    if (hit.load() && session.isStopped()) {
+        auto xmm = session.getXmmRegisters();     // xmm[0] = XMM0 (16 bytes, LE)
+        uint64_t lo = 0;
+        for (int i = 0; i < 8; ++i) lo |= static_cast<uint64_t>(xmm[0][i]) << (8 * i);
+        xmmOk = (lo == 0x1122334455667788ULL);
+    }
+
+    if (session.isAttached()) session.detach();
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
+
+    bool ok = attached && bpId > 0 && xmmOk;
+    printf("  captures XMM0 of the stopped thread: %s (hit=%d xmm0lo=%d)\n",
+           ok ? "OK" : "FAILED", (int)hit.load(), (int)xmmOk);
+}
+
 // Real monotonic time via a raw syscall, so it stays real even after the GOT
 // patch redirects the clock_gettime symbol.
 static double sh_raw_monotonic() {
@@ -6499,6 +6559,7 @@ int main(int argc, char* argv[]) {
     test_multithread_software_breakpoint();
     test_debug_register_edit();
     test_debug_thread_switch();
+    test_debug_xmm();
     test_instruction_access();
     test_nop_instruction();
     test_lua_nop_instruction();

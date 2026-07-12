@@ -50,6 +50,8 @@ public:
     // Point the memory/hex pane at `addr` and report whether it rendered the
     // bytes actually there (verifies the pane against a fresh read).
     bool memoryViewShowsForTest(uintptr_t addr);
+    // Whether the XMM0 register row displays a value whose low 64 bits are `lo`.
+    bool xmm0ShowsForTest(uint64_t lo);
 
 private slots:
     void onContinue();

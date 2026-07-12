@@ -87,13 +87,15 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     threadCombo_ = new QComboBox();
     threadRow->addWidget(threadCombo_, 1);
     rl->addLayout(threadRow);
-    regTable_ = new QTableWidget(10, 1);
+    regTable_ = new QTableWidget(26, 1);   // 10 GP/flags + 16 XMM
     regTable_->setFont(mono);
     regTable_->horizontalHeader()->setVisible(false);
     regTable_->horizontalHeader()->setStretchLastSection(true);
     regTable_->verticalHeader()->setVisible(true);
-    static const char* rnames[] = {"RIP","RSP","RBP","RAX","RBX","RCX","RDX","RSI","RDI","RFLAGS"};
-    for (int i = 0; i < 10; ++i)
+    static const char* rnames[] = {"RIP","RSP","RBP","RAX","RBX","RCX","RDX","RSI","RDI","RFLAGS",
+        "XMM0","XMM1","XMM2","XMM3","XMM4","XMM5","XMM6","XMM7",
+        "XMM8","XMM9","XMM10","XMM11","XMM12","XMM13","XMM14","XMM15"};
+    for (int i = 0; i < 26; ++i)
         regTable_->setVerticalHeaderItem(i, new QTableWidgetItem(rnames[i]));
     rl->addWidget(regTable_, 3);
 
@@ -357,6 +359,13 @@ bool DebuggerWindow::memoryViewShowsForTest(uintptr_t addr) {
     return text.contains(hex(addr)) && text.contains(expect.trimmed());
 }
 
+bool DebuggerWindow::xmm0ShowsForTest(uint64_t lo) {
+    if (!regTable_) return false;
+    auto* it = regTable_->item(10, 0);   // XMM0 row
+    if (!it) return false;
+    return it->text().contains(QString::asprintf("%016llx", static_cast<unsigned long long>(lo)));
+}
+
 void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
     const uintptr_t vals[] = {c.rip, c.rsp, c.rbp, c.rax, c.rbx, c.rcx, c.rdx, c.rsi, c.rdi, c.rflags};
     // Update items IN PLACE (never setItem here): this runs from within
@@ -372,6 +381,19 @@ void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
             regTable_->setItem(i, 0, it);
         }
         it->setText(hex(vals[i]));
+    }
+    // XMM0-15, view-only, shown as the 128-bit value (most-significant byte first).
+    auto xmm = session_->getXmmRegisters();
+    for (int r = 0; r < 16; ++r) {
+        auto* it = regTable_->item(10 + r, 0);
+        if (!it) {
+            it = new QTableWidgetItem();
+            it->setFlags(it->flags() & ~Qt::ItemIsEditable);
+            regTable_->setItem(10 + r, 0, it);
+        }
+        QString s;
+        for (int b = 15; b >= 0; --b) s += QString::asprintf("%02x", xmm[r][b]);
+        it->setText(s);
     }
     regTable_->blockSignals(false);
 }

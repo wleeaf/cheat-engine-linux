@@ -43,9 +43,10 @@ Done and CI-green:
   writes back (gui_debugger_smoke verifies the edit reaches the thread); plus a
   a thread switcher: backend (`stoppedThreads`/`selectThread`: enumerate the
   all-stopped threads and retarget register read/edit/step) + a debugger-window
-  dropdown (gui_debugger_smoke `threadsw=1`); plus a memory/hex pane in the
-  debugger (address input + hex+ASCII dump that refreshes on stop, smoke-tested
-  `memview=1`) · **P2
+  dropdown (gui_debugger_smoke `threadsw=1`); a memory/hex pane in the debugger
+  (address input + hex+ASCII dump that refreshes on stop, smoke-tested
+  `memview=1`); and XMM0-15 capture (`getXmmRegisters` via GETFPREGS) shown in
+  the register table (`xmm=1`) — completing GP/flags/XMM · **P2
   #22 (partial)** embedded `<Forms>` preserved verbatim across `.CT` load/save
   (Delphi form designs no longer dropped on re-save).
 - **P3 #27** light theme (dead toggle fixed) · **P3 #28** `CONTRIBUTING.md`.

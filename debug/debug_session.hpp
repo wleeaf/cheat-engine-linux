@@ -10,6 +10,7 @@
 #include <unordered_set>
 #include <set>
 #include <vector>
+#include <array>
 #include <mutex>
 #include <condition_variable>
 #include <deque>
@@ -90,6 +91,10 @@ public:
     /// The active (currently-selected) thread.
     pid_t activeThread() const { return activeTid_; }
 
+    /// The 16 XMM registers (XMM0-15, 16 bytes each) of the active thread,
+    /// captured at the last stop. Meaningful while isStopped().
+    std::array<std::array<uint8_t, 16>, 16> getXmmRegisters() const;
+
     /// Callback for debug events.
     using EventCallback = std::function<void(const DebugEvent&)>;
     void setEventCallback(EventCallback cb) { eventCb_ = std::move(cb); }
@@ -146,6 +151,7 @@ private:
     std::set<pid_t> traced_;            // all seized tids (tracer thread only)
     std::set<pid_t> stoppedTids_;       // currently ptrace-stopped tids
     std::vector<pid_t> stoppedSnapshot_; // published stopped tids (contextMutex_)
+    std::array<std::array<uint8_t, 16>, 16> xmmRegs_{}; // XMM0-15 (contextMutex_)
     ProcessHandle* proc_ = nullptr;
     std::atomic<bool> attached_{false};
     std::atomic<bool> stopped_{false};

@@ -19,7 +19,14 @@
 
 static volatile long g_smoke_counter = 0;
 __attribute__((noinline)) static void smoke_hot() { static volatile int s = 0; s = s + 1; }
-static void smoke_worker() { for (;;) { smoke_hot(); usleep(300); } }
+static void smoke_worker() {
+    for (;;) {
+        // Load a known value into xmm0 so the XMM register view can be verified.
+        asm volatile("movq %0, %%xmm0" :: "r"(0x0102030405060708ULL) : "xmm0");
+        smoke_hot();
+        usleep(300);
+    }
+}
 static void smoke_counter() { for (;;) { g_smoke_counter = g_smoke_counter + 1; usleep(50); } }
 
 int main(int argc, char** argv) {
@@ -72,6 +79,11 @@ int main(int argc, char** argv) {
     // table exactly as a user would; the value must reach the stopped thread.
     bool regEdit = hit && win.pokeRegisterForTest(4 /*RBX*/, 0x00000000BADF00D5ull);
 
+    // XMM view: the worker loads a known value into xmm0 before the breakpoint.
+    // Check this while the trapping worker is still the active thread (before the
+    // thread switch below retargets the register view to another thread).
+    bool xmmView = hit && win.xmm0ShowsForTest(0x0102030405060708ULL);
+
     // Thread switcher: the child has >= 2 frozen threads; the dropdown lists them
     // and switching moves the session's active thread.
     bool threadSwitch = hit && win.threadCount() >= 2 && win.switchToOtherThreadForTest();
@@ -88,8 +100,8 @@ int main(int argc, char** argv) {
     kill(child, SIGKILL);
     waitpid(child, nullptr, 0);
 
-    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView;
-    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d)\n",
-           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView);
+    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && xmmView;
+    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d xmm=%d)\n",
+           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, xmmView);
     return ok ? 0 : 1;
 }

@@ -29,7 +29,8 @@ Done and CI-green:
   start breakpoint, including child threads) · **P2 #20** stripped-binary symbols via
   build-id / `.gnu_debuglink` · **P2 #19 (partial)** pointer rescan-by-value
   (game-restart workflow) · **P2 #23 (partial)** Lua `getSymbolInfo`
-  + `reinitializeSymbolhandler` + `getRegionInfo` · **P2 #18 (partial)** configurable
+  + `reinitializeSymbolhandler` + `getRegionInfo` + `getNameFromAddress` hex fallback
+  · **P2 #18 (partial)** configurable
   find-what-writes watch size.
 - **P3 #27** light theme (dead toggle fixed) · **P3 #28** `CONTRIBUTING.md`.
 

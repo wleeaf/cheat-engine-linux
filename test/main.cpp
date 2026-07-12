@@ -3156,6 +3156,10 @@ static void test_lua_symbol_info() {
         assert(i ~= nil, 'getSymbolInfo returned nil')
         assert(i.address == 0xdeadbeef, 'wrong address')
         assert(getSymbolInfo('nope') == nil, 'unknown symbol should be nil')
+        -- reverse lookup (getNameFromAddress) + CE-compat hex fallback
+        assert(getNameFromAddress(0xdeadbeef) == 'mysym', 'reverse lookup exact')
+        assert(getNameFromAddress(0xdeadbeef + 0x10) == 'mysym+0x10', 'reverse lookup + offset')
+        assert(getNameFromAddress(0x1000) == '1000', 'unresolved must fall back to hex, got '..getNameFromAddress(0x1000))
         reinitializeSymbolhandler()
     )");
     bool ok = err.empty();

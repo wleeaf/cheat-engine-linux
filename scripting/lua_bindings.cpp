@@ -773,12 +773,19 @@ static int l_getModuleList(lua_State* L) {
 // ── Symbol resolution ──
 
 static int l_getNameFromAddress(lua_State* L) {
-    auto* r = getResolver(L);
-    if (!r) { lua_pushnil(L); return 1; }
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
-    auto name = r->resolve(addr);
-    if (!name.empty()) lua_pushstring(L, name.c_str());
-    else lua_pushnil(L);
+    auto* r = getResolver(L);
+    std::string name;
+    if (r) name = r->resolve(addr);
+    if (name.empty()) {
+        // CE-compat: getNameFromAddress always returns a string, falling back to
+        // the hex address when nothing resolves (callers routinely concatenate
+        // the result, so a nil return would error).
+        char buf[24];
+        snprintf(buf, sizeof(buf), "%lX", static_cast<unsigned long>(addr));
+        name = buf;
+    }
+    lua_pushstring(L, name.c_str());
     return 1;
 }
 

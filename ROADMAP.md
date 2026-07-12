@@ -85,8 +85,20 @@ page in a child, write+read it back through the protocol). **#24 is complete.**
 
 Remaining: #21 dissector RTTI typing (depends on #10); more of #23.
 The #21 N-instance/multi-column half is done (backend detector + GUI multi-address compare).
-Genuinely blocked on real-world testing / a strategic call: **#10 Mono/Unity**,
-**#11 Vulkan overlay**, **#12 Wayland hotkeys**, #25 ARM (registers/ptrace;
+
+Test-coverage hardening (this pass): added tests for previously-untested real code
+that needed no special environment — the Mono soft-debugger client framing
+(`test_mono_debugger_client`), `generateInjectionScript` integration
+(`test_injection_script_generation`), and `ProcessWatcher` new-process detection
+(`test_process_watcher`, deterministic via comm-inheritance-across-fork). The
+still-untested modules are genuinely gated: `lbr_tracer`/`intel_pt` need
+perf/PT hardware, `lua_gui`/`lua_bitmap` need a display, and `lua_snapshot` is a
+thin wrapper over the already-tested `Snapshot` core.
+
+Genuinely blocked on real-world testing / a strategic call: **#10 Mono/Unity**
+(detection/enumeration/extraction + soft-debugger framing are tested; full
+type-introspection + IL2CPP need a live Unity target), **#11 Vulkan overlay**
+(GPU), **#12 Wayland hotkeys** (compositor+portal), #25 ARM (registers/ptrace;
 disassembly of ARM32/ARM64 is verified), #26 32-bit inject (injection; x86-32
 disassembly is verified).
 

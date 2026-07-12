@@ -2973,6 +2973,39 @@ static void test_lua_nop_instruction() {
            ok ? "OK" : ("FAILED (" + err + " patched=" + std::to_string(patched) + ")").c_str());
 }
 
+// readRegionToFile / writeRegionFromFile — dump a memory region to a file and
+// restore it (CE-compat memory dump/load).
+static void test_lua_region_file() {
+    printf("\n── Test: Lua readRegionToFile / writeRegionFromFile ──\n");
+    void* page = mmap(nullptr, 4096, PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (page == MAP_FAILED) { printf("  region file: FAILED (mmap)\n"); return; }
+    auto* p = reinterpret_cast<uint8_t*>(page);
+    for (int i = 0; i < 64; ++i) p[i] = (uint8_t)(i * 7 + 1);
+    auto addr = reinterpret_cast<uintptr_t>(page);
+    auto tmp = std::filesystem::temp_directory_path() /
+        ("cecore-region-" + std::to_string(getpid()) + ".bin");
+
+    LuaEngine eng;
+    eng.setOwnedProcess(std::make_unique<LinuxProcessHandle>(getpid()));
+    const std::string a = std::to_string(addr);
+    std::string err = eng.execute(
+        "assert(readRegionToFile('" + tmp.string() + "', " + a + ", 64) == 64, 'dump')");
+    std::memset(page, 0, 64);   // wipe, then restore from the dump
+    if (err.empty())
+        err = eng.execute(
+            "assert(writeRegionFromFile('" + tmp.string() + "', " + a + ") == 64, 'restore')");
+
+    bool restored = true;
+    for (int i = 0; i < 64; ++i) if (p[i] != (uint8_t)(i * 7 + 1)) { restored = false; break; }
+    std::error_code ec; std::filesystem::remove(tmp, ec);
+    munmap(page, 4096);
+
+    bool ok = err.empty() && restored;
+    printf("  dump + restore memory region via file: %s\n",
+           ok ? "OK" : ("FAILED (" + err + " restored=" + std::to_string(restored) + ")").c_str());
+}
+
 // A hot function with a single store to one global, plus a worker that spins it,
 // for the "find what addresses this instruction accesses" test below.
 static volatile long g_ifa_target;
@@ -6924,6 +6957,7 @@ int main(int argc, char* argv[]) {
     test_instruction_access();
     test_nop_instruction();
     test_lua_nop_instruction();
+    test_lua_region_file();
     test_speedhack_got_injection();
     test_parser_fuzz_negatives();
     test_lua_shellexecute_gate();

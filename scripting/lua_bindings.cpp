@@ -379,6 +379,48 @@ static int l_readBytes(lua_State* L) {
     return count;
 }
 
+// readRegionToFile(fileName, address, size) -> bytes written, or nil (CE-compat:
+// dump a memory region to a file).
+static int l_readRegionToFile(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 2);
+    size_t size = (size_t)luaL_checkinteger(L, 3);
+    luaL_argcheck(L, size <= (1u << 28), 3, "size too large");
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); return 1; }
+    std::vector<uint8_t> buf(size);
+    auto r = p->read(addr, buf.data(), size);
+    size_t n = (r && *r > 0) ? *r : 0;
+    if (n == 0) { lua_pushnil(L); return 1; }
+    std::ofstream f(path, std::ios::binary);
+    if (!f) { lua_pushnil(L); return 1; }
+    f.write(reinterpret_cast<const char*>(buf.data()), (std::streamsize)n);
+    lua_pushinteger(L, (lua_Integer)n);
+    return 1;
+}
+
+// writeRegionFromFile(fileName, address) -> bytes written, or nil (CE-compat:
+// load a previously-dumped region back into memory).
+static int l_writeRegionFromFile(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 2);
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); return 1; }
+    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    if (!f) { lua_pushnil(L); return 1; }
+    size_t size = (size_t)f.tellg();
+    f.seekg(0);
+    std::vector<uint8_t> buf(size);
+    if (size && !f.read(reinterpret_cast<char*>(buf.data()), (std::streamsize)size)) {
+        lua_pushnil(L); return 1;
+    }
+    auto w = p->write(addr, buf.data(), size);
+    size_t n = (w && *w > 0) ? *w : 0;
+    if (n == 0) { lua_pushnil(L); return 1; }
+    lua_pushinteger(L, (lua_Integer)n);
+    return 1;
+}
+
 // ── Local memory read/write functions ──
 //
 // SECURITY (by design): the *Local family reinterpret_casts a script-supplied
@@ -2720,6 +2762,8 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "readDouble", l_readDouble);
     lua_register(L, "readString", l_readString);
     lua_register(L, "readBytes", l_readBytes);
+    lua_register(L, "readRegionToFile", l_readRegionToFile);
+    lua_register(L, "writeRegionFromFile", l_writeRegionFromFile);
     lua_register(L, "byteTableToString", l_byteTableToString);
     lua_register(L, "stringToByteTable", l_stringToByteTable);
     lua_register(L, "wordToByteTable", l_wordToByteTable);

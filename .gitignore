@@ -1,4 +1,5 @@
 build/
+build-asan/
 
 # Kernel module build artifacts (out-of-tree build leaves these in kernel/)
 *.o

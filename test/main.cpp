@@ -5885,7 +5885,9 @@ int main(int argc, char* argv[]) {
     test_snapshot_engine();
     test_stack_trace_frame_walk();
     test_break_and_trace();
-    test_exception_breakpoint();
+#ifndef __SANITIZE_ADDRESS__
+    test_exception_breakpoint();   // deliberate bad-pointer fault trips UBSan (skip under ASan)
+#endif
     test_software_breakpoint();
     test_multithread_watchpoint();
     test_multithread_software_breakpoint();
@@ -5910,7 +5912,9 @@ int main(int argc, char* argv[]) {
     test_autoassembler_custom_commands(targetPid);
     test_autoassembler_processing_hooks(targetPid);
     test_autoassembler_loadbinary(targetPid);
-    test_autoassembler_loadlibrary(targetPid);
+#ifndef __SANITIZE_ADDRESS__
+    test_autoassembler_loadlibrary(targetPid);  // dlopen-injects a lib; conflicts with ASan
+#endif
     test_autoassembler_struct_definitions(targetPid);
     test_autoassembler_aobscanmodule(targetPid);
     test_autoassembler_aobscanregion(targetPid);

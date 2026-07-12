@@ -12,6 +12,12 @@ add_compile_definitions(CECORE_VERSION="${PROJECT_VERSION}")
 # ── Options ──
 option(CECORE_BUILD_TESTS "Build test programs" ON)
 option(CECORE_FORCE_FETCHCONTENT "Always use FetchContent for Capstone/Keystone, even if installed" OFF)
+option(CECORE_SANITIZE "Build with AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
+if(CECORE_SANITIZE)
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all)
+    add_link_options(-fsanitize=address,undefined)
+    message(STATUS "Sanitizers: ASan + UBSan enabled")
+endif()
 
 include(FetchContent)
 

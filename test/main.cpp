@@ -2503,6 +2503,43 @@ static void test_break_and_trace() {
     printf("  break and trace: %s\n", (hitStart && countOk && decoded) ? "OK" : "FAILED");
 }
 
+// A probe called ONLY by a sibling worker thread, so tracing from its address
+// proves the tracer follows the thread that hit the start breakpoint, not main.
+static volatile int g_trace_mt_sink = 0;
+__attribute__((noinline)) static void mt_trace_probe() {
+    g_trace_mt_sink = g_trace_mt_sink + 1;
+    asm volatile("nop");
+}
+static void mt_trace_worker() {
+    for (;;) { mt_trace_probe(); usleep(200); }
+}
+static void test_break_and_trace_multithread() {
+    printf("\n── Test: Break and trace (child thread) ──\n");
+    pid_t child = fork();
+    if (child == 0) {
+        std::thread(mt_trace_worker).detach();   // only the worker calls the probe
+        for (;;) usleep(100000);                 // main never calls it
+        _exit(0);
+    }
+    if (child < 0) { printf("  mt break and trace: FAILED\n"); return; }
+    usleep(80000);
+
+    LinuxProcessHandle proc(child);
+    LinuxDebugger dbg;
+    Tracer tracer;
+    TraceConfig config;
+    config.startAddress = reinterpret_cast<uintptr_t>(&mt_trace_probe);
+    config.maxSteps = 6;
+    auto entries = tracer.trace(proc, dbg, config);
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
+
+    bool hitStart = !entries.empty() && entries[0].address == config.startAddress;
+    bool countOk = entries.size() == static_cast<size_t>(config.maxSteps);
+    printf("  break and trace on a child thread: %s (%zu entries, first=%s)\n",
+           (hitStart && countOk) ? "OK" : "FAILED", entries.size(), hitStart ? "startAddr" : "no");
+}
+
 static void test_exception_breakpoint() {
     printf("\n── Test: Exception breakpoints ──\n");
 
@@ -6046,6 +6083,7 @@ int main(int argc, char* argv[]) {
     test_snapshot_engine();
     test_stack_trace_frame_walk();
     test_break_and_trace();
+    test_break_and_trace_multithread();
 #ifndef __SANITIZE_ADDRESS__
     test_exception_breakpoint();   // deliberate bad-pointer fault trips UBSan (skip under ASan)
 #endif

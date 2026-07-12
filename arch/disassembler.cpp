@@ -87,15 +87,20 @@ static MemoryOperand extractMemoryOperand(const cs_insn& in, csh handle) {
     return m;
 }
 
-static Instruction buildInstruction(const cs_insn& in, csh handle) {
+static Instruction buildInstruction(const cs_insn& in, csh handle, Arch arch) {
     Instruction inst;
     inst.address = in.address;
     inst.size = in.size;
     inst.mnemonic = in.mnemonic;
     inst.operands = in.op_str;
     inst.bytes.assign(in.bytes, in.bytes + in.size);
-    inst.ripTarget = resolveRipRelative(in, inst.operands);
-    inst.memory = extractMemoryOperand(in, handle);
+    // The cs_insn detail is an arch-specific union; reading its x86 members for an
+    // ARM instruction is undefined behavior (UBSan flags the garbage op_type). The
+    // memory-operand analysis is x86-only, so guard it by arch.
+    if (arch == Arch::X86_32 || arch == Arch::X86_64) {
+        inst.ripTarget = resolveRipRelative(in, inst.operands);
+        inst.memory = extractMemoryOperand(in, handle);
+    }
     return inst;
 }
 
@@ -121,7 +126,7 @@ std::vector<Instruction> Disassembler::disassemble(uintptr_t address, std::span<
         InsnGuard guard{insn, n};
 
         for (size_t i = 0; i < n; ++i)
-            result.push_back(buildInstruction(insn[i], static_cast<csh>(handle_)));
+            result.push_back(buildInstruction(insn[i], static_cast<csh>(handle_), arch_));
 
         if (n > 0)
             offset = (result.back().address - address) + result.back().size;

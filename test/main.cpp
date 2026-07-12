@@ -3110,6 +3110,27 @@ static void test_lua_symbol_info() {
            ok ? "OK" : ("FAILED (" + err + ")").c_str());
 }
 
+static void test_lua_region_info() {
+    printf("\n── Test: Lua getRegionInfo ──\n");
+    // Point at a known-mapped address in our own process (.bss) and query the
+    // region it lives in via the self-attached process handle.
+    static volatile int probe = 0; probe = 7;
+    uintptr_t addr = reinterpret_cast<uintptr_t>(&probe);
+    LuaEngine eng;
+    eng.setOwnedProcess(std::make_unique<LinuxProcessHandle>(getpid()));
+    std::string script =
+        "local addr = " + std::to_string(addr) + "\n"
+        "local r = getRegionInfo(addr)\n"
+        "assert(r ~= nil, 'no region for a mapped address')\n"
+        "assert(addr >= r.BaseAddress and addr < r.BaseAddress + r.MemorySize, 'address outside its region')\n"
+        "assert(r.MemorySize > 0, 'zero-size region')\n"
+        "assert(getRegionInfo(0) == nil, 'null page should be unmapped')\n";
+    std::string err = eng.execute(script);
+    bool ok = err.empty();
+    printf("  getRegionInfo finds the containing region: %s\n",
+           ok ? "OK" : ("FAILED (" + err + ")").c_str());
+}
+
 static void test_structure_tools() {
     printf("\n── Test: Structure tools ──\n");
 
@@ -6096,6 +6117,7 @@ int main(int argc, char* argv[]) {
     test_symbol_build_id_debuglink();
     test_pointer_rescan_by_value();
     test_lua_symbol_info();
+    test_lua_region_info();
     test_codefinder_watch_size();
     test_structure_tools();
     test_lua_memrec();

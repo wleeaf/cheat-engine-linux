@@ -2531,6 +2531,27 @@ static int l_reinitializeSymbolhandler(lua_State* L) {
     return 0;
 }
 
+// getRegionInfo(address) -> {BaseAddress, MemorySize, Protect [, Path]} for the
+// mapped region that contains address, or nil if unmapped (CE-compat: CE returns
+// a MEMORY_BASIC_INFORMATION-like table; field names mirror enumMemoryRegions).
+static int l_getRegionInfo(lua_State* L) {
+    uintptr_t addr = static_cast<uintptr_t>(luaL_checkinteger(L, 1));
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); return 1; }
+    for (auto& r : p->queryRegions()) {
+        if (addr >= r.base && addr < r.base + r.size) {
+            lua_newtable(L);
+            lua_pushinteger(L, (lua_Integer)r.base);                 lua_setfield(L, -2, "BaseAddress");
+            lua_pushinteger(L, (lua_Integer)r.size);                 lua_setfield(L, -2, "MemorySize");
+            lua_pushinteger(L, (lua_Integer)(uint32_t)r.protection); lua_setfield(L, -2, "Protect");
+            if (!r.path.empty()) { lua_pushstring(L, r.path.c_str()); lua_setfield(L, -2, "Path"); }
+            return 1;
+        }
+    }
+    lua_pushnil(L);
+    return 1;
+}
+
 void registerExtendedBindings(lua_State* L) {
     // TODO(security): liblua is C-compiled, so a C++ exception that escapes any
     // lua_CFunction body unwinds through non-exception-aware C frames (UB). The
@@ -2680,6 +2701,7 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "unregisterSymbol", l_unregisterSymbol);
     lua_register(L, "getSymbolInfo", l_getSymbolInfo);
     lua_register(L, "reinitializeSymbolhandler", l_reinitializeSymbolhandler);
+    lua_register(L, "getRegionInfo", l_getRegionInfo);
     lua_register(L, "getUserDefinedSymbolByName", l_getUserDefinedSymbolByName);
     lua_register(L, "getUserDefinedSymbolByAddress", l_getUserDefinedSymbolByAddress);
     lua_register(L, "getOpenedProcesses", l_getOpenedProcesses);

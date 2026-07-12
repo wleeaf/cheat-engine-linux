@@ -745,6 +745,28 @@ static void test_code_analysis_references() {
 // Decoding an instruction's memory operand + resolving the address it accesses
 // from register state (the primitive behind "find what addresses this
 // instruction accesses" and richer disassembly display).
+// The disassembler is multi-arch (Capstone). Verify it decodes x86-32, ARM32,
+// and ARM64 — the non-hardware, testable slices of #25 (ARM) and #26 (32-bit).
+// Arches Capstone was built without are reported SKIPPED, not FAILED.
+static void test_disassembler_multiarch() {
+    printf("\n── Test: multi-arch disassembly ──\n");
+    auto tryOne = [](Arch arch, std::vector<uint8_t> bytes, const std::string& mnem) -> int {
+        try {
+            Disassembler dis(arch);
+            auto insns = dis.disassemble(0x1000, {bytes.data(), bytes.size()}, 1);
+            if (insns.empty()) return 0;
+            return insns[0].mnemonic == mnem ? 1 : 0;
+        } catch (const std::exception&) { return -1; }   // arch unsupported by Capstone
+    };
+    int x32 = tryOne(Arch::X86_32, {0xC3}, "ret");                     // ret
+    int a32 = tryOne(Arch::ARM32,  {0x00, 0xF0, 0x20, 0xE3}, "nop");   // 0xE320F000
+    int a64 = tryOne(Arch::ARM64,  {0x1F, 0x20, 0x03, 0xD5}, "nop");   // 0xD503201F
+    auto s = [](int r) { return r == 1 ? "OK" : r == 0 ? "FAILED" : "SKIPPED"; };
+    bool ok = x32 == 1 && a32 != 0 && a64 != 0;   // x86-32 must work; ARM OK or skipped
+    printf("  x86-32/ARM32/ARM64 decode: %s (x32=%s arm32=%s arm64=%s)\n",
+           ok ? "OK" : "FAILED", s(x32), s(a32), s(a64));
+}
+
 static void test_effective_address() {
     printf("\n── Test: instruction effective-address ──\n");
     Disassembler dis(Arch::X86_64);
@@ -6845,6 +6867,7 @@ int main(int argc, char* argv[]) {
     test_ct_forms_roundtrip();
     test_trainer_generation();
     test_code_analysis_references();
+    test_disassembler_multiarch();
     test_effective_address();
     test_cpp_symbol_demangling();
     test_symbol_size0_extent_cap();

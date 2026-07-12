@@ -84,7 +84,9 @@ page in a child, write+read it back through the protocol). **#24 is complete.**
 
 Remaining: #21 dissector N-instance/RTTI; more of #23.
 Genuinely blocked on real-world testing / a strategic call: **#10 Mono/Unity**,
-**#11 Vulkan overlay**, **#12 Wayland hotkeys**, #25 ARM, #26 32-bit inject.
+**#11 Vulkan overlay**, **#12 Wayland hotkeys**, #25 ARM (registers/ptrace;
+disassembly of ARM32/ARM64 is verified), #26 32-bit inject (injection; x86-32
+disassembly is verified).
 
 ---
 

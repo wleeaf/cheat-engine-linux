@@ -40,6 +40,14 @@ std::vector<StructureFieldDiff> compareStructureSnapshots(const StructureDefinit
     const std::vector<uint8_t>& after);
 std::vector<StructureDetectedField> autoDetectStructureFields(const std::vector<uint8_t>& before,
     const std::vector<uint8_t>& after);
+/// Multi-instance variant: given N snapshots of the same structure (one per
+/// dissected instance), flags each byte-run that is not identical across every
+/// snapshot. This is the discriminating-field detector for the N-instance
+/// dissector: bytes constant across all instances stay `changed=false`; a run
+/// that differs in any instance is flagged. The two-snapshot overload above is
+/// the N=2 case and delegates here.
+std::vector<StructureDetectedField> autoDetectStructureFieldsMulti(
+    const std::vector<std::vector<uint8_t>>& snapshots);
 std::vector<StructurePointerChain> followStructurePointers(ProcessHandle& proc,
     uintptr_t baseAddress,
     const StructureDefinition& structure,

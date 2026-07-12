@@ -39,9 +39,9 @@ private:
     int structSize_ = 256;
     int validBytes_ = 0;
     QLineEdit* addressEdit_;
-    QLineEdit* compareEdit_ = nullptr;      // second struct address for compare
-    uintptr_t compareAddr_ = 0;
-    std::vector<uint8_t> compareCache_;
+    QLineEdit* compareEdit_ = nullptr;      // one or more compare struct addresses
+    std::vector<uintptr_t> compareAddrs_;   // N instances to diff the base against
+    std::vector<std::vector<uint8_t>> compareCaches_;
     QSpinBox* sizeSpin_ = nullptr;
     QTableWidget* table_;
     QTimer* refreshTimer_;

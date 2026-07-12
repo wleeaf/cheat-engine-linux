@@ -18,6 +18,7 @@
 #include <QMessageBox>
 #include <QFileDialog>
 #include <QFont>
+#include <QRegularExpression>
 #include <cstring>
 #include <cmath>
 #include <algorithm>
@@ -55,16 +56,23 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
     });
     addrRow->addWidget(sizeSpin_);
 
-    // Compare: a second struct address; rows whose 8 bytes differ are highlighted,
-    // making it easy to spot which field changed (CE's "compare two structures").
+    // Compare: one or more struct addresses; rows whose 8 bytes differ from the
+    // base in ANY instance are highlighted. With one address this is CE's
+    // "compare two structures"; with several it is the N-instance dissector,
+    // surfacing the fields that discriminate between instances (e.g. team id).
     addrRow->addWidget(new QLabel("Compare:"));
     compareEdit_ = new QLineEdit;
     compareEdit_->setFont(QFont("Monospace", 10));
-    compareEdit_->setPlaceholderText("0x… (optional)");
+    compareEdit_->setPlaceholderText("0x…, 0x… (optional, comma/space separated)");
     connect(compareEdit_, &QLineEdit::returnPressed, this, [this]() {
-        bool ok = false;
-        compareAddr_ = compareEdit_->text().trimmed().toULongLong(&ok, 16);
-        if (!ok) compareAddr_ = 0;
+        compareAddrs_.clear();
+        const auto tokens = compareEdit_->text().split(
+            QRegularExpression("[\\s,]+"), Qt::SkipEmptyParts);
+        for (const QString& token : tokens) {
+            bool ok = false;
+            uintptr_t addr = token.trimmed().toULongLong(&ok, 16);
+            if (ok && addr) compareAddrs_.push_back(addr);
+        }
         populateTable();
     });
     addrRow->addWidget(compareEdit_);
@@ -277,17 +285,16 @@ void StructureDissector::populateTable() {
     // page; only bytes [0, validBytes_) are real, the rest may be stale.
     validBytes_ = (int)std::min<size_t>(*r, (size_t)structSize_);
 
-    // Compare mode: read the second struct so we can flag differing rows.
-    bool haveCompare = compareAddr_ != 0;
-    int compareValid = 0;
-    if (haveCompare) {
-        compareCache_.resize(structSize_);
-        auto cr = proc_->read(compareAddr_, compareCache_.data(), structSize_);
-        // Track how many compare bytes are real: a partial read (struct straddles
-        // an unmapped page) leaves stale bytes past *cr, which must not drive the
-        // row-diff highlight.
-        if (!cr) haveCompare = false;
-        else compareValid = (int)std::min<size_t>(*cr, (size_t)structSize_);
+    // Compare mode: read every compare instance so we can flag rows that vary
+    // across the set. Each instance tracks how many bytes are real: a partial
+    // read (the struct straddles an unmapped page) leaves stale bytes past *cr,
+    // which must not drive the row-diff highlight.
+    compareCaches_.assign(compareAddrs_.size(), {});
+    std::vector<int> compareValid(compareAddrs_.size(), 0);
+    for (size_t k = 0; k < compareAddrs_.size(); ++k) {
+        compareCaches_[k].resize(structSize_);
+        auto cr = proc_->read(compareAddrs_[k], compareCaches_[k].data(), structSize_);
+        compareValid[k] = cr ? (int)std::min<size_t>(*cr, (size_t)structSize_) : 0;
     }
 
     int rows = structSize_ / 8; // Show every 8 bytes
@@ -308,10 +315,16 @@ void StructureDissector::populateTable() {
         table_->setItem(i, 5, new QTableWidgetItem(formatValue(d, off, "float")));
         table_->setItem(i, 6, new QTableWidgetItem(formatValue(d, off, "ptr")));
 
-        // Highlight rows that differ from the compare struct (only where BOTH
-        // snapshots have real bytes, so stale tail bytes can't fake a diff).
-        if (haveCompare && off + 8 <= validBytes_ && off + 8 <= compareValid &&
-            std::memcmp(d, compareCache_.data() + off, 8) != 0) {
+        // Highlight rows that differ from the base in any compare instance (only
+        // where BOTH snapshots have real bytes, so stale tail bytes can't fake a
+        // diff). This is the per-row form of the N-instance field detector.
+        bool rowVaries = false;
+        if (off + 8 <= validBytes_) {
+            for (size_t k = 0; k < compareCaches_.size() && !rowVaries; ++k)
+                rowVaries = off + 8 <= compareValid[k] &&
+                    std::memcmp(d, compareCaches_[k].data() + off, 8) != 0;
+        }
+        if (rowVaries) {
             for (int c = 0; c < table_->columnCount(); ++c)
                 if (auto* it = table_->item(i, c))
                     it->setBackground(QColor(0x5c, 0x25, 0x25));  // dark red

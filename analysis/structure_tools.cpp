@@ -198,15 +198,37 @@ std::vector<StructureFieldDiff> compareStructureSnapshots(const StructureDefinit
 std::vector<StructureDetectedField> autoDetectStructureFields(const std::vector<uint8_t>& before,
     const std::vector<uint8_t>& after)
 {
+    // The two-snapshot case is exactly N=2 of the multi-instance detector.
+    return autoDetectStructureFieldsMulti({before, after});
+}
+
+std::vector<StructureDetectedField> autoDetectStructureFieldsMulti(
+    const std::vector<std::vector<uint8_t>>& snapshots)
+{
     std::vector<StructureDetectedField> fields;
-    const size_t size = std::min(before.size(), after.size());
+    if (snapshots.empty())
+        return fields;
+
+    // Compare over the common prefix length so a short snapshot never drives an
+    // out-of-bounds read; anything past the shortest instance is undetectable.
+    size_t size = snapshots.front().size();
+    for (const auto& snapshot : snapshots)
+        size = std::min(size, snapshot.size());
     if (size == 0)
         return fields;
 
+    const auto& base = snapshots.front();
+    const auto byteVaries = [&](size_t index) {
+        for (size_t s = 1; s < snapshots.size(); ++s)
+            if (snapshots[s][index] != base[index])
+                return true;
+        return false;
+    };
+
     size_t start = 0;
-    bool currentChanged = before[0] != after[0];
+    bool currentChanged = byteVaries(0);
     for (size_t i = 1; i < size; ++i) {
-        bool changed = before[i] != after[i];
+        bool changed = byteVaries(i);
         if (changed == currentChanged)
             continue;
 

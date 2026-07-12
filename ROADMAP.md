@@ -83,7 +83,8 @@ tested against a forked child, breakpoint fires + tracee survives detach). ALLOC
 allocate/free memory in the target via ptrace remoteSyscall mmap (tested: alloc a
 page in a child, write+read it back through the protocol). **#24 is complete.**
 
-Remaining: #21 dissector N-instance/RTTI; more of #23.
+Remaining: #21 dissector RTTI typing (depends on #10); more of #23.
+The #21 N-instance/multi-column half is done (backend detector + GUI multi-address compare).
 Genuinely blocked on real-world testing / a strategic call: **#10 Mono/Unity**,
 **#11 Vulkan overlay**, **#12 Wayland hotkeys**, #25 ARM (registers/ptrace;
 disassembly of ARM32/ARM64 is verified), #26 32-bit inject (injection; x86-32
@@ -224,9 +225,13 @@ routing both the disassembler and Lua through it closes many at once.
     addresses), and DWARF extraction is line-table + function names only (no
     struct/member/variable types). **[M]**
 21. **Structure dissector: multi-instance columns + RTTI/managed typing.**
-    Single base address today (`gui/structuredissector.cpp`); CE diffs many live
-    instances side-by-side and detects class names. **[M]** (managed typing
-    depends on #10)
+    *Multi-instance done:* `analysis/structure_tools.cpp` gains
+    `autoDetectStructureFieldsMulti` (flags the byte-runs that vary across N
+    snapshots; the two-snapshot detector is now the N=2 case that delegates to
+    it), and `gui/structuredissector.cpp` accepts a comma/space-separated list of
+    compare addresses, highlighting rows that differ from the base in any
+    instance. *Remaining:* RTTI/managed class-name typing, which depends on #10.
+    **[M]**
 22. **Cheat table: embed Form Designer forms + custom types.** No `<Forms>`
     handling; the Form Designer saves standalone `.json` instead of into the
     `.CT`, so full trainers don't round-trip. **[S-M]**

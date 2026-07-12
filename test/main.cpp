@@ -4047,6 +4047,27 @@ static void test_structure_tools() {
         detected[1].offset == 4 && detected[1].size == 20 &&
         !detected[1].changed;
 
+    // N-instance dissector: four snapshots of the same 24-byte struct. Bytes
+    // 0..3 differ per instance (health), 4..7 are identical (mana), byte 8
+    // differs in a single instance (team), 9..23 identical. The detector must
+    // flag exactly the runs that vary across the whole set.
+    std::vector<std::vector<uint8_t>> instances(4, std::vector<uint8_t>(24, 0));
+    for (size_t s = 0; s < instances.size(); ++s)
+        for (size_t b = 0; b < 4; ++b)
+            instances[s][b] = static_cast<uint8_t>(s + 1);
+    instances[2][8] = 1;
+    auto multi = autoDetectStructureFieldsMulti(instances);
+    bool multiOk = multi.size() == 4 &&
+        multi[0].offset == 0 && multi[0].size == 4 && multi[0].changed &&
+        multi[1].offset == 4 && multi[1].size == 4 && !multi[1].changed &&
+        multi[2].offset == 8 && multi[2].size == 1 && multi[2].changed &&
+        multi[3].offset == 9 && multi[3].size == 15 && !multi[3].changed;
+    // A single instance has nothing to vary against; the whole struct is one
+    // unchanged run. Zero instances yield nothing.
+    auto single = autoDetectStructureFieldsMulti({std::vector<uint8_t>(8, 0xAB)});
+    multiOk = multiOk && single.size() == 1 && single[0].size == 8 &&
+        !single[0].changed && autoDetectStructureFieldsMulti({}).empty();
+
     const uintptr_t rootBase = 0x80000000;
     const uintptr_t nodeA = rootBase + 0x100;
     const uintptr_t nodeB = rootBase + 0x200;
@@ -4072,6 +4093,7 @@ static void test_structure_tools() {
     printf("  C++ struct export: %s\n", cppOk ? "OK" : "FAILED");
     printf("  snapshot comparison: %s\n", diffOk ? "OK" : "FAILED");
     printf("  changed field detection: %s\n", detectOk ? "OK" : "FAILED");
+    printf("  N-instance field detection: %s\n", multiOk ? "OK" : "FAILED");
     printf("  pointer chain following: %s\n", pointerOk ? "OK" : "FAILED");
     printf("  custom field display: %s\n", displayOk ? "OK" : "FAILED");
 }

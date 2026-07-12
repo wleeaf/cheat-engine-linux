@@ -9,6 +9,7 @@
 #include "arch/disassembler.hpp"
 #include "arch/assembler.hpp"
 #include "debug/patch.hpp"
+#include "debug/debug_session.hpp"
 #include "symbols/elf_symbols.hpp"
 #include "platform/linux/linux_process.hpp"
 #include "platform/linux/injector.hpp"
@@ -1478,11 +1479,24 @@ static int l_debug_setBreakpoint(lua_State* L) {
     int type = static_cast<int>(luaL_optinteger(L, 2, 0));
     int size = static_cast<int>(luaL_optinteger(L, 3, 1));
 
+    // Plant a REAL software breakpoint via the engine's DebugSession (P2 #15), then
+    // let the target run toward it. Hits are queued on the tracer thread and drained
+    // by debug_pumpEvents on the Lua thread. Falls back to bookkeeping-only if no
+    // process is attached.
+    int realId = -1;
+    if (auto* eng = ce::LuaEngine::instanceFromState(L)) {
+        if (auto* sess = eng->debugSession()) {
+            realId = sess->setSoftwareBreakpoint(address);
+            sess->continueExecution();
+        }
+    }
+
     ensureLuaBreakpointList(L);
     int id = nextLuaBreakpointId(L);
 
     lua_newtable(L);
     lua_pushinteger(L, id); lua_setfield(L, -2, "id");
+    lua_pushinteger(L, realId); lua_setfield(L, -2, "realId");
     lua_pushinteger(L, static_cast<lua_Integer>(address)); lua_setfield(L, -2, "address");
     lua_pushinteger(L, type); lua_setfield(L, -2, "type");
     lua_pushinteger(L, size); lua_setfield(L, -2, "size");
@@ -1492,6 +1506,40 @@ static int l_debug_setBreakpoint(lua_State* L) {
     lua_pop(L, 1);
 
     lua_pushinteger(L, id);
+    return 1;
+}
+
+// debug_pumpEvents([timeoutMs]) -> number of breakpoint hits processed. For each
+// queued hit it publishes the register context as globals (RIP/RSP/RAX.. and
+// BPAddress), calls the global debugger_onBreakpoint (CE convention) if defined,
+// then resumes the target. The first hit waits up to timeoutMs; already-queued
+// hits are then drained without blocking.
+static int l_debug_pumpEvents(lua_State* L) {
+    int timeoutMs = static_cast<int>(luaL_optinteger(L, 1, 0));
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    if (!eng || !eng->debugAttached()) { lua_pushinteger(L, 0); return 1; }
+
+    int processed = 0;
+    ce::LuaEngine::DebugHit hit;
+    while (eng->nextDebugHit(hit, processed == 0 ? timeoutMs : 0)) {
+        ++processed;
+        lua_pushinteger(L, (lua_Integer)hit.context.rip); lua_setglobal(L, "RIP");
+        lua_pushinteger(L, (lua_Integer)hit.context.rsp); lua_setglobal(L, "RSP");
+        lua_pushinteger(L, (lua_Integer)hit.context.rax); lua_setglobal(L, "RAX");
+        lua_pushinteger(L, (lua_Integer)hit.context.rbx); lua_setglobal(L, "RBX");
+        lua_pushinteger(L, (lua_Integer)hit.context.rcx); lua_setglobal(L, "RCX");
+        lua_pushinteger(L, (lua_Integer)hit.context.rdx); lua_setglobal(L, "RDX");
+        lua_pushinteger(L, (lua_Integer)hit.address);     lua_setglobal(L, "BPAddress");
+
+        lua_getglobal(L, "debugger_onBreakpoint");
+        if (lua_isfunction(L, -1)) {
+            if (lua_pcall(L, 0, 0, 0) != LUA_OK) return lua_error(L);
+        } else {
+            lua_pop(L, 1);
+        }
+        if (auto* sess = eng->debugSession()) sess->continueExecution();
+    }
+    lua_pushinteger(L, processed);
     return 1;
 }
 
@@ -1506,7 +1554,9 @@ static int l_debug_removeBreakpoint(lua_State* L) {
 }
 
 static int l_debug_continueFromBreakpoint(lua_State* L) {
-    (void)L;
+    if (auto* eng = ce::LuaEngine::instanceFromState(L))
+        if (eng->debugAttached())
+            if (auto* sess = eng->debugSession()) sess->continueExecution();
     lua_pushboolean(L, 0);
     lua_setfield(L, LUA_REGISTRYINDEX, "ce_lua_debug_broken");
     lua_pushboolean(L, 1);
@@ -2734,6 +2784,7 @@ void registerExtendedBindings(lua_State* L) {
     // Debug
     lua_register(L, "debug_getThreadList", l_debug_getThreadList);
     lua_register(L, "debug_setBreakpoint", l_debug_setBreakpoint);
+    lua_register(L, "debug_pumpEvents", l_debug_pumpEvents);
     lua_register(L, "debug_removeBreakpoint", l_debug_removeBreakpoint);
     lua_register(L, "debug_continueFromBreakpoint", l_debug_continueFromBreakpoint);
     lua_register(L, "debug_getBreakpointList", l_debug_getBreakpointList);

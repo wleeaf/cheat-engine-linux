@@ -48,13 +48,20 @@ Done and CI-green:
   `memview=1`); and XMM0-15 capture (`getXmmRegisters` via GETFPREGS) shown in
   the register table (`xmm=1`) — completing GP/flags/XMM · **P2
   #22 (partial)** embedded `<Forms>` preserved verbatim across `.CT` load/save
-  (Delphi form designs no longer dropped on re-save).
+  (Delphi form designs no longer dropped on re-save) · **P2 #15 (core)** the Lua
+  `debug_*` API is no longer a facade: `debug_setBreakpoint` plants a real
+  software breakpoint through a `LuaEngine`-owned `DebugSession`, hits are queued
+  on the tracer thread and drained by `debug_pumpEvents` on the Lua thread, which
+  publishes the register context (RIP/RSP/RAX.. globals) and fires the
+  CE-compatible `debugger_onBreakpoint` handler, then resumes.
 - **P3 #27** light theme (dead toggle fixed) · **P3 #28** `CONTRIBUTING.md`.
 
-Remaining: **#15** debugger unification (the big P2 lever); #16 full flags/XMM
-register view + #21 dissector work; #24 ceserver daemon; more of #23.
-Genuinely blocked on real-world testing / a strategic call: **#10 Mono/Unity**,
-**#11 Vulkan overlay**, **#12 Wayland hotkeys**, #25 ARM, #26 32-bit inject.
+Remaining: **#15** the rest of unification — route the disassembler right-click
+through the same session and add HW/data + conditional breakpoints (the Lua
+firing model is now settled: async-marshaled `debugger_onBreakpoint`); #21
+dissector N-instance/RTTI; #24 ceserver daemon; more of #23. Genuinely blocked on
+real-world testing / a strategic call: **#10 Mono/Unity**, **#11 Vulkan overlay**,
+**#12 Wayland hotkeys**, #25 ARM, #26 32-bit inject.
 
 ---
 

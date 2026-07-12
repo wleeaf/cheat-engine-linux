@@ -1,6 +1,7 @@
 #include "core/expression.hpp"
 #include "scripting/lua_engine.hpp"
 #include "core/address_list.hpp"
+#include "debug/debug_session.hpp"
 
 extern "C" {
 #include <lua.h>
@@ -9,6 +10,7 @@ extern "C" {
 }
 
 #include <cstring>
+#include <chrono>
 #include <exception>
 #include <utility>
 
@@ -34,6 +36,40 @@ void LuaEngine::setOwnedProcess(std::unique_ptr<ProcessHandle> proc) {
         lua_pushlightuserdata(L_, proc_);
         lua_setfield(L_, LUA_REGISTRYINDEX, "ce_proc");
     }
+}
+
+DebugSession* LuaEngine::debugSession() {
+    if (debugSession_) return debugSession_.get();
+    if (!proc_) return nullptr;
+    auto sess = std::make_unique<DebugSession>();
+    // Runs on the tracer thread — it MUST NOT touch Lua. It only queues the hit;
+    // the Lua thread drains the queue in the debug_pumpEvents binding.
+    sess->setEventCallback([this](const DebugEvent& e) {
+        if (e.type != DebugEventType::BreakpointHit &&
+            e.type != DebugEventType::ExceptionBreakpointHit) return;
+        {
+            std::lock_guard<std::mutex> lk(debugMutex_);
+            debugQueue_.push_back({e.tid, e.address, e.context});
+        }
+        debugCv_.notify_all();
+    });
+    if (!sess->attach(proc_->pid(), proc_)) return nullptr;
+    debugSession_ = std::move(sess);
+    return debugSession_.get();
+}
+
+bool LuaEngine::debugAttached() const {
+    return debugSession_ && debugSession_->isAttached();
+}
+
+bool LuaEngine::nextDebugHit(DebugHit& out, int timeoutMs) {
+    std::unique_lock<std::mutex> lk(debugMutex_);
+    if (!debugCv_.wait_for(lk, std::chrono::milliseconds(timeoutMs),
+                           [this] { return !debugQueue_.empty(); }))
+        return false;
+    out = debugQueue_.front();
+    debugQueue_.pop_front();
+    return true;
 }
 
 void LuaEngine::setAddressList(IAddressList* list) {

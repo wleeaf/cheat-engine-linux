@@ -3190,6 +3190,56 @@ static void test_debug_xmm() {
            ok ? "OK" : "FAILED", (int)hit.load(), (int)xmmOk);
 }
 
+// The Lua debug_* API planting a REAL breakpoint through a DebugSession and firing
+// debugger_onBreakpoint via the pump (P2 #15) — no longer a facade.
+static void test_lua_real_breakpoint() {
+    printf("\n── Test: Lua real breakpoint (debug_* via DebugSession) ──\n");
+
+    int fds[2];
+    if (pipe(fds) != 0) { printf("  lua breakpoint: FAILED (pipe)\n"); return; }
+    pid_t child = fork();
+    if (child == 0) {
+        close(fds[0]);
+        std::thread(bp_hot_worker).detach();
+        write(fds[1], "x", 1);
+        for (;;) usleep(100000);
+        _exit(0);
+    }
+    close(fds[1]);
+    if (child < 0) { close(fds[0]); printf("  lua breakpoint: FAILED (fork)\n"); return; }
+    char tok = 0; (void)read(fds[0], &tok, 1); close(fds[0]);
+    usleep(80000);
+
+    LinuxProcessHandle proc(child);
+    LuaEngine eng;
+    eng.setProcess(&proc);
+    auto hotAddr = reinterpret_cast<uintptr_t>(&bp_child_hot);
+
+    std::string script =
+        "hits = 0\n"
+        "lastRip = 0\n"
+        "function debugger_onBreakpoint()\n"
+        "  hits = hits + 1\n"
+        "  lastRip = RIP\n"
+        "end\n"
+        "local bp = debug_setBreakpoint(" + std::to_string(hotAddr) + ")\n"
+        "assert(bp, 'no breakpoint id')\n"
+        "for i = 1, 80 do\n"
+        "  debug_pumpEvents(100)\n"
+        "  if hits >= 3 then break end\n"
+        "end\n"
+        "assert(hits >= 3, 'breakpoint did not fire, hits=' .. hits)\n"
+        "assert(lastRip == " + std::to_string(hotAddr) + ", 'wrong RIP ' .. lastRip)\n";
+    std::string err = eng.execute(script);
+
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
+
+    bool ok = err.empty();
+    printf("  real breakpoint fires debugger_onBreakpoint: %s\n",
+           ok ? "OK" : ("FAILED (" + err + ")").c_str());
+}
+
 // Real monotonic time via a raw syscall, so it stays real even after the GOT
 // patch redirects the clock_gettime symbol.
 static double sh_raw_monotonic() {
@@ -6560,6 +6610,7 @@ int main(int argc, char* argv[]) {
     test_debug_register_edit();
     test_debug_thread_switch();
     test_debug_xmm();
+    test_lua_real_breakpoint();
     test_instruction_access();
     test_nop_instruction();
     test_lua_nop_instruction();

@@ -9,6 +9,7 @@
 #include <QTranslator>
 #include <QLibraryInfo>
 #include <unistd.h>
+#include <QSettings>
 #include <cstring>
 #include <cstdio>
 
@@ -51,6 +52,47 @@ static const char* darkStyleSheet = R"(
     QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
 )";
 
+// Light theme (Catppuccin Latte) — mirrors the dark selectors. Applied when the
+// display/dark setting is false (the Settings dialog's "Dark theme" checkbox).
+static const char* lightStyleSheet = R"(
+    QWidget { background-color: #eff1f5; color: #4c4f69; }
+    QMenuBar { background-color: #e6e9ef; color: #4c4f69; }
+    QMenuBar::item:selected { background-color: #ccd0da; }
+    QMenu { background-color: #eff1f5; color: #4c4f69; border: 1px solid #bcc0cc; }
+    QMenu::item:selected { background-color: #ccd0da; }
+    QPushButton { background-color: #ccd0da; color: #4c4f69; border: 1px solid #bcc0cc;
+                  padding: 4px 12px; border-radius: 4px; }
+    QPushButton:hover { background-color: #bcc0cc; }
+    QPushButton:pressed { background-color: #acb0be; }
+    QPushButton:disabled { color: #9ca0b0; }
+    QLineEdit, QSpinBox { background-color: #ffffff; color: #4c4f69; border: 1px solid #bcc0cc;
+                          padding: 3px; border-radius: 3px; }
+    QComboBox { background-color: #ffffff; color: #4c4f69; border: 1px solid #bcc0cc;
+                padding: 3px; border-radius: 3px; }
+    QComboBox QAbstractItemView { background-color: #eff1f5; color: #4c4f69; selection-background-color: #ccd0da; }
+    QComboBox::drop-down { border: none; }
+    QTableView, QListWidget, QTableWidget { background-color: #ffffff; color: #4c4f69;
+        gridline-color: #ccd0da; selection-background-color: #bcc0cc; alternate-background-color: #e6e9ef; }
+    QHeaderView::section { background-color: #e6e9ef; color: #5c5f77; border: 1px solid #ccd0da; padding: 4px; }
+    QSplitter::handle { background-color: #ccd0da; }
+    QGroupBox { color: #5c5f77; border: 1px solid #bcc0cc; border-radius: 4px; margin-top: 8px; padding-top: 8px; }
+    QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }
+    QCheckBox { color: #4c4f69; }
+    QLabel { color: #4c4f69; }
+    QProgressBar { background-color: #ccd0da; border: 1px solid #bcc0cc; border-radius: 3px; text-align: center; }
+    QProgressBar::chunk { background-color: #1e66f5; border-radius: 3px; }
+    QToolBar { background-color: #e6e9ef; border: none; spacing: 4px; }
+    QTabWidget::pane { border: 1px solid #bcc0cc; }
+    QTabBar::tab { background-color: #e6e9ef; color: #5c5f77; padding: 6px 12px; border: 1px solid #bcc0cc; }
+    QTabBar::tab:selected { background-color: #ccd0da; color: #4c4f69; }
+    QPlainTextEdit, QTextEdit { background-color: #ffffff; color: #4c4f69; border: 1px solid #bcc0cc; }
+    QScrollBar:vertical { background: #e6e9ef; width: 10px; }
+    QScrollBar::handle:vertical { background: #bcc0cc; border-radius: 5px; min-height: 20px; }
+    QScrollBar:horizontal { background: #e6e9ef; height: 10px; }
+    QScrollBar::handle:horizontal { background: #bcc0cc; border-radius: 5px; min-width: 20px; }
+    QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
+)";
+
 int main(int argc, char* argv[]) {
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--version") == 0 || std::strcmp(argv[i], "-v") == 0) {
@@ -62,7 +104,10 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     app.setApplicationName("Cheat Engine");
     app.setOrganizationName("cecore");
-    app.setStyleSheet(darkStyleSheet);
+    // Honor the Settings dialog's "Dark theme" toggle (display/dark; dark by default).
+    QSettings themeSettings;
+    bool useDark = themeSettings.value("display/dark", true).toBool();
+    app.setStyleSheet(useDark ? darkStyleSheet : lightStyleSheet);
 
     // ── i18n ──
     // Two translators: one for Qt's own strings (so dialogs etc. localise),

@@ -48,6 +48,7 @@
 #include <dlfcn.h>
 #include <sys/syscall.h>
 #include <cstdarg>
+#include <stdexcept>
 #include <unistd.h>
 #include <sys/wait.h>
 
@@ -2828,6 +2829,87 @@ static void test_speedhack_got_injection() {
     printf("  speedhack GOT inject: %s (baseline %.0f ms -> injected %.0f ms, %.1fx)\n",
            ok ? "OK" : "FAILED", base * 1000, scaled * 1000,
            scaled > 0 ? base / scaled : 0.0);
+}
+
+// Adversarial / malformed input for the parsers that the README says treat
+// their input as untrusted. Each must fail gracefully — return empty/false, not
+// throw an uncaught exception or crash. A throw is reported FAILED so we fix the
+// parser (segfaults kill the suite, which CI now catches).
+static void test_parser_fuzz_negatives() {
+    printf("\n── Test: Parser adversarial input ──\n");
+    namespace fs = std::filesystem;
+    auto tmp = fs::temp_directory_path();
+
+    // 1) ExpressionParser
+    {
+        ExpressionParser ep;
+        std::vector<std::string> inputs = {
+            "", " ", "\t", "[", "]", "[]", "[[]]", "[[[[[[[[[[", "]]]]]]]]]]",
+            "0x", "0X", "0xffffffffffffffffffffffffffffffffff",
+            "999999999999999999999999999999999", "-99999999999999999999",
+            "+++", "---", "+", "0x[rax", "[rax+", "game.exe+", "+0x", "0x1+",
+            "[0x1]+[0x2]+[0x3]", "0x1 0x2", "0xZZZZ", "[0xg]",
+            std::string(8192, '['), std::string(2000, 'A'),
+            std::string(500, '[') + "0x1" + std::string(500, ']'),
+        };
+        int fails = 0;
+        for (auto& in : inputs) {
+            try { (void)ep.parse(in); }
+            catch (const std::exception& e) {
+                printf("    expr threw (\"%.16s\"...): %s -> FAILED\n", in.c_str(), e.what());
+                fails++;
+            }
+        }
+        printf("  ExpressionParser (%zu adversarial inputs): %s\n",
+               inputs.size(), fails == 0 ? "OK" : "FAILED");
+    }
+
+    // 2) CheatTable::load on malformed .CT XML
+    {
+        std::vector<std::string> blobs = {
+            "", "<>", "<CheatTable>", "<CheatTable><CheatEntries>",
+            "<CheatTable><CheatEntries><CheatEntry><Offsets><Offset>x",
+            "<CheatTable>" + std::string(20000, '<'),
+            std::string(50000, '>'),
+            "<CheatTable><CheatEntry><VariableType>Nonsense</VariableType>"
+            "<Address>notahexaddr</Address></CheatEntry></CheatTable>",
+            "<CheatTable><CheatEntry><Offsets>" + std::string(5000, ' ') + "</Offsets>",
+            "\xff\xfe not xml at all \x01\x02\x03",
+        };
+        int fails = 0;
+        for (size_t i = 0; i < blobs.size(); ++i) {
+            auto p = tmp / ("cecore-fuzz-ct-" + std::to_string(getpid()) + "-" + std::to_string(i));
+            { std::ofstream f(p, std::ios::binary); f.write(blobs[i].data(), (std::streamsize)blobs[i].size()); }
+            CheatTable t;
+            try { (void)t.load(p.string()); }
+            catch (const std::exception& e) { printf("    .CT load threw: %s -> FAILED\n", e.what()); fails++; }
+            fs::remove(p);
+        }
+        printf("  CheatTable malformed .CT (%zu blobs): %s\n",
+               blobs.size(), fails == 0 ? "OK" : "FAILED");
+    }
+
+    // 3) SymbolResolver::loadModule on malformed ELF
+    {
+        std::vector<std::string> elfs = {
+            "", std::string("\x7f", 1), std::string("\x7f""ELF", 4),
+            std::string("\x7f""ELF", 4) + std::string(60, '\xff'),
+            std::string(64, '\x00'),
+            std::string("\x7f""ELF\x02\x01\x01\x00", 8) + std::string(512, '\x41'),
+            std::string("\x7f""ELF\x02\x01\x01\x00", 8) + std::string(4096, '\xff'),
+        };
+        int fails = 0;
+        for (size_t i = 0; i < elfs.size(); ++i) {
+            auto p = tmp / ("cecore-fuzz-elf-" + std::to_string(getpid()) + "-" + std::to_string(i));
+            { std::ofstream f(p, std::ios::binary); f.write(elfs[i].data(), (std::streamsize)elfs[i].size()); }
+            SymbolResolver sr;
+            try { sr.loadModule(p.string(), "fuzz", 0x400000); }
+            catch (const std::exception& e) { printf("    ELF parse threw: %s -> FAILED\n", e.what()); fails++; }
+            fs::remove(p);
+        }
+        printf("  ELF malformed parse (%zu blobs): %s\n",
+               elfs.size(), fails == 0 ? "OK" : "FAILED");
+    }
 }
 
 static void test_structure_tools() {
@@ -5808,6 +5890,7 @@ int main(int argc, char* argv[]) {
     test_multithread_watchpoint();
     test_multithread_software_breakpoint();
     test_speedhack_got_injection();
+    test_parser_fuzz_negatives();
     test_structure_tools();
     test_lua_memrec();
     test_autoassembler_unregister_symbol(targetPid);

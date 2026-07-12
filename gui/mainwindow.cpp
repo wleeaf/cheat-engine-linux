@@ -1290,61 +1290,81 @@ void MainWindow::setupUi() {
     // the cheat table below, and an Advanced Options / Table Extras bar at the
     // bottom.
     auto* scanPanel = new QWidget;
-    scanPanel->setMinimumSize(734, 430);
-    auto place = [scanPanel](QWidget* w, int x, int y, int cw, int ch) {
-        // Clear any fixed-size constraint so CE's geometry takes effect.
+    auto* sv = new QVBoxLayout(scanPanel);
+    sv->setContentsMargins(2, 2, 2, 2);
+    sv->setSpacing(3);
+
+    // Process bar (spans the width): open-process button, process name (stretches),
+    // and the scan progress bar (shown only while scanning).
+    openBtn->setMinimumSize(0, 0);
+    openBtn->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    openBtn->setFixedSize(32, 32);
+    auto* procRow = new QHBoxLayout;
+    procRow->addWidget(openBtn);
+    procRow->addWidget(processLabel_, 1);
+    progressBar_->setFixedWidth(220);
+    procRow->addWidget(progressBar_);
+    sv->addLayout(procRow);
+
+    // "Found: N" count row.
+    auto* foundRow2 = new QHBoxLayout;
+    foundRow2->addWidget(foundLabel_);
+    foundRow2->addStretch();
+    foundRow2->addWidget(resHexCheck);
+    sv->addLayout(foundRow2);
+
+    // Main row: found-results list on the left (stretches with the window), and
+    // the scan controls in a fixed-width block on the right (Cheat Engine's shape).
+    auto* mainRow = new QHBoxLayout;
+    auto* foundBlock = new QVBoxLayout;
+    foundBlock->addWidget(resultsView_, 1);
+    auto* foundBtns = new QHBoxLayout;
+    foundBtns->addWidget(memViewBtn);
+    foundBtns->addStretch();
+    foundBtns->addWidget(addAddrBtn);
+    foundBlock->addLayout(foundBtns);
+    mainRow->addLayout(foundBlock, 1);
+
+    auto* controls = new QWidget;
+    controls->setFixedWidth(410);
+    controls->setMinimumHeight(378);
+    auto cplace = [controls](QWidget* w, int x, int y, int cw, int ch) {
         w->setMinimumSize(0, 0);
         w->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-        w->setParent(scanPanel);
+        w->setParent(controls);
         w->setGeometry(x, y, cw, ch);
         w->show();
     };
-    auto label = [scanPanel](const QString& t, int x, int y, int cw, int ch) {
-        auto* l = new QLabel(t, scanPanel);
+    auto clabel = [controls](const QString& t, int x, int y, int cw, int ch) {
+        auto* l = new QLabel(t, controls);
         l->setGeometry(x, y, cw, ch);
         l->show();
         return l;
     };
-
-    // Process bar + progress + found count (top).
-    place(openBtn, 3, 3, 32, 32);
-    place(processLabel_, 101, 6, 560, 18);
-    place(progressBar_, 101, 27, 560, 14);
-    place(foundLabel_, 0, 31, 200, 16);
-    place(resHexCheck, 300, 31, 45, 16);
-
-    // Found-results list on the left, with its Memory View / Add Address buttons.
-    place(resultsView_, 0, 50, 337, 347);
-    place(memViewBtn, 0, 400, 98, 22);
-    place(addAddrBtn, 589, 400, 145, 22);
-
-    // Scan buttons (top-right row): First / Next / Undo. Slightly wider than CE's
-    // pixel widths so our (proportional) font doesn't clip the captions.
-    place(firstScanBtn_, 406, 46, 88, 25);
-    place(nextScanBtn_, 500, 46, 84, 25);
-    place(undoScanBtn_, 590, 46, 90, 25);
-
+    // Scan buttons: First / Next / Undo.
+    cplace(firstScanBtn_, 66, 0, 88, 25);
+    cplace(nextScanBtn_, 160, 0, 84, 25);
+    cplace(undoScanBtn_, 250, 0, 90, 25);
     // Scan value + Hex + the second ("and") value box for between-scans.
-    label("Scan Value", 406, 79, 120, 15);
-    place(scanValueEdit_, 406, 94, 217, 23);
-    place(hexCheck_, 350, 96, 55, 19);
-    place(betweenAndLabel_, 628, 98, 25, 15);
-    place(scanValue2Edit_, 656, 94, 76, 23);
-
+    clabel("Scan Value", 66, 33, 120, 15);
+    cplace(scanValueEdit_, 66, 48, 217, 23);
+    cplace(hexCheck_, 8, 50, 55, 19);
+    cplace(betweenAndLabel_, 286, 52, 25, 15);
+    cplace(scanValue2Edit_, 314, 48, 76, 23);
     // Scan Type / Value Type dropdowns.
-    label("Scan Type", 340, 128, 64, 15);
-    place(scanTypeCombo_, 406, 124, 200, 23);
-    label("Value Type", 340, 153, 64, 15);
-    place(valueTypeCombo_, 406, 149, 200, 23);
-
+    clabel("Scan Type", 0, 82, 64, 15);
+    cplace(scanTypeCombo_, 66, 78, 200, 23);
+    clabel("Value Type", 0, 107, 64, 15);
+    cplace(valueTypeCombo_, 66, 103, 200, 23);
     // Float rounding (CE puts radios here; we keep our combo + tolerance).
-    place(floatRoundingCombo_, 406, 178, 120, 23);
-    place(floatToleranceEdit_, 530, 178, 90, 23);
-
+    cplace(floatRoundingCombo_, 66, 132, 120, 23);
+    cplace(floatToleranceEdit_, 190, 132, 90, 23);
     // Memory Scan Options group (From/To, Writable/Executable, Fast Scan, etc.).
-    place(optGroup, 406, 206, 224, 200);
+    cplace(optGroup, 66, 160, 230, 214);
+    mainRow->addWidget(controls);
+    sv->addLayout(mainRow, 1);
 
-    // place() force-shows each widget; restore the ones that must start hidden
+    // cplace() force-shows each widget; restore the ones that must start hidden
     // (their visibility is driven by scan state, not the layout).
     progressBar_->setVisible(false);
     betweenAndLabel_->setVisible(false);

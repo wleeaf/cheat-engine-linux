@@ -14,6 +14,7 @@
 #include <QToolBar>
 #include <QFont>
 #include <QTimer>
+#include <QTableWidget>
 #include <functional>
 #include <set>
 #include <map>
@@ -216,6 +217,7 @@ private:
     ce::DwarfRegistry dwarf_;
     DisasmView* disasmView_;
     HexView* hexView_;
+    QTableWidget* registerPanel_ = nullptr;  // CE register panel (right of disasm)
     QLineEdit* addressEdit_;
     QTimer* refreshTimer_;
 

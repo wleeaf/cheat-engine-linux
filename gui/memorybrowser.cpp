@@ -1042,9 +1042,6 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     rebuildBookmarksMenu();  // eager: kept current on every bookmark change
     addToolBar(toolbar);
 
-    // Splitter: disasm (top) / hex (bottom)
-    auto* splitter = new QSplitter(Qt::Vertical);
-
     // Load symbols + DWARF (if libdw is compiled in and modules have debug info).
     if (proc_) {
         resolver_.loadProcess(*proc_);
@@ -1059,12 +1056,43 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     // target, so registers read eax/ecx rather than rax/rcx).
     if (proc && proc->runs32BitCode())
         disasmView_->setArch(ce::Arch::X86_32);
-    splitter->addWidget(disasmView_);
 
     hexView_ = new HexView;
     hexView_->setProcess(proc);
-    splitter->addWidget(hexView_);
 
+    // Cheat-Engine layout: the disassembler with a register panel on its right,
+    // and the hex view below (CE's memory viewer). The register panel lists the
+    // target's registers; values populate from an active debug stop (updateRegisters).
+    registerPanel_ = new QTableWidget;
+    registerPanel_->setColumnCount(2);
+    registerPanel_->horizontalHeader()->setVisible(false);
+    registerPanel_->verticalHeader()->setVisible(false);
+    registerPanel_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    registerPanel_->setSelectionMode(QAbstractItemView::NoSelection);
+    registerPanel_->setFont(QFont("Monospace", 9));
+    const bool is32 = proc && proc->runs32BitCode();
+    const QStringList regs = is32
+        ? QStringList{"EAX","EBX","ECX","EDX","ESI","EDI","EBP","ESP","EIP","EFLAGS"}
+        : QStringList{"RAX","RBX","RCX","RDX","RSI","RDI","RBP","RSP","RIP",
+                      "R8","R9","R10","R11","R12","R13","R14","R15","RFLAGS"};
+    registerPanel_->setRowCount(regs.size());
+    for (int i = 0; i < regs.size(); ++i) {
+        registerPanel_->setItem(i, 0, new QTableWidgetItem(regs[i]));
+        registerPanel_->setItem(i, 1, new QTableWidgetItem(QStringLiteral("—")));
+    }
+    registerPanel_->resizeColumnsToContents();
+    registerPanel_->setToolTip("Registers (populated at a debug breakpoint)");
+
+    auto* topSplit = new QSplitter(Qt::Horizontal);
+    topSplit->addWidget(disasmView_);
+    topSplit->addWidget(registerPanel_);
+    topSplit->setStretchFactor(0, 4);
+    topSplit->setStretchFactor(1, 1);
+    topSplit->setSizes({640, 200});
+
+    auto* splitter = new QSplitter(Qt::Vertical);
+    splitter->addWidget(topSplit);
+    splitter->addWidget(hexView_);
     splitter->setStretchFactor(0, 2);
     splitter->setStretchFactor(1, 1);
     setCentralWidget(splitter);

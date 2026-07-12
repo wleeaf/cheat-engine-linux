@@ -536,6 +536,21 @@ static int l_writeStringLocal(lua_State* L) {
     return 0;
 }
 
+// The write*Local family stores to an ARBITRARY address inside cecore's OWN
+// address space (reinterpret_cast<T*>(addr)), so an untrusted .CT could patch
+// cecore's code/GOT/vtables to hijack the process (cecore is often run as root).
+// Gate every write*Local behind the same out-of-band opt-in as shellExecute: an
+// env var a Lua table cannot set. read*Local only leaks memory, so it stays open.
+template <lua_CFunction Fn>
+static int guardLocalWrite(lua_State* L) {
+    if (!getenv("CECORE_LUA_ALLOW_UNSAFE"))
+        return luaL_error(L,
+            "write*Local blocked: it writes cecore's own memory, which an untrusted "
+            ".CT could use to hijack cecore. Enable only for scripts you trust by "
+            "launching with CECORE_LUA_ALLOW_UNSAFE=1 (see SECURITY.md).");
+    return Fn(L);
+}
+
 // ── Process info ──
 
 static pid_t parseProcessId(std::string_view text) {
@@ -2604,15 +2619,15 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "readDoubleLocal", l_readDoubleLocal);
     lua_register(L, "readBytesLocal", l_readBytesLocal);
     lua_register(L, "readStringLocal", l_readStringLocal);
-    lua_register(L, "writeByteLocal", l_writeByteLocal);
-    lua_register(L, "writeSmallIntegerLocal", l_writeSmallIntegerLocal);
-    lua_register(L, "writeIntegerLocal", l_writeIntegerLocal);
-    lua_register(L, "writeQwordLocal", l_writeQwordLocal);
-    lua_register(L, "writePointerLocal", l_writePointerLocal);
-    lua_register(L, "writeFloatLocal", l_writeFloatLocal);
-    lua_register(L, "writeDoubleLocal", l_writeDoubleLocal);
-    lua_register(L, "writeBytesLocal", l_writeBytesLocal);
-    lua_register(L, "writeStringLocal", l_writeStringLocal);
+    lua_register(L, "writeByteLocal", guardLocalWrite<l_writeByteLocal>);
+    lua_register(L, "writeSmallIntegerLocal", guardLocalWrite<l_writeSmallIntegerLocal>);
+    lua_register(L, "writeIntegerLocal", guardLocalWrite<l_writeIntegerLocal>);
+    lua_register(L, "writeQwordLocal", guardLocalWrite<l_writeQwordLocal>);
+    lua_register(L, "writePointerLocal", guardLocalWrite<l_writePointerLocal>);
+    lua_register(L, "writeFloatLocal", guardLocalWrite<l_writeFloatLocal>);
+    lua_register(L, "writeDoubleLocal", guardLocalWrite<l_writeDoubleLocal>);
+    lua_register(L, "writeBytesLocal", guardLocalWrite<l_writeBytesLocal>);
+    lua_register(L, "writeStringLocal", guardLocalWrite<l_writeStringLocal>);
 
     // Process info
     lua_register(L, "getProcessList", l_getProcessList);

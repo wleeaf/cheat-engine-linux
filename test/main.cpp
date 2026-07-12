@@ -2974,6 +2974,34 @@ static void test_lua_shellexecute_gate() {
            ok ? "OK" : "FAILED", (int)isBlocked, (int)isAllowed);
 }
 
+static void test_lua_localwrite_gate() {
+    printf("\n── Test: Lua write*Local self-memory gate ──\n");
+    volatile int target = 0x1111;
+    uintptr_t addr = reinterpret_cast<uintptr_t>(&target);
+    std::string a = std::to_string(addr);
+
+    // Default: write*Local is blocked and must NOT touch our memory.
+    unsetenv("CECORE_LUA_ALLOW_UNSAFE");
+    LuaEngine eng1;
+    std::string blocked = eng1.execute("writeIntegerLocal(" + a + ", 0x2222)");
+    bool isBlocked = blocked.find("blocked") != std::string::npos && target == 0x1111;
+
+    // read*Local only leaks memory (info), so it stays ungated even by default.
+    std::string readRes = eng1.execute("assert(readIntegerLocal(" + a + ") == 0x1111, 'read mismatch')");
+    bool readUngated = readRes.empty();
+
+    // Opted in: the write goes through and mutates the target.
+    setenv("CECORE_LUA_ALLOW_UNSAFE", "1", 1);
+    LuaEngine eng2;
+    std::string allowed = eng2.execute("writeIntegerLocal(" + a + ", 0x2222)");
+    bool isAllowed = allowed.empty() && target == 0x2222;
+    unsetenv("CECORE_LUA_ALLOW_UNSAFE");
+
+    bool ok = isBlocked && readUngated && isAllowed;
+    printf("  write*Local default-blocked + read ungated + env opt-in: %s (blocked=%d read=%d allowed=%d)\n",
+           ok ? "OK" : "FAILED", (int)isBlocked, (int)readUngated, (int)isAllowed);
+}
+
 // Stripped binaries keep their real symbols in a separate debug file. Build a
 // .so with a used static function (only in .symtab), split the debug info into a
 // sidecar, strip the .so, link them with .gnu_debuglink, and verify the static
@@ -4635,9 +4663,14 @@ static void test_lua_local_memory() {
         "writeStringLocal(base + 72, 'hello')\n"
         "assert(readStringLocal(base + 72, 16) == 'hello')\n";
 
+    // write*Local is gated behind the untrusted-.CT opt-in; this test exercises
+    // the legitimate use, so it opts in explicitly (see test_lua_localwrite_gate).
+    setenv("CECORE_LUA_ALLOW_UNSAFE", "1", 1);
     auto err = lua.execute(script);
+    unsetenv("CECORE_LUA_ALLOW_UNSAFE");
 
-    printf("  read/write local variants: %s\n", err.empty() ? "OK" : "FAILED");
+    printf("  read/write local variants: %s\n",
+           err.empty() ? "OK" : ("FAILED (" + err + ")").c_str());
 }
 
 static void test_lua_autoassemble_check() {
@@ -4861,10 +4894,15 @@ static void test_lua_memscan() {
         "assert(ms:getFoundCount() == 1)\n"
         "assert(ms:getAddress(0) == base)\n";
 
+    // The script uses writeIntegerLocal to change the scan target between scans,
+    // which is now gated; opt in for this incidental use.
+    setenv("CECORE_LUA_ALLOW_UNSAFE", "1", 1);
     auto err = lua.execute(script);
+    unsetenv("CECORE_LUA_ALLOW_UNSAFE");
     munmap(page, pageSize);
 
-    printf("  firstScan/nextScan: %s\n", err.empty() ? "OK" : "FAILED");
+    printf("  firstScan/nextScan: %s\n",
+           err.empty() ? "OK" : ("FAILED (" + err + ")").c_str());
 }
 
 static void test_binary_scan_bitmask() {
@@ -6114,6 +6152,7 @@ int main(int argc, char* argv[]) {
     test_speedhack_got_injection();
     test_parser_fuzz_negatives();
     test_lua_shellexecute_gate();
+    test_lua_localwrite_gate();
     test_symbol_build_id_debuglink();
     test_pointer_rescan_by_value();
     test_lua_symbol_info();

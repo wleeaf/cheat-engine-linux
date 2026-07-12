@@ -7,16 +7,23 @@ with elevated privileges (`ptrace`, often under `sudo`), and its cheat-table
 format is scriptable.
 
 **Do not open `.CT` / `.CETRAINER` files from sources you do not trust.** A cheat
-table can embed Lua that runs automatically, and the Lua surface includes
-arbitrary command execution (`shellExecute`) and arbitrary host-memory read/write
-(the `*Local` functions). Opening a malicious table can therefore execute
-arbitrary code on your machine, typically with whatever privileges you launched
-the tool with (i.e. root, if you used `sudo`). Treat a shared table like a shared
-executable.
+table can embed Lua that runs automatically. Opening a malicious table can
+execute arbitrary code on your machine, typically with whatever privileges you
+launched the tool with (i.e. root, if you used `sudo`). Treat a shared table like
+a shared executable.
 
-Hardening of this surface (an opt-in trust/consent gate and a central Lua
-exception firewall) is tracked in `ROADMAP.md` (P1). Until then, the mitigation
-is operational: only load tables you authored or trust.
+The two most dangerous parts of the Lua surface are **denied by default** and
+only enabled by an out-of-band opt-in that a table's own script cannot set — the
+environment variable `CECORE_LUA_ALLOW_UNSAFE=1`, launched with the process:
+
+- `shellExecute` — runs arbitrary shell commands.
+- the `write*Local` functions — write cecore's *own* address space, which a
+  malicious table could use to patch cecore's code/GOT and hijack the process.
+
+The `read*Local` functions (host-memory read / info disclosure) and the rest of
+the target-memory API stay available, so the operational rule still holds: only
+load tables you authored or trust. A central Lua exception firewall is tracked in
+`ROADMAP.md`.
 
 ## Running with least privilege
 

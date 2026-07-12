@@ -16,6 +16,7 @@ constexpr uint8_t CMD_OPENPROCESS        = 3;
 constexpr uint8_t CMD_CLOSEHANDLE        = 7;
 constexpr uint8_t CMD_READPROCESSMEMORY  = 9;
 constexpr uint8_t CMD_WRITEPROCESSMEMORY = 10;
+constexpr uint8_t CMD_GETARCHITECTURE    = 21;
 constexpr uint8_t CMD_VIRTUALQUERYEXFULL = 31;
 
 bool recvAll(int fd, void* buf, size_t n) {
@@ -129,6 +130,13 @@ void CeserverServer::serveClient(int fd) {
                                     static_cast<size_t>(size));
                 int32_t written = (r && *r > 0) ? static_cast<int32_t>(*r) : 0;
                 if (!sendAll(fd, &written, 4)) return;
+                break;
+            }
+            case CMD_GETARCHITECTURE: {
+                int32_t handle = 0;
+                if (!recvAll(fd, &handle, 4)) return;
+                uint8_t arch = 1;   // CeArchitecture::X86_64 (cecore is x86-64)
+                if (!sendAll(fd, &arch, 1)) return;
                 break;
             }
             case CMD_VIRTUALQUERYEXFULL: {

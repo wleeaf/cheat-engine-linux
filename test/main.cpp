@@ -3405,11 +3405,14 @@ static void test_ceserver_roundtrip() {
                         if (ta >= reg.baseAddress && ta < reg.baseAddress + reg.size) { regionFound = true; break; }
                 }
                 ok = ok && regionFound;
+
+                auto arch = client.getArchitecture(*handle);
+                ok = ok && arch && *arch == ce::os::CeArchitecture::X86_64;
             }
         }
     }
     server.stop();
-    printf("  read/write + region query via ceserver protocol: %s%s\n",
+    printf("  read/write + region query + arch via ceserver protocol: %s%s\n",
            ok ? "OK" : "FAILED", connected ? "" : (" (" + err + ")").c_str());
 }
 

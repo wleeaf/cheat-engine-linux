@@ -12,6 +12,7 @@
 #include "scanner/snapshot.hpp"
 #include "core/autoasm.hpp"
 #include "core/aa_templates.hpp"
+#include "core/injection_gen.hpp"
 #include "core/ct_file.hpp"
 #include "arch/disassembler.hpp"
 #include "core/expression.hpp"
@@ -4124,6 +4125,66 @@ static void test_lua_region_info() {
            ok ? "OK" : ("FAILED (" + err + ")").c_str());
 }
 
+// generateInjectionScript reads code at an address, disassembles whole
+// instructions until >= 5 bytes are covered (the jmp size), resolves the module,
+// and emits a CE auto-assembler code-injection or AOB-injection template. The
+// underlying aa_templates are tested separately; this covers the integration
+// (read -> disassemble -> steal whole instructions -> module lookup -> delegate).
+static void test_injection_script_generation() {
+    printf("\n── Test: injection script generation ──\n");
+
+    // x86-64 prologue: push rbp; mov rbp,rsp; sub rsp,0x10 (1 + 3 + 4 bytes). The
+    // generator must steal all three to cover >= 5 bytes of whole instructions.
+    const uintptr_t base = 0x400000;
+    const uintptr_t addr = base + 0x1000;
+    std::vector<uint8_t> code = {
+        0x55,                    // push rbp
+        0x48, 0x89, 0xE5,        // mov rbp, rsp
+        0x48, 0x83, 0xEC, 0x10,  // sub rsp, 0x10
+        0x90, 0x90, 0x90, 0x90,  // trailing padding so the read window is ample
+    };
+    MemoryRegion region{addr, 0x1000, MemProt::ReadExec, MemType::Image,
+        MemState::Committed, "game.bin"};
+    const std::vector<ModuleInfo> modules{
+        {base, 0x100000, "game.bin", "/opt/game/game.bin", true}};
+    FakeProcessHandle proc({{region, code}}, modules);
+
+    std::string err;
+    std::string script = generateInjectionScript(proc, addr, /*aob=*/false, err);
+    bool codeOk = err.empty() && !script.empty() &&
+        script.find("alloc(newmem") != std::string::npos &&
+        script.find("jmp newmem") != std::string::npos &&
+        script.find("[DISABLE]") != std::string::npos &&
+        script.find("push") != std::string::npos &&   // stolen prologue mnemonics
+        script.find("sub") != std::string::npos;
+
+    std::string aobErr;
+    std::string aob = generateInjectionScript(proc, addr, /*aob=*/true, aobErr);
+    bool aobOk = aobErr.empty() && !aob.empty() &&
+        aob.find("aobscanmodule(INJECT,game.bin") != std::string::npos &&
+        aob.find("jmp newmem") != std::string::npos;
+
+    // Error path: fewer than 5 readable bytes cannot host a 5-byte jmp.
+    std::vector<uint8_t> tiny = {0x90, 0x90, 0x90};
+    FakeProcessHandle small(
+        {{MemoryRegion{addr, 0x10, MemProt::ReadExec, MemType::Image,
+            MemState::Committed, "game.bin"}, tiny}}, modules);
+    std::string tinyErr;
+    bool tinyOk = generateInjectionScript(small, addr, false, tinyErr).empty() &&
+        !tinyErr.empty();
+
+    // Error path: AOB injection requires the address to sit inside a module.
+    FakeProcessHandle noModule({{region, code}}, {});
+    std::string nmErr;
+    bool noModuleOk = generateInjectionScript(noModule, addr, true, nmErr).empty() &&
+        !nmErr.empty();
+
+    printf("  code injection script: %s\n", codeOk ? "OK" : "FAILED");
+    printf("  AOB injection script: %s\n", aobOk ? "OK" : "FAILED");
+    printf("  short-read error: %s\n", tinyOk ? "OK" : "FAILED");
+    printf("  AOB-without-module error: %s\n", noModuleOk ? "OK" : "FAILED");
+}
+
 static void test_structure_tools() {
     printf("\n── Test: Structure tools ──\n");
 
@@ -7164,6 +7225,7 @@ int main(int argc, char* argv[]) {
     test_lua_symbol_info();
     test_lua_region_info();
     test_codefinder_watch_size();
+    test_injection_script_generation();
     test_structure_tools();
     test_lua_memrec();
     test_autoassembler_unregister_symbol(targetPid);

@@ -34,7 +34,8 @@ Done and CI-green:
   find-what-writes watch size + "find what addresses this instruction accesses"
   (`findInstructionAccesses`: a DebugSession execute-breakpoint monitor that
   resolves each hit's data address via `computeEffectiveAddress` —
-  base+index*scale+disp and RIP-relative) · **P2 #16
+  base+index*scale+disp and RIP-relative) + NOP-an-instruction
+  (`nopInstruction`/`restoreBytes`: length-preserving 0x90 fill with undo) · **P2 #16
   (partial)** register editing end-to-end: backend `DebugSession::setStopContext`
   writes the full GP set + RFLAGS to the stopped thread (`getStopContext` now
   captures r8-r15), and the debugger window's register table is editable and

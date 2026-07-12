@@ -25,6 +25,7 @@
 #include "debug/managed_breakpoint.hpp"
 #include "debug/code_finder.hpp"
 #include "debug/instruction_access.hpp"
+#include "debug/patch.hpp"
 #include "symbols/kernel_symbols.hpp"
 #include "symbols/dwarf_symbols.hpp"
 #include "scripting/lua_engine.hpp"
@@ -2855,6 +2856,35 @@ static void test_multithread_software_breakpoint() {
            ok ? "OK" : "FAILED", (int)hitTid.load(),
            allStop ? "yes" : "no", alive ? "yes" : "no",
            stepped ? "yes" : "no", resumed ? "yes" : "no");
+}
+
+// Replacing an instruction with length-preserving NOPs and reverting it.
+static void test_nop_instruction() {
+    printf("\n── Test: NOP an instruction ──\n");
+    void* page = mmap(nullptr, 4096, PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (page == MAP_FAILED) { printf("  nop + restore: FAILED (mmap)\n"); return; }
+    // mov eax,[rbx+rcx*4+0x10] (4 bytes) followed by ret (must stay intact).
+    const uint8_t bytes[] = {0x8B, 0x44, 0x8B, 0x10, 0xC3};
+    std::memcpy(page, bytes, sizeof(bytes));
+
+    LinuxProcessHandle self(getpid());
+    auto addr = reinterpret_cast<uintptr_t>(page);
+    auto* p = reinterpret_cast<uint8_t*>(page);
+
+    auto orig = nopInstruction(self, addr);
+    bool nopped = orig.size() == 4 &&
+                  orig[0] == 0x8B && orig[1] == 0x44 && orig[2] == 0x8B && orig[3] == 0x10 &&
+                  p[0] == 0x90 && p[1] == 0x90 && p[2] == 0x90 && p[3] == 0x90 &&
+                  p[4] == 0xC3;   // the following instruction is left untouched
+
+    bool restored = restoreBytes(self, addr, orig) &&
+                    p[0] == 0x8B && p[1] == 0x44 && p[2] == 0x8B && p[3] == 0x10;
+
+    munmap(page, 4096);
+    bool ok = nopped && restored;
+    printf("  nop preserves length + restore round-trips: %s (nopped=%d restored=%d)\n",
+           ok ? "OK" : "FAILED", (int)nopped, (int)restored);
 }
 
 // A hot function with a single store to one global, plus a worker that spins it,
@@ -6348,6 +6378,7 @@ int main(int argc, char* argv[]) {
     test_multithread_software_breakpoint();
     test_debug_register_edit();
     test_instruction_access();
+    test_nop_instruction();
     test_speedhack_got_injection();
     test_parser_fuzz_negatives();
     test_lua_shellexecute_gate();

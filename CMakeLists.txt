@@ -196,6 +196,7 @@ add_library(cecore SHARED
     debug/breakpoint_manager.cpp
     debug/code_finder.cpp
     debug/instruction_access.cpp
+    debug/patch.cpp
     debug/stack_trace.cpp
     debug/tracer.cpp
     debug/lbr_tracer.cpp

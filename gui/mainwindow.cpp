@@ -1276,19 +1276,110 @@ void MainWindow::setupUi() {
         for (const auto& idx : sel) addressListModel_->toggleActive(idx.row());
     });
 
-    // Main splitter (top / bottom). The bottom cheat-table (address list) is a
-    // primary work area, so give it a substantial, resizable share rather than
-    // a thin strip.
-    auto* mainSplitter = new QSplitter(Qt::Vertical);
-    mainSplitter->addWidget(topSplitter);
-    mainSplitter->addWidget(addressListView_);
-    mainSplitter->setStretchFactor(0, 3);
-    mainSplitter->setStretchFactor(1, 1);
-    mainSplitter->setSizes({440, 200});
+    // ── Cheat-Engine-faithful layout ──
+    // All widgets above are created and wired; here we discard the interim
+    // splitter layout and reposition them into Cheat Engine's exact main-window
+    // arrangement (coordinates transcribed from CE's MainUnit.lfm): a scan panel
+    // on top (process bar + found list on the left, scan controls on the right),
+    // the cheat table below, and an Advanced Options / Table Extras bar at the
+    // bottom.
+    auto* scanPanel = new QWidget;
+    scanPanel->setMinimumSize(734, 430);
+    auto place = [scanPanel](QWidget* w, int x, int y, int cw, int ch) {
+        // Clear any fixed-size constraint so CE's geometry takes effect.
+        w->setMinimumSize(0, 0);
+        w->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+        w->setParent(scanPanel);
+        w->setGeometry(x, y, cw, ch);
+        w->show();
+    };
+    auto label = [scanPanel](const QString& t, int x, int y, int cw, int ch) {
+        auto* l = new QLabel(t, scanPanel);
+        l->setGeometry(x, y, cw, ch);
+        l->show();
+        return l;
+    };
+
+    // Process bar + progress + found count (top).
+    place(openBtn, 3, 3, 32, 32);
+    place(processLabel_, 101, 6, 560, 18);
+    place(progressBar_, 101, 27, 560, 14);
+    place(foundLabel_, 0, 31, 200, 16);
+    place(resHexCheck, 300, 31, 45, 16);
+
+    // Found-results list on the left, with its Memory View / Add Address buttons.
+    place(resultsView_, 0, 50, 337, 347);
+    place(memViewBtn, 0, 400, 98, 22);
+    place(addAddrBtn, 589, 400, 145, 22);
+
+    // Scan buttons (top-right row): First / Next / Undo. Slightly wider than CE's
+    // pixel widths so our (proportional) font doesn't clip the captions.
+    place(firstScanBtn_, 406, 46, 88, 25);
+    place(nextScanBtn_, 500, 46, 84, 25);
+    place(undoScanBtn_, 590, 46, 90, 25);
+
+    // Scan value + Hex + the second ("and") value box for between-scans.
+    label("Scan Value", 406, 79, 120, 15);
+    place(scanValueEdit_, 406, 94, 217, 23);
+    place(hexCheck_, 350, 96, 55, 19);
+    place(betweenAndLabel_, 628, 98, 25, 15);
+    place(scanValue2Edit_, 656, 94, 76, 23);
+
+    // Scan Type / Value Type dropdowns.
+    label("Scan Type", 340, 128, 64, 15);
+    place(scanTypeCombo_, 406, 124, 200, 23);
+    label("Value Type", 340, 153, 64, 15);
+    place(valueTypeCombo_, 406, 149, 200, 23);
+
+    // Float rounding (CE puts radios here; we keep our combo + tolerance).
+    place(floatRoundingCombo_, 406, 178, 120, 23);
+    place(floatToleranceEdit_, 530, 178, 90, 23);
+
+    // Memory Scan Options group (From/To, Writable/Executable, Fast Scan, etc.).
+    place(optGroup, 406, 206, 224, 200);
+
+    // place() force-shows each widget; restore the ones that must start hidden
+    // (their visibility is driven by scan state, not the layout).
+    progressBar_->setVisible(false);
+    betweenAndLabel_->setVisible(false);
+    scanValue2Edit_->setVisible(false);
+
+    // ── Assemble: scan panel (top) / cheat table (bottom) / actions bar ──
+    auto* newCentral = new QWidget;
+    auto* v = new QVBoxLayout(newCentral);
+    v->setContentsMargins(2, 2, 2, 2);
+    v->setSpacing(2);
+
+    auto* vsplit = new QSplitter(Qt::Vertical);
+    vsplit->addWidget(scanPanel);
+    vsplit->addWidget(addressListView_);
+    vsplit->setStretchFactor(0, 0);
+    vsplit->setStretchFactor(1, 1);
+    vsplit->setSizes({440, 220});
+    v->addWidget(vsplit, 1);
     addressListView_->setMinimumHeight(90);
 
-    mainLayout->addWidget(mainSplitter);
-    setCentralWidget(central);
+    auto* bottomBar = new QHBoxLayout;
+    auto* advBtn = new QPushButton("Advanced Options");
+    connect(advBtn, &QPushButton::clicked, this, &MainWindow::onMemoryView);
+    auto* extrasBtn = new QPushButton("Table Extras");
+    connect(extrasBtn, &QPushButton::clicked, this, [this, extrasBtn]() {
+        QMenu m(this);
+        m.addAction("Save Table...", this, &MainWindow::onSaveTable);
+        m.addAction("Load Table...", this, &MainWindow::onLoadTable);
+        m.exec(extrasBtn->mapToGlobal(QPoint(0, extrasBtn->height())));
+    });
+    bottomBar->addWidget(advBtn);
+    bottomBar->addStretch();
+    bottomBar->addWidget(extrasBtn);
+    v->addLayout(bottomBar);
+
+    // Discard the interim splitter tree; its roots own only the helper widgets we
+    // did not reposition (the ones we use were reparented onto scanPanel above).
+    delete topSplitter;
+    delete central;
+    setCentralWidget(newCentral);
+    resize(760, 600);
 }
 
 void MainWindow::onOpenProcess() {

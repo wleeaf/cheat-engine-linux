@@ -10,8 +10,10 @@
 #include <QLibraryInfo>
 #include <unistd.h>
 #include <QSettings>
+#include <QTimer>
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
 
 static const char* darkStyleSheet = R"(
     QWidget { background-color: #1e1e2e; color: #cdd6f4; }
@@ -104,9 +106,10 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     app.setApplicationName("Cheat Engine");
     app.setOrganizationName("cecore");
-    // Honor the Settings dialog's "Dark theme" toggle (display/dark; dark by default).
+    // Honor the Settings dialog's "Dark theme" toggle. Default to LIGHT so the app
+    // looks like Cheat Engine (which uses a light/native theme) out of the box.
     QSettings themeSettings;
-    bool useDark = themeSettings.value("display/dark", true).toBool();
+    bool useDark = themeSettings.value("display/dark", false).toBool();
     app.setStyleSheet(useDark ? darkStyleSheet : lightStyleSheet);
 
     // ── i18n ──
@@ -183,6 +186,16 @@ int main(int argc, char* argv[]) {
     ce::gui::MainWindow w;
     w.setWindowIcon(appIcon);
     w.show();
+
+    // Dev hook: CE_SCREENSHOT=<path> grabs the main window shortly after it is
+    // shown and exits (used for UI/layout verification; no effect unless set).
+    if (const char* shot = std::getenv("CE_SCREENSHOT")) {
+        const QString shotPath = QString::fromLocal8Bit(shot);
+        QTimer::singleShot(600, [&w, shotPath]() {
+            w.grab().save(shotPath);
+            QApplication::quit();
+        });
+    }
 
     // Open a cheat table passed on the command line (double-click a .CT / .json,
     // or `cheatengine table.ct`), matching CE's file-association behaviour.

@@ -20,6 +20,7 @@
 #include "core/trainer.hpp"
 #include "analysis/code_analysis.hpp"
 #include "analysis/managed_runtime.hpp"
+#include "analysis/il2cpp_metadata.hpp"
 #include "analysis/structure_tools.hpp"
 #include "debug/breakpoint_manager.hpp"
 #include "debug/stack_trace.hpp"
@@ -4173,6 +4174,83 @@ static void test_lua_region_info() {
            ok ? "OK" : ("FAILED (" + err + ")").c_str());
 }
 
+// Parses a synthetic IL2CPP global-metadata.dat built to the documented header
+// layout (magic + version, then the string-literal table/data and identifier
+// pool). Asserts both string pools decode, the magic gates detection, and the
+// bounds checks reject a wrong magic, an out-of-range region, and a runt buffer.
+static void test_il2cpp_metadata() {
+    printf("\n── Test: IL2CPP global-metadata.dat parser ──\n");
+
+    auto putU32 = [](std::vector<uint8_t>& v, size_t off, uint32_t x) {
+        v[off + 0] = static_cast<uint8_t>(x);
+        v[off + 1] = static_cast<uint8_t>(x >> 8);
+        v[off + 2] = static_cast<uint8_t>(x >> 16);
+        v[off + 3] = static_cast<uint8_t>(x >> 24);
+    };
+
+    std::vector<uint8_t> f(32, 0);   // 32-byte header, patched below
+    auto pushU32 = [&](uint32_t x) {
+        f.push_back(static_cast<uint8_t>(x));
+        f.push_back(static_cast<uint8_t>(x >> 8));
+        f.push_back(static_cast<uint8_t>(x >> 16));
+        f.push_back(static_cast<uint8_t>(x >> 24));
+    };
+
+    // string-literal table: {len=5, dataIndex=0}, {len=6, dataIndex=5}
+    const uint32_t litOff = static_cast<uint32_t>(f.size());
+    pushU32(5); pushU32(0);
+    pushU32(6); pushU32(5);
+    const uint32_t litSize = static_cast<uint32_t>(f.size()) - litOff;   // 16
+    // string-literal data
+    const uint32_t litDataOff = static_cast<uint32_t>(f.size());
+    const std::string litData = "helloworld!";
+    f.insert(f.end(), litData.begin(), litData.end());
+    const uint32_t litDataSize = static_cast<uint32_t>(litData.size());  // 11
+    // identifier pool: null-terminated names
+    const uint32_t strOff = static_cast<uint32_t>(f.size());
+    const std::string idPool("System\0GameObject\0Player\0", 25);
+    f.insert(f.end(), idPool.begin(), idPool.end());
+    const uint32_t strSize = static_cast<uint32_t>(idPool.size());       // 25
+
+    putU32(f, 0, 0xFAB11BAFu);   // sanity
+    putU32(f, 4, 29);            // version
+    putU32(f, 8, litOff);
+    putU32(f, 12, litSize);
+    putU32(f, 16, litDataOff);
+    putU32(f, 20, litDataSize);
+    putU32(f, 24, strOff);
+    putU32(f, 28, strSize);
+
+    auto md = parseIl2CppMetadata(f.data(), f.size());
+    bool ok = md.has_value() && md->version == 29 &&
+        md->strings.size() == 3 &&
+        md->strings[0] == "System" && md->strings[1] == "GameObject" &&
+        md->strings[2] == "Player" &&
+        md->stringLiterals.size() == 2 &&
+        md->stringLiterals[0] == "hello" && md->stringLiterals[1] == "world!";
+
+    bool detectOk = isIl2CppMetadata(f.data(), f.size());
+
+    std::vector<uint8_t> bad = f;
+    bad[0] ^= 0xFF;                              // corrupt the magic
+    bool rejectOk = !parseIl2CppMetadata(bad.data(), bad.size()).has_value() &&
+        !isIl2CppMetadata(bad.data(), bad.size());
+
+    std::vector<uint8_t> oob = f;
+    putU32(oob, 28, static_cast<uint32_t>(f.size()));  // stringSize overruns buffer
+    bool boundsOk = !parseIl2CppMetadata(oob.data(), oob.size()).has_value();
+
+    std::vector<uint8_t> tiny(8, 0);
+    putU32(tiny, 0, 0xFAB11BAFu);               // right magic, too short for header
+    bool tinyOk = !parseIl2CppMetadata(tiny.data(), tiny.size()).has_value();
+
+    printf("  header + string pools parse: %s\n", ok ? "OK" : "FAILED");
+    printf("  magic detection: %s\n", detectOk ? "OK" : "FAILED");
+    printf("  wrong-magic reject: %s\n", rejectOk ? "OK" : "FAILED");
+    printf("  out-of-bounds region reject: %s\n", boundsOk ? "OK" : "FAILED");
+    printf("  short-buffer reject: %s\n", tinyOk ? "OK" : "FAILED");
+}
+
 // generateInjectionScript reads code at an address, disassembles whole
 // instructions until >= 5 bytes are covered (the jmp size), resolves the module,
 // and emits a CE auto-assembler code-injection or AOB-injection template. The
@@ -7274,6 +7352,7 @@ int main(int argc, char* argv[]) {
     test_lua_symbol_info();
     test_lua_region_info();
     test_codefinder_watch_size();
+    test_il2cpp_metadata();
     test_injection_script_generation();
     test_structure_tools();
     test_lua_memrec();

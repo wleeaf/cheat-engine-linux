@@ -155,12 +155,18 @@ alongside official CE 7.7 Linux. Today each is materially short of the claim.
     `test_managed_runtime_detection` / `_object_enumeration` / `_type_extraction`),
     and the Mono soft-debugger client now has a mock-agent round-trip test
     (`test_mono_debugger_client`: handshake + VM/Version/AllThreads/Suspend/Resume
-    framing). *Genuinely blocked here:* the full soft-debugger type-introspection
-    chain (AppDomain→Assembly→Type→Field with true offsets + method invocation)
-    and IL2CPP `global-metadata.dat` parsing both need a live Unity/Mono target to
-    develop against. Encoding the remaining cmdset/cmd numbers from the spec alone
-    would pass a mock round-trip yet risk being subtly wrong on the real runtime
-    (false confidence), so that step is deferred to when a target is available.
+    framing). *IL2CPP started:* `analysis/il2cpp_metadata.cpp` parses a
+    `global-metadata.dat` header + both string pools (identifier names + string
+    literals) with full bounds-checking (`test_il2cpp_metadata`, synthetic file).
+    Those leading header fields are version-stable, so the parser is correct for
+    real files, not just the synthetic one, and it already gives offline
+    extraction of every managed name/string with no live process. *Genuinely
+    blocked here:* the full soft-debugger type-introspection chain
+    (AppDomain→Assembly→Type→Field with true offsets + method invocation) and the
+    deeper IL2CPP metadata tables (type definitions, methods — per-Unity-version
+    struct layouts) both need a live Unity/Mono target. Encoding those from the
+    spec alone would pass a synthetic/mock test yet risk being subtly wrong on the
+    real runtime (false confidence), so they wait for a target.
     **Most Linux/Proton games are Unity** — this remains the niche to win. **[L]**
 11. **In-game overlay actually renders.** `platform/vulkan_overlay_layer.cpp`
     advertises a layer but only forwards `vkCreateInstance/Device` — it never

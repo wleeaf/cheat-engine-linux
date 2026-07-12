@@ -175,6 +175,7 @@ add_library(cecore SHARED
     core/ct_file.cpp
     core/trainer.cpp
     analysis/code_analysis.cpp
+    analysis/il2cpp_metadata.cpp
     analysis/managed_runtime.cpp
     analysis/structure_tools.cpp
     platform/network_compression.cpp

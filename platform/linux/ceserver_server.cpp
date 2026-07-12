@@ -18,6 +18,9 @@ constexpr uint8_t CMD_READPROCESSMEMORY  = 9;
 constexpr uint8_t CMD_WRITEPROCESSMEMORY = 10;
 constexpr uint8_t CMD_GETARCHITECTURE    = 21;
 constexpr uint8_t CMD_VIRTUALQUERYEXFULL = 31;
+constexpr uint8_t CMD_CREATETOOLHELP32SNAPSHOTEX = 35;
+constexpr uint32_t TH32CS_SNAPTHREAD = 0x4;
+constexpr uint32_t TH32CS_SNAPMODULE = 0x8;
 
 bool recvAll(int fd, void* buf, size_t n) {
     auto* p = static_cast<uint8_t*>(buf);
@@ -152,6 +155,43 @@ void CeserverServer::serveClient(int fd) {
                     uint64_t base = reg.base, size = reg.size;
                     if (!sendAll(fd, &protection, 4) || !sendAll(fd, &type, 4) ||
                         !sendAll(fd, &base, 8) || !sendAll(fd, &size, 8)) return;
+                }
+                break;
+            }
+            case CMD_CREATETOOLHELP32SNAPSHOTEX: {
+                uint32_t flags = 0, pid = 0;
+                if (!recvAll(fd, &flags, 4) || !recvAll(fd, &pid, 4)) return;
+                LinuxProcessHandle proc(static_cast<pid_t>(pid));
+                if (flags & TH32CS_SNAPTHREAD) {
+                    auto threads = proc.threads();
+                    int32_t count = static_cast<int32_t>(threads.size());
+                    if (!sendAll(fd, &count, 4)) return;
+                    for (auto& t : threads) {
+                        int32_t tid = t.tid;
+                        if (!sendAll(fd, &tid, 4)) return;
+                    }
+                } else if (flags & TH32CS_SNAPMODULE) {
+                    // Streamed CeModuleEntry list, terminated by a result==0 entry.
+                    auto modules = proc.modules();
+                    auto sendEntry = [&](int32_t result, uint64_t base, int32_t modSize,
+                                         const std::string& name) -> bool {
+                        int64_t base64 = static_cast<int64_t>(base);
+                        int32_t part = 0, nameSize = static_cast<int32_t>(name.size());
+                        uint32_t fileOff = 0;
+                        if (!sendAll(fd, &result, 4) || !sendAll(fd, &base64, 8) ||
+                            !sendAll(fd, &part, 4) || !sendAll(fd, &modSize, 4) ||
+                            !sendAll(fd, &fileOff, 4) || !sendAll(fd, &nameSize, 4)) return false;
+                        if (nameSize > 0 && !sendAll(fd, name.data(), static_cast<size_t>(nameSize)))
+                            return false;
+                        return true;
+                    };
+                    for (auto& m : modules)
+                        if (!sendEntry(1, m.base, static_cast<int32_t>(m.size),
+                                       m.name.empty() ? m.path : m.name)) return;
+                    if (!sendEntry(0, 0, 0, std::string())) return;   // terminator
+                } else {
+                    int32_t count = 0;
+                    if (!sendAll(fd, &count, 4)) return;   // unknown snapshot flags
                 }
                 break;
             }

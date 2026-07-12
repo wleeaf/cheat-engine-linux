@@ -3408,11 +3408,16 @@ static void test_ceserver_roundtrip() {
 
                 auto arch = client.getArchitecture(*handle);
                 ok = ok && arch && *arch == ce::os::CeArchitecture::X86_64;
+
+                // Thread + module enumeration (CREATETOOLHELP32SNAPSHOTEX).
+                auto threads = client.enumThreads(getpid());
+                auto modules = client.enumModules(getpid());
+                ok = ok && threads && !threads->empty() && modules && !modules->empty();
             }
         }
     }
     server.stop();
-    printf("  read/write + region query + arch via ceserver protocol: %s%s\n",
+    printf("  read/write + regions + arch + enum via ceserver protocol: %s%s\n",
            ok ? "OK" : "FAILED", connected ? "" : (" (" + err + ")").c_str());
 }
 

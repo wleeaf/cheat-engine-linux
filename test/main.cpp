@@ -24,6 +24,7 @@
 #include "debug/gdb_remote.hpp"
 #include "debug/managed_breakpoint.hpp"
 #include "debug/code_finder.hpp"
+#include "debug/instruction_access.hpp"
 #include "symbols/kernel_symbols.hpp"
 #include "symbols/dwarf_symbols.hpp"
 #include "scripting/lua_engine.hpp"
@@ -2854,6 +2855,72 @@ static void test_multithread_software_breakpoint() {
            ok ? "OK" : "FAILED", (int)hitTid.load(),
            allStop ? "yes" : "no", alive ? "yes" : "no",
            stepped ? "yes" : "no", resumed ? "yes" : "no");
+}
+
+// A hot function with a single store to one global, plus a worker that spins it,
+// for the "find what addresses this instruction accesses" test below.
+static volatile long g_ifa_target;
+__attribute__((noinline)) static void ifa_hot() {
+    g_ifa_target = 0xABCD;              // one memory store to &g_ifa_target
+    asm volatile("" ::: "memory");
+}
+static void ifa_worker() {
+    for (;;) { ifa_hot(); usleep(1000); }
+}
+
+// Monitor a single instruction and resolve the data address it touches, using
+// computeEffectiveAddress on the registers captured at each hit.
+static void test_instruction_access() {
+    printf("\n── Test: find what addresses an instruction accesses ──\n");
+
+    // Find the store instruction inside ifa_hot in our own code, and predict the
+    // data address it targets, by matching the register-independent effective
+    // address (RIP-relative or absolute) against &g_ifa_target.
+    Disassembler dis(Arch::X86_64);
+    auto fnAddr = reinterpret_cast<uintptr_t>(&ifa_hot);
+    uint8_t code[48];
+    std::memcpy(code, reinterpret_cast<void*>(fnAddr), sizeof(code));
+    auto insns = dis.disassemble(fnAddr, {code, sizeof(code)}, 12);
+    const uintptr_t targetEA = reinterpret_cast<uintptr_t>(&g_ifa_target);
+    uintptr_t bpAddr = 0;
+    CpuContext zero{};
+    for (auto& in : insns) {
+        if (in.memory.present && computeEffectiveAddress(in, zero) == targetEA) {
+            bpAddr = in.address; break;
+        }
+    }
+    if (bpAddr == 0) {
+        printf("  locate the store: SKIPPED (unexpected codegen)\n");
+        return;
+    }
+
+    int fds[2];
+    if (pipe(fds) != 0) { printf("  accessed address: FAILED (pipe)\n"); return; }
+    pid_t child = fork();
+    if (child == 0) {
+        close(fds[0]);
+        std::thread(ifa_worker).detach();
+        write(fds[1], "x", 1);
+        for (;;) usleep(100000);
+        _exit(0);
+    }
+    close(fds[1]);
+    if (child < 0) { close(fds[0]); printf("  accessed address: FAILED (fork)\n"); return; }
+    char tok = 0; (void)read(fds[0], &tok, 1); close(fds[0]);
+    usleep(80000);
+
+    LinuxProcessHandle proc(child);
+    auto results = findInstructionAccesses(proc, bpAddr, 5, 6000);
+
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
+
+    bool ok = !results.empty() && results[0].address == targetEA && results[0].hitCount > 0;
+    printf("  resolves the accessed address: %s (%zu addr(s), top=0x%lx expected=0x%lx hits=%d)\n",
+           ok ? "OK" : "FAILED", results.size(),
+           results.empty() ? 0UL : (unsigned long)results[0].address,
+           (unsigned long)targetEA,
+           results.empty() ? 0 : results[0].hitCount);
 }
 
 // Editing a stopped thread's registers (the backend behind the debugger's
@@ -6280,6 +6347,7 @@ int main(int argc, char* argv[]) {
     test_multithread_watchpoint();
     test_multithread_software_breakpoint();
     test_debug_register_edit();
+    test_instruction_access();
     test_speedhack_got_injection();
     test_parser_fuzz_negatives();
     test_lua_shellexecute_gate();

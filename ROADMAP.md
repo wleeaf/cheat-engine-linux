@@ -31,9 +31,10 @@ Done and CI-green:
   (game-restart workflow) · **P2 #23 (partial)** Lua `getSymbolInfo`
   + `reinitializeSymbolhandler` + `getRegionInfo` + `getNameFromAddress` hex fallback
   · **P2 #18 (partial)** configurable
-  find-what-writes watch size + instruction effective-address decode
-  (`computeEffectiveAddress`: base+index*scale+disp and RIP-relative), the
-  primitive behind "find what addresses this instruction accesses" · **P2 #16
+  find-what-writes watch size + "find what addresses this instruction accesses"
+  (`findInstructionAccesses`: a DebugSession execute-breakpoint monitor that
+  resolves each hit's data address via `computeEffectiveAddress` —
+  base+index*scale+disp and RIP-relative) · **P2 #16
   (partial)** register editing end-to-end: backend `DebugSession::setStopContext`
   writes the full GP set + RFLAGS to the stopped thread (`getStopContext` now
   captures r8-r15), and the debugger window's register table is editable and

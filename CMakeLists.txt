@@ -195,6 +195,7 @@ add_library(cecore SHARED
     symbols/dwarf_symbols.cpp
     debug/breakpoint_manager.cpp
     debug/code_finder.cpp
+    debug/instruction_access.cpp
     debug/stack_trace.cpp
     debug/tracer.cpp
     debug/lbr_tracer.cpp

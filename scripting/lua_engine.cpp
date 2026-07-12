@@ -248,6 +248,10 @@ LuaEngine::LuaEngine() {
 }
 
 LuaEngine::~LuaEngine() {
+    // Tear the debug session down first: its destructor joins the tracer thread,
+    // whose callback touches debugMutex_/debugQueue_/debugCv_, which must still be
+    // alive here (and before lua_close, since a hit could reference this state).
+    debugSession_.reset();
     if (L_) lua_close(L_);
 }
 

@@ -81,10 +81,13 @@ private:
     SymbolResolver* resolver_ = nullptr;
     IAddressList* addressList_ = nullptr;
 
-    std::unique_ptr<DebugSession> debugSession_;
+    // Order matters: debugSession_ is declared LAST so it is destroyed FIRST —
+    // its destructor joins the tracer thread, whose callback touches the members
+    // below, so they must still be alive during that join.
     std::mutex debugMutex_;
     std::condition_variable debugCv_;
     std::deque<DebugHit> debugQueue_;
+    std::unique_ptr<DebugSession> debugSession_;
 };
 
 /// Register extended CE API bindings (defined in lua_bindings.cpp)

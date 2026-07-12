@@ -2,6 +2,7 @@
 #include "platform/linux/ptrace_wrapper.hpp"
 #include "platform/linux/ceserver_client.hpp"
 #include "platform/linux/ceserver_server.hpp"
+#include "platform/linux/mono_debugger_client.hpp"
 #include "platform/linux/ceserver_process.hpp"
 #include "platform/linux/ceserver_debugger.hpp"
 #include "platform/linux/kernel_driver.hpp"
@@ -1082,6 +1083,133 @@ static void test_ceserver_client() {
         version->versionString == "CHEATENGINE Network 2.3" &&
         serverOk;
     printf("  version handshake: %s\n", ok ? "OK" : "FAILED");
+}
+
+// Exercises the Mono soft-debugger client against an in-process mock agent that
+// speaks the real wire framing (13-byte handshake, then 11-byte packet headers).
+// Verifies the handshake, VM/Version string+ints decode, VM/AllThreads id decode,
+// empty-reply commands, and that a non-zero agent error code is surfaced rather
+// than parsed as a body. It cannot prove the cmdset/cmd numbers match a real
+// Mono runtime (that needs a live target), but it locks the framing + parsing.
+static void test_mono_debugger_client() {
+    printf("\n── Test: Mono soft-debugger client ──\n");
+
+    int server = ::socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    bool setupOk = server >= 0 &&
+        ::bind(server, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0 &&
+        ::listen(server, 1) == 0;
+    socklen_t addrLen = sizeof(addr);
+    if (setupOk)
+        setupOk = ::getsockname(server, reinterpret_cast<sockaddr*>(&addr), &addrLen) == 0;
+    if (!setupOk) {
+        if (server >= 0) ::close(server);
+        printf("  setup: FAILED\n");
+        return;
+    }
+
+    bool handshakeSeen = false;
+    std::thread stub([&]() {
+        int client = ::accept(server, nullptr, nullptr);
+        if (client < 0) return;
+
+        auto recvExact = [&](void* buf, size_t n) {
+            size_t got = 0; auto* p = static_cast<uint8_t*>(buf);
+            while (got < n) {
+                ssize_t r = ::recv(client, p + got, n - got, MSG_WAITALL);
+                if (r <= 0) return false;
+                got += static_cast<size_t>(r);
+            }
+            return true;
+        };
+        auto be32 = [](std::vector<uint8_t>& v, uint32_t x) {
+            v.push_back(static_cast<uint8_t>(x >> 24));
+            v.push_back(static_cast<uint8_t>(x >> 16));
+            v.push_back(static_cast<uint8_t>(x >> 8));
+            v.push_back(static_cast<uint8_t>(x));
+        };
+        auto be64 = [](std::vector<uint8_t>& v, uint64_t x) {
+            for (int i = 7; i >= 0; --i) v.push_back(static_cast<uint8_t>(x >> (i * 8)));
+        };
+
+        // Handshake: the client sends first, the agent echoes it back.
+        char hs[13] = {0};
+        if (!recvExact(hs, 13)) { ::close(client); return; }
+        handshakeSeen = std::memcmp(hs, "DWP-Handshake", 13) == 0;
+        ::send(client, "DWP-Handshake", 13, 0);
+
+        for (;;) {
+            uint8_t hdr[11];
+            if (!recvExact(hdr, 11)) break;
+            uint32_t len = static_cast<uint32_t>(hdr[0]) << 24 |
+                           static_cast<uint32_t>(hdr[1]) << 16 |
+                           static_cast<uint32_t>(hdr[2]) << 8  | hdr[3];
+            int32_t id = static_cast<int32_t>(
+                static_cast<uint32_t>(hdr[4]) << 24 | static_cast<uint32_t>(hdr[5]) << 16 |
+                static_cast<uint32_t>(hdr[6]) << 8  | hdr[7]);
+            uint8_t cmdset = hdr[9], cmd = hdr[10];
+            std::vector<uint8_t> payload(len > 11 ? len - 11 : 0);
+            if (!payload.empty() && !recvExact(payload.data(), payload.size())) break;
+
+            std::vector<uint8_t> body;
+            uint16_t error = 0;
+            if (cmdset == 1 && cmd == 1) {              // VM/Version
+                const std::string ver = "Mono mock 1.0";
+                be32(body, static_cast<uint32_t>(ver.size()));
+                body.insert(body.end(), ver.begin(), ver.end());
+                be32(body, 2);   // major
+                be32(body, 55);  // minor
+            } else if (cmdset == 1 && cmd == 6) {       // VM/AllThreads
+                be32(body, 2);
+                be64(body, 0x1111u);
+                be64(body, 0x2222u);
+            } else if (cmdset == 1 && (cmd == 2 || cmd == 3)) {
+                // VM/Suspend, VM/Resume: success with an empty body.
+            } else {
+                error = 57;                              // unknown command
+            }
+
+            std::vector<uint8_t> reply;
+            be32(reply, static_cast<uint32_t>(11 + body.size()));
+            be32(reply, static_cast<uint32_t>(id));
+            reply.push_back(0x80);                       // reply flag
+            reply.push_back(static_cast<uint8_t>(error >> 8));
+            reply.push_back(static_cast<uint8_t>(error));
+            reply.insert(reply.end(), body.begin(), body.end());
+            ::send(client, reply.data(), reply.size(), 0);
+        }
+        ::close(client);
+    });
+
+    ce::os::MonoDebuggerClient mono;
+    bool connOk = mono.connectTcp("127.0.0.1", ntohs(addr.sin_port)).has_value();
+
+    auto ver = mono.getVersion();
+    bool verOk = ver && ver->vmVersion == "Mono mock 1.0" &&
+        ver->majorVersion == 2 && ver->minorVersion == 55;
+
+    auto threads = mono.vmAllThreads();
+    bool threadsOk = threads && threads->size() == 2 &&
+        (*threads)[0] == 0x1111 && (*threads)[1] == 0x2222;
+
+    bool suspendOk = mono.vmSuspend().has_value() && mono.vmResume().has_value();
+
+    // An unknown command must surface the agent's error code, not decode garbage.
+    auto bad = mono.sendCommand(99, 99, {});
+    bool errorOk = !bad.has_value() && bad.error().find("57") != std::string::npos;
+
+    mono.close();
+    stub.join();
+    ::close(server);
+
+    printf("  handshake + connect: %s\n", (connOk && handshakeSeen) ? "OK" : "FAILED");
+    printf("  VM/Version parse: %s\n", verOk ? "OK" : "FAILED");
+    printf("  VM/AllThreads parse: %s\n", threadsOk ? "OK" : "FAILED");
+    printf("  suspend/resume: %s\n", suspendOk ? "OK" : "FAILED");
+    printf("  agent error surfaced: %s\n", errorOk ? "OK" : "FAILED");
 }
 
 static void test_ceserver_memory_ops() {
@@ -6971,6 +7099,7 @@ int main(int argc, char* argv[]) {
     test_managed_type_extraction();
     test_gdb_remote_client();
     test_ceserver_client();
+    test_mono_debugger_client();
     test_ceserver_memory_ops();
     test_ceserver_extended_ops();
     test_ceserver_debug_ops();

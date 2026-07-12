@@ -72,6 +72,10 @@ int main(int argc, char** argv) {
     // table exactly as a user would; the value must reach the stopped thread.
     bool regEdit = hit && win.pokeRegisterForTest(4 /*RBX*/, 0x00000000BADF00D5ull);
 
+    // Thread switcher: the child has >= 2 frozen threads; the dropdown lists them
+    // and switching moves the session's active thread.
+    bool threadSwitch = hit && win.threadCount() >= 2 && win.switchToOtherThreadForTest();
+
     // Detach before reaping: a ptrace tracee can only be waited on by its tracer
     // thread, so waitpid() from main would block until the session detaches.
     QMetaObject::invokeMethod(&win, "onDetach");
@@ -80,8 +84,8 @@ int main(int argc, char** argv) {
     kill(child, SIGKILL);
     waitpid(child, nullptr, 0);
 
-    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit;
-    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d)\n",
-           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit);
+    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch;
+    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d)\n",
+           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch);
     return ok ? 0 : 1;
 }

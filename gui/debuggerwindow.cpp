@@ -8,6 +8,7 @@
 #include <QPlainTextEdit>
 #include <QTableWidget>
 #include <QHeaderView>
+#include <QComboBox>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QGroupBox>
@@ -66,6 +67,11 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
 
     auto* right = new QWidget();
     auto* rl = new QVBoxLayout(right);
+    auto* threadRow = new QHBoxLayout();
+    threadRow->addWidget(new QLabel("Thread:"));
+    threadCombo_ = new QComboBox();
+    threadRow->addWidget(threadCombo_, 1);
+    rl->addLayout(threadRow);
     regTable_ = new QTableWidget(10, 1);
     regTable_->setFont(mono);
     regTable_->horizontalHeader()->setVisible(false);
@@ -107,6 +113,8 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     connect(rmBtn,      &QPushButton::clicked, this, &DebuggerWindow::onRemoveBreakpoint);
     connect(bpInput_,   &QLineEdit::returnPressed, this, &DebuggerWindow::onAddBreakpoint);
     connect(regTable_,  &QTableWidget::itemChanged, this, &DebuggerWindow::onRegisterEdited);
+    connect(threadCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &DebuggerWindow::onThreadSelected);
 
     // Debug events fire on the tracer thread; publish the event and marshal a
     // refresh onto the UI thread.
@@ -233,14 +241,58 @@ void DebuggerWindow::onDebugEvent(int type) {
 
 void DebuggerWindow::refreshStopped() {
     if (!session_->isAttached()) return;
+    updateThreadList();
     auto ctx = session_->getStopContext();
     lastStopRip_ = ctx.rip;
     updateRegisters(ctx);
     updateDisassembly(ctx);
     updateStack(ctx);
     statusLabel_->setText(QStringLiteral("Stopped at %1 (tid %2)")
-                              .arg(hex(ctx.rip)).arg(static_cast<int>(lastEvtTid_.load())));
+                              .arg(hex(ctx.rip)).arg(static_cast<int>(session_->activeThread())));
     setRunningUi(false);
+}
+
+void DebuggerWindow::updateThreadList() {
+    if (!threadCombo_) return;
+    auto tids = session_->stoppedThreads();
+    pid_t active = session_->activeThread();
+    // Block signals: repopulating must not be seen as a user thread switch.
+    threadCombo_->blockSignals(true);
+    threadCombo_->clear();
+    int sel = 0;
+    for (size_t i = 0; i < tids.size(); ++i) {
+        threadCombo_->addItem(QStringLiteral("tid %1").arg(static_cast<int>(tids[i])),
+                              static_cast<int>(tids[i]));
+        if (tids[i] == active) sel = static_cast<int>(i);
+    }
+    if (threadCombo_->count() > 0) threadCombo_->setCurrentIndex(sel);
+    threadCombo_->blockSignals(false);
+}
+
+void DebuggerWindow::onThreadSelected(int index) {
+    if (!session_ || index < 0 || !session_->isStopped()) return;
+    bool okv = false;
+    pid_t tid = static_cast<pid_t>(threadCombo_->itemData(index).toInt(&okv));
+    if (okv && session_->selectThread(tid))
+        refreshStopped();   // re-render registers/disasm/stack for the new thread
+}
+
+int DebuggerWindow::threadCount() const {
+    return threadCombo_ ? threadCombo_->count() : 0;
+}
+
+bool DebuggerWindow::switchToOtherThreadForTest() {
+    if (!threadCombo_ || !session_) return false;
+    pid_t cur = session_->activeThread();
+    for (int i = 0; i < threadCombo_->count(); ++i) {
+        bool okv = false;
+        pid_t tid = static_cast<pid_t>(threadCombo_->itemData(i).toInt(&okv));
+        if (okv && tid != cur) {
+            threadCombo_->setCurrentIndex(i);   // fires onThreadSelected -> selectThread
+            return session_->activeThread() == tid;
+        }
+    }
+    return false;
 }
 
 void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {

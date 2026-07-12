@@ -16,6 +16,7 @@ class QLineEdit;
 class QPlainTextEdit;
 class QTableWidget;
 class QTableWidgetItem;
+class QComboBox;
 class QLabel;
 class QListWidget;
 class QPushButton;
@@ -41,6 +42,11 @@ public:
     // thread's register now holds it. Row order matches the table:
     // 0=RIP 1=RSP 2=RBP 3=RAX 4=RBX 5=RCX 6=RDX 7=RSI 8=RDI 9=RFLAGS.
     bool pokeRegisterForTest(int row, uint64_t value);
+    // Thread switcher automation: number of threads in the dropdown, and a helper
+    // that picks a different one via the combo (as the user would) and reports
+    // whether the session's active thread followed.
+    int  threadCount() const;
+    bool switchToOtherThreadForTest();
 
 private slots:
     void onContinue();
@@ -52,10 +58,12 @@ private slots:
     void onAddBreakpoint();
     void onRemoveBreakpoint();
     void onRegisterEdited(QTableWidgetItem* item);  // edit a GP register in place
+    void onThreadSelected(int index);               // switch the active thread
     void onDebugEvent(int type);   // marshalled from the tracer thread
 
 private:
     void refreshStopped();
+    void updateThreadList();   // repopulate the thread dropdown at a stop
     void updateRegisters(const ce::CpuContext& ctx);
     void updateDisassembly(const ce::CpuContext& ctx);
     void updateStack(const ce::CpuContext& ctx);
@@ -68,6 +76,7 @@ private:
 
     QLabel* statusLabel_ = nullptr;
     QPlainTextEdit* disasmView_ = nullptr;
+    QComboBox* threadCombo_ = nullptr;
     QTableWidget* regTable_ = nullptr;
     QPlainTextEdit* stackView_ = nullptr;
     QLineEdit* bpInput_ = nullptr;

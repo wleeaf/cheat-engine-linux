@@ -2,6 +2,8 @@
 #include <charconv>
 #include <csignal>
 #include "scripting/lua_engine.hpp"
+#include "core/ct_file.hpp"
+#include "core/address_list.hpp"
 #include "scripting/lua_memrec.hpp"
 #include "scanner/memory_scanner.hpp"
 #include "scanner/pointer_scanner.hpp"
@@ -1972,6 +1974,62 @@ static int l_addressList_clear(lua_State* L) {
     return 0;
 }
 
+// saveTable(path) -> bool. Serialize the live cheat table (the C++ address list)
+// to a .CT/.json, the same format the GUI's Save Table writes.
+static int l_saveTable(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    auto* list = eng ? eng->addressList() : nullptr;
+    if (!list) { lua_pushboolean(L, 0); return 1; }
+
+    ce::CheatTable table;
+    for (int id : list->ids()) {
+        auto snap = list->byId(id);
+        if (!snap) continue;
+        ce::CheatEntry e;
+        e.id = snap->id;
+        e.description = snap->description;
+        e.address = snap->address;
+        e.type = snap->type;
+        e.value = snap->value;
+        e.active = snap->active;
+        e.showAsHex = snap->showAsHex;
+        e.isGroup = snap->isGroup;
+        e.color = snap->color;
+        e.autoAsmScript = snap->script;
+        e.hotkeyKeys = snap->hotkeyKeys;
+        table.entries.push_back(std::move(e));
+    }
+    lua_pushboolean(L, table.saveJson(path) ? 1 : 0);
+    return 1;
+}
+
+// loadTable(path) -> bool. Load a .CT/.json into the live cheat table (address
+// list), like the GUI's Load Table.
+static int l_loadTable(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    auto* list = eng ? eng->addressList() : nullptr;
+    if (!list) { lua_pushboolean(L, 0); return 1; }
+
+    ce::CheatTable table;
+    if (!table.loadJson(path)) { lua_pushboolean(L, 0); return 1; }
+    for (const auto& e : table.entries) {
+        if (e.isGroup) {
+            list->createGroup(e.description);
+            continue;
+        }
+        int id = list->createEntry(e.address, e.type, e.description);
+        if (!e.value.empty()) list->setValue(id, e.value);
+        if (!e.color.empty()) list->setColor(id, e.color);
+        if (!e.autoAsmScript.empty()) list->setScript(id, e.autoAsmScript);
+        if (e.showAsHex) list->setHexView(id, true);
+        if (e.active) list->setActive(id, true);
+    }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
 // ── Additional CE-compatible functions ──
 
 static int l_openProcess(lua_State* L) {
@@ -3094,6 +3152,8 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "addressList_addEntry", l_addressList_addEntry);
     lua_register(L, "addressList_removeEntry", l_addressList_removeEntry);
     lua_register(L, "addressList_clear", l_addressList_clear);
+    lua_register(L, "saveTable", l_saveTable);
+    lua_register(L, "loadTable", l_loadTable);
     lua_register(L, "getTableEntry", l_getTableEntry);
     lua_register(L, "setTableEntry", l_setTableEntry);
 

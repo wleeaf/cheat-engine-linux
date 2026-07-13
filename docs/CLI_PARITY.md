@@ -95,8 +95,9 @@ Legend: ✅ headless · ⚠️ partial · ❌ no headless equivalent · 🖼️ 
 
 1. **Headless Lua runner** — `cheatengine --script/-e` + REPL. Unlocks everything
    the 187-fn API already covers. (Highest leverage.)
-2. **Cheat-table save/load** as Lua fns (`saveTable`/`loadTable`) + a `cescan
-   table` verb — needed to script/test the table workflow end to end.
+2. ~~**Cheat-table save/load** as Lua fns~~ — **DONE**: `saveTable(path)` /
+   `loadTable(path)` serialize the live address list to a `.CT/.json` (same format
+   as the GUI). Verified round-trip from the terminal.
 3. **Bind the unbound tools to Lua** (core logic already exists): pointer scan,
    structure dissect, detect-managed-runtime, find-what-accesses/writes (code
    finder), break-and-trace, branch mapper.

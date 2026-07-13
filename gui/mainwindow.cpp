@@ -3493,6 +3493,14 @@ bool AddressListModel::setHexView(int id, bool hex) {
     return true;
 }
 
+bool AddressListModel::setIndent(int id, int indent) {
+    int row = rowOfId(id);
+    if (row < 0 || row >= (int)entries_.size()) return false;
+    entries_[row].indent = indent < 0 ? 0 : indent;
+    emit dataChanged(index(row, 0), index(row, columnCount() - 1));
+    return true;
+}
+
 std::optional<AddressEntrySnapshot> AddressListModel::at(int index) const {
     if (index < 0 || index >= (int)entries_.size()) return std::nullopt;
     return snapshotOf(entries_[index]);

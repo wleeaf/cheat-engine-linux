@@ -62,6 +62,9 @@ public:
     virtual bool setFreezeMode(int /*id*/, int /*mode*/) { return false; }
     /// Display/edit the record's value in hexadecimal (by id). Default no-op.
     virtual bool setHexView(int /*id*/, bool /*hex*/) { return false; }
+    /// Nesting depth under group headers (0 = root). The current level is exposed
+    /// read-side via AddressEntrySnapshot::indent. Default no-op for non-GUI lists.
+    virtual bool setIndent(int /*id*/, int /*indent*/) { return false; }
 
     using ActivationCallback = std::function<void(int id, bool active)>;
     virtual void setActivationCallback(ActivationCallback cb) = 0;

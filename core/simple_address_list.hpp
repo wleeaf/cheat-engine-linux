@@ -75,6 +75,7 @@ public:
     bool setColor(int id, const std::string& c) override { return set(id, [&](auto& e){ e.color = c; }); }
     bool setScript(int id, const std::string& s) override { return set(id, [&](auto& e){ e.script = s; }); }
     bool setHexView(int id, bool hex) override { return set(id, [&](auto& e){ e.showAsHex = hex; }); }
+    bool setIndent(int id, int indent) override { return set(id, [&](auto& e){ e.indent = indent < 0 ? 0 : indent; }); }
     std::string liveValue(int id) override { auto s = byId(id); return s ? s->value : std::string{}; }
 
     void setActivationCallback(ActivationCallback cb) override { activationCb_ = std::move(cb); }

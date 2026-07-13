@@ -4800,6 +4800,22 @@ static void test_lua_headless_bindings() {
         if (!errLoad.empty()) printf("    load err: %s\n", errLoad.c_str());
     }
 
+    // ---- address-list grouping + indent/outdent (no process needed) ----
+    {
+        SimpleAddressList l; LuaEngine e; e.setAddressList(&l);
+        std::string err = e.execute(
+            "local g=createGroup('Weapons')\n"
+            "assert(g and g.IsGroupHeader, 'createGroup did not make a group header')\n"
+            "local a=createMemoryRecord(); a.Description='Ammo'; a.Indent=2\n"
+            "assert(a.Indent==2, 'Indent set/get mismatch')\n"
+            "a.Indent=1\n"                                   // outdent
+            "assert(a.Indent==1, 'outdent did not apply')\n"
+            "assert(getAddressList():createGroup('Stats').IsGroupHeader, 'list:createGroup failed')\n"
+            "assert(getAddressList().Count==3, 'expected 2 groups + 1 record')\n");
+        printf("  createGroup + Indent (group/indent/outdent): %s\n", err.empty() ? "OK" : "FAILED");
+        if (!err.empty()) printf("    err: %s\n", err.c_str());
+    }
+
     g_lb_ents[0] = LbEntity{100, 50, 1};
     g_lb_ents[1] = LbEntity{250, 50, 2};
     g_lb_player  = &g_lb_ents[0];

@@ -56,7 +56,7 @@ Legend: ✅ headless · ⚠️ partial · ❌ no headless equivalent · 🖼️ 
 | Add / remove / edit / type | table | ✅ | `createMemoryRecord`, `setTableEntry`, `addressList_*` |
 | Freeze / freeze mode | table | ✅ | memory-record `Active` + freeze fields |
 | Value hotkeys | table menu | ⚠️ | `createHotkey`/`setHotkeyAction` exist; not the full per-entry config |
-| Group / indent / outdent | table menu | ❌ | no headless binding |
+| Group / indent / outdent | table menu | ✅ | Lua `createGroup([desc])` + memrec `.Indent` (indent = raise, outdent = lower) |
 
 ### Memory view / disassembler
 | Feature | GUI | Headless | Note |

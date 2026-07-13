@@ -317,6 +317,23 @@ int l_mr_getShowAsHex(lua_State* L) {
     return 1;
 }
 
+int l_mr_getIndent(lua_State* L) {
+    auto* ref = checkMemRec(L, 1);
+    auto* list = currentList(L);
+    if (!list) { lua_pushinteger(L, 0); return 1; }
+    auto snap = list->byId(ref->id);
+    lua_pushinteger(L, snap ? snap->indent : 0);
+    return 1;
+}
+
+int l_mr_setIndent(lua_State* L) {
+    auto* ref = checkMemRec(L, 1);
+    auto* list = currentList(L);
+    if (!list) return 0;
+    list->setIndent(ref->id, (int)luaL_checkinteger(L, 2));
+    return 0;
+}
+
 int l_mr_delete(lua_State* L) {
     auto* ref = checkMemRec(L, 1);
     auto* list = currentList(L);
@@ -358,6 +375,7 @@ int l_mr__index(lua_State* L) {
     if (strcmp(key, "Script") == 0) return l_mr_getScript(L);
     if (strcmp(key, "IsGroupHeader") == 0) return l_mr_isGroup(L);
     if (strcmp(key, "ShowAsHex") == 0) return l_mr_getShowAsHex(L);
+    if (strcmp(key, "Indent") == 0) return l_mr_getIndent(L);
 
     lua_pushnil(L);
     return 1;
@@ -403,6 +421,10 @@ int l_mr__newindex(lua_State* L) {
     }
     if (strcmp(key, "ShowAsHex") == 0) {
         if (auto* list = currentList(L)) list->setHexView(ref->id, lua_toboolean(L, 2));
+        return 0;
+    }
+    if (strcmp(key, "Indent") == 0) {
+        if (auto* list = currentList(L)) list->setIndent(ref->id, (int)luaL_checkinteger(L, 2));
         return 0;
     }
     if (strcmp(key, "AllowDecrease") == 0) {
@@ -480,6 +502,19 @@ int l_al_createMemoryRecord(lua_State* L) {
     return 1;
 }
 
+// createGroup([description]) -> a group-header memory record (IsGroupHeader=true).
+// Child records are nested under it via their .Indent property.
+int l_al_createGroup(lua_State* L) {
+    (void)checkAddrList(L, 1);
+    auto* list = currentList(L);
+    if (!list) { lua_pushnil(L); return 1; }
+    const char* desc = (lua_gettop(L) >= 2 && lua_isstring(L, 2)) ? lua_tostring(L, 2) : "New Group";
+    int id = list->createGroup(desc);
+    if (id < 0) { lua_pushnil(L); return 1; }
+    pushMemRec(L, id);
+    return 1;
+}
+
 int l_al_disableAllWithoutExecute(lua_State* L) {
     (void)checkAddrList(L, 1);
     auto* list = currentList(L);
@@ -536,6 +571,17 @@ int l_createMemoryRecord(lua_State* L) {
     return 1;
 }
 
+// Global convenience mirror of addresslist:createGroup().
+int l_createGroup(lua_State* L) {
+    auto* list = currentList(L);
+    if (!list) { lua_pushnil(L); return 1; }
+    const char* desc = (lua_gettop(L) >= 1 && lua_isstring(L, 1)) ? lua_tostring(L, 1) : "New Group";
+    int id = list->createGroup(desc);
+    if (id < 0) { lua_pushnil(L); return 1; }
+    pushMemRec(L, id);
+    return 1;
+}
+
 int l_getMemoryRecord(lua_State* L) {
     auto* list = currentList(L);
     if (!list) { lua_pushnil(L); return 1; }
@@ -583,6 +629,8 @@ void buildMemRecMetatable(lua_State* L) {
         {"getScript",             l_mr_getScript},
         {"setScript",             l_mr_setScript},
         {"isGroupHeader",         l_mr_isGroup},
+        {"getIndent",             l_mr_getIndent},
+        {"setIndent",             l_mr_setIndent},
         {"delete",                l_mr_delete},
         {nullptr, nullptr},
     };
@@ -609,6 +657,7 @@ void buildAddrListMetatable(lua_State* L) {
         {"getMemoryRecordByID",            l_al_getMemoryRecordByID},
         {"getMemoryRecordByDescription",   l_al_getMemoryRecordByDescription},
         {"createMemoryRecord",             l_al_createMemoryRecord},
+        {"createGroup",                    l_al_createGroup},
         {"disableAllWithoutExecute",       l_al_disableAllWithoutExecute},
         {"getSelectedRecords",             l_al_getSelectedRecords},
         {nullptr, nullptr},
@@ -630,6 +679,7 @@ void registerMemoryRecordBindings(lua_State* L) {
 
     lua_register(L, "getAddressList",   l_getAddressList);
     lua_register(L, "createMemoryRecord", l_createMemoryRecord);
+    lua_register(L, "createGroup",      l_createGroup);
     lua_register(L, "getMemoryRecord",  l_getMemoryRecord);
     lua_register(L, "getMemoryRecordByDescription", l_getMemoryRecordByDescription);
 

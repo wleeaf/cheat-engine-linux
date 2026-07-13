@@ -12,12 +12,15 @@ the logic. Then the terminal path and the GUI path run the same code.
 
 - **`cescan` CLI**: `list`, `read`, `write`, `scan` (exact/greater/less/between/
   changed/unchanged/increased/decreased/unknown), `pointerscan`.
-- **Lua API**: 187 functions (memory read/write incl. locals, `createMemScan`
+- **Lua API**: 200 functions (memory read/write incl. locals, `createMemScan`
   first/next scan, `AOBScan[Ex|Module]`, address list + `createMemoryRecord`,
   `autoAssemble`/`assemble`/`disassemble`, `debug_*` breakpoints, `openProcess`/
   process list, symbols, `injectLibrary`/`allocateMemory`, `speedhack_setSpeed`,
   `captureSnapshot`/snapshot `:diff`/`:restore`, modules, regions, custom types,
-  file I/O, and the Lua form/trainer API).
+  file I/O, the Lua form/trainer API, `saveTable`/`loadTable`, `pointerScan`,
+  `dissectStructure`, `getManagedRuntimes`, `findWhatWrites`/`findWhatAccesses`,
+  `breakAndTrace`, `branchMap`, and `debug_getRegisters`/`debug_setRegister`/
+  `debug_getStack`).
 
 ## The enabling gap — DONE
 
@@ -110,8 +113,12 @@ Legend: ✅ headless · ⚠️ partial · ❌ no headless equivalent · 🖼️ 
    `debug_getRegisters` / `debug_setRegister` / `debug_getStack`, plus the
    breakpoint globals now publish the full register set (RSI/RDI/RBP/R8-R15/RFLAGS,
    not just 6). Verified at a live breakpoint.
-5. **Per-feature headless tests** in `cecore_test` (or a Lua test dir) as each gap
-   closes — so "does everything work?" becomes an automated yes/no.
+5. ~~**Per-feature headless tests** in `cecore_test`.~~ — **DONE**:
+   `test_lua_headless_bindings` forks live children and drives every new binding
+   through the real `LuaEngine` (saveTable/loadTable, getManagedRuntimes,
+   dissectStructure, pointerScan, findWhatWrites, breakAndTrace, debug register /
+   stack read-write at a breakpoint, branchMapAvailable). "Does it work?" is now an
+   automated yes/no in the suite.
 
 ## Not applicable (GUI-only, expected)
 

@@ -41,6 +41,7 @@
 #include "symbols/dwarf_symbols.hpp"
 #include "scripting/lua_engine.hpp"
 #include "core/address_list.hpp"
+#include "core/simple_address_list.hpp"
 #include "plugins/plugin_loader.hpp"
 
 #include <cstdio>
@@ -4745,6 +4746,177 @@ static void test_lua_memrec() {
     )");
 }
 
+// Target state for the headless-bindings test. Because the child is a fork() of
+// this test binary, these globals live at the SAME address in the child, so the
+// parent can hand their addresses to the Lua tool bindings running against the
+// child. Two entities that differ in hp+team (mana constant) drive the structure
+// dissector; g_lb_player is a static pointer for the pointer scanner; lb_bump
+// writes g_lb_counter for find-what-writes and is the trace/breakpoint target.
+struct LbEntity { int hp; int mana; int team; };
+static LbEntity  g_lb_ents[2];
+static LbEntity* g_lb_player = nullptr;
+static volatile int g_lb_counter = 0;
+__attribute__((noinline)) static void lb_bump() { g_lb_counter++; asm volatile("nop" ::: "memory"); }
+
+// Step 5 of the CLI-parity plan: exercise the headless Lua tool bindings end to
+// end against live forked children, so "does everything work?" is an automated
+// yes/no. Each ptrace-exclusive tool gets its own fresh child to avoid tracer
+// contention.
+static void test_lua_headless_bindings() {
+    printf("\n── Test: Lua headless tool bindings (CLI parity) ──\n");
+
+    // ---- cheat-table save/load round-trip (no process needed) ----
+    {
+        const char* path = "/tmp/ce_lua_bindtest.ct";
+        SimpleAddressList l1; LuaEngine e1; e1.setAddressList(&l1);
+        std::string errSave = e1.execute(
+            "local a=createMemoryRecord(); a.Description='Health'; a.Address=0x1000; a.Type=4\n"
+            "local b=createMemoryRecord(); b.Description='Ammo';   b.Address=0x2000; b.Type=4\n"
+            "assert(saveTable('/tmp/ce_lua_bindtest.ct'), 'saveTable returned false')\n");
+        SimpleAddressList l2; LuaEngine e2; e2.setAddressList(&l2);
+        std::string errLoad = e2.execute(
+            "assert(loadTable('/tmp/ce_lua_bindtest.ct'), 'loadTable returned false')\n"
+            "assert(getAddressList().Count == 2, 'expected 2 reloaded entries')\n"
+            "local m=getMemoryRecordByDescription('Health')\n"
+            "assert(m~=nil and m.Address==0x1000, 'reloaded entry mismatch')\n");
+        std::remove(path);
+        bool ok = errSave.empty() && errLoad.empty();
+        printf("  saveTable/loadTable round-trip: %s\n", ok ? "OK" : "FAILED");
+        if (!errSave.empty()) printf("    save err: %s\n", errSave.c_str());
+        if (!errLoad.empty()) printf("    load err: %s\n", errLoad.c_str());
+    }
+
+    g_lb_ents[0] = LbEntity{100, 50, 1};
+    g_lb_ents[1] = LbEntity{250, 50, 2};
+    g_lb_player  = &g_lb_ents[0];
+
+    auto forkSpinner = [](useconds_t period) -> pid_t {
+        pid_t c = fork();
+        if (c == 0) {
+            prctl(PR_SET_PTRACER, -1L, 0, 0, 0);
+            for (;;) { lb_bump(); usleep(period); }
+            _exit(0);
+        }
+        usleep(90000);   // let it start spinning
+        return c;
+    };
+
+    // ---- inspect tools (no ptrace): getManagedRuntimes / dissect / pointerScan ----
+    {
+        pid_t c = forkSpinner(1500);
+        if (c > 0) {
+            SimpleAddressList l; LuaEngine e; e.setAddressList(&l);
+            char code[2048];
+            snprintf(code, sizeof code,
+                "assert(openProcess(%d), 'openProcess failed')\n"
+                "assert(#getManagedRuntimes()==0, 'native target should have no managed runtimes')\n"
+                "local f=dissectStructure({%lu,%lu}, %zu)\n"
+                "assert(f~=nil and #f>=1, 'dissectStructure returned nothing')\n"
+                "local anyDiff=false\n"
+                "for _,x in ipairs(f) do if x.changed then anyDiff=true end end\n"
+                "assert(anyDiff, 'dissectStructure flagged no differing field')\n"
+                // staticOnly=false: g_lb_player holds &g_lb_ents[0] exactly, so the
+                // scan must surface at least that pointer. (Module attribution of
+                // .bss is covered by test_pointer_scan_shard_through_static.)
+                "local paths=pointerScan(%lu, 2, 64, {staticOnly=false})\n"
+                "assert(paths~=nil and #paths>=1, 'pointerScan found no pointer to target')\n",
+                c,
+                (unsigned long)&g_lb_ents[0], (unsigned long)&g_lb_ents[1], sizeof(LbEntity),
+                (unsigned long)&g_lb_ents[0]);
+            std::string err = e.execute(code);
+            printf("  getManagedRuntimes/dissectStructure/pointerScan: %s\n", err.empty() ? "OK" : "FAILED");
+            if (!err.empty()) printf("    err: %s\n", err.c_str());
+            kill(c, SIGKILL); waitpid(c, nullptr, 0);
+        } else {
+            printf("  getManagedRuntimes/dissectStructure/pointerScan: FAILED (fork)\n");
+        }
+    }
+
+    // ---- find-what-writes (self-SEIZE HW watchpoint) ----
+    {
+        pid_t c = forkSpinner(1000);
+        if (c > 0) {
+            SimpleAddressList l; LuaEngine e; e.setAddressList(&l);
+            char code[1024];
+            snprintf(code, sizeof code,
+                "assert(openProcess(%d), 'openProcess failed')\n"
+                "local w=findWhatWrites(%lu, 1)\n"
+                "assert(w~=nil and #w>=1, 'findWhatWrites found no writer')\n"
+                "assert(w[1].hitCount>0, 'writer had zero hits')\n",
+                c, (unsigned long)&g_lb_counter);
+            std::string err = e.execute(code);
+            printf("  findWhatWrites: %s\n", err.empty() ? "OK" : "FAILED");
+            if (!err.empty()) printf("    err: %s\n", err.c_str());
+            kill(c, SIGKILL); waitpid(c, nullptr, 0);
+        } else {
+            printf("  findWhatWrites: FAILED (fork)\n");
+        }
+    }
+
+    // ---- break-and-trace (self-SEIZE single-step) ----
+    {
+        pid_t c = forkSpinner(1000);
+        if (c > 0) {
+            SimpleAddressList l; LuaEngine e; e.setAddressList(&l);
+            char code[1024];
+            snprintf(code, sizeof code,
+                "assert(openProcess(%d), 'openProcess failed')\n"
+                "local t=breakAndTrace(%lu, 6)\n"
+                "assert(t~=nil and #t>=1, 'breakAndTrace produced no steps')\n"
+                "assert(t[1].address==%lu, 'trace did not start at lb_bump')\n",
+                c, (unsigned long)&lb_bump, (unsigned long)&lb_bump);
+            std::string err = e.execute(code);
+            printf("  breakAndTrace: %s\n", err.empty() ? "OK" : "FAILED");
+            if (!err.empty()) printf("    err: %s\n", err.c_str());
+            kill(c, SIGKILL); waitpid(c, nullptr, 0);
+        } else {
+            printf("  breakAndTrace: FAILED (fork)\n");
+        }
+    }
+
+    // ---- register / stack read-write at a live breakpoint (DebugSession) ----
+    {
+        pid_t c = forkSpinner(2000);
+        if (c > 0) {
+            SimpleAddressList l; LuaEngine e; e.setAddressList(&l);
+            char code[2048];
+            snprintf(code, sizeof code,
+                "assert(openProcess(%d), 'openProcess failed')\n"
+                "_G.seen=false\n"
+                "function debugger_onBreakpoint()\n"
+                "  local r=debug_getRegisters()\n"
+                "  assert(r.RIP==%lu, 'RIP mismatch at breakpoint')\n"
+                "  local s=debug_getStack(2)\n"
+                "  assert(s~=nil and #s>=1, 'debug_getStack empty')\n"
+                "  assert(debug_setRegister('RAX', 0x1234), 'debug_setRegister failed')\n"
+                "  assert(debug_getRegisters().RAX==0x1234, 'RAX edit not reflected')\n"
+                "  _G.seen=true\n"
+                "  return 1\n"
+                "end\n"
+                "debug_setBreakpoint(%lu)\n"
+                "debug_pumpEvents(3000)\n"
+                "assert(_G.seen, 'breakpoint never fired')\n",
+                c, (unsigned long)&lb_bump, (unsigned long)&lb_bump);
+            std::string err = e.execute(code);
+            printf("  debug_getRegisters/setRegister/getStack: %s\n", err.empty() ? "OK" : "FAILED");
+            if (!err.empty()) printf("    err: %s\n", err.c_str());
+            kill(c, SIGKILL); waitpid(c, nullptr, 0);
+        } else {
+            printf("  debug_getRegisters/setRegister/getStack: FAILED (fork)\n");
+        }
+    }
+
+    // ---- branch mapper availability (hardware-gated; just assert it answers) ----
+    {
+        SimpleAddressList l; LuaEngine e; e.setAddressList(&l);
+        std::string err = e.execute(
+            "local ok = branchMapAvailable()\n"
+            "assert(ok==true or ok==false, 'branchMapAvailable did not return a bool')\n");
+        printf("  branchMapAvailable: %s\n", err.empty() ? "OK" : "FAILED");
+        if (!err.empty()) printf("    err: %s\n", err.c_str());
+    }
+}
+
 static void test_autoassembler_unregister_symbol(pid_t pid) {
     printf("\n── Test: AutoAssembler unregistersymbol ──\n");
 
@@ -7590,6 +7762,7 @@ int main(int argc, char* argv[]) {
     test_injection_script_generation();
     test_structure_tools();
     test_lua_memrec();
+    test_lua_headless_bindings();
     test_autoassembler_unregister_symbol(targetPid);
     test_autoassembler_dealloc(targetPid);
     test_autoassembler_dealloc_no_cross_evict(targetPid);

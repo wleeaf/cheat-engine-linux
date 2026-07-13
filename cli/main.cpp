@@ -10,7 +10,10 @@
 #include "core/autoasm.hpp"
 #include "symbols/elf_symbols.hpp"
 #include "scanner/pointer_scanner.hpp"
+#include "scripting/lua_engine.hpp"
+#include "core/simple_address_list.hpp"
 #include <fstream>
+#include <iostream>
 
 #include <cstdio>
 #include <cstdlib>
@@ -42,6 +45,8 @@ static void usage() {
         "  disasm <pid> <addr> [count]   Disassemble instructions\n"
         "  modules <pid>                 List loaded modules\n"
         "  regions <pid>                 List memory regions\n"
+        "  lua <script.lua>|-e <code>|-  Run a Lua script (same API as the GUI console)\n"
+        "  lua                           Interactive Lua REPL\n"
         "\n"
         "Scan options:\n"
         "  --type <type>     byte, i16, i32, i64, pointer, float, double, string, unicode, aob, binary, all, grouped, custom (default: i32)\n"
@@ -598,6 +603,66 @@ static int cmd_asm(pid_t pid, const char* scriptFile, bool disableMode) {
 
 // ── Main ──
 
+// Headless Lua runner: runs the SAME LuaEngine the GUI's Lua console uses, so
+// everything the Lua API can do (open process, scan, read/write, address list,
+// auto-assemble, breakpoints, speedhack, ...) is scriptable and testable from the
+// terminal. Scripts open their target with openProcess(pid) themselves.
+//   cescan lua <script.lua>     run a file
+//   cescan lua -e "<code>"      run a one-liner
+//   cescan lua -                run a script from stdin
+//   cescan lua                  interactive REPL
+static int cmd_lua(int argc, char** argv) {
+    // Declare the list + resolver BEFORE the engine so they outlive its teardown.
+    SimpleAddressList addressList;
+    SymbolResolver resolver;
+    LuaEngine engine;
+    engine.setAddressList(&addressList);
+    engine.setResolver(&resolver);
+    // print()/output arrives one message per call without a trailing newline
+    // (the GUI console adds line breaks itself); terminate each line here.
+    engine.setOutputCallback([](const std::string& s) {
+        std::fputs(s.c_str(), stdout);
+        std::fputc('\n', stdout);
+    });
+
+    auto report = [](const std::string& err) -> int {
+        if (!err.empty()) { std::fprintf(stderr, "lua: %s\n", err.c_str()); return 1; }
+        return 0;
+    };
+
+    // argv here is offset so argv[0] == "lua".
+    if (argc >= 2 && !std::strcmp(argv[1], "-e")) {
+        if (argc < 3) { std::fprintf(stderr, "cescan lua -e needs a code string\n"); return 1; }
+        return report(engine.execute(argv[2]));
+    }
+    if (argc >= 2 && std::strcmp(argv[1], "-") != 0) {
+        return report(engine.executeFile(argv[1]));       // script file
+    }
+    if (argc >= 2 && !std::strcmp(argv[1], "-")) {
+        std::string code((std::istreambuf_iterator<char>(std::cin)),
+                         std::istreambuf_iterator<char>());
+        return report(engine.execute(code));              // stdin as a script
+    }
+
+    // Interactive REPL: try each line as an expression (so `getCEVersion()` prints
+    // its value), falling back to a statement (`x = 5`).
+    std::fprintf(stderr, "cescan lua REPL — Ctrl+D to exit\n");
+    std::string line;
+    while (true) {
+        std::fputs("lua> ", stderr);
+        if (!std::getline(std::cin, line)) { std::fputs("\n", stderr); break; }
+        if (line.empty()) continue;
+        auto val = engine.evalToString("return " + line);
+        if (val) {
+            if (!val->empty()) std::printf("%s\n", val->c_str());
+        } else {
+            std::string err = engine.execute(line);
+            if (!err.empty()) std::fprintf(stderr, "error: %s\n", err.c_str());
+        }
+    }
+    return 0;
+}
+
 int main(int argc, char** argv) {
     // Force the C locale so atof()/strtod() on scan values always use a '.'
     // decimal separator. cescan never calls setlocale(LC_ALL, "") so it is in the
@@ -667,6 +732,9 @@ int main(int argc, char** argv) {
         const char* file = argv[3];
         if (argc >= 5 && !strcmp(argv[3], "--disable")) { disable = true; file = argv[4]; }
         return cmd_asm(parsePid(argv[2]), file, disable);
+    }
+    else if (!strcmp(cmd, "lua")) {
+        return cmd_lua(argc - 1, argv + 1);
     }
     else if (!strcmp(cmd, "help") || !strcmp(cmd, "--help") || !strcmp(cmd, "-h")) {
         usage();

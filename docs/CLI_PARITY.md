@@ -19,15 +19,13 @@ the logic. Then the terminal path and the GUI path run the same code.
   `captureSnapshot`/snapshot `:diff`/`:restore`, modules, regions, custom types,
   file I/O, and the Lua form/trainer API).
 
-## The enabling gap (do this first)
+## The enabling gap — DONE
 
-**There is no headless way to run the Lua engine.** The 187-function API only
-runs inside the GUI's Lua console. Add a terminal entry point that runs the *same*
-`LuaEngine` the GUI uses:
-
-- [ ] `cheatengine --script <file.lua>` (and `-e "<code>"`, and a REPL) — runs the
-      engine headlessly. This single addition makes everything the Lua API already
-      covers testable + scriptable from the terminal.
+- [x] **Headless Lua runner** (`cescan lua <file.lua> | -e "<code>" | - | <REPL>`).
+      Runs the *same* `LuaEngine` the GUI console uses, with a headless
+      `SimpleAddressList` so the table API works too. Verified end to end against a
+      live process: `openProcess`, `readInteger`/`writeInteger`, and
+      `createMemScan:firstScan` (found the value) all work from the terminal.
 
 ## Parity table
 

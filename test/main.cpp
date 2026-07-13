@@ -4833,7 +4833,9 @@ static void test_lua_headless_bindings() {
                 // scan must surface at least that pointer. (Module attribution of
                 // .bss is covered by test_pointer_scan_shard_through_static.)
                 "local paths=pointerScan(%lu, 2, 64, {staticOnly=false})\n"
-                "assert(paths~=nil and #paths>=1, 'pointerScan found no pointer to target')\n",
+                "assert(paths~=nil and #paths>=1, 'pointerScan found no pointer to target')\n"
+                "local st=findStatics()\n"
+                "assert(type(st)=='table', 'findStatics did not return a table')\n",
                 c,
                 (unsigned long)&g_lb_ents[0], (unsigned long)&g_lb_ents[1], sizeof(LbEntity),
                 (unsigned long)&g_lb_ents[0]);

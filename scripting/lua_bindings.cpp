@@ -7,6 +7,7 @@
 #include "core/address_list.hpp"
 #include "analysis/managed_runtime.hpp"
 #include "analysis/structure_tools.hpp"
+#include "analysis/code_analysis.hpp"
 #include "scripting/lua_memrec.hpp"
 #include "scanner/memory_scanner.hpp"
 #include "scanner/pointer_scanner.hpp"
@@ -2357,6 +2358,34 @@ static int l_breakAndTrace(lua_State* L) {
     return 1;
 }
 
+// ── Find Statics (module-relative addresses referenced by code) ──
+// findStatics([moduleName]) -> array of { address, references }, sorted by the
+// analyzer. Defaults to the main/executable module (first in the module list).
+static int l_findStatics(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); return 1; }
+    const char* modName = (lua_gettop(L) >= 1 && lua_isstring(L, 1)) ? lua_tostring(L, 1) : nullptr;
+    auto mods = p->modules();
+    if (mods.empty()) { lua_pushnil(L); lua_pushstring(L, "no modules"); return 2; }
+    const ce::ModuleInfo* mod = nullptr;
+    if (modName) {
+        for (auto& m : mods) if (m.name == modName) { mod = &m; break; }
+        if (!mod) { lua_pushnil(L); lua_pushstring(L, "module not found"); return 2; }
+    } else {
+        mod = &mods.front();   // main executable is enumerated first
+    }
+    ce::CodeAnalyzer analyzer;
+    auto statics = analyzer.findStatics(*p, *mod);
+    lua_newtable(L);
+    for (size_t i = 0; i < statics.size(); ++i) {
+        lua_newtable(L);
+        lua_pushinteger(L, (lua_Integer)statics[i].address);    lua_setfield(L, -2, "address");
+        lua_pushinteger(L, (lua_Integer)statics[i].references); lua_setfield(L, -2, "references");
+        lua_rawseti(L, -2, (int)i + 1);
+    }
+    return 1;
+}
+
 // ── Branch mapper (hardware LBR via perf_event_open) ──
 // branchMapAvailable() -> bool (Intel LBR + perf_event_paranoid<=1)
 static int l_branchMapAvailable(lua_State* L) {
@@ -3533,6 +3562,7 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "findWhatWrites", l_findWhatWrites);
     lua_register(L, "findWhatAccesses", l_findWhatAccesses);
     lua_register(L, "breakAndTrace", l_breakAndTrace);
+    lua_register(L, "findStatics", l_findStatics);
     lua_register(L, "branchMap", l_branchMap);
     lua_register(L, "branchMapAvailable", l_branchMapAvailable);
     lua_register(L, "getTableEntry", l_getTableEntry);

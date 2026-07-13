@@ -65,7 +65,7 @@ Legend: ✅ headless · ⚠️ partial · ❌ no headless equivalent · 🖼️ 
 | Read/write at address | hex view | ✅ | `read*`/`write*` |
 | NOP instruction / restore bytes | disasm menu | ✅ | `nopInstruction`, `writeBytes` |
 | Navigate / bookmarks / goto | toolbar | 🖼️ | view state; the underlying reads are ✅ |
-| File Patcher | Tools | ❌ | no headless patcher |
+| File Patcher | Tools | ⚠️ | no dedicated verb; the GUI keeps its own QFile logic, but Lua file I/O (open/seek/write) patches a file on disk |
 
 ### Debugger
 | Feature | GUI | Headless | Note |
@@ -89,7 +89,7 @@ Legend: ✅ headless · ⚠️ partial · ❌ no headless equivalent · 🖼️ 
 | Speedhack | Tools | ✅ | `speedhack_setSpeed` / `setSpeed` |
 | Detect Mono/.NET | Tools | ✅ | Lua `getManagedRuntimes()` → `detectManagedRuntimes` |
 | ELF Inspector | Tools | ⚠️ | `getSymbolInfo` / symbols partial; no full inspector |
-| Find Statics | Tools | ❌ | no headless binding |
+| Find Statics | Tools | ✅ | Lua `findStatics([module])` → `CodeAnalyzer::findStatics` |
 | AOB scan | (scripts) | ✅ | `AOBScan[Ex|Module]` |
 | Module list / memory regions | Tools | ✅ | `getModuleList`, `enumMemoryRegions`, `getRegionInfo` |
 | Form Designer / overlay | Tools | 🖼️ | GUI/rendering; Lua form API exists for building forms |

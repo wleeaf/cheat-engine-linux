@@ -48,6 +48,7 @@
 #include <QGridLayout>
 #include <QHeaderView>
 #include <QMessageBox>
+#include <QFile>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QLabel>
@@ -87,6 +88,8 @@ static double parseUserDouble(const QString& s, bool* ok = nullptr);
 // Forward declarations of static helpers
 static ScanCompare mapScanType(int index);
 static ValueType mapValueType(int index);
+static void warnIfMemoryUnreadable(QWidget* parent, ce::ProcessHandle* p,
+                                   pid_t pid, const QString& name);
 
 // ═══════════════════════════════════════════════════════════════
 // MainWindow
@@ -371,6 +374,8 @@ void MainWindow::setupMenus() {
                     process_ = std::make_unique<os::LinuxProcessHandle>(pid);
                     processLabel_->setText(QString("PID: %1 — %2 (auto-attached)")
                         .arg(pid).arg(QString::fromStdString(procName)));
+                    warnIfMemoryUnreadable(this, process_.get(), pid,
+                                           QString::fromStdString(procName));
                     addressListModel_->setProcess(process_.get());
                     resultsModel_->setProcess(process_.get());
                     firstScanBtn_->setEnabled(true);
@@ -1410,6 +1415,46 @@ void MainWindow::setupUi() {
     resize(760, 600);
 }
 
+// Probe whether we can actually read the target's memory. Under the default
+// kernel.yama.ptrace_scope=1, process_vm_readv is DENIED for any process we can't
+// ptrace — i.e. anything Cheat Engine didn't spawn — so scanning, memory browsing
+// and debugging all silently fail (empty results, blank disassembler). Detect that
+// the moment a process is opened and tell the user exactly how to fix it, instead
+// of leaving them to wonder why "browse memory" shows nothing for some processes.
+static void warnIfMemoryUnreadable(QWidget* parent, ce::ProcessHandle* p,
+                                   pid_t pid, const QString& name) {
+    if (!p) return;
+    bool sawReadable = false;
+    for (auto& r : p->queryRegions()) {
+        if (!(r.protection & ce::MemProt::Read)) continue;
+        sawReadable = true;
+        uint8_t b = 0;
+        auto res = p->read(r.base, &b, 1);
+        if (res && *res >= 1) return;   // memory is readable — nothing to warn about
+        break;                          // first readable region failed → diagnose below
+    }
+    if (!sawReadable) return;           // couldn't enumerate regions — don't guess
+
+    QString scope = QStringLiteral("1");
+    if (QFile f(QStringLiteral("/proc/sys/kernel/yama/ptrace_scope")); f.open(QIODevice::ReadOnly))
+        scope = QString::fromUtf8(f.readAll()).trimmed();
+
+    QMessageBox::warning(parent, QObject::tr("Process memory not readable"),
+        QObject::tr(
+            "Cannot read the memory of PID %1 (%2).\n\n"
+            "Linux only lets a program read another process's memory if it is "
+            "allowed to ptrace it. With kernel.yama.ptrace_scope = %3, that means "
+            "the target must be a child of Cheat Engine, or Cheat Engine must run "
+            "with elevated rights. Scanning, memory browsing and debugging this "
+            "process will not work until you do ONE of:\n\n"
+            "  • Grant Cheat Engine ptrace rights (persists for the binary):\n"
+            "        sudo setcap cap_sys_ptrace+ep %4\n"
+            "  • Run Cheat Engine as root (sudo).\n"
+            "  • Lower the system policy until reboot:\n"
+            "        sudo sysctl kernel.yama.ptrace_scope=0")
+            .arg(pid).arg(name).arg(scope).arg(QCoreApplication::applicationFilePath()));
+}
+
 void MainWindow::onOpenProcess() {
     ProcessListDialog dlg(this);
     if (dlg.exec() == QDialog::Accepted) {
@@ -1417,6 +1462,7 @@ void MainWindow::onOpenProcess() {
         ceserverClient_.reset();
         process_ = std::make_unique<os::LinuxProcessHandle>(currentPid_);
         processLabel_->setText(QString("PID: %1 — %2").arg(currentPid_).arg(dlg.selectedName()));
+        warnIfMemoryUnreadable(this, process_.get(), currentPid_, dlg.selectedName());
         addressListModel_->setProcess(process_.get());
                     resultsModel_->setProcess(process_.get());
         firstScanBtn_->setEnabled(true);

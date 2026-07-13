@@ -620,12 +620,27 @@ void DisasmView::resizeEvent(QResizeEvent* e) {
 
 void DisasmView::refresh() {
     instructions_.clear();
+    emptyReason_.clear();
     if (!proc_) { viewport()->update(); return; }
 
     int rows = visibleRows() + 5;
     std::vector<uint8_t> buf(rows * 15);
     auto r = proc_->read(address_, buf.data(), buf.size());
-    if (!r || *r == 0) { viewport()->update(); return; }
+    if (!r || *r == 0) {
+        // Explain the blank pane instead of leaving it empty. EPERM/EACCES means we
+        // aren't allowed to ptrace this process (yama ptrace_scope) — the common
+        // reason "browse memory" shows nothing for processes we didn't spawn.
+        const bool denied = !r && (r.error() == std::errc::operation_not_permitted ||
+                                   r.error() == std::errc::permission_denied);
+        emptyReason_ = denied
+            ? QStringLiteral("Cannot read this process's memory (permission denied).\n"
+                             "Run Cheat Engine with ptrace rights: sudo setcap "
+                             "cap_sys_ptrace+ep <cheatengine>, run as root, or set "
+                             "kernel.yama.ptrace_scope=0.")
+            : QStringLiteral("No readable memory at this address.");
+        viewport()->update();
+        return;
+    }
 
     // emitDataBytes: undecodable bytes render as "db 0xXX" and disassembly
     // continues, so the pane never blanks out on data/obfuscated regions (CE-like).
@@ -689,6 +704,16 @@ void DisasmView::paintEvent(QPaintEvent*) {
     QPainter p(viewport());
     p.setFont(monoFont_);
     p.fillRect(viewport()->rect(), QColor(0x1e, 0x1e, 0x2e));
+
+    // Nothing decoded: explain why rather than showing a blank pane.
+    if (instructions_.empty()) {
+        p.setPen(QColor(0xa6, 0xad, 0xc8));
+        p.drawText(viewport()->rect().adjusted(24, 24, -24, -24),
+                   Qt::AlignCenter | Qt::TextWordWrap,
+                   emptyReason_.isEmpty() ? QStringLiteral("No data at this address.")
+                                          : emptyReason_);
+        return;
+    }
 
     int arrowW = charW_ * 6;              // strip for jump/branch arrows
     int contentX = gutterW_ + arrowW;     // address/bytes/mnemonic start here

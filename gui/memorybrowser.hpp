@@ -153,6 +153,7 @@ private:
     int charH_ = 0;
     int gutterW_ = 0;
     std::vector<ce::Instruction> instructions_;
+    QString emptyReason_;   // shown when a read yields no instructions (blank pane otherwise)
     std::set<uintptr_t> breakpoints_;
     std::map<uintptr_t, std::string> comments_;   // user-defined inline comments
 };

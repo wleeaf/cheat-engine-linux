@@ -8,6 +8,15 @@ happens in the GUI is provably a GUI-layer bug.
 core function* (in `cecore` or exposed via Lua) — never contain its own copy of
 the logic. Then the terminal path and the GUI path run the same code.
 
+**Status:** every functional GUI feature now has a headless path (no ❌ rows
+remain). The five prioritized gaps are done, plus save/load table, trainer
+generation, pointer scan, structure dissect, managed-runtime detect, code finder,
+break-and-trace, branch mapper, register/stack read-write, find-statics, ceserver
+connect, and address-list grouping/indent. Each is exercised by an automated test
+in `cecore_test` (`test_lua_headless_bindings`, `test_lua_ceserver_connect`,
+`test_trainer_generation`). The three remaining ⚠️ rows are partial-but-usable
+(the capability exists; only a fuller dedicated helper is missing).
+
 ## Current headless surface
 
 - **`cescan` CLI**: `list`, `read`, `write`, `scan` (exact/greater/less/between/

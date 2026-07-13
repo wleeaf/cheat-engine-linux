@@ -3,6 +3,7 @@
 #include <csignal>
 #include "scripting/lua_engine.hpp"
 #include "core/ct_file.hpp"
+#include "core/trainer.hpp"
 #include "core/address_list.hpp"
 #include "analysis/managed_runtime.hpp"
 #include "analysis/structure_tools.hpp"
@@ -2080,13 +2081,10 @@ static int l_addressList_clear(lua_State* L) {
 
 // saveTable(path) -> bool. Serialize the live cheat table (the C++ address list)
 // to a .CT/.json, the same format the GUI's Save Table writes.
-static int l_saveTable(lua_State* L) {
-    const char* path = luaL_checkstring(L, 1);
-    auto* eng = ce::LuaEngine::instanceFromState(L);
-    auto* list = eng ? eng->addressList() : nullptr;
-    if (!list) { lua_pushboolean(L, 0); return 1; }
-
+// Snapshot the live IAddressList into a CheatTable (shared by save/trainer paths).
+static ce::CheatTable buildCheatTableFromList(ce::IAddressList* list) {
     ce::CheatTable table;
+    if (!list) return table;
     for (int id : list->ids()) {
         auto snap = list->byId(id);
         if (!snap) continue;
@@ -2104,6 +2102,15 @@ static int l_saveTable(lua_State* L) {
         e.hotkeyKeys = snap->hotkeyKeys;
         table.entries.push_back(std::move(e));
     }
+    return table;
+}
+
+static int l_saveTable(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    auto* list = eng ? eng->addressList() : nullptr;
+    if (!list) { lua_pushboolean(L, 0); return 1; }
+    ce::CheatTable table = buildCheatTableFromList(list);
     lua_pushboolean(L, table.saveJson(path) ? 1 : 0);
     return 1;
 }
@@ -2132,6 +2139,36 @@ static int l_loadTable(lua_State* L) {
     }
     lua_pushboolean(L, 1);
     return 1;
+}
+
+// ── Trainer generation (standalone executable from the cheat table) ──
+// generateTrainerSource() -> C source string for the current address list (nil
+// if there is no list). Mirrors the GUI's "Create Trainer" source step.
+static int l_generateTrainerSource(lua_State* L) {
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    auto* list = eng ? eng->addressList() : nullptr;
+    if (!list) { lua_pushnil(L); return 1; }
+    ce::CheatTable table = buildCheatTableFromList(list);
+    ce::TrainerGenerator gen;
+    std::string src = gen.generateSource(table);
+    lua_pushlstring(L, src.data(), src.size());
+    return 1;
+}
+
+// generateTrainer(outputPath) -> true, or (nil, errmsg). Compiles a standalone
+// trainer binary from the current address list, like the GUI's Create Trainer.
+static int l_generateTrainer(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    auto* list = eng ? eng->addressList() : nullptr;
+    if (!list) { lua_pushnil(L); lua_pushstring(L, "no address list"); return 2; }
+    ce::CheatTable table = buildCheatTableFromList(list);
+    ce::TrainerGenerator gen;
+    std::string err = gen.generateBinary(table, path);
+    if (err.empty()) { lua_pushboolean(L, 1); return 1; }
+    lua_pushnil(L);
+    lua_pushstring(L, err.c_str());
+    return 2;
 }
 
 // ── Managed runtime detection (Mono / .NET / CoreCLR) ──
@@ -3488,6 +3525,8 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "addressList_clear", l_addressList_clear);
     lua_register(L, "saveTable", l_saveTable);
     lua_register(L, "loadTable", l_loadTable);
+    lua_register(L, "generateTrainer", l_generateTrainer);
+    lua_register(L, "generateTrainerSource", l_generateTrainerSource);
     lua_register(L, "getManagedRuntimes", l_getManagedRuntimes);
     lua_register(L, "pointerScan", l_pointerScan);
     lua_register(L, "dissectStructure", l_dissectStructure);

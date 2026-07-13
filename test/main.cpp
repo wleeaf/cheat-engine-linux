@@ -483,11 +483,23 @@ static void test_trainer_generation() {
     de.value = "1,25";
     table.entries.push_back(de);
 
+    // Whole-number float: to_chars emits "9999" (no '.'), so the generator must add
+    // a fractional part before the 'f' suffix — "9999.0f", never "9999f" (an invalid
+    // integer-with-f-suffix that fails to compile). Regression guard for that bug.
+    CheatEntry we;
+    we.description = "Score";
+    we.address = 0x2010;
+    we.type = ValueType::Float;
+    we.value = "9999";
+    table.entries.push_back(we);
+
     TrainerGenerator generator;
     auto source = generator.generateSource(table);
     bool floatOk = source.find("2.5f") != std::string::npos &&
                    source.find("1.25") != std::string::npos &&
-                   source.find("2,5") == std::string::npos;   // comma never leaks into C
+                   source.find("2,5") == std::string::npos &&   // comma never leaks into C
+                   source.find("9999.0f") != std::string::npos &&
+                   source.find("9999f") == std::string::npos;   // no int-with-f-suffix
     bool sourceOk =
         source.find("Trainer \\\"Smoke\\\"\\nGame") != std::string::npos &&
         source.find("Health \\\"current\\\"\\nline") != std::string::npos &&
@@ -4772,7 +4784,9 @@ static void test_lua_headless_bindings() {
         std::string errSave = e1.execute(
             "local a=createMemoryRecord(); a.Description='Health'; a.Address=0x1000; a.Type=4\n"
             "local b=createMemoryRecord(); b.Description='Ammo';   b.Address=0x2000; b.Type=4\n"
-            "assert(saveTable('/tmp/ce_lua_bindtest.ct'), 'saveTable returned false')\n");
+            "assert(saveTable('/tmp/ce_lua_bindtest.ct'), 'saveTable returned false')\n"
+            "local src=generateTrainerSource()\n"
+            "assert(src and #src>100 and src:find('int main')~=nil, 'generateTrainerSource looks wrong')\n");
         SimpleAddressList l2; LuaEngine e2; e2.setAddressList(&l2);
         std::string errLoad = e2.execute(
             "assert(loadTable('/tmp/ce_lua_bindtest.ct'), 'loadTable returned false')\n"

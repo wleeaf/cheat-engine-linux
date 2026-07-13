@@ -40,8 +40,8 @@ Legend: ✅ headless · ⚠️ partial · ❌ no headless equivalent · 🖼️ 
 | Open process | File / crosshair | ✅ | `openProcess(pid)`, `getProcessList`, `cescan` (pid arg) |
 | Connect to ceserver | File | ❌ | client exists in core; no Lua/CLI binding |
 | Pause / unpause | Process | ✅ | `pause()` / `unpause()` |
-| Save / load cheat table | File, Table Extras | ❌ | `CheatTable::saveJson/loadJson` in core; not bound to Lua/CLI |
-| Create trainer | File | ❌ | no headless generator |
+| Save / load cheat table | File, Table Extras | ✅ | Lua `saveTable(path)` / `loadTable(path)` |
+| Create trainer | File | ✅ | Lua `generateTrainer(path)` (compiles a binary) / `generateTrainerSource()` |
 
 ### Scan
 | Feature | GUI | Headless | Note |

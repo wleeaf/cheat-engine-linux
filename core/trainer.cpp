@@ -1,4 +1,5 @@
 #include <charconv>
+#include <cmath>
 #include "core/trainer.hpp"
 #include <sstream>
 #include <fstream>
@@ -121,13 +122,19 @@ std::optional<std::string> freezeWriteBody(const CheatEntry& e) {
             float v = 0;
             auto [ptr, ec] = std::from_chars(norm.data(), norm.data() + norm.size(), v);
             if (ec != std::errc() || ptr != norm.data() + norm.size()) return std::nullopt;
+            if (!std::isfinite(v)) return std::nullopt;   // inf/nan is not a freezable target
             // Re-emit a canonical literal we generate (never the raw input string).
             // to_chars is locale-independent ('.'); snprintf("%g") would emit "3,14"
             // under Qt's comma-decimal C locale, producing invalid C in the trainer.
             char buf[64];
             auto fr = std::to_chars(buf, buf + sizeof(buf) - 1, v);
             *fr.ptr = '\0';
-            body << "float v = " << buf << "f; wpm((void*)0x" << std::hex << e.address
+            std::string lit(buf);
+            // to_chars emits the shortest round-trip form, so a whole number is
+            // "9999" (no '.') — then "9999f" is an INVALID integer-with-f-suffix.
+            // Ensure a fractional part so the 'f' attaches to a floating constant.
+            if (lit.find_first_of(".eE") == std::string::npos) lit += ".0";
+            body << "float v = " << lit << "f; wpm((void*)0x" << std::hex << e.address
                  << std::dec << ", &v, 4);";
             return body.str();
         }
@@ -140,9 +147,12 @@ std::optional<std::string> freezeWriteBody(const CheatEntry& e) {
             double v = 0;
             auto [ptr, ec] = std::from_chars(norm.data(), norm.data() + norm.size(), v);
             if (ec != std::errc() || ptr != norm.data() + norm.size()) return std::nullopt;
+            if (!std::isfinite(v)) return std::nullopt;   // inf/nan is not a freezable target
             char buf[64];
             auto dr = std::to_chars(buf, buf + sizeof(buf) - 1, v);
             *dr.ptr = '\0';
+            // A whole-number double emits as "9999" — valid C (int->double), so no
+            // fractional part is required here (unlike the float 'f'-suffix case).
             body << "double v = " << buf << "; wpm((void*)0x" << std::hex << e.address
                  << std::dec << ", &v, 8);";
             return body.str();
@@ -162,6 +172,10 @@ std::string TrainerGenerator::generateSource(const CheatTable& table) const {
 
     src << "// Auto-generated trainer for: " << lineCommentText(table.gameName) << "\n";
     src << "// Author: " << lineCommentText(table.author) << "\n";
+    // process_vm_readv/writev are GNU extensions; without _GNU_SOURCE they are
+    // implicitly declared (assumed to return int), truncating the 64-bit return on
+    // x86-64. Define it before any include so the real ssize_t prototype is used.
+    src << "#define _GNU_SOURCE\n";
     src << "#include <stdio.h>\n";
     src << "#include <stdlib.h>\n";
     src << "#include <string.h>\n";

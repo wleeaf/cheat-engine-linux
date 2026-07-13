@@ -51,6 +51,7 @@ jobs:
         run: cmake --build build -j"$(nproc)"
 
       - name: Run regression suite
+        timeout-minutes: 15   # fail fast on a hang instead of burning the whole job
         run: ./build/cecore_test
 
       - name: Run GUI debugger smoke test (offscreen Qt)
@@ -116,6 +117,7 @@ jobs:
         run: cmake --build build-asan --target cecore_test speedhack -j"$(nproc)"
 
       - name: Run suite under ASan + UBSan
+        timeout-minutes: 20   # fail fast on a hang instead of burning the whole job
         env:
           # new_delete_type_mismatch=0: the vendored Keystone/LLVM MemoryBuffer
           # uses an operator-new/sized-delete pattern ASan flags as a mismatch.

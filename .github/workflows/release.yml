@@ -50,6 +50,7 @@ jobs:
           cmake --build build -j"$(nproc)"
 
       - name: Run regression suite
+        timeout-minutes: 15   # fail fast on a hang instead of burning the whole job
         run: ./build/cecore_test
 
       - name: Build .deb package

@@ -4816,6 +4816,12 @@ static void test_lua_headless_bindings() {
         if (!err.empty()) printf("    err: %s\n", err.c_str());
     }
 
+    // The live-process tools (fork a child, then ptrace-SEIZE / scan it) are skipped
+    // under ASan: a pointer scan of an ASan-instrumented target walks its ~20 TB
+    // shadow address space and takes hours, and fork+ptrace conflicts with the
+    // sanitizer runtime. The normal build job exercises these; the sanitizer job
+    // only needs the pure-memory paths above (save/load, grouping) + below.
+#ifndef __SANITIZE_ADDRESS__
     g_lb_ents[0] = LbEntity{100, 50, 1};
     g_lb_ents[1] = LbEntity{250, 50, 2};
     g_lb_player  = &g_lb_ents[0];
@@ -4937,6 +4943,9 @@ static void test_lua_headless_bindings() {
             printf("  debug_getRegisters/setRegister/getStack: FAILED (fork)\n");
         }
     }
+#else
+    printf("  live-process tools (pointerScan/findWhatWrites/breakAndTrace/debug): SKIPPED under ASan\n");
+#endif
 
     // ---- branch mapper availability (hardware-gated; just assert it answers) ----
     {

@@ -80,11 +80,11 @@ Legend: ✅ headless · ⚠️ partial · ❌ no headless equivalent · 🖼️ 
 | Feature | GUI | Headless | Note |
 |---|---|---|---|
 | Auto Assembler | Tools | ✅ | `autoAssemble` / `autoAssembleCheck` |
-| Pointer Scanner | Tools | ⚠️ | `cescan pointerscan` ✅; no Lua binding |
-| Structure Dissector | Tools | ❌ | `analysis/structure_tools` in core; not bound |
+| Pointer Scanner | Tools | ✅ | `cescan pointerscan`; Lua `pointerScan(target,depth,off,opts)` |
+| Structure Dissector | Tools | ✅ | Lua `dissectStructure(addr\|{addrs},size)` (discriminating-field detector) |
 | Snapshot capture / diff / restore | Tools | ✅ | `captureSnapshot`, snapshot `:diff` / `:restore` |
 | Speedhack | Tools | ✅ | `speedhack_setSpeed` / `setSpeed` |
-| Detect Mono/.NET | Tools | ❌ | `detectManagedRuntimes` in core; not bound |
+| Detect Mono/.NET | Tools | ✅ | Lua `getManagedRuntimes()` → `detectManagedRuntimes` |
 | ELF Inspector | Tools | ⚠️ | `getSymbolInfo` / symbols partial; no full inspector |
 | Find Statics | Tools | ❌ | no headless binding |
 | AOB scan | (scripts) | ✅ | `AOBScan[Ex|Module]` |
@@ -98,9 +98,11 @@ Legend: ✅ headless · ⚠️ partial · ❌ no headless equivalent · 🖼️ 
 2. ~~**Cheat-table save/load** as Lua fns~~ — **DONE**: `saveTable(path)` /
    `loadTable(path)` serialize the live address list to a `.CT/.json` (same format
    as the GUI). Verified round-trip from the terminal.
-3. **Bind the unbound tools to Lua** (core logic already exists): pointer scan,
-   structure dissect, detect-managed-runtime, find-what-accesses/writes (code
-   finder), break-and-trace, branch mapper.
+3. **Bind the unbound tools to Lua** (core logic already exists):
+   ~~pointer scan~~ (**DONE** `pointerScan`), ~~structure dissect~~ (**DONE**
+   `dissectStructure`), ~~detect-managed-runtime~~ (**DONE** `getManagedRuntimes`).
+   Remaining: find-what-accesses/writes (code finder), break-and-trace, branch
+   mapper — these need a live debug session, so they land with Step 4.
 4. **Register / stack** read-write Lua fns for debug scripting.
 5. **Per-feature headless tests** in `cecore_test` (or a Lua test dir) as each gap
    closes — so "does everything work?" becomes an automated yes/no.

@@ -4,6 +4,8 @@
 #include "scripting/lua_engine.hpp"
 #include "core/ct_file.hpp"
 #include "core/address_list.hpp"
+#include "analysis/managed_runtime.hpp"
+#include "analysis/structure_tools.hpp"
 #include "scripting/lua_memrec.hpp"
 #include "scanner/memory_scanner.hpp"
 #include "scanner/pointer_scanner.hpp"
@@ -2030,6 +2032,119 @@ static int l_loadTable(lua_State* L) {
     return 1;
 }
 
+// ── Managed runtime detection (Mono / .NET / CoreCLR) ──
+// getManagedRuntimes() -> array of { kind, name, module, modulePath, base, size }
+static int l_getManagedRuntimes(lua_State* L) {
+    auto* p = getProc(L);
+    lua_newtable(L);
+    if (!p) return 1;
+    auto runtimes = ce::detectManagedRuntimes(*p);
+    for (size_t i = 0; i < runtimes.size(); ++i) {
+        const auto& r = runtimes[i];
+        lua_newtable(L);
+        lua_pushstring(L, r.kind == ce::ManagedRuntimeKind::Mono ? "Mono" : "CoreCLR");
+        lua_setfield(L, -2, "kind");
+        lua_pushstring(L, r.name.c_str());        lua_setfield(L, -2, "name");
+        lua_pushstring(L, r.moduleName.c_str());  lua_setfield(L, -2, "module");
+        lua_pushstring(L, r.modulePath.c_str());  lua_setfield(L, -2, "modulePath");
+        lua_pushinteger(L, (lua_Integer)r.base);  lua_setfield(L, -2, "base");
+        lua_pushinteger(L, (lua_Integer)r.size);  lua_setfield(L, -2, "size");
+        lua_rawseti(L, -2, (int)i + 1);
+    }
+    return 1;
+}
+
+// ── Pointer scanner ──
+// pointerScan(target [, maxDepth [, maxOffset [, {negativeOffsets,staticOnly,alignedOnly}]]])
+//   -> array of { path, module, baseOffset, moduleBase, offsets={...} }
+static int l_pointerScan(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); return 1; }
+    ce::PointerScanConfig cfg;
+    cfg.targetAddress = (uintptr_t)luaL_checkinteger(L, 1);
+    if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) cfg.maxDepth  = (int)luaL_checkinteger(L, 2);
+    if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) cfg.maxOffset = (int)luaL_checkinteger(L, 3);
+    if (lua_istable(L, 4)) {
+        lua_getfield(L, 4, "negativeOffsets"); if (lua_isboolean(L, -1)) cfg.negativeOffsets = lua_toboolean(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 4, "staticOnly");      if (lua_isboolean(L, -1)) cfg.staticOnly      = lua_toboolean(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 4, "alignedOnly");     if (lua_isboolean(L, -1)) cfg.alignedOnly     = lua_toboolean(L, -1); lua_pop(L, 1);
+    }
+    ce::PointerScanner scanner;
+    auto paths = scanner.scan(*p, cfg);
+    lua_newtable(L);
+    for (size_t i = 0; i < paths.size(); ++i) {
+        const auto& pp = paths[i];
+        lua_newtable(L);
+        lua_pushstring(L, pp.toString().c_str());       lua_setfield(L, -2, "path");
+        lua_pushstring(L, pp.module.c_str());           lua_setfield(L, -2, "module");
+        lua_pushinteger(L, (lua_Integer)pp.baseOffset); lua_setfield(L, -2, "baseOffset");
+        lua_pushinteger(L, (lua_Integer)pp.moduleBase); lua_setfield(L, -2, "moduleBase");
+        lua_newtable(L);
+        for (size_t j = 0; j < pp.offsets.size(); ++j) {
+            lua_pushinteger(L, pp.offsets[j]);
+            lua_rawseti(L, -2, (int)j + 1);
+        }
+        lua_setfield(L, -2, "offsets");
+        lua_rawseti(L, -2, (int)i + 1);
+    }
+    return 1;
+}
+
+// ── Structure dissect (discriminating-field detector across N instances) ──
+static const char* structFieldTypeName(ce::ValueType t) {
+    switch (t) {
+        case ce::ValueType::Byte:          return "Byte";
+        case ce::ValueType::Int16:         return "2 Bytes";
+        case ce::ValueType::Int32:         return "4 Bytes";
+        case ce::ValueType::Int64:         return "8 Bytes";
+        case ce::ValueType::Float:         return "Float";
+        case ce::ValueType::Double:        return "Double";
+        case ce::ValueType::String:        return "String";
+        case ce::ValueType::UnicodeString: return "Unicode String";
+        case ce::ValueType::Pointer:       return "Pointer";
+        default:                           return "Array of byte";
+    }
+}
+// dissectStructure(address | {addresses...}, size)
+//   -> array of { offset, size, changed, type }
+// One address: shows the layout. N addresses: flags fields that differ across
+// instances (the discriminating-field detector).
+static int l_dissectStructure(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); return 1; }
+    std::vector<uintptr_t> addrs;
+    if (lua_istable(L, 1)) {
+        int n = (int)lua_rawlen(L, 1);
+        for (int i = 1; i <= n; ++i) {
+            lua_rawgeti(L, 1, i);
+            addrs.push_back((uintptr_t)lua_tointeger(L, -1));
+            lua_pop(L, 1);
+        }
+    } else {
+        addrs.push_back((uintptr_t)luaL_checkinteger(L, 1));
+    }
+    size_t size = (size_t)luaL_checkinteger(L, 2);
+    if (addrs.empty() || size == 0) { lua_pushnil(L); return 1; }
+    std::vector<std::vector<uint8_t>> snapshots;
+    for (auto a : addrs) {
+        std::vector<uint8_t> buf(size);
+        if (!p->read(a, buf.data(), size)) { lua_pushnil(L); lua_pushstring(L, "read failed"); return 2; }
+        snapshots.push_back(std::move(buf));
+    }
+    auto fields = ce::autoDetectStructureFieldsMulti(snapshots);
+    lua_newtable(L);
+    for (size_t i = 0; i < fields.size(); ++i) {
+        const auto& f = fields[i];
+        lua_newtable(L);
+        lua_pushinteger(L, (lua_Integer)f.offset);         lua_setfield(L, -2, "offset");
+        lua_pushinteger(L, (lua_Integer)f.size);           lua_setfield(L, -2, "size");
+        lua_pushboolean(L, f.changed);                     lua_setfield(L, -2, "changed");
+        lua_pushstring(L, structFieldTypeName(f.suggestedType)); lua_setfield(L, -2, "type");
+        lua_rawseti(L, -2, (int)i + 1);
+    }
+    return 1;
+}
+
 // ── Additional CE-compatible functions ──
 
 static int l_openProcess(lua_State* L) {
@@ -3154,6 +3269,9 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "addressList_clear", l_addressList_clear);
     lua_register(L, "saveTable", l_saveTable);
     lua_register(L, "loadTable", l_loadTable);
+    lua_register(L, "getManagedRuntimes", l_getManagedRuntimes);
+    lua_register(L, "pointerScan", l_pointerScan);
+    lua_register(L, "dissectStructure", l_dissectStructure);
     lua_register(L, "getTableEntry", l_getTableEntry);
     lua_register(L, "setTableEntry", l_setTableEntry);
 

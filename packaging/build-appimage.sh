@@ -1,63 +1,58 @@
 #!/bin/bash
-# Build Cheat Engine as an AppImage
-set -e
+# Build Cheat Engine as an AppImage using linuxdeploy + the Qt plugin.
+#
+# linuxdeploy-plugin-qt bundles the Qt libraries AND the Qt plugins — most
+# importantly the platform plugin (platforms/libqxcb.so) — and rewrites rpaths
+# correctly. The earlier hand-rolled `ldd | allowlist` copy missed the plugins,
+# so the resulting AppImage failed at runtime with
+#   "could not find or load the Qt platform plugin \"xcb\"".
+# It also produces a versioned, self-contained artifact.
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BUILD_DIR="$SCRIPT_DIR/../build"
+ROOT="$SCRIPT_DIR/.."
+BUILD_DIR="$ROOT/build"
 APPDIR="$BUILD_DIR/AppDir"
+TOOLS="$BUILD_DIR/appimage-tools"
 
-echo "Building cecore..."
-cd "$SCRIPT_DIR/.."
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
-cmake --build build -j$(nproc)
+# Output file name carries the project version (parsed from CMakeLists project()).
+VERSION="$(sed -nE 's/^project\(cecore VERSION ([0-9.]+).*/\1/p' "$ROOT/CMakeLists.txt")"
+VERSION="${VERSION:-0.0.0}"
 
-echo "Creating AppDir..."
+echo "Building cecore (Release)..."
+cmake -S "$ROOT" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+cmake --build "$BUILD_DIR" -j"$(nproc)"
+
+echo "Fetching linuxdeploy + Qt plugin + appimagetool (cached in $TOOLS)..."
+mkdir -p "$TOOLS"
+fetch() {  # fetch <url> <dest>
+    [ -x "$2" ] && return 0
+    if command -v wget >/dev/null 2>&1; then wget -q -O "$2" "$1"; else curl -sSL -o "$2" "$1"; fi
+    chmod +x "$2"
+}
+LD="https://github.com/linuxdeploy"
+fetch "$LD/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"                 "$TOOLS/linuxdeploy"
+fetch "$LD/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage" "$TOOLS/linuxdeploy-plugin-qt"
+fetch "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" "$TOOLS/appimagetool"
+
+# cecore is versioned (SOVERSION); bundle the soname symlink so it resolves.
+CECORE_LIB="$(ls "$BUILD_DIR"/libcecore.so.* 2>/dev/null | grep -E 'libcecore\.so\.[0-9]+$' | head -1)"
+
+echo "Bundling into AppDir with linuxdeploy..."
 rm -rf "$APPDIR"
-mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+export PATH="$TOOLS:$PATH"
+export APPIMAGE_EXTRACT_AND_RUN=1   # run the tool AppImages without needing FUSE (CI/containers)
+export QMAKE="$(command -v qmake6 || command -v qmake)"
+export VERSION
+export OUTPUT="$BUILD_DIR/CheatEngine-${VERSION}-x86_64.AppImage"
 
-# Copy binaries
-cp "$BUILD_DIR/cheatengine" "$APPDIR/usr/bin/"
-cp "$BUILD_DIR/cescan" "$APPDIR/usr/bin/"
+"$TOOLS/linuxdeploy" --appdir "$APPDIR" \
+    --executable "$BUILD_DIR/cheatengine" \
+    --executable "$BUILD_DIR/cescan" \
+    ${CECORE_LIB:+--library "$CECORE_LIB"} \
+    --desktop-file "$SCRIPT_DIR/cheatengine.desktop" \
+    --icon-file "$SCRIPT_DIR/cheatengine.png" \
+    --plugin qt \
+    --output appimage
 
-# Copy libraries
-# cecore is versioned (SOVERSION), so copy libcecore.so + libcecore.so.N +
-# libcecore.so.N.N.N preserving the symlinks (-a) so the soname resolves.
-cp -a "$BUILD_DIR"/libcecore.so* "$APPDIR/usr/lib/"
-ldd "$BUILD_DIR/cheatengine" | grep "=> /" | awk '{print $3}' | while read lib; do
-    case "$lib" in
-        /usr/lib/x86_64-linux-gnu/libQt6*|*/libcapstone*|*/libkeystone*)
-            cp "$lib" "$APPDIR/usr/lib/" 2>/dev/null || true
-            ;;
-    esac
-done
-
-# Copy desktop file
-cp "$SCRIPT_DIR/cheatengine.desktop" "$APPDIR/usr/share/applications/"
-
-# Create a simple icon (placeholder)
-convert -size 256x256 xc:'#1e1e2e' -fill '#89b4fa' -gravity center \
-    -pointsize 72 -annotate +0+0 'CE' \
-    "$APPDIR/usr/share/icons/hicolor/256x256/apps/cheatengine.png" 2>/dev/null || \
-    touch "$APPDIR/usr/share/icons/hicolor/256x256/apps/cheatengine.png"
-
-# Symlinks for AppImage
-ln -sf usr/share/applications/cheatengine.desktop "$APPDIR/"
-ln -sf usr/share/icons/hicolor/256x256/apps/cheatengine.png "$APPDIR/"
-
-# Create AppRun
-cat > "$APPDIR/AppRun" << 'APPRUN'
-#!/bin/bash
-HERE="$(dirname "$(readlink -f "$0")")"
-export LD_LIBRARY_PATH="$HERE/usr/lib:$LD_LIBRARY_PATH"
-exec "$HERE/usr/bin/cheatengine" "$@"
-APPRUN
-chmod +x "$APPDIR/AppRun"
-
-# Build AppImage (if appimagetool available)
-if command -v appimagetool &>/dev/null; then
-    appimagetool "$APPDIR" "$BUILD_DIR/CheatEngine-x86_64.AppImage"
-    echo "AppImage created: $BUILD_DIR/CheatEngine-x86_64.AppImage"
-else
-    echo "appimagetool not found. AppDir ready at: $APPDIR"
-    echo "Install appimagetool from: https://github.com/AppImage/AppImageKit"
-fi
+echo "AppImage created: $OUTPUT"

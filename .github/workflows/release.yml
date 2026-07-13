@@ -55,31 +55,20 @@ jobs:
       - name: Build .deb package
         run: (cd build && cpack -G DEB)
 
-      - name: Fetch appimagetool
-        run: |
-          wget -q -O appimagetool \
-            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x appimagetool
-
       - name: Build AppImage
         run: |
-          # packaging/build-appimage.sh resolves paths relative to itself, so it
-          # runs correctly from the repo root and reuses the build/ above.
+          # build-appimage.sh fetches linuxdeploy + the Qt plugin + appimagetool
+          # (into build/appimage-tools), bundles Qt libs AND plugins correctly, and
+          # writes build/CheatEngine-<version>-x86_64.AppImage. It reuses the build/
+          # above and runs the tools with APPIMAGE_EXTRACT_AND_RUN=1 (no FUSE needed).
           bash packaging/build-appimage.sh
-          # The packaging script falls back to "AppDir ready" when appimagetool
-          # isn't on PATH; pack ourselves here so the asset always exists.
-          # Append --appimage-extract-and-run as a fallback if libfuse2 isn't
-          # usable on the runner (containerised environments without FUSE).
-          if ! ./appimagetool build/AppDir build/CheatEngine-x86_64.AppImage; then
-            ./appimagetool --appimage-extract-and-run build/AppDir build/CheatEngine-x86_64.AppImage
-          fi
-          file build/CheatEngine-x86_64.AppImage
+          file build/CheatEngine-*-x86_64.AppImage
 
       - name: Upload AppImage to the release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            build/CheatEngine-x86_64.AppImage
+            build/CheatEngine-*-x86_64.AppImage
             build/cheat-engine-linux_*_amd64.deb
           fail_on_unmatched_files: true
           generate_release_notes: false

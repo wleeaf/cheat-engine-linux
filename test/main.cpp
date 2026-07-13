@@ -4933,6 +4933,28 @@ static void test_lua_headless_bindings() {
     }
 }
 
+// Headless equivalent of the GUI's File -> Connect: connectToCeserver must open a
+// remote process over a ceserver TCP link and install it as the engine's target.
+// Uses the same in-process stub server as the RemoteProcessHandle tests.
+static void test_lua_ceserver_connect() {
+    printf("\n── Test: Lua connectToCeserver (remote target) ──\n");
+    StubFixture fx;
+    if (!startStub(fx)) { printf("  start stub server: FAILED\n"); return; }
+    {
+        SimpleAddressList l; LuaEngine e; e.setAddressList(&l);
+        char code[512];
+        snprintf(code, sizeof code,
+            "local pid = connectToCeserver('127.0.0.1', %d, %d)\n"
+            "assert(pid == %d, 'connectToCeserver did not return the pid')\n"
+            "assert(getOpenedProcessID() == %d, 'remote process not installed as target')\n",
+            (int)fx.port, (int)kStubPid, (int)kStubPid, (int)kStubPid);
+        std::string err = e.execute(code);
+        printf("  connectToCeserver + target install: %s\n", err.empty() ? "OK" : "FAILED");
+        if (!err.empty()) printf("    err: %s\n", err.c_str());
+    }
+    stopStub(fx);
+}
+
 static void test_autoassembler_unregister_symbol(pid_t pid) {
     printf("\n── Test: AutoAssembler unregistersymbol ──\n");
 
@@ -7779,6 +7801,7 @@ int main(int argc, char* argv[]) {
     test_structure_tools();
     test_lua_memrec();
     test_lua_headless_bindings();
+    test_lua_ceserver_connect();
     test_autoassembler_unregister_symbol(targetPid);
     test_autoassembler_dealloc(targetPid);
     test_autoassembler_dealloc_no_cross_evict(targetPid);

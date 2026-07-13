@@ -38,7 +38,7 @@ Legend: ✅ headless · ⚠️ partial · ❌ no headless equivalent · 🖼️ 
 | Feature | GUI | Headless | Note |
 |---|---|---|---|
 | Open process | File / crosshair | ✅ | `openProcess(pid)`, `getProcessList`, `cescan` (pid arg) |
-| Connect to ceserver | File | ❌ | client exists in core; no Lua/CLI binding |
+| Connect to ceserver | File | ✅ | Lua `connectToCeserver(host, port, pid)` installs the remote process as the target |
 | Pause / unpause | Process | ✅ | `pause()` / `unpause()` |
 | Save / load cheat table | File, Table Extras | ✅ | Lua `saveTable(path)` / `loadTable(path)` |
 | Create trainer | File | ✅ | Lua `generateTrainer(path)` (compiles a binary) / `generateTrainerSource()` |

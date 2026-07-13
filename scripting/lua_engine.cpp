@@ -2,6 +2,7 @@
 #include "scripting/lua_engine.hpp"
 #include "core/address_list.hpp"
 #include "debug/debug_session.hpp"
+#include "platform/linux/ceserver_client.hpp"   // complete type for ownedCeserverClient_
 
 extern "C" {
 #include <lua.h>
@@ -26,6 +27,10 @@ LuaEngine* LuaEngine::instanceFromState(lua_State* L) {
     auto* eng = (LuaEngine*)lua_touserdata(L, -1);
     lua_pop(L, 1);
     return eng;
+}
+
+void LuaEngine::setOwnedCeserverClient(std::unique_ptr<os::CEServerClient> client) {
+    ownedCeserverClient_ = std::move(client);
 }
 
 void LuaEngine::setOwnedProcess(std::unique_ptr<ProcessHandle> proc) {

@@ -19,6 +19,7 @@ namespace ce {
 
 class IAddressList;
 class DebugSession;
+namespace os { class CEServerClient; }
 
 class LuaEngine {
 public:
@@ -30,6 +31,11 @@ public:
     /// Set the target process (enables memory functions in Lua).
     void setProcess(ProcessHandle* proc) { ownedProc_.reset(); proc_ = proc; }
     void setOwnedProcess(std::unique_ptr<ProcessHandle> proc);
+
+    /// Take ownership of the ceserver client backing a remote process handle. The
+    /// client must outlive the RemoteProcessHandle that references it, so the engine
+    /// holds it here (destroyed after ownedProc_). Set it BEFORE setOwnedProcess.
+    void setOwnedCeserverClient(std::unique_ptr<os::CEServerClient> client);
     void setResolver(SymbolResolver* resolver) { resolver_ = resolver; }
 
     /// Set the live cheat-table address list. The MemoryRecord/AddressList Lua API
@@ -76,6 +82,9 @@ private:
     void registerBindings();
 
     lua_State* L_ = nullptr;
+    // Declared before ownedProc_ so it is destroyed AFTER the remote handle that
+    // points into it (members destroy in reverse declaration order).
+    std::unique_ptr<os::CEServerClient> ownedCeserverClient_;
     std::unique_ptr<ProcessHandle> ownedProc_;
     ProcessHandle* proc_ = nullptr;
     SymbolResolver* resolver_ = nullptr;

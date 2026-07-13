@@ -23,6 +23,8 @@
 #include "symbols/elf_symbols.hpp"
 #include "platform/linux/linux_process.hpp"
 #include "platform/linux/injector.hpp"
+#include "platform/linux/ceserver_client.hpp"
+#include "platform/linux/ceserver_process.hpp"
 
 extern "C" {
 #include <lua.h>
@@ -2452,6 +2454,38 @@ static int l_openProcess(lua_State* L) {
     return 1;
 }
 
+// connectToCeserver(host, port, pid) -> pid on success, or (nil, errmsg). Opens a
+// remote process over a ceserver TCP connection and makes it the engine's target,
+// so the same read/write/scan API works against a networked target (like the GUI's
+// File -> Connect). The engine owns the client so it outlives the remote handle.
+static int l_connectToCeserver(lua_State* L) {
+    const char* host = luaL_checkstring(L, 1);
+    int port = (int)luaL_checkinteger(L, 2);
+    int pid  = (int)luaL_checkinteger(L, 3);
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    if (!eng) { lua_pushnil(L); lua_pushstring(L, "no engine"); return 2; }
+
+    auto client = std::make_unique<ce::os::CEServerClient>();
+    std::string err;
+    if (!client->connectTcp(host, (uint16_t)port, err)) {
+        lua_pushnil(L);
+        lua_pushstring(L, err.empty() ? "connect failed" : err.c_str());
+        return 2;
+    }
+    // open() stores &*client; moving the unique_ptr into the engine keeps the
+    // CEServerClient object at the same address, so the stored pointer stays valid.
+    auto handle = ce::os::RemoteProcessHandle::open(*client, pid);
+    if (!handle) {
+        lua_pushnil(L);
+        lua_pushstring(L, "openProcess on ceserver failed");
+        return 2;
+    }
+    eng->setOwnedCeserverClient(std::move(client));   // own the client first (outlives handle)
+    eng->setOwnedProcess(std::move(handle));
+    lua_pushinteger(L, pid);
+    return 1;
+}
+
 static int l_getOpenedProcessID(lua_State* L) {
     auto* p = getProc(L);
     lua_pushinteger(L, p ? p->pid() : 0);
@@ -3570,6 +3604,7 @@ void registerExtendedBindings(lua_State* L) {
 
     // Process
     lua_register(L, "openProcess", l_openProcess);
+    lua_register(L, "connectToCeserver", l_connectToCeserver);
     lua_register(L, "getOpenedProcessID", l_getOpenedProcessID);
     lua_register(L, "getThreadList", l_getThreadList);
 

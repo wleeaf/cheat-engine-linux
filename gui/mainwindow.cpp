@@ -49,6 +49,9 @@
 #include <QHeaderView>
 #include <QMessageBox>
 #include <QFile>
+#include <QFileInfo>
+#include <QProcess>
+#include <QStandardPaths>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QLabel>
@@ -1415,6 +1418,41 @@ void MainWindow::setupUi() {
     resize(760, 600);
 }
 
+// One-click elevation: use pkexec (graphical polkit prompt) to grant memory-read
+// access. For a real installed/dev binary that means setcap cap_sys_ptrace+ep on it
+// (persistent, targeted, effective after a restart). For an AppImage the capability
+// can't persist on the read-only temp mount, so lower kernel.yama.ptrace_scope
+// instead (effective immediately, resets on reboot — the .deb sets it up permanently).
+static void grantPtraceAccess(QWidget* parent) {
+    const QString bin = QCoreApplication::applicationFilePath();
+    const bool isAppImage = qEnvironmentVariableIsSet("APPIMAGE") || bin.contains("/.mount_");
+
+    QStringList args;
+    QString followup;
+    if (isAppImage) {
+        args = {QStringLiteral("/bin/sh"), QStringLiteral("-c"),
+                QStringLiteral("echo 0 > /proc/sys/kernel/yama/ptrace_scope")};
+        followup = QObject::tr("Access granted for this session — re-open the process.\n"
+                               "(This resets on reboot. Install the .deb, or re-run the "
+                               "command, to make it permanent.)");
+    } else {
+        const QString cescan = QFileInfo(bin).absolutePath() + QStringLiteral("/cescan");
+        args = {QStringLiteral("/bin/sh"), QStringLiteral("-c"),
+                QStringLiteral("setcap cap_sys_ptrace+ep \"$1\"; "
+                               "[ -x \"$2\" ] && setcap cap_sys_ptrace+ep \"$2\" || true"),
+                QStringLiteral("sh"), bin, cescan};
+        followup = QObject::tr("Access granted. Restart Cheat Engine for it to take effect.");
+    }
+
+    int rc = QProcess::execute(QStringLiteral("pkexec"), args);
+    if (rc == 0)
+        QMessageBox::information(parent, QObject::tr("Access granted"), followup);
+    else
+        QMessageBox::warning(parent, QObject::tr("Could not grant access"),
+            QObject::tr("The privileged command was cancelled or failed (pkexec exit %1). "
+                        "You can still grant access manually from a terminal.").arg(rc));
+}
+
 // Probe whether we can actually read the target's memory. Under the default
 // kernel.yama.ptrace_scope=1, process_vm_readv is DENIED for any process we can't
 // ptrace — i.e. anything Cheat Engine didn't spawn — so scanning, memory browsing
@@ -1439,20 +1477,33 @@ static void warnIfMemoryUnreadable(QWidget* parent, ce::ProcessHandle* p,
     if (QFile f(QStringLiteral("/proc/sys/kernel/yama/ptrace_scope")); f.open(QIODevice::ReadOnly))
         scope = QString::fromUtf8(f.readAll()).trimmed();
 
-    QMessageBox::warning(parent, QObject::tr("Process memory not readable"),
-        QObject::tr(
-            "Cannot read the memory of PID %1 (%2).\n\n"
-            "Linux only lets a program read another process's memory if it is "
-            "allowed to ptrace it. With kernel.yama.ptrace_scope = %3, that means "
-            "the target must be a child of Cheat Engine, or Cheat Engine must run "
-            "with elevated rights. Scanning, memory browsing and debugging this "
-            "process will not work until you do ONE of:\n\n"
-            "  • Grant Cheat Engine ptrace rights (persists for the binary):\n"
-            "        sudo setcap cap_sys_ptrace+ep %4\n"
-            "  • Run Cheat Engine as root (sudo).\n"
-            "  • Lower the system policy until reboot:\n"
-            "        sudo sysctl kernel.yama.ptrace_scope=0")
-            .arg(pid).arg(name).arg(scope).arg(QCoreApplication::applicationFilePath()));
+    QMessageBox box(parent);
+    box.setIcon(QMessageBox::Warning);
+    box.setWindowTitle(QObject::tr("Process memory not readable"));
+    box.setText(QObject::tr(
+        "Cannot read the memory of PID %1 (%2).\n\n"
+        "Linux only lets a program read another process's memory if it is allowed "
+        "to ptrace it. With kernel.yama.ptrace_scope = %3, that means the target "
+        "must be a child of Cheat Engine, or Cheat Engine must run with elevated "
+        "rights. Scanning, memory browsing and debugging this process will not work "
+        "until that is granted.").arg(pid).arg(name).arg(scope));
+    box.setInformativeText(QObject::tr(
+        "\"Grant access\" will ask for your password (via pkexec) and set it up for "
+        "you. Or do it manually:\n"
+        "  • Persistent, per-binary:  sudo setcap cap_sys_ptrace+ep %1\n"
+        "  • Whole system, until reboot:  sudo sysctl kernel.yama.ptrace_scope=0")
+        .arg(QCoreApplication::applicationFilePath()));
+
+    // Offer one-click elevation only when pkexec (polkit) is actually available.
+    QPushButton* grantBtn = nullptr;
+    const bool havePkexec = !QStandardPaths::findExecutable(QStringLiteral("pkexec")).isEmpty();
+    if (havePkexec)
+        grantBtn = box.addButton(QObject::tr("Grant access…"), QMessageBox::AcceptRole);
+    box.addButton(QMessageBox::Close);
+    box.exec();
+
+    if (grantBtn && box.clickedButton() == grantBtn)
+        grantPtraceAccess(parent);
 }
 
 void MainWindow::onOpenProcess() {

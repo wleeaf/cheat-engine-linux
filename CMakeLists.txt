@@ -460,5 +460,12 @@ set(CPACK_GENERATOR "DEB;TGZ")
 set(CPACK_DEBIAN_PACKAGE_SECTION "devel")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)         # auto-detect Qt6/capstone/dw/etc.
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+# libcap2-bin provides setcap, used by the postinst to grant cap_sys_ptrace so the
+# app can read other processes' memory without root (SHLIBDEPS appends the rest).
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "libcap2-bin")
+# postinst runs setcap cap_sys_ptrace+ep on the installed binaries (dpkg runs it as
+# root); postrm/postinst also refresh ldconfig for libcecore.
+set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+    "${CMAKE_CURRENT_SOURCE_DIR}/packaging/deb/postinst;${CMAKE_CURRENT_SOURCE_DIR}/packaging/deb/postrm")
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "cheat-engine-linux")
 include(CPack)

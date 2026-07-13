@@ -1,0 +1,24 @@
+#!/bin/sh
+# Debian post-install: run as root by dpkg.
+set -e
+
+# Refresh the linker cache so libcecore.so is found.
+ldconfig || true
+
+# Grant the ptrace capability so Cheat Engine can read other processes' memory
+# under the default kernel.yama.ptrace_scope=1, WITHOUT the user having to run it
+# as root. This is the Linux-native equivalent of "run as administrator" for a
+# memory scanner/debugger. Removing the package (or the file) drops the capability.
+if command -v setcap >/dev/null 2>&1; then
+    for bin in /usr/bin/cheatengine /usr/bin/cescan; do
+        if [ -x "$bin" ]; then
+            setcap cap_sys_ptrace+ep "$bin" 2>/dev/null \
+                || echo "cheat-engine-linux: could not setcap $bin (memory access will need root)." >&2
+        fi
+    done
+else
+    echo "cheat-engine-linux: 'setcap' not found (install libcap2-bin). Cheat Engine" >&2
+    echo "  will need root, or kernel.yama.ptrace_scope=0, to read other processes." >&2
+fi
+
+exit 0

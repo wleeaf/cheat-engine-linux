@@ -1,0 +1,9 @@
+#!/bin/sh
+# Debian post-removal: run as root by dpkg.
+set -e
+
+# The file capability disappears with the removed binaries; just refresh the
+# linker cache after the shared library is gone.
+ldconfig || true
+
+exit 0

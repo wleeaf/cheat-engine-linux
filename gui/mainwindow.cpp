@@ -935,7 +935,7 @@ void MainWindow::setupUi() {
     fastScanCheck_->setChecked(true);
     optLayout->addWidget(fastScanCheck_, 4, 0);
     alignEdit_ = new QLineEdit("4");
-    alignEdit_->setFixedWidth(30);
+    alignEdit_->setFixedWidth(42);
     optLayout->addWidget(alignEdit_, 4, 1);
     // The alignment field only applies when Fast Scan is on; grey it out otherwise.
     connect(fastScanCheck_, &QCheckBox::toggled, alignEdit_, &QLineEdit::setEnabled);
@@ -943,7 +943,7 @@ void MainWindow::setupUi() {
     percentCheck_ = new QCheckBox("Compare by %");
     optLayout->addWidget(percentCheck_, 5, 0);
     percentValueEdit_ = new QLineEdit("10");
-    percentValueEdit_->setFixedWidth(60);
+    percentValueEdit_->setFixedWidth(68);
     percentValueEdit_->setEnabled(false);
     percentValueEdit_->setValidator(new QDoubleValidator(0.0, 1000000.0, 4, percentValueEdit_));
     optLayout->addWidget(percentValueEdit_, 5, 1);
@@ -951,7 +951,7 @@ void MainWindow::setupUi() {
     auto* percent2Label = new QLabel("Percent max:");
     optLayout->addWidget(percent2Label, 6, 0);
     percentValue2Edit_ = new QLineEdit("20");
-    percentValue2Edit_->setFixedWidth(60);
+    percentValue2Edit_->setFixedWidth(68);
     percentValue2Edit_->setEnabled(false);
     percentValue2Edit_->setValidator(new QDoubleValidator(0.0, 1000000.0, 4, percentValue2Edit_));
     optLayout->addWidget(percentValue2Edit_, 6, 1);
@@ -1327,7 +1327,7 @@ void MainWindow::setupUi() {
 
     auto* controls = new QWidget;
     controls->setFixedWidth(410);
-    controls->setMinimumHeight(378);
+    controls->setMinimumHeight(404);
     auto cplace = [controls](QWidget* w, int x, int y, int cw, int ch) {
         w->setMinimumSize(0, 0);
         w->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
@@ -1345,22 +1345,24 @@ void MainWindow::setupUi() {
     cplace(firstScanBtn_, 66, 0, 88, 25);
     cplace(nextScanBtn_, 160, 0, 84, 25);
     cplace(undoScanBtn_, 250, 0, 90, 25);
-    // Scan value + Hex + the second ("and") value box for between-scans.
-    clabel("Scan Value", 66, 33, 120, 15);
-    cplace(scanValueEdit_, 66, 48, 217, 23);
-    cplace(hexCheck_, 8, 50, 55, 19);
-    cplace(betweenAndLabel_, 286, 52, 25, 15);
-    cplace(scanValue2Edit_, 314, 48, 76, 23);
-    // Scan Type / Value Type dropdowns.
-    clabel("Scan Type", 0, 82, 64, 15);
-    cplace(scanTypeCombo_, 66, 78, 200, 23);
-    clabel("Value Type", 0, 107, 64, 15);
-    cplace(valueTypeCombo_, 66, 103, 200, 23);
+    // Scan value + Hex + the second ("and") value box for between-scans. The
+    // field column starts at x=74 so the right-aligned Scan/Value Type labels to
+    // its left have room (they were bumping into the combos).
+    clabel("Scan Value", 74, 33, 120, 15);
+    cplace(scanValueEdit_, 74, 48, 214, 23);
+    cplace(hexCheck_, 6, 50, 60, 19);
+    cplace(betweenAndLabel_, 292, 52, 25, 15);
+    cplace(scanValue2Edit_, 320, 48, 74, 23);
+    // Scan Type / Value Type dropdowns (labels right-aligned against the combos).
+    clabel("Scan Type", 0, 82, 68, 15)->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    cplace(scanTypeCombo_, 74, 78, 200, 23);
+    clabel("Value Type", 0, 107, 68, 15)->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    cplace(valueTypeCombo_, 74, 103, 200, 23);
     // Float rounding (CE puts radios here; we keep our combo + tolerance).
-    cplace(floatRoundingCombo_, 66, 132, 120, 23);
-    cplace(floatToleranceEdit_, 190, 132, 90, 23);
+    cplace(floatRoundingCombo_, 74, 132, 120, 23);
+    cplace(floatToleranceEdit_, 200, 132, 90, 23);
     // Memory Scan Options group (From/To, Writable/Executable, Fast Scan, etc.).
-    cplace(optGroup, 66, 160, 230, 214);
+    cplace(optGroup, 66, 156, 246, 244);
     mainRow->addWidget(controls);
     sv->addLayout(mainRow, 1);
 

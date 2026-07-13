@@ -13,6 +13,52 @@ reimplementation of Cheat Engine).
 
 ---
 
+## v0.4.0 — CLI / headless parity for every GUI tool (2026-07-13)
+
+Everything the GUI can do is now doable from the terminal. The guiding principle:
+a GUI action must only gather input and call a shared core function (in `cecore`
+or exposed via Lua), never hold its own copy of the logic, so the terminal path
+and the GUI path run the same code and any GUI-only failure is provably a GUI bug.
+Every item below is exercised by an automated test in `cecore_test`
+(`test_lua_headless_bindings`, `test_lua_ceserver_connect`, `test_trainer_generation`);
+the full suite is green.
+
+### Headless runner
+
+- **`cescan lua <file> | -e "<code>" | -`** plus a REPL — runs the same `LuaEngine`
+  the GUI console uses, backed by a headless in-memory address list, so the whole
+  Lua API (now ~205 functions) works from the terminal.
+
+### New Lua tool bindings (each calls the same core code as the GUI)
+
+- **Cheat table:** `saveTable(path)` / `loadTable(path)` (the GUI's `.CT`/JSON format).
+- **Create trainer:** `generateTrainer(path)` compiles a standalone trainer binary;
+  `generateTrainerSource()` returns the C source.
+- **Pointer scanner:** `pointerScan(target[, maxDepth[, maxOffset[, opts]]])`.
+- **Structure dissect:** `dissectStructure(addr | {addrs}, size)` — the
+  discriminating-field detector across N instances.
+- **Detect Mono/.NET:** `getManagedRuntimes()`.
+- **Find what accesses / writes:** `findWhatWrites` / `findWhatAccesses`
+  (hardware data watchpoint via the code finder).
+- **Break and trace:** `breakAndTrace(start[, maxSteps[, opts]])`.
+- **Branch mapper:** `branchMap([secs[, tid]])` / `branchMapAvailable()` (hardware LBR).
+- **Debug register / stack:** `debug_getRegisters` / `debug_setRegister` /
+  `debug_getStack`; `debug_pumpEvents` now publishes the full GP register set.
+- **Find statics:** `findStatics([module])`.
+- **Connect to ceserver:** `connectToCeserver(host, port, pid)` installs a remote
+  process as the target so the whole read/write/scan API works over the network.
+- **Address-list grouping:** `createGroup([desc])` and memory-record `.Indent`
+  (indent / outdent).
+
+### Fixes
+
+- **Trainer code generation:** a whole-number float value (e.g. `9999`) was emitted
+  as `9999f` — an invalid integer-with-`f`-suffix that failed to compile. Now forces
+  a fractional part (`9999.0f`), guards against inf/nan, and defines `_GNU_SOURCE` in
+  the generated source so `process_vm_readv`/`writev` use their real `ssize_t`
+  prototype (was implicitly declared, truncating the 64-bit return on x86-64). This
+  also fixed the GUI's Create Trainer.
+
 ## v0.3.0 — Complete interactive debugger, ceserver, and security hardening (2026-07-12)
 
 A large release that finishes the interactive debugger, turns cecore into a

@@ -70,8 +70,8 @@ Legend: ✅ headless · ⚠️ partial · ❌ no headless equivalent · 🖼️ 
 | Set / remove breakpoint | disasm, list | ✅ | `debug_setBreakpoint` / `debug_removeBreakpoint` |
 | Continue / pump events | debugger | ✅ | `debug_continueFromBreakpoint` / `debug_pumpEvents` |
 | Thread list | Tools | ✅ | `debug_getThreadList` / `getThreadList` |
-| Register editor | Tools | ⚠️ | registers surface at a stop; no dedicated read/write-register Lua fn |
-| Stack view | Tools | ⚠️ | reachable via memory reads at RSP; no dedicated binding |
+| Register editor | Tools | ✅ | `debug_getRegisters([tid])` / `debug_setRegister(name,val)` (full GP + seg + debug regs; EAX-style aliases) |
+| Stack view | Tools | ✅ | `debug_getStack([count])` → `{address,value}` at RSP (word size tracks bitness) |
 | Find what accesses / writes | table/disasm menu | ❌ | code-finder not bound (could ride HW watchpoints) |
 | Break and Trace | Tools | ❌ | no headless binding |
 | Branch Mapper (LBR) | Tools | ❌ | no headless binding |
@@ -103,7 +103,10 @@ Legend: ✅ headless · ⚠️ partial · ❌ no headless equivalent · 🖼️ 
    `dissectStructure`), ~~detect-managed-runtime~~ (**DONE** `getManagedRuntimes`).
    Remaining: find-what-accesses/writes (code finder), break-and-trace, branch
    mapper — these need a live debug session, so they land with Step 4.
-4. **Register / stack** read-write Lua fns for debug scripting.
+4. ~~**Register / stack** read-write Lua fns for debug scripting.~~ — **DONE**:
+   `debug_getRegisters` / `debug_setRegister` / `debug_getStack`, plus the
+   breakpoint globals now publish the full register set (RSI/RDI/RBP/R8-R15/RFLAGS,
+   not just 6). Verified at a live breakpoint.
 5. **Per-feature headless tests** in `cecore_test` (or a Lua test dir) as each gap
    closes — so "does everything work?" becomes an automated yes/no.
 

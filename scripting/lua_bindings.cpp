@@ -41,6 +41,8 @@ extern "C" {
 #include <vector>
 #include <algorithm>
 #include <stdexcept>
+#include <unordered_map>
+#include <cctype>
 
 namespace ce {
 
@@ -1757,11 +1759,48 @@ static int l_debug_setBreakpoint(lua_State* L) {
     return 1;
 }
 
+// Canonical general-purpose register list (global name -> CpuContext field),
+// used consistently everywhere registers cross the Lua boundary: the breakpoint
+// globals, the register write-back on resume, and debug_getRegisters.
+#define CE_GP_REGS(X) \
+    X("RAX", rax) X("RBX", rbx) X("RCX", rcx) X("RDX", rdx) \
+    X("RSI", rsi) X("RDI", rdi) X("RBP", rbp) X("RSP", rsp) \
+    X("R8", r8)   X("R9", r9)   X("R10", r10) X("R11", r11) \
+    X("R12", r12) X("R13", r13) X("R14", r14) X("R15", r15) \
+    X("RIP", rip) X("RFLAGS", rflags)
+
+// Resolve a register name (case-insensitive; E-prefixed 32-bit aliases map to
+// the same 64-bit field, matching CE's register editor) to its CpuContext field.
+static uint64_t* regFieldByName(ce::CpuContext& c, std::string n) {
+    for (auto& ch : n) ch = (char)std::toupper((unsigned char)ch);
+    if (n.size() == 3 && n[0] == 'E') n[0] = 'R';   // EAX->RAX, ESP->RSP, ...
+    static const std::unordered_map<std::string, uint64_t ce::CpuContext::*> m = {
+        {"RAX", &ce::CpuContext::rax}, {"RBX", &ce::CpuContext::rbx},
+        {"RCX", &ce::CpuContext::rcx}, {"RDX", &ce::CpuContext::rdx},
+        {"RSI", &ce::CpuContext::rsi}, {"RDI", &ce::CpuContext::rdi},
+        {"RBP", &ce::CpuContext::rbp}, {"RSP", &ce::CpuContext::rsp},
+        {"RIP", &ce::CpuContext::rip},
+        {"R8", &ce::CpuContext::r8},   {"R9", &ce::CpuContext::r9},
+        {"R10", &ce::CpuContext::r10}, {"R11", &ce::CpuContext::r11},
+        {"R12", &ce::CpuContext::r12}, {"R13", &ce::CpuContext::r13},
+        {"R14", &ce::CpuContext::r14}, {"R15", &ce::CpuContext::r15},
+        {"RFLAGS", &ce::CpuContext::rflags}, {"EFLAGS", &ce::CpuContext::rflags},
+        {"CS", &ce::CpuContext::cs}, {"SS", &ce::CpuContext::ss},
+        {"DS", &ce::CpuContext::ds}, {"ES", &ce::CpuContext::es},
+        {"FS", &ce::CpuContext::fs}, {"GS", &ce::CpuContext::gs},
+        {"DR0", &ce::CpuContext::dr0}, {"DR1", &ce::CpuContext::dr1},
+        {"DR2", &ce::CpuContext::dr2}, {"DR3", &ce::CpuContext::dr3},
+        {"DR6", &ce::CpuContext::dr6}, {"DR7", &ce::CpuContext::dr7},
+    };
+    auto it = m.find(n);
+    return it == m.end() ? nullptr : &(c.*(it->second));
+}
+
 // debug_pumpEvents([timeoutMs]) -> number of breakpoint hits processed. For each
-// queued hit it publishes the register context as globals (RIP/RSP/RAX.. and
-// BPAddress), calls the global debugger_onBreakpoint (CE convention) if defined,
-// then resumes the target. The first hit waits up to timeoutMs; already-queued
-// hits are then drained without blocking.
+// queued hit it publishes the full register context as globals (RIP/RSP/RAX..R15/
+// RFLAGS and BPAddress), calls the global debugger_onBreakpoint (CE convention) if
+// defined, then applies any register edits and resumes the target. The first hit
+// waits up to timeoutMs; already-queued hits are then drained without blocking.
 static int l_debug_pumpEvents(lua_State* L) {
     int timeoutMs = static_cast<int>(luaL_optinteger(L, 1, 0));
     auto* eng = ce::LuaEngine::instanceFromState(L);
@@ -1771,12 +1810,9 @@ static int l_debug_pumpEvents(lua_State* L) {
     ce::LuaEngine::DebugHit hit;
     while (eng->nextDebugHit(hit, processed == 0 ? timeoutMs : 0)) {
         ++processed;
-        lua_pushinteger(L, (lua_Integer)hit.context.rip); lua_setglobal(L, "RIP");
-        lua_pushinteger(L, (lua_Integer)hit.context.rsp); lua_setglobal(L, "RSP");
-        lua_pushinteger(L, (lua_Integer)hit.context.rax); lua_setglobal(L, "RAX");
-        lua_pushinteger(L, (lua_Integer)hit.context.rbx); lua_setglobal(L, "RBX");
-        lua_pushinteger(L, (lua_Integer)hit.context.rcx); lua_setglobal(L, "RCX");
-        lua_pushinteger(L, (lua_Integer)hit.context.rdx); lua_setglobal(L, "RDX");
+#define X(name, field) lua_pushinteger(L, (lua_Integer)hit.context.field); lua_setglobal(L, name);
+        CE_GP_REGS(X)
+#undef X
         lua_pushinteger(L, (lua_Integer)hit.address);     lua_setglobal(L, "BPAddress");
 
         lua_getglobal(L, "debugger_onBreakpoint");
@@ -1797,9 +1833,9 @@ static int l_debug_pumpEvents(lua_State* L) {
                     else if (lua_isnumber(L, -1))  field = (uint64_t)lua_tonumber(L, -1);
                     lua_pop(L, 1);
                 };
-                applyReg("RIP", ctx.rip); applyReg("RSP", ctx.rsp);
-                applyReg("RAX", ctx.rax); applyReg("RBX", ctx.rbx);
-                applyReg("RCX", ctx.rcx); applyReg("RDX", ctx.rdx);
+#define X(name, field) applyReg(name, ctx.field);
+                CE_GP_REGS(X)
+#undef X
                 sess->setStopContext(ctx);
             }
             sess->continueExecution();
@@ -1882,6 +1918,68 @@ static int l_debug_isBroken(lua_State* L) {
     bool broken = lua_toboolean(L, -1) != 0;
     lua_pop(L, 1);
     lua_pushboolean(L, broken);
+    return 1;
+}
+
+// debug_getRegisters([tid]) -> table of every register at the current stop
+// (RAX..R15, RIP, RSP, RBP, RSI, RDI, RFLAGS, segment + debug regs). Meaningful
+// only while broken at a breakpoint; returns nil if there is no debug session.
+static int l_debug_getRegisters(lua_State* L) {
+    auto* eng  = ce::LuaEngine::instanceFromState(L);
+    auto* sess = eng ? eng->debugSession() : nullptr;
+    if (!sess) { lua_pushnil(L); return 1; }
+    if (lua_gettop(L) >= 1 && lua_isinteger(L, 1))
+        sess->selectThread((pid_t)lua_tointeger(L, 1));
+    ce::CpuContext c = sess->getStopContext();
+    lua_newtable(L);
+#define X(name, field) lua_pushinteger(L, (lua_Integer)c.field); lua_setfield(L, -2, name);
+    CE_GP_REGS(X)
+    X("CS", cs) X("SS", ss) X("DS", ds) X("ES", es) X("FS", fs) X("GS", gs)
+    X("DR0", dr0) X("DR1", dr1) X("DR2", dr2) X("DR3", dr3) X("DR6", dr6) X("DR7", dr7)
+#undef X
+    return 1;
+}
+
+// debug_setRegister(name, value [, tid]) -> bool. Writes one register into the
+// stop context (name is case-insensitive; EAX-style 32-bit aliases accepted) and
+// pushes it back to the target so the change takes effect on resume.
+static int l_debug_setRegister(lua_State* L) {
+    const char* name = luaL_checkstring(L, 1);
+    uint64_t val = (uint64_t)luaL_checkinteger(L, 2);
+    auto* eng  = ce::LuaEngine::instanceFromState(L);
+    auto* sess = eng ? eng->debugSession() : nullptr;
+    if (!sess) { lua_pushboolean(L, 0); return 1; }
+    if (lua_gettop(L) >= 3 && lua_isinteger(L, 3))
+        sess->selectThread((pid_t)lua_tointeger(L, 3));
+    ce::CpuContext c = sess->getStopContext();
+    uint64_t* field = regFieldByName(c, name);
+    if (!field) { lua_pushboolean(L, 0); return 1; }
+    *field = val;
+    lua_pushboolean(L, sess->setStopContext(c));
+    return 1;
+}
+
+// debug_getStack([count]) -> array of { address, value } for `count` (default 16)
+// pointer-sized slots starting at RSP. Reads through the process, so word size
+// tracks the target's bitness.
+static int l_debug_getStack(lua_State* L) {
+    int count = (int)luaL_optinteger(L, 1, 16);
+    auto* eng  = ce::LuaEngine::instanceFromState(L);
+    auto* sess = eng ? eng->debugSession() : nullptr;
+    auto* p    = getProc(L);
+    if (!sess || !p) { lua_pushnil(L); return 1; }
+    uint64_t rsp = sess->getStopContext().rsp;
+    size_t ps = p->is64bit() ? 8 : 4;
+    lua_newtable(L);
+    for (int i = 0; i < count; ++i) {
+        uint64_t v = 0;
+        uintptr_t at = (uintptr_t)(rsp + (uint64_t)i * ps);
+        if (!p->read(at, &v, ps)) break;
+        lua_newtable(L);
+        lua_pushinteger(L, (lua_Integer)at); lua_setfield(L, -2, "address");
+        lua_pushinteger(L, (lua_Integer)v);  lua_setfield(L, -2, "value");
+        lua_rawseti(L, -2, i + 1);
+    }
     return 1;
 }
 
@@ -3261,6 +3359,9 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "debug_getBreakpointList", l_debug_getBreakpointList);
     lua_register(L, "debug_isDebugging", l_debug_isDebugging);
     lua_register(L, "debug_isBroken", l_debug_isBroken);
+    lua_register(L, "debug_getRegisters", l_debug_getRegisters);
+    lua_register(L, "debug_setRegister", l_debug_setRegister);
+    lua_register(L, "debug_getStack", l_debug_getStack);
 
     // Address list
     lua_register(L, "addressList_getCount", l_addressList_getCount);

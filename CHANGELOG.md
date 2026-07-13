@@ -13,6 +13,33 @@ reimplementation of Cheat Engine).
 
 ---
 
+## v0.4.1 — Theme, memory-access, and packaging fixes (2026-07-13)
+
+Bug-fix release on top of v0.4.0.
+
+### Fixes
+
+- **Light/dark theme now works.** Toggling "Dark theme" in Settings applies live
+  (no restart), and the startup default and the Settings checkbox agree (both
+  default to light). The two stylesheets moved into a shared `gui/theme` module so
+  startup and the dialog use the same sheets.
+- **Memory browser no longer fails silently.** When a process can't be read
+  because of the kernel's ptrace policy (`kernel.yama.ptrace_scope`), the
+  disassembler shows a clear explanation instead of a blank pane, and opening such
+  a process pops a warning naming the exact remedies. This is why "browse memory"
+  appeared to work only on some processes.
+
+### Packaging
+
+- **Automatic ptrace access.** The `.deb` now runs `setcap cap_sys_ptrace+ep` on
+  the installed binaries at install time (via a postinst; depends on `libcap2-bin`),
+  so scanning/browsing/debugging works without running as root. For AppImage or
+  ad-hoc runs, the "process not readable" dialog has a one-click **Grant access…**
+  button (via `pkexec`).
+- **Working AppImage.** The AppImage is now built with linuxdeploy + the Qt plugin,
+  so it bundles the Qt platform plugins and actually runs (the earlier hand-rolled
+  bundle was missing them).
+
 ## v0.4.0 — CLI / headless parity for every GUI tool (2026-07-13)
 
 Everything the GUI can do is now doable from the terminal. The guiding principle:

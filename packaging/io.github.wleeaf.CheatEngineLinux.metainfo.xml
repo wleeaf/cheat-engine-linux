@@ -32,6 +32,15 @@
   <url type="bugtracker">https://github.com/wleeaf/cheat-engine-linux/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.4.1" date="2026-07-13">
+      <description>
+        <p>Bug-fix release: light/dark theme applies live from Settings; the memory
+        browser explains ptrace-permission failures instead of showing a blank pane;
+        the .deb grants ptrace access automatically at install (setcap) and the
+        "process not readable" dialog offers a one-click pkexec grant; the AppImage
+        now bundles the Qt platform plugins and runs.</p>
+      </description>
+    </release>
     <release version="0.4.0" date="2026-07-13">
       <description>
         <p>Full CLI / headless parity: every GUI tool is now scriptable from the

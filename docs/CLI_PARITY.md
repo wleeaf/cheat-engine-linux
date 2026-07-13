@@ -72,9 +72,9 @@ Legend: ✅ headless · ⚠️ partial · ❌ no headless equivalent · 🖼️ 
 | Thread list | Tools | ✅ | `debug_getThreadList` / `getThreadList` |
 | Register editor | Tools | ✅ | `debug_getRegisters([tid])` / `debug_setRegister(name,val)` (full GP + seg + debug regs; EAX-style aliases) |
 | Stack view | Tools | ✅ | `debug_getStack([count])` → `{address,value}` at RSP (word size tracks bitness) |
-| Find what accesses / writes | table/disasm menu | ❌ | code-finder not bound (could ride HW watchpoints) |
-| Break and Trace | Tools | ❌ | no headless binding |
-| Branch Mapper (LBR) | Tools | ❌ | no headless binding |
+| Find what accesses / writes | table/disasm menu | ✅ | `findWhatWrites(addr,secs,size)` / `findWhatAccesses(...)` (HW watchpoint) |
+| Break and Trace | Tools | ✅ | `breakAndTrace(start,maxSteps,opts)` → decoded step list |
+| Branch Mapper (LBR) | Tools | ✅ | `branchMap(secs,tid)` / `branchMapAvailable()` (hardware LBR; gated on perf) |
 
 ### Other tools
 | Feature | GUI | Headless | Note |
@@ -101,8 +101,11 @@ Legend: ✅ headless · ⚠️ partial · ❌ no headless equivalent · 🖼️ 
 3. **Bind the unbound tools to Lua** (core logic already exists):
    ~~pointer scan~~ (**DONE** `pointerScan`), ~~structure dissect~~ (**DONE**
    `dissectStructure`), ~~detect-managed-runtime~~ (**DONE** `getManagedRuntimes`).
-   Remaining: find-what-accesses/writes (code finder), break-and-trace, branch
-   mapper — these need a live debug session, so they land with Step 4.
+   ~~Remaining: find-what-accesses/writes, break-and-trace, branch mapper.~~ —
+   **DONE**: `findWhatWrites`/`findWhatAccesses` (CodeFinder over a HW watchpoint),
+   `breakAndTrace` (single-step Tracer), `branchMap`/`branchMapAvailable` (LBR;
+   hardware-gated). Verified: findWhatWrites pinned the exact store instruction,
+   breakAndTrace decoded the traced function, LBR reports availability cleanly.
 4. ~~**Register / stack** read-write Lua fns for debug scripting.~~ — **DONE**:
    `debug_getRegisters` / `debug_setRegister` / `debug_getStack`, plus the
    breakpoint globals now publish the full register set (RSI/RDI/RBP/R8-R15/RFLAGS,

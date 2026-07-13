@@ -14,6 +14,10 @@
 #include "arch/assembler.hpp"
 #include "debug/patch.hpp"
 #include "debug/debug_session.hpp"
+#include "debug/code_finder.hpp"
+#include "debug/tracer.hpp"
+#include "debug/lbr_tracer.hpp"
+#include "platform/linux/ptrace_wrapper.hpp"
 #include "symbols/elf_symbols.hpp"
 #include "platform/linux/linux_process.hpp"
 #include "platform/linux/injector.hpp"
@@ -2243,6 +2247,120 @@ static int l_dissectStructure(lua_State* L) {
     return 1;
 }
 
+// Busy-free sleep in small chunks (keeps the tool loops collecting over `seconds`).
+static void sleepSeconds(double seconds) {
+    long us = (long)(seconds * 1e6);
+    while (us > 0) { long chunk = us > 200000 ? 200000 : us; usleep((useconds_t)chunk); us -= chunk; }
+}
+
+// ── Find what accesses / writes (code finder over a HW data watchpoint) ──
+// findWhatWrites(address [, seconds=2 [, watchSize=4]])
+// findWhatAccesses(address [, seconds=2 [, watchSize=4]])
+//   -> array of { address, instruction, hitCount } sorted by hitCount.
+// Runs the CodeFinder for `seconds`, which SEIZEs the target's threads and arms a
+// DR watchpoint, so it needs exclusive ptrace (do not hold a debug session).
+static int codeFinderImpl(lua_State* L, bool writesOnly) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); return 1; }
+    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    double seconds = luaL_optnumber(L, 2, 2.0);
+    int watchSize  = (int)luaL_optinteger(L, 3, 4);
+    ce::os::LinuxDebugger dbg;
+    ce::CodeFinder finder;
+    if (!finder.start(*p, dbg, addr, writesOnly, watchSize)) {
+        lua_pushnil(L);
+        lua_pushstring(L, "code finder failed to attach (need exclusive ptrace / privileges)");
+        return 2;
+    }
+    sleepSeconds(seconds);
+    finder.stop();
+    auto results = finder.results();
+    lua_newtable(L);
+    for (size_t i = 0; i < results.size(); ++i) {
+        const auto& r = results[i];
+        lua_newtable(L);
+        lua_pushinteger(L, (lua_Integer)r.instructionAddress); lua_setfield(L, -2, "address");
+        lua_pushstring(L, r.instructionText.c_str());          lua_setfield(L, -2, "instruction");
+        lua_pushinteger(L, r.hitCount);                        lua_setfield(L, -2, "hitCount");
+        lua_rawseti(L, -2, (int)i + 1);
+    }
+    return 1;
+}
+static int l_findWhatWrites(lua_State* L)   { return codeFinderImpl(L, true); }
+static int l_findWhatAccesses(lua_State* L) { return codeFinderImpl(L, false); }
+
+// ── Break and Trace (single-step from a start address) ──
+// breakAndTrace(startAddress [, maxSteps=100 [, {stepOverCalls,stayInModule,
+//   stopAddress,moduleBase,moduleEnd} ]]) -> array of { address, instruction, rip }.
+static int l_breakAndTrace(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); return 1; }
+    ce::TraceConfig cfg;
+    cfg.startAddress = (uintptr_t)luaL_checkinteger(L, 1);
+    cfg.maxSteps = (int)luaL_optinteger(L, 2, 100);
+    if (lua_istable(L, 3)) {
+        lua_getfield(L, 3, "stepOverCalls"); if (lua_isboolean(L, -1)) cfg.stepOverCalls = lua_toboolean(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 3, "stayInModule");  if (lua_isboolean(L, -1)) cfg.stayInModule  = lua_toboolean(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 3, "stopAddress");   if (lua_isinteger(L, -1)) cfg.stopAddress = (uintptr_t)lua_tointeger(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 3, "moduleBase");    if (lua_isinteger(L, -1)) cfg.moduleBase  = (uintptr_t)lua_tointeger(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 3, "moduleEnd");     if (lua_isinteger(L, -1)) cfg.moduleEnd    = (uintptr_t)lua_tointeger(L, -1); lua_pop(L, 1);
+    }
+    ce::os::LinuxDebugger dbg;
+    ce::Tracer tracer;
+    auto entries = tracer.trace(*p, dbg, cfg);
+    lua_newtable(L);
+    for (size_t i = 0; i < entries.size(); ++i) {
+        const auto& e = entries[i];
+        lua_newtable(L);
+        lua_pushinteger(L, (lua_Integer)e.address);     lua_setfield(L, -2, "address");
+        lua_pushstring(L, e.instruction.c_str());       lua_setfield(L, -2, "instruction");
+        lua_pushinteger(L, (lua_Integer)e.context.rip); lua_setfield(L, -2, "rip");
+        lua_rawseti(L, -2, (int)i + 1);
+    }
+    return 1;
+}
+
+// ── Branch mapper (hardware LBR via perf_event_open) ──
+// branchMapAvailable() -> bool (Intel LBR + perf_event_paranoid<=1)
+static int l_branchMapAvailable(lua_State* L) {
+    lua_pushboolean(L, ce::LbrTracer::available());
+    return 1;
+}
+// branchMap([seconds=1 [, tid]]) -> array of { from, to, mispred, predicted }.
+// Samples the CPU branch buffer for `seconds` on `tid` (default main thread).
+static int l_branchMap(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); return 1; }
+    double seconds = luaL_optnumber(L, 1, 1.0);
+    pid_t tid = (lua_gettop(L) >= 2 && lua_isinteger(L, 2)) ? (pid_t)lua_tointeger(L, 2)
+                                                            : (pid_t)p->pid();
+    if (!ce::LbrTracer::available()) {
+        lua_pushnil(L);
+        lua_pushstring(L, "LBR unavailable (needs Intel LBR + kernel.perf_event_paranoid<=1)");
+        return 2;
+    }
+    ce::LbrTracer lbr;
+    if (!lbr.start(tid)) {
+        lua_pushnil(L);
+        lua_pushstring(L, "perf_event_open failed");
+        return 2;
+    }
+    sleepSeconds(seconds);
+    auto entries = lbr.drain();
+    lbr.stop();
+    lua_newtable(L);
+    for (size_t i = 0; i < entries.size(); ++i) {
+        const auto& e = entries[i];
+        lua_newtable(L);
+        lua_pushinteger(L, (lua_Integer)e.from);  lua_setfield(L, -2, "from");
+        lua_pushinteger(L, (lua_Integer)e.to);    lua_setfield(L, -2, "to");
+        lua_pushboolean(L, e.mispred);            lua_setfield(L, -2, "mispred");
+        lua_pushboolean(L, e.predicted);          lua_setfield(L, -2, "predicted");
+        lua_rawseti(L, -2, (int)i + 1);
+    }
+    return 1;
+}
+
 // ── Additional CE-compatible functions ──
 
 static int l_openProcess(lua_State* L) {
@@ -3373,6 +3491,11 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "getManagedRuntimes", l_getManagedRuntimes);
     lua_register(L, "pointerScan", l_pointerScan);
     lua_register(L, "dissectStructure", l_dissectStructure);
+    lua_register(L, "findWhatWrites", l_findWhatWrites);
+    lua_register(L, "findWhatAccesses", l_findWhatAccesses);
+    lua_register(L, "breakAndTrace", l_breakAndTrace);
+    lua_register(L, "branchMap", l_branchMap);
+    lua_register(L, "branchMapAvailable", l_branchMapAvailable);
     lua_register(L, "getTableEntry", l_getTableEntry);
     lua_register(L, "setTableEntry", l_setTableEntry);
 

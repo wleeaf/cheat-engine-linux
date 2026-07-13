@@ -57,8 +57,7 @@ gui/        Qt6 windows
 plugins/    speedhack, audiohack, Vulkan overlay, plugin ABI
 ```
 
-`ROADMAP.md` tracks the current gaps and priorities; `FEATURE_GAP.md` tracks
-CE-tutorial parity.
+`docs/DEVELOPMENT.md` tracks the current roadmap, gaps/priorities, and CLI parity.
 
 ## Style
 

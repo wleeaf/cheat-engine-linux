@@ -301,6 +301,7 @@ if(Qt6_FOUND)
     qt_add_executable(cheatengine
         gui/resources.qrc
         gui/main.cpp
+        gui/theme.cpp
         gui/mainwindow.cpp
         gui/processlistdialog.cpp
         gui/memorybrowser.cpp
@@ -354,6 +355,14 @@ if(Qt6_FOUND)
         )
         target_include_directories(gui_debugger_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
         target_link_libraries(gui_debugger_smoke PRIVATE cecore Qt6::Widgets)
+
+        # Offscreen smoke test for light/dark theme switching.
+        qt_add_executable(gui_theme_smoke
+            test/gui_theme_smoke.cpp
+            gui/theme.cpp
+        )
+        target_include_directories(gui_theme_smoke PRIVATE ${CMAKE_SOURCE_DIR})
+        target_link_libraries(gui_theme_smoke PRIVATE Qt6::Widgets)
     endif()
 
     # Wayland global hotkeys via the XDG GlobalShortcuts portal (QtDBus). Under

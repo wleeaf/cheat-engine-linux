@@ -2,6 +2,7 @@
 /// read them lazily; absence of a key falls back to the same defaults seen here.
 
 #include "gui/settingsdialog.hpp"
+#include "gui/theme.hpp"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
@@ -144,7 +145,9 @@ QWidget* SettingsDialog::buildDisplayTab() {
     form->addRow("Address width:", addressWidthCombo_);
 
     darkThemeCheck_ = new QCheckBox("Dark theme (Catppuccin)");
-    darkThemeCheck_->setChecked(s.value(DISP_DARK_KEY, true).toBool());
+    // Default LIGHT (false) to match main.cpp / applyStoredTheme, so the checkbox
+    // reflects the theme actually in effect on first run.
+    darkThemeCheck_->setChecked(s.value(DISP_DARK_KEY, false).toBool());
     form->addRow("", darkThemeCheck_);
 
     return w;
@@ -277,6 +280,8 @@ void SettingsDialog::onApply() {
     s.setValue(DISP_FONT_FAMILY_KEY,  fontFamilyCombo_->currentFont().family());
     s.setValue(DISP_ADDR_WIDTH_KEY,   addressWidthCombo_->currentIndex());
     s.setValue(DISP_DARK_KEY,         darkThemeCheck_->isChecked());
+    // Apply the theme live so toggling it takes effect immediately (no restart).
+    applyTheme(darkThemeCheck_->isChecked());
 
     s.setValue(DBG_BP_TYPE_KEY,       bpTypeCombo_->currentIndex());
     s.setValue(DBG_BP_SIZE_KEY,       bpSizeSpin_->value());

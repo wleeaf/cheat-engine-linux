@@ -64,11 +64,20 @@ jobs:
           bash packaging/build-appimage.sh
           file build/CheatEngine-*-x86_64.AppImage
 
-      - name: Upload AppImage to the release
+      - name: Checksums
+        run: |
+          cd build
+          for f in CheatEngine-*-x86_64.AppImage cheat-engine-linux_*_amd64.deb; do
+            sha256sum "$f" > "$f.sha256"
+          done
+
+      - name: Upload artifacts to the release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             build/CheatEngine-*-x86_64.AppImage
+            build/CheatEngine-*-x86_64.AppImage.sha256
             build/cheat-engine-linux_*_amd64.deb
+            build/cheat-engine-linux_*_amd64.deb.sha256
           fail_on_unmatched_files: true
           generate_release_notes: false

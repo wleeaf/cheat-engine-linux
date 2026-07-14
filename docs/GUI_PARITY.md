@@ -147,7 +147,7 @@ Languages
 | frmSaveMemoryRegionUnit | Save memoryregion | 15 | 7 | 1 | `mainwindow` | ✅ |
 | frmStringMapUnit | String map | 15 | 12 | 2 | — | ❌ missing |
 | FindWindowUnit | Find | 14 | 3 | 0 | — | ❌ missing |
-| PasteTableentryFRM | Paste table entries | 14 | 1 | 0 | — | ❌ missing |
+| PasteTableentryFRM | Paste table entries | 14 | 1 | 0 | `mainwindow` | ✅ |
 | accessedmemory | Find accessed memory regions | 14 | 15 | 1 | `codefinder` | ✅ |
 | frmCodecaveScannerUnit | Scan for codecaves | 14 | 6 | 1 | — | ❌ missing |
 | frmgroupscanalgoritmgeneratorunit | Generate groupscan command | 14 | 7 | 0 | — | ❌ missing |
@@ -155,12 +155,12 @@ Languages
 | frmStructPointerRescanUnit | Rescan | 13 | 2 | 0 | — | ❌ missing |
 | frmpointerscanconnectdialogunit | Connect to active pointerscanner | 13 | 3 | 0 | — | ❌ missing |
 | savedisassemblyfrm | Save disassembled output | 13 | 3 | 0 | `mainwindow` | ✅ |
-| symbolconfigunit | Symbol config | 13 | 13 | 4 | — | ❌ missing |
+| symbolconfigunit | Symbol config | 13 | 13 | 4 | `settingsdialog` | ✅ |
 | APIhooktemplatesettingsfrm | Api hook template | 12 | 2 | 0 | — | ❌ missing |
 | celistviewitemeditor | Item editor | 12 | 8 | 0 | — | ❌ missing |
 | frmexceptionregionlistunit | Exception region list | 12 | 9 | 4 | — | ❌ missing |
 | frmmemoryrecorddropdownsettingsunit | Dropdown options | 12 | 12 | 4 | `mainwindow` | ✅ |
-| networkConfig | Connect to server | 12 | 9 | 2 | — | ❌ missing |
+| networkConfig | Connect to server | 12 | 9 | 2 | `settingsdialog` | ✅ |
 | frmBreakpointConditionUnit | Breakpoint condition | 11 | 7 | 0 | — | ❌ missing |
 | frmSaveSnapshotsUnit | Save snapshots | 11 | 14 | 0 | — | ❌ missing |
 | StructuresAddElementfrm | Add Element | 10 | 6 | 0 | — | ❌ missing |

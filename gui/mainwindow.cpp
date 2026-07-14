@@ -1320,7 +1320,27 @@ void MainWindow::setupUi() {
                 menu.addSeparator();
             }
 
+            // CE PopupMenu2: Cut / Copy / Paste (PasteTableentryFRM).
+            menu.addAction("Cut", this, [this]() { onCopyAddresses(); onDeleteAddresses(); }, QKeySequence::Cut);
             menu.addAction("Copy", this, &MainWindow::onCopyAddresses, QKeySequence::Copy);
+            menu.addAction("Paste", this, [this]() {
+                auto doc = QJsonDocument::fromJson(QApplication::clipboard()->text().toUtf8());
+                if (!doc.isArray()) return;
+                for (auto v : doc.array()) {
+                    auto o = v.toObject();
+                    uintptr_t addr = o["address"].toString().toULongLong(nullptr, 16);
+                    QString expr = o["addressExpr"].toString();
+                    QString ts = o["type"].toString();
+                    ce::ValueType t = ts == "byte"    ? ce::ValueType::Byte
+                                    : ts == "i16"     ? ce::ValueType::Int16
+                                    : ts == "i64"     ? ce::ValueType::Int64
+                                    : ts == "float"   ? ce::ValueType::Float
+                                    : ts == "double"  ? ce::ValueType::Double
+                                    : ts == "pointer" ? ce::ValueType::Pointer
+                                                      : ce::ValueType::Int32;
+                    addressListModel_->addEntry(addr, t, o["description"].toString(), expr);
+                }
+            }, QKeySequence::Paste);
             // Copy an individual field of the first selected entry to the clipboard.
             if (firstRow >= 0 && firstRow < (int)ents0.size()) {
                 const auto& fe = ents0[firstRow];

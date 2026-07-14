@@ -8,6 +8,7 @@
 #include "gui/advancedoptions.hpp"
 #include "gui/changeaddressdialog.hpp"
 #include "gui/graphicalmemoryview.hpp"
+#include "scanner/pointer_scanner.hpp"
 #include "gui/scripteditor.hpp"
 #include "gui/pointerscan_dialog.hpp"
 #include "gui/structuredissector.hpp"
@@ -545,6 +546,47 @@ void MainWindow::setupMenus() {
         } catch (const std::exception& ex) {
             QMessageBox::critical(this, "Generate Trainer", ex.what());
         }
+    });
+    // CE frmStringPointerScanUnit (Structure spider): find pointer paths to a target
+    // and dissect the structure there.
+    tools->addAction("Structure Spider...", this, [this]() {
+        if (!process_) { QMessageBox::warning(this, "Structure Spider", "Open a process first."); return; }
+        bool ok = false;
+        QString ts = QInputDialog::getText(this, "Structure Spider", "Target address (hex):",
+                                           QLineEdit::Normal, "0", &ok);
+        if (!ok) return;
+        uintptr_t target = ts.toULongLong(nullptr, 16);
+        QApplication::setOverrideCursor(Qt::WaitCursor);
+        ce::PointerScanner scanner;
+        ce::PointerScanConfig cfg;
+        cfg.targetAddress = target; cfg.maxDepth = 2; cfg.maxOffset = 256; cfg.staticOnly = false;
+        auto paths = scanner.scan(*process_, cfg);
+        QApplication::restoreOverrideCursor();
+        auto* dlg = new QDialog(this);
+        dlg->setWindowTitle("Structure spider");
+        dlg->resize(520, 420);
+        auto* v = new QVBoxLayout(dlg);
+        v->addWidget(new QLabel(QString("%1 pointer path(s) to 0x%2:")
+                                    .arg(paths.size()).arg((qulonglong)target, 0, 16)));
+        auto* list = new QListWidget;
+        for (const auto& p : paths) list->addItem(QString::fromStdString(p.toString()));
+        v->addWidget(list);
+        auto* row = new QHBoxLayout;
+        auto* dissectBtn = new QPushButton("Dissect structure at target");
+        connect(dissectBtn, &QPushButton::clicked, this, [this, target]() {
+            auto* sd = new StructureDissector(process_.get(), target, this);
+            sd->setAttribute(Qt::WA_DeleteOnClose);
+            sd->setAddToListCallback([this](uintptr_t a, ce::ValueType t, const QString& d) {
+                addressListModel_->addEntry(a, t, d);
+            });
+            sd->show();
+        });
+        auto* closeBtn = new QPushButton("Close");
+        connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::accept);
+        row->addWidget(dissectBtn); row->addStretch(); row->addWidget(closeBtn);
+        v->addLayout(row);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->show();
     });
     // CE frmgroupscanalgoritmgeneratorunit: build a grouped-scan pattern from the
     // selected scan results (offsets from the first, with each value), for finding

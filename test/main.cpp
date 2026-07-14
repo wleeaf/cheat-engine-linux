@@ -22,6 +22,7 @@
 #include "core/injection_gen.hpp"
 #include "core/ct_file.hpp"
 #include "analysis/mono_dissector.hpp"
+#include "core/simple_hook.hpp"
 #include "core/log.hpp"
 #include "arch/disassembler.hpp"
 #include "core/expression.hpp"
@@ -490,6 +491,55 @@ static void test_mono_dissector_parse() {
     printf("  parses images/classes/fields + ready marker: %s\n", structOk ? "OK" : "FAILED");
     printf("  field offset/type/static-flag parsed: %s\n", fieldOk ? "OK" : "FAILED");
     printf("  namespaced class name split: %s\n", nsOk ? "OK" : "FAILED");
+}
+
+// createSimpleHook / removeSimpleHook against a live forked child. noipa keeps the
+// caller from constant-propagating the return, so the detour is observable.
+static volatile int g_hooktest_result = 0;
+__attribute__((noinline, noipa)) static int hooktest_getval() { return 5; }
+static void test_simple_hook() {
+    printf("\n── Test: createSimpleHook / removeSimpleHook (live detour) ──\n");
+    int fds[2];
+    if (pipe(fds) != 0) { printf("  pipe FAILED\n"); return; }
+    pid_t child = fork();
+    if (child == 0) {
+        close(fds[0]);
+        char c = 'x'; ssize_t w = write(fds[1], &c, 1); (void)w;
+        for (;;) { g_hooktest_result = hooktest_getval(); usleep(3000); }
+        _exit(0);
+    }
+    close(fds[1]);
+    char c = 0; ssize_t r = read(fds[0], &c, 1); (void)r; close(fds[0]);
+    usleep(60000);
+
+    ce::os::LinuxProcessHandle proc(child);
+    auto res = [&] { int v = 0; proc.read(reinterpret_cast<uintptr_t>(&g_hooktest_result), &v, 4); return v; };
+    const uintptr_t fnAddr = reinterpret_cast<uintptr_t>(&hooktest_getval);
+    int before = res(), hooked = -1, after = -1;
+    bool fired = false, restored = false, refused_bad = false;
+
+    auto cave = proc.allocate(16, ce::MemProt::Read | ce::MemProt::Write | ce::MemProt::Exec, fnAddr);
+    if (cave) {
+        unsigned char stub[6] = {0xB8, 0x63, 0x00, 0x00, 0x00, 0xC3};  // mov eax,99; ret
+        proc.write(*cave, stub, sizeof(stub));
+        if (auto h = ce::installSimpleHook(proc, fnAddr, *cave)) {
+            usleep(60000); hooked = res(); fired = (hooked == 99);
+            ce::removeSimpleHook(proc, *h);
+            usleep(60000); after = res(); restored = (after == before && before == 5);
+        }
+    }
+    // Safety: refuse to hook a location whose displaced instructions include a
+    // relative branch (a jmp at the very entry) rather than corrupt it.
+    unsigned char reljmp[8] = {0xEB, 0x00, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
+    if (auto bad = proc.allocate(64, ce::MemProt::Read | ce::MemProt::Write | ce::MemProt::Exec, fnAddr)) {
+        proc.write(*bad, reljmp, sizeof(reljmp));
+        refused_bad = !ce::installSimpleHook(proc, *bad, fnAddr).has_value();
+    }
+
+    kill(child, SIGKILL); int st = 0; waitpid(child, &st, 0);
+    printf("  detour fires (5 -> 99): %s (before=%d hooked=%d)\n", fired ? "OK" : "FAILED", before, hooked);
+    printf("  remove restores (-> 5): %s (after=%d)\n", restored ? "OK" : "FAILED", after);
+    printf("  refuses position-dependent displaced code: %s\n", refused_bad ? "OK" : "FAILED");
 }
 
 // CE stringlist object: add/count/get (0-based)/set/remove/destroy.
@@ -7954,6 +8004,7 @@ int main(int argc, char* argv[]) {
 
     test_cheat_table_json();
     test_mono_dissector_parse();
+    test_simple_hook();
     test_lua_stringlist();
     test_lua_timers();
     test_logging();

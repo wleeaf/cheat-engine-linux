@@ -7,6 +7,7 @@
 #include "core/address_list.hpp"
 #include "analysis/managed_runtime.hpp"
 #include "analysis/mono_dissector.hpp"
+#include "core/simple_hook.hpp"
 #include "analysis/structure_tools.hpp"
 #include "analysis/code_analysis.hpp"
 #include "scripting/lua_memrec.hpp"
@@ -2475,6 +2476,38 @@ static int l_monoDissect(lua_State* L) {
     return 1;
 }
 
+// createSimpleHook(address, target) -> hookInfo { id, address, trampoline } or nil.
+// Redirects `address` to `target`; the returned `trampoline` runs the displaced
+// original code then resumes, so target code can `jmp trampoline` to continue.
+// Refuses (nil) if the displaced instructions are position-dependent.
+static int l_createSimpleHook(lua_State* L) {
+    auto* p = getProc(L);
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    if (!p || !eng) { lua_pushnil(L); return 1; }
+    uintptr_t addr   = (uintptr_t)luaL_checkinteger(L, 1);
+    uintptr_t target = (uintptr_t)luaL_checkinteger(L, 2);
+    auto h = ce::installSimpleHook(*p, addr, target);
+    if (!h) { lua_pushnil(L); return 1; }
+    int id = eng->addHook(*h);
+    lua_newtable(L);
+    lua_pushinteger(L, id);                        lua_setfield(L, -2, "id");
+    lua_pushinteger(L, (lua_Integer)addr);         lua_setfield(L, -2, "address");
+    lua_pushinteger(L, (lua_Integer)h->trampoline); lua_setfield(L, -2, "trampoline");
+    return 1;
+}
+// removeSimpleHook(hookInfo) — restores the original bytes. Accepts the table from
+// createSimpleHook or a bare id.
+static int l_removeSimpleHook(lua_State* L) {
+    auto* p = getProc(L);
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    if (!p || !eng) return 0;
+    int id = -1;
+    if (lua_istable(L, 1)) { lua_getfield(L, 1, "id"); id = (int)lua_tointeger(L, -1); lua_pop(L, 1); }
+    else if (lua_isnumber(L, 1)) id = (int)lua_tointeger(L, 1);
+    if (const auto* h = eng->hook(id)) { ce::removeSimpleHook(*p, *h); eng->eraseHook(id); }
+    return 0;
+}
+
 // findMonoFunction(namespace, class, method [, params]) -> address (or nil).
 // Resolves + JIT-compiles the one named method via the resident Mono agent.
 // `params` is a comma-separated type list ("Entity,int") used only for its count
@@ -3915,6 +3948,8 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "getManagedRuntimes", l_getManagedRuntimes);
     lua_register(L, "monoDissect", l_monoDissect);
     lua_register(L, "findMonoFunction", l_findMonoFunction);
+    lua_register(L, "createSimpleHook", l_createSimpleHook);
+    lua_register(L, "removeSimpleHook", l_removeSimpleHook);
     lua_register(L, "pointerScan", l_pointerScan);
     lua_register(L, "dissectStructure", l_dissectStructure);
     lua_register(L, "findWhatWrites", l_findWhatWrites);

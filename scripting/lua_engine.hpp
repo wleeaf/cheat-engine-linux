@@ -4,7 +4,8 @@
 #include "platform/process_api.hpp"
 #include "scanner/memory_scanner.hpp"
 #include "symbols/elf_symbols.hpp"
-#include "core/types.hpp"          // CpuContext
+#include "core/types.hpp"                // CpuContext
+#include "core/simple_hook.hpp"          // SimpleHook (createSimpleHook registry)
 #include <string>
 #include <expected>
 #include <functional>
@@ -103,6 +104,12 @@ public:
     bool isStringlist(int id) const { return stringlists_.count(id) != 0; }
     void destroyStringlist(int id) { stringlists_.erase(id); }
 
+    // ── createSimpleHook / removeSimpleHook registry ──
+    int addHook(const SimpleHook& h) { int id = nextObjectId_++; hooks_[id] = h; return id; }
+    const SimpleHook* hook(int id) const { auto it = hooks_.find(id); return it == hooks_.end() ? nullptr : &it->second; }
+    void eraseHook(int id) { hooks_.erase(id); }
+    bool isHook(int id) const { return hooks_.count(id) != 0; }
+
     /// Host hook for selectFilePath(sender, settingName): opens a file chooser and
     /// returns the chosen path (empty = cancelled). Unset (headless) => returns "".
     void setFilePicker(std::function<std::string(const std::string& settingName)> cb) {
@@ -137,7 +144,8 @@ private:
     struct LuaTimer { double intervalMs = 1000; double lastMs = 0; int cbRef = -2 /*LUA_NOREF*/; bool enabled = true; };
     std::map<int, LuaTimer> timers_;
     std::map<int, std::vector<std::string>> stringlists_;
-    int nextObjectId_ = 1;   // shared id space for timers + stringlists (object_destroy)
+    std::map<int, SimpleHook> hooks_;
+    int nextObjectId_ = 1;   // shared id space for timers + stringlists + hooks
     std::function<std::string(const std::string&)> filePicker_;
 };
 

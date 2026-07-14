@@ -174,6 +174,7 @@ add_library(cecore SHARED
     core/expression.cpp
     core/ct_file.cpp
     core/log.cpp
+    core/simple_hook.cpp
     core/trainer.cpp
     analysis/code_analysis.cpp
     analysis/il2cpp_metadata.cpp

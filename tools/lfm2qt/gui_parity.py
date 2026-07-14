@@ -44,7 +44,7 @@ MAP = {
     "frmModuleListUnit": ("modulelist", ""),
     "frmStackViewUnit": ("stackview", ""),
     "DissectCodeunit": ("", "dissect code — MISSING"),
-    "formAddressChangeUnit": ("", "add/change address dialog — MISSING"),
+    "formAddressChangeUnit": ("changeaddressdialog", ""),
     "HexViewPreferences": ("", ""),
 }
 # platform-gated form-name substrings a Linux build hides

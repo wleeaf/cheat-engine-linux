@@ -107,7 +107,7 @@ Languages
 | frmTracerUnit | Tracer | 47 | 45 | 15 | `tracerwindow` | ✅ |
 | formdesignerunit | Form Designer | 38 | 55 | 18 | `formdesigner` | ✅ |
 | pointerscannerfrm | Pointer scan | 38 | 35 | 19 | `pointerscan_dialog` | ✅ |
-| formAddressChangeUnit | Change address | 36 | 28 | 14 | — | ❌ missing |
+| formAddressChangeUnit | Change address | 36 | 28 | 14 | `changeaddressdialog` | ✅ |
 | formFoundcodeListExtraUnit | Extra info | 36 | 44 | 2 | — | ❌ missing |
 | frmD3DTrainerGeneratorOptionsUnit | Direct3D Hook Options | 36 | 9 | 0 | — | 🚫 Direct3D (Windows) only |
 | frmsetuppsnnodeunit | Setup pointerscan network node | 36 | 6 | 0 | — | 🚫 distributed pointerscan node |

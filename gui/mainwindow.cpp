@@ -355,6 +355,27 @@ void MainWindow::setupMenus() {
 
     // ── Process menu ──
     process->addAction("Open Process...", this, &MainWindow::onOpenProcess);
+    // CE formProcessInfo (Process/System Info) — Linux equivalents.
+    process->addAction("Process/System Info", this, [this]() {
+        if (!process_) { QMessageBox::information(this, "Process Info", "No process opened."); return; }
+        auto mods = process_->modules();
+        auto threads = process_->threads();
+        QString path = mods.empty() ? QString() : QString::fromStdString(mods.front().path);
+        QString info = QString(
+            "PID:\t%1\n"
+            "Name:\t%2\n"
+            "Path:\t%3\n"
+            "Architecture:\t%4\n"
+            "Modules:\t%5\n"
+            "Threads:\t%6")
+            .arg(currentPid_)
+            .arg(processLabel_->text())
+            .arg(path.isEmpty() ? "(unknown)" : path)
+            .arg(process_->is64bit() ? "64-bit" : "32-bit")
+            .arg(mods.size())
+            .arg(threads.size());
+        QMessageBox::information(this, "Process/System Info", info);
+    });
     // "Pause the process" toggle (CE's pause-the-game) — SIGSTOP/SIGCONT the target.
     auto* pauseAct = process->addAction("Pause the process");
     pauseAct->setCheckable(true);
@@ -408,6 +429,39 @@ void MainWindow::setupMenus() {
         auto* w = new FindStaticsWindow(process_.get(), this);
         w->setAttribute(Qt::WA_DeleteOnClose);
         w->show();
+    });
+    // CE frmSaveMemoryRegionUnit (Save memoryregion): dump a From..To range to a file.
+    tools->addAction("Save Memory Region...", this, [this]() {
+        if (!process_) { QMessageBox::warning(this, "Save Memory Region", "Open a process first."); return; }
+        auto* dlg = new QDialog(this);
+        dlg->setWindowTitle("Save memoryregion");
+        auto* v = new QVBoxLayout(dlg);
+        v->addWidget(new QLabel("Add the region of memory you want to save"));
+        auto* form = new QFormLayout;
+        auto* fromEdit = new QLineEdit("0");
+        auto* toEdit = new QLineEdit("0");
+        form->addRow("From", fromEdit);
+        form->addRow("To", toEdit);
+        v->addLayout(form);
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
+        v->addWidget(buttons);
+        connect(buttons, &QDialogButtonBox::rejected, dlg, &QDialog::reject);
+        connect(buttons, &QDialogButtonBox::accepted, this, [this, dlg, fromEdit, toEdit]() {
+            uintptr_t from = fromEdit->text().toULongLong(nullptr, 16);
+            uintptr_t to = toEdit->text().toULongLong(nullptr, 16);
+            if (to <= from) { QMessageBox::warning(dlg, "Save", "\"To\" must be greater than \"From\"."); return; }
+            auto path = QFileDialog::getSaveFileName(dlg, "Save memory region", "region.bin");
+            if (path.isEmpty()) return;
+            std::vector<uint8_t> buf(to - from);
+            auto r = process_->read(from, buf.data(), buf.size());
+            if (!r || *r == 0) { QMessageBox::warning(dlg, "Save", "Could not read that region."); return; }
+            std::ofstream f(path.toStdString(), std::ios::binary);
+            f.write(reinterpret_cast<const char*>(buf.data()), (std::streamsize)*r);
+            QMessageBox::information(dlg, "Saved", QString("Wrote %1 bytes to %2.").arg(*r).arg(path));
+            dlg->accept();
+        });
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->show();
     });
     tools->addAction("ELF Inspector...", this, [this]() {
         QString initial;

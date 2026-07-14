@@ -16,6 +16,8 @@ from lfm_parser import parse_lfm_file
 # that a Linux build does not show (Windows/DBVM/Direct3D/.NET-on-Windows only).
 MAP = {
     "MainUnit": ("mainwindow", ""),
+    "frmSaveMemoryRegionUnit": ("mainwindow", ""),
+    "formProcessInfo": ("mainwindow", ""),
     "AdvancedOptionsUnit": ("advancedoptions", ""),  # Code list
     "MemoryBrowserFormUnit": ("memorybrowser", "disasm+hex+register panel+debug toolbar; stepping + full menus pending"),
     "formsettingsunit": ("settingsdialog", "subset of CE's setting tabs"),

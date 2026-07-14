@@ -129,7 +129,7 @@ Languages
 | frmTracerConfigUnit | Break and Trace config | 24 | 5 | 0 | `tracerwindow` | ⚠️ break-and-trace config |
 | frameHotkeyConfigUnit |  | 22 | 10 | 1 | `globalhotkeys` | ✅ |
 | PEInfounit | Portable Executable (PE) Info | 21 | 9 | 2 | `elfinspector` | ⚠️ ELF inspector vs CE's PE info |
-| formProcessInfo | Process/System Info | 21 | 10 | 0 | — | ❌ missing |
+| formProcessInfo | Process/System Info | 21 | 10 | 0 | `mainwindow` | ✅ |
 | frmAdConfigUnit | Support Cheat Engine | 21 | 13 | 0 | — | ❌ missing |
 | frmStructures2ElementInfoUnit | Structure Info | 21 | 13 | 0 | — | ❌ missing |
 | frmD3DHookSnapshotConfigUnit | D3DHook: Configure snapshot | 19 | 8 | 0 | — | 🚫 Direct3D (Windows) only |
@@ -144,7 +144,7 @@ Languages
 | FoundCodeUnit | The following opcodes changed the  | 15 | 24 | 12 | `codefinder` | ⚠️ what-writes/accesses result list |
 | ProcessWindowUnit | Process List | 15 | 27 | 17 | — | ❌ missing |
 | frmExcludeHideUnit | Show/Hide settings | 15 | 7 | 0 | — | ❌ missing |
-| frmSaveMemoryRegionUnit | Save memoryregion | 15 | 7 | 1 | — | ❌ missing |
+| frmSaveMemoryRegionUnit | Save memoryregion | 15 | 7 | 1 | `mainwindow` | ✅ |
 | frmStringMapUnit | String map | 15 | 12 | 2 | — | ❌ missing |
 | FindWindowUnit | Find | 14 | 3 | 0 | — | ❌ missing |
 | PasteTableentryFRM | Paste table entries | 14 | 1 | 0 | — | ❌ missing |

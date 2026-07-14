@@ -932,10 +932,13 @@ void MainWindow::setupUi() {
     connect(memViewBtn, &QPushButton::clicked, this, &MainWindow::onMemoryView);
     auto* addAddrBtn = new QPushButton("Add Address");
     connect(addAddrBtn, &QPushButton::clicked, this, [this]() {
-        bool ok = false;
-        auto text = QInputDialog::getText(this, "Add Address",
-            "Address, symbol, module+offset, or [pointer]+off:", QLineEdit::Normal, "", &ok);
-        if (!ok || text.trimmed().isEmpty()) return;
+        // CE uses formAddressChange for both add and edit.
+        ce::gui::ChangeAddressDialog dlg("", mapValueType(valueTypeCombo_->currentIndex()),
+                                         false, 1, this);
+        dlg.setWindowTitle("Add address");
+        if (dlg.exec() != QDialog::Accepted) return;
+        auto text = dlg.address();
+        if (text.isEmpty()) return;
         auto addr = parseAddressExpr(text);
         if (addr) {
             // Keep the address EXPRESSION (not just the resolved absolute) whenever
@@ -949,8 +952,7 @@ void MainWindow::setupUi() {
                 std::all_of(hexBody.begin(), hexBody.end(),
                             [](QChar c){ return std::isxdigit(c.toLatin1()); });
             QString expr = plainHex ? QString() : trimmed;
-            addressListModel_->addEntry(*addr, mapValueType(valueTypeCombo_->currentIndex()),
-                                        "Manual entry", expr);
+            addressListModel_->addEntry(*addr, dlg.valueType(), "Manual entry", expr);
         } else
             QMessageBox::warning(this, "Add Address", QString("Could not resolve \"%1\".").arg(text.trimmed()));
     });

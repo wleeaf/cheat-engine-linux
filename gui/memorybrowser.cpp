@@ -1240,9 +1240,39 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     topSplit->setStretchFactor(1, 1);
     topSplit->setSizes({640, 200});
 
+    // CE's bottom row (Panel4) is the hex view with a stacktrace panel on its
+    // right (Address | QWORD/DWORD | Value). Values populate from an active debug
+    // stop, walking the target's stack from RSP/ESP.
+    stacktracePanel_ = new QTableWidget;
+    stacktracePanel_->setColumnCount(3);
+    stacktracePanel_->setHorizontalHeaderLabels(
+        {"Address", is32 ? "DWORD" : "QWORD", "Value"});
+    stacktracePanel_->verticalHeader()->setVisible(false);
+    stacktracePanel_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    stacktracePanel_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    stacktracePanel_->setFont(QFont("Monospace", 9));
+    stacktracePanel_->horizontalHeader()->setStretchLastSection(true);
+    stacktracePanel_->setToolTip("Call stack (populated at a debug breakpoint)");
+    // Double-clicking a stack entry follows its return address in the disassembler.
+    connect(stacktracePanel_, &QTableWidget::cellDoubleClicked, this,
+            [this](int row, int) {
+        auto* it = stacktracePanel_->item(row, 0);
+        if (!it) return;
+        bool ok = false;
+        uintptr_t a = it->text().toULongLong(&ok, 16);
+        if (ok) navigateTo(a);
+    });
+
+    auto* bottomSplit = new QSplitter(Qt::Horizontal);
+    bottomSplit->addWidget(hexView_);
+    bottomSplit->addWidget(stacktracePanel_);
+    bottomSplit->setStretchFactor(0, 4);
+    bottomSplit->setStretchFactor(1, 1);
+    bottomSplit->setSizes({640, 200});
+
     auto* splitter = new QSplitter(Qt::Vertical);
     splitter->addWidget(topSplit);
-    splitter->addWidget(hexView_);
+    splitter->addWidget(bottomSplit);
     splitter->setStretchFactor(0, 2);
     splitter->setStretchFactor(1, 1);
     setCentralWidget(splitter);

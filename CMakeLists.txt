@@ -367,6 +367,18 @@ if(Qt6_FOUND)
         )
         target_include_directories(gui_theme_smoke PRIVATE ${CMAKE_SOURCE_DIR})
         target_link_libraries(gui_theme_smoke PRIVATE Qt6::Widgets)
+
+        # Offscreen render harness: grabs the real Memory Viewer to a PNG so its
+        # layout + light/dark theming can be verified without a window manager.
+        # Not run in CI; used for UI review. `gui_browser_shot <out.png> [dark]`.
+        qt_add_executable(gui_browser_shot
+            test/gui_browser_shot.cpp
+            gui/memorybrowser.cpp
+            gui/memviewpreferences.cpp
+            gui/theme.cpp
+        )
+        target_include_directories(gui_browser_shot PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
+        target_link_libraries(gui_browser_shot PRIVATE cecore Qt6::Widgets)
     endif()
 
     # Wayland global hotkeys via the XDG GlobalShortcuts portal (QtDBus). Under

@@ -233,6 +233,7 @@ private:
     DisasmView* disasmView_;
     HexView* hexView_;
     QTableWidget* registerPanel_ = nullptr;  // CE register panel (right of disasm)
+    QTableWidget* stacktracePanel_ = nullptr; // CE stacktrace panel (right of hex)
     QLineEdit* addressEdit_;
     QTimer* refreshTimer_;
 

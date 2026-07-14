@@ -150,7 +150,7 @@ Languages
 | PasteTableentryFRM | Paste table entries | 14 | 1 | 0 | `mainwindow` | ✅ |
 | accessedmemory | Find accessed memory regions | 14 | 15 | 1 | `codefinder` | ✅ |
 | frmCodecaveScannerUnit | Scan for codecaves | 14 | 6 | 1 | `codereferences` | ✅ |
-| frmgroupscanalgoritmgeneratorunit | Generate groupscan command | 14 | 7 | 0 | — | ❌ missing |
+| frmgroupscanalgoritmgeneratorunit | Generate groupscan command | 14 | 7 | 0 | `mainwindow` | ✅ |
 | frmsyntaxhighlightereditor | Highlighter configurator | 14 | 10 | 0 | `scripteditor` | ✅ |
 | frmStructPointerRescanUnit | Rescan | 13 | 2 | 0 | `pointerscan_dialog` | ✅ |
 | frmpointerscanconnectdialogunit | Connect to active pointerscanner | 13 | 3 | 0 | — | 🚫 distributed pointerscan (network) |

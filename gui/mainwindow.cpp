@@ -546,6 +546,40 @@ void MainWindow::setupMenus() {
             QMessageBox::critical(this, "Generate Trainer", ex.what());
         }
     });
+    // CE frmgroupscanalgoritmgeneratorunit: build a grouped-scan pattern from the
+    // selected scan results (offsets from the first, with each value), for finding
+    // other instances of the same structure.
+    tools->addAction("Group Scan Generator...", this, [this]() {
+        if (!process_ || !lastResult_) { QMessageBox::warning(this, "Group Scan Generator", "Run a scan and select results first."); return; }
+        auto sel = resultsView_->selectionModel()->selectedRows();
+        if (sel.size() < 2) { QMessageBox::warning(this, "Group Scan Generator", "Select at least two results."); return; }
+        std::vector<uintptr_t> addrs;
+        for (const auto& idx : sel) addrs.push_back(resultsModel_->addressAt(idx.row()));
+        std::sort(addrs.begin(), addrs.end());
+        uintptr_t base = addrs.front();
+        QStringList parts;
+        for (auto a : addrs) {
+            int32_t v = 0;
+            process_->read(a, &v, sizeof(v));
+            parts << QString("%1:%2").arg(a - base).arg(v);   // offset:value (4 bytes)
+        }
+        QString pattern = parts.join(' ');
+        auto* dlg = new QDialog(this);
+        dlg->setWindowTitle("Group Scan Generator");
+        auto* v = new QVBoxLayout(dlg);
+        v->addWidget(new QLabel("Grouped-scan pattern (offset:value, 4-byte):"));
+        auto* edit = new QPlainTextEdit(pattern); edit->setReadOnly(true);
+        v->addWidget(edit);
+        auto* row = new QHBoxLayout;
+        auto* copyBtn = new QPushButton("Copy");
+        connect(copyBtn, &QPushButton::clicked, this, [pattern]() { QApplication::clipboard()->setText(pattern); });
+        auto* closeBtn = new QPushButton("Close");
+        connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::accept);
+        row->addStretch(); row->addWidget(copyBtn); row->addWidget(closeBtn);
+        v->addLayout(row);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->show();
+    });
     // CE savedisassemblyfrm: disassemble a From..To range to a text file.
     tools->addAction("Save Disassembly...", this, [this]() {
         if (!process_) { QMessageBox::warning(this, "Save Disassembly", "Open a process first."); return; }

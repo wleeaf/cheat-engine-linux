@@ -567,7 +567,8 @@ Legend: ✅ solid · 🟡 partial/weak · ❌ absent · ❔ unknown/unverified
 |---|---|---|---|
 | DBVM hypervisor | ❌ (Linux kmod + LBR instead) | ❔ likely ❌ on Linux | DBVM is x86 VT-x; not a Linux user feature |
 | DBK kernel driver / kernel-mode debug / stealth | ❌ | ❔ likely ❌ on Linux | Windows-only driver |
-| `.NET` / Mono / IL2CPP dissector | 🟡 detection + **in-process Mono agent** (M1 done) | ❔ (collector is a Windows DLL) | **Big deal for Linux:** most Linux/Proton games are Unity. M1 (`plugins/mono_agent.c`): injected agent resolves the mono_* embedding API in-process and dumps every image/class/field with GROUND-TRUTH offsets (verified live: Player.health@0x18, statics tagged). Pending: host-side inject+parse into a structured API, Lua bindings, a "Mono dissector" GUI, then IL2CPP (AOT) via the metadata parser + runtime registration |
+| Mono dissector (live) | ✅ **complete end to end** | ❔ (collector is a Windows DLL) | **Big deal for Linux:** most Linux/Proton games are Unity. Agent (`plugins/mono_agent.c`) resolves the mono_* API in-process for GROUND-TRUTH image/class/field offsets; host (`analysis/mono_dissector`) injects + parses into a model; `monoDissect()` Lua binding; Tools ▸ "Mono dissector..." GUI (browse assemblies→classes→fields, add base+offset to the list). Verified live via runtime injection: 5046 classes, Player.health@0x18, statics tagged |
+| IL2CPP dissector (live) | 🟡 detected + reported; live deferred | ❔ | `detectManagedKind()` classifies Mono/IL2CPP/none from modules; GUI+Lua report IL2CPP distinctly instead of failing. Offline `global-metadata.dat` string parser exists. Live field-offset resolution (metadata tables + runtime registration) needs a real IL2CPP game to build+validate — separate track |
 
 #### 3d. Linux-native / gaming (our natural turf)
 

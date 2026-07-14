@@ -137,7 +137,7 @@ Languages
 | frmsourcedisplayunit | frmSourceDisplay | 19 | 21 | 8 | — | ❌ missing |
 | frmMemoryAllocHandlerUnit | Memory Allocations | 17 | 8 | 0 | — | ❌ missing |
 | frmmanualstacktraceconfigunit | Manual stacktrace config | 17 | 1 | 0 | — | ❌ missing |
-| asktorunluascript | Execute this lua script? | 16 | 2 | 0 | — | ❌ missing |
+| asktorunluascript | Execute this lua script? | 16 | 2 | 0 | `mainwindow` | ✅ |
 | frmAAEditPrefsUnit | Editor preferences | 16 | 11 | 0 | — | ❌ missing |
 | frmFindstaticsUnit | Find static addresses | 16 | 7 | 0 | `findstaticswindow` | ✅ |
 | frmresumepointerscanunit | Resume pointerscan | 16 | 9 | 1 | — | ❌ missing |

@@ -2631,12 +2631,20 @@ void MainWindow::loadTableFromPath(const QString& path) {
         // Previously this was parsed but never executed, silently breaking any
         // table that relied on its framework code.
         if (!table.luaScript.empty()) {
-            luaEngine_.setProcess(process_.get());
-            luaEngine_.setAddressList(addressListModel_);
-            auto res = luaEngine_.evalToString(table.luaScript);
-            if (!res.has_value())
-                statusBar()->showMessage(
-                    QString("Table Lua error: %1").arg(QString::fromStdString(res.error())), 8000);
+            // CE asktorunluascript: never auto-run an untrusted table's Lua — ask.
+            auto answer = QMessageBox::question(this, "Execute this lua script?",
+                "This cheat table contains a Lua script.\n\n"
+                "Only execute scripts from tables you trust — a table's Lua can hook "
+                "and manipulate the target. Execute it?",
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+            if (answer == QMessageBox::Yes) {
+                luaEngine_.setProcess(process_.get());
+                luaEngine_.setAddressList(addressListModel_);
+                auto res = luaEngine_.evalToString(table.luaScript);
+                if (!res.has_value())
+                    statusBar()->showMessage(
+                        QString("Table Lua error: %1").arg(QString::fromStdString(res.error())), 8000);
+            }
         }
         disasmAnnotations_ = table.disassemblerComments;
     } else {

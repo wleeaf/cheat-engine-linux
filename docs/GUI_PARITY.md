@@ -199,7 +199,7 @@ Languages
 | iptlogdisplay | IPT Log Display | 6 | 9 | 2 | — | ❌ missing |
 | multilineinputqueryunit |  | 6 | 2 | 0 | — | ❌ missing |
 | Changeoffsetunit | Recalculate addres | 5 | 6 | 0 | — | ❌ missing |
-| CommentsUnit | Comments | 5 | 6 | 0 | — | ❌ missing |
+| CommentsUnit | Comments | 5 | 6 | 0 | `mainwindow` | ✅ |
 | codefiltercalloralldialog | Code Filter | 5 | 0 | 0 | — | ❌ missing |
 | formDifferentBitSizeUnit | Different sized row of bits | 5 | 6 | 1 | — | ❌ missing |
 | formhotkeyunit | Change hotkey | 5 | 2 | 0 | — | ❌ missing |

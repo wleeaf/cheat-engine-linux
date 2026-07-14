@@ -94,6 +94,10 @@ private:
     void editScriptEntry(int row);
     void showOverlayDialog();
     void updateOverlayStatus();
+    // Table "Comments" window (CE CommentsUnit): a free-text memo saved with the
+    // cheat table (persisted in CheatTable.comment via build/loadTable).
+    void showComments();
+    QString tableComment_;
 
     // Process — local (LinuxProcessHandle) or remote (RemoteProcessHandle).
     std::unique_ptr<ce::ProcessHandle> process_;

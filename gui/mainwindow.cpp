@@ -48,6 +48,7 @@
 #include <QGridLayout>
 #include <QHeaderView>
 #include <QMessageBox>
+#include <QTabWidget>
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
@@ -678,6 +679,31 @@ void MainWindow::setupMenus() {
             "<p>C++23 / Qt6 / Capstone / Keystone / Lua 5.3</p>"
             "<p><a href='https://github.com/wleeaf/cheat-engine-linux'>GitHub</a></p>");
     });
+}
+
+// Table "Comments" window — CE's CommentsUnit: a PageControl with a Comments tab
+// holding a free-text memo, plus Close. The text is the cheat table's comment,
+// persisted via buildCheatTable()/onLoadTable().
+void MainWindow::showComments() {
+    auto* dlg = new QDialog(this);
+    dlg->setWindowTitle("Comments");
+    dlg->resize(500, 400);
+    auto* v = new QVBoxLayout(dlg);
+    auto* tabs = new QTabWidget;                       // CE PageControl1
+    auto* memo = new QPlainTextEdit;                   // CE Memo1
+    memo->setPlainText(tableComment_);
+    tabs->addTab(memo, "Comments");                    // CE tsComment
+    v->addWidget(tabs);
+    auto* row = new QHBoxLayout;                        // CE Panel1
+    row->addStretch();
+    auto* closeBtn = new QPushButton("Close");         // CE Button1
+    row->addWidget(closeBtn);
+    v->addLayout(row);
+    connect(memo, &QPlainTextEdit::textChanged, this,
+            [this, memo]() { tableComment_ = memo->toPlainText(); });
+    connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::accept);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
 }
 
 void MainWindow::showOverlayDialog() {
@@ -1469,12 +1495,9 @@ void MainWindow::setupUi() {
     auto* advBtn = new QPushButton("Advanced Options");
     connect(advBtn, &QPushButton::clicked, this, &MainWindow::onMemoryView);
     auto* extrasBtn = new QPushButton("Table Extras");
-    connect(extrasBtn, &QPushButton::clicked, this, [this, extrasBtn]() {
-        QMenu m(this);
-        m.addAction("Save Table...", this, &MainWindow::onSaveTable);
-        m.addAction("Load Table...", this, &MainWindow::onLoadTable);
-        m.exec(extrasBtn->mapToGlobal(QPoint(0, extrasBtn->height())));
-    });
+    // CE "Table Extras" opens the table notes (Comments) — a free-text memo saved
+    // with the table. (Save/Load now live in the File menu.)
+    connect(extrasBtn, &QPushButton::clicked, this, &MainWindow::showComments);
     bottomBar->addWidget(advBtn);
     bottomBar->addStretch();
     bottomBar->addWidget(extrasBtn);
@@ -2171,6 +2194,7 @@ void MainWindow::editScriptEntry(int row) {
 ce::CheatTable MainWindow::buildCheatTable() const {
     ce::CheatTable table;
     table.gameName = processLabel_->text().toStdString();
+    table.comment = tableComment_.toStdString();   // table notes (Comments window)
     auto json = addressListModel_->toJson();
     int saveIdx = 0;
     for (auto val : json) {
@@ -2359,6 +2383,7 @@ void MainWindow::loadTableFromPath(const QString& path) {
         // Load CE XML .CT format
         CheatTable table;
         if (!table.load(path.toStdString())) return;
+        tableComment_ = QString::fromStdString(table.comment);   // table notes
         QJsonArray arr;
         // Compute each entry's nesting level from the parentId tree (entries are in
         // document order, parents before children) so imported groups indent in the

@@ -32,7 +32,7 @@ MAP = {
     "frmstructurecompareunit": ("structuredissector", "compare instances"),
     "frmTracerUnit": ("tracerwindow", ""),
     "frmTracerConfigUnit": ("tracerwindow", "break-and-trace config"),
-    "CommentsUnit": ("", "table notes/comments (free-text memo) — MISSING"),
+    "CommentsUnit": ("mainwindow", ""),  # Table Extras -> Comments memo
     "aboutunit": ("mainwindow", "inline About box only"),
     "PEInfounit": ("elfinspector", "ELF inspector vs CE's PE info"),
     "HotKeys": ("globalhotkeys", "set/change hotkey"),

@@ -158,7 +158,7 @@ Languages
 | symbolconfigunit | Symbol config | 13 | 13 | 4 | `settingsdialog` | ✅ |
 | APIhooktemplatesettingsfrm | Api hook template | 12 | 2 | 0 | — | 🚫 Windows API hook |
 | celistviewitemeditor | Item editor | 12 | 8 | 0 | `mainwindow` | ✅ |
-| frmexceptionregionlistunit | Exception region list | 12 | 9 | 4 | — | ❌ missing |
+| frmexceptionregionlistunit | Exception region list | 12 | 9 | 4 | `debuggerwindow` | ⚠️ break-on-signals; no per-region list |
 | frmmemoryrecorddropdownsettingsunit | Dropdown options | 12 | 12 | 4 | `mainwindow` | ✅ |
 | networkConfig | Connect to server | 12 | 9 | 2 | `settingsdialog` | ✅ |
 | frmBreakpointConditionUnit | Breakpoint condition | 11 | 7 | 0 | `breakpointlist` | ✅ |
@@ -167,7 +167,7 @@ Languages
 | frmFillMemoryUnit | Fill memory | 10 | 4 | 0 | `memoryfill` | ✅ |
 | frmStructureLinkerUnit | Structure linker | 10 | 4 | 0 | `structuredissector` | ✅ |
 | AdvancedOptionsUnit | Code list/Pause | 9 | 27 | 15 | `advancedoptions` | ✅ |
-| formChangedAddresses | Changed Addresses | 9 | 31 | 25 | — | ❌ missing |
+| formChangedAddresses | Changed Addresses | 9 | 31 | 25 | `mainwindow` | ⚠️ changed/unchanged scan covers this |
 | frmassemblyscanunit | Assembly scan | 9 | 2 | 0 | `mainwindow` | ✅ |
 | frmfinddialogunit | Find | 9 | 0 | 0 | `memorybrowser` | ✅ |
 | frmsnapshothandlerUnit | Snapshot handler | 9 | 9 | 5 | `mainwindow` | ✅ |
@@ -183,7 +183,7 @@ Languages
 | frmstructuresnewstructure | New Structure | 8 | 2 | 0 | `structuredissector` | ✅ |
 | ModuleSafetyUnit | Module safety | 7 | 4 | 1 | — | 🚫 Windows module-safety |
 | frmLoadMemoryunit | Load Memory Region | 7 | 4 | 0 | `mainwindow` | ✅ |
-| frmexceptionignorelistunit | Exception ignore list | 7 | 7 | 1 | — | ❌ missing |
+| frmexceptionignorelistunit | Exception ignore list | 7 | 7 | 1 | `debuggerwindow` | ⚠️ break-on-signals; no ignore list |
 | frmmergepointerscanresultsettingsunit | Merge pointerscan results | 7 | 2 | 0 | — | 🚫 distributed pointerscan (network) |
 | frmopenfileasprocessdialogunit | Open binary file | 7 | 1 | 0 | `mainwindow` | ✅ |
 | frmpointerrescanconnectdialogunit | Join rescan | 7 | 2 | 0 | — | 🚫 distributed pointerscan (network) |

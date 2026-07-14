@@ -886,23 +886,41 @@ void MainWindow::setupUi() {
         auto sel = resultsView_->selectionModel()->selectedRows();
         if (sel.isEmpty()) return;
         QMenu menu(this);
+        // CE foundlistpopup order.
         auto* addAct = menu.addAction(sel.size() > 1
-            ? QString("Add %1 selected to address list").arg(sel.size())
-            : QString("Add to address list"));
+            ? QString("Add %1 selected addresses to the addresslist").arg(sel.size())
+            : QString("Add selected addresses to the addresslist"));
         auto* browseAct = menu.addAction("Browse this memory region");
-        auto* copyAct = menu.addAction("Copy address(es)");
+        auto* disasmAct = menu.addAction("Disassemble this memory region");
+        auto* copyAct = menu.addAction("Copy selected addresses");
+        menu.addSeparator();
+        auto* accAct = menu.addAction("Find out what accesses this address");
+        auto* wrAct  = menu.addAction("Find out what writes to this address");
         QAction* picked = menu.exec(resultsView_->viewport()->mapToGlobal(pos));
         if (!picked) return;
+        const uintptr_t firstAddr = resultsModel_->addressAt(sel.first().row());
+        auto openBrowserAt = [this](uintptr_t addr) {
+            if (!process_) return;
+            auto* b = new MemoryBrowser(process_.get(), this);
+            b->setAttribute(Qt::WA_DeleteOnClose);
+            wireBrowserAnnotations(b);
+            b->gotoAddress(addr);
+            b->show();
+        };
         if (picked == addAct) {
             for (auto& idx : sel)
                 addressListModel_->addEntry(resultsModel_->addressAt(idx.row()), lastResultType_);
-        } else if (picked == browseAct) {
-            onMemoryView();
+        } else if (picked == browseAct || picked == disasmAct) {
+            openBrowserAt(firstAddr);
         } else if (picked == copyAct) {
             QStringList addrs;
             for (auto& idx : sel)
                 addrs << QString("0x%1").arg(resultsModel_->addressAt(idx.row()), 0, 16);
             QApplication::clipboard()->setText(addrs.join('\n'));
+        } else if (picked == accAct) {
+            startCodeFinderForAddress(firstAddr, /*writesOnly=*/false);
+        } else if (picked == wrAct) {
+            startCodeFinderForAddress(firstAddr, /*writesOnly=*/true);
         }
     });
     // Ctrl+C copies the selected result addresses (the "Copy address(es)" menu

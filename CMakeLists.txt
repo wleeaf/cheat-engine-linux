@@ -316,6 +316,7 @@ if(Qt6_FOUND)
         gui/pointerscan_dialog.cpp
         gui/registereditor.cpp
         gui/structuredissector.cpp
+        gui/monodissector.cpp
         gui/luaconsole.cpp
         gui/breakpointlist.cpp
         gui/codefinder.cpp
@@ -389,6 +390,14 @@ if(Qt6_FOUND)
 
         # Offscreen render of the Auto Assembler window, for verifying its console +
         # syntax highlighting follow light/dark. `gui_script_shot <out.png> [dark]`.
+        qt_add_executable(gui_mono_shot
+            test/gui_mono_shot.cpp
+            gui/monodissector.cpp
+            gui/theme.cpp
+        )
+        target_include_directories(gui_mono_shot PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
+        target_link_libraries(gui_mono_shot PRIVATE cecore Qt6::Widgets)
+
         qt_add_executable(gui_script_shot
             test/gui_script_shot.cpp
             gui/scripteditor.cpp

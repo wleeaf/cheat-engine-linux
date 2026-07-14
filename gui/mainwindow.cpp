@@ -13,6 +13,7 @@
 #include "gui/scripteditor.hpp"
 #include "gui/pointerscan_dialog.hpp"
 #include "gui/structuredissector.hpp"
+#include "gui/monodissector.hpp"
 #include "gui/luaconsole.hpp"
 #include "gui/breakpointlist.hpp"
 #include "gui/codefinder.hpp"
@@ -2958,6 +2959,30 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
         if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
         auto* w = new FindStaticsWindow(process_.get(), this);
         w->setAttribute(Qt::WA_DeleteOnClose); w->show();
+    });
+    tools->addAction("Mono dissector...", this, [this]() {
+        if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
+        auto* w = new ce::gui::MonoDissectorWindow(process_.get(), this);
+        w->setAttribute(Qt::WA_DeleteOnClose);
+        // Double-clicking a field asks for the object's base address, then adds
+        // base+offset to the address list with the field's mapped type.
+        connect(w, &ce::gui::MonoDissectorWindow::addFieldRequested, this,
+                [this](quint32 offset, int valueType, const QString& label) {
+            bool ok = false;
+            QString base = QInputDialog::getText(this, "Add Mono field",
+                QString("Object base address for '%1' (field at +0x%2):")
+                    .arg(label).arg(offset, 0, 16),
+                QLineEdit::Normal, "", &ok);
+            if (!ok || base.trimmed().isEmpty()) return;
+            QString expr = QString("%1+0x%2").arg(base.trimmed()).arg(offset, 0, 16);
+            // Resolve now for the initial address; keep the expression so it
+            // re-evaluates each refresh (the base may be a pointer/symbol).
+            ce::ExpressionParser parser(process_.get(), &luaResolver_);
+            auto addr = parser.parse(expr.toStdString());
+            addressListModel_->addEntry(addr.value_or(0),
+                static_cast<ce::ValueType>(valueType), label, expr);
+        });
+        w->show();
     });
     tools->addAction("Lua Engine", this, [this]() {
         luaEngine_.setProcess(process_.get());

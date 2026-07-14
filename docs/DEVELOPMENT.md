@@ -556,7 +556,7 @@ Legend: ✅ solid · 🟡 partial/weak · ❌ absent · ❔ unknown/unverified
 |---|---|---|---|
 | Find what writes/accesses (HW watchpoints, DR0-3, multi-thread) | ✅ verified | ✅ | Ours works on non-root via `PR_SET_PTRACER_ANY` |
 | Software breakpoints (int3) | 🟡 single-thread | ✅ | |
-| **Interactive step debugger** (attach, step, continue, breakpoint UI, multi-thread) | ✅ shipped (2026-07) | ✅ | `DebuggerWindow`: attach, step into/over, continue, breakpoint UI, multi-thread via `PTRACE_O_TRACECLONE`; verified by `gui_debugger_smoke`. (Was the doc's headline gap; now closed.) |
+| **Interactive step debugger** (attach, step, continue, breakpoint UI, multi-thread) | ✅ shipped + polished (2026-07) | ✅ | `DebuggerWindow`: attach, step into/over, continue, multi-thread (`PTRACE_O_TRACECLONE`). Polish: **conditional breakpoints** (Lua expr on register state, auto-continue when false), **data breakpoints** (hardware DR0-3 watchpoints, break on write/access), **break-on-exceptions** menu (SIGSEGV/…), and the Memory Viewer step buttons now open it. Verified by `gui_debugger_smoke`. |
 | Register / FPU / stack / thread / module / heap views | ✅ | ✅ (7.7 improved FPU-change display) | |
 | Break-and-trace | ✅ | ✅ | |
 | Branch tracing | 🟡 LBR branch mapper (our Ultimap analog) | ✅ Ultimap/Ultimap2 (Windows; Linux ❔) | |

@@ -39,6 +39,9 @@ extern "C" {
 #include <fstream>
 #include <unistd.h>
 #include <fcntl.h>
+#include <dirent.h>
+#include <sys/ioctl.h>
+#include <linux/input.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/prctl.h>
@@ -2201,6 +2204,77 @@ static int l_generateTrainer(lua_State* L) {
 
 // ── Managed runtime detection (Mono / .NET / CoreCLR) ──
 // getManagedRuntimes() -> array of { kind, name, module, modulePath, base, size }
+// ── isKeyPressed(vk [, vk2, …]) — global key state, no window focus needed ──
+// CE tables poll this for hotkeys. We map Windows virtual-key codes (what tables
+// pass) to Linux evdev KEY_* codes and read the live pressed-key bitmap via
+// EVIOCGKEY across all /dev/input/event* devices — works headless and under the
+// GUI, needs read access to /dev/input (root, which this tool usually has).
+static int linuxKeyForVk(int vk) {
+    static const std::unordered_map<int, int> kMap = {
+        {0x08, KEY_BACKSPACE}, {0x09, KEY_TAB}, {0x0D, KEY_ENTER}, {0x1B, KEY_ESC},
+        {0x20, KEY_SPACE}, {0x10, KEY_LEFTSHIFT}, {0x11, KEY_LEFTCTRL}, {0x12, KEY_LEFTALT},
+        {0xA0, KEY_LEFTSHIFT}, {0xA1, KEY_RIGHTSHIFT}, {0xA2, KEY_LEFTCTRL}, {0xA3, KEY_RIGHTCTRL},
+        {0xA4, KEY_LEFTALT}, {0xA5, KEY_RIGHTALT},
+        {0x25, KEY_LEFT}, {0x26, KEY_UP}, {0x27, KEY_RIGHT}, {0x28, KEY_DOWN},
+        {0x2D, KEY_INSERT}, {0x2E, KEY_DELETE}, {0x24, KEY_HOME}, {0x23, KEY_END},
+        {0x21, KEY_PAGEUP}, {0x22, KEY_PAGEDOWN}, {0x14, KEY_CAPSLOCK},
+        // digits 0-9
+        {0x30, KEY_0}, {0x31, KEY_1}, {0x32, KEY_2}, {0x33, KEY_3}, {0x34, KEY_4},
+        {0x35, KEY_5}, {0x36, KEY_6}, {0x37, KEY_7}, {0x38, KEY_8}, {0x39, KEY_9},
+        // letters A-Z (Windows VK 0x41-0x5A)
+        {0x41, KEY_A}, {0x42, KEY_B}, {0x43, KEY_C}, {0x44, KEY_D}, {0x45, KEY_E},
+        {0x46, KEY_F}, {0x47, KEY_G}, {0x48, KEY_H}, {0x49, KEY_I}, {0x4A, KEY_J},
+        {0x4B, KEY_K}, {0x4C, KEY_L}, {0x4D, KEY_M}, {0x4E, KEY_N}, {0x4F, KEY_O},
+        {0x50, KEY_P}, {0x51, KEY_Q}, {0x52, KEY_R}, {0x53, KEY_S}, {0x54, KEY_T},
+        {0x55, KEY_U}, {0x56, KEY_V}, {0x57, KEY_W}, {0x58, KEY_X}, {0x59, KEY_Y}, {0x5A, KEY_Z},
+        // numpad 0-9
+        {0x60, KEY_KP0}, {0x61, KEY_KP1}, {0x62, KEY_KP2}, {0x63, KEY_KP3}, {0x64, KEY_KP4},
+        {0x65, KEY_KP5}, {0x66, KEY_KP6}, {0x67, KEY_KP7}, {0x68, KEY_KP8}, {0x69, KEY_KP9},
+        {0x6A, KEY_KPASTERISK}, {0x6B, KEY_KPPLUS}, {0x6D, KEY_KPMINUS}, {0x6E, KEY_KPDOT},
+        {0x6F, KEY_KPSLASH},
+        // F1-F12
+        {0x70, KEY_F1}, {0x71, KEY_F2}, {0x72, KEY_F3}, {0x73, KEY_F4}, {0x74, KEY_F5},
+        {0x75, KEY_F6}, {0x76, KEY_F7}, {0x77, KEY_F8}, {0x78, KEY_F9}, {0x79, KEY_F10},
+        {0x7A, KEY_F11}, {0x7B, KEY_F12},
+    };
+    auto it = kMap.find(vk);
+    return it == kMap.end() ? -1 : it->second;
+}
+
+static bool linuxKeyDown(int keycode) {
+    if (keycode < 0 || keycode > KEY_MAX) return false;
+    DIR* d = ::opendir("/dev/input");
+    if (!d) return false;
+    bool down = false;
+    struct dirent* e;
+    const size_t wordBits = 8 * sizeof(unsigned long);
+    while ((e = ::readdir(d)) && !down) {
+        if (std::strncmp(e->d_name, "event", 5) != 0) continue;
+        std::string path = std::string("/dev/input/") + e->d_name;
+        int fd = ::open(path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+        if (fd < 0) continue;
+        unsigned long keys[(KEY_MAX / wordBits) + 1] = {0};
+        if (::ioctl(fd, EVIOCGKEY(sizeof(keys)), keys) >= 0)
+            down = (keys[keycode / wordBits] >> (keycode % wordBits)) & 1UL;
+        ::close(fd);
+    }
+    ::closedir(d);
+    return down;
+}
+
+static int l_isKeyPressed(lua_State* L) {
+    // All supplied keys must be down (CE allows a small combo).
+    int n = lua_gettop(L);
+    if (n < 1) { lua_pushboolean(L, 0); return 1; }
+    for (int i = 1; i <= n; ++i) {
+        int vk = (int)luaL_checkinteger(L, i);
+        int kc = linuxKeyForVk(vk);
+        if (kc < 0 || !linuxKeyDown(kc)) { lua_pushboolean(L, 0); return 1; }
+    }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
 static int l_getManagedRuntimes(lua_State* L) {
     auto* p = getProc(L);
     lua_newtable(L);
@@ -3679,6 +3753,7 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "loadTable", l_loadTable);
     lua_register(L, "generateTrainer", l_generateTrainer);
     lua_register(L, "generateTrainerSource", l_generateTrainerSource);
+    lua_register(L, "isKeyPressed", l_isKeyPressed);
     lua_register(L, "getManagedRuntimes", l_getManagedRuntimes);
     lua_register(L, "monoDissect", l_monoDissect);
     lua_register(L, "pointerScan", l_pointerScan);

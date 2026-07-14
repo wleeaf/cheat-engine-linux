@@ -314,6 +314,7 @@ if(Qt6_FOUND)
         gui/codefinder.cpp
         gui/codereferences.cpp
         gui/advancedoptions.cpp
+        gui/changeaddressdialog.cpp
         gui/heapregions.cpp
         gui/memoryregions.cpp
         gui/modulelist.cpp

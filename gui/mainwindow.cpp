@@ -6,6 +6,7 @@
 #include "gui/debuggerwindow.hpp"
 #include "gui/memorybrowser.hpp"
 #include "gui/advancedoptions.hpp"
+#include "gui/changeaddressdialog.hpp"
 #include "gui/scripteditor.hpp"
 #include "gui/pointerscan_dialog.hpp"
 #include "gui/structuredissector.hpp"
@@ -1168,6 +1169,27 @@ void MainWindow::setupUi() {
             // address to edit, so this opens the script in the AA editor.
             if (selected.size() == 1 && addressListModel_->isScriptEntry(firstRow)) {
                 menu.addAction("Edit script...", [this, firstRow]() { editScriptEntry(firstRow); });
+                menu.addSeparator();
+            } else if (selected.size() == 1 && firstRow < (int)addressListModel_->entries().size()
+                       && !addressListModel_->entries()[firstRow].isGroup) {
+                // CE "Change address" (formAddressChangeUnit): edit address/type/flags.
+                menu.addAction("Change address...", [this, firstRow]() {
+                    const auto& e = addressListModel_->entries()[firstRow];
+                    QString addrStr = !e.addressExpr.isEmpty()
+                        ? e.addressExpr : QString("%1").arg((qulonglong)e.address, 0, 16);
+                    ce::gui::ChangeAddressDialog dlg(addrStr, e.type, e.showAsHex, 1, this);
+                    if (dlg.exec() != QDialog::Accepted) return;
+                    const int id = e.id;
+                    const QString a = dlg.address();
+                    bool numeric = false;
+                    qulonglong v = a.toULongLong(&numeric, 16);
+                    if (numeric && !a.contains('[') && !a.contains('+') && !a.contains(' '))
+                        addressListModel_->setAddress(id, (uintptr_t)v);
+                    else
+                        addressListModel_->setAddressExpression(id, a.toStdString());
+                    addressListModel_->setType(id, dlg.valueType());
+                    addressListModel_->setHexView(id, dlg.showHex());
+                });
                 menu.addSeparator();
             }
 

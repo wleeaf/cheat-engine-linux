@@ -310,6 +310,8 @@ public:
     bool setValue(int id, const std::string& valStr) override;
     bool setActive(int id, bool active) override;
     bool setColor(int id, const std::string& color) override;
+    bool setDropdownList(int id, const QString& list);
+    QString dropdownList(int row) const;
     bool setScript(int id, const std::string& script) override;
     bool setFreezeMode(int id, int mode) override;
     bool setHexView(int id, bool hex) override;

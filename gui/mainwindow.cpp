@@ -1415,6 +1415,20 @@ void MainWindow::setupUi() {
                     if (idx.row() < (int)entries.size())
                         addressListModel_->setColor(entries[idx.row()].id, c.name().toStdString());
             });
+            // CE "Set/Change dropdown selection options".
+            if (selected.size() == 1) {
+                menu.addAction("Set/Change dropdown selection options...", [this, firstRow]() {
+                    const auto& entries = addressListModel_->entries();
+                    if (firstRow >= (int)entries.size()) return;
+                    bool ok = false;
+                    QString v = QInputDialog::getMultiLineText(this, "Dropdown options",
+                        "One \"value:label\" per line (or value alone):",
+                        addressListModel_->dropdownList(firstRow).split(';').join('\n'), &ok);
+                    if (ok)
+                        addressListModel_->setDropdownList(entries[firstRow].id,
+                                                           v.split('\n', Qt::SkipEmptyParts).join(';'));
+                });
+            }
             if (selected.size() == 1) {
                 menu.addSeparator();
                 menu.addAction("Configure Hotkey...", [this, selected]() {
@@ -3962,6 +3976,18 @@ bool AddressListModel::setColor(int id, const std::string& color) {
     entries_[row].color = QString::fromStdString(color);
     emit dataChanged(index(row, 1), index(row, columnCount() - 1));
     return true;
+}
+
+bool AddressListModel::setDropdownList(int id, const QString& list) {
+    int row = rowOfId(id);
+    if (row < 0) return false;
+    entries_[row].dropdownList = list;
+    emit dataChanged(index(row, 1), index(row, columnCount() - 1));
+    return true;
+}
+
+QString AddressListModel::dropdownList(int row) const {
+    return (row >= 0 && row < (int)entries_.size()) ? entries_[row].dropdownList : QString();
 }
 
 bool AddressListModel::setScript(int id, const std::string& script) {

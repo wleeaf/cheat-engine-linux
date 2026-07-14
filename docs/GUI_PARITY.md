@@ -159,7 +159,7 @@ Languages
 | APIhooktemplatesettingsfrm | Api hook template | 12 | 2 | 0 | — | ❌ missing |
 | celistviewitemeditor | Item editor | 12 | 8 | 0 | — | ❌ missing |
 | frmexceptionregionlistunit | Exception region list | 12 | 9 | 4 | — | ❌ missing |
-| frmmemoryrecorddropdownsettingsunit | Dropdown options | 12 | 12 | 4 | — | ❌ missing |
+| frmmemoryrecorddropdownsettingsunit | Dropdown options | 12 | 12 | 4 | `mainwindow` | ✅ |
 | networkConfig | Connect to server | 12 | 9 | 2 | — | ❌ missing |
 | frmBreakpointConditionUnit | Breakpoint condition | 11 | 7 | 0 | — | ❌ missing |
 | frmSaveSnapshotsUnit | Save snapshots | 11 | 14 | 0 | — | ❌ missing |

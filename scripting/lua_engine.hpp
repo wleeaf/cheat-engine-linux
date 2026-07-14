@@ -11,6 +11,7 @@
 #include <memory>
 #include <deque>
 #include <map>
+#include <vector>
 #include <mutex>
 #include <condition_variable>
 
@@ -90,6 +91,27 @@ public:
     /// Fire every enabled timer whose interval has elapsed. Safe to call often.
     void pumpTimers();
 
+    // ── CE stringlist object (createStringlist / stringlist_* ) ──
+    // A named list of strings; indices are 0-based (CE convention).
+    int  createStringlist();
+    void stringlistAdd(int id, const std::string& s);
+    int  stringlistCount(int id) const;
+    std::string stringlistGet(int id, int index) const;
+    void stringlistSet(int id, int index, const std::string& s);
+    void stringlistRemove(int id, int index);
+    void stringlistClear(int id);
+    bool isStringlist(int id) const { return stringlists_.count(id) != 0; }
+    void destroyStringlist(int id) { stringlists_.erase(id); }
+
+    /// Host hook for selectFilePath(sender, settingName): opens a file chooser and
+    /// returns the chosen path (empty = cancelled). Unset (headless) => returns "".
+    void setFilePicker(std::function<std::string(const std::string& settingName)> cb) {
+        filePicker_ = std::move(cb);
+    }
+    std::string pickFilePath(const std::string& settingName) {
+        return filePicker_ ? filePicker_(settingName) : std::string();
+    }
+
     std::function<void(const std::string&)> outputCb_;
 
 private:
@@ -114,7 +136,9 @@ private:
 
     struct LuaTimer { double intervalMs = 1000; double lastMs = 0; int cbRef = -2 /*LUA_NOREF*/; bool enabled = true; };
     std::map<int, LuaTimer> timers_;
-    int nextTimerId_ = 1;
+    std::map<int, std::vector<std::string>> stringlists_;
+    int nextObjectId_ = 1;   // shared id space for timers + stringlists (object_destroy)
+    std::function<std::string(const std::string&)> filePicker_;
 };
 
 /// Register extended CE API bindings (defined in lua_bindings.cpp)

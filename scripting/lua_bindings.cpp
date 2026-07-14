@@ -2317,6 +2317,76 @@ static int l_object_destroy(lua_State* L) {
     if (eng && lua_isnumber(L, 1)) {
         int id = (int)lua_tointeger(L, 1);
         if (eng->isTimer(id)) eng->destroyTimer(id);
+        else if (eng->isStringlist(id)) eng->destroyStringlist(id);
+    }
+    return 0;
+}
+
+// ── CE stringlist: createStringlist() -> id; stringlist_add(id, s);
+//    stringlist_getCount(id); stringlist_getString(id, index) [0-based]; … ──
+static int l_createStringlist(lua_State* L) {
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    if (!eng) { lua_pushnil(L); return 1; }
+    lua_pushinteger(L, eng->createStringlist());
+    return 1;
+}
+static int l_stringlist_add(lua_State* L) {
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    if (eng) eng->stringlistAdd((int)luaL_checkinteger(L, 1), luaL_checkstring(L, 2));
+    return 0;
+}
+static int l_stringlist_getCount(lua_State* L) {
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    lua_pushinteger(L, eng ? eng->stringlistCount((int)luaL_checkinteger(L, 1)) : 0);
+    return 1;
+}
+static int l_stringlist_getString(lua_State* L) {
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    if (!eng) { lua_pushnil(L); return 1; }
+    std::string s = eng->stringlistGet((int)luaL_checkinteger(L, 1), (int)luaL_checkinteger(L, 2));
+    lua_pushstring(L, s.c_str());
+    return 1;
+}
+static int l_stringlist_setString(lua_State* L) {
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    if (eng) eng->stringlistSet((int)luaL_checkinteger(L, 1), (int)luaL_checkinteger(L, 2), luaL_checkstring(L, 3));
+    return 0;
+}
+static int l_stringlist_remove(lua_State* L) {
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    if (eng) eng->stringlistRemove((int)luaL_checkinteger(L, 1), (int)luaL_checkinteger(L, 2));
+    return 0;
+}
+static int l_stringlist_clear(lua_State* L) {
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    if (eng) eng->stringlistClear((int)luaL_checkinteger(L, 1));
+    return 0;
+}
+
+// selectFilePath(sender, settingName) -> path (or nil if cancelled/headless).
+// Uses the host file-picker hook (the GUI opens a QFileDialog); nil when unset.
+static int l_selectFilePath(lua_State* L) {
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    const char* setting = lua_isstring(L, 2) ? lua_tostring(L, 2)
+                        : (lua_isstring(L, 1) ? lua_tostring(L, 1) : "");
+    std::string path = eng ? eng->pickFilePath(setting ? setting : "") : std::string();
+    if (path.empty()) lua_pushnil(L); else lua_pushstring(L, path.c_str());
+    return 1;
+}
+
+// playSound(path) — best-effort: play a WAV via paplay, then aplay, forked (no
+// shell, so no injection). No-op if neither player exists.
+static int l_playSound(lua_State* L) {
+    const char* path = lua_tostring(L, 1);
+    if (!path || !*path) return 0;
+    pid_t pid = fork();
+    if (pid == 0) {
+        // Child: detach from stdio, try paplay then aplay.
+        int devnull = ::open("/dev/null", O_WRONLY);
+        if (devnull >= 0) { dup2(devnull, 1); dup2(devnull, 2); }
+        execlp("paplay", "paplay", path, (char*)nullptr);
+        execlp("aplay", "aplay", "-q", path, (char*)nullptr);
+        _exit(127);
     }
     return 0;
 }
@@ -3805,6 +3875,15 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "timer_onTimer", l_timer_onTimer);
     lua_register(L, "timer_setEnabled", l_timer_setEnabled);
     lua_register(L, "object_destroy", l_object_destroy);
+    lua_register(L, "createStringlist", l_createStringlist);
+    lua_register(L, "stringlist_add", l_stringlist_add);
+    lua_register(L, "stringlist_getCount", l_stringlist_getCount);
+    lua_register(L, "stringlist_getString", l_stringlist_getString);
+    lua_register(L, "stringlist_setString", l_stringlist_setString);
+    lua_register(L, "stringlist_remove", l_stringlist_remove);
+    lua_register(L, "stringlist_clear", l_stringlist_clear);
+    lua_register(L, "selectFilePath", l_selectFilePath);
+    lua_register(L, "playSound", l_playSound);
     lua_register(L, "getManagedRuntimes", l_getManagedRuntimes);
     lua_register(L, "monoDissect", l_monoDissect);
     lua_register(L, "pointerScan", l_pointerScan);

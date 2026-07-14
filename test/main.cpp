@@ -492,6 +492,26 @@ static void test_mono_dissector_parse() {
     printf("  namespaced class name split: %s\n", nsOk ? "OK" : "FAILED");
 }
 
+// CE stringlist object: add/count/get (0-based)/set/remove/destroy.
+static void test_lua_stringlist() {
+    printf("\n── Test: Lua stringlist API ──\n");
+    ce::LuaEngine eng;
+    auto run = [&](const char* c) { return eng.evalToString(c); };
+    eng.execute("sl=createStringlist(); stringlist_add(sl,'a'); stringlist_add(sl,'b'); stringlist_add(sl,'c')");
+    int count = 0; if (auto v = run("return stringlist_getCount(sl)")) count = std::atoi(v->c_str());
+    std::string first, last;
+    if (auto v = run("return stringlist_getString(sl,0)")) first = *v;
+    if (auto v = run("return stringlist_getString(sl,2)")) last = *v;
+    bool basic = count == 3 && first == "a" && last == "c";
+    eng.execute("stringlist_setString(sl,1,'B'); stringlist_remove(sl,0)");
+    std::string afterEdit; int afterCount = 0;
+    if (auto v = run("return stringlist_getString(sl,0)")) afterEdit = *v;
+    if (auto v = run("return stringlist_getCount(sl)")) afterCount = std::atoi(v->c_str());
+    bool edit = afterEdit == "B" && afterCount == 2;   // removed 'a', 'b'->'B'
+    printf("  add/count/get (0-based): %s\n", basic ? "OK" : "FAILED");
+    printf("  set/remove: %s\n", edit ? "OK" : "FAILED");
+}
+
 // CE timer API: createTimer/timer_onTimer fire from pumpTimers(); disable + destroy.
 static void test_lua_timers() {
     printf("\n── Test: Lua timer API (createTimer/timer_onTimer/pump) ──\n");
@@ -7934,6 +7954,7 @@ int main(int argc, char* argv[]) {
 
     test_cheat_table_json();
     test_mono_dissector_parse();
+    test_lua_stringlist();
     test_lua_timers();
     test_logging();
     test_ce_table_import();

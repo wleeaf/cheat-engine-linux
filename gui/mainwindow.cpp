@@ -120,6 +120,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(luaTimerPump, &QTimer::timeout, this, [this]() { luaEngine_.pumpTimers(); });
     luaTimerPump->start(30);
 
+    // selectFilePath(sender, setting) in a table's Lua opens a real file chooser.
+    luaEngine_.setFilePicker([this](const std::string& setting) -> std::string {
+        QString title = setting.empty() ? QString("Select file")
+                                        : QString("Select file for %1").arg(QString::fromStdString(setting));
+        return QFileDialog::getOpenFileName(this, title).toStdString();
+    });
+
     // Lua-evaluated AA blocks: {$lua}return "..."{$asm} substitutes the result
     // into the AA stream at preprocess time.
     autoAsm_.setLuaEvaluator([this](const std::string& code) {

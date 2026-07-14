@@ -375,7 +375,7 @@ static double steadyNowMs() {
 }
 
 int LuaEngine::createTimer(double intervalMs) {
-    int id = nextTimerId_++;
+    int id = nextObjectId_++;
     LuaTimer t;
     t.intervalMs = intervalMs > 0 ? intervalMs : 1000;
     t.lastMs = steadyNowMs();
@@ -405,6 +405,40 @@ void LuaEngine::destroyTimer(int id) {
     if (it == timers_.end()) return;
     if (L_ && it->second.cbRef >= 0) luaL_unref(L_, LUA_REGISTRYINDEX, it->second.cbRef);
     timers_.erase(it);
+}
+
+// ── CE stringlist object ──
+
+int LuaEngine::createStringlist() {
+    int id = nextObjectId_++;
+    stringlists_[id] = {};
+    return id;
+}
+void LuaEngine::stringlistAdd(int id, const std::string& s) {
+    auto it = stringlists_.find(id);
+    if (it != stringlists_.end()) it->second.push_back(s);
+}
+int LuaEngine::stringlistCount(int id) const {
+    auto it = stringlists_.find(id);
+    return it == stringlists_.end() ? 0 : static_cast<int>(it->second.size());
+}
+std::string LuaEngine::stringlistGet(int id, int index) const {
+    auto it = stringlists_.find(id);
+    if (it == stringlists_.end() || index < 0 || index >= (int)it->second.size()) return {};
+    return it->second[index];
+}
+void LuaEngine::stringlistSet(int id, int index, const std::string& s) {
+    auto it = stringlists_.find(id);
+    if (it != stringlists_.end() && index >= 0 && index < (int)it->second.size()) it->second[index] = s;
+}
+void LuaEngine::stringlistRemove(int id, int index) {
+    auto it = stringlists_.find(id);
+    if (it != stringlists_.end() && index >= 0 && index < (int)it->second.size())
+        it->second.erase(it->second.begin() + index);
+}
+void LuaEngine::stringlistClear(int id) {
+    auto it = stringlists_.find(id);
+    if (it != stringlists_.end()) it->second.clear();
 }
 
 void LuaEngine::pumpTimers() {

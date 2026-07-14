@@ -21,6 +21,7 @@
 #include "core/aa_templates.hpp"
 #include "core/injection_gen.hpp"
 #include "core/ct_file.hpp"
+#include "core/log.hpp"
 #include "arch/disassembler.hpp"
 #include "core/expression.hpp"
 #include "core/trainer.hpp"
@@ -454,6 +455,38 @@ static void test_ce_table_import() {
     printf("  saver: raw address (no over-escape): %s\n", rawAddr ? "OK" : "FAILED");
     printf("  saver: AA record keeps its type, no bogus address: %s\n", aaType ? "OK" : "FAILED");
     printf("  saver: negative offset survives round-trip: %s\n", (negHex && fidelityOk) ? "OK" : "FAILED");
+}
+
+// The diagnostic logging facility: level parsing, per-category gating, Off.
+static void test_logging() {
+    printf("\n── Test: diagnostic logging (ce::log) ──\n");
+    namespace log = ce::log;
+
+    log::Level lv;
+    bool parseOk = log::parseLevel("debug", lv) && lv == log::Level::Debug &&
+                   log::parseLevel("WARN", lv)  && lv == log::Level::Warn &&
+                   log::parseLevel("Trace", lv) && lv == log::Level::Trace &&
+                   !log::parseLevel("nonsense", lv);
+    printf("  parseLevel (names, case-insensitive): %s\n", parseOk ? "OK" : "FAILED");
+
+    // Raising one category must not affect another.
+    log::setLevelAll(log::Level::Warn);
+    log::setLevel(log::Cat::Ptrace, log::Level::Trace);
+    bool gateOk =
+        log::enabled(log::Cat::Ptrace, log::Level::Trace) &&   // raised -> trace passes
+        log::enabled(log::Cat::Ptrace, log::Level::Debug) &&
+        !log::enabled(log::Cat::Scan, log::Level::Info) &&     // untouched -> still Warn
+        !log::enabled(log::Cat::Scan, log::Level::Debug) &&
+        log::enabled(log::Cat::Scan, log::Level::Warn) &&
+        log::enabled(log::Cat::Scan, log::Level::Error);       // errors pass at Warn
+    printf("  per-category level gating: %s\n", gateOk ? "OK" : "FAILED");
+
+    // Off silences even errors for that category.
+    log::setLevel(log::Cat::Lua, log::Level::Off);
+    bool offOk = !log::enabled(log::Cat::Lua, log::Level::Error);
+    printf("  Off silences a category: %s\n", offOk ? "OK" : "FAILED");
+
+    log::setLevelAll(log::Level::Warn);   // restore baseline for the rest of the suite
 }
 
 // Format detection must be driven by file CONTENT, not extension: downloaded CE
@@ -7838,6 +7871,7 @@ int main(int argc, char* argv[]) {
     }
 
     test_cheat_table_json();
+    test_logging();
     test_ce_table_import();
     test_ct_format_detection();
     test_ct_forms_roundtrip();

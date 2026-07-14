@@ -1,6 +1,7 @@
 /// cescan — Cheat Engine CLI for Linux
 /// Usage: sudo cescan <command> [args...]
 
+#include "core/log.hpp"
 #include <clocale>
 #include "platform/linux/linux_process.hpp"
 #include "platform/linux/ptrace_wrapper.hpp"
@@ -670,6 +671,10 @@ int main(int argc, char** argv) {
     // LC_NUMERIC=tr_TR.UTF-8 (comma decimal), and a future dependency that
     // activates the environment locale would otherwise silently parse "3.14" as 3.
     std::setlocale(LC_ALL, "C");
+
+    // Diagnostics: `CE_LOG=debug cescan …` (or per-category `CE_LOG=ptrace:trace`)
+    // and `CE_LOG_FILE=/path` turn on cecore's logging with no rebuild.
+    ce::log::initFromEnv();
 
     if (argc < 2) { usage(); return 1; }
 

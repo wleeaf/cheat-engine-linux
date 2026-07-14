@@ -173,6 +173,7 @@ add_library(cecore SHARED
     core/injection_gen.cpp
     core/expression.cpp
     core/ct_file.cpp
+    core/log.cpp
     core/trainer.cpp
     analysis/code_analysis.cpp
     analysis/il2cpp_metadata.cpp

@@ -1,4 +1,5 @@
 #include "gui/mainwindow.hpp"
+#include "core/log.hpp"
 #include "gui/theme.hpp"
 #include <QFile>
 #include <QApplication>
@@ -23,6 +24,10 @@ int main(int argc, char* argv[]) {
             return 0;
         }
     }
+
+    // Diagnostics: CE_LOG / CE_LOG_FILE turn on cecore logging with no rebuild
+    // (e.g. `CE_LOG=ptrace:debug ./cheatengine` to see why a memory pane is blank).
+    ce::log::initFromEnv();
 
     QApplication app(argc, argv);
     app.setApplicationName("Cheat Engine");

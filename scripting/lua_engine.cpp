@@ -1,5 +1,6 @@
 #include "core/expression.hpp"
 #include "scripting/lua_engine.hpp"
+#include "core/log.hpp"
 #include "core/address_list.hpp"
 #include "debug/debug_session.hpp"
 #include "platform/linux/ceserver_client.hpp"   // complete type for ownedCeserverClient_
@@ -337,6 +338,7 @@ LuaEngine::evalToString(const std::string& code) {
     if (luaL_dostring(L_, code.c_str()) != LUA_OK) {
         std::string err = lua_tostring(L_, -1) ? lua_tostring(L_, -1) : "lua error";
         lua_pop(L_, 1);
+        ce::log::warn(ce::log::Cat::Lua, "eval error: {}", err);
         return std::unexpected(err);
     }
     int returned = lua_gettop(L_) - top;

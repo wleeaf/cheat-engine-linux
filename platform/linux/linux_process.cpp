@@ -21,6 +21,8 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <cerrno>
+#include <cstring>
+#include "core/log.hpp"
 
 namespace ce::os {
 
@@ -95,8 +97,15 @@ Result<size_t> LinuxProcessHandle::read(uintptr_t address, void* buffer, size_t 
     struct iovec remote = { (void*)address,  size };
 
     ssize_t n = process_vm_readv(pid_, &local, 1, &remote, 1, 0);
-    if (n < 0)
+    if (n < 0) {
+        // The usual cause of a blank memory/disassembly pane: EPERM from
+        // ptrace_scope on a non-child same-user process. `CE_LOG=ptrace:debug`
+        // makes the reason visible instead of a silent empty view.
+        ce::log::debug(ce::log::Cat::Ptrace,
+            "process_vm_readv pid={} @ {:#x} size={} failed: {}",
+            pid_, address, size, std::strerror(errno));
         return std::unexpected(std::error_code(errno, std::system_category()));
+    }
     return static_cast<size_t>(n);
 }
 
@@ -105,8 +114,12 @@ Result<size_t> LinuxProcessHandle::write(uintptr_t address, const void* buffer, 
     struct iovec remote = { (void*)address,            size };
 
     ssize_t n = process_vm_writev(pid_, &local, 1, &remote, 1, 0);
-    if (n < 0)
+    if (n < 0) {
+        ce::log::debug(ce::log::Cat::Ptrace,
+            "process_vm_writev pid={} @ {:#x} size={} failed: {}",
+            pid_, address, size, std::strerror(errno));
         return std::unexpected(std::error_code(errno, std::system_category()));
+    }
     return static_cast<size_t>(n);
 }
 

@@ -1,5 +1,6 @@
 #include <charconv>
 #include "core/ct_file.hpp"
+#include "core/log.hpp"
 #include <fstream>
 #include <sstream>
 #include <cstring>
@@ -793,15 +794,25 @@ TableFormat detectTableFormat(const std::string& path) {
 }
 
 bool CheatTable::loadAuto(const std::string& path) {
-    switch (detectTableFormat(path)) {
-        case TableFormat::Xml:  return load(path);
-        case TableFormat::Json: return loadJson(path);
-        case TableFormat::Protected: return false;  // needs a password
+    TableFormat fmt = detectTableFormat(path);
+    bool ok = false;
+    switch (fmt) {
+        case TableFormat::Xml:  ok = load(path); break;
+        case TableFormat::Json: ok = loadJson(path); break;
+        case TableFormat::Protected: ok = false; break;  // needs a password
         case TableFormat::Unknown:
             // Ambiguous: try both parsers, each self-validates and rejects a mismatch.
-            return load(path) || loadJson(path);
+            ok = load(path) || loadJson(path); break;
     }
-    return false;
+    const char* fmtName = fmt == TableFormat::Xml ? "xml" : fmt == TableFormat::Json ? "json"
+                        : fmt == TableFormat::Protected ? "protected" : "unknown";
+    if (ok)
+        ce::log::info(ce::log::Cat::Ct, "loaded table '{}' (format={}, {} entries)",
+                      path, fmtName, entries.size());
+    else
+        ce::log::warn(ce::log::Cat::Ct, "failed to load table '{}' (detected format={})",
+                      path, fmtName);
+    return ok;
 }
 
 bool CheatTable::load(const std::string& path) {

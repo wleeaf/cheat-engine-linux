@@ -121,7 +121,7 @@ Languages
 | frmExeTrainerGeneratorUnit | Exe Trainer Generator | 31 | 16 | 1 | — | ❌ missing |
 | frmstructuresconfigunit | Dissect Data Config | 30 | 15 | 0 | `structuredissector` | ⚠️ dissect config |
 | DissectCodeunit | Dissect Code | 27 | 9 | 3 | — | ❌ missing |
-| frmMemoryViewExUnit | Graphical Memory View  | 27 | 25 | 0 | — | ❌ missing |
+| frmMemoryViewExUnit | Graphical Memory View  | 27 | 25 | 0 | `graphicalmemoryview` | ✅ |
 | frmcodefilterunit | Code Filter | 27 | 24 | 4 | — | ❌ missing |
 | frmfoundlistpreferencesunit | Foundlist Customizer | 27 | 11 | 0 | — | ❌ missing |
 | frmRegistersunit | Registers | 25 | 40 | 5 | `registereditor` | ✅ |

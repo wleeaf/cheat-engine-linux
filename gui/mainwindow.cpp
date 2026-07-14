@@ -7,6 +7,7 @@
 #include "gui/memorybrowser.hpp"
 #include "gui/advancedoptions.hpp"
 #include "gui/changeaddressdialog.hpp"
+#include "gui/graphicalmemoryview.hpp"
 #include "gui/scripteditor.hpp"
 #include "gui/pointerscan_dialog.hpp"
 #include "gui/structuredissector.hpp"
@@ -462,6 +463,13 @@ void MainWindow::setupMenus() {
         });
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         dlg->show();
+    });
+    // CE frmMemoryViewExUnit (Graphical Memory View): bytes as pixels.
+    tools->addAction("Graphical Memory View...", this, [this]() {
+        if (!process_) { QMessageBox::warning(this, "Graphical Memory View", "Open a process first."); return; }
+        auto* w = new ce::gui::GraphicalMemoryView(process_.get(), this);
+        w->setAttribute(Qt::WA_DeleteOnClose);
+        w->show();
     });
     tools->addAction("ELF Inspector...", this, [this]() {
         QString initial;

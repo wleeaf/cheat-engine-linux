@@ -16,6 +16,7 @@ from lfm_parser import parse_lfm_file
 # that a Linux build does not show (Windows/DBVM/Direct3D/.NET-on-Windows only).
 MAP = {
     "MainUnit": ("mainwindow", ""),
+    "frmMemoryViewExUnit": ("graphicalmemoryview", ""),
     "frmluaengineunit": ("luaconsole", ""),
     "frmFindstaticsUnit": ("findstaticswindow", ""),
     "ProcessWindowUnit": ("processlistdialog", ""),

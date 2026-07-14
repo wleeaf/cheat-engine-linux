@@ -316,6 +316,7 @@ if(Qt6_FOUND)
         gui/advancedoptions.cpp
         gui/changeaddressdialog.cpp
         gui/memviewpreferences.cpp
+        gui/graphicalmemoryview.cpp
         gui/heapregions.cpp
         gui/memoryregions.cpp
         gui/modulelist.cpp

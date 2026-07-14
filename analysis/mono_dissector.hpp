@@ -49,6 +49,10 @@ struct MonoDissection {
 /// Parse the agent's dump text (IMG/CLS/FLD lines). Pure + testable; no process.
 MonoDissection parseMonoDump(const std::string& text);
 
+/// Locate libcecore_mono_agent.so relative to the running executable (build tree
+/// and installed layouts) or on the library path. Returns "" if not found.
+std::string findMonoAgentPath();
+
 /// Inject the agent .so into `proc`, wait up to timeoutMs for its dump to
 /// complete, and parse it. `agentSoPath` is the path to libcecore_mono_agent.so.
 /// Returns nullopt if injection fails; on success the result's `ready`/`error`

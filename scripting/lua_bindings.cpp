@@ -6,6 +6,7 @@
 #include "core/trainer.hpp"
 #include "core/address_list.hpp"
 #include "analysis/managed_runtime.hpp"
+#include "analysis/mono_dissector.hpp"
 #include "analysis/structure_tools.hpp"
 #include "analysis/code_analysis.hpp"
 #include "scripting/lua_memrec.hpp"
@@ -2220,6 +2221,61 @@ static int l_getManagedRuntimes(lua_State* L) {
     return 1;
 }
 
+// monoDissect() -> { ready, error, images = { {name, classes = { {namespace,
+//   name, fullName, fields = { {name, type, offset, static}, ... } } } } } }
+// Injects the in-process Mono agent, waits for it, and returns the ground-truth
+// class/field layout. Returns nil + message if there's no target, the agent .so
+// can't be found, or injection fails.
+static int l_monoDissect(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process"); return 2; }
+    std::string agent = ce::findMonoAgentPath();
+    if (agent.empty()) {
+        lua_pushnil(L); lua_pushstring(L, "libcecore_mono_agent.so not found"); return 2;
+    }
+    int timeoutMs = (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) ? (int)luaL_checkinteger(L, 1) : 10000;
+    // Injection needs the target's symbols (to find dlopen); load a resolver for
+    // this process rather than depend on the engine's (openProcess doesn't load one).
+    ce::SymbolResolver resolver;
+    resolver.loadProcess(*p);
+    auto d = ce::dissectMono(*p, resolver, agent, timeoutMs);
+    if (!d) { lua_pushnil(L); lua_pushstring(L, "agent injection failed"); return 2; }
+
+    lua_newtable(L);
+    lua_pushboolean(L, d->ready);        lua_setfield(L, -2, "ready");
+    lua_pushstring(L, d->error.c_str()); lua_setfield(L, -2, "error");
+    lua_newtable(L);   // images
+    int ii = 1;
+    for (const auto& img : d->images) {
+        lua_newtable(L);
+        lua_pushstring(L, img.name.c_str()); lua_setfield(L, -2, "name");
+        lua_newtable(L);   // classes
+        int ci = 1;
+        for (const auto& c : img.classes) {
+            lua_newtable(L);
+            lua_pushstring(L, c.namespaceName.c_str()); lua_setfield(L, -2, "namespace");
+            lua_pushstring(L, c.name.c_str());          lua_setfield(L, -2, "name");
+            lua_pushstring(L, c.fullName().c_str());    lua_setfield(L, -2, "fullName");
+            lua_newtable(L);   // fields
+            int fi = 1;
+            for (const auto& f : c.fields) {
+                lua_newtable(L);
+                lua_pushstring(L, f.name.c_str());     lua_setfield(L, -2, "name");
+                lua_pushstring(L, f.typeName.c_str()); lua_setfield(L, -2, "type");
+                lua_pushinteger(L, (lua_Integer)f.offset); lua_setfield(L, -2, "offset");
+                lua_pushboolean(L, f.isStatic);        lua_setfield(L, -2, "static");
+                lua_rawseti(L, -2, fi++);
+            }
+            lua_setfield(L, -2, "fields");
+            lua_rawseti(L, -2, ci++);
+        }
+        lua_setfield(L, -2, "classes");
+        lua_rawseti(L, -2, ii++);
+    }
+    lua_setfield(L, -2, "images");
+    return 1;
+}
+
 // ── Pointer scanner ──
 // pointerScan(target [, maxDepth [, maxOffset [, {negativeOffsets,staticOnly,alignedOnly}]]])
 //   -> array of { path, module, baseOffset, moduleBase, offsets={...} }
@@ -3615,6 +3671,7 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "generateTrainer", l_generateTrainer);
     lua_register(L, "generateTrainerSource", l_generateTrainerSource);
     lua_register(L, "getManagedRuntimes", l_getManagedRuntimes);
+    lua_register(L, "monoDissect", l_monoDissect);
     lua_register(L, "pointerScan", l_pointerScan);
     lua_register(L, "dissectStructure", l_dissectStructure);
     lua_register(L, "findWhatWrites", l_findWhatWrites);

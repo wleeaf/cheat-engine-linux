@@ -4,9 +4,12 @@
 
 #include <chrono>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <thread>
+#include <vector>
+#include <unistd.h>
 
 namespace ce {
 
@@ -79,6 +82,32 @@ MonoDissection parseMonoDump(const std::string& text) {
         }
     }
     return out;
+}
+
+std::string findMonoAgentPath() {
+    namespace fs = std::filesystem;
+    const char* kName = "libcecore_mono_agent.so";
+
+    // Directory of the running executable (works for the build tree and installs).
+    fs::path exeDir;
+    char buf[4096];
+    ssize_t n = ::readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (n > 0) { buf[n] = '\0'; exeDir = fs::path(buf).parent_path(); }
+
+    std::vector<fs::path> candidates;
+    if (!exeDir.empty()) {
+        candidates.push_back(exeDir / kName);                       // build tree (build/)
+        candidates.push_back(exeDir / ".." / "lib" / kName);        // <prefix>/bin + <prefix>/lib
+        candidates.push_back(exeDir / ".." / "lib" / "x86_64-linux-gnu" / kName);
+    }
+    candidates.push_back(fs::path("/usr/lib/x86_64-linux-gnu") / kName);
+    candidates.push_back(fs::path("/usr/lib") / kName);
+    candidates.push_back(fs::path("/lib/x86_64-linux-gnu") / kName);
+
+    std::error_code ec;
+    for (const auto& c : candidates)
+        if (fs::exists(c, ec)) return fs::weakly_canonical(c, ec).string();
+    return {};
 }
 
 std::optional<MonoDissection> dissectMono(ProcessHandle& proc, SymbolResolver& resolver,

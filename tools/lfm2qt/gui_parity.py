@@ -99,7 +99,7 @@ MAP = {
     "pointerscannerfrm": ("pointerscan_dialog", ""),
     "PointerscannerSettingsFrm": ("pointerscan_dialog", "scan options"),
     "FoundCodeUnit": ("codefinder", "what-writes/accesses result list"),
-    "formFoundcodeListExtraUnit": ("", "'more info' on a found opcode"),
+    "formFoundcodeListExtraUnit": ("codefinder", ""),
     "formmemoryregionsunit": ("memoryregions", ""),
     "frmThreadlistunit": ("threadlist", ""),
     "frmRegistersunit": ("registereditor", ""),

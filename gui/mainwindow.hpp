@@ -69,6 +69,9 @@ private:
     void setupUi();
     void setupMenus();
     void loadAddressEntries(const QJsonArray& entries);
+    // Build the address list + table comment/annotations/Lua from a parsed table
+    // (shared by the CE XML .CT and protected .CETRAINER load paths).
+    void loadCheatTableModel(const ce::CheatTable& table);
     void updateScanButtons();
     void startCodeFinder(int row, bool writesOnly);
     void startCodeFinderForAddress(uintptr_t addr, bool writesOnly);

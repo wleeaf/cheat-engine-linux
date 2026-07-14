@@ -746,6 +746,46 @@ static ValueType jsonValueTypeField(const JsonValue& obj) {
     return ValueType::Int32;
 }
 
+TableFormat detectTableFormat(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return TableFormat::Unknown;
+    char buf[512] = {0};
+    f.read(buf, sizeof(buf) - 1);
+    std::string head(buf, static_cast<size_t>(f.gcount()));
+
+    // Password-protected .CETRAINER payloads lead with this magic line.
+    if (head.rfind("CETRAINER1", 0) == 0) return TableFormat::Protected;
+
+    // First meaningful byte after any BOM / leading whitespace decides XML vs JSON.
+    size_t i = 0;
+    if (head.size() >= 3 && (unsigned char)head[0] == 0xEF &&
+        (unsigned char)head[1] == 0xBB && (unsigned char)head[2] == 0xBF)
+        i = 3;  // UTF-8 BOM
+    while (i < head.size() && (head[i] == ' ' || head[i] == '\t' ||
+                              head[i] == '\r' || head[i] == '\n'))
+        ++i;
+
+    if ((i < head.size() && head[i] == '<') ||
+        head.find("<CheatTable") != std::string::npos ||
+        head.find("<CheatEntries") != std::string::npos)
+        return TableFormat::Xml;
+    if (i < head.size() && (head[i] == '{' || head[i] == '['))
+        return TableFormat::Json;
+    return TableFormat::Unknown;
+}
+
+bool CheatTable::loadAuto(const std::string& path) {
+    switch (detectTableFormat(path)) {
+        case TableFormat::Xml:  return load(path);
+        case TableFormat::Json: return loadJson(path);
+        case TableFormat::Protected: return false;  // needs a password
+        case TableFormat::Unknown:
+            // Ambiguous: try both parsers, each self-validates and rejects a mismatch.
+            return load(path) || loadJson(path);
+    }
+    return false;
+}
+
 bool CheatTable::load(const std::string& path) {
     std::ifstream f(path);
     if (!f) return false;

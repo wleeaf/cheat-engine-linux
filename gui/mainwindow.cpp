@@ -2574,79 +2574,104 @@ void MainWindow::onLoadTable() {
 
 // Load a cheat table from a path (no dialog). Shared by onLoadTable and the
 // command-line "cheatengine <table.ct>" entry point.
+// Populate the address list (and table comment / disassembler annotations / table
+// Lua) from a parsed CheatTable. Shared by every load path that yields a
+// CheatTable model (CE XML .CT and password-protected .CETRAINER), so they behave
+// identically. JSON goes through its own reader below.
+void MainWindow::loadCheatTableModel(const ce::CheatTable& table) {
+    tableComment_ = QString::fromStdString(table.comment);   // table notes
+    QJsonArray arr;
+    // Compute each entry's nesting level from the parentId tree (entries are in
+    // document order, parents before children) so imported groups indent in the
+    // address list, which tracks hierarchy by indent depth.
+    std::unordered_map<int, int> indentById;
+    for (const auto& e : table.entries) {
+        QJsonObject obj;
+        int indent = 0;
+        if (e.parentId != -1) {
+            auto it = indentById.find(e.parentId);
+            if (it != indentById.end()) indent = it->second + 1;
+        }
+        indentById[e.id] = indent;
+        obj["indent"] = indent;
+        obj["description"] = QString::fromStdString(e.description);
+        obj["address"] = QString("0x%1").arg(e.address, 0, 16);
+        // Preserve CE symbolic bases ("game.exe+1C") and pointer offset chains
+        // as an address expression that is re-evaluated each refresh.
+        if (!e.addressString.empty() || !e.offsets.empty()) {
+            std::string base = e.addressString.empty()
+                ? "0x" + QString::number(e.address, 16).toStdString()
+                : e.addressString;
+            obj["addressExpr"] = QString::fromStdString(ce::buildPointerExpression(base, e.offsets));
+        }
+        obj["type"] = QString::number((int)e.type);
+        obj["value"] = QString::fromStdString(e.value);
+        obj["active"] = e.active;
+        obj["showAsHex"] = e.showAsHex;
+        obj["freezeMode"] = (int)e.freezeMode;
+        obj["asm"] = QString::fromStdString(e.autoAsmScript);
+        obj["color"] = QString::fromStdString(e.color);
+        obj["dropdown"] = QString::fromStdString(e.dropdownList);
+        obj["hotkeys"] = QString::fromStdString(e.hotkeyKeys);
+        obj["increaseHotkey"] = QString::fromStdString(e.increaseHotkeyKeys);
+        obj["setValueHotkey"] = QString::fromStdString(e.setValueHotkeyKeys);
+        obj["setValueHotkeyValue"] = QString::fromStdString(e.setValueHotkeyValue);
+        obj["decreaseHotkey"] = QString::fromStdString(e.decreaseHotkeyKeys);
+        obj["hotkeyStep"] = QString::fromStdString(e.hotkeyStep);
+        obj["group"] = e.isGroup;
+        obj["parent"] = e.parentId;
+        arr.append(obj);
+    }
+    loadAddressEntries(arr);
+    // Run the table-level Lua script (CE's <LuaScript>) after the records are
+    // loaded, so it can define trainer functions/hooks and reference records.
+    if (!table.luaScript.empty()) {
+        // CE asktorunluascript: never auto-run an untrusted table's Lua, ask first.
+        auto answer = QMessageBox::question(this, "Execute this lua script?",
+            "This cheat table contains a Lua script.\n\n"
+            "Only execute scripts from tables you trust, a table's Lua can hook "
+            "and manipulate the target. Execute it?",
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer == QMessageBox::Yes) {
+            luaEngine_.setProcess(process_.get());
+            luaEngine_.setAddressList(addressListModel_);
+            auto res = luaEngine_.evalToString(table.luaScript);
+            if (!res.has_value())
+                statusBar()->showMessage(
+                    QString("Table Lua error: %1").arg(QString::fromStdString(res.error())), 8000);
+        }
+    }
+    disasmAnnotations_ = table.disassemblerComments;
+}
+
 void MainWindow::loadTableFromPath(const QString& path) {
     // Show the loaded table's file name in the title bar, like CE.
     setWindowTitle(QString("Cheat Engine - %1").arg(QFileInfo(path).fileName()));
   try {
-    if (path.endsWith(".ct")) {
-        // Load CE XML .CT format
+    // Detect the format from the file's contents, not its extension: CE tables are
+    // commonly `.CT` (uppercase) or extensionless when downloaded, which a
+    // case-sensitive ".ct" check silently rejected.
+    const ce::TableFormat fmt = ce::detectTableFormat(path.toStdString());
+    if (fmt == ce::TableFormat::Protected) {
+        bool ok = false;
+        QString pw = QInputDialog::getText(this, "Protected Cheat Table",
+            "This table is password-protected (.CETRAINER).\nEnter its password:",
+            QLineEdit::Password, QString(), &ok);
+        if (!ok) return;
+        CheatTable table;
+        if (!table.loadProtected(path.toStdString(), pw.toStdString())) {
+            QMessageBox::warning(this, "Load Cheat Table",
+                "Could not decrypt the table (wrong password or corrupt file).");
+            return;
+        }
+        loadCheatTableModel(table);
+        return;
+    }
+    if (fmt != ce::TableFormat::Json) {
+        // CE XML .CT format (Xml, or Unknown which load() self-validates).
         CheatTable table;
         if (!table.load(path.toStdString())) return;
-        tableComment_ = QString::fromStdString(table.comment);   // table notes
-        QJsonArray arr;
-        // Compute each entry's nesting level from the parentId tree (entries are in
-        // document order, parents before children) so imported groups indent in the
-        // address list, which tracks hierarchy by indent depth.
-        std::unordered_map<int, int> indentById;
-        for (auto& e : table.entries) {
-            QJsonObject obj;
-            int indent = 0;
-            if (e.parentId != -1) {
-                auto it = indentById.find(e.parentId);
-                if (it != indentById.end()) indent = it->second + 1;
-            }
-            indentById[e.id] = indent;
-            obj["indent"] = indent;
-            obj["description"] = QString::fromStdString(e.description);
-            obj["address"] = QString("0x%1").arg(e.address, 0, 16);
-            // Preserve CE symbolic bases ("game.exe+1C") and pointer offset chains
-            // as an address expression that is re-evaluated each refresh.
-            if (!e.addressString.empty() || !e.offsets.empty()) {
-                std::string base = e.addressString.empty()
-                    ? "0x" + QString::number(e.address, 16).toStdString()
-                    : e.addressString;
-                obj["addressExpr"] = QString::fromStdString(ce::buildPointerExpression(base, e.offsets));
-            }
-            obj["type"] = QString::number((int)e.type);
-            obj["value"] = QString::fromStdString(e.value);
-            obj["active"] = e.active;
-            obj["showAsHex"] = e.showAsHex;
-            obj["freezeMode"] = (int)e.freezeMode;
-            obj["asm"] = QString::fromStdString(e.autoAsmScript);
-            obj["color"] = QString::fromStdString(e.color);
-            obj["dropdown"] = QString::fromStdString(e.dropdownList);
-            obj["hotkeys"] = QString::fromStdString(e.hotkeyKeys);
-            obj["increaseHotkey"] = QString::fromStdString(e.increaseHotkeyKeys);
-            obj["setValueHotkey"] = QString::fromStdString(e.setValueHotkeyKeys);
-            obj["setValueHotkeyValue"] = QString::fromStdString(e.setValueHotkeyValue);
-            obj["decreaseHotkey"] = QString::fromStdString(e.decreaseHotkeyKeys);
-            obj["hotkeyStep"] = QString::fromStdString(e.hotkeyStep);
-            obj["group"] = e.isGroup;
-            obj["parent"] = e.parentId;
-            arr.append(obj);
-        }
-        loadAddressEntries(arr);
-        // Run the table-level Lua script (CE's <LuaScript>) after the records are
-        // loaded, so it can define trainer functions/hooks and reference records.
-        // Previously this was parsed but never executed, silently breaking any
-        // table that relied on its framework code.
-        if (!table.luaScript.empty()) {
-            // CE asktorunluascript: never auto-run an untrusted table's Lua — ask.
-            auto answer = QMessageBox::question(this, "Execute this lua script?",
-                "This cheat table contains a Lua script.\n\n"
-                "Only execute scripts from tables you trust — a table's Lua can hook "
-                "and manipulate the target. Execute it?",
-                QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-            if (answer == QMessageBox::Yes) {
-                luaEngine_.setProcess(process_.get());
-                luaEngine_.setAddressList(addressListModel_);
-                auto res = luaEngine_.evalToString(table.luaScript);
-                if (!res.has_value())
-                    statusBar()->showMessage(
-                        QString("Table Lua error: %1").arg(QString::fromStdString(res.error())), 8000);
-            }
-        }
-        disasmAnnotations_ = table.disassemblerComments;
+        loadCheatTableModel(table);
     } else {
         // Load JSON
         QFile f(path);

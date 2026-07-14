@@ -415,6 +415,62 @@ static void test_ce_table_import() {
     printf("  save/reload preserves symbolic base + offsets: %s\n", ptrSaveOk ? "OK" : "FAILED");
 }
 
+// Format detection must be driven by file CONTENT, not extension: downloaded CE
+// tables are commonly `.CT` (uppercase) or carry a wrong/missing extension, and a
+// case-sensitive ".ct" check silently rejected them on Linux (the real bug).
+static void test_ct_format_detection() {
+    printf("\n── Test: table format auto-detection (content, not extension) ──\n");
+    namespace fs = std::filesystem;
+    const char* xml =
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+        "<CheatTable>\n  <CheatEntries>\n    <CheatEntry>\n"
+        "      <ID>1</ID>\n      <Description>\"HP\"</Description>\n"
+        "      <VariableType>4 Bytes</VariableType>\n      <Address>00401000</Address>\n"
+        "    </CheatEntry>\n  </CheatEntries>\n</CheatTable>\n";
+
+    // XML content behind a deliberately WRONG extension must still be detected +
+    // loaded via loadAuto (the extension lies; the content doesn't).
+    auto wrongExt = fs::temp_directory_path() / "table_but_named.json";
+    { std::ofstream o(wrongExt); o << xml; }
+    bool xmlByContent = ce::detectTableFormat(wrongExt.string()) == ce::TableFormat::Xml;
+    CheatTable a; bool xmlAutoOk = a.loadAuto(wrongExt.string()) &&
+        a.entries.size() == 1 && a.entries[0].description == "HP";
+    fs::remove(wrongExt);
+
+    // Uppercase .CT (exactly the scenario that returned nil before the fix).
+    auto upper = fs::temp_directory_path() / "GAME.CT";
+    { std::ofstream o(upper); o << xml; }
+    CheatTable b; bool upperOk = b.loadAuto(upper.string()) && b.entries.size() == 1;
+    fs::remove(upper);
+
+    // JSON content is detected as JSON, not misparsed as XML.
+    CheatTable j; CheatEntry je; je.id = 1; je.description = "Gold";
+    je.type = ValueType::Int32; je.address = 0x1000; j.entries = {je};
+    auto jpath = fs::temp_directory_path() / "native.json";
+    bool jsonSaved = j.saveJson(jpath.string());
+    bool jsonDetect = ce::detectTableFormat(jpath.string()) == ce::TableFormat::Json;
+    CheatTable jr; bool jsonAutoOk = jr.loadAuto(jpath.string()) &&
+        jr.entries.size() == 1 && jr.entries[0].description == "Gold";
+    fs::remove(jpath);
+
+    // A password-protected payload is detected as Protected (loadAuto declines it,
+    // since it needs a password, rather than silently corrupting).
+    CheatTable p; p.entries = {je};
+    auto ppath = fs::temp_directory_path() / "secret.CETRAINER";
+    bool protSaved = p.saveProtected(ppath.string(), "pw");
+    bool protDetect = ce::detectTableFormat(ppath.string()) == ce::TableFormat::Protected;
+    CheatTable pr; bool protDeclined = !pr.loadAuto(ppath.string());
+    fs::remove(ppath);
+
+    printf("  XML content behind .json extension detected+loaded: %s\n",
+           (xmlByContent && xmlAutoOk) ? "OK" : "FAILED");
+    printf("  uppercase GAME.CT loads via loadAuto: %s\n", upperOk ? "OK" : "FAILED");
+    printf("  JSON detected + loaded (not misparsed): %s\n",
+           (jsonSaved && jsonDetect && jsonAutoOk) ? "OK" : "FAILED");
+    printf("  protected .CETRAINER detected, loadAuto declines: %s\n",
+           (protSaved && protDetect && protDeclined) ? "OK" : "FAILED");
+}
+
 // A .CT with an embedded <Forms> block must survive load -> save -> load, so
 // editing a table with Delphi forms doesn't silently drop them.
 static void test_ct_forms_roundtrip() {
@@ -7742,6 +7798,7 @@ int main(int argc, char* argv[]) {
 
     test_cheat_table_json();
     test_ce_table_import();
+    test_ct_format_detection();
     test_ct_forms_roundtrip();
     test_trainer_generation();
     test_code_analysis_references();

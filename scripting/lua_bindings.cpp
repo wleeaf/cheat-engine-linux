@@ -2127,17 +2127,41 @@ static int l_loadTable(lua_State* L) {
     if (!list) { lua_pushboolean(L, 0); return 1; }
 
     ce::CheatTable table;
-    if (!table.loadJson(path)) { lua_pushboolean(L, 0); return 1; }
+    // Auto-detect CE XML .CT vs our JSON from the file contents (not extension),
+    // so `.CT`/`.ct`/extensionless downloaded tables all load.
+    if (!table.loadAuto(path)) { lua_pushboolean(L, 0); return 1; }
+    // Compute each entry's indent from the parentId tree (entries are in document
+    // order, parents before children) so the imported hierarchy matches the GUI's
+    // Load Table, and preserve CE symbolic bases + pointer offset chains as address
+    // expressions re-evaluated each refresh.
+    std::unordered_map<int, int> indentByCeId;
     for (const auto& e : table.entries) {
+        int indent = 0;
+        if (e.parentId != -1) {
+            auto it = indentByCeId.find(e.parentId);
+            if (it != indentByCeId.end()) indent = it->second + 1;
+        }
+        indentByCeId[e.id] = indent;
+
         if (e.isGroup) {
-            list->createGroup(e.description);
+            int gid = list->createGroup(e.description);
+            list->setIndent(gid, indent);
             continue;
         }
         int id = list->createEntry(e.address, e.type, e.description);
+        if (!e.addressString.empty() || !e.offsets.empty()) {
+            char hexbuf[32];
+            std::snprintf(hexbuf, sizeof(hexbuf), "0x%llx",
+                          (unsigned long long)e.address);
+            std::string base = e.addressString.empty() ? hexbuf : e.addressString;
+            list->setAddressExpression(id, ce::buildPointerExpression(base, e.offsets));
+        }
         if (!e.value.empty()) list->setValue(id, e.value);
         if (!e.color.empty()) list->setColor(id, e.color);
         if (!e.autoAsmScript.empty()) list->setScript(id, e.autoAsmScript);
         if (e.showAsHex) list->setHexView(id, true);
+        list->setFreezeMode(id, (int)e.freezeMode);
+        list->setIndent(id, indent);
         if (e.active) list->setActive(id, true);
     }
     lua_pushboolean(L, 1);

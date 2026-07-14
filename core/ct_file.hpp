@@ -58,6 +58,15 @@ struct DisassemblerComment {
     std::string label;     // user-assigned symbol name for this address (may be empty)
 };
 
+/// On-disk cheat-table format, detected from file *contents* (not extension).
+enum class TableFormat { Xml, Json, Protected, Unknown };
+
+/// Sniff a table file's format by reading its leading bytes. Extension-agnostic:
+/// CE tables are commonly `.CT` (uppercase) or extensionless when downloaded, and
+/// case-sensitive extension checks reject them on Linux. `Protected` is returned
+/// for a password-protected .CETRAINER payload (needs CheatTable::loadProtected).
+TableFormat detectTableFormat(const std::string& path);
+
 struct CheatTable {
     std::string gameName;
     std::string gameVersion;
@@ -77,6 +86,14 @@ struct CheatTable {
 
     /// Load from .CT XML file.
     bool load(const std::string& path);
+
+    /// Load a table auto-detecting the on-disk format (CE XML .CT, our JSON, or a
+    /// password-less protected payload) from the file *contents*, not its
+    /// extension. Use this for any user-supplied path: CE tables are commonly
+    /// `.CT` (uppercase) or have no extension, and case-sensitive extension checks
+    /// silently reject them on Linux. Returns false if the format can't be loaded
+    /// (e.g. a password-protected .CETRAINER, which needs loadProtected()).
+    bool loadAuto(const std::string& path);
 
     /// Save to JSON (our native format).
     bool saveJson(const std::string& path) const;

@@ -1,5 +1,6 @@
 #include "gui/memorybrowser.hpp"
 #include "gui/memviewpreferences.hpp"
+#include "gui/theme.hpp"
 #include "core/injection_gen.hpp"
 #include "arch/assembler.hpp"
 #include "analysis/code_analysis.hpp"
@@ -36,6 +37,22 @@
 #include <sstream>
 
 namespace ce::gui {
+
+// Theme-aware palette for the custom-painted hex/disassembler views, so they are
+// light on the light theme and dark on the dark theme (they can't inherit the Qt
+// stylesheet because they paint every pixel themselves).
+struct MvColors {
+    QColor bg, addr, text, dim, selection, ascii, symbol, condJump, jump;
+};
+static MvColors mvColors() {
+    if (ce::gui::isDarkTheme())
+        return { QColor(0x1e,0x1e,0x2e), QColor(0x89,0xb4,0xfa), QColor(0xcd,0xd6,0xf4),
+                 QColor(0x58,0x5b,0x70), QColor(0x45,0x47,0x5a), QColor(0xa6,0xad,0xc8),
+                 QColor(0xf9,0xe2,0xaf), QColor(0xfa,0xb3,0x87), QColor(0x89,0xb4,0xfa) };
+    return   { QColor(0xff,0xff,0xff), QColor(0x00,0x00,0xc0), QColor(0x00,0x00,0x00),
+               QColor(0x90,0x90,0x90), QColor(0xcc,0xe8,0xff), QColor(0x50,0x50,0x50),
+               QColor(0x80,0x60,0x00), QColor(0xc0,0x40,0x00), QColor(0x00,0x00,0xc0) };
+}
 
 // Effective address of an instruction's RIP-relative memory operand (or 0).
 static uintptr_t ripEffectiveAddress(const ce::Instruction& inst);
@@ -289,16 +306,17 @@ void HexView::paintEvent(QPaintEvent*) {
     int hexColW = hexColWidth();
     int asciiX = addrColW + hexColW + charW_;
 
-    // Background
-    p.fillRect(viewport()->rect(), QColor(0x1e, 0x1e, 0x2e)); // Dark background
-    p.setPen(QColor(0x89, 0xb4, 0xfa)); // Address color
+    // Background (theme-aware)
+    const MvColors c = mvColors();
+    p.fillRect(viewport()->rect(), c.bg);
+    p.setPen(c.addr);
 
     for (int row = 0; row < rows && row * bytesPerRow_ < (int)cache_.size(); ++row) {
         int y = (row + 1) * charH_;
         uintptr_t rowAddr = address_ + row * bytesPerRow_;
 
         // Address
-        p.setPen(QColor(0x89, 0xb4, 0xfa));   // HexView address column
+        p.setPen(c.addr);
         p.drawText(0, y, QString("%1").arg(rowAddr, 16, 16, QChar('0')));
 
         // Hex bytes. Byte mode keeps the classic per-byte grid (with edit cursor
@@ -315,16 +333,16 @@ void HexView::paintEvent(QPaintEvent*) {
                 // Selection highlight on the selected byte.
                 if (idx == selectedOffset_) {
                     p.fillRect(x - 1, y - charH_ + 2, charW_ * 2 + 2, charH_,
-                               QColor(0x45, 0x47, 0x5a));
+                               c.selection);
                 }
 
-                p.setPen(b == 0 ? QColor(0x58, 0x5b, 0x70) : QColor(0xcd, 0xd6, 0xf4));
+                p.setPen(b == 0 ? c.dim : c.text);
                 p.drawText(x, y, QString("%1").arg(b, 2, 16, QChar('0')));
             }
         } else {
             int gsize = hexGroupBytes(displayType_);
             int fieldW = charW_ * (hexGroupChars(displayType_) + 1);
-            p.setPen(QColor(0xcd, 0xd6, 0xf4));
+            p.setPen(c.text);
             for (int g = 0; g * gsize < bytesPerRow_; ++g) {
                 int idx = row * bytesPerRow_ + g * gsize;
                 if (idx + gsize > (int)cache_.size()) break;
@@ -333,7 +351,7 @@ void HexView::paintEvent(QPaintEvent*) {
         }
 
         // ASCII
-        p.setPen(QColor(0xa6, 0xad, 0xc8));
+        p.setPen(c.ascii);
         for (int col = 0; col < bytesPerRow_; ++col) {
             int idx = row * bytesPerRow_ + col;
             if (idx >= (int)cache_.size()) break;
@@ -425,10 +443,13 @@ void DisasmView::reloadPreferences() {
     auto col = [&s](const char* key, QColor def) {
         return QColor(s.value(QString("disasm/") + key, def.name()).toString());
     };
-    defaultColor_  = col("colorDefault",  QColor(0xcd, 0xd6, 0xf4));
-    addrColor_     = col("colorHex",      QColor(0x89, 0xb4, 0xfa));
-    condJumpColor_ = col("colorCondJump", QColor(0xfa, 0xb3, 0x87));
-    jumpColor_     = col("colorJump",     QColor(0x89, 0xb4, 0xfa));
+    // Defaults follow the app theme (light vs dark); an explicit Disassembler
+    // Preferences setting still overrides.
+    const MvColors mv = mvColors();
+    defaultColor_  = col("colorDefault",  mv.text);
+    addrColor_     = col("colorHex",      mv.addr);
+    condJumpColor_ = col("colorCondJump", mv.condJump);
+    jumpColor_     = col("colorJump",     mv.jump);
     viewport()->update();
 }
 
@@ -718,11 +739,12 @@ static QString ripRefAnnotation(const ce::Instruction& inst,
 void DisasmView::paintEvent(QPaintEvent*) {
     QPainter p(viewport());
     p.setFont(monoFont_);
-    p.fillRect(viewport()->rect(), QColor(0x1e, 0x1e, 0x2e));
+    const MvColors mv = mvColors();
+    p.fillRect(viewport()->rect(), mv.bg);
 
     // Nothing decoded: explain why rather than showing a blank pane.
     if (instructions_.empty()) {
-        p.setPen(QColor(0xa6, 0xad, 0xc8));
+        p.setPen(mv.ascii);
         p.drawText(viewport()->rect().adjusted(24, 24, -24, -24),
                    Qt::AlignCenter | Qt::TextWordWrap,
                    emptyReason_.isEmpty() ? QStringLiteral("No data at this address.")
@@ -851,7 +873,7 @@ void DisasmView::paintEvent(QPaintEvent*) {
         // that were stripped of .symtab but still carry .debug_info.
         std::string rsym = resolver_ ? resolver_->resolve(inst.address) : std::string();
         if (!rsym.empty() && rsym.find('+') == std::string::npos) {
-            p.setPen(QColor(0xf9, 0xe2, 0xaf));
+            p.setPen(mv.symbol);
             p.drawText(contentX, y, QString::fromStdString(rsym + ":"));
             continue;
         }
@@ -864,7 +886,7 @@ void DisasmView::paintEvent(QPaintEvent*) {
             if (auto fn = dwarf_->functionName(inst.address); fn && !fn->empty()) {
                 if (*fn != prevDwarfFunc) {
                     prevDwarfFunc = *fn;
-                    p.setPen(QColor(0xf9, 0xe2, 0xaf));
+                    p.setPen(mv.symbol);
                     p.drawText(contentX, y, QString::fromStdString(*fn + ":"));
                     continue;
                 }
@@ -876,7 +898,7 @@ void DisasmView::paintEvent(QPaintEvent*) {
         p.drawText(contentX, y, QString("%1").arg(inst.address, 16, 16, QChar('0')));
 
         // Bytes
-        p.setPen(QColor(0x58, 0x5b, 0x70));
+        p.setPen(mv.dim);
         QString bytes;
         for (auto b : inst.bytes) bytes += QString("%1 ").arg(b, 2, 16, QChar('0'));
         p.drawText(contentX + addrColW, y, bytes.left(24));

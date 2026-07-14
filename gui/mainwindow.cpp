@@ -1,5 +1,6 @@
 #include <csignal>
 #include "gui/mainwindow.hpp"
+#include "gui/theme.hpp"
 #include "core/expression.hpp"
 #include "gui/processlistdialog.hpp"
 #include "gui/registereditor.hpp"
@@ -3068,7 +3069,8 @@ QVariant ScanResultsModel::data(const QModelIndex& index, int role) const {
     if (role == Qt::ForegroundRole) {
         if (index.column() == 1) {
             auto it = changed_.find(index.row());
-            if (it != changed_.end() && it->second) return QBrush(QColor(0xf3, 0x8b, 0xa8));
+            if (it != changed_.end() && it->second)
+                return QBrush(ce::gui::editorPalette().error);  // theme-aware red (was low-contrast pink on white)
         }
         return {};
     }

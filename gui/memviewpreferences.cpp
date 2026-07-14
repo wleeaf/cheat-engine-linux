@@ -1,4 +1,5 @@
 #include "gui/memviewpreferences.hpp"
+#include "gui/theme.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -58,21 +59,27 @@ MemviewPreferences::MemviewPreferences(QWidget* parent) : QDialog(parent) {
     dl->addRow("Color group:", colorGroup_);
     v->addWidget(gbDisasm);
 
+    // Default swatches follow the theme so they match the actual disassembler
+    // colors (and, since these defaults get persisted on OK, so a light-theme user
+    // doesn't save dark-theme colors into the disassembler).
+    const bool dark = ce::gui::isDarkTheme();
+    auto def = [dark](QColor d, QColor l) { return dark ? d : l; };
+
     // GroupBox1 "Normal": text colors.
     auto* gbNormal = new QGroupBox("Normal");
     auto* nl = new QFormLayout(gbNormal);
-    nl->addRow("Default color", colorButton("colorDefault", QColor(0xcd, 0xd6, 0xf4)));
-    nl->addRow("Register color", colorButton("colorRegister", QColor(0xa6, 0xe3, 0xa1)));
-    nl->addRow("Symbol color", colorButton("colorSymbol", QColor(0xf9, 0xe2, 0xaf)));
-    nl->addRow("Hexadecimal color", colorButton("colorHex", QColor(0x89, 0xb4, 0xfa)));
+    nl->addRow("Default color", colorButton("colorDefault", def(QColor(0xcd, 0xd6, 0xf4), QColor(0x00, 0x00, 0x00))));
+    nl->addRow("Register color", colorButton("colorRegister", def(QColor(0xa6, 0xe3, 0xa1), QColor(0x1a, 0x7f, 0x37))));
+    nl->addRow("Symbol color", colorButton("colorSymbol", def(QColor(0xf9, 0xe2, 0xaf), QColor(0x80, 0x60, 0x00))));
+    nl->addRow("Hexadecimal color", colorButton("colorHex", def(QColor(0x89, 0xb4, 0xfa), QColor(0x00, 0x00, 0xc0))));
     v->addWidget(gbNormal);
 
     // GroupBox4 "Jumplines".
     auto* gbJump = new QGroupBox("Jumplines");
     auto* jl = new QFormLayout(gbJump);
-    jl->addRow("Conditional jump color", colorButton("colorCondJump", QColor(0xfa, 0xb3, 0x87)));
-    jl->addRow("Unconditional jump color", colorButton("colorJump", QColor(0x89, 0xb4, 0xfa)));
-    jl->addRow("Call color", colorButton("colorCall", QColor(0xcb, 0xa6, 0xf7)));
+    jl->addRow("Conditional jump color", colorButton("colorCondJump", def(QColor(0xfa, 0xb3, 0x87), QColor(0xc0, 0x40, 0x00))));
+    jl->addRow("Unconditional jump color", colorButton("colorJump", def(QColor(0x89, 0xb4, 0xfa), QColor(0x00, 0x00, 0xc0))));
+    jl->addRow("Call color", colorButton("colorCall", def(QColor(0xcb, 0xa6, 0xf7), QColor(0x88, 0x39, 0xef))));
     jlThickness_ = new QLineEdit(s.value("disasm/jlThickness", 1).toString());
     jl->addRow("Thickness", jlThickness_);
     jlSpacing_ = new QLineEdit(s.value("disasm/jlSpacing", 4).toString());

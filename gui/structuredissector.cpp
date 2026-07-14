@@ -1,4 +1,5 @@
 #include "gui/structuredissector.hpp"
+#include "gui/theme.hpp"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -307,7 +308,7 @@ void StructureDissector::populateTable() {
         table_->setItem(i, 0, new QTableWidgetItem(QString("+0x%1").arg(off, 2, 16, QChar('0'))));
         auto nit = fieldNames_.find(off);
         auto* nameItem = new QTableWidgetItem(nit != fieldNames_.end() ? nit->second : QString());
-        nameItem->setForeground(QColor(0xa6, 0xe3, 0xa1));
+        nameItem->setForeground(ce::gui::editorPalette().label);  // theme-aware (was fixed green, invisible on white)
         table_->setItem(i, 1, nameItem);
         table_->setItem(i, 2, new QTableWidgetItem(formatValue(d, off, "hex")));
         table_->setItem(i, 3, new QTableWidgetItem(formatValue(d, off, "int8")));
@@ -325,9 +326,13 @@ void StructureDissector::populateTable() {
                     std::memcmp(d, compareCaches_[k].data() + off, 8) != 0;
         }
         if (rowVaries) {
+            // "Changed since base" highlight: a deep red on dark, a soft red on
+            // light, so the default (theme) text stays readable on top of it.
+            const QColor changedBg = ce::gui::isDarkTheme()
+                ? QColor(0x5c, 0x25, 0x25) : QColor(0xff, 0xd6, 0xd6);
             for (int c = 0; c < table_->columnCount(); ++c)
                 if (auto* it = table_->item(i, c))
-                    it->setBackground(QColor(0x5c, 0x25, 0x25));  // dark red
+                    it->setBackground(changedBg);
         }
     }
 }

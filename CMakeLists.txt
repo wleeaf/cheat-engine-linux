@@ -379,6 +379,16 @@ if(Qt6_FOUND)
         )
         target_include_directories(gui_browser_shot PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
         target_link_libraries(gui_browser_shot PRIVATE cecore Qt6::Widgets)
+
+        # Offscreen render of the Auto Assembler window, for verifying its console +
+        # syntax highlighting follow light/dark. `gui_script_shot <out.png> [dark]`.
+        qt_add_executable(gui_script_shot
+            test/gui_script_shot.cpp
+            gui/scripteditor.cpp
+            gui/theme.cpp
+        )
+        target_include_directories(gui_script_shot PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
+        target_link_libraries(gui_script_shot PRIVATE cecore Qt6::Widgets)
     endif()
 
     # Wayland global hotkeys via the XDG GlobalShortcuts portal (QtDBus). Under

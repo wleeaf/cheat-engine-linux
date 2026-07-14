@@ -1,6 +1,7 @@
 /// Form designer — three-pane layout (palette, canvas, properties).
 
 #include "gui/formdesigner.hpp"
+#include "gui/theme.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -63,7 +64,11 @@ FormDesigner::FormDesigner(QWidget* parent) : QMainWindow(parent) {
     auto* centerSplit = new QSplitter(Qt::Vertical);
 
     canvas_ = new QWidget;
-    canvas_->setStyleSheet("background-color: #313244; border: 1px dashed #6c7086;");
+    {
+        const ce::gui::EditorPalette pal = ce::gui::editorPalette();
+        canvas_->setStyleSheet(QString("background-color: %1; border: 1px dashed %2;")
+            .arg(pal.canvas.name(), pal.canvasBorder.name()));
+    }
     canvas_->setFixedSize(formWidth_, formHeight_);
     auto* canvasWrap = new QWidget;
     auto* canvasLayout = new QVBoxLayout(canvasWrap);

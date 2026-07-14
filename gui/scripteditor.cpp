@@ -1,4 +1,5 @@
 #include "gui/scripteditor.hpp"
+#include "gui/theme.hpp"
 #include "core/aa_templates.hpp"
 #include "core/injection_gen.hpp"
 #include "arch/disassembler.hpp"
@@ -25,17 +26,20 @@ namespace ce::gui {
 class AaHighlighter : public QSyntaxHighlighter {
 public:
     explicit AaHighlighter(QTextDocument* doc) : QSyntaxHighlighter(doc) {
-        auto fmt = [](int r, int g, int b, bool bold = false) {
-            QTextCharFormat f; f.setForeground(QColor(r, g, b));
+        // Token colors follow the active theme (dark pastels or light inks) so the
+        // editor is readable in both, rather than being tuned only for a dark bg.
+        const ce::gui::EditorPalette pal = ce::gui::editorPalette();
+        auto fmt = [](const QColor& c, bool bold = false) {
+            QTextCharFormat f; f.setForeground(c);
             if (bold) f.setFontWeight(QFont::Bold); return f;
         };
-        commentFmt_ = fmt(0x6c, 0x70, 0x86);              // dim gray
-        QTextCharFormat directive = fmt(0xf9, 0xe2, 0xaf, true);  // yellow, bold
-        QTextCharFormat keyword   = fmt(0xcb, 0xa6, 0xf7, true);  // mauve, bold
-        QTextCharFormat reg       = fmt(0x89, 0xdc, 0xeb);        // cyan
-        QTextCharFormat number    = fmt(0xfa, 0xb3, 0x87);        // orange
-        QTextCharFormat label     = fmt(0xa6, 0xe3, 0xa1);        // green
-        QTextCharFormat str       = fmt(0xa6, 0xe3, 0xa1);        // green
+        commentFmt_ = fmt(pal.comment);
+        QTextCharFormat directive = fmt(pal.directive, true);
+        QTextCharFormat keyword   = fmt(pal.keyword, true);
+        QTextCharFormat reg       = fmt(pal.reg);
+        QTextCharFormat number    = fmt(pal.number);
+        QTextCharFormat label     = fmt(pal.label);
+        QTextCharFormat str       = fmt(pal.string);
 
         auto add = [&](const QString& pat, const QTextCharFormat& f,
                        QRegularExpression::PatternOptions o = QRegularExpression::NoPatternOption) {
@@ -212,7 +216,14 @@ ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget*
     output_->setReadOnly(true);
     output_->setFont(QFont("Monospace", 9));
     output_->setMaximumHeight(150);
-    output_->setStyleSheet("background: #1e1e2e; color: #cdd6f4;");
+    // The console paints its own line colors, so it can't inherit the app
+    // stylesheet; give it the theme's editor background/text (was hardcoded dark,
+    // which stayed dark in light mode).
+    {
+        const ce::gui::EditorPalette pal = ce::gui::editorPalette();
+        output_->setStyleSheet(QString("background: %1; color: %2;")
+            .arg(pal.background.name(), pal.text.name()));
+    }
     splitter->addWidget(output_);
 
     splitter->setStretchFactor(0, 3);
@@ -231,14 +242,14 @@ void ScriptEditor::setTableButtonText(const QString& t) {
 void ScriptEditor::onExecute() {
     if (beforeExecute_) beforeExecute_();
     if (!proc_ || !autoAsm_) {
-        output_->setTextColor(Qt::red);
+        output_->setTextColor(ce::gui::editorPalette().error);
         output_->append("No process selected!");
         return;
     }
 
     auto script = editor_->toPlainText().toStdString();
     output_->clear();
-    output_->setTextColor(QColor(0xcd, 0xd6, 0xf4));
+    output_->setTextColor(ce::gui::editorPalette().text);
     output_->append("Executing...");
 
     auto result = autoAsm_->execute(*proc_, script);
@@ -247,14 +258,14 @@ void ScriptEditor::onExecute() {
         output_->append(QString::fromStdString(msg));
 
     if (result.success) {
-        output_->setTextColor(Qt::green);
+        output_->setTextColor(ce::gui::editorPalette().success);
         output_->append("Script executed successfully.");
         lastDisableInfo_ = result.disableInfo;
         enabled_ = true;
         executeBtn_->setEnabled(false);
         disableBtn_->setEnabled(true);
     } else {
-        output_->setTextColor(Qt::red);
+        output_->setTextColor(ce::gui::editorPalette().error);
         output_->append("FAILED: " + QString::fromStdString(result.error));
     }
 }
@@ -265,7 +276,7 @@ void ScriptEditor::onDisable() {
 
     auto script = editor_->toPlainText().toStdString();
     output_->clear();
-    output_->setTextColor(QColor(0xcd, 0xd6, 0xf4));
+    output_->setTextColor(ce::gui::editorPalette().text);
     output_->append("Disabling...");
 
     auto result = autoAsm_->disable(*proc_, script, lastDisableInfo_);
@@ -274,7 +285,7 @@ void ScriptEditor::onDisable() {
         output_->append(QString::fromStdString(msg));
 
     if (result.success) {
-        output_->setTextColor(Qt::green);
+        output_->setTextColor(ce::gui::editorPalette().success);
         output_->append("Script disabled.");
         enabled_ = false;
         executeBtn_->setEnabled(true);
@@ -318,7 +329,7 @@ void ScriptEditor::onGenerateCodeInjection() {
     }
     editor_->setPlainText(QString::fromStdString(script));
     output_->clear();
-    output_->setTextColor(Qt::green);
+    output_->setTextColor(ce::gui::editorPalette().success);
     output_->append("Generated code injection. Fill in the code at '// your code here'.");
 }
 
@@ -339,7 +350,7 @@ void ScriptEditor::onAddToTable() {
         defaultDescription_, &ok);
     if (!ok) return;
     addToTable_(desc, script);
-    output_->setTextColor(Qt::green);
+    output_->setTextColor(ce::gui::editorPalette().success);
     output_->append("Saved to the cheat table. Toggle its checkbox to enable/disable.");
 }
 
@@ -352,7 +363,7 @@ void ScriptEditor::onCheck() {
         output_->append(QString::fromStdString(msg));
 
     if (result.success) {
-        output_->setTextColor(Qt::green);
+        output_->setTextColor(ce::gui::editorPalette().success);
         output_->append("Syntax check passed.");
     }
 }

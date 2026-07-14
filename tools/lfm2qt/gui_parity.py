@@ -16,6 +16,9 @@ from lfm_parser import parse_lfm_file
 # that a Linux build does not show (Windows/DBVM/Direct3D/.NET-on-Windows only).
 MAP = {
     "MainUnit": ("mainwindow", ""),
+    "frmStructures2ElementInfoUnit": ("structuredissector", ""),
+    "TypePopup": ("mainwindow", ""),
+    "accessedmemory": ("codefinder", ""),
     "asktorunluascript": ("mainwindow", ""),
     "savedisassemblyfrm": ("mainwindow", ""),
     "frmMemoryViewExUnit": ("graphicalmemoryview", ""),

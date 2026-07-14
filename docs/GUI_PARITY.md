@@ -112,7 +112,7 @@ Languages
 | frmD3DTrainerGeneratorOptionsUnit | Direct3D Hook Options | 36 | 9 | 0 | — | 🚫 Direct3D (Windows) only |
 | frmsetuppsnnodeunit | Setup pointerscan network node | 36 | 6 | 0 | — | 🚫 distributed pointerscan node |
 | frmUltimapUnit | Ultimap | 35 | 29 | 5 | — | 🚫 Intel PT / Windows only |
-| TypePopup | Type | 34 | 7 | 0 | — | ❌ missing |
+| TypePopup | Type | 34 | 7 | 0 | `mainwindow` | ✅ |
 | frmRescanPointerUnit | Rescan pointerlist | 34 | 16 | 0 | — | ❌ missing |
 | frmanchoreditor | AnchorEditor | 34 | 27 | 0 | — | ❌ missing |
 | frmstructurecompareunit | Structure Compare | 33 | 31 | 18 | `structuredissector` | ⚠️ compare instances |
@@ -131,7 +131,7 @@ Languages
 | PEInfounit | Portable Executable (PE) Info | 21 | 9 | 2 | `elfinspector` | ⚠️ ELF inspector vs CE's PE info |
 | formProcessInfo | Process/System Info | 21 | 10 | 0 | `mainwindow` | ✅ |
 | frmAdConfigUnit | Support Cheat Engine | 21 | 13 | 0 | — | ❌ missing |
-| frmStructures2ElementInfoUnit | Structure Info | 21 | 13 | 0 | — | ❌ missing |
+| frmStructures2ElementInfoUnit | Structure Info | 21 | 13 | 0 | `structuredissector` | ✅ |
 | frmD3DHookSnapshotConfigUnit | D3DHook: Configure snapshot | 19 | 8 | 0 | — | 🚫 Direct3D (Windows) only |
 | frmdbvmwatchconfigunit | DBVM Watch Config | 19 | 4 | 0 | — | 🚫 DBVM (hypervisor) only |
 | frmsourcedisplayunit | frmSourceDisplay | 19 | 21 | 8 | — | ❌ missing |
@@ -148,7 +148,7 @@ Languages
 | frmStringMapUnit | String map | 15 | 12 | 2 | — | ❌ missing |
 | FindWindowUnit | Find | 14 | 3 | 0 | — | ❌ missing |
 | PasteTableentryFRM | Paste table entries | 14 | 1 | 0 | — | ❌ missing |
-| accessedmemory | Find accessed memory regions | 14 | 15 | 1 | — | ❌ missing |
+| accessedmemory | Find accessed memory regions | 14 | 15 | 1 | `codefinder` | ✅ |
 | frmCodecaveScannerUnit | Scan for codecaves | 14 | 6 | 1 | — | ❌ missing |
 | frmgroupscanalgoritmgeneratorunit | Generate groupscan command | 14 | 7 | 0 | — | ❌ missing |
 | frmsyntaxhighlightereditor | Highlighter configurator | 14 | 10 | 0 | — | ❌ missing |

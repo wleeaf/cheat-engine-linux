@@ -228,11 +228,23 @@ bool CheatTable::save(const std::string& path) const {
 
         if (e.isGroup) {
             f << "      <GroupHeader>1</GroupHeader>\n";
+        } else if (!e.autoAsmScript.empty()) {
+            // An entry carrying an AssemblerScript IS an "Auto Assembler Script"
+            // record in CE (the two are equivalent). CE writes the type name and,
+            // for the usual enable/disable script, no numeric <Address> (only a
+            // symbolic one if the record defined an address). Writing a bogus
+            // <Address>0</Address> + <VariableType>4 Bytes</VariableType> here made
+            // re-saved AA tables diverge from the original.
+            if (!e.addressString.empty())
+                f << "      <Address>" << e.addressString << "</Address>\n";
+            f << "      <VariableType>Auto Assembler Script</VariableType>\n";
         } else {
-            // Prefer the original symbolic address text ("game.exe+1C") if present;
-            // otherwise format the numeric address.
+            // Data record. CE writes the address expression RAW (quotes and all);
+            // matching that keeps a module-relative base like "ac_client.exe"+X
+            // readable by CE and by our raw-reading loader. Escaping it (turning "
+            // into &quot;) double-encoded on the next load.
             if (!e.addressString.empty()) {
-                f << "      <Address>" << xmlEscape(e.addressString) << "</Address>\n";
+                f << "      <Address>" << e.addressString << "</Address>\n";
             } else {
                 char addr[32];
                 snprintf(addr, sizeof(addr), "%lx", e.address);
@@ -243,7 +255,13 @@ bool CheatTable::save(const std::string& path) const {
                 f << "      <Offsets>\n";
                 for (int64_t off : e.offsets) {
                     char ob[32];
-                    snprintf(ob, sizeof(ob), "%llx", static_cast<unsigned long long>(off));
+                    // CE writes a negative offset as signed hex ("-60"). Emitting
+                    // it as a 64-bit unsigned ("ffffffffffffffa0") overflowed the
+                    // loader's stoll on reload and silently dropped the offset.
+                    if (off < 0)
+                        snprintf(ob, sizeof(ob), "-%llx", static_cast<unsigned long long>(-off));
+                    else
+                        snprintf(ob, sizeof(ob), "%llx", static_cast<unsigned long long>(off));
                     f << "        <Offset>" << ob << "</Offset>\n";
                 }
                 f << "      </Offsets>\n";

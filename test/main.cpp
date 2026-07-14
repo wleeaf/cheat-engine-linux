@@ -179,7 +179,11 @@ static void test_cheat_table_json() {
     entry.type = ValueType::Int32;
     entry.value = "100\n200";
     entry.active = true;
-    entry.autoAsmScript = "[ENABLE]\nassert(1234, 90)\n";
+    // A data record (address + type) and an Auto Assembler record are mutually
+    // exclusive in CE's format: a record with an <AssemblerScript> IS an "Auto
+    // Assembler Script" record and carries no numeric address/type. Keep this
+    // entry a pure data record; AA-record round-trip is covered by
+    // test_ce_table_import's fidelity checks and the real-table corpus.
     entry.luaScript = "print('entry lua')\n";
     entry.color = "FF00AA";
     entry.dropdownList = "0:Off;1:On";
@@ -413,6 +417,43 @@ static void test_ce_table_import() {
         pr.entries[0].setValueHotkeyKeys == "Ctrl+H" && pr.entries[0].setValueHotkeyValue == "999" &&
         pr.entries[0].offsets == std::vector<int64_t>({0x10, 0x8});
     printf("  save/reload preserves symbolic base + offsets: %s\n", ptrSaveOk ? "OK" : "FAILED");
+
+    // Round-trip fidelity bugs found against 14 real downloaded CE tables:
+    //  1. a quoted module base ("ac_client.exe"+X) was XML-escaped on save, so the
+    //     next load saw &quot; literally. CE writes the address RAW.
+    //  2. an Auto Assembler record was re-saved as <Address>0</Address> +
+    //     <VariableType>4 Bytes</VariableType> instead of "Auto Assembler Script".
+    //  3. a negative pointer offset (-60) was saved as 64-bit unsigned hex, which
+    //     overflowed the loader on reload and dropped the offset.
+    CheatTable f;
+    CheatEntry q; q.id = 1; q.description = "Quoted base";
+    q.type = ValueType::Int32; q.addressString = "\"ac_client.exe\"+0x17E254";
+    CheatEntry aa; aa.id = 2; aa.description = "God Mode";
+    aa.autoAsmScript = "[ENABLE]\nnop\n[DISABLE]\ndb 89 01";   // no address -> AA record
+    CheatEntry ng; ng.id = 3; ng.description = "Neg offset ptr";
+    ng.type = ValueType::Float; ng.addressString = "EDF5.exe+125AB70";
+    ng.offsets = {0x1F8, 0x0, -0x60};                         // trailing NEGATIVE offset
+    f.entries = {q, aa, ng};
+    auto fpath = std::filesystem::temp_directory_path() / "ce_fidelity.CT";
+    bool fsaved = f.save(fpath.string());
+    // The on-disk address must be raw (no &quot;) and the AA type name present.
+    std::string disk; { std::ifstream in(fpath); disk.assign(
+        std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()); }
+    bool rawAddr = disk.find("&quot;") == std::string::npos &&
+                   disk.find("\"ac_client.exe\"+0x17E254") != std::string::npos;
+    bool aaType  = disk.find("Auto Assembler Script") != std::string::npos &&
+                   disk.find("<Address>0</Address>") == std::string::npos;
+    bool negHex  = disk.find("-60") != std::string::npos;
+    CheatTable fr;
+    bool freloaded = fr.load(fpath.string());
+    std::filesystem::remove(fpath);
+    bool fidelityOk = fsaved && freloaded && fr.entries.size() == 3 &&
+        fr.entries[0].addressString == "\"ac_client.exe\"+0x17E254" &&   // raw quotes survive
+        !fr.entries[1].autoAsmScript.empty() &&                          // AA script survives
+        fr.entries[2].offsets == std::vector<int64_t>({0x1F8, 0x0, -0x60}); // negative offset survives
+    printf("  saver: raw address (no over-escape): %s\n", rawAddr ? "OK" : "FAILED");
+    printf("  saver: AA record keeps its type, no bogus address: %s\n", aaType ? "OK" : "FAILED");
+    printf("  saver: negative offset survives round-trip: %s\n", (negHex && fidelityOk) ? "OK" : "FAILED");
 }
 
 // Format detection must be driven by file CONTENT, not extension: downloaded CE

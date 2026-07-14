@@ -112,8 +112,11 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     bpInput_ = new QLineEdit();
     bpInput_->setPlaceholderText("address (hex), then Add");
     auto* addBtn = new QPushButton("Add");
+    auto* dataBpBtn = new QPushButton("Data BP...");
+    dataBpBtn->setToolTip("Hardware watchpoint: break when an address is written or accessed");
     addRow->addWidget(bpInput_);
     addRow->addWidget(addBtn);
+    addRow->addWidget(dataBpBtn);
     bl->addLayout(addRow);
     bpList_ = new QListWidget();
     bpList_->setToolTip("Double-click a breakpoint to set/edit its condition");
@@ -137,6 +140,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     connect(rtcBtn_,    &QPushButton::clicked, this, &DebuggerWindow::onRunToCursor);
     connect(detachBtn_, &QPushButton::clicked, this, &DebuggerWindow::onDetach);
     connect(addBtn,     &QPushButton::clicked, this, &DebuggerWindow::onAddBreakpoint);
+    connect(dataBpBtn,  &QPushButton::clicked, this, &DebuggerWindow::onAddDataBreakpoint);
     connect(rmBtn,      &QPushButton::clicked, this, &DebuggerWindow::onRemoveBreakpoint);
     connect(bpInput_,   &QLineEdit::returnPressed, this, &DebuggerWindow::onAddBreakpoint);
     connect(regTable_,  &QTableWidget::itemChanged, this, &DebuggerWindow::onRegisterEdited);
@@ -280,10 +284,51 @@ void DebuggerWindow::editBreakpointCondition() {
 void DebuggerWindow::onRemoveBreakpoint() {
     int row = bpList_->currentRow();
     if (row < 0 || row >= static_cast<int>(bps_.size())) return;
-    session_->removeSoftwareBreakpoint(bps_[row].id);
+    if (bps_[row].hardware) session_->removeHardwareBreakpoint(bps_[row].id);
+    else                    session_->removeSoftwareBreakpoint(bps_[row].id);
     bps_.erase(bps_.begin() + row);
     delete bpList_->takeItem(row);
     if (session_->isStopped()) updateDisassembly(session_->getStopContext());
+}
+
+QString DebuggerWindow::bpDataLabel(uintptr_t addr, int type, int size) {
+    return hex(addr) + QStringLiteral("  [%1%2]").arg(type == 3 ? "rw" : "w").arg(size);
+}
+
+void DebuggerWindow::onAddDataBreakpoint() {
+    if (!session_->isAttached() || !session_->isStopped()) {
+        statusLabel_->setText("Stop the target before setting a breakpoint");
+        return;
+    }
+    bool ok = false;
+    QString addrStr = QInputDialog::getText(this, "Data breakpoint",
+        "Address to watch (hex):", QLineEdit::Normal,
+        bpInput_->text().isEmpty() ? QString() : bpInput_->text(), &ok);
+    if (!ok) return;
+    uintptr_t addr = addrStr.trimmed().startsWith("0x")
+        ? addrStr.trimmed().mid(2).toULongLong(&ok, 16)
+        : addrStr.trimmed().toULongLong(&ok, 16);
+    if (!ok || !addr) { statusLabel_->setText("Invalid address"); return; }
+
+    QStringList types = {"On write", "On read/write (access)"};
+    QString typeSel = QInputDialog::getItem(this, "Data breakpoint", "Break:", types, 0, false, &ok);
+    if (!ok) return;
+    int type = (types.indexOf(typeSel) == 1) ? 3 : 1;   // 1=write, 3=access
+
+    QStringList sizes = {"1", "2", "4", "8"};
+    QString sizeSel = QInputDialog::getItem(this, "Data breakpoint", "Size (bytes):", sizes, 2, false, &ok);
+    if (!ok) return;
+    int size = sizeSel.toInt();
+
+    for (auto& b : bps_) if (b.hardware && b.addr == addr) return;   // already watched
+    int id = session_->setHardwareBreakpoint(addr, type, size);
+    if (id <= 0) {
+        statusLabel_->setText("No free debug register (max 4 hardware breakpoints)");
+        return;
+    }
+    Bp bp; bp.id = id; bp.addr = addr; bp.hardware = true; bp.hwType = type; bp.hwSize = size;
+    bps_.push_back(bp);
+    bpList_->addItem(bpDataLabel(addr, type, size));
 }
 
 void DebuggerWindow::onDebugEvent(int type) {

@@ -68,4 +68,14 @@ std::optional<MonoDissection> dissectMono(ProcessHandle& proc, SymbolResolver& r
                                           const std::string& agentSoPath,
                                           int timeoutMs = 8000);
 
+/// Resolve a Mono method's JIT'd address by name (findMonoFunction). Ensures the
+/// resident agent is injected, then asks it to compile just that one method.
+/// `paramCount` < 0 matches any overload. Returns 0 if not found. The first call
+/// may take a couple of seconds (agent injection + initial dump).
+uintptr_t findMonoFunction(ProcessHandle& proc, SymbolResolver& resolver,
+                           const std::string& agentSoPath,
+                           const std::string& nameSpace, const std::string& className,
+                           const std::string& methodName, int paramCount = -1,
+                           int timeoutMs = 12000);
+
 } // namespace ce

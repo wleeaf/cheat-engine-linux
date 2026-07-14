@@ -2475,6 +2475,34 @@ static int l_monoDissect(lua_State* L) {
     return 1;
 }
 
+// findMonoFunction(namespace, class, method [, params]) -> address (or nil).
+// Resolves + JIT-compiles the one named method via the resident Mono agent.
+// `params` is a comma-separated type list ("Entity,int") used only for its count
+// to disambiguate overloads; omit or "" to match any overload.
+static int l_findMonoFunction(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); return 1; }
+    if (ce::detectManagedKind(*p) != ce::ManagedKind::Mono) { lua_pushnil(L); return 1; }
+    std::string agent = ce::findMonoAgentPath();
+    if (agent.empty()) { lua_pushnil(L); return 1; }
+    const char* ns   = luaL_optstring(L, 1, "");
+    const char* cls  = luaL_checkstring(L, 2);
+    const char* meth = luaL_checkstring(L, 3);
+    int paramCount = -1;
+    if (lua_isstring(L, 4)) {
+        std::string params = lua_tostring(L, 4);
+        if (params.empty()) paramCount = 0;
+        else paramCount = 1 + (int)std::count(params.begin(), params.end(), ',');
+    } else if (lua_isnumber(L, 4)) {
+        paramCount = (int)lua_tointeger(L, 4);
+    }
+    ce::SymbolResolver resolver;
+    resolver.loadProcess(*p);
+    uintptr_t addr = ce::findMonoFunction(*p, resolver, agent, ns, cls, meth, paramCount);
+    if (addr) lua_pushinteger(L, (lua_Integer)addr); else lua_pushnil(L);
+    return 1;
+}
+
 // ── Pointer scanner ──
 // pointerScan(target [, maxDepth [, maxOffset [, {negativeOffsets,staticOnly,alignedOnly}]]])
 //   -> array of { path, module, baseOffset, moduleBase, offsets={...} }
@@ -3886,6 +3914,7 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "playSound", l_playSound);
     lua_register(L, "getManagedRuntimes", l_getManagedRuntimes);
     lua_register(L, "monoDissect", l_monoDissect);
+    lua_register(L, "findMonoFunction", l_findMonoFunction);
     lua_register(L, "pointerScan", l_pointerScan);
     lua_register(L, "dissectStructure", l_dissectStructure);
     lua_register(L, "findWhatWrites", l_findWhatWrites);

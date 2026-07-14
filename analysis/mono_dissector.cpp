@@ -162,4 +162,51 @@ std::optional<MonoDissection> dissectMono(ProcessHandle& proc, SymbolResolver& r
     return result;
 }
 
+uintptr_t findMonoFunction(ProcessHandle& proc, SymbolResolver& resolver,
+                           const std::string& agentSoPath, const std::string& ns,
+                           const std::string& className, const std::string& methodName,
+                           int paramCount, int timeoutMs) {
+    const int pid = proc.pid();
+    const std::string reqPath  = "/tmp/cecore_mono_req_"  + std::to_string(pid) + ".txt";
+    const std::string respPath = "/tmp/cecore_mono_resp_" + std::to_string(pid) + ".txt";
+    const std::string dumpPath = "/tmp/cecore_mono_"      + std::to_string(pid) + ".txt";
+
+    // Ensure the resident agent is present. dlopen of an already-loaded .so is a
+    // harmless refcount bump (the agent's request loop keeps running from the
+    // first injection), so this is safe to call every time.
+    auto inj = os::injectLibrary(proc, resolver, agentSoPath);
+    if (!inj) {
+        ce::log::warn(ce::log::Cat::General, "findMonoFunction: agent injection failed: {}", inj.error());
+        return 0;
+    }
+
+    std::remove(respPath.c_str());
+    {
+        std::ofstream rq(reqPath, std::ios::trunc);
+        rq << ns << '|' << className << '|' << methodName << '|' << paramCount << '\n';
+    }
+
+    // On the first call the agent must finish its initial dump before it services
+    // requests; wait for the dump marker OR the response, up to the timeout.
+    using namespace std::chrono;
+    auto deadline = steady_clock::now() + milliseconds(timeoutMs);
+    while (steady_clock::now() < deadline) {
+        std::ifstream rp(respPath);
+        if (rp) {
+            std::string hex; std::getline(rp, hex);
+            std::remove(respPath.c_str());
+            uintptr_t addr = 0;
+            try { addr = static_cast<uintptr_t>(std::stoull(hex, nullptr, 16)); } catch (...) {}
+            ce::log::info(ce::log::Cat::General, "findMonoFunction {}.{}::{} -> {:#x}",
+                          ns, className, methodName, addr);
+            return addr;
+        }
+        std::this_thread::sleep_for(milliseconds(80));
+    }
+    ce::log::warn(ce::log::Cat::General, "findMonoFunction {}.{}::{} timed out",
+                  ns, className, methodName);
+    (void)dumpPath;
+    return 0;
+}
+
 } // namespace ce

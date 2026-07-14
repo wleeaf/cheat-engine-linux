@@ -59,6 +59,9 @@ typedef uint32_t    (*fn_field_get_offset)(MonoClassField*);
 typedef uint32_t    (*fn_field_get_flags)(MonoClassField*);
 typedef MonoType*   (*fn_field_get_type)(MonoClassField*);
 typedef char*       (*fn_type_get_name)(MonoType*);
+typedef void*       (*fn_class_from_name)(MonoImage*, const char*, const char*);
+typedef void*       (*fn_get_method_from_name)(MonoClass*, const char*, int);
+typedef void*       (*fn_compile_method)(void* /*MonoMethod*/);
 
 static struct {
     fn_get_root_domain     get_root_domain;
@@ -77,6 +80,9 @@ static struct {
     fn_field_get_flags     field_get_flags;
     fn_field_get_type      field_get_type;
     fn_type_get_name       type_get_name;
+    fn_class_from_name      class_from_name;
+    fn_get_method_from_name get_method_from_name;
+    fn_compile_method       compile_method;
 } mono;
 
 static FILE* g_out;
@@ -126,9 +132,71 @@ static const char* resolve_rest(void) {
     mono.type_get_name = (fn_type_get_name)resolve_sym("mono_type_get_name");
     if (!mono.type_get_name)
         mono.type_get_name = (fn_type_get_name)resolve_sym("mono_type_full_name");
+    // For findMonoFunction (targeted method resolution — no mass compilation).
+    OPTIONAL(class_from_name,      "mono_class_from_name");
+    OPTIONAL(get_method_from_name, "mono_class_get_method_from_name");
+    OPTIONAL(compile_method,       "mono_compile_method");
     #undef REQUIRE
     #undef OPTIONAL
     return NULL;
+}
+
+// ── findMonoFunction RPC: resolve + JIT-compile ONE named method on demand ──
+// Only the requested method is compiled (mono_compile_method returns the existing
+// address if already JIT'd), so this never mass-compiles the target.
+static const char* g_reqNs;
+static const char* g_reqCls;
+static void* g_foundClass;
+static void find_class_cb(void* assembly, void* ud) {
+    (void)ud;
+    if (g_foundClass || !mono.class_from_name) return;
+    MonoImage* img = mono.assembly_get_image(assembly);
+    if (!img) return;
+    void* k = mono.class_from_name(img, g_reqNs && *g_reqNs ? g_reqNs : "", g_reqCls);
+    if (k) g_foundClass = k;
+}
+static void* resolve_method(const char* ns, const char* cls, const char* meth, int paramCount) {
+    if (!mono.class_from_name || !mono.get_method_from_name || !mono.compile_method) return NULL;
+    g_reqNs = ns; g_reqCls = cls; g_foundClass = NULL;
+    mono.assembly_foreach(find_class_cb, NULL);
+    if (!g_foundClass) return NULL;
+    void* m = mono.get_method_from_name(g_foundClass, meth, paramCount);
+    if (!m) return NULL;
+    return mono.compile_method(m);
+}
+
+// Resident RPC loop: watch /tmp/cecore_mono_req_<pid>.txt ("ns|class|method|nparams"),
+// resolve, write the address (hex) to /tmp/cecore_mono_resp_<pid>.txt.
+static void serve_requests(void) {
+    char reqp[64], respp[64];
+    snprintf(reqp, sizeof(reqp), "/tmp/cecore_mono_req_%d.txt", (int)getpid());
+    snprintf(respp, sizeof(respp), "/tmp/cecore_mono_resp_%d.txt", (int)getpid());
+    for (;;) {
+        FILE* rq = fopen(reqp, "re");
+        if (rq) {
+            char line[1024] = {0};
+            if (!fgets(line, sizeof(line), rq)) line[0] = 0;
+            fclose(rq);
+            unlink(reqp);
+            // split "ns|class|method|nparams"
+            char ns[256] = {0}, cls[256] = {0}, meth[256] = {0};
+            int nparams = -1;
+            char* p = line; char* fields[4] = {ns, cls, meth, NULL};
+            int fi = 0; char* start = p;
+            for (; *p && fi < 3; ++p) {
+                if (*p == '|') { size_t len = (size_t)(p - start);
+                    if (len > 255) len = 255; memcpy(fields[fi], start, len); fields[fi][len] = 0;
+                    ++fi; start = p + 1; }
+            }
+            if (fi == 3) nparams = atoi(start);           // 4th field
+            else if (fi < 3) { size_t len = strlen(start);
+                if (len && len < 256 && fi < 3) { strncpy(fields[fi], start, 255); } }
+            void* addr = resolve_method(ns, cls, meth, nparams);
+            FILE* rp = fopen(respp, "we");
+            if (rp) { fprintf(rp, "%zx\n", (size_t)addr); fclose(rp); }
+        }
+        usleep(50000);
+    }
 }
 
 static void dump_class(MonoClass* klass) {
@@ -216,6 +284,9 @@ static void* worker(void* arg) {
     fprintf(g_out, "# done\n");
     fflush(g_out);
     fclose(g_out);
+
+    // Stay resident to serve findMonoFunction requests (targeted, on demand).
+    serve_requests();
     return NULL;
 }
 

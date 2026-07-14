@@ -51,6 +51,7 @@
 #include <QHeaderView>
 #include <QMessageBox>
 #include <QTabWidget>
+#include <QColorDialog>
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
@@ -1314,6 +1315,33 @@ void MainWindow::setupUi() {
             menu.addAction("Find what writes to this address", [this, selected]() {
                 if (!selected.isEmpty())
                     startCodeFinder(selected.first().row(), true);
+            });
+            // CE "Pointer scan for this address".
+            if (firstRow >= 0 && firstRow < (int)ents0.size()
+                && !ents0[firstRow].isGroup && ents0[firstRow].autoAsmScript.isEmpty()) {
+                menu.addAction("Pointer scan for this address", [this, selected]() {
+                    if (!process_ || selected.isEmpty()) return;
+                    auto* dlg = new PointerScanDialog(process_.get(), this);
+                    dlg->setAttribute(Qt::WA_DeleteOnClose);
+                    connect(dlg, &PointerScanDialog::addressSelected, this,
+                            [this](uintptr_t addr, const QString& desc) {
+                                addressListModel_->addEntry(addr, ce::ValueType::Int32, desc);
+                            });
+                    dlg->show();
+                });
+            }
+            // CE "Change Color" — per-record display color.
+            menu.addAction("Change Color...", [this, selected]() {
+                const auto& entries = addressListModel_->entries();
+                if (selected.isEmpty()) return;
+                int row = selected.first().row();
+                QColor initial = (row < (int)entries.size() && !entries[row].color.isEmpty())
+                    ? QColor(entries[row].color) : QColor(Qt::black);
+                QColor c = QColorDialog::getColor(initial, this, "Change record color");
+                if (!c.isValid()) return;
+                for (const auto& idx : selected)
+                    if (idx.row() < (int)entries.size())
+                        addressListModel_->setColor(entries[idx.row()].id, c.name().toStdString());
             });
             if (selected.size() == 1) {
                 menu.addSeparator();

@@ -113,7 +113,7 @@ Languages
 | frmsetuppsnnodeunit | Setup pointerscan network node | 36 | 6 | 0 | — | 🚫 distributed pointerscan node |
 | frmUltimapUnit | Ultimap | 35 | 29 | 5 | — | 🚫 Intel PT / Windows only |
 | TypePopup | Type | 34 | 7 | 0 | `mainwindow` | ✅ |
-| frmRescanPointerUnit | Rescan pointerlist | 34 | 16 | 0 | — | ❌ missing |
+| frmRescanPointerUnit | Rescan pointerlist | 34 | 16 | 0 | `pointerscan_dialog` | ✅ |
 | frmanchoreditor | AnchorEditor | 34 | 27 | 0 | — | ❌ missing |
 | frmstructurecompareunit | Structure Compare | 33 | 31 | 18 | `structuredissector` | ⚠️ compare instances |
 | HotKeys | Set/Change hotkey | 32 | 25 | 2 | `globalhotkeys` | ⚠️ set/change hotkey |
@@ -140,7 +140,7 @@ Languages
 | asktorunluascript | Execute this lua script? | 16 | 2 | 0 | `mainwindow` | ✅ |
 | frmAAEditPrefsUnit | Editor preferences | 16 | 11 | 0 | — | ❌ missing |
 | frmFindstaticsUnit | Find static addresses | 16 | 7 | 0 | `findstaticswindow` | ✅ |
-| frmresumepointerscanunit | Resume pointerscan | 16 | 9 | 1 | — | ❌ missing |
+| frmresumepointerscanunit | Resume pointerscan | 16 | 9 | 1 | `pointerscan_dialog` | ✅ |
 | FoundCodeUnit | The following opcodes changed the  | 15 | 24 | 12 | `codefinder` | ⚠️ what-writes/accesses result list |
 | ProcessWindowUnit | Process List | 15 | 27 | 17 | `processlistdialog` | ✅ |
 | frmExcludeHideUnit | Show/Hide settings | 15 | 7 | 0 | — | ❌ missing |
@@ -152,8 +152,8 @@ Languages
 | frmCodecaveScannerUnit | Scan for codecaves | 14 | 6 | 1 | — | ❌ missing |
 | frmgroupscanalgoritmgeneratorunit | Generate groupscan command | 14 | 7 | 0 | — | ❌ missing |
 | frmsyntaxhighlightereditor | Highlighter configurator | 14 | 10 | 0 | — | ❌ missing |
-| frmStructPointerRescanUnit | Rescan | 13 | 2 | 0 | — | ❌ missing |
-| frmpointerscanconnectdialogunit | Connect to active pointerscanner | 13 | 3 | 0 | — | ❌ missing |
+| frmStructPointerRescanUnit | Rescan | 13 | 2 | 0 | `pointerscan_dialog` | ✅ |
+| frmpointerscanconnectdialogunit | Connect to active pointerscanner | 13 | 3 | 0 | — | 🚫 distributed pointerscan (network) |
 | savedisassemblyfrm | Save disassembled output | 13 | 3 | 0 | `mainwindow` | ✅ |
 | symbolconfigunit | Symbol config | 13 | 13 | 4 | `settingsdialog` | ✅ |
 | APIhooktemplatesettingsfrm | Api hook template | 12 | 2 | 0 | — | ❌ missing |
@@ -184,9 +184,9 @@ Languages
 | ModuleSafetyUnit | Module safety | 7 | 4 | 1 | — | ❌ missing |
 | frmLoadMemoryunit | Load Memory Region | 7 | 4 | 0 | — | ❌ missing |
 | frmexceptionignorelistunit | Exception ignore list | 7 | 7 | 1 | — | ❌ missing |
-| frmmergepointerscanresultsettingsunit | Merge pointerscan results | 7 | 2 | 0 | — | ❌ missing |
+| frmmergepointerscanresultsettingsunit | Merge pointerscan results | 7 | 2 | 0 | — | 🚫 distributed pointerscan (network) |
 | frmopenfileasprocessdialogunit | Open binary file | 7 | 1 | 0 | — | ❌ missing |
-| frmpointerrescanconnectdialogunit | Join rescan | 7 | 2 | 0 | — | ❌ missing |
+| frmpointerrescanconnectdialogunit | Join rescan | 7 | 2 | 0 | — | 🚫 distributed pointerscan (network) |
 | frmsymboleventtakinglongunit | Symbol lookup taking long | 7 | 3 | 0 | — | ❌ missing |
 | Valuechange | Change Offset: ######## | 6 | 7 | 0 | — | ❌ missing |
 | formAddToCodeList | Region to add | 6 | 4 | 0 | — | ❌ missing |

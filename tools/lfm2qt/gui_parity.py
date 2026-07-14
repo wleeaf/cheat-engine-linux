@@ -16,6 +16,9 @@ from lfm_parser import parse_lfm_file
 # that a Linux build does not show (Windows/DBVM/Direct3D/.NET-on-Windows only).
 MAP = {
     "MainUnit": ("mainwindow", ""),
+    "frmresumepointerscanunit": ("pointerscan_dialog", ""),
+    "frmStructPointerRescanUnit": ("pointerscan_dialog", ""),
+    "frmRescanPointerUnit": ("pointerscan_dialog", ""),
     "frmMemoryAllocHandlerUnit": ("mainwindow", ""),
     "symbolconfigunit": ("settingsdialog", ""),
     "networkConfig": ("settingsdialog", ""),
@@ -67,7 +70,10 @@ MAP = {
 NA = {
     "dbvm": "DBVM (hypervisor) only", "D3D": "Direct3D (Windows) only",
     "d3d": "Direct3D (Windows) only", "Kernel": "Windows kernel driver",
-    "psn": "distributed pointerscan node", "Ultimap": "Intel PT / Windows only",
+    "psn": "distributed pointerscan node",
+    "pointerscanconnect": "distributed pointerscan (network)",
+    "pointerrescanconnect": "distributed pointerscan (network)",
+    "mergepointerscan": "distributed pointerscan (network)", "Ultimap": "Intel PT / Windows only",
     "ultimap": "Intel PT / Windows only", "dotnet": ".NET (Windows) only",
     "Vehdebug": "VEH debugger (Windows) only",
 }

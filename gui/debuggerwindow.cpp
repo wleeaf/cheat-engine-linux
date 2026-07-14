@@ -7,6 +7,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
+#include <QToolButton>
 #include <QLabel>
 #include <QPlainTextEdit>
 #include <QTableWidget>
@@ -20,6 +21,7 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QTextCursor>
+#include <csignal>
 
 namespace ce::gui {
 
@@ -43,6 +45,32 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     detachBtn_ = new QPushButton("Detach");
     for (auto* b : {contBtn_, intoBtn_, overBtn_, outBtn_, rtcBtn_, detachBtn_})
         controls->addWidget(b);
+
+    // Break on exceptions (CE's exception breakpoints): a checkable menu of the
+    // common CPU-trap signals. Toggling one arms/disarms addExceptionBreakpoint.
+    auto* excBtn = new QToolButton();
+    excBtn->setText("Break on exceptions ▾");
+    excBtn->setPopupMode(QToolButton::InstantPopup);
+    auto* excMenu = new QMenu(excBtn);
+    struct SigEntry { const char* name; int sig; };
+    static const SigEntry kSigs[] = {
+        {"SIGSEGV (segfault)", SIGSEGV}, {"SIGILL (illegal instruction)", SIGILL},
+        {"SIGFPE (FP / divide-by-zero)", SIGFPE}, {"SIGBUS (bus error)", SIGBUS},
+        {"SIGABRT (abort)", SIGABRT}, {"SIGTRAP", SIGTRAP},
+    };
+    for (const auto& s : kSigs) {
+        auto* a = excMenu->addAction(s.name);
+        a->setCheckable(true);
+        int sig = s.sig;
+        connect(a, &QAction::toggled, this, [this, sig](bool on) {
+            if (!session_->isAttached()) return;
+            if (on) session_->addExceptionBreakpoint(sig);
+            else    session_->removeExceptionBreakpoint(sig);
+        });
+    }
+    excBtn->setMenu(excMenu);
+    controls->addWidget(excBtn);
+
     controls->addStretch();
     root->addLayout(controls);
 

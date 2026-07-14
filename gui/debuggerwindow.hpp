@@ -112,8 +112,12 @@ private:
         bool hardware = false;   // true = hardware data watchpoint (DR0-3)
         int hwType = 0;          // 1=write, 3=access (data breakpoints only)
         int hwSize = 0;          // 1/2/4/8 bytes
+        int hitCount = 0;
+        bool enabled = true;
     };
     std::vector<Bp> bps_;
+    QString bpRowText(const Bp& b) const;      // list text incl. condition + hit count
+    void refreshBpRow(int index);              // rewrite one list row from bps_[index]
     static QString bpLabel(uintptr_t addr, const QString& condition);   // execute-bp list text
     static QString bpDataLabel(uintptr_t addr, int type, int size);     // data-bp list text
     std::vector<uintptr_t> disasmLineAddrs_;   // address per rendered disasm line

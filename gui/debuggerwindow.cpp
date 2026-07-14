@@ -147,9 +147,41 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     addRow->addWidget(dataBpBtn);
     bl->addLayout(addRow);
     bpList_ = new QListWidget();
-    bpList_->setToolTip("Double-click a breakpoint to set/edit its condition");
+    bpList_->setToolTip("Check to enable/disable · double-click to set/edit its condition");
     connect(bpList_, &QListWidget::itemDoubleClicked, this,
             [this](QListWidgetItem*) { editBreakpointCondition(); });
+    // Checkbox toggles enable/disable: unchecking removes the planted breakpoint
+    // but keeps the list entry so it can be re-armed.
+    connect(bpList_, &QListWidget::itemChanged, this, [this](QListWidgetItem* it) {
+        int row = bpList_->row(it);
+        if (row < 0 || row >= static_cast<int>(bps_.size())) return;
+        bool wantEnabled = (it->checkState() == Qt::Checked);
+        if (wantEnabled == bps_[row].enabled) return;   // programmatic text change, not a toggle
+        if (!session_->isAttached() || !session_->isStopped()) {
+            QSignalBlocker block(bpList_);
+            it->setCheckState(bps_[row].enabled ? Qt::Checked : Qt::Unchecked);
+            statusLabel_->setText("Stop the target to enable/disable breakpoints");
+            return;
+        }
+        if (wantEnabled) {
+            int id = bps_[row].hardware
+                ? session_->setHardwareBreakpoint(bps_[row].addr, bps_[row].hwType, bps_[row].hwSize)
+                : session_->setSoftwareBreakpoint(bps_[row].addr);
+            if (id <= 0) {
+                QSignalBlocker block(bpList_);
+                it->setCheckState(Qt::Unchecked);
+                statusLabel_->setText("Could not enable breakpoint");
+                return;
+            }
+            bps_[row].id = id;
+            bps_[row].enabled = true;
+        } else {
+            if (bps_[row].hardware) session_->removeHardwareBreakpoint(bps_[row].id);
+            else                    session_->removeSoftwareBreakpoint(bps_[row].id);
+            bps_[row].enabled = false;
+        }
+        if (session_->isStopped()) updateDisassembly(session_->getStopContext());
+    });
     bl->addWidget(bpList_);
     auto* rmBtn = new QPushButton("Remove selected");
     bl->addWidget(rmBtn);
@@ -266,22 +298,40 @@ void DebuggerWindow::addBreakpointAt(uintptr_t addr, const QString& condition) {
         statusLabel_->setText("Stop the target before setting a breakpoint");
         return;
     }
-    for (auto& b : bps_) if (b.addr == addr) {   // already set — just update its condition
-        b.condition = condition.toStdString();
-        for (int i = 0; i < bpList_->count(); ++i)
-            if (bpList_->item(i)->text().startsWith(hex(addr)))
-                bpList_->item(i)->setText(bpLabel(addr, condition));
+    for (size_t i = 0; i < bps_.size(); ++i) if (bps_[i].addr == addr) {  // already set — update condition
+        bps_[i].condition = condition.toStdString();
+        refreshBpRow(static_cast<int>(i));
         return;
     }
     int id = session_->setSoftwareBreakpoint(addr);
     if (id <= 0) { statusLabel_->setText("Failed to set breakpoint at " + hex(addr)); return; }
-    bps_.push_back({id, addr, condition.toStdString()});
-    bpList_->addItem(bpLabel(addr, condition));
+    Bp bp; bp.id = id; bp.addr = addr; bp.condition = condition.toStdString();
+    bps_.push_back(bp);
+    bpList_->addItem(new QListWidgetItem());
+    refreshBpRow(static_cast<int>(bps_.size()) - 1);
     if (session_->isStopped()) updateDisassembly(session_->getStopContext());
 }
 
 QString DebuggerWindow::bpLabel(uintptr_t addr, const QString& condition) {
     return condition.isEmpty() ? hex(addr) : hex(addr) + "  if " + condition;
+}
+
+QString DebuggerWindow::bpRowText(const Bp& b) const {
+    QString base = b.hardware ? bpDataLabel(b.addr, b.hwType, b.hwSize)
+                              : bpLabel(b.addr, QString::fromStdString(b.condition));
+    if (b.hitCount > 0) base += QStringLiteral("  (hits: %1)").arg(b.hitCount);
+    return base;
+}
+
+// Rewrite one list row from bps_[index]. Signals are blocked so this programmatic
+// update isn't seen as a user check-toggle by the itemChanged handler.
+void DebuggerWindow::refreshBpRow(int index) {
+    if (index < 0 || index >= static_cast<int>(bps_.size()) || index >= bpList_->count()) return;
+    QSignalBlocker block(bpList_);
+    auto* it = bpList_->item(index);
+    it->setText(bpRowText(bps_[index]));
+    it->setFlags(it->flags() | Qt::ItemIsUserCheckable);
+    it->setCheckState(bps_[index].enabled ? Qt::Checked : Qt::Unchecked);
 }
 
 void DebuggerWindow::setConditionalBreakpointAtCursor() {
@@ -306,7 +356,7 @@ void DebuggerWindow::editBreakpointCondition() {
         QLineEdit::Normal, cur, &ok);
     if (!ok) return;
     bps_[row].condition = cond.trimmed().toStdString();
-    bpList_->item(row)->setText(bpLabel(bps_[row].addr, cond.trimmed()));
+    refreshBpRow(row);
 }
 
 void DebuggerWindow::onRemoveBreakpoint() {
@@ -356,7 +406,8 @@ void DebuggerWindow::onAddDataBreakpoint() {
     }
     Bp bp; bp.id = id; bp.addr = addr; bp.hardware = true; bp.hwType = type; bp.hwSize = size;
     bps_.push_back(bp);
-    bpList_->addItem(bpDataLabel(addr, type, size));
+    bpList_->addItem(new QListWidgetItem());
+    refreshBpRow(static_cast<int>(bps_.size()) - 1);
 }
 
 void DebuggerWindow::onDebugEvent(int type) {
@@ -377,15 +428,18 @@ void DebuggerWindow::onDebugEvent(int type) {
     // silently instead of surfacing the stop (CE's "condition" field).
     if (type == static_cast<int>(ce::DebugEventType::BreakpointHit)) {
         auto ctx = session_->getStopContext();
-        for (const auto& b : bps_) {
-            if (b.addr == ctx.rip && !b.condition.empty()) {
-                if (!ce::evaluateBreakpointCondition(b.condition, ctx, ctx.rip)) {
-                    setRunningUi(true);
-                    session_->continueExecution();
-                    return;
-                }
-                break;
+        for (size_t i = 0; i < bps_.size(); ++i) {
+            if (bps_[i].addr != ctx.rip) continue;
+            // False condition => resume silently, don't count it as a hit.
+            if (!bps_[i].condition.empty() &&
+                !ce::evaluateBreakpointCondition(bps_[i].condition, ctx, ctx.rip)) {
+                setRunningUi(true);
+                session_->continueExecution();
+                return;
             }
+            bps_[i].hitCount++;
+            refreshBpRow(static_cast<int>(i));
+            break;
         }
     }
     refreshStopped();

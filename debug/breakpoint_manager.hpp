@@ -42,6 +42,14 @@ struct BreakpointHit {
     std::string instructionText;
 };
 
+/// Evaluate a standalone breakpoint condition (a Lua expression that may read the
+/// register globals rax/RAX/.../rip/rflags and the `ctx` table) against a CPU
+/// context. Returns true if the breakpoint should BREAK (condition matched, or
+/// the condition is empty). Sandboxed + instruction-limited; on a condition error
+/// it fails safe (returns true). Lets the interactive debugger honour conditional
+/// breakpoints without going through the full BreakpointManager hit pipeline.
+bool evaluateBreakpointCondition(const std::string& condition, const CpuContext& ctx, uintptr_t rip);
+
 class BreakpointManager {
 public:
     BreakpointManager() = default;

@@ -186,6 +186,21 @@ bool conditionMatches(const Breakpoint& bp, const BreakpointHit& hit, std::strin
 
 } // namespace
 
+bool evaluateBreakpointCondition(const std::string& condition, const CpuContext& ctx, uintptr_t rip) {
+    if (condition.empty()) return true;
+    Breakpoint bp;
+    bp.condition = condition;
+    bp.address = rip;
+    BreakpointHit hit;
+    hit.context = ctx;
+    hit.rip = rip;
+    hit.address = rip;
+    std::string error;
+    // conditionMatches fails safe (returns true) on a bad condition, so a typo in
+    // a user condition breaks rather than silently skipping the breakpoint.
+    return conditionMatches(bp, hit, error);
+}
+
 int BreakpointManager::add(const Breakpoint& bp) {
     std::lock_guard lock(mutex_);
     Breakpoint b = bp;

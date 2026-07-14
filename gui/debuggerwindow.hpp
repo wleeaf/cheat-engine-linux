@@ -31,7 +31,7 @@ public:
 
     /// Plant a software breakpoint at `addr` (e.g. from the disassembler's
     /// "set breakpoint" action). No-op if not attached.
-    void addBreakpointAt(uintptr_t addr);
+    void addBreakpointAt(uintptr_t addr, const QString& condition = QString());
 
     // Accessors for automation/smoke tests.
     bool debugAttached() const { return session_ && session_->isAttached(); }
@@ -76,6 +76,8 @@ private:
     void updateThreadList();   // repopulate the thread dropdown at a stop
     void updateMemoryView(uintptr_t addr);   // hex-dump bytes at addr
     void setBreakpointAtCursor();            // disasm menu action
+    void setConditionalBreakpointAtCursor(); // disasm menu action (prompts for expr)
+    void editBreakpointCondition();          // breakpoint-list action (edit condition)
     void nopInstructionAtCursor();           // disasm menu action
     void updateRegisters(const ce::CpuContext& ctx);
     void updateDisassembly(const ce::CpuContext& ctx);
@@ -104,8 +106,9 @@ private:
     QPushButton* rtcBtn_ = nullptr;
     QPushButton* detachBtn_ = nullptr;
 
-    struct Bp { int id; uintptr_t addr; };
+    struct Bp { int id; uintptr_t addr; std::string condition; };
     std::vector<Bp> bps_;
+    static QString bpLabel(uintptr_t addr, const QString& condition);   // list text
     std::vector<uintptr_t> disasmLineAddrs_;   // address per rendered disasm line
     uintptr_t lastStopRip_ = 0;
 

@@ -493,6 +493,23 @@ static void test_mono_dissector_parse() {
     printf("  namespaced class name split: %s\n", nsOk ? "OK" : "FAILED");
 }
 
+// Conditional breakpoint evaluation (the interactive debugger auto-continues when
+// a breakpoint's condition is false).
+static void test_breakpoint_condition() {
+    printf("\n── Test: conditional breakpoint evaluation ──\n");
+    ce::CpuContext ctx{};
+    ctx.rax = 5; ctx.rbx = 10; ctx.rip = 0x1234;
+    bool trueCond  = ce::evaluateBreakpointCondition("rax == 5", ctx, ctx.rip);
+    bool falseCond = ce::evaluateBreakpointCondition("rax == 6", ctx, ctx.rip);
+    bool upper     = ce::evaluateBreakpointCondition("RAX == 5 and RBX > 5", ctx, ctx.rip);
+    bool empty     = ce::evaluateBreakpointCondition("", ctx, ctx.rip);
+    bool malformed = ce::evaluateBreakpointCondition("$$ not lua", ctx, ctx.rip);
+    printf("  register condition true/false: %s\n", (trueCond && !falseCond) ? "OK" : "FAILED");
+    printf("  uppercase register names + logic: %s\n", upper ? "OK" : "FAILED");
+    printf("  empty condition always breaks: %s\n", empty ? "OK" : "FAILED");
+    printf("  malformed condition fails safe (breaks): %s\n", malformed ? "OK" : "FAILED");
+}
+
 // createSimpleHook / removeSimpleHook against a live forked child. noipa keeps the
 // caller from constant-propagating the return, so the detour is observable.
 static volatile int g_hooktest_result = 0;
@@ -8004,6 +8021,7 @@ int main(int argc, char* argv[]) {
 
     test_cheat_table_json();
     test_mono_dissector_parse();
+    test_breakpoint_condition();
     test_simple_hook();
     test_lua_stringlist();
     test_lua_timers();

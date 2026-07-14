@@ -1,4 +1,5 @@
 #include "gui/debuggerwindow.hpp"
+#include "debug/breakpoint_manager.hpp"
 #include "debug/patch.hpp"
 
 #include <QWidget>
@@ -12,6 +13,7 @@
 #include <QHeaderView>
 #include <QComboBox>
 #include <QLineEdit>
+#include <QInputDialog>
 #include <QListWidget>
 #include <QGroupBox>
 #include <QSplitter>
@@ -114,6 +116,9 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     addRow->addWidget(addBtn);
     bl->addLayout(addRow);
     bpList_ = new QListWidget();
+    bpList_->setToolTip("Double-click a breakpoint to set/edit its condition");
+    connect(bpList_, &QListWidget::itemDoubleClicked, this,
+            [this](QListWidgetItem*) { editBreakpointCondition(); });
     bl->addWidget(bpList_);
     auto* rmBtn = new QPushButton("Remove selected");
     bl->addWidget(rmBtn);
@@ -224,17 +229,52 @@ void DebuggerWindow::onAddBreakpoint() {
     bpInput_->clear();
 }
 
-void DebuggerWindow::addBreakpointAt(uintptr_t addr) {
+void DebuggerWindow::addBreakpointAt(uintptr_t addr, const QString& condition) {
     if (!session_->isAttached() || !session_->isStopped()) {
         statusLabel_->setText("Stop the target before setting a breakpoint");
         return;
     }
-    for (auto& b : bps_) if (b.addr == addr) return;   // already set
+    for (auto& b : bps_) if (b.addr == addr) {   // already set — just update its condition
+        b.condition = condition.toStdString();
+        for (int i = 0; i < bpList_->count(); ++i)
+            if (bpList_->item(i)->text().startsWith(hex(addr)))
+                bpList_->item(i)->setText(bpLabel(addr, condition));
+        return;
+    }
     int id = session_->setSoftwareBreakpoint(addr);
     if (id <= 0) { statusLabel_->setText("Failed to set breakpoint at " + hex(addr)); return; }
-    bps_.push_back({id, addr});
-    bpList_->addItem(hex(addr));
+    bps_.push_back({id, addr, condition.toStdString()});
+    bpList_->addItem(bpLabel(addr, condition));
     if (session_->isStopped()) updateDisassembly(session_->getStopContext());
+}
+
+QString DebuggerWindow::bpLabel(uintptr_t addr, const QString& condition) {
+    return condition.isEmpty() ? hex(addr) : hex(addr) + "  if " + condition;
+}
+
+void DebuggerWindow::setConditionalBreakpointAtCursor() {
+    uintptr_t addr = currentCursorAddress();
+    if (!addr) return;
+    bool ok = false;
+    QString cond = QInputDialog::getText(this, "Conditional breakpoint",
+        "Break only when this expression is true\n"
+        "(Lua; reads registers RAX/rax, RIP, ... and the ctx table, e.g. \"RAX == 5\"):",
+        QLineEdit::Normal, QString(), &ok);
+    if (!ok) return;
+    addBreakpointAt(addr, cond.trimmed());
+}
+
+void DebuggerWindow::editBreakpointCondition() {
+    int row = bpList_->currentRow();
+    if (row < 0 || row >= static_cast<int>(bps_.size())) return;
+    bool ok = false;
+    QString cur = QString::fromStdString(bps_[row].condition);
+    QString cond = QInputDialog::getText(this, "Edit breakpoint condition",
+        "Break only when this expression is true (empty = unconditional):",
+        QLineEdit::Normal, cur, &ok);
+    if (!ok) return;
+    bps_[row].condition = cond.trimmed().toStdString();
+    bpList_->item(row)->setText(bpLabel(bps_[row].addr, cond.trimmed()));
 }
 
 void DebuggerWindow::onRemoveBreakpoint() {
@@ -258,6 +298,22 @@ void DebuggerWindow::onDebugEvent(int type) {
         session_->removeSoftwareBreakpoint(pendingRtcId_);
         pendingRtcId_ = -1;
         pendingRtcAddr_ = 0;
+    }
+    // Conditional breakpoints: if the breakpoint that stopped us carries a
+    // condition and it evaluates false for the current register state, resume
+    // silently instead of surfacing the stop (CE's "condition" field).
+    if (type == static_cast<int>(ce::DebugEventType::BreakpointHit)) {
+        auto ctx = session_->getStopContext();
+        for (const auto& b : bps_) {
+            if (b.addr == ctx.rip && !b.condition.empty()) {
+                if (!ce::evaluateBreakpointCondition(b.condition, ctx, ctx.rip)) {
+                    setRunningUi(true);
+                    session_->continueExecution();
+                    return;
+                }
+                break;
+            }
+        }
     }
     refreshStopped();
 }
@@ -506,6 +562,7 @@ void DebuggerWindow::onDisasmContextMenu(const QPoint& pos) {
     disasmView_->setTextCursor(disasmView_->cursorForPosition(pos));
     QMenu menu(this);
     menu.addAction("Set breakpoint here", this, &DebuggerWindow::setBreakpointAtCursor);
+    menu.addAction("Set conditional breakpoint...", this, &DebuggerWindow::setConditionalBreakpointAtCursor);
     menu.addAction("Replace with NOPs",  this, &DebuggerWindow::nopInstructionAtCursor);
     menu.exec(disasmView_->viewport()->mapToGlobal(pos));
 }

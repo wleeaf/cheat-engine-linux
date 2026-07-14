@@ -100,7 +100,7 @@ Languages
 | PointerscannerSettingsFrm | Pointerscanner scanoptions | 70 | 29 | 0 | `pointerscan_dialog` | ⚠️ scan options |
 | trainergenerator | Trainer generator | 60 | 32 | 3 | — | ❌ missing |
 | frmMemviewPreferencesUnit | Disassembler Preferences | 58 | 33 | 1 | — | ❌ missing |
-| MemoryBrowserFormUnit | Memory Viewer | 57 | 261 | 251 | `memorybrowser` | ⚠️ disasm+hex; missing debug toolbar, register panel, most menus |
+| MemoryBrowserFormUnit | Memory Viewer | 57 | 261 | 251 | `memorybrowser` | ⚠️ disasm+hex+register panel+debug toolbar; stepping + full menus pending |
 | frmUltimap2Unit | Ultimap 2 | 56 | 47 | 10 | — | 🚫 Intel PT / Windows only |
 | frmStringPointerScanUnit | Structure spider | 55 | 37 | 10 | — | ❌ missing |
 | frmModifyRegistersUnit | Modify register(s) at xxxxxxxx | 52 | 7 | 0 | `registereditor` | ⚠️ edit register value |

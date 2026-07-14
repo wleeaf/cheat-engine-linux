@@ -1067,6 +1067,38 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     rebuildBookmarksMenu();  // eager: kept current on every bookmark change
     addToolBar(toolbar);
 
+    // Debug toolbar (CE MemoryBrowserFormUnit.tbDebug): breakpoint + step controls
+    // on their own row. Toggle-breakpoint uses the same setter as the disasm
+    // context menu. Single-stepping needs a debug session hosted in the browser;
+    // until that lands, the step/run buttons are present (matching CE's toolbar)
+    // but disabled, pointing at the Debugger window.
+    addToolBarBreak();
+    auto* dbgBar = new QToolBar("Debug");
+    auto* bpAct = dbgBar->addAction("Toggle BP");
+    bpAct->setToolTip("Toggle breakpoint at the selected instruction (F5)");
+    bpAct->setShortcut(QKeySequence("F5"));
+    connect(bpAct, &QAction::triggered, this, [this]() {
+        uintptr_t a = disasmView_->selectedAddress();
+        if (!a) a = currentAddr_;
+        if (a && bpSetter_) { bpSetter_(a, /*hardware=*/false); refreshBreakpoints(); }
+    });
+    dbgBar->addSeparator();
+    auto stepStub = [dbgBar](const QString& text, const QString& tip) {
+        auto* a = dbgBar->addAction(text);
+        a->setEnabled(false);
+        a->setToolTip(tip + " — use the Debugger window (Tools ▸ Debugger)");
+        return a;
+    };
+    stepStub("Run", "Resume the target");
+    stepStub("Step Into", "Single-step into");
+    stepStub("Step Over", "Step over calls");
+    stepStub("Step Out", "Run until return");
+    dbgBar->addSeparator();
+    stepStub("Run Till", "Run until the selected line");
+    dbgBar->addSeparator();
+    stepStub("Run Unhandled", "Run, passing exceptions to the target");
+    addToolBar(dbgBar);
+
     // Load symbols + DWARF (if libdw is compiled in and modules have debug info).
     if (proc_) {
         resolver_.loadProcess(*proc_);

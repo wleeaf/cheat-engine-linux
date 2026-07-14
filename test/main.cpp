@@ -21,6 +21,7 @@
 #include "core/aa_templates.hpp"
 #include "core/injection_gen.hpp"
 #include "core/ct_file.hpp"
+#include "analysis/mono_dissector.hpp"
 #include "core/log.hpp"
 #include "arch/disassembler.hpp"
 #include "core/expression.hpp"
@@ -455,6 +456,40 @@ static void test_ce_table_import() {
     printf("  saver: raw address (no over-escape): %s\n", rawAddr ? "OK" : "FAILED");
     printf("  saver: AA record keeps its type, no bogus address: %s\n", aaType ? "OK" : "FAILED");
     printf("  saver: negative offset survives round-trip: %s\n", (negHex && fidelityOk) ? "OK" : "FAILED");
+}
+
+// The Mono dissector's dump parser (the in-process agent's IMG/CLS/FLD output ->
+// a structured model). Pure + offline; the live inject path is validated by hand
+// against a real mono process.
+static void test_mono_dissector_parse() {
+    printf("\n── Test: Mono dissector dump parser ──\n");
+    const char* dump =
+        "# ready pid=123\n"
+        "IMG Assembly-CSharp\n"
+        "CLS .Player\n"
+        "FLD 0x18 - System.Int32 health\n"
+        "FLD 0x10 - System.String playerName\n"
+        "FLD 0x0 S System.Int32 instanceCount\n"
+        "CLS Game.Enemies.Boss\n"
+        "FLD 0x20 - System.Single hp\n"
+        "IMG mscorlib\n"
+        "CLS System.String\n"
+        "# done\n";
+    auto d = ce::parseMonoDump(dump);
+    bool structOk = d.ready && d.error.empty() && d.images.size() == 2 &&
+        d.images[0].name == "Assembly-CSharp" && d.images[0].classes.size() == 2 &&
+        d.classCount() == 3;
+    const ce::MonoClassInfo* p = d.findClass("Player");
+    bool fieldOk = p && p->fields.size() == 3 &&
+        p->fields[0].name == "health" && p->fields[0].offset == 0x18 &&
+        !p->fields[0].isStatic && p->fields[0].typeName == "System.Int32" &&
+        p->fields[2].name == "instanceCount" && p->fields[2].isStatic &&
+        p->fields[2].offset == 0;
+    const ce::MonoClassInfo* boss = d.findClass("Game.Enemies.Boss");
+    bool nsOk = boss && boss->namespaceName == "Game.Enemies" && boss->name == "Boss";
+    printf("  parses images/classes/fields + ready marker: %s\n", structOk ? "OK" : "FAILED");
+    printf("  field offset/type/static-flag parsed: %s\n", fieldOk ? "OK" : "FAILED");
+    printf("  namespaced class name split: %s\n", nsOk ? "OK" : "FAILED");
 }
 
 // The diagnostic logging facility: level parsing, per-category gating, Off.
@@ -7871,6 +7906,7 @@ int main(int argc, char* argv[]) {
     }
 
     test_cheat_table_json();
+    test_mono_dissector_parse();
     test_logging();
     test_ce_table_import();
     test_ct_format_detection();

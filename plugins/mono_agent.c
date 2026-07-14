@@ -85,33 +85,50 @@ static FILE* g_out;
 #define MONO_TOKEN_TYPE_DEF    0x02000000u
 #define FIELD_ATTRIBUTE_STATIC 0x0010
 
-#define RESOLVE(field, sym)                                  \
-    do {                                                     \
-        mono.field = (void*)dlsym(RTLD_DEFAULT, sym);        \
-        if (!mono.field) { missing = sym; }                  \
-    } while (0)
+/* Resolve a symbol via the global scope, then via the mono-sgen executable
+ * handle directly. A library dlopen'd at runtime (injection) resolves
+ * RTLD_DEFAULT against a narrower scope than an LD_PRELOAD'd one, so some mono_*
+ * symbols that are present in the executable aren't visible via RTLD_DEFAULT;
+ * dlopen(NULL) gives a handle whose scope does include them. */
+static void* g_exe;   /* dlopen(NULL) handle for the main program */
+static void* resolve_sym(const char* sym) {
+    void* p = dlsym(RTLD_DEFAULT, sym);
+    if (!p && g_exe) p = dlsym(g_exe, sym);
+    return p;
+}
 
-/* Resolve the whole API; returns the name of the first missing symbol, or NULL. */
-static const char* resolve_api(void) {
-    const char* missing = NULL;
-    RESOLVE(get_root_domain,     "mono_get_root_domain");
-    RESOLVE(thread_attach,       "mono_thread_attach");
-    RESOLVE(assembly_foreach,    "mono_assembly_foreach");
-    RESOLVE(assembly_get_image,  "mono_assembly_get_image");
-    RESOLVE(image_get_name,      "mono_image_get_name");
-    RESOLVE(image_get_table_info,"mono_image_get_table_info");
-    RESOLVE(table_info_get_rows, "mono_table_info_get_rows");
-    RESOLVE(class_get,           "mono_class_get");
-    RESOLVE(class_get_name,      "mono_class_get_name");
-    RESOLVE(class_get_namespace, "mono_class_get_namespace");
-    RESOLVE(class_get_fields,    "mono_class_get_fields");
-    RESOLVE(field_get_name,      "mono_field_get_name");
-    RESOLVE(field_get_offset,    "mono_field_get_offset");
-    RESOLVE(field_get_type,      "mono_field_get_type");
-    RESOLVE(type_get_name,       "mono_type_get_name");
-    /* field_get_flags is optional (only used to tag statics). */
-    mono.field_get_flags = (fn_field_get_flags)dlsym(RTLD_DEFAULT, "mono_field_get_flags");
-    return missing;
+/* Resolve everything except get_root_domain (the worker's poll loop handles that,
+ * since it also gates on the runtime being up). Hard-fail only on the functions
+ * without which enumeration is impossible; names are best-effort. Returns a
+ * missing REQUIRED symbol, or NULL. */
+static const char* resolve_rest(void) {
+    #define REQUIRE(field, sym) do { \
+        mono.field = (void*)resolve_sym(sym); \
+        if (!mono.field) return sym; \
+    } while (0)
+    #define OPTIONAL(field, sym) mono.field = (void*)resolve_sym(sym)
+
+    REQUIRE(thread_attach,       "mono_thread_attach");
+    REQUIRE(assembly_foreach,    "mono_assembly_foreach");
+    REQUIRE(assembly_get_image,  "mono_assembly_get_image");
+    REQUIRE(image_get_table_info,"mono_image_get_table_info");
+    REQUIRE(table_info_get_rows, "mono_table_info_get_rows");
+    REQUIRE(class_get,           "mono_class_get");
+    REQUIRE(class_get_fields,    "mono_class_get_fields");
+    REQUIRE(field_get_offset,    "mono_field_get_offset");
+
+    OPTIONAL(image_get_name,      "mono_image_get_name");
+    OPTIONAL(class_get_name,      "mono_class_get_name");
+    OPTIONAL(class_get_namespace, "mono_class_get_namespace");
+    OPTIONAL(field_get_name,      "mono_field_get_name");
+    OPTIONAL(field_get_flags,     "mono_field_get_flags");
+    OPTIONAL(field_get_type,      "mono_field_get_type");
+    mono.type_get_name = (fn_type_get_name)resolve_sym("mono_type_get_name");
+    if (!mono.type_get_name)
+        mono.type_get_name = (fn_type_get_name)resolve_sym("mono_type_full_name");
+    #undef REQUIRE
+    #undef OPTIONAL
+    return NULL;
 }
 
 static void dump_class(MonoClass* klass) {
@@ -123,7 +140,7 @@ static void dump_class(MonoClass* klass) {
     void* iter = NULL;
     MonoClassField* f;
     while ((f = mono.class_get_fields(klass, &iter))) {
-        const char* fname = mono.field_get_name(f);
+        const char* fname = mono.field_get_name ? mono.field_get_name(f) : "?";
         uint32_t off = mono.field_get_offset(f);
         int is_static = 0;
         if (mono.field_get_flags)
@@ -161,22 +178,33 @@ static void* worker(void* arg) {
     g_out = fopen(path, "we");
     if (!g_out) return NULL;
 
-    const char* missing = resolve_api();
-    if (missing) {
-        fprintf(g_out, "# error: mono symbol not found: %s\n", missing);
-        fflush(g_out); fclose(g_out); return NULL;
-    }
+    /* dlopen(NULL) handle for the main program — a runtime-injected library
+     * resolves RTLD_DEFAULT against a narrower scope than an LD_PRELOAD'd one, so
+     * some executable-exported mono_* symbols need this handle to be found. */
+    g_exe = dlopen(NULL, RTLD_LAZY | RTLD_NOLOAD);
 
-    /* The LD_PRELOAD constructor fires before the runtime is up; wait for the
-     * root domain (up to ~30s), then attach this thread so mono_* calls are legal. */
+    /* Poll for the runtime. Symbol visibility can lag a fresh injection (the
+     * loader scope is still settling), so resolve get_root_domain INSIDE the loop
+     * and keep retrying — up to ~30s — until it resolves AND returns a domain. */
     MonoDomain* domain = NULL;
     for (int i = 0; i < 300; ++i) {
-        domain = mono.get_root_domain();
-        if (domain) break;
+        if (!mono.get_root_domain)
+            mono.get_root_domain = (fn_get_root_domain)resolve_sym("mono_get_root_domain");
+        if (mono.get_root_domain) {
+            domain = mono.get_root_domain();
+            if (domain) break;
+        }
         usleep(100000);
     }
     if (!domain) {
-        fprintf(g_out, "# error: root domain never came up\n");
+        fprintf(g_out, "# error: root domain never came up (mono_get_root_domain %s)\n",
+                mono.get_root_domain ? "returned null" : "unresolved");
+        fflush(g_out); fclose(g_out); return NULL;
+    }
+
+    const char* missing = resolve_rest();
+    if (missing) {
+        fprintf(g_out, "# error: mono symbol not found: %s\n", missing);
         fflush(g_out); fclose(g_out); return NULL;
     }
     mono.thread_attach(domain);

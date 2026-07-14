@@ -107,6 +107,7 @@ private:
     std::unique_ptr<ce::ProcessHandle> process_;
     std::unique_ptr<ce::os::CEServerClient> ceserverClient_;  // Outlives the remote handle.
     std::unique_ptr<ce::Snapshot> snapshot_;  // Captured baseline for diff/restore.
+    std::vector<QPair<qulonglong, qulonglong>> allocations_;  // (address,size) blocks we allocated.
     std::unique_ptr<ce::os::ProcessWatcher> processWatcher_;
     pid_t currentPid_ = 0;
 

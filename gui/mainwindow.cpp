@@ -53,6 +53,7 @@
 #include <QMessageBox>
 #include <QTabWidget>
 #include <QColorDialog>
+#include <QListWidget>
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
@@ -460,6 +461,47 @@ void MainWindow::setupMenus() {
             f.write(reinterpret_cast<const char*>(buf.data()), (std::streamsize)*r);
             QMessageBox::information(dlg, "Saved", QString("Wrote %1 bytes to %2.").arg(*r).arg(path));
             dlg->accept();
+        });
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->show();
+    });
+    // CE frmMemoryAllocHandlerUnit (Memory Allocations): allocate + track blocks.
+    tools->addAction("Memory Allocations...", this, [this]() {
+        if (!process_) { QMessageBox::warning(this, "Memory Allocations", "Open a process first."); return; }
+        auto* dlg = new QDialog(this);
+        dlg->setWindowTitle("Memory Allocations");
+        dlg->resize(360, 300);
+        auto* v = new QVBoxLayout(dlg);
+        auto* list = new QListWidget;
+        auto refill = [this, list]() {
+            list->clear();
+            for (const auto& a : allocations_)
+                list->addItem(QString("0x%1  (%2 bytes)").arg(a.first, 0, 16).arg(a.second));
+        };
+        refill();
+        v->addWidget(list);
+        auto* row = new QHBoxLayout;
+        auto* allocBtn = new QPushButton("Allocate");
+        auto* freeBtn = new QPushButton("Free");
+        auto* closeBtn = new QPushButton("Close");
+        row->addWidget(allocBtn); row->addWidget(freeBtn); row->addStretch(); row->addWidget(closeBtn);
+        v->addLayout(row);
+        connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::accept);
+        connect(allocBtn, &QPushButton::clicked, this, [this, dlg, refill]() {
+            bool ok = false;
+            int size = QInputDialog::getInt(dlg, "Allocate", "Size (bytes):", 4096, 1, 1 << 30, 1, &ok);
+            if (!ok) return;
+            auto r = process_->allocate(size, ce::MemProt::All, 0);
+            if (!r) { QMessageBox::warning(dlg, "Allocate", "Allocation failed."); return; }
+            allocations_.push_back({(qulonglong)*r, (qulonglong)size});
+            refill();
+        });
+        connect(freeBtn, &QPushButton::clicked, this, [this, list, refill]() {
+            int i = list->currentRow();
+            if (i < 0 || i >= (int)allocations_.size()) return;
+            process_->free(allocations_[i].first, allocations_[i].second);
+            allocations_.erase(allocations_.begin() + i);
+            refill();
         });
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         dlg->show();

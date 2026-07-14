@@ -135,7 +135,7 @@ Languages
 | frmD3DHookSnapshotConfigUnit | D3DHook: Configure snapshot | 19 | 8 | 0 | — | 🚫 Direct3D (Windows) only |
 | frmdbvmwatchconfigunit | DBVM Watch Config | 19 | 4 | 0 | — | 🚫 DBVM (hypervisor) only |
 | frmsourcedisplayunit | frmSourceDisplay | 19 | 21 | 8 | — | ❌ missing |
-| frmMemoryAllocHandlerUnit | Memory Allocations | 17 | 8 | 0 | — | ❌ missing |
+| frmMemoryAllocHandlerUnit | Memory Allocations | 17 | 8 | 0 | `mainwindow` | ✅ |
 | frmmanualstacktraceconfigunit | Manual stacktrace config | 17 | 1 | 0 | — | ❌ missing |
 | asktorunluascript | Execute this lua script? | 16 | 2 | 0 | `mainwindow` | ✅ |
 | frmAAEditPrefsUnit | Editor preferences | 16 | 11 | 0 | — | ❌ missing |

@@ -61,6 +61,39 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     tabs->addTab(buildMemoryViewTab(), "Memory View");
     tabs->addTab(buildHotkeysTab(),    "Hotkeys");
     tabs->addTab(buildNetworkTab(),    "Network");
+
+    // Additional CE setting tabs (formsettingsunit). These persist on change, so
+    // they need no onApply plumbing.
+    {
+        QSettings st;
+        auto* sym = new QWidget; auto* sf = new QFormLayout(sym);
+        auto* demangle = new QCheckBox("Demangle C++ symbol names");
+        demangle->setChecked(st.value("symbols/demangle", true).toBool());
+        connect(demangle, &QCheckBox::toggled, this, [](bool v){ QSettings().setValue("symbols/demangle", v); });
+        sf->addRow("", demangle);
+        auto* dwarf = new QCheckBox("Load DWARF debug info when available");
+        dwarf->setChecked(st.value("symbols/dwarf", true).toBool());
+        connect(dwarf, &QCheckBox::toggled, this, [](bool v){ QSettings().setValue("symbols/dwarf", v); });
+        sf->addRow("", dwarf);
+        tabs->addTab(sym, "Symbols");
+
+        auto* cf = new QWidget; auto* cff = new QFormLayout(cf);
+        auto* watch = new QComboBox; watch->addItems({"1", "2", "4", "8"});
+        watch->setCurrentText(st.value("codefinder/watchSize", "4").toString());
+        connect(watch, &QComboBox::currentTextChanged, this, [](const QString& v){ QSettings().setValue("codefinder/watchSize", v); });
+        cff->addRow("Default watch size (bytes):", watch);
+        tabs->addTab(cf, "CodeFinder");
+
+        auto* lua = new QWidget; auto* lf = new QFormLayout(lua);
+        auto* luaWarn = new QLabel(
+            "Unsafe Lua functions (shellExecute, write*Local) are disabled unless "
+            "the environment variable CECORE_LUA_ALLOW_UNSAFE=1 is set out-of-band, "
+            "so a loaded cheat table's Lua cannot enable them itself.");
+        luaWarn->setWordWrap(true);
+        lf->addRow(luaWarn);
+        tabs->addTab(lua, "Lua");
+    }
+
     root->addWidget(tabs);
 
     auto* btnRow = new QHBoxLayout;

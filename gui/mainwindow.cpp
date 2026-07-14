@@ -464,6 +464,34 @@ void MainWindow::setupMenus() {
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         dlg->show();
     });
+    // CE savedisassemblyfrm: disassemble a From..To range to a text file.
+    tools->addAction("Save Disassembly...", this, [this]() {
+        if (!process_) { QMessageBox::warning(this, "Save Disassembly", "Open a process first."); return; }
+        bool ok = false;
+        QString fromS = QInputDialog::getText(this, "Save Disassembly", "From (hex):",
+                                              QLineEdit::Normal, "0", &ok);
+        if (!ok) return;
+        QString toS = QInputDialog::getText(this, "Save Disassembly", "To (hex):",
+                                            QLineEdit::Normal, "0", &ok);
+        if (!ok) return;
+        uintptr_t from = fromS.toULongLong(nullptr, 16), to = toS.toULongLong(nullptr, 16);
+        if (to <= from || to - from > (64u << 20)) {
+            QMessageBox::warning(this, "Save Disassembly", "Invalid or too-large range."); return;
+        }
+        std::vector<uint8_t> buf(to - from);
+        auto r = process_->read(from, buf.data(), buf.size());
+        if (!r || *r == 0) { QMessageBox::warning(this, "Save Disassembly", "Could not read that range."); return; }
+        ce::Disassembler dis(process_->is64bit() ? ce::Arch::X86_64 : ce::Arch::X86_32);
+        auto insns = dis.disassemble(from, {buf.data(), *r}, 1000000, /*emitDataBytes=*/true);
+        auto path = QFileDialog::getSaveFileName(this, "Save disassembly", "disasm.asm");
+        if (path.isEmpty()) return;
+        std::ofstream f(path.toStdString());
+        for (const auto& i : insns)
+            f << std::hex << i.address << ": " << i.mnemonic
+              << (i.operands.empty() ? "" : " ") << i.operands << "\n";
+        QMessageBox::information(this, "Saved", QString("Wrote %1 instructions to %2.")
+                                    .arg(insns.size()).arg(path));
+    });
     // CE frmMemoryViewExUnit (Graphical Memory View): bytes as pixels.
     tools->addAction("Graphical Memory View...", this, [this]() {
         if (!process_) { QMessageBox::warning(this, "Graphical Memory View", "Open a process first."); return; }

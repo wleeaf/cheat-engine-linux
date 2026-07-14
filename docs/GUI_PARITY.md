@@ -154,7 +154,7 @@ Languages
 | frmsyntaxhighlightereditor | Highlighter configurator | 14 | 10 | 0 | — | ❌ missing |
 | frmStructPointerRescanUnit | Rescan | 13 | 2 | 0 | — | ❌ missing |
 | frmpointerscanconnectdialogunit | Connect to active pointerscanner | 13 | 3 | 0 | — | ❌ missing |
-| savedisassemblyfrm | Save disassembled output | 13 | 3 | 0 | — | ❌ missing |
+| savedisassemblyfrm | Save disassembled output | 13 | 3 | 0 | `mainwindow` | ✅ |
 | symbolconfigunit | Symbol config | 13 | 13 | 4 | — | ❌ missing |
 | APIhooktemplatesettingsfrm | Api hook template | 12 | 2 | 0 | — | ❌ missing |
 | celistviewitemeditor | Item editor | 12 | 8 | 0 | — | ❌ missing |

@@ -99,7 +99,7 @@ MAP = {
     "frmSaveMemoryRegionUnit": ("mainwindow", ""),
     "formProcessInfo": ("mainwindow", ""),
     "AdvancedOptionsUnit": ("advancedoptions", ""),  # Code list
-    "MemoryBrowserFormUnit": ("memorybrowser", "disasm+hex+register panel+debug toolbar; stepping + full menus pending"),
+    "MemoryBrowserFormUnit": ("memorybrowser", "CE layout: disasm+registers / hex+stacktrace, debug toolbar, own File/Search/View/Debug/Tools menu bar; in-window single-stepping pending (use Debugger window)"),
     "formsettingsunit": ("settingsdialog", ""),  # all CE tabs present
     "pointerscannerfrm": ("pointerscan_dialog", ""),
     "PointerscannerSettingsFrm": ("pointerscan_dialog", "scan options"),

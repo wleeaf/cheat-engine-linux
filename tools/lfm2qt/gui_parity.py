@@ -16,6 +16,20 @@ from lfm_parser import parse_lfm_file
 # that a Linux build does not show (Windows/DBVM/Direct3D/.NET-on-Windows only).
 MAP = {
     "MainUnit": ("mainwindow", ""),
+    "frmDisassemblyscanunit": ("mainwindow", ""),
+    "frmWatchlistUnit": ("mainwindow", ""),
+    "frmProcessWatcherUnit": ("mainwindow", ""),
+    "frmreferencedfunctionsunit": ("codereferences", ""),
+    "frmReferencedStringsUnit": ("codereferences", ""),
+    "frmHeapsUnit": ("heapregions", ""),
+    "frmstacktraceunit": ("stackview", ""),
+    "StructuresAddElementfrm": ("structuredissector", ""),
+    "StructuresFrm2": ("structuredissector", ""),
+    "frmDissectwindowUnit": ("structuredissector", ""),
+    "frmBreakpointlistunit": ("breakpointlist", ""),
+    "frmbranchmapperunit": ("branchmapper", ""),
+    "frmFilePatcherUnit": ("filepatcher", ""),
+    "frmFillMemoryUnit": ("memoryfill", ""),
     "frmresumepointerscanunit": ("pointerscan_dialog", ""),
     "frmStructPointerRescanUnit": ("pointerscan_dialog", ""),
     "frmRescanPointerUnit": ("pointerscan_dialog", ""),
@@ -76,6 +90,16 @@ NA = {
     "mergepointerscan": "distributed pointerscan (network)", "Ultimap": "Intel PT / Windows only",
     "ultimap": "Intel PT / Windows only", "dotnet": ".NET (Windows) only",
     "Vehdebug": "VEH debugger (Windows) only",
+    "cr3": "DBVM CR3 switcher (hypervisor)",
+    "GDT": "Windows GDT (kernel)",
+    "IDT": "Windows IDT (kernel)",
+    "Paging": "Windows paging (kernel/DBVM)",
+    "ServiceDescriptor": "Windows SSDT (kernel)",
+    "Driver": "Windows driver management",
+    "EnumerateDLL": "Windows DLL enumeration",
+    "APIhook": "Windows API hook",
+    "iptlog": "Intel PT / Ultimap (Windows)",
+    "DebugEvents": "Windows debug events",
 }
 
 def cap_of(o):

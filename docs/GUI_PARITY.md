@@ -156,15 +156,15 @@ Languages
 | frmpointerscanconnectdialogunit | Connect to active pointerscanner | 13 | 3 | 0 | — | 🚫 distributed pointerscan (network) |
 | savedisassemblyfrm | Save disassembled output | 13 | 3 | 0 | `mainwindow` | ✅ |
 | symbolconfigunit | Symbol config | 13 | 13 | 4 | `settingsdialog` | ✅ |
-| APIhooktemplatesettingsfrm | Api hook template | 12 | 2 | 0 | — | ❌ missing |
+| APIhooktemplatesettingsfrm | Api hook template | 12 | 2 | 0 | — | 🚫 Windows API hook |
 | celistviewitemeditor | Item editor | 12 | 8 | 0 | — | ❌ missing |
 | frmexceptionregionlistunit | Exception region list | 12 | 9 | 4 | — | ❌ missing |
 | frmmemoryrecorddropdownsettingsunit | Dropdown options | 12 | 12 | 4 | `mainwindow` | ✅ |
 | networkConfig | Connect to server | 12 | 9 | 2 | `settingsdialog` | ✅ |
 | frmBreakpointConditionUnit | Breakpoint condition | 11 | 7 | 0 | — | ❌ missing |
 | frmSaveSnapshotsUnit | Save snapshots | 11 | 14 | 0 | — | ❌ missing |
-| StructuresAddElementfrm | Add Element | 10 | 6 | 0 | — | ❌ missing |
-| frmFillMemoryUnit | Fill memory | 10 | 4 | 0 | — | ❌ missing |
+| StructuresAddElementfrm | Add Element | 10 | 6 | 0 | `structuredissector` | ✅ |
+| frmFillMemoryUnit | Fill memory | 10 | 4 | 0 | `memoryfill` | ✅ |
 | frmStructureLinkerUnit | Structure linker | 10 | 4 | 0 | — | ❌ missing |
 | AdvancedOptionsUnit | Code list/Pause | 9 | 27 | 15 | `advancedoptions` | ✅ |
 | formChangedAddresses | Changed Addresses | 9 | 31 | 25 | — | ❌ missing |
@@ -172,14 +172,14 @@ Languages
 | frmfinddialogunit | Find | 9 | 0 | 0 | — | ❌ missing |
 | frmsnapshothandlerUnit | Snapshot handler | 9 | 9 | 5 | — | ❌ missing |
 | frmstructuresnewstructureunit | New Structure | 9 | 3 | 0 | — | ❌ missing |
-| StructuresFrm2 | Structure dissect | 8 | 91 | 88 | — | ❌ missing |
-| frmDissectwindowUnit | Dissect Windows | 8 | 7 | 0 | — | ❌ missing |
-| frmFilePatcherUnit | File patcher | 8 | 3 | 0 | — | ❌ missing |
+| StructuresFrm2 | Structure dissect | 8 | 91 | 88 | `structuredissector` | ✅ |
+| frmDissectwindowUnit | Dissect Windows | 8 | 7 | 0 | `structuredissector` | ✅ |
+| frmFilePatcherUnit | File patcher | 8 | 3 | 0 | `filepatcher` | ✅ |
 | frmFloatingPointPanelUnit | FPU | 8 | 6 | 0 | — | ❌ missing |
-| frmPagingUnit | Paging | 8 | 8 | 1 | — | ❌ missing |
+| frmPagingUnit | Paging | 8 | 8 | 1 | — | 🚫 Windows paging (kernel/DBVM) |
 | frmSetCrosshairUnit | D3D: Set Crosshair | 8 | 4 | 2 | — | ❌ missing |
 | frmautoinjectunit | Auto assemble | 8 | 49 | 46 | — | ❌ missing |
-| frmbranchmapperunit | Branch Mapper | 8 | 6 | 0 | — | ❌ missing |
+| frmbranchmapperunit | Branch Mapper | 8 | 6 | 0 | `branchmapper` | ✅ |
 | frmstructuresnewstructure | New Structure | 8 | 2 | 0 | — | ❌ missing |
 | ModuleSafetyUnit | Module safety | 7 | 4 | 1 | — | ❌ missing |
 | frmLoadMemoryunit | Load Memory Region | 7 | 4 | 0 | — | ❌ missing |
@@ -191,12 +191,12 @@ Languages
 | Valuechange | Change Offset: ######## | 6 | 7 | 0 | — | ❌ missing |
 | formAddToCodeList | Region to add | 6 | 4 | 0 | — | ❌ missing |
 | frmCapturedTimersUnit | Captured Timers | 6 | 3 | 0 | — | ❌ missing |
-| frmEnumerateDLLsUnit | Enumerate DLL's | 6 | 15 | 3 | — | ❌ missing |
+| frmEnumerateDLLsUnit | Enumerate DLL's | 6 | 15 | 3 | — | 🚫 Windows DLL enumeration |
 | frmHotkeyExUnit | Set Hotkey | 6 | 2 | 0 | — | ❌ missing |
 | frmdebugsymbolstructurelistunit | Symbol structures | 6 | 4 | 0 | — | ❌ missing |
 | frmedithistoryunit | Write log | 6 | 7 | 1 | — | ❌ missing |
 | frmmicrotransactionsunit | Cheat-E-Coins | 6 | 7 | 0 | — | ❌ missing |
-| iptlogdisplay | IPT Log Display | 6 | 9 | 2 | — | ❌ missing |
+| iptlogdisplay | IPT Log Display | 6 | 9 | 2 | — | 🚫 Intel PT / Ultimap (Windows) |
 | multilineinputqueryunit |  | 6 | 2 | 0 | — | ❌ missing |
 | Changeoffsetunit | Recalculate addres | 5 | 6 | 0 | — | ❌ missing |
 | CommentsUnit | Comments | 5 | 6 | 0 | `mainwindow` | ✅ |
@@ -204,41 +204,41 @@ Languages
 | formDifferentBitSizeUnit | Different sized row of bits | 5 | 6 | 1 | — | ❌ missing |
 | formhotkeyunit | Change hotkey | 5 | 2 | 0 | — | ❌ missing |
 | frmBreakThreadUnit | Break Thread | 5 | 4 | 0 | — | ❌ missing |
-| frmDisassemblyscanunit | Assemblyscan | 5 | 9 | 2 | — | ❌ missing |
-| frmProcessWatcherUnit | Process watcher | 5 | 7 | 1 | — | ❌ missing |
+| frmDisassemblyscanunit | Assemblyscan | 5 | 9 | 2 | `mainwindow` | ✅ |
+| frmProcessWatcherUnit | Process watcher | 5 | 7 | 1 | `mainwindow` | ✅ |
 | frmWatchListAddEntryUnit | Add watcher entry | 5 | 1 | 0 | — | ❌ missing |
 | frmmemreccomboboxunit | Change value | 5 | 3 | 0 | — | ❌ missing |
 | frmselectionlistunit | title | 5 | 7 | 0 | — | ❌ missing |
 | gdbserverconnectdialog | GDB Server connect | 5 | 1 | 0 | — | ❌ missing |
 | inputboxtopunit |  | 5 | 3 | 0 | — | ❌ missing |
-| ServiceDescriptorTables | Service Descriptor Table | 4 | 10 | 8 | — | ❌ missing |
+| ServiceDescriptorTables | Service Descriptor Table | 4 | 10 | 8 | — | 🚫 Windows SSDT (kernel) |
 | driverlist | Driver list | 4 | 9 | 2 | — | ❌ missing |
 | formPointerOrPointeeUnit | Cheat Engine Pointer | 4 | 0 | 0 | — | ❌ missing |
 | formmemoryregionsunit | Memory regions | 4 | 11 | 4 | `memoryregions` | ✅ |
-| frmReferencedStringsUnit | Referenced Strings | 4 | 12 | 3 | — | ❌ missing |
+| frmReferencedStringsUnit | Referenced Strings | 4 | 12 | 3 | `codereferences` | ✅ |
 | frmSortPointerlistUnit | Sorting | 4 | 4 | 0 | — | ❌ missing |
-| frmcr3switcherunit | Pagebase Switcher (CR3) | 4 | 7 | 1 | — | ❌ missing |
+| frmcr3switcherunit | Pagebase Switcher (CR3) | 4 | 7 | 1 | — | 🚫 DBVM CR3 switcher (hypervisor) |
 | frmnetworkdatacompressionunit | Compression level | 4 | 2 | 0 | — | ❌ missing |
 | frmrearrangestructurelistunit | Manage structure list | 4 | 5 | 1 | — | ❌ missing |
-| frmreferencedfunctionsunit | Referenced functions | 4 | 13 | 5 | — | ❌ missing |
+| frmreferencedfunctionsunit | Referenced functions | 4 | 13 | 5 | `codereferences` | ✅ |
 | FormDebugStringsUnit | Debug strings | 3 | 1 | 0 | — | ❌ missing |
 | ThreadlistExFRM | ThreadInfo | 3 | 2 | 0 | — | ❌ missing |
-| frmDebugEventsUnit | Debug Events | 3 | 4 | 1 | — | ❌ missing |
-| frmHeapsUnit | Current Heaplist | 3 | 4 | 0 | — | ❌ missing |
+| frmDebugEventsUnit | Debug Events | 3 | 4 | 1 | — | 🚫 Windows debug events |
+| frmHeapsUnit | Current Heaplist | 3 | 4 | 0 | `heapregions` | ✅ |
 | frmStackViewUnit | Stack View | 3 | 21 | 16 | `stackview` | ✅ |
 | frmdebuggerattachtimeoutunit | Debugger attach timeout | 3 | 2 | 0 | — | ❌ missing |
 | tlgUnit | TLG:The Lame Game | 3 | 3 | 0 | — | ❌ missing |
 | frmThreadlistunit | Threadlist | 2 | 14 | 8 | `threadlist` | ✅ |
-| frmBreakpointlistunit | Breakpoint list | 1 | 10 | 6 | — | ❌ missing |
+| frmBreakpointlistunit | Breakpoint list | 1 | 10 | 6 | `breakpointlist` | ✅ |
 | frmBusyUnit | Cheat Engine Scan Busy | 1 | 3 | 0 | — | ❌ missing |
-| frmDriverLoadedUnit |  | 1 | 3 | 0 | — | ❌ missing |
-| frmGDTunit | GDT | 1 | 2 | 0 | — | ❌ missing |
-| frmIDTunit | IDT | 1 | 2 | 0 | — | ❌ missing |
+| frmDriverLoadedUnit |  | 1 | 3 | 0 | — | 🚫 Windows driver management |
+| frmGDTunit | GDT | 1 | 2 | 0 | — | 🚫 Windows GDT (kernel) |
+| frmIDTunit | IDT | 1 | 2 | 0 | — | 🚫 Windows IDT (kernel) |
 | frmProcesswatcherExtraUnit | Processwatcher Extra | 1 | 0 | 0 | — | ❌ missing |
-| frmWatchlistUnit | Watch list | 1 | 13 | 11 | — | ❌ missing |
+| frmWatchlistUnit | Watch list | 1 | 13 | 11 | `mainwindow` | ✅ |
 | frmchangedaddressescommonalityscannerunit | Commonality scanner | 1 | 4 | 0 | — | ❌ missing |
 | frmdotnetobjectlistunit | .Net Object List | 1 | 0 | 0 | — | 🚫 .NET (Windows) only |
-| frmstacktraceunit | Stacktrace | 1 | 5 | 2 | — | ❌ missing |
+| frmstacktraceunit | Stacktrace | 1 | 5 | 2 | `stackview` | ✅ |
 | Structuresfrm | Memory dissect | 0 | 0 | 0 | `structuredissector` | ✅ |
 | bogus | Form1 | 0 | 0 | 0 | — | ❌ missing |
 | dbvmloadmanual | Manual load DBVM | 0 | 2 | 0 | — | 🚫 DBVM (hypervisor) only |

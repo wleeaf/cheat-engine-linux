@@ -556,7 +556,7 @@ Legend: ✅ solid · 🟡 partial/weak · ❌ absent · ❔ unknown/unverified
 |---|---|---|---|
 | Find what writes/accesses (HW watchpoints, DR0-3, multi-thread) | ✅ verified | ✅ | Ours works on non-root via `PR_SET_PTRACER_ANY` |
 | Software breakpoints (int3) | 🟡 single-thread | ✅ | |
-| **Interactive step debugger** (attach, step, continue, breakpoint UI, multi-thread) | ❌ **not shipped** | ✅ | **Our biggest functional gap.** Needs `PTRACE_O_TRACECLONE` + task iteration in the tracer loop |
+| **Interactive step debugger** (attach, step, continue, breakpoint UI, multi-thread) | ✅ shipped (2026-07) | ✅ | `DebuggerWindow`: attach, step into/over, continue, breakpoint UI, multi-thread via `PTRACE_O_TRACECLONE`; verified by `gui_debugger_smoke`. (Was the doc's headline gap; now closed.) |
 | Register / FPU / stack / thread / module / heap views | ✅ | ✅ (7.7 improved FPU-change display) | |
 | Break-and-trace | ✅ | ✅ | |
 | Branch tracing | 🟡 LBR branch mapper (our Ultimap analog) | ✅ Ultimap/Ultimap2 (Windows; Linux ❔) | |
@@ -567,7 +567,7 @@ Legend: ✅ solid · 🟡 partial/weak · ❌ absent · ❔ unknown/unverified
 |---|---|---|---|
 | DBVM hypervisor | ❌ (Linux kmod + LBR instead) | ❔ likely ❌ on Linux | DBVM is x86 VT-x; not a Linux user feature |
 | DBK kernel driver / kernel-mode debug / stealth | ❌ | ❔ likely ❌ on Linux | Windows-only driver |
-| `.NET` / Mono / IL2CPP dissector | 🟡 runtime **detection** only | ❔ (collector is a Windows DLL) | **Big deal for Linux:** most Linux/Proton games are Unity. Whoever nails native Mono/Unity dissection wins that niche |
+| `.NET` / Mono / IL2CPP dissector | 🟡 detection + **in-process Mono agent** (M1 done) | ❔ (collector is a Windows DLL) | **Big deal for Linux:** most Linux/Proton games are Unity. M1 (`plugins/mono_agent.c`): injected agent resolves the mono_* embedding API in-process and dumps every image/class/field with GROUND-TRUTH offsets (verified live: Player.health@0x18, statics tagged). Pending: host-side inject+parse into a structured API, Lua bindings, a "Mono dissector" GUI, then IL2CPP (AOT) via the metadata parser + runtime registration |
 
 #### 3d. Linux-native / gaming (our natural turf)
 

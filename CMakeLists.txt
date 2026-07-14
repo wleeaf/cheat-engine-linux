@@ -284,6 +284,11 @@ else()
 endif()
 
 # ── Sample plugin (regression coverage for the structured plugin ABI) ──
+# In-process Mono dissection agent (injected into a Mono/Unity target; resolves
+# the mono_* embedding API in-process for ground-truth class/field offsets).
+add_library(cecore_mono_agent SHARED plugins/mono_agent.c)
+target_link_libraries(cecore_mono_agent PRIVATE ${CMAKE_DL_LIBS} Threads::Threads)
+
 add_library(cecore_sample_plugin SHARED plugins/sample_plugin.c)
 target_include_directories(cecore_sample_plugin PRIVATE ${CMAKE_SOURCE_DIR})
 set_target_properties(cecore_sample_plugin PROPERTIES PREFIX "lib")

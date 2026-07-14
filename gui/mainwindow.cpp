@@ -464,6 +464,22 @@ void MainWindow::setupMenus() {
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         dlg->show();
     });
+    // CE frmExeTrainerGeneratorUnit: compile a standalone trainer executable.
+    tools->addAction("Generate Trainer (executable)...", this, [this]() {
+        auto path = QFileDialog::getSaveFileName(this, "Generate Trainer executable", "trainer");
+        if (path.isEmpty()) return;
+        try {
+            ce::CheatTable table = buildCheatTable();
+            ce::TrainerGenerator gen;
+            std::string err = gen.generateBinary(table, path.toStdString());
+            if (err.empty())
+                statusBar()->showMessage("Trainer executable written to " + path, 6000);
+            else
+                QMessageBox::critical(this, "Generate Trainer", QString::fromStdString(err));
+        } catch (const std::exception& ex) {
+            QMessageBox::critical(this, "Generate Trainer", ex.what());
+        }
+    });
     // CE savedisassemblyfrm: disassemble a From..To range to a text file.
     tools->addAction("Save Disassembly...", this, [this]() {
         if (!process_) { QMessageBox::warning(this, "Save Disassembly", "Open a process first."); return; }

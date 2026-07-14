@@ -48,7 +48,7 @@ MAP = {
     "HotKeys": ("globalhotkeys", "set/change hotkey"),
     "frameHotkeyConfigUnit": ("globalhotkeys", ""),
     "trainergenerator": ("", "Create-Trainer has no dedicated window"),
-    "frmExeTrainerGeneratorUnit": ("", "exe trainer generator"),
+    "frmExeTrainerGeneratorUnit": ("mainwindow", ""),
     "frmMemviewPreferencesUnit": ("memviewpreferences", ""),
     "frmModuleListUnit": ("modulelist", ""),
     "frmStackViewUnit": ("stackview", ""),

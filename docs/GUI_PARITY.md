@@ -118,7 +118,7 @@ Languages
 | frmstructurecompareunit | Structure Compare | 33 | 31 | 18 | `structuredissector` | ⚠️ compare instances |
 | HotKeys | Set/Change hotkey | 32 | 25 | 2 | `globalhotkeys` | ⚠️ set/change hotkey |
 | aboutunit | About Cheat Engine | 31 | 9 | 0 | `mainwindow` | ⚠️ inline About box only |
-| frmExeTrainerGeneratorUnit | Exe Trainer Generator | 31 | 16 | 1 | — | ❌ missing |
+| frmExeTrainerGeneratorUnit | Exe Trainer Generator | 31 | 16 | 1 | `mainwindow` | ✅ |
 | frmstructuresconfigunit | Dissect Data Config | 30 | 15 | 0 | `structuredissector` | ⚠️ dissect config |
 | DissectCodeunit | Dissect Code | 27 | 9 | 3 | — | ❌ missing |
 | frmMemoryViewExUnit | Graphical Memory View  | 27 | 25 | 0 | `graphicalmemoryview` | ✅ |

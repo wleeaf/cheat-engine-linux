@@ -16,6 +16,8 @@ from lfm_parser import parse_lfm_file
 # that a Linux build does not show (Windows/DBVM/Direct3D/.NET-on-Windows only).
 MAP = {
     "MainUnit": ("mainwindow", ""),
+    "codefiltercalloralldialog": ("codereferences", "call/all filter subset"),
+    "frmcodefilterunit": ("codereferences", "code categorized by type (calls/jumps/strings tabs)"),
     "frmexceptionignorelistunit": ("debuggerwindow", "break-on-signals; no ignore list"),
     "frmexceptionregionlistunit": ("debuggerwindow", "break-on-signals; no per-region list"),
     "formChangedAddresses": ("mainwindow", "changed/unchanged scan covers this"),

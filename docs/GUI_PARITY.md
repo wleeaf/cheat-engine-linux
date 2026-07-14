@@ -122,7 +122,7 @@ Languages
 | frmstructuresconfigunit | Dissect Data Config | 30 | 15 | 0 | `structuredissector` | ⚠️ dissect config |
 | DissectCodeunit | Dissect Code | 27 | 9 | 3 | `codereferences` | ✅ |
 | frmMemoryViewExUnit | Graphical Memory View  | 27 | 25 | 0 | `graphicalmemoryview` | ✅ |
-| frmcodefilterunit | Code Filter | 27 | 24 | 4 | — | ❌ missing |
+| frmcodefilterunit | Code Filter | 27 | 24 | 4 | `codereferences` | ⚠️ code categorized by type (calls/jumps/strings tabs) |
 | frmfoundlistpreferencesunit | Foundlist Customizer | 27 | 11 | 0 | `mainwindow` | ⚠️ basic result display only |
 | frmRegistersunit | Registers | 25 | 40 | 5 | `registereditor` | ✅ |
 | frmluaengineunit | Lua Engine | 25 | 38 | 25 | `luaconsole` | ✅ |
@@ -200,7 +200,7 @@ Languages
 | multilineinputqueryunit |  | 6 | 2 | 0 | `mainwindow` | ✅ |
 | Changeoffsetunit | Recalculate addres | 5 | 6 | 0 | `changeaddressdialog` | ✅ |
 | CommentsUnit | Comments | 5 | 6 | 0 | `mainwindow` | ✅ |
-| codefiltercalloralldialog | Code Filter | 5 | 0 | 0 | — | ❌ missing |
+| codefiltercalloralldialog | Code Filter | 5 | 0 | 0 | `codereferences` | ⚠️ call/all filter subset |
 | formDifferentBitSizeUnit | Different sized row of bits | 5 | 6 | 1 | — | 🚫 internal bit-size warning |
 | formhotkeyunit | Change hotkey | 5 | 2 | 0 | `globalhotkeys` | ✅ |
 | frmBreakThreadUnit | Break Thread | 5 | 4 | 0 | `threadlist` | ✅ |

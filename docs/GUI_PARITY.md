@@ -236,7 +236,7 @@ Languages
 | frmIDTunit | IDT | 1 | 2 | 0 | — | 🚫 Windows IDT (kernel) |
 | frmProcesswatcherExtraUnit | Processwatcher Extra | 1 | 0 | 0 | `mainwindow` | ✅ |
 | frmWatchlistUnit | Watch list | 1 | 13 | 11 | `mainwindow` | ✅ |
-| frmchangedaddressescommonalityscannerunit | Commonality scanner | 1 | 4 | 0 | — | ❌ missing |
+| frmchangedaddressescommonalityscannerunit | Commonality scanner | 1 | 4 | 0 | `structuredissector` | ⚠️ N-instance field compare = commonality |
 | frmdotnetobjectlistunit | .Net Object List | 1 | 0 | 0 | — | 🚫 .NET (Windows) only |
 | frmstacktraceunit | Stacktrace | 1 | 5 | 2 | `stackview` | ✅ |
 | Structuresfrm | Memory dissect | 0 | 0 | 0 | `structuredissector` | ✅ |

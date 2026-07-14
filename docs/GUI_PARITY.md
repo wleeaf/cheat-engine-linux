@@ -125,7 +125,7 @@ Languages
 | frmcodefilterunit | Code Filter | 27 | 24 | 4 | — | ❌ missing |
 | frmfoundlistpreferencesunit | Foundlist Customizer | 27 | 11 | 0 | — | ❌ missing |
 | frmRegistersunit | Registers | 25 | 40 | 5 | `registereditor` | ✅ |
-| frmluaengineunit | Lua Engine | 25 | 38 | 25 | — | ❌ missing |
+| frmluaengineunit | Lua Engine | 25 | 38 | 25 | `luaconsole` | ✅ |
 | frmTracerConfigUnit | Break and Trace config | 24 | 5 | 0 | `tracerwindow` | ⚠️ break-and-trace config |
 | frameHotkeyConfigUnit |  | 22 | 10 | 1 | `globalhotkeys` | ✅ |
 | PEInfounit | Portable Executable (PE) Info | 21 | 9 | 2 | `elfinspector` | ⚠️ ELF inspector vs CE's PE info |
@@ -139,10 +139,10 @@ Languages
 | frmmanualstacktraceconfigunit | Manual stacktrace config | 17 | 1 | 0 | — | ❌ missing |
 | asktorunluascript | Execute this lua script? | 16 | 2 | 0 | — | ❌ missing |
 | frmAAEditPrefsUnit | Editor preferences | 16 | 11 | 0 | — | ❌ missing |
-| frmFindstaticsUnit | Find static addresses | 16 | 7 | 0 | — | ❌ missing |
+| frmFindstaticsUnit | Find static addresses | 16 | 7 | 0 | `findstaticswindow` | ✅ |
 | frmresumepointerscanunit | Resume pointerscan | 16 | 9 | 1 | — | ❌ missing |
 | FoundCodeUnit | The following opcodes changed the  | 15 | 24 | 12 | `codefinder` | ⚠️ what-writes/accesses result list |
-| ProcessWindowUnit | Process List | 15 | 27 | 17 | — | ❌ missing |
+| ProcessWindowUnit | Process List | 15 | 27 | 17 | `processlistdialog` | ✅ |
 | frmExcludeHideUnit | Show/Hide settings | 15 | 7 | 0 | — | ❌ missing |
 | frmSaveMemoryRegionUnit | Save memoryregion | 15 | 7 | 1 | `mainwindow` | ✅ |
 | frmStringMapUnit | String map | 15 | 12 | 2 | — | ❌ missing |

@@ -1,4 +1,5 @@
 #include "gui/memorybrowser.hpp"
+#include "gui/memviewpreferences.hpp"
 #include "core/injection_gen.hpp"
 #include "arch/assembler.hpp"
 #include "analysis/code_analysis.hpp"
@@ -297,7 +298,7 @@ void HexView::paintEvent(QPaintEvent*) {
         uintptr_t rowAddr = address_ + row * bytesPerRow_;
 
         // Address
-        p.setPen(QColor(0x89, 0xb4, 0xfa));
+        p.setPen(QColor(0x89, 0xb4, 0xfa));   // HexView address column
         p.drawText(0, y, QString("%1").arg(rowAddr, 16, 16, QChar('0')));
 
         // Hex bytes. Byte mode keeps the classic per-byte grid (with edit cursor
@@ -413,12 +414,26 @@ void HexView::wheelEvent(QWheelEvent* e) {
 // DisasmView
 // ═══════════════════════════════════════════════════════════════
 
-DisasmView::DisasmView(QWidget* parent) : QAbstractScrollArea(parent) {
+void DisasmView::reloadPreferences() {
+    QSettings s;
+    monoFont_.fromString(s.value("disasm/font", QFont("Monospace", 10).toString()).toString());
     setFont(monoFont_);
     QFontMetrics fm(monoFont_);
     charW_ = fm.horizontalAdvance('0');
     charH_ = fm.height();
     gutterW_ = charH_;  // square red dot column
+    auto col = [&s](const char* key, QColor def) {
+        return QColor(s.value(QString("disasm/") + key, def.name()).toString());
+    };
+    defaultColor_  = col("colorDefault",  QColor(0xcd, 0xd6, 0xf4));
+    addrColor_     = col("colorHex",      QColor(0x89, 0xb4, 0xfa));
+    condJumpColor_ = col("colorCondJump", QColor(0xfa, 0xb3, 0x87));
+    jumpColor_     = col("colorJump",     QColor(0x89, 0xb4, 0xfa));
+    viewport()->update();
+}
+
+DisasmView::DisasmView(QWidget* parent) : QAbstractScrollArea(parent) {
+    reloadPreferences();
     setMinimumHeight(charH_ * 8);
     setFocusPolicy(Qt::StrongFocus);
     viewport()->setMouseTracking(true);
@@ -774,7 +789,7 @@ void DisasmView::paintEvent(QPaintEvent*) {
             int maxLane = std::max(0, arrowW / std::max(1, charW_) - 1);
             int laneX = contentX - 3 - std::min(lane, maxLane) * charW_;
             int ySrc = ar.src * charH_ + charH_ / 2;
-            QColor col = ar.cond ? QColor(0xfa, 0xb3, 0x87) : QColor(0x89, 0xb4, 0xfa);
+            QColor col = ar.cond ? condJumpColor_ : jumpColor_;
             p.setPen(QPen(col, 1));
             p.drawLine(contentX - 2, ySrc, laneX, ySrc);   // out from source
             if (offTop || offBottom) {
@@ -857,7 +872,7 @@ void DisasmView::paintEvent(QPaintEvent*) {
         }
 
         // Address
-        p.setPen(QColor(0x89, 0xb4, 0xfa));
+        p.setPen(addrColor_);
         p.drawText(contentX, y, QString("%1").arg(inst.address, 16, 16, QChar('0')));
 
         // Bytes
@@ -867,7 +882,7 @@ void DisasmView::paintEvent(QPaintEvent*) {
         p.drawText(contentX + addrColW, y, bytes.left(24));
 
         // Mnemonic
-        p.setPen(QColor(0xcb, 0xa6, 0xf7)); // Purple for mnemonics
+        p.setPen(defaultColor_); // instruction text (Default color)
         p.drawText(mnemonicX, y, QString::fromStdString(inst.mnemonic));
 
         // Operands — try to annotate with symbol name
@@ -1097,6 +1112,17 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     stepStub("Run Till", "Run until the selected line");
     dbgBar->addSeparator();
     stepStub("Run Unhandled", "Run, passing exceptions to the target");
+    dbgBar->addSeparator();
+    // Disassembler Preferences (CE frmMemviewPreferencesUnit): font + colors.
+    auto* prefsAct = dbgBar->addAction("Preferences");
+    prefsAct->setToolTip("Disassembler Preferences — font and colors");
+    connect(prefsAct, &QAction::triggered, this, [this]() {
+        auto* dlg = new ce::gui::MemviewPreferences(this);
+        connect(dlg, &ce::gui::MemviewPreferences::applied, this,
+                [this]() { disasmView_->reloadPreferences(); });
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->show();
+    });
     addToolBar(dbgBar);
 
     // Load symbols + DWARF (if libdw is compiled in and modules have debug info).

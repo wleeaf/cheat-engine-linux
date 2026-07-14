@@ -40,7 +40,7 @@ MAP = {
     "frameHotkeyConfigUnit": ("globalhotkeys", ""),
     "trainergenerator": ("", "Create-Trainer has no dedicated window"),
     "frmExeTrainerGeneratorUnit": ("", "exe trainer generator"),
-    "frmMemviewPreferencesUnit": ("", "disassembler preferences — MISSING"),
+    "frmMemviewPreferencesUnit": ("memviewpreferences", ""),
     "frmModuleListUnit": ("modulelist", ""),
     "frmStackViewUnit": ("stackview", ""),
     "DissectCodeunit": ("", "dissect code — MISSING"),

@@ -106,6 +106,8 @@ public:
     /// Size in bytes of the currently selected instruction.
     int selectedSize() const;
     void refresh();
+    /// Re-read font + colors from QSettings (Disassembler Preferences) and repaint.
+    void reloadPreferences();
 
 signals:
     void addressChanged(uintptr_t addr);
@@ -152,6 +154,11 @@ private:
     int charW_ = 0;
     int charH_ = 0;
     int gutterW_ = 0;
+    // Disassembler palette (Disassembler Preferences → QSettings "disasm/").
+    QColor defaultColor_{0xcd, 0xd6, 0xf4};
+    QColor addrColor_{0x89, 0xb4, 0xfa};
+    QColor condJumpColor_{0xfa, 0xb3, 0x87};
+    QColor jumpColor_{0x89, 0xb4, 0xfa};
     std::vector<ce::Instruction> instructions_;
     QString emptyReason_;   // shown when a read yields no instructions (blank pane otherwise)
     std::set<uintptr_t> breakpoints_;

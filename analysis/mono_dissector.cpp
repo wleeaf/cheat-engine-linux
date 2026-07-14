@@ -2,6 +2,7 @@
 #include "platform/linux/injector.hpp"
 #include "core/log.hpp"
 
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
@@ -82,6 +83,24 @@ MonoDissection parseMonoDump(const std::string& text) {
         }
     }
     return out;
+}
+
+ManagedKind detectManagedKind(ProcessHandle& proc) {
+    // Mono ships libmono*/mono-2.0; IL2CPP builds put the AOT code in
+    // GameAssembly.so (Unity/Linux) and carry global-metadata.dat + il2cpp_* code.
+    bool mono = false, il2cpp = false;
+    for (const auto& m : proc.modules()) {
+        std::string n = m.name;
+        for (auto& ch : n) ch = static_cast<char>(std::tolower((unsigned char)ch));
+        // Any "mono" module: libmono-2.0 / libmonosgen / libmonobdwgc /
+        // libmono-native, or a statically-linked mono-sgen/mono executable.
+        if (n.find("mono") != std::string::npos) mono = true;
+        if (n.find("gameassembly") != std::string::npos || n.find("il2cpp") != std::string::npos)
+            il2cpp = true;
+    }
+    if (mono) return ManagedKind::Mono;
+    if (il2cpp) return ManagedKind::Il2Cpp;
+    return ManagedKind::None;
 }
 
 std::string findMonoAgentPath() {

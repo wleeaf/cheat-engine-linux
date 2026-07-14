@@ -53,6 +53,13 @@ MonoDissection parseMonoDump(const std::string& text);
 /// and installed layouts) or on the library path. Returns "" if not found.
 std::string findMonoAgentPath();
 
+/// Which managed runtime a target uses, detected from its loaded modules. The
+/// dissector's live path only handles Mono; IL2CPP (AOT Unity) has no runtime to
+/// query in-process and is a separate track, so callers report it distinctly
+/// rather than injecting an agent that finds no mono_* symbols.
+enum class ManagedKind { None, Mono, Il2Cpp };
+ManagedKind detectManagedKind(ProcessHandle& proc);
+
 /// Inject the agent .so into `proc`, wait up to timeoutMs for its dump to
 /// complete, and parse it. `agentSoPath` is the path to libcecore_mono_agent.so.
 /// Returns nullopt if injection fails; on success the result's `ready`/`error`

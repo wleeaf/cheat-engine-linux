@@ -2229,6 +2229,15 @@ static int l_getManagedRuntimes(lua_State* L) {
 static int l_monoDissect(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process"); return 2; }
+    switch (ce::detectManagedKind(*p)) {
+        case ce::ManagedKind::Il2Cpp:
+            lua_pushnil(L);
+            lua_pushstring(L, "IL2CPP target: live dissection is Mono-only (IL2CPP is a separate track)");
+            return 2;
+        case ce::ManagedKind::None:
+            lua_pushnil(L); lua_pushstring(L, "no Mono runtime detected"); return 2;
+        case ce::ManagedKind::Mono: break;
+    }
     std::string agent = ce::findMonoAgentPath();
     if (agent.empty()) {
         lua_pushnil(L); lua_pushstring(L, "libcecore_mono_agent.so not found"); return 2;

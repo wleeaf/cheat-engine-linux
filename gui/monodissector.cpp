@@ -107,6 +107,18 @@ void MonoDissectorWindow::setDissection(const ce::MonoDissection& d) {
 
 void MonoDissectorWindow::runDissect() {
     if (!proc_) { status_->setText("No target process."); return; }
+    // Only Mono is queryable in-process; report IL2CPP / non-managed distinctly.
+    switch (ce::detectManagedKind(*proc_)) {
+        case ce::ManagedKind::Il2Cpp:
+            status_->setText("IL2CPP (AOT Unity) target detected. Live field dissection is "
+                             "Mono-only for now; IL2CPP support is a separate track.");
+            return;
+        case ce::ManagedKind::None:
+            status_->setText("No Mono runtime detected in this process.");
+            return;
+        case ce::ManagedKind::Mono:
+            break;
+    }
     std::string agent = ce::findMonoAgentPath();
     if (agent.empty()) {
         status_->setText("libcecore_mono_agent.so not found next to the binary.");

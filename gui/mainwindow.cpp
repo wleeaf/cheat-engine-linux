@@ -176,22 +176,87 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 }
 
 void MainWindow::setupMenus() {
+    // Menu bar reproduces Cheat Engine's MainUnit.MainMenu1 verbatim (captions,
+    // item order, separators, shortcuts, and .lfm Visible flags). CE items we have
+    // no backend for yet are present but disabled (see `stub`); Windows-only menus
+    // (D3D/.Net) are present but inert on Linux. Our tools stay under Tools, which
+    // CE leaves empty in the form and fills at runtime.
+    auto stub = [](QMenu* m, const QString& text) {
+        auto* a = m->addAction(text);
+        a->setEnabled(false);
+        a->setToolTip("Not yet implemented");
+        return a;
+    };
+
+    // ── File ──
     auto* file = menuBar()->addMenu("&File");
-    file->addAction("Open Process...", this, &MainWindow::onOpenProcess, QKeySequence("Ctrl+O"));
-    file->addAction("Connect to ceserver...", this, &MainWindow::onConnectCeserver);
+    stub(file, "Add scan tab")->setShortcut(QKeySequence("Ctrl+T"));
+    file->addAction("Clear list", this, [this]() {
+        resultsModel_->clear(); lastResult_.reset(); undoResult_.reset(); updateScanButtons();
+    });
+    file->addAction("Open Process", this, &MainWindow::onOpenProcess, QKeySequence("Ctrl+O"));
+    stub(file, "Open File")->setShortcut(QKeySequence("Ctrl+Shift+O"));
+    { auto* a = stub(file, "Save File"); a->setShortcut(QKeySequence("Ctrl+Shift+S")); a->setVisible(false); }
     file->addSeparator();
-    file->addAction("Save Table...", this, &MainWindow::onSaveTable, QKeySequence("Ctrl+S"));
-    file->addAction("Load Table...", this, &MainWindow::onLoadTable, QKeySequence("Ctrl+L"));
-    file->addAction("Create Trainer (C source)...", this, &MainWindow::onCreateTrainer);
+    file->addAction("Save", this, &MainWindow::onSaveTable, QKeySequence("Ctrl+S"));
+    file->addAction("Save As...", this, &MainWindow::onSaveTable);
+    file->addAction("Load", this, &MainWindow::onLoadTable, QKeySequence("Ctrl+L"));
+    file->addMenu("Load Recent");               // populated at runtime
+    stub(file, "Sign table");
+    file->addSeparator();
+    stub(file, "Save current scanresults")->setShortcut(QKeySequence("Alt+Shift+S"));
+    stub(file, "Delete scanresult");
+    file->addSeparator();
+    file->addAction("Generate generic trainer lua script from table", this, &MainWindow::onCreateTrainer);
+    file->addSeparator();
+    file->addAction("Connect to ceserver...", this, &MainWindow::onConnectCeserver);  // Linux extra
     file->addSeparator();
     file->addAction("Quit", this, &QWidget::close, QKeySequence("Ctrl+Q"));
 
-    // Cheat Engine's top-level menu structure: File / Edit / Process / Table /
-    // Tools / Help. (Created here in order so the menu bar reads like CE.)
+    // ── Top-level menus in CE's exact order ──
+    // File · Edit · Process · Table · D3D · Tools · .Net · Network · Plugins ·
+    // Languages · Help.
     auto* edit = menuBar()->addMenu("&Edit");
     auto* process = menuBar()->addMenu("&Process");
-    auto* table = menuBar()->addMenu("&Table");
+    auto* table = menuBar()->addMenu("Table");
+    auto* d3d = menuBar()->addMenu("D3D");
     auto* tools = menuBar()->addMenu("&Tools");
+    auto* dotnet = menuBar()->addMenu(".Net");
+    auto* network = menuBar()->addMenu("Network");
+    menuBar()->addMenu("P&lugins");
+    menuBar()->addMenu("Languages");
+
+    // ── Table (CE: Lua script + forms) ──
+    stub(table, "Show Cheat Table Lua Script")->setShortcut(QKeySequence("Ctrl+Alt+L"));
+    table->addSeparator();
+    table->addAction("Create form", this, [this]() {
+        auto* fd = new FormDesigner(this); fd->setAttribute(Qt::WA_DeleteOnClose); fd->show();
+    });
+    stub(table, "Resynchronize forms with Lua");
+    table->addSeparator();
+    stub(table, "Add file");
+
+    // ── D3D (Direct3D hooks — Windows-only, inert on Linux) ──
+    stub(d3d, "Hook Direct3D");
+    d3d->addSeparator();
+    stub(d3d, "Set custom crosshair");
+    { auto* a = stub(d3d, "Toggle wireframe mode"); a->setVisible(false); }
+    { auto* a = stub(d3d, "Toggle disabled zbuffer"); a->setVisible(false); }
+    stub(d3d, "Lock mouse in game window");
+    { auto* a = stub(d3d, "Start and configure snapshot recording"); a->setVisible(false); }
+    stub(d3d, "Snapshot handler");
+
+    // ── .Net (Windows-only) ──
+    stub(dotnet, "Get object list");
+
+    // ── Network (ceserver client options) ──
+    stub(network, "Compression");
+    stub(network, "Scan changed regions only");
+    stub(network, "Scan paged (physical) memory only");
+    auto* netRead = network->addMenu("Memory read method");
+    stub(netRead, "0: /proc/pid/mem"); stub(netRead, "1: ptrace peek"); stub(netRead, "2: process_vm_readv");
+    auto* netWrite = network->addMenu("Memory write method");
+    stub(netWrite, "0: /proc/pid/mem"); stub(netWrite, "1: ptrace poke"); stub(netWrite, "2: process_vm_writev");
     tools->addAction("Memory Browser", this, &MainWindow::onMemoryView, QKeySequence("Ctrl+M"));
     tools->addAction("Breakpoint List", this, [this]() {
         auto* w = new BreakpointListWindow(&bpManager_, this);
@@ -339,11 +404,6 @@ void MainWindow::setupMenus() {
         auto* w = new FindStaticsWindow(process_.get(), this);
         w->setAttribute(Qt::WA_DeleteOnClose);
         w->show();
-    });
-    table->addAction("Form Designer...", this, [this]() {
-        auto* fd = new FormDesigner(this);
-        fd->setAttribute(Qt::WA_DeleteOnClose);
-        fd->show();
     });
     tools->addAction("ELF Inspector...", this, [this]() {
         QString initial;
@@ -599,13 +659,23 @@ void MainWindow::setupMenus() {
         dlg->show();
     });
 
+    // ── Help (CE verbatim) ──
     auto* help = menuBar()->addMenu("&Help");
+    stub(help, "Cheat Engine Help");
+    stub(help, "Lua documentation");
+    stub(help, "Cheat Engine Tutorial");
+    stub(help, "Cheat Engine Tutorial (x86_64)");
+    { auto* a = stub(help, "Cheat Engine Tutorial (AArch64)"); a->setVisible(false); }
+    stub(help, "Cheat Engine Tutorial Games");
+    { auto* a = stub(help, "Generate errorlogs"); a->setVisible(false); }
+    { auto* a = stub(help, "Test access violation"); a->setVisible(false); }
+    { auto* a = stub(help, "Test access violation in thread"); a->setVisible(false); }
+    help->addSeparator();
     help->addAction("About", this, [this]() {
         QMessageBox::about(this, "Cheat Engine for Linux",
             "<h2>Cheat Engine for Linux</h2>"
             "<p>Memory scanner, debugger, and code injection tool</p>"
             "<p>C++23 / Qt6 / Capstone / Keystone / Lua 5.3</p>"
-            "<p>9,120 lines of code</p>"
             "<p><a href='https://github.com/wleeaf/cheat-engine-linux'>GitHub</a></p>");
     });
 }

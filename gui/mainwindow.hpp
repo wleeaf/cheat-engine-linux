@@ -99,6 +99,9 @@ private:
     // cheat table (persisted in CheatTable.comment via build/loadTable).
     void showComments();
     QString tableComment_;
+    // Populate a Memory Viewer's View/Tools/Debug menus with the tools that need
+    // MainWindow's context (CE keeps these in the Memory Viewer, not the main menu).
+    void populateBrowserMenus(MemoryBrowser* b);
     // Advanced Options — the CE "Code list" (created once, kept so entries persist).
     void showAdvancedOptions();
     ce::gui::AdvancedOptionsWindow* advancedOptions_ = nullptr;

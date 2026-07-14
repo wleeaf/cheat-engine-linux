@@ -1,6 +1,7 @@
 #include "gui/memorybrowser.hpp"
 #include "gui/memviewpreferences.hpp"
 #include "gui/theme.hpp"
+#include <QMenuBar>
 #include "core/injection_gen.hpp"
 #include "arch/assembler.hpp"
 #include "analysis/code_analysis.hpp"
@@ -1056,11 +1057,55 @@ void DisasmView::wheelEvent(QWheelEvent* e) {
 // MemoryBrowser
 // ═══════════════════════════════════════════════════════════════
 
+// CE MemoryBrowserFormUnit menu bar: File · Search · View · Debug · Tools. The
+// browser-internal items are wired here; View/Debug/Tools are also exposed via
+// viewMenu()/toolsMenu()/debugMenu() so MainWindow can add the actions that need
+// its context (process, address list) — matching CE, where these tools live in the
+// Memory Viewer's menus rather than the main window.
+void MemoryBrowser::buildMenuBar() {
+    auto* mb = menuBar();
+
+    auto* file = mb->addMenu("&File");
+    file->addAction("New window", this, [this]() {
+        auto* b = new MemoryBrowser(proc_, parentWidget());
+        b->setAttribute(Qt::WA_DeleteOnClose);
+        b->gotoAddress(currentAddr_);
+        b->show();
+    });
+
+    auto* search = mb->addMenu("&Search");
+    { auto* a = search->addAction("Find memory...", this, [this]() { findInMemory(false); });
+      a->setShortcut(QKeySequence::Find); }
+    { auto* a = search->addAction("Find next", this, [this]() { findInMemory(true); });
+      a->setShortcut(QKeySequence("F3")); }
+
+    viewMenu_ = mb->addMenu("&View");
+    viewMenu_->addAction("Disassembler preferences...", this, [this]() {
+        auto* dlg = new ce::gui::MemviewPreferences(this);
+        connect(dlg, &ce::gui::MemviewPreferences::applied, this,
+                [this]() { disasmView_->reloadPreferences(); });
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->show();
+    });
+    viewMenu_->addSeparator();
+
+    debugMenu_ = mb->addMenu("&Debug");
+    { auto* a = debugMenu_->addAction("Toggle breakpoint", this, [this]() {
+          uintptr_t addr = disasmView_->selectedAddress();
+          if (!addr) addr = currentAddr_;
+          if (addr && bpSetter_) { bpSetter_(addr, /*hardware=*/false); refreshBreakpoints(); }
+      });
+      a->setShortcut(QKeySequence("F5")); }
+
+    toolsMenu_ = mb->addMenu("&Tools");
+}
+
 MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     : QMainWindow(parent), proc_(proc) {
 
-    setWindowTitle("Memory Browser");
+    setWindowTitle("Memory Viewer");
     resize(900, 600);
+    buildMenuBar();   // CE keeps the memory/debug tools in this window's menu bar
 
     // Toolbar
     auto* toolbar = new QToolBar;

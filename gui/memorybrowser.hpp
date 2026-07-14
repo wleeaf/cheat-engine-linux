@@ -195,6 +195,13 @@ public:
         autoAssembleOpener_ = std::move(fn);
     }
 
+    /// CE keeps the memory/debug tools in the Memory Viewer's own menu bar (not the
+    /// main window). MainWindow populates these with the actions that need its
+    /// context (process, address list) after constructing the browser.
+    QMenu* viewMenu() const { return viewMenu_; }
+    QMenu* toolsMenu() const { return toolsMenu_; }
+    QMenu* debugMenu() const { return debugMenu_; }
+
 private slots:
     void onGotoAddress();
     void onRefresh();
@@ -238,6 +245,10 @@ private:
 
     std::set<uintptr_t> bookmarks_;
     QMenu* bookmarksMenu_ = nullptr;
+    QMenu* viewMenu_ = nullptr;    // CE Memory Viewer "View" menu
+    QMenu* toolsMenu_ = nullptr;   // CE Memory Viewer "Tools" menu
+    QMenu* debugMenu_ = nullptr;   // CE Memory Viewer "Debug" menu
+    void buildMenuBar();
     void toggleBookmark();
     void rebuildBookmarksMenu();
 

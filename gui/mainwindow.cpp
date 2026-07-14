@@ -265,88 +265,11 @@ void MainWindow::setupMenus() {
     stub(netRead, "0: /proc/pid/mem"); stub(netRead, "1: ptrace peek"); stub(netRead, "2: process_vm_readv");
     auto* netWrite = network->addMenu("Memory write method");
     stub(netWrite, "0: /proc/pid/mem"); stub(netWrite, "1: ptrace poke"); stub(netWrite, "2: process_vm_writev");
+    // The Memory Viewer is the entry point; the memory/debug windows (Memory
+    // Regions, Heap list, Module list, Referenced strings, Thread list, Stacktrace,
+    // Registers, Breakpoint list, Debugger, Branch mapper, Break-and-trace, …) live
+    // in ITS View/Debug menus — matching CE — populated by populateBrowserMenus().
     tools->addAction("Memory Browser", this, &MainWindow::onMemoryView, QKeySequence("Ctrl+M"));
-    tools->addAction("Breakpoint List", this, [this]() {
-        auto* w = new BreakpointListWindow(&bpManager_, this);
-        w->setAttribute(Qt::WA_DeleteOnClose);
-        w->show();
-    }, QKeySequence("Ctrl+B"));
-    tools->addAction("Memory Regions", this, [this]() {
-        if (!process_) return;
-        auto* w = new MemoryRegionsWindow(process_.get(), this);
-        w->setAttribute(Qt::WA_DeleteOnClose);
-        connect(w, &MemoryRegionsWindow::navigateTo, this, [this](uintptr_t addr) {
-            auto* browser = new MemoryBrowser(process_.get(), this);
-            browser->setAttribute(Qt::WA_DeleteOnClose);
-            wireBrowserAnnotations(browser);
-            browser->gotoAddress(addr);
-            browser->show();
-        });
-        w->show();
-    });
-    tools->addAction("Heap Regions", this, [this]() {
-        if (!process_) return;
-        auto* w = new HeapRegionsWindow(process_.get(), this);
-        w->setAttribute(Qt::WA_DeleteOnClose);
-        connect(w, &HeapRegionsWindow::navigateTo, this, [this](uintptr_t addr) {
-            auto* browser = new MemoryBrowser(process_.get(), this);
-            browser->setAttribute(Qt::WA_DeleteOnClose);
-            wireBrowserAnnotations(browser);
-            browser->gotoAddress(addr);
-            browser->show();
-        });
-        w->show();
-    });
-    tools->addAction("Module List", this, [this]() {
-        if (!process_) return;
-        auto* w = new ModuleListWindow(process_.get(), this);
-        w->setAttribute(Qt::WA_DeleteOnClose);
-        connect(w, &ModuleListWindow::navigateTo, this, [this](uintptr_t addr) {
-            auto* browser = new MemoryBrowser(process_.get(), this);
-            browser->setAttribute(Qt::WA_DeleteOnClose);
-            wireBrowserAnnotations(browser);
-            browser->gotoAddress(addr);
-            browser->show();
-        });
-        w->show();
-    });
-    tools->addAction("Code References", this, [this]() {
-        if (!process_) return;
-        auto* w = new CodeReferencesWindow(process_.get(), this);
-        w->setAttribute(Qt::WA_DeleteOnClose);
-        connect(w, &CodeReferencesWindow::navigateTo, this, [this](uintptr_t addr) {
-            auto* browser = new MemoryBrowser(process_.get(), this);
-            browser->setAttribute(Qt::WA_DeleteOnClose);
-            wireBrowserAnnotations(browser);
-            browser->gotoAddress(addr);
-            browser->show();
-        });
-        w->show();
-    });
-    tools->addAction("Thread List", this, [this]() {
-        if (!process_) return;
-        auto* w = new ThreadListWindow(process_.get(), this);
-        w->setAttribute(Qt::WA_DeleteOnClose);
-        w->show();
-    });
-    tools->addAction("Stack View", this, [this]() {
-        if (!process_) return;
-        auto* w = new StackViewWindow(process_.get(), this);
-        w->setAttribute(Qt::WA_DeleteOnClose);
-        w->show();
-    });
-    tools->addAction("Register Editor", this, [this]() {
-        if (!process_) return;
-        auto* w = new RegisterEditorWindow(process_.get(), this);
-        w->setAttribute(Qt::WA_DeleteOnClose);
-        w->show();
-    });
-    tools->addAction("Debugger", this, [this]() {
-        if (!process_) return;
-        auto* w = new ce::gui::DebuggerWindow(process_.get(), this);
-        w->setAttribute(Qt::WA_DeleteOnClose);
-        w->show();
-    });
     tools->addSeparator();
     edit->addAction("Settings...", this, [this]() {
         SettingsDialog dlg(this);
@@ -421,41 +344,10 @@ void MainWindow::setupMenus() {
         editor->setBeforeExecute([this]() { stopCodeFindersForInjection(); });
         editor->show();
     }, QKeySequence("Ctrl+A"));
-    tools->addAction("Pointer Scanner...", this, [this]() {
-        if (!process_) return;
-        auto* dlg = new PointerScanDialog(process_.get(), this);
-        connect(dlg, &PointerScanDialog::addressSelected, this, [this](uintptr_t addr, const QString& desc) {
-            addressListModel_->addEntry(addr, ce::ValueType::Int32, desc);
-        });
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        dlg->show();
-    }, QKeySequence("Ctrl+P"));
-    tools->addAction("Structure Dissector...", this, [this]() {
-        if (!process_) return;
-        bool ok;
-        auto text = QInputDialog::getText(this, "Structure Dissector", "Base address (hex):",
-            QLineEdit::Normal, "0", &ok);
-        uintptr_t addr = ok ? text.toULongLong(nullptr, 16) : 0;
-        auto* sd = new StructureDissector(process_.get(), addr, this);
-        sd->setAttribute(Qt::WA_DeleteOnClose);
-        sd->setAddToListCallback([this](uintptr_t a, ce::ValueType t, const QString& d) {
-            addressListModel_->addEntry(a, t, d);
-        });
-        sd->show();
-    });
     tools->addAction("File Patcher...", this, [this]() {
         auto* dlg = new FilePatcher(this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         dlg->show();
-    });
-    tools->addAction("Find Statics...", this, [this]() {
-        if (!process_) {
-            QMessageBox::warning(this, "No process", "Open a process first.");
-            return;
-        }
-        auto* w = new FindStaticsWindow(process_.get(), this);
-        w->setAttribute(Qt::WA_DeleteOnClose);
-        w->show();
     });
     // CE frmSaveMemoryRegionUnit (Save memoryregion): dump a From..To range to a file.
     tools->addAction("Save Memory Region...", this, [this]() {
@@ -651,22 +543,6 @@ void MainWindow::setupMenus() {
                                     .arg(insns.size()).arg(path));
     });
     // CE frmMemoryViewExUnit (Graphical Memory View): bytes as pixels.
-    tools->addAction("Graphical Memory View...", this, [this]() {
-        if (!process_) { QMessageBox::warning(this, "Graphical Memory View", "Open a process first."); return; }
-        auto* w = new ce::gui::GraphicalMemoryView(process_.get(), this);
-        w->setAttribute(Qt::WA_DeleteOnClose);
-        w->show();
-    });
-    tools->addAction("ELF Inspector...", this, [this]() {
-        QString initial;
-        if (process_) {
-            auto mods = process_->modules();
-            if (!mods.empty()) initial = QString::fromStdString(mods.front().path);
-        }
-        auto* dlg = new ElfInspector(initial, this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        dlg->show();
-    });
     process->addAction("Wait for process...", this, [this]() {
         bool ok = false;
         auto name = QInputDialog::getText(this, "Wait for process",
@@ -790,61 +666,7 @@ void MainWindow::setupMenus() {
             QString("Loaded %1 region(s), %2 bytes.")
                 .arg(snapshot_->regionCount()).arg(snapshot_->byteCount()));
     });
-    tools->addAction("Branch Mapper (LBR)...", this, [this]() {
-        if (!process_) {
-            QMessageBox::warning(this, "No process", "Open a process first.");
-            return;
-        }
-        auto* bm = new BranchMapper(process_.get(), this);
-        bm->setAttribute(Qt::WA_DeleteOnClose);
-        bm->show();
-    });
-    tools->addAction("Break and Trace...", this, [this]() {
-        if (!process_) {
-            QMessageBox::warning(this, "No process", "Open a process before tracing.");
-            return;
-        }
-        auto* tw = new TracerWindow(process_.get(),
-            [this]() { return createDebuggerForCurrentProcess(); }, this);
-        tw->setAttribute(Qt::WA_DeleteOnClose);
-        tw->show();
-    });
     tools->addSeparator();
-    tools->addAction("Lua Console...", this, [this]() {
-        luaEngine_.setProcess(process_.get());
-        // Give Lua a populated symbol resolver so getAddressFromName(),
-        // registerSymbol(), and expression parsing actually resolve names.
-        if (process_) {
-            luaResolver_.loadProcess(*process_);
-            luaEngine_.setResolver(&luaResolver_);
-        }
-        auto* console = new LuaConsole(&luaEngine_, this);
-        console->setAttribute(Qt::WA_DeleteOnClose);
-        console->show();
-    }, QKeySequence("Ctrl+Shift+L"));
-    tools->addSeparator();
-    tools->addAction("Overlay...", this, &MainWindow::showOverlayDialog);
-    tools->addAction("Detect Mono/.NET Runtime", this, [this]() {
-        if (!process_) {
-            QMessageBox::warning(this, "Managed Runtime", "Open a process first.");
-            return;
-        }
-        auto runtimes = ce::detectManagedRuntimes(*process_);
-        if (runtimes.empty()) {
-            QMessageBox::information(this, "Managed Runtime",
-                "No Mono or .NET (CoreCLR) runtime detected — this looks like a native process.");
-            return;
-        }
-        QString text = "Detected managed runtime(s):\n\n";
-        for (const auto& r : runtimes) {
-            text += QString("- %1 - module %2\n   base 0x%3\n   %4\n\n")
-                .arg(r.kind == ce::ManagedRuntimeKind::Mono ? ".NET/Mono" : ".NET (CoreCLR)")
-                .arg(QString::fromStdString(r.moduleName))
-                .arg(r.base, 0, 16)
-                .arg(QString::fromStdString(r.modulePath));
-        }
-        QMessageBox::information(this, "Managed Runtime", text.trimmed());
-    });
     tools->addSeparator();
     tools->addAction("Speedhack...", this, [this]() {
         auto* dlg = new QDialog(this);
@@ -2987,7 +2809,143 @@ void MainWindow::onMemoryView() {
             browser->gotoAddress(resultsModel_->addressAt(sel.first().row()));
     }
 
+    populateBrowserMenus(browser);   // add the CE Memory-Viewer tools to its menu bar
     browser->show();
+}
+
+// Fill a Memory Viewer's View/Tools/Debug menus with the tools that CE keeps in
+// that window (they need MainWindow's process + address list).
+void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
+    QMenu* view = b->viewMenu();
+    QMenu* tools = b->toolsMenu();
+    if (!view || !tools) return;
+
+    auto openAt = [this](uintptr_t addr) {
+        if (!process_) return;
+        auto* br = new MemoryBrowser(process_.get(), this);
+        br->setAttribute(Qt::WA_DeleteOnClose);
+        wireBrowserAnnotations(br);
+        br->gotoAddress(addr);
+        br->show();
+    };
+    auto needProc = [this]() { return process_ != nullptr; };
+
+    // ── View: navigable info windows ──
+    view->addAction("Memory Regions", this, [this, openAt]() {
+        if (!process_) return;
+        auto* w = new MemoryRegionsWindow(process_.get(), this);
+        w->setAttribute(Qt::WA_DeleteOnClose);
+        connect(w, &MemoryRegionsWindow::navigateTo, this, [openAt](uintptr_t a){ openAt(a); });
+        w->show();
+    });
+    view->addAction("Heap list", this, [this, openAt]() {
+        if (!process_) return;
+        auto* w = new HeapRegionsWindow(process_.get(), this);
+        w->setAttribute(Qt::WA_DeleteOnClose);
+        connect(w, &HeapRegionsWindow::navigateTo, this, [openAt](uintptr_t a){ openAt(a); });
+        w->show();
+    });
+    view->addAction("Module list", this, [this, openAt]() {
+        if (!process_) return;
+        auto* w = new ModuleListWindow(process_.get(), this);
+        w->setAttribute(Qt::WA_DeleteOnClose);
+        connect(w, &ModuleListWindow::navigateTo, this, [openAt](uintptr_t a){ openAt(a); });
+        w->show();
+    });
+    view->addAction("Referenced strings / functions", this, [this, openAt]() {
+        if (!process_) return;
+        auto* w = new CodeReferencesWindow(process_.get(), this);
+        w->setAttribute(Qt::WA_DeleteOnClose);
+        connect(w, &CodeReferencesWindow::navigateTo, this, [openAt](uintptr_t a){ openAt(a); });
+        w->show();
+    });
+    view->addAction("Thread list", this, [this]() {
+        if (!process_) return;
+        auto* w = new ThreadListWindow(process_.get(), this);
+        w->setAttribute(Qt::WA_DeleteOnClose); w->show();
+    });
+    view->addAction("Stacktrace", this, [this]() {
+        if (!process_) return;
+        auto* w = new StackViewWindow(process_.get(), this);
+        w->setAttribute(Qt::WA_DeleteOnClose); w->show();
+    });
+    view->addAction("Graphical memory view", this, [this]() {
+        if (!process_) return;
+        auto* w = new ce::gui::GraphicalMemoryView(process_.get(), this);
+        w->setAttribute(Qt::WA_DeleteOnClose); w->show();
+    });
+
+    // ── Debug ──
+    QMenu* dbg = b->debugMenu();
+    if (dbg) {
+        dbg->addSeparator();
+        dbg->addAction("Registers", this, [this]() {
+            if (!process_) return;
+            auto* w = new RegisterEditorWindow(process_.get(), this);
+            w->setAttribute(Qt::WA_DeleteOnClose); w->show();
+        });
+        dbg->addAction("Breakpoint list", this, [this]() {
+            auto* w = new BreakpointListWindow(&bpManager_, this);
+            w->setAttribute(Qt::WA_DeleteOnClose); w->show();
+        });
+        dbg->addAction("Full debugger", this, [this]() {
+            if (!process_) return;
+            auto* w = new ce::gui::DebuggerWindow(process_.get(), this);
+            w->setAttribute(Qt::WA_DeleteOnClose); w->show();
+        });
+        dbg->addAction("Break and trace", this, [this]() {
+            if (!process_) return;
+            auto* tw = new TracerWindow(process_.get(),
+                [this]() { return createDebuggerForCurrentProcess(); }, this);
+            tw->setAttribute(Qt::WA_DeleteOnClose); tw->show();
+        });
+        dbg->addAction("Branch mapper (LBR)", this, [this]() {
+            if (!process_) return;
+            auto* bm = new BranchMapper(process_.get(), this);
+            bm->setAttribute(Qt::WA_DeleteOnClose); bm->show();
+        });
+    }
+
+    // ── Tools ──
+    tools->addAction("Auto Assemble", this, [this]() {
+        auto* editor = new ScriptEditor(process_.get(), &autoAsm_, this);
+        editor->setAttribute(Qt::WA_DeleteOnClose);
+        editor->setAddToTable([this](const QString& d, const QString& s) { addressListModel_->addScriptEntry(d, s); });
+        editor->setBeforeExecute([this]() { stopCodeFindersForInjection(); });
+        editor->show();
+    });
+    tools->addAction("Pointer scan", this, [this]() {
+        if (!process_) return;
+        auto* dlg = new PointerScanDialog(process_.get(), this);
+        connect(dlg, &PointerScanDialog::addressSelected, this,
+                [this](uintptr_t a, const QString& d) { addressListModel_->addEntry(a, ce::ValueType::Int32, d); });
+        dlg->setAttribute(Qt::WA_DeleteOnClose); dlg->show();
+    });
+    tools->addAction("Dissect data/structures", this, [this]() {
+        if (!process_) return;
+        auto* sd = new StructureDissector(process_.get(), 0, this);
+        sd->setAttribute(Qt::WA_DeleteOnClose);
+        sd->setAddToListCallback([this](uintptr_t a, ce::ValueType t, const QString& d) { addressListModel_->addEntry(a, t, d); });
+        sd->show();
+    });
+    tools->addAction("Find static addresses", this, [this]() {
+        if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
+        auto* w = new FindStaticsWindow(process_.get(), this);
+        w->setAttribute(Qt::WA_DeleteOnClose); w->show();
+    });
+    tools->addAction("Lua Engine", this, [this]() {
+        luaEngine_.setProcess(process_.get());
+        if (process_) { luaResolver_.loadProcess(*process_); luaEngine_.setResolver(&luaResolver_); }
+        auto* console = new LuaConsole(&luaEngine_, this);
+        console->setAttribute(Qt::WA_DeleteOnClose); console->show();
+    });
+    tools->addAction("Find Statics / ELF Inspector", this, [this]() {
+        QString initial;
+        if (process_) { auto mods = process_->modules(); if (!mods.empty()) initial = QString::fromStdString(mods.front().path); }
+        auto* dlg = new ElfInspector(initial, this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose); dlg->show();
+    });
+    (void)needProc;
 }
 
 void MainWindow::updateScanButtons() {

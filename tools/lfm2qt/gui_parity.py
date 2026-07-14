@@ -27,7 +27,7 @@ MAP = {
     "formProcessInfo": ("mainwindow", ""),
     "AdvancedOptionsUnit": ("advancedoptions", ""),  # Code list
     "MemoryBrowserFormUnit": ("memorybrowser", "disasm+hex+register panel+debug toolbar; stepping + full menus pending"),
-    "formsettingsunit": ("settingsdialog", "subset of CE's setting tabs"),
+    "formsettingsunit": ("settingsdialog", ""),  # all CE tabs present
     "pointerscannerfrm": ("pointerscan_dialog", ""),
     "PointerscannerSettingsFrm": ("pointerscan_dialog", "scan options"),
     "FoundCodeUnit": ("codefinder", "what-writes/accesses result list"),

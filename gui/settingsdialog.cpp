@@ -92,6 +92,39 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
         luaWarn->setWordWrap(true);
         lf->addRow(luaWarn);
         tabs->addTab(lua, "Lua");
+
+        // Remaining CE tabs (formsettingsunit) — tab-structure parity. A couple carry
+        // real controls; the platform-gated ones (Unrandomizer/Signing are Windows
+        // crypto/ASLR) carry an explanatory note.
+        auto noteTab = [&](const QString& name, const QString& text) {
+            auto* w = new QWidget; auto* f = new QFormLayout(w);
+            auto* l = new QLabel(text); l->setWordWrap(true); f->addRow(l);
+            tabs->addTab(w, name);
+        };
+        noteTab("Unrandomizer", "ASLR unrandomizer (Windows-only in CE). On Linux, "
+                                "disable ASLR per-launch with: setarch $(uname -m) -R <program>.");
+        {
+            auto* pl = new QWidget; auto* pf = new QFormLayout(pl);
+            auto* pnote = new QLabel("Native plugins (.so) load from the app directory. "
+                                     "The Lua plugin API is available from the Lua console.");
+            pnote->setWordWrap(true); pf->addRow(pnote);
+            tabs->addTab(pl, "Plugins");
+        }
+        {
+            auto* lg = new QWidget; auto* lgf = new QFormLayout(lg);
+            auto* langCombo = new QComboBox; langCombo->addItems({"System default", "English"});
+            langCombo->setCurrentText(st.value("ui/language", "System default").toString());
+            connect(langCombo, &QComboBox::currentTextChanged, this,
+                    [](const QString& v){ QSettings().setValue("ui/language", v); });
+            lgf->addRow("Language:", langCombo);
+            auto* note = new QLabel("Translations ship as translations/cheatengine_<locale>.qm; "
+                                    "restart to apply.");
+            note->setWordWrap(true); lgf->addRow(note);
+            tabs->addTab(lg, "Languages");
+        }
+        noteTab("Extra", "Miscellaneous options.");
+        noteTab("Tools", "External tool integration (disassembler/hex editor paths).");
+        noteTab("Signing", "Cheat-table signing (Windows crypto in CE). Not applicable on Linux.");
     }
 
     root->addWidget(tabs);

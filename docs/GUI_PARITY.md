@@ -95,7 +95,7 @@ Languages
 
 | CE form | Caption | ctrls | hdlrs | menus | Our window | Status |
 |---|---|---:|---:|---:|---|---|
-| formsettingsunit | Cheat Engine settings | 243 | 71 | 2 | `settingsdialog` | ⚠️ subset of CE's setting tabs |
+| formsettingsunit | Cheat Engine settings | 243 | 71 | 2 | `settingsdialog` | ✅ |
 | MainUnit | Cheat Engine | 90 | 204 | 167 | `mainwindow` | ✅ |
 | PointerscannerSettingsFrm | Pointerscanner scanoptions | 70 | 29 | 0 | `pointerscan_dialog` | ⚠️ scan options |
 | trainergenerator | Trainer generator | 60 | 32 | 3 | — | ❌ missing |

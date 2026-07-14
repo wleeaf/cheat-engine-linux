@@ -16,6 +16,10 @@ from lfm_parser import parse_lfm_file
 # that a Linux build does not show (Windows/DBVM/Direct3D/.NET-on-Windows only).
 MAP = {
     "MainUnit": ("mainwindow", ""),
+    "frmExcludeHideUnit": ("settingsdialog", "scan region filtering"),
+    "frmfoundlistpreferencesunit": ("mainwindow", "basic result display only"),
+    "frmStringMapUnit": ("codereferences", ""),
+    "celistviewitemeditor": ("mainwindow", ""),
     "frmopenfileasprocessdialogunit": ("mainwindow", ""),
     "formPointerOrPointeeUnit": ("pointerscan_dialog", ""),
     "frmdebugsymbolstructurelistunit": ("structuredissector", ""),
@@ -127,6 +131,7 @@ NA = {
     "mergepointerscan": "distributed pointerscan (network)", "Ultimap": "Intel PT / Windows only",
     "ultimap": "Intel PT / Windows only", "dotnet": ".NET (Windows) only",
     "Vehdebug": "VEH debugger (Windows) only",
+    "DifferentBitSize": "internal bit-size warning",
     "BusyUnit": "generic busy/progress dialog",
     "Valuechange": "value-change helper",
     "edithistory": "edit-history (minor)",

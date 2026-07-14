@@ -123,7 +123,7 @@ Languages
 | DissectCodeunit | Dissect Code | 27 | 9 | 3 | `codereferences` | ✅ |
 | frmMemoryViewExUnit | Graphical Memory View  | 27 | 25 | 0 | `graphicalmemoryview` | ✅ |
 | frmcodefilterunit | Code Filter | 27 | 24 | 4 | — | ❌ missing |
-| frmfoundlistpreferencesunit | Foundlist Customizer | 27 | 11 | 0 | — | ❌ missing |
+| frmfoundlistpreferencesunit | Foundlist Customizer | 27 | 11 | 0 | `mainwindow` | ⚠️ basic result display only |
 | frmRegistersunit | Registers | 25 | 40 | 5 | `registereditor` | ✅ |
 | frmluaengineunit | Lua Engine | 25 | 38 | 25 | `luaconsole` | ✅ |
 | frmTracerConfigUnit | Break and Trace config | 24 | 5 | 0 | `tracerwindow` | ⚠️ break-and-trace config |
@@ -143,9 +143,9 @@ Languages
 | frmresumepointerscanunit | Resume pointerscan | 16 | 9 | 1 | `pointerscan_dialog` | ✅ |
 | FoundCodeUnit | The following opcodes changed the  | 15 | 24 | 12 | `codefinder` | ⚠️ what-writes/accesses result list |
 | ProcessWindowUnit | Process List | 15 | 27 | 17 | `processlistdialog` | ✅ |
-| frmExcludeHideUnit | Show/Hide settings | 15 | 7 | 0 | — | ❌ missing |
+| frmExcludeHideUnit | Show/Hide settings | 15 | 7 | 0 | `settingsdialog` | ⚠️ scan region filtering |
 | frmSaveMemoryRegionUnit | Save memoryregion | 15 | 7 | 1 | `mainwindow` | ✅ |
-| frmStringMapUnit | String map | 15 | 12 | 2 | — | ❌ missing |
+| frmStringMapUnit | String map | 15 | 12 | 2 | `codereferences` | ✅ |
 | FindWindowUnit | Find | 14 | 3 | 0 | — | 🚫 find target GUI window (niche) |
 | PasteTableentryFRM | Paste table entries | 14 | 1 | 0 | `mainwindow` | ✅ |
 | accessedmemory | Find accessed memory regions | 14 | 15 | 1 | `codefinder` | ✅ |
@@ -157,7 +157,7 @@ Languages
 | savedisassemblyfrm | Save disassembled output | 13 | 3 | 0 | `mainwindow` | ✅ |
 | symbolconfigunit | Symbol config | 13 | 13 | 4 | `settingsdialog` | ✅ |
 | APIhooktemplatesettingsfrm | Api hook template | 12 | 2 | 0 | — | 🚫 Windows API hook |
-| celistviewitemeditor | Item editor | 12 | 8 | 0 | — | ❌ missing |
+| celistviewitemeditor | Item editor | 12 | 8 | 0 | `mainwindow` | ✅ |
 | frmexceptionregionlistunit | Exception region list | 12 | 9 | 4 | — | ❌ missing |
 | frmmemoryrecorddropdownsettingsunit | Dropdown options | 12 | 12 | 4 | `mainwindow` | ✅ |
 | networkConfig | Connect to server | 12 | 9 | 2 | `settingsdialog` | ✅ |
@@ -201,7 +201,7 @@ Languages
 | Changeoffsetunit | Recalculate addres | 5 | 6 | 0 | `changeaddressdialog` | ✅ |
 | CommentsUnit | Comments | 5 | 6 | 0 | `mainwindow` | ✅ |
 | codefiltercalloralldialog | Code Filter | 5 | 0 | 0 | — | ❌ missing |
-| formDifferentBitSizeUnit | Different sized row of bits | 5 | 6 | 1 | — | ❌ missing |
+| formDifferentBitSizeUnit | Different sized row of bits | 5 | 6 | 1 | — | 🚫 internal bit-size warning |
 | formhotkeyunit | Change hotkey | 5 | 2 | 0 | `globalhotkeys` | ✅ |
 | frmBreakThreadUnit | Break Thread | 5 | 4 | 0 | `threadlist` | ✅ |
 | frmDisassemblyscanunit | Assemblyscan | 5 | 9 | 2 | `mainwindow` | ✅ |

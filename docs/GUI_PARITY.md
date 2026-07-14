@@ -185,7 +185,7 @@ Languages
 | frmLoadMemoryunit | Load Memory Region | 7 | 4 | 0 | `mainwindow` | ✅ |
 | frmexceptionignorelistunit | Exception ignore list | 7 | 7 | 1 | — | ❌ missing |
 | frmmergepointerscanresultsettingsunit | Merge pointerscan results | 7 | 2 | 0 | — | 🚫 distributed pointerscan (network) |
-| frmopenfileasprocessdialogunit | Open binary file | 7 | 1 | 0 | — | ❌ missing |
+| frmopenfileasprocessdialogunit | Open binary file | 7 | 1 | 0 | `mainwindow` | ✅ |
 | frmpointerrescanconnectdialogunit | Join rescan | 7 | 2 | 0 | — | 🚫 distributed pointerscan (network) |
 | frmsymboleventtakinglongunit | Symbol lookup taking long | 7 | 3 | 0 | — | 🚫 symbol-load progress (minor) |
 | Valuechange | Change Offset: ######## | 6 | 7 | 0 | — | 🚫 value-change helper |

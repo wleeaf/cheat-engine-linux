@@ -54,6 +54,7 @@
 #include <QTabWidget>
 #include <QColorDialog>
 #include <QListWidget>
+#include <sys/prctl.h>
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
@@ -358,6 +359,29 @@ void MainWindow::setupMenus() {
     // ── Process menu ──
     process->addAction("Open Process...", this, &MainWindow::onOpenProcess);
     // CE formProcessInfo (Process/System Info) — Linux equivalents.
+    // CE "Create Process" / frmopenfileasprocessdialogunit: launch an executable
+    // and attach. As our own child it is ptrace-accessible under yama scope=1.
+    process->addAction("Create Process...", this, [this]() {
+        auto path = QFileDialog::getOpenFileName(this, "Open file as process", "", "Executables (*)");
+        if (path.isEmpty()) return;
+        std::string p = path.toStdString();
+        pid_t pid = fork();
+        if (pid == 0) {
+            prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
+            execl(p.c_str(), p.c_str(), (char*)nullptr);
+            _exit(127);
+        }
+        if (pid < 0) { QMessageBox::warning(this, "Create Process", "fork() failed."); return; }
+        usleep(120000);   // let it map its image
+        currentPid_ = pid;
+        ceserverClient_.reset();
+        process_ = std::make_unique<os::LinuxProcessHandle>(pid);
+        processLabel_->setText(QString("PID: %1 — %2 (created)").arg(pid).arg(QFileInfo(path).fileName()));
+        addressListModel_->setProcess(process_.get());
+        resultsModel_->setProcess(process_.get());
+        firstScanBtn_->setEnabled(true);
+        updateScanButtons();
+    });
     process->addAction("Process/System Info", this, [this]() {
         if (!process_) { QMessageBox::information(this, "Process Info", "No process opened."); return; }
         auto mods = process_->modules();

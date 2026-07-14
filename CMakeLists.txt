@@ -313,6 +313,7 @@ if(Qt6_FOUND)
         gui/breakpointlist.cpp
         gui/codefinder.cpp
         gui/codereferences.cpp
+        gui/advancedoptions.cpp
         gui/heapregions.cpp
         gui/memoryregions.cpp
         gui/modulelist.cpp

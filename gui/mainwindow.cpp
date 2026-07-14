@@ -5,6 +5,7 @@
 #include "gui/registereditor.hpp"
 #include "gui/debuggerwindow.hpp"
 #include "gui/memorybrowser.hpp"
+#include "gui/advancedoptions.hpp"
 #include "gui/scripteditor.hpp"
 #include "gui/pointerscan_dialog.hpp"
 #include "gui/structuredissector.hpp"
@@ -704,6 +705,28 @@ void MainWindow::showComments() {
     connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::accept);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
+}
+
+// Advanced Options — CE's "Code list" window. Kept as a single instance so the
+// list survives reopening; double-click / "Open the disassembler" navigates the
+// memory browser to the code address.
+void MainWindow::showAdvancedOptions() {
+    if (!advancedOptions_) {
+        advancedOptions_ = new ce::gui::AdvancedOptionsWindow(process_.get(), this);
+        connect(advancedOptions_, &ce::gui::AdvancedOptionsWindow::navigateTo, this,
+                [this](uintptr_t addr) {
+                    if (!process_) return;
+                    auto* browser = new MemoryBrowser(process_.get(), this);
+                    browser->setAttribute(Qt::WA_DeleteOnClose);
+                    wireBrowserAnnotations(browser);
+                    browser->gotoAddress(addr);
+                    browser->show();
+                });
+    }
+    advancedOptions_->setProcess(process_.get());
+    advancedOptions_->show();
+    advancedOptions_->raise();
+    advancedOptions_->activateWindow();
 }
 
 void MainWindow::showOverlayDialog() {
@@ -1493,7 +1516,9 @@ void MainWindow::setupUi() {
 
     auto* bottomBar = new QHBoxLayout;
     auto* advBtn = new QPushButton("Advanced Options");
-    connect(advBtn, &QPushButton::clicked, this, &MainWindow::onMemoryView);
+    // CE "Advanced Options" = the Code list (AdvancedOptionsUnit): a persistent
+    // list of code addresses from find-what-writes, with disassemble/NOP/restore.
+    connect(advBtn, &QPushButton::clicked, this, &MainWindow::showAdvancedOptions);
     auto* extrasBtn = new QPushButton("Table Extras");
     // CE "Table Extras" opens the table notes (Comments) — a free-text memo saved
     // with the table. (Save/Load now live in the File menu.)
@@ -2554,10 +2579,11 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
     auto* window = new CodeFinderWindow(finderPtr,
         QString("%1 0x%2").arg(title).arg(addr, 0, 16), this);
     window->setAttribute(Qt::WA_DeleteOnClose);
-    // Let the user save the found code locations into the address list.
+    // CE: "Add to the code list" sends the found opcodes to Advanced Options
+    // (the Code list), where they can be disassembled / NOP'd / restored.
     window->setAddToList([this](uintptr_t a, const QString& desc) {
-        addressListModel_->addEntry(a, ce::ValueType::Int32,
-            desc.isEmpty() ? QString("code 0x%1").arg(a, 0, 16) : desc);
+        showAdvancedOptions();
+        advancedOptions_->addCode(a, desc.isEmpty() ? QString("code 0x%1").arg(a, 0, 16) : desc);
     });
     window->show();
 }

@@ -166,7 +166,7 @@ Languages
 | StructuresAddElementfrm | Add Element | 10 | 6 | 0 | — | ❌ missing |
 | frmFillMemoryUnit | Fill memory | 10 | 4 | 0 | — | ❌ missing |
 | frmStructureLinkerUnit | Structure linker | 10 | 4 | 0 | — | ❌ missing |
-| AdvancedOptionsUnit | Code list/Pause | 9 | 27 | 15 | — | ❌ missing |
+| AdvancedOptionsUnit | Code list/Pause | 9 | 27 | 15 | `advancedoptions` | ✅ |
 | formChangedAddresses | Changed Addresses | 9 | 31 | 25 | — | ❌ missing |
 | frmassemblyscanunit | Assembly scan | 9 | 2 | 0 | — | ❌ missing |
 | frmfinddialogunit | Find | 9 | 0 | 0 | — | ❌ missing |

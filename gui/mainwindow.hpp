@@ -40,6 +40,7 @@ class ScanResultsModel;
 class AddressListModel;
 class OverlayWindow;
 class MemoryBrowser;
+class AdvancedOptionsWindow;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -98,6 +99,9 @@ private:
     // cheat table (persisted in CheatTable.comment via build/loadTable).
     void showComments();
     QString tableComment_;
+    // Advanced Options — the CE "Code list" (created once, kept so entries persist).
+    void showAdvancedOptions();
+    ce::gui::AdvancedOptionsWindow* advancedOptions_ = nullptr;
 
     // Process — local (LinuxProcessHandle) or remote (RemoteProcessHandle).
     std::unique_ptr<ce::ProcessHandle> process_;

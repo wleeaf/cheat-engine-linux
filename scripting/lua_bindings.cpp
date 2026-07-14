@@ -2275,6 +2275,52 @@ static int l_isKeyPressed(lua_State* L) {
     return 1;
 }
 
+// ── CE timer API: createTimer([interval]) -> id; timer_setInterval(id, ms);
+//    timer_onTimer(id, fn); timer_setEnabled(id, bool). Callbacks fire from the
+//    engine's pumpTimers() (driven by the GUI). object_destroy(id) frees a timer.
+static int l_createTimer(lua_State* L) {
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    if (!eng) { lua_pushnil(L); return 1; }
+    double interval = (lua_gettop(L) >= 1 && lua_isnumber(L, 1)) ? lua_tonumber(L, 1) : 1000;
+    int id = eng->createTimer(interval);
+    // CE also accepts createTimer(owner, enabled); if a function is passed, treat
+    // it as the OnTimer callback for convenience.
+    if (lua_gettop(L) >= 1 && lua_isfunction(L, 1)) {
+        lua_pushvalue(L, 1);
+        eng->setTimerCallback(id, luaL_ref(L, LUA_REGISTRYINDEX));
+    }
+    lua_pushinteger(L, id);
+    return 1;
+}
+static int l_timer_setInterval(lua_State* L) {
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    if (eng) eng->setTimerInterval((int)luaL_checkinteger(L, 1), luaL_checknumber(L, 2));
+    return 0;
+}
+static int l_timer_onTimer(lua_State* L) {
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    if (!eng) return 0;
+    int id = (int)luaL_checkinteger(L, 1);
+    if (lua_isnil(L, 2)) { eng->setTimerCallback(id, -1 /*clear*/); return 0; }
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    lua_pushvalue(L, 2);
+    eng->setTimerCallback(id, luaL_ref(L, LUA_REGISTRYINDEX));
+    return 0;
+}
+static int l_timer_setEnabled(lua_State* L) {
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    if (eng) eng->setTimerEnabled((int)luaL_checkinteger(L, 1), lua_toboolean(L, 2));
+    return 0;
+}
+static int l_object_destroy(lua_State* L) {
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    if (eng && lua_isnumber(L, 1)) {
+        int id = (int)lua_tointeger(L, 1);
+        if (eng->isTimer(id)) eng->destroyTimer(id);
+    }
+    return 0;
+}
+
 static int l_getManagedRuntimes(lua_State* L) {
     auto* p = getProc(L);
     lua_newtable(L);
@@ -3754,6 +3800,11 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "generateTrainer", l_generateTrainer);
     lua_register(L, "generateTrainerSource", l_generateTrainerSource);
     lua_register(L, "isKeyPressed", l_isKeyPressed);
+    lua_register(L, "createTimer", l_createTimer);
+    lua_register(L, "timer_setInterval", l_timer_setInterval);
+    lua_register(L, "timer_onTimer", l_timer_onTimer);
+    lua_register(L, "timer_setEnabled", l_timer_setEnabled);
+    lua_register(L, "object_destroy", l_object_destroy);
     lua_register(L, "getManagedRuntimes", l_getManagedRuntimes);
     lua_register(L, "monoDissect", l_monoDissect);
     lua_register(L, "pointerScan", l_pointerScan);

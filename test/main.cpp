@@ -492,6 +492,33 @@ static void test_mono_dissector_parse() {
     printf("  namespaced class name split: %s\n", nsOk ? "OK" : "FAILED");
 }
 
+// CE timer API: createTimer/timer_onTimer fire from pumpTimers(); disable + destroy.
+static void test_lua_timers() {
+    printf("\n── Test: Lua timer API (createTimer/timer_onTimer/pump) ──\n");
+    ce::LuaEngine eng;
+    eng.execute("count=0; t=createTimer(20); timer_onTimer(t, function() count=count+1 end)");
+    for (int i = 0; i < 6; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        eng.pumpTimers();
+    }
+    int fired = 0;
+    if (auto v = eng.evalToString("return count")) fired = std::atoi(v->c_str());
+    printf("  timer fires from pump (%d ticks): %s\n", fired, fired >= 4 ? "OK" : "FAILED");
+
+    eng.execute("timer_setEnabled(t, false)");
+    int before = fired;
+    for (int i = 0; i < 3; ++i) { std::this_thread::sleep_for(std::chrono::milliseconds(25)); eng.pumpTimers(); }
+    int after = before;
+    if (auto v = eng.evalToString("return count")) after = std::atoi(v->c_str());
+    printf("  disabled timer stops firing: %s\n", after == before ? "OK" : "FAILED");
+
+    eng.execute("object_destroy(t)");   // must not crash / must stop firing
+    for (int i = 0; i < 2; ++i) { std::this_thread::sleep_for(std::chrono::milliseconds(25)); eng.pumpTimers(); }
+    int afterDestroy = after;
+    if (auto v = eng.evalToString("return count")) afterDestroy = std::atoi(v->c_str());
+    printf("  object_destroy stops + frees the timer: %s\n", afterDestroy == after ? "OK" : "FAILED");
+}
+
 // The diagnostic logging facility: level parsing, per-category gating, Off.
 static void test_logging() {
     printf("\n── Test: diagnostic logging (ce::log) ──\n");
@@ -7907,6 +7934,7 @@ int main(int argc, char* argv[]) {
 
     test_cheat_table_json();
     test_mono_dissector_parse();
+    test_lua_timers();
     test_logging();
     test_ce_table_import();
     test_ct_format_detection();

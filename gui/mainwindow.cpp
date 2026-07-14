@@ -114,6 +114,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("Cheat Engine");
     resize(760, 560);
 
+    // Drive CE Lua timers (createTimer/timer_onTimer): trainer scripts rely on a
+    // periodic pump on the Lua thread. 30ms matches CE's default timer resolution.
+    auto* luaTimerPump = new QTimer(this);
+    connect(luaTimerPump, &QTimer::timeout, this, [this]() { luaEngine_.pumpTimers(); });
+    luaTimerPump->start(30);
+
     // Lua-evaluated AA blocks: {$lua}return "..."{$asm} substitutes the result
     // into the AA stream at preprocess time.
     autoAsm_.setLuaEvaluator([this](const std::string& code) {

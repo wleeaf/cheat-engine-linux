@@ -13,6 +13,7 @@ extern "C" {
 
 #include <cstring>
 #include <chrono>
+#include <vector>
 #include <exception>
 #include <utility>
 
@@ -364,6 +365,76 @@ std::string LuaEngine::executeFile(const std::string& path) {
         return err;
     }
     return {};
+}
+
+// ── CE timer API backing ──
+
+static double steadyNowMs() {
+    using namespace std::chrono;
+    return duration<double, std::milli>(steady_clock::now().time_since_epoch()).count();
+}
+
+int LuaEngine::createTimer(double intervalMs) {
+    int id = nextTimerId_++;
+    LuaTimer t;
+    t.intervalMs = intervalMs > 0 ? intervalMs : 1000;
+    t.lastMs = steadyNowMs();
+    timers_[id] = t;
+    return id;
+}
+
+void LuaEngine::setTimerInterval(int id, double intervalMs) {
+    auto it = timers_.find(id);
+    if (it != timers_.end()) it->second.intervalMs = intervalMs;
+}
+
+void LuaEngine::setTimerCallback(int id, int cbRef) {
+    auto it = timers_.find(id);
+    if (it == timers_.end()) { if (L_ && cbRef >= 0) luaL_unref(L_, LUA_REGISTRYINDEX, cbRef); return; }
+    if (L_ && it->second.cbRef >= 0) luaL_unref(L_, LUA_REGISTRYINDEX, it->second.cbRef);
+    it->second.cbRef = cbRef;
+}
+
+void LuaEngine::setTimerEnabled(int id, bool enabled) {
+    auto it = timers_.find(id);
+    if (it != timers_.end()) it->second.enabled = enabled;
+}
+
+void LuaEngine::destroyTimer(int id) {
+    auto it = timers_.find(id);
+    if (it == timers_.end()) return;
+    if (L_ && it->second.cbRef >= 0) luaL_unref(L_, LUA_REGISTRYINDEX, it->second.cbRef);
+    timers_.erase(it);
+}
+
+void LuaEngine::pumpTimers() {
+    if (!L_ || timers_.empty()) return;
+    const double now = steadyNowMs();
+    // Collect due timers first: a callback may create/destroy timers, which would
+    // invalidate an in-progress iterator.
+    std::vector<int> due;
+    for (auto& [id, t] : timers_) {
+        if (t.enabled && t.intervalMs > 0 && t.cbRef >= 0 && (now - t.lastMs) >= t.intervalMs)
+            due.push_back(id);
+    }
+    for (int id : due) {
+        auto it = timers_.find(id);
+        if (it == timers_.end()) continue;          // destroyed by an earlier callback
+        it->second.lastMs = now;
+        int ref = it->second.cbRef;
+        lua_rawgeti(L_, LUA_REGISTRYINDEX, ref);
+        if (lua_isfunction(L_, -1)) {
+            if (lua_pcall(L_, 0, 0, 0) != LUA_OK) {
+                const char* msg = lua_tostring(L_, -1);
+                std::string err = msg ? msg : "lua error";
+                lua_pop(L_, 1);
+                ce::log::warn(ce::log::Cat::Lua, "timer callback error: {}", err);
+                if (outputCb_) outputCb_("Timer error: " + err);
+            }
+        } else {
+            lua_pop(L_, 1);
+        }
+    }
 }
 
 } // namespace ce

@@ -10,6 +10,7 @@
 #include <functional>
 #include <memory>
 #include <deque>
+#include <map>
 #include <mutex>
 #include <condition_variable>
 
@@ -76,6 +77,19 @@ public:
 
     static LuaEngine* instanceFromState(lua_State* L);
 
+    // ── CE timer API backing (createTimer / timer_setInterval / timer_onTimer) ──
+    // Timers fire their Lua callback from pumpTimers(), which the host calls on the
+    // Lua thread (the GUI drives it with a QTimer). cbRef is a luaL_ref into the
+    // registry. Returns the new timer id.
+    int  createTimer(double intervalMs);
+    void setTimerInterval(int id, double intervalMs);
+    void setTimerCallback(int id, int cbRef);   // luaL_ref value; replaces+frees any prior
+    void setTimerEnabled(int id, bool enabled);
+    void destroyTimer(int id);
+    bool isTimer(int id) const { return timers_.count(id) != 0; }
+    /// Fire every enabled timer whose interval has elapsed. Safe to call often.
+    void pumpTimers();
+
     std::function<void(const std::string&)> outputCb_;
 
 private:
@@ -97,6 +111,10 @@ private:
     std::condition_variable debugCv_;
     std::deque<DebugHit> debugQueue_;
     std::unique_ptr<DebugSession> debugSession_;
+
+    struct LuaTimer { double intervalMs = 1000; double lastMs = 0; int cbRef = -2 /*LUA_NOREF*/; bool enabled = true; };
+    std::map<int, LuaTimer> timers_;
+    int nextTimerId_ = 1;
 };
 
 /// Register extended CE API bindings (defined in lua_bindings.cpp)

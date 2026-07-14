@@ -1165,20 +1165,27 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         if (a && bpSetter_) { bpSetter_(a, /*hardware=*/false); refreshBreakpoints(); }
     });
     dbgBar->addSeparator();
-    auto stepStub = [dbgBar](const QString& text, const QString& tip) {
+    // Step controls: real single-stepping runs in the Debugger window (it owns the
+    // debug session). These open it at the selected address, ready to step there,
+    // instead of being dead stubs.
+    auto stepAct = [this, dbgBar](const QString& text, const QString& tip) {
         auto* a = dbgBar->addAction(text);
-        a->setEnabled(false);
-        a->setToolTip(tip + " — use the Debugger window (Tools ▸ Debugger)");
+        a->setToolTip(tip + " (opens the Debugger at this address)");
+        connect(a, &QAction::triggered, this, [this]() {
+            uintptr_t addr = disasmView_->selectedAddress();
+            if (!addr) addr = currentAddr_;
+            if (debuggerLauncher_) debuggerLauncher_(addr);
+        });
         return a;
     };
-    stepStub("Run", "Resume the target");
-    stepStub("Step Into", "Single-step into");
-    stepStub("Step Over", "Step over calls");
-    stepStub("Step Out", "Run until return");
+    stepAct("Run", "Resume the target");
+    stepAct("Step Into", "Single-step into");
+    stepAct("Step Over", "Step over calls");
+    stepAct("Step Out", "Run until return");
     dbgBar->addSeparator();
-    stepStub("Run Till", "Run until the selected line");
+    stepAct("Run Till", "Run until the selected line");
     dbgBar->addSeparator();
-    stepStub("Run Unhandled", "Run, passing exceptions to the target");
+    stepAct("Run Unhandled", "Run, passing exceptions to the target");
     dbgBar->addSeparator();
     // Disassembler Preferences (CE frmMemviewPreferencesUnit): font + colors.
     auto* prefsAct = dbgBar->addAction("Preferences");

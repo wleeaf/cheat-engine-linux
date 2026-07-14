@@ -182,6 +182,11 @@ public:
     void setBreakpointQuery(BpQuery fn) { bpQuery_ = std::move(fn); refreshBreakpoints(); }
     void setCodeFinderLauncher(CodeFinderLauncher fn) { cfLauncher_ = std::move(fn); }
 
+    /// Open the full Debugger window at an address (the browser's step buttons use
+    /// this — real single-stepping lives in the Debugger; MainWindow provides it).
+    using DebuggerLauncher = std::function<void(uintptr_t addr)>;
+    void setDebuggerLauncher(DebuggerLauncher fn) { debuggerLauncher_ = std::move(fn); }
+
     /// Persistent disassembler comments (saved with the cheat table). The store is
     /// owned by MainWindow and keyed by module-relative address EXPRESSION so it
     /// survives ASLR. setAnnotationStore installs the initial set (applied now) and
@@ -257,6 +262,7 @@ private:
     std::function<void(uintptr_t)> bpRemover_;
     BpQuery bpQuery_;
     CodeFinderLauncher cfLauncher_;
+    DebuggerLauncher debuggerLauncher_;
 
     std::function<void(const QString&)> autoAssembleOpener_;
     // Persistent-comment plumbing (see setAnnotationStore).

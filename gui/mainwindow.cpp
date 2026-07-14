@@ -2368,6 +2368,14 @@ void MainWindow::wireBrowserAnnotations(MemoryBrowser* browser) {
     // the MainWindow-owned store (which is serialized with the cheat table).
     browser->setAnnotationStore(disasmAnnotations_,
         [this](std::vector<ce::DisassemblerComment> v) { disasmAnnotations_ = std::move(v); });
+    // The browser's step buttons open the full Debugger (which owns the debug
+    // session and does real single-stepping).
+    browser->setDebuggerLauncher([this](uintptr_t /*addr*/) {
+        if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
+        auto* w = new ce::gui::DebuggerWindow(process_.get(), this);
+        w->setAttribute(Qt::WA_DeleteOnClose);
+        w->show();
+    });
     // "Auto Assemble > Create code/AOB injection here" opens a script editor
     // pre-filled with the generated template.
     browser->setAutoAssembleOpener([this](const QString& script) {

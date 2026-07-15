@@ -34,3 +34,4 @@ AppDir/
 
 # CE-derived generated layouts (regenerate with tools/lfm2qt from your own CE checkout)
 gui/generated/*.ui
+build-ci-asan/

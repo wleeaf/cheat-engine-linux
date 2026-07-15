@@ -6,6 +6,16 @@ official Cheat Engine Linux build. (User-facing docs live in `README.md`; releas
 history in `CHANGELOG.md`; contribution + security policy in `CONTRIBUTING.md` /
 `SECURITY.md`.)
 
+## Before pushing: `tools/ci-check.sh`
+
+Run `tools/ci-check.sh --config` (seconds) before every push, and
+`tools/ci-check.sh` (full build + tests) before anything non-trivial. It mirrors
+both CI jobs, crucially the `sanitizers` job, which installs **no Qt**, so the GUI
+is skipped and nothing pulls in transitive targets. A dev machine always has Qt,
+so a missing `find_package()` (or any GUI-masked dependency gap) builds fine
+locally but reddens CI. The script reproduces that with
+`-DCMAKE_DISABLE_FIND_PACKAGE_Qt6=ON`. If the no-Qt configure is green, CI will be.
+
 
 ---
 

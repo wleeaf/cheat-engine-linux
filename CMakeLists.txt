@@ -21,6 +21,11 @@ endif()
 
 include(FetchContent)
 
+# Threads::Threads is used by cecore_mono_agent (and others). Import it explicitly
+# so the ASan/no-GUI CI configuration, where nothing pulls in Threads transitively
+# via Qt/X11, still resolves the target.
+find_package(Threads REQUIRED)
+
 # Capstone and Keystone declare older cmake_minimum_required values that fail
 # to configure with CMake >= 3.27 unless this is set. Applies to nested
 # FetchContent CMakeLists too.

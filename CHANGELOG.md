@@ -13,6 +13,53 @@ reimplementation of Cheat Engine).
 
 ---
 
+## v0.5.0 — Mono/Unity dissector, diagnostics, Lua table compatibility, debugger polish (2026-07-14)
+
+Feature release. The headline is a native **Mono/Unity dissector** (the biggest
+gap vs Cheat Engine for Linux gaming), plus a diagnostic logging system, a large
+batch of Lua functions real cheat tables need, `.CT` round-trip fixes verified
+against real downloaded tables, and a round of interactive-debugger polish.
+
+### Added
+
+- **Native Mono dissector (live).** An injected in-process agent
+  (`libcecore_mono_agent.so`) queries the Mono runtime for ground-truth class and
+  field layout (real offsets, types, static flags). Host side injects + parses it
+  into a model; browse it in **Tools ▸ Mono dissector...** (assemblies → classes →
+  fields, filter, double-click a field to add `base+offset` to the address list),
+  or from Lua via `monoDissect()`. `findMonoFunction(ns, class, method)` resolves a
+  method's address on demand (targeted JIT compile via the resident agent, never
+  mass-compiles). IL2CPP targets are detected and reported (live IL2CPP dissection
+  is a separate track).
+- **Diagnostic logging (`CE_LOG`).** Silent by default; `CE_LOG=ptrace:debug`
+  (per-category) or `CE_LOG=debug` and `CE_LOG_FILE=/path` turn on cecore logging
+  with no rebuild — e.g. the exact `process_vm_readv` error behind a blank memory
+  pane.
+- **Lua functions real tables use:** `isKeyPressed` (evdev), the timer API
+  (`createTimer`/`timer_setInterval`/`timer_onTimer`), `createStringlist` +
+  `stringlist_*`, `selectFilePath`, `playSound`, and `createSimpleHook` /
+  `removeSimpleHook` (a safe jmp-detour hook that refuses to patch
+  position-dependent code rather than corrupt it).
+- **Debugger:** conditional breakpoints (a Lua expression over register state;
+  the debugger auto-continues when it's false), hardware **data breakpoints**
+  (break on write/access), a **Break-on-exceptions** menu (SIGSEGV/…), breakpoint
+  **enable/disable** checkboxes and **hit counts**.
+- **Memory Viewer** got its own CE-style menu bar and a **stacktrace** panel; its
+  step buttons now open the Debugger instead of being dead stubs.
+
+### Fixed
+
+- **`.CT` compatibility.** Tables are detected by content, not a case-sensitive
+  extension, so an uppercase `GAME.CT` or a mislabelled table loads. Fixed three
+  saver bugs found against 14 real downloaded tables (address over-escaping,
+  Auto-Assembler records mis-typed, negative pointer offsets dropped); all 14 now
+  round-trip faithfully.
+- **Theme.** The auto-assembler console and other custom-painted widgets (structure
+  dissector, scan-results highlight, form-designer canvas, disassembler-preference
+  swatches) now follow light/dark instead of being hardcoded dark.
+
+---
+
 ## v0.4.1 — Theme, memory-access, and packaging fixes (2026-07-13)
 
 Bug-fix release on top of v0.4.0.

@@ -2700,6 +2700,42 @@ static int l_getIl2CppClasses(lua_State* L) {
 // getIl2CppClassLayout([className [, metadataPath [, binaryPath]]]) -> table|nil,err
 // Like getIl2CppClasses but resolves each field's in-object byte OFFSET from the
 // GameAssembly binary. Returns an array of matching classes:
+// Build an Il2CppBinaryLayout from an explicit (metaPath[, binPath]) or, when
+// metaPath is empty, from the open process (auto-locating both). On failure
+// pushes nil + message and returns false, so the caller does `return 2`.
+static bool luaBuildIl2CppLayout(lua_State* L, const std::string& metaPath,
+                                 const std::string& binPath, ce::Il2CppBinaryLayout& layout) {
+    if (!metaPath.empty()) {
+        std::ifstream in(metaPath, std::ios::binary);
+        if (!in) { lua_pushnil(L); lua_pushstring(L, "cannot open metadata file"); return false; }
+        std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)),
+                                 std::istreambuf_iterator<char>());
+        auto md = ce::parseIl2CppMetadata(buf.data(), buf.size());
+        if (!md) { lua_pushnil(L); lua_pushstring(L, "not a valid global-metadata.dat"); return false; }
+        std::string ga = binPath;
+        if (ga.empty()) {
+            std::error_code ec;
+            std::filesystem::path root = std::filesystem::path(metaPath)
+                .parent_path().parent_path().parent_path().parent_path();
+            for (const char* n : {"GameAssembly.so", "GameAssembly.dll", "libil2cpp.so"}) {
+                std::filesystem::path c = root / n;
+                if (std::filesystem::is_regular_file(c, ec)) { ga = c.string(); break; }
+            }
+        }
+        if (ga.empty()) {
+            lua_pushnil(L); lua_pushstring(L, "GameAssembly binary not found; pass one explicitly");
+            return false;
+        }
+        layout = ce::resolveIl2CppLayout(*md, ga);
+    } else {
+        auto* p = getProc(L);
+        if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process and no metadata path"); return false; }
+        layout = ce::resolveIl2CppForProcess(*p);
+    }
+    if (!layout.ok) { lua_pushnil(L); lua_pushstring(L, layout.error.c_str()); return false; }
+    return true;
+}
+
 //   { {image, namespace, name, fullName, fields = { {name, offset, static, const} }} }
 // With no metadataPath it uses the open process (auto-locating both metadata and
 // GameAssembly from its mapped files). `className` filters by full-name substring
@@ -2713,34 +2749,7 @@ static int l_getIl2CppClassLayout(lua_State* L) {
     if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) binPath = luaL_checkstring(L, 3);
 
     ce::Il2CppBinaryLayout layout;
-    if (!metaPath.empty()) {
-        std::ifstream in(metaPath, std::ios::binary);
-        if (!in) { lua_pushnil(L); lua_pushstring(L, "cannot open metadata file"); return 2; }
-        std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)),
-                                 std::istreambuf_iterator<char>());
-        auto md = ce::parseIl2CppMetadata(buf.data(), buf.size());
-        if (!md) { lua_pushnil(L); lua_pushstring(L, "not a valid global-metadata.dat"); return 2; }
-        std::string ga = binPath;
-        if (ga.empty()) {
-            std::error_code ec;
-            std::filesystem::path root = std::filesystem::path(metaPath)
-                .parent_path().parent_path().parent_path().parent_path();
-            for (const char* n : {"GameAssembly.so", "GameAssembly.dll", "libil2cpp.so"}) {
-                std::filesystem::path c = root / n;
-                if (std::filesystem::is_regular_file(c, ec)) { ga = c.string(); break; }
-            }
-        }
-        if (ga.empty()) {
-            lua_pushnil(L); lua_pushstring(L, "GameAssembly binary not found; pass one explicitly");
-            return 2;
-        }
-        layout = ce::resolveIl2CppLayout(*md, ga);
-    } else {
-        auto* p = getProc(L);
-        if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process and no metadata path"); return 2; }
-        layout = ce::resolveIl2CppForProcess(*p);
-    }
-    if (!layout.ok) { lua_pushnil(L); lua_pushstring(L, layout.error.c_str()); return 2; }
+    if (!luaBuildIl2CppLayout(L, metaPath, binPath, layout)) return 2;
 
     lua_newtable(L);
     int ci = 1;
@@ -2776,6 +2785,50 @@ static int l_getIl2CppClassLayout(lua_State* L) {
         lua_setfield(L, -2, "methods");
         lua_rawseti(L, -2, ci++);
     }
+    return 1;
+}
+
+// getIl2CppObjectLayout(class [, metadataPath [, binaryPath]]) ->
+//   { class=<fullName>, fields = { {name, offset, typeName, static=false,
+//   const=false, declaringType}, ... } } | nil, err
+// The COMPLETE instance layout of one object: this class's own instance fields
+// plus every inherited one (walking the base-class chain), each at its
+// object-relative offset and tagged with `declaringType`. `class` is matched
+// exactly by full name, else by short name, else as a full-name substring.
+static int l_getIl2CppObjectLayout(lua_State* L) {
+    std::string className, metaPath, binPath;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) className = luaL_checkstring(L, 1);
+    if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) metaPath = luaL_checkstring(L, 2);
+    if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) binPath = luaL_checkstring(L, 3);
+    if (className.empty()) { lua_pushnil(L); lua_pushstring(L, "need a class name"); return 2; }
+
+    ce::Il2CppBinaryLayout layout;
+    if (!luaBuildIl2CppLayout(L, metaPath, binPath, layout)) return 2;
+
+    // Resolve the class name: exact fullName, else exact short name, else substring.
+    std::string full;
+    for (const auto& c : layout.classes) if (c.fullName() == className) { full = className; break; }
+    if (full.empty())
+        for (const auto& c : layout.classes) if (c.name == className) { full = c.fullName(); break; }
+    if (full.empty())
+        for (const auto& c : layout.classes)
+            if (c.fullName().find(className) != std::string::npos) { full = c.fullName(); break; }
+    if (full.empty()) { lua_pushnil(L); lua_pushstring(L, "class not found"); return 2; }
+
+    auto fields = ce::il2cppObjectFieldLayout(layout, full);
+    lua_newtable(L);
+    lua_pushstring(L, full.c_str()); lua_setfield(L, -2, "class");
+    lua_newtable(L);   // fields
+    int fi = 1;
+    for (const auto& f : fields) {
+        lua_newtable(L);
+        lua_pushstring(L, f.name.c_str());          lua_setfield(L, -2, "name");
+        lua_pushinteger(L, (lua_Integer)f.offset);  lua_setfield(L, -2, "offset");
+        lua_pushstring(L, f.typeName.c_str());      lua_setfield(L, -2, "typeName");
+        lua_pushstring(L, f.declaringType.c_str()); lua_setfield(L, -2, "declaringType");
+        lua_rawseti(L, -2, fi++);
+    }
+    lua_setfield(L, -2, "fields");
     return 1;
 }
 
@@ -4696,6 +4749,7 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "getIl2CppMetadataPath", l_getIl2CppMetadataPath);
     lua_register(L, "getIl2CppClasses", l_getIl2CppClasses);
     lua_register(L, "getIl2CppClassLayout", l_getIl2CppClassLayout);
+    lua_register(L, "getIl2CppObjectLayout", l_getIl2CppObjectLayout);
     lua_register(L, "getIl2CppStructure", l_getIl2CppStructure);
     lua_register(L, "getDwarfStructure", l_getDwarfStructure);
     lua_register(L, "listDwarfStructs", l_listDwarfStructs);

@@ -30,6 +30,7 @@ addresses. Metadata versions **27-31** are supported.
 | `getIl2CppMetadataPath()` | path to the located `global-metadata.dat`, or `nil` |
 | `getIl2CppClasses([path])` | offline metadata view: `{version, decoded, classes = { {image, namespace, name, fullName, fields = {"name",…}} }}` (names only, no offsets) |
 | `getIl2CppClassLayout(filter)` | full layout for classes whose `fullName` matches the substring: fields (offsets/types) **and** methods (rva) |
+| `getIl2CppObjectLayout(class)` | one class's **complete** instance layout: own fields **plus every inherited field** (walking the base chain), each tagged with `declaringType` |
 | `getIl2CppMethods(class)` | `{ {name, rva, address}, ... }` for one class |
 | `findIl2CppMethod(class, method)` | the live code address of one method, or `nil` |
 | `getIl2CppStructure(class)` | the class as a dissector `StructureDefinition` |
@@ -60,6 +61,18 @@ you:
 
 ```lua
 local addr = findIl2CppMethod("Player", "TakeDamage")   -- 0x7f... live address
+```
+
+`getIl2CppClassLayout` lists a class's **own** fields. To overlay a live object
+you usually want its **full** layout, including inherited fields, from
+`getIl2CppObjectLayout`:
+
+```lua
+local o = getIl2CppObjectLayout("Enemy")     -- Enemy : Character : Entity
+for _, f in ipairs(o.fields) do              -- own + inherited, sorted by offset
+  local from = f.declaringType ~= o.class and ("  (from " .. f.declaringType .. ")") or ""
+  print(string.format("  +0x%X %s %s%s", f.offset, f.typeName, f.name, from))
+end
 ```
 
 See [`examples/il2cpp_dump.lua`](../examples/il2cpp_dump.lua) and

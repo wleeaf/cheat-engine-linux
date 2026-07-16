@@ -5352,6 +5352,16 @@ static void test_il2cpp_real_file() {
                        parentOf("UnityEngine.Component") == "UnityEngine.Object";
         printf("  base-class chain Transform:Component:Object: %s\n", chainOk ? "OK" : "FAILED");
 
+        // Inherited layout: a Component-derived type has no own instance fields,
+        // but its full object layout must inherit Object.m_CachedPtr (the native
+        // handle every UnityEngine.Object carries), tagged with its declaring type.
+        auto full = ce::il2cppObjectFieldLayout(layout, "UnityEngine.BoxCollider");
+        bool inheritOk = false;
+        for (const auto& f : full)
+            if (f.name == "m_CachedPtr" && f.declaringType == "UnityEngine.Object") { inheritOk = true; break; }
+        printf("  BoxCollider inherits Object.m_CachedPtr (declaringType set): %s\n",
+               inheritOk ? "OK" : "FAILED");
+
         // Method resolution: a common BCL class should have methods that resolve
         // to non-zero code RVAs within the binary.
         auto methods = ce::resolveIl2CppMethods(*md, ga, "System.String");

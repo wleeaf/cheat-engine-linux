@@ -34,6 +34,8 @@ struct Il2CppResolvedField {
     std::string typeName;          // managed type, e.g. "System.Int32",
                                    // "UnityEngine.Vector3", "System.String",
                                    // "MyClass[]"; empty if unresolved
+    std::string declaringType;     // set only by il2cppObjectFieldLayout: which
+                                   // class in the hierarchy declared this field
 };
 
 /// A resolved method's code location. `rva` is relative to the binary's image
@@ -77,6 +79,16 @@ resolveIl2CppMethods(const Il2CppMetadata& md, const std::string& binaryPath,
 /// (their real offsets are per-instantiation), so a class of all-zero instance
 /// fields is expected for generics, not an error.
 Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::string& binaryPath);
+
+/// The complete instance-field layout of one object of `classFullName`: this
+/// class's own instance fields PLUS every inherited instance field, walking the
+/// resolved `parentName` chain (base-most first, each already at its correct
+/// object-relative offset), sorted by offset. Statics and consts are dropped (not
+/// part of an object). Each field's `declaringType` is set to the class that
+/// declared it. Empty if the class isn't in `layout`. This is what you overlay on
+/// a live object pointer to see the full memory layout, including base-class state.
+std::vector<Il2CppResolvedField>
+il2cppObjectFieldLayout(const Il2CppBinaryLayout& layout, const std::string& classFullName);
 
 /// The GameAssembly binary path among a process's mapped file paths (basename
 /// GameAssembly.so/.dll or libil2cpp.so), or "" if none is mapped.

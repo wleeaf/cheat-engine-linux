@@ -1,5 +1,6 @@
 #include "analysis/il2cpp_binary.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -387,6 +388,48 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
     }
 
     out.ok = true;
+    return out;
+}
+
+std::vector<Il2CppResolvedField>
+il2cppObjectFieldLayout(const Il2CppBinaryLayout& layout, const std::string& classFullName) {
+    // Index classes by full name so the parent chain (stored by name) is walkable.
+    std::unordered_map<std::string, const Il2CppClassLayout*> byName;
+    byName.reserve(layout.classes.size());
+    for (const auto& c : layout.classes) byName.emplace(c.fullName(), &c);
+
+    auto it = byName.find(classFullName);
+    if (it == byName.end()) return {};
+
+    // Collect the class + its ancestors, base-most first, guarding against cycles
+    // and a runaway chain.
+    std::vector<const Il2CppClassLayout*> chain;
+    std::unordered_map<std::string, bool> seen;
+    for (const Il2CppClassLayout* c = it->second; c; ) {
+        if (seen.count(c->fullName())) break;   // cycle guard
+        seen[c->fullName()] = true;
+        chain.push_back(c);
+        if (chain.size() > 64) break;           // depth guard
+        auto p = c->parentName.empty() ? byName.end() : byName.find(c->parentName);
+        c = (p == byName.end()) ? nullptr : p->second;
+    }
+
+    std::vector<Il2CppResolvedField> out;
+    // Base-most first so a derived object reads top-to-bottom by inheritance depth
+    // before the final offset sort.
+    for (auto rit = chain.rbegin(); rit != chain.rend(); ++rit) {
+        const Il2CppClassLayout* c = *rit;
+        for (const auto& f : c->fields) {
+            if (f.isStatic || f.isConst) continue;   // not part of the object
+            Il2CppResolvedField rf = f;
+            rf.declaringType = c->fullName();
+            out.push_back(std::move(rf));
+        }
+    }
+    std::stable_sort(out.begin(), out.end(),
+                     [](const Il2CppResolvedField& a, const Il2CppResolvedField& b) {
+                         return a.offset < b.offset;
+                     });
     return out;
 }
 

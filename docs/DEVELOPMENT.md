@@ -237,9 +237,14 @@ alongside official CE 7.7 Linux. Today each is materially short of the claim.
     once, per-image methodPointers cached), so `getIl2CppClassLayout` returns
     fields + methods together, `cescan il2cpp --methods` uses it, and the Mono
     dissector GUI shows an IL2CPP target's methods (name + live code address) in
-    the same class tree as its fields. **#10 is complete for the offline/static
-    path: class -> field names -> offsets -> managed types -> method addresses,
-    across Lua, CLI, and GUI.**
+    the same class tree as its fields. Each class's BASE CLASS resolves too
+    (parentIndex -> parent chain), rendered as `Foo : Bar` in the dissector, and
+    `il2cppObjectFieldLayout` / Lua `getIl2CppObjectLayout(class)` returns a
+    class's COMPLETE instance layout: own fields plus every inherited field
+    (walking the base chain), each tagged with its `declaringType`. **#10 is
+    complete for the offline/static path: class -> base class -> field names ->
+    offsets -> managed types -> inherited layout -> method addresses, across Lua,
+    CLI, and GUI.**
     The whole layout is now scriptable and browsable: `resolveIl2CppForProcess`
     (shared cecore helper) auto-locates a live target's metadata + GameAssembly from
     its mapped files, Lua `getIl2CppClassLayout([class[, metadataPath[, binaryPath]]])`

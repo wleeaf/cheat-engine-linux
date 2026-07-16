@@ -4728,6 +4728,162 @@ static void test_il2cpp_metadata() {
     printf("  short-buffer reject: %s\n", tinyOk ? "OK" : "FAILED");
 }
 
+// Decode of the deeper v29 type/field/image tables: builds a synthetic v29
+// global-metadata.dat with a full header, a fields table, two type definitions
+// (Game.Player {health, mana} and Enemy {name}), and one image
+// (Assembly-CSharp.dll owning both types), then checks the class layout is
+// recovered. NOTE: this proves the parser reads back the v29 layout it declares;
+// real-file validation (against an actual Unity build) is a separate step.
+static void test_il2cpp_metadata_tables() {
+    printf("\n── Test: IL2CPP metadata type/field tables (v29) ──\n");
+
+    auto putU32 = [](std::vector<uint8_t>& v, size_t off, uint32_t x) {
+        v[off + 0] = static_cast<uint8_t>(x);
+        v[off + 1] = static_cast<uint8_t>(x >> 8);
+        v[off + 2] = static_cast<uint8_t>(x >> 16);
+        v[off + 3] = static_cast<uint8_t>(x >> 24);
+    };
+    auto appU32 = [](std::vector<uint8_t>& v, uint32_t x) {
+        v.push_back(static_cast<uint8_t>(x));
+        v.push_back(static_cast<uint8_t>(x >> 8));
+        v.push_back(static_cast<uint8_t>(x >> 16));
+        v.push_back(static_cast<uint8_t>(x >> 24));
+    };
+
+    // String region: concatenated NUL-terminated identifiers; record byte offsets
+    // (StringIndex values are byte offsets into this region).
+    std::vector<uint8_t> strs;
+    auto addStr = [&](const std::string& s) {
+        uint32_t off = static_cast<uint32_t>(strs.size());
+        strs.insert(strs.end(), s.begin(), s.end());
+        strs.push_back('\0');
+        return off;
+    };
+    uint32_t sEmpty  = addStr("");                     // 0 -> empty namespace
+    uint32_t sGame   = addStr("Game");
+    uint32_t sPlayer = addStr("Player");
+    uint32_t sEnemy  = addStr("Enemy");
+    uint32_t sHealth = addStr("health");
+    uint32_t sMana   = addStr("mana");
+    uint32_t sName   = addStr("name");
+    uint32_t sAsm    = addStr("Assembly-CSharp.dll");
+
+    // Fields table: 12-byte records {nameIndex, typeIndex, token}.
+    std::vector<uint8_t> fields;
+    auto addField = [&](uint32_t nameOff, int32_t typeIdx, uint32_t token) {
+        appU32(fields, nameOff);
+        appU32(fields, static_cast<uint32_t>(typeIdx));
+        appU32(fields, token);
+    };
+    addField(sHealth, 5, 0x04000001);  // field 0
+    addField(sMana,   5, 0x04000002);  // field 1
+    addField(sName,   6, 0x04000003);  // field 2
+
+    // Type definitions: 88-byte (0x58) records; patch the fields we read.
+    auto addType = [](std::vector<uint8_t>& td, uint32_t nameOff, uint32_t nsOff,
+                      int32_t fieldStart, uint16_t fieldCount, uint32_t token) {
+        size_t base = td.size();
+        td.resize(base + 0x58, 0);
+        td[base + 0x00] = (uint8_t)nameOff;  td[base + 0x01] = (uint8_t)(nameOff >> 8);
+        td[base + 0x02] = (uint8_t)(nameOff >> 16); td[base + 0x03] = (uint8_t)(nameOff >> 24);
+        td[base + 0x04] = (uint8_t)nsOff;    td[base + 0x05] = (uint8_t)(nsOff >> 8);
+        td[base + 0x06] = (uint8_t)(nsOff >> 16);   td[base + 0x07] = (uint8_t)(nsOff >> 24);
+        uint32_t fs = (uint32_t)fieldStart;
+        td[base + 0x20] = (uint8_t)fs; td[base + 0x21] = (uint8_t)(fs >> 8);
+        td[base + 0x22] = (uint8_t)(fs >> 16); td[base + 0x23] = (uint8_t)(fs >> 24);
+        td[base + 0x44] = (uint8_t)fieldCount; td[base + 0x45] = (uint8_t)(fieldCount >> 8);
+        td[base + 0x54] = (uint8_t)token; td[base + 0x55] = (uint8_t)(token >> 8);
+        td[base + 0x56] = (uint8_t)(token >> 16); td[base + 0x57] = (uint8_t)(token >> 24);
+    };
+    std::vector<uint8_t> typedefs;
+    addType(typedefs, sPlayer, sGame,  0, 2, 0x02000001);  // Game.Player {health, mana}
+    addType(typedefs, sEnemy,  sEmpty, 2, 1, 0x02000002);  // Enemy {name}
+
+    // Images: 40-byte (0x28) records; patch name/typeStart/typeCount.
+    std::vector<uint8_t> images;
+    {
+        size_t base = images.size();
+        images.resize(base + 0x28, 0);
+        images[base + 0x00] = (uint8_t)sAsm; images[base + 0x01] = (uint8_t)(sAsm >> 8);
+        images[base + 0x02] = (uint8_t)(sAsm >> 16); images[base + 0x03] = (uint8_t)(sAsm >> 24);
+        // typeStart @0x08 = 0, typeCount @0x0C = 2
+        images[base + 0x0C] = 2;
+    }
+
+    // Assemble: 0x100-byte header, then fields, typedefs, images, strings.
+    std::vector<uint8_t> f(0x100, 0);
+    auto place = [&](const std::vector<uint8_t>& region) {
+        uint32_t off = static_cast<uint32_t>(f.size());
+        f.insert(f.end(), region.begin(), region.end());
+        return off;
+    };
+    uint32_t fieldsOff = place(fields);
+    uint32_t typedefsOff = place(typedefs);
+    uint32_t imagesOff = place(images);
+    uint32_t stringOff = place(strs);
+
+    putU32(f, 0x00, 0xFAB11BAFu);   // sanity
+    putU32(f, 0x04, 29);            // version
+    putU32(f, 0x08, 0x08);          // stringLiteral offset (empty region, in-bounds)
+    putU32(f, 0x0C, 0);             // stringLiteral size
+    putU32(f, 0x10, 0x08);          // stringLiteralData offset
+    putU32(f, 0x14, 0);             // stringLiteralData size
+    putU32(f, 0x18, stringOff);     // string offset
+    putU32(f, 0x1C, static_cast<uint32_t>(strs.size()));
+    putU32(f, 0x60, fieldsOff);
+    putU32(f, 0x64, static_cast<uint32_t>(fields.size()));
+    putU32(f, 0xA0, typedefsOff);
+    putU32(f, 0xA4, static_cast<uint32_t>(typedefs.size()));
+    putU32(f, 0xA8, imagesOff);
+    putU32(f, 0xAC, static_cast<uint32_t>(images.size()));
+
+    auto md = parseIl2CppMetadata(f.data(), f.size());
+    bool base = md.has_value() && md->version == 29 && md->tablesDecoded;
+
+    bool typesOk = base && md->types.size() == 2 &&
+        md->types[0].name == "Player" && md->types[0].namespaceName == "Game" &&
+        md->types[0].fullName() == "Game.Player" &&
+        md->types[0].fields.size() == 2 &&
+        md->types[0].fields[0].name == "health" &&
+        md->types[0].fields[0].typeIndex == 5 &&
+        md->types[0].fields[1].name == "mana" &&
+        md->types[1].name == "Enemy" && md->types[1].namespaceName.empty() &&
+        md->types[1].fullName() == "Enemy" &&
+        md->types[1].fields.size() == 1 &&
+        md->types[1].fields[0].name == "name";
+
+    bool imagesOk = base && md->images.size() == 1 &&
+        md->images[0].name == "Assembly-CSharp.dll" &&
+        md->images[0].typeStart == 0 && md->images[0].typeCount == 2;
+
+    bool supportOk = il2cppTablesSupported(29) && il2cppTablesSupported(31) &&
+        !il2cppTablesSupported(24) && !il2cppTablesSupported(16);
+
+    // Unsupported version: string pools still parse, tables are skipped.
+    std::vector<uint8_t> older = f;
+    putU32(older, 0x04, 24);
+    auto mdOlder = parseIl2CppMetadata(older.data(), older.size());
+    bool versionGateOk = mdOlder.has_value() && !mdOlder->tablesDecoded &&
+        mdOlder->types.empty();
+
+    // Corrupt a table region: decode is skipped (non-fatal), string pool survives.
+    std::vector<uint8_t> corrupt = f;
+    putU32(corrupt, 0xA4, static_cast<uint32_t>(f.size()));  // typeDefs size overruns
+    auto mdCorrupt = parseIl2CppMetadata(corrupt.data(), corrupt.size());
+    bool corruptOk = mdCorrupt.has_value() && !mdCorrupt->tablesDecoded &&
+        !mdCorrupt->strings.empty();
+
+    printf("  types + fields decode (Game.Player{health,mana}, Enemy{name}): %s\n",
+           typesOk ? "OK" : "FAILED");
+    printf("  image grouping (Assembly-CSharp.dll -> 2 types): %s\n",
+           imagesOk ? "OK" : "FAILED");
+    printf("  version support gate (29/31 yes, 24/16 no): %s\n",
+           supportOk ? "OK" : "FAILED");
+    printf("  unsupported version keeps string pools, skips tables: %s\n",
+           versionGateOk ? "OK" : "FAILED");
+    printf("  corrupt table region is non-fatal: %s\n", corruptOk ? "OK" : "FAILED");
+}
+
 // generateInjectionScript reads code at an address, disassembles whole
 // instructions until >= 5 bytes are covered (the jmp size), resolves the module,
 // and emits a CE auto-assembler code-injection or AOB-injection template. The
@@ -8583,6 +8739,7 @@ int main(int argc, char* argv[]) {
     test_lua_region_info();
     test_codefinder_watch_size();
     test_il2cpp_metadata();
+    test_il2cpp_metadata_tables();
     test_injection_script_generation();
     test_structure_tools();
     test_lua_memrec();

@@ -13,6 +13,7 @@
 #include "scanner/pointer_scanner.hpp"
 #include "scripting/lua_engine.hpp"
 #include "core/simple_address_list.hpp"
+#include "analysis/il2cpp_metadata.hpp"
 #include <fstream>
 #include <iostream>
 
@@ -48,6 +49,7 @@ static void usage() {
         "  regions <pid>                 List memory regions\n"
         "  lua <script.lua>|-e <code>|-  Run a Lua script (same API as the GUI console)\n"
         "  lua                           Interactive Lua REPL\n"
+        "  il2cpp <global-metadata.dat>  Browse a Unity IL2CPP metadata file's classes/fields (offline)\n"
         "\n"
         "Scan options:\n"
         "  --type <type>     byte, i16, i32, i64, pointer, float, double, string, unicode, aob, binary, all, grouped, custom (default: i32)\n"
@@ -664,6 +666,70 @@ static int cmd_lua(int argc, char** argv) {
     return 0;
 }
 
+// Offline browse of a Unity IL2CPP `global-metadata.dat`: recovers the class
+// layout (assembly image -> class namespace.name -> field names) without a live
+// process. Field byte OFFSETS and field TYPE names are not in the metadata (they
+// live in GameAssembly.so), so this lists names/grouping only. Doubles as the
+// harness for validating the version-specific table layout against a real file.
+static int cmd_il2cpp(int argc, char** argv) {
+    if (argc < 2) {
+        fprintf(stderr, "usage: cescan il2cpp <global-metadata.dat> [--class <substr>] [--fields]\n");
+        return 1;
+    }
+    const char* path = argv[1];
+    std::string filter;
+    bool showFields = false;
+    for (int i = 2; i < argc; ++i) {
+        if (!strcmp(argv[i], "--class") && i + 1 < argc) filter = argv[++i];
+        else if (!strcmp(argv[i], "--fields")) showFields = true;
+    }
+
+    std::ifstream in(path, std::ios::binary);
+    if (!in) { fprintf(stderr, "cescan il2cpp: cannot open %s\n", path); return 1; }
+    std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)),
+                             std::istreambuf_iterator<char>());
+    if (!isIl2CppMetadata(buf.data(), buf.size())) {
+        fprintf(stderr, "cescan il2cpp: %s is not a global-metadata.dat (bad magic)\n", path);
+        return 1;
+    }
+    auto md = parseIl2CppMetadata(buf.data(), buf.size());
+    if (!md) { fprintf(stderr, "cescan il2cpp: failed to parse %s\n", path); return 1; }
+
+    printf("global-metadata.dat: version %d, %zu names, %zu string literals\n",
+           md->version, md->strings.size(), md->stringLiterals.size());
+    if (!md->tablesDecoded) {
+        printf("type/field tables: not decoded (metadata version %d has no known layout here;\n"
+               "supported: 29-31). The names above are still available.\n", md->version);
+        return 0;
+    }
+
+    printf("type/field tables: %zu types across %zu images\n",
+           md->types.size(), md->images.size());
+    for (const auto& img : md->images)
+        printf("  image  %-30s %u types\n", img.name.c_str(), img.typeCount);
+
+    printf("\nclasses%s (field offsets/types need GameAssembly.so):\n",
+           filter.empty() ? " (add --class <substr> to filter, --fields to list fields)" : "");
+    size_t matched = 0, printed = 0;
+    const size_t kCap = 200;
+    for (const auto& t : md->types) {
+        std::string full = t.fullName();
+        if (!filter.empty() && full.find(filter) == std::string::npos) continue;
+        ++matched;
+        if (printed < kCap) {
+            printf("  %s  (%zu fields)\n", full.c_str(), t.fields.size());
+            if (showFields)
+                for (const auto& fld : t.fields)
+                    printf("      %s\n", fld.name.c_str());
+            ++printed;
+        }
+    }
+    if (matched > printed)
+        printf("  ... %zu more (narrow with --class <substr>)\n", matched - printed);
+    printf("(%zu matching class%s)\n", matched, matched == 1 ? "" : "es");
+    return 0;
+}
+
 int main(int argc, char** argv) {
     // Force the C locale so atof()/strtod() on scan values always use a '.'
     // decimal separator. cescan never calls setlocale(LC_ALL, "") so it is in the
@@ -740,6 +806,9 @@ int main(int argc, char** argv) {
     }
     else if (!strcmp(cmd, "lua")) {
         return cmd_lua(argc - 1, argv + 1);
+    }
+    else if (!strcmp(cmd, "il2cpp") && argc >= 3) {
+        return cmd_il2cpp(argc - 1, argv + 1);
     }
     else if (!strcmp(cmd, "help") || !strcmp(cmd, "--help") || !strcmp(cmd, "-h")) {
         usage();

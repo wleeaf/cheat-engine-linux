@@ -188,7 +188,21 @@ alongside official CE 7.7 Linux. Today each is materially short of the claim.
     `global-metadata.dat` header + both string pools (identifier names + string
     literals) with full bounds-checking (`test_il2cpp_metadata`, synthetic file);
     those leading header fields are version-stable so it is correct for real files.
-    *Remaining:* the full soft-debugger type-introspection chain
+    It now ALSO decodes the deeper type/field/image tables (metadata v29-31) to
+    recover the class layout OFFLINE: assembly image, class namespace.name, field
+    names, surfaced by a `cescan il2cpp <global-metadata.dat>` browser
+    (`--class <substr>`, `--fields`) and `test_il2cpp_metadata_tables` (synthetic
+    v29 round-trip: types, fields, image grouping, version gate, corrupt-region
+    non-fatal). Two honest caveats live in the code: (a) the table struct offsets
+    are transcribed from public reversing refs (Il2CppDumper) and validated only
+    synthetically, they need a real Unity `global-metadata.dat` to confirm, and
+    unsupported versions or invalid regions skip table decode (`tablesDecoded`);
+    (b) field byte OFFSETS and field TYPE names are NOT in the metadata (they live
+    in GameAssembly.so), so this gives names/grouping, not in-object offsets. That
+    offset resolution is the separate live/binary track.
+    *Remaining:* validate the layout against a real file, extend to v24/v27 (the
+    integer version can't split v27.0 from v27.2's byref change), resolve field
+    offsets/types from the binary, plus the full soft-debugger type-introspection chain
     (AppDomain→Assembly→Type→Field) — now developable against the real agent — and
     the deeper per-Unity-version IL2CPP metadata tables. **Most Linux/Proton games
     are Unity** — this remains the niche to win. **[L]**

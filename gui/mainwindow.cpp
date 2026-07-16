@@ -1144,6 +1144,14 @@ void MainWindow::setupUi() {
     connect(firstScanBtn_, &QPushButton::clicked, this, &MainWindow::onFirstScan);
     connect(nextScanBtn_, &QPushButton::clicked, this, &MainWindow::onNextScan);
     connect(undoScanBtn_, &QPushButton::clicked, this, &MainWindow::onUndoScan);
+    // Enter in the value field scans (CE-style): Next Scan when one is in progress,
+    // otherwise First Scan. Same for the second ("between") value box.
+    auto scanOnEnter = [this]() {
+        if (nextScanBtn_->isEnabled()) onNextScan();
+        else if (firstScanBtn_->isEnabled()) onFirstScan();
+    };
+    connect(scanValueEdit_, &QLineEdit::returnPressed, this, scanOnEnter);
+    connect(scanValue2Edit_, &QLineEdit::returnPressed, this, scanOnEnter);
     btnLayout->addWidget(firstScanBtn_);
     btnLayout->addWidget(nextScanBtn_);
     rightLayout->addLayout(btnLayout);

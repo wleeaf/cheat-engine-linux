@@ -478,6 +478,99 @@ void scanIntegerFast(const uint8_t* buf, size_t bufSize, uintptr_t base,
         scanRelational<T>(buf, bufSize, base, alignment, v, v2, cmp, res);
 }
 
+// ── Fast float scanning ──
+// A float/double exact scan uses the SIMD ordered-equality compare (_CMP_EQ_OQ /
+// cmpeq_p*), which matches C++ float == exactly: NaN never matches, and -0.0
+// equals 0.0. This is only equivalent to the scalar compareFloatingExact when
+// there is no rounding (roundingType 0) and the search value is finite, so the
+// caller only routes those cases here; rounded/tolerant/inf searches keep the
+// scalar path. Lane emission and bounds mirror the integer SIMD scanners.
+#if defined(__x86_64__)
+template<typename T>
+__attribute__((target("avx2")))
+void scanExactFloatAVX(const uint8_t* buf, size_t nLanes, uintptr_t base, T needle, ScanResult& res) {
+    if constexpr (sizeof(T) == 4) {
+        constexpr size_t L = 4, W = 8;
+        __m256 n = _mm256_set1_ps(needle);
+        size_t i = 0;
+        for (; i + W <= nLanes; i += W) {
+            __m256 v = _mm256_loadu_ps(reinterpret_cast<const float*>(buf + i * L));
+            unsigned mask = (unsigned)_mm256_movemask_ps(_mm256_cmp_ps(v, n, _CMP_EQ_OQ));
+            if (mask) for (size_t lane = 0; lane < W; ++lane)
+                if (mask & (1u << lane)) emitAt<T>(buf, (i + lane) * L, base, res);
+        }
+        for (; i < nLanes; ++i) { T c; std::memcpy(&c, buf + i * L, L); if (c == needle) emitAt<T>(buf, i * L, base, res); }
+    } else {
+        constexpr size_t L = 8, W = 4;
+        __m256d n = _mm256_set1_pd(needle);
+        size_t i = 0;
+        for (; i + W <= nLanes; i += W) {
+            __m256d v = _mm256_loadu_pd(reinterpret_cast<const double*>(buf + i * L));
+            unsigned mask = (unsigned)_mm256_movemask_pd(_mm256_cmp_pd(v, n, _CMP_EQ_OQ));
+            if (mask) for (size_t lane = 0; lane < W; ++lane)
+                if (mask & (1u << lane)) emitAt<T>(buf, (i + lane) * L, base, res);
+        }
+        for (; i < nLanes; ++i) { T c; std::memcpy(&c, buf + i * L, L); if (c == needle) emitAt<T>(buf, i * L, base, res); }
+    }
+}
+
+template<typename T>
+void scanExactFloatSSE(const uint8_t* buf, size_t nLanes, uintptr_t base, T needle, ScanResult& res) {
+    if constexpr (sizeof(T) == 4) {
+        constexpr size_t L = 4, W = 4;
+        __m128 n = _mm_set1_ps(needle);
+        size_t i = 0;
+        for (; i + W <= nLanes; i += W) {
+            __m128 v = _mm_loadu_ps(reinterpret_cast<const float*>(buf + i * L));
+            unsigned mask = (unsigned)_mm_movemask_ps(_mm_cmpeq_ps(v, n));
+            if (mask) for (size_t lane = 0; lane < W; ++lane)
+                if (mask & (1u << lane)) emitAt<T>(buf, (i + lane) * L, base, res);
+        }
+        for (; i < nLanes; ++i) { T c; std::memcpy(&c, buf + i * L, L); if (c == needle) emitAt<T>(buf, i * L, base, res); }
+    } else {
+        constexpr size_t L = 8, W = 2;
+        __m128d n = _mm_set1_pd(needle);
+        size_t i = 0;
+        for (; i + W <= nLanes; i += W) {
+            __m128d v = _mm_loadu_pd(reinterpret_cast<const double*>(buf + i * L));
+            unsigned mask = (unsigned)_mm_movemask_pd(_mm_cmpeq_pd(v, n));
+            if (mask) for (size_t lane = 0; lane < W; ++lane)
+                if (mask & (1u << lane)) emitAt<T>(buf, (i + lane) * L, base, res);
+        }
+        for (; i < nLanes; ++i) { T c; std::memcpy(&c, buf + i * L, L); if (c == needle) emitAt<T>(buf, i * L, base, res); }
+    }
+}
+#endif // __x86_64__
+
+// If this float scan is a plain finite-value exact search on an aligned buffer,
+// run the SIMD equality path and return true; otherwise return false so the
+// caller falls back to scanBufferFloating (which handles rounding, tolerance,
+// relational and non-finite comparisons).
+template<typename T>
+bool tryScanExactFloat(const uint8_t* buf, size_t bufSize, uintptr_t base,
+                       size_t alignment, const ScanConfig& config, ScanResult& res) {
+    if (config.compareType != ScanCompare::Exact) return false;
+    if (config.roundingType != 0) return false;
+    if (alignment != sizeof(T)) return false;
+    if (bufSize < sizeof(T)) return false;
+    T needle = static_cast<T>(config.floatValue);
+    if (!std::isfinite(needle)) return false;
+
+    size_t nLanes = (bufSize - sizeof(T)) / sizeof(T) + 1;
+#if defined(__x86_64__)
+    switch (simdMode()) {
+        case SimdMode::AVX2: scanExactFloatAVX<T>(buf, nLanes, base, needle, res); return true;
+        case SimdMode::SSE2: scanExactFloatSSE<T>(buf, nLanes, base, needle, res); return true;
+        default: break;
+    }
+#endif
+    for (size_t i = 0; i < nLanes; ++i) {
+        T c; std::memcpy(&c, buf + i * sizeof(T), sizeof(T));
+        if (c == needle) emitAt<T>(buf, i * sizeof(T), base, res);
+    }
+    return true;
+}
+
 /// Scan buffer for a string (exact substring match).
 void scanBufferString(const uint8_t* buf, size_t bufSize, uintptr_t baseAddr,
                       const std::vector<uint8_t>& needle, ScanResult& result,
@@ -1644,9 +1737,13 @@ ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& confi
                     static_cast<uintptr_t>(config.intValue), static_cast<uintptr_t>(config.intValue2),
                     config.compareType, res); break;
             case ValueType::Float:
-                scanBufferFloating<float>(buf, bytesRead, base, config.alignment, config, res); break;
+                if (!tryScanExactFloat<float>(buf, bytesRead, base, config.alignment, config, res))
+                    scanBufferFloating<float>(buf, bytesRead, base, config.alignment, config, res);
+                break;
             case ValueType::Double:
-                scanBufferFloating<double>(buf, bytesRead, base, config.alignment, config, res); break;
+                if (!tryScanExactFloat<double>(buf, bytesRead, base, config.alignment, config, res))
+                    scanBufferFloating<double>(buf, bytesRead, base, config.alignment, config, res);
+                break;
             case ValueType::String:
                 scanBufferString(buf, bytesRead, base,
                     encodeStringBytes(config.stringValue, config.stringEncoding), res,

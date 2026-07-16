@@ -27,10 +27,12 @@ alignment, comparator, and both scan phases, and clean under ASan/UBSan).
   chunks handed to threads as contiguous, address-ordered runs, so one big
   region saturates all cores while the merged result stays sorted. Roughly 5x
   faster on a one-region scan on a 12-thread machine.
-- **SIMD exact-value scan.** The hot path (an exact integer over an aligned
-  buffer) is vectorized with a runtime-selected AVX2 path and an SSE2 baseline
-  (scalar elsewhere), replacing a per-element function-pointer compare. Set
-  `CE_SCAN_SIMD=off|sse2|avx2` to override the choice for testing/benchmarking.
+- **SIMD exact-value scan.** The hot path (an exact integer or float/double
+  over an aligned buffer) is vectorized with a runtime-selected AVX2 path and an
+  SSE2 baseline (scalar elsewhere), replacing a per-element function-pointer
+  compare. Float equality uses an ordered SIMD compare that matches C++ exactly
+  (NaN never matches, -0.0 equals 0.0); rounded/tolerant searches keep the
+  scalar path. Set `CE_SCAN_SIMD=off|sse2|avx2` to override for testing.
 - **Next scan is batched and multi-threaded.** Re-reading previous results used
   one `process_vm_readv` syscall per address on a single thread; it now reads up
   to 1024 addresses per syscall (scatter read) and fans big result sets across

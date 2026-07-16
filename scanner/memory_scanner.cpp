@@ -2016,7 +2016,16 @@ ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& confi
     // is fully readable and is emitted exactly once (by the chunk that owns its
     // start). `owned` is a multiple of alignment so the scan stride grid is
     // preserved across boundaries, so there are no duplicates and no gaps.
-    constexpr size_t kChunkBytes = 8u * 1024 * 1024; // per-chunk owned span
+    // Per-chunk owned span. Kept small enough that a chunk the thread just read
+    // via process_vm_readv is still hot in cache when it is scanned (the read
+    // and the scan are back-to-back on the same thread), instead of being
+    // evicted and re-fetched from RAM. Overridable for tuning via CE_SCAN_CHUNK_KB.
+    size_t kChunkBytes = 512u * 1024;
+    if (const char* e = std::getenv("CE_SCAN_CHUNK_KB")) {
+        char* end = nullptr;
+        unsigned long kb = std::strtoul(e, &end, 10);
+        if (end != e && kb > 0) kChunkBytes = static_cast<size_t>(kb) * 1024;
+    }
     size_t alignment = std::max<size_t>(1, config.alignment);
     size_t maxMatchSize = std::max<size_t>(1, valueSizeForConfig(config));
     size_t overlap = maxMatchSize - 1;

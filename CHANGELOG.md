@@ -21,6 +21,15 @@ Heavy optimization of the memory scanner (finding values), with no change to
 results (verified against a brute-force reference across every value width,
 alignment, comparator, and both scan phases, and clean under ASan/UBSan).
 
+- **Cache-blocked first scan (~3x).** A worker read a region in 8 MiB chunks,
+  then scanned each chunk — but by scan time the chunk had been evicted from
+  cache and was re-fetched from RAM, so the value read cost twice. Reading in
+  small (128 KiB) chunks instead keeps the just-read data hot in L2 for the scan
+  (and the small reused read buffer stays cached too), so a 1 GiB scan runs at
+  ~13 GB/s instead of ~3.5. On this machine a sparse 1 GiB first scan dropped
+  ~0.28s to ~0.083s. Tune with `CE_SCAN_CHUNK_KB` if a different cache size
+  wants a different block.
+
 - **First scan now uses every core on a single big region.** Work was split
   per memory region, so a process dominated by one large heap/mapping (common in
   games) scanned on a single thread. Scanning is now split into fixed-size

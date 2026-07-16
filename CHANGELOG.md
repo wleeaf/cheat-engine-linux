@@ -40,6 +40,16 @@ alignment, comparator, and both scan phases, and clean under ASan/UBSan).
   handles that cannot be read concurrently, e.g. a socket-backed ceserver
   handle, stay single-threaded, which also fixes a latent first-scan data race
   on those handles).
+- **Skip reserved-but-untouched memory on first scan.** Games map large address
+  ranges they never touch; those pages are demand-zero, and we were reading every
+  one of them. The first scan now consults `/proc/pid/pagemap` and reads only the
+  resident/swapped pages of anonymous regions, coalesced into runs. On a sparse
+  512 MiB region with a handful of touched pages that is ~80x faster; it does not
+  change results and is guarded three ways: only when an all-zero window can't
+  match the search (so 0/unknown searches still read everything), only when a
+  value can't straddle a page (aligned scans), and only for anonymous mappings
+  (a file-backed page still holds file data). Falls back to a full read if
+  pagemap is unavailable. Override with `CE_SCAN_PAGEMAP=off`.
 - **No result-merge copy.** A scan wrote each worker's matches to its own file
   and then concatenated them into one merged file, so every result byte was
   written twice and read once more. The result now references the worker files

@@ -1930,13 +1930,67 @@ ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& confi
     struct Chunk { uintptr_t base; size_t owned; size_t readLen; };
     std::vector<Chunk> chunks;
     chunks.reserve(totalMem / ownedLen + scanRegions.size());
-    for (const auto& region : scanRegions) {
-        for (size_t ws = 0; ws < region.size; ws += ownedLen) {
-            size_t owned   = std::min(ownedLen, region.size - ws);
-            size_t readLen = std::min(ownedLen + overlap, region.size - ws);
-            chunks.push_back({ region.base + ws, owned, readLen });
+
+    // Decide whether non-resident (demand-zero) pages of anonymous regions can
+    // be skipped. Safe only when an all-zero window can't match this search: an
+    // untouched page reads back as zeros, so if zeros never match it can hold no
+    // result. Probe the real scan predicate on a zero buffer (correct for every
+    // value type — Unknown/zero-value searches emit and so disable the skip),
+    // never for Custom (its Lua predicate is opaque here), and honour an override.
+    bool skipNonResident = false;
+    {
+        const char* env = std::getenv("CE_SCAN_PAGEMAP");
+        bool disabled = env && (!std::strcmp(env, "off") || !std::strcmp(env, "0"));
+        // Skip only when a candidate value cannot straddle a page boundary, i.e.
+        // the stride keeps every window inside one page (alignment >= value size
+        // and alignment divides the page). Otherwise a value starting in a
+        // resident page could reach into a skipped one (or vice versa) and be
+        // missed. Aligned numeric scans (the default) satisfy this; unaligned or
+        // wide-stride scans just read everything.
+        long ps = sysconf(_SC_PAGESIZE);
+        bool cannotStraddle = ps > 0 && alignment >= maxMatchSize &&
+                              (static_cast<size_t>(ps) % alignment == 0);
+        if (!disabled && cannotStraddle && config.valueType != ValueType::Custom) {
+            std::vector<uint8_t> zeroWindow(std::max<size_t>(maxMatchSize * 4, 64), 0);
+            ScanResult probe(resultDir / "probe");
+            scanRegion(zeroWindow.data(), zeroWindow.size(), 0x1000, probe, nullptr, zeroWindow.size());
+            probe.finalize();
+            skipNonResident = (probe.count() == 0);
+            std::filesystem::remove_all(resultDir / "probe");
         }
     }
+
+    // Build chunks from each region's scan ranges. For an anonymous (Private)
+    // region when skipping applies, that is only its resident/swapped page runs
+    // — skipping the large reserved-but-never-touched address space a process
+    // maps; otherwise the whole region. File-backed regions are never skipped (a
+    // non-resident page there still holds file data); tiny regions aren't worth
+    // a pagemap query.
+    constexpr size_t kPagemapMinRegion = 256u * 1024;
+    for (const auto& region : scanRegions) {
+        std::vector<std::pair<uintptr_t, uintptr_t>> ranges;
+        if (skipNonResident && region.type == MemType::Private &&
+            region.size >= kPagemapMinRegion) {
+            ranges = proc.residentRanges(region.base, region.size);
+        } else {
+            ranges = {{region.base, region.base + region.size}};
+        }
+        for (const auto& [rbase, rend] : ranges) {
+            if (rend <= rbase) continue;
+            size_t rsize = rend - rbase;
+            for (size_t ws = 0; ws < rsize; ws += ownedLen) {
+                size_t owned   = std::min(ownedLen, rsize - ws);
+                size_t readLen = std::min(ownedLen + overlap, rsize - ws);
+                chunks.push_back({ rbase + ws, owned, readLen });
+            }
+        }
+    }
+
+    // Bytes actually scanned (skipping shrinks this below the region total).
+    // Drives the thread partition and the progress denominator below.
+    totalMem = 0;
+    for (const auto& c : chunks) totalMem += c.owned;
+    if (totalMem == 0) { ScanResult empty(resultDir / "results"); empty.finalize(); return empty; }
 
     // Only fan out across cores when the handle tolerates concurrent reads
     // (process_vm_readv does; a socket-backed ceserver handle does not).

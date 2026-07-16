@@ -250,6 +250,66 @@ std::optional<MemoryRegion> LinuxProcessHandle::queryRegion(uintptr_t address) {
     return std::nullopt;
 }
 
+std::vector<std::pair<uintptr_t, uintptr_t>>
+LinuxProcessHandle::residentRanges(uintptr_t base, size_t size) {
+    // Coalesce the present/swapped pages of [base, base+size) into runs by
+    // reading /proc/pid/pagemap (8 bytes per page: bit 63 = present, bit 62 =
+    // swapped). Any failure falls back to the whole range so a scan never
+    // silently drops readable memory.
+    const std::vector<std::pair<uintptr_t, uintptr_t>> whole = {{base, base + size}};
+    long ps = sysconf(_SC_PAGESIZE);
+    if (ps <= 0 || size == 0) return whole;
+    size_t pageSize = static_cast<size_t>(ps);
+
+    std::string path = "/proc/" + std::to_string(pid_) + "/pagemap";
+    int fd = ::open(path.c_str(), O_RDONLY);
+    if (fd < 0) return whole;
+
+    uintptr_t start = base & ~static_cast<uintptr_t>(pageSize - 1);
+    uintptr_t end   = base + size;
+
+    std::vector<std::pair<uintptr_t, uintptr_t>> runs;
+    uintptr_t runStart = 0;
+    bool inRun = false;
+    auto endRun = [&](uintptr_t runEnd) {
+        // Clip the page-aligned run back to the requested [base, end).
+        uintptr_t a = std::max(runStart, base);
+        uintptr_t b = std::min(runEnd, end);
+        if (b > a) runs.push_back({a, b});
+    };
+
+    constexpr size_t WIN = 4096;               // pagemap entries per read (32 KiB)
+    std::vector<uint64_t> ent(WIN);
+    for (uintptr_t addr = start; addr < end;) {
+        size_t pagesLeft = (end - addr + pageSize - 1) / pageSize;
+        size_t n = std::min(WIN, pagesLeft);
+        off_t off = static_cast<off_t>((addr / pageSize) * sizeof(uint64_t));
+        // Read n entries, retrying short/interrupted reads.
+        size_t want = n * sizeof(uint64_t), got = 0;
+        auto* p = reinterpret_cast<uint8_t*>(ent.data());
+        bool readOk = true;
+        while (got < want) {
+            ssize_t r = ::pread(fd, p + got, want - got, off + static_cast<off_t>(got));
+            if (r < 0) { if (errno == EINTR) continue; readOk = false; break; }
+            if (r == 0) { readOk = false; break; }
+            got += static_cast<size_t>(r);
+        }
+        if (!readOk) { ::close(fd); return whole; } // be safe: read everything
+
+        for (size_t k = 0; k < n; ++k) {
+            uintptr_t pageAddr = addr + k * pageSize;
+            bool worth = (ent[k] >> 63) & 1;       // present
+            worth |= (ent[k] >> 62) & 1;           // or swapped (still real data)
+            if (worth && !inRun) { runStart = pageAddr; inRun = true; }
+            else if (!worth && inRun) { endRun(pageAddr); inRun = false; }
+        }
+        addr += n * pageSize;
+    }
+    if (inRun) endRun(end);
+    ::close(fd);
+    return runs; // may be empty when nothing in the range is resident
+}
+
 // Execute a syscall in the target process via ptrace
 static int64_t remoteSyscall(pid_t pid, uint64_t nr,
     uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6)

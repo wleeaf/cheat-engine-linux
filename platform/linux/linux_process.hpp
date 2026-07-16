@@ -24,6 +24,8 @@ public:
 
     std::vector<MemoryRegion> queryRegions() override;
     std::optional<MemoryRegion> queryRegion(uintptr_t address) override;
+    std::vector<std::pair<uintptr_t, uintptr_t>>
+    residentRanges(uintptr_t base, size_t size) override;
 
     Result<uintptr_t> allocate(size_t size, MemProt protection, uintptr_t preferredBase = 0) override;
     Result<void> free(uintptr_t address, size_t size) override;

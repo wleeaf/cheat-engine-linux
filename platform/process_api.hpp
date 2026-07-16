@@ -6,6 +6,8 @@
 #include <memory>
 #include <expected>
 #include <system_error>
+#include <utility>
+#include <vector>
 
 namespace ce {
 
@@ -58,6 +60,17 @@ public:
     // ── Memory info ──
     virtual std::vector<MemoryRegion> queryRegions() = 0;
     virtual std::optional<MemoryRegion> queryRegion(uintptr_t address) = 0;
+
+    // Sub-ranges of [base, base+size) worth reading — pages that are resident or
+    // swapped (i.e. hold data). A scanner uses this to skip the large
+    // reserved-but-never-touched swaths a process maps: those pages are
+    // demand-zero, so a search that can't match all-zero bytes need not read
+    // them. The default reports the whole range (no page info, e.g. a remote
+    // handle), so callers stay correct; LinuxProcessHandle reads
+    // /proc/pid/pagemap. Only meaningful for anonymous mappings — a non-resident
+    // file-backed page still holds file data, so callers must not skip those.
+    virtual std::vector<std::pair<uintptr_t, uintptr_t>>
+    residentRanges(uintptr_t base, size_t size) { return {{base, base + size}}; }
 
     // ── Memory management ──
     virtual Result<uintptr_t> allocate(size_t size, MemProt protection, uintptr_t preferredBase = 0) = 0;

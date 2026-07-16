@@ -14,6 +14,8 @@
 #include "scripting/lua_engine.hpp"
 #include "core/simple_address_list.hpp"
 #include "analysis/il2cpp_metadata.hpp"
+#include "analysis/il2cpp_binary.hpp"
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 
@@ -671,17 +673,33 @@ static int cmd_lua(int argc, char** argv) {
 // process. Field byte OFFSETS and field TYPE names are not in the metadata (they
 // live in GameAssembly.so), so this lists names/grouping only. Doubles as the
 // harness for validating the version-specific table layout against a real file.
+// Try to find the GameAssembly binary next to a metadata file. Layout:
+// <Game>/GameAssembly.{so,dll} with metadata at <Game>/<X>_Data/il2cpp_data/
+// Metadata/global-metadata.dat, so the game root is three parents up.
+static std::string autoLocateGameAssembly(const std::string& metaPath) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::path root = fs::path(metaPath).parent_path().parent_path().parent_path().parent_path();
+    for (const char* n : {"GameAssembly.so", "GameAssembly.dll", "libil2cpp.so"}) {
+        fs::path c = root / n;
+        if (fs::is_regular_file(c, ec)) return c.string();
+    }
+    return {};
+}
+
 static int cmd_il2cpp(int argc, char** argv) {
     if (argc < 2) {
-        fprintf(stderr, "usage: cescan il2cpp <global-metadata.dat> [--class <substr>] [--fields]\n");
+        fprintf(stderr, "usage: cescan il2cpp <global-metadata.dat> [--class <substr>] "
+                        "[--fields] [--binary <GameAssembly>]\n");
         return 1;
     }
     const char* path = argv[1];
-    std::string filter;
+    std::string filter, binaryPath;
     bool showFields = false;
     for (int i = 2; i < argc; ++i) {
         if (!strcmp(argv[i], "--class") && i + 1 < argc) filter = argv[++i];
         else if (!strcmp(argv[i], "--fields")) showFields = true;
+        else if (!strcmp(argv[i], "--binary") && i + 1 < argc) binaryPath = argv[++i];
     }
 
     std::ifstream in(path, std::ios::binary);
@@ -708,24 +726,45 @@ static int cmd_il2cpp(int argc, char** argv) {
 
     printf("type/field tables: %zu types across %zu images\n",
            md->types.size(), md->images.size());
-    for (const auto& img : md->images)
-        printf("  image  %-30s %u types\n", img.name.c_str(), img.typeCount);
 
-    printf("\nclasses%s (field offsets/types need GameAssembly.so):\n",
-           filter.empty() ? " (add --class <substr> to filter, --fields to list fields)" : "");
+    // Resolve field byte offsets from the GameAssembly binary if we can find one.
+    if (binaryPath.empty()) binaryPath = autoLocateGameAssembly(path);
+    ce::Il2CppBinaryLayout layout;
+    if (!binaryPath.empty()) {
+        layout = ce::resolveIl2CppLayout(*md, binaryPath);
+        if (layout.ok)
+            printf("field offsets: resolved from %s\n", binaryPath.c_str());
+        else
+            printf("field offsets: unavailable (%s)\n", layout.error.c_str());
+    } else {
+        printf("field offsets: no GameAssembly binary found (pass --binary <path>)\n");
+    }
+    const bool haveOffsets = layout.ok && layout.classes.size() == md->types.size();
+
+    printf("\nclasses%s%s:\n",
+           filter.empty() ? " (add --class <substr> to filter, --fields to list fields)" : "",
+           haveOffsets ? "" : " (offsets need the GameAssembly binary)");
     size_t matched = 0, printed = 0;
     const size_t kCap = 200;
-    for (const auto& t : md->types) {
+    for (size_t ti = 0; ti < md->types.size(); ++ti) {
+        const auto& t = md->types[ti];
         std::string full = t.fullName();
         if (!filter.empty() && full.find(filter) == std::string::npos) continue;
         ++matched;
-        if (printed < kCap) {
-            printf("  %s  (%zu fields)\n", full.c_str(), t.fields.size());
-            if (showFields)
-                for (const auto& fld : t.fields)
-                    printf("      %s\n", fld.name.c_str());
-            ++printed;
+        if (printed >= kCap) continue;
+        printf("  %s  (%zu fields)\n", full.c_str(), t.fields.size());
+        if (showFields) {
+            for (size_t fi = 0; fi < t.fields.size(); ++fi) {
+                if (haveOffsets) {
+                    const auto& rf = layout.classes[ti].fields[fi];
+                    const char* kind = rf.isConst ? "const" : (rf.isStatic ? "static" : "");
+                    printf("      +0x%-5x %-26s %s\n", rf.offset, rf.name.c_str(), kind);
+                } else {
+                    printf("      %s\n", t.fields[fi].name.c_str());
+                }
+            }
         }
+        ++printed;
     }
     if (matched > printed)
         printf("  ... %zu more (narrow with --class <substr>)\n", matched - printed);

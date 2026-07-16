@@ -183,6 +183,7 @@ add_library(cecore SHARED
     core/trainer.cpp
     analysis/code_analysis.cpp
     analysis/il2cpp_metadata.cpp
+    analysis/il2cpp_binary.cpp
     analysis/managed_runtime.cpp
     analysis/mono_dissector.cpp
     analysis/structure_tools.cpp

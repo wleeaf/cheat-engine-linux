@@ -30,6 +30,7 @@
 #include "analysis/code_analysis.hpp"
 #include "analysis/managed_runtime.hpp"
 #include "analysis/il2cpp_metadata.hpp"
+#include "analysis/il2cpp_binary.hpp"
 #include "analysis/structure_tools.hpp"
 #include "debug/breakpoint_manager.hpp"
 #include "debug/stack_trace.hpp"
@@ -5002,6 +5003,105 @@ static void test_il2cpp_real_file() {
         if (img.name == "Assembly-CSharp.dll") { imgOk = true; break; }
     printf("  List`1 decodes with _items/_size/_version: %s\n", (list && fieldsOk) ? "OK" : "FAILED");
     printf("  Assembly-CSharp.dll image present: %s\n", imgOk ? "OK" : "FAILED");
+
+    // If a GameAssembly binary is also provided, resolve offsets and check a
+    // known layout (UnityEngine.Vector3 x@0x10, y@0x14, z@0x18, all instance).
+    const char* ga = std::getenv("CE_IL2CPP_GAMEASSEMBLY");
+    if (ga && *ga) {
+        auto layout = ce::resolveIl2CppLayout(*md, ga);
+        if (!layout.ok) { printf("  GameAssembly resolve failed: %s (SKIPPED)\n", layout.error.c_str()); return; }
+        const ce::Il2CppClassLayout* v3 = nullptr;
+        for (const auto& c : layout.classes)
+            if (c.name == "Vector3" && c.namespaceName == "UnityEngine") { v3 = &c; break; }
+        bool v3ok = false;
+        if (v3) {
+            auto off = [&](const char* n) -> long {
+                for (const auto& fl : v3->fields)
+                    if (fl.name == n && !fl.isStatic) return fl.offset;
+                return -1;
+            };
+            v3ok = off("x") == 0x10 && off("y") == 0x14 && off("z") == 0x18;
+        }
+        printf("  Vector3 x/y/z resolve to 0x10/0x14/0x18: %s\n", v3ok ? "OK" : "FAILED");
+    }
+}
+
+// Field-offset resolution from the GameAssembly binary, CI-coverable via a
+// synthetic PE32+: it carries an Il2CppMetadataRegistration whose fieldOffsets
+// give Player{health@0x10 static, mana@0x8 static} and Enemy{name@0x18 instance}
+// (matched to buildSyntheticV29Metadata), plus a types array whose Il2CppType
+// attrs drive the static/instance classification. Exercises the PE loader, the
+// count-match registration finder, and offset + attrs extraction without a game.
+static void test_il2cpp_binary_offsets() {
+    printf("\n── Test: IL2CPP field-offset resolution (synthetic PE) ──\n");
+    namespace fs = std::filesystem;
+
+    auto md = parseIl2CppMetadata(buildSyntheticV29Metadata().data(),
+                                  buildSyntheticV29Metadata().size());
+    if (!md || !md->tablesDecoded || md->types.size() != 2) { printf("  metadata setup: FAILED\n"); return; }
+
+    std::vector<uint8_t> f(0x2400, 0);
+    auto pU16 = [&](size_t o, uint16_t v) { f[o] = (uint8_t)v; f[o + 1] = (uint8_t)(v >> 8); };
+    auto pU32 = [&](size_t o, uint32_t v) { for (int i = 0; i < 4; ++i) f[o + i] = (uint8_t)(v >> (8 * i)); };
+    auto pU64 = [&](size_t o, uint64_t v) { for (int i = 0; i < 8; ++i) f[o + i] = (uint8_t)(v >> (8 * i)); };
+    const uint64_t IB = 0x140000000ull;   // image base
+    // DOS + PE headers.
+    f[0] = 'M'; f[1] = 'Z'; pU32(0x3C, 0x80);
+    f[0x80] = 'P'; f[0x81] = 'E';
+    pU16(0x84, 0x8664);          // machine x86-64
+    pU16(0x86, 1);               // 1 section
+    pU16(0x94, 0xF0);            // SizeOfOptionalHeader
+    pU16(0x98, 0x20B);           // PE32+
+    pU64(0xB0, IB);              // ImageBase (opt+24)
+    // Section header (.data): vaddr 0x1000, rawptr 0x400, size 0x2000.
+    const char* sn = ".data"; for (int i = 0; i < 5; ++i) f[0x188 + i] = sn[i];
+    pU32(0x190, 0x2000); pU32(0x194, 0x1000); pU32(0x198, 0x2000); pU32(0x19C, 0x400);
+    // Section body at file 0x400 == rva 0x1000 == VA IB+0x1000.
+    auto VA = [&](uint64_t srel) { return IB + 0x1000 + srel; };
+    pU32(0x400, 0x10); pU32(0x404, 0x8);   // Player field offsets: health, mana
+    pU32(0x408, 0x18);                     // Enemy field offset: name
+    pU64(0x410, VA(0x00)); pU64(0x418, VA(0x08));   // fieldOffsets[2] -> the two arrays
+    for (int i = 0; i < 7; ++i) pU32(0x430 + i * 0x10 + 8, (i == 5) ? 0x10 : 0);  // Il2CppType.attrs
+    for (int i = 0; i < 7; ++i) pU64(0x4B0 + i * 8, VA(0x30 + i * 0x10));         // types[] -> structs
+    // Il2CppMetadataRegistration at srel 0x100 (VA IB+0x1100), file 0x500.
+    pU32(0x530, 7);           pU64(0x538, VA(0xB0));   // typesCount, types
+    pU32(0x550, 2);           pU64(0x558, VA(0x10));   // fieldOffsetsCount, fieldOffsets
+    pU32(0x560, 2);           pU64(0x568, VA(0x00));   // typeDefinitionsSizesCount, ...
+
+    fs::path tmp = fs::temp_directory_path() /
+        ("ce-il2cpp-ga-" + std::to_string(getpid()) + ".bin");
+    { std::ofstream out(tmp, std::ios::binary);
+      out.write(reinterpret_cast<const char*>(f.data()), (std::streamsize)f.size()); }
+
+    auto layout = ce::resolveIl2CppLayout(*md, tmp.string());
+    std::error_code ec; fs::remove(tmp, ec);
+
+    bool ok = layout.ok && layout.classes.size() == 2;
+    auto field = [&](size_t c, const char* name) -> const ce::Il2CppResolvedField* {
+        if (c >= layout.classes.size()) return nullptr;
+        for (const auto& fl : layout.classes[c].fields) if (fl.name == name) return &fl;
+        return nullptr;
+    };
+    const auto* health = ok ? field(0, "health") : nullptr;
+    const auto* mana   = ok ? field(0, "mana")   : nullptr;
+    const auto* name   = ok ? field(1, "name")   : nullptr;
+    bool offOk = health && health->offset == 0x10 && mana && mana->offset == 0x8 &&
+                 name && name->offset == 0x18;
+    bool kindOk = health && health->isStatic && mana && mana->isStatic &&
+                  name && !name->isStatic;
+
+    printf("  finds Il2CppMetadataRegistration + resolves: %s\n", ok ? "OK" : "FAILED");
+    printf("  field offsets health=0x10 mana=0x8 name=0x18: %s\n", offOk ? "OK" : "FAILED");
+    printf("  static/instance from Il2CppType.attrs: %s\n", kindOk ? "OK" : "FAILED");
+
+    // A non-il2cpp / truncated binary must fail cleanly, not crash.
+    std::vector<uint8_t> junk(64, 0x7f);
+    fs::path jp = fs::temp_directory_path() / ("ce-il2cpp-junk-" + std::to_string(getpid()) + ".bin");
+    { std::ofstream out(jp, std::ios::binary);
+      out.write(reinterpret_cast<const char*>(junk.data()), (std::streamsize)junk.size()); }
+    auto bad = ce::resolveIl2CppLayout(*md, jp.string());
+    fs::remove(jp, ec);
+    printf("  non-il2cpp binary rejected cleanly: %s\n", (!bad.ok && !bad.error.empty()) ? "OK" : "FAILED");
 }
 
 // generateInjectionScript reads code at an address, disassembles whole
@@ -8862,6 +8962,7 @@ int main(int argc, char* argv[]) {
     test_il2cpp_metadata_tables();
     test_il2cpp_locate();
     test_il2cpp_real_file();
+    test_il2cpp_binary_offsets();
     test_injection_script_generation();
     test_structure_tools();
     test_lua_memrec();

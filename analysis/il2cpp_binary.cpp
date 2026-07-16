@@ -1,0 +1,236 @@
+#include "analysis/il2cpp_binary.hpp"
+
+#include <cstring>
+#include <fstream>
+#include <optional>
+
+namespace ce {
+
+namespace {
+
+// ── A loaded GameAssembly image (PE or ELF), providing VA/RVA -> file reads ──
+//
+// `imageBase` is the link-time base (PE OptionalHeader.ImageBase; 0 for a PIE
+// ELF, where virtual addresses already equal RVAs). A "segment" is a loadable
+// range mapping [rva, rva+vsize) to file bytes [fileOff, fileOff+fileSize).
+struct Image {
+    std::vector<uint8_t> buf;
+    uint64_t imageBase = 0;
+    struct Segment { uint64_t rva, vsize; uint64_t fileOff, fileSize; };
+    std::vector<Segment> segs;
+
+    bool inRange(size_t off, size_t n) const { return off + n <= buf.size() && off + n >= off; }
+    uint16_t u16(size_t o) const { uint16_t v = 0; std::memcpy(&v, buf.data() + o, 2); return v; }
+    uint32_t u32(size_t o) const { uint32_t v = 0; std::memcpy(&v, buf.data() + o, 4); return v; }
+    uint64_t u64(size_t o) const { uint64_t v = 0; std::memcpy(&v, buf.data() + o, 8); return v; }
+
+    // Virtual address (or RVA when imageBase==0) -> file offset.
+    std::optional<size_t> rvaToOff(uint64_t rva) const {
+        for (const auto& s : segs) {
+            if (rva >= s.rva && rva < s.rva + s.vsize) {
+                uint64_t d = rva - s.rva;
+                if (d < s.fileSize) {
+                    uint64_t off = s.fileOff + d;
+                    if (off < buf.size()) return static_cast<size_t>(off);
+                }
+                return std::nullopt;  // in the bss tail (no file bytes)
+            }
+        }
+        return std::nullopt;
+    }
+    std::optional<size_t> vaToOff(uint64_t va) const {
+        if (va < imageBase) return std::nullopt;
+        return rvaToOff(va - imageBase);
+    }
+    bool vaValid(uint64_t va) const { return va >= imageBase && rvaToOff(va - imageBase).has_value(); }
+
+    std::optional<uint64_t> readPtrVA(uint64_t va) const {
+        auto o = vaToOff(va); if (!o || !inRange(*o, 8)) return std::nullopt; return u64(*o);
+    }
+    std::optional<int32_t> readI32VA(uint64_t va) const {
+        auto o = vaToOff(va); if (!o || !inRange(*o, 4)) return std::nullopt;
+        return static_cast<int32_t>(u32(*o));
+    }
+    std::optional<uint32_t> readU32VA(uint64_t va) const {
+        auto o = vaToOff(va); if (!o || !inRange(*o, 4)) return std::nullopt; return u32(*o);
+    }
+};
+
+bool loadPE(Image& img) {
+    const auto& b = img.buf;
+    if (b.size() < 0x40 || b[0] != 'M' || b[1] != 'Z') return false;
+    uint32_t e = img.u32(0x3C);
+    if (!img.inRange(e, 24) || std::memcmp(b.data() + e, "PE\0\0", 4) != 0) return false;
+    size_t coff = e + 4;
+    if (!img.inRange(coff, 20)) return false;
+    uint16_t machine = img.u16(coff + 0);
+    if (machine != 0x8664) return false;             // x86-64 only (IL2CPP targets)
+    uint16_t nSec = img.u16(coff + 2);
+    uint16_t optSize = img.u16(coff + 16);
+    size_t opt = coff + 20;
+    if (!img.inRange(opt, optSize)) return false;
+    if (img.u16(opt) != 0x20B) return false;         // PE32+ (magic)
+    img.imageBase = img.u64(opt + 24);
+    size_t secTbl = opt + optSize;
+    for (uint16_t k = 0; k < nSec; ++k) {
+        size_t so = secTbl + static_cast<size_t>(k) * 40;
+        if (!img.inRange(so, 40)) break;
+        uint64_t vsize = img.u32(so + 8);
+        uint64_t vaddr = img.u32(so + 12);
+        uint64_t rawSize = img.u32(so + 16);
+        uint64_t rawPtr = img.u32(so + 20);
+        img.segs.push_back({vaddr, std::max(vsize, rawSize), rawPtr, rawSize});
+    }
+    return !img.segs.empty();
+}
+
+bool loadELF64(Image& img) {
+    const auto& b = img.buf;
+    if (b.size() < 0x40 || std::memcmp(b.data(), "\x7f""ELF", 4) != 0) return false;
+    if (b[4] != 2) return false;                     // ELFCLASS64
+    img.imageBase = 0;                               // PIE .so: VA == RVA
+    uint64_t phoff = img.u64(0x20);
+    uint16_t phentsize = img.u16(0x36);
+    uint16_t phnum = img.u16(0x38);
+    for (uint16_t k = 0; k < phnum; ++k) {
+        size_t po = static_cast<size_t>(phoff) + static_cast<size_t>(k) * phentsize;
+        if (!img.inRange(po, 56)) break;
+        if (img.u32(po + 0) != 1) continue;          // PT_LOAD
+        uint64_t off = img.u64(po + 8);
+        uint64_t vaddr = img.u64(po + 16);
+        uint64_t filesz = img.u64(po + 32);
+        uint64_t memsz = img.u64(po + 40);
+        img.segs.push_back({vaddr, std::max(memsz, filesz), off, filesz});
+    }
+    return !img.segs.empty();
+}
+
+// Il2CppMetadataRegistration field byte offsets (x64), shared by metadata v27-31
+// (these fields precede the version-specific tail). Every pointer is 8 bytes.
+constexpr size_t kMR_typesCount = 0x30;
+constexpr size_t kMR_types = 0x38;
+constexpr size_t kMR_fieldOffsetsCount = 0x50;
+constexpr size_t kMR_fieldOffsets = 0x58;
+constexpr size_t kMR_typeDefSizesCount = 0x60;
+
+// Il2CppType is 0x10 bytes on x64; `attrs` is the low 16 bits of the u32 at +0x08.
+constexpr size_t kType_attrs = 0x08;
+constexpr uint16_t kFIELD_STATIC = 0x0010;
+constexpr uint16_t kFIELD_LITERAL = 0x0040;
+
+// Find Il2CppMetadataRegistration. Its fieldOffsetsCount and typeDefinitionsSizes
+// Count both equal the metadata type count and sit 0x10 apart, an extremely
+// specific signature; confirm by validating that the fieldOffsets array holds
+// plausible per-type pointers. Returns the struct's file offset.
+std::optional<size_t> findMetadataRegistration(const Image& img, size_t nTypes) {
+    const int32_t want = static_cast<int32_t>(nTypes);
+    for (const auto& s : img.segs) {
+        if (s.fileSize < 0x70) continue;
+        size_t begin = static_cast<size_t>(s.fileOff);
+        size_t end = begin + static_cast<size_t>(s.fileSize);
+        if (end > img.buf.size()) end = img.buf.size();
+        for (size_t p = begin; p + 0x18 <= end; p += 8) {
+            if (static_cast<int32_t>(img.u32(p)) != want) continue;
+            if (static_cast<int32_t>(img.u32(p + 0x10)) != want) continue;
+            uint64_t foVA = img.u64(p + 8);          // p is fieldOffsetsCount pos (+0x50)
+            if (!img.vaValid(foVA)) continue;
+            // Validate the fieldOffsets array: entries are 0 or valid VAs. (The
+            // double count-match 0x10 apart is already near-unique on a real
+            // binary; this and the typesCount/types confirmation below rule out
+            // the rare coincidence.)
+            size_t ok = 0, tot = 0;
+            size_t probe = std::min<size_t>(nTypes, 256);
+            for (size_t k = 0; k < probe; ++k) {
+                auto e = img.readPtrVA(foVA + k * 8);
+                if (!e) break;
+                ++tot;
+                if (*e == 0 || img.vaValid(*e)) ++ok;
+            }
+            if (tot == 0 || ok * 5 < tot * 4) continue;   // < 80% plausible
+            if (p < kMR_fieldOffsetsCount) continue;
+            size_t base = p - kMR_fieldOffsetsCount;      // struct base
+            if (!img.inRange(base, 0x70)) continue;
+            int32_t typesCount = static_cast<int32_t>(img.u32(base + kMR_typesCount));
+            uint64_t typesVA = img.u64(base + kMR_types);
+            if (typesCount < want || typesCount > 50'000'000) continue;  // types >= typeDefs
+            if (!img.vaValid(typesVA)) continue;
+            return base;
+        }
+    }
+    return std::nullopt;
+}
+
+} // namespace
+
+Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::string& binaryPath) {
+    Il2CppBinaryLayout out;
+    if (!md.tablesDecoded) { out.error = "metadata tables not decoded (unsupported version)"; return out; }
+
+    Image img;
+    {
+        std::ifstream in(binaryPath, std::ios::binary);
+        if (!in) { out.error = "cannot open binary: " + binaryPath; return out; }
+        img.buf.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+    if (img.buf.size() < 0x40) { out.error = "binary too small"; return out; }
+    if (!loadPE(img) && !loadELF64(img)) {
+        out.error = "unrecognized binary (need x86-64 PE32+ or ELF64 GameAssembly)";
+        return out;
+    }
+
+    const size_t nTypes = md.types.size();
+    auto mr = findMetadataRegistration(img, nTypes);
+    if (!mr) { out.error = "Il2CppMetadataRegistration not found (unsupported build?)"; return out; }
+
+    if (!img.inRange(*mr + kMR_typeDefSizesCount + 4, 0)) { out.error = "registration truncated"; return out; }
+    uint64_t fieldOffsetsVA = img.u64(*mr + kMR_fieldOffsets);
+    uint64_t typesVA = img.u64(*mr + kMR_types);
+    int32_t typesCount = static_cast<int32_t>(img.u32(*mr + kMR_typesCount));
+    if (typesCount < 0) typesCount = 0;
+
+    // Read each field's static/instance/const kind from its Il2CppType.attrs.
+    auto fieldAttrs = [&](int32_t typeIndex) -> uint16_t {
+        if (typeIndex < 0 || typeIndex >= typesCount) return 0;
+        auto tp = img.readPtrVA(typesVA + static_cast<uint64_t>(typeIndex) * 8);
+        if (!tp) return 0;
+        auto a = img.readU32VA(*tp + kType_attrs);
+        return a ? static_cast<uint16_t>(*a & 0xFFFF) : 0;
+    };
+
+    // Map a global type index to its owning image name.
+    auto imageNameForType = [&](size_t ti) -> std::string {
+        for (const auto& im : md.images)
+            if (ti >= im.typeStart && ti < static_cast<size_t>(im.typeStart) + im.typeCount)
+                return im.name;
+        return {};
+    };
+
+    out.classes.reserve(nTypes);
+    for (size_t t = 0; t < nTypes; ++t) {
+        const auto& mt = md.types[t];
+        Il2CppClassLayout cl;
+        cl.image = imageNameForType(t);
+        cl.namespaceName = mt.namespaceName;
+        cl.name = mt.name;
+
+        // fieldOffsets[t] -> per-type int32 array (or 0 for generic defs).
+        std::optional<uint64_t> entryVA = img.readPtrVA(fieldOffsetsVA + t * 8);
+        for (size_t i = 0; i < mt.fields.size(); ++i) {
+            Il2CppResolvedField rf;
+            rf.name = mt.fields[i].name;
+            uint16_t attrs = fieldAttrs(mt.fields[i].typeIndex);
+            rf.isStatic = (attrs & kFIELD_STATIC) != 0;
+            rf.isConst = (attrs & kFIELD_LITERAL) != 0;
+            if (entryVA && *entryVA != 0) {
+                if (auto o = img.readI32VA(*entryVA + i * 4)) rf.offset = *o;
+            }
+            cl.fields.push_back(std::move(rf));
+        }
+        out.classes.push_back(std::move(cl));
+    }
+
+    out.ok = true;
+    return out;
+}
+
+} // namespace ce

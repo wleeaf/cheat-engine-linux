@@ -204,20 +204,26 @@ alongside official CE 7.7 Linux. Today each is materially short of the claim.
     from the process's mapped paths (the `<Game>_Data/il2cpp_data/Metadata` tree
     next to the executable/GameAssembly.so; system libs are ignored), and Lua
     `getIl2CppMetadataPath()` / `getIl2CppClasses([path])` expose the browser to
-    scripts (`test_il2cpp_locate` covers both). The GUI surface is deliberately
-    deferred until the offset-resolution track (below) lands. Two honest caveats live in the code: (a) the table struct offsets
-    are transcribed from public reversing refs (Il2CppDumper) and validated only
-    synthetically, they need a real Unity `global-metadata.dat` to confirm, and
-    unsupported versions or invalid regions skip table decode (`tablesDecoded`);
-    (b) field byte OFFSETS and field TYPE names are NOT in the metadata (they live
-    in GameAssembly.so), so this gives names/grouping, not in-object offsets. That
-    offset resolution is the separate live/binary track.
-    *Remaining:* validate the layout against a real file, extend to v24/v27 (the
-    integer version can't split v27.0 from v27.2's byref change), resolve field
-    offsets/types from the binary, plus the full soft-debugger type-introspection chain
-    (AppDomain→Assembly→Type→Field) — now developable against the real agent — and
-    the deeper per-Unity-version IL2CPP metadata tables. **Most Linux/Proton games
-    are Unity** — this remains the niche to win. **[L]**
+    scripts (`test_il2cpp_locate` covers both).
+    FIELD BYTE OFFSETS now resolve too (`analysis/il2cpp_binary.cpp`): it loads the
+    GameAssembly binary (Windows PE32+ or native ELF64), finds
+    Il2CppMetadataRegistration by a count-match heuristic (fieldOffsetsCount and
+    typeDefinitionsSizesCount both == the metadata type count, 0x10 apart, plus a
+    typesCount/types + fieldOffsets-array confirmation), then reads each type's
+    per-field offset and its static/instance/const kind (from Il2CppType.attrs).
+    Validated against real games: UnityEngine.Vector3 -> x@0x10, y@0x14, z@0x18
+    (instance, object-relative, ready to add to an object base pointer), statics
+    land in the static block, consts have no storage. `cescan il2cpp <metadata>
+    [--binary <GameAssembly>]` auto-locates GameAssembly next to the metadata and
+    prints offsets; `test_il2cpp_binary_offsets` covers the PE loader + finder +
+    attrs on a synthetic PE (CI, no game file), and the env-gated real-file test
+    checks Vector3 against ground truth (CE_IL2CPP_METADATA + CE_IL2CPP_GAMEASSEMBLY).
+    *Remaining:* GUI surface + a Lua binding for offsets, native-ELF GameAssembly
+    validation (the ELF path exists but has no local fixture), the v24/v27.0 byref
+    (0x5C) typedef layout (safely skipped today), plus the full soft-debugger
+    type-introspection chain (AppDomain->Assembly->Type->Field), now developable
+    against the real agent. **Most Linux/Proton games are Unity** -- this remains
+    the niche to win. **[L]**
 11. **In-game overlay actually renders.** `platform/vulkan_overlay_layer.cpp`
     advertises a layer but only forwards `vkCreateInstance/Device` — it never
     hooks `vkQueuePresentKHR` and draws nothing. *Layer contract now validated:*

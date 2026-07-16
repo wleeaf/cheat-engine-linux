@@ -696,17 +696,18 @@ static std::string autoLocateGameAssembly(const std::string& metaPath) {
 static int cmd_il2cpp(int argc, char** argv) {
     if (argc < 2) {
         fprintf(stderr, "usage: cescan il2cpp <global-metadata.dat> [--class <substr>] "
-                        "[--fields] [--methods] [--binary <GameAssembly>]\n");
+                        "[--fields] [--methods] [--object <class>] [--binary <GameAssembly>]\n");
         return 1;
     }
     const char* path = argv[1];
-    std::string filter, binaryPath;
+    std::string filter, binaryPath, objectClass;
     bool showFields = false, showMethods = false;
     for (int i = 2; i < argc; ++i) {
         if (!strcmp(argv[i], "--class") && i + 1 < argc) filter = argv[++i];
         else if (!strcmp(argv[i], "--fields")) showFields = true;
         else if (!strcmp(argv[i], "--methods")) showMethods = true;
         else if (!strcmp(argv[i], "--binary") && i + 1 < argc) binaryPath = argv[++i];
+        else if (!strcmp(argv[i], "--object") && i + 1 < argc) objectClass = argv[++i];
     }
 
     std::ifstream in(path, std::ios::binary);
@@ -748,6 +749,29 @@ static int cmd_il2cpp(int argc, char** argv) {
     }
     const bool haveOffsets = layout.ok && layout.classes.size() == md->types.size();
 
+    // --object: print one class's COMPLETE instance layout (own + inherited).
+    if (!objectClass.empty()) {
+        if (!haveOffsets) {
+            fprintf(stderr, "cescan il2cpp --object: needs the GameAssembly binary (pass --binary)\n");
+            return 1;
+        }
+        std::string full;
+        for (const auto& c : layout.classes) if (c.fullName() == objectClass) { full = objectClass; break; }
+        if (full.empty())
+            for (const auto& c : layout.classes) if (c.name == objectClass) { full = c.fullName(); break; }
+        if (full.empty())
+            for (const auto& c : layout.classes)
+                if (c.fullName().find(objectClass) != std::string::npos) { full = c.fullName(); break; }
+        if (full.empty()) { fprintf(stderr, "cescan il2cpp --object: class '%s' not found\n", objectClass.c_str()); return 1; }
+        auto fields = ce::il2cppObjectFieldLayout(layout, full);
+        printf("\nobject layout of %s (%zu instance fields, incl. inherited):\n", full.c_str(), fields.size());
+        for (const auto& f : fields) {
+            std::string from = (f.declaringType != full) ? ("  <- " + f.declaringType) : "";
+            printf("  +0x%-5x %-24s %s%s\n", f.offset, f.typeName.c_str(), f.name.c_str(), from.c_str());
+        }
+        return 0;
+    }
+
     printf("\nclasses%s%s:\n",
            filter.empty() ? " (add --class <substr> to filter, --fields to list fields)" : "",
            haveOffsets ? "" : " (offsets need the GameAssembly binary)");
@@ -765,7 +789,8 @@ static int cmd_il2cpp(int argc, char** argv) {
                 if (haveOffsets) {
                     const auto& rf = layout.classes[ti].fields[fi];
                     const char* kind = rf.isConst ? "const" : (rf.isStatic ? "static" : "");
-                    printf("      +0x%-5x %-26s %s\n", rf.offset, rf.name.c_str(), kind);
+                    printf("      +0x%-5x %-24s %-26s %s\n", rf.offset, rf.typeName.c_str(),
+                           rf.name.c_str(), kind);
                 } else {
                     printf("      %s\n", t.fields[fi].name.c_str());
                 }

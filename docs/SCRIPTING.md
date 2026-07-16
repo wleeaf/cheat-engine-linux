@@ -76,7 +76,13 @@ end
 ```
 
 See [`examples/il2cpp_dump.lua`](../examples/il2cpp_dump.lua) and
-[`examples/il2cpp_hook.lua`](../examples/il2cpp_hook.lua).
+[`examples/il2cpp_hook.lua`](../examples/il2cpp_hook.lua). The CLI mirrors this
+offline (no attach needed), straight from a `global-metadata.dat`:
+
+```sh
+cescan il2cpp <global-metadata.dat> --class Player --fields   # offsets + managed types
+cescan il2cpp <global-metadata.dat> --object Player           # full inherited object layout
+```
 
 ### Turning a class into a dissectable structure
 

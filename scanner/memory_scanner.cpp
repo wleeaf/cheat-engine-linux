@@ -48,6 +48,14 @@ size_t MemoryScanner::valueSizeFor(ValueType vt) {
     }
 }
 
+// Test-only override of the SIMD dispatch path: -1 = detect from CPU/env,
+// otherwise a SimdMode value (0=Scalar, 1=SSE2, 2=AVX2). simdMode()'s CPU/env
+// choice is cached for the process lifetime, so the differential scan test uses
+// this to exercise scalar/SSE2/AVX2 in one process. Never set in production;
+// callers must only force a mode the CPU actually supports (AVX2 target code
+// would SIGILL otherwise). External linkage so the test can set it.
+std::atomic<int> g_scanSimdOverride{-1};
+
 // ── Comparison functions ──
 
 namespace {
@@ -315,6 +323,8 @@ inline void emitAt(const uint8_t* buf, size_t off, uintptr_t base, ScanResult& r
 // (consistent with the project's other runtime CE_* diagnostics).
 enum class SimdMode { Scalar, SSE2, AVX2 };
 inline SimdMode simdMode() {
+    if (int forced = g_scanSimdOverride.load(std::memory_order_relaxed); forced >= 0)
+        return static_cast<SimdMode>(forced);
     static const SimdMode m = [] {
 #if defined(__x86_64__)
         if (const char* e = std::getenv("CE_SCAN_SIMD")) {

@@ -52,6 +52,8 @@
 #include "symbols/elf_symbols.hpp"
 #include <algorithm>
 #include <atomic>
+#include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -8012,6 +8014,464 @@ static void test_expression_parser() {
     printf("  multi-level pointers + inner/outer hex offsets: %s\n", ok ? "OK" : "FAILED");
 }
 
+// ─── Scanner differential + fuzz test ────────────────────────────────────────
+// The scanner's hot paths (SIMD exact/rounded numeric, SIMD byte-pattern anchor
+// search, multi-threaded chunk partitioning with straddle overlap, coalesced
+// next-scan reads, and sharded frame-encoded result storage) were heavily
+// rewritten for speed. This pins their correctness by comparing every scan
+// against an independent, deliberately dead-simple reference over the SAME bytes,
+// across: all three SIMD dispatch modes (scalar / SSE2 / AVX2 when present); many
+// chunk sizes (tiny forces boundary straddles and real MT partitioning); every
+// numeric/float/string/AOB value type; alignments; rounding modes; and next-scan
+// comparators. The whole test is deterministic (fixed base seed), so any mismatch
+// prints the seed + config and reproduces on a plain re-run.
+namespace ce { extern std::atomic<int> g_scanSimdOverride; }  // scanner.cpp test seam
+
+namespace {
+
+// Deterministic xorshift64 PRNG — no std::random, no time, fully reproducible.
+struct Rng {
+    uint64_t s;
+    explicit Rng(uint64_t seed) : s(seed ? seed : 0x9E3779B97F4A7C15ull) {}
+    uint64_t next() { s ^= s << 13; s ^= s >> 7; s ^= s << 17; return s; }
+    uint32_t u32() { return (uint32_t)(next() >> 11); }
+    size_t range(size_t n) { return n ? (size_t)(next() % n) : 0; }
+};
+
+// Independent reference predicates. Each mirrors the scanner's *semantics* with
+// the simplest possible expression; none share code with scanner.cpp, so they
+// are a true oracle for the optimized machinery (only structural bugs — a dropped
+// SIMD lane, a chunk-straddle miss/dup, a bad frame offset — can make the two
+// disagree).
+template<typename T>
+bool refFloatExact(const ScanConfig& c, T cur, T needle) {
+    if (!std::isfinite((double)cur)) return false;
+    switch (c.roundingType) {
+        case 1: {
+            double cc = (double)cur, s = (double)needle;
+            if (c.floatDecimals >= 0) {
+                double half = 0.5 * std::pow(10.0, -c.floatDecimals);
+                return std::fabs(cc - s) <= half;
+            }
+            const double kLLMax = 9.2e18;
+            if (std::fabs(cc) > kLLMax || std::fabs(s) > kLLMax)
+                return std::round(cc) == std::round(s);
+            return std::llround(cc) == std::llround(s);
+        }
+        case 2:  return std::trunc((double)cur) == std::trunc((double)needle);
+        case 3: {
+            double tol = c.floatTolerance > 0.0 ? c.floatTolerance
+                       : std::max(1e-6, std::fabs((double)needle) * 1e-6);
+            return std::fabs((double)cur - (double)needle) <= tol;
+        }
+        default: return cur == needle;
+    }
+}
+
+template<typename T>
+bool refIntFirst(const ScanConfig& c, T cur) {
+    switch (c.compareType) {
+        case ScanCompare::Exact:   return cur == (T)c.intValue;
+        case ScanCompare::Greater: return cur >  (T)c.intValue;
+        case ScanCompare::Less:    return cur <  (T)c.intValue;
+        case ScanCompare::Between: {
+            T v = (T)c.intValue, v2 = (T)c.intValue2;
+            return v <= v2 ? (cur >= v && cur <= v2) : (cur >= v2 && cur <= v);
+        }
+        default: return false;
+    }
+}
+
+template<typename T>
+bool refFloatFirst(const ScanConfig& c, T cur) {
+    switch (c.compareType) {
+        case ScanCompare::Exact:   return refFloatExact<T>(c, cur, (T)c.floatValue);
+        case ScanCompare::Greater: return cur >  (T)c.floatValue;
+        case ScanCompare::Less:    return cur <  (T)c.floatValue;
+        case ScanCompare::Between: {
+            T v = (T)c.floatValue, v2 = (T)c.floatValue2;
+            return v <= v2 ? (cur >= v && cur <= v2) : (cur >= v2 && cur <= v);
+        }
+        default: return false;
+    }
+}
+
+// Next-scan comparator (mirrors compareNextNumeric; no percentage path).
+template<typename T>
+bool refNumNext(const ScanConfig& c, T cur, T old, T first) {
+    using CT = ScanCompare;
+    if (c.compareType == CT::SameAsFirst) return cur == first;
+    if (c.compareType == CT::IncreasedBy || c.compareType == CT::DecreasedBy) {
+        if constexpr (std::is_floating_point_v<T>) {
+            double d = (double)c.floatValue;
+            double actual = c.compareType == CT::IncreasedBy
+                ? (double)cur - (double)old : (double)old - (double)cur;
+            double tol = std::max(1e-6, std::fabs(d) * 1e-5);
+            bool dir = c.compareType == CT::IncreasedBy ? (cur > old) : (cur < old);
+            return dir && std::fabs(actual - d) <= tol;
+        } else {
+            T delta = (T)c.intValue;
+            if (c.compareType == CT::IncreasedBy) return cur > old && (T)(cur - old) == delta;
+            return cur < old && (T)(old - cur) == delta;
+        }
+    }
+    if (c.compareType >= CT::Changed) {  // Changed / Unchanged / Increased / Decreased
+        switch (c.compareType) {
+            case CT::Changed:   return cur != old;
+            case CT::Unchanged: return cur == old;
+            case CT::Increased: return cur >  old;
+            case CT::Decreased: return cur <  old;
+            default: return false;
+        }
+    }
+    if constexpr (std::is_floating_point_v<T>) return refFloatFirst<T>(c, cur);
+    else return refIntFirst<T>(c, cur);
+}
+
+template<typename T, typename Pred>
+void refNumericScan(const uint8_t* buf, size_t n, uintptr_t base, size_t align,
+                    Pred pred, std::vector<uintptr_t>& out) {
+    if (n < sizeof(T) || align == 0) return;
+    size_t limit = n - sizeof(T) + 1;
+    for (size_t off = 0; off < limit; off += align) {
+        T cur; std::memcpy(&cur, buf + off, sizeof(T));
+        if (pred(cur)) out.push_back(base + off);
+    }
+}
+
+size_t typeSize(ValueType t) {
+    switch (t) {
+        case ValueType::Byte: return 1;
+        case ValueType::Int16: return 2;
+        case ValueType::Int32: return 4;
+        case ValueType::Int64: return 8;
+        case ValueType::Pointer: return sizeof(uintptr_t);
+        case ValueType::Float: return 4;
+        case ValueType::Double: return 8;
+        default: return 0;
+    }
+}
+
+// Reference first scan → ascending match addresses.
+std::vector<uintptr_t> refFirstScan(const uint8_t* buf, size_t n, uintptr_t base,
+                                    const ScanConfig& c) {
+    std::vector<uintptr_t> out;
+    size_t align = c.alignment ? c.alignment : 1;
+    switch (c.valueType) {
+        case ValueType::Byte:    refNumericScan<uint8_t>(buf,n,base,align,[&](uint8_t v){return refIntFirst<uint8_t>(c,v);},out); break;
+        case ValueType::Int16:   refNumericScan<int16_t>(buf,n,base,align,[&](int16_t v){return refIntFirst<int16_t>(c,v);},out); break;
+        case ValueType::Int32:   refNumericScan<int32_t>(buf,n,base,align,[&](int32_t v){return refIntFirst<int32_t>(c,v);},out); break;
+        case ValueType::Int64:   refNumericScan<int64_t>(buf,n,base,align,[&](int64_t v){return refIntFirst<int64_t>(c,v);},out); break;
+        case ValueType::Pointer: refNumericScan<uintptr_t>(buf,n,base,align,[&](uintptr_t v){return refIntFirst<uintptr_t>(c,v);},out); break;
+        case ValueType::Float:   refNumericScan<float>(buf,n,base,align,[&](float v){return refFloatFirst<float>(c,v);},out); break;
+        case ValueType::Double:  refNumericScan<double>(buf,n,base,align,[&](double v){return refFloatFirst<double>(c,v);},out); break;
+        case ValueType::String: {
+            const std::string& s = c.stringValue;
+            size_t nl = s.size();
+            if (nl == 0 || n < nl) break;
+            bool ci = !c.caseSensitive;
+            for (size_t off = 0; off + nl <= n; ++off) {
+                bool m = true;
+                for (size_t i = 0; i < nl; ++i) {
+                    uint8_t a = buf[off + i], b = (uint8_t)s[i];
+                    if (ci ? (std::tolower(a) != std::tolower(b)) : (a != b)) { m = false; break; }
+                }
+                if (m) out.push_back(base + off);
+            }
+            break;
+        }
+        case ValueType::ByteArray: {
+            const auto& pat = c.byteArray; const auto& mask = c.byteArrayMask;
+            size_t pl = pat.size();
+            if (pl == 0 || mask.size() != pl || n < pl) break;
+            for (size_t off = 0; off + pl <= n; ++off) {
+                bool m = true;
+                for (size_t j = 0; j < pl; ++j)
+                    if ((buf[off + j] & mask[j]) != (pat[j] & mask[j])) { m = false; break; }
+                if (m) out.push_back(base + off);
+            }
+            break;
+        }
+        default: break;
+    }
+    return out;  // offsets ascend → already sorted
+}
+
+// Collect a ScanResult's addresses (ascending) and remove its scratch dir.
+std::vector<uintptr_t> harvest(ScanResult& r) {
+    std::vector<uintptr_t> got;
+    got.reserve(r.count());
+    for (size_t i = 0; i < r.count(); ++i) got.push_back(r.address(i));
+    std::sort(got.begin(), got.end());
+    std::error_code ec;
+    std::filesystem::remove_all(r.directory().parent_path(), ec);
+    return got;
+}
+
+const char* cmpName(ScanCompare c) {
+    switch (c) {
+        case ScanCompare::Exact: return "exact"; case ScanCompare::Greater: return "greater";
+        case ScanCompare::Less: return "less"; case ScanCompare::Between: return "between";
+        case ScanCompare::Changed: return "changed"; case ScanCompare::Unchanged: return "unchanged";
+        case ScanCompare::Increased: return "increased"; case ScanCompare::Decreased: return "decreased";
+        case ScanCompare::IncreasedBy: return "increasedBy"; case ScanCompare::DecreasedBy: return "decreasedBy";
+        case ScanCompare::SameAsFirst: return "sameAsFirst"; default: return "?";
+    }
+}
+
+// Compare two address sets; on mismatch print repro detail (with FAILED to trip
+// the suite gate) and return false.
+bool sameSet(const char* what, uint64_t seed, const ScanConfig& c, int mode,
+             long chunkKb, const std::vector<uintptr_t>& expected,
+             const std::vector<uintptr_t>& got) {
+    if (expected == got) return true;
+    std::vector<uintptr_t> missing, extra;
+    std::set_difference(expected.begin(), expected.end(), got.begin(), got.end(),
+                        std::back_inserter(missing));
+    std::set_difference(got.begin(), got.end(), expected.begin(), expected.end(),
+                        std::back_inserter(extra));
+    printf("  DIFF %s seed=%llu vt=%d cmp=%s align=%zu round=%d dec=%d "
+           "mode=%d chunkKb=%ld exp=%zu got=%zu missing=%zu extra=%zu FAILED\n",
+           what, (unsigned long long)seed, (int)c.valueType, cmpName(c.compareType),
+           c.alignment, c.roundingType, c.floatDecimals, mode, chunkKb,
+           expected.size(), got.size(), missing.size(), extra.size());
+    for (size_t i = 0; i < missing.size() && i < 3; ++i)
+        printf("      missing addr offset=%#zx\n", (size_t)(missing[i]));
+    for (size_t i = 0; i < extra.size() && i < 3; ++i)
+        printf("      extra   addr offset=%#zx\n", (size_t)(extra[i]));
+    return false;
+}
+
+void test_scanner_differential() {
+    printf("\n── Test: Scanner differential + fuzz (SIMD paths vs reference) ──\n");
+
+    const size_t kMaxBuf = 512 * 1024;   // large enough to cross many tiny chunks
+    void* mem = mmap(nullptr, kMaxBuf, PROT_READ | PROT_WRITE,
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (mem == MAP_FAILED) { printf("  mmap: FAILED\n"); return; }
+    auto* buf = reinterpret_cast<uint8_t*>(mem);
+    auto base = reinterpret_cast<uintptr_t>(mem);
+
+    LinuxProcessHandle proc(getpid());
+    MemoryScanner scanner;
+
+    // SIMD modes to exercise: scalar + SSE2 always on x86_64, AVX2 if present.
+    std::vector<int> modes;
+#if defined(__x86_64__)
+    modes = {0, 1};
+    if (__builtin_cpu_supports("avx2")) modes.push_back(2);
+#else
+    modes = {0};
+#endif
+    const long chunkKbs[] = {4, 32, 0};  // 0 = leave scanner default
+
+    size_t checks = 0;
+    bool ok = true;
+
+    auto runFirst = [&](uint64_t seed, const ScanConfig& c, size_t n, int mode,
+                        long chunkKb) {
+        ScanConfig cfg = c;
+        cfg.startAddress = base;
+        cfg.stopAddress = base + n;
+        ScanResult r = scanner.firstScan(proc, cfg);
+        auto got = harvest(r);
+        auto exp = refFirstScan(buf, n, base, cfg);
+        ++checks;
+        if (!sameSet("first", seed, cfg, mode, chunkKb, exp, got)) ok = false;
+        return got;  // reused as the "previous" set for next-scan diffs
+    };
+
+    for (int mode : modes) {
+        ce::g_scanSimdOverride.store(mode, std::memory_order_relaxed);
+        for (long chunkKb : chunkKbs) {
+            if (chunkKb > 0) setenv("CE_SCAN_CHUNK_KB", std::to_string(chunkKb).c_str(), 1);
+            else unsetenv("CE_SCAN_CHUNK_KB");
+
+            for (int iter = 0; iter < 40; ++iter) {
+                uint64_t seed = 0xC0FFEEull * (mode + 1) + 7919ull * (chunkKb + 1) + iter * 2654435761ull;
+                Rng rng(seed);
+
+                // Occasionally a big buffer (crosses chunk boundaries under tiny
+                // chunkKb); mostly small/edge sizes.
+                size_t n = (iter % 8 == 0) ? (64 * 1024 + rng.range(kMaxBuf - 64 * 1024))
+                                           : (1 + rng.range(4096));
+                if (n > kMaxBuf) n = kMaxBuf;
+
+                // Fill with random bytes.
+                for (size_t i = 0; i < n; ++i) buf[i] = (uint8_t)rng.u32();
+
+                // Pick a value type + compare + alignment.
+                static const ValueType intTypes[] = {ValueType::Byte, ValueType::Int16,
+                    ValueType::Int32, ValueType::Int64, ValueType::Pointer};
+                int kind = (int)rng.range(9);
+                ScanConfig c;
+                bool isNextCandidate = false;
+
+                if (kind < 4) {  // integer scan (exact SIMD + relational scalar)
+                    c.valueType = intTypes[rng.range(5)];
+                    size_t ts = typeSize(c.valueType);
+                    ScanCompare cmps[] = {ScanCompare::Exact, ScanCompare::Greater,
+                                          ScanCompare::Less, ScanCompare::Between};
+                    c.compareType = cmps[rng.range(4)];
+                    size_t aligns[] = {ts, 1, 2};
+                    c.alignment = aligns[rng.range(3)];
+                    int64_t v = (int64_t)(int32_t)rng.u32();
+                    c.intValue = v;
+                    c.intValue2 = v + (int64_t)rng.range(2000) - 1000;
+                    // Plant exact needle + near neighbours at aligned offsets.
+                    for (int k = 0; k < 24 && (size_t)ts <= n; ++k) {
+                        size_t slot = rng.range((n - ts) / (c.alignment ? c.alignment : 1) + 1);
+                        size_t off = slot * (c.alignment ? c.alignment : 1);
+                        int64_t pv = v + (k % 3) - 1;  // v-1, v, v+1
+                        std::memcpy(buf + off, &pv, ts);
+                    }
+                    isNextCandidate = (c.compareType == ScanCompare::Exact);
+                } else if (kind < 7) {  // float / double (exact rounding modes + relational)
+                    bool dbl = rng.range(2);
+                    c.valueType = dbl ? ValueType::Double : ValueType::Float;
+                    size_t ts = typeSize(c.valueType);
+                    ScanCompare cmps[] = {ScanCompare::Exact, ScanCompare::Exact,
+                                          ScanCompare::Greater, ScanCompare::Less,
+                                          ScanCompare::Between};
+                    c.compareType = cmps[rng.range(5)];
+                    c.alignment = (rng.range(2) ? ts : 1);
+                    c.roundingType = (c.compareType == ScanCompare::Exact) ? (int)rng.range(4) : 0;
+                    if (c.roundingType == 1) c.floatDecimals = (rng.range(2) ? (int)rng.range(4) : -1);
+                    if (c.roundingType == 3) c.floatTolerance = 0.02 * (1 + rng.range(4));
+                    double needle = (double)((int)rng.range(400) - 200) + 0.5 * (int)rng.range(4);
+                    c.floatValue = needle;
+                    c.floatValue2 = needle + (double)rng.range(50);
+                    // Plant a spread straddling the rounded-match window and the
+                    // SIMD superset window edge (~needle ± 4).
+                    for (int k = -8; k <= 8 && (size_t)ts <= n; ++k) {
+                        size_t slot = rng.range((n - ts) / (c.alignment ? c.alignment : 1) + 1);
+                        size_t off = slot * (c.alignment ? c.alignment : 1);
+                        if (dbl) { double pv = needle + k * 0.6; std::memcpy(buf + off, &pv, 8); }
+                        else     { float  pv = (float)(needle + k * 0.6); std::memcpy(buf + off, &pv, 4); }
+                    }
+                    isNextCandidate = (c.compareType == ScanCompare::Exact && c.roundingType == 0);
+                } else if (kind == 7) {  // string (anchor SIMD, case sensitive + insensitive)
+                    c.valueType = ValueType::String;
+                    c.compareType = ScanCompare::Exact;
+                    c.caseSensitive = (rng.range(2) == 0);
+                    size_t sl = 1 + rng.range(6);
+                    std::string s;
+                    for (size_t i = 0; i < sl; ++i) s.push_back((char)('A' + (int)rng.range(26)));
+                    c.stringValue = s;
+                    for (int k = 0; k < 12 && s.size() <= n; ++k) {
+                        size_t off = rng.range(n - s.size() + 1);
+                        std::memcpy(buf + off, s.data(), s.size());
+                        // sometimes flip case of a planted copy to test insensitivity
+                        if (c.caseSensitive == false && (k & 1))
+                            for (size_t i = 0; i < s.size(); ++i)
+                                buf[off + i] = (uint8_t)std::tolower(buf[off + i]);
+                    }
+                } else {  // array-of-bytes with wildcard / nibble masks
+                    c.valueType = ValueType::ByteArray;
+                    c.compareType = ScanCompare::Exact;
+                    size_t pl = 1 + rng.range(6);
+                    c.byteArray.resize(pl);
+                    c.byteArrayMask.resize(pl);
+                    for (size_t i = 0; i < pl; ++i) {
+                        c.byteArray[i] = (uint8_t)rng.u32();
+                        uint8_t masks[] = {0xFF, 0xFF, 0x00, 0xF0, 0x0F};
+                        c.byteArrayMask[i] = masks[rng.range(5)];
+                    }
+                    for (int k = 0; k < 12 && pl <= n; ++k) {
+                        size_t off = rng.range(n - pl + 1);
+                        std::memcpy(buf + off, c.byteArray.data(), pl);
+                    }
+                }
+
+                auto prev = runFirst(seed, c, n, mode, chunkKb);
+
+                // Next-scan differential: only for exact numeric first scans, where
+                // the stored "previous" values are well-defined. Order matters:
+                // build a LIVE previous result on the planted bytes, snapshot them,
+                // mutate in place, then check nextScan narrows exactly as the
+                // reference predicts (old==first==snapshot, current==mutated).
+                if (isNextCandidate && !prev.empty()) {
+                    size_t ts = typeSize(c.valueType);
+
+                    ScanConfig fcfg = c;
+                    fcfg.startAddress = base; fcfg.stopAddress = base + n;
+                    ScanResult prevResult = scanner.firstScan(proc, fcfg); // stores old==first
+                    auto baseSet = refFirstScan(buf, n, base, fcfg);       // == planted bytes
+                    std::vector<uint8_t> snap(buf, buf + n);               // pre-mutation values
+
+                    // Mutate ~half the values in place; nextScan re-reads these.
+                    for (size_t i = 0; i + ts <= n; i += ts)
+                        if (rng.range(2)) {
+                            if (c.valueType == ValueType::Float) {
+                                float x; std::memcpy(&x, buf + i, 4);
+                                x += (float)((int)rng.range(7) - 3); std::memcpy(buf + i, &x, 4);
+                            } else if (c.valueType == ValueType::Double) {
+                                double x; std::memcpy(&x, buf + i, 8);
+                                x += (double)((int)rng.range(7) - 3); std::memcpy(buf + i, &x, 8);
+                            } else {
+                                for (size_t b = 0; b < ts; ++b) buf[i + b] ^= (uint8_t)rng.u32();
+                            }
+                        }
+
+                    ScanCompare nexts[] = {ScanCompare::Changed, ScanCompare::Unchanged,
+                        ScanCompare::Increased, ScanCompare::Decreased,
+                        ScanCompare::IncreasedBy, ScanCompare::DecreasedBy,
+                        ScanCompare::Greater, ScanCompare::Less, ScanCompare::Exact,
+                        ScanCompare::SameAsFirst};
+                    ScanConfig ncfg = c;                    // keeps needle in intValue for Exact
+                    ncfg.compareType = nexts[rng.range(10)];
+                    ncfg.startAddress = base; ncfg.stopAddress = base + n;
+                    ncfg.roundingType = 0;
+                    if (ncfg.compareType == ScanCompare::IncreasedBy ||
+                        ncfg.compareType == ScanCompare::DecreasedBy)
+                        ncfg.intValue = (int64_t)rng.range(7) - 3;
+
+                    // Reference: filter baseSet with current=mutated, old=first=snapshot.
+                    std::vector<uintptr_t> expNext;
+                    for (uintptr_t a : baseSet) {
+                        size_t off = a - base;
+                        auto pass = [&](auto tag) -> bool {
+                            using U = decltype(tag);
+                            U cur{}, old{};
+                            std::memcpy(&cur, buf + off, sizeof(U));
+                            std::memcpy(&old, snap.data() + off, sizeof(U));
+                            return refNumNext<U>(ncfg, cur, old, /*first=*/old);
+                        };
+                        bool keep = false;
+                        switch (c.valueType) {
+                            case ValueType::Byte:    keep = pass((uint8_t)0); break;
+                            case ValueType::Int16:   keep = pass((int16_t)0); break;
+                            case ValueType::Int32:   keep = pass((int32_t)0); break;
+                            case ValueType::Int64:   keep = pass((int64_t)0); break;
+                            case ValueType::Pointer: keep = pass((uintptr_t)0); break;
+                            case ValueType::Float:   keep = pass((float)0); break;
+                            case ValueType::Double:  keep = pass((double)0); break;
+                            default: break;
+                        }
+                        if (keep) expNext.push_back(a);
+                    }
+                    // baseSet ascends → expNext ascends.
+
+                    ScanResult next = scanner.nextScan(proc, ncfg, prevResult);
+                    auto gotNext = harvest(next);
+                    std::error_code ec2;
+                    std::filesystem::remove_all(prevResult.directory().parent_path(), ec2);
+                    ++checks;
+                    if (!sameSet("next", seed, ncfg, mode, chunkKb, expNext, gotNext)) ok = false;
+                }
+            }
+        }
+    }
+
+    ce::g_scanSimdOverride.store(-1, std::memory_order_relaxed);
+    unsetenv("CE_SCAN_CHUNK_KB");
+    munmap(mem, kMaxBuf);
+    printf("  %zu differential checks across %zu SIMD mode(s): %s\n",
+           checks, modes.size(), ok ? "OK" : "FAILED");
+}
+
+}  // namespace
+
 int main(int argc, char* argv[]) {
     if (getuid() != 0) {
         fprintf(stderr, "WARNING: Not running as root. Some operations may fail.\n");
@@ -8187,6 +8647,7 @@ int main(int argc, char* argv[]) {
     test_same_as_first_scan();
     test_pointer_type_scan();
     test_float_rounding_scan();
+    test_scanner_differential();
     test_lua_memscan_grouped_custom();
     test_process_enumeration();
     test_process_memory(targetPid);

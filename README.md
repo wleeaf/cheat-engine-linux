@@ -81,6 +81,14 @@ cescan lua <script.lua>|-e <code>    Run Lua (same API as the GUI console)
 
 Common scan options: `--type byte|i16|i32|i64|float|double|string|aob|…`, `--value`/`--value2`, `--compare exact|greater|less|between|changed|…`, `--rounding`, `--previous <dir>`, `--writable`.
 
+## Scripting & reverse engineering
+
+The Lua API (GUI console or `cescan lua`) also drives the static analysis stack:
+IL2CPP (Unity) class/field/method resolution, DWARF struct typing, PE
+export/import parsing, AOB signature generation, cross-references, and range
+disassembly. See **[docs/SCRIPTING.md](docs/SCRIPTING.md)** for the reference and
+runnable scripts in **[examples/](examples)**.
+
 ## Auto-assembler example
 
 ```asm

@@ -444,6 +444,8 @@ endif()
 if(CECORE_BUILD_TESTS)
     add_executable(cecore_test test/main.cpp)
     target_link_libraries(cecore_test PRIVATE cecore)
+    # So the example-scripts test can find the repo's examples/ directory.
+    target_compile_definitions(cecore_test PRIVATE CE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
     # When the Vulkan loader is available, the overlay-layer test creates a real
     # VkInstance with our explicit layer enabled and checks the layer's hook ran.

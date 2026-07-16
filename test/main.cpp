@@ -7600,6 +7600,28 @@ static void test_lua_code_analysis(pid_t pid) {
            err.empty() ? "OK" : ("FAILED: " + err).c_str());
 }
 
+// The shipped example scripts (examples/*.lua) double as an API-drift guard.
+// Each one guards the no-target case and returns cleanly, so running it with no
+// process attached must succeed: a Lua syntax slip or a renamed/removed binding
+// it names would surface here as a non-empty error. Keeps the docs honest.
+static void test_example_scripts() {
+    printf("\n── Test: shipped example scripts load & run ──\n");
+#ifdef CE_SOURCE_DIR
+    const char* names[] = {
+        "il2cpp_dump.lua", "il2cpp_hook.lua",
+        "reverse_engineer.lua", "native_struct.lua",
+    };
+    for (const char* n : names) {
+        std::string path = std::string(CE_SOURCE_DIR) + "/examples/" + n;
+        LuaEngine lua;
+        auto err = lua.executeFile(path);
+        printf("  %-22s %s\n", n, err.empty() ? "OK" : ("FAILED: " + err).c_str());
+    }
+#else
+    printf("  (skipped: CE_SOURCE_DIR not defined)\n");
+#endif
+}
+
 // executeCode Lua binding: allocate a stub that writes a sentinel and returns,
 // then run it on a new thread in the target via executeCode and confirm the
 // sentinel landed (i.e. the target actually executed our code).
@@ -9491,6 +9513,7 @@ int main(int argc, char* argv[]) {
     test_lua_process_bindings(targetPid);
     test_lua_executecode(targetPid);
     test_lua_code_analysis(targetPid);
+    test_example_scripts();
     test_lua_memscan();
     test_binary_scan_bitmask();
     test_between_numeric_scan();

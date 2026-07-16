@@ -30,6 +30,7 @@ struct Il2CppResolvedField {
     int32_t     offset = 0;
     bool        isStatic = false;
     bool        isConst = false;   // literal; has no storage
+    uint8_t     typeEnum = 0;      // Il2CppTypeEnum (I4=8, R4=0xC, CLASS=0x12, ...)
 };
 
 struct Il2CppClassLayout {
@@ -66,5 +67,15 @@ std::string findGameAssemblyPath(const std::vector<std::string>& mappedPaths);
 /// class layout with field offsets. Shared by the Lua binding and the GUI so both
 /// go through one code path. On failure returns `{ok=false, error=...}`.
 Il2CppBinaryLayout resolveIl2CppForProcess(ProcessHandle& proc);
+
+/// Map an Il2CppTypeEnum (Il2CppResolvedField::typeEnum) to our ValueType for
+/// display/scan: integers by width, R4/R8 to Float/Double, String to String, and
+/// every reference/pointer kind (CLASS, OBJECT, STRING pointer, SZARRAY, PTR, I/U)
+/// to Pointer. An embedded VALUETYPE (a struct field) maps to ByteArray.
+ValueType il2cppTypeEnumToValueType(uint8_t typeEnum);
+
+/// Byte width of a field of the given Il2CppTypeEnum (0 = unknown / caller should
+/// infer from the offset gap, e.g. an embedded value type).
+size_t il2cppTypeEnumSize(uint8_t typeEnum);
 
 } // namespace ce

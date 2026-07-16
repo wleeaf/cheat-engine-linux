@@ -5094,6 +5094,19 @@ static void test_il2cpp_real_file() {
             v3ok = off("x") == 0x10 && off("y") == 0x14 && off("z") == 0x18;
         }
         printf("  Vector3 x/y/z resolve to 0x10/0x14/0x18: %s\n", v3ok ? "OK" : "FAILED");
+
+        // Managed typing: Vector3's x/y/z should type as Float (Il2CppTypeEnum R4).
+        bool typeOk = false;
+        if (v3) {
+            auto def = ce::il2cppClassToStructure(*v3);
+            auto isFloat = [&](const char* n) {
+                for (const auto& f : def.fields)
+                    if (f.name == n) return f.type == ce::ValueType::Float && f.size == 4;
+                return false;
+            };
+            typeOk = isFloat("x") && isFloat("y") && isFloat("z");
+        }
+        printf("  Vector3 fields type as float: %s\n", typeOk ? "OK" : "FAILED");
     }
 }
 
@@ -5199,6 +5212,40 @@ static void test_il2cpp_binary_offsets() {
     auto bad = ce::resolveIl2CppLayout(*md, jp.string());
     fs::remove(jp, ec);
     printf("  non-il2cpp binary rejected cleanly: %s\n", (!bad.ok && !bad.error.empty()) ? "OK" : "FAILED");
+}
+
+// Managed structure typing (#21): turn a resolved IL2CPP class layout into a
+// structure-dissector definition, typed from each field's Il2CppTypeEnum, with
+// statics/consts dropped. Pure unit test on a hand-built layout (no game file).
+static void test_il2cpp_structure_typing() {
+    printf("\n── Test: IL2CPP managed structure typing ──\n");
+    ce::Il2CppClassLayout cls;
+    cls.namespaceName = "Game"; cls.name = "Player";
+    cls.fields.push_back({"health", 0x10, false, false, 0x08});  // I4 -> Int32
+    cls.fields.push_back({"speed",  0x14, false, false, 0x0C});  // R4 -> Float
+    cls.fields.push_back({"target", 0x18, false, false, 0x12});  // CLASS -> Pointer
+    cls.fields.push_back({"maxHp",  0x00, true,  false, 0x08});  // static -> skipped
+    cls.fields.push_back({"kName",  0x00, false, true,  0x0E});  // const  -> skipped
+
+    auto def = ce::il2cppClassToStructure(cls);
+    bool ok = def.name == "Game.Player" && def.fields.size() == 3 &&
+        def.fields[0].name == "health" && def.fields[0].offset == 0x10 &&
+        def.fields[0].type == ce::ValueType::Int32 && def.fields[0].size == 4 &&
+        def.fields[1].name == "speed" && def.fields[1].type == ce::ValueType::Float &&
+        def.fields[2].name == "target" && def.fields[2].type == ce::ValueType::Pointer &&
+        def.fields[2].size == 8 &&
+        def.size == 0x18 + 8;
+
+    bool mapOk =
+        ce::il2cppTypeEnumToValueType(0x02) == ce::ValueType::Byte &&   // Boolean
+        ce::il2cppTypeEnumToValueType(0x08) == ce::ValueType::Int32 &&  // I4
+        ce::il2cppTypeEnumToValueType(0x0A) == ce::ValueType::Int64 &&  // I8
+        ce::il2cppTypeEnumToValueType(0x0C) == ce::ValueType::Float &&  // R4
+        ce::il2cppTypeEnumToValueType(0x0D) == ce::ValueType::Double && // R8
+        ce::il2cppTypeEnumToValueType(0x12) == ce::ValueType::Pointer;  // CLASS
+
+    printf("  class layout -> typed structure (statics/consts skipped): %s\n", ok ? "OK" : "FAILED");
+    printf("  Il2CppTypeEnum -> ValueType mapping: %s\n", mapOk ? "OK" : "FAILED");
 }
 
 // generateInjectionScript reads code at an address, disassembles whole
@@ -9061,6 +9108,7 @@ int main(int argc, char* argv[]) {
     test_il2cpp_locate();
     test_il2cpp_real_file();
     test_il2cpp_binary_offsets();
+    test_il2cpp_structure_typing();
     test_injection_script_generation();
     test_structure_tools();
     test_lua_memrec();

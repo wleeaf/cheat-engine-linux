@@ -25,6 +25,7 @@ private slots:
     void onContextMenu(const QPoint& pos);
     void onSaveDefinition();
     void onLoadDefinition();
+    void onTypeAsIl2Cpp();
 
 private:
     void populateTable();

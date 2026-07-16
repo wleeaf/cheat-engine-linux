@@ -394,4 +394,37 @@ std::string formatStructureFieldValue(const StructureField& field,
     return out.str();
 }
 
+StructureDefinition il2cppClassToStructure(const Il2CppClassLayout& cls) {
+    StructureDefinition def;
+    def.name = cls.fullName();
+
+    struct F { std::string name; size_t offset; uint8_t typeEnum; };
+    std::vector<F> insts;
+    insts.reserve(cls.fields.size());
+    for (const auto& f : cls.fields)
+        if (!f.isStatic && !f.isConst)
+            insts.push_back({f.name, static_cast<size_t>(f.offset < 0 ? 0 : f.offset), f.typeEnum});
+    std::sort(insts.begin(), insts.end(), [](const F& a, const F& b) { return a.offset < b.offset; });
+
+    for (size_t i = 0; i < insts.size(); ++i) {
+        StructureField sf;
+        sf.name = insts[i].name;
+        sf.offset = insts[i].offset;
+        sf.type = il2cppTypeEnumToValueType(insts[i].typeEnum);
+        size_t sz = il2cppTypeEnumSize(insts[i].typeEnum);
+        if (sz == 0) {
+            // Embedded value type: width = gap to the next field (>= 4 as a floor).
+            size_t next = (i + 1 < insts.size()) ? insts[i + 1].offset : sf.offset + 4;
+            sz = next > sf.offset ? next - sf.offset : 4;
+        }
+        sf.size = sz;
+        def.fields.push_back(std::move(sf));
+    }
+    if (!def.fields.empty()) {
+        const auto& last = def.fields.back();
+        def.size = last.offset + last.size;
+    }
+    return def;
+}
+
 } // namespace ce

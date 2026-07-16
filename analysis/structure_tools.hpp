@@ -3,6 +3,7 @@
 
 #include "core/ct_file.hpp"
 #include "platform/process_api.hpp"
+#include "analysis/il2cpp_binary.hpp"
 
 #include <optional>
 #include <string>
@@ -54,5 +55,15 @@ std::vector<StructurePointerChain> followStructurePointers(ProcessHandle& proc,
     size_t maxDepth = 2);
 std::string formatStructureFieldValue(const StructureField& field,
     const std::vector<uint8_t>& snapshot);
+
+/// Build a structure-dissector definition from a resolved IL2CPP class layout:
+/// one field per INSTANCE field (statics/consts skipped), at its object offset,
+/// typed from its Il2CppTypeEnum. This is the managed-typing path for the
+/// dissector (roadmap #21): instead of guessing field boundaries from byte diffs,
+/// a Unity target's real class layout labels the struct. Embedded value-type
+/// fields (unknown fixed width) take their size from the gap to the next field;
+/// the structure size is the end of the last field. Only the class's OWN declared
+/// fields are included (IL2CPP metadata does not repeat inherited fields).
+StructureDefinition il2cppClassToStructure(const Il2CppClassLayout& cls);
 
 } // namespace ce

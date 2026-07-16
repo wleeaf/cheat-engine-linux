@@ -88,6 +88,11 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
     auto* cppBtn = new QPushButton("Copy as C++");
     connect(cppBtn, &QPushButton::clicked, this, &StructureDissector::onCopyAsCpp);
     addrRow->addWidget(cppBtn);
+    auto* il2cppBtn = new QPushButton("Type as IL2CPP…");
+    il2cppBtn->setToolTip("Label these bytes with a Unity IL2CPP class's fields "
+                          "(names + offsets from global-metadata.dat + GameAssembly)");
+    connect(il2cppBtn, &QPushButton::clicked, this, &StructureDissector::onTypeAsIl2Cpp);
+    addrRow->addWidget(il2cppBtn);
     layout->addLayout(addrRow);
 
     // Table
@@ -273,6 +278,44 @@ void StructureDissector::onLoadDefinition() {
     }
     int sz = root["size"].toInt(structSize_);
     if (sz >= 8 && sz <= 8192) { structSize_ = (sz / 8) * 8; sizeSpin_->setValue(structSize_); }
+    if (baseAddr_) populateTable();
+}
+
+void StructureDissector::onTypeAsIl2Cpp() {
+    if (!proc_) { QMessageBox::information(this, "IL2CPP", "No target process."); return; }
+    bool ok = false;
+    QString cls = QInputDialog::getText(this, "Type as IL2CPP class",
+        "Class name (e.g. UnityEngine.Vector3 or Player):", QLineEdit::Normal, "", &ok);
+    if (!ok || cls.trimmed().isEmpty()) return;
+
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    auto layout = ce::resolveIl2CppForProcess(*proc_);
+    QApplication::restoreOverrideCursor();
+    if (!layout.ok) {
+        QMessageBox::warning(this, "IL2CPP", QString::fromStdString(layout.error));
+        return;
+    }
+    const std::string want = cls.trimmed().toStdString();
+    const ce::Il2CppClassLayout* found = nullptr;
+    for (const auto& c : layout.classes) if (c.fullName() == want) { found = &c; break; }
+    if (!found)
+        for (const auto& c : layout.classes) if (c.name == want) { found = &c; break; }
+    if (!found) {
+        QMessageBox::warning(this, "IL2CPP", "Class not found: " + cls);
+        return;
+    }
+
+    // Lay the class's instance fields over the struct: names at their offsets,
+    // size from the class. Copy-as-C++ / Save capture the full field set; the live
+    // 8-byte-row view labels the fields that land on a row start.
+    ce::StructureDefinition def = ce::il2cppClassToStructure(*found);
+    fieldNames_.clear();
+    for (const auto& f : def.fields)
+        fieldNames_[static_cast<int>(f.offset)] = QString::fromStdString(f.name);
+    if (def.size > 0) {
+        structSize_ = std::max(8, (static_cast<int>(def.size) + 7) / 8 * 8);
+        if (sizeSpin_) sizeSpin_->setValue(structSize_);
+    }
     if (baseAddr_) populateTable();
 }
 

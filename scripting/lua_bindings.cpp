@@ -2697,6 +2697,89 @@ static int l_getIl2CppClassLayout(lua_State* L) {
     return 1;
 }
 
+static const char* valueTypeShortName(ce::ValueType t) {
+    switch (t) {
+        case ce::ValueType::Byte:    return "byte";
+        case ce::ValueType::Int16:   return "int16";
+        case ce::ValueType::Int32:   return "int32";
+        case ce::ValueType::Int64:   return "int64";
+        case ce::ValueType::Float:   return "float";
+        case ce::ValueType::Double:  return "double";
+        case ce::ValueType::String:  return "string";
+        case ce::ValueType::Pointer: return "pointer";
+        case ce::ValueType::ByteArray: return "aob";
+        default: return "int32";
+    }
+}
+
+// getIl2CppStructure(className [, metadataPath [, binaryPath]]) -> table|nil,err
+// The managed-typed structure layout for one class: { name, size, fields = {
+//   {name, offset, size, type=<ValueType int>, typeName=<"int32"/"float"/...>} } }.
+// Instance fields only, each typed from its Il2CppTypeEnum, so a script can lay a
+// Unity class over an object address (base+offset) with real names + types. Uses
+// the open process (auto-locate) or explicit metadata/binary paths.
+static int l_getIl2CppStructure(lua_State* L) {
+    std::string className, metaPath, binPath;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) className = luaL_checkstring(L, 1);
+    if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) metaPath = luaL_checkstring(L, 2);
+    if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) binPath = luaL_checkstring(L, 3);
+    if (className.empty()) { lua_pushnil(L); lua_pushstring(L, "class name required"); return 2; }
+
+    ce::Il2CppBinaryLayout layout;
+    if (!metaPath.empty()) {
+        std::ifstream in(metaPath, std::ios::binary);
+        if (!in) { lua_pushnil(L); lua_pushstring(L, "cannot open metadata file"); return 2; }
+        std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)),
+                                 std::istreambuf_iterator<char>());
+        auto md = ce::parseIl2CppMetadata(buf.data(), buf.size());
+        if (!md) { lua_pushnil(L); lua_pushstring(L, "not a valid global-metadata.dat"); return 2; }
+        std::string ga = binPath;
+        if (ga.empty()) {
+            std::error_code ec;
+            std::filesystem::path root = std::filesystem::path(metaPath)
+                .parent_path().parent_path().parent_path().parent_path();
+            for (const char* n : {"GameAssembly.so", "GameAssembly.dll", "libil2cpp.so"}) {
+                std::filesystem::path c = root / n;
+                if (std::filesystem::is_regular_file(c, ec)) { ga = c.string(); break; }
+            }
+        }
+        if (ga.empty()) { lua_pushnil(L); lua_pushstring(L, "GameAssembly binary not found; pass one explicitly"); return 2; }
+        layout = ce::resolveIl2CppLayout(*md, ga);
+    } else {
+        auto* p = getProc(L);
+        if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process and no metadata path"); return 2; }
+        layout = ce::resolveIl2CppForProcess(*p);
+    }
+    if (!layout.ok) { lua_pushnil(L); lua_pushstring(L, layout.error.c_str()); return 2; }
+
+    // Prefer an exact full-name match; fall back to a bare class-name match.
+    const ce::Il2CppClassLayout* found = nullptr;
+    for (const auto& c : layout.classes)
+        if (c.fullName() == className) { found = &c; break; }
+    if (!found)
+        for (const auto& c : layout.classes)
+            if (c.name == className) { found = &c; break; }
+    if (!found) { lua_pushnil(L); lua_pushstring(L, "class not found"); return 2; }
+
+    ce::StructureDefinition def = ce::il2cppClassToStructure(*found);
+    lua_newtable(L);
+    lua_pushstring(L, def.name.c_str());          lua_setfield(L, -2, "name");
+    lua_pushinteger(L, (lua_Integer)def.size);    lua_setfield(L, -2, "size");
+    lua_newtable(L);   // fields
+    int fi = 1;
+    for (const auto& f : def.fields) {
+        lua_newtable(L);
+        lua_pushstring(L, f.name.c_str());              lua_setfield(L, -2, "name");
+        lua_pushinteger(L, (lua_Integer)f.offset);      lua_setfield(L, -2, "offset");
+        lua_pushinteger(L, (lua_Integer)f.size);        lua_setfield(L, -2, "size");
+        lua_pushinteger(L, (lua_Integer)f.type);        lua_setfield(L, -2, "type");
+        lua_pushstring(L, valueTypeShortName(f.type));  lua_setfield(L, -2, "typeName");
+        lua_rawseti(L, -2, fi++);
+    }
+    lua_setfield(L, -2, "fields");
+    return 1;
+}
+
 // ── Pointer scanner ──
 // pointerScan(target [, maxDepth [, maxOffset [, {negativeOffsets,staticOnly,alignedOnly}]]])
 //   -> array of { path, module, baseOffset, moduleBase, offsets={...} }
@@ -4112,6 +4195,7 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "getIl2CppMetadataPath", l_getIl2CppMetadataPath);
     lua_register(L, "getIl2CppClasses", l_getIl2CppClasses);
     lua_register(L, "getIl2CppClassLayout", l_getIl2CppClassLayout);
+    lua_register(L, "getIl2CppStructure", l_getIl2CppStructure);
     lua_register(L, "createSimpleHook", l_createSimpleHook);
     lua_register(L, "removeSimpleHook", l_removeSimpleHook);
     lua_register(L, "pointerScan", l_pointerScan);

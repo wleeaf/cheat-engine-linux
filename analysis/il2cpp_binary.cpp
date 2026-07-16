@@ -189,13 +189,13 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
     int32_t typesCount = static_cast<int32_t>(img.u32(*mr + kMR_typesCount));
     if (typesCount < 0) typesCount = 0;
 
-    // Read each field's static/instance/const kind from its Il2CppType.attrs.
-    auto fieldAttrs = [&](int32_t typeIndex) -> uint16_t {
-        if (typeIndex < 0 || typeIndex >= typesCount) return 0;
+    // Read a field's Il2CppType word: low16 = C# attrs, bits16-23 = type enum.
+    auto fieldAttrs = [&](int32_t typeIndex) -> uint32_t {
+        if (typeIndex < 0 || typeIndex >= typesCount) return 0u;
         auto tp = img.readPtrVA(typesVA + static_cast<uint64_t>(typeIndex) * 8);
-        if (!tp) return 0;
+        if (!tp) return 0u;
         auto a = img.readU32VA(*tp + kType_attrs);
-        return a ? static_cast<uint16_t>(*a & 0xFFFF) : 0;
+        return a ? *a : 0u;   // low16 = C# field attrs; bits16-23 = Il2CppTypeEnum
     };
 
     // Map a global type index to its owning image name.
@@ -219,9 +219,11 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
         for (size_t i = 0; i < mt.fields.size(); ++i) {
             Il2CppResolvedField rf;
             rf.name = mt.fields[i].name;
-            uint16_t attrs = fieldAttrs(mt.fields[i].typeIndex);
+            uint32_t typeWord = fieldAttrs(mt.fields[i].typeIndex);
+            uint16_t attrs = static_cast<uint16_t>(typeWord & 0xFFFF);
             rf.isStatic = (attrs & kFIELD_STATIC) != 0;
             rf.isConst = (attrs & kFIELD_LITERAL) != 0;
+            rf.typeEnum = static_cast<uint8_t>((typeWord >> 16) & 0xFF);  // Il2CppTypeEnum
             if (entryVA && *entryVA != 0) {
                 if (auto o = img.readI32VA(*entryVA + i * 4)) rf.offset = *o;
             }
@@ -232,6 +234,46 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
 
     out.ok = true;
     return out;
+}
+
+// Il2CppTypeEnum constants (subset we classify; the rest fall to Pointer).
+namespace {
+enum : uint8_t {
+    IL2CPP_TYPE_BOOLEAN = 0x02, IL2CPP_TYPE_CHAR = 0x03,
+    IL2CPP_TYPE_I1 = 0x04, IL2CPP_TYPE_U1 = 0x05,
+    IL2CPP_TYPE_I2 = 0x06, IL2CPP_TYPE_U2 = 0x07,
+    IL2CPP_TYPE_I4 = 0x08, IL2CPP_TYPE_U4 = 0x09,
+    IL2CPP_TYPE_I8 = 0x0A, IL2CPP_TYPE_U8 = 0x0B,
+    IL2CPP_TYPE_R4 = 0x0C, IL2CPP_TYPE_R8 = 0x0D,
+    IL2CPP_TYPE_STRING = 0x0E, IL2CPP_TYPE_VALUETYPE = 0x11,
+    IL2CPP_TYPE_I = 0x18, IL2CPP_TYPE_U = 0x19,
+};
+}
+
+ValueType il2cppTypeEnumToValueType(uint8_t e) {
+    switch (e) {
+        case IL2CPP_TYPE_BOOLEAN: case IL2CPP_TYPE_I1: case IL2CPP_TYPE_U1: return ValueType::Byte;
+        case IL2CPP_TYPE_CHAR: case IL2CPP_TYPE_I2: case IL2CPP_TYPE_U2:    return ValueType::Int16;
+        case IL2CPP_TYPE_I4: case IL2CPP_TYPE_U4:                           return ValueType::Int32;
+        case IL2CPP_TYPE_I8: case IL2CPP_TYPE_U8:                           return ValueType::Int64;
+        case IL2CPP_TYPE_R4:                                               return ValueType::Float;
+        case IL2CPP_TYPE_R8:                                               return ValueType::Double;
+        case IL2CPP_TYPE_STRING:                                          return ValueType::Pointer;  // string ref
+        case IL2CPP_TYPE_VALUETYPE:                                        return ValueType::ByteArray; // embedded
+        case IL2CPP_TYPE_I: case IL2CPP_TYPE_U:                            return ValueType::Pointer;
+        default:                                                          return ValueType::Pointer;  // CLASS/OBJECT/ARRAY/PTR/...
+    }
+}
+
+size_t il2cppTypeEnumSize(uint8_t e) {
+    switch (e) {
+        case IL2CPP_TYPE_BOOLEAN: case IL2CPP_TYPE_I1: case IL2CPP_TYPE_U1: return 1;
+        case IL2CPP_TYPE_CHAR: case IL2CPP_TYPE_I2: case IL2CPP_TYPE_U2:    return 2;
+        case IL2CPP_TYPE_I4: case IL2CPP_TYPE_U4: case IL2CPP_TYPE_R4:      return 4;
+        case IL2CPP_TYPE_I8: case IL2CPP_TYPE_U8: case IL2CPP_TYPE_R8:      return 8;
+        case IL2CPP_TYPE_VALUETYPE:                                        return 0;  // infer from gap
+        default:                                                          return 8;  // pointer-sized ref
+    }
 }
 
 std::string findGameAssemblyPath(const std::vector<std::string>& mappedPaths) {

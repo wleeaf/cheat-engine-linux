@@ -342,8 +342,18 @@ routing both the disassembler and Lua through it closes many at once.
     snapshots; the two-snapshot detector is now the N=2 case that delegates to
     it), and `gui/structuredissector.cpp` accepts a comma/space-separated list of
     compare addresses, highlighting rows that differ from the base in any
-    instance. *Remaining:* RTTI/managed class-name typing, which depends on #10.
-    **[M]**
+    instance. *Managed typing DONE (via #10):* the IL2CPP resolver now also reads
+    each field's Il2CppTypeEnum (bits 16-23 of the Il2CppType word already read for
+    attrs), `il2cppTypeEnumToValueType` maps it to a ValueType, and
+    `structure_tools::il2cppClassToStructure` turns a resolved class into a
+    StructureDefinition (instance fields, typed, statics/consts dropped, embedded
+    value-type widths inferred from the offset gap). Surfaced as Lua
+    `getIl2CppStructure(class[, md[, bin]])` and a "Type as IL2CPP..." button in the
+    structure dissector (labels the bytes with the class's fields; Copy-as-C++ /
+    Save capture the full typed set). Validated against a real game
+    (UnityEngine.Vector3/Quaternion x/y/z(/w) -> float at 0x10..). *Remaining:*
+    native-C++ RTTI (vtable -> typeinfo) typing, and merging inherited base-class
+    fields (IL2CPP metadata lists only a type's own fields). **[M]**
 22. **Cheat table: embed Form Designer forms + custom types.** No `<Forms>`
     handling; the Form Designer saves standalone `.json` instead of into the
     `.CT`, so full trainers don't round-trip. **[S-M]**

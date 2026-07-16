@@ -26,6 +26,7 @@ private slots:
     void onSaveDefinition();
     void onLoadDefinition();
     void onTypeAsIl2Cpp();
+    void onTypeAsCStruct();
 
 private:
     void populateTable();

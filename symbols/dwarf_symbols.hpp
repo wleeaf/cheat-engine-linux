@@ -30,6 +30,23 @@ struct DwarfSourceLocation {
     bool isStatement = true;
 };
 
+/// One member of a DWARF struct/union/class type.
+struct DwarfMember {
+    std::string name;
+    uint64_t    offset = 0;    // DW_AT_data_member_location (bytes from struct start)
+    std::string typeName;      // resolved, e.g. "int", "float", "Foo*", "char[16]"
+    uint64_t    size = 0;      // byte size of the member's type (0 if unknown)
+    bool        isFloat = false;
+    bool        isPointer = false;
+};
+
+/// A DWARF-described aggregate type (struct / union / class) and its members.
+struct DwarfStruct {
+    std::string name;
+    uint64_t    size = 0;      // DW_AT_byte_size
+    std::vector<DwarfMember> members;
+};
+
 class DwarfInfo {
 public:
     DwarfInfo();
@@ -55,6 +72,13 @@ public:
     /// Return the function (DW_TAG_subprogram) name covering the given
     /// runtime address, if any. Inline functions get the innermost name.
     std::optional<std::string> functionName(uintptr_t runtimeAddress) const;
+
+    /// Names of every named struct/union/class type in the debug info (deduped).
+    std::vector<std::string> structNames() const;
+
+    /// Resolve a struct/union/class type by name to its members (name, offset,
+    /// resolved type name + size). Returns nullopt if no such type is described.
+    std::optional<DwarfStruct> structByName(const std::string& name) const;
 
     /// Drop loaded debug info.
     void close();
@@ -82,6 +106,11 @@ public:
 
     std::optional<DwarfSourceLocation> lookup(uintptr_t runtimeAddress) const;
     std::optional<std::string> functionName(uintptr_t runtimeAddress) const;
+
+    /// Struct/union/class type names across all loaded modules (deduped).
+    std::vector<std::string> structNames() const;
+    /// Resolve a struct by name across all loaded modules (first match).
+    std::optional<DwarfStruct> structByName(const std::string& name) const;
 
     void clear();
 

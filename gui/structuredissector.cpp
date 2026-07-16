@@ -93,6 +93,10 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
                           "(names + offsets from global-metadata.dat + GameAssembly)");
     connect(il2cppBtn, &QPushButton::clicked, this, &StructureDissector::onTypeAsIl2Cpp);
     addrRow->addWidget(il2cppBtn);
+    auto* cstructBtn = new QPushButton("Type as C struct…");
+    cstructBtn->setToolTip("Label these bytes with a native struct from the target's DWARF debug info");
+    connect(cstructBtn, &QPushButton::clicked, this, &StructureDissector::onTypeAsCStruct);
+    addrRow->addWidget(cstructBtn);
     layout->addLayout(addrRow);
 
     // Table
@@ -309,6 +313,37 @@ void StructureDissector::onTypeAsIl2Cpp() {
     // size from the class. Copy-as-C++ / Save capture the full field set; the live
     // 8-byte-row view labels the fields that land on a row start.
     ce::StructureDefinition def = ce::il2cppClassToStructure(*found);
+    fieldNames_.clear();
+    for (const auto& f : def.fields)
+        fieldNames_[static_cast<int>(f.offset)] = QString::fromStdString(f.name);
+    if (def.size > 0) {
+        structSize_ = std::max(8, (static_cast<int>(def.size) + 7) / 8 * 8);
+        if (sizeSpin_) sizeSpin_->setValue(structSize_);
+    }
+    if (baseAddr_) populateTable();
+}
+
+void StructureDissector::onTypeAsCStruct() {
+    if (!proc_) { QMessageBox::information(this, "DWARF", "No target process."); return; }
+    if (!ce::DwarfInfo::available()) {
+        QMessageBox::information(this, "DWARF", "This build has no libdw (DWARF) support.");
+        return;
+    }
+    bool ok = false;
+    QString name = QInputDialog::getText(this, "Type as C struct",
+        "Struct name (from the target's debug info):", QLineEdit::Normal, "", &ok);
+    if (!ok || name.trimmed().isEmpty()) return;
+
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    ce::DwarfRegistry reg;
+    reg.loadFromProcess(*proc_);
+    auto st = reg.structByName(name.trimmed().toStdString());
+    QApplication::restoreOverrideCursor();
+    if (!st) {
+        QMessageBox::warning(this, "DWARF", "Struct not found (needs debug info): " + name);
+        return;
+    }
+    ce::StructureDefinition def = ce::dwarfStructToStructure(*st);
     fieldNames_.clear();
     for (const auto& f : def.fields)
         fieldNames_[static_cast<int>(f.offset)] = QString::fromStdString(f.name);

@@ -14,6 +14,9 @@
 #include "symbols/dwarf_symbols.hpp"
 #include "platform/process_api.hpp"
 
+#include <functional>
+#include <set>
+
 #ifdef CECORE_HAVE_DWARF
 extern "C" {
 #include <elfutils/libdw.h>
@@ -167,6 +170,194 @@ std::optional<std::string> DwarfInfo::functionName(uintptr_t runtimeAddress) con
     return std::nullopt;
 }
 
+// ── Type description (structs / members) ──
+
+// Resolve a type DIE to a readable name and, via out params, its byte size and
+// whether it is a float / pointer. Follows typedef/const/volatile and pointer
+// chains; bounded by kMaxDwarfDepth against hostile debug info.
+static std::string dwarfTypeName(Dwarf_Die* type, uint64_t& sizeOut,
+                                 bool& isFloat, bool& isPointer, int depth = 0) {
+    if (!type || depth >= kMaxDwarfDepth) return "?";
+    int tag = dwarf_tag(type);
+
+    auto followType = [&](Dwarf_Die* out) -> bool {
+        Dwarf_Attribute at;
+        if (!dwarf_attr_integrate(type, DW_AT_type, &at)) return false;
+        return dwarf_formref_die(&at, out) != nullptr;
+    };
+
+    switch (tag) {
+        case DW_TAG_base_type: {
+            const char* n = dwarf_diename(type);
+            Dwarf_Word bs = 0; Dwarf_Attribute a;
+            if (dwarf_attr_integrate(type, DW_AT_byte_size, &a) && dwarf_formudata(&a, &bs) == 0)
+                sizeOut = bs;
+            Dwarf_Word enc = 0;
+            if (dwarf_attr_integrate(type, DW_AT_encoding, &a) && dwarf_formudata(&a, &enc) == 0)
+                isFloat = (enc == DW_ATE_float);
+            return n ? n : "?";
+        }
+        case DW_TAG_pointer_type: {
+            isPointer = true;
+            sizeOut = 8;
+            Dwarf_Die inner;
+            if (followType(&inner)) {
+                uint64_t s2 = 0; bool f2 = false, p2 = false;
+                return dwarfTypeName(&inner, s2, f2, p2, depth + 1) + "*";
+            }
+            return "void*";
+        }
+        case DW_TAG_typedef: {
+            // Keep the typedef name for readability, but resolve size/flags from
+            // the underlying type.
+            const char* n = dwarf_diename(type);
+            Dwarf_Die inner;
+            if (followType(&inner)) {
+                std::string uname = dwarfTypeName(&inner, sizeOut, isFloat, isPointer, depth + 1);
+                return n ? n : uname;
+            }
+            return n ? n : "?";
+        }
+        case DW_TAG_const_type:
+        case DW_TAG_volatile_type:
+        case DW_TAG_restrict_type: {
+            Dwarf_Die inner;
+            if (followType(&inner))
+                return dwarfTypeName(&inner, sizeOut, isFloat, isPointer, depth + 1);
+            return "void";
+        }
+        case DW_TAG_structure_type:
+        case DW_TAG_class_type:
+        case DW_TAG_union_type:
+        case DW_TAG_enumeration_type: {
+            Dwarf_Word bs = 0; Dwarf_Attribute a;
+            if (dwarf_attr_integrate(type, DW_AT_byte_size, &a) && dwarf_formudata(&a, &bs) == 0)
+                sizeOut = bs;
+            const char* n = dwarf_diename(type);
+            const char* kw = (tag == DW_TAG_union_type) ? "union "
+                           : (tag == DW_TAG_enumeration_type) ? "enum " : "struct ";
+            return n ? (std::string(kw) + n) : (std::string(kw) + "<anon>");
+        }
+        case DW_TAG_array_type: {
+            Dwarf_Die elem;
+            std::string en = "?";
+            uint64_t elemSize = 0; bool f2 = false, p2 = false;
+            if (followType(&elem)) en = dwarfTypeName(&elem, elemSize, f2, p2, depth + 1);
+            // Array length via the DW_TAG_subrange_type child's upper bound + 1.
+            uint64_t count = 0;
+            Dwarf_Die sub;
+            if (dwarf_child(type, &sub) == 0) {
+                do {
+                    if (dwarf_tag(&sub) == DW_TAG_subrange_type) {
+                        Dwarf_Word ub = 0; Dwarf_Attribute a;
+                        if (dwarf_attr_integrate(&sub, DW_AT_upper_bound, &a) &&
+                            dwarf_formudata(&a, &ub) == 0)
+                            count = ub + 1;
+                        else if (dwarf_attr_integrate(&sub, DW_AT_count, &a) &&
+                                 dwarf_formudata(&a, &ub) == 0)
+                            count = ub;
+                        break;
+                    }
+                } while (dwarf_siblingof(&sub, &sub) == 0);
+            }
+            sizeOut = elemSize * count;
+            return en + "[" + (count ? std::to_string(count) : std::string()) + "]";
+        }
+        default: {
+            const char* n = dwarf_diename(type);
+            return n ? n : "?";
+        }
+    }
+}
+
+// Fill a DwarfStruct from a struct/union/class DIE (must already be the match).
+static void readStructMembers(Dwarf_Die* structDie, DwarfStruct& out) {
+    Dwarf_Word bs = 0; Dwarf_Attribute a;
+    if (dwarf_attr_integrate(structDie, DW_AT_byte_size, &a) && dwarf_formudata(&a, &bs) == 0)
+        out.size = bs;
+
+    Dwarf_Die child;
+    if (dwarf_child(structDie, &child) != 0) return;
+    do {
+        if (dwarf_tag(&child) != DW_TAG_member) continue;
+        DwarfMember m;
+        const char* n = dwarf_diename(&child);
+        m.name = n ? n : "";
+        Dwarf_Attribute at;
+        if (dwarf_attr_integrate(&child, DW_AT_data_member_location, &at)) {
+            Dwarf_Word off = 0;
+            if (dwarf_formudata(&at, &off) == 0) m.offset = off;
+        }
+        Dwarf_Die typeDie;
+        if (dwarf_attr_integrate(&child, DW_AT_type, &at) &&
+            dwarf_formref_die(&at, &typeDie) != nullptr) {
+            m.typeName = dwarfTypeName(&typeDie, m.size, m.isFloat, m.isPointer);
+        }
+        out.members.push_back(std::move(m));
+    } while (dwarf_siblingof(&child, &child) == 0);
+}
+
+// Walk a DIE subtree, invoking `visit` for each aggregate-type DIE. Bounded.
+static void walkAggregates(Dwarf_Die* parent,
+                           const std::function<void(Dwarf_Die*)>& visit, int depth = 0) {
+    if (depth >= kMaxDwarfDepth) return;
+    Dwarf_Die child;
+    if (dwarf_child(parent, &child) != 0) return;
+    do {
+        int tag = dwarf_tag(&child);
+        if (tag == DW_TAG_structure_type || tag == DW_TAG_class_type ||
+            tag == DW_TAG_union_type)
+            visit(&child);
+        // Types can nest (namespaces, nested classes); recurse.
+        walkAggregates(&child, visit, depth + 1);
+    } while (dwarf_siblingof(&child, &child) == 0);
+}
+
+// Iterate every compile unit's DIE tree, calling `visit` for each aggregate type.
+template <typename Fn>
+static void forEachAggregate(Dwarf* dwarf, Fn&& visit) {
+    Dwarf_Off off = 0, next = 0;
+    size_t hsize = 0;
+    Dwarf_Off abbrev = 0;
+    uint8_t addrsz = 0, offsz = 0;
+    std::function<void(Dwarf_Die*)> v = visit;
+    while (dwarf_nextcu(dwarf, off, &next, &hsize, &abbrev, &addrsz, &offsz) == 0) {
+        Dwarf_Die cu;
+        if (dwarf_offdie(dwarf, off + hsize, &cu) != nullptr)
+            walkAggregates(&cu, v);
+        off = next;
+    }
+}
+
+std::vector<std::string> DwarfInfo::structNames() const {
+    std::vector<std::string> names;
+    if (!impl_ || !impl_->dwarf) return names;
+    std::set<std::string> seen;
+    forEachAggregate(impl_->dwarf, [&](Dwarf_Die* d) {
+        const char* n = dwarf_diename(d);
+        if (n && *n && seen.insert(n).second) names.push_back(n);
+    });
+    return names;
+}
+
+std::optional<DwarfStruct> DwarfInfo::structByName(const std::string& name) const {
+    if (!impl_ || !impl_->dwarf) return std::nullopt;
+    std::optional<DwarfStruct> result;
+    forEachAggregate(impl_->dwarf, [&](Dwarf_Die* d) {
+        if (result) return;                        // first match wins
+        const char* n = dwarf_diename(d);
+        if (!n || name != n) return;
+        // Prefer a definition (has members) over a forward declaration.
+        Dwarf_Attribute a;
+        if (dwarf_attr_integrate(d, DW_AT_declaration, &a)) return;
+        DwarfStruct s;
+        s.name = n;
+        readStructMembers(d, s);
+        result = std::move(s);
+    });
+    return result;
+}
+
 #else // CECORE_HAVE_DWARF
 
 struct DwarfInfo::Impl { /* empty stub */ };
@@ -182,6 +373,8 @@ bool DwarfInfo::isLoaded() const { return false; }
 void DwarfInfo::close() {}
 std::optional<DwarfSourceLocation> DwarfInfo::lookup(uintptr_t) const { return std::nullopt; }
 std::optional<std::string>         DwarfInfo::functionName(uintptr_t) const { return std::nullopt; }
+std::vector<std::string>           DwarfInfo::structNames() const { return {}; }
+std::optional<DwarfStruct>         DwarfInfo::structByName(const std::string&) const { return std::nullopt; }
 
 #endif // CECORE_HAVE_DWARF
 
@@ -221,6 +414,21 @@ std::optional<std::string> DwarfRegistry::functionName(uintptr_t runtimeAddress)
             return m.info->functionName(runtimeAddress);
         }
     }
+    return std::nullopt;
+}
+
+std::vector<std::string> DwarfRegistry::structNames() const {
+    std::vector<std::string> all;
+    std::set<std::string> seen;
+    for (const auto& m : modules_)
+        for (auto& n : m.info->structNames())
+            if (seen.insert(n).second) all.push_back(std::move(n));
+    return all;
+}
+
+std::optional<DwarfStruct> DwarfRegistry::structByName(const std::string& name) const {
+    for (const auto& m : modules_)
+        if (auto s = m.info->structByName(name)) return s;
     return std::nullopt;
 }
 

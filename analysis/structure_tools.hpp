@@ -4,6 +4,7 @@
 #include "core/ct_file.hpp"
 #include "platform/process_api.hpp"
 #include "analysis/il2cpp_binary.hpp"
+#include "symbols/dwarf_symbols.hpp"
 
 #include <optional>
 #include <string>
@@ -65,5 +66,13 @@ std::string formatStructureFieldValue(const StructureField& field,
 /// the structure size is the end of the last field. Only the class's OWN declared
 /// fields are included (IL2CPP metadata does not repeat inherited fields).
 StructureDefinition il2cppClassToStructure(const Il2CppClassLayout& cls);
+
+/// Build a structure-dissector definition from a DWARF-described struct/union
+/// type (roadmap #20): one field per member at its `data_member_location`, typed
+/// from the member's resolved type (float/double, integers by width, pointers,
+/// and embedded aggregates/arrays as ByteArray sized from DWARF). This types a
+/// native C/C++ target's structs from its debug info, the RTTI/DWARF analog of
+/// il2cppClassToStructure.
+StructureDefinition dwarfStructToStructure(const DwarfStruct& s);
 
 } // namespace ce

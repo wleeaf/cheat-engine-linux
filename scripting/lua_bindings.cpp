@@ -9,6 +9,7 @@
 #include "analysis/mono_dissector.hpp"
 #include "analysis/il2cpp_metadata.hpp"
 #include "analysis/il2cpp_binary.hpp"
+#include "symbols/dwarf_symbols.hpp"
 #include "core/simple_hook.hpp"
 #include "analysis/structure_tools.hpp"
 #include "analysis/code_analysis.hpp"
@@ -2780,6 +2781,66 @@ static int l_getIl2CppStructure(lua_State* L) {
     return 1;
 }
 
+// getDwarfStructure(name [, elfPath]) -> { name, size, fields = { {name, offset,
+//   size, type=<ValueType int>, typeName} } } | nil, err
+// A native struct's layout from DWARF debug info: with an elfPath, reads that
+// binary; otherwise resolves against the open process's modules. The DWARF analog
+// of getIl2CppStructure.
+static int l_getDwarfStructure(lua_State* L) {
+    if (!ce::DwarfInfo::available()) { lua_pushnil(L); lua_pushstring(L, "built without libdw"); return 2; }
+    std::string name = luaL_checkstring(L, 1);
+    std::optional<ce::DwarfStruct> st;
+    if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) {
+        ce::DwarfInfo di;
+        if (!di.load(luaL_checkstring(L, 2), 0)) { lua_pushnil(L); lua_pushstring(L, "no DWARF in file"); return 2; }
+        st = di.structByName(name);
+    } else {
+        auto* p = getProc(L);
+        if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process and no elf path"); return 2; }
+        ce::DwarfRegistry reg; reg.loadFromProcess(*p);
+        st = reg.structByName(name);
+    }
+    if (!st) { lua_pushnil(L); lua_pushstring(L, "struct not found"); return 2; }
+
+    ce::StructureDefinition def = ce::dwarfStructToStructure(*st);
+    lua_newtable(L);
+    lua_pushstring(L, def.name.c_str());       lua_setfield(L, -2, "name");
+    lua_pushinteger(L, (lua_Integer)def.size); lua_setfield(L, -2, "size");
+    lua_newtable(L);
+    int fi = 1;
+    for (const auto& f : def.fields) {
+        lua_newtable(L);
+        lua_pushstring(L, f.name.c_str());              lua_setfield(L, -2, "name");
+        lua_pushinteger(L, (lua_Integer)f.offset);      lua_setfield(L, -2, "offset");
+        lua_pushinteger(L, (lua_Integer)f.size);        lua_setfield(L, -2, "size");
+        lua_pushinteger(L, (lua_Integer)f.type);        lua_setfield(L, -2, "type");
+        lua_pushstring(L, valueTypeShortName(f.type));  lua_setfield(L, -2, "typeName");
+        lua_rawseti(L, -2, fi++);
+    }
+    lua_setfield(L, -2, "fields");
+    return 1;
+}
+
+// listDwarfStructs([elfPath]) -> { "Name", ... } | nil, err
+static int l_listDwarfStructs(lua_State* L) {
+    if (!ce::DwarfInfo::available()) { lua_pushnil(L); lua_pushstring(L, "built without libdw"); return 2; }
+    std::vector<std::string> names;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) {
+        ce::DwarfInfo di;
+        if (di.load(luaL_checkstring(L, 1), 0)) names = di.structNames();
+    } else {
+        auto* p = getProc(L);
+        if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process and no elf path"); return 2; }
+        ce::DwarfRegistry reg; reg.loadFromProcess(*p); names = reg.structNames();
+    }
+    lua_newtable(L);
+    for (size_t i = 0; i < names.size(); ++i) {
+        lua_pushstring(L, names[i].c_str());
+        lua_rawseti(L, -2, (int)i + 1);
+    }
+    return 1;
+}
+
 // ── Pointer scanner ──
 // pointerScan(target [, maxDepth [, maxOffset [, {negativeOffsets,staticOnly,alignedOnly}]]])
 //   -> array of { path, module, baseOffset, moduleBase, offsets={...} }
@@ -4196,6 +4257,8 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "getIl2CppClasses", l_getIl2CppClasses);
     lua_register(L, "getIl2CppClassLayout", l_getIl2CppClassLayout);
     lua_register(L, "getIl2CppStructure", l_getIl2CppStructure);
+    lua_register(L, "getDwarfStructure", l_getDwarfStructure);
+    lua_register(L, "listDwarfStructs", l_listDwarfStructs);
     lua_register(L, "createSimpleHook", l_createSimpleHook);
     lua_register(L, "removeSimpleHook", l_removeSimpleHook);
     lua_register(L, "pointerScan", l_pointerScan);

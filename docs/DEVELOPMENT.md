@@ -332,10 +332,20 @@ routing both the disassembler and Lua through it closes many at once.
     also now parse `/proc` maps once (cached modules) instead of per path.
     `test_pointer_map_reuse` covers multi-target reuse == independent scans,
     resolve == dereference, save/load, and map rescans; ASan clean. **[M]**
-20. **Symbols: build-id / `.gnu_debuglink` / MiniDebugInfo + DWARF types.** No
-    separate-debug-file resolution (stripped libc/drivers/games show raw
-    addresses), and DWARF extraction is line-table + function names only (no
-    struct/member/variable types). **[M]**
+20. **Symbols: build-id / `.gnu_debuglink` / MiniDebugInfo + DWARF types.**
+    Build-id / `.gnu_debuglink` separate-debug resolution already shipped (P2, see
+    Progress). *DWARF TYPES now done:* `symbols/dwarf_symbols` gains
+    `structNames()` and `structByName()` (via libdw): it walks every CU's DIE tree
+    for DW_TAG_structure/union/class, reads each DW_TAG_member's name +
+    data_member_location, and resolves the member's type name / byte size / float
+    / pointer-ness through typedef/const/pointer/array chains.
+    `structure_tools::dwarfStructToStructure` maps that to a typed
+    StructureDefinition (the DWARF analog of `il2cppClassToStructure`), surfaced as
+    Lua `getDwarfStructure(name[, elfPath])` / `listDwarfStructs`, a
+    `DwarfRegistry::structByName` across a live process's modules, and a "Type as C
+    struct..." button in the dissector. Validated against a compiled `-g` binary
+    (struct Enemy -> hp int32@0, speed float@4, name char[16]@8, target ptr@0x18).
+    *Remaining:* global-variable DIEs (name/type/address) and full C++ RTTI. **[M]**
 21. **Structure dissector: multi-instance columns + RTTI/managed typing.**
     *Multi-instance done:* `analysis/structure_tools.cpp` gains
     `autoDetectStructureFieldsMulti` (flags the byte-runs that vary across N

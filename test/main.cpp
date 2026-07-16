@@ -2598,7 +2598,11 @@ static void test_dwarf_symbols() {
 
     // Lookup path: compile a tiny -g .so, resolve a function's address from its
     // symtab, and verify DWARF maps that address back to a source file + line.
-    const char* src = "int ceDwarfProbe(int x){\n  int y = x + 1;\n  return y;\n}\n";
+    // The struct + global exercise DWARF type extraction (roadmap #20).
+    const char* src =
+        "struct CeProbe { int a; float b; char c; long d; int* p; };\n"
+        "struct CeProbe ceProbeGlobal;\n"
+        "int ceDwarfProbe(int x){\n  ceProbeGlobal.a = x;\n  int y = x + 1;\n  return y;\n}\n";
     auto dir = std::filesystem::temp_directory_path();
     auto c  = dir / "ce_dwarf_test.c";
     auto so = dir / "libce_dwarf_test.so";
@@ -2616,6 +2620,37 @@ static void test_dwarf_symbols() {
                   loc->file.find("ce_dwarf_test") != std::string::npos;
         }
         printf("  DWARF address->source line lookup: %s\n", lok ? "OK" : "FAILED");
+
+        // DWARF struct type extraction + typed structure build (#20).
+        DwarfInfo dt;
+        if (dt.load(so.string(), 0)) {
+            auto names = dt.structNames();
+            bool listed = std::find(names.begin(), names.end(), "CeProbe") != names.end();
+            auto st = dt.structByName("CeProbe");
+            bool membersOk = false;
+            if (st) {
+                auto find = [&](const char* n) -> const ce::DwarfMember* {
+                    for (const auto& m : st->members) if (m.name == n) return &m;
+                    return nullptr;
+                };
+                const auto* a = find("a"); const auto* b = find("b"); const auto* p = find("p");
+                membersOk = st->size >= 24 &&
+                    a && a->typeName == "int" && a->size == 4 && !a->isFloat && !a->isPointer && a->offset == 0 &&
+                    b && b->isFloat && b->size == 4 && b->offset == 4 &&
+                    p && p->isPointer && p->typeName == "int*";
+            }
+            auto def = st ? ce::dwarfStructToStructure(*st) : ce::StructureDefinition{};
+            auto ftype = [&](const char* n, ce::ValueType t) {
+                for (const auto& f : def.fields) if (f.name == n) return f.type == t;
+                return false;
+            };
+            bool typedOk = st && def.name == "CeProbe" &&
+                ftype("a", ce::ValueType::Int32) && ftype("b", ce::ValueType::Float) &&
+                ftype("p", ce::ValueType::Pointer);
+            printf("  DWARF struct listed + members resolved: %s\n",
+                   (listed && membersOk) ? "OK" : "FAILED");
+            printf("  DWARF struct -> typed structure: %s\n", typedOk ? "OK" : "FAILED");
+        }
     }
     std::filesystem::remove(c); std::filesystem::remove(so);
 }

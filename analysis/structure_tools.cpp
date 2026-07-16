@@ -427,4 +427,36 @@ StructureDefinition il2cppClassToStructure(const Il2CppClassLayout& cls) {
     return def;
 }
 
+StructureDefinition dwarfStructToStructure(const DwarfStruct& s) {
+    StructureDefinition def;
+    def.name = s.name;
+    def.size = s.size;
+    for (const auto& m : s.members) {
+        StructureField sf;
+        sf.name = m.name;
+        sf.offset = static_cast<size_t>(m.offset);
+        sf.size = static_cast<size_t>(m.size);
+        if (m.isPointer) {
+            sf.type = ValueType::Pointer;
+            if (sf.size == 0) sf.size = 8;
+        } else if (m.isFloat) {
+            sf.type = (m.size == 8) ? ValueType::Double : ValueType::Float;
+        } else {
+            switch (m.size) {
+                case 1: sf.type = ValueType::Byte; break;
+                case 2: sf.type = ValueType::Int16; break;
+                case 4: sf.type = ValueType::Int32; break;
+                case 8: sf.type = ValueType::Int64; break;
+                default: sf.type = ValueType::ByteArray; break;   // embedded struct/array
+            }
+        }
+        def.fields.push_back(std::move(sf));
+    }
+    if (def.size == 0 && !def.fields.empty()) {
+        const auto& last = def.fields.back();
+        def.size = last.offset + (last.size ? last.size : 1);
+    }
+    return def;
+}
+
 } // namespace ce

@@ -118,6 +118,49 @@ void LinuxProcessHandle::readMany(const uintptr_t* addrs, size_t count, size_t s
     // syscall each) into ~one syscall per 1024 addresses. On a fault we mark the
     // offending entry unreadable and re-batch the untouched remainder, so a
     // single bad address never poisons the rest of the batch.
+    // Fast path for a dense, small-gap cluster — a scanned struct-array field,
+    // whose matches are `stride` bytes apart. The scatter read below would give
+    // each its own tiny iovec, so the kernel pins the same few pages thousands of
+    // times. Instead read the whole span once into a reused (thread-local, so no
+    // race with sibling scan threads) scratch buffer and scatter the values out.
+    // A gap under a page can't hide an unmapped hole (mappings are page-aligned),
+    // so the span is contiguous mapped memory; a fault (region unmapped since the
+    // scan) drops to the batched path for the remainder.
+    // Coalesce only tight gaps: the span read pulls the gap bytes too, so a
+    // large stride would read many times the value bytes and lose to the scatter
+    // read. 64 bytes keeps the over-read modest while covering densely-packed
+    // fields (measured net win around here; larger strides fall through).
+    constexpr size_t kMaxGap  = 64;
+    constexpr size_t kSpanCap = 4u * 1024 * 1024; // max scratch span
+    constexpr size_t kMinRun  = 8;                // min addresses to bother
+    if (count >= kMinRun && (addrs[count - 1] + size - addrs[0]) <= kSpanCap &&
+        (addrs[count - 1] + size - addrs[0]) > count * size) {
+        bool dense = true;
+        for (size_t k = 1; k < count; ++k)
+            if (addrs[k] < addrs[k - 1] || addrs[k] - addrs[k - 1] > size + kMaxGap) { dense = false; break; }
+        if (dense) {
+            size_t span = addrs[count - 1] + size - addrs[0];
+            thread_local std::vector<uint8_t> scratch;
+            if (scratch.size() < span) scratch.resize(span);
+            struct iovec l{ scratch.data(), span };
+            struct iovec r{ reinterpret_cast<void*>(addrs[0]), span };
+            ssize_t nr = process_vm_readv(pid_, &l, 1, &r, 1, 0);
+            size_t got = nr < 0 ? 0 : static_cast<size_t>(nr);
+            size_t k = 0;
+            for (; k < count; ++k) {
+                size_t off = addrs[k] - addrs[0];
+                if (off + size <= got) { std::memcpy(out + k * size, scratch.data() + off, size); ok[k] = 1; }
+                else break; // this value and the rest weren't fully transferred
+            }
+            if (k == count) return;
+            // Fault at k: drop it and finish the remainder on the batched path.
+            ok[k] = 0;
+            ++k;
+            addrs += k; out += k * size; ok += k; count -= k;
+            if (count == 0) return;
+        }
+    }
+
     constexpr size_t kMaxIov = 1024; // <= IOV_MAX (1024 on Linux)
     std::vector<struct iovec> local, remote;
     local.reserve(kMaxIov);

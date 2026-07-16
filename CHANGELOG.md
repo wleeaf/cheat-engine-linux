@@ -52,17 +52,19 @@ alignment, comparator, and both scan phases, and clean under ASan/UBSan).
 - **Next scan is batched and multi-threaded.** Re-reading previous results used
   one `process_vm_readv` syscall per address on a single thread; it now reads up
   to 1024 addresses per syscall (scatter read) and fans big result sets across
-  cores.
-- **Coalesced next-scan reads (~14x on contiguous results).** Even batched, the
-  scatter read described each address as its own tiny iovec, so a dense result
-  (consecutive matched values, e.g. after an unknown-value scan, or an array
-  field) cost the kernel millions of size-byte copies. Back-to-back addresses
-  are now merged into one large iovec per run, so the kernel does one big copy
-  instead. A 16.7M-result contiguous next scan dropped ~1.7s to ~0.12s;
-  scattered results are unaffected. Around 8x faster on a large result set (and it degrades gracefully:
-  handles that cannot be read concurrently, e.g. a socket-backed ceserver
-  handle, stay single-threaded, which also fixes a latent first-scan data race
-  on those handles).
+  cores (~8x on a large result set). It degrades gracefully: handles that cannot
+  be read concurrently, e.g. a socket-backed ceserver handle, stay
+  single-threaded, which also fixes a latent first-scan data race on those.
+- **Coalesced next-scan reads (~14x contiguous, ~5-9x tight strides).** Even
+  batched, the scatter read described each address as its own tiny iovec, so a
+  dense result (consecutive matched values after an unknown-value scan, or an
+  array field) cost the kernel millions of size-byte copies. Back-to-back
+  addresses are now merged into one large iovec per run (a 16.7M-result
+  contiguous next scan dropped ~1.7s to ~0.12s), and a batch whose matches are a
+  small stride apart (a struct-array field, gap <= 64 bytes) is read as one span
+  into a scratch buffer and scattered out instead of per-match (stride 8 ~8.9x,
+  16 ~7x, 32 ~5.8x, 64 ~4.5x). Larger strides and scattered results keep the
+  per-address scatter read; a fault on a span read falls back to it.
 - **Skip reserved-but-untouched memory on first scan.** Games map large address
   ranges they never touch; those pages are demand-zero, and we were reading every
   one of them. The first scan now consults `/proc/pid/pagemap` and reads only the

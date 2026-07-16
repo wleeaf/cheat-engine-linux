@@ -7603,7 +7603,10 @@ static void test_lua_code_analysis(pid_t pid) {
         "if #statics > 1 then assert(statics[1].references >= statics[2].references, 'statics not sorted by refs') end\n"
         "local caves = findCodeCaves(nil, 32)\n"
         "assert(type(caves) == 'table', 'findCodeCaves not a table')\n"
-        "if #caves > 0 then assert(caves[1].size >= 32, 'cave shorter than minSize') end\n";
+        "if #caves > 0 then assert(caves[1].size >= 32, 'cave shorter than minSize') end\n"
+        "local hits = findAssemblyPattern('ret')\n"
+        "assert(type(hits) == 'table', 'findAssemblyPattern not a table')\n"
+        "if #hits > 0 then assert(type(hits[1].address)=='number' and type(hits[1].text)=='string', 'bad asm hit') end\n";
     auto err = lua.execute(script);
     printf("  enumerateFunctions + buildCallGraph return shaped tables: %s\n",
            err.empty() ? "OK" : ("FAILED: " + err).c_str());

@@ -124,6 +124,7 @@ Static helpers that read and disassemble the target without running its code.
 | `findReferencedStrings([module])` | `{ {address, target, text}, ... }` — string literals the code points at (find code by its UI text) |
 | `findStatics([module])` | `{ {address, references}, ... }` — global addresses the code touches, hottest first |
 | `findCodeCaves([module[, minSize]])` | `{ {address, size}, ... }` — padding runs usable to host injected code |
+| `findAssemblyPattern(asm[, module])` | `{ {address, text}, ... }` — every place the assembled instruction's bytes occur (instruction-level AOB) |
 | `disassembleRange(address, count)` | `{ {address, size, text, ripTarget?}, ... }` |
 
 ```lua

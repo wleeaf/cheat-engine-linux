@@ -3444,6 +3444,30 @@ static int l_findCodeCaves(lua_State* L) {
     return 1;
 }
 
+// findAssemblyPattern(assembly [, moduleName]) -> { {address, text}, ... } | nil, err
+// Assemble an instruction (or short sequence), then find every place in the
+// module's code where those exact bytes occur. The instruction-level analog of an
+// AOB scan: e.g. "mov [rax+0x10], 999" or "call rax". Defaults to the main module.
+static int l_findAssemblyPattern(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process"); return 2; }
+    std::string assembly = luaL_checkstring(L, 1);
+    std::string modName = (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) ? luaL_checkstring(L, 2) : "";
+    ce::ModuleInfo mod;
+    if (!pickModule(*p, modName, mod)) { lua_pushnil(L); lua_pushstring(L, "module not found"); return 2; }
+    ce::CodeAnalyzer an;
+    auto hits = an.findAssemblyPattern(*p, mod, assembly);
+    lua_newtable(L);
+    int i = 1;
+    for (const auto& h : hits) {
+        lua_newtable(L);
+        lua_pushinteger(L, (lua_Integer)h.address); lua_setfield(L, -2, "address");
+        lua_pushstring(L, h.text.c_str());          lua_setfield(L, -2, "text");
+        lua_rawseti(L, -2, i++);
+    }
+    return 1;
+}
+
 // ── Branch mapper (hardware LBR via perf_event_open) ──
 // branchMapAvailable() -> bool (Intel LBR + perf_event_paranoid<=1)
 static int l_branchMapAvailable(lua_State* L) {
@@ -4686,6 +4710,7 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "buildCallGraph", l_buildCallGraph);
     lua_register(L, "findReferencedStrings", l_findReferencedStrings);
     lua_register(L, "findCodeCaves", l_findCodeCaves);
+    lua_register(L, "findAssemblyPattern", l_findAssemblyPattern);
     lua_register(L, "getModuleExports", l_getModuleExports);
     lua_register(L, "getModuleImports", l_getModuleImports);
     lua_register(L, "breakAndTrace", l_breakAndTrace);

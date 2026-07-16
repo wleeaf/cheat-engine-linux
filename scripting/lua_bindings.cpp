@@ -2539,6 +2539,24 @@ static int l_findMonoFunction(lua_State* L) {
     return 1;
 }
 
+// executeCode(address [, timeoutMs]) -> true | nil, error
+// Runs the target's code at `address` on a fresh thread (libc clone) and waits up
+// to timeoutMs (default 5000) for it to return. CE's executeCodeEx / createThread
+// with wait; the function should be cdecl and end in `ret`. The return value is
+// not captured. Runs on the open process (no active debugger; ptrace-exclusive).
+static int l_executeCode(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process"); return 2; }
+    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    int timeoutMs = (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) ? (int)luaL_checkinteger(L, 2) : 5000;
+    ce::SymbolResolver resolver;
+    resolver.loadProcess(*p);
+    auto r = ce::os::createRemoteThread(*p, resolver, addr, /*waitForCompletion=*/true, timeoutMs);
+    if (!r) { lua_pushnil(L); lua_pushstring(L, r.error().c_str()); return 2; }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
 // Gather the file paths the open process has mapped (modules + region paths).
 static std::vector<std::string> mappedFilePaths(ce::ProcessHandle& p) {
     std::vector<std::string> paths;
@@ -4253,6 +4271,7 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "getManagedRuntimes", l_getManagedRuntimes);
     lua_register(L, "monoDissect", l_monoDissect);
     lua_register(L, "findMonoFunction", l_findMonoFunction);
+    lua_register(L, "executeCode", l_executeCode);
     lua_register(L, "getIl2CppMetadataPath", l_getIl2CppMetadataPath);
     lua_register(L, "getIl2CppClasses", l_getIl2CppClasses);
     lua_register(L, "getIl2CppClassLayout", l_getIl2CppClassLayout);

@@ -367,11 +367,15 @@ routing both the disassembler and Lua through it closes many at once.
 22. **Cheat table: embed Form Designer forms + custom types.** No `<Forms>`
     handling; the Form Designer saves standalone `.json` instead of into the
     `.CT`, so full trainers don't round-trip. **[S-M]**
-23. **Lua surface breadth.** Missing chunks of CE's API: `executeCode`,
-    `createDissectCode`/`dissectCode`, structure-definition APIs, the
-    `disassembler()`/`getMemoryViewForm` objects, symbol-handler control, and
-    `memoryrecord` pointer/offset + child/group methods (can't script pointer
-    chains or group hierarchies). **[L overall, S-M each]**
+23. **Lua surface breadth.** *Landing incrementally.* Done: `executeCode(address
+    [,timeoutMs])` (runs target code on a new thread via `createRemoteThread`,
+    waits; `test_lua_executecode` confirms a sentinel is written); the
+    structure-definition side is served by `getIl2CppStructure` / `getDwarfStructure`
+    / `getIl2CppClassLayout` (typed layouts from metadata + DWARF, see #10/#20/#21).
+    *Remaining:* `createDissectCode`/`dissectCode` (findWhatAccesses exists as the
+    primitive), the `disassembler()`/`getMemoryViewForm` objects, symbol-handler
+    control, and `memoryrecord` pointer/offset + child/group methods (can't script
+    pointer chains or group hierarchies yet). **[L overall, S-M each]**
 
 ### P3 — Reach & polish
 

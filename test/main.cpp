@@ -7350,6 +7350,46 @@ static void test_lua_process_bindings(pid_t pid) {
     printf("  openProcess/getProcessList: %s\n", err.empty() ? "OK" : "FAILED");
 }
 
+// executeCode Lua binding: allocate a stub that writes a sentinel and returns,
+// then run it on a new thread in the target via executeCode and confirm the
+// sentinel landed (i.e. the target actually executed our code).
+static void test_lua_executecode(pid_t pid) {
+    printf("\n── Test: Lua executeCode ──\n");
+    LinuxProcessHandle proc(pid);
+    AutoAssembler aa;
+    auto res = aa.execute(proc,
+        "[ENABLE]\n"
+        "alloc(execcode, 512)\n"
+        "alloc(execresult, 8)\n"
+        "registersymbol(execresult)\n"
+        "registersymbol(execcode)\n"
+        "execresult:\n"
+        "dd 0\n"
+        "execcode:\n"
+        "mov rax, execresult\n"
+        "mov dword [rax], 0x0BADF00D\n"
+        "xor eax, eax\n"
+        "ret\n");
+    auto codeAddr = aa.resolveSymbol("execcode");
+    auto resultAddr = aa.resolveSymbol("execresult");
+    if (!res.success || !codeAddr || !resultAddr) {
+        printf("  setup (alloc code): FAILED\n");
+        return;
+    }
+
+    LuaEngine lua;
+    std::string script =
+        "assert(openProcess(" + std::to_string(pid) + "))\n"
+        "local ok, err = executeCode(" + std::to_string((uintptr_t)codeAddr) + ", 3000)\n"
+        "return ok and 'ok' or ('bad:' .. tostring(err))\n";
+    auto r = lua.evalToString(script);
+    uint32_t val = 0;
+    proc.read(resultAddr, &val, sizeof(val));
+    bool ok = r.has_value() && *r == "ok" && val == 0x0BADF00Du;
+    printf("  executeCode runs target code (sentinel written): %s (lua=%s val=0x%X)\n",
+           ok ? "OK" : "FAILED", r ? r->c_str() : "nil", val);
+}
+
 static void test_lua_memscan() {
     printf("\n── Test: Lua memscan bindings ──\n");
 
@@ -9195,6 +9235,7 @@ int main(int argc, char* argv[]) {
     test_lua_address_list_bindings();
     test_lua_debug_bindings();
     test_lua_process_bindings(targetPid);
+    test_lua_executecode(targetPid);
     test_lua_memscan();
     test_binary_scan_bitmask();
     test_between_numeric_scan();

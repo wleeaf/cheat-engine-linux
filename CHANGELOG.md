@@ -40,8 +40,13 @@ alignment, comparator, and both scan phases, and clean under ASan/UBSan).
   handles that cannot be read concurrently, e.g. a socket-backed ceserver
   handle, stay single-threaded, which also fixes a latent first-scan data race
   on those handles).
-- Smaller wins: results are appended without a redundant zero-fill, and the
-  first-scan and next-scan result-merge share one implementation.
+- **No result-merge copy.** A scan wrote each worker's matches to its own file
+  and then concatenated them into one merged file, so every result byte was
+  written twice and read once more. The result now references the worker files
+  in place through a small manifest (`ScanResult` reads transparently across the
+  shards), which cut a dense first scan (16.7 M results) from ~0.44 s to ~0.10 s
+  and shaved the large next scan further. Public `ScanResult` API is unchanged.
+- Smaller win: results are appended without a redundant zero-fill.
 
 ## v0.5.0 — Mono/Unity dissector, diagnostics, Lua table compatibility, debugger polish (2026-07-14)
 

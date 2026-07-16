@@ -109,6 +109,20 @@ public:
 
     const std::filesystem::path& directory() const { return dir_; }
 
+    /// Each backing shard's directory and record count, in address order. A scan
+    /// splits its output across worker shards and the result references them in
+    /// place (via a shards.txt manifest) instead of concatenating into one file,
+    /// so there is no merge copy. Consumers that stream the raw record files
+    /// (nextScan) iterate these; a single-file result reports one shard.
+    struct ShardInfo { std::filesystem::path dir; size_t count; };
+    std::vector<ShardInfo> shardLayout() const;
+
+    /// Byte stride of one persisted value record, derived from a shard's
+    /// values.bin size (0 if empty/unknown). Lets a next scan detect a
+    /// value-size change without trusting the in-memory valueSize_, which is 0
+    /// for a result reconstructed from files.
+    size_t recordStride() const;
+
     /// Add a result (used during scanning).
     void addResult(uintptr_t addr, const void* value, size_t valueSize);
     void addResult(uintptr_t addr, const void* value, const void* firstValue, size_t valueSize);
@@ -132,6 +146,15 @@ private:
     int addrFd_ = -1;
     int valueFd_ = -1;
     int firstValueFd_ = -1;
+
+    // Read-side shard layout. A finalized write result and a legacy
+    // single-directory result are one implicit shard (dir_); a scan output
+    // assembled from workers lists each worker directory here (loaded from a
+    // shards.txt manifest), so reads span the shards without a physical merge.
+    struct Shard { std::filesystem::path dir; size_t count; size_t cum; };
+    std::vector<Shard> shards_;
+    void loadShards();                     // populate shards_ + count_ from dir_
+    const Shard* shardAt(size_t i) const;  // shard holding global index i (or null)
 };
 
 /// The memory scanner engine.

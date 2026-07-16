@@ -4,6 +4,7 @@
 #include <thread>
 #include <mutex>
 #include <sstream>
+#include <fstream>
 #include <cstring>
 #include <cmath>
 #include <algorithm>
@@ -1341,9 +1342,10 @@ ScanResult::ScanResult(const std::filesystem::path& dir) : dir_(dir) {
     auto valPath  = dir / "values.bin";
     auto firstValPath = dir / "first_values.bin";
 
-    if (std::filesystem::exists(addrPath)) {
-        // Loading existing scan results (read-only mode)
-        count_ = std::filesystem::file_size(addrPath) / sizeof(uintptr_t);
+    if (std::filesystem::exists(dir / "shards.txt") || std::filesystem::exists(addrPath)) {
+        // Loading existing scan results (read-only mode): either a shards.txt
+        // manifest of worker directories, or a single record file.
+        loadShards();
         addrFd_ = -1;
         valueFd_ = -1;
         firstValueFd_ = -1;
@@ -1357,6 +1359,71 @@ ScanResult::ScanResult(const std::filesystem::path& dir) : dir_(dir) {
         valueBuf_.reserve(8192 * 8);
         firstValueBuf_.reserve(8192 * 8);
     }
+}
+
+void ScanResult::loadShards() {
+    shards_.clear();
+    count_ = 0;
+    std::error_code ec;
+    auto manifestPath = dir_ / "shards.txt";
+    if (std::filesystem::exists(manifestPath, ec)) {
+        // Manifest lines: "<count> <shard directory>". The shard directories
+        // hold the actual addresses/values/first_values files (written once by
+        // the scan workers — never copied into a merged file).
+        std::ifstream in(manifestPath);
+        std::string line;
+        while (std::getline(in, line)) {
+            if (line.empty()) continue;
+            size_t sp = line.find(' ');
+            if (sp == std::string::npos) continue;
+            size_t c = 0;
+            try { c = std::stoull(line.substr(0, sp)); } catch (...) { continue; }
+            shards_.push_back({ std::filesystem::path(line.substr(sp + 1)), c, count_ });
+            count_ += c;
+        }
+    } else {
+        // Single-file result: this directory is the one shard.
+        auto addrPath = dir_ / "addresses.bin";
+        if (std::filesystem::exists(addrPath, ec)) {
+            size_t bytes = std::filesystem::file_size(addrPath, ec);
+            size_t c = ec ? 0 : bytes / sizeof(uintptr_t);
+            shards_.push_back({ dir_, c, 0 });
+            count_ = c;
+        }
+    }
+}
+
+const ScanResult::Shard* ScanResult::shardAt(size_t i) const {
+    // Few shards (one per scan worker), so a linear walk is fine.
+    for (const auto& s : shards_)
+        if (i >= s.cum && i < s.cum + s.count) return &s;
+    return nullptr;
+}
+
+std::vector<ScanResult::ShardInfo> ScanResult::shardLayout() const {
+    std::vector<ShardInfo> out;
+    if (!shards_.empty()) {
+        out.reserve(shards_.size());
+        for (const auto& s : shards_) out.push_back({ s.dir, s.count });
+    } else if (count_ > 0) {
+        // A write-mode result read before finalize (not expected in practice).
+        out.push_back({ dir_, count_ });
+    }
+    return out;
+}
+
+size_t ScanResult::recordStride() const {
+    auto strideOf = [](const std::filesystem::path& d, size_t cnt) -> size_t {
+        if (cnt == 0) return 0;
+        std::error_code ec;
+        auto vb = std::filesystem::file_size(d / "values.bin", ec);
+        return (ec || vb == 0) ? 0 : vb / cnt;
+    };
+    for (const auto& s : shards_)
+        if (size_t st = strideOf(s.dir, s.count)) return st;
+    if (shards_.empty())
+        return strideOf(dir_, count_);
+    return 0;
 }
 
 void ScanResult::addResult(uintptr_t addr, const void* value, size_t valueSize) {
@@ -1395,48 +1462,92 @@ static bool writeAll(int fd, const void* data, size_t len) {
     return true;
 }
 
-// Concatenate each worker's addresses/values/first-values files, in worker
-// order, into one merged result under `mergedDir`. Worker order is address
-// order (each worker owns a contiguous, ascending slice of the scan), so the
-// merged stream stays globally sorted. Per-worker directories are removed.
-// Shared by firstScan and nextScan so the two never drift.
-static ScanResult mergeThreadResults(const std::filesystem::path& mergedDir,
-                                     std::vector<ScanResult>& parts) {
+// Assemble a sharded result: write a shards.txt manifest under `mergedDir`
+// referencing each worker's directory in worker order (which is address order,
+// since each worker owns a contiguous ascending slice), WITHOUT copying the
+// record files. The old design concatenated every worker file into one merged
+// file, doubling result-data disk traffic; here the worker files ARE the result.
+// Any worker's write-error flag is propagated. Shared by firstScan/nextScan.
+static ScanResult assembleShardedResult(const std::filesystem::path& mergedDir,
+                                        std::vector<ScanResult>& parts) {
     std::filesystem::create_directories(mergedDir);
-    int madFd  = open((mergedDir / "addresses.bin").c_str(),    O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    int mvdFd  = open((mergedDir / "values.bin").c_str(),       O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    int mfvdFd = open((mergedDir / "first_values.bin").c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-
-    bool mergeWriteError = false;
-    constexpr size_t COPYBUF = 1024 * 1024; // 1MB copy buffer
-    std::vector<uint8_t> copyBuf(COPYBUF);
-
-    auto concat = [&](int dst, const std::filesystem::path& src) {
-        if (dst < 0) return;
-        int s = open(src.c_str(), O_RDONLY);
-        if (s < 0) return;
-        ssize_t n;
-        while ((n = ::read(s, copyBuf.data(), COPYBUF)) > 0)
-            if (!writeAll(dst, copyBuf.data(), (size_t)n)) mergeWriteError = true;
-        close(s);
-    };
-
-    for (auto& tr : parts) {
-        concat(madFd,  tr.directory() / "addresses.bin");
-        concat(mvdFd,  tr.directory() / "values.bin");
-        concat(mfvdFd, tr.directory() / "first_values.bin");
+    int fd = open((mergedDir / "shards.txt").c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    bool writeError = (fd < 0);
+    if (fd >= 0) {
+        for (auto& tr : parts) {
+            if (tr.hasWriteError()) writeError = true;
+            std::string line = std::to_string(tr.count()) + " " + tr.directory().string() + "\n";
+            if (!writeAll(fd, line.data(), line.size())) writeError = true;
+        }
+        close(fd);
     }
-    if (madFd  >= 0) close(madFd);
-    if (mvdFd  >= 0) close(mvdFd);
-    if (mfvdFd >= 0) close(mfvdFd);
-
-    for (auto& tr : parts)
-        std::filesystem::remove_all(tr.directory());
-
-    ScanResult merged(mergedDir);
-    if (mergeWriteError) merged.markWriteError();
+    ScanResult merged(mergedDir); // loads the manifest (read mode)
+    if (writeError) merged.markWriteError();
     return merged;
 }
+
+// Reads a global record range from a (possibly sharded) previous result. Each
+// nextScan worker builds its own so positional reads don't share a file offset.
+// Holds every shard's three files open (few shards → few fds).
+struct ShardReader {
+    struct S { int afd = -1, vfd = -1, ffd = -1; size_t count = 0, cum = 0; };
+    std::vector<S> shards;
+    bool ok = true;
+
+    explicit ShardReader(const std::vector<ScanResult::ShardInfo>& layout) {
+        size_t cum = 0;
+        for (const auto& si : layout) {
+            S s;
+            s.count = si.count;
+            s.cum = cum;
+            cum += si.count;
+            s.afd = open((si.dir / "addresses.bin").c_str(), O_RDONLY);
+            s.vfd = open((si.dir / "values.bin").c_str(), O_RDONLY);
+            s.ffd = open((si.dir / "first_values.bin").c_str(), O_RDONLY);
+            if (s.afd < 0 || s.vfd < 0) ok = false;
+            shards.push_back(s);
+        }
+    }
+    ~ShardReader() {
+        for (auto& s : shards) {
+            if (s.afd >= 0) close(s.afd);
+            if (s.vfd >= 0) close(s.vfd);
+            if (s.ffd >= 0) close(s.ffd);
+        }
+    }
+    ShardReader(const ShardReader&) = delete;
+    ShardReader& operator=(const ShardReader&) = delete;
+
+    // Read n records at global [begin, begin+n) into the buffers (addresses +
+    // old values + first values), spanning shard boundaries as needed. Where a
+    // shard has no first_values.bin, first values fall back to the old values.
+    // Returns true iff every read succeeded.
+    bool read(size_t begin, size_t n, uintptr_t* addrs, uint8_t* oldVals,
+              uint8_t* firstVals, size_t valueSize) {
+        size_t got = 0;
+        while (got < n) {
+            size_t gi = begin + got;
+            S* sh = nullptr;
+            for (auto& s : shards)
+                if (gi >= s.cum && gi < s.cum + s.count) { sh = &s; break; }
+            if (!sh) return false;
+            size_t local = gi - sh->cum;
+            size_t take = std::min(sh->count - local, n - got);
+            if (!preadFull(sh->afd, addrs + got, take * sizeof(uintptr_t),
+                           (off_t)(local * sizeof(uintptr_t))))
+                return false;
+            if (!preadFull(sh->vfd, oldVals + got * valueSize, take * valueSize,
+                           (off_t)(local * valueSize)))
+                return false;
+            if (sh->ffd < 0 ||
+                !preadFull(sh->ffd, firstVals + got * valueSize, take * valueSize,
+                           (off_t)(local * valueSize)))
+                std::memcpy(firstVals + got * valueSize, oldVals + got * valueSize, take * valueSize);
+            got += take;
+        }
+        return true;
+    }
+};
 
 // One next-scan predicate for one address: does the freshly-read `currentVal`
 // still match, given the previous scan's `oldVal` and the first scan's
@@ -1581,69 +1692,77 @@ void ScanResult::finalize() {
     if (addrFd_ >= 0) { close(addrFd_); addrFd_ = -1; }
     if (valueFd_ >= 0) { close(valueFd_); valueFd_ = -1; }
     if (firstValueFd_ >= 0) { close(firstValueFd_); firstValueFd_ = -1; }
+    // A written result is a single implicit shard (its own directory), so the
+    // read paths below work the same whether it came straight from a scan or was
+    // reconstructed from disk.
+    shards_.assign(1, Shard{ dir_, count_, 0 });
 }
 
 uintptr_t ScanResult::address(size_t i) const {
+    const Shard* s = shardAt(i);
+    if (!s) return 0;
     uintptr_t addr = 0;
-    auto path = dir_ / "addresses.bin";
-    int fd = open(path.c_str(), O_RDONLY);
+    int fd = open((s->dir / "addresses.bin").c_str(), O_RDONLY);
     if (fd < 0) return 0;
-    if (!preadFull(fd, &addr, sizeof(addr), i * sizeof(uintptr_t)))
+    if (!preadFull(fd, &addr, sizeof(addr), (i - s->cum) * sizeof(uintptr_t)))
         addr = 0;
     close(fd);
     return addr;
 }
 
 void ScanResult::value(size_t i, void* buf, size_t valueSize) const {
-    auto path = dir_ / "values.bin";
-    int fd = open(path.c_str(), O_RDONLY);
+    const Shard* s = shardAt(i);
+    if (!s) return;
+    int fd = open((s->dir / "values.bin").c_str(), O_RDONLY);
     if (fd < 0) return;
-    if (!preadFull(fd, buf, valueSize, i * valueSize))
+    if (!preadFull(fd, buf, valueSize, (i - s->cum) * valueSize))
         std::memset(buf, 0, valueSize);
     close(fd);
 }
 
 void ScanResult::firstValue(size_t i, void* buf, size_t valueSize) const {
-    auto path = dir_ / "first_values.bin";
-    int fd = open(path.c_str(), O_RDONLY);
+    const Shard* s = shardAt(i);
+    if (!s) return;
+    int fd = open((s->dir / "first_values.bin").c_str(), O_RDONLY);
     if (fd < 0) {
         value(i, buf, valueSize);
         return;
     }
-    if (!preadFull(fd, buf, valueSize, i * valueSize))
+    if (!preadFull(fd, buf, valueSize, (i - s->cum) * valueSize))
         std::memset(buf, 0, valueSize);
     close(fd);
 }
 
 void ScanResult::forEach(std::function<void(uintptr_t, const void*, size_t)> callback, size_t valueSize) const {
-    auto addrPath = dir_ / "addresses.bin";
-    auto valPath  = dir_ / "values.bin";
-    int afd = open(addrPath.c_str(), O_RDONLY);
-    int vfd = open(valPath.c_str(), O_RDONLY);
-    if (afd < 0 || vfd < 0) {
-        if (afd >= 0) close(afd);
-        if (vfd >= 0) close(vfd);
-        return;
-    }
-
     constexpr size_t BATCH = 4096;
     std::vector<uintptr_t> addrs(BATCH);
     std::vector<uint8_t> vals(BATCH * valueSize);
 
-    size_t remaining = count_;
-    while (remaining > 0) {
-        size_t n = std::min(remaining, BATCH);
-        // A short/truncated read here would pair addresses with the wrong
-        // values; treat it as a truncated result file and stop iterating.
-        if (!readFull(afd, addrs.data(), n * sizeof(uintptr_t)) ||
-            !readFull(vfd, vals.data(), n * valueSize))
-            break;
-        for (size_t i = 0; i < n; ++i)
-            callback(addrs[i], vals.data() + i * valueSize, valueSize);
-        remaining -= n;
+    // Stream each shard in address order.
+    for (const auto& s : shards_) {
+        if (s.count == 0) continue;
+        int afd = open((s.dir / "addresses.bin").c_str(), O_RDONLY);
+        int vfd = open((s.dir / "values.bin").c_str(), O_RDONLY);
+        if (afd < 0 || vfd < 0) {
+            if (afd >= 0) close(afd);
+            if (vfd >= 0) close(vfd);
+            continue; // skip an unreadable shard rather than aborting the rest
+        }
+        size_t remaining = s.count;
+        while (remaining > 0) {
+            size_t n = std::min(remaining, BATCH);
+            // A short/truncated read here would pair addresses with the wrong
+            // values; treat this shard's files as truncated and stop it.
+            if (!readFull(afd, addrs.data(), n * sizeof(uintptr_t)) ||
+                !readFull(vfd, vals.data(), n * valueSize))
+                break;
+            for (size_t i = 0; i < n; ++i)
+                callback(addrs[i], vals.data() + i * valueSize, valueSize);
+            remaining -= n;
+        }
+        close(afd);
+        close(vfd);
     }
-    close(afd);
-    close(vfd);
 }
 
 // ── MemoryScanner ──
@@ -1890,8 +2009,8 @@ ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& confi
     for (auto& t : threads) t.join();
     progress_.store(1.0f);
 
-    // Merge worker files (in address order) into the final result.
-    return mergeThreadResults(resultDir / "results", threadResults);
+    // Reference the worker files in place (in address order) — no merge copy.
+    return assembleShardedResult(resultDir / "results", threadResults);
 }
 
 ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& config, const ScanResult& previous) {
@@ -1934,19 +2053,15 @@ ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& config
     // the wrong bytes. Reject rather than silently produce wrong matches.
     // (For fixed-width types the two sizes always agree, so this never fires.)
     //
-    // Derive the previous stride from the actual values.bin size rather than
-    // ScanResult::valueSize(): firstScan returns a result reconstructed from
-    // merged files, so its in-memory valueSize_ is 0 and can't be trusted here.
+    // Derive the previous stride from a shard's actual values.bin size rather
+    // than ScanResult::valueSize(): a scan returns a result reconstructed from
+    // files, so its in-memory valueSize_ is 0 and can't be trusted here.
     if (previous.count() > 0) {
-        std::error_code ec;
-        auto valBytes = std::filesystem::file_size(previous.directory() / "values.bin", ec);
-        if (!ec) {
-            size_t prevStride = valBytes / previous.count();
-            if (prevStride != 0 && prevStride != valueSize) {
-                throw std::invalid_argument(
-                    "next scan value size differs from the previous scan; "
-                    "the search length must stay constant across scans");
-            }
+        size_t prevStride = previous.recordStride();
+        if (prevStride != 0 && prevStride != valueSize) {
+            throw std::invalid_argument(
+                "next scan value size differs from the previous scan; "
+                "the search length must stay constant across scans");
         }
     }
     // Precompute the exact-match needles once for the whole scan (not per address).
@@ -1965,16 +2080,16 @@ ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& config
         return empty;
     }
 
-    auto addrPath     = previous.directory() / "addresses.bin";
-    auto valPath      = previous.directory() / "values.bin";
-    auto firstValPath = previous.directory() / "first_values.bin";
+    // The previous result may be split across worker shards; the reader hides
+    // that and serves any global index range (see ShardReader).
+    auto layout = previous.shardLayout();
 
     constexpr size_t BATCH = 4096;
     // Small result sets stay single-threaded: once reads are batched, spinning
-    // up per-worker result files + merging them costs more than the scan. Big
-    // sets fan out: the previous-result streams are read positionally (pread),
-    // so each worker owns a contiguous, ascending index slice with no shared
-    // file offset, and merging worker files in order keeps the output sorted.
+    // up per-worker result files costs more than the scan. Big sets fan out:
+    // each worker owns a contiguous, ascending index slice read positionally
+    // (pread) with no shared file offset, and referencing worker files in order
+    // keeps the output sorted.
     constexpr size_t kMTFloor = 1u << 16; // 65536 results
     int nThreads = (total < kMTFloor || !proc.supportsConcurrentReads())
                        ? 1 : std::max(1, threadCount_);
@@ -1986,13 +2101,8 @@ ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& config
     // Scan one previous-result index range [begin,end); write matches to `res`
     // (a per-worker ScanResult, so the hot path needs no locking).
     auto worker = [&](size_t begin, size_t end, ScanResult& res) {
-        int afd = open(addrPath.c_str(), O_RDONLY);
-        int vfd = open(valPath.c_str(), O_RDONLY);
-        int ffd = open(firstValPath.c_str(), O_RDONLY);
-        if (afd < 0 || vfd < 0) {
-            if (afd >= 0) close(afd);
-            if (vfd >= 0) close(vfd);
-            if (ffd >= 0) close(ffd);
+        ShardReader reader(layout); // own fds → positional reads don't collide
+        if (!reader.ok) {
             res.finalize();
             return;
         }
@@ -2010,18 +2120,12 @@ ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& config
 
         for (size_t idx = begin; idx < end && !cancelled_.load(std::memory_order_relaxed); ) {
             size_t n = std::min(BATCH, end - idx);
-            // Positional reads of this slice. A short/interrupted read would
-            // desync the addr/value streams or feed garbage addresses into
-            // readMany; on truncation treat the file as corrupt and stop.
-            if (!preadFull(afd, addrs.data(), n * sizeof(uintptr_t), (off_t)(idx * sizeof(uintptr_t))) ||
-                !preadFull(vfd, oldVals.data(), n * valueSize, (off_t)(idx * valueSize)))
+            // Read this slice's addresses/old-values/first-values across shards.
+            // A short/interrupted read would desync the streams or feed garbage
+            // addresses into readMany; on truncation stop rather than emit wrong
+            // matches.
+            if (!reader.read(idx, n, addrs.data(), oldVals.data(), firstVals.data(), valueSize))
                 break;
-            if (ffd >= 0) {
-                if (!preadFull(ffd, firstVals.data(), n * valueSize, (off_t)(idx * valueSize)))
-                    break;
-            } else {
-                std::memcpy(firstVals.data(), oldVals.data(), n * valueSize);
-            }
 
             proc.readMany(addrs.data(), n, valueSize, curVals.data(), okFlags.data());
 
@@ -2040,9 +2144,6 @@ ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& config
             progress_.store((float)done / total, std::memory_order_relaxed);
         }
 
-        close(afd);
-        close(vfd);
-        if (ffd >= 0) close(ffd);
         res.finalize();
     };
 
@@ -2068,8 +2169,8 @@ ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& config
     }
     for (auto& th : threads) th.join();
 
-    // Merge worker files (in address order) into the final result.
-    return mergeThreadResults(resultDir / "results", parts);
+    // Reference the worker files in place (in address order) — no merge copy.
+    return assembleShardedResult(resultDir / "results", parts);
 }
 
 } // namespace ce

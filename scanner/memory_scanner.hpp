@@ -10,6 +10,10 @@
 
 namespace ce {
 
+/// Tri-state region-protection filter (CE's grey/checked/unchecked boxes):
+/// Any = don't care, Yes = region must have the bit, No = must NOT have it.
+enum class ProtMatch { Any, Yes, No };
+
 /// Configuration for a memory scan.
 struct ScanConfig {
     struct GroupedTerm {
@@ -28,8 +32,8 @@ struct ScanConfig {
     size_t      alignment    = 4;        // Scan alignment (1=unaligned, 2, 4, 8)
     uintptr_t   startAddress = 0;
     uintptr_t   stopAddress  = 0x7FFFFFFFFFFF;
-    bool        scanWritableOnly   = false;
-    bool        scanExecutableOnly = false;
+    ProtMatch   writableMatch   = ProtMatch::Any;   // CE "Writable" tri-state box
+    ProtMatch   executableMatch = ProtMatch::Any;   // CE "Executable" tri-state box
     bool        scanPrivate = true;
     bool        scanImage   = true;
     bool        scanMapped  = true;

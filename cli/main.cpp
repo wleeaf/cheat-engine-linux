@@ -378,7 +378,7 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
             case 'T': toleranceStr = optarg; break;
             case 'a': config.alignment = std::max<size_t>(1,
                           static_cast<size_t>(parseUInt(optarg, "alignment", SIZE_MAX))); break;
-            case 'w': config.scanWritableOnly = true; break;
+            case 'w': config.writableMatch = ce::ProtMatch::Yes; break;
         }
     }
 

@@ -2056,12 +2056,15 @@ ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& confi
     auto regions = proc.queryRegions();
 
     // Filter regions
+    auto protAllowed = [](ProtMatch m, bool has) {
+        return m == ProtMatch::Any || (m == ProtMatch::Yes) == has;
+    };
     std::vector<MemoryRegion> scanRegions;
     for (auto& r : regions) {
         if (r.state != MemState::Committed) continue;
         if (!(r.protection & MemProt::Read)) continue;
-        if (config.scanWritableOnly && !(r.protection & MemProt::Write)) continue;
-        if (config.scanExecutableOnly && !(r.protection & MemProt::Exec)) continue;
+        if (!protAllowed(config.writableMatch,   (r.protection & MemProt::Write) != 0)) continue;
+        if (!protAllowed(config.executableMatch, (r.protection & MemProt::Exec) != 0)) continue;
         if (!memoryTypeAllowed(config, r.type)) continue;
 
         uintptr_t regionEnd = std::numeric_limits<uintptr_t>::max() - r.base < r.size

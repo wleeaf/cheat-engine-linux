@@ -7808,6 +7808,55 @@ static void test_binary_scan_bitmask() {
     printf("  bit wildcard match: %s\n", ok ? "OK" : "FAILED");
 }
 
+// Tri-state Writable region filter (CE's grey/checked/unchecked box). Place the
+// same sentinel in a writable (rw-p) page and a read-only (r--p) page, then scan
+// with each ProtMatch and confirm the region selection: Yes -> only the writable
+// page, No -> only the read-only page, Any -> both.
+static void test_protection_filter_scan() {
+    printf("\n── Test: tri-state writable region filter ──\n");
+    const size_t pageSize = 4096;
+    void* wpage = mmap(nullptr, pageSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    void* rpage = mmap(nullptr, pageSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (wpage == MAP_FAILED || rpage == MAP_FAILED) { printf("  setup: FAILED (mmap)\n"); return; }
+    const int32_t sentinel = 0x51DE571;
+    std::memcpy(wpage, &sentinel, 4);
+    std::memcpy(rpage, &sentinel, 4);
+    if (mprotect(rpage, pageSize, PROT_READ) != 0) { printf("  setup: FAILED (mprotect)\n"); return; }
+
+    LinuxProcessHandle proc(getpid());
+    MemoryScanner scanner;
+    const uintptr_t lo = std::min((uintptr_t)wpage, (uintptr_t)rpage);
+    const uintptr_t hi = std::max((uintptr_t)wpage, (uintptr_t)rpage) + pageSize;
+    auto scanFor = [&](ce::ProtMatch wf) {
+        ScanConfig c;
+        c.valueType = ValueType::Int32;
+        c.compareType = ScanCompare::Exact;
+        c.intValue = sentinel;
+        c.alignment = 1;
+        c.writableMatch = wf;
+        c.startAddress = lo;
+        c.stopAddress = hi;
+        auto r = scanner.firstScan(proc, c);
+        bool hitW = false, hitR = false;
+        for (size_t i = 0; i < r.count(); ++i) {
+            if (r.address(i) == (uintptr_t)wpage) hitW = true;
+            if (r.address(i) == (uintptr_t)rpage) hitR = true;
+        }
+        return std::make_pair(hitW, hitR);
+    };
+    auto yes = scanFor(ce::ProtMatch::Yes);
+    auto no  = scanFor(ce::ProtMatch::No);
+    auto any = scanFor(ce::ProtMatch::Any);
+    munmap(wpage, pageSize);
+    munmap(rpage, pageSize);
+
+    bool ok = yes.first && !yes.second      // Yes: writable page only
+           && !no.first && no.second        // No:  read-only page only
+           && any.first && any.second;      // Any: both
+    printf("  Writable Yes/No/Any select the right regions: %s (yes=%d%d no=%d%d any=%d%d)\n",
+           ok ? "OK" : "FAILED", yes.first, yes.second, no.first, no.second, any.first, any.second);
+}
+
 static void test_between_numeric_scan() {
     printf("\n── Test: Value-between numeric scan ──\n");
 
@@ -9581,6 +9630,7 @@ int main(int argc, char* argv[]) {
     test_example_scripts();
     test_lua_memscan();
     test_binary_scan_bitmask();
+    test_protection_filter_scan();
     test_between_numeric_scan();
     test_nextscan_size_guard();
     test_unicode_string_scan();

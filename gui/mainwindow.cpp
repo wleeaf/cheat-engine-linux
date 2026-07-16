@@ -1160,10 +1160,20 @@ void MainWindow::setupUi() {
     toAddressEdit_ = new QLineEdit("7fffffffffff");
     toAddressEdit_->setFont(QFont("Monospace", 9));
     optLayout->addWidget(toAddressEdit_, 1, 1);
+    // Tri-state like CE: checked = must have the protection, unchecked = must NOT,
+    // partial (grey) = don't care. Writable defaults to "must" (values live in
+    // writable memory); Executable defaults to "don't care".
     writableCheck_ = new QCheckBox("Writable");
-    writableCheck_->setChecked(true);
+    writableCheck_->setTristate(true);
+    writableCheck_->setCheckState(Qt::Checked);
+    writableCheck_->setToolTip("Checked: only writable regions. Unchecked: only "
+                               "non-writable. Grey: any (don't care).");
     optLayout->addWidget(writableCheck_, 2, 0, 1, 2);
     executableCheck_ = new QCheckBox("Executable");
+    executableCheck_->setTristate(true);
+    executableCheck_->setCheckState(Qt::PartiallyChecked);
+    executableCheck_->setToolTip("Checked: only executable regions. Unchecked: only "
+                                 "non-executable. Grey: any (don't care).");
     optLayout->addWidget(executableCheck_, 3, 0, 1, 2);
     fastScanCheck_ = new QCheckBox("Fast Scan");
     fastScanCheck_->setChecked(true);
@@ -2070,8 +2080,13 @@ void MainWindow::onFirstScan() {
             "The From address must not be greater than the To address.");
         return;
     }
-    config.scanWritableOnly = writableCheck_->isChecked();
-    config.scanExecutableOnly = executableCheck_->isChecked();
+    auto toMatch = [](Qt::CheckState s) {
+        return s == Qt::Checked   ? ce::ProtMatch::Yes
+             : s == Qt::Unchecked ? ce::ProtMatch::No
+                                  : ce::ProtMatch::Any;   // PartiallyChecked
+    };
+    config.writableMatch   = toMatch(writableCheck_->checkState());
+    config.executableMatch = toMatch(executableCheck_->checkState());
 
     auto text = scanValueEdit_->text();
     int intBase = (hexCheck_ && hexCheck_->isChecked()) ? 16 : 10;

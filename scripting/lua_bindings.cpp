@@ -2881,6 +2881,106 @@ static int l_listDwarfStructs(lua_State* L) {
     return 1;
 }
 
+// Locate metadata + GameAssembly + the module's runtime base for the IL2CPP method
+// bindings. Returns "" on success (fills md/binary/moduleBase) or an error string.
+// With metaPath set: file mode (moduleBase = 0, so address == the link-time rva).
+// Else: the open process (moduleBase = the mapped GameAssembly base, so address ==
+// the live runtime address).
+static std::string luaIl2CppMethodContext(lua_State* L, const std::string& metaPath,
+                                          const std::string& binPath,
+                                          std::optional<ce::Il2CppMetadata>& md,
+                                          std::string& binary, uint64_t& moduleBase) {
+    if (!metaPath.empty()) {
+        std::ifstream in(metaPath, std::ios::binary);
+        if (!in) return "cannot open metadata file";
+        std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)),
+                                 std::istreambuf_iterator<char>());
+        md = ce::parseIl2CppMetadata(buf.data(), buf.size());
+        if (!md) return "not a valid global-metadata.dat";
+        binary = binPath;
+        if (binary.empty()) {
+            std::error_code ec;
+            std::filesystem::path root = std::filesystem::path(metaPath)
+                .parent_path().parent_path().parent_path().parent_path();
+            for (const char* n : {"GameAssembly.so", "GameAssembly.dll", "libil2cpp.so"}) {
+                std::filesystem::path c = root / n;
+                if (std::filesystem::is_regular_file(c, ec)) { binary = c.string(); break; }
+            }
+        }
+        if (binary.empty()) return "GameAssembly binary not found; pass one explicitly";
+        moduleBase = 0;
+        return {};
+    }
+    auto* p = getProc(L);
+    if (!p) return "no target process and no metadata path";
+    auto paths = mappedFilePaths(*p);
+    auto mp = ce::findIl2CppMetadataPath(paths);
+    if (!mp) return "global-metadata.dat not found for this process";
+    std::ifstream in(*mp, std::ios::binary);
+    if (!in) return "cannot open " + *mp;
+    std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    md = ce::parseIl2CppMetadata(buf.data(), buf.size());
+    if (!md) return "failed to parse metadata";
+    binary = ce::findGameAssemblyPath(paths);
+    if (binary.empty()) return "GameAssembly binary not mapped in this process";
+    for (const auto& m : p->modules())
+        if (m.path == binary) { moduleBase = m.base; break; }
+    return {};
+}
+
+// getIl2CppMethods(className [, metadataPath [, binaryPath]]) -> { {name, rva,
+//   address}, ... } | nil, err. Resolves a class's method code addresses. In the
+// open-process case `address` is the live runtime address (module base + rva); in
+// file mode it equals the rva.
+static int l_getIl2CppMethods(lua_State* L) {
+    std::string className, metaPath, binPath;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) className = luaL_checkstring(L, 1);
+    if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) metaPath = luaL_checkstring(L, 2);
+    if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) binPath = luaL_checkstring(L, 3);
+    if (className.empty()) { lua_pushnil(L); lua_pushstring(L, "class name required"); return 2; }
+
+    std::optional<ce::Il2CppMetadata> md;
+    std::string binary;
+    uint64_t moduleBase = 0;
+    std::string err = luaIl2CppMethodContext(L, metaPath, binPath, md, binary, moduleBase);
+    if (!err.empty()) { lua_pushnil(L); lua_pushstring(L, err.c_str()); return 2; }
+
+    auto methods = ce::resolveIl2CppMethods(*md, binary, className);
+    lua_newtable(L);
+    int mi = 1;
+    for (const auto& m : methods) {
+        lua_newtable(L);
+        lua_pushstring(L, m.name.c_str());                       lua_setfield(L, -2, "name");
+        lua_pushinteger(L, (lua_Integer)m.rva);                  lua_setfield(L, -2, "rva");
+        lua_pushinteger(L, (lua_Integer)(moduleBase + m.rva));   lua_setfield(L, -2, "address");
+        lua_rawseti(L, -2, mi++);
+    }
+    return 1;
+}
+
+// findIl2CppMethod(className, methodName [, metadataPath [, binaryPath]]) ->
+//   address | nil, err. The code address of one method (module base + rva live,
+//   or the rva in file mode). Useful for hooking a game function.
+static int l_findIl2CppMethod(lua_State* L) {
+    std::string className = luaL_checkstring(L, 1);
+    std::string methodName = luaL_checkstring(L, 2);
+    std::string metaPath, binPath;
+    if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) metaPath = luaL_checkstring(L, 3);
+    if (lua_gettop(L) >= 4 && !lua_isnil(L, 4)) binPath = luaL_checkstring(L, 4);
+
+    std::optional<ce::Il2CppMetadata> md;
+    std::string binary;
+    uint64_t moduleBase = 0;
+    std::string err = luaIl2CppMethodContext(L, metaPath, binPath, md, binary, moduleBase);
+    if (!err.empty()) { lua_pushnil(L); lua_pushstring(L, err.c_str()); return 2; }
+
+    for (const auto& m : ce::resolveIl2CppMethods(*md, binary, className))
+        if (m.name == methodName) { lua_pushinteger(L, (lua_Integer)(moduleBase + m.rva)); return 1; }
+    lua_pushnil(L);
+    lua_pushstring(L, "method not found (or has no compiled body)");
+    return 2;
+}
+
 // ── Pointer scanner ──
 // pointerScan(target [, maxDepth [, maxOffset [, {negativeOffsets,staticOnly,alignedOnly}]]])
 //   -> array of { path, module, baseOffset, moduleBase, offsets={...} }
@@ -4301,6 +4401,8 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "getIl2CppStructure", l_getIl2CppStructure);
     lua_register(L, "getDwarfStructure", l_getDwarfStructure);
     lua_register(L, "listDwarfStructs", l_listDwarfStructs);
+    lua_register(L, "getIl2CppMethods", l_getIl2CppMethods);
+    lua_register(L, "findIl2CppMethod", l_findIl2CppMethod);
     lua_register(L, "createSimpleHook", l_createSimpleHook);
     lua_register(L, "removeSimpleHook", l_removeSimpleHook);
     lua_register(L, "pointerScan", l_pointerScan);

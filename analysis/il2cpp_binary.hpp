@@ -51,6 +51,23 @@ struct Il2CppBinaryLayout {
     std::vector<Il2CppClassLayout> classes;
 };
 
+/// A resolved method's code location. `rva` is relative to the binary's image
+/// base, so the live runtime address is `moduleBase + rva` (moduleBase = the
+/// GameAssembly mapping's base in the target). A method with no compiled body
+/// (abstract / pure-generic) is omitted.
+struct Il2CppResolvedMethod {
+    std::string name;
+    uint64_t    rva = 0;
+};
+
+/// Resolve the code addresses (as RVAs) of a class's methods, mapping each
+/// method's token RID through the binary's Il2CppCodeRegistration codeGenModules
+/// (the per-image methodPointers table). `md` must have tablesDecoded. Matches
+/// `className` by full name first, then bare name. Empty on failure.
+std::vector<Il2CppResolvedMethod>
+resolveIl2CppMethods(const Il2CppMetadata& md, const std::string& binaryPath,
+                     const std::string& className);
+
 /// Resolve field offsets for every type in `md` (which must have `tablesDecoded`)
 /// using the GameAssembly binary at `binaryPath`. On failure returns `{ok=false,
 /// error=...}`. Generic type definitions legitimately report all-zero offsets

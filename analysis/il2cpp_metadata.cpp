@@ -57,6 +57,8 @@ struct TableLayout {
     size_t tdNamespaceOff;     // StringIndex namespaceIndex
     size_t tdFieldStartOff;    // FieldIndex fieldStart (int32)
     size_t tdFieldCountOff;    // uint16 field_count
+    size_t tdMethodStartOff;   // MethodIndex methodStart (int32)
+    size_t tdMethodCountOff;   // uint16 method_count
     size_t tdTokenOff;         // uint32 token
     size_t imageSize;          // sizeof(Il2CppImageDefinition)
     size_t imgNameOff;         // StringIndex nameIndex
@@ -78,7 +80,8 @@ constexpr size_t kFieldTokenOff = 8;
 constexpr TableLayout kLayoutByrefless{
     /*typeDefSize*/ 0x58,
     /*tdNameOff*/ 0x00, /*tdNamespaceOff*/ 0x04,
-    /*tdFieldStartOff*/ 0x20, /*tdFieldCountOff*/ 0x44, /*tdTokenOff*/ 0x54,
+    /*tdFieldStartOff*/ 0x20, /*tdFieldCountOff*/ 0x44,
+    /*tdMethodStartOff*/ 0x24, /*tdMethodCountOff*/ 0x40, /*tdTokenOff*/ 0x54,
     /*imageSize*/ 0x28,
     /*imgNameOff*/ 0x00, /*imgTypeStartOff*/ 0x08, /*imgTypeCountOff*/ 0x0C};
 
@@ -181,6 +184,50 @@ bool decodeTables(const uint8_t* data, size_t size, Il2CppMetadata& md,
                             allFields.begin() + fieldStart + fieldCount);
         }
         md.types.push_back(std::move(t));
+    }
+
+    // Methods (name + token) per type. A method's token RID indexes the image's
+    // runtime methodPointers table in the binary (analysis/il2cpp_binary resolves
+    // it to a code address). Optional: an absent/malformed methods region just
+    // leaves types[].methods empty.
+    constexpr size_t kOffMethods = 0x30;  // methodsOffset / methodsSize at 0x30/0x34
+    if (size >= kOffMethods + 8) {
+        const int32_t mOff = rdI32(data + kOffMethods);
+        const int32_t mSize = rdI32(data + kOffMethods + 4);
+        if (regionValid(mOff, mSize, size) && mSize > 0) {
+            uint64_t totalMethods = 0;
+            for (size_t k = 0; k < nTypes; ++k)
+                totalMethods += rdU16(data + tdOff + k * L->typeDefSize + L->tdMethodCountOff);
+            if (totalMethods > 0 && static_cast<uint64_t>(mSize) % totalMethods == 0) {
+                const size_t recSize = static_cast<size_t>(mSize) / totalMethods;
+                // Locate the MethodDef token (high byte 0x06) in the first record;
+                // this adapts to the per-version method record layout.
+                size_t tokenOff = static_cast<size_t>(-1);
+                for (size_t o = 0; recSize >= 8 && o + 4 <= recSize; o += 4) {
+                    uint32_t v = rdU32(data + mOff + o);
+                    if ((v >> 24) == 0x06 && (v & 0xFFFFFF) != 0) { tokenOff = o; break; }
+                }
+                if (tokenOff != static_cast<size_t>(-1)) {
+                    for (size_t k = 0; k < nTypes; ++k) {
+                        const uint8_t* trec = data + tdOff + k * L->typeDefSize;
+                        const int32_t mStart = rdI32(trec + L->tdMethodStartOff);
+                        const uint16_t mCount = rdU16(trec + L->tdMethodCountOff);
+                        if (mStart < 0 ||
+                            static_cast<uint64_t>(mStart) + mCount > totalMethods)
+                            continue;
+                        md.types[k].methods.reserve(mCount);
+                        for (uint16_t j = 0; j < mCount; ++j) {
+                            const uint8_t* mrec =
+                                data + mOff + (static_cast<size_t>(mStart) + j) * recSize;
+                            Il2CppMethodDef m;
+                            m.name = stringAt(data, strOff, strSize, rdI32(mrec));  // nameIndex@0
+                            m.token = rdU32(mrec + tokenOff);
+                            md.types[k].methods.push_back(std::move(m));
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Images (assemblies): name + the run of types each owns.

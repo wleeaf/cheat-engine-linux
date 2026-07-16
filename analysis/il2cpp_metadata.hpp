@@ -44,11 +44,19 @@ struct Il2CppFieldDef {
     uint32_t    token = 0;
 };
 
+/// One method of a managed class. `token`'s low 24 bits are the method's RID,
+/// which indexes the image's methodPointers table in the binary (address).
+struct Il2CppMethodDef {
+    std::string name;
+    uint32_t    token = 0;
+};
+
 /// One managed type (class/struct) with its declared fields.
 struct Il2CppTypeDef {
     std::string name;
     std::string namespaceName;
     std::vector<Il2CppFieldDef> fields;
+    std::vector<Il2CppMethodDef> methods;
     uint32_t    token = 0;
 
     /// "Namespace.Name", or just "Name" when the namespace is empty.

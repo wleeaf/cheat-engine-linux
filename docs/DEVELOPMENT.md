@@ -218,6 +218,14 @@ alongside official CE 7.7 Linux. Today each is materially short of the claim.
     prints offsets; `test_il2cpp_binary_offsets` covers the PE loader + finder +
     attrs on a synthetic PE (CI, no game file), and the env-gated real-file test
     checks Vector3 against ground truth (CE_IL2CPP_METADATA + CE_IL2CPP_GAMEASSEMBLY).
+    METHOD CODE ADDRESSES resolve too: the metadata parser decodes each type's
+    methods (name + token), and `resolveIl2CppMethods` maps a method's token RID
+    through Il2CppCodeRegistration.codeGenModules (the per-image methodPointers
+    table found by a count-match on the image count) to its code RVA. Lua
+    `getIl2CppMethods(class[, md[, bin]])` and `findIl2CppMethod(class, method, ...)`
+    return the live address (module base + rva), so a script can hook a game
+    function. Validated on a real game (AchievementManager.UnlockAchievement ->
+    0x4FAD50; 203 System.String methods resolve to code).
     The whole layout is now scriptable and browsable: `resolveIl2CppForProcess`
     (shared cecore helper) auto-locates a live target's metadata + GameAssembly from
     its mapped files, Lua `getIl2CppClassLayout([class[, metadataPath[, binaryPath]]])`

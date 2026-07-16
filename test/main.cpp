@@ -4938,6 +4938,27 @@ static std::vector<uint8_t> buildSyntheticV29Metadata() {
     addType(typedefs, sPlayer, sGame,  0, 2, 0x02000001);  // Game.Player {health, mana}
     addType(typedefs, sEnemy,  sEmpty, 2, 1, 0x02000002);  // Enemy {name}
 
+    // Methods table: 0x1C-byte records {nameIndex@0, ..., token@0x18}. Player owns
+    // "Update" (method 0), Enemy owns "Attack" (method 1). Wire methodStart@0x24 +
+    // method_count@0x40 into the type records.
+    uint32_t sUpdate = static_cast<uint32_t>(strs.size());
+    { std::string s = "Update"; strs.insert(strs.end(), s.begin(), s.end()); strs.push_back('\0'); }
+    uint32_t sAttack = static_cast<uint32_t>(strs.size());
+    { std::string s = "Attack"; strs.insert(strs.end(), s.begin(), s.end()); strs.push_back('\0'); }
+    auto addMethod = [](std::vector<uint8_t>& mt, uint32_t nameOff, uint32_t token) {
+        size_t base = mt.size();
+        mt.resize(base + 0x1C, 0);
+        mt[base + 0] = (uint8_t)nameOff; mt[base + 1] = (uint8_t)(nameOff >> 8);
+        mt[base + 2] = (uint8_t)(nameOff >> 16); mt[base + 3] = (uint8_t)(nameOff >> 24);
+        mt[base + 0x18] = (uint8_t)token; mt[base + 0x19] = (uint8_t)(token >> 8);
+        mt[base + 0x1A] = (uint8_t)(token >> 16); mt[base + 0x1B] = (uint8_t)(token >> 24);
+    };
+    std::vector<uint8_t> methods;
+    addMethod(methods, sUpdate, 0x06000001);   // method 0: Player.Update
+    addMethod(methods, sAttack, 0x06000002);   // method 1: Enemy.Attack
+    typedefs[0x24] = 0;        typedefs[0x40] = 1;   // Player: methodStart 0, count 1
+    typedefs[0x58 + 0x24] = 1; typedefs[0x58 + 0x40] = 1;  // Enemy: methodStart 1, count 1
+
     // Images: 40-byte (0x28) records; patch name/typeStart/typeCount.
     std::vector<uint8_t> images;
     {
@@ -4959,6 +4980,7 @@ static std::vector<uint8_t> buildSyntheticV29Metadata() {
     uint32_t fieldsOff = place(fields);
     uint32_t typedefsOff = place(typedefs);
     uint32_t imagesOff = place(images);
+    uint32_t methodsOff = place(methods);
     uint32_t stringOff = place(strs);
 
     putU32(f, 0x00, 0xFAB11BAFu);   // sanity
@@ -4969,6 +4991,8 @@ static std::vector<uint8_t> buildSyntheticV29Metadata() {
     putU32(f, 0x14, 0);             // stringLiteralData size
     putU32(f, 0x18, stringOff);     // string offset
     putU32(f, 0x1C, static_cast<uint32_t>(strs.size()));
+    putU32(f, 0x30, methodsOff);    // methods offset
+    putU32(f, 0x34, static_cast<uint32_t>(methods.size()));
     putU32(f, 0x60, fieldsOff);
     putU32(f, 0x64, static_cast<uint32_t>(fields.size()));
     putU32(f, 0xA0, typedefsOff);
@@ -5008,6 +5032,12 @@ static void test_il2cpp_metadata_tables() {
         md->images[0].name == "Assembly-CSharp.dll" &&
         md->images[0].typeStart == 0 && md->images[0].typeCount == 2;
 
+    bool methodsOk = base && md->types.size() == 2 &&
+        md->types[0].methods.size() == 1 && md->types[0].methods[0].name == "Update" &&
+        md->types[0].methods[0].token == 0x06000001u &&
+        md->types[1].methods.size() == 1 && md->types[1].methods[0].name == "Attack" &&
+        md->types[1].methods[0].token == 0x06000002u;
+
     bool supportOk = il2cppTablesSupported(27) && il2cppTablesSupported(29) &&
         il2cppTablesSupported(31) && !il2cppTablesSupported(24) && !il2cppTablesSupported(16);
 
@@ -5029,6 +5059,8 @@ static void test_il2cpp_metadata_tables() {
            typesOk ? "OK" : "FAILED");
     printf("  image grouping (Assembly-CSharp.dll -> 2 types): %s\n",
            imagesOk ? "OK" : "FAILED");
+    printf("  method decode (Player.Update, Enemy.Attack + tokens): %s\n",
+           methodsOk ? "OK" : "FAILED");
     printf("  version support gate (27/29/31 yes, 24/16 no): %s\n",
            supportOk ? "OK" : "FAILED");
     printf("  unsupported version keeps string pools, skips tables: %s\n",
@@ -5177,6 +5209,14 @@ static void test_il2cpp_real_file() {
             typeOk = isFloat("x") && isFloat("y") && isFloat("z");
         }
         printf("  Vector3 fields type as float: %s\n", typeOk ? "OK" : "FAILED");
+
+        // Method resolution: a common BCL class should have methods that resolve
+        // to non-zero code RVAs within the binary.
+        auto methods = ce::resolveIl2CppMethods(*md, ga, "System.String");
+        size_t withBody = 0;
+        for (const auto& m : methods) if (m.rva != 0) ++withBody;
+        printf("  System.String methods resolve to code (%zu with a body): %s\n",
+               withBody, (methods.size() > 0 && withBody > 0) ? "OK" : "FAILED");
     }
 }
 

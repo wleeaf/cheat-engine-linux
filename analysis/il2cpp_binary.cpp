@@ -55,6 +55,17 @@ struct Image {
     std::optional<uint32_t> readU32VA(uint64_t va) const {
         auto o = vaToOff(va); if (!o || !inRange(*o, 4)) return std::nullopt; return u32(*o);
     }
+    std::string readCStrVA(uint64_t va, size_t maxLen = 256) const {
+        auto o = vaToOff(va);
+        if (!o) return {};
+        std::string s;
+        for (size_t i = 0; i < maxLen && *o + i < buf.size(); ++i) {
+            char c = static_cast<char>(buf[*o + i]);
+            if (c == '\0') break;
+            s.push_back(c);
+        }
+        return s;
+    }
 };
 
 bool loadPE(Image& img) {
@@ -274,6 +285,104 @@ size_t il2cppTypeEnumSize(uint8_t e) {
         case IL2CPP_TYPE_VALUETYPE:                                        return 0;  // infer from gap
         default:                                                          return 8;  // pointer-sized ref
     }
+}
+
+namespace {
+
+// Il2CppCodeGenModule (x64): { const char* moduleName; uint64 methodPointerCount;
+// Il2CppMethodPointer* methodPointers; ... }. One per assembly image.
+constexpr size_t kCGM_moduleName = 0x00;
+constexpr size_t kCGM_methodCount = 0x08;
+constexpr size_t kCGM_methodPointers = 0x10;
+
+// Find Il2CppCodeRegistration.codeGenModules: a count == the metadata image count
+// followed by a pointer to an array of that many Il2CppCodeGenModule* whose
+// moduleName fields are valid ".dll" strings. Returns the array VA.
+std::optional<uint64_t> findCodeGenModules(const Image& img, size_t imageCount) {
+    auto looksLikeModuleName = [](const std::string& s) {
+        return s.size() > 4 && s.compare(s.size() - 4, 4, ".dll") == 0;
+    };
+    for (const auto& s : img.segs) {
+        if (s.fileSize < 16) continue;
+        size_t begin = static_cast<size_t>(s.fileOff);
+        size_t end = std::min<size_t>(begin + s.fileSize, img.buf.size());
+        for (size_t p = begin; p + 16 <= end; p += 8) {
+            if (img.u64(p) != imageCount) continue;
+            uint64_t arrVA = img.u64(p + 8);
+            if (!img.vaValid(arrVA)) continue;
+            size_t ok = 0, tot = 0, probe = std::min<size_t>(imageCount, 32);
+            for (size_t i = 0; i < probe; ++i) {
+                auto m = img.readPtrVA(arrVA + i * 8);
+                if (!m) break;
+                ++tot;
+                if (*m == 0 || !img.vaValid(*m)) continue;
+                auto nmp = img.readPtrVA(*m + kCGM_moduleName);
+                if (nmp && img.vaValid(*nmp) && looksLikeModuleName(img.readCStrVA(*nmp))) ++ok;
+            }
+            if (tot >= 8 && ok * 5 >= tot * 4) return arrVA;
+        }
+    }
+    return std::nullopt;
+}
+
+} // namespace
+
+std::vector<Il2CppResolvedMethod>
+resolveIl2CppMethods(const Il2CppMetadata& md, const std::string& binaryPath,
+                     const std::string& className) {
+    std::vector<Il2CppResolvedMethod> out;
+    if (!md.tablesDecoded) return out;
+
+    // Locate the class + its owning image name.
+    const Il2CppTypeDef* cls = nullptr;
+    size_t classIndex = 0;
+    for (size_t i = 0; i < md.types.size(); ++i)
+        if (md.types[i].fullName() == className) { cls = &md.types[i]; classIndex = i; break; }
+    if (!cls)
+        for (size_t i = 0; i < md.types.size(); ++i)
+            if (md.types[i].name == className) { cls = &md.types[i]; classIndex = i; break; }
+    if (!cls || cls->methods.empty()) return out;
+
+    std::string imageName;
+    for (const auto& im : md.images)
+        if (classIndex >= im.typeStart && classIndex < static_cast<size_t>(im.typeStart) + im.typeCount) {
+            imageName = im.name; break;
+        }
+    if (imageName.empty()) return out;
+
+    Image img;
+    {
+        std::ifstream in(binaryPath, std::ios::binary);
+        if (!in) return out;
+        img.buf.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+    if (!loadPE(img) && !loadELF64(img)) return out;
+
+    auto arrVA = findCodeGenModules(img, md.images.size());
+    if (!arrVA) return out;
+
+    // Find the codeGenModule whose moduleName matches this class's image.
+    uint64_t methodCount = 0, methodPointersVA = 0;
+    for (size_t k = 0; k < md.images.size(); ++k) {
+        auto m = img.readPtrVA(*arrVA + k * 8);
+        if (!m || *m == 0) continue;
+        auto nmp = img.readPtrVA(*m + kCGM_moduleName);
+        if (!nmp || img.readCStrVA(*nmp) != imageName) continue;
+        if (auto mc = img.readPtrVA(*m + kCGM_methodCount)) methodCount = *mc;
+        if (auto mp = img.readPtrVA(*m + kCGM_methodPointers)) methodPointersVA = *mp;
+        break;
+    }
+    if (methodPointersVA == 0) return out;
+
+    // Each method: token RID -> methodPointers[RID-1] -> code VA -> RVA.
+    for (const auto& m : cls->methods) {
+        uint32_t rid = m.token & 0x00FFFFFF;
+        if (rid == 0 || rid > methodCount) continue;
+        auto fp = img.readPtrVA(methodPointersVA + static_cast<uint64_t>(rid - 1) * 8);
+        if (!fp || *fp == 0 || !img.vaValid(*fp)) continue;   // no compiled body
+        out.push_back({m.name, *fp - img.imageBase});
+    }
+    return out;
 }
 
 std::string findGameAssemblyPath(const std::vector<std::string>& mappedPaths) {

@@ -4679,11 +4679,19 @@ static void test_pe_exports() {
     fs::path jp = fs::temp_directory_path() / ("ce-pe-junk-" + std::to_string(getpid()) + ".bin");
     { std::ofstream o(jp, std::ios::binary); std::vector<uint8_t> j(64, 0x41); o.write(reinterpret_cast<char*>(j.data()), 64); }
     bool junkOk = ce::parsePEExports(jp.string()).empty();
+
+    // SymbolResolver integration: loadModule on a PE symbolicates its exports.
+    ce::SymbolResolver res;
+    res.loadModule(tmp.string(), "test.dll", 0x140000000);
+    bool symOk = res.resolve(0x140000000 + 0x1234).find("foo") != std::string::npos &&
+                 res.lookup("foo") == 0x140000000 + 0x1234;
+
     fs::remove(tmp, ec); fs::remove(jp, ec);
 
     printf("  parses a named export (foo @0x1234, ordinal 1): %s\n", ok ? "OK" : "FAILED");
     printf("  peExportRva(foo) == 0x1234: %s\n", rvaOk ? "OK" : "FAILED");
     printf("  non-PE input rejected cleanly: %s\n", junkOk ? "OK" : "FAILED");
+    printf("  SymbolResolver symbolicates PE exports: %s\n", symOk ? "OK" : "FAILED");
 
     if (const char* ga = std::getenv("CE_IL2CPP_GAMEASSEMBLY"); ga && *ga) {
         auto real = ce::parsePEExports(ga);

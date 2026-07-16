@@ -1,6 +1,7 @@
 #include <cxxabi.h>
 #include <cstdlib>
 #include "symbols/elf_symbols.hpp"
+#include "analysis/pe_exports.hpp"
 
 #include <fstream>
 #include <cstring>
@@ -27,7 +28,28 @@ void SymbolResolver::loadProcess(ProcessHandle& proc) {
 }
 
 void SymbolResolver::loadModule(const std::string& path, const std::string& moduleName, uintptr_t baseAddr) {
+    // Wine/Proton modules are PE images (MZ magic); their symbols live in the PE
+    // export table, not an ELF symtab. Dispatch on the file magic.
+    std::ifstream probe(path, std::ios::binary);
+    char magic[2] = {};
+    if (probe.read(magic, 2) && magic[0] == 'M' && magic[1] == 'Z') {
+        parsePeExports(path, moduleName, baseAddr);
+        return;
+    }
     parseElfSymbols(path, moduleName, baseAddr);
+}
+
+void SymbolResolver::parsePeExports(const std::string& path, const std::string& moduleName,
+                                    uintptr_t baseAddr) {
+    for (const auto& e : ce::parsePEExports(path)) {
+        if (e.name.empty() || e.rva == 0) continue;   // skip ordinal-only / forwarders
+        uintptr_t addr = baseAddr + e.rva;
+        if (addrIndex_.count(addr)) continue;          // first name at an address wins
+        size_t idx = symbols_.size();
+        symbols_.push_back(Symbol{e.name, addr, 0, moduleName});
+        addrIndex_[addr] = idx;
+        if (!nameIndex_.count(e.name)) nameIndex_[e.name] = addr;
+    }
 }
 
 // Locate a stripped binary's separate debug file: build-id first

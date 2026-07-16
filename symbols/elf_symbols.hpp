@@ -59,6 +59,10 @@ private:
     // injection); the PLT/reloc import-naming pass stays 64-bit-only.
     void parseElf32Symbols(const std::string& path, const std::string& moduleName,
                            uintptr_t baseAddr);
+    // A PE image (Wine/Proton module) exposes its functions via the export table,
+    // not an ELF symtab; load those as symbols so addresses in it symbolicate.
+    void parsePeExports(const std::string& path, const std::string& moduleName,
+                        uintptr_t baseAddr);
 
     std::vector<Symbol> symbols_;
     // Sorted by address for binary search in resolve()

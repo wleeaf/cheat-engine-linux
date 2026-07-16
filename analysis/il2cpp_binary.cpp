@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <unordered_map>
 
 namespace ce {
 
@@ -172,6 +173,42 @@ std::optional<size_t> findMetadataRegistration(const Image& img, size_t nTypes) 
     return std::nullopt;
 }
 
+// Il2CppCodeGenModule (x64): { const char* moduleName; uint64 methodPointerCount;
+// Il2CppMethodPointer* methodPointers; ... }. One per assembly image.
+constexpr size_t kCGM_moduleName = 0x00;
+constexpr size_t kCGM_methodCount = 0x08;
+constexpr size_t kCGM_methodPointers = 0x10;
+
+// Find Il2CppCodeRegistration.codeGenModules: a count == the metadata image count
+// followed by a pointer to an array of that many Il2CppCodeGenModule* whose
+// moduleName fields are valid ".dll" strings. Returns the array VA.
+std::optional<uint64_t> findCodeGenModules(const Image& img, size_t imageCount) {
+    auto looksLikeModuleName = [](const std::string& s) {
+        return s.size() > 4 && s.compare(s.size() - 4, 4, ".dll") == 0;
+    };
+    for (const auto& s : img.segs) {
+        if (s.fileSize < 16) continue;
+        size_t begin = static_cast<size_t>(s.fileOff);
+        size_t end = std::min<size_t>(begin + s.fileSize, img.buf.size());
+        for (size_t p = begin; p + 16 <= end; p += 8) {
+            if (img.u64(p) != imageCount) continue;
+            uint64_t arrVA = img.u64(p + 8);
+            if (!img.vaValid(arrVA)) continue;
+            size_t ok = 0, tot = 0, probe = std::min<size_t>(imageCount, 32);
+            for (size_t i = 0; i < probe; ++i) {
+                auto m = img.readPtrVA(arrVA + i * 8);
+                if (!m) break;
+                ++tot;
+                if (*m == 0 || !img.vaValid(*m)) continue;
+                auto nmp = img.readPtrVA(*m + kCGM_moduleName);
+                if (nmp && img.vaValid(*nmp) && looksLikeModuleName(img.readCStrVA(*nmp))) ++ok;
+            }
+            if (tot >= 8 && ok * 5 >= tot * 4) return arrVA;
+        }
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::string& binaryPath) {
@@ -243,6 +280,38 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
         out.classes.push_back(std::move(cl));
     }
 
+    // Resolve method code addresses (RVAs) for every class in the same binary
+    // pass: find codeGenModules once, cache each image's methodPointers table,
+    // then map each method's token RID -> methodPointers[RID-1] -> RVA.
+    if (auto arrVA = findCodeGenModules(img, md.images.size())) {
+        std::unordered_map<std::string, std::pair<uint64_t, uint64_t>> mods;  // image -> (count, ptrsVA)
+        for (size_t k = 0; k < md.images.size(); ++k) {
+            auto m = img.readPtrVA(*arrVA + k * 8);
+            if (!m || *m == 0) continue;
+            auto nmp = img.readPtrVA(*m + kCGM_moduleName);
+            if (!nmp) continue;
+            std::string name = img.readCStrVA(*nmp);
+            uint64_t mc = 0, mp = 0;
+            if (auto c = img.readPtrVA(*m + kCGM_methodCount)) mc = *c;
+            if (auto pp = img.readPtrVA(*m + kCGM_methodPointers)) mp = *pp;
+            if (!name.empty() && mp) mods[name] = {mc, mp};
+        }
+        for (size_t t = 0; t < nTypes; ++t) {
+            const auto& mt = md.types[t];
+            if (mt.methods.empty()) continue;
+            auto it = mods.find(out.classes[t].image);
+            if (it == mods.end()) continue;
+            const uint64_t mc = it->second.first, mp = it->second.second;
+            for (const auto& method : mt.methods) {
+                uint32_t rid = method.token & 0x00FFFFFF;
+                if (rid == 0 || rid > mc) continue;
+                auto fp = img.readPtrVA(mp + static_cast<uint64_t>(rid - 1) * 8);
+                if (!fp || *fp == 0 || !img.vaValid(*fp)) continue;
+                out.classes[t].methods.push_back({method.name, *fp - img.imageBase});
+            }
+        }
+    }
+
     out.ok = true;
     return out;
 }
@@ -286,46 +355,6 @@ size_t il2cppTypeEnumSize(uint8_t e) {
         default:                                                          return 8;  // pointer-sized ref
     }
 }
-
-namespace {
-
-// Il2CppCodeGenModule (x64): { const char* moduleName; uint64 methodPointerCount;
-// Il2CppMethodPointer* methodPointers; ... }. One per assembly image.
-constexpr size_t kCGM_moduleName = 0x00;
-constexpr size_t kCGM_methodCount = 0x08;
-constexpr size_t kCGM_methodPointers = 0x10;
-
-// Find Il2CppCodeRegistration.codeGenModules: a count == the metadata image count
-// followed by a pointer to an array of that many Il2CppCodeGenModule* whose
-// moduleName fields are valid ".dll" strings. Returns the array VA.
-std::optional<uint64_t> findCodeGenModules(const Image& img, size_t imageCount) {
-    auto looksLikeModuleName = [](const std::string& s) {
-        return s.size() > 4 && s.compare(s.size() - 4, 4, ".dll") == 0;
-    };
-    for (const auto& s : img.segs) {
-        if (s.fileSize < 16) continue;
-        size_t begin = static_cast<size_t>(s.fileOff);
-        size_t end = std::min<size_t>(begin + s.fileSize, img.buf.size());
-        for (size_t p = begin; p + 16 <= end; p += 8) {
-            if (img.u64(p) != imageCount) continue;
-            uint64_t arrVA = img.u64(p + 8);
-            if (!img.vaValid(arrVA)) continue;
-            size_t ok = 0, tot = 0, probe = std::min<size_t>(imageCount, 32);
-            for (size_t i = 0; i < probe; ++i) {
-                auto m = img.readPtrVA(arrVA + i * 8);
-                if (!m) break;
-                ++tot;
-                if (*m == 0 || !img.vaValid(*m)) continue;
-                auto nmp = img.readPtrVA(*m + kCGM_moduleName);
-                if (nmp && img.vaValid(*nmp) && looksLikeModuleName(img.readCStrVA(*nmp))) ++ok;
-            }
-            if (tot >= 8 && ok * 5 >= tot * 4) return arrVA;
-        }
-    }
-    return std::nullopt;
-}
-
-} // namespace
 
 std::vector<Il2CppResolvedMethod>
 resolveIl2CppMethods(const Il2CppMetadata& md, const std::string& binaryPath,

@@ -33,11 +33,19 @@ struct Il2CppResolvedField {
     uint8_t     typeEnum = 0;      // Il2CppTypeEnum (I4=8, R4=0xC, CLASS=0x12, ...)
 };
 
+/// A resolved method's code location. `rva` is relative to the binary's image
+/// base, so the live runtime address is `moduleBase + rva`.
+struct Il2CppResolvedMethod {
+    std::string name;
+    uint64_t    rva = 0;
+};
+
 struct Il2CppClassLayout {
     std::string image;
     std::string namespaceName;
     std::string name;
     std::vector<Il2CppResolvedField> fields;
+    std::vector<Il2CppResolvedMethod> methods;  // resolved by resolveIl2CppLayout
 
     std::string fullName() const {
         return namespaceName.empty() ? name : namespaceName + "." + name;
@@ -49,15 +57,6 @@ struct Il2CppBinaryLayout {
     std::string error;
     /// One entry per metadata type, in the same order as `Il2CppMetadata::types`.
     std::vector<Il2CppClassLayout> classes;
-};
-
-/// A resolved method's code location. `rva` is relative to the binary's image
-/// base, so the live runtime address is `moduleBase + rva` (moduleBase = the
-/// GameAssembly mapping's base in the target). A method with no compiled body
-/// (abstract / pure-generic) is omitted.
-struct Il2CppResolvedMethod {
-    std::string name;
-    uint64_t    rva = 0;
 };
 
 /// Resolve the code addresses (as RVAs) of a class's methods, mapping each

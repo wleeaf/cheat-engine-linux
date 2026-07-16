@@ -225,7 +225,14 @@ alongside official CE 7.7 Linux. Today each is materially short of the claim.
     `getIl2CppMethods(class[, md[, bin]])` and `findIl2CppMethod(class, method, ...)`
     return the live address (module base + rva), so a script can hook a game
     function. Validated on a real game (AchievementManager.UnlockAchievement ->
-    0x4FAD50; 203 System.String methods resolve to code).
+    0x4FAD50; 203 System.String methods resolve to code). `resolveIl2CppLayout`
+    now resolves ALL classes' methods in one binary pass (codeGenModules found
+    once, per-image methodPointers cached), so `getIl2CppClassLayout` returns
+    fields + methods together, `cescan il2cpp --methods` uses it, and the Mono
+    dissector GUI shows an IL2CPP target's methods (name + live code address) in
+    the same class tree as its fields. **#10 is complete for the offline/static
+    path: class -> field names -> offsets -> managed types -> method addresses,
+    across Lua, CLI, and GUI.**
     The whole layout is now scriptable and browsable: `resolveIl2CppForProcess`
     (shared cecore helper) auto-locates a live target's metadata + GameAssembly from
     its mapped files, Lua `getIl2CppClassLayout([class[, metadataPath[, binaryPath]]])`

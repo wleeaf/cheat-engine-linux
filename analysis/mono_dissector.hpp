@@ -21,10 +21,16 @@ struct MonoField {
     bool isStatic = false;
 };
 
+struct MonoMethod {
+    std::string name;
+    uintptr_t   address = 0;   // runtime code address (0 if unresolved)
+};
+
 struct MonoClassInfo {
     std::string namespaceName;
     std::string name;
     std::vector<MonoField> fields;
+    std::vector<MonoMethod> methods;   // IL2CPP path fills these; Mono agent leaves empty
     /// "Namespace.Name" (or just "Name" when the namespace is empty).
     std::string fullName() const {
         return namespaceName.empty() ? name : namespaceName + "." + name;

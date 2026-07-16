@@ -767,10 +767,9 @@ static int cmd_il2cpp(int argc, char** argv) {
                 }
             }
         }
-        // Methods (resolved from the binary). Only when a class filter is set, to
-        // avoid re-reading the binary for every class in an unfiltered dump.
-        if (showMethods && !binaryPath.empty() && !filter.empty()) {
-            auto methods = ce::resolveIl2CppMethods(*md, binaryPath, full);
+        // Methods (resolved from the binary in the same pass as field offsets).
+        if (showMethods && haveOffsets) {
+            const auto& methods = layout.classes[ti].methods;
             for (const auto& m : methods)
                 printf("      method +0x%-8lx %s\n", (unsigned long)m.rva, m.name.c_str());
             if (methods.empty())

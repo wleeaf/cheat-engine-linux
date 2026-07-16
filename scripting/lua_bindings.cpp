@@ -2733,6 +2733,15 @@ static int l_getIl2CppClassLayout(lua_State* L) {
             lua_rawseti(L, -2, fi++);
         }
         lua_setfield(L, -2, "fields");
+        lua_newtable(L);   // methods (name + rva; resolved in the same binary pass)
+        int mi = 1;
+        for (const auto& m : c.methods) {
+            lua_newtable(L);
+            lua_pushstring(L, m.name.c_str());      lua_setfield(L, -2, "name");
+            lua_pushinteger(L, (lua_Integer)m.rva); lua_setfield(L, -2, "rva");
+            lua_rawseti(L, -2, mi++);
+        }
+        lua_setfield(L, -2, "methods");
         lua_rawseti(L, -2, ci++);
     }
     return 1;

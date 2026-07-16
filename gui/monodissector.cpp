@@ -17,7 +17,8 @@ namespace ce::gui {
 // Convert a resolved IL2CPP layout into the MonoDissection shape so the same tree
 // UI renders it. Const fields (no storage) are dropped; instance/static keep their
 // offsets. Value-type names are not available offline, so typeName is left blank.
-static ce::MonoDissection il2cppToMonoDissection(const ce::Il2CppBinaryLayout& layout) {
+static ce::MonoDissection il2cppToMonoDissection(const ce::Il2CppBinaryLayout& layout,
+                                                uintptr_t moduleBase) {
     ce::MonoDissection d;
     d.ready = layout.ok;
     d.error = layout.error;
@@ -44,6 +45,12 @@ static ce::MonoDissection il2cppToMonoDissection(const ce::Il2CppBinaryLayout& l
             mf.offset = static_cast<uint32_t>(f.offset);
             mf.isStatic = f.isStatic;
             cls.fields.push_back(std::move(mf));
+        }
+        for (const auto& m : c.methods) {
+            ce::MonoMethod mm;
+            mm.name = m.name;
+            mm.address = moduleBase + m.rva;   // live code address
+            cls.methods.push_back(std::move(mm));
         }
         d.images[idx].classes.push_back(std::move(cls));
     }
@@ -134,6 +141,16 @@ void MonoDissectorWindow::setDissection(const ce::MonoDissection& d) {
                     QString::fromStdString(c.name + "." + f.name));
                 ++fieldCount;
             }
+            // Methods (IL2CPP): display name + resolved code address. Not addable
+            // to the address list (code, not a value), so no field roles.
+            for (const auto& m : c.methods) {
+                auto* mItem = new QTreeWidgetItem(clsItem, {
+                    QString::fromStdString(m.name) + "()",
+                    m.address ? QString("0x%1").arg(m.address, 0, 16) : QString(),
+                    QStringLiteral("method"),
+                });
+                mItem->setData(0, kKindRole, "method");
+            }
         }
     }
     status_->setText(QString("%1 %2 · %3 classes · %4 fields%5")
@@ -160,7 +177,16 @@ void MonoDissectorWindow::runDissect() {
                 status_->setText("IL2CPP: " + QString::fromStdString(layout.error));
                 return;
             }
-            setDissection(il2cppToMonoDissection(layout));
+            // GameAssembly runtime base, so method RVAs become live addresses.
+            uintptr_t modBase = 0;
+            {
+                std::vector<std::string> paths;
+                for (const auto& m : proc_->modules()) if (!m.path.empty()) paths.push_back(m.path);
+                for (const auto& r : proc_->queryRegions()) if (!r.path.empty()) paths.push_back(r.path);
+                std::string ga = ce::findGameAssemblyPath(paths);
+                for (const auto& m : proc_->modules()) if (m.path == ga) { modBase = m.base; break; }
+            }
+            setDissection(il2cppToMonoDissection(layout, modBase));
             return;
         }
         case ce::ManagedKind::None:

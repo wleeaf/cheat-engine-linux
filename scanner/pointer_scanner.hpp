@@ -6,6 +6,7 @@
 #include <string>
 #include <atomic>
 #include <cstddef>
+#include <optional>
 
 namespace ce {
 
@@ -36,6 +37,62 @@ struct PointerScanConfig {
 /// Build one config per worker. Merged results are equivalent to a full scan.
 std::vector<PointerScanConfig> makePointerScanShards(const PointerScanConfig& base, size_t shardCount);
 
+/// A reusable snapshot of a process's pointer graph: every pointer-shaped value
+/// found in readable memory, indexed both by target (for a scan's reverse BFS)
+/// and by location (for resolving a saved path without touching the process).
+/// Building it is the expensive half of a pointer scan; reuse lets you scan
+/// several targets, or re-resolve a whole saved path set after a game restart,
+/// without re-reading memory.
+class PointerMap {
+public:
+    struct Entry {
+        uintptr_t pointsTo;    // pointer value (target)
+        uintptr_t locatedAt;   // address that holds it
+    };
+
+    bool   empty() const { return byTarget_.empty(); }
+    size_t size()  const { return byTarget_.size(); }
+    const std::vector<Entry>&      entriesByTarget() const { return byTarget_; }  // sorted by pointsTo
+    const std::vector<ModuleInfo>& modules() const { return modules_; }
+
+    /// The pointer value stored at `addr` in the snapshot, or nullopt if `addr`
+    /// held no recorded pointer-shaped value.
+    std::optional<uintptr_t> valueAt(uintptr_t addr) const;
+
+    /// Resolve a path to its final target address using ONLY the snapshot (no
+    /// process reads). Returns 0 if the module is missing or a link is absent
+    /// from the map. For scanner-produced paths every intermediate address is a
+    /// recorded aligned slot, so this equals PointerScanner::dereference against
+    /// the same process state; a manually-entered path whose intermediate lands
+    /// off a recorded slot resolves to 0 (use dereference for those).
+    uintptr_t resolve(const PointerPath& path) const;
+
+    /// Persist / restore the snapshot ("PMAP0001" + entries + modules). load()
+    /// sets *error and returns an empty map on failure.
+    bool save(const std::string& path) const;
+    static PointerMap load(const std::string& path, std::string* error = nullptr);
+
+    /// Populate the map (used by buildPointerMap and load). setEntries sorts the
+    /// entries by target and rebuilds the by-location index.
+    void setEntries(std::vector<Entry> entries);
+    void setModules(std::vector<ModuleInfo> modules) { modules_ = std::move(modules); }
+
+private:
+    std::vector<Entry>       byTarget_;    // sorted by pointsTo
+    std::vector<uint32_t>    byLocated_;   // indices into byTarget_, sorted by locatedAt
+    std::vector<ModuleInfo>  modules_;
+    uintptr_t moduleBase(const std::string& name) const;
+};
+
+/// Build a PointerMap from a live process (the expensive read phase). Honors
+/// alignedOnly / useGpu / gpuMinRegionBytes from `config`. `cancel`, if set and
+/// flipped true, aborts and yields an empty map. `progress`, if set, is driven
+/// from 0.0 to `progressSpan` across the read.
+PointerMap buildPointerMap(ProcessHandle& proc, const PointerScanConfig& config,
+                           std::atomic<bool>* cancel = nullptr,
+                           std::atomic<float>* progress = nullptr,
+                           float progressSpan = 0.5f);
+
 class PointerScanner {
 public:
     PointerScanner() = default;
@@ -43,9 +100,19 @@ public:
     /// Run a pointer scan. Returns all found paths.
     std::vector<PointerPath> scan(ProcessHandle& proc, const PointerScanConfig& config);
 
+    /// Scan using a prebuilt PointerMap, skipping the memory-read phase. Lets you
+    /// scan several targets against one map. Equivalent to scan() for the same
+    /// process state (same config target/depth/offset/shard settings).
+    std::vector<PointerPath> scanWithMap(const PointerMap& map, const PointerScanConfig& config);
+
     /// Dereference a pointer path in the target process.
     /// Returns the final address, or 0 if any dereference fails.
     static uintptr_t dereference(ProcessHandle& proc, const PointerPath& path);
+
+    /// Dereference using a pre-fetched module list (avoids re-reading /proc maps
+    /// per call). Used by the rescan loops so a large path set parses modules once.
+    static uintptr_t dereference(ProcessHandle& proc, const std::vector<ModuleInfo>& modules,
+                                 const PointerPath& path);
 
     /// Progress (0.0 - 1.0)
     float progress() const { return progress_.load(std::memory_order_relaxed); }
@@ -83,6 +150,23 @@ rescanPointerPaths(ProcessHandle& proc, const std::vector<PointerPath>& paths, u
 std::vector<PointerPath>
 rescanPointerPathsByValue(ProcessHandle& proc, const std::vector<PointerPath>& paths,
                           uint64_t expectedValue, size_t valueSize);
+
+/// Rescan against a prebuilt PointerMap of the CURRENT process state: keep paths
+/// whose in-map resolution equals `newTarget`. No process reads, so re-narrowing
+/// a large saved set across a game restart is instant once the map is built (one
+/// linear memory pass) instead of a dereference syscall chain per path.
+std::vector<PointerPath>
+rescanPointerPathsWithMap(const PointerMap& map, const std::vector<PointerPath>& paths,
+                          uintptr_t newTarget);
+
+/// Map-based rescan by value: resolve each path via the map, then read the value
+/// at the surviving target addresses in one batched pass (readMany) and keep the
+/// ones equal to `expectedValue`. The value itself is not in the map, so this
+/// still reads the target bytes, but skips the per-level chain syscalls.
+std::vector<PointerPath>
+rescanPointerPathsByValueWithMap(ProcessHandle& proc, const PointerMap& map,
+                                 const std::vector<PointerPath>& paths,
+                                 uint64_t expectedValue, size_t valueSize);
 
 enum class PointerSortKey {
     Depth,        // shorter chains first

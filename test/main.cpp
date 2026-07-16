@@ -4571,6 +4571,77 @@ static void test_pointer_rescan_by_value() {
            ok ? "OK" : "FAILED", (int)derefOk, keptMatch.size(), keptMiss.size());
 }
 
+// Reusable PointerMap: build the pointer graph once, scan multiple targets and
+// re-resolve saved paths without re-reading the process. One module pointer
+// (game+0x10 -> heap) reaches two targets (heap+0x20, heap+0x30).
+static void test_pointer_map_reuse() {
+    printf("\n── Test: pointer map (reuse + fast rescan) ──\n");
+    const uintptr_t M = 0x400000, H = 0x10000000;
+    std::vector<uint8_t> module(0x1000, 0), heap(0x1000, 0);
+    std::memcpy(module.data() + 0x10, &H, sizeof(H));      // game+0x10 -> heap base
+    int32_t v1 = 1337, v2 = 4242;
+    std::memcpy(heap.data() + 0x20, &v1, 4);               // heap+0x20 = 1337
+    std::memcpy(heap.data() + 0x30, &v2, 4);               // heap+0x30 = 4242
+
+    FakeProcessHandle proc({
+        {{M, module.size(), MemProt::Read, MemType::Image, MemState::Committed, "/tmp/game"}, module},
+        {{H, heap.size(), MemProt::ReadWrite, MemType::Private, MemState::Committed, "[heap]"}, heap},
+    }, {
+        {M, module.size(), "game", "/tmp/game", true},
+    });
+
+    PointerScanner scanner;
+    PointerScanConfig cfg;
+    cfg.maxDepth = 4; cfg.maxOffset = 2048; cfg.alignedOnly = true; cfg.staticOnly = true;
+
+    auto c1 = cfg; c1.targetAddress = H + 0x20;
+    auto c2 = cfg; c2.targetAddress = H + 0x30;
+    auto s1 = scanner.scan(proc, c1);
+    auto s2 = scanner.scan(proc, c2);
+
+    PointerMap map = buildPointerMap(proc, cfg);
+    auto m1 = scanner.scanWithMap(map, c1);
+    auto m2 = scanner.scanWithMap(map, c2);
+
+    auto sig = [](const std::vector<PointerPath>& v) {
+        std::vector<std::string> s;
+        for (const auto& p : v) s.push_back(p.toString());
+        std::sort(s.begin(), s.end());
+        return s;
+    };
+    bool reuseOk = !m1.empty() && sig(m1) == sig(s1) && sig(m2) == sig(s2) && sig(m1) != sig(m2);
+
+    PointerPath path1;
+    path1.module = "game"; path1.moduleBase = M; path1.baseOffset = 0x10; path1.offsets = {0x20};
+    bool resolveOk = map.resolve(path1) == H + 0x20 &&
+        map.resolve(path1) == PointerScanner::dereference(proc, path1) &&
+        map.valueAt(M + 0x10).value_or(0) == H &&
+        !map.valueAt(M + 0x18).has_value();
+
+    const char* td = std::getenv("TMPDIR");
+    std::string mp = std::string(td ? td : "/tmp") + "/ce-pmap-" + std::to_string(getpid()) + ".bin";
+    bool saveOk = map.save(mp);
+    std::string err;
+    PointerMap loaded = PointerMap::load(mp, &err);
+    bool loadOk = saveOk && err.empty() && loaded.size() == map.size() &&
+        loaded.resolve(path1) == H + 0x20;
+    std::remove(mp.c_str());
+
+    std::vector<PointerPath> paths = {path1};
+    auto byMap     = rescanPointerPathsWithMap(map, paths, H + 0x20);
+    auto byMapMiss = rescanPointerPathsWithMap(map, paths, H + 0x99);
+    auto valMap    = rescanPointerPathsByValueWithMap(proc, map, paths, 1337, 4);
+    auto valMapMs  = rescanPointerPathsByValueWithMap(proc, map, paths, 9999, 4);
+    auto valOld    = rescanPointerPathsByValue(proc, paths, 1337, 4);
+    bool rescanOk = byMap.size() == 1 && byMapMiss.empty() &&
+        valMap.size() == 1 && valMapMs.empty() && valMap.size() == valOld.size();
+
+    printf("  build-once, scan two targets == independent scans: %s\n", reuseOk ? "OK" : "FAILED");
+    printf("  resolve == dereference, valueAt correct: %s\n", resolveOk ? "OK" : "FAILED");
+    printf("  map save/load round-trip resolves: %s\n", loadOk ? "OK" : "FAILED");
+    printf("  map-based rescan (addr + value) matches: %s\n", rescanOk ? "OK" : "FAILED");
+}
+
 // 8-byte value written only by a sibling thread, to exercise a non-default
 // (8-byte) hardware watch size in find-what-writes.
 static volatile uint64_t g_cf_watched8 = 0;
@@ -8981,6 +9052,7 @@ int main(int argc, char* argv[]) {
     test_inject_library_32bit();   // ptrace + poison-ret inject: skip under ASan
 #endif
     test_pointer_rescan_by_value();
+    test_pointer_map_reuse();
     test_lua_symbol_info();
     test_lua_region_info();
     test_codefinder_watch_size();

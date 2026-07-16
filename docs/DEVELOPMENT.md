@@ -318,10 +318,20 @@ routing both the disassembler and Lua through it closes many at once.
 
 ### P2 — Breadth / CE parity
 
-19. **Pointer scanner: reusable pointermap + value-filtered rescan.** No
-    pointermap (CE reuses one for fast rescans) and rescan filters only by exact
-    resolved address, not by the pointed-to value — so the canonical
-    scan/restart/rescan-by-value workflow is manual. **[M]**
+19. **Pointer scanner: reusable pointermap + value-filtered rescan. DONE.**
+    Value-filtered rescan (`rescanPointerPathsByValue`) already existed; this pass
+    added the reusable **`PointerMap`** (`scanner/pointer_scanner`): `buildPointerMap`
+    captures the pointer graph once (the expensive read phase), `PointerScanner::
+    scanWithMap` scans multiple targets against one map (CE's "build once, scan
+    many"), and `PointerMap::resolve`/`valueAt` re-resolve a saved path set purely
+    in memory. Because a scanner-produced chain routes through aligned pointer
+    slots at every intermediate, `rescanPointerPathsWithMap` (by address) and
+    `rescanPointerPathsByValueWithMap` (resolve via map, then one batched `readMany`
+    for the survivors' values) re-narrow a large set with no per-path syscalls; the
+    map persists via `save`/`load` ("PMAP0001"). The plain `rescanPointerPaths*`
+    also now parse `/proc` maps once (cached modules) instead of per path.
+    `test_pointer_map_reuse` covers multi-target reuse == independent scans,
+    resolve == dereference, save/load, and map rescans; ASan clean. **[M]**
 20. **Symbols: build-id / `.gnu_debuglink` / MiniDebugInfo + DWARF types.** No
     separate-debug-file resolution (stripped libc/drivers/games show raw
     addresses), and DWARF extraction is line-table + function names only (no

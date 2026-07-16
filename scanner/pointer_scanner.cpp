@@ -37,16 +37,6 @@ std::string PointerPath::toString() const {
 // Maps: pointed_to_address → vector of (address_containing_pointer)
 // We use a sorted vector for cache-friendly binary search.
 
-struct PointerEntry {
-    uintptr_t pointsTo;     // The value (pointer target)
-    uintptr_t locatedAt;    // Address containing this pointer
-};
-
-struct StaticInfo {
-    uintptr_t base;
-    std::string module;
-};
-
 static bool isInRange(uintptr_t addr, const std::vector<MemoryRegion>& regions) {
     for (auto& r : regions)
         if (addr >= r.base && addr < r.base + r.size)
@@ -69,31 +59,130 @@ std::vector<PointerScanConfig> makePointerScanShards(const PointerScanConfig& ba
     return shards;
 }
 
-std::vector<PointerPath> PointerScanner::scan(ProcessHandle& proc, const PointerScanConfig& config) {
-    cancelled_.store(false);
-    progress_.store(0);
-    if (config.shardCount == 0 || config.shardIndex >= config.shardCount)
-        return {};
+// ── PointerMap ──
 
+namespace {
+constexpr char kPointerMapMagic[8] = {'P', 'M', 'A', 'P', '0', '0', '0', '1'};
+}
+
+void PointerMap::setEntries(std::vector<Entry> entries) {
+    byTarget_ = std::move(entries);
+    std::sort(byTarget_.begin(), byTarget_.end(),
+              [](const Entry& a, const Entry& b) { return a.pointsTo < b.pointsTo; });
+    byLocated_.resize(byTarget_.size());
+    for (size_t i = 0; i < byLocated_.size(); ++i) byLocated_[i] = static_cast<uint32_t>(i);
+    std::sort(byLocated_.begin(), byLocated_.end(), [&](uint32_t a, uint32_t b) {
+        return byTarget_[a].locatedAt < byTarget_[b].locatedAt;
+    });
+}
+
+std::optional<uintptr_t> PointerMap::valueAt(uintptr_t addr) const {
+    auto lo = std::lower_bound(byLocated_.begin(), byLocated_.end(), addr,
+        [&](uint32_t idx, uintptr_t a) { return byTarget_[idx].locatedAt < a; });
+    if (lo != byLocated_.end() && byTarget_[*lo].locatedAt == addr)
+        return byTarget_[*lo].pointsTo;
+    return std::nullopt;
+}
+
+uintptr_t PointerMap::moduleBase(const std::string& name) const {
+    for (const auto& m : modules_)
+        if (m.name == name) return m.base;
+    return 0;
+}
+
+uintptr_t PointerMap::resolve(const PointerPath& path) const {
+    uintptr_t base = moduleBase(path.module);
+    if (base == 0) return 0;
+    uintptr_t addr = base + path.baseOffset;
+    for (auto off : path.offsets) {
+        auto v = valueAt(addr);
+        if (!v || *v == 0) return 0;
+        addr = *v + off;   // off is int32_t; two's-complement add handles negatives
+    }
+    return addr;
+}
+
+bool PointerMap::save(const std::string& path) const {
+    FILE* f = std::fopen(path.c_str(), "wb");
+    if (!f) return false;
+    auto w = [&](const void* p, size_t n) { return std::fwrite(p, 1, n, f) == n; };
+    bool ok = w(kPointerMapMagic, sizeof(kPointerMapMagic));
+    uint64_t nEntries = byTarget_.size(), nModules = modules_.size();
+    ok = ok && w(&nEntries, 8) && w(&nModules, 8);
+    for (const auto& e : byTarget_) {
+        if (!ok) break;
+        uint64_t pt = e.pointsTo, la = e.locatedAt;
+        ok = w(&pt, 8) && w(&la, 8);
+    }
+    for (const auto& m : modules_) {
+        if (!ok) break;
+        uint64_t base = m.base, size = m.size;
+        uint32_t nameLen = static_cast<uint32_t>(m.name.size());
+        uint8_t is64 = m.is64bit ? 1 : 0;
+        ok = w(&base, 8) && w(&size, 8) && w(&nameLen, 4) && w(&is64, 1);
+        if (ok && nameLen) ok = w(m.name.data(), nameLen);
+    }
+    std::fclose(f);
+    return ok;
+}
+
+PointerMap PointerMap::load(const std::string& path, std::string* error) {
+    auto fail = [&](const char* m) { if (error) *error = m; return PointerMap{}; };
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return fail("open failed");
+    auto r = [&](void* p, size_t n) { return std::fread(p, 1, n, f) == n; };
+    char magic[8] = {};
+    if (!r(magic, 8) || std::memcmp(magic, kPointerMapMagic, 8) != 0) {
+        std::fclose(f); return fail("bad magic");
+    }
+    uint64_t nEntries = 0, nModules = 0;
+    if (!r(&nEntries, 8) || !r(&nModules, 8)) { std::fclose(f); return fail("truncated header"); }
+    if (nEntries > (1ull << 32) || nModules > (1u << 20)) { std::fclose(f); return fail("counts too large"); }
+    std::vector<Entry> entries;
+    entries.reserve(std::min<uint64_t>(nEntries, 1u << 20));
+    for (uint64_t i = 0; i < nEntries; ++i) {
+        uint64_t pt = 0, la = 0;
+        if (!r(&pt, 8) || !r(&la, 8)) { std::fclose(f); return fail("truncated entries"); }
+        entries.push_back({static_cast<uintptr_t>(pt), static_cast<uintptr_t>(la)});
+    }
+    std::vector<ModuleInfo> mods;
+    mods.reserve(std::min<uint64_t>(nModules, 4096));
+    for (uint64_t i = 0; i < nModules; ++i) {
+        uint64_t base = 0, size = 0;
+        uint32_t nameLen = 0;
+        uint8_t is64 = 0;
+        if (!r(&base, 8) || !r(&size, 8) || !r(&nameLen, 4) || !r(&is64, 1)) {
+            std::fclose(f); return fail("truncated module");
+        }
+        if (nameLen > (1u << 16)) { std::fclose(f); return fail("module name too long"); }
+        ModuleInfo m;
+        m.base = static_cast<uintptr_t>(base);
+        m.size = static_cast<size_t>(size);
+        m.is64bit = is64 != 0;
+        m.name.resize(nameLen);
+        if (nameLen && !r(m.name.data(), nameLen)) { std::fclose(f); return fail("truncated module name"); }
+        mods.push_back(std::move(m));
+    }
+    std::fclose(f);
+    PointerMap map;
+    map.setModules(std::move(mods));
+    map.setEntries(std::move(entries));
+    return map;
+}
+
+PointerMap buildPointerMap(ProcessHandle& proc, const PointerScanConfig& config,
+                           std::atomic<bool>* cancel, std::atomic<float>* progress,
+                           float progressSpan) {
+    auto cancelled = [&] { return cancel && cancel->load(std::memory_order_relaxed); };
     auto regions = proc.queryRegions();
-    auto modules = proc.modules();
 
-    // Build quick lookup: is address in a module? (static pointer)
-    auto findModule = [&](uintptr_t addr) -> const ModuleInfo* {
-        for (auto& m : modules)
-            if (addr >= m.base && addr < m.base + m.size)
-                return &m;
-        return nullptr;
-    };
-
-    // ── Phase 1: Build reverse pointer map ──
-    // Read all memory and find pointer-like values
-
-    std::vector<PointerEntry> entries;
+    // ── Read all memory and find pointer-like values ──
+    std::vector<PointerMap::Entry> entries;
     entries.reserve(1024 * 1024); // Preallocate ~16MB
 
     size_t totalMem = 0;
     for (auto& r : regions) totalMem += r.size;
+    if (totalMem == 0) totalMem = 1;
 
     size_t scanned = 0;
     std::vector<uint8_t> buf;
@@ -111,7 +200,7 @@ std::vector<PointerPath> PointerScanner::scan(ProcessHandle& proc, const Pointer
     CudaSearch gpu;
 
     for (auto& region : regions) {
-        if (cancelled_.load()) break;
+        if (cancelled()) break;
         if (!(region.protection & MemProt::Read)) continue;
         // Read EVERY readable region (all module regions included) so Phase-2
         // traversal is complete even under sharding: a path routed THROUGH a
@@ -127,7 +216,7 @@ std::vector<PointerPath> PointerScanner::scan(ProcessHandle& proc, const Pointer
         const size_t ptrStep = config.alignedOnly ? 8 : 1;
         const size_t ownedLen = std::max<size_t>(ptrStep, (kPtrReadWindow / ptrStep) * ptrStep);
         for (size_t windowStart = 0; windowStart < region.size; windowStart += ownedLen) {
-            if (cancelled_.load()) break;
+            if (cancelled()) break;
             size_t want = std::min<size_t>(ownedLen + 7, region.size - windowStart);
             buf.resize(want);
             auto rr = proc.read(region.base + windowStart, buf.data(), want);
@@ -163,16 +252,44 @@ std::vector<PointerPath> PointerScanner::scan(ProcessHandle& proc, const Pointer
         }
 
         scanned += region.size;
-        progress_.store(0.5f * scanned / totalMem); // Phase 1 = 0-50%
+        if (progress) progress->store(progressSpan * scanned / totalMem);
     }
 
+    PointerMap map;
+    if (cancelled()) return map;    // empty
+    map.setModules(proc.modules());
+    map.setEntries(std::move(entries));   // sorts by target + builds by-location index
+    return map;
+}
+
+std::vector<PointerPath> PointerScanner::scan(ProcessHandle& proc, const PointerScanConfig& config) {
+    cancelled_.store(false);
+    progress_.store(0);
+    if (config.shardCount == 0 || config.shardIndex >= config.shardCount)
+        return {};
+
+    PointerMap map = buildPointerMap(proc, config, &cancelled_, &progress_, 0.5f);
     if (cancelled_.load()) return {};
+    return scanWithMap(map, config);
+}
 
-    // Sort by pointsTo for fast range queries
-    std::sort(entries.begin(), entries.end(),
-        [](const PointerEntry& a, const PointerEntry& b) { return a.pointsTo < b.pointsTo; });
+std::vector<PointerPath> PointerScanner::scanWithMap(const PointerMap& map,
+                                                     const PointerScanConfig& config) {
+    if (config.shardCount == 0 || config.shardIndex >= config.shardCount)
+        return {};
 
-    // ── Phase 2: Reverse BFS from target ──
+    const std::vector<PointerMap::Entry>& entries = map.entriesByTarget();
+    const std::vector<ModuleInfo>& modules = map.modules();
+
+    // Build quick lookup: is address in a module? (static pointer)
+    auto findModule = [&](uintptr_t addr) -> const ModuleInfo* {
+        for (auto& m : modules)
+            if (addr >= m.base && addr < m.base + m.size)
+                return &m;
+        return nullptr;
+    };
+
+    // ── Reverse BFS from target ──
 
     struct WorkItem {
         uintptr_t address;          // Address to find pointers TO
@@ -207,9 +324,9 @@ std::vector<PointerPath> PointerScanner::scan(ProcessHandle& proc, const Pointer
 
         // Binary search for range [searchMin, searchMax] in sorted entries
         auto lo = std::lower_bound(entries.begin(), entries.end(), searchMin,
-            [](const PointerEntry& e, uintptr_t val) { return e.pointsTo < val; });
+            [](const PointerMap::Entry& e, uintptr_t val) { return e.pointsTo < val; });
         auto hi = std::upper_bound(entries.begin(), entries.end(), searchMax,
-            [](uintptr_t val, const PointerEntry& e) { return val < e.pointsTo; });
+            [](uintptr_t val, const PointerMap::Entry& e) { return val < e.pointsTo; });
 
         for (auto it = lo; it != hi && !cancelled_.load(); ++it) {
             int32_t offset = (int32_t)(item.address - it->pointsTo);
@@ -263,9 +380,8 @@ done:
     return results;
 }
 
-uintptr_t PointerScanner::dereference(ProcessHandle& proc, const PointerPath& path) {
-    // Find module base
-    auto modules = proc.modules();
+uintptr_t PointerScanner::dereference(ProcessHandle& proc, const std::vector<ModuleInfo>& modules,
+                                      const PointerPath& path) {
     uintptr_t base = 0;
     for (auto& m : modules) {
         if (m.name == path.module) { base = m.base; break; }
@@ -273,15 +389,17 @@ uintptr_t PointerScanner::dereference(ProcessHandle& proc, const PointerPath& pa
     if (base == 0) return 0;
 
     uintptr_t addr = base + path.baseOffset;
-
     for (auto off : path.offsets) {
         uintptr_t ptr = 0;
         auto r = proc.read(addr, &ptr, sizeof(ptr));
         if (!r || *r < sizeof(ptr) || ptr == 0) return 0;
         addr = ptr + off;
     }
-
     return addr;
+}
+
+uintptr_t PointerScanner::dereference(ProcessHandle& proc, const PointerPath& path) {
+    return dereference(proc, proc.modules(), path);
 }
 
 // ── Persistence and post-processing ──
@@ -382,10 +500,11 @@ std::vector<PointerPath> loadPointerPaths(const std::string& path, std::string* 
 
 std::vector<PointerPath>
 rescanPointerPaths(ProcessHandle& proc, const std::vector<PointerPath>& paths, uintptr_t newTarget) {
+    auto modules = proc.modules();   // parse /proc maps once, not per path
     std::vector<PointerPath> kept;
     kept.reserve(paths.size());
     for (const auto& p : paths) {
-        if (PointerScanner::dereference(proc, p) == newTarget)
+        if (PointerScanner::dereference(proc, modules, p) == newTarget)
             kept.push_back(p);
     }
     return kept;
@@ -396,15 +515,58 @@ rescanPointerPathsByValue(ProcessHandle& proc, const std::vector<PointerPath>& p
                           uint64_t expectedValue, size_t valueSize) {
     std::vector<PointerPath> kept;
     if (valueSize == 0 || valueSize > 8) return kept;
+    auto modules = proc.modules();   // parse /proc maps once, not per path
     kept.reserve(paths.size());
     const uint64_t mask = (valueSize == 8) ? ~0ull : ((1ull << (valueSize * 8)) - 1);
     for (const auto& p : paths) {
-        uintptr_t addr = PointerScanner::dereference(proc, p);
+        uintptr_t addr = PointerScanner::dereference(proc, modules, p);
         if (addr == 0) continue;
         uint64_t val = 0;
         auto r = proc.read(addr, &val, valueSize);
         if (r && *r == valueSize && (val & mask) == (expectedValue & mask))
             kept.push_back(p);
+    }
+    return kept;
+}
+
+std::vector<PointerPath>
+rescanPointerPathsWithMap(const PointerMap& map, const std::vector<PointerPath>& paths,
+                          uintptr_t newTarget) {
+    std::vector<PointerPath> kept;
+    kept.reserve(paths.size());
+    for (const auto& p : paths)
+        if (map.resolve(p) == newTarget) kept.push_back(p);
+    return kept;
+}
+
+std::vector<PointerPath>
+rescanPointerPathsByValueWithMap(ProcessHandle& proc, const PointerMap& map,
+                                 const std::vector<PointerPath>& paths,
+                                 uint64_t expectedValue, size_t valueSize) {
+    std::vector<PointerPath> kept;
+    if (valueSize == 0 || valueSize > 8) return kept;
+
+    // Resolve every chain from the map (no syscalls), collecting live targets.
+    std::vector<uintptr_t> addrs;
+    std::vector<size_t> pathIdx;
+    addrs.reserve(paths.size());
+    pathIdx.reserve(paths.size());
+    for (size_t i = 0; i < paths.size(); ++i) {
+        uintptr_t a = map.resolve(paths[i]);
+        if (a) { addrs.push_back(a); pathIdx.push_back(i); }
+    }
+    if (addrs.empty()) return kept;
+
+    // One batched read of the survivors' values (readMany), then filter.
+    std::vector<uint8_t> out(addrs.size() * valueSize);
+    std::vector<uint8_t> okFlags(addrs.size());
+    proc.readMany(addrs.data(), addrs.size(), valueSize, out.data(), okFlags.data());
+    const uint64_t mask = (valueSize == 8) ? ~0ull : ((1ull << (valueSize * 8)) - 1);
+    for (size_t k = 0; k < addrs.size(); ++k) {
+        if (!okFlags[k]) continue;
+        uint64_t val = 0;
+        std::memcpy(&val, out.data() + k * valueSize, valueSize);
+        if ((val & mask) == (expectedValue & mask)) kept.push_back(paths[pathIdx[k]]);
     }
     return kept;
 }

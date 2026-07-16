@@ -3395,6 +3395,55 @@ static int l_buildCallGraph(lua_State* L) {
     return 1;
 }
 
+// findReferencedStrings([moduleName]) -> { {address, target, text}, ... } | nil, err
+// String literals the module's code points at (lea/mov rip-rel into readable
+// data holding a printable C string), with the referencing instruction address,
+// the string's address, and its text. Great for locating feature code by its
+// UI text ("God Mode", "Game Over"). Defaults to the main module.
+static int l_findReferencedStrings(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process"); return 2; }
+    std::string modName = (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) ? luaL_checkstring(L, 1) : "";
+    ce::ModuleInfo mod;
+    if (!pickModule(*p, modName, mod)) { lua_pushnil(L); lua_pushstring(L, "module not found"); return 2; }
+    ce::CodeAnalyzer an;
+    auto refs = an.findReferencedStrings(*p, mod);
+    lua_newtable(L);
+    int i = 1;
+    for (const auto& r : refs) {
+        lua_newtable(L);
+        lua_pushinteger(L, (lua_Integer)r.address); lua_setfield(L, -2, "address");
+        lua_pushinteger(L, (lua_Integer)r.target);  lua_setfield(L, -2, "target");
+        lua_pushstring(L, r.text.c_str());          lua_setfield(L, -2, "text");
+        lua_rawseti(L, -2, i++);
+    }
+    return 1;
+}
+
+// findCodeCaves([moduleName [, minSize]]) -> { {address, size}, ... } | nil, err
+// Runs of padding (0x00 / 0xCC) at least minSize bytes long (default 16) inside a
+// module, usable to host injected code without a separate allocation. Defaults to
+// the main module.
+static int l_findCodeCaves(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process"); return 2; }
+    std::string modName = (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) ? luaL_checkstring(L, 1) : "";
+    size_t minSize = (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) ? (size_t)luaL_checkinteger(L, 2) : 16;
+    ce::ModuleInfo mod;
+    if (!pickModule(*p, modName, mod)) { lua_pushnil(L); lua_pushstring(L, "module not found"); return 2; }
+    ce::CodeAnalyzer an;
+    auto caves = an.findCodeCaves(*p, mod, minSize);
+    lua_newtable(L);
+    int i = 1;
+    for (const auto& c : caves) {
+        lua_newtable(L);
+        lua_pushinteger(L, (lua_Integer)c.address); lua_setfield(L, -2, "address");
+        lua_pushinteger(L, (lua_Integer)c.size);    lua_setfield(L, -2, "size");
+        lua_rawseti(L, -2, i++);
+    }
+    return 1;
+}
+
 // ── Branch mapper (hardware LBR via perf_event_open) ──
 // branchMapAvailable() -> bool (Intel LBR + perf_event_paranoid<=1)
 static int l_branchMapAvailable(lua_State* L) {
@@ -4635,6 +4684,8 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "findReferences", l_findReferences);
     lua_register(L, "enumerateFunctions", l_enumerateFunctions);
     lua_register(L, "buildCallGraph", l_buildCallGraph);
+    lua_register(L, "findReferencedStrings", l_findReferencedStrings);
+    lua_register(L, "findCodeCaves", l_findCodeCaves);
     lua_register(L, "getModuleExports", l_getModuleExports);
     lua_register(L, "getModuleImports", l_getModuleImports);
     lua_register(L, "breakAndTrace", l_breakAndTrace);

@@ -121,6 +121,9 @@ Static helpers that read and disassemble the target without running its code.
 | `findReferences(address)` | `{ {address, target, type, text}, ... }` — static xrefs (calls, jumps, lea/mov rip-rel) |
 | `enumerateFunctions([module])` | `{ {address, references}, ... }` — candidate function entry points |
 | `buildCallGraph([module])` | `{ {caller, callee, callSite}, ... }` — static call edges |
+| `findReferencedStrings([module])` | `{ {address, target, text}, ... }` — string literals the code points at (find code by its UI text) |
+| `findStatics([module])` | `{ {address, references}, ... }` — global addresses the code touches, hottest first |
+| `findCodeCaves([module[, minSize]])` | `{ {address, size}, ... }` — padding runs usable to host injected code |
 | `disassembleRange(address, count)` | `{ {address, size, text, ripTarget?}, ... }` |
 
 ```lua

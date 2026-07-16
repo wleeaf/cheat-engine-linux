@@ -7594,9 +7594,20 @@ static void test_lua_code_analysis(pid_t pid) {
         "  local d = disassembleRange(fns[1].address, 4)\n"
         "  assert(type(d) == 'table', 'disassembleRange not a table')\n"
         "  if #d > 0 then assert(type(d[1].address) == 'number' and type(d[1].text) == 'string', 'bad insn') end\n"
-        "end\n";
+        "end\n"
+        "local strs = findReferencedStrings()\n"
+        "assert(type(strs) == 'table', 'findReferencedStrings not a table')\n"
+        "if #strs > 0 then assert(type(strs[1].address)=='number' and type(strs[1].text)=='string', 'bad string ref') end\n"
+        "local statics = findStatics()\n"
+        "assert(type(statics) == 'table', 'findStatics not a table')\n"
+        "if #statics > 1 then assert(statics[1].references >= statics[2].references, 'statics not sorted by refs') end\n"
+        "local caves = findCodeCaves(nil, 32)\n"
+        "assert(type(caves) == 'table', 'findCodeCaves not a table')\n"
+        "if #caves > 0 then assert(caves[1].size >= 32, 'cave shorter than minSize') end\n";
     auto err = lua.execute(script);
     printf("  enumerateFunctions + buildCallGraph return shaped tables: %s\n",
+           err.empty() ? "OK" : ("FAILED: " + err).c_str());
+    printf("  findReferencedStrings + findStatics + findCodeCaves shaped: %s\n",
            err.empty() ? "OK" : ("FAILED: " + err).c_str());
 }
 

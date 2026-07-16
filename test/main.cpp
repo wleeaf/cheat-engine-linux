@@ -5362,6 +5362,18 @@ static void test_il2cpp_real_file() {
         printf("  BoxCollider inherits Object.m_CachedPtr (declaringType set): %s\n",
                inheritOk ? "OK" : "FAILED");
 
+        // Generic instantiations spell their type arguments: List`1<System.String>,
+        // Dictionary`2<K, V>. Count spelled generics (typeName has "`N<...>").
+        size_t spelledGenerics = 0;
+        for (const auto& c : layout.classes)
+            for (const auto& fl : c.fields)
+                if (fl.typeName.find('`') != std::string::npos &&
+                    fl.typeName.find('<') != std::string::npos &&
+                    !fl.typeName.empty() && fl.typeName.back() == '>')
+                    ++spelledGenerics;
+        printf("  generic fields spell their type args (%zu found): %s\n",
+               spelledGenerics, spelledGenerics > 0 ? "OK" : "FAILED");
+
         // Method resolution: a common BCL class should have methods that resolve
         // to non-zero code RVAs within the binary.
         auto methods = ce::resolveIl2CppMethods(*md, ga, "System.String");

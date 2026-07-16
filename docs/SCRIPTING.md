@@ -53,8 +53,9 @@ end
 
 Field entries carry `name`, `offset` (byte offset inside the object),
 `static`, `const`, and `typeName`, the resolved managed type (`System.Single`,
-`UnityEngine.Vector3`, `System.String`, `System.Collections.Generic.List\`1`,
-`MyClass[]`, …), read offline from the binary's `Il2CppType` table. Method
+`UnityEngine.Vector3`, `System.String`, `List\`1<System.String>`,
+`Dictionary\`2<System.String, System.TimeZoneInfo>`, `MyClass[]`, …), read offline
+from the binary's `Il2CppType` table with generic arguments spelled out. Method
 entries carry `name` and `rva` (offset inside the GameAssembly module); add the
 module base for a live address, or use `findIl2CppMethod` which does that for
 you:

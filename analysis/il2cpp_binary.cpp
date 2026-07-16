@@ -297,10 +297,29 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
                 std::string n = etp ? nameOfTypeVA(*etp, depth + 1) : std::string();
                 return (n.empty() ? "System.Object" : n) + "[]";
             }
-            case 0x15: { // GENERICINST -> data = Il2CppGenericClass*, first field an Il2CppType* to the open generic
-                auto gtp = img.readPtrVA(data + 0x00);
-                std::string n = gtp ? nameOfTypeVA(*gtp, depth + 1) : std::string();
-                return n.empty() ? std::string() : n;   // e.g. "...List`1"
+            case 0x15: { // GENERICINST -> data = Il2CppGenericClass{ Il2CppType* type;
+                         //   Il2CppGenericContext{ Il2CppGenericInst* class_inst; ... } }
+                auto gtp = img.readPtrVA(data + 0x00);            // the open generic type def
+                std::string base = gtp ? nameOfTypeVA(*gtp, depth + 1) : std::string();
+                if (base.empty()) return {};                     // e.g. "...List`1"
+                // Spell the type arguments from context.class_inst (an
+                // Il2CppGenericInst{ uint32 type_argc; Il2CppType** type_argv }).
+                if (auto instVA = img.readPtrVA(data + 0x08); instVA && *instVA) {
+                    auto argc = img.readU32VA(*instVA + 0x00);
+                    auto argvVA = img.readPtrVA(*instVA + 0x08);
+                    if (argc && argvVA && *argc > 0 && *argc <= 32) {
+                        std::string args;
+                        for (uint32_t a = 0; a < *argc; ++a) {
+                            auto at = img.readPtrVA(*argvVA + static_cast<uint64_t>(a) * 8);
+                            std::string an = at ? nameOfTypeVA(*at, depth + 1) : std::string();
+                            if (an.empty()) an = "?";
+                            if (!args.empty()) args += ", ";
+                            args += an;
+                        }
+                        return base + "<" + args + ">";
+                    }
+                }
+                return base;   // couldn't read the args; keep the open generic name
             }
             case 0x13: case 0x1E: return "T";   // VAR / MVAR generic parameter
             default: return {};

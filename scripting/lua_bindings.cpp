@@ -1125,6 +1125,35 @@ static int l_disassemble(lua_State* L) {
     return 3; // returns instruction_text, size, ripTarget (0 if not RIP-relative)
 }
 
+// disassembleRange(address [, count=16]) -> { {address, size, text, ripTarget}, ...}
+// Decodes `count` instructions from `address` in the target. Handy for dumping a
+// function or feeding a decoded stream to analysis; disassemble() returns only one.
+static int l_disassembleRange(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process"); return 2; }
+    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    int count = (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) ? (int)luaL_checkinteger(L, 2) : 16;
+    if (count < 1) count = 1;
+    if (count > 4096) count = 4096;
+    std::vector<uint8_t> buf(static_cast<size_t>(count) * 15 + 16);
+    auto r = p->read(addr, buf.data(), buf.size());
+    if (!r || *r == 0) { lua_pushnil(L); lua_pushstring(L, "read failed"); return 2; }
+
+    Disassembler dis(p->runs32BitCode() ? Arch::X86_32 : Arch::X86_64);
+    auto insns = dis.disassemble(addr, {buf.data(), *r}, (size_t)count);
+    lua_newtable(L);
+    int i = 1;
+    for (const auto& in : insns) {
+        lua_newtable(L);
+        lua_pushinteger(L, (lua_Integer)in.address);  lua_setfield(L, -2, "address");
+        lua_pushinteger(L, in.size);                  lua_setfield(L, -2, "size");
+        lua_pushstring(L, (in.mnemonic + " " + in.operands).c_str()); lua_setfield(L, -2, "text");
+        if (in.ripTarget) { lua_pushinteger(L, (lua_Integer)in.ripTarget); lua_setfield(L, -2, "ripTarget"); }
+        lua_rawseti(L, -2, i++);
+    }
+    return 1;
+}
+
 // getInstructionSize(address) -> byte length of the instruction at address.
 static int l_getInstructionSize(lua_State* L) {
     auto* p = getProc(L);
@@ -4509,6 +4538,7 @@ void registerExtendedBindings(lua_State* L) {
 
     // Disassembly / Assembly
     lua_register(L, "disassemble", l_disassemble);
+    lua_register(L, "disassembleRange", l_disassembleRange);
     lua_register(L, "speedhack_setSpeed", l_speedhack_setSpeed);
     lua_register(L, "setSpeed", l_speedhack_setSpeed);   // convenience alias
     lua_register(L, "injectLibrary", l_injectLibrary);

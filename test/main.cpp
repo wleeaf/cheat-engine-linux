@@ -7589,7 +7589,12 @@ static void test_lua_code_analysis(pid_t pid) {
         "local cg = buildCallGraph()\n"
         "assert(type(cg) == 'table', 'buildCallGraph not a table')\n"
         "if #fns > 0 then assert(type(fns[1].address) == 'number', 'bad function entry') end\n"
-        "if #cg > 0 then assert(cg[1].caller and cg[1].callee and cg[1].callSite, 'bad edge') end\n";
+        "if #cg > 0 then assert(cg[1].caller and cg[1].callee and cg[1].callSite, 'bad edge') end\n"
+        "if #fns > 0 then\n"
+        "  local d = disassembleRange(fns[1].address, 4)\n"
+        "  assert(type(d) == 'table', 'disassembleRange not a table')\n"
+        "  if #d > 0 then assert(type(d[1].address) == 'number' and type(d[1].text) == 'string', 'bad insn') end\n"
+        "end\n";
     auto err = lua.execute(script);
     printf("  enumerateFunctions + buildCallGraph return shaped tables: %s\n",
            err.empty() ? "OK" : ("FAILED: " + err).c_str());

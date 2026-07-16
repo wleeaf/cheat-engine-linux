@@ -40,8 +40,11 @@ alignment, comparator, and both scan phases, and clean under ASan/UBSan).
   over an aligned buffer) is vectorized with a runtime-selected AVX2 path and an
   SSE2 baseline (scalar elsewhere), replacing a per-element function-pointer
   compare. Float equality uses an ordered SIMD compare that matches C++ exactly
-  (NaN never matches, -0.0 equals 0.0); rounded/tolerant searches keep the
-  scalar path. Set `CE_SCAN_SIMD=off|sse2|avx2` to override for testing.
+  (NaN never matches, -0.0 equals 0.0). Rounded/truncated/extreme float searches
+  are vectorized too, via a superset reject (a window around the search value)
+  then the exact scalar check on the few survivors, so results are identical to
+  the scalar path (~12x faster on a 1 GiB rounded-float scan). Set
+  `CE_SCAN_SIMD=off|sse2|avx2` to override for testing.
 - **SIMD array-of-bytes and string scans (~2x).** An AOB/string scan checks
   every unaligned offset, so it was compute-bound. It now anchors on one fixed
   pattern byte and uses an SSE2 byte search to reject 16 non-matching offsets at

@@ -543,32 +543,131 @@ void scanExactFloatSSE(const uint8_t* buf, size_t nLanes, uintptr_t base, T need
 }
 #endif // __x86_64__
 
-// If this float scan is a plain finite-value exact search on an aligned buffer,
-// run the SIMD equality path and return true; otherwise return false so the
-// caller falls back to scanBufferFloating (which handles rounding, tolerance,
-// relational and non-finite comparisons).
+// Rounded/tolerant float exact scan (roundingType != 0). SIMD rejects lanes
+// outside a superset window [needle-W, needle+W] (matches for every rounding mode
+// lie within W of the needle), then the survivors get the EXACT scalar
+// compareFloatingExact — so results are identical to the scalar path, but the
+// vast majority of values (far from the needle) are discarded 8/16-wide. `hw` is
+// the superset half-width the caller computed for the config.
+template<typename T, typename Verify>
+inline void roundedFloatScalarTail(const uint8_t* buf, size_t start, size_t nLanes,
+                                   uintptr_t base, Verify verify, ScanResult& res) {
+    for (size_t i = start; i < nLanes; ++i) {
+        T c; std::memcpy(&c, buf + i * sizeof(T), sizeof(T));
+        if (verify(c)) emitAt<T>(buf, i * sizeof(T), base, res);
+    }
+}
+
+#if defined(__x86_64__)
+template<typename T, typename Verify>
+__attribute__((target("avx2")))
+void scanRoundedFloatAVX(const uint8_t* buf, size_t nLanes, uintptr_t base,
+                         T lo, T hi, Verify verify, ScanResult& res) {
+    constexpr size_t L = sizeof(T);
+    size_t i = 0;
+    if constexpr (L == 4) {
+        constexpr size_t W = 8;
+        __m256 vlo = _mm256_set1_ps(lo), vhi = _mm256_set1_ps(hi);
+        for (; i + W <= nLanes; i += W) {
+            __m256 v = _mm256_loadu_ps(reinterpret_cast<const float*>(buf + i * L));
+            __m256 m = _mm256_and_ps(_mm256_cmp_ps(v, vlo, _CMP_GE_OQ), _mm256_cmp_ps(v, vhi, _CMP_LE_OQ));
+            unsigned mask = static_cast<unsigned>(_mm256_movemask_ps(m));
+            while (mask) { unsigned b = (unsigned)__builtin_ctz(mask); T c; std::memcpy(&c, buf + (i + b) * L, L);
+                          if (verify(c)) emitAt<T>(buf, (i + b) * L, base, res); mask &= mask - 1; }
+        }
+    } else {
+        constexpr size_t W = 4;
+        __m256d vlo = _mm256_set1_pd(lo), vhi = _mm256_set1_pd(hi);
+        for (; i + W <= nLanes; i += W) {
+            __m256d v = _mm256_loadu_pd(reinterpret_cast<const double*>(buf + i * L));
+            __m256d m = _mm256_and_pd(_mm256_cmp_pd(v, vlo, _CMP_GE_OQ), _mm256_cmp_pd(v, vhi, _CMP_LE_OQ));
+            unsigned mask = static_cast<unsigned>(_mm256_movemask_pd(m));
+            while (mask) { unsigned b = (unsigned)__builtin_ctz(mask); T c; std::memcpy(&c, buf + (i + b) * L, L);
+                          if (verify(c)) emitAt<T>(buf, (i + b) * L, base, res); mask &= mask - 1; }
+        }
+    }
+    roundedFloatScalarTail<T>(buf, i, nLanes, base, verify, res);
+}
+
+template<typename T, typename Verify>
+void scanRoundedFloatSSE(const uint8_t* buf, size_t nLanes, uintptr_t base,
+                         T lo, T hi, Verify verify, ScanResult& res) {
+    constexpr size_t L = sizeof(T);
+    size_t i = 0;
+    if constexpr (L == 4) {
+        constexpr size_t W = 4;
+        __m128 vlo = _mm_set1_ps(lo), vhi = _mm_set1_ps(hi);
+        for (; i + W <= nLanes; i += W) {
+            __m128 v = _mm_loadu_ps(reinterpret_cast<const float*>(buf + i * L));
+            __m128 m = _mm_and_ps(_mm_cmpge_ps(v, vlo), _mm_cmple_ps(v, vhi));
+            unsigned mask = static_cast<unsigned>(_mm_movemask_ps(m));
+            while (mask) { unsigned b = (unsigned)__builtin_ctz(mask); T c; std::memcpy(&c, buf + (i + b) * L, L);
+                          if (verify(c)) emitAt<T>(buf, (i + b) * L, base, res); mask &= mask - 1; }
+        }
+    } else {
+        constexpr size_t W = 2;
+        __m128d vlo = _mm_set1_pd(lo), vhi = _mm_set1_pd(hi);
+        for (; i + W <= nLanes; i += W) {
+            __m128d v = _mm_loadu_pd(reinterpret_cast<const double*>(buf + i * L));
+            __m128d m = _mm_and_pd(_mm_cmpge_pd(v, vlo), _mm_cmple_pd(v, vhi));
+            unsigned mask = static_cast<unsigned>(_mm_movemask_pd(m));
+            while (mask) { unsigned b = (unsigned)__builtin_ctz(mask); T c; std::memcpy(&c, buf + (i + b) * L, L);
+                          if (verify(c)) emitAt<T>(buf, (i + b) * L, base, res); mask &= mask - 1; }
+        }
+    }
+    roundedFloatScalarTail<T>(buf, i, nLanes, base, verify, res);
+}
+#endif // __x86_64__
+
+// If this float scan is a finite-needle exact search on an aligned buffer, run a
+// SIMD path and return true. roundingType 0 is a direct equality; the rounded /
+// truncated / extreme modes use a superset reject then an exact scalar verify.
+// Otherwise return false so the caller falls back to scanBufferFloating
+// (relational compares, unaligned strides, non-finite needle).
 template<typename T>
 bool tryScanExactFloat(const uint8_t* buf, size_t bufSize, uintptr_t base,
                        size_t alignment, const ScanConfig& config, ScanResult& res) {
     if (config.compareType != ScanCompare::Exact) return false;
-    if (config.roundingType != 0) return false;
     if (alignment != sizeof(T)) return false;
     if (bufSize < sizeof(T)) return false;
     T needle = static_cast<T>(config.floatValue);
     if (!std::isfinite(needle)) return false;
-
     size_t nLanes = (bufSize - sizeof(T)) / sizeof(T) + 1;
+
+    if (config.roundingType == 0) {
+#if defined(__x86_64__)
+        switch (simdMode()) {
+            case SimdMode::AVX2: scanExactFloatAVX<T>(buf, nLanes, base, needle, res); return true;
+            case SimdMode::SSE2: scanExactFloatSSE<T>(buf, nLanes, base, needle, res); return true;
+            default: break;
+        }
+#endif
+        for (size_t i = 0; i < nLanes; ++i) {
+            T c; std::memcpy(&c, buf + i * sizeof(T), sizeof(T));
+            if (c == needle) emitAt<T>(buf, i * sizeof(T), base, res);
+        }
+        return true;
+    }
+
+    // Rounded/tolerant: superset window then exact scalar verify. Every rounding
+    // mode's match lies within `hw` of the needle (rounded/truncated: < 1;
+    // extreme: its tolerance), so a generous window is a safe superset — the
+    // scalar verify guarantees exact semantics regardless.
+    double s = static_cast<double>(needle);
+    double tol = (config.roundingType == 3)
+        ? (config.floatTolerance > 0.0 ? config.floatTolerance : std::max(1e-6, std::abs(s) * 1e-6))
+        : 0.0;
+    double hw = std::max(2.0, tol) + 2.0;
+    T lo = static_cast<T>(s - hw), hi = static_cast<T>(s + hw);
+    auto verify = [&](T c) { return compareFloatingExact(config, c, needle); };
 #if defined(__x86_64__)
     switch (simdMode()) {
-        case SimdMode::AVX2: scanExactFloatAVX<T>(buf, nLanes, base, needle, res); return true;
-        case SimdMode::SSE2: scanExactFloatSSE<T>(buf, nLanes, base, needle, res); return true;
+        case SimdMode::AVX2: scanRoundedFloatAVX<T>(buf, nLanes, base, lo, hi, verify, res); return true;
+        case SimdMode::SSE2: scanRoundedFloatSSE<T>(buf, nLanes, base, lo, hi, verify, res); return true;
         default: break;
     }
 #endif
-    for (size_t i = 0; i < nLanes; ++i) {
-        T c; std::memcpy(&c, buf + i * sizeof(T), sizeof(T));
-        if (c == needle) emitAt<T>(buf, i * sizeof(T), base, res);
-    }
+    roundedFloatScalarTail<T>(buf, 0, nLanes, base, verify, res);
     return true;
 }
 

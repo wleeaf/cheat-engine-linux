@@ -20,7 +20,7 @@ for _, c in ipairs(classes) do
         c.fullName, #c.fields, #c.methods, c.image))
   for _, f in ipairs(c.fields) do
     local tag = f["const"] and " const" or (f["static"] and " static" or "")
-    print(string.format("    +0x%-4X %s%s", f.offset, f.name, tag))
+    print(string.format("    +0x%-4X %-24s %s%s", f.offset, f.typeName or "?", f.name, tag))
   end
   for _, m in ipairs(c.methods) do
     -- getIl2CppClassLayout gives a module-relative rva; add the GameAssembly base

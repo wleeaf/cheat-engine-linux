@@ -212,9 +212,15 @@ alongside official CE 7.7 Linux. Today each is materially short of the claim.
     typeDefinitionsSizesCount both == the metadata type count, 0x10 apart, plus a
     typesCount/types + fieldOffsets-array confirmation), then reads each type's
     per-field offset and its static/instance/const kind (from Il2CppType.attrs).
+    Each field's MANAGED TYPE NAME resolves too: the Il2CppType's enum + data
+    union give `System.Single`, `UnityEngine.Vector3` (VALUETYPE/CLASS ->
+    typeDefinitionIndex -> metadata name), `System.String`, `MyClass[]` (SZARRAY/
+    ARRAY recursion), `...List`1` (GENERICINST), pointers, and generic params;
+    this name drives both the dissector's displayed type and its scan value-type.
     Validated against real games: UnityEngine.Vector3 -> x@0x10, y@0x14, z@0x18
-    (instance, object-relative, ready to add to an object base pointer), statics
-    land in the static block, consts have no storage. `cescan il2cpp <metadata>
+    (instance, object-relative, ready to add to an object base pointer), all typed
+    `System.Single`; statics land in the static block, consts have no storage.
+    Every one of the ~65k (v31) / ~69k (v27) fields resolves a non-empty type name. `cescan il2cpp <metadata>
     [--binary <GameAssembly>]` auto-locates GameAssembly next to the metadata and
     prints offsets; `test_il2cpp_binary_offsets` covers the PE loader + finder +
     attrs on a synthetic PE (CI, no game file), and the env-gated real-file test

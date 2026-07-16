@@ -16,7 +16,8 @@ namespace ce::gui {
 
 // Convert a resolved IL2CPP layout into the MonoDissection shape so the same tree
 // UI renders it. Const fields (no storage) are dropped; instance/static keep their
-// offsets. Value-type names are not available offline, so typeName is left blank.
+// offsets. Each field's managed type name (resolved offline from the binary's
+// Il2CppType table) drives both the displayed type and its scan value-type.
 static ce::MonoDissection il2cppToMonoDissection(const ce::Il2CppBinaryLayout& layout,
                                                 uintptr_t moduleBase) {
     ce::MonoDissection d;
@@ -44,6 +45,7 @@ static ce::MonoDissection il2cppToMonoDissection(const ce::Il2CppBinaryLayout& l
             mf.name = f.name;
             mf.offset = static_cast<uint32_t>(f.offset);
             mf.isStatic = f.isStatic;
+            mf.typeName = f.typeName;   // "UnityEngine.Vector3", "System.Single", …
             cls.fields.push_back(std::move(mf));
         }
         for (const auto& m : c.methods) {

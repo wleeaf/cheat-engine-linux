@@ -5323,6 +5323,25 @@ static void test_il2cpp_real_file() {
         }
         printf("  Vector3 fields type as float: %s\n", typeOk ? "OK" : "FAILED");
 
+        // Managed type NAMES: x/y/z resolve to "System.Single", and every field
+        // across the whole binary resolves to a non-empty managed type name
+        // (primitives, classes, strings, arrays, generics, pointers all covered).
+        bool nameOk = false;
+        if (v3) {
+            auto tn = [&](const char* n) -> std::string {
+                for (const auto& fl : v3->fields) if (fl.name == n && !fl.isStatic) return fl.typeName;
+                return {};
+            };
+            nameOk = tn("x") == "System.Single" && tn("y") == "System.Single" &&
+                     tn("z") == "System.Single";
+        }
+        size_t totalF = 0, emptyF = 0;
+        for (const auto& c : layout.classes)
+            for (const auto& fl : c.fields) { ++totalF; if (fl.typeName.empty()) ++emptyF; }
+        printf("  Vector3 x/y/z type-name = System.Single: %s\n", nameOk ? "OK" : "FAILED");
+        printf("  every field resolves a managed type name (%zu fields, %zu empty): %s\n",
+               totalF, emptyF, (totalF > 0 && emptyF == 0) ? "OK" : "FAILED");
+
         // Method resolution: a common BCL class should have methods that resolve
         // to non-zero code RVAs within the binary.
         auto methods = ce::resolveIl2CppMethods(*md, ga, "System.String");

@@ -3,6 +3,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <optional>
 #include <unordered_map>
 
@@ -237,13 +238,72 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
     int32_t typesCount = static_cast<int32_t>(img.u32(*mr + kMR_typesCount));
     if (typesCount < 0) typesCount = 0;
 
-    // Read a field's Il2CppType word: low16 = C# attrs, bits16-23 = type enum.
-    auto fieldAttrs = [&](int32_t typeIndex) -> uint32_t {
+    // The Il2CppType* for a field's type index (into the metadata-registration
+    // types pointer array), or 0.
+    auto typeVAForIndex = [&](int32_t typeIndex) -> uint64_t {
         if (typeIndex < 0 || typeIndex >= typesCount) return 0u;
         auto tp = img.readPtrVA(typesVA + static_cast<uint64_t>(typeIndex) * 8);
-        if (!tp) return 0u;
-        auto a = img.readU32VA(*tp + kType_attrs);
+        return tp ? *tp : 0u;
+    };
+    // Read a field's Il2CppType word: low16 = C# attrs, bits16-23 = type enum.
+    auto typeWordAt = [&](uint64_t typeVA) -> uint32_t {
+        if (!typeVA) return 0u;
+        auto a = img.readU32VA(typeVA + kType_attrs);
         return a ? *a : 0u;   // low16 = C# field attrs; bits16-23 = Il2CppTypeEnum
+    };
+
+    // Resolve a field's managed type NAME from its Il2CppType (e.g. "System.Int32",
+    // "UnityEngine.Vector3", "System.String", "MyClass[]"). CLASS/VALUETYPE carry a
+    // typeDefinitionIndex in the data union -> metadata name; PTR/arrays recurse on
+    // the element Il2CppType* the union points at. Best-effort; depth-capped.
+    std::function<std::string(uint64_t, int)> nameOfTypeVA =
+        [&](uint64_t typeVA, int depth) -> std::string {
+        if (!typeVA || depth > 5) return {};
+        uint32_t word = typeWordAt(typeVA);
+        uint8_t e = static_cast<uint8_t>((word >> 16) & 0xFF);
+        auto dataOpt = img.readPtrVA(typeVA + 0x00);   // 8-byte data union
+        uint64_t data = dataOpt ? *dataOpt : 0;
+        switch (e) {
+            case 0x01: return "System.Void";
+            case 0x02: return "System.Boolean";
+            case 0x03: return "System.Char";
+            case 0x04: return "System.SByte";
+            case 0x05: return "System.Byte";
+            case 0x06: return "System.Int16";
+            case 0x07: return "System.UInt16";
+            case 0x08: return "System.Int32";
+            case 0x09: return "System.UInt32";
+            case 0x0A: return "System.Int64";
+            case 0x0B: return "System.UInt64";
+            case 0x0C: return "System.Single";
+            case 0x0D: return "System.Double";
+            case 0x0E: return "System.String";
+            case 0x18: return "System.IntPtr";
+            case 0x19: return "System.UIntPtr";
+            case 0x1C: return "System.Object";
+            case 0x16: return "System.TypedReference";
+            case 0x11:   // VALUETYPE
+            case 0x12: { // CLASS -> data = typeDefinitionIndex
+                int32_t klass = static_cast<int32_t>(static_cast<uint32_t>(data));
+                if (klass >= 0 && static_cast<size_t>(klass) < md.types.size())
+                    return md.types[klass].fullName();
+                return {};
+            }
+            case 0x0F: { auto n = nameOfTypeVA(data, depth + 1); return n.empty() ? "void*" : n + "*"; }     // PTR
+            case 0x1D: { auto n = nameOfTypeVA(data, depth + 1); return (n.empty() ? "System.Object" : n) + "[]"; } // SZARRAY
+            case 0x14: { // ARRAY (multi-dim) -> data = Il2CppArrayType* whose first field is the element Il2CppType*
+                auto etp = img.readPtrVA(data + 0x00);
+                std::string n = etp ? nameOfTypeVA(*etp, depth + 1) : std::string();
+                return (n.empty() ? "System.Object" : n) + "[]";
+            }
+            case 0x15: { // GENERICINST -> data = Il2CppGenericClass*, first field an Il2CppType* to the open generic
+                auto gtp = img.readPtrVA(data + 0x00);
+                std::string n = gtp ? nameOfTypeVA(*gtp, depth + 1) : std::string();
+                return n.empty() ? std::string() : n;   // e.g. "...List`1"
+            }
+            case 0x13: case 0x1E: return "T";   // VAR / MVAR generic parameter
+            default: return {};
+        }
     };
 
     // Map a global type index to its owning image name.
@@ -267,11 +327,13 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
         for (size_t i = 0; i < mt.fields.size(); ++i) {
             Il2CppResolvedField rf;
             rf.name = mt.fields[i].name;
-            uint32_t typeWord = fieldAttrs(mt.fields[i].typeIndex);
+            uint64_t typeVA = typeVAForIndex(mt.fields[i].typeIndex);
+            uint32_t typeWord = typeWordAt(typeVA);
             uint16_t attrs = static_cast<uint16_t>(typeWord & 0xFFFF);
             rf.isStatic = (attrs & kFIELD_STATIC) != 0;
             rf.isConst = (attrs & kFIELD_LITERAL) != 0;
             rf.typeEnum = static_cast<uint8_t>((typeWord >> 16) & 0xFF);  // Il2CppTypeEnum
+            rf.typeName = nameOfTypeVA(typeVA, 0);
             if (entryVA && *entryVA != 0) {
                 if (auto o = img.readI32VA(*entryVA + i * 4)) rf.offset = *o;
             }

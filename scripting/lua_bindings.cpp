@@ -2760,6 +2760,7 @@ static int l_getIl2CppClassLayout(lua_State* L) {
             lua_pushinteger(L, (lua_Integer)f.offset); lua_setfield(L, -2, "offset");
             lua_pushboolean(L, f.isStatic);        lua_setfield(L, -2, "static");
             lua_pushboolean(L, f.isConst);         lua_setfield(L, -2, "const");
+            lua_pushstring(L, f.typeName.c_str()); lua_setfield(L, -2, "typeName");  // "UnityEngine.Vector3", …
             lua_rawseti(L, -2, fi++);
         }
         lua_setfield(L, -2, "fields");

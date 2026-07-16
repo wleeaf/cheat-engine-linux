@@ -50,9 +50,12 @@ end
 ```
 
 Field entries carry `name`, `offset` (byte offset inside the object),
-`static`, and `const`. Method entries carry `name` and `rva` (offset inside the
-GameAssembly module); add the module base for a live address, or use
-`findIl2CppMethod` which does that for you:
+`static`, `const`, and `typeName`, the resolved managed type (`System.Single`,
+`UnityEngine.Vector3`, `System.String`, `System.Collections.Generic.List\`1`,
+`MyClass[]`, …), read offline from the binary's `Il2CppType` table. Method
+entries carry `name` and `rva` (offset inside the GameAssembly module); add the
+module base for a live address, or use `findIl2CppMethod` which does that for
+you:
 
 ```lua
 local addr = findIl2CppMethod("Player", "TakeDamage")   -- 0x7f... live address

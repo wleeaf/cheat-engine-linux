@@ -31,6 +31,9 @@ struct Il2CppResolvedField {
     bool        isStatic = false;
     bool        isConst = false;   // literal; has no storage
     uint8_t     typeEnum = 0;      // Il2CppTypeEnum (I4=8, R4=0xC, CLASS=0x12, ...)
+    std::string typeName;          // managed type, e.g. "System.Int32",
+                                   // "UnityEngine.Vector3", "System.String",
+                                   // "MyClass[]"; empty if unresolved
 };
 
 /// A resolved method's code location. `rva` is relative to the binary's image

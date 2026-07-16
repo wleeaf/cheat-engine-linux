@@ -2567,7 +2567,7 @@ static int l_getIl2CppMetadataPath(lua_State* L) {
 // the OFFLINE metadata view: field NAMES and their grouping into classes only.
 // Field byte offsets and field TYPE names are not in the metadata (they live in
 // GameAssembly.so), and the deeper tables decode only for metadata versions
-// 29-31 (older versions return decoded=false with an empty class list).
+// 27-31 (other versions return decoded=false with an empty class list).
 static int l_getIl2CppClasses(lua_State* L) {
     std::string path;
     if (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) {

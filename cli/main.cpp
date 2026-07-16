@@ -699,7 +699,10 @@ static int cmd_il2cpp(int argc, char** argv) {
            md->version, md->strings.size(), md->stringLiterals.size());
     if (!md->tablesDecoded) {
         printf("type/field tables: not decoded (metadata version %d has no known layout here;\n"
-               "supported: 29-31). The names above are still available.\n", md->version);
+               "supported: 27-31). The names above are still available.\n", md->version);
+        if (md->version > 31)
+            printf("note: version %d is newer than this build knows; even the names may be "
+                   "unreliable (the header layout can differ).\n", md->version);
         return 0;
     }
 

@@ -68,12 +68,14 @@ constexpr size_t kFieldNameOff = 0;
 constexpr size_t kFieldTypeOff = 4;
 constexpr size_t kFieldTokenOff = 8;
 
-// v29..v31 (Unity 2021.2+): byrefTypeIndex was removed at metadata v27.2, so the
-// Il2CppTypeDefinition here has no byref field and is 0x58 bytes. The v24/v27
-// (byref present, 0x5C) layouts are deliberately not enabled yet: the integer
-// version field can't distinguish v27.0 (byref) from v27.2 (no byref), so they
-// need a real-file / binary cross-check before being trusted (roadmap follow-up).
-constexpr TableLayout kLayoutV29{
+// The "byrefless" Il2CppTypeDefinition: byrefTypeIndex was removed at metadata
+// v27.2, so the record has no byref field and is 0x58 bytes. This layout is
+// VALIDATED against real Unity files at metadata v27 (Disco Elysium) and v31
+// (Esoteric Ebb): List`1 decodes to {_items, _size, _version, ...} and every
+// image name reads back correctly. A stride self-check (below) confirms the
+// record size against each file before decoding, so an older byref layout (v24 /
+// v27.0, 0x5C) is safely skipped rather than misparsed.
+constexpr TableLayout kLayoutByrefless{
     /*typeDefSize*/ 0x58,
     /*tdNameOff*/ 0x00, /*tdNamespaceOff*/ 0x04,
     /*tdFieldStartOff*/ 0x20, /*tdFieldCountOff*/ 0x44, /*tdTokenOff*/ 0x54,
@@ -82,10 +84,12 @@ constexpr TableLayout kLayoutV29{
 
 const TableLayout* layoutFor(int32_t version) {
     switch (version) {
+        case 27:  // v27.2+ (byref already removed); v27.0/.1 caught by the stride check
+        case 28:
         case 29:
         case 30:
         case 31:
-            return &kLayoutV29;
+            return &kLayoutByrefless;
         default:
             return nullptr;
     }
@@ -130,9 +134,24 @@ bool decodeTables(const uint8_t* data, size_t size, Il2CppMetadata& md,
         !regionValid(imgOff, imgSize, size))
         return false;
 
-    const size_t nFields = static_cast<size_t>(fieldsSize) / kFieldRecSize;
-    const size_t nTypes = static_cast<size_t>(tdSize) / L->typeDefSize;
     const size_t nImages = static_cast<size_t>(imgSize) / L->imageSize;
+
+    // Stride self-check: every type belongs to exactly one image, and images
+    // partition [0, totalTypes) with contiguous typeStart/typeCount runs, so the
+    // image typeCounts sum to the total type count. The typeDefinitions region
+    // must therefore be exactly (sum of typeCounts) records long. If the declared
+    // record size doesn't divide the region into that many records, this file's
+    // Il2CppTypeDefinition is a different size than `L` assumes (e.g. an older
+    // byref layout the integer version can't distinguish), so skip table decode
+    // rather than misparse. This is what makes claiming versions 27-31 honest.
+    uint64_t totalTypes = 0;
+    for (size_t k = 0; k < nImages; ++k)
+        totalTypes += rdU32(data + imgOff + k * L->imageSize + L->imgTypeCountOff);
+    if (totalTypes == 0) return false;
+    if (static_cast<uint64_t>(tdSize) != totalTypes * L->typeDefSize) return false;
+
+    const size_t nFields = static_cast<size_t>(fieldsSize) / kFieldRecSize;
+    const size_t nTypes = static_cast<size_t>(totalTypes);
 
     // Fields (a flat table; each type references a [start,count) slice of it).
     std::vector<Il2CppFieldDef> allFields;

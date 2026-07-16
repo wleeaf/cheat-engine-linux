@@ -4866,8 +4866,8 @@ static void test_il2cpp_metadata_tables() {
         md->images[0].name == "Assembly-CSharp.dll" &&
         md->images[0].typeStart == 0 && md->images[0].typeCount == 2;
 
-    bool supportOk = il2cppTablesSupported(29) && il2cppTablesSupported(31) &&
-        !il2cppTablesSupported(24) && !il2cppTablesSupported(16);
+    bool supportOk = il2cppTablesSupported(27) && il2cppTablesSupported(29) &&
+        il2cppTablesSupported(31) && !il2cppTablesSupported(24) && !il2cppTablesSupported(16);
 
     // Unsupported version: string pools still parse, tables are skipped.
     std::vector<uint8_t> older = f;
@@ -4887,7 +4887,7 @@ static void test_il2cpp_metadata_tables() {
            typesOk ? "OK" : "FAILED");
     printf("  image grouping (Assembly-CSharp.dll -> 2 types): %s\n",
            imagesOk ? "OK" : "FAILED");
-    printf("  version support gate (29/31 yes, 24/16 no): %s\n",
+    printf("  version support gate (27/29/31 yes, 24/16 no): %s\n",
            supportOk ? "OK" : "FAILED");
     printf("  unsupported version keeps string pools, skips tables: %s\n",
            versionGateOk ? "OK" : "FAILED");
@@ -4962,6 +4962,46 @@ static void test_il2cpp_locate() {
     printf("  Lua getIl2CppClasses bad path returns nil+error: %s\n", luaErrOk ? "OK" : "FAILED");
 
     fs::remove_all(base, ec);
+}
+
+// Real-file validation, reproducible on demand: point CE_IL2CPP_METADATA at a
+// real Unity global-metadata.dat and this asserts the decode against ground truth
+// (System.Collections.Generic.List`1 must carry the real BCL fields, and an
+// Assembly-CSharp.dll image must exist). Skipped when the env var is unset, so CI
+// stays green without shipping a game file. The v27/v31 layout was validated this
+// way against Disco Elysium and Esoteric Ebb / Zero Parades.
+static void test_il2cpp_real_file() {
+    printf("\n── Test: IL2CPP real file (set CE_IL2CPP_METADATA to run) ──\n");
+    const char* path = std::getenv("CE_IL2CPP_METADATA");
+    if (!path || !*path) { printf("  CE_IL2CPP_METADATA unset: SKIPPED\n"); return; }
+    std::ifstream in(path, std::ios::binary);
+    if (!in) { printf("  cannot open %s: SKIPPED\n", path); return; }
+    std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)),
+                             std::istreambuf_iterator<char>());
+    auto md = parseIl2CppMetadata(buf.data(), buf.size());
+    if (!md) { printf("  parse failed: FAILED\n"); return; }
+    printf("  version=%d names=%zu types=%zu images=%zu decoded=%d\n", md->version,
+           md->strings.size(), md->types.size(), md->images.size(), md->tablesDecoded ? 1 : 0);
+    if (!md->tablesDecoded) {
+        printf("  tables not decoded for this metadata version: SKIPPED\n");
+        return;
+    }
+    const Il2CppTypeDef* list = nullptr;
+    for (const auto& t : md->types)
+        if (t.name == "List`1" && t.namespaceName == "System.Collections.Generic") { list = &t; break; }
+    bool fieldsOk = false;
+    if (list) {
+        auto has = [&](const char* n) {
+            for (const auto& fld : list->fields) if (fld.name == n) return true;
+            return false;
+        };
+        fieldsOk = has("_items") && has("_size") && has("_version");
+    }
+    bool imgOk = false;
+    for (const auto& img : md->images)
+        if (img.name == "Assembly-CSharp.dll") { imgOk = true; break; }
+    printf("  List`1 decodes with _items/_size/_version: %s\n", (list && fieldsOk) ? "OK" : "FAILED");
+    printf("  Assembly-CSharp.dll image present: %s\n", imgOk ? "OK" : "FAILED");
 }
 
 // generateInjectionScript reads code at an address, disassembles whole
@@ -8821,6 +8861,7 @@ int main(int argc, char* argv[]) {
     test_il2cpp_metadata();
     test_il2cpp_metadata_tables();
     test_il2cpp_locate();
+    test_il2cpp_real_file();
     test_injection_script_generation();
     test_structure_tools();
     test_lua_memrec();

@@ -188,17 +188,24 @@ alongside official CE 7.7 Linux. Today each is materially short of the claim.
     `global-metadata.dat` header + both string pools (identifier names + string
     literals) with full bounds-checking (`test_il2cpp_metadata`, synthetic file);
     those leading header fields are version-stable so it is correct for real files.
-    It now ALSO decodes the deeper type/field/image tables (metadata v29-31) to
+    It now ALSO decodes the deeper type/field/image tables (metadata v27-31) to
     recover the class layout OFFLINE: assembly image, class namespace.name, field
     names, surfaced by a `cescan il2cpp <global-metadata.dat>` browser
     (`--class <substr>`, `--fields`) and `test_il2cpp_metadata_tables` (synthetic
     v29 round-trip: types, fields, image grouping, version gate, corrupt-region
-    non-fatal). For a live target, `findIl2CppMetadataPath` auto-locates the file
+    non-fatal). The byrefless Il2CppTypeDefinition layout is VALIDATED against real
+    Unity files at v27 (Disco Elysium: List`1 -> {_defaultCapacity,_items,_size,
+    _version,_syncRoot,_emptyArray}) and v31 (Esoteric Ebb, Zero Parades: List`1 ->
+    {_items,_size,_version,...}, image names all correct). A stride self-check
+    (image typeCounts must sum to exactly typeDefsSize/record-size) confirms the
+    layout per file, so an older byref layout (v24/v27.0) or a newer/unknown one
+    (a MelonLoader-modified v39 install was correctly rejected) is skipped, not
+    misparsed. For a live target, `findIl2CppMetadataPath` auto-locates the file
     from the process's mapped paths (the `<Game>_Data/il2cpp_data/Metadata` tree
     next to the executable/GameAssembly.so; system libs are ignored), and Lua
     `getIl2CppMetadataPath()` / `getIl2CppClasses([path])` expose the browser to
     scripts (`test_il2cpp_locate` covers both). The GUI surface is deliberately
-    deferred until the layout is validated against a real file. Two honest caveats live in the code: (a) the table struct offsets
+    deferred until the offset-resolution track (below) lands. Two honest caveats live in the code: (a) the table struct offsets
     are transcribed from public reversing refs (Il2CppDumper) and validated only
     synthetically, they need a real Unity `global-metadata.dat` to confirm, and
     unsupported versions or invalid regions skip table decode (`tablesDecoded`);

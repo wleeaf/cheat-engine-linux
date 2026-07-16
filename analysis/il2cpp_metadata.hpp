@@ -12,12 +12,15 @@
 /// field names), which is the metadata half of a live IL2CPP dissector. Two
 /// honesty notes on that deeper decode:
 ///
-///   1. The table struct layouts are version-specific. The offsets here are
-///      transcribed from public IL2CPP reversing references (Il2CppDumper /
-///      Il2CppInspector) for the metadata versions in `il2cppTablesSupported`,
-///      and are exercised by synthetic round-trip tests. They have NOT yet been
-///      validated against a real Unity `global-metadata.dat`; on an unsupported
-///      version, or if any region fails bounds-checking, table decode is skipped
+///   1. The table struct layouts are version-specific. The offsets here cover the
+///      byrefless Il2CppTypeDefinition (metadata v27.2 and later; the byref field
+///      was removed then) and are VALIDATED against real Unity files at v27 (Disco
+///      Elysium) and v31 (Esoteric Ebb): List`1 decodes to {_items, _size,
+///      _version, ...} and image names read back correctly. A stride self-check
+///      (image typeCounts must sum to exactly typeDefsSize / record-size) confirms
+///      the layout per file, so an older byref layout (v24 / v27.0, a larger
+///      record) is skipped rather than misparsed. On an unsupported version, a
+///      failed stride check, or an out-of-range region, table decode is skipped
 ///      (`tablesDecoded == false`) and the string pools are still returned.
 ///   2. Field byte OFFSETS and field TYPE names are NOT in global-metadata.dat
 ///      on modern IL2CPP; they live in the compiled binary (GameAssembly.so).

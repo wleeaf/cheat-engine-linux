@@ -1095,11 +1095,21 @@ void MainWindow::setupUi() {
         "Increased value by...", "Decreased value by..."});
     rightLayout->addWidget(scanTypeCombo_);
 
-    // Reveal the second value box only for a "Value between..." scan.
+    // Reveal the second value box only for a "Value between..." scan, and grey out
+    // the value field(s) for compares that take no value (Unknown/Changed/
+    // Unchanged/Increased/Decreased/Same-as-first) so it's clear there is nothing
+    // to type, CE-style.
     auto updateBetweenUi = [this]() {
-        bool between = mapScanType(scanTypeCombo_->currentIndex()) == ScanCompare::Between;
+        ScanCompare cmp = mapScanType(scanTypeCombo_->currentIndex());
+        bool between = cmp == ScanCompare::Between;
         betweenAndLabel_->setVisible(between);
         scanValue2Edit_->setVisible(between);
+        bool takesValue = cmp == ScanCompare::Exact || cmp == ScanCompare::Greater ||
+                          cmp == ScanCompare::Less || cmp == ScanCompare::Between ||
+                          cmp == ScanCompare::IncreasedBy || cmp == ScanCompare::DecreasedBy;
+        scanValueEdit_->setEnabled(takesValue);
+        scanValue2Edit_->setEnabled(takesValue);
+        hexCheck_->setEnabled(takesValue);
     };
     connect(scanTypeCombo_, &QComboBox::currentIndexChanged, this,
         [updateBetweenUi](int) { updateBetweenUi(); });

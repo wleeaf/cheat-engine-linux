@@ -14,7 +14,8 @@ On a 12-thread laptop, scanning a process for an exact value:
 | vs. | Typical | Best case |
 |---|---|---|
 | **Cheat Engine 7.7** (native Linux build) | ~2x faster | up to ~13x (rounded-float / pattern scans) |
-| **scanmem 0.17**, the GameConqueror / PINCE engine | ~30 to 40x faster | up to ~145x (reserved memory) |
+| **scanmem 0.17**, the GameConqueror engine | ~30 to 40x faster | up to ~145x (reserved memory) |
+| **PINCE** (its own Zig scanner, libmemscan) | ~40x faster | n/a |
 | **gdb** `find` | ~8 to 9x faster | n/a |
 | **radare2** `/v` | ~1000x faster | n/a |
 
@@ -46,10 +47,17 @@ address space, and dense next-scans.
   Lua script (`createMemScan`, `firstScan`, `waitTillDone`). Timed *inside* CE
   with `getTickCount`, which **excludes CE's multi-second GUI startup**, i.e. the
   comparison is generous to CE (pure scan time only).
-- **scanmem 0.17**: the de-facto Linux scanner. **GameConqueror and PINCE both
-  use `libscanmem`** (verified: `gameconqueror` `Depends: scanmem` and links
-  `libscanmem.so`), so their scan speed equals this column; the GUIs only add
+- **scanmem 0.17**: the de-facto Linux scanner. **GameConqueror uses
+  `libscanmem`** (verified: `gameconqueror` `Depends: scanmem` and links
+  `libscanmem.so`), so its scan speed equals this column; the GUI only adds
   overhead. Driven via its command session.
+- **PINCE** (git `ae181c3`): a GDB front-end whose scan engine is now its own Zig
+  library, `libmemscan` (`brkzlr/libmemscan`), built with Zig 0.16.0 and driven
+  headless through PINCE's own `memscan.py` (`attach`, `set_data_type INTEGER32`,
+  `set_alignment 4`, `scan MATCHEQUALTO`). PINCE used to fork scanmem but no
+  longer does. Only exact-value scans are compared here; PINCE reports its Zig
+  backend is much faster on *unknown-value* (snapshot) scans, which this
+  benchmark does not cover.
 - **gdb 15.1**: `find /w <start>, <end>, <value>`, pointed at the target region.
   It is a debugger, not a scanner: it does not enumerate regions or narrow
   results, and it was handed the region to search.
@@ -60,19 +68,20 @@ address space, and dense next-scans.
 
 Wall-clock, best of 5. Lower is better.
 
-| Region | **cescan** | CE 7.7 | gdb `find` | scanmem / GC / PINCE | radare2 |
-|---:|---:|---:|---:|---:|---:|
-| 256 MB | **0.022 s** | 0.057 s | 0.274 s | 0.738 s | 34.3 s |
-| 512 MB | **0.046 s** | 0.081 s | 0.413 s | 1.457 s | n/a |
-| 1 GB | **0.085 s** | 0.156 s | 0.749 s | 2.924 s | n/a |
-| 2 GB | **0.149 s** | 0.281 s | 1.291 s | 5.973 s | n/a |
-| 1 GB, reserved arena¹ | **0.020 s** | 0.131 s | ~0.75 s² | 2.900 s | n/a |
+| Region | **cescan** | CE 7.7 | gdb `find` | scanmem / GC | PINCE | radare2 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 256 MB | **0.022 s** | 0.057 s | 0.274 s | 0.738 s | 0.849 s | 34.3 s |
+| 512 MB | **0.046 s** | 0.081 s | 0.413 s | 1.457 s | 1.745 s | n/a |
+| 1 GB | **0.085 s** | 0.156 s | 0.749 s | 2.924 s | 3.480 s | n/a |
+| 2 GB | **0.149 s** | 0.281 s | 1.291 s | 5.973 s | 7.251 s | n/a |
+| 1 GB, reserved arena¹ | **0.020 s** | 0.131 s | ~0.75 s² | 2.900 s | 3.434 s | n/a |
 
 Throughput at 1 GB: **cescan ~12 GB/s**, CE 7.7 ~6.6 GB/s, gdb ~1.4 GB/s,
-scanmem ~0.34 GB/s, radare2 ~0.03 GB/s.
+scanmem ~0.34 GB/s, PINCE ~0.29 GB/s, radare2 ~0.03 GB/s. PINCE's Zig scanner is
+single-threaded and, on exact-value scans, lands near scanmem.
 
-cescan speedup at 1 GB: **1.8x** vs CE 7.7, 8.8x vs gdb, 34x vs scanmem,
-~1000x vs radare2.
+cescan speedup at 1 GB: **1.8x** vs CE 7.7, 8.8x vs gdb, 34x vs scanmem, 41x vs
+PINCE, ~1000x vs radare2.
 
 ¹ A region the process reserved but mostly never touched (common in game engines
 that pre-allocate large arenas). cescan reads only the resident pages via
@@ -128,7 +137,7 @@ Full changelog under "Performance" in [CHANGELOG.md](CHANGELOG.md).
 
 - One machine, one synthetic workload. Real games have varied region layouts and
   match densities; your ratios will differ. The **relative ordering** (cescan >
-  CE 7.7 > gdb > scanmem/GameConqueror/PINCE > radare2) is the durable result.
+  CE 7.7 > gdb > scanmem/GameConqueror > PINCE > radare2) is the durable result.
 - "Up to" figures are best cases (rounded-float, reserved memory). The typical
   first-scan lead over CE 7.7 is ~2x.
 - CE 7.7 was timed excluding its GUI startup, i.e. in CE's favor.
@@ -173,7 +182,7 @@ Then, against its printed `PID` and `SENT` (`0x5A5A1234` = 1515852340):
 # ours
 cescan scan  $PID --type i32 --value $SENT
 
-# scanmem (the GameConqueror / PINCE engine)
+# scanmem (the GameConqueror engine)
 printf 'option scan_data_type int32\noption region_scan_level 3\n%s\nexit\n' $SENT | scanmem -p $PID
 
 # gdb (point it at the region from /proc/$PID/maps)
@@ -181,6 +190,18 @@ gdb -p $PID -batch -ex "find /w $START, $END, $SENT" -ex detach -ex quit
 
 # radare2
 r2 -q -n -e search.in=dbg.maps -c "/v4 0x5A5A1234; q" -d $PID
+```
+
+PINCE was driven through its own scan library: clone `korcankaraokcu/PINCE`
+`--recursive`, build the `libmemscan` submodule with `zig build -Doptimize=ReleaseFast`
+(Zig 0.16.0), then, using PINCE's `memscan.py`:
+
+```python
+import memscan as M
+lib = M.Libmemscan("libmemscan/zig-out/lib/libmemscan.so")
+lib.attach(PID); lib.set_scan_level(M.ScanLevel.ALL_RW)
+lib.set_data_type(M.DataType.INTEGER32); lib.set_alignment(4)
+lib.scan(M.MatchType.MATCHEQUALTO, SENT)   # timed; lib.get_match_count() -> matches
 ```
 
 Cheat Engine 7.7 was driven by an `autorun` Lua script doing `openProcess`,

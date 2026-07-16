@@ -12,16 +12,17 @@ A native Linux memory scanner, debugger, disassembler, and trainer toolkit, a fr
 
 ## Performance
 
-The fastest memory scanner on Linux. In a same-machine, same-target benchmark, a first scan for a value is about **2x faster than Cheat Engine 7.7** (the official native Linux build) and **30 to 40x faster than scanmem / GameConqueror / PINCE**, with larger margins on some scans (up to ~13x vs Cheat Engine and ~145x vs scanmem).\*
+The fastest memory scanner on Linux. In a same-machine, same-target benchmark, a first scan for a value is about **2x faster than Cheat Engine 7.7** (the official native Linux build) and **30 to 40x faster than scanmem, GameConqueror, and PINCE**, with larger margins on some scans (up to ~13x vs Cheat Engine and ~145x vs scanmem).\*
 
 | First scan, 1 GB, exact int32 | Time | Throughput |
 |---|---:|---:|
 | This project | **0.085 s** | ~12 GB/s |
 | Cheat Engine 7.7 (native Linux) | 0.156 s | ~6.6 GB/s |
 | gdb `find` | 0.749 s | ~1.4 GB/s |
-| scanmem 0.17 / GameConqueror / PINCE | 2.924 s | ~0.34 GB/s |
+| scanmem 0.17 / GameConqueror | 2.924 s | ~0.34 GB/s |
+| PINCE (libmemscan) | 3.480 s | ~0.29 GB/s |
 
-\* "Up to" figures are best cases (rounded-float and byte-pattern scans vs Cheat Engine; reserved/untouched memory vs scanmem); the typical first-scan lead over CE 7.7 is ~2x. One machine (Intel i5-10500H, 12 threads); Cheat Engine timed excluding its GUI startup (in its favor); GameConqueror and PINCE use scanmem's engine. Full numbers, methodology, and reproduction steps: **[BENCHMARK.md](BENCHMARK.md)**.
+\* "Up to" figures are best cases (rounded-float and byte-pattern scans vs Cheat Engine; reserved/untouched memory vs scanmem); the typical first-scan lead over CE 7.7 is ~2x. One machine (Intel i5-10500H, 12 threads); Cheat Engine timed excluding its GUI startup (in its favor). GameConqueror uses scanmem's engine; PINCE uses its own Zig backend (libmemscan), benchmarked here on exact-value scans. Full numbers, methodology, and reproduction steps: **[BENCHMARK.md](BENCHMARK.md)**.
 
 ---
 

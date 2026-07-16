@@ -68,7 +68,11 @@ GraphicalMemoryView::GraphicalMemoryView(ce::ProcessHandle* proc, QWidget* paren
     v->addWidget(scroll, 1);
 
     connect(fetchBtn, &QPushButton::clicked, this, &GraphicalMemoryView::fetch);
-    connect(perLineSpin_, &QSpinBox::valueChanged, this, [this](int n) { view_->setPerLine(n); });
+    // Changing pixels-per-line or rows re-reads and re-lays-out the image (which
+    // also refreshes the scroll range); previously perLine only repainted at the
+    // old size and rows did nothing, leaving the scrollbar stale.
+    connect(perLineSpin_, &QSpinBox::valueChanged, this, &GraphicalMemoryView::fetch);
+    connect(rowsSpin_, &QSpinBox::valueChanged, this, &GraphicalMemoryView::fetch);
     view_->setPerLine(256);
 }
 

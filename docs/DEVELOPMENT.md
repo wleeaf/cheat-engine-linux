@@ -218,12 +218,19 @@ alongside official CE 7.7 Linux. Today each is materially short of the claim.
     prints offsets; `test_il2cpp_binary_offsets` covers the PE loader + finder +
     attrs on a synthetic PE (CI, no game file), and the env-gated real-file test
     checks Vector3 against ground truth (CE_IL2CPP_METADATA + CE_IL2CPP_GAMEASSEMBLY).
-    *Remaining:* GUI surface + a Lua binding for offsets, native-ELF GameAssembly
-    validation (the ELF path exists but has no local fixture), the v24/v27.0 byref
-    (0x5C) typedef layout (safely skipped today), plus the full soft-debugger
-    type-introspection chain (AppDomain->Assembly->Type->Field), now developable
-    against the real agent. **Most Linux/Proton games are Unity** -- this remains
-    the niche to win. **[L]**
+    The whole layout is now scriptable and browsable: `resolveIl2CppForProcess`
+    (shared cecore helper) auto-locates a live target's metadata + GameAssembly from
+    its mapped files, Lua `getIl2CppClassLayout([class[, metadataPath[, binaryPath]]])`
+    returns classes with per-field {name, offset, static, const}, and the Mono
+    dissector window renders an IL2CPP target through the same tree (its old
+    "separate track" message is gone; it calls `resolveIl2CppForProcess` and maps
+    the result into the Mono dissection view). So IL2CPP now goes name -> group ->
+    offset end to end. **#10 is effectively done for the offline/static path.**
+    *Remaining (smaller):* native-ELF GameAssembly validation (the ELF loader path
+    exists but every local fixture is Proton PE), the v24/v27.0 byref (0x5C) typedef
+    layout (safely skipped today, no fixture), and the live soft-debugger
+    type-introspection chain for Mono (AppDomain->Assembly->Type->Field). **Most
+    Linux/Proton games are Unity** -- this was the niche to win. **[L]**
 11. **In-game overlay actually renders.** `platform/vulkan_overlay_layer.cpp`
     advertises a layer but only forwards `vkCreateInstance/Device` — it never
     hooks `vkQueuePresentKHR` and draws nothing. *Layer contract now validated:*

@@ -1,6 +1,7 @@
 #include "analysis/il2cpp_binary.hpp"
 
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <optional>
 
@@ -231,6 +232,53 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
 
     out.ok = true;
     return out;
+}
+
+std::string findGameAssemblyPath(const std::vector<std::string>& mappedPaths) {
+    namespace fs = std::filesystem;
+    for (const auto& p : mappedPaths) {
+        std::string base = fs::path(p).filename().string();
+        if (base == "GameAssembly.so" || base == "GameAssembly.dll" || base == "libil2cpp.so")
+            return p;
+    }
+    return {};
+}
+
+Il2CppBinaryLayout resolveIl2CppForProcess(ProcessHandle& proc) {
+    namespace fs = std::filesystem;
+    Il2CppBinaryLayout out;
+
+    std::vector<std::string> paths;
+    for (const auto& m : proc.modules()) if (!m.path.empty()) paths.push_back(m.path);
+    for (const auto& r : proc.queryRegions()) if (!r.path.empty()) paths.push_back(r.path);
+
+    auto metaPath = findIl2CppMetadataPath(paths);
+    if (!metaPath) { out.error = "global-metadata.dat not found for this process"; return out; }
+
+    std::ifstream in(*metaPath, std::ios::binary);
+    if (!in) { out.error = "cannot open " + *metaPath; return out; }
+    std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    auto md = parseIl2CppMetadata(buf.data(), buf.size());
+    if (!md) { out.error = "failed to parse " + *metaPath; return out; }
+    if (!md->tablesDecoded) {
+        out.error = "metadata version " + std::to_string(md->version) + " unsupported for offsets";
+        return out;
+    }
+
+    // The GameAssembly is usually already mapped; else look next to the metadata.
+    std::string ga = findGameAssemblyPath(paths);
+    if (ga.empty()) {
+        fs::path root = fs::path(*metaPath).parent_path().parent_path()
+                            .parent_path().parent_path();
+        std::error_code ec;
+        for (const char* n : {"GameAssembly.so", "GameAssembly.dll", "libil2cpp.so"}) {
+            fs::path c = root / n;
+            if (fs::is_regular_file(c, ec)) { ga = c.string(); break; }
+        }
+    }
+    if (ga.empty()) { out.error = "GameAssembly binary not found for this process"; return out; }
+
+    return resolveIl2CppLayout(*md, ga);
 }
 
 } // namespace ce

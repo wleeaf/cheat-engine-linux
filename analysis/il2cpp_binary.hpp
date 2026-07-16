@@ -18,6 +18,7 @@
 ///   - CONST (literal) fields: no storage (offset is meaningless).
 
 #include "analysis/il2cpp_metadata.hpp"
+#include "platform/process_api.hpp"
 
 #include <string>
 #include <vector>
@@ -55,5 +56,15 @@ struct Il2CppBinaryLayout {
 /// (their real offsets are per-instantiation), so a class of all-zero instance
 /// fields is expected for generics, not an error.
 Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::string& binaryPath);
+
+/// The GameAssembly binary path among a process's mapped file paths (basename
+/// GameAssembly.so/.dll or libil2cpp.so), or "" if none is mapped.
+std::string findGameAssemblyPath(const std::vector<std::string>& mappedPaths);
+
+/// Live convenience: locate a running IL2CPP process's global-metadata.dat and
+/// GameAssembly from its mapped files, parse the metadata, and resolve the full
+/// class layout with field offsets. Shared by the Lua binding and the GUI so both
+/// go through one code path. On failure returns `{ok=false, error=...}`.
+Il2CppBinaryLayout resolveIl2CppForProcess(ProcessHandle& proc);
 
 } // namespace ce

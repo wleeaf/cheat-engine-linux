@@ -5074,7 +5074,7 @@ static void test_il2cpp_binary_offsets() {
       out.write(reinterpret_cast<const char*>(f.data()), (std::streamsize)f.size()); }
 
     auto layout = ce::resolveIl2CppLayout(*md, tmp.string());
-    std::error_code ec; fs::remove(tmp, ec);
+    std::error_code ec;
 
     bool ok = layout.ok && layout.classes.size() == 2;
     auto field = [&](size_t c, const char* name) -> const ce::Il2CppResolvedField* {
@@ -5093,6 +5093,32 @@ static void test_il2cpp_binary_offsets() {
     printf("  finds Il2CppMetadataRegistration + resolves: %s\n", ok ? "OK" : "FAILED");
     printf("  field offsets health=0x10 mana=0x8 name=0x18: %s\n", offOk ? "OK" : "FAILED");
     printf("  static/instance from Il2CppType.attrs: %s\n", kindOk ? "OK" : "FAILED");
+
+    // Lua getIl2CppClassLayout(class, metadataPath, binaryPath): end-to-end through
+    // the binding with the same synthetic metadata + PE on disk.
+    fs::path metaTmp = fs::temp_directory_path() /
+        ("ce-il2cpp-md-" + std::to_string(getpid()) + ".dat");
+    { auto mb = buildSyntheticV29Metadata();
+      std::ofstream out(metaTmp, std::ios::binary);
+      out.write(reinterpret_cast<const char*>(mb.data()), (std::streamsize)mb.size()); }
+    LuaEngine engine;
+    std::string code =
+        "local cs = getIl2CppClassLayout('Player', [[" + metaTmp.string() + "]], [[" +
+            tmp.string() + "]])\n"
+        "if not cs then return 'nil' end\n"
+        "local p\n"
+        "for _,c in ipairs(cs) do if c.fullName=='Game.Player' then p=c end end\n"
+        "if not p then return 'noplayer' end\n"
+        "local h,m\n"
+        "for _,f in ipairs(p.fields) do if f.name=='health' then h=f elseif f.name=='mana' then m=f end end\n"
+        "if not h or not m then return 'nofield' end\n"
+        "return h.offset..'|'..tostring(h.static)..'|'..m.offset\n";
+    auto res = engine.evalToString(code);
+    bool luaOk = res.has_value() && *res == "16|true|8";
+    printf("  Lua getIl2CppClassLayout resolves offsets: %s\n", luaOk ? "OK" : "FAILED");
+
+    fs::remove(tmp, ec);
+    fs::remove(metaTmp, ec);
 
     // A non-il2cpp / truncated binary must fail cleanly, not crash.
     std::vector<uint8_t> junk(64, 0x7f);

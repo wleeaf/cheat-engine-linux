@@ -1,4 +1,5 @@
 #include "gui/monodissector.hpp"
+#include "analysis/il2cpp_binary.hpp"
 
 #include <QApplication>
 #include <QHeaderView>
@@ -9,7 +10,45 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include <unordered_map>
+
 namespace ce::gui {
+
+// Convert a resolved IL2CPP layout into the MonoDissection shape so the same tree
+// UI renders it. Const fields (no storage) are dropped; instance/static keep their
+// offsets. Value-type names are not available offline, so typeName is left blank.
+static ce::MonoDissection il2cppToMonoDissection(const ce::Il2CppBinaryLayout& layout) {
+    ce::MonoDissection d;
+    d.ready = layout.ok;
+    d.error = layout.error;
+    std::unordered_map<std::string, size_t> imageIndex;
+    for (const auto& c : layout.classes) {
+        size_t idx;
+        auto it = imageIndex.find(c.image);
+        if (it == imageIndex.end()) {
+            idx = d.images.size();
+            imageIndex[c.image] = idx;
+            ce::MonoImageInfo mi;
+            mi.name = c.image.empty() ? "<unknown>" : c.image;
+            d.images.push_back(std::move(mi));
+        } else {
+            idx = it->second;
+        }
+        ce::MonoClassInfo cls;
+        cls.namespaceName = c.namespaceName;
+        cls.name = c.name;
+        for (const auto& f : c.fields) {
+            if (f.isConst) continue;
+            ce::MonoField mf;
+            mf.name = f.name;
+            mf.offset = static_cast<uint32_t>(f.offset);
+            mf.isStatic = f.isStatic;
+            cls.fields.push_back(std::move(mf));
+        }
+        d.images[idx].classes.push_back(std::move(cls));
+    }
+    return d;
+}
 
 ce::ValueType monoTypeToValueType(const QString& t) {
     // Common BCL primitives -> our scan/display types; default to Int32.
@@ -109,10 +148,21 @@ void MonoDissectorWindow::runDissect() {
     if (!proc_) { status_->setText("No target process."); return; }
     // Only Mono is queryable in-process; report IL2CPP / non-managed distinctly.
     switch (ce::detectManagedKind(*proc_)) {
-        case ce::ManagedKind::Il2Cpp:
-            status_->setText("IL2CPP (AOT Unity) target detected. Live field dissection is "
-                             "Mono-only for now; IL2CPP support is a separate track.");
+        case ce::ManagedKind::Il2Cpp: {
+            // IL2CPP has no live runtime to query; resolve the class layout
+            // statically from global-metadata.dat + the GameAssembly binary.
+            status_->setText("IL2CPP target: locating metadata + GameAssembly…");
+            QApplication::setOverrideCursor(Qt::WaitCursor);
+            QApplication::processEvents();
+            auto layout = ce::resolveIl2CppForProcess(*proc_);
+            QApplication::restoreOverrideCursor();
+            if (!layout.ok) {
+                status_->setText("IL2CPP: " + QString::fromStdString(layout.error));
+                return;
+            }
+            setDissection(il2cppToMonoDissection(layout));
             return;
+        }
         case ce::ManagedKind::None:
             status_->setText("No Mono runtime detected in this process.");
             return;

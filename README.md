@@ -10,6 +10,21 @@ A native Linux memory scanner, debugger, disassembler, and trainer toolkit, a fr
 
 ---
 
+## Performance
+
+**The fastest memory scanner on Linux.** In a same-machine, same-target benchmark, its first scan beats **Cheat Engine 7.7** (the official native Linux build) by ~2x and **scanmem / GameConqueror / PINCE** by 30-40x, and by much more on some scans: **up to ~13x faster than Cheat Engine 7.7, and up to ~145x faster than scanmem / GameConqueror.**\*
+
+| First scan, 1 GB, exact int32 | Time | Throughput |
+|---|---:|---:|
+| **This project** | **0.085 s** | **~12 GB/s** |
+| Cheat Engine 7.7 (native Linux) | 0.156 s | ~6.6 GB/s |
+| gdb `find` | 0.749 s | ~1.4 GB/s |
+| scanmem 0.17 / GameConqueror / PINCE | 2.924 s | ~0.34 GB/s |
+
+\* "Up to" are best cases (rounded-float and byte-pattern scans vs Cheat Engine; reserved/untouched memory vs scanmem); the typical first-scan lead over CE 7.7 is ~2x. One machine (Intel i5-10500H, 12 threads); Cheat Engine timed excluding its GUI startup (in its favor); GameConqueror and PINCE use scanmem's engine. Full per-size and per-value-type numbers, methodology, and reproduction steps: **[BENCHMARK.md](BENCHMARK.md)**.
+
+---
+
 ## Features
 
 - **Scanning** — every value type (int/float/double, string with iconv encodings, array-of-bytes with wildcards, binary, grouped, custom-Lua); all Cheat Engine comparisons (exact/bigger/smaller/between/unknown → changed/unchanged/increased/decreased/by-N/same-as-first); CE float rounding modes; region filters; alignment; multi-threaded, disk-backed scans for huge targets; undo; and pointer scanning with rescan and shardable distributed scans.

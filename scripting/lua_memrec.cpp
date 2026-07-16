@@ -348,6 +348,82 @@ int l_mr_delete(lua_State* L) {
     return 0;
 }
 
+// ── Group hierarchy navigation ──
+// The address list is a flat, ordered list with an `indent` per row (group
+// nesting depth). A group's DIRECT children are the following rows at
+// indent+1, up to the next row whose indent drops back to the group's level.
+// This reads that structure so scripts can walk group hierarchies.
+static int indexOfId(IAddressList* list, int id) {
+    int n = list->count();
+    for (int i = 0; i < n; ++i) {
+        auto s = list->at(i);
+        if (s && s->id == id) return i;
+    }
+    return -1;
+}
+
+int l_mr_getChildCount(lua_State* L) {
+    auto* ref = checkMemRec(L, 1);
+    auto* list = currentList(L);
+    int count = 0;
+    if (list) {
+        int idx = indexOfId(list, ref->id);
+        auto self = idx >= 0 ? list->at(idx) : std::nullopt;
+        if (self) {
+            int d = self->indent, n = list->count();
+            for (int i = idx + 1; i < n; ++i) {
+                auto s = list->at(i);
+                if (!s || s->indent <= d) break;   // block ended
+                if (s->indent == d + 1) ++count;   // a direct child
+            }
+        }
+    }
+    lua_pushinteger(L, count);
+    return 1;
+}
+
+// getChild(index) -> memrec | nil. 0-based, direct children only (CE-style).
+int l_mr_getChild(lua_State* L) {
+    auto* ref = checkMemRec(L, 1);
+    int want = (int)luaL_checkinteger(L, 2);
+    auto* list = currentList(L);
+    if (list && want >= 0) {
+        int idx = indexOfId(list, ref->id);
+        auto self = idx >= 0 ? list->at(idx) : std::nullopt;
+        if (self) {
+            int d = self->indent, n = list->count(), c = 0;
+            for (int i = idx + 1; i < n; ++i) {
+                auto s = list->at(i);
+                if (!s || s->indent <= d) break;
+                if (s->indent == d + 1) {
+                    if (c == want) { pushMemRec(L, s->id); return 1; }
+                    ++c;
+                }
+            }
+        }
+    }
+    lua_pushnil(L);
+    return 1;
+}
+
+// getParent() -> memrec | nil. The nearest preceding row at a shallower indent.
+int l_mr_getParent(lua_State* L) {
+    auto* ref = checkMemRec(L, 1);
+    auto* list = currentList(L);
+    if (list) {
+        int idx = indexOfId(list, ref->id);
+        auto self = idx >= 0 ? list->at(idx) : std::nullopt;
+        if (self && self->indent > 0) {
+            for (int i = idx - 1; i >= 0; --i) {
+                auto s = list->at(i);
+                if (s && s->indent < self->indent) { pushMemRec(L, s->id); return 1; }
+            }
+        }
+    }
+    lua_pushnil(L);
+    return 1;
+}
+
 // MemoryRecord __index: method first, then property getter.
 int l_mr__index(lua_State* L) {
     luaL_checkudata(L, 1, MEMREC_MT);
@@ -376,6 +452,7 @@ int l_mr__index(lua_State* L) {
     if (strcmp(key, "IsGroupHeader") == 0) return l_mr_isGroup(L);
     if (strcmp(key, "ShowAsHex") == 0) return l_mr_getShowAsHex(L);
     if (strcmp(key, "Indent") == 0) return l_mr_getIndent(L);
+    if (strcmp(key, "Count") == 0) return l_mr_getChildCount(L);  // direct child count
 
     lua_pushnil(L);
     return 1;
@@ -631,6 +708,9 @@ void buildMemRecMetatable(lua_State* L) {
         {"isGroupHeader",         l_mr_isGroup},
         {"getIndent",             l_mr_getIndent},
         {"setIndent",             l_mr_setIndent},
+        {"getChildCount",         l_mr_getChildCount},
+        {"getChild",              l_mr_getChild},
+        {"getParent",             l_mr_getParent},
         {"delete",                l_mr_delete},
         {nullptr, nullptr},
     };

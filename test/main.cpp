@@ -5609,6 +5609,44 @@ static void test_lua_memrec() {
     )");
 }
 
+// MemoryRecord group hierarchy: Count / getChild / getParent walk the flat+indent
+// tree. Build G > {A, B > {C}} and navigate it from Lua.
+static void test_lua_memrec_groups() {
+    printf("\n── Test: Lua MemoryRecord group hierarchy ──\n");
+    SimpleAddressList list;
+    int g = list.createGroup("G");
+    int a = list.createEntry(0x1000, ValueType::Int32, "A");
+    int b = list.createEntry(0x2000, ValueType::Int32, "B");
+    int cc = list.createEntry(0x3000, ValueType::Int32, "C");
+    (void)g;
+    list.setIndent(a, 1);
+    list.setIndent(b, 1);
+    list.setIndent(cc, 2);   // C nests under B
+
+    LuaEngine eng;
+    eng.setAddressList(&list);
+    auto res = eng.evalToString(R"(
+        local al = getAddressList()
+        local g = al:getMemoryRecord(0)
+        if g.Description ~= 'G' then return 'g?' end
+        if g.Count ~= 2 then return 'gcount='..tostring(g.Count) end
+        local a, b = g:getChild(0), g:getChild(1)
+        if not a or a.Description ~= 'A' then return 'childA' end
+        if not b or b.Description ~= 'B' then return 'childB' end
+        if a:getParent().Description ~= 'G' then return 'parentA' end
+        if b.Count ~= 1 then return 'bcount='..tostring(b.Count) end
+        local c = b:getChild(0)
+        if not c or c.Description ~= 'C' then return 'childC' end
+        if c:getParent().Description ~= 'B' then return 'parentC' end
+        if g:getChild(5) ~= nil then return 'oob' end
+        if g:getParent() ~= nil then return 'rootparent' end
+        return 'ok'
+    )");
+    bool ok = res.has_value() && *res == "ok";
+    printf("  Count/getChild/getParent walk the group tree: %s (%s)\n",
+           ok ? "OK" : "FAILED", res ? res->c_str() : "nil");
+}
+
 // Target state for the headless-bindings test. Because the child is a fork() of
 // this test binary, these globals live at the SAME address in the child, so the
 // parent can hand their addresses to the Lua tool bindings running against the
@@ -9187,6 +9225,7 @@ int main(int argc, char* argv[]) {
     test_injection_script_generation();
     test_structure_tools();
     test_lua_memrec();
+    test_lua_memrec_groups();
     test_lua_headless_bindings();
     test_lua_ceserver_connect();
     test_autoassembler_unregister_symbol(targetPid);

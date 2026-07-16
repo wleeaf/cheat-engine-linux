@@ -372,10 +372,13 @@ routing both the disassembler and Lua through it closes many at once.
     waits; `test_lua_executecode` confirms a sentinel is written); the
     structure-definition side is served by `getIl2CppStructure` / `getDwarfStructure`
     / `getIl2CppClassLayout` (typed layouts from metadata + DWARF, see #10/#20/#21).
-    *Remaining:* `createDissectCode`/`dissectCode` (findWhatAccesses exists as the
-    primitive), the `disassembler()`/`getMemoryViewForm` objects, symbol-handler
-    control, and `memoryrecord` pointer/offset + child/group methods (can't script
-    pointer chains or group hierarchies yet). **[L overall, S-M each]**
+    Pointer-chain records are scriptable via `mr.Address = "[base+0x10]+0x20"`
+    (`setAddressExpression`), and `memoryrecord` group hierarchy is now navigable:
+    `mr.Count` / `mr:getChild(i)` / `mr:getParent()` walk the flat+indent tree
+    (`test_lua_memrec_groups`). *Remaining:* `createDissectCode`/`dissectCode`
+    (findWhatAccesses exists as the primitive), the `disassembler()`/
+    `getMemoryViewForm` objects, symbol-handler control, and reparenting
+    (`appendToEntry`, needs list move ops). **[L overall, S-M each]**
 
 ### P3 — Reach & polish
 

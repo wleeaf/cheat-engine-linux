@@ -193,7 +193,12 @@ alongside official CE 7.7 Linux. Today each is materially short of the claim.
     names, surfaced by a `cescan il2cpp <global-metadata.dat>` browser
     (`--class <substr>`, `--fields`) and `test_il2cpp_metadata_tables` (synthetic
     v29 round-trip: types, fields, image grouping, version gate, corrupt-region
-    non-fatal). Two honest caveats live in the code: (a) the table struct offsets
+    non-fatal). For a live target, `findIl2CppMetadataPath` auto-locates the file
+    from the process's mapped paths (the `<Game>_Data/il2cpp_data/Metadata` tree
+    next to the executable/GameAssembly.so; system libs are ignored), and Lua
+    `getIl2CppMetadataPath()` / `getIl2CppClasses([path])` expose the browser to
+    scripts (`test_il2cpp_locate` covers both). The GUI surface is deliberately
+    deferred until the layout is validated against a real file. Two honest caveats live in the code: (a) the table struct offsets
     are transcribed from public reversing refs (Il2CppDumper) and validated only
     synthetically, they need a real Unity `global-metadata.dat` to confirm, and
     unsupported versions or invalid regions skip table decode (`tablesDecoded`);

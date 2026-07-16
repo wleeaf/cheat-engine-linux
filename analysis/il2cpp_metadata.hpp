@@ -83,6 +83,14 @@ bool isIl2CppMetadata(const uint8_t* data, size_t size);
 /// pools.
 bool il2cppTablesSupported(int32_t version);
 
+/// Locate a live IL2CPP process's global-metadata.dat on disk, given the file
+/// paths it has mapped (executable, GameAssembly.so, UnityPlayer.so, ...). Unity
+/// stores it at `<X>_Data/il2cpp_data/Metadata/global-metadata.dat`, where the
+/// `<X>_Data` folder sits next to the game executable / GameAssembly.so. Only
+/// game-relevant paths are considered (system libraries are ignored), so this
+/// never trawls /usr/lib. Returns the first existing candidate, or nullopt.
+std::optional<std::string> findIl2CppMetadataPath(const std::vector<std::string>& mappedPaths);
+
 /// Parse a global-metadata.dat image. Returns nullopt if the magic is wrong, the
 /// buffer is shorter than the fixed header, or any declared string region falls
 /// outside the buffer. Malformed individual string-literal entries are skipped

@@ -4728,15 +4728,12 @@ static void test_il2cpp_metadata() {
     printf("  short-buffer reject: %s\n", tinyOk ? "OK" : "FAILED");
 }
 
-// Decode of the deeper v29 type/field/image tables: builds a synthetic v29
-// global-metadata.dat with a full header, a fields table, two type definitions
-// (Game.Player {health, mana} and Enemy {name}), and one image
-// (Assembly-CSharp.dll owning both types), then checks the class layout is
-// recovered. NOTE: this proves the parser reads back the v29 layout it declares;
+// Build a synthetic v29 global-metadata.dat: a full header, a fields table, two
+// type definitions (Game.Player {health, mana} and Enemy {name}), and one image
+// (Assembly-CSharp.dll owning both types). Shared by the parser, locate, and Lua
+// tests. NOTE: this only proves the parser reads back the v29 layout it declares;
 // real-file validation (against an actual Unity build) is a separate step.
-static void test_il2cpp_metadata_tables() {
-    printf("\n── Test: IL2CPP metadata type/field tables (v29) ──\n");
-
+static std::vector<uint8_t> buildSyntheticV29Metadata() {
     auto putU32 = [](std::vector<uint8_t>& v, size_t off, uint32_t x) {
         v[off + 0] = static_cast<uint8_t>(x);
         v[off + 1] = static_cast<uint8_t>(x >> 8);
@@ -4836,6 +4833,19 @@ static void test_il2cpp_metadata_tables() {
     putU32(f, 0xA4, static_cast<uint32_t>(typedefs.size()));
     putU32(f, 0xA8, imagesOff);
     putU32(f, 0xAC, static_cast<uint32_t>(images.size()));
+    return f;
+}
+
+static void test_il2cpp_metadata_tables() {
+    printf("\n── Test: IL2CPP metadata type/field tables (v29) ──\n");
+
+    auto putU32 = [](std::vector<uint8_t>& v, size_t off, uint32_t x) {
+        v[off + 0] = static_cast<uint8_t>(x);
+        v[off + 1] = static_cast<uint8_t>(x >> 8);
+        v[off + 2] = static_cast<uint8_t>(x >> 16);
+        v[off + 3] = static_cast<uint8_t>(x >> 24);
+    };
+    std::vector<uint8_t> f = buildSyntheticV29Metadata();
 
     auto md = parseIl2CppMetadata(f.data(), f.size());
     bool base = md.has_value() && md->version == 29 && md->tablesDecoded;
@@ -4882,6 +4892,76 @@ static void test_il2cpp_metadata_tables() {
     printf("  unsupported version keeps string pools, skips tables: %s\n",
            versionGateOk ? "OK" : "FAILED");
     printf("  corrupt table region is non-fatal: %s\n", corruptOk ? "OK" : "FAILED");
+}
+
+// findIl2CppMetadataPath locates a game's global-metadata.dat from its mapped
+// file paths, and the getIl2CppClasses Lua binding browses it. Builds a temp
+// Unity-like tree (<base>/MyGame_Data/il2cpp_data/Metadata/global-metadata.dat)
+// so both the on-disk locate and the Lua path run without a live process.
+static void test_il2cpp_locate() {
+    printf("\n── Test: IL2CPP metadata locate + Lua browse ──\n");
+    namespace fs = std::filesystem;
+    std::error_code ec;
+
+    fs::path base = fs::temp_directory_path() / ("ce-il2cpp-" + std::to_string(getpid()));
+    fs::path metaDir = base / "MyGame_Data" / "il2cpp_data" / "Metadata";
+    fs::remove_all(base, ec);
+    fs::create_directories(metaDir, ec);
+    fs::path metaFile = metaDir / "global-metadata.dat";
+    {
+        auto bytes = buildSyntheticV29Metadata();
+        std::ofstream out(metaFile, std::ios::binary);
+        out.write(reinterpret_cast<const char*>(bytes.data()),
+                  static_cast<std::streamsize>(bytes.size()));
+    }
+    const std::string want = metaFile.string();
+    const std::string exe = (base / "MyGame.x86_64").string();
+    const std::string managedDll = (base / "MyGame_Data" / "Managed" / "Assembly-CSharp.dll").string();
+    const std::string sysLib = "/usr/lib/x86_64-linux-gnu/libc.so.6";
+
+    // Case 2: the executable sits next to <Game>_Data (scan its siblings).
+    auto viaExe = ce::findIl2CppMetadataPath({sysLib, exe});
+    bool exeOk = viaExe.has_value() && *viaExe == want;
+    // Case 1: a path already inside the <Game>_Data tree.
+    auto viaData = ce::findIl2CppMetadataPath({managedDll});
+    bool dataOk = viaData.has_value() && *viaData == want;
+    // System-only mappings: nothing game-relevant to derive from.
+    auto viaSys = ce::findIl2CppMetadataPath({sysLib, "/lib/ld-linux-x86-64.so.2"});
+    bool sysOk = !viaSys.has_value();
+    // A game-looking exe whose folder has no metadata: no false positive.
+    auto viaUnrelated = ce::findIl2CppMetadataPath(
+        {(fs::temp_directory_path() / "ce-il2cpp-nope" / "Foo.x86_64").string()});
+    bool unrelatedOk = !viaUnrelated.has_value();
+
+    printf("  locate via executable next to _Data: %s\n", exeOk ? "OK" : "FAILED");
+    printf("  locate via path inside _Data tree: %s\n", dataOk ? "OK" : "FAILED");
+    printf("  system-only paths locate nothing: %s\n", sysOk ? "OK" : "FAILED");
+    printf("  unrelated game dir without metadata: %s\n", unrelatedOk ? "OK" : "FAILED");
+
+    // Lua browse of the located file (explicit path, no process needed).
+    LuaEngine engine;
+    std::string code =
+        "local m = getIl2CppClasses([[" + want + "]])\n"
+        "if not m then return 'nil' end\n"
+        "if not m.decoded then return 'notdecoded' end\n"
+        "local c = m.classes\n"
+        "return m.version..'|'..#c..'|'..c[1].fullName..'|'..c[1].image..'|'"
+        "..(c[1].fields[1] or '?')..'|'..(c[1].fields[2] or '?')..'|'"
+        "..c[2].fullName..'|'..(c[2].fields[1] or '?')\n";
+    auto res = engine.evalToString(code);
+    bool luaOk = res.has_value() &&
+        *res == "29|2|Game.Player|Assembly-CSharp.dll|health|mana|Enemy|name";
+
+    std::string errCode =
+        "local m, err = getIl2CppClasses([[/nonexistent/xyz.dat]])\n"
+        "return (m == nil and type(err) == 'string') and 'ok' or 'bad'\n";
+    auto errRes = engine.evalToString(errCode);
+    bool luaErrOk = errRes.has_value() && *errRes == "ok";
+
+    printf("  Lua getIl2CppClasses(path) browses classes/fields: %s\n", luaOk ? "OK" : "FAILED");
+    printf("  Lua getIl2CppClasses bad path returns nil+error: %s\n", luaErrOk ? "OK" : "FAILED");
+
+    fs::remove_all(base, ec);
 }
 
 // generateInjectionScript reads code at an address, disassembles whole
@@ -8740,6 +8820,7 @@ int main(int argc, char* argv[]) {
     test_codefinder_watch_size();
     test_il2cpp_metadata();
     test_il2cpp_metadata_tables();
+    test_il2cpp_locate();
     test_injection_script_generation();
     test_structure_tools();
     test_lua_memrec();

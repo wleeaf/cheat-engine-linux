@@ -7,6 +7,7 @@
 #include "core/address_list.hpp"
 #include "analysis/managed_runtime.hpp"
 #include "analysis/mono_dissector.hpp"
+#include "analysis/il2cpp_metadata.hpp"
 #include "core/simple_hook.hpp"
 #include "analysis/structure_tools.hpp"
 #include "analysis/code_analysis.hpp"
@@ -2536,6 +2537,94 @@ static int l_findMonoFunction(lua_State* L) {
     return 1;
 }
 
+// Gather the file paths the open process has mapped (modules + region paths).
+static std::vector<std::string> mappedFilePaths(ce::ProcessHandle& p) {
+    std::vector<std::string> paths;
+    for (const auto& m : p.modules()) if (!m.path.empty()) paths.push_back(m.path);
+    for (const auto& r : p.queryRegions()) if (!r.path.empty()) paths.push_back(r.path);
+    return paths;
+}
+
+// getIl2CppMetadataPath() -> path string, or nil + message.
+// Locates the open IL2CPP process's global-metadata.dat on disk (see
+// findIl2CppMetadataPath). A convenience so scripts don't hunt for the file.
+static int l_getIl2CppMetadataPath(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process"); return 2; }
+    auto found = ce::findIl2CppMetadataPath(mappedFilePaths(*p));
+    if (!found) {
+        lua_pushnil(L);
+        lua_pushstring(L, "global-metadata.dat not found for this process");
+        return 2;
+    }
+    lua_pushstring(L, found->c_str());
+    return 1;
+}
+
+// getIl2CppClasses([path]) -> { version, decoded, classes = { {image, namespace,
+//   name, fullName, fields = { "name", ... } }, ... } }, or nil + message.
+// With no path, auto-locates global-metadata.dat for the open process. This is
+// the OFFLINE metadata view: field NAMES and their grouping into classes only.
+// Field byte offsets and field TYPE names are not in the metadata (they live in
+// GameAssembly.so), and the deeper tables decode only for metadata versions
+// 29-31 (older versions return decoded=false with an empty class list).
+static int l_getIl2CppClasses(lua_State* L) {
+    std::string path;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) {
+        path = luaL_checkstring(L, 1);
+    } else {
+        auto* p = getProc(L);
+        if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process and no path given"); return 2; }
+        auto found = ce::findIl2CppMetadataPath(mappedFilePaths(*p));
+        if (!found) {
+            lua_pushnil(L);
+            lua_pushstring(L, "global-metadata.dat not found; pass a path explicitly");
+            return 2;
+        }
+        path = *found;
+    }
+
+    std::ifstream in(path, std::ios::binary);
+    if (!in) { lua_pushnil(L); lua_pushstring(L, "cannot open metadata file"); return 2; }
+    std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)),
+                             std::istreambuf_iterator<char>());
+    auto md = ce::parseIl2CppMetadata(buf.data(), buf.size());
+    if (!md) { lua_pushnil(L); lua_pushstring(L, "not a valid global-metadata.dat"); return 2; }
+
+    // Resolve a type index to its owning image name (each image owns the
+    // contiguous run types[typeStart, typeStart+typeCount)).
+    auto imageNameForType = [&](size_t ti) -> const char* {
+        for (const auto& img : md->images)
+            if (ti >= img.typeStart && ti < static_cast<size_t>(img.typeStart) + img.typeCount)
+                return img.name.c_str();
+        return "";
+    };
+
+    lua_newtable(L);
+    lua_pushinteger(L, md->version);       lua_setfield(L, -2, "version");
+    lua_pushboolean(L, md->tablesDecoded); lua_setfield(L, -2, "decoded");
+    lua_newtable(L);   // classes
+    int ci = 1;
+    for (size_t ti = 0; ti < md->types.size(); ++ti) {
+        const auto& t = md->types[ti];
+        lua_newtable(L);
+        lua_pushstring(L, imageNameForType(ti));     lua_setfield(L, -2, "image");
+        lua_pushstring(L, t.namespaceName.c_str());  lua_setfield(L, -2, "namespace");
+        lua_pushstring(L, t.name.c_str());           lua_setfield(L, -2, "name");
+        lua_pushstring(L, t.fullName().c_str());     lua_setfield(L, -2, "fullName");
+        lua_newtable(L);   // fields (names)
+        int fi = 1;
+        for (const auto& f : t.fields) {
+            lua_pushstring(L, f.name.c_str());
+            lua_rawseti(L, -2, fi++);
+        }
+        lua_setfield(L, -2, "fields");
+        lua_rawseti(L, -2, ci++);
+    }
+    lua_setfield(L, -2, "classes");
+    return 1;
+}
+
 // ── Pointer scanner ──
 // pointerScan(target [, maxDepth [, maxOffset [, {negativeOffsets,staticOnly,alignedOnly}]]])
 //   -> array of { path, module, baseOffset, moduleBase, offsets={...} }
@@ -3948,6 +4037,8 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "getManagedRuntimes", l_getManagedRuntimes);
     lua_register(L, "monoDissect", l_monoDissect);
     lua_register(L, "findMonoFunction", l_findMonoFunction);
+    lua_register(L, "getIl2CppMetadataPath", l_getIl2CppMetadataPath);
+    lua_register(L, "getIl2CppClasses", l_getIl2CppClasses);
     lua_register(L, "createSimpleHook", l_createSimpleHook);
     lua_register(L, "removeSimpleHook", l_removeSimpleHook);
     lua_register(L, "pointerScan", l_pointerScan);

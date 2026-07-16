@@ -1,6 +1,7 @@
 #include "analysis/il2cpp_metadata.hpp"
 
 #include <cstring>
+#include <filesystem>
 
 namespace ce {
 
@@ -183,6 +184,82 @@ bool decodeTables(const uint8_t* data, size_t size, Il2CppMetadata& md,
 }
 
 } // namespace
+
+namespace {
+
+// A mapped file worth deriving game directories from: the Unity player
+// executable, GameAssembly.so, UnityPlayer.so, libil2cpp.so, or anything already
+// under a `*_Data` tree. Filters out libc and other system mappings so the
+// directory scan below never trawls /usr/lib.
+bool gameRelevantPath(const std::string& p) {
+    namespace fs = std::filesystem;
+    const std::string base = fs::path(p).filename().string();
+    if (base == "GameAssembly.so" || base == "GameAssembly.dll" ||
+        base == "UnityPlayer.so" || base == "libil2cpp.so")
+        return true;
+    if (p.find("_Data/") != std::string::npos) return true;
+    auto endsWith = [&](const char* s) {
+        const size_t n = std::strlen(s);
+        return base.size() >= n && base.compare(base.size() - n, n, s) == 0;
+    };
+    return endsWith(".x86_64") || endsWith(".x86");
+}
+
+bool metadataUnder(const std::filesystem::path& dir, std::string& out) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::path cand = dir / "il2cpp_data" / "Metadata" / "global-metadata.dat";
+    if (fs::is_regular_file(cand, ec)) { out = cand.string(); return true; }
+    return false;
+}
+
+bool endsWithData(const std::string& name) {
+    return name.size() > 5 && name.compare(name.size() - 5, 5, "_Data") == 0;
+}
+
+} // namespace
+
+std::optional<std::string> findIl2CppMetadataPath(const std::vector<std::string>& mappedPaths) {
+    namespace fs = std::filesystem;
+    std::vector<fs::path> dirs;
+    auto addDir = [&](const fs::path& d) {
+        if (d.empty()) return;
+        for (const auto& e : dirs) if (e == d) return;   // dedup
+        dirs.push_back(d);
+    };
+
+    for (const auto& p : mappedPaths) {
+        if (p.empty() || p[0] != '/' || !gameRelevantPath(p)) continue;
+        fs::path path(p);
+        addDir(path.parent_path());
+        // If a path component IS a `*_Data` dir, that dir holds the metadata tree.
+        fs::path prefix;
+        for (const auto& comp : path) {
+            prefix /= comp;
+            if (endsWithData(comp.string())) addDir(prefix);
+        }
+    }
+
+    std::string out;
+    // 1) A candidate dir is itself the `*_Data` dir.
+    for (const auto& d : dirs)
+        if (metadataUnder(d, out)) return out;
+    // 2) A `*_Data` dir living next to the executable (candidate dir's child).
+    for (const auto& d : dirs) {
+        std::error_code ec;
+        fs::directory_iterator it(d, ec), end;
+        if (ec) continue;
+        for (size_t seen = 0; it != end && seen < 4096; it.increment(ec), ++seen) {
+            if (ec) break;
+            std::error_code ec2;
+            if (!it->is_directory(ec2)) continue;
+            if (endsWithData(it->path().filename().string()) &&
+                metadataUnder(it->path(), out))
+                return out;
+        }
+    }
+    return std::nullopt;
+}
 
 bool isIl2CppMetadata(const uint8_t* data, size_t size) {
     return data && size >= 4 && rdU32(data + kOffSanity) == kIl2CppMagic;

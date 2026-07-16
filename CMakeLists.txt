@@ -184,6 +184,7 @@ add_library(cecore SHARED
     analysis/code_analysis.cpp
     analysis/il2cpp_metadata.cpp
     analysis/il2cpp_binary.cpp
+    analysis/signature.cpp
     analysis/managed_runtime.cpp
     analysis/mono_dissector.cpp
     analysis/structure_tools.cpp

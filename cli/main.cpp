@@ -15,6 +15,7 @@
 #include "core/simple_address_list.hpp"
 #include "analysis/il2cpp_metadata.hpp"
 #include "analysis/il2cpp_binary.hpp"
+#include "analysis/signature.hpp"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -52,6 +53,7 @@ static void usage() {
         "  lua <script.lua>|-e <code>|-  Run a Lua script (same API as the GUI console)\n"
         "  lua                           Interactive Lua REPL\n"
         "  il2cpp <global-metadata.dat>  Browse a Unity IL2CPP metadata file's classes/fields (offline)\n"
+        "  signature <pid> <addr> [max]  Generate a unique AOB signature for a code address\n"
         "\n"
         "Scan options:\n"
         "  --type <type>     byte, i16, i32, i64, pointer, float, double, string, unicode, aob, binary, all, grouped, custom (default: i32)\n"
@@ -772,6 +774,21 @@ static int cmd_il2cpp(int argc, char** argv) {
     return 0;
 }
 
+// Generate a unique AOB signature for a code address (portable across restarts).
+static int cmd_signature(pid_t pid, uintptr_t addr, size_t maxBytes) {
+    LinuxProcessHandle proc(pid);
+    auto sig = ce::makeSignature(proc, addr, maxBytes);
+    if (sig.pattern.empty()) {
+        fprintf(stderr, "cescan signature: cannot build one at 0x%lx (unreadable/out of range)\n",
+                (unsigned long)addr);
+        return 1;
+    }
+    printf("%s\n", sig.pattern.c_str());
+    fprintf(stderr, "# %zu bytes, %s\n", sig.length,
+            sig.unique ? "unique in module" : "NOT unique within maxbytes (raise it)");
+    return 0;
+}
+
 int main(int argc, char** argv) {
     // Force the C locale so atof()/strtod() on scan values always use a '.'
     // decimal separator. cescan never calls setlocale(LC_ALL, "") so it is in the
@@ -851,6 +868,10 @@ int main(int argc, char** argv) {
     }
     else if (!strcmp(cmd, "il2cpp") && argc >= 3) {
         return cmd_il2cpp(argc - 1, argv + 1);
+    }
+    else if (!strcmp(cmd, "signature") && argc >= 4) {
+        size_t maxBytes = (argc >= 5) ? (size_t)parseUInt(argv[4], "maxbytes", 1024) : 64;
+        return cmd_signature(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), maxBytes);
     }
     else if (!strcmp(cmd, "help") || !strcmp(cmd, "--help") || !strcmp(cmd, "-h")) {
         usage();

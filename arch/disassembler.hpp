@@ -38,6 +38,12 @@ struct Instruction {
     // First memory operand (for "what addresses does this instruction access").
     MemoryOperand memory;
 
+    // Byte offset + size, within `bytes`, of the displacement and immediate
+    // operands (0 size = none). From Capstone's encoding detail; lets a signature
+    // generator wildcard the relocatable bytes (rip-relative disp, address imms).
+    uint8_t dispOffset = 0, dispSize = 0;
+    uint8_t immOffset = 0, immSize = 0;
+
     std::string toString() const;
 };
 

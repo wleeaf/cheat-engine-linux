@@ -31,6 +31,7 @@
 #include "analysis/managed_runtime.hpp"
 #include "analysis/il2cpp_metadata.hpp"
 #include "analysis/il2cpp_binary.hpp"
+#include "analysis/signature.hpp"
 #include "analysis/structure_tools.hpp"
 #include "debug/breakpoint_manager.hpp"
 #include "debug/stack_trace.hpp"
@@ -4604,6 +4605,40 @@ static void test_pointer_rescan_by_value() {
     bool ok = derefOk && keptMatch.size() == 1 && keptMiss.empty();
     printf("  rescan-by-value keeps match / drops mismatch: %s (deref=%d keep=%zu miss=%zu)\n",
            ok ? "OK" : "FAILED", (int)derefOk, keptMatch.size(), keptMiss.size());
+}
+
+// AOB signature generation: a region with two `mov rax,[rip+disp]` sites means
+// "48 8B 05 ?? ?? ?? ??" is not unique, so makeSignature must wildcard the
+// displacement AND extend past it (to the following `ret`) to disambiguate.
+static void test_signature_generation() {
+    printf("\n── Test: AOB signature generation ──\n");
+    const uintptr_t base = 0x400000;
+    std::vector<uint8_t> code;
+    auto nops = [&](int n) { for (int i = 0; i < n; ++i) code.push_back(0x90); };
+
+    nops(16);
+    size_t targetOff = code.size();
+    // A: mov rax, [rip+0x123456] ; ret
+    for (uint8_t b : {0x48, 0x8B, 0x05, 0x56, 0x34, 0x12, 0x00}) code.push_back(b);
+    code.push_back(0xC3);   // ret  <- disambiguating byte
+    nops(16);
+    // B: mov rax, [rip+0x778899] ; nop  (same opcode, different disp + follower)
+    for (uint8_t b : {0x48, 0x8B, 0x05, 0x99, 0x88, 0x77, 0x00}) code.push_back(b);
+    code.push_back(0x90);
+    nops(16);
+
+    FakeProcessHandle proc({
+        {{base, code.size(), MemProt::ReadExec, MemType::Image, MemState::Committed, "/tmp/game"}, code},
+    }, {});
+
+    auto sig = ce::makeSignature(proc, base + targetOff, base, code.size(), 64);
+    bool startsRight = sig.pattern.rfind("48 8B 05", 0) == 0;
+    bool hasWildcards = sig.pattern.find("??") != std::string::npos;
+    bool endsRet = sig.pattern.size() >= 2 && sig.pattern.substr(sig.pattern.size() - 2) == "C3";
+
+    printf("  pattern: %s (unique=%d)\n", sig.pattern.c_str(), sig.unique ? 1 : 0);
+    printf("  wildcards rip-disp + extends to unique (ends C3): %s\n",
+           (sig.unique && startsRight && hasWildcards && endsRet) ? "OK" : "FAILED");
 }
 
 // Reusable PointerMap: build the pointer graph once, scan multiple targets and
@@ -9213,6 +9248,7 @@ int main(int argc, char* argv[]) {
 #endif
     test_pointer_rescan_by_value();
     test_pointer_map_reuse();
+    test_signature_generation();
     test_lua_symbol_info();
     test_lua_region_info();
     test_codefinder_watch_size();

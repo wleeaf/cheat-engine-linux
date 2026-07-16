@@ -9,6 +9,7 @@
 #include "analysis/mono_dissector.hpp"
 #include "analysis/il2cpp_metadata.hpp"
 #include "analysis/il2cpp_binary.hpp"
+#include "analysis/signature.hpp"
 #include "symbols/dwarf_symbols.hpp"
 #include "core/simple_hook.hpp"
 #include "analysis/structure_tools.hpp"
@@ -2539,6 +2540,27 @@ static int l_findMonoFunction(lua_State* L) {
     return 1;
 }
 
+// createSignature(address [, maxBytes]) -> pattern, unique | nil, error
+// An array-of-bytes signature for the code at `address`, unique within its
+// module; rip-relative displacements and address-sized immediates are wildcarded
+// so it survives ASLR / minor rebuilds. `pattern` is CE AOB format usable with
+// AOBScan; `unique` says whether it resolved to exactly one location.
+static int l_createSignature(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process"); return 2; }
+    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    size_t maxBytes = (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) ? (size_t)luaL_checkinteger(L, 2) : 64;
+    auto sig = ce::makeSignature(*p, addr, maxBytes);
+    if (sig.pattern.empty()) {
+        lua_pushnil(L);
+        lua_pushstring(L, "could not build signature (unreadable or out of range)");
+        return 2;
+    }
+    lua_pushstring(L, sig.pattern.c_str());
+    lua_pushboolean(L, sig.unique);
+    return 2;
+}
+
 // executeCode(address [, timeoutMs]) -> true | nil, error
 // Runs the target's code at `address` on a fresh thread (libc clone) and waits up
 // to timeoutMs (default 5000) for it to return. CE's executeCodeEx / createThread
@@ -4272,6 +4294,7 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "monoDissect", l_monoDissect);
     lua_register(L, "findMonoFunction", l_findMonoFunction);
     lua_register(L, "executeCode", l_executeCode);
+    lua_register(L, "createSignature", l_createSignature);
     lua_register(L, "getIl2CppMetadataPath", l_getIl2CppMetadataPath);
     lua_register(L, "getIl2CppClasses", l_getIl2CppClasses);
     lua_register(L, "getIl2CppClassLayout", l_getIl2CppClassLayout);

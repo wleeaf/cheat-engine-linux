@@ -100,6 +100,11 @@ static Instruction buildInstruction(const cs_insn& in, csh handle, Arch arch) {
     if (arch == Arch::X86_32 || arch == Arch::X86_64) {
         inst.ripTarget = resolveRipRelative(in, inst.operands);
         inst.memory = extractMemoryOperand(in, handle);
+        if (in.detail) {
+            const cs_x86_encoding& enc = in.detail->x86.encoding;
+            inst.dispOffset = enc.disp_offset; inst.dispSize = enc.disp_size;
+            inst.immOffset  = enc.imm_offset;  inst.immSize  = enc.imm_size;
+        }
     }
     return inst;
 }

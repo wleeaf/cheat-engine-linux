@@ -56,6 +56,9 @@ protected:
 
 private:
     void updateScrollBar();
+    /// Scroll the view by `rows` (negative = toward lower addresses), clamped at 0
+    /// and only moving up onto mapped memory. Shared by the wheel and scrollbar.
+    void scrollRows(int rows);
     int visibleRows() const;
     /// Translate a viewport-local point into a byte offset from `address_`,
     /// or -1 if outside the hex grid.
@@ -133,6 +136,10 @@ protected:
     void contextMenuEvent(QContextMenuEvent* event) override;
 
 private:
+    void updateScrollBar();
+    /// Scroll by `rows` instructions (negative = up), region-safe. Shared by the
+    /// wheel and the draggable scrollbar.
+    void scrollRows(int rows);
     int visibleRows() const;
     uintptr_t scrollBack(uintptr_t addr, int count);
     int rowAtY(int y) const;

@@ -62,6 +62,10 @@ static uintptr_t ripEffectiveAddress(const ce::Instruction& inst);
 // HexView
 // ═══════════════════════════════════════════════════════════════
 
+// The vertical scrollbar's resting position; movement is measured as a delta
+// from here so the bar can drive an unbounded 64-bit address space.
+static constexpr int kScrollCenter = 100;
+
 HexView::HexView(QWidget* parent) : QAbstractScrollArea(parent) {
     setFont(monoFont_);
     QFontMetrics fm(monoFont_);
@@ -70,6 +74,10 @@ HexView::HexView(QWidget* parent) : QAbstractScrollArea(parent) {
     setMinimumHeight(charH_ * 8);
     viewport()->setCursor(Qt::IBeamCursor);
     setFocusPolicy(Qt::StrongFocus);
+    // Drag / click the scrollbar to scroll memory (delta from centre -> rows).
+    connect(verticalScrollBar(), &QScrollBar::valueChanged, this, [this](int v) {
+        scrollRows(v - kScrollCenter);
+    });
 }
 
 uintptr_t HexView::cursorAddress() const {
@@ -236,8 +244,38 @@ int HexView::visibleRows() const {
 }
 
 void HexView::updateScrollBar() {
-    verticalScrollBar()->setRange(0, 0xFFFF);
-    verticalScrollBar()->setPageStep(visibleRows());
+    // Memory is a 64-bit space, so the bar can't map it 1:1. Keep it centered and
+    // treat movement as relative (delta from centre) — dragging or clicking the
+    // trough scrolls the view, then the bar snaps back to centre so there is
+    // always room to go either way. Block signals so the re-centre isn't seen as
+    // a user scroll (which would recurse).
+    auto* sb = verticalScrollBar();
+    QSignalBlocker block(sb);
+    sb->setRange(0, 2 * kScrollCenter);
+    sb->setPageStep(std::max(1, visibleRows()));
+    sb->setSingleStep(1);
+    sb->setValue(kScrollCenter);
+}
+
+// Move the view by `rows` (negative = up), with the same readability guards as
+// the wheel: never underflow past 0, and only move up onto memory that is
+// actually mapped so the pane can't get stranded in an unmapped gap.
+void HexView::scrollRows(int rows) {
+    if (rows == 0) return;
+    if (rows < 0) {
+        const uintptr_t step = static_cast<uintptr_t>(-rows) * bytesPerRow_;
+        uintptr_t target = (address_ > step) ? address_ - step : 0;
+        if (proc_ && target != address_) {
+            uint8_t probe = 0;
+            auto pr = proc_->read(target, &probe, 1);
+            if (pr && *pr == 1) address_ = target;
+        } else {
+            address_ = target;
+        }
+    } else {
+        address_ += static_cast<uintptr_t>(rows) * bytesPerRow_;
+    }
+    refresh();
 }
 
 void HexView::refresh() {
@@ -426,23 +464,10 @@ void HexView::keyPressEvent(QKeyEvent* e) {
 void HexView::wheelEvent(QWheelEvent* e) {
     int delta = e->angleDelta().y() / 120;
     if (delta == 0) return;
-    const uintptr_t step = static_cast<uintptr_t>(std::abs(delta)) * bytesPerRow_ * 3;
-    if (delta > 0) {
-        // Scroll up: clamp at 0 so the address never underflows and wraps to the
-        // top of the space (which would strand the view in unmapped memory). If
-        // the target is unreadable, stay put rather than blanking to '??'.
-        uintptr_t target = (address_ > step) ? address_ - step : 0;
-        if (proc_ && target != address_) {
-            uint8_t probe = 0;
-            auto pr = proc_->read(target, &probe, 1);
-            if (pr && *pr == 1) address_ = target;
-        } else {
-            address_ = target;
-        }
-    } else {
-        address_ += step;   // scroll down is always allowed (escapes unmapped gaps)
-    }
-    refresh();
+    // Wheel-up (delta>0) scrolls to lower addresses (negative rows). scrollRows()
+    // clamps at 0 and only moves up onto mapped memory, so the view never wraps
+    // past the bottom of the space or strands itself in an unmapped gap.
+    scrollRows(-delta * 3);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -475,6 +500,41 @@ DisasmView::DisasmView(QWidget* parent) : QAbstractScrollArea(parent) {
     setMinimumHeight(charH_ * 8);
     setFocusPolicy(Qt::StrongFocus);
     viewport()->setMouseTracking(true);
+    // Draggable scrollbar (centred; delta from centre -> instructions), so the
+    // disassembly can be scrolled with the bar and not only the wheel/keys.
+    connect(verticalScrollBar(), &QScrollBar::valueChanged, this, [this](int v) {
+        scrollRows(v - kScrollCenter);
+    });
+}
+
+void DisasmView::updateScrollBar() {
+    auto* sb = verticalScrollBar();
+    QSignalBlocker block(sb);
+    sb->setRange(0, 2 * kScrollCenter);
+    sb->setPageStep(std::max(1, visibleRows()));
+    sb->setSingleStep(1);
+    sb->setValue(kScrollCenter);
+}
+
+// Scroll by `rows` instructions (negative = up). Up uses the region-safe
+// scrollBack and refuses to strand the pane in an unmapped gap; down steps
+// through the decoded instructions, or a fixed amount when the pane is blank.
+void DisasmView::scrollRows(int rows) {
+    if (rows == 0) return;
+    if (rows < 0) {
+        uintptr_t back = scrollBack(address_, -rows);
+        if (back != address_ && proc_) {
+            uint8_t probe = 0;
+            auto pr = proc_->read(back, &probe, 1);
+            if (pr && *pr == 1) address_ = back;
+        }
+    } else if (!instructions_.empty()) {
+        int steps = std::min((int)instructions_.size() - 1, rows);
+        if (steps > 0) address_ = instructions_[steps].address;
+    } else {
+        address_ += static_cast<uintptr_t>(rows) * 16;
+    }
+    refresh();
 }
 
 uintptr_t DisasmView::selectedAddress() const {
@@ -674,6 +734,7 @@ void DisasmView::resizeEvent(QResizeEvent* e) {
 void DisasmView::refresh() {
     instructions_.clear();
     emptyReason_.clear();
+    updateScrollBar();   // keep the bar centred (signal-blocked; no recursion)
     if (!proc_) { viewport()->update(); return; }
 
     int rows = visibleRows() + 5;
@@ -1057,31 +1118,10 @@ void DisasmView::keyPressEvent(QKeyEvent* e) {
 
 void DisasmView::wheelEvent(QWheelEvent* e) {
     int delta = e->angleDelta().y() / 120;
-    if (delta > 0) {
-        // Scroll up. scrollBack can step before a mapped region into an unmapped
-        // gap; if so, don't strand the view there (which would blank the pane and,
-        // because scroll-down needs a non-empty instruction list, trap the user).
-        // Only move up when the target is actually readable, else stay put.
-        uintptr_t back = scrollBack(address_, delta * 3);
-        if (back != address_ && proc_) {
-            uint8_t probe = 0;
-            auto pr = proc_->read(back, &probe, 1);
-            if (pr && *pr == 1) address_ = back;
-            // else: keep address_ at the last readable position (don't blank out).
-        }
-    } else if (delta < 0) {
-        // Scroll down. Normally advance by whole instructions; but if the pane is
-        // currently blank (unreadable address, e.g. after a goto into an unmapped
-        // range), step forward by a fixed amount so the user can always scroll out.
-        if (!instructions_.empty()) {
-            int steps = std::min((int)instructions_.size() - 1, -delta * 3);
-            if (steps > 0)
-                address_ = instructions_[steps].address;
-        } else {
-            address_ += static_cast<uintptr_t>(-delta) * 16;
-        }
-    }
-    refresh();
+    // Wheel-up (delta>0) scrolls to lower addresses (negative rows). scrollRows()
+    // is region-safe: it won't strand the pane in an unmapped gap on the way up,
+    // and down-scroll always makes progress so a blank address is escapable.
+    scrollRows(-delta * 3);
 }
 
 // ═══════════════════════════════════════════════════════════════

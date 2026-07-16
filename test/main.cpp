@@ -32,6 +32,7 @@
 #include "analysis/il2cpp_metadata.hpp"
 #include "analysis/il2cpp_binary.hpp"
 #include "analysis/signature.hpp"
+#include "analysis/pe_exports.hpp"
 #include "analysis/structure_tools.hpp"
 #include "debug/breakpoint_manager.hpp"
 #include "debug/stack_trace.hpp"
@@ -4640,6 +4641,57 @@ static void test_pointer_rescan_by_value() {
     bool ok = derefOk && keptMatch.size() == 1 && keptMiss.empty();
     printf("  rescan-by-value keeps match / drops mismatch: %s (deref=%d keep=%zu miss=%zu)\n",
            ok ? "OK" : "FAILED", (int)derefOk, keptMatch.size(), keptMiss.size());
+}
+
+// PE export-table parsing: a synthetic PE32+ with one named export ("foo" @ rva
+// 0x1234, ordinal 1) exercises the header + section + export-directory walk. A
+// real GameAssembly.dll (via CE_IL2CPP_GAMEASSEMBLY) is also checked when present.
+static void test_pe_exports() {
+    printf("\n── Test: PE export table parsing ──\n");
+    std::vector<uint8_t> f(0x1400, 0);
+    auto pU16 = [&](size_t o, uint16_t v) { f[o] = (uint8_t)v; f[o + 1] = (uint8_t)(v >> 8); };
+    auto pU32 = [&](size_t o, uint32_t v) { for (int i = 0; i < 4; ++i) f[o + i] = (uint8_t)(v >> (8 * i)); };
+    f[0] = 'M'; f[1] = 'Z'; pU32(0x3C, 0x80);
+    f[0x80] = 'P'; f[0x81] = 'E';
+    pU16(0x84, 0x8664); pU16(0x86, 1); pU16(0x94, 0xF0);   // machine, nSec, optSize
+    pU16(0x98, 0x20B);                                     // PE32+
+    pU32(0x108, 0x1000); pU32(0x10C, 0x100);               // DataDirectory[0] export {rva,size}
+    const char* sn = ".rdata"; for (int i = 0; i < 6; ++i) f[0x188 + i] = sn[i];
+    pU32(0x190, 0x1000); pU32(0x194, 0x1000); pU32(0x198, 0x1000); pU32(0x19C, 0x400);
+    // Export directory at file 0x400 (rva 0x1000).
+    pU32(0x414, 1); pU32(0x418, 1);        // NumberOfFunctions, NumberOfNames
+    pU32(0x410, 1);                        // Base (ordinal base)
+    pU32(0x41C, 0x1030); pU32(0x420, 0x1040); pU32(0x424, 0x1050);  // funcs, names, ordinals
+    pU32(0x430, 0x1234);                   // AddressOfFunctions[0] = func rva
+    pU32(0x440, 0x1060);                   // AddressOfNames[0] = name rva
+    pU16(0x450, 0);                        // AddressOfNameOrdinals[0]
+    const char* nm = "foo"; for (int i = 0; i < 3; ++i) f[0x460 + i] = nm[i];   // name @ rva 0x1060
+
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::path tmp = fs::temp_directory_path() / ("ce-pe-" + std::to_string(getpid()) + ".dll");
+    { std::ofstream o(tmp, std::ios::binary); o.write(reinterpret_cast<char*>(f.data()), (std::streamsize)f.size()); }
+    auto exps = ce::parsePEExports(tmp.string());
+    bool ok = exps.size() == 1 && exps[0].name == "foo" && exps[0].ordinal == 1 &&
+              exps[0].rva == 0x1234 && exps[0].forward.empty();
+    bool rvaOk = ce::peExportRva(tmp.string(), "foo") == 0x1234;
+
+    fs::path jp = fs::temp_directory_path() / ("ce-pe-junk-" + std::to_string(getpid()) + ".bin");
+    { std::ofstream o(jp, std::ios::binary); std::vector<uint8_t> j(64, 0x41); o.write(reinterpret_cast<char*>(j.data()), 64); }
+    bool junkOk = ce::parsePEExports(jp.string()).empty();
+    fs::remove(tmp, ec); fs::remove(jp, ec);
+
+    printf("  parses a named export (foo @0x1234, ordinal 1): %s\n", ok ? "OK" : "FAILED");
+    printf("  peExportRva(foo) == 0x1234: %s\n", rvaOk ? "OK" : "FAILED");
+    printf("  non-PE input rejected cleanly: %s\n", junkOk ? "OK" : "FAILED");
+
+    if (const char* ga = std::getenv("CE_IL2CPP_GAMEASSEMBLY"); ga && *ga) {
+        auto real = ce::parsePEExports(ga);
+        size_t il2 = 0;
+        for (const auto& e : real) if (e.name.rfind("il2cpp_", 0) == 0) ++il2;
+        printf("  real GameAssembly.dll exports il2cpp_* API (%zu of %zu): %s\n",
+               il2, real.size(), (real.size() > 0 && il2 > 0) ? "OK" : "FAILED");
+    }
 }
 
 // AOB signature generation: a region with two `mov rax,[rip+disp]` sites means
@@ -9344,6 +9396,7 @@ int main(int argc, char* argv[]) {
     test_pointer_rescan_by_value();
     test_pointer_map_reuse();
     test_signature_generation();
+    test_pe_exports();
     test_lua_symbol_info();
     test_lua_region_info();
     test_codefinder_watch_size();

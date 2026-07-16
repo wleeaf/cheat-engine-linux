@@ -10,6 +10,7 @@
 #include "analysis/il2cpp_metadata.hpp"
 #include "analysis/il2cpp_binary.hpp"
 #include "analysis/signature.hpp"
+#include "analysis/pe_exports.hpp"
 #include "symbols/dwarf_symbols.hpp"
 #include "core/simple_hook.hpp"
 #include "analysis/structure_tools.hpp"
@@ -3246,6 +3247,46 @@ static bool pickModule(ce::ProcessHandle& p, const std::string& modName, ce::Mod
     return false;
 }
 
+// getModuleExports(nameOrPath) -> { {name, ordinal, rva, address, forward}, ... }
+//   | nil, err. Exported functions of a PE module (Wine/Proton DLLs). Pass a file
+// path to parse it directly (address == rva), or a mapped module's name to get
+// live addresses (module base + rva). Handy for the il2cpp_* API GameAssembly.dll
+// exports. Forwarded exports carry `forward = "OTHERDLL.func"` and rva 0.
+static int l_getModuleExports(lua_State* L) {
+    std::string arg = (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) ? luaL_checkstring(L, 1) : "";
+    std::string path;
+    uint64_t base = 0;
+    std::error_code ec;
+    if (!arg.empty() && std::filesystem::is_regular_file(arg, ec)) {
+        path = arg;   // explicit PE file
+    } else {
+        auto* p = getProc(L);
+        if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process; pass a PE file path"); return 2; }
+        auto modules = p->modules();
+        const ce::ModuleInfo* mod = nullptr;
+        if (arg.empty()) { if (!modules.empty()) mod = &modules.front(); }
+        else for (const auto& m : modules) if (m.name == arg || m.path == arg) { mod = &m; break; }
+        if (!mod) { lua_pushnil(L); lua_pushstring(L, "module not found"); return 2; }
+        path = mod->path;
+        base = mod->base;
+    }
+
+    auto exps = ce::parsePEExports(path);
+    if (exps.empty()) { lua_pushnil(L); lua_pushstring(L, "not a PE image or no exports"); return 2; }
+    lua_newtable(L);
+    int i = 1;
+    for (const auto& e : exps) {
+        lua_newtable(L);
+        lua_pushstring(L, e.name.c_str());              lua_setfield(L, -2, "name");
+        lua_pushinteger(L, (lua_Integer)e.ordinal);     lua_setfield(L, -2, "ordinal");
+        lua_pushinteger(L, (lua_Integer)e.rva);         lua_setfield(L, -2, "rva");
+        lua_pushinteger(L, (lua_Integer)(e.rva ? base + e.rva : 0)); lua_setfield(L, -2, "address");
+        if (!e.forward.empty()) { lua_pushstring(L, e.forward.c_str()); lua_setfield(L, -2, "forward"); }
+        lua_rawseti(L, -2, i++);
+    }
+    return 1;
+}
+
 // enumerateFunctions([moduleName]) -> { {address, references}, ... } | nil, err
 // Candidate function entry points in a module (call targets + prologues), with
 // how many places reference each. Defaults to the main module.
@@ -4529,6 +4570,7 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "findReferences", l_findReferences);
     lua_register(L, "enumerateFunctions", l_enumerateFunctions);
     lua_register(L, "buildCallGraph", l_buildCallGraph);
+    lua_register(L, "getModuleExports", l_getModuleExports);
     lua_register(L, "breakAndTrace", l_breakAndTrace);
     lua_register(L, "findStatics", l_findStatics);
     lua_register(L, "branchMap", l_branchMap);

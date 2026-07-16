@@ -152,14 +152,27 @@ int main(int argc, char** argv) {
     qDBusRegisterMetaType<CePortalShortcut>();
     qDBusRegisterMetaType<QList<CePortalShortcut>>();
 
+    // Pure-function check of the QKeySequence -> portal trigger mapping. Needs no
+    // bus, so it gates the exit code even where the session bus is unavailable.
+    using ce::gui::keySequenceToPortalTrigger;
+    const bool triggerOk =
+        keySequenceToPortalTrigger(QKeySequence(QStringLiteral("Ctrl+Shift+G")))
+            == QLatin1String("CTRL+SHIFT+G") &&
+        keySequenceToPortalTrigger(QKeySequence(QStringLiteral("F1")))
+            == QLatin1String("F1") &&
+        keySequenceToPortalTrigger(QKeySequence(QStringLiteral("Alt+Meta+Space")))
+            == QLatin1String("ALT+LOGO+SPACE") &&
+        keySequenceToPortalTrigger(QKeySequence()).isEmpty();
+    printf("  keySequenceToPortalTrigger mapping: %s\n", triggerOk ? "OK" : "FAILED");
+
     QDBusConnection bus = QDBusConnection::sessionBus();
     if (!bus.isConnected()) {
         printf("  portal client round-trip: SKIPPED (no session bus)\n");
-        return 0;
+        return triggerOk ? 0 : 1;
     }
     if (!bus.registerService(QString::fromLatin1(kMockService))) {
         printf("  portal client round-trip: SKIPPED (cannot own mock service)\n");
-        return 0;
+        return triggerOk ? 0 : 1;
     }
 
     MockPortal mock(bus);
@@ -202,7 +215,8 @@ int main(int argc, char** argv) {
     printf("  BindShortcuts a(sa{sv}) marshalling: %s\n", bindOk ? "OK" : "FAILED");
     printf("  Activated signal decode: %s\n", activatedOk ? "OK" : "FAILED");
 
-    const int failures = int(!availOk) + int(!sessionOk) + int(!bindOk) + int(!activatedOk);
+    const int failures = int(!triggerOk) + int(!availOk) + int(!sessionOk) +
+                         int(!bindOk) + int(!activatedOk);
     return failures ? 1 : 0;
 }
 

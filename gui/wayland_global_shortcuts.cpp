@@ -6,6 +6,7 @@
 #include <QDBusObjectPath>
 #include <QDBusMetaType>
 #include <QVariant>
+#include <QStringList>
 
 // CePortalShortcut and its metatype declarations live in the header (shared with
 // the mock-portal test); the marshalling operators are defined here.
@@ -93,25 +94,52 @@ void WaylandGlobalShortcuts::onCreateSessionResponse(uint response,
 
 void WaylandGlobalShortcuts::bindShortcut(const QString& id, const QString& description,
                                           const QString& preferredTrigger) {
-    const QString token = newToken(QStringLiteral("ce_bind"));
-    const QString reqPath = requestPathFor(token);
-    bus_.connect(service_, reqPath, kRequestIface, QStringLiteral("Response"),
-                 this, SLOT(onBindResponse(uint, QVariantMap)));
-
     CePortalShortcut shortcut;
     shortcut.id = id;
     shortcut.meta[QStringLiteral("description")] = description;
     shortcut.meta[QStringLiteral("preferred_trigger")] = preferredTrigger;
+    bindShortcuts(QList<CePortalShortcut>{shortcut});
+}
+
+void WaylandGlobalShortcuts::bindShortcuts(const QList<CePortalShortcut>& shortcuts) {
+    const QString token = newToken(QStringLiteral("ce_bind"));
+    const QString reqPath = requestPathFor(token);
+    bus_.connect(service_, reqPath, kRequestIface, QStringLiteral("Response"),
+                 this, SLOT(onBindResponse(uint, QVariantMap)));
 
     QDBusMessage msg = QDBusMessage::createMethodCall(
         service_, kPortalPath, kShortcutsIface, QStringLiteral("BindShortcuts"));
     QVariantMap options;
     options[QStringLiteral("handle_token")] = token;
     msg << QVariant::fromValue(QDBusObjectPath(sessionHandle_))          // o
-        << QVariant::fromValue(QList<CePortalShortcut>{shortcut})        // a(sa{sv})
+        << QVariant::fromValue(shortcuts)                               // a(sa{sv})
         << QString()                                                     // s parent_window
         << options;                                                      // a{sv}
     bus_.asyncCall(msg);
+}
+
+QString keySequenceToPortalTrigger(const QKeySequence& seq) {
+    if (seq.isEmpty()) return QString();
+    const QKeyCombination combo = seq[0];
+    const Qt::KeyboardModifiers mods = combo.keyboardModifiers();
+    const int key = combo.key();
+    if (key == 0) return QString();
+
+    QStringList parts;
+    if (mods & Qt::ControlModifier) parts << QStringLiteral("CTRL");
+    if (mods & Qt::AltModifier)     parts << QStringLiteral("ALT");
+    if (mods & Qt::ShiftModifier)   parts << QStringLiteral("SHIFT");
+    if (mods & Qt::MetaModifier)    parts << QStringLiteral("LOGO");   // Super/Windows
+
+    // The bare key name, upper-cased ("G", "F1", "SPACE"). Building a sequence
+    // from just the key strips the modifiers QKeySequence would otherwise print.
+    const QString keyName =
+        QKeySequence(QKeyCombination(Qt::NoModifier, static_cast<Qt::Key>(key)))
+            .toString(QKeySequence::PortableText)
+            .toUpper();
+    if (keyName.isEmpty()) return QString();
+    parts << keyName;
+    return parts.join(QLatin1Char('+'));
 }
 
 void WaylandGlobalShortcuts::onBindResponse(uint response, const QVariantMap&) {

@@ -22,6 +22,7 @@
 #include <QString>
 #include <QVariantMap>
 #include <QList>
+#include <QKeySequence>
 
 // Portal shortcut entry: the (s a{sv}) struct inside BindShortcuts' `a(sa{sv})`
 // array — a shortcut id plus a metadata dict (description, preferred_trigger).
@@ -64,6 +65,11 @@ public:
     void bindShortcut(const QString& id, const QString& description,
                       const QString& preferredTrigger);
 
+    /// Bind a whole set of shortcuts in one BindShortcuts call. The portal binds
+    /// the session's shortcuts as a set, so callers with several hotkeys should
+    /// prefer this over repeated bindShortcut() calls. Emits shortcutsBound().
+    void bindShortcuts(const QList<CePortalShortcut>& shortcuts);
+
     QString sessionHandle() const { return sessionHandle_; }
 
 signals:
@@ -88,5 +94,14 @@ private:
     QString sessionHandle_;
     int tokenCounter_ = 0;
 };
+
+/// Convert a Qt key sequence to an XDG portal "preferred_trigger" string, e.g.
+/// QKeySequence("Ctrl+Shift+G") -> "CTRL+SHIFT+G". Modifiers are emitted in the
+/// fixed order CTRL, ALT, SHIFT, LOGO (super) followed by the key name, matching
+/// the trigger syntax the GlobalShortcuts portal expects. Returns an empty string
+/// if the sequence carries no key. Only the first chord is used (CE hotkeys are
+/// single chords). This is a best-effort *preferred* trigger; the compositor may
+/// present its own rebinding UI and choose a different one.
+QString keySequenceToPortalTrigger(const QKeySequence& seq);
 
 } // namespace ce::gui

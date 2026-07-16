@@ -1,14 +1,45 @@
 #include "gui/globalhotkeys.hpp"
 
+// Wayland portal client + the Qt bits the Wayland helpers need. Included up here
+// (before any X11 headers below) so they parse free of Xlib's macro pollution.
+#ifdef CECORE_HAVE_WAYLAND_HOTKEYS
+#include "gui/wayland_global_shortcuts.hpp"
+#include <QGuiApplication>
+#include <QDBusConnection>
+#include <QMetaObject>
+#endif
+
 #ifndef CECORE_HAVE_X11_HOTKEYS
 
-// Non-X11 build: global hotkeys unavailable; registerHotkey reports failure so
-// callers fall back to Qt::ApplicationShortcut.
-GlobalHotkeyManager::GlobalHotkeyManager(QObject* parent) : QObject(parent) {}
+// Non-X11 build: no XGrabKey. The Wayland portal path (if compiled in and we are
+// on a Wayland session) handles global hotkeys; otherwise registerHotkey reports
+// failure so callers fall back to Qt::ApplicationShortcut.
+GlobalHotkeyManager::GlobalHotkeyManager(QObject* parent) : QObject(parent) {
+#ifdef CECORE_HAVE_WAYLAND_HOTKEYS
+    initWayland();
+#endif
+}
 GlobalHotkeyManager::~GlobalHotkeyManager() {}
-bool GlobalHotkeyManager::registerHotkey(int, const QKeySequence&) { return false; }
-void GlobalHotkeyManager::unregisterHotkey(int) {}
-void GlobalHotkeyManager::clear() {}
+bool GlobalHotkeyManager::registerHotkey(int id, const QKeySequence& seq) {
+#ifdef CECORE_HAVE_WAYLAND_HOTKEYS
+    if (tryRegisterWayland(id, seq)) return true;
+#else
+    (void)id; (void)seq;
+#endif
+    return false;
+}
+void GlobalHotkeyManager::unregisterHotkey(int id) {
+#ifdef CECORE_HAVE_WAYLAND_HOTKEYS
+    if (waylandTriggers_.remove(id)) scheduleWaylandRebind();
+#else
+    (void)id;
+#endif
+}
+void GlobalHotkeyManager::clear() {
+#ifdef CECORE_HAVE_WAYLAND_HOTKEYS
+    if (!waylandTriggers_.isEmpty()) { waylandTriggers_.clear(); scheduleWaylandRebind(); }
+#endif
+}
 void GlobalHotkeyManager::ungrabOne(const Grab&) {}
 bool GlobalHotkeyManager::nativeEventFilter(const QByteArray&, void*, qintptr*) { return false; }
 
@@ -102,6 +133,11 @@ unsigned qtModsToX11(Qt::KeyboardModifiers mods) {
 GlobalHotkeyManager::GlobalHotkeyManager(QObject* parent) : QObject(parent) {
     if (x11Display())
         qGuiApp->installNativeEventFilter(this);
+#ifdef CECORE_HAVE_WAYLAND_HOTKEYS
+    // Under a Wayland session x11Display() is null (no XGrabKey); route through
+    // the portal instead. On real X11 this is a no-op (platform isn't wayland).
+    initWayland();
+#endif
 }
 
 GlobalHotkeyManager::~GlobalHotkeyManager() {
@@ -112,6 +148,11 @@ GlobalHotkeyManager::~GlobalHotkeyManager() {
 
 bool GlobalHotkeyManager::registerHotkey(int id, const QKeySequence& seq) {
     unregisterHotkey(id);
+#ifdef CECORE_HAVE_WAYLAND_HOTKEYS
+    // On Wayland (wayland_ set) the portal is the only working path; take it and
+    // skip the X11 grab entirely.
+    if (tryRegisterWayland(id, seq)) return true;
+#endif
     Display* dpy = x11Display();
     if (!dpy || seq.isEmpty()) return false;
 
@@ -143,6 +184,9 @@ void GlobalHotkeyManager::ungrabOne(const Grab& g) {
 }
 
 void GlobalHotkeyManager::unregisterHotkey(int id) {
+#ifdef CECORE_HAVE_WAYLAND_HOTKEYS
+    if (waylandTriggers_.remove(id)) scheduleWaylandRebind();
+#endif
     auto it = grabs_.find(id);
     if (it == grabs_.end()) return;
     ungrabOne(it.value());
@@ -150,6 +194,9 @@ void GlobalHotkeyManager::unregisterHotkey(int id) {
 }
 
 void GlobalHotkeyManager::clear() {
+#ifdef CECORE_HAVE_WAYLAND_HOTKEYS
+    if (!waylandTriggers_.isEmpty()) { waylandTriggers_.clear(); scheduleWaylandRebind(); }
+#endif
     for (const auto& g : grabs_) ungrabOne(g);
     grabs_.clear();
 }
@@ -173,3 +220,74 @@ bool GlobalHotkeyManager::nativeEventFilter(const QByteArray& eventType,
 }
 
 #endif // CECORE_HAVE_X11_HOTKEYS
+
+#ifdef CECORE_HAVE_WAYLAND_HOTKEYS
+// ── Wayland portal path (shared by both the X11 and non-X11 builds above) ──
+// Defined once here; the constructors call initWayland(), registerHotkey() calls
+// tryRegisterWayland(), and clear()/unregisterHotkey() feed the trigger set.
+
+void GlobalHotkeyManager::initWayland() {
+    if (!qGuiApp) return;
+    // Only take the portal path when Qt is actually on the Wayland platform
+    // plugin; on X11/XWayland the XGrabKey path above is the right one.
+    if (!QGuiApplication::platformName().contains(QLatin1String("wayland"),
+                                                  Qt::CaseInsensitive))
+        return;
+    auto* w = new ce::gui::WaylandGlobalShortcuts(
+        QDBusConnection::sessionBus(),
+        QStringLiteral("org.freedesktop.portal.Desktop"), this);
+    if (!w->portalAvailable()) { delete w; return; }   // no portal: stay on fallback
+    wayland_ = w;
+
+    // The portal reports fires by shortcut *name* ("ce_hotkey_<id>"); translate
+    // back to the integer id and re-emit our platform-neutral activated(int) so
+    // callers (MainWindow) need no Wayland-specific wiring.
+    connect(wayland_, &ce::gui::WaylandGlobalShortcuts::activated, this,
+            [this](const QString& name) {
+                const QString prefix = QStringLiteral("ce_hotkey_");
+                if (!name.startsWith(prefix)) return;
+                bool ok = false;
+                const int id = name.mid(prefix.size()).toInt(&ok);
+                if (ok) emit activated(id);
+            });
+    connect(wayland_, &ce::gui::WaylandGlobalShortcuts::sessionReady, this,
+            [this] { waylandReady_ = true; rebindWayland(); });
+    wayland_->createSession();
+}
+
+bool GlobalHotkeyManager::tryRegisterWayland(int id, const QKeySequence& seq) {
+    if (!wayland_) return false;
+    const QString trigger = ce::gui::keySequenceToPortalTrigger(seq);
+    if (trigger.isEmpty()) return false;   // unmappable: let the caller fall back
+    waylandTriggers_.insert(id, trigger);
+    scheduleWaylandRebind();
+    return true;
+}
+
+// Coalesce the burst of register/clear calls that rebuildValueHotkeys makes into
+// a single BindShortcuts once the current event-loop turn settles.
+void GlobalHotkeyManager::scheduleWaylandRebind() {
+    if (!wayland_ || !waylandReady_ || rebindQueued_) return;
+    rebindQueued_ = true;
+    QMetaObject::invokeMethod(this, [this] {
+        rebindQueued_ = false;
+        rebindWayland();
+    }, Qt::QueuedConnection);
+}
+
+void GlobalHotkeyManager::rebindWayland() {
+    if (!wayland_ || !waylandReady_) return;
+    QList<CePortalShortcut> shortcuts;
+    shortcuts.reserve(waylandTriggers_.size());
+    for (auto it = waylandTriggers_.constBegin(); it != waylandTriggers_.constEnd(); ++it) {
+        CePortalShortcut s;
+        s.id = QStringLiteral("ce_hotkey_%1").arg(it.key());
+        s.meta[QStringLiteral("description")] =
+            QStringLiteral("Cheat Engine hotkey %1").arg(it.key());
+        s.meta[QStringLiteral("preferred_trigger")] = it.value();
+        shortcuts.push_back(s);
+    }
+    if (!shortcuts.isEmpty())
+        wayland_->bindShortcuts(shortcuts);
+}
+#endif // CECORE_HAVE_WAYLAND_HOTKEYS

@@ -9,6 +9,10 @@
 #include <QKeySequence>
 #include <QHash>
 
+#ifdef CECORE_HAVE_WAYLAND_HOTKEYS
+namespace ce::gui { class WaylandGlobalShortcuts; }
+#endif
+
 class GlobalHotkeyManager : public QObject, public QAbstractNativeEventFilter {
     Q_OBJECT
 public:
@@ -31,4 +35,19 @@ private:
     struct Grab { quint32 keycode = 0; quint32 modmask = 0; };
     QHash<int, Grab> grabs_;   // id -> grab
     void ungrabOne(const Grab& g);
+
+#ifdef CECORE_HAVE_WAYLAND_HOTKEYS
+    // Wayland path: under a Wayland session there is no XGrabKey, so hotkeys go
+    // through the xdg-desktop-portal GlobalShortcuts client. Both register and
+    // clear feed this, and the portal's activated(name) is funnelled back into
+    // the same activated(int) signal so callers are unaffected by the platform.
+    ce::gui::WaylandGlobalShortcuts* wayland_ = nullptr;   // null unless on Wayland
+    bool waylandReady_ = false;      // portal session established
+    bool rebindQueued_ = false;      // a coalesced rebind is already scheduled
+    QHash<int, QString> waylandTriggers_;   // id -> "CTRL+SHIFT+G"
+    void initWayland();
+    bool tryRegisterWayland(int id, const QKeySequence& seq);
+    void scheduleWaylandRebind();
+    void rebindWayland();
+#endif
 };

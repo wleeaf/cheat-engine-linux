@@ -431,7 +431,8 @@ if(Qt6_FOUND)
                 gui/wayland_global_shortcuts.cpp
             )
             target_include_directories(wayland_shortcuts_test PRIVATE ${CMAKE_SOURCE_DIR})
-            target_link_libraries(wayland_shortcuts_test PRIVATE Qt6::Core Qt6::DBus)
+            # Qt6::Gui for QKeySequence (the keySequenceToPortalTrigger mapper).
+            target_link_libraries(wayland_shortcuts_test PRIVATE Qt6::Core Qt6::Gui Qt6::DBus)
         endif()
     else()
         message(STATUS "Global hotkeys: Wayland portal backend disabled (Qt6::DBus not found)")

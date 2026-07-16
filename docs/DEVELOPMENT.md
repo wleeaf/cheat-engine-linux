@@ -121,7 +121,8 @@ thin wrapper over the already-tested `Snapshot` core.
 Genuinely blocked on real-world testing / a strategic call: **#10 Mono/Unity**
 (detection/enumeration/extraction + soft-debugger framing are tested; full
 type-introspection + IL2CPP need a live Unity target), **#11 Vulkan overlay**
-(GPU), **#12 Wayland hotkeys** (compositor+portal), #25 ARM (registers/ptrace;
+(GPU), **#12 Wayland hotkeys** (wired end-to-end in code; only live-compositor
+portal confirmation is left), #25 ARM (registers/ptrace;
 disassembly of ARM32/ARM64 is verified), #26 32-bit inject (injection; x86-32
 disassembly is verified).
 
@@ -258,21 +259,24 @@ alongside official CE 7.7 Linux. Today each is materially short of the claim.
     layer-chain testing is blocked locally by the headless NVIDIA ICD hanging in
     `vkCreateInstance`; it needs a software driver that initialises headlessly.
     **[L]**
-12. **Wayland global hotkeys.** `gui/globalhotkeys.cpp` is entirely
-    `XGrabKey`/xcb; on Wayland it degrades to focus-only Qt shortcuts — dead
-    exactly when the game has focus. *Backend built + tested:* new
-    `gui/wayland_global_shortcuts.cpp` — a QtDBus `xdg-desktop-portal`
-    GlobalShortcuts client (CreateSession → BindShortcuts via the async
-    Request/Response pattern, plus the Activated signal → `activated(id)`).
-    `test/wayland_shortcuts_test.cpp` drives it against a mock portal that
-    implements the authoritative interface (run under `dbus-run-session` in CI):
-    it validates the message FORMAT against the real spec (`a{sv}` options, the
-    `a(sa{sv})` shortcuts marshalling, the `Activated` signature) plus the
-    round-trip + signal decode. *Remaining:* wiring it into `GlobalHotkeyManager`
-    (the sync X11 API vs the portal's async session flow) + a QKeySequence→trigger
-    mapping, and true end-to-end behaviour against a real compositor's portal
-    (not headlessly automatable — its bind-confirmation UI needs a live session).
-    **[M-L]**
+12. **Wayland global hotkeys.** `gui/globalhotkeys.cpp` was entirely
+    `XGrabKey`/xcb; on Wayland it degraded to focus-only Qt shortcuts — dead
+    exactly when the game has focus. `gui/wayland_global_shortcuts.cpp` is a QtDBus
+    `xdg-desktop-portal` GlobalShortcuts client (CreateSession → BindShortcuts via
+    the async Request/Response pattern, plus the Activated signal). `test/
+    wayland_shortcuts_test.cpp` drives it against a mock portal implementing the
+    authoritative interface (run under `dbus-run-session` in CI): it validates the
+    message FORMAT against the real spec (`a{sv}` options, `a(sa{sv})` marshalling,
+    the `Activated` signature) plus the round-trip + signal decode. **Now wired:**
+    `GlobalHotkeyManager` detects the Wayland platform plugin, creates a portal
+    session, maps each `QKeySequence` to the portal's `CTRL+SHIFT+G` preferred-
+    trigger syntax (`keySequenceToPortalTrigger`, unit-tested), coalesces the
+    register/clear burst into a single batch `BindShortcuts`, and funnels the
+    portal's `activated(name)` back into the same `activated(int)` signal callers
+    already use — so `MainWindow` needs no Wayland-specific code and the X11 path
+    is unchanged. *Remaining:* true end-to-end behaviour against a real
+    compositor's portal (not headlessly automatable — its bind-confirmation UI
+    needs a live session). **[S]**
 13. **Native packaging.** ~~Flatpak~~ + AppStream + `.CT` MIME. **DONE (partly),
     with a correction:** a `.deb` + tarball are now produced via CPack (unsandboxed,
     apt-installable, and the release workflow attaches the `.deb`). **Flatpak was

@@ -47,6 +47,7 @@ struct Il2CppClassLayout {
     std::string image;
     std::string namespaceName;
     std::string name;
+    std::string parentName;   // base class fullName ("UnityEngine.Component"), or empty
     std::vector<Il2CppResolvedField> fields;
     std::vector<Il2CppResolvedMethod> methods;  // resolved by resolveIl2CppLayout
 

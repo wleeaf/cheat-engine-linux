@@ -60,6 +60,7 @@ struct TableLayout {
     size_t tdMethodStartOff;   // MethodIndex methodStart (int32)
     size_t tdMethodCountOff;   // uint16 method_count
     size_t tdTokenOff;         // uint32 token
+    size_t tdParentOff;        // TypeIndex parentIndex (base class type)
     size_t imageSize;          // sizeof(Il2CppImageDefinition)
     size_t imgNameOff;         // StringIndex nameIndex
     size_t imgTypeStartOff;    // TypeDefinitionIndex typeStart (int32)
@@ -82,6 +83,7 @@ constexpr TableLayout kLayoutByrefless{
     /*tdNameOff*/ 0x00, /*tdNamespaceOff*/ 0x04,
     /*tdFieldStartOff*/ 0x20, /*tdFieldCountOff*/ 0x44,
     /*tdMethodStartOff*/ 0x24, /*tdMethodCountOff*/ 0x40, /*tdTokenOff*/ 0x54,
+    /*tdParentOff*/ 0x10,
     /*imageSize*/ 0x28,
     /*imgNameOff*/ 0x00, /*imgTypeStartOff*/ 0x08, /*imgTypeCountOff*/ 0x0C};
 
@@ -176,6 +178,7 @@ bool decodeTables(const uint8_t* data, size_t size, Il2CppMetadata& md,
         t.name = stringAt(data, strOff, strSize, rdI32(rec + L->tdNameOff));
         t.namespaceName = stringAt(data, strOff, strSize, rdI32(rec + L->tdNamespaceOff));
         t.token = rdU32(rec + L->tdTokenOff);
+        t.parentTypeIndex = rdI32(rec + L->tdParentOff);   // base class (TypeIndex)
         const int32_t fieldStart = rdI32(rec + L->tdFieldStartOff);
         const uint16_t fieldCount = rdU16(rec + L->tdFieldCountOff);
         if (fieldStart >= 0 &&

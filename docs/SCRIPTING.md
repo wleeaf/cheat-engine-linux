@@ -35,7 +35,8 @@ addresses. Metadata versions **27-31** are supported.
 | `getIl2CppStructure(class)` | the class as a dissector `StructureDefinition` |
 
 `getIl2CppClassLayout` is the workhorse: one call resolves an entire class (or
-every class matching a substring) against the binary in a single pass.
+every class matching a substring) against the binary in a single pass. Each class
+also carries `parent` (its base class's full name, e.g. `UnityEngine.Component`).
 
 ```lua
 for _, c in ipairs(getIl2CppClassLayout("UnityEngine.Vector3")) do

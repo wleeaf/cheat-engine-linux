@@ -39,6 +39,7 @@ static ce::MonoDissection il2cppToMonoDissection(const ce::Il2CppBinaryLayout& l
         ce::MonoClassInfo cls;
         cls.namespaceName = c.namespaceName;
         cls.name = c.name;
+        cls.parentName = c.parentName;   // base class, for "Foo : Bar" display
         for (const auto& f : c.fields) {
             if (f.isConst) continue;
             ce::MonoField mf;
@@ -126,7 +127,10 @@ void MonoDissectorWindow::setDissection(const ce::MonoDissection& d) {
         imgItem->setData(0, kKindRole, "img");
         imgItem->setFirstColumnSpanned(true);
         for (const auto& c : img.classes) {
-            auto* clsItem = new QTreeWidgetItem(imgItem, {QString::fromStdString(c.fullName())});
+            QString clsLabel = QString::fromStdString(c.fullName());
+            if (!c.parentName.empty())
+                clsLabel += " : " + QString::fromStdString(c.parentName);
+            auto* clsItem = new QTreeWidgetItem(imgItem, {clsLabel});
             clsItem->setData(0, kKindRole, "cls");
             for (const auto& f : c.fields) {
                 QString name = QString::fromStdString(f.name) + (f.isStatic ? " (static)" : "");

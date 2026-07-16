@@ -29,6 +29,7 @@ struct MonoMethod {
 struct MonoClassInfo {
     std::string namespaceName;
     std::string name;
+    std::string parentName;   // base class fullName (IL2CPP path); empty if none
     std::vector<MonoField> fields;
     std::vector<MonoMethod> methods;   // IL2CPP path fills these; Mono agent leaves empty
     /// "Namespace.Name" (or just "Name" when the namespace is empty).

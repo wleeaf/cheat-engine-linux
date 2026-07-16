@@ -5342,6 +5342,16 @@ static void test_il2cpp_real_file() {
         printf("  every field resolves a managed type name (%zu fields, %zu empty): %s\n",
                totalF, emptyF, (totalF > 0 && emptyF == 0) ? "OK" : "FAILED");
 
+        // Base-class chain: Transform : Component : Object is the canonical Unity
+        // hierarchy, so it doubles as a check that parentIndex parses correctly.
+        auto parentOf = [&](const char* full) -> std::string {
+            for (const auto& c : layout.classes) if (c.fullName() == full) return c.parentName;
+            return "<missing>";
+        };
+        bool chainOk = parentOf("UnityEngine.Transform") == "UnityEngine.Component" &&
+                       parentOf("UnityEngine.Component") == "UnityEngine.Object";
+        printf("  base-class chain Transform:Component:Object: %s\n", chainOk ? "OK" : "FAILED");
+
         // Method resolution: a common BCL class should have methods that resolve
         // to non-zero code RVAs within the binary.
         auto methods = ce::resolveIl2CppMethods(*md, ga, "System.String");

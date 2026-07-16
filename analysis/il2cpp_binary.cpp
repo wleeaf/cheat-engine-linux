@@ -321,6 +321,18 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
         cl.image = imageNameForType(t);
         cl.namespaceName = mt.namespaceName;
         cl.name = mt.name;
+        // Base class: parentTypeIndex -> Il2CppType (CLASS) -> data.klassIndex ->
+        // metadata type name. Object/valuetype roots have no (useful) parent.
+        if (mt.parentTypeIndex >= 0) {
+            uint64_t pva = typeVAForIndex(mt.parentTypeIndex);
+            if (pva) {
+                if (auto d = img.readPtrVA(pva + 0x00)) {
+                    int32_t pk = static_cast<int32_t>(static_cast<uint32_t>(*d));
+                    if (pk >= 0 && static_cast<size_t>(pk) < md.types.size())
+                        cl.parentName = md.types[pk].fullName();
+                }
+            }
+        }
 
         // fieldOffsets[t] -> per-type int32 array (or 0 for generic defs).
         std::optional<uint64_t> entryVA = img.readPtrVA(fieldOffsetsVA + t * 8);

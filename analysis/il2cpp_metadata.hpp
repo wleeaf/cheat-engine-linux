@@ -58,6 +58,7 @@ struct Il2CppTypeDef {
     std::vector<Il2CppFieldDef> fields;
     std::vector<Il2CppMethodDef> methods;
     uint32_t    token = 0;
+    int32_t     parentTypeIndex = -1;   // TypeIndex of the base class, or -1/negative
 
     /// "Namespace.Name", or just "Name" when the namespace is empty.
     std::string fullName() const {

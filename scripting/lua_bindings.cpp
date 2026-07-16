@@ -2752,6 +2752,7 @@ static int l_getIl2CppClassLayout(lua_State* L) {
         lua_pushstring(L, c.namespaceName.c_str()); lua_setfield(L, -2, "namespace");
         lua_pushstring(L, c.name.c_str());          lua_setfield(L, -2, "name");
         lua_pushstring(L, full.c_str());            lua_setfield(L, -2, "fullName");
+        lua_pushstring(L, c.parentName.c_str());    lua_setfield(L, -2, "parent");   // base class
         lua_newtable(L);   // fields
         int fi = 1;
         for (const auto& f : c.fields) {

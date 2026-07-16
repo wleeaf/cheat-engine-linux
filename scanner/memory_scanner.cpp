@@ -1337,7 +1337,8 @@ size_t ScanConfig::groupedValueSize() const {
 
 // ── ScanResult ──
 
-ScanResult::ScanResult(const std::filesystem::path& dir) : dir_(dir) {
+ScanResult::ScanResult(const std::filesystem::path& dir, bool storeFirst)
+    : dir_(dir), storeFirst_(storeFirst) {
     auto addrPath = dir / "addresses.bin";
     auto valPath  = dir / "values.bin";
     auto firstValPath = dir / "first_values.bin";
@@ -1354,10 +1355,13 @@ ScanResult::ScanResult(const std::filesystem::path& dir) : dir_(dir) {
         std::filesystem::create_directories(dir);
         addrFd_ = open(addrPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
         valueFd_ = open(valPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        firstValueFd_ = open(firstValPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        // A first scan (storeFirst == false) has firstValue == value, so it does
+        // not write first_values.bin at all; firstValue(i) falls back to value(i).
+        firstValueFd_ = storeFirst_
+            ? open(firstValPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644) : -1;
         addrBuf_.reserve(8192);
         valueBuf_.reserve(8192 * 8);
-        firstValueBuf_.reserve(8192 * 8);
+        if (storeFirst_) firstValueBuf_.reserve(8192 * 8);
     }
 }
 
@@ -1436,9 +1440,11 @@ void ScanResult::addResult(uintptr_t addr, const void* value, const void* firstV
     // new region and then overwrite it, a wasted write per matched byte, which
     // adds up for dense scans emitting millions of results.
     const auto* v  = static_cast<const uint8_t*>(value);
-    const auto* fv = static_cast<const uint8_t*>(firstValue);
     valueBuf_.insert(valueBuf_.end(), v, v + valueSize);
-    firstValueBuf_.insert(firstValueBuf_.end(), fv, fv + valueSize);
+    if (storeFirst_) {
+        const auto* fv = static_cast<const uint8_t*>(firstValue);
+        firstValueBuf_.insert(firstValueBuf_.end(), fv, fv + valueSize);
+    }
     valueSize_ = valueSize;
     ++count_;
 
@@ -1831,7 +1837,7 @@ ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& confi
 
     size_t totalMem = 0;
     for (auto& r : scanRegions) totalMem += r.size;
-    if (totalMem == 0) { ScanResult empty(resultDir / "results"); empty.finalize(); return empty; }
+    if (totalMem == 0) { ScanResult empty(resultDir / "results", false); empty.finalize(); return empty; }
 
     // Scan dispatch lambda (reused by each thread). `customEval` is a
     // per-thread evaluator for ValueType::Custom (null for other types).
@@ -1990,7 +1996,7 @@ ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& confi
     // Drives the thread partition and the progress denominator below.
     totalMem = 0;
     for (const auto& c : chunks) totalMem += c.owned;
-    if (totalMem == 0) { ScanResult empty(resultDir / "results"); empty.finalize(); return empty; }
+    if (totalMem == 0) { ScanResult empty(resultDir / "results", false); empty.finalize(); return empty; }
 
     // Only fan out across cores when the handle tolerates concurrent reads
     // (process_vm_readv does; a socket-backed ceserver handle does not).
@@ -2019,7 +2025,9 @@ ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& confi
     std::vector<ScanResult> threadResults;
     threadResults.reserve(nThreads);
     for (int t = 0; t < nThreads; ++t)
-        threadResults.emplace_back(resultDir / ("t" + std::to_string(t)));
+        // storeFirst=false: a first scan's firstValue equals its value, so the
+        // duplicate first_values stream is skipped (readers fall back to values).
+        threadResults.emplace_back(resultDir / ("t" + std::to_string(t)), false);
 
     std::atomic<size_t> scannedBytes{0};
     std::vector<std::thread> threads;

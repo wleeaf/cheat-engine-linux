@@ -50,6 +50,12 @@ alignment, comparator, and both scan phases, and clean under ASan/UBSan).
   value can't straddle a page (aligned scans), and only for anonymous mappings
   (a file-backed page still holds file data). Falls back to a full read if
   pagemap is unavailable. Override with `CE_SCAN_PAGEMAP=off`.
+- **First scan stores its value stream once.** On a first scan every match's
+  "first value" equals its current value, yet both streams were written to disk,
+  duplicating a third of the output for a 4-byte type. The first scan now skips
+  the `first_values` stream and reads fall back to `values` (a later next scan
+  writes distinct first-values as before). About 25% less first-scan output; a
+  dense 16.7M-result first scan drops ~0.099s to ~0.074s.
 - **No result-merge copy.** A scan wrote each worker's matches to its own file
   and then concatenated them into one merged file, so every result byte was
   written twice and read once more. The result now references the worker files

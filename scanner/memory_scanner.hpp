@@ -81,7 +81,12 @@ struct ScanConfig {
 class ScanResult {
 public:
     ScanResult() = default;
-    explicit ScanResult(const std::filesystem::path& dir);
+    /// `storeFirst` controls whether a separate first-scan-value stream is
+    /// written. A first scan has firstValue == value for every match, so it
+    /// passes false and skips the duplicate stream (a third of the output for a
+    /// 4-byte type); firstValue(i) then transparently falls back to value(i). A
+    /// next scan keeps them distinct and passes true.
+    explicit ScanResult(const std::filesystem::path& dir, bool storeFirst = true);
 
     size_t count() const { return count_; }
     /// Byte stride of each persisted value record (0 if empty).
@@ -139,6 +144,7 @@ private:
     size_t valueSize_ = 0;
 
     bool writeError_ = false;   // a backing-file write was short/failed
+    bool storeFirst_ = true;    // write a separate first_values stream
     // Write buffers
     std::vector<uintptr_t> addrBuf_;
     std::vector<uint8_t> valueBuf_;

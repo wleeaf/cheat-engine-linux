@@ -572,6 +572,33 @@ bool tryScanExactFloat(const uint8_t* buf, size_t bufSize, uintptr_t base,
     return true;
 }
 
+// Find every position in [startPos, endPos) where buf[p] == anchor, calling
+// verify(p) for each. A byte-pattern scan (AOB, string) is compute-bound — it
+// checks every unaligned offset — so rejecting non-anchor positions 16 at a time
+// (SSE2, the x86_64 baseline; CE_SCAN_SIMD=off forces scalar) is a large win; the
+// caller only pays the full compare at the few positions matching one chosen byte.
+template<typename Verify>
+inline void anchorScan(const uint8_t* buf, size_t startPos, size_t endPos,
+                       uint8_t anchor, Verify verify) {
+    size_t p = startPos;
+#if defined(__x86_64__)
+    if (simdMode() != SimdMode::Scalar) {
+        __m128i a = _mm_set1_epi8(static_cast<char>(anchor));
+        for (; p + 16 <= endPos; p += 16) {
+            __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i*>(buf + p));
+            unsigned m = static_cast<unsigned>(_mm_movemask_epi8(_mm_cmpeq_epi8(v, a)));
+            while (m) {
+                unsigned b = static_cast<unsigned>(__builtin_ctz(m));
+                verify(p + b);
+                m &= m - 1;
+            }
+        }
+    }
+#endif
+    for (; p < endPos; ++p)
+        if (buf[p] == anchor) verify(p);
+}
+
 /// Scan buffer for a string (exact substring match).
 void scanBufferString(const uint8_t* buf, size_t bufSize, uintptr_t baseAddr,
                       const std::vector<uint8_t>& needle, ScanResult& result,
@@ -581,11 +608,18 @@ void scanBufferString(const uint8_t* buf, size_t bufSize, uintptr_t baseAddr,
     size_t nLen = needle.size();
     size_t limit = bufSize - nLen + 1;
 
+    if (!caseInsensitive) {
+        // Anchor on the first byte, verify the rest only at candidate positions.
+        anchorScan(buf, 0, limit, needle[0], [&](size_t offset) {
+            if (std::memcmp(buf + offset, needle.data(), nLen) == 0)
+                result.addResult(baseAddr + offset, buf + offset, nLen);
+        });
+        return;
+    }
+
     for (size_t offset = 0; offset < limit; ++offset) {
         bool match;
-        if (!caseInsensitive) {
-            match = std::memcmp(buf + offset, needle.data(), nLen) == 0;
-        } else {
+        {
             // ASCII case fold per byte (handles UTF-8/ASCII; multibyte letters
             // outside ASCII compare exactly, as CE's case-insensitive does).
             match = true;
@@ -641,19 +675,30 @@ void scanBufferAOB(const uint8_t* buf, size_t bufSize, uintptr_t baseAddr,
     size_t pLen = pattern.size();
     size_t limit = bufSize - pLen + 1;
 
-    for (size_t offset = 0; offset < limit; ++offset) {
-        bool match = true;
-        for (size_t j = 0; j < pLen; ++j) {
+    auto verifyAt = [&](size_t offset) {
+        for (size_t j = 0; j < pLen; ++j)
             // Per-byte AND-mask (full 0xFF, wildcard 0x00, nibble 0xF0/0x0F).
-            if ((buf[offset + j] & mask[j]) != (pattern[j] & mask[j])) {
-                match = false;
-                break;
-            }
-        }
-        if (match) {
-            result.addResult(baseAddr + offset, buf + offset, pLen);
-        }
+            if ((buf[offset + j] & mask[j]) != (pattern[j] & mask[j])) return;
+        result.addResult(baseAddr + offset, buf + offset, pLen);
+    };
+
+    // Anchor the SIMD search on the pattern's first full-byte (0xFF-mask) byte,
+    // so a candidate is where that exact byte appears; verify the rest only
+    // there. A pattern that is all wildcards/nibbles has no full byte to anchor
+    // on, so it falls back to checking every offset.
+    size_t anchorIdx = pLen;
+    for (size_t j = 0; j < pLen; ++j)
+        if (mask[j] == 0xFF) { anchorIdx = j; break; }
+
+    if (anchorIdx == pLen) {
+        for (size_t offset = 0; offset < limit; ++offset) verifyAt(offset);
+        return;
     }
+    // A hit for pattern[anchorIdx] at buf position p means the pattern starts at
+    // p - anchorIdx. Valid starts are [0, limit), so anchor positions are
+    // [anchorIdx, limit + anchorIdx) (<= bufSize).
+    anchorScan(buf, anchorIdx, limit + anchorIdx, pattern[anchorIdx],
+               [&](size_t p) { verifyAt(p - anchorIdx); });
 }
 
 /// Scan buffer for binary pattern with bitmask wildcards.

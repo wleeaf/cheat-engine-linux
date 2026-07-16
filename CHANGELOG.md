@@ -42,6 +42,13 @@ alignment, comparator, and both scan phases, and clean under ASan/UBSan).
   compare. Float equality uses an ordered SIMD compare that matches C++ exactly
   (NaN never matches, -0.0 equals 0.0); rounded/tolerant searches keep the
   scalar path. Set `CE_SCAN_SIMD=off|sse2|avx2` to override for testing.
+- **SIMD array-of-bytes and string scans (~2x).** An AOB/string scan checks
+  every unaligned offset, so it was compute-bound. It now anchors on one fixed
+  pattern byte and uses an SSE2 byte search to reject 16 non-matching offsets at
+  a time, verifying the full pattern only at candidates (a 6-byte AOB over 1 GiB
+  went 3.5 to 7.9 GB/s). Handles wildcard/nibble masks (anchors on the first
+  full byte; an all-wildcard pattern falls back to scalar) and leading
+  wildcards; case-insensitive string search stays scalar.
 - **Next scan is batched and multi-threaded.** Re-reading previous results used
   one `process_vm_readv` syscall per address on a single thread; it now reads up
   to 1024 addresses per syscall (scatter read) and fans big result sets across

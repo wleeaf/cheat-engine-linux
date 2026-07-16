@@ -692,15 +692,16 @@ static std::string autoLocateGameAssembly(const std::string& metaPath) {
 static int cmd_il2cpp(int argc, char** argv) {
     if (argc < 2) {
         fprintf(stderr, "usage: cescan il2cpp <global-metadata.dat> [--class <substr>] "
-                        "[--fields] [--binary <GameAssembly>]\n");
+                        "[--fields] [--methods] [--binary <GameAssembly>]\n");
         return 1;
     }
     const char* path = argv[1];
     std::string filter, binaryPath;
-    bool showFields = false;
+    bool showFields = false, showMethods = false;
     for (int i = 2; i < argc; ++i) {
         if (!strcmp(argv[i], "--class") && i + 1 < argc) filter = argv[++i];
         else if (!strcmp(argv[i], "--fields")) showFields = true;
+        else if (!strcmp(argv[i], "--methods")) showMethods = true;
         else if (!strcmp(argv[i], "--binary") && i + 1 < argc) binaryPath = argv[++i];
     }
 
@@ -765,6 +766,15 @@ static int cmd_il2cpp(int argc, char** argv) {
                     printf("      %s\n", t.fields[fi].name.c_str());
                 }
             }
+        }
+        // Methods (resolved from the binary). Only when a class filter is set, to
+        // avoid re-reading the binary for every class in an unfiltered dump.
+        if (showMethods && !binaryPath.empty() && !filter.empty()) {
+            auto methods = ce::resolveIl2CppMethods(*md, binaryPath, full);
+            for (const auto& m : methods)
+                printf("      method +0x%-8lx %s\n", (unsigned long)m.rva, m.name.c_str());
+            if (methods.empty())
+                printf("      (no methods with a compiled body)\n");
         }
         ++printed;
     }

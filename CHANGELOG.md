@@ -45,7 +45,14 @@ alignment, comparator, and both scan phases, and clean under ASan/UBSan).
 - **Next scan is batched and multi-threaded.** Re-reading previous results used
   one `process_vm_readv` syscall per address on a single thread; it now reads up
   to 1024 addresses per syscall (scatter read) and fans big result sets across
-  cores. Around 8x faster on a large result set (and it degrades gracefully:
+  cores.
+- **Coalesced next-scan reads (~14x on contiguous results).** Even batched, the
+  scatter read described each address as its own tiny iovec, so a dense result
+  (consecutive matched values, e.g. after an unknown-value scan, or an array
+  field) cost the kernel millions of size-byte copies. Back-to-back addresses
+  are now merged into one large iovec per run, so the kernel does one big copy
+  instead. A 16.7M-result contiguous next scan dropped ~1.7s to ~0.12s;
+  scattered results are unaffected. Around 8x faster on a large result set (and it degrades gracefully:
   handles that cannot be read concurrently, e.g. a socket-backed ceserver
   handle, stay single-threaded, which also fixes a latent first-scan data race
   on those handles).

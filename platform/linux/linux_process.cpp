@@ -125,14 +125,29 @@ void LinuxProcessHandle::readMany(const uintptr_t* addrs, size_t count, size_t s
 
     size_t i = 0;
     while (i < count) {
-        size_t batch = std::min(kMaxIov, count - i);
+        // Coalesce back-to-back addresses (addrs[k+1] == addrs[k] + size) into
+        // one iovec: consecutive matched values (a dense scan, an array field)
+        // are contiguous in the target, so the kernel does one large copy per
+        // run instead of thousands of size-byte copies. The local buffer stays
+        // packed one value per slot, so a run maps to one contiguous local
+        // iovec too, and the fault accounting below (full = n / size) is
+        // unchanged. Build up to kMaxIov runs per syscall.
         local.clear();
         remote.clear();
-        for (size_t j = 0; j < batch; ++j) {
-            local.push_back({ out + (i + j) * size, size });
-            remote.push_back({ reinterpret_cast<void*>(addrs[i + j]), size });
+        size_t end = i;
+        while (end < count && local.size() < kMaxIov) {
+            size_t runStart = end;
+            uintptr_t base = addrs[end];
+            ++end;
+            while (end < count && addrs[end] == addrs[end - 1] + size) ++end;
+            size_t runBytes = (end - runStart) * size;
+            local.push_back({ out + runStart * size, runBytes });
+            remote.push_back({ reinterpret_cast<void*>(base), runBytes });
         }
-        ssize_t n = process_vm_readv(pid_, local.data(), batch, remote.data(), batch, 0);
+        size_t batch = end - i; // addresses covered by this syscall
+
+        ssize_t n = process_vm_readv(pid_, local.data(), local.size(),
+                                     remote.data(), remote.size(), 0);
         if (n < 0) {
             // The leading entry faulted before any transfer (or the process is
             // gone). Mark it unreadable and advance; the next iteration retries

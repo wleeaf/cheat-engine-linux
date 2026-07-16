@@ -16,8 +16,11 @@ public:
     bool is64bit() const override { return is64bit_; }
     bool runs32BitCode() override;
 
+    bool supportsConcurrentReads() const override { return true; }
     Result<size_t> read(uintptr_t address, void* buffer, size_t size) override;
     Result<size_t> write(uintptr_t address, const void* buffer, size_t size) override;
+    void readMany(const uintptr_t* addrs, size_t count, size_t size,
+                  uint8_t* out, uint8_t* ok) override;
 
     std::vector<MemoryRegion> queryRegions() override;
     std::optional<MemoryRegion> queryRegion(uintptr_t address) override;

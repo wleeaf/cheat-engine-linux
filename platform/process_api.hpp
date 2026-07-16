@@ -32,6 +32,29 @@ public:
     virtual Result<size_t> read(uintptr_t address, void* buffer, size_t size) = 0;
     virtual Result<size_t> write(uintptr_t address, const void* buffer, size_t size) = 0;
 
+    // Whether read()/readMany() may be called concurrently from multiple
+    // threads on this handle. The scanner fans a scan out across cores only when
+    // this is true. Default false is conservative: a socket-backed handle
+    // (ceserver) multiplexes one connection and would corrupt its wire protocol
+    // under concurrent calls. LinuxProcessHandle overrides it: process_vm_readv
+    // is a stateless syscall and is safe to issue from any number of threads.
+    virtual bool supportsConcurrentReads() const { return false; }
+
+    // Batched scatter-read: for each i in [0,count), read `size` bytes from
+    // addrs[i] into out + i*size, setting ok[i] to 1 iff all `size` bytes were
+    // transferred (else 0). This is the hot path for a "next scan" that must
+    // re-read millions of previously-matched addresses. The default loops
+    // read() (one syscall per address); LinuxProcessHandle overrides it with a
+    // single process_vm_readv carrying up to IOV_MAX iovecs, collapsing ~1000
+    // reads into one syscall. `out` must hold count*size bytes; `ok` count.
+    virtual void readMany(const uintptr_t* addrs, size_t count, size_t size,
+                          uint8_t* out, uint8_t* ok) {
+        for (size_t i = 0; i < count; ++i) {
+            auto r = read(addrs[i], out + i * size, size);
+            ok[i] = (r && *r == size) ? 1 : 0;
+        }
+    }
+
     // ── Memory info ──
     virtual std::vector<MemoryRegion> queryRegions() = 0;
     virtual std::optional<MemoryRegion> queryRegion(uintptr_t address) = 0;

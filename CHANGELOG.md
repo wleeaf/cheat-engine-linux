@@ -13,6 +13,34 @@ reimplementation of Cheat Engine).
 
 ---
 
+## Unreleased
+
+### Performance
+
+Heavy optimization of the memory scanner (finding values), with no change to
+results (verified against a brute-force reference across every value width,
+alignment, comparator, and both scan phases, and clean under ASan/UBSan).
+
+- **First scan now uses every core on a single big region.** Work was split
+  per memory region, so a process dominated by one large heap/mapping (common in
+  games) scanned on a single thread. Scanning is now split into fixed-size
+  chunks handed to threads as contiguous, address-ordered runs, so one big
+  region saturates all cores while the merged result stays sorted. Roughly 5x
+  faster on a one-region scan on a 12-thread machine.
+- **SIMD exact-value scan.** The hot path (an exact integer over an aligned
+  buffer) is vectorized with a runtime-selected AVX2 path and an SSE2 baseline
+  (scalar elsewhere), replacing a per-element function-pointer compare. Set
+  `CE_SCAN_SIMD=off|sse2|avx2` to override the choice for testing/benchmarking.
+- **Next scan is batched and multi-threaded.** Re-reading previous results used
+  one `process_vm_readv` syscall per address on a single thread; it now reads up
+  to 1024 addresses per syscall (scatter read) and fans big result sets across
+  cores. Around 8x faster on a large result set (and it degrades gracefully:
+  handles that cannot be read concurrently, e.g. a socket-backed ceserver
+  handle, stay single-threaded, which also fixes a latent first-scan data race
+  on those handles).
+- Smaller wins: results are appended without a redundant zero-fill, and the
+  first-scan and next-scan result-merge share one implementation.
+
 ## v0.5.0 — Mono/Unity dissector, diagnostics, Lua table compatibility, debugger polish (2026-07-14)
 
 Feature release. The headline is a native **Mono/Unity dissector** (the biggest

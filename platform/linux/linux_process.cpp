@@ -109,6 +109,53 @@ Result<size_t> LinuxProcessHandle::read(uintptr_t address, void* buffer, size_t 
     return static_cast<size_t>(n);
 }
 
+void LinuxProcessHandle::readMany(const uintptr_t* addrs, size_t count, size_t size,
+                                  uint8_t* out, uint8_t* ok) {
+    if (size == 0) { std::memset(ok, 0, count); return; }
+    // process_vm_readv processes the iovec arrays in order and stops at the
+    // first remote page fault, returning the bytes transferred so far. Batching
+    // up to IOV_MAX addresses into one syscall turns a per-address scan (one
+    // syscall each) into ~one syscall per 1024 addresses. On a fault we mark the
+    // offending entry unreadable and re-batch the untouched remainder, so a
+    // single bad address never poisons the rest of the batch.
+    constexpr size_t kMaxIov = 1024; // <= IOV_MAX (1024 on Linux)
+    std::vector<struct iovec> local, remote;
+    local.reserve(kMaxIov);
+    remote.reserve(kMaxIov);
+
+    size_t i = 0;
+    while (i < count) {
+        size_t batch = std::min(kMaxIov, count - i);
+        local.clear();
+        remote.clear();
+        for (size_t j = 0; j < batch; ++j) {
+            local.push_back({ out + (i + j) * size, size });
+            remote.push_back({ reinterpret_cast<void*>(addrs[i + j]), size });
+        }
+        ssize_t n = process_vm_readv(pid_, local.data(), batch, remote.data(), batch, 0);
+        if (n < 0) {
+            // The leading entry faulted before any transfer (or the process is
+            // gone). Mark it unreadable and advance; the next iteration retries
+            // the rest. Terminal errors (ESRCH) degrade to one failing syscall
+            // per remaining entry, but correctness holds.
+            ok[i] = 0;
+            ++i;
+            continue;
+        }
+        size_t full = static_cast<size_t>(n) / size; // fully-transferred leading entries
+        if (full > batch) full = batch;
+        std::memset(ok + i, 1, full);
+        i += full;
+        if (full < batch) {
+            // The entry at `i` faulted (partial or zero transfer); the syscall
+            // stopped there, so entries after it were not attempted. Skip it and
+            // re-batch from i+1.
+            ok[i] = 0;
+            ++i;
+        }
+    }
+}
+
 Result<size_t> LinuxProcessHandle::write(uintptr_t address, const void* buffer, size_t size) {
     struct iovec local  = { const_cast<void*>(buffer), size };
     struct iovec remote = { (void*)address,            size };

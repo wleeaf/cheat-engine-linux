@@ -1050,6 +1050,41 @@ static void test_code_analysis_references() {
     printf("  Code caves: %s\n", cavesOk ? "OK" : "FAILED");
 }
 
+// Static "find what references this address": a module with a rip-relative load
+// and a call, both targeting the same data address. findReferencesTo must return
+// both referencing instructions (no runtime execution).
+static void test_find_references_static() {
+    printf("\n── Test: static find-references ──\n");
+    const uintptr_t base = 0x400000, target = base + 0x800;
+    std::vector<uint8_t> code(0x1000, 0x90);   // nop sled
+    // @0x100: mov rax,[rip+disp] -> target. len 7; disp = target-(base+0x100+7).
+    uint32_t disp = (uint32_t)(target - (base + 0x100 + 7));
+    uint8_t rip[7] = {0x48, 0x8B, 0x05,
+                      (uint8_t)disp, (uint8_t)(disp >> 8), (uint8_t)(disp >> 16), (uint8_t)(disp >> 24)};
+    std::memcpy(code.data() + 0x100, rip, 7);
+    // @0x200: call rel32 -> target. len 5; rel = target-(base+0x200+5).
+    uint32_t rel = (uint32_t)(target - (base + 0x200 + 5));
+    uint8_t call[5] = {0xE8, (uint8_t)rel, (uint8_t)(rel >> 8), (uint8_t)(rel >> 16), (uint8_t)(rel >> 24)};
+    std::memcpy(code.data() + 0x200, call, 5);
+
+    FakeProcessHandle proc({
+        {{base, code.size(), MemProt::ReadExec, MemType::Image, MemState::Committed, "/tmp/game"}, code},
+    }, {
+        {base, code.size(), "game", "/tmp/game", true},
+    });
+
+    ce::CodeAnalyzer an;
+    ce::ModuleInfo mod{base, code.size(), "game", "/tmp/game", true};
+    auto refs = an.findReferencesTo(proc, mod, target);
+    bool hasRip = false, hasCall = false;
+    for (const auto& r : refs) {
+        if (r.address == base + 0x100) hasRip = true;
+        if (r.address == base + 0x200) hasCall = true;
+    }
+    printf("  finds rip-relative + call references to a data address: %s (%zu refs)\n",
+           (hasRip && hasCall) ? "OK" : "FAILED", refs.size());
+}
+
 // Decoding an instruction's memory operand + resolving the address it accesses
 // from register state (the primitive behind "find what addresses this
 // instruction accesses" and richer disassembly display).
@@ -9214,6 +9249,7 @@ int main(int argc, char* argv[]) {
     test_ct_forms_roundtrip();
     test_trainer_generation();
     test_code_analysis_references();
+    test_find_references_static();
     test_disassembler_multiarch();
     test_effective_address();
     test_cpp_symbol_demangling();

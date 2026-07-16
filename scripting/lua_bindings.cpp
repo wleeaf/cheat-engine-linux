@@ -3182,6 +3182,61 @@ static int l_findStatics(lua_State* L) {
     return 1;
 }
 
+static const char* refTypeName(ce::RefType t) {
+    switch (t) {
+        case ce::RefType::Call:            return "call";
+        case ce::RefType::Jump:            return "jump";
+        case ce::RefType::String:          return "string";
+        case ce::RefType::Function:        return "function";
+        case ce::RefType::RipRelative:     return "riprel";
+        case ce::RefType::AssemblyPattern: return "pattern";
+    }
+    return "?";
+}
+
+// findReferences(target [, moduleName]) -> { {address, target, type, text}, ... }
+// Static "find what references this address": disassembles a module and lists
+// every call/jump/rip-relative instruction whose target is `target`. Unlike
+// findWhatAccesses (which watches at runtime), this finds ALL references without
+// executing. Defaults to the module containing `target`; pass a module name to
+// scan a different one.
+static int l_findReferences(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process"); return 2; }
+    uintptr_t target = (uintptr_t)luaL_checkinteger(L, 1);
+    std::string modName = (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) ? luaL_checkstring(L, 2) : "";
+
+    auto modules = p->modules();
+    const ce::ModuleInfo* mod = nullptr;
+    for (const auto& m : modules) {
+        if (!modName.empty()) { if (m.name == modName) { mod = &m; break; } }
+        else if (target >= m.base && target < m.base + m.size) { mod = &m; break; }
+    }
+
+    ce::CodeAnalyzer an;
+    std::vector<ce::CodeRef> refs;
+    if (mod) {
+        refs = an.findReferencesTo(*p, *mod, target);
+    } else {
+        for (const auto& m : modules) {
+            auto r = an.findReferencesTo(*p, m, target);
+            refs.insert(refs.end(), r.begin(), r.end());
+        }
+    }
+
+    lua_newtable(L);
+    int i = 1;
+    for (const auto& r : refs) {
+        lua_newtable(L);
+        lua_pushinteger(L, (lua_Integer)r.address); lua_setfield(L, -2, "address");
+        lua_pushinteger(L, (lua_Integer)r.target);  lua_setfield(L, -2, "target");
+        lua_pushstring(L, refTypeName(r.type));     lua_setfield(L, -2, "type");
+        lua_pushstring(L, r.text.c_str());          lua_setfield(L, -2, "text");
+        lua_rawseti(L, -2, i++);
+    }
+    return 1;
+}
+
 // ── Branch mapper (hardware LBR via perf_event_open) ──
 // branchMapAvailable() -> bool (Intel LBR + perf_event_paranoid<=1)
 static int l_branchMapAvailable(lua_State* L) {
@@ -4418,6 +4473,7 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "dissectStructure", l_dissectStructure);
     lua_register(L, "findWhatWrites", l_findWhatWrites);
     lua_register(L, "findWhatAccesses", l_findWhatAccesses);
+    lua_register(L, "findReferences", l_findReferences);
     lua_register(L, "breakAndTrace", l_breakAndTrace);
     lua_register(L, "findStatics", l_findStatics);
     lua_register(L, "branchMap", l_branchMap);

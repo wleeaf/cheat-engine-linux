@@ -12,16 +12,22 @@ A native Linux memory scanner, debugger, disassembler, and trainer toolkit, a fr
 
 ## Performance
 
-**The fastest memory scanner on Linux.** In a same-machine, same-target benchmark, its first scan beats **Cheat Engine 7.7** (the official native Linux build) by ~2x and **scanmem / GameConqueror / PINCE** by 30-40x, and by much more on some scans: **up to ~13x faster than Cheat Engine 7.7, and up to ~145x faster than scanmem / GameConqueror.**\*
+**The fastest memory scanner on Linux, bar none.** It sweeps a **gigabyte of a running process for a value in 85 milliseconds** (~12 GB/s), faster than you can blink. Same machine, same target, same value, it leaves every other tool behind:
 
-| First scan, 1 GB, exact int32 | Time | Throughput |
+- **~2x faster than Cheat Engine 7.7** (the official native Linux build), up to **~13x** on float and pattern scans
+- **30 to 40x faster than scanmem / GameConqueror / PINCE**, up to **~145x** on reserved memory
+- **~8x faster than gdb**, **~1000x faster than radare2**
+
+| First scan, 1 GB, exact int32 | Time | Speed |
 |---|---:|---:|
 | **This project** | **0.085 s** | **~12 GB/s** |
 | Cheat Engine 7.7 (native Linux) | 0.156 s | ~6.6 GB/s |
 | gdb `find` | 0.749 s | ~1.4 GB/s |
 | scanmem 0.17 / GameConqueror / PINCE | 2.924 s | ~0.34 GB/s |
 
-\* "Up to" are best cases (rounded-float and byte-pattern scans vs Cheat Engine; reserved/untouched memory vs scanmem); the typical first-scan lead over CE 7.7 is ~2x. One machine (Intel i5-10500H, 12 threads); Cheat Engine timed excluding its GUI startup (in its favor); GameConqueror and PINCE use scanmem's engine. Full per-size and per-value-type numbers, methodology, and reproduction steps: **[BENCHMARK.md](BENCHMARK.md)**.
+No benchmark tricks, just a better engine: cache-blocked reads, every core on one region, resident-page skipping, and SIMD where it counts. **[See the full head-to-head, and reproduce it yourself →](BENCHMARK.md)**
+
+\* "Up to" figures are best cases (rounded-float and byte-pattern scans vs Cheat Engine; reserved/untouched memory vs scanmem); the typical first-scan lead over CE 7.7 is ~2x. One machine (Intel i5-10500H, 12 threads); Cheat Engine timed excluding its GUI startup (in its favor); GameConqueror and PINCE use scanmem's engine.
 
 ---
 

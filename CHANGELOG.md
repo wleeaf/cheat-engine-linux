@@ -13,7 +13,17 @@ reimplementation of Cheat Engine).
 
 ---
 
-## Unreleased
+## v0.6.0: scanner performance overhaul (2026-07-16)
+
+Performance release. The value scanner (first scan and next scan) was rebuilt
+around the memory pipeline: cache-blocked reads, all cores on one region,
+resident-page skipping, SIMD numeric and byte-pattern compares, and coalesced
+next-scan reads. Results are unchanged, verified against a brute-force reference
+and clean under ASan/UBSan. In a same-machine head-to-head it is now the fastest
+scanner on Linux: a first scan is about 2x faster than Cheat Engine 7.7 and 30 to
+40x faster than scanmem / GameConqueror / PINCE, with larger margins on some
+scans. A new [BENCHMARK.md](BENCHMARK.md) documents the full comparison and how
+to reproduce it.
 
 ### Performance
 

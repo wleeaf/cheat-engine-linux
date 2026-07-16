@@ -2,7 +2,7 @@
 
 A native Linux memory scanner, debugger, disassembler, and trainer toolkit, a from-scratch C++20/Qt6 reimplementation of [Cheat Engine](https://github.com/cheat-engine/cheat-engine). It talks to the kernel directly (`process_vm_readv`/`writev`, `ptrace`, `/proc`, an optional kernel helper) instead of running the Windows build under Wine, and it reads and writes Cheat Engine's `.CT` tables so you can bring your existing ones.
 
-> ⚠️ **Early and immature.** This is a young project (v0.5.0) under active development. Expect bugs, rough edges, and missing pieces, it does not match Cheat Engine's breadth or maturity yet. Keep backups, use it only on software you're allowed to analyze, and please [report issues](../../issues); they're what drive it forward.
+> ⚠️ **Early and immature.** This is a young project (v0.6.0) under active development. Expect bugs, rough edges, and missing pieces, it does not match Cheat Engine's breadth or maturity yet. Keep backups, use it only on software you're allowed to analyze, and please [report issues](../../issues); they're what drive it forward.
 
 > **Scope.** Built for single-player games, reverse engineering, and learning. It is *not* designed to defeat multiplayer anti-cheat (EAC, BattlEye, Vanguard, and similar), which run kernel components and will detect this class of tool. Use responsibly.
 

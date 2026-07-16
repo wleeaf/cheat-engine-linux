@@ -138,7 +138,17 @@ for _, r in ipairs(findReferences(funcAddr)) do
 end
 ```
 
-See [`examples/reverse_engineer.lua`](../examples/reverse_engineer.lua).
+See [`examples/reverse_engineer.lua`](../examples/reverse_engineer.lua). The same
+toolkit is on the CLI without writing Lua:
+
+```sh
+cescan analyze <pid> strings              # referenced string literals
+cescan analyze <pid> statics              # hot global addresses
+cescan analyze <pid> functions            # function entry points
+cescan analyze <pid> xrefs 0x<addr>       # what references an address
+cescan analyze <pid> asm "call rax"       # every match of an assembled instruction
+cescan analyze <pid> caves 64 --module GameAssembly.dll
+```
 
 ---
 

@@ -76,6 +76,9 @@ cescan read <pid> <addr> [size]      Hex dump memory
 cescan write <pid> <addr> <val>      Write a typed value
 cescan disasm <pid> <addr> [count]   Disassemble instructions
 cescan modules|regions <pid>         List loaded modules / memory regions
+cescan signature <pid> <addr> [max]  Generate a unique AOB signature
+cescan analyze <pid> <what>          Static RE: strings|statics|caves|functions|xrefs|asm
+cescan il2cpp <global-metadata.dat>  Browse Unity IL2CPP metadata (offline)
 cescan lua <script.lua>|-e <code>    Run Lua (same API as the GUI console)
 ```
 

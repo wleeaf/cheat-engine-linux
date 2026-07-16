@@ -16,6 +16,7 @@
 #include "analysis/il2cpp_metadata.hpp"
 #include "analysis/il2cpp_binary.hpp"
 #include "analysis/signature.hpp"
+#include "analysis/code_analysis.hpp"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -27,6 +28,7 @@
 #include <cerrno>
 #include <climits>
 #include <string>
+#include <vector>
 #include <algorithm>
 #include <getopt.h>
 #include <unistd.h>
@@ -54,6 +56,8 @@ static void usage() {
         "  lua                           Interactive Lua REPL\n"
         "  il2cpp <global-metadata.dat>  Browse a Unity IL2CPP metadata file's classes/fields (offline)\n"
         "  signature <pid> <addr> [max]  Generate a unique AOB signature for a code address\n"
+        "  analyze <pid> <what> [...]    Static RE toolkit: strings, statics, caves [min],\n"
+        "                                functions, xrefs <addr>, asm \"<insn>\"  [--module <name>]\n"
         "\n"
         "Scan options:\n"
         "  --type <type>     byte, i16, i32, i64, pointer, float, double, string, unicode, aob, binary, all, grouped, custom (default: i32)\n"
@@ -798,6 +802,68 @@ static int cmd_signature(pid_t pid, uintptr_t addr, size_t maxBytes) {
     return 0;
 }
 
+// cescan analyze <pid> <what> [args] [--module <name>]
+// Surfaces the static reverse-engineering toolkit (the same cecore functions the
+// GUI and Lua use) from the shell. `what` is one of: strings, statics, caves
+// [minSize], functions, xrefs <addr>, asm "<instruction>".
+static int cmd_analyze(pid_t pid, int argc, char** argv) {
+    if (argc < 1) {
+        fprintf(stderr, "usage: cescan analyze <pid> <strings|statics|caves|functions|"
+                        "xrefs <addr>|asm \"<insn>\"> [--module <name>]\n");
+        return 1;
+    }
+    const char* what = argv[0];
+
+    // Pull an optional --module <name> out of the tail; the rest are positionals.
+    std::string modName;
+    std::vector<const char*> pos;
+    for (int i = 1; i < argc; ++i) {
+        if (!strcmp(argv[i], "--module") && i + 1 < argc) modName = argv[++i];
+        else pos.push_back(argv[i]);
+    }
+
+    LinuxProcessHandle proc(pid);
+    auto mods = proc.modules();
+    if (mods.empty()) { fprintf(stderr, "cescan analyze: no modules for pid %d\n", pid); return 1; }
+    const ce::ModuleInfo* mod = nullptr;
+    if (!modName.empty()) {
+        for (auto& m : mods) if (m.name == modName) { mod = &m; break; }
+        if (!mod) { fprintf(stderr, "cescan analyze: module '%s' not found\n", modName.c_str()); return 1; }
+    } else {
+        mod = &mods.front();   // main executable is enumerated first
+    }
+
+    ce::CodeAnalyzer an;
+    if (!strcmp(what, "strings")) {
+        for (const auto& r : an.findReferencedStrings(proc, *mod))
+            printf("0x%lx  %s\n", (unsigned long)r.target, r.text.c_str());
+    } else if (!strcmp(what, "statics")) {
+        for (const auto& s : an.findStatics(proc, *mod))
+            printf("0x%lx  %zu refs\n", (unsigned long)s.address, s.references);
+    } else if (!strcmp(what, "caves")) {
+        size_t minSize = !pos.empty() ? (size_t)strtoul(pos[0], nullptr, 0) : 16;
+        for (const auto& c : an.findCodeCaves(proc, *mod, minSize))
+            printf("0x%lx  %zu bytes\n", (unsigned long)c.address, c.size);
+    } else if (!strcmp(what, "functions")) {
+        for (const auto& f : an.enumerateFunctions(proc, *mod))
+            printf("0x%lx  %zu refs\n", (unsigned long)f.address, f.references);
+    } else if (!strcmp(what, "xrefs")) {
+        if (pos.empty()) { fprintf(stderr, "cescan analyze xrefs: need <addr>\n"); return 1; }
+        uintptr_t target = strtoul(pos[0], nullptr, 0);
+        for (const auto& r : an.findReferencesTo(proc, *mod, target))
+            printf("0x%lx  %s\n", (unsigned long)r.address, r.text.c_str());
+    } else if (!strcmp(what, "asm")) {
+        if (pos.empty()) { fprintf(stderr, "cescan analyze asm: need \"<instruction>\"\n"); return 1; }
+        for (const auto& r : an.findAssemblyPattern(proc, *mod, pos[0]))
+            printf("0x%lx  %s\n", (unsigned long)r.address, r.text.c_str());
+    } else {
+        fprintf(stderr, "cescan analyze: unknown '%s'\n", what);
+        return 1;
+    }
+    fprintf(stderr, "# module %s @ 0x%lx\n", mod->name.c_str(), (unsigned long)mod->base);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     // Force the C locale so atof()/strtod() on scan values always use a '.'
     // decimal separator. cescan never calls setlocale(LC_ALL, "") so it is in the
@@ -881,6 +947,9 @@ int main(int argc, char** argv) {
     else if (!strcmp(cmd, "signature") && argc >= 4) {
         size_t maxBytes = (argc >= 5) ? (size_t)parseUInt(argv[4], "maxbytes", 1024) : 64;
         return cmd_signature(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), maxBytes);
+    }
+    else if (!strcmp(cmd, "analyze") && argc >= 4) {
+        return cmd_analyze(parsePid(argv[2]), argc - 3, argv + 3);
     }
     else if (!strcmp(cmd, "help") || !strcmp(cmd, "--help") || !strcmp(cmd, "-h")) {
         usage();

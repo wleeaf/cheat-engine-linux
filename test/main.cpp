@@ -7498,6 +7498,25 @@ static void test_lua_process_bindings(pid_t pid) {
     printf("  openProcess/getProcessList: %s\n", err.empty() ? "OK" : "FAILED");
 }
 
+// enumerateFunctions / buildCallGraph Lua bindings over the live target's main
+// module: they must return well-shaped tables (the underlying analysis is covered
+// by test_code_analysis_references; this checks the binding path end to end).
+static void test_lua_code_analysis(pid_t pid) {
+    printf("\n── Test: Lua code analysis bindings ──\n");
+    LuaEngine lua;
+    std::string script =
+        "assert(openProcess(" + std::to_string(pid) + "))\n"
+        "local fns = enumerateFunctions()\n"
+        "assert(type(fns) == 'table', 'enumerateFunctions not a table')\n"
+        "local cg = buildCallGraph()\n"
+        "assert(type(cg) == 'table', 'buildCallGraph not a table')\n"
+        "if #fns > 0 then assert(type(fns[1].address) == 'number', 'bad function entry') end\n"
+        "if #cg > 0 then assert(cg[1].caller and cg[1].callee and cg[1].callSite, 'bad edge') end\n";
+    auto err = lua.execute(script);
+    printf("  enumerateFunctions + buildCallGraph return shaped tables: %s\n",
+           err.empty() ? "OK" : ("FAILED: " + err).c_str());
+}
+
 // executeCode Lua binding: allocate a stub that writes a sentinel and returns,
 // then run it on a new thread in the target via executeCode and confirm the
 // sentinel landed (i.e. the target actually executed our code).
@@ -9387,6 +9406,7 @@ int main(int argc, char* argv[]) {
     test_lua_debug_bindings();
     test_lua_process_bindings(targetPid);
     test_lua_executecode(targetPid);
+    test_lua_code_analysis(targetPid);
     test_lua_memscan();
     test_binary_scan_bitmask();
     test_between_numeric_scan();

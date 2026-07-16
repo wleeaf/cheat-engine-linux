@@ -3237,6 +3237,59 @@ static int l_findReferences(lua_State* L) {
     return 1;
 }
 
+// Pick a module by name, or the first module (the main executable) when unnamed.
+static bool pickModule(ce::ProcessHandle& p, const std::string& modName, ce::ModuleInfo& out) {
+    auto modules = p.modules();
+    if (modules.empty()) return false;
+    if (modName.empty()) { out = modules.front(); return true; }
+    for (const auto& m : modules) if (m.name == modName) { out = m; return true; }
+    return false;
+}
+
+// enumerateFunctions([moduleName]) -> { {address, references}, ... } | nil, err
+// Candidate function entry points in a module (call targets + prologues), with
+// how many places reference each. Defaults to the main module.
+static int l_enumerateFunctions(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process"); return 2; }
+    std::string modName = (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) ? luaL_checkstring(L, 1) : "";
+    ce::ModuleInfo mod;
+    if (!pickModule(*p, modName, mod)) { lua_pushnil(L); lua_pushstring(L, "module not found"); return 2; }
+    ce::CodeAnalyzer an;
+    auto fns = an.enumerateFunctions(*p, mod);
+    lua_newtable(L);
+    int i = 1;
+    for (const auto& f : fns) {
+        lua_newtable(L);
+        lua_pushinteger(L, (lua_Integer)f.address);    lua_setfield(L, -2, "address");
+        lua_pushinteger(L, (lua_Integer)f.references); lua_setfield(L, -2, "references");
+        lua_rawseti(L, -2, i++);
+    }
+    return 1;
+}
+
+// buildCallGraph([moduleName]) -> { {caller, callee, callSite}, ... } | nil, err
+// Static call edges within a module (who calls what, and from where).
+static int l_buildCallGraph(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process"); return 2; }
+    std::string modName = (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) ? luaL_checkstring(L, 1) : "";
+    ce::ModuleInfo mod;
+    if (!pickModule(*p, modName, mod)) { lua_pushnil(L); lua_pushstring(L, "module not found"); return 2; }
+    ce::CodeAnalyzer an;
+    auto edges = an.buildCallGraph(*p, mod);
+    lua_newtable(L);
+    int i = 1;
+    for (const auto& e : edges) {
+        lua_newtable(L);
+        lua_pushinteger(L, (lua_Integer)e.caller);   lua_setfield(L, -2, "caller");
+        lua_pushinteger(L, (lua_Integer)e.callee);   lua_setfield(L, -2, "callee");
+        lua_pushinteger(L, (lua_Integer)e.callSite); lua_setfield(L, -2, "callSite");
+        lua_rawseti(L, -2, i++);
+    }
+    return 1;
+}
+
 // ── Branch mapper (hardware LBR via perf_event_open) ──
 // branchMapAvailable() -> bool (Intel LBR + perf_event_paranoid<=1)
 static int l_branchMapAvailable(lua_State* L) {
@@ -4474,6 +4527,8 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "findWhatWrites", l_findWhatWrites);
     lua_register(L, "findWhatAccesses", l_findWhatAccesses);
     lua_register(L, "findReferences", l_findReferences);
+    lua_register(L, "enumerateFunctions", l_enumerateFunctions);
+    lua_register(L, "buildCallGraph", l_buildCallGraph);
     lua_register(L, "breakAndTrace", l_breakAndTrace);
     lua_register(L, "findStatics", l_findStatics);
     lua_register(L, "branchMap", l_branchMap);

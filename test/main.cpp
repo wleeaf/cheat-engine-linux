@@ -4667,6 +4667,19 @@ static void test_pe_exports() {
     pU16(0x450, 0);                        // AddressOfNameOrdinals[0]
     const char* nm = "foo"; for (int i = 0; i < 3; ++i) f[0x460 + i] = nm[i];   // name @ rva 0x1060
 
+    // Import table: one descriptor importing "bar" from "OTHER.dll". Placed at rva
+    // 0x1100 (file 0x500); DataDirectory[1] points at it.
+    auto pU64 = [&](size_t o, uint64_t v) { for (int i = 0; i < 8; ++i) f[o + i] = (uint8_t)(v >> (8 * i)); };
+    pU32(0x110, 0x1100); pU32(0x114, 0x40);   // DataDirectory[1] import {rva,size}
+    pU32(0x500 + 0x00, 0x1130);   // OriginalFirstThunk (ILT) rva
+    pU32(0x500 + 0x0C, 0x1170);   // Name (dll name) rva
+    pU32(0x500 + 0x10, 0x1148);   // FirstThunk (IAT) rva
+    pU64(0x530, 0x1160);          // ILT[0] -> IMAGE_IMPORT_BY_NAME rva (ILT[1]=0 terminates)
+    pU64(0x548, 0x1160);          // IAT[0]
+    // IMAGE_IMPORT_BY_NAME @ rva 0x1160 (file 0x560): u16 hint (0) then "bar".
+    const char* imp = "bar"; for (int i = 0; i < 3; ++i) f[0x562 + i] = imp[i];
+    const char* dll = "OTHER.dll"; for (int i = 0; i < 9; ++i) f[0x570 + i] = dll[i];  // rva 0x1170
+
     namespace fs = std::filesystem;
     std::error_code ec;
     fs::path tmp = fs::temp_directory_path() / ("ce-pe-" + std::to_string(getpid()) + ".dll");
@@ -4675,6 +4688,10 @@ static void test_pe_exports() {
     bool ok = exps.size() == 1 && exps[0].name == "foo" && exps[0].ordinal == 1 &&
               exps[0].rva == 0x1234 && exps[0].forward.empty();
     bool rvaOk = ce::peExportRva(tmp.string(), "foo") == 0x1234;
+
+    auto imps = ce::parsePEImports(tmp.string());
+    bool impOk = imps.size() == 1 && imps[0].dll == "OTHER.dll" &&
+                 imps[0].name == "bar" && imps[0].iatRva == 0x1148;
 
     fs::path jp = fs::temp_directory_path() / ("ce-pe-junk-" + std::to_string(getpid()) + ".bin");
     { std::ofstream o(jp, std::ios::binary); std::vector<uint8_t> j(64, 0x41); o.write(reinterpret_cast<char*>(j.data()), 64); }
@@ -4690,6 +4707,7 @@ static void test_pe_exports() {
 
     printf("  parses a named export (foo @0x1234, ordinal 1): %s\n", ok ? "OK" : "FAILED");
     printf("  peExportRva(foo) == 0x1234: %s\n", rvaOk ? "OK" : "FAILED");
+    printf("  parses an import (OTHER.dll!bar, iat rva 0x1148): %s\n", impOk ? "OK" : "FAILED");
     printf("  non-PE input rejected cleanly: %s\n", junkOk ? "OK" : "FAILED");
     printf("  SymbolResolver symbolicates PE exports: %s\n", symOk ? "OK" : "FAILED");
 

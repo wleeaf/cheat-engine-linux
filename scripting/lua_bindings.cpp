@@ -3252,23 +3252,30 @@ static bool pickModule(ce::ProcessHandle& p, const std::string& modName, ce::Mod
 // path to parse it directly (address == rva), or a mapped module's name to get
 // live addresses (module base + rva). Handy for the il2cpp_* API GameAssembly.dll
 // exports. Forwarded exports carry `forward = "OTHERDLL.func"` and rva 0.
+// Resolve a getModule* argument (a PE file path, or a mapped module's name) to a
+// file path + module base. Returns "" on success, else an error string.
+static std::string resolvePEModuleArg(lua_State* L, const std::string& arg,
+                                      std::string& path, uint64_t& base) {
+    std::error_code ec;
+    if (!arg.empty() && std::filesystem::is_regular_file(arg, ec)) { path = arg; base = 0; return {}; }
+    auto* p = getProc(L);
+    if (!p) return "no target process; pass a PE file path";
+    auto modules = p->modules();
+    const ce::ModuleInfo* mod = nullptr;
+    if (arg.empty()) { if (!modules.empty()) mod = &modules.front(); }
+    else for (const auto& m : modules) if (m.name == arg || m.path == arg) { mod = &m; break; }
+    if (!mod) return "module not found";
+    path = mod->path;
+    base = mod->base;
+    return {};
+}
+
 static int l_getModuleExports(lua_State* L) {
     std::string arg = (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) ? luaL_checkstring(L, 1) : "";
     std::string path;
     uint64_t base = 0;
-    std::error_code ec;
-    if (!arg.empty() && std::filesystem::is_regular_file(arg, ec)) {
-        path = arg;   // explicit PE file
-    } else {
-        auto* p = getProc(L);
-        if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process; pass a PE file path"); return 2; }
-        auto modules = p->modules();
-        const ce::ModuleInfo* mod = nullptr;
-        if (arg.empty()) { if (!modules.empty()) mod = &modules.front(); }
-        else for (const auto& m : modules) if (m.name == arg || m.path == arg) { mod = &m; break; }
-        if (!mod) { lua_pushnil(L); lua_pushstring(L, "module not found"); return 2; }
-        path = mod->path;
-        base = mod->base;
+    if (std::string e = resolvePEModuleArg(L, arg, path, base); !e.empty()) {
+        lua_pushnil(L); lua_pushstring(L, e.c_str()); return 2;
     }
 
     auto exps = ce::parsePEExports(path);
@@ -3282,6 +3289,34 @@ static int l_getModuleExports(lua_State* L) {
         lua_pushinteger(L, (lua_Integer)e.rva);         lua_setfield(L, -2, "rva");
         lua_pushinteger(L, (lua_Integer)(e.rva ? base + e.rva : 0)); lua_setfield(L, -2, "address");
         if (!e.forward.empty()) { lua_pushstring(L, e.forward.c_str()); lua_setfield(L, -2, "forward"); }
+        lua_rawseti(L, -2, i++);
+    }
+    return 1;
+}
+
+// getModuleImports(nameOrPath) -> { {dll, name, ordinal, iatRva, iatAddress}, ...}
+//   | nil, err. Functions a PE module imports, with the RVA of each IAT slot
+// (iatAddress = module base + iatRva is a live IAT-hook target). Same argument
+// forms as getModuleExports.
+static int l_getModuleImports(lua_State* L) {
+    std::string arg = (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) ? luaL_checkstring(L, 1) : "";
+    std::string path;
+    uint64_t base = 0;
+    if (std::string e = resolvePEModuleArg(L, arg, path, base); !e.empty()) {
+        lua_pushnil(L); lua_pushstring(L, e.c_str()); return 2;
+    }
+
+    auto imps = ce::parsePEImports(path);
+    if (imps.empty()) { lua_pushnil(L); lua_pushstring(L, "not a PE image or no imports"); return 2; }
+    lua_newtable(L);
+    int i = 1;
+    for (const auto& im : imps) {
+        lua_newtable(L);
+        lua_pushstring(L, im.dll.c_str());          lua_setfield(L, -2, "dll");
+        lua_pushstring(L, im.name.c_str());         lua_setfield(L, -2, "name");
+        lua_pushinteger(L, (lua_Integer)im.ordinal);lua_setfield(L, -2, "ordinal");
+        lua_pushinteger(L, (lua_Integer)im.iatRva); lua_setfield(L, -2, "iatRva");
+        lua_pushinteger(L, (lua_Integer)(base + im.iatRva)); lua_setfield(L, -2, "iatAddress");
         lua_rawseti(L, -2, i++);
     }
     return 1;
@@ -4571,6 +4606,7 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "enumerateFunctions", l_enumerateFunctions);
     lua_register(L, "buildCallGraph", l_buildCallGraph);
     lua_register(L, "getModuleExports", l_getModuleExports);
+    lua_register(L, "getModuleImports", l_getModuleImports);
     lua_register(L, "breakAndTrace", l_breakAndTrace);
     lua_register(L, "findStatics", l_findStatics);
     lua_register(L, "branchMap", l_branchMap);

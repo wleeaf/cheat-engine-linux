@@ -51,9 +51,15 @@ struct Pe {
     }
 };
 
-// Load headers + section table. `exportDirRva`/`exportDirSize` receive
-// DataDirectory[0]. Returns false if not a valid PE.
-bool loadPe(Pe& pe, uint32_t& exportDirRva, uint32_t& exportDirSize) {
+// Loaded PE headers: the DataDirectory entries we care about + whether it's PE32+.
+struct PeDirs {
+    bool     pe64 = false;
+    uint32_t exportRva = 0, exportSize = 0;   // DataDirectory[0]
+    uint32_t importRva = 0, importSize = 0;   // DataDirectory[1]
+};
+
+// Load headers + section table + `dirs`. Returns false if not a valid PE.
+bool loadPe(Pe& pe, PeDirs& dirs) {
     const auto& b = pe.buf;
     if (b.size() < 0x40 || b[0] != 'M' || b[1] != 'Z') return false;
     uint32_t e = pe.u32(0x3C);
@@ -66,12 +72,14 @@ bool loadPe(Pe& pe, uint32_t& exportDirRva, uint32_t& exportDirSize) {
     if (!pe.inRange(opt, optSize) || optSize < 0x18) return false;
     uint16_t magic = pe.u16(opt);
     size_t dataDir;
-    if (magic == 0x20B) dataDir = opt + 0x70;        // PE32+
-    else if (magic == 0x10B) dataDir = opt + 0x60;   // PE32
+    if (magic == 0x20B) { dirs.pe64 = true; dataDir = opt + 0x70; }   // PE32+
+    else if (magic == 0x10B) { dataDir = opt + 0x60; }               // PE32
     else return false;
-    if (!pe.inRange(dataDir, 8)) return false;
-    exportDirRva = pe.u32(dataDir);
-    exportDirSize = pe.u32(dataDir + 4);
+    if (!pe.inRange(dataDir, 16)) return false;
+    dirs.exportRva = pe.u32(dataDir);
+    dirs.exportSize = pe.u32(dataDir + 4);
+    dirs.importRva = pe.u32(dataDir + 8);
+    dirs.importSize = pe.u32(dataDir + 12);
 
     size_t secTbl = opt + optSize;
     for (uint16_t k = 0; k < nSec; ++k) {
@@ -97,8 +105,9 @@ std::vector<PEExport> parsePEExports(const std::string& path) {
         if (!in) return out;
         pe.buf.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
     }
-    uint32_t edRva = 0, edSize = 0;
-    if (!loadPe(pe, edRva, edSize) || edRva == 0) return out;
+    PeDirs dirs;
+    if (!loadPe(pe, dirs) || dirs.exportRva == 0) return out;
+    const uint32_t edRva = dirs.exportRva, edSize = dirs.exportSize;
 
     auto o = pe.rvaToOff(edRva);
     if (!o || !pe.inRange(*o, 40)) return out;
@@ -138,6 +147,50 @@ uint64_t peExportRva(const std::string& path, const std::string& name) {
     for (const auto& e : parsePEExports(path))
         if (e.name == name) return e.rva;
     return 0;
+}
+
+std::vector<PEImport> parsePEImports(const std::string& path) {
+    std::vector<PEImport> out;
+    Pe pe;
+    {
+        std::ifstream in(path, std::ios::binary);
+        if (!in) return out;
+        pe.buf.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+    PeDirs dirs;
+    if (!loadPe(pe, dirs) || dirs.importRva == 0) return out;
+    const uint64_t hiBit = dirs.pe64 ? 0x8000000000000000ull : 0x80000000ull;
+    const uint32_t thunkSize = dirs.pe64 ? 8 : 4;
+
+    // Import directory: a null-terminated array of IMAGE_IMPORT_DESCRIPTOR (20B).
+    //   +0x00 OriginalFirstThunk (ILT rva)  +0x0C Name (dll name rva)  +0x10 FirstThunk (IAT rva)
+    for (uint32_t d = 0; d < 4096; ++d) {
+        uint32_t base = dirs.importRva + d * 20;
+        auto oft = pe.u32AtRva(base + 0x00);
+        auto nameRva = pe.u32AtRva(base + 0x0C);
+        auto ft = pe.u32AtRva(base + 0x10);
+        if (!oft || !nameRva || !ft) break;
+        if (*oft == 0 && *nameRva == 0 && *ft == 0) break;   // terminator
+        std::string dll = pe.cstrAtRva(*nameRva);
+        uint32_t iltRva = *oft ? *oft : *ft;                 // ILT preferred; else IAT
+        for (uint32_t i = 0; i < 100000; ++i) {
+            uint64_t thunk = 0;
+            if (dirs.pe64) { auto t = pe.rvaToOff(iltRva + i * 8); if (!t || !pe.inRange(*t, 8)) break;
+                             std::memcpy(&thunk, pe.buf.data() + *t, 8); }
+            else           { auto t = pe.u32AtRva(iltRva + i * 4); if (!t) break; thunk = *t; }
+            if (thunk == 0) break;                           // end of this DLL's thunks
+            PEImport im;
+            im.dll = dll;
+            im.iatRva = *ft + i * thunkSize;                 // hookable IAT slot
+            if (thunk & hiBit) {
+                im.ordinal = static_cast<uint32_t>(thunk & 0xFFFF);
+            } else {
+                im.name = pe.cstrAtRva(static_cast<uint32_t>(thunk) + 2);  // skip u16 hint
+            }
+            out.push_back(std::move(im));
+        }
+    }
+    return out;
 }
 
 } // namespace ce

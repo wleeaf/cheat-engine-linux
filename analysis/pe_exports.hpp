@@ -29,4 +29,16 @@ std::vector<PEExport> parsePEExports(const std::string& path);
 /// Convenience: the RVA of a single named export, or 0 if absent or forwarded.
 uint64_t peExportRva(const std::string& path, const std::string& name);
 
+struct PEImport {
+    std::string dll;       ///< the DLL this function is imported from
+    std::string name;      ///< imported name ("" for an ordinal import)
+    uint32_t    ordinal = 0;   ///< ordinal (only when imported by ordinal)
+    uint64_t    iatRva = 0;///< RVA of this import's IAT slot (an IAT-hook target)
+};
+
+/// Parse the import table of the PE at `path`: every function the module imports,
+/// with the RVA of its IAT slot (module base + iatRva is a live IAT-hook point).
+/// Bounds-checked; returns [] if not a PE or nothing is imported.
+std::vector<PEImport> parsePEImports(const std::string& path);
+
 } // namespace ce

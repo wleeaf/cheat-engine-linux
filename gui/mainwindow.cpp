@@ -1651,49 +1651,55 @@ void MainWindow::setupUi() {
     foundBlock->addLayout(foundBtns);
     mainRow->addLayout(foundBlock, 1);
 
+    // Scan controls, laid out with real Qt layouts (no fixed pixel coordinates,
+    // so it scales with font size / DPI and leaves no dead space): a button row,
+    // a right-aligned label/field form, and the Memory Scan Options group.
     auto* controls = new QWidget;
-    controls->setFixedWidth(410);
-    controls->setMinimumHeight(404);
-    auto cplace = [controls](QWidget* w, int x, int y, int cw, int ch) {
-        w->setMinimumSize(0, 0);
-        w->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-        w->setParent(controls);
-        w->setGeometry(x, y, cw, ch);
-        w->show();
-    };
-    auto clabel = [controls](const QString& t, int x, int y, int cw, int ch) {
-        auto* l = new QLabel(t, controls);
-        l->setGeometry(x, y, cw, ch);
-        l->show();
-        return l;
-    };
-    // Scan buttons: First / Next / Undo.
-    cplace(firstScanBtn_, 66, 0, 88, 25);
-    cplace(nextScanBtn_, 160, 0, 84, 25);
-    cplace(undoScanBtn_, 250, 0, 90, 25);
-    // Scan value + Hex + the second ("and") value box for between-scans. The
-    // field column starts at x=74 so the right-aligned Scan/Value Type labels to
-    // its left have room (they were bumping into the combos).
-    clabel("Scan Value", 74, 33, 120, 15);
-    cplace(scanValueEdit_, 74, 48, 214, 23);
-    cplace(hexCheck_, 6, 50, 60, 19);
-    cplace(betweenAndLabel_, 292, 52, 25, 15);
-    cplace(scanValue2Edit_, 320, 48, 74, 23);
-    // Scan Type / Value Type dropdowns (labels right-aligned against the combos).
-    clabel("Scan Type", 0, 82, 68, 15)->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    cplace(scanTypeCombo_, 74, 78, 200, 23);
-    clabel("Value Type", 0, 107, 68, 15)->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    cplace(valueTypeCombo_, 74, 103, 200, 23);
-    // Float rounding (CE puts radios here; we keep our combo + tolerance).
-    cplace(floatRoundingCombo_, 74, 132, 120, 23);
-    cplace(floatToleranceEdit_, 200, 132, 90, 23);
+    controls->setMaximumWidth(440);
+    auto* cv = new QVBoxLayout(controls);
+    cv->setContentsMargins(6, 0, 0, 0);
+    cv->setSpacing(6);
+
+    auto* scanBtnRow = new QHBoxLayout;
+    scanBtnRow->setSpacing(4);
+    scanBtnRow->addWidget(firstScanBtn_);
+    scanBtnRow->addWidget(nextScanBtn_);
+    scanBtnRow->addWidget(undoScanBtn_);
+    cv->addLayout(scanBtnRow);
+
+    auto* scanForm = new QGridLayout;
+    scanForm->setHorizontalSpacing(6);
+    scanForm->setVerticalSpacing(6);
+    scanForm->setColumnStretch(1, 1);
+    scanForm->addWidget(new QLabel("Scan Value"), 0, 0, Qt::AlignRight | Qt::AlignVCenter);
+    auto* valRow = new QHBoxLayout;
+    valRow->setSpacing(4);
+    valRow->addWidget(scanValueEdit_, 1);
+    valRow->addWidget(betweenAndLabel_);
+    valRow->addWidget(scanValue2Edit_, 1);
+    valRow->addWidget(hexCheck_);
+    scanForm->addLayout(valRow, 0, 1);
+    scanForm->addWidget(new QLabel("Scan Type"), 1, 0, Qt::AlignRight | Qt::AlignVCenter);
+    scanForm->addWidget(scanTypeCombo_, 1, 1);
+    scanForm->addWidget(new QLabel("Value Type"), 2, 0, Qt::AlignRight | Qt::AlignVCenter);
+    scanForm->addWidget(valueTypeCombo_, 2, 1);
+    auto* floatRow2 = new QHBoxLayout;
+    floatRow2->setSpacing(4);
+    floatRow2->addWidget(floatRoundingCombo_);
+    floatRow2->addWidget(floatToleranceEdit_);
+    floatRow2->addStretch();
+    scanForm->addLayout(floatRow2, 3, 1);
+    cv->addLayout(scanForm);
+
     // Memory Scan Options group (From/To, Writable/Executable, Fast Scan, etc.).
-    cplace(optGroup, 66, 156, 246, 244);
+    cv->addWidget(optGroup);
+    cv->addStretch(1);
     mainRow->addWidget(controls);
     sv->addLayout(mainRow, 1);
 
-    // cplace() force-shows each widget; restore the ones that must start hidden
-    // (their visibility is driven by scan state, not the layout).
+    // These start hidden; their visibility is driven by scan state, not the layout
+    // (progress bar shows while scanning; the "and"/second-value box only for a
+    // "Value between..." scan).
     progressBar_->setVisible(false);
     betweenAndLabel_->setVisible(false);
     scanValue2Edit_->setVisible(false);

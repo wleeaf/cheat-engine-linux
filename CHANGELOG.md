@@ -56,6 +56,14 @@ alignment, comparator, and both scan phases, and clean under ASan/UBSan).
   the `first_values` stream and reads fall back to `values` (a later next scan
   writes distinct first-values as before). About 25% less first-scan output; a
   dense 16.7M-result first scan drops ~0.099s to ~0.074s.
+- **Compact result addresses (half the size).** A matched address was stored as
+  8 bytes; it is now a 4-byte offset from a per-shard frame base (a new frame
+  opens only when an address is >= 2^32 past the base, so usually one frame per
+  region). `address = frameBase + offset`. This halves the address storage of
+  every result, so the tool holds roughly twice as many results in the same
+  RAM/temp space, and large scans that spill past the OS page cache to real disk
+  are faster. On results that fit in cache the wall-clock is unchanged (these
+  scans are not disk-bound). Public `ScanResult` API is unchanged.
 - **No result-merge copy.** A scan wrote each worker's matches to its own file
   and then concatenated them into one merged file, so every result byte was
   written twice and read once more. The result now references the worker files

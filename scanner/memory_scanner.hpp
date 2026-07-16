@@ -138,6 +138,13 @@ public:
     /// Finalize (close files, update count).
     void finalize();
 
+    // Address-encoding helpers (public so the next-scan reader can decode a
+    // shard directly). A frame is a (base, start-local-index, count) run;
+    // offsets.bin holds one uint32 per match. address = base + offset.
+    struct Frame { uint64_t base; size_t start; size_t count; };
+    static std::vector<Frame> loadFrames(const std::filesystem::path& dir); // read frames.bin
+    static uintptr_t reconstruct(const std::vector<Frame>& frames, size_t local, uint32_t offset);
+
 private:
     std::filesystem::path dir_;
     size_t count_ = 0;
@@ -145,19 +152,30 @@ private:
 
     bool writeError_ = false;   // a backing-file write was short/failed
     bool storeFirst_ = true;    // write a separate first_values stream
-    // Write buffers
-    std::vector<uintptr_t> addrBuf_;
+
+    // Addresses are stored compactly as 4-byte offsets from a frame base rather
+    // than 8-byte absolutes. A frame is a (base, count) run of consecutive
+    // matches within 2^32 of the base; a new frame opens whenever an address is
+    // >= 2^32 past the current base (matches arrive in ascending order, so this
+    // is rare — usually one frame per region). address(i) = frameBase + offset.
+    // This roughly halves the address stream for every scan.
+    std::vector<uint32_t> offsetBuf_;
     std::vector<uint8_t> valueBuf_;
     std::vector<uint8_t> firstValueBuf_;
-    int addrFd_ = -1;
+    int offsetFd_ = -1;
     int valueFd_ = -1;
     int firstValueFd_ = -1;
+    uint64_t curFrameBase_ = 0;                       // base of the open frame
+    uint64_t curFrameCount_ = 0;                      // matches in the open frame
+    bool haveFrame_ = false;
+    std::vector<std::pair<uint64_t, uint64_t>> frames_; // completed (base, count)
 
-    // Read-side shard layout. A finalized write result and a legacy
-    // single-directory result are one implicit shard (dir_); a scan output
-    // assembled from workers lists each worker directory here (loaded from a
-    // shards.txt manifest), so reads span the shards without a physical merge.
-    struct Shard { std::filesystem::path dir; size_t count; size_t cum; };
+    // Read-side shard layout. A finalized write result and a single-directory
+    // result are one implicit shard (dir_); a scan output assembled from workers
+    // lists each worker directory here (loaded from a shards.txt manifest), so
+    // reads span the shards without a physical merge. Each shard carries its
+    // frame table for address reconstruction.
+    struct Shard { std::filesystem::path dir; size_t count; size_t cum; std::vector<Frame> frames; };
     std::vector<Shard> shards_;
     void loadShards();                     // populate shards_ + count_ from dir_
     const Shard* shardAt(size_t i) const;  // shard holding global index i (or null)

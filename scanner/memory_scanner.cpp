@@ -1339,30 +1339,62 @@ size_t ScanConfig::groupedValueSize() const {
 
 ScanResult::ScanResult(const std::filesystem::path& dir, bool storeFirst)
     : dir_(dir), storeFirst_(storeFirst) {
-    auto addrPath = dir / "addresses.bin";
+    auto offPath  = dir / "offsets.bin";
     auto valPath  = dir / "values.bin";
     auto firstValPath = dir / "first_values.bin";
 
-    if (std::filesystem::exists(dir / "shards.txt") || std::filesystem::exists(addrPath)) {
+    if (std::filesystem::exists(dir / "shards.txt") || std::filesystem::exists(offPath)) {
         // Loading existing scan results (read-only mode): either a shards.txt
-        // manifest of worker directories, or a single record file.
+        // manifest of worker directories, or a single result directory.
         loadShards();
-        addrFd_ = -1;
+        offsetFd_ = -1;
         valueFd_ = -1;
         firstValueFd_ = -1;
     } else {
         // Creating new scan results (write mode)
         std::filesystem::create_directories(dir);
-        addrFd_ = open(addrPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        offsetFd_ = open(offPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
         valueFd_ = open(valPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
         // A first scan (storeFirst == false) has firstValue == value, so it does
         // not write first_values.bin at all; firstValue(i) falls back to value(i).
         firstValueFd_ = storeFirst_
             ? open(firstValPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644) : -1;
-        addrBuf_.reserve(8192);
+        offsetBuf_.reserve(8192);
         valueBuf_.reserve(8192 * 8);
         if (storeFirst_) firstValueBuf_.reserve(8192 * 8);
     }
+}
+
+std::vector<ScanResult::Frame> ScanResult::loadFrames(const std::filesystem::path& dir) {
+    // frames.bin: repeated (uint64 base, uint64 count), in address order.
+    std::vector<Frame> frames;
+    std::error_code ec;
+    auto path = dir / "frames.bin";
+    auto bytes = std::filesystem::file_size(path, ec);
+    if (ec || bytes < 16) return frames;
+    int fd = open(path.c_str(), O_RDONLY);
+    if (fd < 0) return frames;
+    size_t n = bytes / 16;
+    std::vector<uint64_t> raw(n * 2);
+    if (readFull(fd, raw.data(), n * 16)) {
+        size_t start = 0;
+        for (size_t k = 0; k < n; ++k) {
+            uint64_t base = raw[k * 2], cnt = raw[k * 2 + 1];
+            frames.push_back({ base, start, static_cast<size_t>(cnt) });
+            start += static_cast<size_t>(cnt);
+        }
+    }
+    close(fd);
+    return frames;
+}
+
+uintptr_t ScanResult::reconstruct(const std::vector<Frame>& frames, size_t local, uint32_t offset) {
+    // Find the frame owning local index `local` (frames partition [0,count) into
+    // contiguous [start, start+count) runs, ascending). Few frames → linear.
+    for (const auto& f : frames)
+        if (local >= f.start && local < f.start + f.count)
+            return static_cast<uintptr_t>(f.base) + offset;
+    return offset; // out of range / no frames: best effort
 }
 
 void ScanResult::loadShards() {
@@ -1370,9 +1402,14 @@ void ScanResult::loadShards() {
     count_ = 0;
     std::error_code ec;
     auto manifestPath = dir_ / "shards.txt";
+    auto shardCount = [](const std::filesystem::path& d) -> size_t {
+        std::error_code e;
+        auto b = std::filesystem::file_size(d / "offsets.bin", e);
+        return e ? 0 : b / sizeof(uint32_t);
+    };
     if (std::filesystem::exists(manifestPath, ec)) {
-        // Manifest lines: "<count> <shard directory>". The shard directories
-        // hold the actual addresses/values/first_values files (written once by
+        // Manifest lines: "<count> <shard directory>". The shard directories hold
+        // the actual offsets/frames/values/first_values files (written once by
         // the scan workers — never copied into a merged file).
         std::ifstream in(manifestPath);
         std::string line;
@@ -1382,18 +1419,15 @@ void ScanResult::loadShards() {
             if (sp == std::string::npos) continue;
             size_t c = 0;
             try { c = std::stoull(line.substr(0, sp)); } catch (...) { continue; }
-            shards_.push_back({ std::filesystem::path(line.substr(sp + 1)), c, count_ });
+            std::filesystem::path sdir(line.substr(sp + 1));
+            shards_.push_back({ sdir, c, count_, loadFrames(sdir) });
             count_ += c;
         }
-    } else {
-        // Single-file result: this directory is the one shard.
-        auto addrPath = dir_ / "addresses.bin";
-        if (std::filesystem::exists(addrPath, ec)) {
-            size_t bytes = std::filesystem::file_size(addrPath, ec);
-            size_t c = ec ? 0 : bytes / sizeof(uintptr_t);
-            shards_.push_back({ dir_, c, 0 });
-            count_ = c;
-        }
+    } else if (std::filesystem::exists(dir_ / "offsets.bin", ec)) {
+        // Single result directory: it is the one shard.
+        size_t c = shardCount(dir_);
+        shards_.push_back({ dir_, c, 0, loadFrames(dir_) });
+        count_ = c;
     }
 }
 
@@ -1435,7 +1469,19 @@ void ScanResult::addResult(uintptr_t addr, const void* value, size_t valueSize) 
 }
 
 void ScanResult::addResult(uintptr_t addr, const void* value, const void* firstValue, size_t valueSize) {
-    addrBuf_.push_back(addr);
+    // Encode the address as a 4-byte offset from the current frame base. Matches
+    // arrive in ascending order, so a new frame is needed only when the address
+    // runs past the base by 2^32 (a big VA gap, e.g. heap -> stack), which is
+    // rare — usually one frame per region.
+    if (!haveFrame_ || addr < curFrameBase_ || addr - curFrameBase_ >= (1ull << 32)) {
+        if (haveFrame_) frames_.emplace_back(curFrameBase_, curFrameCount_);
+        curFrameBase_ = addr;
+        curFrameCount_ = 0;
+        haveFrame_ = true;
+    }
+    offsetBuf_.push_back(static_cast<uint32_t>(addr - curFrameBase_));
+    ++curFrameCount_;
+
     // insert() copies the bytes once; resize()+memcpy would first zero-fill the
     // new region and then overwrite it, a wasted write per matched byte, which
     // adds up for dense scans emitting millions of results.
@@ -1448,7 +1494,7 @@ void ScanResult::addResult(uintptr_t addr, const void* value, const void* firstV
     valueSize_ = valueSize;
     ++count_;
 
-    if (addrBuf_.size() >= 8192)
+    if (offsetBuf_.size() >= 8192)
         flush();
 }
 
@@ -1496,8 +1542,13 @@ static ScanResult assembleShardedResult(const std::filesystem::path& mergedDir,
 // nextScan worker builds its own so positional reads don't share a file offset.
 // Holds every shard's three files open (few shards → few fds).
 struct ShardReader {
-    struct S { int afd = -1, vfd = -1, ffd = -1; size_t count = 0, cum = 0; };
+    struct S {
+        int ofd = -1, vfd = -1, ffd = -1;
+        size_t count = 0, cum = 0;
+        std::vector<ScanResult::Frame> frames;
+    };
     std::vector<S> shards;
+    std::vector<uint32_t> offTmp; // scratch for decoding a batch's offsets
     bool ok = true;
 
     explicit ShardReader(const std::vector<ScanResult::ShardInfo>& layout) {
@@ -1507,16 +1558,17 @@ struct ShardReader {
             s.count = si.count;
             s.cum = cum;
             cum += si.count;
-            s.afd = open((si.dir / "addresses.bin").c_str(), O_RDONLY);
+            s.ofd = open((si.dir / "offsets.bin").c_str(), O_RDONLY);
             s.vfd = open((si.dir / "values.bin").c_str(), O_RDONLY);
             s.ffd = open((si.dir / "first_values.bin").c_str(), O_RDONLY);
-            if (s.afd < 0 || s.vfd < 0) ok = false;
-            shards.push_back(s);
+            s.frames = ScanResult::loadFrames(si.dir);
+            if (s.ofd < 0 || s.vfd < 0) ok = false;
+            shards.push_back(std::move(s));
         }
     }
     ~ShardReader() {
         for (auto& s : shards) {
-            if (s.afd >= 0) close(s.afd);
+            if (s.ofd >= 0) close(s.ofd);
             if (s.vfd >= 0) close(s.vfd);
             if (s.ffd >= 0) close(s.ffd);
         }
@@ -1525,7 +1577,8 @@ struct ShardReader {
     ShardReader& operator=(const ShardReader&) = delete;
 
     // Read n records at global [begin, begin+n) into the buffers (addresses +
-    // old values + first values), spanning shard boundaries as needed. Where a
+    // old values + first values), spanning shard boundaries as needed. Addresses
+    // are reconstructed from the shard's 4-byte offsets + frame table. Where a
     // shard has no first_values.bin, first values fall back to the old values.
     // Returns true iff every read succeeded.
     bool read(size_t begin, size_t n, uintptr_t* addrs, uint8_t* oldVals,
@@ -1539,9 +1592,19 @@ struct ShardReader {
             if (!sh) return false;
             size_t local = gi - sh->cum;
             size_t take = std::min(sh->count - local, n - got);
-            if (!preadFull(sh->afd, addrs + got, take * sizeof(uintptr_t),
-                           (off_t)(local * sizeof(uintptr_t))))
+            if (offTmp.size() < take) offTmp.resize(take);
+            if (!preadFull(sh->ofd, offTmp.data(), take * sizeof(uint32_t),
+                           (off_t)(local * sizeof(uint32_t))))
                 return false;
+            // Reconstruct addr = frameBase + offset, advancing the frame as the
+            // local index crosses frame boundaries (frames are contiguous ranges).
+            size_t fi = 0;
+            for (size_t j = 0; j < take; ++j) {
+                size_t li = local + j;
+                while (fi < sh->frames.size() && li >= sh->frames[fi].start + sh->frames[fi].count) ++fi;
+                uint64_t base = fi < sh->frames.size() ? sh->frames[fi].base : 0;
+                addrs[got + j] = static_cast<uintptr_t>(base) + offTmp[j];
+            }
             if (!preadFull(sh->vfd, oldVals + got * valueSize, take * valueSize,
                            (off_t)(local * valueSize)))
                 return false;
@@ -1679,41 +1742,62 @@ static bool nextScanCompare(const ScanConfig& config, size_t valueSize,
 }
 
 void ScanResult::flush() {
-    if (addrBuf_.empty()) return;
+    if (offsetBuf_.empty()) return;
     // A short/failed write (e.g. ENOSPC) truncates the backing file below count_,
     // so mark the result unreliable rather than silently reading back zeroes later.
-    if (addrFd_ >= 0 && !writeAll(addrFd_, addrBuf_.data(), addrBuf_.size() * sizeof(uintptr_t)))
+    if (offsetFd_ >= 0 && !writeAll(offsetFd_, offsetBuf_.data(), offsetBuf_.size() * sizeof(uint32_t)))
         writeError_ = true;
     if (valueFd_ >= 0 && !writeAll(valueFd_, valueBuf_.data(), valueBuf_.size()))
         writeError_ = true;
     if (firstValueFd_ >= 0 && !writeAll(firstValueFd_, firstValueBuf_.data(), firstValueBuf_.size()))
         writeError_ = true;
-    addrBuf_.clear();
+    offsetBuf_.clear();
     valueBuf_.clear();
     firstValueBuf_.clear();
 }
 
 void ScanResult::finalize() {
     flush();
-    if (addrFd_ >= 0) { close(addrFd_); addrFd_ = -1; }
+    // Close the open frame and write the frame table (base + count per frame).
+    if (haveFrame_) { frames_.emplace_back(curFrameBase_, curFrameCount_); haveFrame_ = false; }
+    if (offsetFd_ >= 0 && !frames_.empty()) {
+        int ffd = open((dir_ / "frames.bin").c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (ffd >= 0) {
+            std::vector<uint64_t> raw;
+            raw.reserve(frames_.size() * 2);
+            for (const auto& fr : frames_) { raw.push_back(fr.first); raw.push_back(fr.second); }
+            if (!writeAll(ffd, raw.data(), raw.size() * sizeof(uint64_t))) writeError_ = true;
+            close(ffd);
+        } else {
+            writeError_ = true;
+        }
+    }
+    if (offsetFd_ >= 0) { close(offsetFd_); offsetFd_ = -1; }
     if (valueFd_ >= 0) { close(valueFd_); valueFd_ = -1; }
     if (firstValueFd_ >= 0) { close(firstValueFd_); firstValueFd_ = -1; }
     // A written result is a single implicit shard (its own directory), so the
-    // read paths below work the same whether it came straight from a scan or was
-    // reconstructed from disk.
-    shards_.assign(1, Shard{ dir_, count_, 0 });
+    // read paths work the same whether it came straight from a scan or was
+    // reconstructed from disk. Carry the in-memory frame table into the shard.
+    std::vector<Frame> shardFrames;
+    shardFrames.reserve(frames_.size());
+    size_t start = 0;
+    for (const auto& fr : frames_) {
+        shardFrames.push_back({ fr.first, start, static_cast<size_t>(fr.second) });
+        start += static_cast<size_t>(fr.second);
+    }
+    shards_.assign(1, Shard{ dir_, count_, 0, std::move(shardFrames) });
 }
 
 uintptr_t ScanResult::address(size_t i) const {
     const Shard* s = shardAt(i);
     if (!s) return 0;
-    uintptr_t addr = 0;
-    int fd = open((s->dir / "addresses.bin").c_str(), O_RDONLY);
+    size_t local = i - s->cum;
+    uint32_t offset = 0;
+    int fd = open((s->dir / "offsets.bin").c_str(), O_RDONLY);
     if (fd < 0) return 0;
-    if (!preadFull(fd, &addr, sizeof(addr), (i - s->cum) * sizeof(uintptr_t)))
-        addr = 0;
+    if (!preadFull(fd, &offset, sizeof(offset), local * sizeof(uint32_t))) { close(fd); return 0; }
     close(fd);
-    return addr;
+    return reconstruct(s->frames, local, offset);
 }
 
 void ScanResult::value(size_t i, void* buf, size_t valueSize) const {
@@ -1741,32 +1825,38 @@ void ScanResult::firstValue(size_t i, void* buf, size_t valueSize) const {
 
 void ScanResult::forEach(std::function<void(uintptr_t, const void*, size_t)> callback, size_t valueSize) const {
     constexpr size_t BATCH = 4096;
-    std::vector<uintptr_t> addrs(BATCH);
+    std::vector<uint32_t> offs(BATCH);
     std::vector<uint8_t> vals(BATCH * valueSize);
 
-    // Stream each shard in address order.
+    // Stream each shard in address order, reconstructing addresses from the
+    // shard's frame table as the local index crosses frame boundaries.
     for (const auto& s : shards_) {
         if (s.count == 0) continue;
-        int afd = open((s.dir / "addresses.bin").c_str(), O_RDONLY);
+        int ofd = open((s.dir / "offsets.bin").c_str(), O_RDONLY);
         int vfd = open((s.dir / "values.bin").c_str(), O_RDONLY);
-        if (afd < 0 || vfd < 0) {
-            if (afd >= 0) close(afd);
+        if (ofd < 0 || vfd < 0) {
+            if (ofd >= 0) close(ofd);
             if (vfd >= 0) close(vfd);
             continue; // skip an unreadable shard rather than aborting the rest
         }
-        size_t remaining = s.count;
-        while (remaining > 0) {
-            size_t n = std::min(remaining, BATCH);
+        size_t local = 0;
+        size_t fi = 0; // current frame index
+        while (local < s.count) {
+            size_t n = std::min(s.count - local, BATCH);
             // A short/truncated read here would pair addresses with the wrong
             // values; treat this shard's files as truncated and stop it.
-            if (!readFull(afd, addrs.data(), n * sizeof(uintptr_t)) ||
+            if (!readFull(ofd, offs.data(), n * sizeof(uint32_t)) ||
                 !readFull(vfd, vals.data(), n * valueSize))
                 break;
-            for (size_t i = 0; i < n; ++i)
-                callback(addrs[i], vals.data() + i * valueSize, valueSize);
-            remaining -= n;
+            for (size_t i = 0; i < n; ++i) {
+                size_t gi = local + i;
+                while (fi < s.frames.size() && gi >= s.frames[fi].start + s.frames[fi].count) ++fi;
+                uint64_t base = fi < s.frames.size() ? s.frames[fi].base : 0;
+                callback(static_cast<uintptr_t>(base) + offs[i], vals.data() + i * valueSize, valueSize);
+            }
+            local += n;
         }
-        close(afd);
+        close(ofd);
         close(vfd);
     }
 }

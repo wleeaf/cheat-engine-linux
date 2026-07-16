@@ -425,7 +425,23 @@ void HexView::keyPressEvent(QKeyEvent* e) {
 
 void HexView::wheelEvent(QWheelEvent* e) {
     int delta = e->angleDelta().y() / 120;
-    address_ -= delta * bytesPerRow_ * 3;
+    if (delta == 0) return;
+    const uintptr_t step = static_cast<uintptr_t>(std::abs(delta)) * bytesPerRow_ * 3;
+    if (delta > 0) {
+        // Scroll up: clamp at 0 so the address never underflows and wraps to the
+        // top of the space (which would strand the view in unmapped memory). If
+        // the target is unreadable, stay put rather than blanking to '??'.
+        uintptr_t target = (address_ > step) ? address_ - step : 0;
+        if (proc_ && target != address_) {
+            uint8_t probe = 0;
+            auto pr = proc_->read(target, &probe, 1);
+            if (pr && *pr == 1) address_ = target;
+        } else {
+            address_ = target;
+        }
+    } else {
+        address_ += step;   // scroll down is always allowed (escapes unmapped gaps)
+    }
     refresh();
 }
 
@@ -1042,13 +1058,28 @@ void DisasmView::keyPressEvent(QKeyEvent* e) {
 void DisasmView::wheelEvent(QWheelEvent* e) {
     int delta = e->angleDelta().y() / 120;
     if (delta > 0) {
-        // Scroll up
-        address_ = scrollBack(address_, delta * 3);
-    } else if (delta < 0 && !instructions_.empty()) {
-        // Scroll down
-        int steps = std::min((int)instructions_.size() - 1, -delta * 3);
-        if (steps > 0)
-            address_ = instructions_[steps].address;
+        // Scroll up. scrollBack can step before a mapped region into an unmapped
+        // gap; if so, don't strand the view there (which would blank the pane and,
+        // because scroll-down needs a non-empty instruction list, trap the user).
+        // Only move up when the target is actually readable, else stay put.
+        uintptr_t back = scrollBack(address_, delta * 3);
+        if (back != address_ && proc_) {
+            uint8_t probe = 0;
+            auto pr = proc_->read(back, &probe, 1);
+            if (pr && *pr == 1) address_ = back;
+            // else: keep address_ at the last readable position (don't blank out).
+        }
+    } else if (delta < 0) {
+        // Scroll down. Normally advance by whole instructions; but if the pane is
+        // currently blank (unreadable address, e.g. after a goto into an unmapped
+        // range), step forward by a fixed amount so the user can always scroll out.
+        if (!instructions_.empty()) {
+            int steps = std::min((int)instructions_.size() - 1, -delta * 3);
+            if (steps > 0)
+                address_ = instructions_[steps].address;
+        } else {
+            address_ += static_cast<uintptr_t>(-delta) * 16;
+        }
     }
     refresh();
 }

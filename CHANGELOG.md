@@ -56,6 +56,10 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
 - **Jumping to unmapped memory now says so**: a Go / follow / back-forward that
   lands on an unreadable address shows `0x… is not readable (unmapped or
   protected page)` in the status bar, instead of a silent pane of `??`.
+- **Memory viewer gives the disassembly/hex more width by default**: the register
+  and stack panels only show placeholders (live registers are in the Debugger
+  window), so they no longer take a quarter of the width, and the disassembler's
+  `module+offset` / data-reference annotations stop truncating off the edge.
 - **Dark-theme tree fix** — tree widgets (Mono dissector, breakpoint/thread/module
   lists, structure dissector) rendered class rows as unreadable white stripes;
   now themed. Tool buttons, radios, and the speedhack slider themed to match.

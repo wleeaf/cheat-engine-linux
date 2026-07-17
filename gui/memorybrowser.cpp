@@ -1429,9 +1429,12 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     topSplit->setObjectName("memTopSplit");   // persisted across runs
     topSplit->addWidget(disasmView_);
     topSplit->addWidget(registerPanel_);
-    topSplit->setStretchFactor(0, 4);
+    topSplit->setStretchFactor(0, 6);
     topSplit->setStretchFactor(1, 1);
-    topSplit->setSizes({640, 200});
+    // Give the disassembly the lion's share by default: the register panel only
+    // shows placeholders here (live registers are in the Debugger window), and the
+    // extra width stops the module+offset branch annotations from truncating.
+    topSplit->setSizes({760, 150});
 
     // CE's bottom row (Panel4) is the hex view with a stacktrace panel on its
     // right (Address | QWORD/DWORD | Value). Values populate from an active debug
@@ -1460,9 +1463,9 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     bottomSplit->setObjectName("memBottomSplit");   // persisted across runs
     bottomSplit->addWidget(hexView_);
     bottomSplit->addWidget(stacktracePanel_);
-    bottomSplit->setStretchFactor(0, 4);
+    bottomSplit->setStretchFactor(0, 6);
     bottomSplit->setStretchFactor(1, 1);
-    bottomSplit->setSizes({640, 200});
+    bottomSplit->setSizes({760, 150});   // match the hex pane to the disassembly above
 
     auto* splitter = new QSplitter(Qt::Vertical);
     splitter->setObjectName("memVSplit");   // persisted across runs

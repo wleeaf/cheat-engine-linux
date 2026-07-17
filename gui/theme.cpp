@@ -43,6 +43,9 @@ static const char* kDarkStyleSheet = R"(
     QScrollBar:horizontal { background: #181825; height: 10px; }
     QScrollBar::handle:horizontal { background: #45475a; border-radius: 5px; min-width: 20px; }
     QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
+    QSlider::groove:horizontal { background: #45475a; height: 4px; border-radius: 2px; }
+    QSlider::handle:horizontal { background: #89b4fa; width: 14px; margin: -6px 0; border-radius: 7px; }
+    QSlider::handle:horizontal:hover { background: #b4befe; }
 )";
 
 // Light theme — Cheat Engine's classic neutral-grey (Windows-native) look:
@@ -88,6 +91,9 @@ static const char* kLightStyleSheet = R"(
     QScrollBar::handle:horizontal { background: #cdcdcd; min-width: 20px; }
     QScrollBar::handle:horizontal:hover { background: #a6a6a6; }
     QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
+    QSlider::groove:horizontal { background: #c4c4c4; height: 4px; border-radius: 2px; }
+    QSlider::handle:horizontal { background: #0078d7; width: 14px; margin: -6px 0; border-radius: 7px; }
+    QSlider::handle:horizontal:hover { background: #1988e0; }
 )";
 
 bool isDarkTheme() {

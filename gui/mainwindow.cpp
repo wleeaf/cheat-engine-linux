@@ -86,6 +86,7 @@
 #include <unistd.h>
 #include <QFileDialog>
 #include <QTextStream>
+#include <QLocale>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -2274,7 +2275,7 @@ void MainWindow::onFirstScan() {
     }
     firstScanBtn_->setEnabled(true);
 
-    foundLabel_->setText(QString("Found: %1").arg(result->count()));
+    foundLabel_->setText(QString("Found: %1").arg(QLocale().toString((qulonglong)result->count())));
     if (result->hasWriteError())
         QMessageBox::warning(this, "Scan results truncated",
             "A scan-result file could not be fully written (the disk may be full). "
@@ -2390,7 +2391,7 @@ void MainWindow::onNextScan() {
     }
     nextScanBtn_->setEnabled(true);
 
-    foundLabel_->setText(QString("Found: %1").arg(result->count()));
+    foundLabel_->setText(QString("Found: %1").arg(QLocale().toString((qulonglong)result->count())));
     if (result->hasWriteError())
         QMessageBox::warning(this, "Scan results truncated",
             "A scan-result file could not be fully written (the disk may be full). "
@@ -2414,7 +2415,7 @@ void MainWindow::onUndoScan() {
     undoResultType_ = ValueType::Int32;
     undoResultValueSize_ = 0;
     resultsModel_->setResult(lastResult_.get(), lastResultType_, lastResultValueSize_);
-    foundLabel_->setText(QString("Found: %1").arg(lastResult_->count()));
+    foundLabel_->setText(QString("Found: %1").arg(QLocale().toString((qulonglong)lastResult_->count())));
     updateScanButtons();
 }
 

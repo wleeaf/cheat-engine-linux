@@ -2085,7 +2085,10 @@ std::unique_ptr<ScanResult> MainWindow::runScanWithProgress(
 }
 
 void MainWindow::onFirstScan() {
-    if (!process_) return;
+    if (!process_) {
+        statusBar()->showMessage("No process attached — open one first (Ctrl+O) to scan.", 4000);
+        return;
+    }
 
     ScanConfig config;
     config.valueType = mapValueType(valueTypeCombo_->currentIndex());
@@ -2208,7 +2211,14 @@ void MainWindow::onFirstScan() {
 }
 
 void MainWindow::onNextScan() {
-    if (!process_ || !lastResult_) return;
+    if (!process_) {
+        statusBar()->showMessage("No process attached — open one first (Ctrl+O) to scan.", 4000);
+        return;
+    }
+    if (!lastResult_) {
+        statusBar()->showMessage("Run a First Scan before a Next Scan.", 4000);
+        return;
+    }
 
     ScanConfig config;
     // A Next Scan MUST reuse the first scan's value type. The previous results

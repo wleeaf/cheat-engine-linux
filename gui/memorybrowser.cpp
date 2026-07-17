@@ -1646,6 +1646,16 @@ void MemoryBrowser::syncViews(uintptr_t addr) {
     addressEdit_->setText(QString("0x%1").arg(addr, 16, 16, QChar('0')));
     disasmView_->setAddress(addr);
     hexView_->setAddress(addr);
+    // When a deliberate jump (Go, follow, back/forward) lands on memory we can't
+    // read, say so, instead of leaving the user staring at a pane full of "??"
+    // wondering whether the view is broken.
+    if (proc_) {
+        uint8_t probe = 0;
+        auto pr = proc_->read(addr, &probe, 1);
+        if (!pr || *pr != 1)
+            statusBar()->showMessage(
+                QString("0x%1 is not readable (unmapped or protected page)").arg(addr, 0, 16), 5000);
+    }
 }
 
 void MemoryBrowser::navigateTo(uintptr_t addr) {

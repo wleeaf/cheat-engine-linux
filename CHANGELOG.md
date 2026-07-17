@@ -53,6 +53,9 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
 - **Memory-view scrollbars work** — the disassembly/hex panes had a dead or
   missing scrollbar; both now scroll memory, and scrolling up past mapped memory
   no longer strands the view ("no memory" with no way back).
+- **Jumping to unmapped memory now says so**: a Go / follow / back-forward that
+  lands on an unreadable address shows `0x… is not readable (unmapped or
+  protected page)` in the status bar, instead of a silent pane of `??`.
 - **Dark-theme tree fix** — tree widgets (Mono dissector, breakpoint/thread/module
   lists, structure dissector) rendered class rows as unreadable white stripes;
   now themed. Tool buttons, radios, and the speedhack slider themed to match.

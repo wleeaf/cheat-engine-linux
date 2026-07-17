@@ -90,6 +90,15 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
   most 10,000 rows for responsiveness, so when a scan finds more the "Found"
   label now says e.g. `Found: 2,000,000  (showing first 10,000)` instead of
   leaving the capped list unexplained.
+- **Disassembler colours fixed for the light theme.** The operand text, the
+  selected/branch-target row highlights, and the user-comment colour were
+  hardcoded to dark-theme values, so on the light theme operands rendered as
+  near-invisible pale lavender and a selected row became a dark bar. These are
+  now theme-aware (readable dark-slate operands and a soft selection tint on
+  light; unchanged on dark).
+- **Memory viewer debug toolbar decluttered**: the six near-identical Run/Step
+  buttons (which all just opened the separate Debugger window) collapse to a
+  single "Debugger" button, leaving Toggle BP / Debugger / Preferences.
 - **Settings dialog redesigned with a vertical category sidebar.** The 15
   categories used to overflow a horizontal tab bar (most tab names hidden); they
   now sit in an always-visible left-hand list (horizontal text) with the page on

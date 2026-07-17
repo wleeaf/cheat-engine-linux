@@ -43,16 +43,19 @@ namespace ce::gui {
 // light on the light theme and dark on the dark theme (they can't inherit the Qt
 // stylesheet because they paint every pixel themselves).
 struct MvColors {
-    QColor bg, addr, text, dim, selection, ascii, symbol, condJump, jump;
+    QColor bg, addr, text, dim, selection, ascii, symbol, condJump, jump,
+           operand, targetTint, comment;
 };
 static MvColors mvColors() {
     if (ce::gui::isDarkTheme())
         return { QColor(0x1e,0x1e,0x2e), QColor(0x89,0xb4,0xfa), QColor(0xcd,0xd6,0xf4),
                  QColor(0x58,0x5b,0x70), QColor(0x45,0x47,0x5a), QColor(0xa6,0xad,0xc8),
-                 QColor(0xf9,0xe2,0xaf), QColor(0xfa,0xb3,0x87), QColor(0x89,0xb4,0xfa) };
+                 QColor(0xf9,0xe2,0xaf), QColor(0xfa,0xb3,0x87), QColor(0x89,0xb4,0xfa),
+                 QColor(0xcd,0xd6,0xf4), QColor(0x2d,0x40,0x3a), QColor(0xa6,0xe3,0xa1) };
     return   { QColor(0xff,0xff,0xff), QColor(0x00,0x00,0xc0), QColor(0x00,0x00,0x00),
                QColor(0x90,0x90,0x90), QColor(0xcc,0xe8,0xff), QColor(0x50,0x50,0x50),
-               QColor(0x80,0x60,0x00), QColor(0xc0,0x40,0x00), QColor(0x00,0x00,0xc0) };
+               QColor(0x80,0x60,0x00), QColor(0xc0,0x40,0x00), QColor(0x00,0x00,0xc0),
+               QColor(0x3a,0x42,0x52), QColor(0xd8,0xef,0xe0), QColor(0x1f,0x7a,0x33) };
 }
 
 // Effective address of an instruction's RIP-relative memory operand (or 0).
@@ -1031,9 +1034,9 @@ void DisasmView::paintEvent(QPaintEvent*) {
         // Selection highlight on this row (and a subtle tint on the selected
         // branch's target row so you can see where it goes).
         if (i == selectedRow_) {
-            p.fillRect(0, rowTop, viewport()->width(), charH_, QColor(0x45, 0x47, 0x5a));
+            p.fillRect(0, rowTop, viewport()->width(), charH_, mv.selection);
         } else if (i == targetRow) {
-            p.fillRect(0, rowTop, viewport()->width(), charH_, QColor(0x2d, 0x40, 0x3a));
+            p.fillRect(0, rowTop, viewport()->width(), charH_, mv.targetTint);
         }
 
         // Breakpoint glyph in the gutter.
@@ -1109,7 +1112,7 @@ void DisasmView::paintEvent(QPaintEvent*) {
         if (annotation.isEmpty())
             annotation = ripRefAnnotation(inst, resolver_, proc_);
 
-        p.setPen(QColor(0xcd, 0xd6, 0xf4));
+        p.setPen(mv.operand);
         int opX = mnemonicX + charW_ * 8;
         p.drawText(opX, y, operands);
         int endX = opX + p.fontMetrics().horizontalAdvance(operands);
@@ -1118,13 +1121,13 @@ void DisasmView::paintEvent(QPaintEvent*) {
         // it's always visible even when an auto-annotation is long.
         if (auto cit = comments_.find(inst.address); cit != comments_.end()) {
             QString c = "  ; " + QString::fromStdString(cit->second);
-            p.setPen(QColor(0xa6, 0xe3, 0xa1)); // Green for user comments
+            p.setPen(mv.comment); // theme-aware green for user comments
             p.drawText(endX, y, c);
             endX += p.fontMetrics().horizontalAdvance(c);
         }
 
         if (!annotation.isEmpty()) {
-            p.setPen(QColor(0x6c, 0x70, 0x86)); // Dim for auto-annotations
+            p.setPen(mv.dim); // muted for auto-annotations (module+offset, rip refs)
             p.drawText(endX, y, annotation);
             endX += p.fontMetrics().horizontalAdvance(annotation);
         }

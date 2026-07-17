@@ -125,7 +125,9 @@ private:
     // Table "Comments" window (CE CommentsUnit): a free-text memo saved with the
     // cheat table (persisted in CheatTable.comment via build/loadTable).
     void showComments();
+    void showTableLuaScript();   // Table > Show Cheat Table Lua Script (Ctrl+Alt+L)
     QString tableComment_;
+    QString tableLuaScript_;     // table-level Lua (runs on load, saved with the table)
     // Populate a Memory Viewer's View/Tools/Debug menus with the tools that need
     // MainWindow's context (CE keeps these in the Memory Viewer, not the main menu).
     void populateBrowserMenus(MemoryBrowser* b);

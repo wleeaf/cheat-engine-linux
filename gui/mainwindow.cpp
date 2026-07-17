@@ -117,6 +117,7 @@ static double parseUserDouble(const QString& s, bool* ok = nullptr);
 
 // Forward declarations of static helpers
 static QJsonArray cheatEntriesToJson(const ce::CheatTable& table);
+static QFont settingsMonospaceFont();
 static ScanCompare mapScanType(int index);
 static ValueType mapValueType(int index);
 static void warnIfMemoryUnreadable(QWidget* parent, ce::ProcessHandle* p,
@@ -292,7 +293,8 @@ void MainWindow::setupMenus() {
     menuBar()->addMenu("Languages");
 
     // ── Table (CE: Lua script + forms) ──
-    stub(table, "Show Cheat Table Lua Script")->setShortcut(QKeySequence("Ctrl+Alt+L"));
+    table->addAction("Show Cheat Table Lua Script", this, &MainWindow::showTableLuaScript,
+                     QKeySequence("Ctrl+Alt+L"));
     table->addSeparator();
     table->addAction("Create form", this, [this]() {
         auto* fd = new FormDesigner(this); fd->setAttribute(Qt::WA_DeleteOnClose); fd->show();
@@ -841,6 +843,47 @@ void MainWindow::showComments() {
     v->addLayout(row);
     connect(memo, &QPlainTextEdit::textChanged, this,
             [this, memo]() { tableComment_ = memo->toPlainText(); });
+    connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::accept);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
+}
+
+// CE's "Show Cheat Table Lua Script": view/edit the table-level Lua that runs on
+// load and is saved with the table (buildCheatTable). Kept editable here so a
+// table author can add trainer logic, not only import a script that already runs.
+void MainWindow::showTableLuaScript() {
+    auto* dlg = new QDialog(this);
+    dlg->setWindowTitle("Cheat Table Lua Script");
+    dlg->resize(640, 460);
+    auto* v = new QVBoxLayout(dlg);
+    auto* memo = new QPlainTextEdit;
+    memo->setFont(settingsMonospaceFont());
+    memo->setPlainText(tableLuaScript_);
+    memo->setPlaceholderText("-- Lua that runs when this table is opened; saved with the table.");
+    v->addWidget(memo);
+
+    auto* row = new QHBoxLayout;
+    auto* execBtn = new QPushButton("Execute script");
+    row->addWidget(execBtn);
+    row->addStretch();
+    auto* closeBtn = new QPushButton("Close");
+    row->addWidget(closeBtn);
+    v->addLayout(row);
+
+    // Edits are captured live so Close (or saving the table) keeps them.
+    connect(memo, &QPlainTextEdit::textChanged, this,
+            [this, memo]() { tableLuaScript_ = memo->toPlainText(); });
+    // Run it now, through the same engine and against the current process/list as
+    // the load-time run. No extra trust prompt: the user typed/edited this here.
+    connect(execBtn, &QPushButton::clicked, this, [this, memo]() {
+        luaEngine_.setProcess(process_.get());
+        luaEngine_.setAddressList(addressListModel_);
+        auto res = luaEngine_.evalToString(memo->toPlainText().toStdString());
+        statusBar()->showMessage(
+            res.has_value() ? "Table Lua executed."
+                            : QString("Table Lua error: %1").arg(QString::fromStdString(res.error())),
+            8000);
+    });
     connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::accept);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
@@ -2731,6 +2774,7 @@ ce::CheatTable MainWindow::buildCheatTable() const {
     ce::CheatTable table;
     table.gameName = processLabel_->text().toStdString();
     table.comment = tableComment_.toStdString();   // table notes (Comments window)
+    table.luaScript = tableLuaScript_.toStdString();  // table-level Lua (CE <LuaScript>)
     auto json = addressListModel_->toJson();
     int saveIdx = 0;
     for (auto val : json) {
@@ -3003,6 +3047,9 @@ void MainWindow::loadCheatTableModel(const ce::CheatTable& table) {
     tableComment_ = QString::fromStdString(table.comment);   // table notes
     QJsonArray arr = cheatEntriesToJson(table);
     loadAddressEntries(arr);
+    // Retain the table-level Lua script so it can be viewed/edited (Table > Show
+    // Cheat Table Lua Script) and re-saved, not just run once on load.
+    tableLuaScript_ = QString::fromStdString(table.luaScript);
     // Run the table-level Lua script (CE's <LuaScript>) after the records are
     // loaded, so it can define trainer functions/hooks and reference records.
     if (!table.luaScript.empty()) {

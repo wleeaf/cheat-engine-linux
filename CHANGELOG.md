@@ -94,6 +94,10 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
   accepts CE's `<CheatEntries>` XML clipboard format (addresses, types, pointer
   offsets, groups) in addition to our own JSON, so records copied straight from a
   CE session or a shared table snippet drop in.
+- **Table > Show Cheat Table Lua Script (Ctrl+Alt+L)** now works (was a dead menu
+  item). View and edit the table-level Lua that runs when the table loads, run it
+  on demand, and it is saved back into the `.CT`/JSON, so you can author trainer
+  logic, not just import a script that already runs.
 - **Debugger highlights changed registers** (CE's cue): after each step or
   breakpoint stop, the registers the instruction modified paint red (general
   purpose and XMM0-15), so what an instruction touched reads at a glance. The

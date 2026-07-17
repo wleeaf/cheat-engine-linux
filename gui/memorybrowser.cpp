@@ -174,6 +174,7 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
     auto* copyByte = haveByte
         ? menu.addAction(QString("Copy byte (0x%1)").arg(selByte, 2, 16, QChar('0')))
         : nullptr;
+    auto* copyAob = menu.addAction("Copy 16 bytes as AOB");
     auto* gotoAct = menu.addAction("Goto…");
     auto* followPtr = menu.addAction("Follow pointer here (qword)");
     auto* addToList = menu.addAction("Add address to the list");
@@ -220,6 +221,17 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
         clip->setText(QString("0x%1").arg(addr, 0, 16));
     } else if (copyByte && picked == copyByte) {
         clip->setText(QString("%1").arg(selByte, 2, 16, QChar('0')));
+    } else if (picked == copyAob) {
+        // Copy 16 bytes from the cursor as an "XX XX .." AOB string (for AA /
+        // aobscan). Unreadable bytes become the "??" wildcard.
+        uint8_t b[16] = {};
+        size_t got = 0;
+        if (proc_) { auto r = proc_->read(addr, b, sizeof(b)); got = (r && *r > 0) ? *r : 0; }
+        QStringList toks;
+        for (size_t i = 0; i < sizeof(b); ++i)
+            toks << (i < got ? QString("%1").arg(b[i], 2, 16, QChar('0')).toUpper()
+                             : QStringLiteral("??"));
+        clip->setText(toks.join(' '));
     } else if (picked == gotoAct) {
         emit requestGoto(addr);
     } else if (picked == followPtr) {

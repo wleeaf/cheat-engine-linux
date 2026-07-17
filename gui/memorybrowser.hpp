@@ -104,6 +104,10 @@ public:
     void setProcess(ce::ProcessHandle* proc) { proc_ = proc; }
     void setResolver(ce::SymbolResolver* resolver) { resolver_ = resolver; }
     void setDwarf(const ce::DwarfRegistry* dwarf) { dwarf_ = dwarf; viewport()->update(); }
+    /// Module map used to annotate a call/jmp target with "module+offset" when it
+    /// has no symbol (stripped game binaries). Shared from the browser's cache so
+    /// we don't re-parse /proc/<pid>/maps on every repaint.
+    void setModuleCache(std::vector<ce::ModuleInfo> m) { moduleCache_ = std::move(m); viewport()->update(); }
     void setAddress(uintptr_t addr);
     uintptr_t currentAddress() const { return address_; }
     void setActiveBreakpoints(const std::set<uintptr_t>& addrs) { breakpoints_ = addrs; viewport()->update(); }
@@ -162,6 +166,7 @@ private:
     ce::ProcessHandle* proc_ = nullptr;
     ce::SymbolResolver* resolver_ = nullptr;
     const ce::DwarfRegistry* dwarf_ = nullptr;
+    std::vector<ce::ModuleInfo> moduleCache_;   // for module+offset branch annotations
     std::unique_ptr<ce::Disassembler> disasm_ = std::make_unique<ce::Disassembler>(ce::Arch::X86_64);
 public:
     /// Decode in 32- or 64-bit mode (set from the target's code bitness so a

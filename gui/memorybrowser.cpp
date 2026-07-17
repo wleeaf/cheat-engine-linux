@@ -1029,6 +1029,14 @@ void DisasmView::paintEvent(QPaintEvent*) {
             if (target) {
                 auto sym = resolver_->resolve(target);
                 if (!sym.empty()) annotation = " ; " + QString::fromStdString(sym);
+                else if (inst.mnemonic == "call" || inst.mnemonic == "jmp") {
+                    // No symbol (stripped game binary): fall back to the target's
+                    // module+offset, the stable cross-restart identity CE shows
+                    // (e.g. "GameAssembly.so+0x1234"). Restricted to call/jmp so
+                    // short conditional jumps within a function stay uncluttered.
+                    std::string mo = ce::moduleOffsetString(moduleCache_, target);
+                    if (!mo.empty()) annotation = " ; " + QString::fromStdString(mo);
+                }
             }
         }
         // RIP-relative data reference (mov/lea/cmp/…): show effective address,
@@ -1317,6 +1325,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     disasmView_->setProcess(proc);
     disasmView_->setResolver(&resolver_);
     disasmView_->setDwarf(&dwarf_);
+    disasmView_->setModuleCache(modules_);  // reuse the browser's already-loaded map
     // Disassemble in the target's code bitness (32-bit for a native-32 or WoW64
     // target, so registers read eax/ecx rather than rax/rcx).
     if (proc && proc->runs32BitCode())

@@ -62,6 +62,9 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
 - **Static scan results shown in green** (CE's cue): a result address inside a
   loaded module is pointer-stable across restarts, so it is coloured green and
   hovering it reveals the `module+offset` it belongs to.
+- **Disassembler annotates unnamed call/jmp targets** with `module+offset`
+  (e.g. `jmp 0x… ; GameAssembly.so+0x1234`) when no symbol exists, so stripped
+  game binaries are still navigable; conditional jumps stay uncluttered.
 - **`--pid <N>`** attaches to a process on launch (no picker dialog).
 
 ### Scripting / RE

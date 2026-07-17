@@ -22,8 +22,9 @@ static const char* kDarkStyleSheet = R"(
                 padding: 3px; border-radius: 3px; }
     QComboBox QAbstractItemView { background-color: #1e1e2e; color: #cdd6f4; selection-background-color: #313244; }
     QComboBox::drop-down { border: none; }
-    QTableView, QListWidget, QTableWidget { background-color: #181825; color: #cdd6f4;
+    QTableView, QListWidget, QTableWidget, QTreeView, QTreeWidget { background-color: #181825; color: #cdd6f4;
         gridline-color: #313244; selection-background-color: #313244; alternate-background-color: #1e1e2e; }
+    QTreeView::item:selected, QTreeWidget::item:selected { background-color: #313244; color: #cdd6f4; }
     QHeaderView::section { background-color: #181825; color: #a6adc8; border: 1px solid #313244; padding: 4px; }
     QSplitter::handle { background-color: #313244; }
     QGroupBox { color: #a6adc8; border: 1px solid #45475a; border-radius: 4px; margin-top: 8px; padding-top: 8px; }
@@ -65,8 +66,9 @@ static const char* kLightStyleSheet = R"(
                 padding: 2px; border-radius: 1px; }
     QComboBox QAbstractItemView { background-color: #ffffff; color: #000000;
                 selection-background-color: #cce8ff; selection-color: #000000; }
-    QTableView, QListWidget, QTableWidget { background-color: #ffffff; color: #000000;
+    QTableView, QListWidget, QTableWidget, QTreeView, QTreeWidget { background-color: #ffffff; color: #000000;
         gridline-color: #d0d0d0; selection-background-color: #cce8ff; selection-color: #000000; alternate-background-color: #f5f5f5; }
+    QTreeView::item:selected, QTreeWidget::item:selected { background-color: #cce8ff; color: #000000; }
     QHeaderView::section { background-color: #f0f0f0; color: #000000; border: 1px solid #d0d0d0; padding: 3px; }
     QSplitter::handle { background-color: #e0e0e0; }
     QGroupBox { color: #000000; border: 1px solid #c0c0c0; border-radius: 2px; margin-top: 8px; padding-top: 8px; }

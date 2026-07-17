@@ -219,7 +219,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     });
 
     if (proc_ && session_->attach(proc_->pid(), proc_)) {
-        prevGp_.clear();    // fresh session: don't flag the first stop's registers
+        prevGp_.clear(); prevXmm_ = {};   // fresh session: don't flag the first stop's registers
         refreshStopped();   // target is all-stopped right after attach
     } else {
         statusLabel_->setText("Attach failed (need ptrace permission?)");
@@ -582,6 +582,7 @@ void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
     }
     prevGp_.assign(vals, vals + kGp);
     // XMM0-15, view-only, shown as the 128-bit value (most-significant byte first).
+    // Same change highlight as the GP regs (a movss/paddd etc. lights up its dest).
     auto xmm = session_->getXmmRegisters();
     for (int r = 0; r < 16; ++r) {
         auto* it = regTable_->item(10 + r, 0);
@@ -593,7 +594,9 @@ void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
         QString s;
         for (int b = 15; b >= 0; --b) s += QString::asprintf("%02x", xmm[r][b]);
         it->setText(s);
+        it->setForeground(hasPrev && xmm[r] != prevXmm_[r] ? changedFg : normalFg);
     }
+    prevXmm_ = xmm;
     regTable_->blockSignals(false);
 }
 

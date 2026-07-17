@@ -10,6 +10,7 @@
 #include <QMainWindow>
 #include <memory>
 #include <vector>
+#include <array>
 #include <atomic>
 
 class QLineEdit;
@@ -98,6 +99,7 @@ private:
     QComboBox* threadCombo_ = nullptr;
     QTableWidget* regTable_ = nullptr;
     std::vector<uintptr_t> prevGp_;   // last stop's GP regs, to red-flag changes on step
+    std::array<std::array<uint8_t, 16>, 16> prevXmm_{};   // ditto for XMM0-15
     QPlainTextEdit* stackView_ = nullptr;
     QLineEdit* memAddrInput_ = nullptr;
     QPlainTextEdit* memView_ = nullptr;

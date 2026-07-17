@@ -75,7 +75,8 @@ static void usage() {
         "  --rounding <mode> Float exact mode: exact, rounded, truncated, extreme\n"
         "  --tolerance <n>   Override tolerance for extreme float matching\n"
         "  --align <n>       Scan alignment (default: 4)\n"
-        "  --writable        Only scan writable memory\n"
+        "  --writable        Only scan writable memory (--no-writable for read-only)\n"
+        "  --executable      Only scan executable memory (--no-executable to exclude code)\n"
         "\n"
         "Write options:\n"
         "  --type <type>     byte, i16, i32, i64, pointer, float, double (default: i32)\n"
@@ -358,12 +359,15 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
         {"tolerance", required_argument, nullptr, 'T'},
         {"align",    required_argument, nullptr, 'a'},
         {"writable", no_argument,       nullptr, 'w'},
+        {"executable",    no_argument,  nullptr, 'x'},
+        {"no-writable",   no_argument,  nullptr, 1001},
+        {"no-executable", no_argument,  nullptr, 1002},
         {nullptr, 0, nullptr, 0}
     };
 
     optind = 1; // reset getopt
     int opt;
-    while ((opt = getopt_long(argc, argv, "t:v:2:e:s:c:p:P:q:r:T:a:w", long_opts, nullptr)) != -1) {
+    while ((opt = getopt_long(argc, argv, "t:v:2:e:s:c:p:P:q:r:T:a:wx", long_opts, nullptr)) != -1) {
         switch (opt) {
             case 't': config.valueType = parseType(optarg); break;
             case 'v': valueStr = optarg; break;
@@ -379,6 +383,9 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
             case 'a': config.alignment = std::max<size_t>(1,
                           static_cast<size_t>(parseUInt(optarg, "alignment", SIZE_MAX))); break;
             case 'w': config.writableMatch = ce::ProtMatch::Yes; break;
+            case 'x': config.executableMatch = ce::ProtMatch::Yes; break;
+            case 1001: config.writableMatch = ce::ProtMatch::No; break;
+            case 1002: config.executableMatch = ce::ProtMatch::No; break;
         }
     }
 

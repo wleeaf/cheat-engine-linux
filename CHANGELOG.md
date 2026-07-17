@@ -100,6 +100,9 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
 - Lua: `findReferencedStrings`, `findCodeCaves`, `findAssemblyPattern`,
   `disassembleRange`, `getIl2CppObjectLayout`; `cescan analyze` surfaces the
   static RE toolkit from the shell. New `docs/SCRIPTING.md` + `examples/`.
+- `cescan scan` gained `--executable` / `--no-executable` (and `--no-writable`),
+  exposing the tri-state region filters the GUI already has, so a shell scan can
+  target code vs data the same way.
 
 ## v0.6.0: scanner performance overhaul (2026-07-16)
 

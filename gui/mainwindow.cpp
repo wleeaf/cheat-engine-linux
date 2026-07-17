@@ -3047,8 +3047,10 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
     window->show();
 }
 
-void MainWindow::onMemoryView() {
-    if (!process_) return;
+void MainWindow::onMemoryView() { openMemoryView(0); }
+
+MemoryBrowser* MainWindow::openMemoryView(uintptr_t addr) {
+    if (!process_) return nullptr;
     auto* browser = new MemoryBrowser(process_.get(), this);
     browser->setAttribute(Qt::WA_DeleteOnClose);
     wireBrowserAnnotations(browser);
@@ -3079,8 +3081,10 @@ void MainWindow::onMemoryView() {
         startCodeFinderForAddress(addr, writesOnly);
     });
 
-    // If a scan result is selected, open the browser at that address.
-    if (lastResult_) {
+    // An explicit address wins; otherwise open at a selected scan result.
+    if (addr) {
+        browser->gotoAddress(addr);
+    } else if (lastResult_) {
         auto sel = resultsView_->selectionModel()->selectedRows();
         if (!sel.isEmpty())
             browser->gotoAddress(resultsModel_->addressAt(sel.first().row()));
@@ -3088,6 +3092,7 @@ void MainWindow::onMemoryView() {
 
     populateBrowserMenus(browser);   // add the CE Memory-Viewer tools to its menu bar
     browser->show();
+    return browser;
 }
 
 // Fill a Memory Viewer's View/Tools/Debug menus with the tools that CE keeps in

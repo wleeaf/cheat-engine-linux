@@ -1,4 +1,5 @@
 #include "gui/mainwindow.hpp"
+#include "gui/memorybrowser.hpp"
 #include "core/log.hpp"
 #include "gui/theme.hpp"
 #include <QFile>
@@ -112,24 +113,37 @@ int main(int argc, char* argv[]) {
     w.setWindowIcon(appIcon);
     w.show();
 
-    // Dev hook: CE_SCREENSHOT=<path> grabs the main window shortly after it is
-    // shown and exits (used for UI/layout verification; no effect unless set).
-    if (const char* shot = std::getenv("CE_SCREENSHOT")) {
-        const QString shotPath = QString::fromLocal8Bit(shot);
-        QTimer::singleShot(600, [&w, shotPath]() {
-            w.grab().save(shotPath);
-            QApplication::quit();
-        });
-    }
-
-    // `--pid <N>` attaches to a running process on launch (no picker dialog).
+    // `--pid <N>` attaches to a running process on launch (no picker dialog);
+    // `--memview <addr>` then opens the Memory Viewer there.
     const QStringList cliArgs = app.arguments();
+    uintptr_t memviewAddr = 0;
+    bool wantMemview = false;
     for (int i = 1; i + 1 < cliArgs.size(); ++i) {
         if (cliArgs.at(i) == QLatin1String("--pid")) {
             bool ok = false;
             const long pid = cliArgs.at(i + 1).toLong(&ok);
             if (ok && pid > 0) w.attachToPid(static_cast<pid_t>(pid), QString());
+        } else if (cliArgs.at(i) == QLatin1String("--memview")) {
+            bool ok = false;
+            memviewAddr = static_cast<uintptr_t>(cliArgs.at(i + 1).toULongLong(&ok, 0));
+            wantMemview = ok;
         }
+    }
+    QWidget* shotTarget = &w;
+    if (wantMemview) {
+        if (auto* mb = w.openMemoryView(memviewAddr))
+            shotTarget = mb;   // MemoryBrowser is-a QWidget (implicit upcast)
+    }
+
+    // Dev hook: CE_SCREENSHOT=<path> grabs the target window shortly after it is
+    // shown and exits (used for UI/layout verification; no effect unless set).
+    // With --memview it grabs the Memory Viewer, otherwise the main window.
+    if (const char* shot = std::getenv("CE_SCREENSHOT")) {
+        const QString shotPath = QString::fromLocal8Bit(shot);
+        QTimer::singleShot(600, [shotTarget, shotPath]() {
+            shotTarget->grab().save(shotPath);
+            QApplication::quit();
+        });
     }
 
     // Open a cheat table passed on the command line (double-click a .CT / .json,

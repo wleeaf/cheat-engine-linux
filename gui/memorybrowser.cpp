@@ -1346,27 +1346,16 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         if (a && bpSetter_) { bpSetter_(a, /*hardware=*/false); refreshBreakpoints(); }
     });
     dbgBar->addSeparator();
-    // Step controls: real single-stepping runs in the Debugger window (it owns the
-    // debug session). These open it at the selected address, ready to step there,
-    // instead of being dead stubs.
-    auto stepAct = [this, dbgBar](const QString& text, const QString& tip) {
-        auto* a = dbgBar->addAction(text);
-        a->setToolTip(tip + " (opens the Debugger at this address)");
-        connect(a, &QAction::triggered, this, [this]() {
-            uintptr_t addr = disasmView_->selectedAddress();
-            if (!addr) addr = currentAddr_;
-            if (debuggerLauncher_) debuggerLauncher_(addr);
-        });
-        return a;
-    };
-    stepAct("Run", "Resume the target");
-    stepAct("Step Into", "Single-step into");
-    stepAct("Step Over", "Step over calls");
-    stepAct("Step Out", "Run until return");
-    dbgBar->addSeparator();
-    stepAct("Run Till", "Run until the selected line");
-    dbgBar->addSeparator();
-    stepAct("Run Unhandled", "Run, passing exceptions to the target");
+    // Real single-stepping runs in the full Debugger window (it owns the debug
+    // session), so one "Debugger" button opens it at the selected address, rather
+    // than six near-identical Run/Step buttons that each just opened it.
+    auto* dbgAct = dbgBar->addAction("Debugger");
+    dbgAct->setToolTip("Open the Debugger here to run, step, and set breakpoints");
+    connect(dbgAct, &QAction::triggered, this, [this]() {
+        uintptr_t addr = disasmView_->selectedAddress();
+        if (!addr) addr = currentAddr_;
+        if (debuggerLauncher_) debuggerLauncher_(addr);
+    });
     dbgBar->addSeparator();
     // Disassembler Preferences (CE frmMemviewPreferencesUnit): font + colors.
     auto* prefsAct = dbgBar->addAction("Preferences");

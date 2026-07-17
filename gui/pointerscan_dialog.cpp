@@ -67,7 +67,15 @@ PointerScanDialog::PointerScanDialog(ProcessHandle* proc, QWidget* parent)
     resultsTable_ = new QTableWidget;
     resultsTable_->setColumnCount(3);
     resultsTable_->setHorizontalHeaderLabels({"Path", "Current Address", "Value"});
-    resultsTable_->horizontalHeader()->setStretchLastSection(true);
+    // The pointer path is the long, variable-length column, so let it absorb the
+    // slack. Size the address/value columns to their contents (and never narrower
+    // than the header text, so "Current Address" isn't clipped to "Current Addres").
+    auto* hh = resultsTable_->horizontalHeader();
+    hh->setStretchLastSection(false);
+    hh->setSectionResizeMode(0, QHeaderView::Stretch);
+    hh->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    hh->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    hh->setMinimumSectionSize(hh->fontMetrics().horizontalAdvance("Current Address") + 24);
     resultsTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     resultsTable_->setFont(QFont("Monospace", 9));
     resultsTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -95,7 +103,10 @@ void PointerScanDialog::onScan() {
     results_ = scanner.scan(*proc_, config);
 
     populateResults();
-    statusLabel_->setText(QString("Found %1 paths").arg(results_.size()));
+    if (results_.size() > 1000)
+        statusLabel_->setText(QString("Found %1 paths (showing first 1000)").arg(results_.size()));
+    else
+        statusLabel_->setText(QString("Found %1 paths").arg(results_.size()));
     scanBtn_->setEnabled(true);
 }
 

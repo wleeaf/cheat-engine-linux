@@ -45,7 +45,12 @@ HeapRegionsWindow::HeapRegionsWindow(ProcessHandle* proc, QWidget* parent)
     table_ = new QTableWidget;
     table_->setColumnCount(6);
     table_->setHorizontalHeaderLabels({"Start", "End", "Size", "Perm", "Kind", "Path"});
-    table_->horizontalHeader()->setStretchLastSection(true);
+    // Fit the fixed-width columns to content (16-digit hex addresses were clipped)
+    // and let Path (variable) take the remaining width.
+    auto* hh = table_->horizontalHeader();
+    hh->setStretchLastSection(true);
+    for (int c = 0; c < 5; ++c)
+        hh->setSectionResizeMode(c, QHeaderView::ResizeToContents);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setFont(QFont("Monospace", 9));

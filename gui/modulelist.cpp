@@ -17,7 +17,12 @@ ModuleListWindow::ModuleListWindow(ProcessHandle* proc, QWidget* parent)
     table_ = new QTableWidget;
     table_->setColumnCount(4);
     table_->setHorizontalHeaderLabels({"Base", "Size", "Name", "Path"});
-    table_->horizontalHeader()->setStretchLastSection(true);
+    // Fit Base (hex), Size and Name to content so the base address isn't clipped;
+    // Path (last) takes the remaining width.
+    auto* hh = table_->horizontalHeader();
+    hh->setStretchLastSection(true);
+    for (int c = 0; c < 3; ++c)
+        hh->setSectionResizeMode(c, QHeaderView::ResizeToContents);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setFont(QFont("Monospace", 9));

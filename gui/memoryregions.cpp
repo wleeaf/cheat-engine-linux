@@ -16,7 +16,12 @@ MemoryRegionsWindow::MemoryRegionsWindow(ProcessHandle* proc, QWidget* parent)
     table_ = new QTableWidget;
     table_->setColumnCount(5);
     table_->setHorizontalHeaderLabels({"Start", "End", "Size", "Perm", "Path"});
-    table_->horizontalHeader()->setStretchLastSection(true);
+    // Fit the fixed-width columns (16-digit hex addresses, size, perms) to their
+    // content so the addresses aren't clipped, and let Path (variable) take the rest.
+    auto* hh = table_->horizontalHeader();
+    hh->setStretchLastSection(true);
+    for (int c = 0; c < 4; ++c)
+        hh->setSectionResizeMode(c, QHeaderView::ResizeToContents);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setFont(QFont("Monospace", 9));
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);

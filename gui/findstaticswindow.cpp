@@ -40,7 +40,11 @@ FindStaticsWindow::FindStaticsWindow(ProcessHandle* proc, QWidget* parent)
     table_ = new QTableWidget;
     table_->setColumnCount(3);
     table_->setHorizontalHeaderLabels({"Static address", "Symbol", "References"});
-    table_->horizontalHeader()->setStretchLastSection(true);
+    // Fit the address and symbol columns to content; References (last) takes the rest.
+    auto* hh = table_->horizontalHeader();
+    hh->setStretchLastSection(true);
+    hh->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    hh->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setFont(QFont("Monospace", 9));

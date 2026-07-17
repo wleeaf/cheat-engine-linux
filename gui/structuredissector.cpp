@@ -103,7 +103,13 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
     table_ = new QTableWidget;
     table_->setColumnCount(7);
     table_->setHorizontalHeaderLabels({"Offset", "Name", "Hex", "Int8", "Int32", "Float", "Pointer?"});
-    table_->horizontalHeader()->setStretchLastSection(true);
+    // Fit the numeric/offset columns to content and let the field Name take the
+    // slack, so every value column stays readable instead of all-but-last squeezing.
+    auto* hh = table_->horizontalHeader();
+    hh->setStretchLastSection(false);
+    for (int c = 0; c < 7; ++c)
+        hh->setSectionResizeMode(c, QHeaderView::ResizeToContents);
+    hh->setSectionResizeMode(1, QHeaderView::Stretch);  // Name
     table_->setFont(QFont("Monospace", 9));
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->verticalHeader()->setVisible(false);

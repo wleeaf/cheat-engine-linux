@@ -17,7 +17,12 @@ ThreadListWindow::ThreadListWindow(ProcessHandle* proc, QWidget* parent)
     table_ = new QTableWidget;
     table_->setColumnCount(3);
     table_->setHorizontalHeaderLabels({"TID", "Name", "State"});
-    table_->horizontalHeader()->setStretchLastSection(true);
+    // TID and State are short and fixed; let the thread Name column take the slack.
+    auto* hh = table_->horizontalHeader();
+    hh->setStretchLastSection(false);
+    hh->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    hh->setSectionResizeMode(1, QHeaderView::Stretch);
+    hh->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setFont(QFont("Monospace", 9));
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);

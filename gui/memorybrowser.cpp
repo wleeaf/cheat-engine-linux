@@ -140,6 +140,12 @@ void HexView::mousePressEvent(QMouseEvent* e) {
     QPoint pt = e->position().toPoint();
     int off = byteOffsetAt(pt);
     if (off >= 0) {
+        // Shift+click extends the selection from the current cursor; a plain click
+        // starts a fresh single-byte selection (and a drag anchor for mouseMove).
+        if ((e->modifiers() & Qt::ShiftModifier) && selectedOffset_ >= 0)
+            selAnchor_ = selectedOffset_;
+        else
+            selAnchor_ = -1;
         selectedOffset_ = off;
         editNibble_ = 0;   // fresh byte, edit high nibble first
         // Editing happens in whichever column was clicked: hex digits vs. chars.
@@ -154,9 +160,28 @@ void HexView::mousePressEvent(QMouseEvent* e) {
     QAbstractScrollArea::mousePressEvent(e);
 }
 
+void HexView::mouseMoveEvent(QMouseEvent* e) {
+    // Drag with the left button held extends a byte range from the press point.
+    if (!(e->buttons() & Qt::LeftButton)) { QAbstractScrollArea::mouseMoveEvent(e); return; }
+    int off = byteOffsetAt(e->position().toPoint());
+    if (off >= 0 && off != selectedOffset_) {
+        if (selAnchor_ < 0) selAnchor_ = selectedOffset_;  // begin range at the press byte
+        selectedOffset_ = off;
+        editNibble_ = 0;
+        viewport()->update();
+        emit cursorMoved(address_ + (uintptr_t)off);
+    }
+    QAbstractScrollArea::mouseMoveEvent(e);
+}
+
 void HexView::contextMenuEvent(QContextMenuEvent* e) {
     int off = byteOffsetAt(e->pos());
-    if (off >= 0) selectedOffset_ = off;
+    // Right-clicking inside an existing range keeps it (so "Copy selection" acts
+    // on the drag); clicking elsewhere starts a fresh single-byte selection.
+    if (off >= 0) {
+        int lo, hi;
+        if (!(selRange(lo, hi) && off >= lo && off <= hi)) { selAnchor_ = -1; selectedOffset_ = off; }
+    }
     viewport()->update();
 
     uintptr_t addr = (selectedOffset_ >= 0) ? address_ + selectedOffset_ : address_;
@@ -165,6 +190,11 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
     // handler afterwards would be out-of-bounds.
     bool haveByte = selectedOffset_ >= 0 && selectedOffset_ < (int)cache_.size();
     uint8_t selByte = haveByte ? cache_[selectedOffset_] : 0;
+    // Capture the selected range as (start address, count) so a resize mid-menu
+    // can't invalidate it; the bytes are re-read from the process on demand.
+    int selLo = -1, selHi = -1;
+    int selCount = selRange(selLo, selHi) ? (selHi - selLo + 1) : 0;
+    uintptr_t selAddr = selCount > 0 ? address_ + (uintptr_t)selLo : addr;
 
     QMenu menu(this);
     menu.addAction(QString("Address: 0x%1").arg(addr, 16, 16, QChar('0')))->setEnabled(false);
@@ -174,6 +204,12 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
     auto* copyByte = haveByte
         ? menu.addAction(QString("Copy byte (0x%1)").arg(selByte, 2, 16, QChar('0')))
         : nullptr;
+    // Selection-based copy appears only for a real multi-byte range (a drag or
+    // shift-click); a single byte keeps the fixed "Copy 16 bytes" shortcut.
+    QAction* copySelAob = selCount > 1
+        ? menu.addAction(QString("Copy selection as AOB (%1 bytes)").arg(selCount)) : nullptr;
+    QAction* copySelHex = selCount > 1
+        ? menu.addAction("Copy selection (hex, no spaces)") : nullptr;
     auto* copyAob = menu.addAction("Copy 16 bytes as AOB");
     auto* gotoAct = menu.addAction("Goto…");
     auto* followPtr = menu.addAction("Follow pointer here (qword)");
@@ -193,7 +229,7 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
         a->setChecked(bytesPerRow_ == n);
         connect(a, &QAction::triggered, this, [this, n]() {
             bytesPerRow_ = n;
-            selectedOffset_ = -1;
+            selectedOffset_ = -1; selAnchor_ = -1;
             updateScrollBar();
             refresh();
         });
@@ -232,6 +268,21 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
             toks << (i < got ? QString("%1").arg(b[i], 2, 16, QChar('0')).toUpper()
                              : QStringLiteral("??"));
         clip->setText(toks.join(' '));
+    } else if ((copySelAob && picked == copySelAob) || (copySelHex && picked == copySelHex)) {
+        // Re-read the selected range straight from the target so the copy is exact
+        // even if the on-screen cache scrolled or refreshed while the menu was up.
+        std::vector<uint8_t> buf(selCount);
+        size_t got = 0;
+        if (proc_) { auto r = proc_->read(selAddr, buf.data(), buf.size()); got = (r && *r > 0) ? *r : 0; }
+        const bool spaced = (picked == copySelAob);
+        QString out;
+        out.reserve(selCount * (spaced ? 3 : 2));
+        for (int i = 0; i < selCount; ++i) {
+            if (spaced && i) out += ' ';
+            out += (i < (int)got) ? QString("%1").arg(buf[i], 2, 16, QChar('0')).toUpper()
+                                  : QStringLiteral("??");
+        }
+        clip->setText(out);
     } else if (picked == gotoAct) {
         emit requestGoto(addr);
     } else if (picked == followPtr) {
@@ -314,6 +365,7 @@ void HexView::refresh() {
     // cache_ may have shrunk (window resized smaller); drop a now-stale selection
     // so the context menu does not dereference past the end of cache_.
     if (selectedOffset_ >= (int)cache_.size()) selectedOffset_ = -1;
+    if (selAnchor_ >= (int)cache_.size()) selAnchor_ = -1;
     viewport()->update();
 }
 
@@ -391,8 +443,9 @@ void HexView::paintEvent(QPaintEvent*) {
                 int x = addrColW + col * charW_ * 3;
                 if (col == 8) x += charW_; // gap in middle
 
-                // Selection highlight on the selected byte.
-                if (idx == selectedOffset_) {
+                // Selection highlight across the selected byte range (single byte
+                // when not dragging / shift-selecting).
+                if (int lo, hi; selRange(lo, hi) && idx >= lo && idx <= hi) {
                     p.fillRect(x - 1, y - charH_ + 2, charW_ * 2 + 2, charH_,
                                c.selection);
                 }
@@ -420,14 +473,17 @@ void HexView::paintEvent(QPaintEvent*) {
             }
         }
 
-        // ASCII
-        p.setPen(c.ascii);
+        // ASCII (with the same selection highlight as the hex column)
         for (int col = 0; col < bytesPerRow_; ++col) {
             int idx = row * bytesPerRow_ + col;
             if (idx >= (int)cache_.size()) break;
             uint8_t b = cache_[idx];
+            int ax = asciiX + col * charW_;
+            if (int lo, hi; selRange(lo, hi) && idx >= lo && idx <= hi)
+                p.fillRect(ax, y - charH_ + 2, charW_, charH_, c.selection);
+            p.setPen(c.ascii);
             char ch = (idx < (int)readableBytes_ && b >= 32 && b < 127) ? (char)b : '.';
-            p.drawText(asciiX + col * charW_, y, QString(QChar(ch)));
+            p.drawText(ax, y, QString(QChar(ch)));
         }
     }
 }
@@ -453,6 +509,7 @@ void HexView::keyPressEvent(QKeyEvent* e) {
         char c = t[0].toLatin1();
         if (c >= 0x20 && c < 0x7f) {
             if (pokeByte(address_ + (uintptr_t)selectedOffset_, (uint8_t)c)) {
+                selAnchor_ = -1;   // editing collapses a range to the edited byte
                 cache_[selectedOffset_] = (uint8_t)c;
                 if (selectedOffset_ + 1 < (int)cache_.size()) ++selectedOffset_;
             }
@@ -471,6 +528,7 @@ void HexView::keyPressEvent(QKeyEvent* e) {
                                       : (uint8_t)((cur & 0xF0) | digit);
         uintptr_t target = address_ + (uintptr_t)selectedOffset_;
         if (pokeByte(target, nb)) {
+            selAnchor_ = -1;   // editing collapses a range to the edited byte
             cache_[selectedOffset_] = nb;
             if (editNibble_ == 0) {
                 editNibble_ = 1;                       // stay, edit low nibble next
@@ -483,6 +541,13 @@ void HexView::keyPressEvent(QKeyEvent* e) {
         return;
     }
 
+    // A plain cursor move collapses any range selection back to a single byte.
+    switch (e->key()) {
+        case Qt::Key_Left: case Qt::Key_Right: case Qt::Key_Up:
+        case Qt::Key_Down: case Qt::Key_PageUp: case Qt::Key_PageDown:
+            selAnchor_ = -1; break;
+        default: break;
+    }
     if (e->key() == Qt::Key_Left)  { if (selectedOffset_ > 0) { --selectedOffset_; editNibble_ = 0; viewport()->update(); } }
     else if (e->key() == Qt::Key_Right) { if (selectedOffset_ >= 0 && selectedOffset_ + 1 < (int)cache_.size()) { ++selectedOffset_; editNibble_ = 0; viewport()->update(); } }
     else if (e->key() == Qt::Key_Down) { address_ += bytesPerRow_; editNibble_ = 0; refresh(); }

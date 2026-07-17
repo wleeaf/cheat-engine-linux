@@ -35,7 +35,7 @@ public:
     DisplayType displayType() const { return displayType_; }
     void setBytesPerRow(int n) {
         if (n <= 0) return;
-        bytesPerRow_ = n; selectedOffset_ = -1;
+        bytesPerRow_ = n; selectedOffset_ = -1; selAnchor_ = -1;
         updateScrollBar(); refresh();
     }
 
@@ -58,10 +58,19 @@ protected:
     void keyPressEvent(QKeyEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
     void contextMenuEvent(QContextMenuEvent* event) override;
 
 private:
     void updateScrollBar();
+    /// Selected byte range [lo, hi] inclusive within the visible window. Returns
+    /// false when nothing is selected; a single click yields lo == hi.
+    bool selRange(int& lo, int& hi) const {
+        if (selectedOffset_ < 0) return false;
+        lo = (selAnchor_ < 0) ? selectedOffset_ : std::min(selAnchor_, selectedOffset_);
+        hi = (selAnchor_ < 0) ? selectedOffset_ : std::max(selAnchor_, selectedOffset_);
+        return true;
+    }
     /// Width of the address column (single source of truth for paint + hit-test).
     int addrColumnWidth() const { return charW_ * 18; } // fits 16 hex digits + pad
     /// Scroll the view by `rows` (negative = toward lower addresses), clamped at 0
@@ -83,6 +92,7 @@ private:
     int charW_ = 0;
     int charH_ = 0;
     int selectedOffset_ = -1;  // Byte offset within the visible window, -1 if none
+    int selAnchor_ = -1;       // Other end of a shift/drag range, -1 if single byte
     int editNibble_ = 0;       // 0 = high nibble next, 1 = low nibble next
     bool editAscii_ = false;   // selection is in the ASCII column (type chars)
     std::vector<uint8_t> cache_;

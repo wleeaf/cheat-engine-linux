@@ -65,6 +65,10 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
 - **Disassembler annotates unnamed call/jmp targets** with `module+offset`
   (e.g. `jmp 0x… ; GameAssembly.so+0x1234`) when no symbol exists, so stripped
   game binaries are still navigable; conditional jumps stay uncluttered.
+- **Hex view: multi-byte range selection** by drag or shift+click (highlighted
+  in both the hex and ASCII columns), with right-click "Copy selection as AOB"
+  and "Copy selection (hex, no spaces)". Editing or arrow-navigating collapses
+  the range back to a single byte.
 - **`--pid <N>`** attaches to a process on launch (no picker dialog).
 
 ### Scripting / RE

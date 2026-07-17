@@ -1223,8 +1223,11 @@ void MainWindow::setupUi() {
     auto updateFloatOptions = [this]() {
         auto vt = mapValueType(valueTypeCombo_->currentIndex());
         bool isFloat = vt == ValueType::Float || vt == ValueType::Double;
-        floatRoundingCombo_->setEnabled(isFloat);
-        floatToleranceEdit_->setEnabled(isFloat && floatRoundingCombo_->currentIndex() == 3);
+        // Hide (not just disable) the float-only rounding/tolerance controls for
+        // integer/text scans so the row collapses instead of leaving greyed
+        // clutter. Tolerance appears only for the "Extreme" rounding mode.
+        floatRoundingCombo_->setVisible(isFloat);
+        floatToleranceEdit_->setVisible(isFloat && floatRoundingCombo_->currentIndex() == 3);
         // Type-aware placeholder to guide what to type (AOB wildcards, etc.).
         const char* ph = "e.g. 100";
         switch (vt) {

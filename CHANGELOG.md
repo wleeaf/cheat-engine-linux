@@ -103,6 +103,9 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
 - `cescan scan` gained `--executable` / `--no-executable` (and `--no-writable`),
   exposing the tri-state region filters the GUI already has, so a shell scan can
   target code vs data the same way.
+- `cescan disasm` annotates a direct call/jmp target with its symbol, or its
+  `module+offset` when unnamed (e.g. `jmp 0x… ; sleep+0x2020`), matching the GUI
+  disassembler; register/indirect branches stay unannotated.
 
 ## v0.6.0: scanner performance overhaul (2026-07-16)
 

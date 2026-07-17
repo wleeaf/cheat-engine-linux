@@ -13,6 +13,7 @@
 #include "scanner/pointer_scanner.hpp"
 #include "scripting/lua_engine.hpp"
 #include "core/simple_address_list.hpp"
+#include "core/types.hpp"   // ce::moduleOffsetString
 #include "analysis/il2cpp_metadata.hpp"
 #include "analysis/il2cpp_binary.hpp"
 #include "analysis/signature.hpp"
@@ -303,12 +304,23 @@ static int cmd_write(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt
     return 0;
 }
 
+// Absolute target of a DIRECT branch ("jmp 0x401234"); 0 for register/indirect
+// operands ("call rax", "jmp qword ptr [0x...]"). Mirrors the GUI's parseImmediate.
+static uintptr_t branchImmTarget(const std::string& operands) {
+    if (operands.find('[') != std::string::npos) return 0;
+    auto pos = operands.find("0x");
+    if (pos == std::string::npos) return 0;
+    try { return (uintptr_t)std::stoull(operands.substr(pos + 2), nullptr, 16); }
+    catch (...) { return 0; }
+}
+
 static int cmd_disasm(pid_t pid, uintptr_t addr, size_t count) {
     LinuxProcessHandle proc(pid);
 
     // Load symbols for annotation
     SymbolResolver resolver;
     resolver.loadProcess(proc);
+    auto modules = proc.modules();   // for module+offset fallback on unnamed targets
 
     std::vector<uint8_t> buf(count * 15);
     auto r = proc.read(addr, buf.data(), buf.size());
@@ -324,7 +336,22 @@ static int cmd_disasm(pid_t pid, uintptr_t addr, size_t count) {
         auto addrSym = resolver.resolve(i.address);
         if (!addrSym.empty())
             printf("  ; %s\n", addrSym.c_str());
-        printf("%s\n", i.toString().c_str());
+        // Annotate a direct call/jmp target with its symbol, or its module+offset
+        // when unnamed (stripped binary), matching the GUI disassembler.
+        std::string anno;
+        const bool branch = i.mnemonic == "call" || i.mnemonic == "jmp" ||
+                            (!i.mnemonic.empty() && i.mnemonic[0] == 'j');
+        if (branch) {
+            if (uintptr_t target = branchImmTarget(i.operands)) {
+                auto sym = resolver.resolve(target);
+                if (!sym.empty()) anno = "  ; " + sym;
+                else if (i.mnemonic == "call" || i.mnemonic == "jmp") {
+                    auto mo = ce::moduleOffsetString(modules, target);
+                    if (!mo.empty()) anno = "  ; " + mo;
+                }
+            }
+        }
+        printf("%s%s\n", i.toString().c_str(), anno.c_str());
     }
     printf("\n%zu instructions\n", insns.size());
     return 0;

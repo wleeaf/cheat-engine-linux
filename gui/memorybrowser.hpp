@@ -62,6 +62,8 @@ protected:
 
 private:
     void updateScrollBar();
+    /// Width of the address column (single source of truth for paint + hit-test).
+    int addrColumnWidth() const { return charW_ * 18; } // fits 16 hex digits + pad
     /// Scroll the view by `rows` (negative = toward lower addresses), clamped at 0
     /// and only moving up onto mapped memory. Shared by the wheel and scrollbar.
     void scrollRows(int rows);
@@ -87,6 +89,7 @@ private:
     size_t readableBytes_ = 0;   // how many leading cache_ bytes were actually read
                                  // (the rest render as "??", not zeros)
     bool hexUpper_ = false;      // uppercase hex bytes/addresses (display/hexUpper)
+    int  addrDigits_ = 16;       // hex digits in the address column (8 or 16)
 
     /// Write a single byte to the target, making the page writable if needed.
     bool pokeByte(uintptr_t addr, uint8_t value);
@@ -146,6 +149,7 @@ protected:
 
 private:
     void updateScrollBar();
+    int addrColumnWidth() const { return charW_ * 18; } // fits 16 hex digits + pad
     /// Scroll by `rows` instructions (negative = up), region-safe. Shared by the
     /// wheel and the draggable scrollbar.
     void scrollRows(int rows);
@@ -178,6 +182,7 @@ private:
     std::vector<ce::Instruction> instructions_;
     QString emptyReason_;   // shown when a read yields no instructions (blank pane otherwise)
     bool hexUpper_ = false; // uppercase instruction addresses (display/hexUpper)
+    int  addrDigits_ = 16;  // hex digits in the address column (8 or 16)
     std::set<uintptr_t> breakpoints_;
     std::map<uintptr_t, std::string> comments_;   // user-defined inline comments
 };

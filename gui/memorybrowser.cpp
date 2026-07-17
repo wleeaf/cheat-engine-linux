@@ -68,6 +68,7 @@ static constexpr int kScrollCenter = 100;
 
 HexView::HexView(QWidget* parent) : QAbstractScrollArea(parent) {
     hexUpper_ = QSettings().value("display/hexUpper", false).toBool();
+    addrDigits_ = QSettings().value("display/addressWidth", 1).toInt() == 0 ? 8 : 16;
     setFont(monoFont_);
     QFontMetrics fm(monoFont_);
     charW_ = fm.horizontalAdvance('0');
@@ -102,7 +103,7 @@ int HexView::byteOffsetAt(QPoint p) const {
     if (charW_ <= 0 || charH_ <= 0) return -1;
     int row = p.y() / charH_;
     if (row < 0) return -1;
-    int addrColW = charW_ * 18;
+    int addrColW = addrColumnWidth();
     int hexColW = hexColWidth();
     int x = p.x();
     if (x < addrColW) return -1;
@@ -144,7 +145,7 @@ void HexView::mousePressEvent(QMouseEvent* e) {
         // Editing happens in whichever column was clicked: hex digits vs. chars.
         // The hex column width must match byteOffsetAt/paintEvent for the current
         // display type, or the ASCII-column boundary is wrong in grouped modes.
-        int addrColW = charW_ * 18;
+        int addrColW = addrColumnWidth();
         int hexColW = hexColWidth();
         editAscii_ = pt.x() >= addrColW + hexColW + charW_;
         viewport()->update();
@@ -347,7 +348,7 @@ void HexView::paintEvent(QPaintEvent*) {
     p.setFont(monoFont_);
 
     int rows = visibleRows();
-    int addrColW = charW_ * 18;     // "0x0000000000000000"
+    int addrColW = addrColumnWidth();     // "0x0000000000000000"
     int hexColW = hexColWidth();
     int asciiX = addrColW + hexColW + charW_;
 
@@ -363,7 +364,7 @@ void HexView::paintEvent(QPaintEvent*) {
         // Address
         p.setPen(c.addr);
         {
-            QString as = QString("%1").arg(rowAddr, 16, 16, QChar('0'));
+            QString as = QString("%1").arg(rowAddr, addrDigits_, 16, QChar('0'));
             p.drawText(0, y, hexUpper_ ? as.toUpper() : as);
         }
 
@@ -515,6 +516,7 @@ void DisasmView::reloadPreferences() {
 
 DisasmView::DisasmView(QWidget* parent) : QAbstractScrollArea(parent) {
     hexUpper_ = QSettings().value("display/hexUpper", false).toBool();
+    addrDigits_ = QSettings().value("display/addressWidth", 1).toInt() == 0 ? 8 : 16;
     reloadPreferences();
     setMinimumHeight(charH_ * 8);
     setFocusPolicy(Qt::StrongFocus);
@@ -851,7 +853,7 @@ void DisasmView::paintEvent(QPaintEvent*) {
 
     int arrowW = charW_ * 6;              // strip for jump/branch arrows
     int contentX = gutterW_ + arrowW;     // address/bytes/mnemonic start here
-    int addrColW = charW_ * 18;
+    int addrColW = addrColumnWidth();
     int bytesColW = charW_ * 25;
     int mnemonicX = contentX + addrColW + bytesColW;
 
@@ -993,7 +995,7 @@ void DisasmView::paintEvent(QPaintEvent*) {
         // Address
         p.setPen(addrColor_);
         {
-            QString as = QString("%1").arg(inst.address, 16, 16, QChar('0'));
+            QString as = QString("%1").arg(inst.address, addrDigits_, 16, QChar('0'));
             p.drawText(contentX, y, hexUpper_ ? as.toUpper() : as);
         }
 

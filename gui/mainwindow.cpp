@@ -288,13 +288,15 @@ void MainWindow::setupMenus() {
     file->addSeparator();
     file->addAction("Quit", this, &QWidget::close, QKeySequence("Ctrl+Q"));
 
-    // ── Top-level menus in CE's exact order ──
-    // File · Edit · Process · Table · D3D · Tools · .Net · Network · Plugins ·
+    // ── Top-level menus in CE's order (D3D dropped — Windows-only, see below) ──
+    // File · Edit · Process · Table · Tools · .Net · Network · Plugins ·
     // Languages · Help.
     auto* edit = menuBar()->addMenu("&Edit");
     auto* process = menuBar()->addMenu("&Process");
     auto* table = menuBar()->addMenu("Table");
-    auto* d3d = menuBar()->addMenu("D3D");
+    // CE's "D3D" menu (Direct3D overlay/hook) is Windows-only and every item is
+    // permanently disabled on Linux, so it's dropped here rather than shown as a
+    // dead top-level menu. Graphics hooking is out of scope (see docs/DEVELOPMENT).
     auto* tools = menuBar()->addMenu("&Tools");
     auto* dotnet = menuBar()->addMenu(".Net");
     auto* network = menuBar()->addMenu("Network");
@@ -312,15 +314,7 @@ void MainWindow::setupMenus() {
     table->addSeparator();
     stub(table, "Add file");
 
-    // ── D3D (Direct3D hooks — Windows-only, inert on Linux) ──
-    stub(d3d, "Hook Direct3D");
-    d3d->addSeparator();
-    stub(d3d, "Set custom crosshair");
-    { auto* a = stub(d3d, "Toggle wireframe mode"); a->setVisible(false); }
-    { auto* a = stub(d3d, "Toggle disabled zbuffer"); a->setVisible(false); }
-    stub(d3d, "Lock mouse in game window");
-    { auto* a = stub(d3d, "Start and configure snapshot recording"); a->setVisible(false); }
-    stub(d3d, "Snapshot handler");
+    // (D3D menu intentionally omitted on Linux — see note at the menu creation above.)
 
     // ── .Net (Windows-only) ──
     stub(dotnet, "Get object list");

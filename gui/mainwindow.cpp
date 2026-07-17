@@ -262,7 +262,9 @@ void MainWindow::setupMenus() {
     file->addAction("Save", this, &MainWindow::onSaveTable, QKeySequence("Ctrl+S"));
     file->addAction("Save As...", this, &MainWindow::onSaveTable);
     file->addAction("Load", this, &MainWindow::onLoadTable, QKeySequence("Ctrl+L"));
-    file->addMenu("Load Recent");               // populated at runtime
+    recentMenu_ = file->addMenu("Load Recent"); // populated from QSettings below
+    recentMenu_->setToolTipsVisible(true);      // show the full path on hover
+    rebuildRecentMenu();
     stub(file, "Sign table");
     file->addSeparator();
     file->addAction("Save current scanresults", this, &MainWindow::onSaveScanResults,
@@ -2885,6 +2887,7 @@ void MainWindow::onSaveTable() {
         // Save as CE-compatible XML .CT format
         CheatTable table = buildCheatTable();
         table.save(path.toStdString());
+        addRecentTable(path);
     } else {
         // Save as JSON
         QJsonObject root;
@@ -2900,8 +2903,10 @@ void MainWindow::onSaveTable() {
         }
         root["disassemblerComments"] = dc;
         QFile f(path);
-        if (f.open(QIODevice::WriteOnly))
+        if (f.open(QIODevice::WriteOnly)) {
             f.write(QJsonDocument(root).toJson());
+            addRecentTable(path);
+        }
     }
   } catch (const std::exception& ex) {
     // A serialize/save path may throw; never let it escape the slot into
@@ -2992,6 +2997,42 @@ void MainWindow::loadCheatTableModel(const ce::CheatTable& table) {
     disasmAnnotations_ = table.disassemblerComments;
 }
 
+void MainWindow::addRecentTable(const QString& path) {
+    QString abs = QFileInfo(path).absoluteFilePath();
+    if (abs.isEmpty()) return;
+    QSettings s;
+    QStringList recent = s.value("recentTables").toStringList();
+    recent.removeAll(abs);        // de-dup, then promote to the front (most recent)
+    recent.prepend(abs);
+    while (recent.size() > 10) recent.removeLast();
+    s.setValue("recentTables", recent);
+    rebuildRecentMenu();
+}
+
+void MainWindow::rebuildRecentMenu() {
+    if (!recentMenu_) return;
+    recentMenu_->clear();
+    const QStringList recent = QSettings().value("recentTables").toStringList();
+    if (recent.isEmpty()) {
+        recentMenu_->addAction("(no recent tables)")->setEnabled(false);
+        return;
+    }
+    for (const QString& p : recent) {
+        // Basename in the menu, full path in the tooltip; a missing file is greyed
+        // (it stays listed so the user can see what went away, like CE).
+        const bool exists = QFileInfo::exists(p);
+        auto* a = recentMenu_->addAction(QFileInfo(p).fileName());
+        a->setToolTip(exists ? p : p + "  (missing)");
+        a->setEnabled(exists);
+        if (exists) connect(a, &QAction::triggered, this, [this, p]() { loadTableFromPath(p); });
+    }
+    recentMenu_->addSeparator();
+    connect(recentMenu_->addAction("Clear list"), &QAction::triggered, this, [this]() {
+        QSettings().remove("recentTables");
+        rebuildRecentMenu();
+    });
+}
+
 void MainWindow::loadTableFromPath(const QString& path) {
     // Show the loaded table's file name in the title bar, like CE.
     setWindowTitle(QString("Cheat Engine - %1").arg(QFileInfo(path).fileName()));
@@ -3013,6 +3054,7 @@ void MainWindow::loadTableFromPath(const QString& path) {
             return;
         }
         loadCheatTableModel(table);
+        addRecentTable(path);
         return;
     }
     if (fmt != ce::TableFormat::Json) {
@@ -3020,6 +3062,7 @@ void MainWindow::loadTableFromPath(const QString& path) {
         CheatTable table;
         if (!table.load(path.toStdString())) return;
         loadCheatTableModel(table);
+        addRecentTable(path);
     } else {
         // Load JSON
         QFile f(path);
@@ -3037,6 +3080,7 @@ void MainWindow::loadTableFromPath(const QString& path) {
             c.label   = o["label"].toString().toStdString();
             if (!c.address.empty()) disasmAnnotations_.push_back(std::move(c));
         }
+        addRecentTable(path);
     }
   } catch (const std::exception& ex) {
     // A parse/load path (e.g. ct_file) may throw; never let it escape the slot

@@ -48,6 +48,10 @@ public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow() override;
     void loadTableFromPath(const QString& path);  // load .ct/.json without a dialog
+    /// Push `path` to the front of the persisted recent-tables list and rebuild
+    /// the File > Load Recent submenu.
+    void addRecentTable(const QString& path);
+    void rebuildRecentMenu();
     /// Open the Memory Viewer, optionally at `addr` (0 = default / selected result).
     /// Returns the window, or null if no process is attached.
     MemoryBrowser* openMemoryView(uintptr_t addr = 0);
@@ -148,6 +152,8 @@ private:
     ce::ValueType undoResultType_ = ce::ValueType::Int32;
     size_t lastResultValueSize_ = 0;
     size_t undoResultValueSize_ = 0;
+
+    QMenu* recentMenu_ = nullptr;   // File > Load Recent, rebuilt from QSettings
 
     // Top panel — process & scan
     QLabel* processLabel_;

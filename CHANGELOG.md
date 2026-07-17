@@ -76,6 +76,9 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
 - **The main window remembers its size, position and panel layout** across
   runs (window geometry and both splitters are saved on close, restored on
   launch), instead of always reopening at the default 760x560.
+- **File > Load Recent now works.** It was a permanently empty menu; it now
+  lists the last 10 cheat tables you opened or saved (most recent first, full
+  path on hover), greys out ones that have since moved, and has a "Clear list".
 - **`--pid <N>`** attaches to a process on launch (no picker dialog).
 
 ### Scripting / RE

@@ -40,6 +40,7 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
     addrRow->addWidget(new QLabel("Base Address:"));
     addressEdit_ = new QLineEdit(QString("0x%1").arg(baseAddr, 0, 16));
     addressEdit_->setFont(QFont("Monospace", 10));
+    addressEdit_->setMinimumWidth(150);
     connect(addressEdit_, &QLineEdit::returnPressed, this, &StructureDissector::onGotoAddress);
     addrRow->addWidget(addressEdit_);
     auto* goBtn = new QPushButton("Go");
@@ -64,7 +65,12 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
     addrRow->addWidget(new QLabel("Compare:"));
     compareEdit_ = new QLineEdit;
     compareEdit_->setFont(QFont("Monospace", 10));
+    compareEdit_->setMinimumWidth(180);
     compareEdit_->setPlaceholderText("0x…, 0x… (optional, comma/space separated)");
+    compareEdit_->setToolTip(
+        "Enter one or more struct addresses to compare against the base. Rows whose "
+        "bytes differ in any instance are highlighted, so the fields that vary "
+        "between instances stand out. Press Enter to apply.");
     connect(compareEdit_, &QLineEdit::returnPressed, this, [this]() {
         compareAddrs_.clear();
         const auto tokens = compareEdit_->text().split(
@@ -76,28 +82,35 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
         }
         populateTable();
     });
-    addrRow->addWidget(compareEdit_);
+    addrRow->addWidget(compareEdit_, 1);
+    layout->addLayout(addrRow);
 
-    auto* saveBtn = new QPushButton("Save Def…");
+    // Second row: definition / export actions, so the address row above stays
+    // uncrowded (the single-row layout squeezed the Base/Compare edits to nothing).
+    auto* actionRow = new QHBoxLayout;
+    auto* saveBtn = new QPushButton("Save Definition…");
     saveBtn->setToolTip("Save this structure definition (named fields + size)");
     connect(saveBtn, &QPushButton::clicked, this, &StructureDissector::onSaveDefinition);
-    addrRow->addWidget(saveBtn);
-    auto* loadBtn = new QPushButton("Load Def…");
+    actionRow->addWidget(saveBtn);
+    auto* loadBtn = new QPushButton("Load Definition…");
+    loadBtn->setToolTip("Load a previously saved structure definition");
     connect(loadBtn, &QPushButton::clicked, this, &StructureDissector::onLoadDefinition);
-    addrRow->addWidget(loadBtn);
+    actionRow->addWidget(loadBtn);
     auto* cppBtn = new QPushButton("Copy as C++");
+    cppBtn->setToolTip("Copy the current layout to the clipboard as a C++ struct");
     connect(cppBtn, &QPushButton::clicked, this, &StructureDissector::onCopyAsCpp);
-    addrRow->addWidget(cppBtn);
+    actionRow->addWidget(cppBtn);
     auto* il2cppBtn = new QPushButton("Type as IL2CPP…");
     il2cppBtn->setToolTip("Label these bytes with a Unity IL2CPP class's fields "
                           "(names + offsets from global-metadata.dat + GameAssembly)");
     connect(il2cppBtn, &QPushButton::clicked, this, &StructureDissector::onTypeAsIl2Cpp);
-    addrRow->addWidget(il2cppBtn);
+    actionRow->addWidget(il2cppBtn);
     auto* cstructBtn = new QPushButton("Type as C struct…");
     cstructBtn->setToolTip("Label these bytes with a native struct from the target's DWARF debug info");
     connect(cstructBtn, &QPushButton::clicked, this, &StructureDissector::onTypeAsCStruct);
-    addrRow->addWidget(cstructBtn);
-    layout->addLayout(addrRow);
+    actionRow->addWidget(cstructBtn);
+    actionRow->addStretch(1);
+    layout->addLayout(actionRow);
 
     // Table
     table_ = new QTableWidget;

@@ -125,6 +125,7 @@ private:
     std::unique_ptr<ce::os::ProcessWatcher> processWatcher_;
     pid_t currentPid_ = 0;
     int moduleCacheTick_ = 0;   // throttles the address-list module cache refresh
+    bool pauseWhileScanning_ = false;   // SIGSTOP the target during each scan
 
     // Scanner + AutoAssembler + Lua + Debug
     MemoryScanner scanner_;

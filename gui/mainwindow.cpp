@@ -87,6 +87,8 @@
 #include <QFileDialog>
 #include <QTextStream>
 #include <QLocale>
+#include <cstdio>
+#include <cstring>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -362,6 +364,13 @@ void MainWindow::setupMenus() {
         if (::kill(currentPid_, checked ? SIGSTOP : SIGCONT) != 0)
             pauseAct->setChecked(false);
     });
+    // Optionally SIGSTOP the target for the duration of each scan (CE's "pause
+    // while scanning") so values can't change mid-scan, then resume.
+    auto* pauseScanAct = process->addAction("Pause target while scanning");
+    pauseScanAct->setCheckable(true);
+    pauseScanAct->setToolTip("Suspend the target during each First/Next Scan so its "
+                             "memory is a consistent snapshot, then resume it.");
+    connect(pauseScanAct, &QAction::toggled, this, [this](bool on) { pauseWhileScanning_ = on; });
     // ── Table menu ──
     table->addAction("Auto Assemble...", this, [this]() {
         auto* editor = new ScriptEditor(process_.get(), &autoAsm_, this);
@@ -2108,8 +2117,47 @@ static size_t resultValueSizeForConfig(const ScanConfig& config) {
 }
 
 
+namespace {
+// The scheduler state char from /proc/<pid>/stat ('R','S','T',…), or '?'.
+char processStateChar(pid_t pid) {
+    char path[64];
+    std::snprintf(path, sizeof(path), "/proc/%d/stat", (int)pid);
+    FILE* f = std::fopen(path, "r");
+    if (!f) return '?';
+    char buf[512];
+    size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
+    std::fclose(f);
+    buf[n] = '\0';
+    // comm (field 2) is parenthesised and may contain spaces; state follows the
+    // last ')'.
+    char* rp = std::strrchr(buf, ')');
+    if (!rp) return '?';
+    ++rp;
+    while (*rp == ' ') ++rp;
+    return *rp ? *rp : '?';
+}
+
+// SIGSTOP the target on construction, SIGCONT on destruction (best-effort), to
+// freeze it for a scan ("Pause while scanning"). Does nothing if the target is
+// already stopped (e.g. manually paused) so we never resume a process we didn't
+// suspend.
+struct ScopedSigstop {
+    pid_t pid; bool active;
+    ScopedSigstop(pid_t p, bool a) : pid(p), active(false) {
+        if (!a || p <= 0 || processStateChar(p) == 'T') return;
+        active = true;
+        ::kill(pid, SIGSTOP);
+    }
+    ~ScopedSigstop() { if (active) ::kill(pid, SIGCONT); }
+    ScopedSigstop(const ScopedSigstop&) = delete;
+    ScopedSigstop& operator=(const ScopedSigstop&) = delete;
+};
+} // namespace
+
 std::unique_ptr<ScanResult> MainWindow::runScanWithProgress(
     const std::function<ScanResult()>& scanFn) {
+    // Optionally freeze the target for the whole scan so it's a consistent snapshot.
+    ScopedSigstop pause(currentPid_, pauseWhileScanning_);
     // Pause the live-value refresh so it doesn't fight the scan for the target,
     // and show the progress bar.
     if (valueRefreshTimer_) valueRefreshTimer_->stop();

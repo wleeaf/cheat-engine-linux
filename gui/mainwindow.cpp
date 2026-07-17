@@ -99,6 +99,19 @@
 #include <exception>
 
 namespace ce::gui {
+// The scan-results table renders at most this many rows (keeping a million-hit
+// first scan responsive). The true hit count is always shown in the label, with
+// a "(showing first N)" note when it exceeds the cap so the list never looks
+// silently truncated.
+static constexpr size_t kResultDisplayCap = 10000;
+
+static QString foundLabelText(size_t count) {
+    QString s = QString("Found: %1").arg(QLocale().toString((qulonglong)count));
+    if (count > kResultDisplayCap)
+        s += QString("  (showing first %1)").arg(QLocale().toString((qulonglong)kResultDisplayCap));
+    return s;
+}
+
 // Accepts "," or "." decimals (Turkish comma-locale); defined lower down.
 static double parseUserDouble(const QString& s, bool* ok = nullptr);
 
@@ -2391,7 +2404,7 @@ void MainWindow::onFirstScan() {
     }
     firstScanBtn_->setEnabled(true);
 
-    foundLabel_->setText(QString("Found: %1").arg(QLocale().toString((qulonglong)result->count())));
+    foundLabel_->setText(foundLabelText(result->count()));
     if (result->hasWriteError())
         QMessageBox::warning(this, "Scan results truncated",
             "A scan-result file could not be fully written (the disk may be full). "
@@ -2507,7 +2520,7 @@ void MainWindow::onNextScan() {
     }
     nextScanBtn_->setEnabled(true);
 
-    foundLabel_->setText(QString("Found: %1").arg(QLocale().toString((qulonglong)result->count())));
+    foundLabel_->setText(foundLabelText(result->count()));
     if (result->hasWriteError())
         QMessageBox::warning(this, "Scan results truncated",
             "A scan-result file could not be fully written (the disk may be full). "
@@ -2531,7 +2544,7 @@ void MainWindow::onUndoScan() {
     undoResultType_ = ValueType::Int32;
     undoResultValueSize_ = 0;
     resultsModel_->setResult(lastResult_.get(), lastResultType_, lastResultValueSize_);
-    foundLabel_->setText(QString("Found: %1").arg(QLocale().toString((qulonglong)lastResult_->count())));
+    foundLabel_->setText(foundLabelText(lastResult_->count()));
     updateScanButtons();
 }
 
@@ -3421,7 +3434,7 @@ void ScanResultsModel::clear() {
 }
 
 int ScanResultsModel::rowCount(const QModelIndex&) const {
-    return result_ ? std::min(result_->count(), size_t(10000)) : 0;
+    return result_ ? std::min(result_->count(), kResultDisplayCap) : 0;
 }
 
 int ScanResultsModel::columnCount(const QModelIndex&) const { return 3; }

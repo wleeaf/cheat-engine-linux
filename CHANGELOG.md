@@ -69,6 +69,10 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
   in both the hex and ASCII columns), with right-click "Copy selection as AOB"
   and "Copy selection (hex, no spaces)". Editing or arrow-navigating collapses
   the range back to a single byte.
+- **Scan result count no longer looks truncated**: the results table shows at
+  most 10,000 rows for responsiveness, so when a scan finds more the "Found"
+  label now says e.g. `Found: 2,000,000  (showing first 10,000)` instead of
+  leaving the capped list unexplained.
 - **`--pid <N>`** attaches to a process on launch (no picker dialog).
 
 ### Scripting / RE

@@ -3395,6 +3395,10 @@ void ScanResultsModel::setResult(ScanResult* result, ValueType vt, size_t valueS
     valueSize_ = valueSize;
     liveValues_.clear();
     changed_.clear();
+    // Cache the module map so the Address column can flag "static" results (those
+    // inside a loaded module) in green — CE's cue for pointer-stable addresses
+    // that survive a restart, the ones worth turning into a pointer path.
+    modules_ = proc_ ? proc_->modules() : std::vector<ce::ModuleInfo>{};
     endResetModel();
 }
 
@@ -3464,7 +3468,18 @@ QVariant ScanResultsModel::data(const QModelIndex& index, int role) const {
             auto it = changed_.find(index.row());
             if (it != changed_.end() && it->second)
                 return QBrush(ce::gui::editorPalette().error);  // theme-aware red (was low-contrast pink on white)
+        } else if (index.column() == 0 && !modules_.empty()) {
+            // Green address = "static": lives inside a loaded module, so it keeps
+            // the same module+offset across restarts (CE's green cue).
+            if (!ce::moduleOffsetString(modules_, result_->address(index.row())).empty())
+                return QBrush(ce::gui::editorPalette().success);  // theme-aware green
         }
+        return {};
+    }
+    // Hovering a static address reveals its module+offset (the durable identity).
+    if (role == Qt::ToolTipRole && index.column() == 0 && !modules_.empty()) {
+        std::string modOff = ce::moduleOffsetString(modules_, result_->address(index.row()));
+        if (!modOff.empty()) return QString::fromStdString(modOff);
         return {};
     }
     if (role != Qt::DisplayRole) return {};

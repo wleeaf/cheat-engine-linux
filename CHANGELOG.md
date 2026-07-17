@@ -59,6 +59,9 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
 - **Addresses as `module+offset`** (`game.bin+0x1234`) in the cheat table, stable
   across restarts; empty-state hints on the results and cheat-table panes; the
   window title shows the attached process.
+- **Static scan results shown in green** (CE's cue): a result address inside a
+  loaded module is pointer-stable across restarts, so it is coloured green and
+  hovering it reveals the `module+offset` it belongs to.
 - **`--pid <N>`** attaches to a process on launch (no picker dialog).
 
 ### Scripting / RE

@@ -229,6 +229,7 @@ private:
     ce::ValueType valueType_ = ce::ValueType::Int32;
     size_t valueSize_ = 0;
     ce::ProcessHandle* proc_ = nullptr;
+    std::vector<ce::ModuleInfo> modules_;                      // cached for static-address (green) coloring
     std::unordered_map<int, std::vector<uint8_t>> liveValues_; // row -> current bytes (empty = unreadable)
     std::unordered_map<int, bool> changed_;                    // row -> value changed on last refresh
 };

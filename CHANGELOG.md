@@ -73,9 +73,10 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
   most 10,000 rows for responsiveness, so when a scan finds more the "Found"
   label now says e.g. `Found: 2,000,000  (showing first 10,000)` instead of
   leaving the capped list unexplained.
-- **The main window remembers its size, position and panel layout** across
-  runs (window geometry and both splitters are saved on close, restored on
-  launch), instead of always reopening at the default 760x560.
+- **The main window and Memory Viewer remember their size, position and panel
+  layout** across runs (window geometry and every splitter are saved on close,
+  restored on launch), instead of always reopening at the default 760x560 /
+  900x600.
 - **File > Load Recent now works.** It was a permanently empty menu; it now
   lists the last 10 cheat tables you opened or saved (most recent first, full
   path on hover), greys out ones that have since moved, and has a "Clear list".

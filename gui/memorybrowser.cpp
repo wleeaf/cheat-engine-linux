@@ -1426,6 +1426,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     registerPanel_->setToolTip("Registers (populated at a debug breakpoint)");
 
     auto* topSplit = new QSplitter(Qt::Horizontal);
+    topSplit->setObjectName("memTopSplit");   // persisted across runs
     topSplit->addWidget(disasmView_);
     topSplit->addWidget(registerPanel_);
     topSplit->setStretchFactor(0, 4);
@@ -1456,6 +1457,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     });
 
     auto* bottomSplit = new QSplitter(Qt::Horizontal);
+    bottomSplit->setObjectName("memBottomSplit");   // persisted across runs
     bottomSplit->addWidget(hexView_);
     bottomSplit->addWidget(stacktracePanel_);
     bottomSplit->setStretchFactor(0, 4);
@@ -1463,6 +1465,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     bottomSplit->setSizes({640, 200});
 
     auto* splitter = new QSplitter(Qt::Vertical);
+    splitter->setObjectName("memVSplit");   // persisted across runs
     splitter->addWidget(topSplit);
     splitter->addWidget(bottomSplit);
     splitter->setStretchFactor(0, 2);
@@ -1614,6 +1617,28 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
             }
         }
     }
+
+    // Restore the last viewer size and the three panel splits (no-ops on the
+    // first run, keeping the 900x600 + default splits above). Saved in closeEvent.
+    {
+        QSettings s;
+        if (auto g = s.value("memview/geometry").toByteArray(); !g.isEmpty())
+            restoreGeometry(g);
+        for (auto* sp : findChildren<QSplitter*>())
+            if (!sp->objectName().isEmpty())
+                if (auto st = s.value("memview/splitter/" + sp->objectName()).toByteArray();
+                    !st.isEmpty())
+                    sp->restoreState(st);
+    }
+}
+
+void MemoryBrowser::closeEvent(QCloseEvent* ev) {
+    QSettings s;
+    s.setValue("memview/geometry", saveGeometry());
+    for (auto* sp : findChildren<QSplitter*>())
+        if (!sp->objectName().isEmpty())
+            s.setValue("memview/splitter/" + sp->objectName(), sp->saveState());
+    QMainWindow::closeEvent(ev);
 }
 
 void MemoryBrowser::syncViews(uintptr_t addr) {

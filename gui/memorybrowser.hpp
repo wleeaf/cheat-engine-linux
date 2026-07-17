@@ -246,6 +246,10 @@ public:
     QMenu* toolsMenu() const { return toolsMenu_; }
     QMenu* debugMenu() const { return debugMenu_; }
 
+protected:
+    // Persist the viewer's size/position and the three splitters across runs.
+    void closeEvent(QCloseEvent* ev) override;
+
 private slots:
     void onGotoAddress();
     void onRefresh();

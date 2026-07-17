@@ -11,11 +11,11 @@ static const char* kDarkStyleSheet = R"(
     QMenuBar::item:selected { background-color: #313244; }
     QMenu { background-color: #1e1e2e; color: #cdd6f4; border: 1px solid #45475a; }
     QMenu::item:selected { background-color: #313244; }
-    QPushButton { background-color: #313244; color: #cdd6f4; border: 1px solid #45475a;
+    QPushButton, QToolButton { background-color: #313244; color: #cdd6f4; border: 1px solid #45475a;
                   padding: 4px 12px; border-radius: 4px; }
-    QPushButton:hover { background-color: #45475a; }
-    QPushButton:pressed { background-color: #585b70; }
-    QPushButton:disabled { color: #585b70; }
+    QPushButton:hover, QToolButton:hover { background-color: #45475a; }
+    QPushButton:pressed, QToolButton:pressed { background-color: #585b70; }
+    QPushButton:disabled, QToolButton:disabled { color: #585b70; }
     QLineEdit, QSpinBox { background-color: #313244; color: #cdd6f4; border: 1px solid #45475a;
                           padding: 3px; border-radius: 3px; }
     QComboBox { background-color: #313244; color: #cdd6f4; border: 1px solid #45475a;
@@ -29,7 +29,7 @@ static const char* kDarkStyleSheet = R"(
     QSplitter::handle { background-color: #313244; }
     QGroupBox { color: #a6adc8; border: 1px solid #45475a; border-radius: 4px; margin-top: 8px; padding-top: 8px; }
     QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }
-    QCheckBox { color: #cdd6f4; }
+    QCheckBox, QRadioButton { color: #cdd6f4; }
     QLabel { color: #cdd6f4; }
     QProgressBar { background-color: #313244; border: 1px solid #45475a; border-radius: 3px; text-align: center; }
     QProgressBar::chunk { background-color: #89b4fa; border-radius: 3px; }

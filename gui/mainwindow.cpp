@@ -3103,6 +3103,10 @@ MemoryBrowser* MainWindow::openMemoryView(uintptr_t addr) {
     browser->setCodeFinderLauncher([this](uintptr_t addr, bool writesOnly) {
         startCodeFinderForAddress(addr, writesOnly);
     });
+    browser->setAddToList([this](uintptr_t addr) {
+        addressListModel_->addEntry(addr, ValueType::Int32);
+        statusBar()->showMessage(QString("Added 0x%1 to the cheat table").arg(addr, 0, 16), 3000);
+    });
 
     // An explicit address wins; otherwise open at a selected scan result.
     if (addr) {

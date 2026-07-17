@@ -44,6 +44,7 @@ public:
 signals:
     void requestFindWhatAccesses(uintptr_t addr, bool writesOnly);
     void requestGoto(uintptr_t addr);
+    void requestAddToList(uintptr_t addr);
     void cursorMoved(uintptr_t addr);
 
 protected:
@@ -190,6 +191,8 @@ public:
     void setBreakpointRemover(std::function<void(uintptr_t)> fn) { bpRemover_ = std::move(fn); }
     void setBreakpointQuery(BpQuery fn) { bpQuery_ = std::move(fn); refreshBreakpoints(); }
     void setCodeFinderLauncher(CodeFinderLauncher fn) { cfLauncher_ = std::move(fn); }
+    /// Add an address (from the hex view's context menu) to the cheat table.
+    void setAddToList(std::function<void(uintptr_t)> fn) { addToList_ = std::move(fn); }
 
     /// Open the full Debugger window at an address (the browser's step buttons use
     /// this — real single-stepping lives in the Debugger; MainWindow provides it).
@@ -269,6 +272,7 @@ private:
 
     BpToggle bpSetter_;
     std::function<void(uintptr_t)> bpRemover_;
+    std::function<void(uintptr_t)> addToList_;
     BpQuery bpQuery_;
     CodeFinderLauncher cfLauncher_;
     DebuggerLauncher debuggerLauncher_;

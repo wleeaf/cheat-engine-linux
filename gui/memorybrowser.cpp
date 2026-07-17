@@ -174,6 +174,7 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
         : nullptr;
     auto* gotoAct = menu.addAction("Goto…");
     auto* followPtr = menu.addAction("Follow pointer here (qword)");
+    auto* addToList = menu.addAction("Add address to the list");
 
     menu.addSeparator();
     auto* findWrites = menu.addAction("Find what writes this address");
@@ -227,6 +228,8 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
             auto r = proc_->read(addr, &ptr, sizeof(ptr));
             if (r && *r >= sizeof(ptr) && ptr) emit requestGoto((uintptr_t)ptr);
         }
+    } else if (picked == addToList) {
+        emit requestAddToList(addr);
     } else if (picked == findWrites) {
         emit requestFindWhatAccesses(addr, /*writesOnly=*/true);
     } else if (picked == findAccesses) {
@@ -1369,6 +1372,9 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         if (cfLauncher_) cfLauncher_(addr, writesOnly);
         else QMessageBox::information(this, "Code finder unavailable",
             "No code-finder launcher is wired to this memory browser instance.");
+    });
+    connect(hexView_, &HexView::requestAddToList, this, [this](uintptr_t addr) {
+        if (addToList_) addToList_(addr);
     });
     connect(hexView_, &HexView::requestGoto, this, [this](uintptr_t addr) {
         gotoAddress(addr);

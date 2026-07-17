@@ -918,6 +918,14 @@ void MainWindow::updateOverlayStatus() {
         .arg(total));
 }
 
+// The monospace font from the Settings dialog (display/fontFamily + fontSize),
+// used for the results / cheat-table views. Falls back to "Monospace" 9.
+static QFont settingsMonospaceFont() {
+    QSettings s;
+    return QFont(s.value("display/fontFamily", "Monospace").toString(),
+                 s.value("display/fontSize", 9).toInt());
+}
+
 void MainWindow::setupUi() {
     auto* central = new QWidget;
     auto* mainLayout = new QVBoxLayout(central);
@@ -975,7 +983,7 @@ void MainWindow::setupUi() {
     resultsView_->setModel(resultsModel_);
     resultsView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     resultsView_->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    resultsView_->setFont(QFont("Monospace", 9));
+    resultsView_->setFont(settingsMonospaceFont());
     resultsView_->verticalHeader()->setVisible(false);
     resultsView_->horizontalHeader()->setStretchLastSection(true);
     // Address sized to its content; Value and Previous share the rest evenly.
@@ -1379,7 +1387,7 @@ void MainWindow::setupUi() {
     connect(addressListModel_, &QAbstractItemModel::rowsInserted, this, &MainWindow::rebuildValueHotkeys);
     connect(addressListModel_, &QAbstractItemModel::rowsRemoved, this, &MainWindow::rebuildValueHotkeys);
     addressListView_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    addressListView_->setFont(QFont("Monospace", 9));
+    addressListView_->setFont(settingsMonospaceFont());
     addressListView_->verticalHeader()->setVisible(false);
     addressListView_->horizontalHeader()->setStretchLastSection(true);
     addressListView_->setSelectionMode(QAbstractItemView::ExtendedSelection);

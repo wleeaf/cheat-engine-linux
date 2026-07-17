@@ -958,6 +958,28 @@ void MainWindow::setupUi() {
     resultsView_->setFont(QFont("Monospace", 9));
     resultsView_->verticalHeader()->setVisible(false);
     resultsView_->horizontalHeader()->setStretchLastSection(true);
+
+    // A centered hint shown over the empty result list so the pane isn't a blank
+    // grid before the first scan (a "finished app" touch).
+    resultsEmptyHint_ = new QLabel(
+        tr("No results yet.\n\nEnter a value and press First Scan,\n"
+           "or open a process with Ctrl+O."),
+        resultsView_->viewport());
+    resultsEmptyHint_->setAlignment(Qt::AlignCenter);
+    resultsEmptyHint_->setStyleSheet("color: gray; background: transparent;");
+    resultsEmptyHint_->setAttribute(Qt::WA_TransparentForMouseEvents);
+    resultsView_->viewport()->installEventFilter(this);
+    auto updateResultsHint = [this]() {
+        if (!resultsEmptyHint_) return;
+        const bool empty = resultsModel_->rowCount() == 0;
+        resultsEmptyHint_->setGeometry(resultsView_->viewport()->rect());
+        resultsEmptyHint_->setVisible(empty);
+    };
+    connect(resultsModel_, &QAbstractItemModel::modelReset, this, updateResultsHint);
+    connect(resultsModel_, &QAbstractItemModel::rowsInserted, this, updateResultsHint);
+    connect(resultsModel_, &QAbstractItemModel::rowsRemoved, this, updateResultsHint);
+    updateResultsHint();
+
     connect(resultsView_, &QTableView::doubleClicked, this, &MainWindow::onResultDoubleClicked);
     // Enter adds all selected results to the address list (complements the
     // context menu's "Add N selected").
@@ -2082,6 +2104,14 @@ std::unique_ptr<ScanResult> MainWindow::runScanWithProgress(
 
     if (err) std::rethrow_exception(err);
     return result;
+}
+
+bool MainWindow::eventFilter(QObject* obj, QEvent* ev) {
+    if (resultsEmptyHint_ && resultsView_ && obj == resultsView_->viewport() &&
+        ev->type() == QEvent::Resize) {
+        resultsEmptyHint_->setGeometry(resultsView_->viewport()->rect());
+    }
+    return QMainWindow::eventFilter(obj, ev);
 }
 
 void MainWindow::onFirstScan() {

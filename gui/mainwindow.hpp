@@ -65,6 +65,10 @@ private slots:
     void onCreateTrainer();
     void onFreezeTimer();
 
+protected:
+    // Keeps the empty-results hint sized to the results viewport.
+    bool eventFilter(QObject* obj, QEvent* ev) override;
+
 private:
     void setupUi();
     void setupMenus();
@@ -145,6 +149,7 @@ private:
     QPushButton* undoScanBtn_;
     QLabel* foundLabel_;
     QProgressBar* progressBar_;
+    QLabel* resultsEmptyHint_ = nullptr;   // centered hint over an empty result list
 
     // Scan options
     QLineEdit* fromAddressEdit_;

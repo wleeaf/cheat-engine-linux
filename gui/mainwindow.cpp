@@ -1013,7 +1013,8 @@ void MainWindow::setupUi() {
         if (!lastResult_) return;
         auto sel = resultsView_->selectionModel()->selectedRows();
         for (auto& idx : sel)
-            addressListModel_->addEntry(resultsModel_->addressAt(idx.row()), lastResultType_);
+            addressListModel_->addEntry(resultsModel_->addressAt(idx.row()), lastResultType_,
+                                        "No description", "", lastResultValueSize_);
     });
     resultsView_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(resultsView_, &QTableView::customContextMenuRequested, this, [this](const QPoint& pos) {
@@ -1044,7 +1045,8 @@ void MainWindow::setupUi() {
         };
         if (picked == addAct) {
             for (auto& idx : sel)
-                addressListModel_->addEntry(resultsModel_->addressAt(idx.row()), lastResultType_);
+                addressListModel_->addEntry(resultsModel_->addressAt(idx.row()), lastResultType_,
+                                        "No description", "", lastResultValueSize_);
         } else if (picked == browseAct || picked == disasmAct) {
             openBrowserAt(firstAddr);
         } else if (picked == copyAct) {
@@ -2470,7 +2472,7 @@ void MainWindow::onUndoScan() {
 void MainWindow::onResultDoubleClicked(const QModelIndex& index) {
     if (!lastResult_) return;
     auto addr = resultsModel_->addressAt(index.row());
-    addressListModel_->addEntry(addr, lastResultType_);
+    addressListModel_->addEntry(addr, lastResultType_, "No description", "", lastResultValueSize_);
 }
 
 void MainWindow::onDeleteAddresses() {
@@ -3421,7 +3423,7 @@ uintptr_t ScanResultsModel::addressAt(int row) const {
 AddressListModel::AddressListModel(QObject* parent) : QAbstractTableModel(parent) {}
 
 void AddressListModel::addEntry(uintptr_t addr, ValueType type, const QString& desc,
-                                const QString& addressExpr) {
+                                const QString& addressExpr, size_t byteCount) {
     beginInsertRows({}, entries_.size(), entries_.size());
     AddressEntry entry;
     entry.id = allocId();
@@ -3429,6 +3431,7 @@ void AddressListModel::addEntry(uintptr_t addr, ValueType type, const QString& d
     entry.address = addr;
     entry.addressExpr = addressExpr;  // non-empty => pointer record, re-resolved live
     entry.type = type;
+    entry.byteCount = byteCount;       // element length for AOB/string (0 = unknown)
     entry.currentValue = "?";
     entries_.push_back(std::move(entry));
     endInsertRows();
@@ -3498,6 +3501,12 @@ static const char* typeToStr(ValueType vt) {
         case ValueType::Pointer: return "pointer";
         case ValueType::Float:  return "float";
         case ValueType::Double: return "double";
+        case ValueType::String: return "string";
+        case ValueType::UnicodeString: return "unicode";
+        case ValueType::ByteArray: return "aob";
+        case ValueType::Binary: return "binary";
+        case ValueType::Grouped: return "grouped";
+        case ValueType::Custom: return "custom";
         default: return "i32";
     }
 }
@@ -3510,6 +3519,12 @@ static ValueType strToType(const QString& s) {
     if (s == "pointer") return ValueType::Pointer;
     if (s == "float")  return ValueType::Float;
     if (s == "double") return ValueType::Double;
+    if (s == "string") return ValueType::String;
+    if (s == "unicode") return ValueType::UnicodeString;
+    if (s == "aob")    return ValueType::ByteArray;
+    if (s == "binary") return ValueType::Binary;
+    if (s == "grouped") return ValueType::Grouped;
+    if (s == "custom") return ValueType::Custom;
     bool ok = false;
     int raw = s.toInt(&ok);
     if (ok) {
@@ -3749,6 +3764,7 @@ QJsonArray AddressListModel::toJson() const {
         obj["address"] = QString("0x%1").arg(e.address, 0, 16);
         if (!e.addressExpr.isEmpty()) obj["addressExpr"] = e.addressExpr;
         obj["type"] = typeToStr(e.type);
+        if (e.byteCount > 0) obj["byteCount"] = (int)e.byteCount;   // AOB/string length
         obj["value"] = e.currentValue;
         obj["active"] = e.active;
         obj["asm"] = e.autoAsmScript;
@@ -3790,6 +3806,7 @@ void AddressListModel::fromJson(const QJsonArray& arr) {
         e.address = obj["address"].toString().toULongLong(nullptr, 16);
         e.addressExpr = obj["addressExpr"].toString();
         e.type = strToType(obj["type"].toString());
+        e.byteCount = (size_t)obj["byteCount"].toInt(0);   // AOB/string length (0 if absent)
         e.currentValue = obj["value"].toString();
         e.active = obj["active"].toBool();
         e.autoAsmScript = obj["asm"].toString();
@@ -4022,11 +4039,15 @@ void AddressListModel::removeEntries(QList<int> rows) {
 // Read+format a variable-length value (String/UnicodeString/ByteArray) for display.
 // nullopt if `type` isn't variable-length; "??" on read failure. Shared by the
 // address-list refresh and the Lua mr.Value read so both agree.
-static std::optional<QString> formatVariableLengthValue(ProcessHandle* proc, uintptr_t addr, ValueType type) {
+static std::optional<QString> formatVariableLengthValue(ProcessHandle* proc, uintptr_t addr,
+                                                        ValueType type, size_t byteCount) {
     if (type != ValueType::String && type != ValueType::UnicodeString && type != ValueType::ByteArray)
         return std::nullopt;
-    uint8_t sbuf[64] = {};
-    auto sr = proc->read(addr, sbuf, sizeof(sbuf));
+    // Read exactly the known element length (AOB pattern / string length) when we
+    // have it, else a reasonable window.
+    const size_t want = byteCount > 0 ? std::min<size_t>(byteCount, 4096) : 64;
+    std::vector<uint8_t> sbuf(want);
+    auto sr = proc->read(addr, sbuf.data(), want);
     if (!sr || *sr == 0) return QString("??");
     size_t n = *sr;
     QString s;
@@ -4041,10 +4062,11 @@ static std::optional<QString> formatVariableLengthValue(ProcessHandle* proc, uin
             if (u == 0 || u < 32) break;
             s += QChar(u);
         }
-    } else {  // ByteArray
-        for (size_t k = 0; k < n && k < 16; ++k)
+    } else {  // ByteArray: show the exact pattern length when known, else cap at 16.
+        const size_t cap = byteCount > 0 ? n : std::min<size_t>(n, 16);
+        for (size_t k = 0; k < cap; ++k)
             s += QString("%1 ").arg(sbuf[k], 2, 16, QChar('0'));
-        s = s.trimmed();
+        s = s.trimmed().toUpper();
     }
     return s;
 }
@@ -4062,8 +4084,8 @@ void AddressListModel::updateValues(ProcessHandle* proc) {
             if (auto v = parser.parse(e.addressExpr.toStdString())) e.address = *v;
         }
 
-        // Variable-length types: read a window and format for display.
-        if (auto fv = formatVariableLengthValue(proc, e.address, e.type)) {
+        // Variable-length types: read the element (exact length if known) and format.
+        if (auto fv = formatVariableLengthValue(proc, e.address, e.type, e.byteCount)) {
             e.currentValue = *fv;
             continue;
         }
@@ -4101,7 +4123,7 @@ std::string AddressListModel::liveValue(int id) {
         ExpressionParser parser(proc_, nullptr);
         if (auto v = parser.parse(e.addressExpr.toStdString())) e.address = *v;
     }
-    if (auto fv = formatVariableLengthValue(proc_, e.address, e.type))
+    if (auto fv = formatVariableLengthValue(proc_, e.address, e.type, e.byteCount))
         return fv->toStdString();
 
     uint8_t buf[8] = {};

@@ -234,6 +234,7 @@ struct AddressEntry {
     QString description;
     uintptr_t address = 0;
     ce::ValueType type = ce::ValueType::Int32;
+    size_t byteCount = 0;     // element length for ByteArray/String/Unicode (0=unknown)
     QString currentValue;
     QString frozenValue;      // Value to continuously write when active
     ce::FreezeMode freezeMode = ce::FreezeMode::Normal;
@@ -258,7 +259,7 @@ class AddressListModel : public QAbstractTableModel, public ce::IAddressList {
 public:
     explicit AddressListModel(QObject* parent = nullptr);
     void addEntry(uintptr_t addr, ce::ValueType type, const QString& desc = "No description",
-                  const QString& addressExpr = {});
+                  const QString& addressExpr = {}, size_t byteCount = 0);
     // Add a cheat-table entry whose checkbox runs an auto-assembler script's
     // [ENABLE]/[DISABLE] (an "(Auto Assembler script)" row, like CE).
     void addScriptEntry(const QString& desc, const QString& script);

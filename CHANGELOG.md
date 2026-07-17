@@ -98,6 +98,10 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
   item). View and edit the table-level Lua that runs when the table loads, run it
   on demand, and it is saved back into the `.CT`/JSON, so you can author trainer
   logic, not just import a script that already runs.
+- **Help > Cheat Engine Help / Lua documentation** now open the shipped README /
+  `docs/SCRIPTING.md` in a rendered Markdown viewer (with an "Open on GitHub"
+  button), instead of being dead menu items; they fall back to the online copy
+  when the docs aren't installed next to the binary.
 - **Debugger highlights changed registers** (CE's cue): after each step or
   breakpoint stop, the registers the instruction modified paint red (general
   purpose and XMM0-15), so what an instruction touched reads at a glance. The

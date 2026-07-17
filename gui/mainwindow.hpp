@@ -126,6 +126,9 @@ private:
     // cheat table (persisted in CheatTable.comment via build/loadTable).
     void showComments();
     void showTableLuaScript();   // Table > Show Cheat Table Lua Script (Ctrl+Alt+L)
+    // Open a shipped doc (e.g. docs/SCRIPTING.md) in a rendered viewer, falling
+    // back to the GitHub copy at `url` if the file is not found locally.
+    void openHelpDoc(const QString& relPath, const QString& title, const QString& url);
     QString tableComment_;
     QString tableLuaScript_;     // table-level Lua (runs on load, saved with the table)
     // Populate a Memory Viewer's View/Tools/Debug menus with the tools that need

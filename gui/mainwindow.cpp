@@ -44,6 +44,9 @@
 #include <thread>
 #include <atomic>
 #include <QCoreApplication>
+#include <QTextBrowser>
+#include <QDesktopServices>
+#include <QUrl>
 #include <fstream>
 #include "platform/linux/injector.hpp"
 #include <QClipboard>
@@ -804,8 +807,14 @@ void MainWindow::setupMenus() {
 
     // ── Help (CE verbatim) ──
     auto* help = menuBar()->addMenu("&Help");
-    stub(help, "Cheat Engine Help");
-    stub(help, "Lua documentation");
+    help->addAction("Cheat Engine Help", this, [this]() {
+        openHelpDoc("README.md", "Cheat Engine for Linux: Help",
+                    "https://github.com/wleeaf/cheat-engine-linux#readme");
+    });
+    help->addAction("Lua documentation", this, [this]() {
+        openHelpDoc("docs/SCRIPTING.md", "Lua / Scripting documentation",
+                    "https://github.com/wleeaf/cheat-engine-linux/blob/main/docs/SCRIPTING.md");
+    });
     stub(help, "Cheat Engine Tutorial");
     stub(help, "Cheat Engine Tutorial (x86_64)");
     { auto* a = stub(help, "Cheat Engine Tutorial (AArch64)"); a->setVisible(false); }
@@ -825,6 +834,51 @@ void MainWindow::setupMenus() {
 
 // Table "Comments" window — CE's CommentsUnit: a PageControl with a Comments tab
 // holding a free-text memo, plus Close. The text is the cheat table's comment,
+// Locate a shipped doc next to the binary (dev build or installed layout).
+// Returns an empty string when not found (caller falls back to the online copy).
+static QString findDocFile(const QString& rel) {
+    const QString exeDir = QCoreApplication::applicationDirPath();
+    const QString base = QFileInfo(rel).fileName();
+    const QStringList candidates = {
+        exeDir + "/" + rel,                                          // next to the binary
+        exeDir + "/../" + rel,                                       // dev build: build/../<rel>
+        exeDir + "/../share/doc/cheat-engine-linux/" + base,         // installed
+        "/usr/share/doc/cheat-engine-linux/" + base,
+    };
+    for (const auto& c : candidates)
+        if (QFileInfo::exists(c)) return QFileInfo(c).absoluteFilePath();
+    return {};
+}
+
+void MainWindow::openHelpDoc(const QString& relPath, const QString& title, const QString& url) {
+    QString path = findDocFile(relPath);
+    QFile f(path);
+    if (path.isEmpty() || !f.open(QIODevice::ReadOnly)) {
+        // No local copy (e.g. a minimal install): open the online doc instead.
+        QDesktopServices::openUrl(QUrl(url));
+        return;
+    }
+    auto* dlg = new QDialog(this);
+    dlg->setWindowTitle(title);
+    dlg->resize(780, 640);
+    auto* v = new QVBoxLayout(dlg);
+    auto* view = new QTextBrowser;
+    view->setOpenExternalLinks(true);
+    view->setMarkdown(QString::fromUtf8(f.readAll()));   // render the Markdown
+    v->addWidget(view);
+    auto* row = new QHBoxLayout;
+    auto* online = new QPushButton("Open on GitHub");
+    connect(online, &QPushButton::clicked, this, [url]() { QDesktopServices::openUrl(QUrl(url)); });
+    row->addWidget(online);
+    row->addStretch();
+    auto* closeBtn = new QPushButton("Close");
+    row->addWidget(closeBtn);
+    v->addLayout(row);
+    connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::accept);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
+}
+
 // persisted via buildCheatTable()/onLoadTable().
 void MainWindow::showComments() {
     auto* dlg = new QDialog(this);

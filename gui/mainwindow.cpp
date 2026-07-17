@@ -2005,6 +2005,12 @@ static void warnIfMemoryUnreadable(QWidget* parent, ce::ProcessHandle* p,
 
 void MainWindow::attachToPid(pid_t pid, const QString& name) {
     currentPid_ = pid;
+    // A Debugger window from a previous target holds a ptrace attachment and a
+    // pointer to the ProcessHandle we are about to replace. Tear it down
+    // synchronously (not close(), which defers deletion past the reset below) so
+    // its detach runs against the still-valid handle and frees ptrace for the new
+    // attach.
+    if (debuggerWindow_) delete debuggerWindow_;
     ceserverClient_.reset();
     process_ = std::make_unique<os::LinuxProcessHandle>(pid);
     // Resolve a readable name so the header isn't "PID: 1234 - 1234" when we were
@@ -2666,12 +2672,7 @@ void MainWindow::wireBrowserAnnotations(MemoryBrowser* browser) {
         [this](std::vector<ce::DisassemblerComment> v) { disasmAnnotations_ = std::move(v); });
     // The browser's step buttons open the full Debugger (which owns the debug
     // session and does real single-stepping).
-    browser->setDebuggerLauncher([this](uintptr_t /*addr*/) {
-        if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
-        auto* w = new ce::gui::DebuggerWindow(process_.get(), this);
-        w->setAttribute(Qt::WA_DeleteOnClose);
-        w->show();
-    });
+    browser->setDebuggerLauncher([this](uintptr_t /*addr*/) { showDebugger(); });
     // "Auto Assemble > Create code/AOB injection here" opens a script editor
     // pre-filled with the generated template.
     browser->setAutoAssembleOpener([this](const QString& script) {
@@ -3198,6 +3199,22 @@ void MainWindow::onMemoryView() {
     openMemoryView(0);
 }
 
+void MainWindow::showDebugger() {
+    if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
+    // Reuse the existing window: it holds the ptrace attachment, so a second one
+    // would fail to attach. Just raise it if it is already open.
+    if (debuggerWindow_) {
+        debuggerWindow_->show();
+        debuggerWindow_->raise();
+        debuggerWindow_->activateWindow();
+        return;
+    }
+    auto* w = new ce::gui::DebuggerWindow(process_.get(), this);
+    w->setAttribute(Qt::WA_DeleteOnClose);
+    debuggerWindow_ = w;   // QPointer auto-nulls on close
+    w->show();
+}
+
 MemoryBrowser* MainWindow::openMemoryView(uintptr_t addr) {
     if (!process_) return nullptr;
     auto* browser = new MemoryBrowser(process_.get(), this);
@@ -3323,11 +3340,7 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
             auto* w = new BreakpointListWindow(&bpManager_, this);
             w->setAttribute(Qt::WA_DeleteOnClose); w->show();
         });
-        dbg->addAction("Full debugger", this, [this]() {
-            if (!process_) return;
-            auto* w = new ce::gui::DebuggerWindow(process_.get(), this);
-            w->setAttribute(Qt::WA_DeleteOnClose); w->show();
-        });
+        dbg->addAction("Full debugger", this, [this]() { showDebugger(); });
         dbg->addAction("Break and trace", this, [this]() {
             if (!process_) return;
             auto* tw = new TracerWindow(process_.get(),

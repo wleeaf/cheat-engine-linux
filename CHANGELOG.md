@@ -84,6 +84,10 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
   breakpoint stop, the registers the instruction modified paint red (general
   purpose and XMM0-15), so what an instruction touched reads at a glance. The
   first stop of a session stays neutral.
+- **One shared Debugger window.** Opening it twice (the Memory Viewer's step
+  buttons, or Debug > Full debugger) used to spawn a second window whose
+  ptrace-attach then failed; now the existing one is raised instead, and it is
+  torn down cleanly when you attach to a different process.
 - **`--pid <N>`** attaches to a process on launch (no picker dialog).
 
 ### Scripting / RE

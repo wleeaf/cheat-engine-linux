@@ -15,6 +15,7 @@
 #include "debug/code_finder.hpp"
 
 #include <QMainWindow>
+#include <QPointer>
 #include <QTableView>
 #include <QLineEdit>
 #include <QComboBox>
@@ -41,6 +42,7 @@ class AddressListModel;
 class OverlayWindow;
 class MemoryBrowser;
 class AdvancedOptionsWindow;
+class DebuggerWindow;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -100,6 +102,9 @@ private:
     /// Construct a Debugger appropriate for the currently attached process —
     /// LinuxDebugger for local pids, RemoteDebugger for ceserver-backed.
     std::unique_ptr<ce::Debugger> createDebuggerForCurrentProcess();
+    /// Show the shared Debugger window, creating it on first use and just raising
+    /// it thereafter (a second one could not ptrace-attach anyway).
+    void showDebugger();
     /// Resolve a scan-range field: hex, symbol, or module+offset expression.
     std::optional<uintptr_t> parseAddressExpr(const QString& text);
     void rebuildValueHotkeys();
@@ -154,6 +159,10 @@ private:
     size_t undoResultValueSize_ = 0;
 
     QMenu* recentMenu_ = nullptr;   // File > Load Recent, rebuilt from QSettings
+    // A single shared Debugger window: it attaches via ptrace on construction, and
+    // only one tracer per target is allowed, so opening a second would just fail
+    // to attach. QPointer auto-nulls when the user closes it (WA_DeleteOnClose).
+    QPointer<DebuggerWindow> debuggerWindow_;
 
     // Top panel — process & scan
     QLabel* processLabel_;

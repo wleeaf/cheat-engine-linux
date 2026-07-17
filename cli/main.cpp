@@ -80,7 +80,8 @@ static void usage() {
         "  --executable      Only scan executable memory (--no-executable to exclude code)\n"
         "\n"
         "Write options:\n"
-        "  --type <type>     byte, i16, i32, i64, pointer, float, double (default: i32)\n"
+        "  --type <type>     byte, i16, i32, i64, pointer, float, double,\n"
+        "                    string (raw text), aob (\"90 90 05\" hex bytes) (default: i32)\n"
     );
 }
 
@@ -276,6 +277,45 @@ static int64_t parseWriteInt(const char* s, int64_t signedMin, uint64_t unsigned
 
 static int cmd_write(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt) {
     LinuxProcessHandle proc(pid);
+
+    // Variable-length writes: a raw string (its UTF-8 bytes) or a concrete byte
+    // array ("90 90 05", for patching code). These write exactly their length.
+    if (vt == ValueType::String || vt == ValueType::ByteArray) {
+        std::vector<uint8_t> bytes;
+        if (vt == ValueType::String) {
+            for (const char* p = valStr; *p; ++p) bytes.push_back((uint8_t)*p);
+        } else {
+            // Parse space/comma-separated hex bytes; wildcards make no sense for an
+            // in-place write, so reject them instead of guessing.
+            std::string tok;
+            auto flush = [&]() -> int {
+                if (tok.empty()) return 0;
+                if (tok == "??" || tok == "?" || tok == "*") {
+                    fprintf(stderr, "write: wildcard '%s' not allowed when writing bytes\n", tok.c_str());
+                    return 1;
+                }
+                char* end = nullptr;
+                long b = strtol(tok.c_str(), &end, 16);
+                if (*end != 0 || b < 0 || b > 255) {
+                    fprintf(stderr, "write: '%s' is not a hex byte\n", tok.c_str());
+                    return 1;
+                }
+                bytes.push_back((uint8_t)b);
+                tok.clear();
+                return 0;
+            };
+            for (const char* p = valStr;; ++p) {
+                if (*p == ' ' || *p == ',' || *p == '\0') { if (flush()) return 1; if (!*p) break; }
+                else tok.push_back(*p);
+            }
+        }
+        if (bytes.empty()) { fprintf(stderr, "write: nothing to write\n"); return 1; }
+        auto r = proc.write(addr, bytes.data(), bytes.size());
+        if (!r) { fprintf(stderr, "Write failed: %s\n", r.error().message().c_str()); return 1; }
+        printf("Wrote %zu bytes to 0x%lx\n", bytes.size(), addr);
+        return 0;
+    }
+
     uint8_t buf[8] = {};
     size_t sz = typeSize(vt);
 
@@ -288,10 +328,10 @@ static int cmd_write(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt
         case ValueType::Float:  { float v = atof(valStr); memcpy(buf, &v, 4); break; }
         case ValueType::Double: { double v = atof(valStr); memcpy(buf, &v, 8); break; }
         default:
-            // String/Unicode/ByteArray/Binary/All/Grouped/Custom are not supported
-            // here; refuse rather than silently writing zero bytes and reporting success.
+            // Unicode/Binary/All/Grouped/Custom are not supported here; refuse
+            // rather than silently writing zero bytes and reporting success.
             fprintf(stderr, "write: unsupported --type for this command "
-                            "(use byte, i16, i32, i64, pointer, float, double)\n");
+                            "(use byte, i16, i32, i64, pointer, float, double, string, aob)\n");
             return 1;
     }
 

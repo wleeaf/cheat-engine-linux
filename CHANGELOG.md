@@ -124,6 +124,9 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
 - `cescan disasm` annotates a direct call/jmp target with its symbol, or its
   `module+offset` when unnamed (e.g. `jmp 0x… ; sleep+0x2020`), matching the GUI
   disassembler; register/indirect branches stay unannotated.
+- `cescan write` gained `--type string` (raw text) and `--type aob` (`"90 90 05"`
+  hex bytes), so you can patch code (NOP a branch) or write a string from the
+  shell, not just numeric values. Wildcards are rejected for an in-place byte write.
 
 ## v0.6.0: scanner performance overhaul (2026-07-16)
 

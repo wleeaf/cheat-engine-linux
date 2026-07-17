@@ -101,7 +101,7 @@ static const char* kLightStyleSheet = R"(
     QComboBox::drop-down { border: none; width: 18px; }
     QTableView, QListWidget, QTableWidget, QTreeView, QTreeWidget { background-color: #ffffff; color: #1b1f24;
         gridline-color: #e9ebef; selection-background-color: #dbe8fd; selection-color: #1b1f24;
-        alternate-background-color: #f8f9fb; border: 1px solid #e0e2e7; }
+        alternate-background-color: #eef1f6; border: 1px solid #e0e2e7; }
     QTreeView::item:selected, QTreeWidget::item:selected { background-color: #dbe8fd; color: #1b1f24; }
     QHeaderView::section { background-color: #f0f1f4; color: #4b5563; border: none;
         border-right: 1px solid #e3e5ea; border-bottom: 1px solid #dfe1e6; padding: 5px 6px; font-weight: 600; }

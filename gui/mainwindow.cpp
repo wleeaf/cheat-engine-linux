@@ -1109,6 +1109,7 @@ void MainWindow::setupUi() {
     resultsView_->setModel(resultsModel_);
     resultsView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     resultsView_->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    resultsView_->setAlternatingRowColors(true);   // activates the theme's zebra rows
     resultsView_->setFont(settingsMonospaceFont());
     resultsView_->verticalHeader()->setVisible(false);
     resultsView_->horizontalHeader()->setStretchLastSection(true);
@@ -1487,6 +1488,7 @@ void MainWindow::setupUi() {
     setLuaMainForm(this);
     addressListView_ = new QTableView;
     addressListView_->setModel(addressListModel_);
+    addressListView_->setAlternatingRowColors(true);   // activates the theme's zebra rows
     // Centered hint over the empty cheat table (matches the results-list hint).
     tableEmptyHint_ = new QLabel(
         tr("No saved addresses.\n\nDouble-click a scan result to add it here,\n"

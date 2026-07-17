@@ -90,6 +90,10 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
   most 10,000 rows for responsiveness, so when a scan finds more the "Found"
   label now says e.g. `Found: 2,000,000  (showing first 10,000)` instead of
   leaving the capped list unexplained.
+- **Zebra-striped result and cheat-table rows** for easier scanning of dense
+  address/value lists. The theme already defined the alternating colour but the
+  views never enabled it; enabled now, with the light stripe nudged from nearly
+  invisible to a soft, readable grey.
 - **Scan panel declutters for the value type**: the float-only Rounding and
   Tolerance controls are now hidden (not just greyed) for integer/text scans, so
   the row collapses instead of leaving dead controls under Value Type. They

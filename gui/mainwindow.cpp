@@ -339,6 +339,10 @@ void MainWindow::setupMenus() {
     // in ITS View/Debug menus — matching CE — populated by populateBrowserMenus().
     tools->addAction("Memory Browser", this, &MainWindow::onMemoryView, QKeySequence("Ctrl+M"));
     tools->addSeparator();
+    // Analysis panels (also in the Memory Viewer's Tools menu) — surfaced here so
+    // they're findable from the main window without opening the viewer first.
+    addAnalysisToolsMenu(tools);
+    tools->addSeparator();
     edit->addAction("Settings...", this, [this]() { openSettingsDialog(); });
 
     // ── Process menu ──
@@ -3517,7 +3521,12 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
         });
     }
 
-    // ── Tools ──
+    // Analysis tools (shared with the main window Tools menu).
+    addAnalysisToolsMenu(tools);
+    (void)needProc;
+}
+
+void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
     tools->addAction("Auto Assemble", this, [this]() {
         auto* editor = new ScriptEditor(process_.get(), &autoAsm_, this);
         editor->setAttribute(Qt::WA_DeleteOnClose);
@@ -3582,7 +3591,6 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
         auto* dlg = new ElfInspector(initial, this);
         dlg->setAttribute(Qt::WA_DeleteOnClose); dlg->show();
     });
-    (void)needProc;
 }
 
 void MainWindow::updateScanButtons() {

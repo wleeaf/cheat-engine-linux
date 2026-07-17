@@ -147,6 +147,10 @@ private:
     // Populate a Memory Viewer's View/Tools/Debug menus with the tools that need
     // MainWindow's context (CE keeps these in the Memory Viewer, not the main menu).
     void populateBrowserMenus(MemoryBrowser* b);
+    /// Add the analysis-tool actions (Auto Assemble, Pointer scan, Dissect, Mono
+    /// dissector, Find statics, Lua Engine, ELF inspector) to `menu`. Shared by the
+    /// main window's Tools menu and the Memory Viewer's, so they're findable in both.
+    void addAnalysisToolsMenu(QMenu* menu);
     // Advanced Options — the CE "Code list" (created once, kept so entries persist).
     void showAdvancedOptions();
     ce::gui::AdvancedOptionsWindow* advancedOptions_ = nullptr;

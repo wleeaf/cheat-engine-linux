@@ -3,6 +3,36 @@
 #include <QApplication>
 #include <QPalette>
 #include <QSettings>
+#include <QImage>
+#include <QPainter>
+#include <QStandardPaths>
+#include <QDir>
+#include <QFile>
+
+// A small chevron (up/down) drawn in `color`, cached to a PNG file whose path the
+// QSS references. (Qt's QSS url() loads via QPixmap, which can't read data: URIs,
+// so a real file is required.) Used to give QSpinBox/QComboBox clean arrows:
+// styling those widgets via QSS suppresses the native sub-control arrows, which
+// otherwise render as broken default glyphs.
+static QString arrowFile(const QColor& color, bool up) {
+    QString dir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/arrows";
+    QDir().mkpath(dir);
+    QString path = QString("%1/%2_%3.png").arg(dir, color.name().mid(1), up ? "up" : "dn");
+    if (!QFile::exists(path)) {
+        QImage img(28, 18, QImage::Format_ARGB32);
+        img.fill(Qt::transparent);
+        QPainter p(&img);
+        p.setRenderHint(QPainter::Antialiasing);
+        QPen pen(color); pen.setWidthF(3.0);
+        pen.setCapStyle(Qt::RoundCap); pen.setJoinStyle(Qt::RoundJoin);
+        p.setPen(pen);
+        if (up) { p.drawLine(6, 12, 14, 6); p.drawLine(14, 6, 22, 12); }
+        else    { p.drawLine(6, 6, 14, 12); p.drawLine(14, 12, 22, 6); }
+        p.end();
+        img.save(path, "PNG");
+    }
+    return path;
+}
 
 namespace ce::gui {
 
@@ -34,6 +64,13 @@ static const char* kDarkStyleSheet = R"(
     QComboBox QAbstractItemView { background-color: #1e1e2e; color: #cdd6f4; border: 1px solid #45475a;
                 selection-background-color: #313244; }
     QComboBox::drop-down { border: none; width: 18px; }
+    QComboBox::down-arrow { image: url("%DOWN_ARROW%"); width: 12px; height: 8px; }
+    QSpinBox::up-button, QDoubleSpinBox::up-button { subcontrol-origin: border;
+        subcontrol-position: top right; width: 17px; border-left: 1px solid #45475a; }
+    QSpinBox::down-button, QDoubleSpinBox::down-button { subcontrol-origin: border;
+        subcontrol-position: bottom right; width: 17px; border-left: 1px solid #45475a; }
+    QSpinBox::up-arrow, QDoubleSpinBox::up-arrow { image: url("%UP_ARROW%"); width: 11px; height: 7px; }
+    QSpinBox::down-arrow, QDoubleSpinBox::down-arrow { image: url("%DOWN_ARROW%"); width: 11px; height: 7px; }
     QTableView, QListWidget, QTableWidget, QTreeView, QTreeWidget { background-color: #181825; color: #cdd6f4;
         gridline-color: #313244; selection-background-color: #3a4463; selection-color: #cdd6f4;
         alternate-background-color: #1e1e2e; border: 1px solid #313244; }
@@ -100,6 +137,13 @@ static const char* kLightStyleSheet = R"(
     QComboBox QAbstractItemView { background-color: #ffffff; color: #1b1f24; border: 1px solid #d4d7dd;
                 selection-background-color: #e4ecfb; selection-color: #1b1f24; }
     QComboBox::drop-down { border: none; width: 18px; }
+    QComboBox::down-arrow { image: url("%DOWN_ARROW%"); width: 12px; height: 8px; }
+    QSpinBox::up-button, QDoubleSpinBox::up-button { subcontrol-origin: border;
+        subcontrol-position: top right; width: 17px; border-left: 1px solid #cdd1d9; }
+    QSpinBox::down-button, QDoubleSpinBox::down-button { subcontrol-origin: border;
+        subcontrol-position: bottom right; width: 17px; border-left: 1px solid #cdd1d9; }
+    QSpinBox::up-arrow, QDoubleSpinBox::up-arrow { image: url("%UP_ARROW%"); width: 11px; height: 7px; }
+    QSpinBox::down-arrow, QDoubleSpinBox::down-arrow { image: url("%DOWN_ARROW%"); width: 11px; height: 7px; }
     QTableView, QListWidget, QTableWidget, QTreeView, QTreeWidget { background-color: #ffffff; color: #1b1f24;
         gridline-color: #e9ebef; selection-background-color: #dbe8fd; selection-color: #1b1f24;
         alternate-background-color: #eef1f6; border: 1px solid #e0e2e7; }
@@ -149,8 +193,15 @@ bool isDarkTheme() {
 }
 
 void applyTheme(bool dark) {
-    if (auto* app = qApp)
-        app->setStyleSheet(dark ? kDarkStyleSheet : kLightStyleSheet);
+    auto* app = qApp;
+    if (!app) return;
+    QString qss = QString::fromLatin1(dark ? kDarkStyleSheet : kLightStyleSheet);
+    // Substitute the spinbox/combo arrow glyphs, drawn in a colour that reads on
+    // this theme's control background.
+    const QColor arrow = dark ? QColor(0xa6, 0xad, 0xc8) : QColor(0x4b, 0x55, 0x63);
+    qss.replace(QStringLiteral("%DOWN_ARROW%"), arrowFile(arrow, /*up=*/false));
+    qss.replace(QStringLiteral("%UP_ARROW%"),   arrowFile(arrow, /*up=*/true));
+    app->setStyleSheet(qss);
 }
 
 void applyStoredTheme() {

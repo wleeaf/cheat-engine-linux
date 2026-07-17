@@ -1267,6 +1267,23 @@ void MainWindow::setupUi() {
     // The alignment field only applies when Fast Scan is on; grey it out otherwise.
     connect(fastScanCheck_, &QCheckBox::toggled, alignEdit_, &QLineEdit::setEnabled);
 
+    // Apply the persisted scan defaults from the Settings dialog (previously these
+    // were saved but never used). Writable/Executable store a bool "only-<prot>":
+    // true -> require it (checked), false -> don't care (grey); the tri-state's
+    // "exclude" (unchecked) isn't a default the settings can express.
+    {
+        QSettings s;
+        writableCheck_->setCheckState(s.value("scan/writable", true).toBool()
+                                      ? Qt::Checked : Qt::PartiallyChecked);
+        executableCheck_->setCheckState(s.value("scan/executable", false).toBool()
+                                        ? Qt::Checked : Qt::PartiallyChecked);
+        fastScanCheck_->setChecked(s.value("scan/fast", true).toBool());
+        alignEdit_->setText(QString::number(s.value("scan/alignment", 4).toInt()));
+        alignEdit_->setEnabled(fastScanCheck_->isChecked());
+        int dvt = s.value("scan/defaultValueType", 2).toInt();
+        if (dvt >= 0 && dvt < valueTypeCombo_->count()) valueTypeCombo_->setCurrentIndex(dvt);
+    }
+
     percentCheck_ = new QCheckBox("Compare by %");
     optLayout->addWidget(percentCheck_, 5, 0);
     percentValueEdit_ = new QLineEdit("10");

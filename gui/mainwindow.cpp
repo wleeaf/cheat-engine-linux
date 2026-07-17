@@ -3072,7 +3072,10 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
     auto debugger = createDebuggerForCurrentProcess();
     if (!debugger) return;
     auto finder = std::make_unique<CodeFinder>();
-    if (!finder->start(*process_, *debugger, addr, writesOnly)) {
+    // Honour the configured hardware-watchpoint size (was ignored -> always 4).
+    int watchSize = QSettings().value("codefinder/watchSize", "4").toInt();
+    if (watchSize != 1 && watchSize != 2 && watchSize != 4 && watchSize != 8) watchSize = 4;
+    if (!finder->start(*process_, *debugger, addr, writesOnly, watchSize)) {
         QMessageBox::warning(this, "Code finder unavailable",
             "Could not start hardware watchpoint monitoring for this address.");
         return;

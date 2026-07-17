@@ -391,6 +391,15 @@ static int cmd_disasm(pid_t pid, uintptr_t addr, size_t count) {
                 }
             }
         }
+        // RIP-relative data reference (mov/lea/cmp [rip+x], ...): the operand
+        // already shows the absolute effective address; annotate what lives there
+        // (symbol, else module+offset), like the GUI's data-ref annotation.
+        if (anno.empty() && i.ripTarget) {
+            auto sym = resolver.resolve(i.ripTarget);
+            if (!sym.empty()) anno = "  ; -> " + sym;
+            else if (auto mo = ce::moduleOffsetString(modules, i.ripTarget); !mo.empty())
+                anno = "  ; -> " + mo;
+        }
         printf("%s%s\n", i.toString().c_str(), anno.c_str());
     }
     printf("\n%zu instructions\n", insns.size());

@@ -1698,6 +1698,18 @@ void MemoryBrowser::gotoAddress(uintptr_t addr) {
     navigateTo(addr);
 }
 
+void MemoryBrowser::detachFromTarget() {
+    if (refreshTimer_) refreshTimer_->stop();
+    proc_ = nullptr;
+    // The disasm/hex views hold their own copy of the process pointer and guard
+    // every read with `if (proc_)`, so nulling it makes them inert (last frame
+    // stays on screen), not crash.
+    if (disasmView_) disasmView_->setProcess(nullptr);
+    if (hexView_)    hexView_->setProcess(nullptr);
+    setWindowTitle("Memory Viewer (target exited)");
+    statusBar()->showMessage("Target process exited; this view is frozen.", 0);
+}
+
 void MemoryBrowser::toggleBookmark() {
     // Bookmark the selected instruction if one is selected, else the current view.
     uintptr_t addr = disasmView_->selectedAddress();

@@ -210,6 +210,11 @@ public:
 
     void gotoAddress(uintptr_t addr);
 
+    /// The target exited and its ProcessHandle is about to be destroyed. Stop the
+    /// refresh timer and drop the process pointer (here and in the disasm/hex
+    /// views) so nothing reads the freed handle. The window stays open, frozen.
+    void detachFromTarget();
+
     /// Hooks for actions the browser cannot perform alone (need MainWindow's BpManager etc.).
     using BpToggle = std::function<void(uintptr_t addr, bool hardware)>;
     using BpQuery = std::function<std::set<uintptr_t>()>;

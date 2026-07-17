@@ -177,6 +177,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (currentPid_ > 0 && ::kill(currentPid_, 0) != 0 && errno == ESRCH) {
             processLabel_->setText(QString("Process %1 has exited").arg(currentPid_));
             statusBar()->showMessage("Target process exited", 5000);
+            // Sever every raw pointer into process_ BEFORE it is destroyed: open
+            // Memory Viewers (their refresh timer would read a freed handle) and
+            // the shared Lua engine (a table timer/script would do the same).
+            for (auto& mv : memoryViewers_) if (mv) mv->detachFromTarget();
+            luaEngine_.setProcess(nullptr);
             process_.reset();
             currentPid_ = 0;
             setWindowTitle("Cheat Engine");
@@ -2100,6 +2105,10 @@ void MainWindow::attachToPid(pid_t pid, const QString& name) {
     // its detach runs against the still-valid handle and frees ptrace for the new
     // attach.
     if (debuggerWindow_) delete debuggerWindow_;
+    // Freeze any Memory Viewers on the previous target for the same reason: the
+    // handle they point at is replaced (destroyed) on the next line.
+    for (auto& mv : memoryViewers_) if (mv) mv->detachFromTarget();
+    memoryViewers_.clear();
     ceserverClient_.reset();
     process_ = std::make_unique<os::LinuxProcessHandle>(pid);
     // Resolve a readable name so the header isn't "PID: 1234 - 1234" when we were
@@ -3378,6 +3387,10 @@ MemoryBrowser* MainWindow::openMemoryView(uintptr_t addr) {
 
     populateBrowserMenus(browser);   // add the CE Memory-Viewer tools to its menu bar
     browser->show();
+    // Track it so a target exit can freeze it before its process handle is freed.
+    // Drop any stale (already-closed) entries while we are here.
+    std::erase_if(memoryViewers_, [](const QPointer<MemoryBrowser>& p) { return p.isNull(); });
+    memoryViewers_.push_back(browser);
     return browser;
 }
 

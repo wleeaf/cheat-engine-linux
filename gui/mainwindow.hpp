@@ -168,6 +168,9 @@ private:
     // only one tracer per target is allowed, so opening a second would just fail
     // to attach. QPointer auto-nulls when the user closes it (WA_DeleteOnClose).
     QPointer<DebuggerWindow> debuggerWindow_;
+    // Open Memory Viewers, so we can freeze them when the target exits (their raw
+    // process pointer would otherwise dangle). QPointer entries auto-null on close.
+    std::vector<QPointer<MemoryBrowser>> memoryViewers_;
 
     // Top panel — process & scan
     QLabel* processLabel_;

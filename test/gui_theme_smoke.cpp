@@ -23,8 +23,8 @@ int main(int argc, char** argv) {
     ce::gui::applyTheme(true);
     const QString dark = app.styleSheet();
 
-    // Light sheet: CE grey surfaces, no dark base color. Dark sheet: Catppuccin base.
-    const bool lightApplied = light.contains("#f0f0f0") && !light.contains("#1e1e2e");
+    // Light sheet: modern soft-grey canvas, no dark base color. Dark sheet: Catppuccin base.
+    const bool lightApplied = light.contains("#f4f5f7") && !light.contains("#1e1e2e");
     const bool darkApplied  = dark.contains("#1e1e2e") && dark.contains("#cdd6f4");
     const bool differ       = !light.isEmpty() && !dark.isEmpty() && light != dark;
 

@@ -3263,8 +3263,15 @@ size_t ScanResultsModel::valueSizeBytes() const {
         case ValueType::Pointer: return sizeof(uintptr_t);
         case ValueType::Float:   return 4;
         case ValueType::Double:  return 8;
+        // Variable-width types carry their byte length in valueSize_ (set at scan
+        // time from the pattern / string length). Without this, AOB and string
+        // results read only 4 bytes and rendered as "?".
         case ValueType::Grouped:
-        case ValueType::Custom:  return std::max<size_t>(1, valueSize_);
+        case ValueType::Custom:
+        case ValueType::ByteArray:
+        case ValueType::Binary:
+        case ValueType::String:
+        case ValueType::UnicodeString: return std::max<size_t>(1, valueSize_);
         default:                 return 4;
     }
 }
@@ -3344,11 +3351,24 @@ static QString formatScanValue(ValueType vt, bool displayHex, const uint8_t* buf
         case ValueType::Pointer:{ uintptr_t v; memcpy(&v, buf, sizeof(v)); return QString("0x%1").arg(v, 0, 16); }
         case ValueType::Float:  { float v; memcpy(&v, buf, 4); return QString::number(v, 'f', 4); }
         case ValueType::Double: { double v; memcpy(&v, buf, 8); return QString::number(v, 'f', 6); }
+        case ValueType::String: {
+            size_t len = strnlen(reinterpret_cast<const char*>(buf), vs);
+            return QString::fromUtf8(reinterpret_cast<const char*>(buf), static_cast<int>(len));
+        }
+        case ValueType::UnicodeString: {
+            const char16_t* u = reinterpret_cast<const char16_t*>(buf);
+            size_t maxch = vs / 2, len = 0;
+            while (len < maxch && u[len] != u'\0') ++len;
+            return QString::fromUtf16(u, static_cast<int>(len));
+        }
+        case ValueType::ByteArray:
+        case ValueType::Binary:
         case ValueType::Grouped:
         case ValueType::Custom: {
-            QString hex; hex.reserve(static_cast<int>(vs * 2));
-            for (size_t i = 0; i < vs; ++i) hex += QString("%1").arg(buf[i], 2, 16, QChar('0'));
-            return hex;
+            QString hex; hex.reserve(static_cast<int>(vs * 3));
+            for (size_t i = 0; i < vs; ++i)
+                hex += QString("%1 ").arg(buf[i], 2, 16, QChar('0'));
+            return hex.trimmed().toUpper();
         }
         default: return "?";
     }

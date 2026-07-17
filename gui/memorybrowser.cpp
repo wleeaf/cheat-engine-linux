@@ -1467,6 +1467,25 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     splitter->setStretchFactor(1, 1);
     setCentralWidget(splitter);
 
+    // The register and stack panels only populate during a live debug session,
+    // which runs in the separate Debugger window, so here they just showed dead
+    // "-" placeholders. Hide them by default (the disassembly and hex get the full
+    // width, cleaner); a persisted View toggle brings them back for CE's layout.
+    if (viewMenu_ && registerPanel_ && stacktracePanel_) {
+        bool showCpu = QSettings().value("memview/cpuPanels", false).toBool();
+        registerPanel_->setVisible(showCpu);
+        stacktracePanel_->setVisible(showCpu);
+        auto* cpuAct = viewMenu_->addAction("CPU registers && stack panels");
+        cpuAct->setCheckable(true);
+        cpuAct->setChecked(showCpu);
+        connect(cpuAct, &QAction::toggled, this, [this](bool on) {
+            registerPanel_->setVisible(on);
+            stacktracePanel_->setVisible(on);
+            QSettings().setValue("memview/cpuPanels", on);
+        });
+        viewMenu_->addSeparator();
+    }
+
     // Wire HexView signals.
     connect(hexView_, &HexView::requestFindWhatAccesses, this, [this](uintptr_t addr, bool writesOnly) {
         if (cfLauncher_) cfLauncher_(addr, writesOnly);

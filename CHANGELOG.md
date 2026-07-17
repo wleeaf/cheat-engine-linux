@@ -99,6 +99,11 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
 - **Memory viewer debug toolbar decluttered**: the six near-identical Run/Step
   buttons (which all just opened the separate Debugger window) collapse to a
   single "Debugger" button, leaving Toggle BP / Debugger / Preferences.
+- **Memory viewer hides the register/stack panels by default.** They only
+  populate during a debug session (which runs in the separate Debugger window),
+  so they were dead `-` placeholders taking a quarter of the width; now the
+  disassembly and hex use the full width, and a persisted View toggle ("CPU
+  registers & stack panels") brings them back for CE's layout.
 - **Settings dialog redesigned with a vertical category sidebar.** The 15
   categories used to overflow a horizontal tab bar (most tab names hidden); they
   now sit in an always-visible left-hand list (horizontal text) with the page on

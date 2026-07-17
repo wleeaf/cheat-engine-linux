@@ -164,6 +164,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (!editing)
             addressListModel_->updateValues(process_.get());
 
+        // Refresh the module cache (module+offset address display) on a slower
+        // cadence than the value poll, so modules mapped after attach show up
+        // without re-parsing /proc/pid/maps every tick.
+        if (++moduleCacheTick_ >= 10) {
+            moduleCacheTick_ = 0;
+            addressListModel_->refreshModuleCache();
+        }
+
         // Live-refresh the scan-results list too, but only the rows currently
         // visible (result sets can be millions of rows).
         if (resultsModel_ && resultsView_ && resultsModel_->rowCount() > 0) {
@@ -4020,6 +4028,10 @@ QVariant AddressListModel::headerData(int section, Qt::Orientation o, int role) 
     }
 }
 
+void AddressListModel::refreshModuleCache() {
+    moduleCache_ = proc_ ? proc_->modules() : std::vector<ce::ModuleInfo>{};
+}
+
 QVariant AddressListModel::data(const QModelIndex& index, int role) const {
     if (!index.isValid() || index.row() < 0 || index.row() >= (int)entries_.size())
         return {};
@@ -4047,12 +4059,17 @@ QVariant AddressListModel::data(const QModelIndex& index, int role) const {
             for (int i = 0; i < e.indent; ++i) prefix += "  ";
             return prefix + e.description;
         }
-        case 2:
+        case 2: {
             if (e.isGroup) return QString("");
-            // Pointer records show a "P->" prefix (CE convention) so they read as
-            // a dereferenced address rather than a static one.
-            return (e.addressExpr.isEmpty() ? QString("0x%1") : QString("P->0x%1"))
-                       .arg(e.address, 0, 16);
+            // Show the address relative to its module ("game.bin+0x1234") when it
+            // falls inside one -- CE's convention, and stable across restarts.
+            // Otherwise a plain hex address. Pointer records keep the "P->" prefix.
+            std::string modOff = ce::moduleOffsetString(moduleCache_, e.address);
+            QString addrStr = modOff.empty()
+                ? QString("0x%1").arg(e.address, 0, 16)
+                : QString::fromStdString(modOff);
+            return e.addressExpr.isEmpty() ? addrStr : ("P->" + addrStr);
+        }
         case 3: {
             if (e.isGroup) return "";
             switch (e.type) {

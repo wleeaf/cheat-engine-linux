@@ -121,6 +121,7 @@ private:
     std::vector<QPair<qulonglong, qulonglong>> allocations_;  // (address,size) blocks we allocated.
     std::unique_ptr<ce::os::ProcessWatcher> processWatcher_;
     pid_t currentPid_ = 0;
+    int moduleCacheTick_ = 0;   // throttles the address-list module cache refresh
 
     // Scanner + AutoAssembler + Lua + Debug
     MemoryScanner scanner_;
@@ -280,7 +281,11 @@ public:
     const std::vector<AddressEntry>& entries() const { return entries_; }
     void toggleActive(int row);   // flip active state (hotkey target)
     void setEntryValueTo(int row, const QString& value);  // set-value hotkey target
-    void setProcess(ce::ProcessHandle* proc) { proc_ = proc; }
+    void setProcess(ce::ProcessHandle* proc) { proc_ = proc; refreshModuleCache(); }
+    /// Refresh the cached module list used to display addresses as module+offset.
+    /// Cheap enough to call from the periodic value refresh so it tracks modules
+    /// that load after attach.
+    void refreshModuleCache();
     void setAutoAssembler(ce::AutoAssembler* autoAsm) { autoAsm_ = autoAsm; }
     // Called just before a script entry's [ENABLE]/[DISABLE] runs, so the owner
     // can release any debugger traces that would block the injection's attach.
@@ -341,6 +346,7 @@ private:
     int allocId() { return nextId_++; }
 
     std::vector<AddressEntry> entries_;
+    std::vector<ce::ModuleInfo> moduleCache_;   // for module+offset address display
     ce::ProcessHandle* proc_ = nullptr;
     ce::AutoAssembler* autoAsm_ = nullptr;
     std::function<void()> beforeAaExecute_;

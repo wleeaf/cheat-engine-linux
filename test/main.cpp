@@ -7857,6 +7857,32 @@ static void test_protection_filter_scan() {
            ok ? "OK" : "FAILED", yes.first, yes.second, no.first, no.second, any.first, any.second);
 }
 
+// moduleOffsetString: map an absolute address to "basename+0xoffset" using a
+// module list. Deterministic, no process needed.
+static void test_module_offset_string() {
+    printf("\n── Test: module+offset address formatting ──\n");
+    std::vector<ce::ModuleInfo> mods = {
+        {0x400000, 0x10000, "game.bin",  "/opt/game/game.bin",  true},
+        {0x7f0000, 0x2000,  "libc.so.6", "/usr/lib/libc.so.6",  true},
+    };
+    bool ok =
+        ce::moduleOffsetString(mods, 0x401234) == "game.bin+0x1234" &&
+        ce::moduleOffsetString(mods, 0x400000) == "game.bin+0x0" &&
+        ce::moduleOffsetString(mods, 0x7f0010) == "libc.so.6+0x10" &&
+        ce::moduleOffsetString(mods, 0x300000).empty() &&    // below all modules
+        ce::moduleOffsetString(mods, 0x410000).empty();      // one past game.bin's end
+    // Falls back to the path's basename when `name` is empty.
+    std::vector<ce::ModuleInfo> mods2 = {{0x1000, 0x100, "", "/a/b/mod.so", true}};
+    ok = ok && ce::moduleOffsetString(mods2, 0x1050) == "mod.so+0x50";
+    // Nested mappings: the smallest containing module wins.
+    std::vector<ce::ModuleInfo> mods3 = {
+        {0x1000, 0x1000, "outer", "", true},
+        {0x1200, 0x0100, "inner", "", true},
+    };
+    ok = ok && ce::moduleOffsetString(mods3, 0x1250) == "inner+0x50";
+    printf("  moduleOffsetString maps addresses to module+offset: %s\n", ok ? "OK" : "FAILED");
+}
+
 static void test_between_numeric_scan() {
     printf("\n── Test: Value-between numeric scan ──\n");
 
@@ -9631,6 +9657,7 @@ int main(int argc, char* argv[]) {
     test_lua_memscan();
     test_binary_scan_bitmask();
     test_protection_filter_scan();
+    test_module_offset_string();
     test_between_numeric_scan();
     test_nextscan_size_guard();
     test_unicode_string_scan();

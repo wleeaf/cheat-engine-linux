@@ -61,6 +61,12 @@ struct ModuleInfo {
     bool        is64bit = true;
 };
 
+/// If `addr` lies within one of `modules`, returns "basename+0xOFFSET" (the
+/// module-relative address Cheat Engine shows, which stays meaningful across
+/// restarts / ASLR); otherwise an empty string. When mappings nest, the smallest
+/// containing module wins.
+std::string moduleOffsetString(const std::vector<ModuleInfo>& modules, uintptr_t addr);
+
 // ── Thread info ──
 struct ThreadInfo {
     pid_t tid = 0;

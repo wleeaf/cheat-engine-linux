@@ -122,13 +122,23 @@ int main(int argc, char* argv[]) {
         });
     }
 
+    // `--pid <N>` attaches to a running process on launch (no picker dialog).
+    const QStringList cliArgs = app.arguments();
+    for (int i = 1; i + 1 < cliArgs.size(); ++i) {
+        if (cliArgs.at(i) == QLatin1String("--pid")) {
+            bool ok = false;
+            const long pid = cliArgs.at(i + 1).toLong(&ok);
+            if (ok && pid > 0) w.attachToPid(static_cast<pid_t>(pid), QString());
+        }
+    }
+
     // Open a cheat table passed on the command line (double-click a .CT / .json,
     // or `cheatengine table.ct`), matching CE's file-association behaviour.
-    const QStringList cliArgs = app.arguments();
-    if (cliArgs.size() > 1) {
-        const QString& tablePath = cliArgs.at(1);
-        if (QFile::exists(tablePath))
-            w.loadTableFromPath(tablePath);
+    for (int i = 1; i < cliArgs.size(); ++i) {
+        const QString& arg = cliArgs.at(i);
+        if (arg == QLatin1String("--pid")) { ++i; continue; }   // --pid consumes its value
+        if (arg.startsWith(QLatin1String("--"))) continue;      // other flags: no value
+        if (QFile::exists(arg)) { w.loadTableFromPath(arg); break; }
     }
 
     return app.exec();

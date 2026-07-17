@@ -1887,27 +1887,31 @@ static void warnIfMemoryUnreadable(QWidget* parent, ce::ProcessHandle* p,
         grantPtraceAccess(parent);
 }
 
+void MainWindow::attachToPid(pid_t pid, const QString& name) {
+    currentPid_ = pid;
+    ceserverClient_.reset();
+    process_ = std::make_unique<os::LinuxProcessHandle>(pid);
+    const QString label = name.isEmpty() ? QString::number(pid) : name;
+    processLabel_->setText(QString("PID: %1 — %2").arg(pid).arg(label));
+    setWindowTitle(QString("Cheat Engine - %1 (%2)").arg(label).arg(pid));
+    warnIfMemoryUnreadable(this, process_.get(), pid, label);
+    addressListModel_->setProcess(process_.get());
+    resultsModel_->setProcess(process_.get());
+    firstScanBtn_->setEnabled(true);
+    resultsModel_->clear();
+    lastResult_.reset();
+    undoResult_.reset();
+    lastResultType_ = ValueType::Int32;
+    undoResultType_ = ValueType::Int32;
+    lastResultValueSize_ = 0;
+    undoResultValueSize_ = 0;
+    updateScanButtons();
+}
+
 void MainWindow::onOpenProcess() {
     ProcessListDialog dlg(this);
-    if (dlg.exec() == QDialog::Accepted) {
-        currentPid_ = dlg.selectedPid();
-        ceserverClient_.reset();
-        process_ = std::make_unique<os::LinuxProcessHandle>(currentPid_);
-        processLabel_->setText(QString("PID: %1 — %2").arg(currentPid_).arg(dlg.selectedName()));
-        setWindowTitle(QString("Cheat Engine - %1 (%2)").arg(dlg.selectedName()).arg(currentPid_));
-        warnIfMemoryUnreadable(this, process_.get(), currentPid_, dlg.selectedName());
-        addressListModel_->setProcess(process_.get());
-                    resultsModel_->setProcess(process_.get());
-        firstScanBtn_->setEnabled(true);
-        resultsModel_->clear();
-        lastResult_.reset();
-        undoResult_.reset();
-        lastResultType_ = ValueType::Int32;
-        undoResultType_ = ValueType::Int32;
-        lastResultValueSize_ = 0;
-        undoResultValueSize_ = 0;
-        updateScanButtons();
-    }
+    if (dlg.exec() == QDialog::Accepted)
+        attachToPid(dlg.selectedPid(), dlg.selectedName());
 }
 
 void MainWindow::onConnectCeserver() {

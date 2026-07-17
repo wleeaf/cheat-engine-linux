@@ -48,6 +48,9 @@ public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow() override;
     void loadTableFromPath(const QString& path);  // load .ct/.json without a dialog
+    /// Attach to a running process by pid (no dialog). `name` is display-only.
+    /// Used by the process picker and by `--pid <N>` on the command line.
+    void attachToPid(pid_t pid, const QString& name);
 
 private slots:
     void onOpenProcess();

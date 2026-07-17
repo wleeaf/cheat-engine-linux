@@ -1353,8 +1353,14 @@ void MainWindow::setupUi() {
     auto updatePercentUi = [this, percent2Label]() {
         bool enabled = percentCheck_->isChecked();
         bool needsUpper = enabled && mapScanType(scanTypeCombo_->currentIndex()) == ScanCompare::Between;
+        // Hide (not just grey) the percent value fields until "Compare by %" is on,
+        // and the "Percent max" row until the scan is a "between" compare, so the
+        // options group collapses instead of showing dead controls. Keep enabled
+        // in sync with visible (the fields start disabled).
+        percentValueEdit_->setVisible(enabled);
         percentValueEdit_->setEnabled(enabled);
-        percent2Label->setEnabled(needsUpper);
+        percent2Label->setVisible(needsUpper);
+        percentValue2Edit_->setVisible(needsUpper);
         percentValue2Edit_->setEnabled(needsUpper);
     };
     connect(percentCheck_, &QCheckBox::toggled, this, [updatePercentUi](bool) { updatePercentUi(); });

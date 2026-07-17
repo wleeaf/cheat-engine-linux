@@ -77,6 +77,9 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
   Tolerance controls are now hidden (not just greyed) for integer/text scans, so
   the row collapses instead of leaving dead controls under Value Type. They
   reappear when you pick Float/Double (Tolerance only in "Extreme" mode).
+- **Percentage scan fields hide until needed**: the "Compare by %" value and the
+  "Percent max" row now appear only when "Compare by %" is ticked (and the max
+  only for a "between" compare), instead of sitting greyed on every scan.
 - **The main window and Memory Viewer remember their size, position and panel
   layout** across runs (window geometry and every splitter are saved on close,
   restored on launch), instead of always reopening at the default 760x560 /

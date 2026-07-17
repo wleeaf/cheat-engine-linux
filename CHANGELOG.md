@@ -73,6 +73,9 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
   most 10,000 rows for responsiveness, so when a scan finds more the "Found"
   label now says e.g. `Found: 2,000,000  (showing first 10,000)` instead of
   leaving the capped list unexplained.
+- **The main window remembers its size, position and panel layout** across
+  runs (window geometry and both splitters are saved on close, restored on
+  launch), instead of always reopening at the default 760x560.
 - **`--pid <N>`** attaches to a process on launch (no picker dialog).
 
 ### Scripting / RE

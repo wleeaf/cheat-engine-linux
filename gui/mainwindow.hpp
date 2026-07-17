@@ -75,6 +75,8 @@ private slots:
 protected:
     // Keeps the empty-results hint sized to the results viewport.
     bool eventFilter(QObject* obj, QEvent* ev) override;
+    // Persist window size/position (and the main splitter) across runs.
+    void closeEvent(QCloseEvent* ev) override;
 
 private:
     void setupUi();

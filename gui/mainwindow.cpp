@@ -130,6 +130,18 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setupMenus();
     setWindowTitle("Cheat Engine");
     resize(760, 560);
+    // Restore the last window size/position and splitter layout (no-ops on the
+    // first run, leaving the defaults above). Saved back in closeEvent().
+    {
+        QSettings s;
+        if (auto g = s.value("mainwindow/geometry").toByteArray(); !g.isEmpty())
+            restoreGeometry(g);
+        for (auto* sp : findChildren<QSplitter*>())
+            if (!sp->objectName().isEmpty())
+                if (auto st = s.value("mainwindow/splitter/" + sp->objectName()).toByteArray();
+                    !st.isEmpty())
+                    sp->restoreState(st);
+    }
 
     // Drive CE Lua timers (createTimer/timer_onTimer): trainer scripts rely on a
     // periodic pump on the Lua thread. 30ms matches CE's default timer resolution.
@@ -985,6 +997,7 @@ void MainWindow::setupUi() {
 
     // ── Top area: results + scan controls ──
     auto* topSplitter = new QSplitter(Qt::Horizontal);
+    topSplitter->setObjectName("topSplitter");   // persisted across runs
 
     // Left: scan results
     auto* leftPanel = new QWidget;
@@ -1869,6 +1882,7 @@ void MainWindow::setupUi() {
     v->setSpacing(2);
 
     auto* vsplit = new QSplitter(Qt::Vertical);
+    vsplit->setObjectName("vsplit");   // persisted across runs
     vsplit->addWidget(scanPanel);
     vsplit->addWidget(addressListView_);
     vsplit->setStretchFactor(0, 0);
@@ -2621,6 +2635,17 @@ void MainWindow::onPasteAddresses() {
 void MainWindow::onFreezeTimer() {
     if (process_)
         addressListModel_->freezeWrite(process_.get());
+}
+
+void MainWindow::closeEvent(QCloseEvent* ev) {
+    // Remember where the user put the window and how they sized the panels, so
+    // the next launch comes up the same (restored in the constructor).
+    QSettings s;
+    s.setValue("mainwindow/geometry", saveGeometry());
+    for (auto* sp : findChildren<QSplitter*>())
+        if (!sp->objectName().isEmpty())
+            s.setValue("mainwindow/splitter/" + sp->objectName(), sp->saveState());
+    QMainWindow::closeEvent(ev);
 }
 
 MainWindow::~MainWindow() {

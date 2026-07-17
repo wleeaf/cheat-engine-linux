@@ -155,6 +155,7 @@ private:
     QLabel* foundLabel_;
     QProgressBar* progressBar_;
     QLabel* resultsEmptyHint_ = nullptr;   // centered hint over an empty result list
+    QLabel* tableEmptyHint_ = nullptr;     // centered hint over an empty cheat table
 
     // Scan options
     QLineEdit* fromAddressEdit_;

@@ -1307,6 +1307,24 @@ void MainWindow::setupUi() {
     setLuaMainForm(this);
     addressListView_ = new QTableView;
     addressListView_->setModel(addressListModel_);
+    // Centered hint over the empty cheat table (matches the results-list hint).
+    tableEmptyHint_ = new QLabel(
+        tr("No saved addresses.\n\nDouble-click a scan result to add it here,\n"
+           "or use Add Address."),
+        addressListView_->viewport());
+    tableEmptyHint_->setAlignment(Qt::AlignCenter);
+    tableEmptyHint_->setStyleSheet("color: gray; background: transparent;");
+    tableEmptyHint_->setAttribute(Qt::WA_TransparentForMouseEvents);
+    addressListView_->viewport()->installEventFilter(this);
+    auto updateTableHint = [this]() {
+        if (!tableEmptyHint_) return;
+        tableEmptyHint_->setGeometry(addressListView_->viewport()->rect());
+        tableEmptyHint_->setVisible(addressListModel_->rowCount() == 0);
+    };
+    connect(addressListModel_, &QAbstractItemModel::modelReset, this, updateTableHint);
+    connect(addressListModel_, &QAbstractItemModel::rowsInserted, this, updateTableHint);
+    connect(addressListModel_, &QAbstractItemModel::rowsRemoved, this, updateTableHint);
+    updateTableHint();
     // System-wide hotkeys (X11): fire while the game is focused, like CE. The
     // dispatch map is keyed by the id we hand registerHotkey in rebuildValueHotkeys.
     globalHotkeys_ = new GlobalHotkeyManager(this);
@@ -2125,9 +2143,11 @@ std::unique_ptr<ScanResult> MainWindow::runScanWithProgress(
 }
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* ev) {
-    if (resultsEmptyHint_ && resultsView_ && obj == resultsView_->viewport() &&
-        ev->type() == QEvent::Resize) {
-        resultsEmptyHint_->setGeometry(resultsView_->viewport()->rect());
+    if (ev->type() == QEvent::Resize) {
+        if (resultsEmptyHint_ && resultsView_ && obj == resultsView_->viewport())
+            resultsEmptyHint_->setGeometry(resultsView_->viewport()->rect());
+        if (tableEmptyHint_ && addressListView_ && obj == addressListView_->viewport())
+            tableEmptyHint_->setGeometry(addressListView_->viewport()->rect());
     }
     return QMainWindow::eventFilter(obj, ev);
 }

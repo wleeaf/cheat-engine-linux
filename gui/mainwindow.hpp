@@ -78,6 +78,8 @@ protected:
 
 private:
     void setupUi();
+    /// Move the cheat-table entry at `row` up (-1) or down (+1) and keep it selected.
+    void moveSelectedEntry(int row, int delta);
     void setupMenus();
     void loadAddressEntries(const QJsonArray& entries);
     // Build the address list + table comment/annotations/Lua from a parsed table
@@ -277,6 +279,9 @@ public:
     void setEntryDescription(int row, const QString& desc);
     void removeEntry(int row);
     void removeEntries(QList<int> rows);
+    /// Swap the entry at `row` with its neighbour `delta` rows away (-1 up, +1
+    /// down). Returns the entry's new row, or `row` if it couldn't move.
+    int moveEntry(int row, int delta);
     void indentRows(QList<int> rows);
     void outdentRows(QList<int> rows);
     void setFreezeMode(int row, ce::FreezeMode mode);

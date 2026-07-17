@@ -1466,6 +1466,13 @@ void MainWindow::setupUi() {
                 for (const auto& idx : selected) rows.append(idx.row());
                 addressListModel_->outdentRows(rows);
             });
+            if (selected.size() == 1) {
+                int row = selected.first().row();
+                auto* up = menu.addAction("Move Up", [this, row]() { moveSelectedEntry(row, -1); });
+                up->setShortcut(QKeySequence("Ctrl+Up"));
+                auto* down = menu.addAction("Move Down", [this, row]() { moveSelectedEntry(row, +1); });
+                down->setShortcut(QKeySequence("Ctrl+Down"));
+            }
 
             menu.addSeparator();
             // Set the value of ALL selected entries at once (CE's batch set value).
@@ -1694,6 +1701,17 @@ void MainWindow::setupUi() {
     // Delete key shortcut
     auto* delShortcut = new QShortcut(QKeySequence::Delete, addressListView_);
     connect(delShortcut, &QShortcut::activated, this, &MainWindow::onDeleteAddresses);
+    // Ctrl+Up / Ctrl+Down reorder the selected cheat-table entry (CE-style).
+    auto moveSel = [this](int delta) {
+        auto sel = addressListView_->selectionModel()->selectedRows();
+        if (sel.size() == 1) moveSelectedEntry(sel.first().row(), delta);
+    };
+    auto* moveUpSc = new QShortcut(QKeySequence("Ctrl+Up"), addressListView_);
+    moveUpSc->setContext(Qt::WidgetShortcut);
+    connect(moveUpSc, &QShortcut::activated, this, [moveSel]() { moveSel(-1); });
+    auto* moveDownSc = new QShortcut(QKeySequence("Ctrl+Down"), addressListView_);
+    moveDownSc->setContext(Qt::WidgetShortcut);
+    connect(moveDownSc, &QShortcut::activated, this, [moveSel]() { moveSel(+1); });
     auto* copyShortcut = new QShortcut(QKeySequence::Copy, addressListView_);
     connect(copyShortcut, &QShortcut::activated, this, &MainWindow::onCopyAddresses);
     auto* pasteShortcut = new QShortcut(QKeySequence::Paste, addressListView_);
@@ -2494,6 +2512,11 @@ void MainWindow::onDeleteAddresses() {
     QList<int> rows;
     for (auto& idx : selected) rows.append(idx.row());
     addressListModel_->removeEntries(rows);
+}
+
+void MainWindow::moveSelectedEntry(int row, int delta) {
+    int nr = addressListModel_->moveEntry(row, delta);
+    if (nr != row) addressListView_->selectRow(nr);
 }
 
 void MainWindow::onCopyAddresses() {
@@ -4052,6 +4075,17 @@ void AddressListModel::removeEntries(QList<int> rows) {
     std::sort(rows.begin(), rows.end(), std::greater<int>());
     for (int row : rows)
         removeEntry(row);
+}
+
+int AddressListModel::moveEntry(int row, int delta) {
+    int target = row + delta;
+    if (row < 0 || row >= (int)entries_.size() ||
+        target < 0 || target >= (int)entries_.size())
+        return row;
+    std::swap(entries_[row], entries_[target]);
+    emit dataChanged(index(std::min(row, target), 0),
+                     index(std::max(row, target), columnCount() - 1));
+    return target;
 }
 
 // Read+format a variable-length value (String/UnicodeString/ByteArray) for display.

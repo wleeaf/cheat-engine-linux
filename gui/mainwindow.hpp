@@ -43,6 +43,7 @@ class OverlayWindow;
 class MemoryBrowser;
 class AdvancedOptionsWindow;
 class DebuggerWindow;
+class StructureDissector;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -105,6 +106,9 @@ private:
     /// Show the shared Debugger window, creating it on first use and just raising
     /// it thereafter (a second one could not ptrace-attach anyway).
     void showDebugger();
+    /// Register an open Structure Dissector so it is frozen on target exit/re-attach
+    /// (drops stale closed entries first).
+    void trackStructDissector(StructureDissector* sd);
     /// Resolve a scan-range field: hex, symbol, or module+offset expression.
     std::optional<uintptr_t> parseAddressExpr(const QString& text);
     void rebuildValueHotkeys();
@@ -171,6 +175,8 @@ private:
     // Open Memory Viewers, so we can freeze them when the target exits (their raw
     // process pointer would otherwise dangle). QPointer entries auto-null on close.
     std::vector<QPointer<MemoryBrowser>> memoryViewers_;
+    // Open Structure Dissectors: same story (they poll proc_ on a refresh timer).
+    std::vector<QPointer<StructureDissector>> structDissectors_;
 
     // Top panel — process & scan
     QLabel* processLabel_;

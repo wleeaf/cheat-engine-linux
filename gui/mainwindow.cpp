@@ -181,6 +181,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             // Memory Viewers (their refresh timer would read a freed handle) and
             // the shared Lua engine (a table timer/script would do the same).
             for (auto& mv : memoryViewers_) if (mv) mv->detachFromTarget();
+            for (auto& sd : structDissectors_) if (sd) sd->detachFromTarget();
             luaEngine_.setProcess(nullptr);
             process_.reset();
             currentPid_ = 0;
@@ -546,6 +547,7 @@ void MainWindow::setupMenus() {
             sd->setAddToListCallback([this](uintptr_t a, ce::ValueType t, const QString& d) {
                 addressListModel_->addEntry(a, t, d);
             });
+            trackStructDissector(sd);
             sd->show();
         });
         auto* closeBtn = new QPushButton("Close");
@@ -2109,6 +2111,8 @@ void MainWindow::attachToPid(pid_t pid, const QString& name) {
     // handle they point at is replaced (destroyed) on the next line.
     for (auto& mv : memoryViewers_) if (mv) mv->detachFromTarget();
     memoryViewers_.clear();
+    for (auto& sd : structDissectors_) if (sd) sd->detachFromTarget();
+    structDissectors_.clear();
     ceserverClient_.reset();
     process_ = std::make_unique<os::LinuxProcessHandle>(pid);
     // Resolve a readable name so the header isn't "PID: 1234 - 1234" when we were
@@ -3340,6 +3344,11 @@ void MainWindow::showDebugger() {
     w->show();
 }
 
+void MainWindow::trackStructDissector(StructureDissector* sd) {
+    std::erase_if(structDissectors_, [](const QPointer<StructureDissector>& p) { return p.isNull(); });
+    structDissectors_.push_back(sd);
+}
+
 MemoryBrowser* MainWindow::openMemoryView(uintptr_t addr) {
     if (!process_) return nullptr;
     auto* browser = new MemoryBrowser(process_.get(), this);
@@ -3499,6 +3508,7 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
         auto* sd = new StructureDissector(process_.get(), 0, this);
         sd->setAttribute(Qt::WA_DeleteOnClose);
         sd->setAddToListCallback([this](uintptr_t a, ce::ValueType t, const QString& d) { addressListModel_->addEntry(a, t, d); });
+        trackStructDissector(sd);
         sd->show();
     });
     tools->addAction("Find static addresses", this, [this]() {

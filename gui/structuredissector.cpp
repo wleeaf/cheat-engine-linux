@@ -145,6 +145,12 @@ void StructureDissector::onRefresh() {
     if (baseAddr_ && proc_) populateTable();
 }
 
+void StructureDissector::detachFromTarget() {
+    if (refreshTimer_) refreshTimer_->stop();
+    proc_ = nullptr;   // populateTable()/onRefresh() both bail on a null proc_
+    setWindowTitle("Structure Dissector (target exited)");
+}
+
 QString StructureDissector::formatValue(const uint8_t* data, int offset, const QString& type) const {
     if (offset + 8 > validBytes_) return "??";
 

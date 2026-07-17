@@ -65,10 +65,11 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
   Regions/Heap/Module/referenced-strings windows used to give a stripped-down
   viewer with no breakpoints, "add to list", Tools/Debug menus or debugger launch;
   all of those now open the same fully-wired viewer as the Memory View button.
-- **No crash when the target exits with a Memory Viewer open.** When the attached
-  process ends (or you attach to a different one), open Memory Viewers are frozen
-  and the Lua engine's process pointer is cleared before the process handle is
-  destroyed, so a refresh timer or table script can't read the freed handle.
+- **No crash when the target exits with a Memory Viewer or Structure Dissector
+  open.** When the attached process ends (or you attach to a different one), open
+  Memory Viewers and Structure Dissectors are frozen and the Lua engine's process
+  pointer is cleared before the process handle is destroyed, so a refresh timer or
+  table script can't read the freed handle.
 - **Dark-theme tree fix** — tree widgets (Mono dissector, breakpoint/thread/module
   lists, structure dissector) rendered class rows as unreadable white stripes;
   now themed. Tool buttons, radios, and the speedhack slider themed to match.

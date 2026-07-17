@@ -15,6 +15,11 @@ class StructureDissector : public QMainWindow {
 public:
     explicit StructureDissector(ce::ProcessHandle* proc, uintptr_t baseAddr = 0, QWidget* parent = nullptr);
 
+    /// The target exited (its ProcessHandle is about to be freed): stop the refresh
+    /// timer and drop the process pointer so nothing reads the freed handle. The
+    /// last dissection stays frozen on screen.
+    void detachFromTarget();
+
     // Called when the user adds a field to the address list.
     using AddToListFn = std::function<void(uintptr_t addr, ce::ValueType type, const QString& desc)>;
     void setAddToListCallback(AddToListFn fn) { addToListCb_ = std::move(fn); }

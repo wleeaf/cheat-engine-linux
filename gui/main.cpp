@@ -4,6 +4,7 @@
 #include "gui/theme.hpp"
 #include <QFile>
 #include <QApplication>
+#include <QDialog>
 #include <QIcon>
 #include <QPixmap>
 #include <QDir>
@@ -117,13 +118,15 @@ int main(int argc, char* argv[]) {
     // `--memview <addr>` then opens the Memory Viewer there.
     const QStringList cliArgs = app.arguments();
     uintptr_t memviewAddr = 0;
-    bool wantMemview = false;
-    for (int i = 1; i + 1 < cliArgs.size(); ++i) {
-        if (cliArgs.at(i) == QLatin1String("--pid")) {
+    bool wantMemview = false, wantSettings = false;
+    for (int i = 1; i < cliArgs.size(); ++i) {
+        if (cliArgs.at(i) == QLatin1String("--settings")) {
+            wantSettings = true;
+        } else if (i + 1 < cliArgs.size() && cliArgs.at(i) == QLatin1String("--pid")) {
             bool ok = false;
             const long pid = cliArgs.at(i + 1).toLong(&ok);
             if (ok && pid > 0) w.attachToPid(static_cast<pid_t>(pid), QString());
-        } else if (cliArgs.at(i) == QLatin1String("--memview")) {
+        } else if (i + 1 < cliArgs.size() && cliArgs.at(i) == QLatin1String("--memview")) {
             bool ok = false;
             memviewAddr = static_cast<uintptr_t>(cliArgs.at(i + 1).toULongLong(&ok, 0));
             wantMemview = ok;
@@ -133,6 +136,11 @@ int main(int argc, char* argv[]) {
     if (wantMemview) {
         if (auto* mb = w.openMemoryView(memviewAddr))
             shotTarget = mb;   // MemoryBrowser is-a QWidget (implicit upcast)
+    }
+    // `--settings` opens the Settings dialog on launch (jump straight to it).
+    if (wantSettings) {
+        if (auto* dlg = w.openSettingsDialog())
+            shotTarget = dlg;
     }
 
     // Dev hook: CE_SCREENSHOT=<path> grabs the target window shortly after it is

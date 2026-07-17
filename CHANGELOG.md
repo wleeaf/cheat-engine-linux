@@ -90,6 +90,11 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
   most 10,000 rows for responsiveness, so when a scan finds more the "Found"
   label now says e.g. `Found: 2,000,000  (showing first 10,000)` instead of
   leaving the capped list unexplained.
+- **Settings dialog redesigned with a vertical category sidebar.** The 15
+  categories used to overflow a horizontal tab bar (most tab names hidden); they
+  now sit in an always-visible left-hand list (horizontal text) with the page on
+  the right, the standard modern settings layout. `--settings` opens the dialog
+  straight on launch.
 - **Zebra-striped result and cheat-table rows** for easier scanning of dense
   address/value lists. The theme already defined the alternating colour but the
   views never enabled it; enabled now, with the light stripe nudged from nearly

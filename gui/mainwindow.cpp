@@ -339,14 +339,7 @@ void MainWindow::setupMenus() {
     // in ITS View/Debug menus — matching CE — populated by populateBrowserMenus().
     tools->addAction("Memory Browser", this, &MainWindow::onMemoryView, QKeySequence("Ctrl+M"));
     tools->addSeparator();
-    edit->addAction("Settings...", this, [this]() {
-        SettingsDialog dlg(this);
-        dlg.exec();
-        // Apply the (possibly changed) auto-refresh interval live (restart to
-        // guarantee the new interval takes effect immediately).
-        if (valueRefreshTimer_)
-            valueRefreshTimer_->start(QSettings().value("memview/refreshMs", 500).toInt());
-    });
+    edit->addAction("Settings...", this, [this]() { openSettingsDialog(); });
 
     // ── Process menu ──
     process->addAction("Open Process...", this, &MainWindow::onOpenProcess);
@@ -3349,6 +3342,19 @@ void MainWindow::showDebugger() {
 void MainWindow::trackStructDissector(StructureDissector* sd) {
     std::erase_if(structDissectors_, [](const QPointer<StructureDissector>& p) { return p.isNull(); });
     structDissectors_.push_back(sd);
+}
+
+QDialog* MainWindow::openSettingsDialog() {
+    auto* dlg = new SettingsDialog(this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    // Apply the (possibly changed) auto-refresh interval live when it closes.
+    connect(dlg, &QDialog::finished, this, [this](int) {
+        if (valueRefreshTimer_)
+            valueRefreshTimer_->start(QSettings().value("memview/refreshMs", 500).toInt());
+    });
+    dlg->show();
+    dlg->raise();
+    return dlg;
 }
 
 MemoryBrowser* MainWindow::openMemoryView(uintptr_t addr) {

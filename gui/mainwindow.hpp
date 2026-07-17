@@ -58,6 +58,10 @@ public:
     /// Open the Memory Viewer, optionally at `addr` (0 = default / selected result).
     /// Returns the window, or null if no process is attached.
     MemoryBrowser* openMemoryView(uintptr_t addr = 0);
+
+    /// Open the Settings dialog (non-modal) and return it. Used by the Edit menu
+    /// and the `--settings` launch flag.
+    QDialog* openSettingsDialog();
     /// Attach to a running process by pid (no dialog). `name` is display-only.
     /// Used by the process picker and by `--pid <N>` on the command line.
     void attachToPid(pid_t pid, const QString& name);

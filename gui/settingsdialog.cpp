@@ -9,6 +9,8 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QTabWidget>
+#include <QListWidget>
+#include <QStackedWidget>
 #include <QSettings>
 #include <QHeaderView>
 
@@ -54,13 +56,22 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
 
     auto* root = new QVBoxLayout(this);
 
-    auto* tabs = new QTabWidget;
-    tabs->addTab(buildScanTab(),       "Scan");
-    tabs->addTab(buildDisplayTab(),    "Display");
-    tabs->addTab(buildDebuggerTab(),   "Debugger");
-    tabs->addTab(buildMemoryViewTab(), "Memory View");
-    tabs->addTab(buildHotkeysTab(),    "Hotkeys");
-    tabs->addTab(buildNetworkTab(),    "Network");
+    // Vertical category sidebar instead of an overflowing horizontal tab bar: every
+    // page name is visible at once, with normal (unrotated) horizontal text.
+    auto* nav = new QListWidget;
+    nav->setObjectName("settingsNav");
+    nav->setFixedWidth(150);
+    nav->setUniformItemSizes(true);
+    nav->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    nav->setFrameShape(QFrame::NoFrame);
+    auto* pages = new QStackedWidget;
+    auto addPage = [&](QWidget* w, const QString& name) { nav->addItem(name); pages->addWidget(w); };
+    addPage(buildScanTab(),       "Scan");
+    addPage(buildDisplayTab(),    "Display");
+    addPage(buildDebuggerTab(),   "Debugger");
+    addPage(buildMemoryViewTab(), "Memory View");
+    addPage(buildHotkeysTab(),    "Hotkeys");
+    addPage(buildNetworkTab(),    "Network");
 
     // Additional CE setting tabs (formsettingsunit). These persist on change, so
     // they need no onApply plumbing.
@@ -75,14 +86,14 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
         dwarf->setChecked(st.value("symbols/dwarf", true).toBool());
         connect(dwarf, &QCheckBox::toggled, this, [](bool v){ QSettings().setValue("symbols/dwarf", v); });
         sf->addRow("", dwarf);
-        tabs->addTab(sym, "Symbols");
+        addPage(sym, "Symbols");
 
         auto* cf = new QWidget; auto* cff = new QFormLayout(cf);
         auto* watch = new QComboBox; watch->addItems({"1", "2", "4", "8"});
         watch->setCurrentText(st.value("codefinder/watchSize", "4").toString());
         connect(watch, &QComboBox::currentTextChanged, this, [](const QString& v){ QSettings().setValue("codefinder/watchSize", v); });
         cff->addRow("Default watch size (bytes):", watch);
-        tabs->addTab(cf, "CodeFinder");
+        addPage(cf, "CodeFinder");
 
         auto* lua = new QWidget; auto* lf = new QFormLayout(lua);
         auto* luaWarn = new QLabel(
@@ -91,7 +102,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
             "so a loaded cheat table's Lua cannot enable them itself.");
         luaWarn->setWordWrap(true);
         lf->addRow(luaWarn);
-        tabs->addTab(lua, "Lua");
+        addPage(lua, "Lua");
 
         // Remaining CE tabs (formsettingsunit) — tab-structure parity. A couple carry
         // real controls; the platform-gated ones (Unrandomizer/Signing are Windows
@@ -99,7 +110,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
         auto noteTab = [&](const QString& name, const QString& text) {
             auto* w = new QWidget; auto* f = new QFormLayout(w);
             auto* l = new QLabel(text); l->setWordWrap(true); f->addRow(l);
-            tabs->addTab(w, name);
+            addPage(w, name);
         };
         noteTab("Unrandomizer", "ASLR unrandomizer (Windows-only in CE). On Linux, "
                                 "disable ASLR per-launch with: setarch $(uname -m) -R <program>.");
@@ -108,7 +119,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
             auto* pnote = new QLabel("Native plugins (.so) load from the app directory. "
                                      "The Lua plugin API is available from the Lua console.");
             pnote->setWordWrap(true); pf->addRow(pnote);
-            tabs->addTab(pl, "Plugins");
+            addPage(pl, "Plugins");
         }
         {
             auto* lg = new QWidget; auto* lgf = new QFormLayout(lg);
@@ -120,14 +131,21 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
             auto* note = new QLabel("Translations ship as translations/cheatengine_<locale>.qm; "
                                     "restart to apply.");
             note->setWordWrap(true); lgf->addRow(note);
-            tabs->addTab(lg, "Languages");
+            addPage(lg, "Languages");
         }
         noteTab("Extra", "Miscellaneous options.");
         noteTab("Tools", "External tool integration (disassembler/hex editor paths).");
         noteTab("Signing", "Cheat-table signing (Windows crypto in CE). Not applicable on Linux.");
     }
 
-    root->addWidget(tabs);
+    connect(nav, &QListWidget::currentRowChanged, pages, &QStackedWidget::setCurrentIndex);
+    nav->setCurrentRow(0);
+
+    auto* body = new QHBoxLayout;
+    body->setSpacing(12);
+    body->addWidget(nav);
+    body->addWidget(pages, 1);
+    root->addLayout(body);
 
     auto* btnRow = new QHBoxLayout;
     btnRow->addStretch();

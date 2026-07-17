@@ -22,6 +22,15 @@
 
 namespace ce::gui {
 
+// Flattened readable-memory model used to drive the memory-view scrollbar: the
+// (base,end) of each readable region plus the total mapped bytes. The scrollbar
+// maps this (gaps removed) so the handle is a real position and stays put.
+struct FlatMem {
+    std::vector<std::pair<uintptr_t, uintptr_t>> regions;
+    uint64_t total = 0;
+    bool empty() const { return total == 0; }
+};
+
 // ── Hex View Widget ──
 class HexView : public QAbstractScrollArea {
     Q_OBJECT
@@ -86,7 +95,7 @@ private:
 
     ce::ProcessHandle* proc_ = nullptr;
     uintptr_t address_ = 0;
-    int lastScrollValue_ = 100;   // last processed scrollbar value (kScrollCenter)
+    FlatMem flatMem_;             // cached readable-memory model for the scrollbar
     int bytesPerRow_ = 16;
     DisplayType displayType_ = DisplayType::Byte;
     QFont monoFont_{"Monospace", 10};
@@ -185,7 +194,7 @@ public:
     void setArch(ce::Arch arch) { disasm_ = std::make_unique<ce::Disassembler>(arch); viewport()->update(); }
 private:
     uintptr_t address_ = 0;
-    int lastScrollValue_ = 100;   // last processed scrollbar value (kScrollCenter)
+    FlatMem flatMem_;             // cached readable-memory model for the scrollbar
     int selectedRow_ = -1;
     QFont monoFont_{"Monospace", 10};
     int charW_ = 0;

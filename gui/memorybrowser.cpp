@@ -65,9 +65,47 @@ static uintptr_t ripEffectiveAddress(const ce::Instruction& inst);
 // HexView
 // ═══════════════════════════════════════════════════════════════
 
-// The vertical scrollbar's resting position; movement is measured as a delta
-// from here so the bar can drive an unbounded 64-bit address space.
-static constexpr int kScrollCenter = 100;
+// The scrollbar maps the process's *readable* memory, flattened (gaps removed),
+// onto a fixed number of steps. So the handle position is the real fraction of
+// mapped memory you're looking at, and it stays where you drag it (no snap-back).
+// The wheel/keys give per-row precision within that.
+static constexpr int kScrollSteps = 1'000'000;
+
+// FlatMem (base/end regions + total) lives in the header so the views can cache it.
+static FlatMem buildFlatMem(ce::ProcessHandle* proc) {
+    FlatMem f;
+    if (!proc) return f;
+    for (const auto& r : proc->queryRegions()) {
+        if (!(r.protection & ce::MemProt::Read) || r.size == 0) continue;
+        f.regions.push_back({r.base, r.base + r.size});
+        f.total += r.size;
+    }
+    std::sort(f.regions.begin(), f.regions.end());
+    return f;
+}
+// Scrollbar value [0,kScrollSteps] for an address's position in flattened memory.
+static int flatAddrToValue(const FlatMem& f, uintptr_t addr) {
+    if (f.empty()) return 0;
+    uint64_t cum = 0;
+    for (const auto& [b, e] : f.regions) {
+        if (addr < b) break;                       // in a gap before this region
+        if (addr < e) { cum += (addr - b); break; }
+        cum += (e - b);
+    }
+    return static_cast<int>((cum * static_cast<uint64_t>(kScrollSteps)) / f.total);
+}
+// Inverse: the address at a given scrollbar value.
+static uintptr_t flatValueToAddr(const FlatMem& f, int value, uintptr_t fallback) {
+    if (f.empty()) return fallback;
+    uint64_t target = (static_cast<uint64_t>(value) * f.total) / kScrollSteps;
+    uint64_t cum = 0;
+    for (const auto& [b, e] : f.regions) {
+        uint64_t sz = e - b;
+        if (target < cum + sz) return b + (target - cum);
+        cum += sz;
+    }
+    return f.regions.back().second;
+}
 
 HexView::HexView(QWidget* parent) : QAbstractScrollArea(parent) {
     hexUpper_ = QSettings().value("display/hexUpper", false).toBool();
@@ -79,13 +117,13 @@ HexView::HexView(QWidget* parent) : QAbstractScrollArea(parent) {
     setMinimumHeight(charH_ * 8);
     viewport()->setCursor(Qt::IBeamCursor);
     setFocusPolicy(Qt::StrongFocus);
-    // Drag / click the scrollbar to scroll memory (incremental delta -> rows).
+    // Drag/click the scrollbar to jump to that fraction of flattened readable
+    // memory (absolute), so the handle reflects where you are and stays there.
     connect(verticalScrollBar(), &QScrollBar::valueChanged, this, [this](int v) {
-        int delta = v - lastScrollValue_;
-        lastScrollValue_ = v;
-        if (delta) scrollRows(delta);
+        uintptr_t a = flatValueToAddr(flatMem_, v, address_) & ~static_cast<uintptr_t>(bytesPerRow_ - 1);
+        if (a != address_) { address_ = a; refresh(); }
     });
-    // Re-centre the bar once the drag ends, so both directions have room again.
+    // On release, re-sync the handle to the (aligned) address it landed on.
     connect(verticalScrollBar(), &QScrollBar::sliderReleased, this, [this]() { updateScrollBar(); });
 }
 
@@ -319,22 +357,17 @@ int HexView::visibleRows() const {
 }
 
 void HexView::updateScrollBar() {
-    // Memory is a 64-bit space, so the bar can't map it 1:1. Keep it centered and
-    // treat movement as relative (delta from the last value) — dragging or clicking
-    // the trough scrolls the view, then the bar snaps back to centre so there is
-    // always room to go either way. Block signals so the re-centre isn't seen as a
-    // user scroll (which would recurse).
     auto* sb = verticalScrollBar();
-    // Never re-centre mid-drag: snapping the handle back to the middle while the
-    // user is holding it fights the drag (the view appears stuck). The delta model
-    // lets the handle travel to either edge; sliderReleased re-centres afterwards.
-    if (sb->isSliderDown()) return;
+    if (flatMem_.empty() && proc_) flatMem_ = buildFlatMem(proc_);
     QSignalBlocker block(sb);
-    sb->setRange(0, 2 * kScrollCenter);
-    sb->setPageStep(std::max(1, visibleRows()));
-    sb->setSingleStep(1);
-    sb->setValue(kScrollCenter);
-    lastScrollValue_ = kScrollCenter;
+    sb->setRange(0, kScrollSteps);
+    uint64_t pageBytes = static_cast<uint64_t>(std::max(1, visibleRows())) * bytesPerRow_;
+    sb->setPageStep(flatMem_.total ? static_cast<int>(std::max<uint64_t>(1, pageBytes * kScrollSteps / flatMem_.total)) : 1);
+    sb->setSingleStep(std::max(1, sb->pageStep() / 8));
+    // Position the handle at the current address; don't move it while the user is
+    // dragging (that would fight the drag and make the pane look stuck).
+    if (!sb->isSliderDown())
+        sb->setValue(flatAddrToValue(flatMem_, address_));
 }
 
 // Move the view by `rows` (negative = up), with the same readability guards as
@@ -610,28 +643,25 @@ DisasmView::DisasmView(QWidget* parent) : QAbstractScrollArea(parent) {
     setMinimumHeight(charH_ * 8);
     setFocusPolicy(Qt::StrongFocus);
     viewport()->setMouseTracking(true);
-    // Draggable scrollbar (centred; incremental delta -> instructions), so the
-    // disassembly can be scrolled with the bar and not only the wheel/keys.
+    // Draggable scrollbar: jump to that fraction of flattened readable memory
+    // (absolute), so the handle reflects position and stays where you leave it.
     connect(verticalScrollBar(), &QScrollBar::valueChanged, this, [this](int v) {
-        int delta = v - lastScrollValue_;
-        lastScrollValue_ = v;
-        if (delta) scrollRows(delta);
+        uintptr_t a = flatValueToAddr(flatMem_, v, address_);
+        if (a != address_) { address_ = a; refresh(); }
     });
     connect(verticalScrollBar(), &QScrollBar::sliderReleased, this, [this]() { updateScrollBar(); });
 }
 
 void DisasmView::updateScrollBar() {
     auto* sb = verticalScrollBar();
-    // Don't re-centre while the user is dragging the handle (it would snap back
-    // and make the pane look stuck); the incremental-delta model handles the drag,
-    // and sliderReleased re-centres afterwards.
-    if (sb->isSliderDown()) return;
+    if (flatMem_.empty() && proc_) flatMem_ = buildFlatMem(proc_);
     QSignalBlocker block(sb);
-    sb->setRange(0, 2 * kScrollCenter);
-    sb->setPageStep(std::max(1, visibleRows()));
-    sb->setSingleStep(1);
-    sb->setValue(kScrollCenter);
-    lastScrollValue_ = kScrollCenter;
+    sb->setRange(0, kScrollSteps);
+    uint64_t pageBytes = static_cast<uint64_t>(std::max(1, visibleRows())) * 16;  // ~avg insn bytes
+    sb->setPageStep(flatMem_.total ? static_cast<int>(std::max<uint64_t>(1, pageBytes * kScrollSteps / flatMem_.total)) : 1);
+    sb->setSingleStep(std::max(1, sb->pageStep() / 8));
+    if (!sb->isSliderDown())
+        sb->setValue(flatAddrToValue(flatMem_, address_));
 }
 
 // Scroll by `rows` instructions (negative = up). Up uses the region-safe

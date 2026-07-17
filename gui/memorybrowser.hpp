@@ -269,6 +269,7 @@ private:
     std::vector<uintptr_t> backStack_;
     std::vector<uintptr_t> forwardStack_;
     uintptr_t currentAddr_ = 0;
+    std::vector<ce::ModuleInfo> modules_;   // cached for module+offset status display
     std::vector<uint8_t> lastSearch_;
     QAction* backAct_ = nullptr;
     QAction* fwdAct_ = nullptr;

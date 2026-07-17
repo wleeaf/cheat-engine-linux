@@ -3099,7 +3099,13 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
     window->show();
 }
 
-void MainWindow::onMemoryView() { openMemoryView(0); }
+void MainWindow::onMemoryView() {
+    if (!process_) {
+        statusBar()->showMessage("No process attached — open one first (Ctrl+O) to view memory.", 4000);
+        return;
+    }
+    openMemoryView(0);
+}
 
 MemoryBrowser* MainWindow::openMemoryView(uintptr_t addr) {
     if (!process_) return nullptr;

@@ -1210,6 +1210,7 @@ void MemoryBrowser::buildMenuBar() {
 MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     : QMainWindow(parent), proc_(proc) {
 
+    if (proc_) modules_ = proc_->modules();   // for module+offset in the status bar
     setWindowTitle("Memory Viewer");
     resize(900, 600);
     buildMenuBar();   // CE keeps the memory/debug tools in this window's menu bar
@@ -1412,8 +1413,14 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         uint8_t b[8] = {};
         auto r = proc_->read(addr, b, sizeof(b));
         size_t got = r ? *r : 0;
-        if (got < 1) { statusBar()->showMessage(QString("0x%1: <unreadable>").arg(addr, 0, 16)); return; }
-        QString msg = QString("0x%1  ").arg(addr, 0, 16);
+        // Prefix with the module-relative address ("libc.so.6+0x1234") when the
+        // cursor is inside a module, matching the cheat table's display.
+        std::string modOff = ce::moduleOffsetString(modules_, addr);
+        QString head = modOff.empty()
+            ? QString("0x%1  ").arg(addr, 0, 16)
+            : QString("%1  (0x%2)  ").arg(QString::fromStdString(modOff)).arg(addr, 0, 16);
+        if (got < 1) { statusBar()->showMessage(head + "<unreadable>"); return; }
+        QString msg = head;
         int8_t i8; std::memcpy(&i8, b, 1);
         msg += QString("i8=%1  u8=%2").arg(i8).arg((unsigned)b[0]);
         if (got >= 2) { int16_t v; std::memcpy(&v, b, 2); msg += QString("  i16=%1").arg(v); }

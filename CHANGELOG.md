@@ -80,6 +80,9 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
 - **File > Load Recent now works.** It was a permanently empty menu; it now
   lists the last 10 cheat tables you opened or saved (most recent first, full
   path on hover), greys out ones that have since moved, and has a "Clear list".
+- **Debugger highlights changed registers** (CE's cue): after each step or
+  breakpoint stop, the registers the instruction modified paint red, so what an
+  instruction touched reads at a glance. The first stop of a session stays neutral.
 - **`--pid <N>`** attaches to a process on launch (no picker dialog).
 
 ### Scripting / RE

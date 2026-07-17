@@ -1,4 +1,5 @@
 #include "gui/debuggerwindow.hpp"
+#include "gui/theme.hpp"
 #include "debug/breakpoint_manager.hpp"
 #include "debug/patch.hpp"
 
@@ -218,6 +219,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     });
 
     if (proc_ && session_->attach(proc_->pid(), proc_)) {
+        prevGp_.clear();    // fresh session: don't flag the first stop's registers
         refreshStopped();   // target is all-stopped right after attach
     } else {
         statusLabel_->setText("Attach failed (need ptrace permission?)");
@@ -556,12 +558,19 @@ bool DebuggerWindow::xmm0ShowsForTest(uint64_t lo) {
 
 void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
     const uintptr_t vals[] = {c.rip, c.rsp, c.rbp, c.rax, c.rbx, c.rcx, c.rdx, c.rsi, c.rdi, c.rflags};
+    constexpr int kGp = 10;
+    // Flag registers the last instruction changed, like CE: red when the value
+    // differs from the previous stop, default colour otherwise. Skipped on the
+    // first stop of a session (prevGp_ empty), so nothing lights up spuriously.
+    const bool hasPrev = prevGp_.size() == kGp;
+    const QBrush changedFg(ce::gui::editorPalette().error);   // theme-aware red
+    const QBrush normalFg = regTable_->palette().text();
     // Update items IN PLACE (never setItem here): this runs from within
     // onRegisterEdited (itemChanged), where replacing an item would delete the
     // one whose setText is still on the stack (use-after-free). Block signals so
     // these programmatic fills aren't re-interpreted as user edits.
     regTable_->blockSignals(true);
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < kGp; ++i) {
         auto* it = regTable_->item(i, 0);
         if (!it) {
             it = new QTableWidgetItem();
@@ -569,7 +578,9 @@ void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
             regTable_->setItem(i, 0, it);
         }
         it->setText(hex(vals[i]));
+        it->setForeground(hasPrev && prevGp_[i] != vals[i] ? changedFg : normalFg);
     }
+    prevGp_.assign(vals, vals + kGp);
     // XMM0-15, view-only, shown as the 128-bit value (most-significant byte first).
     auto xmm = session_->getXmmRegisters();
     for (int r = 0; r < 16; ++r) {
@@ -584,6 +595,15 @@ void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
         it->setText(s);
     }
     regTable_->blockSignals(false);
+}
+
+bool DebuggerWindow::anyRegisterChangedHighlightForTest() const {
+    if (!regTable_) return false;
+    const QColor red = ce::gui::editorPalette().error;
+    for (int i = 0; i < 10; ++i)
+        if (auto* it = regTable_->item(i, 0); it && it->foreground().color() == red)
+            return true;
+    return false;
 }
 
 // The register value column is editable; committing a cell writes the parsed

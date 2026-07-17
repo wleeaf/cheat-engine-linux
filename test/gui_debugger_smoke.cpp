@@ -67,6 +67,11 @@ int main(int argc, char** argv) {
         if (win.debugStopped() && win.currentStopRip() == hotAddr) hit = true;
     }
 
+    // Step highlight (CE-style): moving from the attach stop to the breakpoint hit
+    // changed at least RIP, so at least one GP register must paint in the "changed"
+    // colour. Sample now, before the register edit below re-renders the table.
+    bool regHighlight = hit && win.anyRegisterChangedHighlightForTest();
+
     // All-stop: the free-running counter thread must be frozen at the stop.
     long c1 = 0, c2 = 0;
     proc.read(reinterpret_cast<uintptr_t>(&g_smoke_counter), &c1, sizeof(c1));
@@ -104,8 +109,8 @@ int main(int argc, char** argv) {
     kill(child, SIGKILL);
     waitpid(child, nullptr, 0);
 
-    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && xmmView && disasmBp;
-    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d xmm=%d disasmbp=%d)\n",
-           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, xmmView, disasmBp);
+    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && xmmView && disasmBp && regHighlight;
+    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d xmm=%d disasmbp=%d reghl=%d)\n",
+           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, xmmView, disasmBp, regHighlight);
     return ok ? 0 : 1;
 }

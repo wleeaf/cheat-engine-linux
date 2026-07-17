@@ -55,6 +55,9 @@ public:
     // Move the caret to disasm line `lineIndex` and set a breakpoint there via the
     // same path the right-click menu uses; report whether it was planted.
     bool disasmSetBreakpointForTest(int lineIndex);
+    // True if any GP register row currently paints in the "changed" (red) colour,
+    // i.e. the last stop's step highlight fired.
+    bool anyRegisterChangedHighlightForTest() const;
 
 private slots:
     void onContinue();
@@ -94,6 +97,7 @@ private:
     QPlainTextEdit* disasmView_ = nullptr;
     QComboBox* threadCombo_ = nullptr;
     QTableWidget* regTable_ = nullptr;
+    std::vector<uintptr_t> prevGp_;   // last stop's GP regs, to red-flag changes on step
     QPlainTextEdit* stackView_ = nullptr;
     QLineEdit* memAddrInput_ = nullptr;
     QPlainTextEdit* memView_ = nullptr;

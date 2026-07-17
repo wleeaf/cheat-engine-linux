@@ -373,6 +373,7 @@ if(Qt6_FOUND)
         qt_add_executable(gui_debugger_smoke
             test/gui_debugger_smoke.cpp
             gui/debuggerwindow.cpp
+            gui/theme.cpp   # debuggerwindow now uses ce::gui::editorPalette()
         )
         target_include_directories(gui_debugger_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
         target_link_libraries(gui_debugger_smoke PRIVATE cecore Qt6::Widgets)

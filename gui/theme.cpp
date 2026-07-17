@@ -20,6 +20,10 @@ static const char* kDarkStyleSheet = R"(
     QPushButton:hover, QToolButton:hover { background-color: #3b3d52; border-color: #585b70; }
     QPushButton:pressed, QToolButton:pressed { background-color: #585b70; }
     QPushButton:disabled, QToolButton:disabled { color: #585b70; border-color: #313244; }
+    QPushButton#primaryButton { background-color: #89b4fa; color: #1e1e2e; border: 1px solid #89b4fa; font-weight: 600; }
+    QPushButton#primaryButton:hover { background-color: #a6c8ff; border-color: #a6c8ff; }
+    QPushButton#primaryButton:pressed { background-color: #74a0e8; }
+    QPushButton#primaryButton:disabled { background-color: #45475a; border-color: #45475a; color: #6c7086; }
     QLineEdit, QSpinBox { background-color: #313244; color: #cdd6f4; border: 1px solid #45475a;
                           padding: 4px 6px; border-radius: 5px; selection-background-color: #585b70; }
     QLineEdit:focus, QSpinBox:focus { border-color: #89b4fa; }
@@ -82,6 +86,10 @@ static const char* kLightStyleSheet = R"(
     QPushButton:hover, QToolButton:hover { background-color: #f0f5ff; border-color: #4a7fe0; }
     QPushButton:pressed, QToolButton:pressed { background-color: #dfeafc; }
     QPushButton:disabled, QToolButton:disabled { color: #a8adb6; background-color: #f4f5f7; border-color: #e0e2e7; }
+    QPushButton#primaryButton { background-color: #2f6fed; color: #ffffff; border: 1px solid #2f6fed; font-weight: 600; }
+    QPushButton#primaryButton:hover { background-color: #4a7fe0; border-color: #4a7fe0; }
+    QPushButton#primaryButton:pressed { background-color: #2258c9; }
+    QPushButton#primaryButton:disabled { background-color: #c3d3f5; border-color: #c3d3f5; color: #eef2fb; }
     QLineEdit, QSpinBox { background-color: #ffffff; color: #1b1f24; border: 1px solid #cdd1d9;
                           padding: 4px 6px; border-radius: 5px; selection-background-color: #cfe0fb; }
     QLineEdit:focus, QSpinBox:focus { border-color: #2f6fed; }

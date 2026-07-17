@@ -1219,7 +1219,8 @@ void MainWindow::setupUi() {
     // Buttons
     auto* btnLayout = new QHBoxLayout;
     firstScanBtn_ = new QPushButton("First Scan");
-    firstScanBtn_->setStyleSheet("font-weight: bold;");
+    // Accent "primary action" styling comes from the theme (QPushButton#primaryButton).
+    firstScanBtn_->setObjectName("primaryButton");
     nextScanBtn_ = new QPushButton("Next Scan");
     nextScanBtn_->setEnabled(false);
     undoScanBtn_ = new QPushButton("Undo Scan");

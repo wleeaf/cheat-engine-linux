@@ -287,9 +287,11 @@ void HexView::refresh() {
         // Zero any bytes not actually read (partial read or failure) so the
         // grid never renders stale data past the readable end of the region.
         size_t got = r ? *r : 0;
+        readableBytes_ = got;
         if (got < cache_.size())
             std::fill(cache_.begin() + got, cache_.end(), 0);
     } else {
+        readableBytes_ = 0;
         std::fill(cache_.begin(), cache_.end(), 0);
     }
     // cache_ may have shrunk (window resized smaller); drop a now-stale selection
@@ -375,17 +377,24 @@ void HexView::paintEvent(QPaintEvent*) {
                                c.selection);
                 }
 
-                p.setPen(b == 0 ? c.dim : c.text);
-                p.drawText(x, y, QString("%1").arg(b, 2, 16, QChar('0')));
+                // Unreadable bytes render as a dim "??" so they read as "no
+                // memory here", not as an actual zero value.
+                bool readable = idx < (int)readableBytes_;
+                p.setPen(readable ? (b == 0 ? c.dim : c.text) : c.dim);
+                p.drawText(x, y, readable ? QString("%1").arg(b, 2, 16, QChar('0'))
+                                          : QStringLiteral("??"));
             }
         } else {
             int gsize = hexGroupBytes(displayType_);
             int fieldW = charW_ * (hexGroupChars(displayType_) + 1);
-            p.setPen(c.text);
             for (int g = 0; g * gsize < bytesPerRow_; ++g) {
                 int idx = row * bytesPerRow_ + g * gsize;
                 if (idx + gsize > (int)cache_.size()) break;
-                p.drawText(addrColW + g * fieldW, y, formatHexGroup(&cache_[idx], displayType_));
+                bool readable = idx + gsize <= (int)readableBytes_;
+                p.setPen(readable ? c.text : c.dim);
+                p.drawText(addrColW + g * fieldW, y,
+                           readable ? formatHexGroup(&cache_[idx], displayType_)
+                                    : QString(hexGroupChars(displayType_), QChar('?')));
             }
         }
 
@@ -395,8 +404,8 @@ void HexView::paintEvent(QPaintEvent*) {
             int idx = row * bytesPerRow_ + col;
             if (idx >= (int)cache_.size()) break;
             uint8_t b = cache_[idx];
-            char c = (b >= 32 && b < 127) ? (char)b : '.';
-            p.drawText(asciiX + col * charW_, y, QString(QChar(c)));
+            char ch = (idx < (int)readableBytes_ && b >= 32 && b < 127) ? (char)b : '.';
+            p.drawText(asciiX + col * charW_, y, QString(QChar(ch)));
         }
     }
 }

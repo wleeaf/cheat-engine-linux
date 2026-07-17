@@ -78,6 +78,8 @@ private:
     int editNibble_ = 0;       // 0 = high nibble next, 1 = low nibble next
     bool editAscii_ = false;   // selection is in the ASCII column (type chars)
     std::vector<uint8_t> cache_;
+    size_t readableBytes_ = 0;   // how many leading cache_ bytes were actually read
+                                 // (the rest render as "??", not zeros)
 
     /// Write a single byte to the target, making the page writable if needed.
     bool pokeByte(uintptr_t addr, uint8_t value);

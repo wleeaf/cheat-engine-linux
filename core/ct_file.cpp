@@ -820,8 +820,11 @@ bool CheatTable::load(const std::string& path) {
     if (!f) return false;
 
     std::string xml((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    return loadFromString(xml);
+}
 
-    // Reject files that are not cheat tables so callers can distinguish a
+bool CheatTable::loadFromString(const std::string& xml) {
+    // Reject input that is not a cheat table so callers can distinguish a
     // valid (possibly empty) table from "not a CT at all".
     if (xml.find("<CheatTable") == std::string::npos &&
         xml.find("<CheatEntries>") == std::string::npos)

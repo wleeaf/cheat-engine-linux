@@ -87,6 +87,11 @@ struct CheatTable {
     /// Load from .CT XML file.
     bool load(const std::string& path);
 
+    /// Parse .CT XML already held in memory (the file body). Accepts either a full
+    /// <CheatTable> document or a bare <CheatEntries>...</CheatEntries> fragment,
+    /// which is what Cheat Engine puts on the clipboard when you copy records.
+    bool loadFromString(const std::string& xml);
+
     /// Load a table auto-detecting the on-disk format (CE XML .CT, our JSON, or a
     /// password-less protected payload) from the file *contents*, not its
     /// extension. Use this for any user-supplied path: CE tables are commonly

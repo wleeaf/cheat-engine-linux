@@ -464,6 +464,57 @@ static void test_ce_table_import() {
     printf("  saver: negative offset survives round-trip: %s\n", (negHex && fidelityOk) ? "OK" : "FAILED");
 }
 
+// loadFromString parses .CT XML held in memory. The clipboard path relies on it
+// accepting a bare <CheatEntries> fragment (what CE copies), not just a full
+// <CheatTable> document.
+static void test_ct_load_from_string() {
+    printf("\n── Test: CheatTable::loadFromString (clipboard fragment) ──\n");
+
+    // A bare <CheatEntries> block, exactly as Cheat Engine puts on the clipboard
+    // when you Ctrl+C selected records (no <?xml?> header, no <CheatTable> wrapper).
+    const char* fragment =
+        "<CheatEntries>\n"
+        "  <CheatEntry>\n"
+        "    <ID>7</ID>\n"
+        "    <Description>\"Gold\"</Description>\n"
+        "    <VariableType>4 Bytes</VariableType>\n"
+        "    <Address>1234ABCD</Address>\n"
+        "  </CheatEntry>\n"
+        "  <CheatEntry>\n"
+        "    <ID>8</ID>\n"
+        "    <Description>\"Lives\"</Description>\n"
+        "    <VariableType>2 Bytes</VariableType>\n"
+        "    <Address>game.exe+20</Address>\n"
+        "    <Offsets><Offset>4</Offset></Offsets>\n"
+        "  </CheatEntry>\n"
+        "</CheatEntries>\n";
+    CheatTable frag;
+    bool fragOk = frag.loadFromString(fragment) && frag.entries.size() == 2 &&
+        frag.entries[0].description == "Gold" &&
+        frag.entries[0].type == ValueType::Int32 &&
+        frag.entries[0].address == 0x1234ABCD &&
+        frag.entries[1].description == "Lives" &&
+        frag.entries[1].type == ValueType::Int16 &&
+        frag.entries[1].addressString == "game.exe+20" &&
+        frag.entries[1].offsets == std::vector<int64_t>({0x4});
+    printf("  parses a bare <CheatEntries> clipboard fragment: %s\n", fragOk ? "OK" : "FAILED");
+
+    // A full <CheatTable> document still parses (the refactor kept load() working).
+    CheatTable full;
+    bool fullOk = full.loadFromString(
+        "<CheatTable><CheatEntries><CheatEntry><ID>1</ID>"
+        "<Description>\"HP\"</Description><VariableType>Float</VariableType>"
+        "<Address>DEAD00</Address></CheatEntry></CheatEntries></CheatTable>") &&
+        full.entries.size() == 1 && full.entries[0].type == ValueType::Float &&
+        full.entries[0].address == 0xDEAD00;
+    printf("  parses a full <CheatTable> document: %s\n", fullOk ? "OK" : "FAILED");
+
+    // Non-table text is rejected (so the clipboard paste can fall back to JSON).
+    bool rejectsOk = !CheatTable().loadFromString("just some text, not a table") &&
+                     !CheatTable().loadFromString("[{\"address\":\"0x1000\"}]");
+    printf("  rejects non-table text: %s\n", rejectsOk ? "OK" : "FAILED");
+}
+
 // The Mono dissector's dump parser (the in-process agent's IMG/CLS/FLD output ->
 // a structured model). Pure + offline; the live inject path is validated by hand
 // against a real mono process.
@@ -9509,6 +9560,7 @@ int main(int argc, char* argv[]) {
     test_lua_timers();
     test_logging();
     test_ce_table_import();
+    test_ct_load_from_string();
     test_ct_format_detection();
     test_ct_forms_roundtrip();
     test_trainer_generation();

@@ -116,6 +116,7 @@ static QString foundLabelText(size_t count) {
 static double parseUserDouble(const QString& s, bool* ok = nullptr);
 
 // Forward declarations of static helpers
+static QJsonArray cheatEntriesToJson(const ce::CheatTable& table);
 static ScanCompare mapScanType(int index);
 static ValueType mapValueType(int index);
 static void warnIfMemoryUnreadable(QWidget* parent, ce::ProcessHandle* p,
@@ -2609,17 +2610,24 @@ void MainWindow::onCopyAddresses() {
 }
 
 void MainWindow::onPasteAddresses() {
-    auto text = QApplication::clipboard()->text().toUtf8();
-    QJsonParseError error{};
-    auto doc = QJsonDocument::fromJson(text, &error);
-    if (error.error != QJsonParseError::NoError)
-        return;
-
+    const QString clip = QApplication::clipboard()->text();
     QJsonArray pasted;
-    if (doc.isArray()) {
-        pasted = doc.array();
-    } else if (doc.isObject()) {
-        pasted = doc.object()["entries"].toArray();
+    // Cheat Engine copies records as a <CheatEntries> XML fragment; accept that too
+    // so entries can be pasted straight from a CE session (or a shared table
+    // snippet), not only from our own JSON copy.
+    if (clip.contains(QLatin1String("<CheatEntry"))) {
+        ce::CheatTable t;
+        if (t.loadFromString(clip.toStdString()))
+            pasted = cheatEntriesToJson(t);
+    } else {
+        QJsonParseError error{};
+        auto doc = QJsonDocument::fromJson(clip.toUtf8(), &error);
+        if (error.error != QJsonParseError::NoError)
+            return;
+        if (doc.isArray())
+            pasted = doc.array();
+        else if (doc.isObject())
+            pasted = doc.object()["entries"].toArray();
     }
     if (pasted.isEmpty())
         return;
@@ -2928,12 +2936,11 @@ void MainWindow::onLoadTable() {
 
 // Load a cheat table from a path (no dialog). Shared by onLoadTable and the
 // command-line "cheatengine <table.ct>" entry point.
-// Populate the address list (and table comment / disassembler annotations / table
-// Lua) from a parsed CheatTable. Shared by every load path that yields a
-// CheatTable model (CE XML .CT and password-protected .CETRAINER), so they behave
-// identically. JSON goes through its own reader below.
-void MainWindow::loadCheatTableModel(const ce::CheatTable& table) {
-    tableComment_ = QString::fromStdString(table.comment);   // table notes
+// Convert a parsed CheatTable's records into the address-list JSON schema
+// (the same shape AddressListModel::toJson emits), computing each record's indent
+// from the parentId tree. Shared by full-table load (replace) and clipboard paste
+// of CE XML (append).
+static QJsonArray cheatEntriesToJson(const ce::CheatTable& table) {
     QJsonArray arr;
     // Compute each entry's nesting level from the parentId tree (entries are in
     // document order, parents before children) so imported groups indent in the
@@ -2976,6 +2983,16 @@ void MainWindow::loadCheatTableModel(const ce::CheatTable& table) {
         obj["parent"] = e.parentId;
         arr.append(obj);
     }
+    return arr;
+}
+
+// Populate the address list (and table comment / disassembler annotations / table
+// Lua) from a parsed CheatTable. Shared by every load path that yields a
+// CheatTable model (CE XML .CT and password-protected .CETRAINER), so they behave
+// identically. JSON goes through its own reader below.
+void MainWindow::loadCheatTableModel(const ce::CheatTable& table) {
+    tableComment_ = QString::fromStdString(table.comment);   // table notes
+    QJsonArray arr = cheatEntriesToJson(table);
     loadAddressEntries(arr);
     // Run the table-level Lua script (CE's <LuaScript>) after the records are
     // loaded, so it can define trainer functions/hooks and reference records.

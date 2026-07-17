@@ -145,6 +145,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             statusBar()->showMessage("Target process exited", 5000);
             process_.reset();
             currentPid_ = 0;
+            setWindowTitle("Cheat Engine");
             addressListModel_->setProcess(nullptr);
             resultsModel_->setProcess(nullptr);
             updateScanButtons();
@@ -316,6 +317,7 @@ void MainWindow::setupMenus() {
         ceserverClient_.reset();
         process_ = std::make_unique<os::LinuxProcessHandle>(pid);
         processLabel_->setText(QString("PID: %1 — %2 (created)").arg(pid).arg(QFileInfo(path).fileName()));
+        setWindowTitle(QString("Cheat Engine - %1 (%2)").arg(QFileInfo(path).fileName()).arg(pid));
         addressListModel_->setProcess(process_.get());
         resultsModel_->setProcess(process_.get());
         firstScanBtn_->setEnabled(true);
@@ -580,6 +582,8 @@ void MainWindow::setupMenus() {
                     process_ = std::make_unique<os::LinuxProcessHandle>(pid);
                     processLabel_->setText(QString("PID: %1 — %2 (auto-attached)")
                         .arg(pid).arg(QString::fromStdString(procName)));
+                    setWindowTitle(QString("Cheat Engine - %1 (%2)")
+                        .arg(QString::fromStdString(procName)).arg(pid));
                     warnIfMemoryUnreadable(this, process_.get(), pid,
                                            QString::fromStdString(procName));
                     addressListModel_->setProcess(process_.get());
@@ -1854,6 +1858,7 @@ void MainWindow::onOpenProcess() {
         ceserverClient_.reset();
         process_ = std::make_unique<os::LinuxProcessHandle>(currentPid_);
         processLabel_->setText(QString("PID: %1 — %2").arg(currentPid_).arg(dlg.selectedName()));
+        setWindowTitle(QString("Cheat Engine - %1 (%2)").arg(dlg.selectedName()).arg(currentPid_));
         warnIfMemoryUnreadable(this, process_.get(), currentPid_, dlg.selectedName());
         addressListModel_->setProcess(process_.get());
                     resultsModel_->setProcess(process_.get());

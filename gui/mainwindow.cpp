@@ -968,6 +968,10 @@ void MainWindow::setupUi() {
     resultsView_->setFont(QFont("Monospace", 9));
     resultsView_->verticalHeader()->setVisible(false);
     resultsView_->horizontalHeader()->setStretchLastSection(true);
+    // Address sized to its content; Value and Previous share the rest evenly.
+    resultsView_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    resultsView_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    resultsView_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
 
     // A centered hint shown over the empty result list so the pane isn't a blank
     // grid before the first scan (a "finished app" touch).
@@ -3245,11 +3249,36 @@ int ScanResultsModel::rowCount(const QModelIndex&) const {
     return result_ ? std::min(result_->count(), size_t(10000)) : 0;
 }
 
-int ScanResultsModel::columnCount(const QModelIndex&) const { return 2; }
+int ScanResultsModel::columnCount(const QModelIndex&) const { return 3; }
 
 QVariant ScanResultsModel::headerData(int section, Qt::Orientation o, int role) const {
     if (role != Qt::DisplayRole || o != Qt::Horizontal) return {};
-    return section == 0 ? "Address" : "Value";
+    switch (section) {
+        case 0:  return "Address";
+        case 1:  return "Value";       // current (live) value
+        default: return "Previous";    // value captured at scan time
+    }
+}
+
+// Format `vs` bytes at `buf` as `vt` (shared by the live Value and the scan-time
+// Previous columns).
+static QString formatScanValue(ValueType vt, bool displayHex, const uint8_t* buf, size_t vs) {
+    switch (vt) {
+        case ValueType::Byte:   return displayHex ? QString("0x%1").arg(buf[0], 0, 16) : QString::number(buf[0]);
+        case ValueType::Int16:  { uint16_t v; memcpy(&v, buf, 2); return displayHex ? QString("0x%1").arg(v, 0, 16) : QString::number((int16_t)v); }
+        case ValueType::Int32:  { uint32_t v; memcpy(&v, buf, 4); return displayHex ? QString("0x%1").arg(v, 0, 16) : QString::number((int32_t)v); }
+        case ValueType::Int64:  { uint64_t v; memcpy(&v, buf, 8); return displayHex ? QString("0x%1").arg((qulonglong)v, 0, 16) : QString::number((int64_t)v); }
+        case ValueType::Pointer:{ uintptr_t v; memcpy(&v, buf, sizeof(v)); return QString("0x%1").arg(v, 0, 16); }
+        case ValueType::Float:  { float v; memcpy(&v, buf, 4); return QString::number(v, 'f', 4); }
+        case ValueType::Double: { double v; memcpy(&v, buf, 8); return QString::number(v, 'f', 6); }
+        case ValueType::Grouped:
+        case ValueType::Custom: {
+            QString hex; hex.reserve(static_cast<int>(vs * 2));
+            for (size_t i = 0; i < vs; ++i) hex += QString("%1").arg(buf[i], 2, 16, QChar('0'));
+            return hex;
+        }
+        default: return "?";
+    }
 }
 
 QVariant ScanResultsModel::data(const QModelIndex& index, int role) const {
@@ -3267,38 +3296,25 @@ QVariant ScanResultsModel::data(const QModelIndex& index, int role) const {
 
     if (index.column() == 0) {
         return QString("0x%1").arg(result_->address(index.row()), 0, 16);
-    } else {
-        size_t vs = valueSizeBytes();
-        std::vector<uint8_t> buf(vs);
-        // Prefer the live re-read for on-screen rows; fall back to the scan-time
-        // value for rows not currently refreshed.
-        auto it = liveValues_.find(index.row());
-        if (it != liveValues_.end()) {
-            if (it->second.size() == vs) buf = it->second;
-            else return QStringLiteral("??");   // unreadable this refresh
-        } else {
-            result_->value(index.row(), buf.data(), vs);
-        }
-
-        switch (valueType_) {
-            case ValueType::Byte:   return displayHex_ ? QString("0x%1").arg(buf[0], 0, 16) : QString::number(buf[0]);
-            case ValueType::Int16:  { uint16_t v; memcpy(&v, buf.data(), 2); return displayHex_ ? QString("0x%1").arg(v, 0, 16) : QString::number((int16_t)v); }
-            case ValueType::Int32:  { uint32_t v; memcpy(&v, buf.data(), 4); return displayHex_ ? QString("0x%1").arg(v, 0, 16) : QString::number((int32_t)v); }
-            case ValueType::Int64:  { uint64_t v; memcpy(&v, buf.data(), 8); return displayHex_ ? QString("0x%1").arg((qulonglong)v, 0, 16) : QString::number((int64_t)v); }
-            case ValueType::Pointer:{ uintptr_t v; memcpy(&v, buf.data(), sizeof(v)); return QString("0x%1").arg(v, 0, 16); }
-            case ValueType::Float:  { float v; memcpy(&v, buf.data(), 4); return QString::number(v, 'f', 4); }
-            case ValueType::Double: { double v; memcpy(&v, buf.data(), 8); return QString::number(v, 'f', 6); }
-            case ValueType::Grouped:
-            case ValueType::Custom: {
-                QString hex;
-                hex.reserve(static_cast<int>(vs * 2));
-                for (size_t i = 0; i < vs; ++i)
-                    hex += QString("%1").arg(buf[i], 2, 16, QChar('0'));
-                return hex;
-            }
-            default: return "?";
-        }
     }
+
+    const size_t vs = valueSizeBytes();
+    std::vector<uint8_t> buf(vs);
+    if (index.column() == 2) {
+        // Previous: always the value captured at scan time.
+        result_->value(index.row(), buf.data(), vs);
+        return formatScanValue(valueType_, displayHex_, buf.data(), vs);
+    }
+    // Value: prefer the live re-read for on-screen rows; fall back to the
+    // scan-time value for rows not currently refreshed.
+    auto it = liveValues_.find(index.row());
+    if (it != liveValues_.end()) {
+        if (it->second.size() == vs) buf = it->second;
+        else return QStringLiteral("??");   // unreadable this refresh
+    } else {
+        result_->value(index.row(), buf.data(), vs);
+    }
+    return formatScanValue(valueType_, displayHex_, buf.data(), vs);
 }
 
 uintptr_t ScanResultsModel::addressAt(int row) const {

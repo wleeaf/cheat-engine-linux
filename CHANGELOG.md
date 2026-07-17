@@ -13,6 +13,61 @@ reimplementation of Cheat Engine).
 
 ---
 
+## Unreleased
+
+IL2CPP dissector depth plus a broad UI/UX pass: a redesigned scan panel, fixed
+scrollbars and dark-theme rendering, and a batch of Cheat-Engine-parity details.
+GUI behaviour verified against real processes via a new `--pid` launch flag.
+
+### IL2CPP (Unity) dissector
+
+- **Managed field type names** resolved offline from the GameAssembly binary:
+  `System.Single`, `UnityEngine.Vector3` (VALUETYPE/CLASS), arrays (`MyClass[]`),
+  pointers, and generics spelled out (``List`1<System.String>``,
+  ``Dictionary`2<K, V>``). Every field on real v27/v31 games resolves a name.
+- **Base class** of each type (parent chain), rendered as `Foo : Bar` in the
+  dissector; and **full object layouts** with inherited fields
+  (`getIl2CppObjectLayout`, `cescan il2cpp --object <class>`), each field tagged
+  with its declaring type.
+
+### Scanning
+
+- **Tri-state Writable/Executable region filters** (CE's grey/checked/unchecked
+  boxes): must-have / must-not-have / don't-care.
+- **"Pause target while scanning"** — SIGSTOP the target for a consistent snapshot
+  during each scan, then resume (skips a target that's already stopped).
+- **New Scan flow**: First Scan becomes New Scan after scanning and locks the
+  value type; a **Previous column** shows the scan-time value next to the live one.
+- **AOB / string result values fixed** — they showed "?"; AOB now renders as
+  `48 8B 05` and strings as text, in both the results list and the cheat table
+  (which also keeps AOB/string entry types across save/load).
+- Enter-to-scan, type-aware value placeholders (`48 8B ?? 05` for AOB), the value
+  box greys out for no-value compares, thousands-separated result counts, clear
+  status feedback when there's no process, and **Save current scanresults** to
+  txt/csv.
+
+### UI / memory viewer
+
+- **Scan panel rebuilt** with real Qt layouts (was absolute pixel coordinates:
+  dead space, no scaling); results list expands into the reclaimed width.
+- **Memory-view scrollbars work** — the disassembly/hex panes had a dead or
+  missing scrollbar; both now scroll memory, and scrolling up past mapped memory
+  no longer strands the view ("no memory" with no way back).
+- **Dark-theme tree fix** — tree widgets (Mono dissector, breakpoint/thread/module
+  lists, structure dissector) rendered class rows as unreadable white stripes;
+  now themed. Tool buttons, radios, and the speedhack slider themed to match.
+- **Addresses as `module+offset`** (`game.bin+0x1234`) in the cheat table, stable
+  across restarts; empty-state hints on the results and cheat-table panes; the
+  window title shows the attached process.
+- **`--pid <N>`** attaches to a process on launch (no picker dialog).
+
+### Scripting / RE
+
+- Wayland global hotkeys wired into `GlobalHotkeyManager` (xdg-desktop-portal).
+- Lua: `findReferencedStrings`, `findCodeCaves`, `findAssemblyPattern`,
+  `disassembleRange`, `getIl2CppObjectLayout`; `cescan analyze` surfaces the
+  static RE toolkit from the shell. New `docs/SCRIPTING.md` + `examples/`.
+
 ## v0.6.0: scanner performance overhaul (2026-07-16)
 
 Performance release. The value scanner (first scan and next scan) was rebuilt

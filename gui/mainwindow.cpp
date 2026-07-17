@@ -2117,6 +2117,18 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* ev) {
 }
 
 void MainWindow::onFirstScan() {
+    // "New Scan" mode: a scan session is open, so this click resets to the
+    // pre-scan state (clears results, unlocks the value type) rather than
+    // scanning. The next click then runs a fresh First Scan.
+    if (lastResult_ != nullptr) {
+        resultsModel_->clear();
+        lastResult_.reset();
+        undoResult_.reset();
+        foundLabel_->setText("Found: 0");
+        statusBar()->showMessage("New scan: pick a value type and value, then First Scan.", 4000);
+        updateScanButtons();
+        return;
+    }
     if (!process_) {
         statusBar()->showMessage("No process attached — open one first (Ctrl+O) to scan.", 4000);
         return;
@@ -3139,10 +3151,16 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
 
 void MainWindow::updateScanButtons() {
     bool hasProcess = (process_ != nullptr);
-    bool hasResults = (lastResult_ != nullptr && lastResult_->count() > 0);
+    bool scanActive = (lastResult_ != nullptr);   // a First Scan has been run
+    bool hasResults = (scanActive && lastResult_->count() > 0);
     firstScanBtn_->setEnabled(hasProcess);
+    // CE-style: once a scan session is open, "First Scan" becomes "New Scan" (a
+    // reset), the value type is locked (Next Scan must reuse it), and Next Scan
+    // is available. A fresh state shows "First Scan" with an editable value type.
+    firstScanBtn_->setText(scanActive ? "New Scan" : "First Scan");
     nextScanBtn_->setEnabled(hasResults);
     undoScanBtn_->setEnabled(undoResult_ != nullptr);
+    if (valueTypeCombo_) valueTypeCombo_->setEnabled(!scanActive);
 }
 
 // ═══════════════════════════════════════════════════════════════

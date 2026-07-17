@@ -62,6 +62,7 @@ private slots:
     void onPasteAddresses();
     void onSaveTable();
     void onLoadTable();
+    void onSaveScanResults();   // export the current found-address list to txt/csv
     void onCreateTrainer();
     void onFreezeTimer();
 

@@ -85,6 +85,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <QFileDialog>
+#include <QTextStream>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -228,7 +229,8 @@ void MainWindow::setupMenus() {
     file->addMenu("Load Recent");               // populated at runtime
     stub(file, "Sign table");
     file->addSeparator();
-    stub(file, "Save current scanresults")->setShortcut(QKeySequence("Alt+Shift+S"));
+    file->addAction("Save current scanresults", this, &MainWindow::onSaveScanResults,
+                    QKeySequence("Alt+Shift+S"));
     stub(file, "Delete scanresult");
     file->addSeparator();
     file->addAction("Generate generic trainer lua script from table", this, &MainWindow::onCreateTrainer);
@@ -2632,6 +2634,37 @@ void MainWindow::rebuildValueHotkeys() {
             addressListModel_->setEntryValueTo(row, val);
         });
     }
+}
+
+void MainWindow::onSaveScanResults() {
+    const int rows = resultsModel_ ? resultsModel_->rowCount() : 0;
+    if (rows == 0) {
+        statusBar()->showMessage("No scan results to save.", 4000);
+        return;
+    }
+    const QString path = QFileDialog::getSaveFileName(this, "Save current scan results",
+        "scanresults.txt", "Text (*.txt);;CSV (*.csv);;All files (*)");
+    if (path.isEmpty()) return;
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        statusBar()->showMessage("Could not open the file for writing.", 4000);
+        return;
+    }
+    // Tab-separated by default; comma when the user picks a .csv name. Values come
+    // through the model's own formatter, so they match exactly what's on screen.
+    const bool csv = path.endsWith(".csv", Qt::CaseInsensitive);
+    const QChar sep = csv ? QChar(',') : QChar('\t');
+    QTextStream out(&f);
+    out << "Address" << sep << "Value" << '\n';
+    for (int r = 0; r < rows; ++r) {
+        const QString addr = resultsModel_->data(resultsModel_->index(r, 0), Qt::DisplayRole).toString();
+        const QString val  = resultsModel_->data(resultsModel_->index(r, 1), Qt::DisplayRole).toString();
+        out << addr << sep << val << '\n';
+    }
+    QString msg = QString("Saved %1 results to %2").arg(rows).arg(QFileInfo(path).fileName());
+    if (lastResult_ && lastResult_->count() > static_cast<size_t>(rows))
+        msg += QString(" (list capped at %1 of %2 found)").arg(rows).arg(lastResult_->count());
+    statusBar()->showMessage(msg, 6000);
 }
 
 void MainWindow::onSaveTable() {

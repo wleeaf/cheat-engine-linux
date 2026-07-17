@@ -33,6 +33,11 @@ public:
     enum class DisplayType { Byte, Word, Dword, Qword, Float, Double };
     void setDisplayType(DisplayType t) { displayType_ = t; viewport()->update(); }
     DisplayType displayType() const { return displayType_; }
+    void setBytesPerRow(int n) {
+        if (n <= 0) return;
+        bytesPerRow_ = n; selectedOffset_ = -1;
+        updateScrollBar(); refresh();
+    }
 
     void setProcess(ce::ProcessHandle* proc) { proc_ = proc; }
     void setAddress(uintptr_t addr);

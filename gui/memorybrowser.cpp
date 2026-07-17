@@ -1298,6 +1298,9 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         disasmView_->setArch(ce::Arch::X86_32);
 
     hexView_ = new HexView;
+    // Persisted default width from the Settings dialog (was ignored; the view
+    // always opened at 16 bytes per row).
+    hexView_->setBytesPerRow(QSettings().value("memview/bytesPerRow", 16).toInt());
     hexView_->setProcess(proc);
 
     // Cheat-Engine layout: the disassembler with a register panel on its right,
@@ -1489,10 +1492,12 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         }
     });
 
-    // Auto-refresh
+    // Auto-refresh — honour the persisted interval and the on/off toggle (both
+    // were saved by the Settings dialog but only the interval was applied).
     refreshTimer_ = new QTimer(this);
     connect(refreshTimer_, &QTimer::timeout, this, &MemoryBrowser::onRefresh);
-    refreshTimer_->start(QSettings().value("memview/refreshMs", 2000).toInt());
+    if (QSettings().value("memview/autoRefresh", true).toBool())
+        refreshTimer_->start(QSettings().value("memview/refreshMs", 2000).toInt());
 
     // Navigate to first executable region
     if (proc_) {

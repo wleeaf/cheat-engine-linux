@@ -119,9 +119,12 @@ int main(int argc, char* argv[]) {
     const QStringList cliArgs = app.arguments();
     uintptr_t memviewAddr = 0;
     bool wantMemview = false, wantSettings = false;
+    QString wantPanel;
     for (int i = 1; i < cliArgs.size(); ++i) {
         if (cliArgs.at(i) == QLatin1String("--settings")) {
             wantSettings = true;
+        } else if (i + 1 < cliArgs.size() && cliArgs.at(i) == QLatin1String("--panel")) {
+            wantPanel = cliArgs.at(i + 1);
         } else if (i + 1 < cliArgs.size() && cliArgs.at(i) == QLatin1String("--pid")) {
             bool ok = false;
             const long pid = cliArgs.at(i + 1).toLong(&ok);
@@ -141,6 +144,12 @@ int main(int argc, char* argv[]) {
     if (wantSettings) {
         if (auto* dlg = w.openSettingsDialog())
             shotTarget = dlg;
+    }
+    // `--panel <name>` opens the panel whose menu entry contains <name> (for
+    // screenshot/UI auditing), e.g. `--panel Dissect`, `--panel "Pointer scan"`.
+    if (!wantPanel.isEmpty()) {
+        if (auto* p = w.openPanelByName(wantPanel))
+            shotTarget = p;
     }
 
     // Dev hook: CE_SCREENSHOT=<path> grabs the target window shortly after it is

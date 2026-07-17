@@ -62,6 +62,11 @@ public:
     /// Open the Settings dialog (non-modal) and return it. Used by the Edit menu
     /// and the `--settings` launch flag.
     QDialog* openSettingsDialog();
+
+    /// Dev/screenshot hook: trigger the first menu action whose text contains
+    /// `name` (reusing its normal open code) and return the window it spawned, so
+    /// `--panel <name>` can open any panel for a screenshot. Null if none matched.
+    QWidget* openPanelByName(const QString& name);
     /// Attach to a running process by pid (no dialog). `name` is display-only.
     /// Used by the process picker and by `--pid <N>` on the command line.
     void attachToPid(pid_t pid, const QString& name);

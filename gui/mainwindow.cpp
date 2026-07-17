@@ -3342,6 +3342,29 @@ void MainWindow::trackStructDissector(StructureDissector* sd) {
     structDissectors_.push_back(sd);
 }
 
+QWidget* MainWindow::openPanelByName(const QString& name) {
+    auto tryIn = [this, &name](QWidget* host) -> QWidget* {
+        QSet<QWidget*> before;
+        for (auto* w : QApplication::topLevelWidgets()) before.insert(w);
+        bool matched = false;
+        for (QAction* a : host->findChildren<QAction*>()) {
+            if (a->menu() || a->isSeparator()) continue;
+            QString t = a->text(); t.remove('&');
+            if (t.contains(name, Qt::CaseInsensitive)) { a->trigger(); matched = true; break; }
+        }
+        if (!matched) return nullptr;
+        QApplication::processEvents();
+        for (auto* w : QApplication::topLevelWidgets())
+            if (!before.contains(w) && w->isWindow() && w != this) return w;
+        return nullptr;
+    };
+    if (auto* w = tryIn(menuBar())) return w;
+    // Many analysis panels live in the Memory Viewer's own menus; open it and look.
+    if (auto* mv = openMemoryView(0))
+        if (auto* w = tryIn(mv)) return w;
+    return nullptr;
+}
+
 QDialog* MainWindow::openSettingsDialog() {
     auto* dlg = new SettingsDialog(this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);

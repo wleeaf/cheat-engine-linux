@@ -1,6 +1,7 @@
 #include "gui/theme.hpp"
 
 #include <QApplication>
+#include <QPalette>
 #include <QSettings>
 
 namespace ce::gui {
@@ -135,7 +136,16 @@ static const char* kLightStyleSheet = R"(
 
 bool isDarkTheme() {
     QSettings s;
-    return s.value(kDarkThemeKey, false).toBool();
+    if (s.contains(kDarkThemeKey))
+        return s.value(kDarkThemeKey).toBool();
+    // No explicit choice yet (first launch): follow the desktop. Qt maps the
+    // system palette on Linux, so a dark default window colour means dark mode.
+    // (Qt 6.4 has no QStyleHints::colorScheme(); this palette check is the
+    // dependency-free equivalent. The Settings toggle stores an explicit choice
+    // that wins here afterwards.)
+    if (auto* app = qApp)
+        return app->palette().color(QPalette::Window).lightness() < 128;
+    return false;
 }
 
 void applyTheme(bool dark) {

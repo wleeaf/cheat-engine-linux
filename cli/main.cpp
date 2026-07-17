@@ -48,7 +48,9 @@ static void usage() {
         "Commands:\n"
         "  list                          List all processes\n"
         "  scan <pid> [options]          Scan process memory\n"
-        "  read <pid> <addr> [size]      Read memory (default 64 bytes)\n"
+        "  read <pid> <addr> [size] [--type <t>]  Read memory: hex dump, or the\n"
+        "                                interpreted value with --type (i32, float,\n"
+        "                                pointer, string, ...); size caps a string read\n"
         "  write <pid> <addr> <val>      Write value to address\n"
         "  disasm <pid> <addr> [count]   Disassemble instructions\n"
         "  modules <pid>                 List loaded modules\n"
@@ -222,8 +224,42 @@ static int cmd_modules(pid_t pid) {
     return 0;
 }
 
-static int cmd_read(pid_t pid, uintptr_t addr, size_t size) {
+static int cmd_read(pid_t pid, uintptr_t addr, size_t size, const char* typeStr = nullptr) {
     LinuxProcessHandle proc(pid);
+
+    // --type interprets the bytes instead of dumping hex. Fixed-width types read
+    // their own size; string/aob use `size` as a length cap.
+    if (typeStr) {
+        ValueType vt = parseType(typeStr);
+        size_t need;
+        switch (vt) {
+            case ValueType::Byte:                                        need = 1; break;
+            case ValueType::Int16:                                       need = 2; break;
+            case ValueType::Int32: case ValueType::Float:                need = 4; break;
+            case ValueType::Int64: case ValueType::Double:
+            case ValueType::Pointer:                                     need = 8; break;
+            default:                                                     need = size; break;
+        }
+        std::vector<uint8_t> b(need ? need : 1);
+        auto r = proc.read(addr, b.data(), b.size());
+        if (!r) { fprintf(stderr, "Read failed: %s\n", r.error().message().c_str()); return 1; }
+        size_t got = *r;
+        if (need <= 8 && got < need) { fprintf(stderr, "Read failed: short read (%zu/%zu)\n", got, need); return 1; }
+        printf("0x%lx: ", (unsigned long)addr);
+        switch (vt) {
+            case ValueType::Byte:   printf("%u (0x%02x)\n", b[0], b[0]); break;
+            case ValueType::Int16:  { int16_t v;   memcpy(&v, b.data(), 2); printf("%d (0x%x)\n", v, (unsigned)(uint16_t)v); break; }
+            case ValueType::Int32:  { int32_t v;   memcpy(&v, b.data(), 4); printf("%d (0x%x)\n", v, (unsigned)(uint32_t)v); break; }
+            case ValueType::Int64:  { int64_t v;   memcpy(&v, b.data(), 8); printf("%ld (0x%lx)\n", (long)v, (unsigned long)(uint64_t)v); break; }
+            case ValueType::Pointer:{ uintptr_t v; memcpy(&v, b.data(), 8); printf("0x%lx\n", (unsigned long)v); break; }
+            case ValueType::Float:  { float v;     memcpy(&v, b.data(), 4); printf("%g\n", v); break; }
+            case ValueType::Double: { double v;    memcpy(&v, b.data(), 8); printf("%g\n", v); break; }
+            case ValueType::String: { size_t len = strnlen((char*)b.data(), got); printf("\"%.*s\"\n", (int)len, (char*)b.data()); break; }
+            default:                { for (size_t i = 0; i < got; ++i) printf("%02X ", b[i]); printf("\n"); break; }
+        }
+        return 0;
+    }
+
     std::vector<uint8_t> buf(size);
     auto r = proc.read(addr, buf.data(), size);
     if (!r) {
@@ -1009,8 +1045,17 @@ int main(int argc, char** argv) {
         // Cap the requested size so an adversarial/typo'd argument can't trigger
         // an uncaught std::bad_alloc that terminates the process. 256 MB ceiling.
         constexpr unsigned long long kMaxReadSize = 256ull * 1024 * 1024;
-        size_t size = (argc >= 5) ? static_cast<size_t>(parseUInt(argv[4], "read size", kMaxReadSize)) : 64;
-        return cmd_read(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), size);
+        size_t size = 64;
+        const char* typeStr = nullptr;
+        int i = 4;
+        // Optional positional [size] (only if it isn't the --type flag), then --type.
+        if (argc >= 5 && argv[4][0] != '-') {
+            size = static_cast<size_t>(parseUInt(argv[4], "read size", kMaxReadSize));
+            i = 5;
+        }
+        for (; i < argc; ++i)
+            if (!strcmp(argv[i], "--type") && i + 1 < argc) typeStr = argv[++i];
+        return cmd_read(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), size, typeStr);
     }
     else if (!strcmp(cmd, "write") && argc >= 5) {
         ValueType vt = ValueType::Int32;

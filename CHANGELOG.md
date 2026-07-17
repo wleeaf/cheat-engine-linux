@@ -147,6 +147,9 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
 - `cescan write` gained `--type string` (raw text) and `--type aob` (`"90 90 05"`
   hex bytes), so you can patch code (NOP a branch) or write a string from the
   shell, not just numeric values. Wildcards are rejected for an in-place byte write.
+- `cescan read --type <t>` interprets the bytes instead of dumping hex: an integer
+  (`123 (0x7b)`), float/double, pointer, or a `"string"` (with the size argument as
+  its length cap). Without `--type` it still hex-dumps as before.
 
 ## v0.6.0: scanner performance overhaul (2026-07-16)
 

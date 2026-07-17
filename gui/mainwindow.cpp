@@ -2465,7 +2465,8 @@ void MainWindow::onFirstScan() {
         config.stringValue = text.toStdString();
         if (config.valueType == ValueType::String)
             config.stringEncoding = stringEncodingCombo_->currentText().toStdString();
-            config.caseSensitive = !caseSensitiveCheck_ || caseSensitiveCheck_->isChecked();
+        // Case sensitivity applies to both Text and Unicode Text (set unconditionally).
+        config.caseSensitive = !caseSensitiveCheck_ || caseSensitiveCheck_->isChecked();
         config.alignment = 1;
     } else if (config.valueType == ValueType::ByteArray) {
         // parseAOB returns false for an empty pattern OR a token that isn't hex
@@ -2574,7 +2575,8 @@ void MainWindow::onNextScan() {
         config.stringValue = text.toStdString();
         if (config.valueType == ValueType::String)
             config.stringEncoding = stringEncodingCombo_->currentText().toStdString();
-            config.caseSensitive = !caseSensitiveCheck_ || caseSensitiveCheck_->isChecked();
+        // Case sensitivity applies to both Text and Unicode Text (set unconditionally).
+        config.caseSensitive = !caseSensitiveCheck_ || caseSensitiveCheck_->isChecked();
         config.alignment = 1;
     } else if (config.valueType == ValueType::ByteArray) {
         // parseAOB returns false for an empty pattern OR a token that isn't hex

@@ -86,6 +86,7 @@ private:
     std::vector<uint8_t> cache_;
     size_t readableBytes_ = 0;   // how many leading cache_ bytes were actually read
                                  // (the rest render as "??", not zeros)
+    bool hexUpper_ = false;      // uppercase hex bytes/addresses (display/hexUpper)
 
     /// Write a single byte to the target, making the page writable if needed.
     bool pokeByte(uintptr_t addr, uint8_t value);
@@ -176,6 +177,7 @@ private:
     QColor jumpColor_{0x89, 0xb4, 0xfa};
     std::vector<ce::Instruction> instructions_;
     QString emptyReason_;   // shown when a read yields no instructions (blank pane otherwise)
+    bool hexUpper_ = false; // uppercase instruction addresses (display/hexUpper)
     std::set<uintptr_t> breakpoints_;
     std::map<uintptr_t, std::string> comments_;   // user-defined inline comments
 };

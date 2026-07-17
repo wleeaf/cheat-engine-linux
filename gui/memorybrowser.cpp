@@ -67,6 +67,7 @@ static uintptr_t ripEffectiveAddress(const ce::Instruction& inst);
 static constexpr int kScrollCenter = 100;
 
 HexView::HexView(QWidget* parent) : QAbstractScrollArea(parent) {
+    hexUpper_ = QSettings().value("display/hexUpper", false).toBool();
     setFont(monoFont_);
     QFontMetrics fm(monoFont_);
     charW_ = fm.horizontalAdvance('0');
@@ -361,7 +362,10 @@ void HexView::paintEvent(QPaintEvent*) {
 
         // Address
         p.setPen(c.addr);
-        p.drawText(0, y, QString("%1").arg(rowAddr, 16, 16, QChar('0')));
+        {
+            QString as = QString("%1").arg(rowAddr, 16, 16, QChar('0'));
+            p.drawText(0, y, hexUpper_ ? as.toUpper() : as);
+        }
 
         // Hex bytes. Byte mode keeps the classic per-byte grid (with edit cursor
         // and zero-dimming); wider display types group N bytes into one value.
@@ -384,7 +388,8 @@ void HexView::paintEvent(QPaintEvent*) {
                 // memory here", not as an actual zero value.
                 bool readable = idx < (int)readableBytes_;
                 p.setPen(readable ? (b == 0 ? c.dim : c.text) : c.dim);
-                p.drawText(x, y, readable ? QString("%1").arg(b, 2, 16, QChar('0'))
+                QString bs = QString("%1").arg(b, 2, 16, QChar('0'));
+                p.drawText(x, y, readable ? (hexUpper_ ? bs.toUpper() : bs)
                                           : QStringLiteral("??"));
             }
         } else {
@@ -395,8 +400,9 @@ void HexView::paintEvent(QPaintEvent*) {
                 if (idx + gsize > (int)cache_.size()) break;
                 bool readable = idx + gsize <= (int)readableBytes_;
                 p.setPen(readable ? c.text : c.dim);
+                QString gs = formatHexGroup(&cache_[idx], displayType_);
                 p.drawText(addrColW + g * fieldW, y,
-                           readable ? formatHexGroup(&cache_[idx], displayType_)
+                           readable ? (hexUpper_ ? gs.toUpper() : gs)
                                     : QString(hexGroupChars(displayType_), QChar('?')));
             }
         }
@@ -508,6 +514,7 @@ void DisasmView::reloadPreferences() {
 }
 
 DisasmView::DisasmView(QWidget* parent) : QAbstractScrollArea(parent) {
+    hexUpper_ = QSettings().value("display/hexUpper", false).toBool();
     reloadPreferences();
     setMinimumHeight(charH_ * 8);
     setFocusPolicy(Qt::StrongFocus);
@@ -985,7 +992,10 @@ void DisasmView::paintEvent(QPaintEvent*) {
 
         // Address
         p.setPen(addrColor_);
-        p.drawText(contentX, y, QString("%1").arg(inst.address, 16, 16, QChar('0')));
+        {
+            QString as = QString("%1").arg(inst.address, 16, 16, QChar('0'));
+            p.drawText(contentX, y, hexUpper_ ? as.toUpper() : as);
+        }
 
         // Bytes
         p.setPen(mv.dim);

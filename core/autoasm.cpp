@@ -1628,10 +1628,10 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
                         long tp = 0; try { tp = std::stol(line.substr(10)); } catch (...) {}
                         if (tp != 0)
                             hint = (tp == (long)getpid())
-                                ? " The target is already being traced by THIS program — close any "
+                                ? " The target is already being traced by THIS program; close any "
                                   "'find what accesses/writes' window and disable breakpoints, then retry."
                                 : (" The target is already being traced by PID " + std::to_string(tp) +
-                                   " — detach that debugger and retry.");
+                                   "; detach that debugger and retry.");
                         break;
                     }
                 }
@@ -2405,7 +2405,7 @@ bool AutoAssembler::expandLuaBlocks(std::string& code, std::vector<std::string>&
                       " bytes of C to " + std::to_string(emitted.size()) + " bytes of AA");
 #else
         (void)source; (void)blockEnd;
-        error = "{$ccode} blocks require the TinyCC bridge — rebuild with libtcc-dev installed";
+        error = "{$ccode} blocks require the TinyCC bridge; rebuild with libtcc-dev installed";
         return false;
 #endif
     }

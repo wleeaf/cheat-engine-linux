@@ -329,7 +329,7 @@ void MainWindow::setupMenus() {
         currentPid_ = pid;
         ceserverClient_.reset();
         process_ = std::make_unique<os::LinuxProcessHandle>(pid);
-        processLabel_->setText(QString("PID: %1 — %2 (created)").arg(pid).arg(QFileInfo(path).fileName()));
+        processLabel_->setText(QString("PID: %1 - %2 (created)").arg(pid).arg(QFileInfo(path).fileName()));
         setWindowTitle(QString("Cheat Engine - %1 (%2)").arg(QFileInfo(path).fileName()).arg(pid));
         addressListModel_->setProcess(process_.get());
         resultsModel_->setProcess(process_.get());
@@ -600,7 +600,7 @@ void MainWindow::setupMenus() {
                     currentPid_ = pid;
                     ceserverClient_.reset();
                     process_ = std::make_unique<os::LinuxProcessHandle>(pid);
-                    processLabel_->setText(QString("PID: %1 — %2 (auto-attached)")
+                    processLabel_->setText(QString("PID: %1 - %2 (auto-attached)")
                         .arg(pid).arg(QString::fromStdString(procName)));
                     setWindowTitle(QString("Cheat Engine - %1 (%2)")
                         .arg(QString::fromStdString(procName)).arg(pid));
@@ -648,7 +648,7 @@ void MainWindow::setupMenus() {
                 .arg(diffs[i].after,  2, 16, QChar('0'));
         }
         if ((int)diffs.size() > shown)
-            text += QString("\n(%1 more not shown — use Save to dump full list.)").arg(diffs.size() - shown);
+            text += QString("\n(%1 more not shown; use Save to dump full list.)").arg(diffs.size() - shown);
 
         auto* dlg = new QDialog(this);
         dlg->setWindowTitle("Snapshot diff");
@@ -745,7 +745,7 @@ void MainWindow::setupMenus() {
                         return;  // don't set a speed the plugin can't read
                     }
                 }
-                label->setText(QString("Active — Speed: %1x").arg(speed, 0, 'f', 1));
+                label->setText(QString("Active, Speed: %1x").arg(speed, 0, 'f', 1));
             }
             // Match the plugin side (plugins/speedhack.c): O_NOFOLLOW refuses a
             // symlink-swapped /dev/shm entry and mode 0600 keeps the channel
@@ -1900,7 +1900,7 @@ static void grantPtraceAccess(QWidget* parent) {
     if (isAppImage) {
         args = {QStringLiteral("/bin/sh"), QStringLiteral("-c"),
                 QStringLiteral("echo 0 > /proc/sys/kernel/yama/ptrace_scope")};
-        followup = QObject::tr("Access granted for this session — re-open the process.\n"
+        followup = QObject::tr("Access granted for this session; re-open the process.\n"
                                "(This resets on reboot. Install the .deb, or re-run the "
                                "command, to make it permanent.)");
     } else {
@@ -1978,8 +1978,17 @@ void MainWindow::attachToPid(pid_t pid, const QString& name) {
     currentPid_ = pid;
     ceserverClient_.reset();
     process_ = std::make_unique<os::LinuxProcessHandle>(pid);
-    const QString label = name.isEmpty() ? QString::number(pid) : name;
-    processLabel_->setText(QString("PID: %1 — %2").arg(pid).arg(label));
+    // Resolve a readable name so the header isn't "PID: 1234 - 1234" when we were
+    // handed a bare pid (--pid, or a caller that didn't know the name): read the
+    // process's own /proc/<pid>/comm (e.g. "sleep"), falling back to the number.
+    QString label = name;
+    if (label.isEmpty()) {
+        QFile comm(QString("/proc/%1/comm").arg(pid));
+        if (comm.open(QIODevice::ReadOnly))
+            label = QString::fromUtf8(comm.readAll()).trimmed();
+        if (label.isEmpty()) label = QString::number(pid);
+    }
+    processLabel_->setText(QString("PID: %1 - %2").arg(pid).arg(label));
     setWindowTitle(QString("Cheat Engine - %1 (%2)").arg(label).arg(pid));
     warnIfMemoryUnreadable(this, process_.get(), pid, label);
     addressListModel_->setProcess(process_.get());
@@ -2274,7 +2283,7 @@ void MainWindow::onFirstScan() {
         return;
     }
     if (!process_) {
-        statusBar()->showMessage("No process attached — open one first (Ctrl+O) to scan.", 4000);
+        statusBar()->showMessage("No process attached; open one first (Ctrl+O) to scan.", 4000);
         return;
     }
 
@@ -2400,7 +2409,7 @@ void MainWindow::onFirstScan() {
 
 void MainWindow::onNextScan() {
     if (!process_) {
-        statusBar()->showMessage("No process attached — open one first (Ctrl+O) to scan.", 4000);
+        statusBar()->showMessage("No process attached; open one first (Ctrl+O) to scan.", 4000);
         return;
     }
     if (!lastResult_) {
@@ -2647,7 +2656,7 @@ void MainWindow::editScriptEntry(int row) {
 
     auto* editor = new ScriptEditor(process_.get(), &autoAsm_, this);
     editor->setAttribute(Qt::WA_DeleteOnClose);
-    editor->setWindowTitle("Auto Assembler — " + desc);
+    editor->setWindowTitle("Auto Assembler: " + desc);
     editor->setDefaultDescription(desc);
     editor->setTableButtonText("Save to Table");
     editor->setScript(script.toStdString());
@@ -3101,7 +3110,7 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
 
 void MainWindow::onMemoryView() {
     if (!process_) {
-        statusBar()->showMessage("No process attached — open one first (Ctrl+O) to view memory.", 4000);
+        statusBar()->showMessage("No process attached; open one first (Ctrl+O) to view memory.", 4000);
         return;
     }
     openMemoryView(0);

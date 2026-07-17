@@ -72,7 +72,7 @@ FormDesigner::FormDesigner(QWidget* parent) : QMainWindow(parent) {
     canvas_->setFixedSize(formWidth_, formHeight_);
     auto* canvasWrap = new QWidget;
     auto* canvasLayout = new QVBoxLayout(canvasWrap);
-    canvasLayout->addWidget(new QLabel("<b>Canvas</b> — click a widget on the canvas or in the Items list to select it"));
+    canvasLayout->addWidget(new QLabel("<b>Canvas</b>: click a widget on the canvas or in the Items list to select it"));
     canvasLayout->addWidget(canvas_);
     canvasLayout->addStretch();
     centerSplit->addWidget(canvasWrap);
@@ -307,7 +307,7 @@ void FormDesigner::onAddWidget() {
     if (it.type == "GroupBox") { it.w = 200; it.h = 100; }
     if (it.type == "Panel")   { it.w = 200; it.h = 100; }
     items_.push_back(it);
-    itemList_->addItem(QString("%1 — %2").arg(it.type).arg(it.name));
+    itemList_->addItem(QString("%1: %2").arg(it.type).arg(it.name));
     itemList_->setCurrentRow(itemList_->count() - 1);
     redrawCanvas();
     onGenerateLua();
@@ -352,7 +352,7 @@ void FormDesigner::onPropertyChanged() {
     it.caption = captionEdit_->text();
     it.x = xSpin_->value(); it.y = ySpin_->value();
     it.w = wSpin_->value(); it.h = hSpin_->value();
-    itemList_->item(selected_)->setText(QString("%1 — %2").arg(it.type).arg(it.name));
+    itemList_->item(selected_)->setText(QString("%1: %2").arg(it.type).arg(it.name));
     redrawCanvas();
     onGenerateLua();
 }
@@ -411,7 +411,7 @@ void FormDesigner::onLoad() {
         it.x = o.value("x").toInt(); it.y = o.value("y").toInt();
         it.w = o.value("w").toInt(100); it.h = o.value("h").toInt(24);
         items_.push_back(it);
-        itemList_->addItem(QString("%1 — %2").arg(it.type).arg(it.name));
+        itemList_->addItem(QString("%1: %2").arg(it.type).arg(it.name));
     }
     redrawCanvas();
     onGenerateLua();

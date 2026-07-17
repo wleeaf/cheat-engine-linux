@@ -35,7 +35,7 @@ BranchMapper::BranchMapper(ProcessHandle* proc, QWidget* parent)
     clearBtn_ = new QPushButton("Clear");
     statusLabel_ = new QLabel(
         LbrTracer::available() ? "Idle" :
-        "perf_event_open(BRANCH_STACK) unavailable — needs CAP_SYS_ADMIN or "
+        "perf_event_open(BRANCH_STACK) unavailable; needs CAP_SYS_ADMIN or "
         "perf_event_paranoid <= 1 + hardware LBR support.");
     btnRow->addWidget(startBtn_);
     btnRow->addWidget(stopBtn_);

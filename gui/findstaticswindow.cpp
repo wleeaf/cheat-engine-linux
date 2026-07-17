@@ -78,7 +78,7 @@ void FindStaticsWindow::onScan() {
         table_->setItem((int)i, 1, new QTableWidgetItem(sym));
         table_->setItem((int)i, 2, new QTableWidgetItem(QString::number(s.references)));
     }
-    statusLabel_->setText(QString("Done — %1 static addresses found.").arg(statics.size()));
+    statusLabel_->setText(QString("Done: %1 static addresses found.").arg(statics.size()));
     scanBtn_->setEnabled(true);
 }
 

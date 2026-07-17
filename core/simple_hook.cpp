@@ -44,7 +44,7 @@ std::optional<SimpleHook> installSimpleHook(ProcessHandle& proc, uintptr_t addre
     for (const auto& in : insns) {
         if (isPositionDependent(in)) {
             ce::log::warn(ce::log::Cat::General,
-                "createSimpleHook: refusing @ {:#x} — displaced '{} {}' is position-dependent",
+                "createSimpleHook: refusing @ {:#x}: displaced '{} {}' is position-dependent",
                 address, in.mnemonic, in.operands);
             return std::nullopt;
         }

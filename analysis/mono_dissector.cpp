@@ -156,7 +156,7 @@ std::optional<MonoDissection> dissectMono(ProcessHandle& proc, SymbolResolver& r
         }
         std::this_thread::sleep_for(milliseconds(100));
     }
-    ce::log::info(ce::log::Cat::General, "mono: dissection {} — {} images, {} classes{}",
+    ce::log::info(ce::log::Cat::General, "mono: dissection {}: {} images, {} classes{}",
                   result.ready ? "ready" : "incomplete", result.images.size(),
                   result.classCount(), result.error.empty() ? "" : (", error: " + result.error));
     return result;

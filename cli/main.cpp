@@ -1,4 +1,4 @@
-/// cescan — Cheat Engine CLI for Linux
+/// cescan: Cheat Engine CLI for Linux
 /// Usage: sudo cescan <command> [args...]
 
 #include "core/log.hpp"
@@ -40,7 +40,7 @@ using namespace ce::os;
 
 static void usage() {
     fprintf(stderr,
-        "cescan — Cheat Engine CLI for Linux\n"
+        "cescan: Cheat Engine CLI for Linux\n"
         "\n"
         "Usage: sudo cescan <command> [args...]\n"
         "\n"
@@ -657,7 +657,7 @@ static int cmd_lua(int argc, char** argv) {
 
     // Interactive REPL: try each line as an expression (so `getCEVersion()` prints
     // its value), falling back to a statement (`x = 5`).
-    std::fprintf(stderr, "cescan lua REPL — Ctrl+D to exit\n");
+    std::fprintf(stderr, "cescan lua REPL (Ctrl+D to exit)\n");
     std::string line;
     while (true) {
         std::fputs("lua> ", stderr);

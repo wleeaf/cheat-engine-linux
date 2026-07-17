@@ -1297,7 +1297,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     dbgBar->addSeparator();
     // Disassembler Preferences (CE frmMemviewPreferencesUnit): font + colors.
     auto* prefsAct = dbgBar->addAction("Preferences");
-    prefsAct->setToolTip("Disassembler Preferences — font and colors");
+    prefsAct->setToolTip("Disassembler Preferences: font and colors");
     connect(prefsAct, &QAction::triggered, this, [this]() {
         auto* dlg = new ce::gui::MemviewPreferences(this);
         connect(dlg, &ce::gui::MemviewPreferences::applied, this,
@@ -1346,7 +1346,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     registerPanel_->setRowCount(regs.size());
     for (int i = 0; i < regs.size(); ++i) {
         registerPanel_->setItem(i, 0, new QTableWidgetItem(regs[i]));
-        registerPanel_->setItem(i, 1, new QTableWidgetItem(QStringLiteral("—")));
+        registerPanel_->setItem(i, 1, new QTableWidgetItem(QStringLiteral("-")));
     }
     registerPanel_->resizeColumnsToContents();
     registerPanel_->setToolTip("Registers (populated at a debug breakpoint)");
@@ -1598,7 +1598,7 @@ void MemoryBrowser::toggleBookmark() {
 void MemoryBrowser::rebuildBookmarksMenu() {
     bookmarksMenu_->clear();
     if (bookmarks_.empty()) {
-        bookmarksMenu_->addAction("(no bookmarks — Ctrl+B to add)")->setEnabled(false);
+        bookmarksMenu_->addAction("(no bookmarks; Ctrl+B to add)")->setEnabled(false);
         return;
     }
     for (uintptr_t a : bookmarks_) {
@@ -1806,7 +1806,7 @@ void MemoryBrowser::showXrefs(uintptr_t addr) {
 
     auto* dlg = new QDialog(this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    dlg->setWindowTitle(QString("References to 0x%1 — %2 found").arg(addr, 0, 16).arg(refs.size()));
+    dlg->setWindowTitle(QString("References to 0x%1: %2 found").arg(addr, 0, 16).arg(refs.size()));
     dlg->resize(640, 360);
     auto* lay = new QVBoxLayout(dlg);
     auto* table = new QTableWidget(dlg);

@@ -57,7 +57,7 @@ void TracerWindow::buildUi() {
 
     form->addWidget(new QLabel("Start address (hex):"), row, 0);
     startAddressEdit_ = new QLineEdit;
-    startAddressEdit_->setPlaceholderText("0x0000000000000000 — leave blank to start at RIP");
+    startAddressEdit_->setPlaceholderText("0x0000000000000000, leave blank to start at RIP");
     form->addWidget(startAddressEdit_, row, 1, 1, 3);
     ++row;
 
@@ -224,7 +224,7 @@ void TracerWindow::onTraceFinished() {
     progressBar_->setValue(100);
     statusLabel_->setText(QString("%1 steps recorded%2")
         .arg(entries_.size())
-        .arg(entries_.size() == 0 ? " — check start address / module range" : ""));
+        .arg(entries_.size() == 0 ? " (check start address / module range)" : ""));
     startBtn_->setEnabled(true);
     cancelBtn_->setEnabled(false);
     saveBtn_->setEnabled(!entries_.empty());

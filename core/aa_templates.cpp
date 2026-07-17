@@ -213,7 +213,7 @@ dealloc(newmem)
 
         {
             "Full code injection",
-            "Alloc + full set of labels (originalcode, exit) — verbose AOB injection skeleton.",
+            "Alloc + full set of labels (originalcode, exit): verbose AOB injection skeleton.",
 R"({ Full AOB injection skeleton with explicit originalcode/exit labels.
   Use this when you want to keep the original instruction bytes inline
   in the cave for clarity, e.g. to compare against the patched version. }
@@ -297,7 +297,7 @@ dealloc(newmem)
 
         {
             "Cheat table framework",
-            "Lua skeleton for the cheat-table-level script — enable/disable callbacks + record helpers.",
+            "Lua skeleton for the cheat-table-level script: enable/disable callbacks + record helpers.",
 R"({ Table-level Lua skeleton. Paste into the table's "Lua Script" entry
   (not into [ENABLE]/[DISABLE]) — runs once when the table loads. }
 
@@ -323,7 +323,7 @@ end
 
         {
             "Lua block inside AA",
-            "Demo of {$lua} block expansion — Lua return value gets spliced into the AA stream.",
+            "Demo of {$lua} block expansion: Lua return value gets spliced into the AA stream.",
 R"({ The {$lua} ... {$asm} block runs the embedded Lua chunk at preprocess
   time and substitutes its return value into the AA stream. Useful for
   conditional code generation. }

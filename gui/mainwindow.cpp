@@ -1188,6 +1188,19 @@ void MainWindow::setupUi() {
         bool isFloat = vt == ValueType::Float || vt == ValueType::Double;
         floatRoundingCombo_->setEnabled(isFloat);
         floatToleranceEdit_->setEnabled(isFloat && floatRoundingCombo_->currentIndex() == 3);
+        // Type-aware placeholder to guide what to type (AOB wildcards, etc.).
+        const char* ph = "e.g. 100";
+        switch (vt) {
+            case ValueType::Float:
+            case ValueType::Double:        ph = "e.g. 3.14"; break;
+            case ValueType::String:
+            case ValueType::UnicodeString: ph = "text to find"; break;
+            case ValueType::ByteArray:     ph = "e.g. 48 8B ?? 05"; break;
+            case ValueType::Binary:        ph = "e.g. 0110??01"; break;
+            case ValueType::Pointer:       ph = "e.g. 0x7fabc000"; break;
+            default:                       ph = "e.g. 100"; break;
+        }
+        scanValueEdit_->setPlaceholderText(ph);
     };
     connect(valueTypeCombo_, &QComboBox::currentIndexChanged, this,
         [updateFloatOptions](int) { updateFloatOptions(); });

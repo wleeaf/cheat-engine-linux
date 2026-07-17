@@ -1060,27 +1060,25 @@ void MainWindow::setupUi() {
     openBtn->setStyleSheet("QPushButton { padding: 0px; }");
     // Prefer the bundled app icon; if it isn't available, draw a crosshair
     // target (thematic for a scanner) instead of falling back to plain text.
-    QPixmap btnIcon(":/icon.png");
-    if (btnIcon.isNull()) {
-        btnIcon = QPixmap(64, 64);
-        btnIcon.fill(Qt::transparent);
+    // A crisp, purpose-drawn "find process" magnifying glass (drawn at 4x and
+    // downscaled) rather than the scaled app logo, so it reads cleanly at button
+    // size. The accent blue is legible on both the light and dark process bar.
+    QPixmap btnIcon(88, 88);
+    btnIcon.setDevicePixelRatio(1.0);
+    btnIcon.fill(Qt::transparent);
+    {
         QPainter p(&btnIcon);
         p.setRenderHint(QPainter::Antialiasing);
-        QPen pen(QColor(0x8a, 0xad, 0xf4)); // soft blue accent
-        pen.setWidth(5);
+        QPen pen(QColor(0x3f, 0x77, 0xe6));   // accent blue
+        pen.setWidthF(8);
         pen.setCapStyle(Qt::RoundCap);
         p.setPen(pen);
-        p.drawEllipse(QPoint(32, 32), 20, 20);   // outer ring
-        p.drawLine(32, 4,  32, 16);              // top tick
-        p.drawLine(32, 48, 32, 60);              // bottom tick
-        p.drawLine(4,  32, 16, 32);              // left tick
-        p.drawLine(48, 32, 60, 32);              // right tick
-        p.setBrush(pen.color());
-        p.drawEllipse(QPoint(32, 32), 4, 4);     // center dot
-        p.end();
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(QPointF(36, 36), 22, 22);      // lens
+        p.drawLine(QPointF(52, 52), QPointF(74, 74)); // handle
     }
-    openBtn->setIcon(QIcon(btnIcon.scaled(22, 22, Qt::KeepAspectRatio, Qt::SmoothTransformation)));
-    openBtn->setIconSize(QSize(22, 22));
+    openBtn->setIcon(QIcon(btnIcon.scaled(24, 24, Qt::KeepAspectRatio, Qt::SmoothTransformation)));
+    openBtn->setIconSize(QSize(24, 24));
     connect(openBtn, &QPushButton::clicked, this, &MainWindow::onOpenProcess);
     processLabel_ = new QLabel("No process selected");
     processLabel_->setStyleSheet("font-weight: bold;");

@@ -950,14 +950,7 @@ void MainWindow::showAdvancedOptions() {
     if (!advancedOptions_) {
         advancedOptions_ = new ce::gui::AdvancedOptionsWindow(process_.get(), this);
         connect(advancedOptions_, &ce::gui::AdvancedOptionsWindow::navigateTo, this,
-                [this](uintptr_t addr) {
-                    if (!process_) return;
-                    auto* browser = new MemoryBrowser(process_.get(), this);
-                    browser->setAttribute(Qt::WA_DeleteOnClose);
-                    wireBrowserAnnotations(browser);
-                    browser->gotoAddress(addr);
-                    browser->show();
-                });
+                [this](uintptr_t addr) { openMemoryView(addr); });  // full-featured viewer
     }
     advancedOptions_->setProcess(process_.get());
     advancedOptions_->show();
@@ -1169,20 +1162,14 @@ void MainWindow::setupUi() {
         QAction* picked = menu.exec(resultsView_->viewport()->mapToGlobal(pos));
         if (!picked) return;
         const uintptr_t firstAddr = resultsModel_->addressAt(sel.first().row());
-        auto openBrowserAt = [this](uintptr_t addr) {
-            if (!process_) return;
-            auto* b = new MemoryBrowser(process_.get(), this);
-            b->setAttribute(Qt::WA_DeleteOnClose);
-            wireBrowserAnnotations(b);
-            b->gotoAddress(addr);
-            b->show();
-        };
         if (picked == addAct) {
             for (auto& idx : sel)
                 addressListModel_->addEntry(resultsModel_->addressAt(idx.row()), lastResultType_,
                                         "No description", "", lastResultValueSize_);
         } else if (picked == browseAct || picked == disasmAct) {
-            openBrowserAt(firstAddr);
+            // Full-featured viewer (breakpoints, add-to-list, Tools/Debug menus),
+            // the same one the Memory View button opens, not a stripped-down clone.
+            openMemoryView(firstAddr);
         } else if (picked == copyAct) {
             QStringList addrs;
             for (auto& idx : sel)
@@ -1701,13 +1688,8 @@ void MainWindow::setupUi() {
                     if (!process_ || selected.isEmpty()) return;
                     auto& entries = addressListModel_->entries();
                     int row = selected.first().row();
-                    if (row < (int)entries.size()) {
-                        auto* browser = new MemoryBrowser(process_.get(), this);
-                        browser->setAttribute(Qt::WA_DeleteOnClose);
-                        wireBrowserAnnotations(browser);
-                        browser->gotoAddress(entries[row].address);
-                        browser->show();
-                    }
+                    if (row < (int)entries.size())
+                        openMemoryView(entries[row].address);   // full-featured viewer
                 });
             }
             menu.addAction("Find what accesses this address", [this, selected]() {
@@ -3406,14 +3388,10 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
     QMenu* tools = b->toolsMenu();
     if (!view || !tools) return;
 
-    auto openAt = [this](uintptr_t addr) {
-        if (!process_) return;
-        auto* br = new MemoryBrowser(process_.get(), this);
-        br->setAttribute(Qt::WA_DeleteOnClose);
-        wireBrowserAnnotations(br);
-        br->gotoAddress(addr);
-        br->show();
-    };
+    // Navigating from these info windows opens the same full-featured viewer as
+    // the Memory View button (breakpoints, add-to-list, Tools/Debug menus), not a
+    // stripped-down clone. openMemoryView() no-ops safely when no process is open.
+    auto openAt = [this](uintptr_t addr) { openMemoryView(addr); };
     auto needProc = [this]() { return process_ != nullptr; };
 
     // ── View: navigable info windows ──

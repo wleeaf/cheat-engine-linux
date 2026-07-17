@@ -2135,6 +2135,11 @@ void MainWindow::attachToPid(pid_t pid, const QString& name) {
     warnIfMemoryUnreadable(this, process_.get(), pid, label);
     addressListModel_->setProcess(process_.get());
     resultsModel_->setProcess(process_.get());
+    // Keep the shared Lua engine pointed at the current target, so scripts (and an
+    // already-open Lua Engine console) operate on this process after a re-attach,
+    // not a stale one. The address list model is persistent; bind it too.
+    luaEngine_.setProcess(process_.get());
+    luaEngine_.setAddressList(addressListModel_);
     firstScanBtn_->setEnabled(true);
     resultsModel_->clear();
     lastResult_.reset();
@@ -3536,6 +3541,7 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
     });
     tools->addAction("Lua Engine", this, [this]() {
         luaEngine_.setProcess(process_.get());
+        luaEngine_.setAddressList(addressListModel_);   // so getMemoryRecord etc. work
         if (process_) { luaResolver_.loadProcess(*process_); luaEngine_.setResolver(&luaResolver_); }
         auto* console = new LuaConsole(&luaEngine_, this);
         console->setAttribute(Qt::WA_DeleteOnClose); console->show();

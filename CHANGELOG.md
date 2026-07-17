@@ -102,6 +102,10 @@ GUI behaviour verified against real processes via a new `--pid` launch flag.
   `docs/SCRIPTING.md` in a rendered Markdown viewer (with an "Open on GitHub"
   button), instead of being dead menu items; they fall back to the online copy
   when the docs aren't installed next to the binary.
+- **Lua Engine now follows the attached process.** Attaching to a new target
+  re-points the shared Lua engine (and any open Lua Engine console) at it, and the
+  console binds the address list, so `getMemoryRecord`/`readInteger` etc. act on
+  the current process instead of a stale one (or failing when no table was loaded).
 - **Debugger highlights changed registers** (CE's cue): after each step or
   breakpoint stop, the registers the instruction modified paint red (general
   purpose and XMM0-15), so what an instruction touched reads at a glance. The

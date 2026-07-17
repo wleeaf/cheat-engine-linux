@@ -86,6 +86,7 @@ private:
 
     ce::ProcessHandle* proc_ = nullptr;
     uintptr_t address_ = 0;
+    int lastScrollValue_ = 100;   // last processed scrollbar value (kScrollCenter)
     int bytesPerRow_ = 16;
     DisplayType displayType_ = DisplayType::Byte;
     QFont monoFont_{"Monospace", 10};
@@ -184,6 +185,7 @@ public:
     void setArch(ce::Arch arch) { disasm_ = std::make_unique<ce::Disassembler>(arch); viewport()->update(); }
 private:
     uintptr_t address_ = 0;
+    int lastScrollValue_ = 100;   // last processed scrollbar value (kScrollCenter)
     int selectedRow_ = -1;
     QFont monoFont_{"Monospace", 10};
     int charW_ = 0;

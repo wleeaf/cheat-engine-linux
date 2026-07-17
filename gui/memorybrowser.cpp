@@ -79,10 +79,14 @@ HexView::HexView(QWidget* parent) : QAbstractScrollArea(parent) {
     setMinimumHeight(charH_ * 8);
     viewport()->setCursor(Qt::IBeamCursor);
     setFocusPolicy(Qt::StrongFocus);
-    // Drag / click the scrollbar to scroll memory (delta from centre -> rows).
+    // Drag / click the scrollbar to scroll memory (incremental delta -> rows).
     connect(verticalScrollBar(), &QScrollBar::valueChanged, this, [this](int v) {
-        scrollRows(v - kScrollCenter);
+        int delta = v - lastScrollValue_;
+        lastScrollValue_ = v;
+        if (delta) scrollRows(delta);
     });
+    // Re-centre the bar once the drag ends, so both directions have room again.
+    connect(verticalScrollBar(), &QScrollBar::sliderReleased, this, [this]() { updateScrollBar(); });
 }
 
 uintptr_t HexView::cursorAddress() const {
@@ -316,16 +320,21 @@ int HexView::visibleRows() const {
 
 void HexView::updateScrollBar() {
     // Memory is a 64-bit space, so the bar can't map it 1:1. Keep it centered and
-    // treat movement as relative (delta from centre) — dragging or clicking the
-    // trough scrolls the view, then the bar snaps back to centre so there is
-    // always room to go either way. Block signals so the re-centre isn't seen as
-    // a user scroll (which would recurse).
+    // treat movement as relative (delta from the last value) — dragging or clicking
+    // the trough scrolls the view, then the bar snaps back to centre so there is
+    // always room to go either way. Block signals so the re-centre isn't seen as a
+    // user scroll (which would recurse).
     auto* sb = verticalScrollBar();
+    // Never re-centre mid-drag: snapping the handle back to the middle while the
+    // user is holding it fights the drag (the view appears stuck). The delta model
+    // lets the handle travel to either edge; sliderReleased re-centres afterwards.
+    if (sb->isSliderDown()) return;
     QSignalBlocker block(sb);
     sb->setRange(0, 2 * kScrollCenter);
     sb->setPageStep(std::max(1, visibleRows()));
     sb->setSingleStep(1);
     sb->setValue(kScrollCenter);
+    lastScrollValue_ = kScrollCenter;
 }
 
 // Move the view by `rows` (negative = up), with the same readability guards as
@@ -601,20 +610,28 @@ DisasmView::DisasmView(QWidget* parent) : QAbstractScrollArea(parent) {
     setMinimumHeight(charH_ * 8);
     setFocusPolicy(Qt::StrongFocus);
     viewport()->setMouseTracking(true);
-    // Draggable scrollbar (centred; delta from centre -> instructions), so the
+    // Draggable scrollbar (centred; incremental delta -> instructions), so the
     // disassembly can be scrolled with the bar and not only the wheel/keys.
     connect(verticalScrollBar(), &QScrollBar::valueChanged, this, [this](int v) {
-        scrollRows(v - kScrollCenter);
+        int delta = v - lastScrollValue_;
+        lastScrollValue_ = v;
+        if (delta) scrollRows(delta);
     });
+    connect(verticalScrollBar(), &QScrollBar::sliderReleased, this, [this]() { updateScrollBar(); });
 }
 
 void DisasmView::updateScrollBar() {
     auto* sb = verticalScrollBar();
+    // Don't re-centre while the user is dragging the handle (it would snap back
+    // and make the pane look stuck); the incremental-delta model handles the drag,
+    // and sliderReleased re-centres afterwards.
+    if (sb->isSliderDown()) return;
     QSignalBlocker block(sb);
     sb->setRange(0, 2 * kScrollCenter);
     sb->setPageStep(std::max(1, visibleRows()));
     sb->setSingleStep(1);
     sb->setValue(kScrollCenter);
+    lastScrollValue_ = kScrollCenter;
 }
 
 // Scroll by `rows` instructions (negative = up). Up uses the region-safe
@@ -1346,7 +1363,15 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     connect(bpAct, &QAction::triggered, this, [this]() {
         uintptr_t a = disasmView_->selectedAddress();
         if (!a) a = currentAddr_;
-        if (a && bpSetter_) { bpSetter_(a, /*hardware=*/false); refreshBreakpoints(); }
+        if (!a) return;
+        // Actually toggle: remove an existing breakpoint at this address, else add
+        // one. Previously it only ever added, so the button just re-enabled.
+        if (bpQuery_ && bpQuery_().count(a)) {
+            if (bpRemover_) bpRemover_(a);
+        } else if (bpSetter_) {
+            bpSetter_(a, /*hardware=*/false);
+        }
+        refreshBreakpoints();
     });
     dbgBar->addSeparator();
     // Real single-stepping runs in the full Debugger window (it owns the debug

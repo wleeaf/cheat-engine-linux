@@ -79,10 +79,13 @@ void CodeFinder::monitorLoop() {
     for (auto& t : proc_->threads()) tids.push_back(t.tid);
     if (tids.empty()) tids.push_back(pid);
 
+    int armFail = 0;
     for (pid_t tid : tids) {
         if (ptrace(PTRACE_SEIZE, tid, nullptr,
-                   reinterpret_cast<void*>(PTRACE_O_TRACECLONE)) < 0)
+                   reinterpret_cast<void*>(PTRACE_O_TRACECLONE)) < 0) {
+            ++armFail;
             continue;
+        }
         // Stop the thread so its debug registers can be programmed.
         if (ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) == 0) {
             int st;
@@ -97,6 +100,10 @@ void CodeFinder::monitorLoop() {
         running_ = false;
         return;
     }
+    ce::log::debug(ce::log::Cat::Debugger,
+        "hwwp: watch {:#x} size {} type {} armed on {} threads ({} seize failures)",
+        (uint64_t)targetAddress_, watchSize_, bpType, attached.size(), armFail);
+    uint64_t hwHits = 0;
 
     while (!stopRequested_) {
         int status;
@@ -133,6 +140,9 @@ void CodeFinder::monitorLoop() {
                 si.si_code == TRAP_HWBKPT);
 
             if (isWatchpoint) {
+                if (hwHits++ == 0)
+                    ce::log::debug(ce::log::Cat::Debugger, "hwwp: first hit tid {} rip {:#x}",
+                                   w, (uint64_t)si.si_addr);
                 recordHit(w, /*afterInstruction=*/true);
                 // Clear DR6's status bits before resuming. The CPU sets the B0-B3
                 // bit for the debug register that fired and never auto-clears it;
@@ -155,14 +165,22 @@ void CodeFinder::monitorLoop() {
                 ptrace(PTRACE_CONT, w, nullptr, nullptr);
             } else {
                 // A genuine signal destined for the tracee — forward it.
+                ce::log::debug(ce::log::Cat::Debugger,
+                    "hwwp: tid {} forwarding signal {} (hits so far {})", w, sig, hwHits);
                 ptrace(PTRACE_CONT, w, nullptr, reinterpret_cast<void*>(static_cast<uintptr_t>(sig)));
             }
         } else if (WIFEXITED(status) || WIFSIGNALED(status)) {
+            if (WIFSIGNALED(status) || w == pid)
+                ce::log::debug(ce::log::Cat::Debugger, "hwwp: tid {} {} (sig {}), hits {}",
+                    w, WIFSIGNALED(status) ? "KILLED" : "exited",
+                    WIFSIGNALED(status) ? WTERMSIG(status) : 0, hwHits);
             attached.erase(w);
             if (w == pid || attached.empty())
                 break; // main thread / whole process gone
         }
     }
+    ce::log::debug(ce::log::Cat::Debugger,
+        "hwwp: loop end (stopRequested={}), total hits {}", stopRequested_.load(), hwHits);
 
     // Clean up — remove the watchpoint and detach from every armed thread.
     // At loop exit every thread is running (each handled stop is CONT'd before

@@ -3306,8 +3306,16 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
     // we keep the fast hardware path. A setting can force software everywhere.
     const bool wine = targetLooksLikeWine(process_->pid());
     const bool forceSoftware = QSettings().value("codefinder/forceSoftware", false).toBool();
-    const bool software = wine || forceSoftware;
-    if (wine && !codeFinderNoPrompt_) {
+    bool software = wine || forceSoftware;
+    // Diagnostic override: CE_CODEFINDER_MODE=hw|sw forces the watchpoint backend,
+    // so the hardware path (what early versions used) can be tried on a Wine game.
+    const QByteArray modeOverride = qgetenv("CE_CODEFINDER_MODE");
+    if (!modeOverride.isEmpty()) {
+        const char c = modeOverride.at(0);
+        if (c == 'h' || c == 'H') software = false;
+        else if (c == 's' || c == 'S') software = true;
+    }
+    if (wine && !codeFinderNoPrompt_ && software) {
         auto r = QMessageBox::warning(this, "Wine / Proton game",
             "This is a Wine/Proton (Windows) game. \"Find what writes/accesses\" "
             "watches memory with a page guard, which can conflict with Proton's "

@@ -26,6 +26,7 @@ AdvancedOptionsWindow::AdvancedOptionsWindow(ce::ProcessHandle* proc, QWidget* p
     table_ = new QTableWidget(0, 2);               // CE lvCodelist (Address, Name)
     table_->setHorizontalHeaderLabels({"Address", "Name"});
     table_->horizontalHeader()->setStretchLastSection(true);
+    table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setSelectionMode(QAbstractItemView::SingleSelection);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);

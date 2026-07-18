@@ -34,7 +34,11 @@ StackViewWindow::StackViewWindow(ProcessHandle* proc, QWidget* parent)
     stackTable_ = new QTableWidget;
     stackTable_->setColumnCount(3);
     stackTable_->setHorizontalHeaderLabels({"Address", "Value", "Offset"});
+    // Address and Value are 16-digit hex; fit them so they aren't clipped, let
+    // the Offset column take the slack.
     stackTable_->horizontalHeader()->setStretchLastSection(true);
+    stackTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    stackTable_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     stackTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     stackTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     stackTable_->setFont(QFont("Monospace", 9));
@@ -43,7 +47,10 @@ StackViewWindow::StackViewWindow(ProcessHandle* proc, QWidget* parent)
     traceTable_ = new QTableWidget;
     traceTable_->setColumnCount(5);
     traceTable_->setHorizontalHeaderLabels({"Frame", "Instruction", "Return", "Frame Pointer", "Symbol"});
+    // Fit the frame/address columns to content; Symbol (last) takes the slack.
     traceTable_->horizontalHeader()->setStretchLastSection(true);
+    for (int c = 0; c < 4; ++c)
+        traceTable_->horizontalHeader()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
     traceTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     traceTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     traceTable_->setFont(QFont("Monospace", 9));

@@ -66,9 +66,11 @@ loading and module analysis work on sandboxed targets (`process_vm_readv` alread
 worked; the files did not open). IL2CPP discovery resolves file-backed *region* paths
 too, so `global-metadata.dat` (a data file, not a module) opens on Flatpak/Steam-Proton
 (pressure-vessel) Unity games. `TargetProfile` reports the inner-namespace pid.
-Validated against real private-mount-namespace processes and a live Flatpak app.
-Remaining: NSpid-based picker badges, `setns` for targets where cross-namespace
-`process_vm_readv` is refused.
+The process picker badges sandboxed processes ([sandboxed] tag + tooltip, filterable)
+via `ProcessInfo::sandboxed`. Validated against real private-mount-namespace processes
+and a live Flatpak app. Remaining: `setns` for the rare targets where cross-namespace
+`process_vm_readv` is refused (not reproducible with CAP_SYS_PTRACE), and multi-process
+renderer discovery (overlaps block 3).
 
 ### D. Guest-memory / address-translation model
 A generic "the interesting memory is a buffer inside another process, at an offset,
@@ -316,8 +318,9 @@ games, RE, learning, native Linux):
 2. **Emulators, scan/edit/freeze (block D + adapters).** Highest user value, in scope,
    medium effort. Start with Dolphin, PCSX2, RPCS3, DuckStation.
 3. **Namespace-aware attach (block C).** Flatpak/Snap are the desktop default; medium
-   effort. STARTED: mount-namespace backing-file resolution (symbols/analysis on
-   sandboxed targets) landed; PID-translation UI and `setns` fallback remain.
+   effort. Mostly landed: mount-namespace backing-file resolution (symbols + IL2CPP
+   metadata on sandboxed targets), inner-PID reporting, and a picker sandbox badge.
+   `setns` fallback and multi-process renderer discovery remain.
 4. **Agent framework generalization (block B)** then a **.NET / Godot / Go** resolver.
    The honest fix for moving-GC targets.
 5. **Arch abstraction (block A)** then an **ARM64 backend.** Large but increasingly

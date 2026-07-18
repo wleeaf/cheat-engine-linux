@@ -86,17 +86,28 @@ void ProcessListDialog::refreshList() {
             ? QString("%1 MB").arg(r.rss / (1024.0 * 1024.0), 0, 'f', 1)
             : QString("%1 KB").arg(r.rss / 1024.0, 0, 'f', 0);
         // Name first (readable), then pid + memory so duplicates are distinguishable.
-        auto text = QString("%1   (pid %2, %3)")
-                        .arg(QString::fromStdString(p.name)).arg(p.pid).arg(mem);
+        // A sandboxed process gets a trailing tag so the user knows they are attaching
+        // into a Flatpak/Snap/container namespace.
+        auto text = QString("%1   (pid %2, %3)%4")
+                        .arg(QString::fromStdString(p.name)).arg(p.pid).arg(mem)
+                        .arg(p.sandboxed ? QStringLiteral("   [sandboxed]") : QString());
         auto* item = new QListWidgetItem(text);
         item->setData(Qt::UserRole, QVariant::fromValue((qlonglong)p.pid));
         item->setData(Qt::UserRole + 1, QString::fromStdString(p.name));
         // Stash the full path / cmdline so the filter can match against it
         // (Wine-wrapped processes keep their .exe name in cmdline even when
-        // /proc/PID/comm reads "Main Thread" or "wine64-preloader").
-        item->setData(Qt::UserRole + 2, QString::fromStdString(p.path));
-        if (!p.path.empty())
-            item->setToolTip(QString::fromStdString(p.path));
+        // /proc/PID/comm reads "Main Thread" or "wine64-preloader"). Append the
+        // sandbox tag so typing "sandboxed" filters to those processes.
+        QString filterPath = QString::fromStdString(p.path);
+        if (p.sandboxed) filterPath += QStringLiteral(" sandboxed");
+        item->setData(Qt::UserRole + 2, filterPath);
+        QString tip = QString::fromStdString(p.path);
+        if (p.sandboxed)
+            tip += (tip.isEmpty() ? QString() : QStringLiteral("\n")) +
+                   QStringLiteral("Sandboxed (Flatpak/Snap/container): attaching reaches into "
+                                  "its namespace; scan, edit and symbols work.");
+        if (!tip.isEmpty())
+            item->setToolTip(tip);
         processList_->addItem(item);
     }
 }

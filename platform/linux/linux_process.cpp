@@ -784,6 +784,11 @@ std::vector<ProcessInfo> LinuxProcessEnumerator::list() {
                     p.path = flattenedCmdline;
             }
 
+            // Flag sandboxed processes (Flatpak/Snap/Firejail/container) so the
+            // picker can badge them; attach works but the user should know they are
+            // reaching into a namespace.
+            p.sandboxed = isPidNamespaced(pid);
+
             procs.push_back(std::move(p));
         }
     } catch (...) {}

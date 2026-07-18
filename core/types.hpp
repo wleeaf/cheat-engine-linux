@@ -50,6 +50,7 @@ struct ProcessInfo {
     pid_t       pid = 0;
     std::string name;
     std::string path;
+    bool        sandboxed = false;   // in a nested PID namespace (Flatpak/Snap/container)
 };
 
 // ── Module info ──

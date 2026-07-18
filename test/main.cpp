@@ -8730,6 +8730,14 @@ static void test_process_enumeration() {
     }
     if (procs.size() > 5)
         printf("  ... and %zu more\n", procs.size() - 5);
+
+    // The sandbox flag is populated: we (the test) are in the root namespace, so our
+    // own entry is present and not sandboxed.
+    bool foundSelf = false, selfSandboxed = false;
+    for (auto& p : procs)
+        if (p.pid == getpid()) { foundSelf = true; selfSandboxed = p.sandboxed; }
+    printf("  self listed and not sandboxed: %s\n",
+           (foundSelf && !selfSandboxed) ? "OK" : "FAILED");
 }
 
 static void test_process_memory(pid_t pid) {

@@ -19,7 +19,7 @@
 
 namespace ce {
 
-bool CodeFinder::start(ProcessHandle& proc, Debugger& dbg, uintptr_t address, bool writesOnly, int watchSize, bool software) {
+bool CodeFinder::start(ProcessHandle& proc, Debugger& dbg, uintptr_t address, bool writesOnly, int watchSize, bool software, bool singleThread) {
     if (running_) return false;
 
     proc_ = &proc;
@@ -28,6 +28,7 @@ bool CodeFinder::start(ProcessHandle& proc, Debugger& dbg, uintptr_t address, bo
     writesOnly_ = writesOnly;
     watchSize_ = (watchSize == 1 || watchSize == 2 || watchSize == 8) ? watchSize : 4;
     software_ = software;
+    singleThread_ = singleThread;
     stopRequested_ = false;
     running_ = true;
 
@@ -76,13 +77,22 @@ void CodeFinder::monitorLoop() {
 
     std::set<pid_t> attached;
     std::vector<pid_t> tids;
-    for (auto& t : proc_->threads()) tids.push_back(t.tid);
-    if (tids.empty()) tids.push_back(pid);
+    if (singleThread_) {
+        // Wine/Proton: trace ONLY the main thread (the thread-group leader, where
+        // Warband-style game logic writes money/HP). Seizing the whole thread group
+        // deadlocks the game, and PTRACE_O_TRACECLONE would drag in siblings, so we
+        // deliberately touch nothing else.
+        tids.push_back(pid);
+    } else {
+        for (auto& t : proc_->threads()) tids.push_back(t.tid);
+        if (tids.empty()) tids.push_back(pid);
+    }
+    const long seizeOpts = singleThread_ ? 0 : PTRACE_O_TRACECLONE;
 
     int armFail = 0;
     for (pid_t tid : tids) {
         if (ptrace(PTRACE_SEIZE, tid, nullptr,
-                   reinterpret_cast<void*>(PTRACE_O_TRACECLONE)) < 0) {
+                   reinterpret_cast<void*>(seizeOpts)) < 0) {
             ++armFail;
             continue;
         }
@@ -101,8 +111,9 @@ void CodeFinder::monitorLoop() {
         return;
     }
     ce::log::debug(ce::log::Cat::Debugger,
-        "hwwp: watch {:#x} size {} type {} armed on {} threads ({} seize failures)",
-        (uint64_t)targetAddress_, watchSize_, bpType, attached.size(), armFail);
+        "hwwp: watch {:#x} size {} type {} armed on {} thread(s) ({} seize failures){}",
+        (uint64_t)targetAddress_, watchSize_, bpType, attached.size(), armFail,
+        singleThread_ ? " [single-thread / Wine]" : "");
     uint64_t hwHits = 0;
 
     while (!stopRequested_) {

@@ -2764,6 +2764,16 @@ void MainWindow::closeEvent(QCloseEvent* ev) {
 }
 
 MainWindow::~MainWindow() {
+    // Stop every "find what writes/accesses" monitor (joining its background thread)
+    // BEFORE any members are destroyed. Each monitor thread uses process_ and its
+    // ce::Debugger, and member destruction runs in reverse declaration order (the
+    // Debuggers would otherwise be freed while a monitor thread is still calling
+    // dbg_->getContext() on a live hit — a use-after-free crash at exit).
+    for (auto& f : codeFinders_)
+        if (f) f->stop();
+    codeFinders_.clear();
+    codeFinderDebuggers_.clear();
+
     // Drop Lua GUI callback bindings before luaEngine_ (and its lua_State) is
     // destroyed with this window's members, so a stray Qt timer/widget callback
     // can't fire into a freed lua_State.
@@ -3297,38 +3307,30 @@ static bool targetLooksLikeWine(pid_t pid) {
 void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
     if (!process_) return;
 
-    // A hardware watchpoint (DR0-3) crashes Wine/Proton games: Wine manages the CPU
-    // debug registers itself for Windows thread-context/exception emulation, so an
-    // externally-programmed one surfaces into the game's SEH as a crash. For those
-    // targets use the software (page-guard) watchpoint instead: it mprotects the
-    // page and catches the write fault, never touching a debug register. It is
-    // slower (it faults on every write to the whole 4 KB page), so on native Linux
-    // we keep the fast hardware path. A setting can force software everywhere.
+    // Watchpoint backend selection. On a Wine/Proton game we must NOT seize the
+    // whole thread group (that deadlocks the game against wineserver / esync-fsync /
+    // GPU threads) and must NOT use the software page-guard (its mprotect fights
+    // Proton's kernel write-watch/userfaultfd and freezes the game). So for Wine we
+    // arm a HARDWARE watchpoint on the MAIN thread only — the game-logic thread that
+    // writes gameplay values. Native Linux keeps the full all-thread hardware watch.
     const bool wine = targetLooksLikeWine(process_->pid());
-    const bool forceSoftware = QSettings().value("codefinder/forceSoftware", false).toBool();
-    bool software = wine || forceSoftware;
-    // Diagnostic override: CE_CODEFINDER_MODE=hw|sw forces the watchpoint backend,
-    // so the hardware path (what early versions used) can be tried on a Wine game.
+    bool software = QSettings().value("codefinder/forceSoftware", false).toBool();
+    bool singleThread = wine && !software;
+    // Test override: CE_CODEFINDER_MODE = hw (all-thread hardware) | sw (software) |
+    // st (single-thread hardware).
     const QByteArray modeOverride = qgetenv("CE_CODEFINDER_MODE");
-    if (!modeOverride.isEmpty()) {
-        const char c = modeOverride.at(0);
-        if (c == 'h' || c == 'H') software = false;
-        else if (c == 's' || c == 'S') software = true;
-    }
-    if (wine && !codeFinderNoPrompt_ && software) {
-        auto r = QMessageBox::warning(this, "Wine / Proton game",
-            "This is a Wine/Proton (Windows) game. \"Find what writes/accesses\" "
-            "watches memory with a page guard, which can conflict with Proton's "
-            "kernel write-watch (userfaultfd) and FREEZE the game — it goes "
-            "unresponsive with a black screen.\n\n"
-            "If that happens, add this to the game's Steam launch options "
-            "(right-click the game, Properties, Launch Options) and relaunch, "
-            "then try again:\n\n"
-            "    WINE_DISABLE_KERNEL_WRITEWATCH=1 %command%\n\n"
-            "It uses the slower Wine-safe (software) watchpoint. Tip: arm it, "
-            "trigger the change once, then stop; the game runs slowly while armed.\n\n"
-            "Start monitoring anyway?",
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (modeOverride == "hw") { software = false; singleThread = false; }
+    else if (modeOverride == "sw") { software = true;  singleThread = false; }
+    else if (modeOverride == "st") { software = false; singleThread = true;  }
+
+    if (wine && !codeFinderNoPrompt_ && !software) {
+        auto r = QMessageBox::information(this, "Wine / Proton game",
+            "This is a Wine/Proton (Windows) game. Cheat Engine will watch the game's "
+            "main thread for writes, which is where gameplay values (money, HP, …) are "
+            "usually changed.\n\n"
+            "If nothing shows up, the value may be written by a background thread; "
+            "tell me and it can be widened. Start monitoring?",
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
         if (r != QMessageBox::Yes) return;
     }
 
@@ -3338,7 +3340,7 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
     // Honour the configured hardware-watchpoint size (was ignored -> always 4).
     int watchSize = QSettings().value("codefinder/watchSize", "4").toInt();
     if (watchSize != 1 && watchSize != 2 && watchSize != 4 && watchSize != 8) watchSize = 4;
-    if (!finder->start(*process_, *debugger, addr, writesOnly, watchSize, software)) {
+    if (!finder->start(*process_, *debugger, addr, writesOnly, watchSize, software, singleThread)) {
         QMessageBox::warning(this, "Code finder unavailable",
             software ? "Could not start software watchpoint monitoring for this address."
                      : "Could not start hardware watchpoint monitoring for this address.");

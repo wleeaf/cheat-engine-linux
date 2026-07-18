@@ -32,11 +32,17 @@ public:
     // watchSize: bytes to watch (1/2/4/8) — must be watchSize-aligned like any
     // x86 hardware data breakpoint. Default 4 (a dword).
     // software: use a page-protection watchpoint (mprotect + SIGSEGV) instead of a
-    // CPU hardware debug register. Slower (it faults on every write to the whole
-    // 4 KB page), but it never touches the debug registers, so it works on
-    // Wine/Proton targets where a hardware watchpoint crashes the game.
+    // CPU hardware debug register. Never viable on Wine/Proton (its mprotect fights
+    // Proton's kernel write-watch/userfaultfd and deadlocks the game); kept for
+    // native Linux only.
+    // singleThread: arm the hardware watchpoint on ONLY the process's main thread,
+    // and do not trace any sibling thread. Seizing/stopping the whole Wine/Proton
+    // thread group deadlocks the game (it collides with wineserver, esync/fsync and
+    // GPU/driver threads), so on Wine we watch just the main game-logic thread,
+    // which is where gameplay values (money, HP, …) are written.
     bool start(ProcessHandle& proc, Debugger& dbg, uintptr_t address,
-               bool writesOnly = false, int watchSize = 4, bool software = false);
+               bool writesOnly = false, int watchSize = 4, bool software = false,
+               bool singleThread = false);
 
     /// Stop monitoring.
     void stop();
@@ -65,6 +71,7 @@ private:
     bool writesOnly_ = false;
     int  watchSize_ = 4;
     bool software_ = false;
+    bool singleThread_ = false;
     std::atomic<bool> running_{false};
     std::atomic<bool> stopRequested_{false};
     std::thread monitorThread_;

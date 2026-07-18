@@ -5610,12 +5610,24 @@ static void test_il2cpp_real_file() {
             nameOk = tn("x") == "System.Single" && tn("y") == "System.Single" &&
                      tn("z") == "System.Single";
         }
-        size_t totalF = 0, emptyF = 0;
+        size_t totalF = 0, emptyF = 0, arityLeak = 0;
         for (const auto& c : layout.classes)
-            for (const auto& fl : c.fields) { ++totalF; if (fl.typeName.empty()) ++emptyF; }
+            for (const auto& fl : c.fields) {
+                ++totalF;
+                if (fl.typeName.empty()) ++emptyF;
+                // A concrete generic must read "List<Foo>", never "List`1<Foo>": no
+                // arity marker ("`<digits>") should remain immediately before a '<'.
+                if (auto lt = fl.typeName.find('<'); lt != std::string::npos && lt > 0 &&
+                    std::isdigit((unsigned char)fl.typeName[lt - 1])) {
+                    auto tick = fl.typeName.rfind('`', lt);
+                    if (tick != std::string::npos && tick < lt) ++arityLeak;
+                }
+            }
         printf("  Vector3 x/y/z type-name = System.Single: %s\n", nameOk ? "OK" : "FAILED");
         printf("  every field resolves a managed type name (%zu fields, %zu empty): %s\n",
                totalF, emptyF, (totalF > 0 && emptyF == 0) ? "OK" : "FAILED");
+        printf("  generics spelled Name<...> (no arity leak, %zu offenders): %s\n",
+               arityLeak, arityLeak == 0 ? "OK" : "FAILED");
 
         // Base-class chain: Transform : Component : Object is the canonical Unity
         // hierarchy, so it doubles as a check that parentIndex parses correctly.

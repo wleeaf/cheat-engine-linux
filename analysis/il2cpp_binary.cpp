@@ -2,6 +2,7 @@
 #include "core/ns_attach.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -317,7 +318,17 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
                             if (!args.empty()) args += ", ";
                             args += an;
                         }
-                        return base + "<" + args + ">";
+                        // Strip the open generic's arity marker ("List`1" -> "List")
+                        // before spelling the concrete arguments, so a field reads
+                        // "List<PlayerData>" not "List`1<PlayerData>".
+                        std::string stem = base;
+                        if (auto tick = base.rfind('`'); tick != std::string::npos) {
+                            bool allDigits = tick + 1 < base.size();
+                            for (size_t k = tick + 1; k < base.size(); ++k)
+                                if (!std::isdigit(static_cast<unsigned char>(base[k]))) allDigits = false;
+                            if (allDigits) stem = base.substr(0, tick);
+                        }
+                        return stem + "<" + args + ">";
                     }
                 }
                 return base;   // couldn't read the args; keep the open generic name

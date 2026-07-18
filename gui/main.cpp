@@ -118,10 +118,15 @@ int main(int argc, char* argv[]) {
     // `--memview <addr>` then opens the Memory Viewer there.
     const QStringList cliArgs = app.arguments();
     uintptr_t memviewAddr = 0;
-    bool wantMemview = false, wantSettings = false;
+    bool wantMemview = false, wantSettings = false, wantFindWrites = false;
+    uintptr_t findWritesAddr = 0;
     QString wantPanel, wantSettingsPage;
     for (int i = 1; i < cliArgs.size(); ++i) {
-        if (cliArgs.at(i) == QLatin1String("--settings")) {
+        if (i + 1 < cliArgs.size() && cliArgs.at(i) == QLatin1String("--find-writes")) {
+            bool ok = false;
+            findWritesAddr = static_cast<uintptr_t>(cliArgs.at(i + 1).toULongLong(&ok, 0));
+            wantFindWrites = ok;
+        } else if (cliArgs.at(i) == QLatin1String("--settings")) {
             wantSettings = true;
         } else if (i + 1 < cliArgs.size() && cliArgs.at(i) == QLatin1String("--settings-page")) {
             wantSettings = true;
@@ -153,6 +158,14 @@ int main(int argc, char* argv[]) {
     if (!wantPanel.isEmpty()) {
         if (auto* p = w.openPanelByName(wantPanel))
             shotTarget = p;
+    }
+
+    // Test hook: `--find-writes <addr>` drives the real "find what writes" GUI path
+    // headlessly against a repro process, then quits after a fixed window (used to
+    // reproduce/debug the Wine/Proton watchpoint crash without the game).
+    if (wantFindWrites) {
+        w.startFindWritesForTest(findWritesAddr);
+        QTimer::singleShot(15000, []() { QApplication::quit(); });
     }
 
     // Dev hook: CE_SCREENSHOT=<path> grabs the target window shortly after it is

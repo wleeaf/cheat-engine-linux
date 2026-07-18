@@ -1,4 +1,5 @@
 #include "debug/code_finder.hpp"
+#include "core/log.hpp"
 
 #include <sys/ptrace.h>
 #include <sys/wait.h>
@@ -294,8 +295,15 @@ void CodeFinder::monitorLoopSoftware() {
     // so a WoW64 32-bit thread — whose RIP must be < 4 GB — can jump to it. Write a
     // `syscall` gadget for 64-bit threads and an `int 0x80` gadget for 32-bit ones.
     auto scratchRes = proc_->allocate(4096, MemProt::All, targetAddress_);
-    if (!scratchRes) { running_ = false; return; }
+    if (!scratchRes) {
+        ce::log::debug(ce::log::Cat::Debugger, "swwp: scratch allocate FAILED, aborting");
+        running_ = false; return;
+    }
     const uintptr_t scratch = *scratchRes;
+    ce::log::debug(ce::log::Cat::Debugger,
+        "swwp: watch {:#x} size {} page [{:#x},{:#x}) origProt {} guardProt {} scratch {:#x}",
+        (uint64_t)targetAddress_, watchSize_, (uint64_t)pageStart, (uint64_t)pageEnd,
+        origProt, guardProt, (uint64_t)scratch);
     const uintptr_t gadget64 = scratch;
     const uintptr_t gadget32 = scratch + 16;
     { const uint8_t g64[2] = {0x0f, 0x05}; proc_->write(gadget64, g64, sizeof(g64)); }   // syscall
@@ -306,27 +314,33 @@ void CodeFinder::monitorLoopSoftware() {
     for (auto& t : proc_->threads()) tids.push_back(t.tid);
     if (tids.empty()) tids.push_back(pid);
 
-    pid_t anyStopped = -1;
-    for (pid_t tid : tids) {
+    // SEIZE every thread — this begins tracing but does NOT stop them. A game's
+    // render/GPU thread has to keep running; freezing all threads at once to arm
+    // (even briefly) is exactly what tends to break latency-sensitive threads and
+    // crash the game. We only need ONE thread stopped long enough to run the arm
+    // mprotect; every other thread keeps running and its faults still report to us.
+    for (pid_t tid : tids)
         if (ptrace(PTRACE_SEIZE, tid, nullptr,
-                   reinterpret_cast<void*>(PTRACE_O_TRACECLONE)) < 0)
-            continue;
-        if (ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) == 0) {
-            int st; waitpid(tid, &st, __WALL);
-            anyStopped = tid;
-        }
-        attached.insert(tid);
-    }
-    if (attached.empty() || anyStopped < 0) {
+                   reinterpret_cast<void*>(PTRACE_O_TRACECLONE)) == 0)
+            attached.insert(tid);
+    if (attached.empty()) {
         proc_->free(scratch, 4096);
         running_ = false;
         return;
     }
 
-    // Arm the guard from inside the target (via the gadget), then resume all threads.
-    injectSyscallGadget(anyStopped, gadget64, gadget32, 10 /*mprotect*/,
-                        pageStart, pageLen, guardProt);
-    for (pid_t tid : attached) ptrace(PTRACE_CONT, tid, nullptr, nullptr);
+    // Stop a single thread just long enough to arm the guard, then resume it.
+    const pid_t armTid = *attached.begin();
+    long armRc = -1;
+    if (ptrace(PTRACE_INTERRUPT, armTid, nullptr, nullptr) == 0) {
+        int st; waitpid(armTid, &st, __WALL);
+        armRc = injectSyscallGadget(armTid, gadget64, gadget32, 10 /*mprotect*/,
+                                    pageStart, pageLen, guardProt);
+        ptrace(PTRACE_CONT, armTid, nullptr, nullptr);
+    }
+    ce::log::debug(ce::log::Cat::Debugger,
+        "swwp: seized {} threads, armed guard via tid {} -> {}",
+        attached.size(), armTid, armRc);
 
     while (!stopRequested_) {
         int status;
@@ -368,8 +382,12 @@ void CodeFinder::monitorLoopSoftware() {
                     injectSyscallGadget(w, gadget64, gadget32, 10, pageStart, pageLen, guardProt);
                     ptrace(PTRACE_CONT, w, nullptr, nullptr);
                 } else {
-                    // A genuine segfault elsewhere — forward it so the game / Wine
-                    // handles its own fault instead of us swallowing a real crash.
+                    // A segfault NOT on our page. si_code tells us if it is a real
+                    // access violation (SEGV_MAPERR/ACCERR) vs something else; log it
+                    // because forwarding a spurious one is a prime crash suspect.
+                    ce::log::debug(ce::log::Cat::Debugger,
+                        "swwp: tid {} SIGSEGV off-page fault={:#x} si_code {} -> forwarding",
+                        w, (uint64_t)fault, haveSi ? si.si_code : -999);
                     ptrace(PTRACE_CONT, w, nullptr,
                            reinterpret_cast<void*>(static_cast<uintptr_t>(SIGSEGV)));
                 }
@@ -379,6 +397,8 @@ void CodeFinder::monitorLoopSoftware() {
                        sig == SIGTTIN || sig == SIGTTOU) {
                 ptrace(PTRACE_CONT, w, nullptr, nullptr);
             } else {
+                ce::log::debug(ce::log::Cat::Debugger,
+                    "swwp: tid {} forwarding signal {}", w, sig);
                 ptrace(PTRACE_CONT, w, nullptr,
                        reinterpret_cast<void*>(static_cast<uintptr_t>(sig)));
             }

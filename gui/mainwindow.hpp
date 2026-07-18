@@ -71,6 +71,15 @@ public:
     /// Used by the process picker and by `--pid <N>` on the command line.
     void attachToPid(pid_t pid, const QString& name);
 
+    /// Test hook: drive "find what writes" from the command line (`--find-writes`)
+    /// so the exact GUI code path can be exercised headlessly against a repro
+    /// (suppresses the Wine confirmation dialog, which would block offscreen).
+    void startFindWritesForTest(uintptr_t addr) {
+        codeFinderNoPrompt_ = true;
+        startCodeFinderForAddress(addr, /*writesOnly=*/true);
+        codeFinderNoPrompt_ = false;
+    }
+
 private slots:
     void onOpenProcess();
     void onConnectCeserver();
@@ -173,6 +182,7 @@ private:
     BreakpointManager bpManager_;
     std::vector<std::unique_ptr<CodeFinder>> codeFinders_;
     std::vector<std::unique_ptr<ce::Debugger>> codeFinderDebuggers_;
+    bool codeFinderNoPrompt_ = false;   // test hook: skip the Wine confirm dialog
     std::unique_ptr<ScanResult> lastResult_;
     std::unique_ptr<ScanResult> undoResult_;
     ce::ValueType lastResultType_ = ce::ValueType::Int32;

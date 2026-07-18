@@ -3307,7 +3307,7 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
     const bool wine = targetLooksLikeWine(process_->pid());
     const bool forceSoftware = QSettings().value("codefinder/forceSoftware", false).toBool();
     const bool software = wine || forceSoftware;
-    if (wine) {
+    if (wine && !codeFinderNoPrompt_) {
         auto r = QMessageBox::information(this, "Wine / Proton game",
             "This looks like a Wine/Proton (Windows) game, where a hardware "
             "watchpoint would crash it. Cheat Engine will use the software "

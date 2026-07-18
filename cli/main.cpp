@@ -64,6 +64,8 @@ static void usage() {
         "  guest-scan <pid> <value> [--type <t>] [--be] [--align <n>]\n"
         "                                Scan a recognized emulator's guest RAM for a\n"
         "                                value (--be byte-swaps for big-endian consoles)\n"
+        "  guest-scan <pid> --unknown [--type <t>] [--be]\n"
+        "                                Snapshot guest RAM for an unknown initial value\n"
         "  guest-scan <pid> [<value>] --next|--changed|--unchanged|--increased|--decreased\n"
         "                                Narrow the previous guest scan (--next needs a\n"
         "                                value; the comparisons do not)\n"
@@ -663,13 +665,43 @@ static void writeGuestResults(pid_t pid, const ce::TargetProfile::GuestRegion& g
     fclose(f);
 }
 
-enum class GsOp { ExactFirst, ExactNext, Compare };
+enum class GsOp { ExactFirst, UnknownFirst, ExactNext, Compare };
+
+static std::string guestSnapPath(pid_t pid) { return guestResultPath(pid) + ".snap"; }
 
 static int cmd_guest_scan(pid_t pid, const char* valStr, ValueType vt, bool be, size_t align,
                           GsOp op, ce::GuestCompare cmpOp) {
     LinuxProcessHandle proc(pid);
     ce::TargetProfile::GuestRegion region;
     std::vector<std::pair<uint64_t, uint64_t>> prev;   // (guest addr, value bits)
+    std::vector<uint8_t> snapOld;
+    bool fromSnapshot = false;
+
+    // Unknown-value first scan: snapshot the whole region, defer picking candidates
+    // to the first comparison narrowing.
+    if (op == GsOp::UnknownFirst) {
+        ce::TargetProfile p = ce::probeTarget(pid);
+        if (p.guestCandidates.empty()) {
+            fprintf(stderr, "guest-scan: no guest-RAM region for pid %d (recognized emulator?)\n", pid);
+            return 1;
+        }
+        region = p.guestCandidates.front();
+        ce::GuestView gv{ &proc, region.base, region.size, be };
+        auto bytes = ce::guestReadRegion(gv);
+        if (FILE* sf = fopen(guestSnapPath(pid).c_str(), "wb")) {
+            fwrite(bytes.data(), 1, bytes.size(), sf); fclose(sf);
+        }
+        if (FILE* f = fopen(guestResultPath(pid).c_str(), "w")) {
+            fprintf(f, "GUESTSCAN 3 base %lx size %lx be %d type %d\n",
+                    (unsigned long)region.base, (unsigned long)region.size, be ? 1 : 0, (int)vt);
+            fclose(f);
+        }
+        printf("snapshot taken: %zu MB of %s guest RAM (%s-endian). Change the value "
+               "in-game, then narrow with:\n"
+               "  cescan guest-scan %d --changed | --increased | --decreased | --unchanged\n",
+               static_cast<size_t>(bytes.size() >> 20), p.emulator.c_str(), be ? "big" : "little", pid);
+        return 0;
+    }
 
     if (op != GsOp::ExactFirst) {
         FILE* f = fopen(guestResultPath(pid).c_str(), "r");
@@ -679,9 +711,24 @@ static int cmd_guest_scan(pid_t pid, const char* valStr, ValueType vt, bool be, 
             fclose(f); fprintf(stderr, "guest-scan: corrupt state file\n"); return 1;
         }
         region.base = base; region.size = size; be = beI != 0; vt = (ValueType)typeI;  // carry over
-        unsigned long long a, v;
-        while (fscanf(f, "%llx %llx", &a, &v) == 2) prev.push_back({a, v});
-        fclose(f);
+        if (ver >= 3) {
+            fclose(f);
+            if (op != GsOp::Compare) {
+                fprintf(stderr, "guest-scan: after --unknown, narrow first with a comparison "
+                                "(--changed/--increased/--decreased/--unchanged)\n");
+                return 1;
+            }
+            fromSnapshot = true;
+            FILE* sf = fopen(guestSnapPath(pid).c_str(), "rb");
+            if (!sf) { fprintf(stderr, "guest-scan: snapshot missing; re-run --unknown\n"); return 1; }
+            fseek(sf, 0, SEEK_END); long n = ftell(sf); fseek(sf, 0, SEEK_SET);
+            if (n > 0) { snapOld.resize((size_t)n); snapOld.resize(fread(snapOld.data(), 1, (size_t)n, sf)); }
+            fclose(sf);
+        } else {
+            unsigned long long a, v;
+            while (fscanf(f, "%llx %llx", &a, &v) == 2) prev.push_back({a, v});
+            fclose(f);
+        }
     } else {
         ce::TargetProfile p = ce::probeTarget(pid);
         if (p.guestCandidates.empty()) {
@@ -699,14 +746,23 @@ static int cmd_guest_scan(pid_t pid, const char* valStr, ValueType vt, bool be, 
            static_cast<size_t>(region.size >> 20), static_cast<unsigned long>(region.base),
            be ? "big" : "little");
 
+    std::vector<uint8_t> liveBytes;
+    if (fromSnapshot) liveBytes = ce::guestReadRegion(gv);
+
     std::vector<std::pair<uint64_t, uint64_t>> result;
     auto run = [&]<class T>() {
         if (op == GsOp::Compare) {
-            std::vector<std::pair<uint64_t, T>> pairs;
-            pairs.reserve(prev.size());
-            for (const auto& [a, v] : prev) pairs.emplace_back(a, bitsVal<T>(v));
-            for (const auto& h : ce::guestNextCompare<T>(gv, pairs, cmpOp))
-                result.emplace_back(h.first, valBits(h.second));
+            if (fromSnapshot) {
+                for (const auto& h : ce::guestCompareBuffers<T>(snapOld, liveBytes, be, cmpOp,
+                                                                align ? align : sizeof(T)))
+                    result.emplace_back(h.first, valBits(h.second));
+            } else {
+                std::vector<std::pair<uint64_t, T>> pairs;
+                pairs.reserve(prev.size());
+                for (const auto& [a, v] : prev) pairs.emplace_back(a, bitsVal<T>(v));
+                for (const auto& h : ce::guestNextCompare<T>(gv, pairs, cmpOp))
+                    result.emplace_back(h.first, valBits(h.second));
+            }
         } else {
             const T val = parseVal<T>(valStr);
             const uint64_t vb = valBits(val);
@@ -731,6 +787,7 @@ static int cmd_guest_scan(pid_t pid, const char* valStr, ValueType vt, bool be, 
         default: fprintf(stderr, "guest-scan supports byte/i16/i32/i64/float/double\n"); return 1;
     }
 
+    if (fromSnapshot) remove(guestSnapPath(pid).c_str());   // now have an explicit set
     writeGuestResults(pid, region, be, vt, result);
     printf("%zu match(es):\n", result.size());
     const size_t shown = std::min<size_t>(result.size(), 200);
@@ -1188,6 +1245,7 @@ int main(int argc, char** argv) {
             else if (!strcmp(argv[i], "--be")) be = true;
             else if (!strcmp(argv[i], "--align") && i + 1 < argc)
                 align = static_cast<size_t>(strtoul(argv[++i], nullptr, 0));
+            else if (!strcmp(argv[i], "--unknown")) op = GsOp::UnknownFirst;
             else if (!strcmp(argv[i], "--next")) op = GsOp::ExactNext;
             else if (!strcmp(argv[i], "--changed"))   { op = GsOp::Compare; cmp = ce::GuestCompare::Changed; }
             else if (!strcmp(argv[i], "--unchanged")) { op = GsOp::Compare; cmp = ce::GuestCompare::Unchanged; }
@@ -1195,7 +1253,9 @@ int main(int argc, char** argv) {
             else if (!strcmp(argv[i], "--decreased")) { op = GsOp::Compare; cmp = ce::GuestCompare::Decreased; }
             else if (!val) val = argv[i];   // first positional after pid is the value
         }
-        if (op != GsOp::Compare && !val) { fprintf(stderr, "guest-scan: missing <value>\n"); return 1; }
+        if ((op == GsOp::ExactFirst || op == GsOp::ExactNext) && !val) {
+            fprintf(stderr, "guest-scan: missing <value>\n"); return 1;
+        }
         return cmd_guest_scan(parsePid(argv[2]), val, vt, be, align, op, cmp);
     }
     else if (!strcmp(cmd, "read") && argc >= 4) {

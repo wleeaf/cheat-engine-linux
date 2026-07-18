@@ -147,4 +147,49 @@ std::vector<std::pair<uint64_t, T>> guestNextCompare(
     return out;
 }
 
+// Read the whole guest region into a buffer (chunked). The returned size is how
+// many bytes were actually readable (== size for a normal contiguous mapping);
+// reading stops at the first unreadable gap. Used to snapshot for an unknown-value
+// first scan.
+inline std::vector<uint8_t> guestReadRegion(const GuestView& gv) {
+    std::vector<uint8_t> buf;
+    if (!gv.proc || gv.size == 0) return buf;
+    buf.resize(gv.size);
+    uint64_t off = 0;
+    while (off < gv.size) {
+        const uint64_t want = std::min<uint64_t>(1u << 20, gv.size - off);
+        auto r = gv.proc->read(gv.toHost(off), buf.data() + off, want);
+        if (!r || *r == 0) { buf.resize(off); break; }
+        off += *r;
+    }
+    return buf;
+}
+
+// Compare two snapshots of the same region (old vs new) at aligned offsets and
+// return the (guest offset, current value) that match `op`. This is the first
+// narrowing of an unknown-value scan, where the candidate set was the whole region.
+template <class T>
+std::vector<std::pair<uint64_t, T>> guestCompareBuffers(
+        const std::vector<uint8_t>& oldB, const std::vector<uint8_t>& newB,
+        bool bigEndian, GuestCompare op, size_t alignment = sizeof(T)) {
+    std::vector<std::pair<uint64_t, T>> out;
+    if (alignment == 0) alignment = 1;
+    const size_t n = std::min(oldB.size(), newB.size());
+    for (size_t off = 0; off + sizeof(T) <= n; off += alignment) {
+        T o, c;
+        std::memcpy(&o, oldB.data() + off, sizeof(T));
+        std::memcpy(&c, newB.data() + off, sizeof(T));
+        if (bigEndian) { o = GuestView::byteswap(o); c = GuestView::byteswap(c); }
+        bool keep = false;
+        switch (op) {
+            case GuestCompare::Changed:   keep = c != o; break;
+            case GuestCompare::Unchanged: keep = c == o; break;
+            case GuestCompare::Increased: keep = c >  o; break;
+            case GuestCompare::Decreased: keep = c <  o; break;
+        }
+        if (keep) out.emplace_back(off, c);
+    }
+    return out;
+}
+
 } // namespace ce

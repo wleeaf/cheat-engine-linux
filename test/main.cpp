@@ -252,6 +252,21 @@ static void test_guest_view() {
     bool cmpOk = inc.size() == 1 && inc[0].first == 0x60 && inc[0].second == 15
               && dec.size() == 1 && dec[0].first == 0x64 && dec[0].second == 5;
     printf("  compare next-scan (increased/decreased): %s\n", cmpOk ? "OK" : "FAILED");
+
+    // Unknown-value scan: snapshot the whole region, change some values, compare
+    // buffers to narrow (here: which offsets increased).
+    uint8_t r2[64] = {0};
+    ce::GuestView lev{ &self, reinterpret_cast<uintptr_t>(r2), sizeof(r2), /*bigEndian=*/false };
+    lev.write<int32_t>(0x08, 100);
+    lev.write<int32_t>(0x0C, 100);
+    auto snap = ce::guestReadRegion(lev);
+    lev.write<int32_t>(0x08, 120);   // increased
+    lev.write<int32_t>(0x0C, 80);    // decreased
+    auto now = ce::guestReadRegion(lev);
+    auto up = ce::guestCompareBuffers<int32_t>(snap, now, false, ce::GuestCompare::Increased, 4);
+    bool unkOk = snap.size() == sizeof(r2) && up.size() == 1
+              && up[0].first == 0x08 && up[0].second == 120;
+    printf("  unknown-value scan (snapshot + compare): %s\n", unkOk ? "OK" : "FAILED");
 }
 
 static void test_cheat_table_json() {

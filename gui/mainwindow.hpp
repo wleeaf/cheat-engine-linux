@@ -7,6 +7,7 @@
 #include "scanner/memory_scanner.hpp"
 #include "scanner/snapshot.hpp"
 #include "core/autoasm.hpp"
+#include "core/value_codec.hpp"
 #include "core/address_list.hpp"
 #include "core/ct_file.hpp"
 #include "scripting/lua_engine.hpp"
@@ -312,6 +313,8 @@ struct AddressEntry {
     bool isGroup = false;     // Group header (no address, just a label)
     bool showAsHex = false;   // Display/edit the value in hexadecimal
     QString addressExpr;      // If set, re-evaluated each refresh (pointer records)
+    ce::ValueCodec codec;     // Obfuscation codec: value is stored encode(logical) in
+                              // memory; display decodes, edit/freeze encode (default none)
 };
 
 class AddressListModel : public QAbstractTableModel, public ce::IAddressList {

@@ -4092,7 +4092,31 @@ static long long parseIntField(const QString& valStr) {
     return neg ? -v : v;
 }
 
-static void writeValueToProcess(ProcessHandle* proc, uintptr_t addr, ValueType type, const QString& valStr) {
+// Format a fixed-width scalar exactly as the cheat table displays it (decimal or hex,
+// float precision), decoding an obfuscated value through its codec first. A single
+// formatter so every read path renders identically; returns empty for non-scalar types.
+static QString formatScalarValue(ValueType type, const uint8_t* buf, bool showHex,
+                                 const ce::ValueCodec& codec) {
+    auto dec = [&](uint64_t raw, int bytes) { return codec.active() ? codec.decode(raw, bytes) : raw; };
+    switch (type) {
+        case ValueType::Byte:   { uint8_t  v; memcpy(&v, buf, 1); uint8_t  x = (uint8_t)dec(v, 1);
+                                  return showHex ? QString("0x%1").arg(x, 0, 16) : QString::number(x); }
+        case ValueType::Int16:  { uint16_t v; memcpy(&v, buf, 2); uint16_t x = (uint16_t)dec(v, 2);
+                                  return showHex ? QString("0x%1").arg(x, 0, 16) : QString::number((int16_t)x); }
+        case ValueType::Int32:  { uint32_t v; memcpy(&v, buf, 4); uint32_t x = (uint32_t)dec(v, 4);
+                                  return showHex ? QString("0x%1").arg(x, 0, 16) : QString::number((int32_t)x); }
+        case ValueType::Int64:  { uint64_t v; memcpy(&v, buf, 8); uint64_t x = dec(v, 8);
+                                  return showHex ? QString("0x%1").arg((quint64)x, 0, 16)
+                                                 : QString::number((qlonglong)(int64_t)x); }
+        case ValueType::Pointer:{ uintptr_t v; memcpy(&v, buf, sizeof(v)); return QString("0x%1").arg(v, 0, 16); }
+        case ValueType::Float:  { float  v; memcpy(&v, buf, 4); return QString::number(v, 'f', 4); }
+        case ValueType::Double: { double v; memcpy(&v, buf, 8); return QString::number(v, 'f', 6); }
+        default: return QString();
+    }
+}
+
+static void writeValueToProcess(ProcessHandle* proc, uintptr_t addr, ValueType type,
+                                const QString& valStr, const ce::ValueCodec& codec = {}) {
     // Variable-length types: write the raw bytes directly (length = the value's).
     if (type == ValueType::String) {
         auto bytes = valStr.toUtf8();
@@ -4135,6 +4159,14 @@ static void writeValueToProcess(ProcessHandle* proc, uintptr_t addr, ValueType t
         // TODO(security): implement proper per-type read/format/write for
         // String/UnicodeString/ByteArray address-list entries.
         default: return;
+    }
+    // Encode into the stored (obfuscated) form so the user edits by the logical value.
+    // Only integer widths are codec-eligible; float/double/pointer pass through.
+    if (codec.active() && (type == ValueType::Byte || type == ValueType::Int16 ||
+                           type == ValueType::Int32 || type == ValueType::Int64)) {
+        uint64_t raw = 0; memcpy(&raw, buf, vs);
+        uint64_t enc = codec.encode(raw, (int)vs);
+        memcpy(buf, &enc, vs);
     }
     proc->write(addr, buf, vs);
 }
@@ -4202,7 +4234,7 @@ void AddressListModel::freezeWrite(ProcessHandle* proc) {
         if (!e.active || e.frozenValue.isEmpty()) continue;
 
         if (e.freezeMode == FreezeMode::Normal) {
-            writeValueToProcess(proc, e.address, e.type, e.frozenValue);
+            writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec);
             continue;
         }
 
@@ -4211,12 +4243,12 @@ void AddressListModel::freezeWrite(ProcessHandle* proc) {
         double frozen = 0;
         if (!readComparableValue(proc, e.address, e.type, current) ||
             !parseComparableValue(e.type, e.frozenValue, frozen)) {
-            writeValueToProcess(proc, e.address, e.type, e.frozenValue);
+            writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec);
             continue;
         }
 
         if (ce::freezeShouldWrite(e.freezeMode, current, frozen))
-            writeValueToProcess(proc, e.address, e.type, e.frozenValue);
+            writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec);
     }
 }
 
@@ -4383,7 +4415,7 @@ bool AddressListModel::adjustEntryValue(int row, double delta) {
             return false;
     }
 
-    writeValueToProcess(proc_, e.address, e.type, nextText);
+    writeValueToProcess(proc_, e.address, e.type, nextText, e.codec);
     e.currentValue = nextText;
     if (e.active) e.frozenValue = nextText;
     emit dataChanged(index(row, 4), index(row, 4), {Qt::DisplayRole, Qt::EditRole});
@@ -4437,7 +4469,7 @@ void AddressListModel::setEntryValueTo(int row, const QString& value) {
         ExpressionParser parser(proc_, nullptr);
         if (auto v = parser.parse(e.addressExpr.toStdString())) e.address = *v;
     }
-    writeValueToProcess(proc_, e.address, e.type, value);
+    writeValueToProcess(proc_, e.address, e.type, value, e.codec);
     e.currentValue = value;
     if (e.active) e.frozenValue = value;
     emit dataChanged(index(row, 4), index(row, 4), {Qt::DisplayRole, Qt::EditRole});
@@ -4572,16 +4604,8 @@ void AddressListModel::updateValues(ProcessHandle* proc) {
         size_t vs = vtSize(e.type);
         auto r = proc->read(e.address, buf, vs);
         if (r && *r >= vs) {
-            switch (e.type) {
-                case ValueType::Byte:   { uint8_t v; memcpy(&v, buf, 1); e.currentValue = e.showAsHex ? QString("0x%1").arg(v, 0, 16) : QString::number(v); break; }
-                case ValueType::Int16:  { int16_t v; memcpy(&v, buf, 2); e.currentValue = e.showAsHex ? QString("0x%1").arg((uint16_t)v, 0, 16) : QString::number(v); break; }
-                case ValueType::Int32:  { int32_t v; memcpy(&v, buf, 4); e.currentValue = e.showAsHex ? QString("0x%1").arg((uint32_t)v, 0, 16) : QString::number(v); break; }
-                case ValueType::Int64:  { int64_t v; memcpy(&v, buf, 8); e.currentValue = e.showAsHex ? QString("0x%1").arg((quint64)(uint64_t)v, 0, 16) : QString::number(v); break; }
-                case ValueType::Pointer:{ uintptr_t v; memcpy(&v, buf, sizeof(v)); e.currentValue = QString("0x%1").arg(v, 0, 16); break; }
-                case ValueType::Float:  { float v; memcpy(&v, buf, 4); e.currentValue = QString::number(v, 'f', 4); break; }
-                case ValueType::Double: { double v; memcpy(&v, buf, 8); e.currentValue = QString::number(v, 'f', 6); break; }
-                default: e.currentValue = "?"; break;
-            }
+            QString s = formatScalarValue(e.type, buf, e.showAsHex, e.codec);
+            e.currentValue = s.isEmpty() ? "?" : s;
         } else {
             e.currentValue = "??";
         }
@@ -4608,18 +4632,8 @@ std::string AddressListModel::liveValue(int id) {
     size_t vs = vtSize(e.type);
     auto r = proc_->read(e.address, buf, vs);
     if (!r || *r < vs) return "??";
-    QString out;
-    switch (e.type) {
-        case ValueType::Byte:   { uint8_t v; memcpy(&v, buf, 1); out = e.showAsHex ? QString("0x%1").arg(v, 0, 16) : QString::number(v); break; }
-        case ValueType::Int16:  { int16_t v; memcpy(&v, buf, 2); out = e.showAsHex ? QString("0x%1").arg((uint16_t)v, 0, 16) : QString::number(v); break; }
-        case ValueType::Int32:  { int32_t v; memcpy(&v, buf, 4); out = e.showAsHex ? QString("0x%1").arg((uint32_t)v, 0, 16) : QString::number(v); break; }
-        case ValueType::Int64:  { int64_t v; memcpy(&v, buf, 8); out = e.showAsHex ? QString("0x%1").arg((quint64)(uint64_t)v, 0, 16) : QString::number(v); break; }
-        case ValueType::Pointer:{ uintptr_t v; memcpy(&v, buf, sizeof(v)); out = QString("0x%1").arg(v, 0, 16); break; }
-        case ValueType::Float:  { float v; memcpy(&v, buf, 4); out = QString::number(v, 'f', 4); break; }
-        case ValueType::Double: { double v; memcpy(&v, buf, 8); out = QString::number(v, 'f', 6); break; }
-        default: return "?";
-    }
-    return out.toStdString();
+    QString out = formatScalarValue(e.type, buf, e.showAsHex, e.codec);
+    return out.isEmpty() ? std::string("?") : out.toStdString();
 }
 
 int AddressListModel::rowCount(const QModelIndex&) const { return entries_.size(); }
@@ -4821,7 +4835,7 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
             e.currentValue = rawValue;
             if (e.active) e.frozenValue = writeStr;
             if (proc_) {
-                writeValueToProcess(proc_, e.address, e.type, writeStr);
+                writeValueToProcess(proc_, e.address, e.type, writeStr, e.codec);
                 // A non-frozen value that snaps back is protected: warn and point the
                 // user at find-what-writes. A frozen entry is intentionally held, so
                 // the freeze timer, not this, owns its persistence.
@@ -4993,7 +5007,7 @@ bool AddressListModel::setValue(int id, const std::string& valStr) {
     e.currentValue = QString::fromStdString(valStr);
     if (e.active) e.frozenValue = e.currentValue;
     if (proc_)
-        writeValueToProcess(proc_, e.address, e.type, e.currentValue);
+        writeValueToProcess(proc_, e.address, e.type, e.currentValue, e.codec);
     emit dataChanged(index(row, 4), index(row, 4));
     return true;
 }

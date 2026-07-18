@@ -14,6 +14,7 @@
 #include "scripting/lua_engine.hpp"
 #include "core/simple_address_list.hpp"
 #include "core/types.hpp"   // ce::moduleOffsetString
+#include "core/target_profile.hpp"
 #include "analysis/il2cpp_metadata.hpp"
 #include "analysis/il2cpp_binary.hpp"
 #include "analysis/signature.hpp"
@@ -55,6 +56,8 @@ static void usage() {
         "  disasm <pid> <addr> [count]   Disassemble instructions\n"
         "  modules <pid>                 List loaded modules\n"
         "  regions <pid>                 List memory regions\n"
+        "  info <pid>                    Probe the target: arch, Wine/emulator/runtime,\n"
+        "                                sandbox, already-traced, and what that limits\n"
         "  lua <script.lua>|-e <code>|-  Run a Lua script (same API as the GUI console)\n"
         "  lua                           Interactive Lua REPL\n"
         "  il2cpp <global-metadata.dat>  Browse a Unity IL2CPP metadata file's classes/fields (offline)\n"
@@ -627,6 +630,25 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
     return 0;
 }
 
+static int cmd_info(pid_t pid) {
+    ce::TargetProfile p = ce::probeTarget(pid);
+    if (!p.valid) { fprintf(stderr, "pid %d: not inspectable (gone, or permission)\n", pid); return 1; }
+    printf("pid:      %d\n", pid);
+    printf("summary:  %s\n", p.summary().c_str());
+    printf("arch:     %s\n", p.archName().c_str());
+    printf("wine:     %s\n", p.wine ? "yes" : "no");
+    if (p.tracerPid)      printf("tracer:   %d (already being traced)\n", p.tracerPid);
+    if (p.seccomp)        printf("seccomp:  filter active\n");
+    if (p.pidNamespaced)  printf("sandbox:  PID namespace (Flatpak/Snap/container)\n");
+    if (!p.emulator.empty()) printf("emulator: %s\n", p.emulator.c_str());
+    for (const auto& r : p.runtimes) printf("runtime:  %s\n", r.c_str());
+    if (!p.notes.empty()) {
+        printf("\nnotes:\n");
+        for (const auto& n : p.notes) printf("  - %s\n", n.c_str());
+    }
+    return 0;
+}
+
 static int cmd_symbols(pid_t pid) {
     LinuxProcessHandle proc(pid);
     SymbolResolver resolver;
@@ -1040,6 +1062,9 @@ int main(int argc, char** argv) {
     }
     else if (!strcmp(cmd, "symbols") && argc >= 3) {
         return cmd_symbols(parsePid(argv[2]));
+    }
+    else if (!strcmp(cmd, "info") && argc >= 3) {
+        return cmd_info(parsePid(argv[2]));
     }
     else if (!strcmp(cmd, "read") && argc >= 4) {
         // Cap the requested size so an adversarial/typo'd argument can't trigger

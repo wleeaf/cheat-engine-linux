@@ -35,6 +35,7 @@
 #include "platform/linux/ceserver_debugger.hpp"
 #include "scripting/lua_gui.hpp"
 #include "core/ct_file.hpp"
+#include "core/target_profile.hpp"
 #include "core/trainer.hpp"
 #include "analysis/managed_runtime.hpp"
 
@@ -2135,6 +2136,25 @@ void MainWindow::attachToPid(pid_t pid, const QString& name) {
     lastResultValueSize_ = 0;
     undoResultValueSize_ = 0;
     updateScanButtons();
+
+    // Honest reporting: tell the user up-front what kind of target this is (Wine,
+    // emulator, managed runtime, sandboxed, already-traced) so any limitation is an
+    // explicit note, not a silent surprise later. See docs/CHALLENGING_TARGETS.md.
+    {
+        ce::TargetProfile prof = ce::probeTarget(pid);
+        statusBar()->showMessage(
+            QString("Attached to %1: %2").arg(label, QString::fromStdString(prof.summary())), 8000);
+        // The summary + every note live on the process label's tooltip (persistent,
+        // non-intrusive; hover to read).
+        QString tip = QString::fromStdString(prof.summary());
+        for (const auto& n : prof.notes) tip += "\n\n• " + QString::fromStdString(n);
+        processLabel_->setToolTip(tip);
+        // The one note that means nothing will work at all (attach/watch/inject all
+        // fail) is worth an explicit dialog: the target is already being traced.
+        if (prof.tracerPid != 0 && !prof.notes.empty())
+            QMessageBox::warning(this, "Target already being traced",
+                QString::fromStdString(prof.notes.front()));
+    }
 }
 
 void MainWindow::onOpenProcess() {

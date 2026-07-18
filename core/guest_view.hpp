@@ -14,6 +14,7 @@
 
 #include "platform/process_api.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <optional>
@@ -72,5 +73,38 @@ struct GuestView {
         return writeBytes(guestAddr, &value, sizeof(T));
     }
 };
+
+// Exact-value first scan over a guest region: returns the GUEST addresses whose
+// bytes equal `value` in the guest's byte order. `alignment` (1/2/4/8) restricts
+// matches to aligned offsets, as CE's fast scan does. Chunked so multi-GB guest RAM
+// streams, with a sizeof(T)-1 overlap so a value straddling a chunk boundary is not
+// missed and not double-counted.
+template <class T>
+std::vector<uint64_t> guestScanExact(const GuestView& gv, T value, size_t alignment = sizeof(T)) {
+    std::vector<uint64_t> hits;
+    if (!gv.proc || gv.size < sizeof(T)) return hits;
+    if (alignment == 0) alignment = 1;
+
+    const T needle = gv.bigEndian ? GuestView::byteswap(value) : value;
+    uint8_t np[sizeof(T)];
+    std::memcpy(np, &needle, sizeof(T));
+
+    constexpr uint64_t kStride = 1u << 20;   // 1 MB windows (a multiple of any align)
+    std::vector<uint8_t> buf(kStride + sizeof(T));
+    for (uint64_t off = 0; off + sizeof(T) <= gv.size; off += kStride) {
+        const uint64_t want = std::min<uint64_t>(kStride + sizeof(T) - 1, gv.size - off);
+        auto r = gv.proc->read(gv.toHost(off), buf.data(), want);
+        if (!r) continue;
+        const size_t got = *r;
+        if (got < sizeof(T)) continue;
+        // Report starts only within [0, kStride); the sizeof(T)-1 tail is rescanned
+        // as the next window's head, so straddlers are caught exactly once.
+        const size_t limit = std::min<size_t>(kStride, got - sizeof(T) + 1);
+        for (size_t i = 0; i < limit; i += alignment)
+            if (std::memcmp(buf.data() + i, np, sizeof(T)) == 0)
+                hits.push_back(off + i);
+    }
+    return hits;
+}
 
 } // namespace ce

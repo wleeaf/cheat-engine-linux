@@ -219,6 +219,21 @@ static void test_guest_view() {
     bool bounds = !gv.read<uint32_t>(62).has_value()
                && gv.toHost(8) == reinterpret_cast<uintptr_t>(buffer) + 8;
     printf("  bounds + address translation: %s\n", bounds ? "OK" : "FAILED");
+
+    // Exact scan: place the same big-endian value at two aligned offsets, plus a
+    // decoy at an unaligned one, and confirm the scan finds exactly the aligned two.
+    uint8_t ram[256] = {0};
+    ce::GuestView be{ &self, reinterpret_cast<uintptr_t>(ram), sizeof(ram), /*bigEndian=*/true };
+    be.write<uint32_t>(0x10, 0xCAFEBABEu);
+    be.write<uint32_t>(0x40, 0xCAFEBABEu);
+    be.writeBytes(0x51, "\xCA\xFE\xBA\xBE", 4);           // unaligned decoy (offset 0x51)
+    auto hits = ce::guestScanExact<uint32_t>(be, 0xCAFEBABEu, /*alignment=*/4);
+    bool scanOk = hits.size() == 2 && hits[0] == 0x10 && hits[1] == 0x40;
+    // Same value scanned little-endian should NOT match the big-endian bytes.
+    ce::GuestView le = be; le.bigEndian = false;
+    bool leOk = ce::guestScanExact<uint32_t>(le, 0xCAFEBABEu, 4).empty();
+    printf("  exact guest scan (aligned, BE): %s\n", scanOk ? "OK" : "FAILED");
+    printf("  endianness affects matches: %s\n", leOk ? "OK" : "FAILED");
 }
 
 static void test_cheat_table_json() {

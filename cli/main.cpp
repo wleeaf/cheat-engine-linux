@@ -15,6 +15,7 @@
 #include "core/simple_address_list.hpp"
 #include "core/types.hpp"   // ce::moduleOffsetString
 #include "core/target_profile.hpp"
+#include "core/guest_view.hpp"
 #include "analysis/il2cpp_metadata.hpp"
 #include "analysis/il2cpp_binary.hpp"
 #include "analysis/signature.hpp"
@@ -58,6 +59,9 @@ static void usage() {
         "  regions <pid>                 List memory regions\n"
         "  info <pid>                    Probe the target: arch, Wine/emulator/runtime,\n"
         "                                sandbox, already-traced, and what that limits\n"
+        "  guest-scan <pid> <value> [--type <t>] [--be] [--align <n>]\n"
+        "                                Scan a recognized emulator's guest RAM for a\n"
+        "                                value (--be byte-swaps for big-endian consoles)\n"
         "  lua <script.lua>|-e <code>|-  Run a Lua script (same API as the GUI console)\n"
         "  lua                           Interactive Lua REPL\n"
         "  il2cpp <global-metadata.dat>  Browse a Unity IL2CPP metadata file's classes/fields (offline)\n"
@@ -630,6 +634,38 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
     return 0;
 }
 
+static int cmd_guest_scan(pid_t pid, const char* valStr, ValueType vt, bool be, size_t align) {
+    ce::TargetProfile p = ce::probeTarget(pid);
+    if (p.guestCandidates.empty()) {
+        fprintf(stderr, "guest-scan: no guest-RAM region for pid %d (is it a recognized "
+                        "emulator? try `cescan info %d`)\n", pid, pid);
+        return 1;
+    }
+    LinuxProcessHandle proc(pid);
+    const auto& g = p.guestCandidates.front();   // largest, already sorted
+    ce::GuestView gv{ &proc, g.base, g.size, be };
+    printf("scanning %s guest RAM: %zu MB at host 0x%lx (%s-endian) for %s\n",
+           p.emulator.c_str(), static_cast<size_t>(g.size >> 20),
+           static_cast<unsigned long>(g.base), be ? "big" : "little", valStr);
+    std::vector<uint64_t> hits;
+    switch (vt) {
+        case ValueType::Byte:   hits = ce::guestScanExact<int8_t>(gv, (int8_t)strtol(valStr, 0, 0), align ? align : 1); break;
+        case ValueType::Int16:  hits = ce::guestScanExact<int16_t>(gv, (int16_t)strtol(valStr, 0, 0), align ? align : 2); break;
+        case ValueType::Int32:  hits = ce::guestScanExact<int32_t>(gv, (int32_t)strtol(valStr, 0, 0), align ? align : 4); break;
+        case ValueType::Int64:  hits = ce::guestScanExact<int64_t>(gv, (int64_t)strtoll(valStr, 0, 0), align ? align : 8); break;
+        case ValueType::Float:  hits = ce::guestScanExact<float>(gv, strtof(valStr, 0), align ? align : 4); break;
+        case ValueType::Double: hits = ce::guestScanExact<double>(gv, strtod(valStr, 0), align ? align : 8); break;
+        default: fprintf(stderr, "guest-scan supports byte/i16/i32/i64/float/double\n"); return 1;
+    }
+    printf("%zu match(es):\n", hits.size());
+    const size_t shown = std::min<size_t>(hits.size(), 200);
+    for (size_t i = 0; i < shown; ++i)
+        printf("  guest 0x%llx  (host 0x%lx)\n",
+               (unsigned long long)hits[i], (unsigned long)gv.toHost(hits[i]));
+    if (hits.size() > shown) printf("  ... (%zu more)\n", hits.size() - shown);
+    return 0;
+}
+
 static int cmd_info(pid_t pid) {
     ce::TargetProfile p = ce::probeTarget(pid);
     if (!p.valid) { fprintf(stderr, "pid %d: not inspectable (gone, or permission)\n", pid); return 1; }
@@ -1067,6 +1103,16 @@ int main(int argc, char** argv) {
     }
     else if (!strcmp(cmd, "info") && argc >= 3) {
         return cmd_info(parsePid(argv[2]));
+    }
+    else if (!strcmp(cmd, "guest-scan") && argc >= 4) {
+        ValueType vt = ValueType::Int32; bool be = false; size_t align = 0;
+        for (int i = 4; i < argc; ++i) {
+            if (!strcmp(argv[i], "--type") && i + 1 < argc) vt = parseType(argv[++i]);
+            else if (!strcmp(argv[i], "--be")) be = true;
+            else if (!strcmp(argv[i], "--align") && i + 1 < argc)
+                align = static_cast<size_t>(strtoul(argv[++i], nullptr, 0));
+        }
+        return cmd_guest_scan(parsePid(argv[2]), argv[3], vt, be, align);
     }
     else if (!strcmp(cmd, "read") && argc >= 4) {
         // Cap the requested size so an adversarial/typo'd argument can't trigger

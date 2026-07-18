@@ -50,6 +50,9 @@ public:
     /// Is monitoring active?
     bool running() const { return running_.load(); }
 
+    /// The address being watched (for pointer-path hints in the UI).
+    uintptr_t targetAddress() const { return targetAddress_; }
+
     /// Get accumulated results (grouped by instruction address, sorted by hit count).
     std::vector<CodeFinderResult> results() const;
 

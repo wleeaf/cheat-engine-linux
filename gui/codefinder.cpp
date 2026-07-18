@@ -15,6 +15,24 @@ namespace ce::gui {
 
 static QString hexQ(uint64_t v) { return QString("0x%1").arg(v, 0, 16); }
 
+// Pointer-path hint: which register at the writing instruction holds the target
+// address (a direct pointer) or a base such that target == [reg + offset] -- the
+// struct base to pointer-scan for a stable address. Empty when no register lines up.
+static QString pointerHint(const ce::CpuContext& c, uintptr_t target) {
+    if (!target) return {};
+    const struct { const char* n; uint64_t v; } gp[] = {   // rsp excluded (stack is not a pointer path)
+        {"rax",c.rax},{"rbx",c.rbx},{"rcx",c.rcx},{"rdx",c.rdx},
+        {"rsi",c.rsi},{"rdi",c.rdi},{"rbp",c.rbp},
+        {"r8", c.r8}, {"r9", c.r9}, {"r10",c.r10},{"r11",c.r11},
+        {"r12",c.r12},{"r13",c.r13},{"r14",c.r14},{"r15",c.r15},
+    };
+    for (const auto& r : gp) if (r.v == target) return QString("%1 (direct)").arg(r.n);
+    for (const auto& r : gp)
+        if (r.v < target && target - r.v <= 0x1000)
+            return QString("[%1+0x%2]").arg(r.n).arg(target - r.v, 0, 16);
+    return {};
+}
+
 static QString fullRegisterDump(const ce::CpuContext& ctx) {
     QString s;
     s += QString("rax = %1   rbx = %2\n").arg(hexQ(ctx.rax), hexQ(ctx.rbx));
@@ -48,12 +66,13 @@ CodeFinderWindow::CodeFinderWindow(CodeFinder* finder, const QString& title, QWi
     layout->addWidget(statusLabel_);
 
     table_ = new QTableWidget;
-    table_->setColumnCount(8);
-    table_->setHorizontalHeaderLabels({"Address", "Instruction", "Hits", "RAX", "RBX", "RCX", "RDX", "RIP"});
+    table_->setColumnCount(9);
+    table_->setHorizontalHeaderLabels({"Address", "Instruction", "Hits", "Pointer path",
+                                       "RAX", "RBX", "RCX", "RDX", "RIP"});
     table_->horizontalHeader()->setStretchLastSection(false);
     // Fit the address, hit count and 64-bit register columns to content (they
     // clipped at the 100px default); the disassembly text takes the slack.
-    for (int c = 0; c < 8; ++c)
+    for (int c = 0; c < 9; ++c)
         table_->horizontalHeader()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
     table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -128,14 +147,20 @@ void CodeFinderWindow::refresh() {
     for (size_t i = 0; i < results.size(); ++i) {
         auto& r = results[i];
         const auto& c = r.lastContext;
+        QString ptr = pointerHint(c, finder_->targetAddress());
+        auto* ptrItem = new QTableWidgetItem(ptr);
+        if (!ptr.isEmpty())
+            ptrItem->setToolTip("This instruction addresses the value via this register; "
+                                "pointer-scan the base for a stable address.");
         table_->setItem(i, 0, new QTableWidgetItem(hexQ(r.instructionAddress)));
         table_->setItem(i, 1, new QTableWidgetItem(QString::fromStdString(r.instructionText)));
         table_->setItem(i, 2, new QTableWidgetItem(QString::number(r.hitCount)));
-        table_->setItem(i, 3, new QTableWidgetItem(hexQ(c.rax)));
-        table_->setItem(i, 4, new QTableWidgetItem(hexQ(c.rbx)));
-        table_->setItem(i, 5, new QTableWidgetItem(hexQ(c.rcx)));
-        table_->setItem(i, 6, new QTableWidgetItem(hexQ(c.rdx)));
-        table_->setItem(i, 7, new QTableWidgetItem(hexQ(c.rip)));
+        table_->setItem(i, 3, ptrItem);
+        table_->setItem(i, 4, new QTableWidgetItem(hexQ(c.rax)));
+        table_->setItem(i, 5, new QTableWidgetItem(hexQ(c.rbx)));
+        table_->setItem(i, 6, new QTableWidgetItem(hexQ(c.rcx)));
+        table_->setItem(i, 7, new QTableWidgetItem(hexQ(c.rdx)));
+        table_->setItem(i, 8, new QTableWidgetItem(hexQ(c.rip)));
     }
 }
 

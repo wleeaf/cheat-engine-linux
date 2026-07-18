@@ -44,18 +44,20 @@ namespace ce::gui {
 // stylesheet because they paint every pixel themselves).
 struct MvColors {
     QColor bg, addr, text, dim, selection, ascii, symbol, condJump, jump,
-           operand, targetTint, comment;
+           operand, targetTint, comment, srcAnno;
 };
 static MvColors mvColors() {
     if (ce::gui::isDarkTheme())
         return { QColor(0x1e,0x1e,0x2e), QColor(0x89,0xb4,0xfa), QColor(0xcd,0xd6,0xf4),
                  QColor(0x58,0x5b,0x70), QColor(0x45,0x47,0x5a), QColor(0xa6,0xad,0xc8),
                  QColor(0xf9,0xe2,0xaf), QColor(0xfa,0xb3,0x87), QColor(0x89,0xb4,0xfa),
-                 QColor(0xcd,0xd6,0xf4), QColor(0x2d,0x40,0x3a), QColor(0xa6,0xe3,0xa1) };
+                 QColor(0xcd,0xd6,0xf4), QColor(0x2d,0x40,0x3a), QColor(0xa6,0xe3,0xa1),
+                 QColor(0x94,0xe2,0xd5) };
     return   { QColor(0xff,0xff,0xff), QColor(0x00,0x00,0xc0), QColor(0x00,0x00,0x00),
                QColor(0x90,0x90,0x90), QColor(0xcc,0xe8,0xff), QColor(0x50,0x50,0x50),
                QColor(0x80,0x60,0x00), QColor(0xc0,0x40,0x00), QColor(0x00,0x00,0xc0),
-               QColor(0x3a,0x42,0x52), QColor(0xd8,0xef,0xe0), QColor(0x1f,0x7a,0x33) };
+               QColor(0x3a,0x42,0x52), QColor(0xd8,0xef,0xe0), QColor(0x1f,0x7a,0x33),
+               QColor(0x0e,0x74,0x90) };
 }
 
 // Effective address of an instruction's RIP-relative memory operand (or 0).
@@ -1086,10 +1088,11 @@ void DisasmView::paintEvent(QPaintEvent*) {
             p.fillRect(0, rowTop, viewport()->width(), charH_, mv.targetTint);
         }
 
-        // Breakpoint glyph in the gutter.
+        // Breakpoint glyph in the gutter. Breakpoint red, but brighter on the dark
+        // theme and deeper on the light theme so it reads clearly on either ground.
         if (breakpoints_.count(inst.address)) {
             int margin = 3;
-            p.setBrush(QColor(0xf3, 0x8b, 0xa8));
+            p.setBrush(mv.bg.lightness() < 128 ? QColor(0xf3, 0x8b, 0xa8) : QColor(0xd2, 0x0f, 0x39));
             p.setPen(Qt::NoPen);
             p.drawEllipse(margin, rowTop + margin, charH_ - 2 * margin, charH_ - 2 * margin);
         }
@@ -1185,7 +1188,7 @@ void DisasmView::paintEvent(QPaintEvent*) {
                 QString srcAnno = QString("  ; %1:%2")
                     .arg(QString::fromStdString(src->file).section('/', -1))
                     .arg(src->line);
-                p.setPen(QColor(0x94, 0xe2, 0xd5)); // Teal for source annotations
+                p.setPen(mv.srcAnno); // theme-aware teal (darker cyan on light bg)
                 p.drawText(endX, y, srcAnno);
                 endX += p.fontMetrics().horizontalAdvance(srcAnno);
             }

@@ -16,6 +16,7 @@
 
 #include <sys/types.h>
 #include <string>
+#include <vector>
 
 namespace ce {
 
@@ -37,5 +38,11 @@ pid_t nsInnerPid(pid_t pid);
 /// True if `pid` lives in a nested PID namespace (its `NSpid:` line has more than one
 /// entry), i.e. it is sandboxed/containerized.
 bool isPidNamespaced(pid_t pid);
+
+/// All descendant pids of `root` (children, grandchildren, …), for finding the right
+/// process in a multi-process / sandboxed app (a browser, an Electron game): the value
+/// lives in one of several renderer/helper processes. Root-first BFS order, excluding
+/// `root` itself. Empty if root has no children or /proc is unreadable.
+std::vector<pid_t> processDescendants(pid_t root);
 
 } // namespace ce

@@ -18,6 +18,7 @@
 #include "core/target_profile.hpp"
 #include "core/guest_view.hpp"
 #include "core/value_codec.hpp"
+#include "core/ns_attach.hpp"
 #include <type_traits>
 #include <utility>
 #include "analysis/il2cpp_metadata.hpp"
@@ -80,6 +81,8 @@ static void usage() {
         "  regions <pid>                 List memory regions\n"
         "  info <pid>                    Probe the target: arch, Wine/emulator/runtime,\n"
         "                                sandbox, already-traced, and what that limits\n"
+        "  tree <pid>                    List a process and its descendants (a sandboxed\n"
+        "                                / Electron app's tree), largest RSS first\n"
         "  guest-scan <pid> <value> [--type <t>] [--be] [--align <n>]\n"
         "                                Scan a recognized emulator's guest RAM for a\n"
         "                                value (--be byte-swaps for big-endian consoles)\n"
@@ -1155,6 +1158,30 @@ static int cmd_guest_write(pid_t pid, uint64_t guestAddr, const char* valStr,
     return ok ? 0 : 1;
 }
 
+// List a process and its descendants (a sandboxed / multi-process app's tree), largest
+// RSS first -- the process holding the game state is usually the biggest. Helps pick
+// the right renderer/helper of a browser or Electron game.
+static int cmd_tree(pid_t root) {
+    struct Row { pid_t pid; std::string comm; uint64_t rss; bool sandboxed; };
+    auto readRow = [](pid_t p) {
+        Row r{ p, {}, 0, ce::isPidNamespaced(p) };
+        { std::ifstream f("/proc/" + std::to_string(p) + "/comm"); std::getline(f, r.comm); }
+        { std::ifstream f("/proc/" + std::to_string(p) + "/statm"); unsigned long sz = 0, res = 0;
+          if (f >> sz >> res) r.rss = (uint64_t)res * (uint64_t)sysconf(_SC_PAGESIZE); }
+        return r;
+    };
+    std::vector<Row> rows;
+    rows.push_back(readRow(root));
+    for (pid_t d : ce::processDescendants(root)) rows.push_back(readRow(d));
+    std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.rss > b.rss; });
+    printf("%zu process(es) in the tree of %d (largest RSS first; the game state is "
+           "usually in the largest):\n", rows.size(), root);
+    for (const auto& r : rows)
+        printf("  %8d  %6llu MB  %s%s\n", r.pid, (unsigned long long)(r.rss >> 20),
+               r.comm.c_str(), r.sandboxed ? "  [sandboxed]" : "");
+    return 0;
+}
+
 static int cmd_info(pid_t pid) {
     ce::TargetProfile p = ce::probeTarget(pid);
     if (!p.valid) { fprintf(stderr, "pid %d: not inspectable (gone, or permission)\n", pid); return 1; }
@@ -1592,6 +1619,9 @@ int main(int argc, char** argv) {
     }
     else if (!strcmp(cmd, "info") && argc >= 3) {
         return cmd_info(parsePid(argv[2]));
+    }
+    else if (!strcmp(cmd, "tree") && argc >= 3) {
+        return cmd_tree(parsePid(argv[2]));
     }
     else if (!strcmp(cmd, "guest-scan") && argc >= 4) {
         ValueType vt = ValueType::Int32; bool be = false; size_t align = 0;

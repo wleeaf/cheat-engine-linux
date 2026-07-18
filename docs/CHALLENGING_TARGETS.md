@@ -210,7 +210,11 @@ filter, and the value may be in one of many renderer processes.
    badge.
 2. **Multi-process discovery:** enumerate the process tree of an app (Chromium's
    `--type=renderer`, Electron's helpers) and let the user pick, or scan across a
-   process group and report which PID a hit is in.
+   process group and report which PID a hit is in. [STARTED] `ce::processDescendants`
+   (`core/ns_attach.hpp`) walks the tree from /proc; `cescan tree <pid>` lists a
+   process and its descendants largest-RSS-first with a sandbox badge, so the user can
+   pick the right renderer (validated on a real Discord bwrap tree). Remaining: a
+   grouped tree in the GUI picker, and scan-across-the-group.
 3. **Sandbox limits, reported:** when a target's seccomp filter blocks ptrace, say so
    (block E) and fall back to read-only `process_vm_readv` if permitted, so scan/edit
    still work even when watchpoints do not.

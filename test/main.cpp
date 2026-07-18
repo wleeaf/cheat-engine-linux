@@ -280,6 +280,20 @@ static void test_ns_attach() {
     // not namespaced.
     bool nsSelf = ce::nsInnerPid(self) == self && !ce::isPidNamespaced(self);
     printf("  self not namespaced: %s\n", nsSelf ? "OK" : "FAILED");
+
+    // processDescendants: fork a child that waits, and confirm it shows up as our
+    // descendant (the multi-process discovery primitive).
+    pid_t child = fork();
+    if (child == 0) { pause(); _exit(0); }   // child: block until killed
+    bool found = false;
+    for (int i = 0; i < 200 && !found; ++i) {
+        auto d = ce::processDescendants(self);
+        found = std::find(d.begin(), d.end(), child) != d.end();
+        if (!found) usleep(500);
+    }
+    printf("  forked child seen as a descendant: %s\n", found ? "OK" : "FAILED");
+    kill(child, SIGKILL);
+    int status = 0; waitpid(child, &status, 0);
 }
 
 static void test_target_profile() {

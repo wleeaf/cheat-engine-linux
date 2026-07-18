@@ -13,11 +13,46 @@ reimplementation of Cheat Engine).
 
 ---
 
-## Unreleased
+## v0.6.5 — whole-app UI/UX overhaul + IL2CPP dissector depth (2026-07-18)
 
-IL2CPP dissector depth plus a broad UI/UX pass: a redesigned scan panel, fixed
-scrollbars and dark-theme rendering, and a batch of Cheat-Engine-parity details.
-GUI behaviour verified against real processes via a new `--pid` launch flag.
+A comprehensive, panel-by-panel usability pass over the entire app, on top of
+IL2CPP dissector depth and a batch of Cheat-Engine-parity scanning details.
+Every panel, window, dialog and settings page was audited (screenshot-verified
+in both the light and dark themes via a new `--pid` / `--panel` /
+`--settings-page` launch harness).
+
+### UI / UX overhaul (every panel audited)
+
+- **Table columns stop clipping their contents.** Every list/table in the app
+  (pointer scanner, memory/heap/module/thread regions, find-statics, structure
+  dissector, code-finder, break-and-trace, register/SIMD editor, code references,
+  stacktrace, advanced options, settings hotkeys) used to leave its columns at
+  Qt's 100px default, so 16-digit hex addresses and 64/128-bit register values
+  were truncated. Each table now sizes its fixed columns to content and lets the
+  one variable column take the slack.
+- **No more text-less or cryptic controls.** Spinbox/combo dropdown arrows were
+  unstyled and rendered blank app-wide (now drawn); the Structure Dissector's
+  "Compare" field had collapsed to a bare "..." because its toolbar overflowed a
+  single row (now a two-row layout with the field spelled out); the Lua console
+  grew explicit **Run** and **Clear** buttons instead of relying on the Enter key.
+- **Analysis tools are findable from the main window.** Auto Assemble, Pointer
+  scan, Dissect data/structures, Find static addresses, the Mono dissector, the
+  Lua engine and the ELF inspector were only in the Memory Viewer's own menus;
+  they now also appear in the main window's Tools menu.
+- **Decluttered layout.** The Structure Dissector toolbar was split into an
+  address row and an actions row; the dead Windows-only **D3D** menu (every item
+  permanently disabled on Linux) was removed; the Fill Memory dialog's fields are
+  aligned in a form layout, and the process picker groups Open/Cancel on the right.
+- **Colours fit both themes.** The two remaining hardcoded disassembler colours
+  (DWARF source-line annotations and the breakpoint gutter glyph) washed out on
+  the light theme; both are now theme-gated. The Lua console dims echoed commands
+  and shows errors in red.
+- **Code References no longer looks frozen.** Analyzing a module drives a
+  cancelable progress dialog across its eight scan passes instead of hanging.
+- **System theme on first launch, working scrollbars, real breakpoint toggle**
+  (from the same pass): the app follows the desktop's light/dark preference on
+  first run; the memory-view scrollbars track an absolute flattened-memory model
+  so dragging no longer snaps back; and Toggle Breakpoint truly toggles.
 
 ### IL2CPP (Unity) dissector
 

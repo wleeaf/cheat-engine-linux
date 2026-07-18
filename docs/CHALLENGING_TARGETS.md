@@ -289,7 +289,10 @@ check.
    [DETECTION DONE] `cescan write --verify[-ms n]` re-reads after a window (default
    200 ms) and reports whether the value held or was reverted (and to what), pointing
    the user at find-what-writes. Validated against a target whose watchdog thread
-   restores the value. Remaining: auto-launch find-what-writes on the restorer.
+   restores the value. Find-what-writes is now also scriptable: `cescan watch <pid>
+   <addr> [--access]` lists the instructions that write/read an address (Wine-safe
+   main-thread hardware watch by default, exact store recovery from the trap rip), so
+   locating the restorer is a CLI step too. Remaining: auto-chain verify -> watch.
 
 **Effort:** medium. **Priority:** medium; mostly a scanner/UX feature, largely
 arch-agnostic.

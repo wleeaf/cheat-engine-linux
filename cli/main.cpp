@@ -11,6 +11,7 @@
 #include "core/autoasm.hpp"
 #include "symbols/elf_symbols.hpp"
 #include "scanner/pointer_scanner.hpp"
+#include "debug/code_finder.hpp"
 #include "scripting/lua_engine.hpp"
 #include "core/simple_address_list.hpp"
 #include "core/types.hpp"   // ce::moduleOffsetString
@@ -67,6 +68,10 @@ static void usage() {
         "         [--mode normal|floor|ceil]  Lock a value: re-write it until Ctrl-C\n"
         "                                (floor = never let it drop, ceil = never rise;\n"
         "                                 --codec locks an obfuscated value by its value)\n"
+        "  watch <pid> <addr> [--access] [--size <n>] [--duration <s>] [--mode hw|sw|st]\n"
+        "                                Find what writes (or --access: reads+writes) an\n"
+        "                                address: lists the instructions that touch it.\n"
+        "                                Wine-safe by default (main-thread hardware watch)\n"
         "  disasm <pid> <addr> [count]   Disassemble instructions\n"
         "  modules <pid>                 List loaded modules\n"
         "  regions <pid>                 List memory regions\n"
@@ -564,6 +569,105 @@ static int cmd_freeze(pid_t pid, uintptr_t addr, const char* valStr, ValueType v
     }
     printf("\nStopped: %llu write(s)%s.\n", writes,
            misses ? (" (" + std::to_string(misses) + " miss(es))").c_str() : "");
+    return 0;
+}
+
+// A hardware watchpoint traps AFTER the store retires, so firstContext.rip points at
+// the instruction FOLLOWING the writer. CodeFinder's backward-disassembly picks the
+// longest decode ending at rip, which can land a few bytes early on dense code. Recover
+// the exact store by disassembling FORWARD from the enclosing function (from the symbol)
+// and returning the instruction that ends exactly at rip.
+static bool recoverStore(LinuxProcessHandle& proc, Disassembler& dis, SymbolResolver& resolver,
+                         uintptr_t rip, uintptr_t& outAddr, std::string& outText) {
+    if (rip == 0) return false;
+    uintptr_t anchor = (rip > 48) ? rip - 48 : 0;
+    std::string s = resolver.resolve(rip - 1);            // symbol inside the store
+    if (auto plus = s.rfind("+0x"); plus != std::string::npos) {
+        uintptr_t off = strtoull(s.c_str() + plus + 3, nullptr, 16);
+        uintptr_t fstart = (rip - 1) - off;
+        if (fstart < rip && rip - fstart <= 4096) anchor = fstart;   // enclosing function
+    }
+    const size_t span = rip - anchor;
+    std::vector<uint8_t> buf(span + 16);
+    auto r = proc.read(anchor, buf.data(), buf.size());
+    if (!r || *r < span) return false;
+    auto insns = dis.disassemble(anchor, {buf.data(), *r}, span + 4);
+    for (auto& in : insns) {
+        if (in.address >= rip) break;
+        if (in.address + in.size == rip) {
+            outAddr = in.address;
+            outText = in.operands.empty() ? in.mnemonic : in.mnemonic + " " + in.operands;
+            return true;
+        }
+    }
+    return false;
+}
+
+// Find what writes/accesses an address (CE's headline feature), exposed for scripting.
+// modeOverride: 0=auto (single-thread hardware on Wine, all-thread hardware natively),
+// 1=hw all-thread, 2=software page-guard, 3=single-thread hardware.
+static int cmd_watch(pid_t pid, uintptr_t addr, bool writesOnly, int watchSize,
+                     int durationSec, int modeOverride) {
+    LinuxProcessHandle proc(pid);
+    LinuxDebugger dbg;
+    CodeFinder finder;
+
+    // Wine-safe backend selection, mirroring the GUI: never seize a Wine game's whole
+    // thread group or use the software page-guard (both freeze it); watch a hardware
+    // debug register on the main thread only.
+    ce::TargetProfile prof = ce::probeTarget(pid);
+    bool software = false, singleThread = prof.wine;
+    if      (modeOverride == 1) { software = false; singleThread = false; }
+    else if (modeOverride == 2) { software = true;  singleThread = false; }
+    else if (modeOverride == 3) { software = false; singleThread = true;  }
+
+    const char* backend = software ? "software page-guard"
+                        : singleThread ? "single-thread hardware (Wine-safe)" : "hardware";
+    printf("Watching 0x%lx for %s via %s watchpoint (size %d) for up to %ds. Ctrl-C to stop.\n",
+           addr, writesOnly ? "writes" : "accesses", backend, watchSize, durationSec);
+
+    if (!finder.start(proc, dbg, addr, writesOnly, watchSize, software, singleThread)) {
+        fprintf(stderr, "watch: could not arm the watchpoint (need cap_sys_ptrace, and the "
+                        "target must not already be traced)\n");
+        return 1;
+    }
+
+    g_freezeStop = 0;   // reuse the interrupt flag
+    signal(SIGINT, onFreezeSignal);
+    signal(SIGTERM, onFreezeSignal);
+    const struct timespec tick{0, 200 * 1000000L};   // 200 ms
+    for (int i = 0; i < durationSec * 5 && !g_freezeStop; ++i) nanosleep(&tick, nullptr);
+    finder.stop();
+
+    auto results = finder.results();
+    if (results.empty()) {
+        printf("No %s to 0x%lx observed in %ds.%s\n", writesOnly ? "writes" : "accesses",
+               addr, durationSec,
+               prof.wine ? " (Wine: only the main thread was watched; if the value is "
+                           "written by a background thread, that write is not caught.)" : "");
+        return 0;
+    }
+
+    // Symbolicate each writer instruction (symbol, else module+offset), like disasm.
+    SymbolResolver resolver; resolver.loadProcess(proc);
+    auto modules = proc.modules();
+    Disassembler dis(proc.is64bit() ? Arch::X86_64 : Arch::X86_32);
+    printf("\n%zu instruction(s) %s 0x%lx (most hits first):\n", results.size(),
+           writesOnly ? "wrote" : "accessed", addr);
+    for (auto& r : results) {
+        // For a hardware trap (after the store), recover the exact store from the trap
+        // rip; the software page-guard already stops on the faulting instruction.
+        uintptr_t insAddr = r.instructionAddress;
+        std::string insText = r.instructionText;
+        if (!software) {
+            uintptr_t a; std::string t;
+            if (recoverStore(proc, dis, resolver, r.firstContext.rip, a, t)) { insAddr = a; insText = t; }
+        }
+        std::string loc = resolver.resolve(insAddr);
+        if (loc.empty()) loc = ce::moduleOffsetString(modules, insAddr);
+        printf("  %6d x  0x%lx  %s%s%s\n", r.hitCount, (unsigned long)insAddr,
+               insText.c_str(), loc.empty() ? "" : "   ; ", loc.c_str());
+    }
     return 0;
 }
 
@@ -1577,6 +1681,26 @@ int main(int argc, char** argv) {
         }
         if (interval < 1) interval = 1;
         return cmd_freeze(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), argv[4], vt, codec, interval, mode);
+    }
+    else if (!strcmp(cmd, "watch") && argc >= 4) {
+        bool writesOnly = true; int watchSize = 4, duration = 10, mode = 0;
+        for (int i = 4; i < argc; ++i) {
+            if (!strcmp(argv[i], "--access")) writesOnly = false;
+            else if (!strcmp(argv[i], "--writes")) writesOnly = true;
+            else if (!strcmp(argv[i], "--size") && i + 1 < argc) watchSize = (int)strtoul(argv[++i], nullptr, 0);
+            else if (!strcmp(argv[i], "--duration") && i + 1 < argc) duration = (int)strtoul(argv[++i], nullptr, 0);
+            else if (!strcmp(argv[i], "--mode") && i + 1 < argc) {
+                const char* m = argv[++i];
+                if (!strcmp(m, "hw")) mode = 1;
+                else if (!strcmp(m, "sw")) mode = 2;
+                else if (!strcmp(m, "st")) mode = 3;
+                else { fprintf(stderr, "watch: --mode must be hw|sw|st\n"); return 1; }
+            }
+        }
+        if (watchSize != 1 && watchSize != 2 && watchSize != 4 && watchSize != 8) watchSize = 4;
+        if (duration < 1) duration = 1;
+        return cmd_watch(parsePid(argv[2]), strtoul(argv[3], nullptr, 0),
+                         writesOnly, watchSize, duration, mode);
     }
     else if (!strcmp(cmd, "disasm") && argc >= 4) {
         // Bound count before the buffer's count*15 multiply (which would otherwise

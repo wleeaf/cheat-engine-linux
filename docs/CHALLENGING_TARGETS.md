@@ -148,10 +148,12 @@ required, and it can be non-linear (paged MMU emulation).
    `memfd` mapping; several emulators expose the base via a symbol or a known offset),
    and expose a *guest view*: scan/read/write in guest address space with the right
    size and endianness.  [CLI DONE] `probeTarget` locates candidate guest RAM;
-   `core/guest_view.hpp` (`GuestView` + `guestScanExact`/`guestNextExact`) does the
-   translation and endianness; `cescan guest-scan [--be] [--next]` drives the full
-   first-scan/next-scan narrowing from the shell. Remaining: GUI integration, more
-   emulator base adapters, guest MMU translation.
+   `core/guest_view.hpp` (`GuestView` + `guestScanExact`/`guestNextExact`/
+   `guestNextCompare`/`guestCompareBuffers`) does the translation and endianness;
+   `cescan guest-scan` drives the FULL CE scan workflow from the shell: exact and
+   `--unknown` first scans, `--next`, and `--changed`/`--unchanged`/`--increased`/
+   `--decreased` comparison narrowing, all with `--be`. Remaining: GUI integration,
+   more emulator base adapters, guest MMU translation, per-guest find-what-writes.
 2. **Endianness:** add byte-swap to the scanner value stream for big-endian guests
    (the scanner already handles width; add an endianness flag on the guest view).
    [DONE for the guest-view/`cescan guest-scan` path; the main GUI scanner is not

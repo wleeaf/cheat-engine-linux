@@ -42,10 +42,11 @@ ProcessListDialog::ProcessListDialog(QWidget* parent) : QDialog(parent) {
     connect(openBtn, &QPushButton::clicked, this, &ProcessListDialog::onAccept);
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
     connect(refreshBtn, &QPushButton::clicked, this, &ProcessListDialog::refreshList);
+    // Refresh is a list action (left); Open/Cancel are the dialog actions (right).
+    btnLayout->addWidget(refreshBtn);
     btnLayout->addStretch();
     btnLayout->addWidget(openBtn);
     btnLayout->addWidget(cancelBtn);
-    btnLayout->addWidget(refreshBtn);
     layout->addLayout(btnLayout);
 
     refreshList();

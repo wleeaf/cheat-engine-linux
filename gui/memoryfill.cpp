@@ -1,6 +1,7 @@
 #include "gui/memoryfill.hpp"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QFormLayout>
 #include <QLabel>
 #include <QPushButton>
 #include <QFont>
@@ -16,24 +17,20 @@ MemoryFillDialog::MemoryFillDialog(ProcessHandle* proc, uintptr_t startAddr, QWi
 
     auto* layout = new QVBoxLayout(this);
 
-    auto* row1 = new QHBoxLayout;
-    row1->addWidget(new QLabel("Start address:"));
+    // A form layout keeps the three labels in one aligned column (the previous
+    // per-row HBoxes left the fields at ragged left edges).
+    auto* form = new QFormLayout;
     addrEdit_ = new QLineEdit(QString("0x%1").arg(startAddr, 0, 16));
     addrEdit_->setFont(QFont("Monospace", 10));
-    row1->addWidget(addrEdit_);
-    layout->addLayout(row1);
+    form->addRow("Start address:", addrEdit_);
 
-    auto* row2 = new QHBoxLayout;
-    row2->addWidget(new QLabel("Size (bytes):"));
     sizeEdit_ = new QLineEdit("256");
-    row2->addWidget(sizeEdit_);
-    layout->addLayout(row2);
+    form->addRow("Size (bytes):", sizeEdit_);
 
-    auto* row3 = new QHBoxLayout;
-    row3->addWidget(new QLabel("Fill byte (hex):"));
     valueEdit_ = new QLineEdit("00");
-    row3->addWidget(valueEdit_);
-    layout->addLayout(row3);
+    valueEdit_->setFont(QFont("Monospace", 10));
+    form->addRow("Fill byte (hex):", valueEdit_);
+    layout->addLayout(form);
 
     auto* btnRow = new QHBoxLayout;
     auto* fillBtn = new QPushButton("Fill");

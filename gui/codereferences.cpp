@@ -46,6 +46,10 @@ CodeReferencesWindow::CodeReferencesWindow(ProcessHandle* proc, QWidget* parent)
         table->setColumnCount(3);
         table->setHorizontalHeaderLabels({"Instruction", "Target", "Text"});
         table->horizontalHeader()->setStretchLastSection(true);
+        // Instruction and Target are 16-digit hex addresses; fit them to content
+        // so they aren't clipped, and let the Text column take the slack.
+        table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
         table->setSelectionBehavior(QAbstractItemView::SelectRows);
         table->setEditTriggers(QAbstractItemView::NoEditTriggers);
         table->verticalHeader()->setVisible(false);
@@ -59,6 +63,7 @@ CodeReferencesWindow::CodeReferencesWindow(ProcessHandle* proc, QWidget* parent)
     functionSummaryTable_->setColumnCount(2);
     functionSummaryTable_->setHorizontalHeaderLabels({"Function", "References"});
     functionSummaryTable_->horizontalHeader()->setStretchLastSection(true);
+    functionSummaryTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     functionSummaryTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     functionSummaryTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     functionSummaryTable_->verticalHeader()->setVisible(false);
@@ -70,6 +75,8 @@ CodeReferencesWindow::CodeReferencesWindow(ProcessHandle* proc, QWidget* parent)
     callGraphTable_->setColumnCount(3);
     callGraphTable_->setHorizontalHeaderLabels({"Caller", "Callee", "Call Site"});
     callGraphTable_->horizontalHeader()->setStretchLastSection(true);
+    callGraphTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    callGraphTable_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     callGraphTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     callGraphTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     callGraphTable_->verticalHeader()->setVisible(false);
@@ -82,6 +89,7 @@ CodeReferencesWindow::CodeReferencesWindow(ProcessHandle* proc, QWidget* parent)
     cavesTable_->setColumnCount(2);
     cavesTable_->setHorizontalHeaderLabels({"Address", "Size"});
     cavesTable_->horizontalHeader()->setStretchLastSection(true);
+    cavesTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     cavesTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     cavesTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     cavesTable_->verticalHeader()->setVisible(false);

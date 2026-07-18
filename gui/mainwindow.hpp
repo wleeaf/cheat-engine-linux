@@ -315,6 +315,8 @@ struct AddressEntry {
     QString addressExpr;      // If set, re-evaluated each refresh (pointer records)
     ce::ValueCodec codec;     // Obfuscation codec: value is stored encode(logical) in
                               // memory; display decodes, edit/freeze encode (default none)
+    bool bigEndian = false;   // Value bytes are big-endian (emulated PS3/Wii/GameCube);
+                              // display byte-swaps to host order, edit swaps back
 };
 
 class AddressListModel : public QAbstractTableModel, public ce::IAddressList {
@@ -346,6 +348,8 @@ public:
     // Obfuscation codec for an entry: value is stored as encode(logical) in memory.
     void setEntryCodec(int row, ce::ValueCodec codec);
     std::string entryCodecSpec(int row) const;   // "none" or e.g. "xor:0x1234"
+    void setEntryBigEndian(int row, bool bigEndian);   // emulated big-endian value bytes
+    bool entryBigEndian(int row) const;
     void setAllActive(bool active);
     void setShowAsHex(int row, bool hex);
     void setEntryType(int row, ce::ValueType t);
@@ -426,7 +430,7 @@ private:
     // After a manual (non-frozen) value edit, re-read shortly after and emit
     // valueReverted() if the value did not stick (a protected/reverted value).
     void scheduleEditVerify(uintptr_t addr, ce::ValueType type, const QString& wroteStr,
-                            const ce::ValueCodec& codec = {});
+                            const ce::ValueCodec& codec = {}, bool bigEndian = false);
     int rowOfId(int id) const;
     int allocId() { return nextId_++; }
 

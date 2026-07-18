@@ -28,9 +28,10 @@ public:
     explicit GuestScanDialog(ce::ProcessHandle* proc, QWidget* parent = nullptr);
 
 signals:
-    // A guest result added to the cheat table, as its HOST address (base + guest) and
-    // the scan's value type.
-    void addressSelected(uintptr_t hostAddr, ce::ValueType type, const QString& description);
+    // A guest result added to the cheat table, as its HOST address (base + guest), the
+    // scan's value type, and whether the guest is big-endian.
+    void addressSelected(uintptr_t hostAddr, ce::ValueType type, bool bigEndian,
+                         const QString& description);
 
 private slots:
     void onFirstScan();

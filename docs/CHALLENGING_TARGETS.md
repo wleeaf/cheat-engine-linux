@@ -168,10 +168,11 @@ required, and it can be non-linear (paged MMU emulation).
    scan" (`gui/guest_scan_dialog`) drives the full workflow with type + endianness:
    exact first/next scans, Unknown Scan, and Changed/Increased/Decreased/Unchanged
    narrowing, and adds results (as host addresses) to the cheat table -- reusing the
-   same `guest_view` primitives as the CLI. Remaining: more emulator base adapters;
-   guest MMU translation; per-guest find-what-writes; and endianness-aware cheat-table
-   entries (a big-endian guest value added to the list currently displays byte-swapped,
-   since the address list reads host-native).
+   same `guest_view` primitives as the CLI. Cheat-table entries are endianness-aware: an
+   entry can be flagged big-endian (right-click -> "Big-endian value"; guest-scan sets it
+   automatically), so display byte-swaps to host order and edits swap back -- a
+   big-endian guest value now reads and edits correctly in the list. Remaining: more
+   emulator base adapters; guest MMU translation; per-guest find-what-writes.
 2. **Endianness:** add byte-swap to the scanner value stream for big-endian guests
    (the scanner already handles width; add an endianness flag on the guest view).
    [DONE for the guest-view/`cescan guest-scan` path; the main GUI scanner is not

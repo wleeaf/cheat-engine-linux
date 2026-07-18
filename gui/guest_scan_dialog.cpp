@@ -296,7 +296,8 @@ void GuestScanDialog::onAddToList() {
     for (int row : rows) {
         if (row < 0 || row >= (int)candidates_.size()) continue;
         const uint64_t g = candidates_[row].first;
-        emit addressSelected(gv.toHost(g), scanType_, QString("guest 0x%1").arg(g, 0, 16));
+        emit addressSelected(gv.toHost(g), scanType_, scanBigEndian_,
+                             QString("guest 0x%1").arg(g, 0, 16));
     }
 }
 

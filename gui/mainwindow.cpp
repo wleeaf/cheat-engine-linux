@@ -1689,6 +1689,15 @@ void MainWindow::setupUi() {
                 for (auto& idx : selected) addressListModel_->setEntryCodec(idx.row(), codec);
             });
 
+            // Big-endian value (emulated PS3 / Wii / GameCube): display byte-swaps to
+            // host order and edits swap back. Guest-scan results set this automatically.
+            auto* beAction = menu.addAction("Big-endian value");
+            beAction->setCheckable(true);
+            beAction->setChecked(addressListModel_->entryBigEndian(selected.first().row()));
+            connect(beAction, &QAction::toggled, this, [this, selected](bool on) {
+                for (auto& idx : selected) addressListModel_->setEntryBigEndian(idx.row(), on);
+            });
+
             menu.addSeparator();
             auto* typeMenu = menu.addMenu("Change type");
             const std::pair<const char*, ValueType> typeChoices[] = {
@@ -3668,7 +3677,10 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
         if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
         auto* dlg = new GuestScanDialog(process_.get(), this);
         connect(dlg, &GuestScanDialog::addressSelected, this,
-                [this](uintptr_t a, ce::ValueType t, const QString& d) { addressListModel_->addEntry(a, t, d); });
+                [this](uintptr_t a, ce::ValueType t, bool be, const QString& d) {
+                    addressListModel_->addEntry(a, t, d);
+                    if (be) addressListModel_->setEntryBigEndian(addressListModel_->rowCount() - 1, true);
+                });
         dlg->setAttribute(Qt::WA_DeleteOnClose); dlg->show();
     });
     tools->addAction("Dissect data/structures", this, [this]() {
@@ -4127,12 +4139,22 @@ static long long parseIntField(const QString& valStr) {
     return neg ? -v : v;
 }
 
+// Reverse `n` bytes in place (host <-> big-endian for a scalar value).
+static void swapBytes(uint8_t* p, int n) {
+    for (int i = 0; i < n / 2; ++i) std::swap(p[i], p[n - 1 - i]);
+}
+
 // Format a fixed-width scalar exactly as the cheat table displays it (decimal or hex,
-// float precision), decoding an obfuscated value through its codec first. A single
-// formatter so every read path renders identically; returns empty for non-scalar types.
-static QString formatScalarValue(ValueType type, const uint8_t* buf, bool showHex,
-                                 const ce::ValueCodec& codec) {
-    auto dec = [&](uint64_t raw, int bytes) { return codec.active() ? codec.decode(raw, bytes) : raw; };
+// float precision). Byte-swaps a big-endian value to host order, then decodes an
+// obfuscated value through its codec. A single formatter so every read path renders
+// identically; returns empty for non-scalar types.
+static QString formatScalarValue(ValueType type, const uint8_t* raw, bool showHex,
+                                 const ce::ValueCodec& codec, bool bigEndian) {
+    uint8_t buf[8] = {};
+    const int w = std::min<int>(8, (int)vtSize(type));
+    memcpy(buf, raw, w);
+    if (bigEndian && w > 1) swapBytes(buf, w);
+    auto dec = [&](uint64_t v, int bytes) { return codec.active() ? codec.decode(v, bytes) : v; };
     switch (type) {
         case ValueType::Byte:   { uint8_t  v; memcpy(&v, buf, 1); uint8_t  x = (uint8_t)dec(v, 1);
                                   return showHex ? QString("0x%1").arg(x, 0, 16) : QString::number(x); }
@@ -4151,7 +4173,8 @@ static QString formatScalarValue(ValueType type, const uint8_t* buf, bool showHe
 }
 
 static void writeValueToProcess(ProcessHandle* proc, uintptr_t addr, ValueType type,
-                                const QString& valStr, const ce::ValueCodec& codec = {}) {
+                                const QString& valStr, const ce::ValueCodec& codec = {},
+                                bool bigEndian = false) {
     // Variable-length types: write the raw bytes directly (length = the value's).
     if (type == ValueType::String) {
         auto bytes = valStr.toUtf8();
@@ -4203,15 +4226,19 @@ static void writeValueToProcess(ProcessHandle* proc, uintptr_t addr, ValueType t
         uint64_t enc = codec.encode(raw, (int)vs);
         memcpy(buf, &enc, vs);
     }
+    // Store in the target's byte order: swap host -> big-endian just before writing.
+    if (bigEndian && vs > 1) swapBytes(buf, (int)vs);
     proc->write(addr, buf, vs);
 }
 
 static bool readComparableValue(ProcessHandle* proc, uintptr_t addr, ValueType type,
-                                double& value, const ce::ValueCodec& codec = {}) {
+                                double& value, const ce::ValueCodec& codec = {},
+                                bool bigEndian = false) {
     uint8_t buf[8] = {};
     size_t vs = vtSize(type);
     auto r = proc->read(addr, buf, vs);
     if (!r || *r < vs) return false;
+    if (bigEndian && vs > 1) swapBytes(buf, (int)vs);   // to host order before decode
 
     // Integer types decode through the codec so directional freeze, the adjust hotkey,
     // and edit-verify all compare the LOGICAL value, not the obfuscated bytes.
@@ -4273,21 +4300,21 @@ void AddressListModel::freezeWrite(ProcessHandle* proc) {
         if (!e.active || e.frozenValue.isEmpty()) continue;
 
         if (e.freezeMode == FreezeMode::Normal) {
-            writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec);
+            writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian);
             continue;
         }
 
         // Read current value to compare for directional freeze.
         double current = 0;
         double frozen = 0;
-        if (!readComparableValue(proc, e.address, e.type, current, e.codec) ||
+        if (!readComparableValue(proc, e.address, e.type, current, e.codec, e.bigEndian) ||
             !parseComparableValue(e.type, e.frozenValue, frozen)) {
-            writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec);
+            writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian);
             continue;
         }
 
         if (ce::freezeShouldWrite(e.freezeMode, current, frozen))
-            writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec);
+            writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian);
     }
 }
 
@@ -4320,6 +4347,7 @@ QJsonArray AddressListModel::toJson() const {
         obj["freezeMode"] = (int)e.freezeMode;
         if (e.codec.active())   // obfuscation codec, as its round-trippable spec string
             obj["codec"] = QString::fromStdString(e.codec.describe());
+        if (e.bigEndian) obj["bigEndian"] = true;
         if (e.indent > 0 && e.indent - 1 < (int)lastRowAtIndent.size())
             obj["parent"] = lastRowAtIndent[e.indent - 1];
         arr.append(obj);
@@ -4371,6 +4399,7 @@ void AddressListModel::fromJson(const QJsonArray& arr) {
             if (auto c = ce::ValueCodec::parse(obj["codec"].toString().toStdString()))
                 e.codec = *c;
         }
+        e.bigEndian = obj["bigEndian"].toBool();
         if (e.isGroup) {
             e.address = 0;
             e.currentValue.clear();
@@ -4399,6 +4428,17 @@ void AddressListModel::setEntryCodec(int row, ce::ValueCodec codec) {
 std::string AddressListModel::entryCodecSpec(int row) const {
     if (row < 0 || row >= (int)entries_.size()) return "none";
     return entries_[row].codec.describe();
+}
+
+void AddressListModel::setEntryBigEndian(int row, bool bigEndian) {
+    if (row < 0 || row >= (int)entries_.size()) return;
+    entries_[row].bigEndian = bigEndian;
+    entries_[row].currentValue.clear();   // re-read/reformat in the new byte order
+    emit dataChanged(index(row, 4), index(row, 4), {Qt::DisplayRole, Qt::EditRole});
+}
+
+bool AddressListModel::entryBigEndian(int row) const {
+    return (row >= 0 && row < (int)entries_.size()) && entries_[row].bigEndian;
 }
 
 void AddressListModel::setShowAsHex(int row, bool hex) {
@@ -4445,7 +4485,7 @@ bool AddressListModel::adjustEntryValue(int row, double delta) {
     }
 
     double current = 0;
-    if (!readComparableValue(proc_, e.address, e.type, current, e.codec) &&
+    if (!readComparableValue(proc_, e.address, e.type, current, e.codec, e.bigEndian) &&
         !parseComparableValue(e.type, e.currentValue, current)) {
         return false;
     }
@@ -4472,7 +4512,7 @@ bool AddressListModel::adjustEntryValue(int row, double delta) {
             return false;
     }
 
-    writeValueToProcess(proc_, e.address, e.type, nextText, e.codec);
+    writeValueToProcess(proc_, e.address, e.type, nextText, e.codec, e.bigEndian);
     e.currentValue = nextText;
     if (e.active) e.frozenValue = nextText;
     emit dataChanged(index(row, 4), index(row, 4), {Qt::DisplayRole, Qt::EditRole});
@@ -4526,7 +4566,7 @@ void AddressListModel::setEntryValueTo(int row, const QString& value) {
         ExpressionParser parser(proc_, nullptr);
         if (auto v = parser.parse(e.addressExpr.toStdString())) e.address = *v;
     }
-    writeValueToProcess(proc_, e.address, e.type, value, e.codec);
+    writeValueToProcess(proc_, e.address, e.type, value, e.codec, e.bigEndian);
     e.currentValue = value;
     if (e.active) e.frozenValue = value;
     emit dataChanged(index(row, 4), index(row, 4), {Qt::DisplayRole, Qt::EditRole});
@@ -4661,7 +4701,7 @@ void AddressListModel::updateValues(ProcessHandle* proc) {
         size_t vs = vtSize(e.type);
         auto r = proc->read(e.address, buf, vs);
         if (r && *r >= vs) {
-            QString s = formatScalarValue(e.type, buf, e.showAsHex, e.codec);
+            QString s = formatScalarValue(e.type, buf, e.showAsHex, e.codec, e.bigEndian);
             e.currentValue = s.isEmpty() ? "?" : s;
         } else {
             e.currentValue = "??";
@@ -4689,7 +4729,7 @@ std::string AddressListModel::liveValue(int id) {
     size_t vs = vtSize(e.type);
     auto r = proc_->read(e.address, buf, vs);
     if (!r || *r < vs) return "??";
-    QString out = formatScalarValue(e.type, buf, e.showAsHex, e.codec);
+    QString out = formatScalarValue(e.type, buf, e.showAsHex, e.codec, e.bigEndian);
     return out.isEmpty() ? std::string("?") : out.toStdString();
 }
 
@@ -4892,11 +4932,11 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
             e.currentValue = rawValue;
             if (e.active) e.frozenValue = writeStr;
             if (proc_) {
-                writeValueToProcess(proc_, e.address, e.type, writeStr, e.codec);
+                writeValueToProcess(proc_, e.address, e.type, writeStr, e.codec, e.bigEndian);
                 // A non-frozen value that snaps back is protected: warn and point the
                 // user at find-what-writes. A frozen entry is intentionally held, so
                 // the freeze timer, not this, owns its persistence.
-                if (!e.active) scheduleEditVerify(e.address, e.type, writeStr, e.codec);
+                if (!e.active) scheduleEditVerify(e.address, e.type, writeStr, e.codec, e.bigEndian);
             }
             emit dataChanged(index, index);
             return true;
@@ -4906,16 +4946,17 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
 }
 
 void AddressListModel::scheduleEditVerify(uintptr_t addr, ce::ValueType type,
-                                          const QString& wroteStr, const ce::ValueCodec& codec) {
+                                          const QString& wroteStr, const ce::ValueCodec& codec,
+                                          bool bigEndian) {
     if (!proc_) return;
     bool okNum = false;
     const double target = QString(wroteStr).replace(',', '.').toDouble(&okNum);
     if (!okNum) return;   // non-numeric types (string/byte array): no revert check
     // `this` as the timer context: the callback is skipped if the model is destroyed.
-    QTimer::singleShot(250, this, [this, addr, type, wroteStr, target, codec]() {
+    QTimer::singleShot(250, this, [this, addr, type, wroteStr, target, codec, bigEndian]() {
         if (!proc_) return;
         double now = 0;
-        if (!readComparableValue(proc_, addr, type, now, codec)) return;
+        if (!readComparableValue(proc_, addr, type, now, codec, bigEndian)) return;
         const double tol = (type == ce::ValueType::Float || type == ce::ValueType::Double)
                          ? std::abs(target) * 1e-5 + 1e-6 : 0.5;
         if (std::abs(now - target) > tol)
@@ -5065,7 +5106,7 @@ bool AddressListModel::setValue(int id, const std::string& valStr) {
     e.currentValue = QString::fromStdString(valStr);
     if (e.active) e.frozenValue = e.currentValue;
     if (proc_)
-        writeValueToProcess(proc_, e.address, e.type, e.currentValue, e.codec);
+        writeValueToProcess(proc_, e.address, e.type, e.currentValue, e.codec, e.bigEndian);
     emit dataChanged(index(row, 4), index(row, 4));
     return true;
 }

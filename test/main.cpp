@@ -25,6 +25,7 @@
 #include "core/simple_hook.hpp"
 #include "core/log.hpp"
 #include "core/target_profile.hpp"
+#include "core/guest_view.hpp"
 #include "arch/disassembler.hpp"
 #include "core/expression.hpp"
 #include "core/trainer.hpp"
@@ -191,6 +192,33 @@ static void test_target_profile() {
     // archName()/summary() are always non-empty for a valid target.
     printf("  arch/summary strings: %s\n",
            (!self.archName().empty() && !self.summary().empty()) ? "OK" : "FAILED");
+}
+
+static void test_guest_view() {
+    printf("\n── Test: Emulator guest view (endianness) ──\n");
+    bool bs = ce::bswap32(0x12345678u) == 0x78563412u
+           && ce::bswap16(0x1234) == 0x3412
+           && ce::bswap64(0x1122334455667788ull) == 0x8877665544332211ull;
+    printf("  byteswap primitives: %s\n", bs ? "OK" : "FAILED");
+
+    // A guest view over our own memory (self process), guest = big-endian.
+    uint8_t buffer[64] = {0};
+    ce::os::LinuxProcessHandle self(getpid());
+    ce::GuestView gv{ &self, reinterpret_cast<uintptr_t>(buffer), sizeof(buffer), /*bigEndian=*/true };
+
+    bool wrote = gv.write<uint32_t>(4, 0x11223344u);
+    // The host bytes must be laid out big-endian: 11 22 33 44.
+    bool rawOk = wrote && buffer[4] == 0x11 && buffer[5] == 0x22
+              && buffer[6] == 0x33 && buffer[7] == 0x44;
+    printf("  big-endian write layout: %s\n", rawOk ? "OK" : "FAILED");
+
+    auto back = gv.read<uint32_t>(4);
+    printf("  read-back round trip: %s\n", (back && *back == 0x11223344u) ? "OK" : "FAILED");
+
+    // Bounds: a read that runs off the end of the region fails, and toHost maps right.
+    bool bounds = !gv.read<uint32_t>(62).has_value()
+               && gv.toHost(8) == reinterpret_cast<uintptr_t>(buffer) + 8;
+    printf("  bounds + address translation: %s\n", bounds ? "OK" : "FAILED");
 }
 
 static void test_cheat_table_json() {
@@ -9576,6 +9604,7 @@ int main(int argc, char* argv[]) {
     }
 
     test_target_profile();
+    test_guest_view();
     test_cheat_table_json();
     test_mono_dissector_parse();
     test_breakpoint_condition();

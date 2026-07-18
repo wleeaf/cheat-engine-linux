@@ -69,10 +69,12 @@ static void usage() {
         "         [--mode normal|floor|ceil]  Lock a value: re-write it until Ctrl-C\n"
         "                                (floor = never let it drop, ceil = never rise;\n"
         "                                 --codec locks an obfuscated value by its value)\n"
-        "  watch <pid> <addr> [--access] [--size <n>] [--duration <s>] [--mode hw|sw|st]\n"
-        "                                Find what writes (or --access: reads+writes) an\n"
+        "  watch <pid> <addr> [--access] [--regs] [--size <n>] [--duration <s>]\n"
+        "        [--mode hw|sw|st]       Find what writes (or --access: reads+writes) an\n"
         "                                address: lists the instructions that touch it.\n"
-        "                                Wine-safe by default (main-thread hardware watch)\n"
+        "                                Wine-safe by default (main-thread hardware watch);\n"
+        "                                --regs dumps registers + the base-pointer for a\n"
+        "                                pointer path\n"
         "  disasm <pid> <addr> [count]   Disassemble instructions\n"
         "  modules <pid>                 List loaded modules\n"
         "  regions <pid>                 List memory regions\n"
@@ -374,7 +376,7 @@ static int64_t parseWriteInt(const char* s, int64_t signedMin, uint64_t unsigned
 
 // Forward declaration: write --find-writer chains into find-what-writes after the write.
 static int cmd_watch(pid_t pid, uintptr_t addr, bool writesOnly, int watchSize,
-                     int durationSec, int modeOverride);
+                     int durationSec, int modeOverride, bool showRegs = false);
 
 static int cmd_write(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt,
                      ce::ValueCodec codec = {}, int verifyMs = 0, int findWriterSecs = 0) {
@@ -617,11 +619,33 @@ static bool recoverStore(LinuxProcessHandle& proc, Disassembler& dis, SymbolReso
     return false;
 }
 
+// Dump the general-purpose registers captured at a writer instruction and, for a
+// pointer path, flag any register that holds the target address or a base such that
+// target == [reg + offset] (the struct base you would pointer-scan for).
+static void dumpWriterRegs(const CpuContext& c, uintptr_t target) {
+    const struct { const char* n; uint64_t v; } gp[] = {
+        {"rax",c.rax},{"rbx",c.rbx},{"rcx",c.rcx},{"rdx",c.rdx},
+        {"rsi",c.rsi},{"rdi",c.rdi},{"rbp",c.rbp},{"rsp",c.rsp},
+        {"r8", c.r8}, {"r9", c.r9}, {"r10",c.r10},{"r11",c.r11},
+        {"r12",c.r12},{"r13",c.r13},{"r14",c.r14},{"r15",c.r15},
+    };
+    for (int i = 0; i < 16; ++i) {
+        printf("    %-3s=%016llx%s", gp[i].n, (unsigned long long)gp[i].v, (i % 4) == 3 ? "\n" : "  ");
+    }
+    for (const auto& r : gp) {
+        if (r.v == target)
+            printf("    -> %s holds the target address (a direct pointer to it)\n", r.n);
+        else if (r.v < target && target - r.v <= 0x1000)
+            printf("    -> target = [%s + 0x%llx]  (candidate base for a pointer path)\n",
+                   r.n, (unsigned long long)(target - r.v));
+    }
+}
+
 // Find what writes/accesses an address (CE's headline feature), exposed for scripting.
 // modeOverride: 0=auto (single-thread hardware on Wine, all-thread hardware natively),
 // 1=hw all-thread, 2=software page-guard, 3=single-thread hardware.
 static int cmd_watch(pid_t pid, uintptr_t addr, bool writesOnly, int watchSize,
-                     int durationSec, int modeOverride) {
+                     int durationSec, int modeOverride, bool showRegs) {
     LinuxProcessHandle proc(pid);
     LinuxDebugger dbg;
     CodeFinder finder;
@@ -681,6 +705,7 @@ static int cmd_watch(pid_t pid, uintptr_t addr, bool writesOnly, int watchSize,
         if (loc.empty()) loc = ce::moduleOffsetString(modules, insAddr);
         printf("  %6d x  0x%lx  %s%s%s\n", r.hitCount, (unsigned long)insAddr,
                insText.c_str(), loc.empty() ? "" : "   ; ", loc.c_str());
+        if (showRegs) dumpWriterRegs(r.firstContext, addr);
     }
     return 0;
 }
@@ -1701,10 +1726,11 @@ int main(int argc, char** argv) {
         return cmd_freeze(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), argv[4], vt, codec, interval, mode);
     }
     else if (!strcmp(cmd, "watch") && argc >= 4) {
-        bool writesOnly = true; int watchSize = 4, duration = 10, mode = 0;
+        bool writesOnly = true, showRegs = false; int watchSize = 4, duration = 10, mode = 0;
         for (int i = 4; i < argc; ++i) {
             if (!strcmp(argv[i], "--access")) writesOnly = false;
             else if (!strcmp(argv[i], "--writes")) writesOnly = true;
+            else if (!strcmp(argv[i], "--regs")) showRegs = true;
             else if (!strcmp(argv[i], "--size") && i + 1 < argc) watchSize = (int)strtoul(argv[++i], nullptr, 0);
             else if (!strcmp(argv[i], "--duration") && i + 1 < argc) duration = (int)strtoul(argv[++i], nullptr, 0);
             else if (!strcmp(argv[i], "--mode") && i + 1 < argc) {
@@ -1718,7 +1744,7 @@ int main(int argc, char** argv) {
         if (watchSize != 1 && watchSize != 2 && watchSize != 4 && watchSize != 8) watchSize = 4;
         if (duration < 1) duration = 1;
         return cmd_watch(parsePid(argv[2]), strtoul(argv[3], nullptr, 0),
-                         writesOnly, watchSize, duration, mode);
+                         writesOnly, watchSize, duration, mode, showRegs);
     }
     else if (!strcmp(cmd, "disasm") && argc >= 4) {
         // Bound count before the buffer's count*15 multiply (which would otherwise

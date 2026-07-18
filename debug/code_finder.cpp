@@ -6,6 +6,7 @@
 #include <signal.h>
 #include <unistd.h>
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 #include <set>
 
@@ -165,6 +166,16 @@ void CodeFinder::monitorLoop() {
 
             if (isWatchpoint) {
                 recordHit(w);
+                // Clear DR6's status bits before resuming. The CPU sets the B0-B3
+                // bit for the debug register that fired and never auto-clears it;
+                // if we leave it set, the tracee reads a stale "a hardware
+                // breakpoint hit" flag back through its own context (Wine/Proton
+                // exposes DR6 via GetThreadContext and re-raises it into the game's
+                // SEH as a Windows debug exception, which shows the game's crash
+                // dialog). The main debugger path already does this; CodeFinder did
+                // not, so its watchpoints were the ones crashing Wine targets.
+                size_t dr6Off = offsetof(struct user, u_debugreg) + 6 * sizeof(long);
+                ptrace(PTRACE_POKEUSER, w, dr6Off, 0L);
                 ptrace(PTRACE_CONT, w, nullptr, nullptr);
             } else if (sig == SIGTRAP) {
                 // A trap that is not our watchpoint (int3, syscall-stop, an

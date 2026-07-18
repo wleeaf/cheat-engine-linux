@@ -3279,8 +3279,40 @@ std::unique_ptr<Debugger> MainWindow::createDebuggerForCurrentProcess() {
     return std::make_unique<os::LinuxDebugger>();
 }
 
+// A Wine/Proton target runs a Windows .exe, and /proc/PID/cmdline carries that
+// .exe path (Steam/Proton, PortProton, Lutris, Heroic and Bottles all keep it
+// there). Used to warn before arming a hardware watchpoint, which Wine's own
+// debug-register handling often turns into a game crash.
+static bool targetLooksLikeWine(pid_t pid) {
+    std::ifstream f("/proc/" + std::to_string(pid) + "/cmdline", std::ios::binary);
+    if (!f) return false;
+    std::string cmd;
+    char buf[4096];
+    while (f.read(buf, sizeof(buf)) || f.gcount())
+        cmd.append(buf, static_cast<size_t>(f.gcount()));
+    for (auto& c : cmd) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + 32);
+    return cmd.find(".exe") != std::string::npos;
+}
+
 void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
     if (!process_) return;
+
+    // Hardware watchpoints (DR0-3) frequently crash Wine/Proton games: Wine
+    // manages the CPU debug registers itself for Windows thread-context and
+    // exception emulation, so an externally-programmed watchpoint can surface
+    // into the game's structured exception handler as a crash. Memory editing and
+    // scanning are unaffected. Warn (but let the user try) before arming.
+    if (targetLooksLikeWine(process_->pid())) {
+        auto r = QMessageBox::warning(this, "Wine / Proton game",
+            "This looks like a Wine/Proton (Windows) game.\n\n"
+            "\"Find what writes/accesses\" uses the CPU's hardware debug "
+            "registers, which Wine manages itself, so arming one here can make "
+            "the game show its own crash dialog (the process usually keeps "
+            "running). Editing values and scanning are not affected.\n\n"
+            "Try it anyway?",
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (r != QMessageBox::Yes) return;
+    }
 
     auto debugger = createDebuggerForCurrentProcess();
     if (!debugger) return;

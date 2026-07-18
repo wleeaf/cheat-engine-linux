@@ -65,7 +65,13 @@ A generic "the interesting memory is a buffer inside another process, at an offs
 possibly byte-swapped" abstraction: a scan/read/write view that maps guest addresses
 to host offsets. Effort: medium. Unlocks: all emulators, and conceptually Wine.
 
-### E. Target capability probe + honest reporting
+### E. Target capability probe + honest reporting  [IMPLEMENTED]
+Shipped: `ce::probeTarget(pid)` -> `TargetProfile` (`core/target_profile.hpp`),
+surfaced on GUI attach (status line + tooltip + already-traced warning) and via
+`cescan info <pid>`. Detects arch, Wine/Proton, TracerPid, seccomp, PID namespace,
+managed runtimes (CoreCLR/Mono/JVM/V8) and known emulators, with a plain-language
+notes list. Remaining/future: endianness, Go detection, packer/entropy heuristics.
+
 Before scanning/attaching, detect and *report*: architecture and endianness, whether
 the process is already traced (`TracerPid`), whether it self-checksums or is packed,
 whether a managed runtime/JIT is present (module names: `libcoreclr`, `libjvm`,
@@ -285,8 +291,9 @@ work already established.
 Ordered by relevance-times-tractability for the project's mission (single-player
 games, RE, learning, native Linux):
 
-1. **Capability probe + honest reporting (block E).** Small, unlocks better UX
-   everywhere, and prevents repeating the "silent freeze" discovery loop.
+1. **Capability probe + honest reporting (block E).** DONE (probeTarget /
+   `cescan info`). Small, unlocks better UX everywhere, and prevents repeating the
+   "silent freeze" discovery loop.
 2. **Emulators, scan/edit/freeze (block D + adapters).** Highest user value, in scope,
    medium effort. Start with Dolphin, PCSX2, RPCS3, DuckStation.
 3. **Namespace-aware attach (block C).** Flatpak/Snap are the desktop default; medium

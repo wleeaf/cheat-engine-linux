@@ -16,6 +16,7 @@
 #include "core/types.hpp"   // ce::moduleOffsetString
 #include "core/target_profile.hpp"
 #include "core/guest_view.hpp"
+#include "core/value_codec.hpp"
 #include <type_traits>
 #include <utility>
 #include "analysis/il2cpp_metadata.hpp"
@@ -52,10 +53,12 @@ static void usage() {
         "Commands:\n"
         "  list                          List all processes\n"
         "  scan <pid> [options]          Scan process memory\n"
-        "  read <pid> <addr> [size] [--type <t>]  Read memory: hex dump, or the\n"
-        "                                interpreted value with --type (i32, float,\n"
-        "                                pointer, string, ...); size caps a string read\n"
-        "  write <pid> <addr> <val>      Write value to address\n"
+        "  read <pid> <addr> [size] [--type <t>] [--codec <c>]  Read memory: hex dump,\n"
+        "                                or the interpreted value with --type (i32,\n"
+        "                                float, pointer, string, ...); size caps a\n"
+        "                                string read; --codec also shows the decoded value\n"
+        "  write <pid> <addr> <val> [--type <t>] [--codec <c>]  Write value to address\n"
+        "                                (--codec writes the encoded/obfuscated form)\n"
         "  disasm <pid> <addr> [count]   Disassemble instructions\n"
         "  modules <pid>                 List loaded modules\n"
         "  regions <pid>                 List memory regions\n"
@@ -95,6 +98,9 @@ static void usage() {
         "  --rounding <mode> Float exact mode: exact, rounded, truncated, extreme\n"
         "  --tolerance <n>   Override tolerance for extreme float matching\n"
         "  --align <n>       Scan alignment (default: 4)\n"
+        "  --codec <c>       Obfuscated value: search for the encoded form of --value.\n"
+        "                    c = xor:0xKEY | add:N | rol:N | ror:N (exact integer scans).\n"
+        "                    Pair with `write --codec` / `read --codec` to edit and verify.\n"
         "  --writable        Only scan writable memory (--no-writable for read-only)\n"
         "  --executable      Only scan executable memory (--no-executable to exclude code)\n"
         "\n"
@@ -241,7 +247,8 @@ static int cmd_modules(pid_t pid) {
     return 0;
 }
 
-static int cmd_read(pid_t pid, uintptr_t addr, size_t size, const char* typeStr = nullptr) {
+static int cmd_read(pid_t pid, uintptr_t addr, size_t size, const char* typeStr = nullptr,
+                    ce::ValueCodec codec = {}) {
     LinuxProcessHandle proc(pid);
 
     // --type interprets the bytes instead of dumping hex. Fixed-width types read
@@ -273,6 +280,29 @@ static int cmd_read(pid_t pid, uintptr_t addr, size_t size, const char* typeStr 
             case ValueType::Double: { double v;    memcpy(&v, b.data(), 8); printf("%g\n", v); break; }
             case ValueType::String: { size_t len = strnlen((char*)b.data(), got); printf("\"%.*s\"\n", (int)len, (char*)b.data()); break; }
             default:                { for (size_t i = 0; i < got; ++i) printf("%02X ", b[i]); printf("\n"); break; }
+        }
+        // Show the decoded logical value for an obfuscated integer.
+        if (codec.active()) {
+            int wbytes = 0;
+            switch (vt) {
+                case ValueType::Byte:    wbytes = 1; break;
+                case ValueType::Int16:   wbytes = 2; break;
+                case ValueType::Int32:   wbytes = 4; break;
+                case ValueType::Int64:
+                case ValueType::Pointer: wbytes = 8; break;
+                default: break;
+            }
+            if (wbytes) {
+                uint64_t raw = 0; memcpy(&raw, b.data(), wbytes);
+                uint64_t logical = codec.decode(raw, wbytes);
+                // Sign-extend for a readable signed display.
+                int64_t s = (wbytes < 8 && (logical >> (wbytes * 8 - 1)) & 1)
+                          ? (int64_t)(logical | ~ce::ValueCodec::maskFor(wbytes)) : (int64_t)logical;
+                printf("  decoded (%s): %lld (0x%llx)\n", codec.describe().c_str(),
+                       (long long)s, (unsigned long long)logical);
+            } else {
+                fprintf(stderr, "  (--codec applies to integer types only)\n");
+            }
         }
         return 0;
     }
@@ -328,8 +358,16 @@ static int64_t parseWriteInt(const char* s, int64_t signedMin, uint64_t unsigned
     exit(1);
 }
 
-static int cmd_write(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt) {
+static int cmd_write(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt,
+                     ce::ValueCodec codec = {}) {
     LinuxProcessHandle proc(pid);
+
+    if (codec.active() && vt != ValueType::Byte && vt != ValueType::Int16 &&
+        vt != ValueType::Int32 && vt != ValueType::Int64 && vt != ValueType::Pointer) {
+        fprintf(stderr, "write: --codec applies to integer types only "
+                        "(byte/i16/i32/i64/pointer)\n");
+        return 1;
+    }
 
     // Variable-length writes: a raw string (its UTF-8 bytes) or a concrete byte
     // array ("90 90 05", for patching code). These write exactly their length.
@@ -388,12 +426,23 @@ static int cmd_write(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt
             return 1;
     }
 
+    // Encode the value into its stored (obfuscated) form so the user edits by the
+    // logical value the game shows. buf holds the raw little-endian integer.
+    if (codec.active()) {
+        uint64_t raw = 0; memcpy(&raw, buf, sz);
+        uint64_t enc = codec.encode(raw, static_cast<int>(sz));
+        memcpy(buf, &enc, sz);
+    }
+
     auto r = proc.write(addr, buf, sz);
     if (!r) {
         fprintf(stderr, "Write failed: %s\n", r.error().message().c_str());
         return 1;
     }
-    printf("Wrote %zu bytes to 0x%lx\n", sz, addr);
+    if (codec.active())
+        printf("Wrote %zu bytes to 0x%lx (encoded %s)\n", sz, addr, codec.describe().c_str());
+    else
+        printf("Wrote %zu bytes to 0x%lx\n", sz, addr);
     return 0;
 }
 
@@ -473,8 +522,10 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
     const char* toleranceStr = nullptr;
     const char* valueSizeStr = nullptr;
     const char* encodingStr = nullptr;
+    ce::ValueCodec codec;
 
     static struct option long_opts[] = {
+        {"codec",    required_argument, nullptr, 1003},
         {"type",     required_argument, nullptr, 't'},
         {"value",    required_argument, nullptr, 'v'},
         {"value2",   required_argument, nullptr, '2'},
@@ -515,6 +566,12 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
             case 'x': config.executableMatch = ce::ProtMatch::Yes; break;
             case 1001: config.writableMatch = ce::ProtMatch::No; break;
             case 1002: config.executableMatch = ce::ProtMatch::No; break;
+            case 1003: {
+                auto c = ce::ValueCodec::parse(optarg);
+                if (!c) { fprintf(stderr, "Invalid --codec '%s' (use xor:0xKEY, add:N, rol:N, ror:N)\n", optarg); return 1; }
+                codec = *c;
+                break;
+            }
         }
     }
 
@@ -568,6 +625,27 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
     } else if (config.valueType == ValueType::Custom && config.compareType == ScanCompare::Exact) {
         fprintf(stderr, "Custom exact scan requires --value Lua formula\n");
         return 1;
+    }
+
+    if (codec.active()) {
+        // Obfuscated values: search for the ENCODED needle so the user scans by the
+        // logical value the game displays. Only exact integer scans make sense (a
+        // non-order-preserving codec like xor breaks changed/increased/decreased).
+        const bool intType =
+            config.valueType == ValueType::Byte  || config.valueType == ValueType::Int16 ||
+            config.valueType == ValueType::Int32 || config.valueType == ValueType::Int64 ||
+            config.valueType == ValueType::Pointer;
+        if (config.compareType != ScanCompare::Exact || !intType || !valueStr) {
+            fprintf(stderr, "--codec applies to exact integer scans only "
+                            "(byte/i16/i32/i64/pointer, --compare exact, with --value)\n");
+            return 1;
+        }
+        const int wbytes = static_cast<int>(typeSize(config.valueType));
+        const uint64_t stored =
+            codec.encode(static_cast<uint64_t>(config.intValue), wbytes);
+        config.intValue = static_cast<int64_t>(stored);
+        printf("scanning for %s-encoded value (stored bytes = 0x%llx)\n",
+               codec.describe().c_str(), (unsigned long long)(stored & ce::ValueCodec::maskFor(wbytes)));
     }
 
     if (percentStr) {
@@ -1320,22 +1398,35 @@ int main(int argc, char** argv) {
         constexpr unsigned long long kMaxReadSize = 256ull * 1024 * 1024;
         size_t size = 64;
         const char* typeStr = nullptr;
+        ce::ValueCodec codec;
         int i = 4;
         // Optional positional [size] (only if it isn't the --type flag), then --type.
         if (argc >= 5 && argv[4][0] != '-') {
             size = static_cast<size_t>(parseUInt(argv[4], "read size", kMaxReadSize));
             i = 5;
         }
-        for (; i < argc; ++i)
+        for (; i < argc; ++i) {
             if (!strcmp(argv[i], "--type") && i + 1 < argc) typeStr = argv[++i];
-        return cmd_read(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), size, typeStr);
+            else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
+                auto c = ce::ValueCodec::parse(argv[++i]);
+                if (!c) { fprintf(stderr, "Invalid --codec (use xor:0xKEY, add:N, rol:N, ror:N)\n"); return 1; }
+                codec = *c;
+            }
+        }
+        return cmd_read(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), size, typeStr, codec);
     }
     else if (!strcmp(cmd, "write") && argc >= 5) {
         ValueType vt = ValueType::Int32;
-        // Check for --type flag after the required args
-        for (int i = 5; i < argc - 1; ++i)
-            if (!strcmp(argv[i], "--type")) vt = parseType(argv[i+1]);
-        return cmd_write(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), argv[4], vt);
+        ce::ValueCodec codec;
+        for (int i = 5; i < argc; ++i) {
+            if (!strcmp(argv[i], "--type") && i + 1 < argc) vt = parseType(argv[i+1]);
+            else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
+                auto c = ce::ValueCodec::parse(argv[i+1]);
+                if (!c) { fprintf(stderr, "Invalid --codec (use xor:0xKEY, add:N, rol:N, ror:N)\n"); return 1; }
+                codec = *c;
+            }
+        }
+        return cmd_write(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), argv[4], vt, codec);
     }
     else if (!strcmp(cmd, "disasm") && argc >= 4) {
         // Bound count before the buffer's count*15 multiply (which would otherwise

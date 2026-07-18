@@ -273,6 +273,13 @@ check.
 2. **Encoded-value templates:** let the user declare a codec (XOR key, add/rotate,
    split-byte layout) so the scanner searches for `decode(bytes) == value` and the
    editor writes `encode(value)`. A small pluggable "value codec" hook on the scan.
+   [DONE for constant codecs] `core/value_codec.hpp` (`ValueCodec`: xor/add/rol/ror,
+   width-aware) plus `cescan scan/read/write --codec xor:0xKEY|add:N|rol:N|ror:N`. The
+   scan searches for the encoded needle, `write` stores the encoded form, and `read`
+   shows the decoded logical value, so the whole find/verify/edit loop is by the value
+   the game displays, no Lua. Validated end-to-end on an XOR-obfuscated target. Split-
+   byte / non-constant layouts remain the job of the `--type custom` Lua scan; GUI
+   wiring and codec-aware freeze are follow-ups.
 3. **Checksum-aware editing:** when a write is reverted quickly (an integrity thread
    restored it), detect and report it, and offer to find-what-writes the restorer so
    the user can neutralize the check (in-scope: it is the game's own logic, not an

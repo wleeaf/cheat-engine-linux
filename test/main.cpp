@@ -27,6 +27,7 @@
 #include "core/target_profile.hpp"
 #include "core/guest_view.hpp"
 #include "core/ns_attach.hpp"
+#include "core/value_codec.hpp"
 #include "arch/disassembler.hpp"
 #include "core/expression.hpp"
 #include "core/trainer.hpp"
@@ -172,6 +173,52 @@ private:
     std::vector<Segment> segments_;
     std::vector<ModuleInfo> modules_;
 };
+
+static void test_value_codec() {
+    printf("\n── Test: Value codecs (obfuscated values) ──\n");
+    using C = ce::ValueCodec;
+
+    // encode is the inverse of decode across every op and width.
+    bool roundtrip = true;
+    const uint64_t samples[] = {0, 1, 100, 1000, 0x7fff, 0xdead, 123456789ull, 0xffffffffull};
+    struct { C::Op op; uint64_t key; } cases[] = {
+        {C::Op::Xor, 0xDEADBEEFull}, {C::Op::Add, 100}, {C::Op::Add, 0xFFFF},
+        {C::Op::Rol, 3}, {C::Op::Ror, 5}, {C::Op::Xor, 0xA5}, {C::Op::Rol, 13},
+    };
+    for (int bytes : {1, 2, 4, 8})
+        for (auto& c : cases) {
+            C codec{c.op, c.key};
+            for (uint64_t s : samples) {
+                uint64_t masked = s & C::maskFor(bytes);
+                if (codec.decode(codec.encode(masked, bytes), bytes) != masked) roundtrip = false;
+            }
+        }
+    printf("  encode/decode round-trip (all ops, widths 1/2/4/8): %s\n", roundtrip ? "OK" : "FAILED");
+
+    // Concrete: money = 1000 stored as 1000 xor 0xDEADBEEF (i32). Scanning by 1000
+    // means searching for the encoded needle; reading it back decodes to 1000.
+    C x{C::Op::Xor, 0xDEADBEEFull};
+    uint32_t stored = (uint32_t)x.encode(1000, 4);
+    bool xorOk = stored == (uint32_t)(1000u ^ 0xDEADBEEFu) && x.decode(stored, 4) == 1000;
+    printf("  xor i32 (1000 <-> stored 0x%x): %s\n", stored, xorOk ? "OK" : "FAILED");
+
+    // ADD wraps within the type width (byte): 200 add 100 = 300 & 0xFF = 44.
+    C add{C::Op::Add, 100};
+    bool addWrap = add.encode(200, 1) == 44 && add.decode(44, 1) == 200;
+    printf("  add byte wraparound (200 add 100 = 44): %s\n", addWrap ? "OK" : "FAILED");
+
+    // ROL is width-local: rol 4 of 0x12 as a byte = 0x21, not smeared into 16 bits.
+    C rol{C::Op::Rol, 4};
+    bool rolOk = rol.encode(0x12, 1) == 0x21 && rol.decode(0x21, 1) == 0x12;
+    printf("  rol byte width-local (0x12 rol 4 = 0x21): %s\n", rolOk ? "OK" : "FAILED");
+
+    // Parsing: valid specs, and malformed ones rejected.
+    auto pv = C::parse("xor:0xFF"); auto pa = C::parse("add:12");
+    bool parseOk = pv && pv->op == C::Op::Xor && pv->key == 0xFF
+                && pa && pa->op == C::Op::Add && pa->key == 12
+                && !C::parse("xor") && !C::parse("bogus:1") && !C::parse("add:") && !C::parse("add:xyz");
+    printf("  parse valid + reject malformed: %s\n", parseOk ? "OK" : "FAILED");
+}
 
 static void test_ns_attach() {
     printf("\n── Test: Namespace-aware path resolution ──\n");
@@ -9690,6 +9737,7 @@ int main(int argc, char* argv[]) {
     test_target_profile();
     test_guest_view();
     test_ns_attach();
+    test_value_codec();
     test_cheat_table_json();
     test_mono_dissector_parse();
     test_breakpoint_condition();

@@ -276,10 +276,12 @@ check.
    [DONE for constant codecs] `core/value_codec.hpp` (`ValueCodec`: xor/add/rol/ror,
    width-aware) plus `cescan scan/read/write --codec xor:0xKEY|add:N|rol:N|ror:N`. The
    scan searches for the encoded needle, `write` stores the encoded form, and `read`
-   shows the decoded logical value, so the whole find/verify/edit loop is by the value
-   the game displays, no Lua. Validated end-to-end on an XOR-obfuscated target. Split-
-   byte / non-constant layouts remain the job of the `--type custom` Lua scan; GUI
-   wiring and codec-aware freeze are follow-ups.
+   shows the decoded logical value, and `cescan freeze --codec` locks it (re-writing the
+   encoded form, with floor/ceil modes via `freezeShouldWrite`), so the whole
+   find/verify/edit/lock loop is by the value the game displays, no Lua. Validated
+   end-to-end on an XOR-obfuscated target (scan, read, write, and freeze incl. floor
+   mode). Split-byte / non-constant layouts remain the job of the `--type custom` Lua
+   scan; GUI wiring is a follow-up.
 3. **Checksum-aware editing:** when a write is reverted quickly (an integrity thread
    restored it), detect and report it, and offer to find-what-writes the restorer so
    the user can neutralize the check (in-scope: it is the game's own logic, not an

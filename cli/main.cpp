@@ -34,6 +34,8 @@
 #include <cerrno>
 #include <climits>
 #include <string>
+#include <csignal>
+#include <ctime>
 #include <vector>
 #include <algorithm>
 #include <getopt.h>
@@ -59,6 +61,10 @@ static void usage() {
         "                                string read; --codec also shows the decoded value\n"
         "  write <pid> <addr> <val> [--type <t>] [--codec <c>]  Write value to address\n"
         "                                (--codec writes the encoded/obfuscated form)\n"
+        "  freeze <pid> <addr> <val> [--type <t>] [--codec <c>] [--interval <ms>]\n"
+        "         [--mode normal|floor|ceil]  Lock a value: re-write it until Ctrl-C\n"
+        "                                (floor = never let it drop, ceil = never rise;\n"
+        "                                 --codec locks an obfuscated value by its value)\n"
         "  disasm <pid> <addr> [count]   Disassemble instructions\n"
         "  modules <pid>                 List loaded modules\n"
         "  regions <pid>                 List memory regions\n"
@@ -443,6 +449,91 @@ static int cmd_write(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt
         printf("Wrote %zu bytes to 0x%lx (encoded %s)\n", sz, addr, codec.describe().c_str());
     else
         printf("Wrote %zu bytes to 0x%lx\n", sz, addr);
+    return 0;
+}
+
+static volatile sig_atomic_t g_freezeStop = 0;
+static void onFreezeSignal(int) { g_freezeStop = 1; }
+
+// Build the little-endian STORED bytes to write for a logical value, and the frozen
+// value as a double (for directional freeze comparisons). Returns byte width, 0 on
+// unsupported type. Applies the codec so an obfuscated value is frozen by its logical
+// value.
+static int freezeEncode(const char* valStr, ValueType vt, const ce::ValueCodec& codec,
+                        uint8_t out[8], double& frozenNum) {
+    const int sz = static_cast<int>(typeSize(vt));
+    switch (vt) {
+        case ValueType::Byte:   { int64_t v = parseWriteInt(valStr, INT8_MIN,  UINT8_MAX);  uint8_t t=(uint8_t)v; memcpy(out,&t,1); frozenNum=(double)(int8_t)v; break; }
+        case ValueType::Int16:  { int64_t v = parseWriteInt(valStr, INT16_MIN, UINT16_MAX); int16_t t=(int16_t)v; memcpy(out,&t,2); frozenNum=(double)t; break; }
+        case ValueType::Int32:  { int64_t v = parseWriteInt(valStr, INT32_MIN, UINT32_MAX); int32_t t=(int32_t)v; memcpy(out,&t,4); frozenNum=(double)t; break; }
+        case ValueType::Int64:  { int64_t v = atoll(valStr); memcpy(out,&v,8); frozenNum=(double)v; break; }
+        case ValueType::Pointer:{ uintptr_t v = strtoull(valStr,nullptr,0); memcpy(out,&v,8); frozenNum=(double)v; break; }
+        case ValueType::Float:  { float v = (float)atof(valStr); memcpy(out,&v,4); frozenNum=v; break; }
+        case ValueType::Double: { double v = atof(valStr); memcpy(out,&v,8); frozenNum=v; break; }
+        default: return 0;
+    }
+    if (codec.active()) {
+        uint64_t raw=0; memcpy(&raw,out,sz);
+        uint64_t enc=codec.encode(raw,sz);
+        memcpy(out,&enc,sz);
+    }
+    return sz;
+}
+
+// Read the current LOGICAL value at addr as a double (decoding via codec for ints).
+static bool freezeReadCurrent(LinuxProcessHandle& proc, uintptr_t addr, ValueType vt,
+                              const ce::ValueCodec& codec, double& cur) {
+    uint8_t b[8]={}; const int sz = static_cast<int>(typeSize(vt));
+    auto r = proc.read(addr, b, sz);
+    if (!r || *r < (size_t)sz) return false;
+    switch (vt) {
+        case ValueType::Byte:   { uint64_t raw=b[0];                if(codec.active())raw=codec.decode(raw,1); cur=(double)(int8_t)raw;  return true; }
+        case ValueType::Int16:  { uint64_t raw=0; memcpy(&raw,b,2); if(codec.active())raw=codec.decode(raw,2); cur=(double)(int16_t)raw; return true; }
+        case ValueType::Int32:  { uint64_t raw=0; memcpy(&raw,b,4); if(codec.active())raw=codec.decode(raw,4); cur=(double)(int32_t)raw; return true; }
+        case ValueType::Int64:  { int64_t v; memcpy(&v,b,8); uint64_t raw=(uint64_t)v; if(codec.active())raw=codec.decode(raw,8); cur=(double)(int64_t)raw; return true; }
+        case ValueType::Pointer:{ uint64_t v; memcpy(&v,b,8); if(codec.active())v=codec.decode(v,8); cur=(double)v; return true; }
+        case ValueType::Float:  { float v;  memcpy(&v,b,4); cur=v; return true; }
+        case ValueType::Double: { double v; memcpy(&v,b,8); cur=v; return true; }
+        default: return false;
+    }
+}
+
+// Continuously re-write a value so the game cannot change it (CE's freeze/lock).
+// --mode floor/ceil use the directional FreezeMode logic; --codec locks an obfuscated
+// value by its logical value. Runs until SIGINT/SIGTERM.
+static int cmd_freeze(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt,
+                      ce::ValueCodec codec, unsigned intervalMs, ce::FreezeMode mode) {
+    LinuxProcessHandle proc(pid);
+    if (codec.active() && (vt == ValueType::Float || vt == ValueType::Double)) {
+        fprintf(stderr, "freeze: --codec applies to integer types only\n"); return 1;
+    }
+    uint8_t buf[8]={}; double frozen=0;
+    const int sz = freezeEncode(valStr, vt, codec, buf, frozen);
+    if (!sz) { fprintf(stderr, "freeze: unsupported --type for this command\n"); return 1; }
+
+    g_freezeStop = 0;
+    signal(SIGINT, onFreezeSignal);
+    signal(SIGTERM, onFreezeSignal);
+    const char* modeStr = mode==ce::FreezeMode::NeverDecrease ? " (floor)"
+                        : mode==ce::FreezeMode::NeverIncrease ? " (ceiling)" : "";
+    printf("Freezing 0x%lx = %s%s%s every %u ms. Ctrl-C to stop.\n", addr, valStr,
+           codec.active() ? " [encoded]" : "", modeStr, intervalMs);
+
+    unsigned long long writes=0, misses=0;
+    const struct timespec ts{ intervalMs/1000, (long)(intervalMs%1000)*1000000L };
+    while (!g_freezeStop) {
+        bool doWrite = true;
+        if (mode != ce::FreezeMode::Normal) {
+            double cur;
+            if (freezeReadCurrent(proc, addr, vt, codec, cur))
+                doWrite = ce::freezeShouldWrite(mode, cur, frozen);
+            else { ++misses; doWrite = false; }
+        }
+        if (doWrite) { auto wr = proc.write(addr, buf, sz); if (wr) ++writes; else ++misses; }
+        nanosleep(&ts, nullptr);
+    }
+    printf("\nStopped: %llu write(s)%s.\n", writes,
+           misses ? (" (" + std::to_string(misses) + " miss(es))").c_str() : "");
     return 0;
 }
 
@@ -1427,6 +1518,31 @@ int main(int argc, char** argv) {
             }
         }
         return cmd_write(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), argv[4], vt, codec);
+    }
+    else if (!strcmp(cmd, "freeze") && argc >= 5) {
+        ValueType vt = ValueType::Int32;
+        ce::ValueCodec codec;
+        unsigned interval = 100;
+        ce::FreezeMode mode = ce::FreezeMode::Normal;
+        for (int i = 5; i < argc; ++i) {
+            if (!strcmp(argv[i], "--type") && i + 1 < argc) vt = parseType(argv[++i]);
+            else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
+                auto c = ce::ValueCodec::parse(argv[++i]);
+                if (!c) { fprintf(stderr, "Invalid --codec (use xor:0xKEY, add:N, rol:N, ror:N)\n"); return 1; }
+                codec = *c;
+            }
+            else if (!strcmp(argv[i], "--interval") && i + 1 < argc)
+                interval = (unsigned)strtoul(argv[++i], nullptr, 0);
+            else if (!strcmp(argv[i], "--mode") && i + 1 < argc) {
+                const char* m = argv[++i];
+                if (!strcmp(m, "normal")) mode = ce::FreezeMode::Normal;
+                else if (!strcmp(m, "floor")) mode = ce::FreezeMode::NeverDecrease;
+                else if (!strcmp(m, "ceil"))  mode = ce::FreezeMode::NeverIncrease;
+                else { fprintf(stderr, "freeze: --mode must be normal|floor|ceil\n"); return 1; }
+            }
+        }
+        if (interval < 1) interval = 1;
+        return cmd_freeze(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), argv[4], vt, codec, interval, mode);
     }
     else if (!strcmp(cmd, "disasm") && argc >= 4) {
         // Bound count before the buffer's count*15 multiply (which would otherwise

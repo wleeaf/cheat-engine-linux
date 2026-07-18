@@ -24,6 +24,7 @@
 #include "analysis/mono_dissector.hpp"
 #include "core/simple_hook.hpp"
 #include "core/log.hpp"
+#include "core/target_profile.hpp"
 #include "arch/disassembler.hpp"
 #include "core/expression.hpp"
 #include "core/trainer.hpp"
@@ -169,6 +170,26 @@ private:
     std::vector<Segment> segments_;
     std::vector<ModuleInfo> modules_;
 };
+
+static void test_target_profile() {
+    printf("\n── Test: Target capability probe ──\n");
+    // Probe ourselves: a valid x86-64 native process, not Wine, not an emulator,
+    // and (normally) not traced by anyone else.
+    auto self = ce::probeTarget(getpid());
+    bool selfOk = self.valid
+        && self.arch == ce::TargetProfile::Arch::X86_64
+        && !self.wine && self.emulator.empty();
+    printf("  probe self: %s (%s)\n", selfOk ? "OK" : "FAILED", self.summary().c_str());
+
+    // A bogus pid probes as invalid with no notes.
+    auto bad = ce::probeTarget(999999);
+    printf("  probe bogus pid: %s\n",
+           (!bad.valid && bad.notes.empty()) ? "OK" : "FAILED");
+
+    // archName()/summary() are always non-empty for a valid target.
+    printf("  arch/summary strings: %s\n",
+           (!self.archName().empty() && !self.summary().empty()) ? "OK" : "FAILED");
+}
 
 static void test_cheat_table_json() {
     printf("\n── Test: CheatTable Round Trip ──\n");
@@ -9552,6 +9573,7 @@ int main(int argc, char* argv[]) {
         usleep(200000); // Wait for it to start
     }
 
+    test_target_profile();
     test_cheat_table_json();
     test_mono_dissector_parse();
     test_breakpoint_condition();

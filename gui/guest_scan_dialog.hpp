@@ -34,12 +34,15 @@ signals:
 
 private slots:
     void onFirstScan();
+    void onUnknownScan();
     void onNextScan();
     void onNewScan();
     void onAddToList();
 
 private:
     void refreshResults();
+    void beginScan();                 // freeze region/type/endian from the UI
+    void narrowCompare(int op);       // op = ce::GuestCompare value
     ce::ValueType selectedType() const;
 
     ce::ProcessHandle* proc_;
@@ -50,13 +53,20 @@ private:
     QLineEdit*    valueEdit_;
     QCheckBox*    bigEndianCheck_;
     QPushButton*  firstBtn_;
+    QPushButton*  unknownBtn_;
     QPushButton*  nextBtn_;
     QPushButton*  newBtn_;
+    QPushButton*  changedBtn_;
+    QPushButton*  unchangedBtn_;
+    QPushButton*  increasedBtn_;
+    QPushButton*  decreasedBtn_;
     QLabel*       statusLabel_;
     QTableWidget* resultsTable_;
 
-    // Frozen once the first scan runs, so narrowing uses the same view.
-    std::vector<uint64_t> candidates_;   // guest addresses
+    // Frozen once a scan starts, so narrowing uses the same view.
+    std::vector<std::pair<uint64_t, uint64_t>> candidates_;  // (guest addr, value bits at last scan)
+    std::vector<uint8_t> snapshot_;   // whole-region snapshot for an unknown-value scan
+    bool      unknownMode_ = false;   // snapshot taken, no explicit candidates yet
     uintptr_t regionBase_ = 0;
     uint64_t  regionSize_ = 0;
     ce::ValueType scanType_ = ce::ValueType::Int32;

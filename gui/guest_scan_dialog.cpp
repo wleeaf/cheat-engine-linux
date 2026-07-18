@@ -13,7 +13,9 @@
 #include <QHeaderView>
 
 #include <algorithm>
+#include <cstring>
 #include <type_traits>
+#include <utility>
 
 namespace ce::gui {
 
@@ -35,24 +37,25 @@ auto dispatchType(ValueType t, F&& f) {
     }
 }
 
+template <class T> uint64_t valBits(T v) { uint64_t b = 0; std::memcpy(&b, &v, sizeof(T)); return b; }
+template <class T> T bitsVal(uint64_t b) { T v; std::memcpy(&v, &b, sizeof(T)); return v; }
+
+template <class T>
+QString fmtBits(uint64_t b) {
+    const T v = bitsVal<T>(b);
+    if constexpr (std::is_floating_point_v<T>) return QString::number(v, 'g', 7);
+    else if constexpr (std::is_signed_v<T>)    return QString::number((long long)v);
+    else                                       return QString::number((unsigned long long)v);
+}
+
 template <class T>
 T parseValueT(const QString& s) {
     if constexpr (std::is_floating_point_v<T>) {
         return static_cast<T>(QString(s).replace(',', '.').toDouble());
     } else {
         bool ok = false;
-        long long v = s.trimmed().toLongLong(&ok, 0);
-        return static_cast<T>(v);
+        return static_cast<T>(s.trimmed().toLongLong(&ok, 0));
     }
-}
-
-template <class T>
-QString formatValueT(const ce::GuestView& gv, uint64_t guestAddr) {
-    auto v = gv.read<T>(guestAddr);
-    if (!v) return "??";
-    if constexpr (std::is_floating_point_v<T>) return QString::number(*v, 'g', 7);
-    else if constexpr (std::is_signed_v<T>)    return QString::number((long long)*v);
-    else                                       return QString::number((unsigned long long)*v);
 }
 
 } // namespace
@@ -60,7 +63,7 @@ QString formatValueT(const ce::GuestView& gv, uint64_t guestAddr) {
 GuestScanDialog::GuestScanDialog(ce::ProcessHandle* proc, QWidget* parent)
     : QDialog(parent), proc_(proc) {
     setWindowTitle("Emulator guest scan");
-    resize(560, 480);
+    resize(600, 520);
     if (proc_) profile_ = ce::probeTarget(proc_->pid());
 
     auto* layout = new QVBoxLayout(this);
@@ -69,8 +72,9 @@ GuestScanDialog::GuestScanDialog(ce::ProcessHandle* proc, QWidget* parent)
     auto* header = new QLabel(profile_.guestCandidates.empty()
         ? QString("<b>No emulator guest RAM detected.</b> Attach to a recognized "
                   "emulator (Dolphin, PCSX2, RPCS3, DuckStation, …) first.")
-        : QString("<b>%1</b> guest memory. Scan by the value the game shows; enable "
-                  "big-endian for PS3 / Wii / GameCube.").arg(emu.isEmpty() ? "Emulator" : emu));
+        : QString("<b>%1</b> guest memory. Scan by value, or Unknown Scan then narrow by "
+                  "how the value changed. Enable big-endian for PS3 / Wii / GameCube.")
+              .arg(emu.isEmpty() ? "Emulator" : emu));
     header->setWordWrap(true);
     layout->addWidget(header);
 
@@ -82,7 +86,7 @@ GuestScanDialog::GuestScanDialog(ce::ProcessHandle* proc, QWidget* parent)
 
     typeCombo_ = new QComboBox;
     typeCombo_->addItems({"Byte", "2 Bytes", "4 Bytes", "8 Bytes", "Float", "Double"});
-    typeCombo_->setCurrentIndex(2);   // 4 Bytes
+    typeCombo_->setCurrentIndex(2);
     form->addRow("Value type:", typeCombo_);
 
     valueEdit_ = new QLineEdit;
@@ -94,17 +98,23 @@ GuestScanDialog::GuestScanDialog(ce::ProcessHandle* proc, QWidget* parent)
     layout->addLayout(form);
 
     auto* btnRow = new QHBoxLayout;
-    firstBtn_ = new QPushButton("First Scan");
-    nextBtn_  = new QPushButton("Next Scan");
-    newBtn_   = new QPushButton("New Scan");
-    nextBtn_->setEnabled(false);
-    btnRow->addWidget(firstBtn_);
-    btnRow->addWidget(nextBtn_);
-    btnRow->addWidget(newBtn_);
-    btnRow->addStretch();
-    auto* addBtn = new QPushButton("Add to Address List");
-    btnRow->addWidget(addBtn);
+    firstBtn_   = new QPushButton("First Scan");
+    unknownBtn_ = new QPushButton("Unknown Scan");
+    nextBtn_    = new QPushButton("Next Scan");
+    newBtn_     = new QPushButton("New Scan");
+    for (auto* b : {firstBtn_, unknownBtn_, nextBtn_, newBtn_}) btnRow->addWidget(b);
     layout->addLayout(btnRow);
+
+    auto* cmpRow = new QHBoxLayout;
+    changedBtn_   = new QPushButton("Changed");
+    unchangedBtn_ = new QPushButton("Unchanged");
+    increasedBtn_ = new QPushButton("Increased");
+    decreasedBtn_ = new QPushButton("Decreased");
+    for (auto* b : {changedBtn_, unchangedBtn_, increasedBtn_, decreasedBtn_}) cmpRow->addWidget(b);
+    cmpRow->addStretch();
+    auto* addBtn = new QPushButton("Add to Address List");
+    cmpRow->addWidget(addBtn);
+    layout->addLayout(cmpRow);
 
     statusLabel_ = new QLabel("Ready.");
     layout->addWidget(statusLabel_);
@@ -117,18 +127,19 @@ GuestScanDialog::GuestScanDialog(ce::ProcessHandle* proc, QWidget* parent)
     resultsTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     layout->addWidget(resultsTable_);
 
-    const bool canScan = !profile_.guestCandidates.empty();
-    firstBtn_->setEnabled(canScan);
-    newBtn_->setEnabled(canScan);
-    addBtn->setEnabled(canScan);
-    valueEdit_->setEnabled(canScan);
-
-    connect(firstBtn_, &QPushButton::clicked, this, &GuestScanDialog::onFirstScan);
-    connect(nextBtn_,  &QPushButton::clicked, this, &GuestScanDialog::onNextScan);
-    connect(newBtn_,   &QPushButton::clicked, this, &GuestScanDialog::onNewScan);
-    connect(addBtn,    &QPushButton::clicked, this, &GuestScanDialog::onAddToList);
+    connect(firstBtn_,   &QPushButton::clicked, this, &GuestScanDialog::onFirstScan);
+    connect(unknownBtn_, &QPushButton::clicked, this, &GuestScanDialog::onUnknownScan);
+    connect(nextBtn_,    &QPushButton::clicked, this, &GuestScanDialog::onNextScan);
+    connect(newBtn_,     &QPushButton::clicked, this, &GuestScanDialog::onNewScan);
+    connect(addBtn,      &QPushButton::clicked, this, &GuestScanDialog::onAddToList);
+    connect(changedBtn_,   &QPushButton::clicked, this, [this]() { narrowCompare((int)ce::GuestCompare::Changed); });
+    connect(unchangedBtn_, &QPushButton::clicked, this, [this]() { narrowCompare((int)ce::GuestCompare::Unchanged); });
+    connect(increasedBtn_, &QPushButton::clicked, this, [this]() { narrowCompare((int)ce::GuestCompare::Increased); });
+    connect(decreasedBtn_, &QPushButton::clicked, this, [this]() { narrowCompare((int)ce::GuestCompare::Decreased); });
     connect(valueEdit_, &QLineEdit::returnPressed, this,
             [this]() { haveScan_ ? onNextScan() : onFirstScan(); });
+
+    onNewScan();   // sets the initial (not-yet-scanning) button states
 }
 
 ValueType GuestScanDialog::selectedType() const {
@@ -143,64 +154,133 @@ ValueType GuestScanDialog::selectedType() const {
     }
 }
 
-void GuestScanDialog::onFirstScan() {
-    if (profile_.guestCandidates.empty()) return;
-    int ri = std::clamp(regionCombo_->currentIndex(), 0, (int)profile_.guestCandidates.size() - 1);
+void GuestScanDialog::beginScan() {
+    const int ri = std::clamp(regionCombo_->currentIndex(), 0,
+                              (int)profile_.guestCandidates.size() - 1);
     const auto& region = profile_.guestCandidates[ri];
     scanType_ = selectedType();
     scanBigEndian_ = bigEndianCheck_->isChecked();
     regionBase_ = region.base;
     regionSize_ = region.size;
+    haveScan_ = true;
+    typeCombo_->setEnabled(false);
+    bigEndianCheck_->setEnabled(false);
+    regionCombo_->setEnabled(false);
+}
 
+void GuestScanDialog::onFirstScan() {
+    if (profile_.guestCandidates.empty()) return;
+    beginScan();
     ce::GuestView gv{ proc_, regionBase_, regionSize_, scanBigEndian_ };
     const QString valStr = valueEdit_->text();
     candidates_ = dispatchType(scanType_, [&]<class T>() {
-        return ce::guestScanExact<T>(gv, parseValueT<T>(valStr), sizeof(T));
+        const uint64_t vb = valBits<T>(parseValueT<T>(valStr));
+        std::vector<std::pair<uint64_t, uint64_t>> out;
+        for (uint64_t a : ce::guestScanExact<T>(gv, parseValueT<T>(valStr), sizeof(T)))
+            out.emplace_back(a, vb);
+        return out;
     });
-    haveScan_ = true;
-    typeCombo_->setEnabled(false);       // type/endian are frozen for narrowing
-    bigEndianCheck_->setEnabled(false);
-    regionCombo_->setEnabled(false);
+    unknownMode_ = false;
+    refreshResults();
+}
+
+void GuestScanDialog::onUnknownScan() {
+    if (profile_.guestCandidates.empty()) return;
+    beginScan();
+    ce::GuestView gv{ proc_, regionBase_, regionSize_, scanBigEndian_ };
+    snapshot_ = ce::guestReadRegion(gv);
+    candidates_.clear();
+    unknownMode_ = true;
     refreshResults();
 }
 
 void GuestScanDialog::onNextScan() {
-    if (!haveScan_) return;
+    if (!haveScan_ || unknownMode_) return;
     ce::GuestView gv{ proc_, regionBase_, regionSize_, scanBigEndian_ };
     const QString valStr = valueEdit_->text();
     candidates_ = dispatchType(scanType_, [&]<class T>() {
-        return ce::guestNextExact<T>(gv, candidates_, parseValueT<T>(valStr));
+        const T val = parseValueT<T>(valStr);
+        std::vector<uint64_t> addrs;
+        addrs.reserve(candidates_.size());
+        for (auto& [a, _] : candidates_) addrs.push_back(a);
+        const uint64_t vb = valBits<T>(val);
+        std::vector<std::pair<uint64_t, uint64_t>> out;
+        for (uint64_t a : ce::guestNextExact<T>(gv, addrs, val)) out.emplace_back(a, vb);
+        return out;
     });
+    refreshResults();
+}
+
+void GuestScanDialog::narrowCompare(int opInt) {
+    if (!haveScan_) return;
+    const auto op = static_cast<ce::GuestCompare>(opInt);
+    ce::GuestView gv{ proc_, regionBase_, regionSize_, scanBigEndian_ };
+    const size_t align = 0;  // default = sizeof(T)
+    candidates_ = dispatchType(scanType_, [&]<class T>() {
+        std::vector<std::pair<uint64_t, uint64_t>> out;
+        if (unknownMode_) {
+            const auto live = ce::guestReadRegion(gv);
+            for (auto& [off, nv] : ce::guestCompareBuffers<T>(snapshot_, live, scanBigEndian_, op,
+                                                              align ? align : sizeof(T)))
+                out.emplace_back(off, valBits<T>(nv));
+        } else {
+            std::vector<std::pair<uint64_t, T>> pairs;
+            pairs.reserve(candidates_.size());
+            for (auto& [a, b] : candidates_) pairs.emplace_back(a, bitsVal<T>(b));
+            for (auto& [a, nv] : ce::guestNextCompare<T>(gv, pairs, op))
+                out.emplace_back(a, valBits<T>(nv));
+        }
+        return out;
+    });
+    if (unknownMode_) { unknownMode_ = false; snapshot_.clear(); }  // now an explicit set
     refreshResults();
 }
 
 void GuestScanDialog::onNewScan() {
     candidates_.clear();
+    snapshot_.clear();
     haveScan_ = false;
+    unknownMode_ = false;
     resultsTable_->setRowCount(0);
-    nextBtn_->setEnabled(false);
-    typeCombo_->setEnabled(true);
-    bigEndianCheck_->setEnabled(true);
-    regionCombo_->setEnabled(true);
     statusLabel_->setText("Ready.");
+    refreshResults();
 }
 
 void GuestScanDialog::refreshResults() {
-    ce::GuestView gv{ proc_, regionBase_, regionSize_, scanBigEndian_ };
-    const size_t shown = std::min<size_t>(candidates_.size(), 2000);
-    resultsTable_->setRowCount((int)shown);
-    dispatchType(scanType_, [&]<class T>() {
-        for (size_t i = 0; i < shown; ++i) {
-            const uint64_t g = candidates_[i];
-            resultsTable_->setItem((int)i, 0, new QTableWidgetItem(QString("0x%1").arg(g, 0, 16)));
-            resultsTable_->setItem((int)i, 1, new QTableWidgetItem(
-                QString("0x%1").arg((qulonglong)gv.toHost(g), 0, 16)));
-            resultsTable_->setItem((int)i, 2, new QTableWidgetItem(formatValueT<T>(gv, g)));
-        }
-    });
-    statusLabel_->setText(QString("%1 result(s)%2").arg(candidates_.size())
-        .arg(candidates_.size() > shown ? QString(" (showing first %1)").arg(shown) : QString()));
-    nextBtn_->setEnabled(haveScan_);
+    if (haveScan_ && !unknownMode_) {
+        const size_t shown = std::min<size_t>(candidates_.size(), 2000);
+        ce::GuestView gv{ proc_, regionBase_, regionSize_, scanBigEndian_ };
+        resultsTable_->setRowCount((int)shown);
+        dispatchType(scanType_, [&]<class T>() {
+            for (size_t i = 0; i < shown; ++i) {
+                const uint64_t g = candidates_[i].first;
+                resultsTable_->setItem((int)i, 0, new QTableWidgetItem(QString("0x%1").arg(g, 0, 16)));
+                resultsTable_->setItem((int)i, 1, new QTableWidgetItem(
+                    QString("0x%1").arg((qulonglong)gv.toHost(g), 0, 16)));
+                resultsTable_->setItem((int)i, 2, new QTableWidgetItem(fmtBits<T>(candidates_[i].second)));
+            }
+        });
+        statusLabel_->setText(QString("%1 result(s)%2").arg(candidates_.size())
+            .arg(candidates_.size() > shown ? QString(" (showing first %1)").arg(shown) : QString()));
+    } else if (unknownMode_) {
+        resultsTable_->setRowCount(0);
+        statusLabel_->setText(QString("Snapshot taken (%1 MB). Change the value in-game, then "
+                                      "narrow with Changed / Increased / Decreased / Unchanged.")
+                                  .arg(snapshot_.size() >> 20));
+    }
+
+    // Button states for the current phase.
+    const bool idle = !haveScan_;
+    const bool canStart = idle && !profile_.guestCandidates.empty();
+    firstBtn_->setEnabled(canStart);
+    unknownBtn_->setEnabled(canStart);
+    valueEdit_->setEnabled(!profile_.guestCandidates.empty());
+    nextBtn_->setEnabled(haveScan_ && !unknownMode_ && !candidates_.empty());
+    for (auto* b : {changedBtn_, unchangedBtn_, increasedBtn_, decreasedBtn_})
+        b->setEnabled(haveScan_);
+    typeCombo_->setEnabled(idle);
+    bigEndianCheck_->setEnabled(idle);
+    regionCombo_->setEnabled(idle && regionCombo_->count() > 0);
 }
 
 void GuestScanDialog::onAddToList() {
@@ -215,7 +295,7 @@ void GuestScanDialog::onAddToList() {
     }
     for (int row : rows) {
         if (row < 0 || row >= (int)candidates_.size()) continue;
-        const uint64_t g = candidates_[row];
+        const uint64_t g = candidates_[row].first;
         emit addressSelected(gv.toHost(g), scanType_, QString("guest 0x%1").arg(g, 0, 16));
     }
 }

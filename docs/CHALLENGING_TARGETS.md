@@ -165,12 +165,13 @@ required, and it can be non-linear (paged MMU emulation).
    `cescan guest-scan` drives the FULL CE scan workflow from the shell: exact and
    `--unknown` first scans, `--next`, and `--changed`/`--unchanged`/`--increased`/
    `--decreased` comparison narrowing, all with `--be`. GUI: Tools -> "Emulator guest
-   scan" (`gui/guest_scan_dialog`) does exact first/next scans with type + endianness
-   and adds results (as host addresses) to the cheat table, reusing the same
-   `guest_view` primitives. Remaining: comparison narrowing in the GUI dialog; more
-   emulator base adapters; guest MMU translation; per-guest find-what-writes; and
-   endianness-aware cheat-table entries (a big-endian guest value added to the list
-   currently displays byte-swapped, since the address list reads host-native).
+   scan" (`gui/guest_scan_dialog`) drives the full workflow with type + endianness:
+   exact first/next scans, Unknown Scan, and Changed/Increased/Decreased/Unchanged
+   narrowing, and adds results (as host addresses) to the cheat table -- reusing the
+   same `guest_view` primitives as the CLI. Remaining: more emulator base adapters;
+   guest MMU translation; per-guest find-what-writes; and endianness-aware cheat-table
+   entries (a big-endian guest value added to the list currently displays byte-swapped,
+   since the address list reads host-native).
 2. **Endianness:** add byte-swap to the scanner value stream for big-endian guests
    (the scanner already handles width; add an endianness flag on the guest view).
    [DONE for the guest-view/`cescan guest-scan` path; the main GUI scanner is not

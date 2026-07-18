@@ -7,6 +7,8 @@
 #include <QTabWidget>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QProgressDialog>
+#include <QApplication>
 
 namespace ce::gui {
 
@@ -138,16 +140,46 @@ void CodeReferencesWindow::analyzeSelectedModule() {
 
     auto module = selectedModule();
     CodeAnalyzer analyzer;
+
+    // Each pass scans the whole module and can take a while on a big image (libc),
+    // so drive a cancelable progress dialog and update it between passes. This
+    // keeps the window painting and lets the user bail instead of it looking hung.
+    // (The scan only reads memory via process_vm_readv, so this stays on the UI
+    // thread safely; no ptrace-thread affinity to worry about.)
+    QProgressDialog progress(QString("Analyzing %1…")
+            .arg(QString::fromStdString(module.name.empty() ? module.path : module.name)),
+        "Cancel", 0, 8, this);
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(0);
+    int step = 0;
+    auto tick = [&](const char* what) {
+        progress.setLabelText(QString("Analyzing %1: %2…")
+            .arg(QString::fromStdString(module.name.empty() ? module.path : module.name))
+            .arg(what));
+        progress.setValue(step++);
+        QApplication::processEvents();
+        return !progress.wasCanceled();
+    };
+
+    if (!tick("referenced strings")) return;
     auto strings = analyzer.findReferencedStrings(*proc_, module);
+    if (!tick("referenced functions")) return;
     auto functions = analyzer.findReferencedFunctions(*proc_, module);
+    if (!tick("functions")) return;
     auto functionSummary = analyzer.enumerateFunctions(*proc_, module);
+    if (!tick("call graph")) return;
     auto callGraph = analyzer.buildCallGraph(*proc_, module);
+    if (!tick("jumps")) return;
     auto jumps = analyzer.findJumps(*proc_, module);
+    if (!tick("RIP-relative")) return;
     auto ripRelative = analyzer.findRipRelativeInstructions(*proc_, module);
+    if (!tick("assembly pattern")) return;
     auto assembly = assemblyPatternEdit_->text().trimmed().isEmpty()
         ? std::vector<CodeRef>{}
         : analyzer.findAssemblyPattern(*proc_, module, assemblyPatternEdit_->text().toStdString());
+    if (!tick("code caves")) return;
     auto caves = analyzer.findCodeCaves(*proc_, module, minCaveSizeSpin_->value());
+    progress.setValue(8);
 
     fillTable(stringsTable_, strings);
     fillTable(functionsTable_, functions);

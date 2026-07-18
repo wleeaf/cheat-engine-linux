@@ -325,6 +325,7 @@ if(Qt6_FOUND)
         gui/memorybrowser.cpp
         gui/scripteditor.cpp
         gui/pointerscan_dialog.cpp
+        gui/guest_scan_dialog.cpp
         gui/registereditor.cpp
         gui/structuredissector.cpp
         gui/monodissector.cpp

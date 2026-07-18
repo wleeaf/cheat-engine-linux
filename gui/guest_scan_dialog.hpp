@@ -1,0 +1,67 @@
+#pragma once
+/// Emulator guest-RAM scanner (docs/CHALLENGING_TARGETS.md block 2). When attached to a
+/// recognized emulator, this scans the console game's guest memory in guest-address
+/// space, with correct byte order for big-endian consoles. It reuses the same
+/// core/guest_view.hpp primitives as `cescan guest-scan`, so the scan logic is shared
+/// and already tested; this is just the GUI front end.
+
+#include "platform/process_api.hpp"
+#include "core/target_profile.hpp"
+#include "core/types.hpp"
+
+#include <QDialog>
+#include <cstdint>
+#include <vector>
+
+class QComboBox;
+class QLineEdit;
+class QCheckBox;
+class QPushButton;
+class QLabel;
+class QTableWidget;
+
+namespace ce::gui {
+
+class GuestScanDialog : public QDialog {
+    Q_OBJECT
+public:
+    explicit GuestScanDialog(ce::ProcessHandle* proc, QWidget* parent = nullptr);
+
+signals:
+    // A guest result added to the cheat table, as its HOST address (base + guest) and
+    // the scan's value type.
+    void addressSelected(uintptr_t hostAddr, ce::ValueType type, const QString& description);
+
+private slots:
+    void onFirstScan();
+    void onNextScan();
+    void onNewScan();
+    void onAddToList();
+
+private:
+    void refreshResults();
+    ce::ValueType selectedType() const;
+
+    ce::ProcessHandle* proc_;
+    ce::TargetProfile profile_;
+
+    QComboBox*    regionCombo_;
+    QComboBox*    typeCombo_;
+    QLineEdit*    valueEdit_;
+    QCheckBox*    bigEndianCheck_;
+    QPushButton*  firstBtn_;
+    QPushButton*  nextBtn_;
+    QPushButton*  newBtn_;
+    QLabel*       statusLabel_;
+    QTableWidget* resultsTable_;
+
+    // Frozen once the first scan runs, so narrowing uses the same view.
+    std::vector<uint64_t> candidates_;   // guest addresses
+    uintptr_t regionBase_ = 0;
+    uint64_t  regionSize_ = 0;
+    ce::ValueType scanType_ = ce::ValueType::Int32;
+    bool      scanBigEndian_ = false;
+    bool      haveScan_ = false;
+};
+
+} // namespace ce::gui

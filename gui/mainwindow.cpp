@@ -12,6 +12,7 @@
 #include "scanner/pointer_scanner.hpp"
 #include "gui/scripteditor.hpp"
 #include "gui/pointerscan_dialog.hpp"
+#include "gui/guest_scan_dialog.hpp"
 #include "gui/structuredissector.hpp"
 #include "gui/monodissector.hpp"
 #include "gui/luaconsole.hpp"
@@ -3661,6 +3662,13 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
         auto* dlg = new PointerScanDialog(process_.get(), this);
         connect(dlg, &PointerScanDialog::addressSelected, this,
                 [this](uintptr_t a, const QString& d) { addressListModel_->addEntry(a, ce::ValueType::Int32, d); });
+        dlg->setAttribute(Qt::WA_DeleteOnClose); dlg->show();
+    });
+    tools->addAction("Emulator guest scan", this, [this]() {
+        if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
+        auto* dlg = new GuestScanDialog(process_.get(), this);
+        connect(dlg, &GuestScanDialog::addressSelected, this,
+                [this](uintptr_t a, ce::ValueType t, const QString& d) { addressListModel_->addEntry(a, t, d); });
         dlg->setAttribute(Qt::WA_DeleteOnClose); dlg->show();
     });
     tools->addAction("Dissect data/structures", this, [this]() {

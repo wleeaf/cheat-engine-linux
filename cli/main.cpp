@@ -96,7 +96,11 @@ static void usage() {
         "                                reused from the last guest-scan)\n"
         "  lua <script.lua>|-e <code>|-  Run a Lua script (same API as the GUI console)\n"
         "  lua                           Interactive Lua REPL\n"
-        "  il2cpp <global-metadata.dat>  Browse a Unity IL2CPP metadata file's classes/fields (offline)\n"
+        "  il2cpp <global-metadata.dat>|--pid <pid>  Browse a Unity IL2CPP game's classes,\n"
+        "                                fields (with byte offsets) and method RVAs. --pid\n"
+        "                                resolves a running game directly (auto-locates the\n"
+        "                                metadata + GameAssembly, incl. Proton/Flatpak).\n"
+        "                                [--class <substr>] [--fields] [--methods] [--object <class>]\n"
         "  signature <pid> <addr> [max]  Generate a unique AOB signature for a code address\n"
         "  analyze <pid> <what> [...]    Static RE toolkit: strings, statics, caves [min],\n"
         "                                functions, xrefs <addr>, asm \"<insn>\"  [--module <name>]\n"
@@ -1394,17 +1398,69 @@ static int cmd_il2cpp(int argc, char** argv) {
                         "[--fields] [--methods] [--object <class>] [--binary <GameAssembly>]\n");
         return 1;
     }
-    const char* path = argv[1];
+    const char* path = nullptr;
+    pid_t pidArg = 0;
     std::string filter, binaryPath, objectClass;
     bool showFields = false, showMethods = false;
-    for (int i = 2; i < argc; ++i) {
-        if (!strcmp(argv[i], "--class") && i + 1 < argc) filter = argv[++i];
+    for (int i = 1; i < argc; ++i) {
+        if (!strcmp(argv[i], "--pid") && i + 1 < argc) pidArg = parsePid(argv[++i]);
+        else if (!strcmp(argv[i], "--class") && i + 1 < argc) filter = argv[++i];
         else if (!strcmp(argv[i], "--fields")) showFields = true;
         else if (!strcmp(argv[i], "--methods")) showMethods = true;
         else if (!strcmp(argv[i], "--binary") && i + 1 < argc) binaryPath = argv[++i];
         else if (!strcmp(argv[i], "--object") && i + 1 < argc) objectClass = argv[++i];
+        else if (argv[i][0] != '-' && !path) path = argv[i];   // positional metadata file
     }
 
+    // --pid: resolve directly from a running Unity game. Auto-locates the metadata and
+    // GameAssembly from its maps (through the sandbox root for Proton/Flatpak), so the
+    // user needn't hunt for the files. Offsets are always resolved here.
+    if (pidArg > 0) {
+        LinuxProcessHandle proc(pidArg);
+        ce::Il2CppBinaryLayout layout = ce::resolveIl2CppForProcess(proc);
+        if (!layout.ok) { fprintf(stderr, "cescan il2cpp --pid: %s\n", layout.error.c_str()); return 1; }
+        printf("IL2CPP resolved from pid %d: %zu classes\n", pidArg, layout.classes.size());
+
+        if (!objectClass.empty()) {
+            std::string full;
+            for (const auto& c : layout.classes)
+                if (c.fullName() == objectClass || c.name == objectClass) { full = c.fullName(); break; }
+            if (full.empty())
+                for (const auto& c : layout.classes)
+                    if (c.fullName().find(objectClass) != std::string::npos) { full = c.fullName(); break; }
+            if (full.empty()) { fprintf(stderr, "cescan il2cpp --object: class '%s' not found\n", objectClass.c_str()); return 1; }
+            auto fields = ce::il2cppObjectFieldLayout(layout, full);
+            printf("\nobject layout of %s (%zu instance fields, incl. inherited):\n", full.c_str(), fields.size());
+            for (const auto& f : fields) {
+                std::string from = (f.declaringType != full) ? ("  <- " + f.declaringType) : "";
+                printf("  +0x%-5x %-24s %s%s\n", f.offset, f.typeName.c_str(), f.name.c_str(), from.c_str());
+            }
+            return 0;
+        }
+
+        size_t matched = 0, printed = 0; const size_t kCap = 200;
+        for (const auto& c : layout.classes) {
+            std::string full = c.fullName();
+            if (!filter.empty() && full.find(filter) == std::string::npos) continue;
+            ++matched; if (printed >= kCap) continue;
+            printf("  %s  (%zu fields)\n", full.c_str(), c.fields.size());
+            if (showFields)
+                for (const auto& rf : c.fields) {
+                    const char* kind = rf.isConst ? "const" : (rf.isStatic ? "static" : "");
+                    printf("      +0x%-5x %-24s %-26s %s\n", rf.offset, rf.typeName.c_str(),
+                           rf.name.c_str(), kind);
+                }
+            if (showMethods)
+                for (const auto& m : c.methods)
+                    printf("      method +0x%-8lx %s\n", (unsigned long)m.rva, m.name.c_str());
+            ++printed;
+        }
+        if (matched > printed) printf("  ... %zu more (narrow with --class <substr>)\n", matched - printed);
+        printf("(%zu matching class%s)\n", matched, matched == 1 ? "" : "es");
+        return 0;
+    }
+
+    if (!path) { fprintf(stderr, "cescan il2cpp: need a global-metadata.dat path or --pid <pid>\n"); return 1; }
     std::ifstream in(path, std::ios::binary);
     if (!in) { fprintf(stderr, "cescan il2cpp: cannot open %s\n", path); return 1; }
     std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)),

@@ -3308,14 +3308,19 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
     const bool forceSoftware = QSettings().value("codefinder/forceSoftware", false).toBool();
     const bool software = wine || forceSoftware;
     if (wine && !codeFinderNoPrompt_) {
-        auto r = QMessageBox::information(this, "Wine / Proton game",
-            "This looks like a Wine/Proton (Windows) game, where a hardware "
-            "watchpoint would crash it. Cheat Engine will use the software "
-            "(page-guard) watchpoint instead, which is Wine-safe but slower.\n\n"
-            "Tip: enable it, trigger the change once (e.g. buy/sell), then stop "
-            "monitoring, the game runs slowly while it is armed.\n\n"
-            "Start monitoring?",
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+        auto r = QMessageBox::warning(this, "Wine / Proton game",
+            "This is a Wine/Proton (Windows) game. \"Find what writes/accesses\" "
+            "watches memory with a page guard, which can conflict with Proton's "
+            "kernel write-watch (userfaultfd) and FREEZE the game — it goes "
+            "unresponsive with a black screen.\n\n"
+            "If that happens, add this to the game's Steam launch options "
+            "(right-click the game, Properties, Launch Options) and relaunch, "
+            "then try again:\n\n"
+            "    WINE_DISABLE_KERNEL_WRITEWATCH=1 %command%\n\n"
+            "It uses the slower Wine-safe (software) watchpoint. Tip: arm it, "
+            "trigger the change once, then stop; the game runs slowly while armed.\n\n"
+            "Start monitoring anyway?",
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (r != QMessageBox::Yes) return;
     }
 

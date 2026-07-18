@@ -425,7 +425,8 @@ private:
     void reportActivationError(const QString& title, const QString& message);
     // After a manual (non-frozen) value edit, re-read shortly after and emit
     // valueReverted() if the value did not stick (a protected/reverted value).
-    void scheduleEditVerify(uintptr_t addr, ce::ValueType type, const QString& wroteStr);
+    void scheduleEditVerify(uintptr_t addr, ce::ValueType type, const QString& wroteStr,
+                            const ce::ValueCodec& codec = {});
     int rowOfId(int id) const;
     int allocId() { return nextId_++; }
 

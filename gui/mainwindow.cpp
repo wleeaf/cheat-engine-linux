@@ -4198,24 +4198,28 @@ static void writeValueToProcess(ProcessHandle* proc, uintptr_t addr, ValueType t
     proc->write(addr, buf, vs);
 }
 
-static bool readComparableValue(ProcessHandle* proc, uintptr_t addr, ValueType type, double& value) {
+static bool readComparableValue(ProcessHandle* proc, uintptr_t addr, ValueType type,
+                                double& value, const ce::ValueCodec& codec = {}) {
     uint8_t buf[8] = {};
     size_t vs = vtSize(type);
     auto r = proc->read(addr, buf, vs);
     if (!r || *r < vs) return false;
 
+    // Integer types decode through the codec so directional freeze, the adjust hotkey,
+    // and edit-verify all compare the LOGICAL value, not the obfuscated bytes.
+    auto dec = [&](uint64_t raw, int bytes) { return codec.active() ? codec.decode(raw, bytes) : raw; };
     switch (type) {
         case ValueType::Byte: {
-            uint8_t v; memcpy(&v, buf, 1); value = v; return true;
+            uint8_t v; memcpy(&v, buf, 1); value = (uint8_t)dec(v, 1); return true;
         }
         case ValueType::Int16: {
-            int16_t v; memcpy(&v, buf, 2); value = v; return true;
+            uint16_t v; memcpy(&v, buf, 2); value = (int16_t)dec(v, 2); return true;
         }
         case ValueType::Int32: {
-            int32_t v; memcpy(&v, buf, 4); value = v; return true;
+            uint32_t v; memcpy(&v, buf, 4); value = (int32_t)dec(v, 4); return true;
         }
         case ValueType::Int64: {
-            int64_t v; memcpy(&v, buf, 8); value = static_cast<double>(v); return true;
+            uint64_t v; memcpy(&v, buf, 8); value = static_cast<double>((int64_t)dec(v, 8)); return true;
         }
         case ValueType::Pointer: {
             uintptr_t v; memcpy(&v, buf, sizeof(v)); value = static_cast<double>(v); return true;
@@ -4268,7 +4272,7 @@ void AddressListModel::freezeWrite(ProcessHandle* proc) {
         // Read current value to compare for directional freeze.
         double current = 0;
         double frozen = 0;
-        if (!readComparableValue(proc, e.address, e.type, current) ||
+        if (!readComparableValue(proc, e.address, e.type, current, e.codec) ||
             !parseComparableValue(e.type, e.frozenValue, frozen)) {
             writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec);
             continue;
@@ -4433,7 +4437,7 @@ bool AddressListModel::adjustEntryValue(int row, double delta) {
     }
 
     double current = 0;
-    if (!readComparableValue(proc_, e.address, e.type, current) &&
+    if (!readComparableValue(proc_, e.address, e.type, current, e.codec) &&
         !parseComparableValue(e.type, e.currentValue, current)) {
         return false;
     }
@@ -4884,7 +4888,7 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
                 // A non-frozen value that snaps back is protected: warn and point the
                 // user at find-what-writes. A frozen entry is intentionally held, so
                 // the freeze timer, not this, owns its persistence.
-                if (!e.active) scheduleEditVerify(e.address, e.type, writeStr);
+                if (!e.active) scheduleEditVerify(e.address, e.type, writeStr, e.codec);
             }
             emit dataChanged(index, index);
             return true;
@@ -4893,16 +4897,17 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
     return false;
 }
 
-void AddressListModel::scheduleEditVerify(uintptr_t addr, ce::ValueType type, const QString& wroteStr) {
+void AddressListModel::scheduleEditVerify(uintptr_t addr, ce::ValueType type,
+                                          const QString& wroteStr, const ce::ValueCodec& codec) {
     if (!proc_) return;
     bool okNum = false;
     const double target = QString(wroteStr).replace(',', '.').toDouble(&okNum);
     if (!okNum) return;   // non-numeric types (string/byte array): no revert check
     // `this` as the timer context: the callback is skipped if the model is destroyed.
-    QTimer::singleShot(250, this, [this, addr, type, wroteStr, target]() {
+    QTimer::singleShot(250, this, [this, addr, type, wroteStr, target, codec]() {
         if (!proc_) return;
         double now = 0;
-        if (!readComparableValue(proc_, addr, type, now)) return;
+        if (!readComparableValue(proc_, addr, type, now, codec)) return;
         const double tol = (type == ce::ValueType::Float || type == ce::ValueType::Double)
                          ? std::abs(target) * 1e-5 + 1e-6 : 0.5;
         if (std::abs(now - target) > tol)

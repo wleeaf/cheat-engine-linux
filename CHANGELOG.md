@@ -13,6 +13,45 @@ reimplementation of Cheat Engine).
 
 ---
 
+## v0.6.6 — find-what-writes and code injection on Wine/Proton (2026-07-18)
+
+"Find what writes/accesses" and auto-assembler code injection used to freeze or
+crash a game running under Wine/Proton (validated against Mount & Blade Warband
+under Proton 9.0). This release makes every transient debug operation Wine-safe.
+
+### Watchpoints ("Find what writes / accesses")
+
+- **No longer freezes Wine/Proton games.** The watchpoint used to `PTRACE_SEIZE` +
+  stop the game's entire thread group to arm; stopping wineserver, esync/fsync and
+  GPU/driver threads deadlocks the game (it went unresponsive, black screen). On a
+  Wine/Proton target it now arms a **hardware watchpoint on the main thread only**
+  (the game-logic thread that writes money/HP), touching nothing else. Native Linux
+  keeps the full all-thread watch. The software page-guard backend (which fought
+  Proton's kernel write-watch / userfaultfd) is no longer used on Wine.
+- **Repeatable.** A finished monitor kept the thread traced, so a second
+  find-what-writes silently found nothing; finished monitors are now stopped (and
+  released when their window closes) before a new one starts.
+- Fixed a **use-after-free crash at exit** (the monitor thread could call into a
+  debugger object that had already been destroyed).
+- `CE_CODEFINDER_MODE=hw|sw|st` overrides the backend for diagnostics;
+  `CE_LOG=debugger:debug` logs arming, hits and teardown.
+
+### Code injection (auto-assembler scripts, loadlibrary, Mono agent)
+
+- **AA code-injection scripts work on Wine/Proton.** The code-cave allocation
+  (`remoteSyscall` -> `mmap`) used `PTRACE_ATTACH` and hijacked a thread parked in a
+  syscall, which on Wine (threads sit in esync/fsync/wineserver waits) corrupted the
+  wineserver RPC and froze the game. Switched to `PTRACE_SEIZE + PTRACE_INTERRUPT`, a
+  clean stop that preserves the interrupted syscall's restart state.
+- **WoW64 allocations no longer wrongly reported as failures.** A valid 32-bit
+  `mmap2` address at or above 2 GB (e.g. `0xEBDF9000`) was sign-extended to a
+  negative value, so `allocate()` rejected a successful mapping. Only the i386
+  `-errno` range is treated as an error now.
+- The **dlopen injector** (`loadlibrary()`, `createthread()`, the Mono agent) and
+  the WoW64 bitness probe were switched to the same Wine-safe stop.
+- The full debugger and break-and-trace still stop the whole process on purpose
+  (that is what they do); everything meant to be quick and transparent does not.
+
 ## v0.6.5 — whole-app UI/UX overhaul + IL2CPP dissector depth (2026-07-18)
 
 A comprehensive, panel-by-panel usability pass over the entire app, on top of

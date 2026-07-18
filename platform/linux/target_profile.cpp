@@ -178,9 +178,10 @@ void parseStatus(pid_t pid, TargetProfile& p) {
             // "NSpid: <host-pid> <ns-pid> ..." -> more than one field means the
             // process is inside a nested PID namespace (sandbox / container).
             std::istringstream ss(line.substr(6));
-            int n = 0; long v;
-            while (ss >> v) ++n;
+            int n = 0; long v, last = pid;
+            while (ss >> v) { ++n; last = v; }
             p.pidNamespaced = n > 1;
+            p.nsInnerPid = static_cast<pid_t>(last);   // innermost-namespace pid
         }
     }
 }
@@ -241,9 +242,10 @@ void buildNotes(TargetProfile& p) {
 
     if (p.pidNamespaced)
         p.notes.push_back(
-            std::string("Sandboxed (PID namespace): the process runs in a "
-            "Flatpak/Snap/Firejail/container namespace; attaching may need elevated "
-            "privileges") + (p.seccomp ? ", and a seccomp filter is active." : "."));
+            std::string("Sandboxed: runs in a Flatpak/Snap/Firejail/container namespace "
+            "(appears as PID ") + std::to_string(p.nsInnerPid) + " inside it). Scanning and "
+            "editing work on this host PID; module and symbol files are read through the "
+            "sandbox root" + (p.seccomp ? ", and a seccomp filter is active." : "."));
 
     if (p.arch != TargetProfile::Arch::X86_64 && p.arch != TargetProfile::Arch::X86_32 &&
         p.arch != TargetProfile::Arch::Unknown)

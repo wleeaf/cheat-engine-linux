@@ -30,6 +30,8 @@ struct TargetProfile {
     pid_t tracerPid = 0;           // non-zero: already ptrace'd (debugger or anti-debug)
     bool  seccomp = false;         // a seccomp-bpf filter is installed
     bool  pidNamespaced = false;   // inside a nested PID namespace (sandbox/container)
+    pid_t nsInnerPid = 0;          // pid as the process sees itself in its innermost
+                                   // namespace (== pid when not namespaced)
 
     std::vector<std::string> runtimes;   // managed runtimes present, e.g. "CoreCLR (.NET)"
     std::string emulator;                // "" or a known emulator name, e.g. "Dolphin"

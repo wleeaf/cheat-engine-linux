@@ -208,6 +208,7 @@ static void test_target_profile() {
         && self.arch == ce::TargetProfile::Arch::X86_64
         && self.endianness == ce::TargetProfile::Endian::Little
         && !self.wine && self.emulator.empty()
+        && !self.pidNamespaced && self.nsInnerPid == getpid()   // not sandboxed
         && self.guestCandidates.empty();   // only emulator targets get these
     printf("  probe self: %s (%s)\n", selfOk ? "OK" : "FAILED", self.summary().c_str());
 

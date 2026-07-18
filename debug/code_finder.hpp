@@ -31,8 +31,12 @@ public:
     /// Runs in a background thread. Call stop() to finish.
     // watchSize: bytes to watch (1/2/4/8) — must be watchSize-aligned like any
     // x86 hardware data breakpoint. Default 4 (a dword).
+    // software: use a page-protection watchpoint (mprotect + SIGSEGV) instead of a
+    // CPU hardware debug register. Slower (it faults on every write to the whole
+    // 4 KB page), but it never touches the debug registers, so it works on
+    // Wine/Proton targets where a hardware watchpoint crashes the game.
     bool start(ProcessHandle& proc, Debugger& dbg, uintptr_t address,
-               bool writesOnly = false, int watchSize = 4);
+               bool writesOnly = false, int watchSize = 4, bool software = false);
 
     /// Stop monitoring.
     void stop();
@@ -47,13 +51,20 @@ public:
     void clearResults();
 
 private:
-    void monitorLoop();
+    void monitorLoop();          // hardware debug-register watchpoint
+    void monitorLoopSoftware();  // page-protection (mprotect + SIGSEGV) watchpoint
+    // Record the instruction that touched the address. afterInstruction=true (a
+    // hardware watchpoint traps once the store has retired, so rip is past it) backs
+    // up to the previous instruction; false (a software page fault stops on the
+    // faulting store itself) uses rip directly.
+    void recordHit(pid_t tid, bool afterInstruction);
 
     ProcessHandle* proc_ = nullptr;
     Debugger* dbg_ = nullptr;
     uintptr_t targetAddress_ = 0;
     bool writesOnly_ = false;
     int  watchSize_ = 4;
+    bool software_ = false;
     std::atomic<bool> running_{false};
     std::atomic<bool> stopRequested_{false};
     std::thread monitorThread_;

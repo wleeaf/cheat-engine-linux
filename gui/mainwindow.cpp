@@ -3297,20 +3297,25 @@ static bool targetLooksLikeWine(pid_t pid) {
 void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
     if (!process_) return;
 
-    // Hardware watchpoints (DR0-3) frequently crash Wine/Proton games: Wine
-    // manages the CPU debug registers itself for Windows thread-context and
-    // exception emulation, so an externally-programmed watchpoint can surface
-    // into the game's structured exception handler as a crash. Memory editing and
-    // scanning are unaffected. Warn (but let the user try) before arming.
-    if (targetLooksLikeWine(process_->pid())) {
-        auto r = QMessageBox::warning(this, "Wine / Proton game",
-            "This looks like a Wine/Proton (Windows) game.\n\n"
-            "\"Find what writes/accesses\" uses the CPU's hardware debug "
-            "registers, which Wine manages itself, so arming one here can make "
-            "the game show its own crash dialog (the process usually keeps "
-            "running). Editing values and scanning are not affected.\n\n"
-            "Try it anyway?",
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    // A hardware watchpoint (DR0-3) crashes Wine/Proton games: Wine manages the CPU
+    // debug registers itself for Windows thread-context/exception emulation, so an
+    // externally-programmed one surfaces into the game's SEH as a crash. For those
+    // targets use the software (page-guard) watchpoint instead: it mprotects the
+    // page and catches the write fault, never touching a debug register. It is
+    // slower (it faults on every write to the whole 4 KB page), so on native Linux
+    // we keep the fast hardware path. A setting can force software everywhere.
+    const bool wine = targetLooksLikeWine(process_->pid());
+    const bool forceSoftware = QSettings().value("codefinder/forceSoftware", false).toBool();
+    const bool software = wine || forceSoftware;
+    if (wine) {
+        auto r = QMessageBox::information(this, "Wine / Proton game",
+            "This looks like a Wine/Proton (Windows) game, where a hardware "
+            "watchpoint would crash it. Cheat Engine will use the software "
+            "(page-guard) watchpoint instead, which is Wine-safe but slower.\n\n"
+            "Tip: enable it, trigger the change once (e.g. buy/sell), then stop "
+            "monitoring, the game runs slowly while it is armed.\n\n"
+            "Start monitoring?",
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
         if (r != QMessageBox::Yes) return;
     }
 
@@ -3320,9 +3325,10 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
     // Honour the configured hardware-watchpoint size (was ignored -> always 4).
     int watchSize = QSettings().value("codefinder/watchSize", "4").toInt();
     if (watchSize != 1 && watchSize != 2 && watchSize != 4 && watchSize != 8) watchSize = 4;
-    if (!finder->start(*process_, *debugger, addr, writesOnly, watchSize)) {
+    if (!finder->start(*process_, *debugger, addr, writesOnly, watchSize, software)) {
         QMessageBox::warning(this, "Code finder unavailable",
-            "Could not start hardware watchpoint monitoring for this address.");
+            software ? "Could not start software watchpoint monitoring for this address."
+                     : "Could not start hardware watchpoint monitoring for this address.");
         return;
     }
 

@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
+#include <cerrno>
 #include <cstring>
 #include <set>
 
@@ -16,7 +18,7 @@
 
 namespace ce {
 
-bool CodeFinder::start(ProcessHandle& proc, Debugger& dbg, uintptr_t address, bool writesOnly, int watchSize) {
+bool CodeFinder::start(ProcessHandle& proc, Debugger& dbg, uintptr_t address, bool writesOnly, int watchSize, bool software) {
     if (running_) return false;
 
     proc_ = &proc;
@@ -24,10 +26,12 @@ bool CodeFinder::start(ProcessHandle& proc, Debugger& dbg, uintptr_t address, bo
     targetAddress_ = address;
     writesOnly_ = writesOnly;
     watchSize_ = (watchSize == 1 || watchSize == 2 || watchSize == 8) ? watchSize : 4;
+    software_ = software;
     stopRequested_ = false;
     running_ = true;
 
-    monitorThread_ = std::thread(&CodeFinder::monitorLoop, this);
+    monitorThread_ = std::thread(software_ ? &CodeFinder::monitorLoopSoftware
+                                           : &CodeFinder::monitorLoop, this);
     return true;
 }
 
@@ -93,43 +97,6 @@ void CodeFinder::monitorLoop() {
         return;
     }
 
-    auto recordHit = [&](pid_t tid) {
-        auto ctxResult = dbg_->getContext(tid);
-        if (!ctxResult) return;
-        auto& ctx = *ctxResult;
-        // A data watchpoint (DR0-3 read/write) traps AFTER the accessing
-        // instruction retires, so ctx.rip points at the NEXT instruction. Back up
-        // to the instruction that actually touched the address (the one ending at
-        // rip); otherwise we'd report a following register-only op like "add eax,1".
-        uintptr_t rip = ctx.rip;
-        uintptr_t instrAddr = disasm_.previousInstruction(rip, [&](uintptr_t a, uint8_t* b, size_t n) {
-            auto r = proc_->read(a, b, n);
-            return r && *r >= n;
-        });
-        if (instrAddr == 0 || instrAddr >= rip) instrAddr = rip;   // fallback
-        uint8_t instrBuf[16];
-        auto readResult = proc_->read(instrAddr, instrBuf, sizeof(instrBuf));
-        std::string instrText;
-        std::vector<uint8_t> instrBytes;
-        if (readResult && *readResult > 0) {
-            auto insns = disasm_.disassemble(instrAddr, {instrBuf, *readResult}, 1);
-            if (!insns.empty()) {
-                instrText = insns[0].mnemonic + " " + insns[0].operands;
-                instrBytes = insns[0].bytes;
-            }
-        }
-        std::lock_guard lock(resultsMutex_);
-        auto& entry = resultsMap_[instrAddr];
-        if (entry.hitCount == 0) {
-            entry.instructionAddress = instrAddr;
-            entry.instructionText = instrText;
-            entry.instructionBytes = instrBytes;
-            entry.firstContext = ctx;
-        }
-        entry.lastContext = ctx;
-        entry.hitCount++;
-    };
-
     while (!stopRequested_) {
         int status;
         pid_t w = waitpid(-1, &status, __WALL | WNOHANG);
@@ -165,7 +132,7 @@ void CodeFinder::monitorLoop() {
                 si.si_code == TRAP_HWBKPT);
 
             if (isWatchpoint) {
-                recordHit(w);
+                recordHit(w, /*afterInstruction=*/true);
                 // Clear DR6's status bits before resuming. The CPU sets the B0-B3
                 // bit for the debug register that fired and never auto-clears it;
                 // if we leave it set, the tracee reads a stale "a hardware
@@ -212,6 +179,219 @@ void CodeFinder::monitorLoop() {
             continue; // exited before we could disarm it
         dbg_->removeBreakpoint(tid, 0);       // clears DR7 while stopped
         ptrace(PTRACE_DETACH, tid, nullptr, nullptr); // signal 0 = drop pending
+    }
+    running_ = false;
+}
+
+void CodeFinder::recordHit(pid_t tid, bool afterInstruction) {
+    auto ctxResult = dbg_->getContext(tid);
+    if (!ctxResult) return;
+    auto& ctx = *ctxResult;
+    uintptr_t rip = ctx.rip;
+    uintptr_t instrAddr = rip;
+    if (afterInstruction) {
+        // Hardware watchpoint: the trap fires once the store has retired, so rip is
+        // at the NEXT instruction — back up to the one that actually touched the
+        // address (a software page fault, by contrast, stops on the store itself).
+        uintptr_t prev = disasm_.previousInstruction(rip, [&](uintptr_t a, uint8_t* b, size_t n) {
+            auto r = proc_->read(a, b, n);
+            return r && *r >= n;
+        });
+        if (prev != 0 && prev < rip) instrAddr = prev;
+    }
+    uint8_t instrBuf[16];
+    auto readResult = proc_->read(instrAddr, instrBuf, sizeof(instrBuf));
+    std::string instrText;
+    std::vector<uint8_t> instrBytes;
+    if (readResult && *readResult > 0) {
+        auto insns = disasm_.disassemble(instrAddr, {instrBuf, *readResult}, 1);
+        if (!insns.empty()) {
+            instrText = insns[0].mnemonic + " " + insns[0].operands;
+            instrBytes = insns[0].bytes;
+        }
+    }
+    std::lock_guard lock(resultsMutex_);
+    auto& entry = resultsMap_[instrAddr];
+    if (entry.hitCount == 0) {
+        entry.instructionAddress = instrAddr;
+        entry.instructionText = instrText;
+        entry.instructionBytes = instrBytes;
+        entry.firstContext = ctx;
+    }
+    entry.lastContext = ctx;
+    entry.hitCount++;
+}
+
+// Inject a syscall into an already ptrace-stopped, traced thread (the caller owns
+// the stop; unlike LinuxProcessHandle::remoteSyscall this neither attaches nor
+// detaches, so it can run while we hold every thread seized — calling the normal
+// protect(), which re-attaches, would conflict with that seize). Mirrors the ABI
+// handling: a WoW64 / 32-bit compat-mode thread (CS low byte 0x23) goes through
+// int 0x80 with the i386 syscall number. Returns the syscall result, or -1.
+static long injectSyscallStopped(pid_t tid, long nr64,
+                                 uint64_t a1, uint64_t a2, uint64_t a3) {
+    struct user_regs_struct oldRegs, regs;
+    if (ptrace(PTRACE_GETREGS, tid, nullptr, &oldRegs) < 0) return -1;
+    regs = oldRegs;
+    regs.orig_rax = (unsigned long long)-1;   // no syscall-restart on resume
+
+    const bool mode32 = ((oldRegs.cs & 0xFFu) == 0x23u);
+    uint64_t instrWord;
+    if (mode32) {
+        uint32_t nr32 = (nr64 == 10) ? 125u : (uint32_t)nr64;  // mprotect -> i386 125
+        regs.rax = nr32;
+        regs.rbx = a1; regs.rcx = a2; regs.rdx = a3;
+        instrWord = 0x80CDull;  // int 0x80
+    } else {
+        regs.rax = (unsigned long long)nr64;
+        regs.rdi = a1; regs.rsi = a2; regs.rdx = a3;
+        instrWord = 0x050full;  // syscall
+    }
+
+    errno = 0;
+    uint64_t origInstr = ptrace(PTRACE_PEEKTEXT, tid, (void*)oldRegs.rip, nullptr);
+    if (origInstr == (uint64_t)-1 && errno != 0) return -1;
+    if (ptrace(PTRACE_POKETEXT, tid, (void*)oldRegs.rip,
+               (void*)((origInstr & ~0xFFFFULL) | instrWord)) < 0)
+        return -1;
+
+    long result = -1;
+    int status;
+    if (ptrace(PTRACE_SETREGS, tid, nullptr, &regs) == 0 &&
+        ptrace(PTRACE_SINGLESTEP, tid, nullptr, nullptr) == 0 &&
+        waitpid(tid, &status, __WALL) == tid && WIFSTOPPED(status)) {
+        struct user_regs_struct after;
+        if (ptrace(PTRACE_GETREGS, tid, nullptr, &after) == 0)
+            result = mode32 ? (long)(int32_t)(after.rax & 0xFFFFFFFFu)
+                            : (long)after.rax;
+    }
+    // Always restore the clobbered instruction word and the saved registers.
+    ptrace(PTRACE_POKETEXT, tid, (void*)oldRegs.rip, (void*)origInstr);
+    ptrace(PTRACE_SETREGS, tid, nullptr, &oldRegs);
+    return result;
+}
+
+void CodeFinder::monitorLoopSoftware() {
+    pid_t pid = proc_->pid();
+    const uintptr_t watchLo = targetAddress_;
+    const uintptr_t watchHi = targetAddress_ + (uintptr_t)watchSize_;
+    const uintptr_t pageStart = watchLo & ~uintptr_t(4095);
+    const uintptr_t pageEnd = (watchHi + 4095) & ~uintptr_t(4095);
+    const size_t pageLen = pageEnd - pageStart;
+
+    // Original protection of the region (so we can restore it, and keep READ/EXEC
+    // while dropping WRITE). Linux PROT_*: R=1, W=2, X=4.
+    int origProt = 1;
+    for (auto& r : proc_->queryRegions()) {
+        if (targetAddress_ >= r.base && targetAddress_ < r.base + r.size) {
+            origProt = 0;
+            if (r.protection & MemProt::Read)  origProt |= 1;
+            if (r.protection & MemProt::Write) origProt |= 2;
+            if (r.protection & MemProt::Exec)  origProt |= 4;
+            break;
+        }
+    }
+    // Guard: writes-only drops WRITE (reads/exec still allowed); access mode drops
+    // read too (PROT_NONE) so reads fault as well — heavier, but that is inherent.
+    const int guardProt = writesOnly_ ? (origProt & ~2) : 0;
+
+    std::set<pid_t> attached;
+    std::vector<pid_t> tids;
+    for (auto& t : proc_->threads()) tids.push_back(t.tid);
+    if (tids.empty()) tids.push_back(pid);
+
+    pid_t anyStopped = -1;
+    for (pid_t tid : tids) {
+        if (ptrace(PTRACE_SEIZE, tid, nullptr,
+                   reinterpret_cast<void*>(PTRACE_O_TRACECLONE)) < 0)
+            continue;
+        if (ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) == 0) {
+            int st; waitpid(tid, &st, __WALL);
+            anyStopped = tid;
+        }
+        attached.insert(tid);
+    }
+    if (attached.empty() || anyStopped < 0) { running_ = false; return; }
+
+    // Arm the guard from inside the target, then resume every thread.
+    injectSyscallStopped(anyStopped, 10 /*mprotect*/, pageStart, pageLen, guardProt);
+    for (pid_t tid : attached) ptrace(PTRACE_CONT, tid, nullptr, nullptr);
+
+    while (!stopRequested_) {
+        int status;
+        pid_t w = waitpid(-1, &status, __WALL | WNOHANG);
+        if (w <= 0) { usleep(1000); continue; }
+
+        // Newly cloned thread: trace + resume (the guard is process-wide, so it will
+        // fault on the protected page too).
+        if (WIFSTOPPED(status) &&
+            (status >> 8) == (SIGTRAP | (PTRACE_EVENT_CLONE << 8))) {
+            unsigned long newTid = 0;
+            if (ptrace(PTRACE_GETEVENTMSG, w, nullptr, &newTid) == 0 && newTid) {
+                int st; waitpid(static_cast<pid_t>(newTid), &st, __WALL);
+                attached.insert(static_cast<pid_t>(newTid));
+                ptrace(PTRACE_CONT, static_cast<pid_t>(newTid), nullptr, nullptr);
+            }
+            ptrace(PTRACE_CONT, w, nullptr, nullptr);
+            continue;
+        }
+
+        if (WIFSTOPPED(status)) {
+            int sig = WSTOPSIG(status);
+            if (sig == SIGSEGV) {
+                siginfo_t si{};
+                bool haveSi = (ptrace(PTRACE_GETSIGINFO, w, nullptr, &si) == 0);
+                uintptr_t fault = haveSi ? reinterpret_cast<uintptr_t>(si.si_addr) : 0;
+                bool ourPage = haveSi && fault >= pageStart && fault < pageEnd;
+                if (ourPage) {
+                    // A guarded access. Record it only if it lands on the watched
+                    // bytes (other bytes on the same page fault too, but aren't ours).
+                    if (fault >= watchLo && fault < watchHi)
+                        recordHit(w, /*afterInstruction=*/false);
+                    // Let the faulting instruction complete: briefly restore the real
+                    // protection, single-step over the store, then re-arm the guard.
+                    injectSyscallStopped(w, 10, pageStart, pageLen, origProt);
+                    if (ptrace(PTRACE_SINGLESTEP, w, nullptr, nullptr) == 0) {
+                        int st; waitpid(w, &st, __WALL);
+                    }
+                    injectSyscallStopped(w, 10, pageStart, pageLen, guardProt);
+                    ptrace(PTRACE_CONT, w, nullptr, nullptr);
+                } else {
+                    // A genuine segfault elsewhere — forward it so the game / Wine
+                    // handles its own fault instead of us swallowing a real crash.
+                    ptrace(PTRACE_CONT, w, nullptr,
+                           reinterpret_cast<void*>(static_cast<uintptr_t>(SIGSEGV)));
+                }
+            } else if (sig == SIGTRAP) {
+                ptrace(PTRACE_CONT, w, nullptr, nullptr);
+            } else if (sig == SIGSTOP || sig == SIGTSTP ||
+                       sig == SIGTTIN || sig == SIGTTOU) {
+                ptrace(PTRACE_CONT, w, nullptr, nullptr);
+            } else {
+                ptrace(PTRACE_CONT, w, nullptr,
+                       reinterpret_cast<void*>(static_cast<uintptr_t>(sig)));
+            }
+        } else if (WIFEXITED(status) || WIFSIGNALED(status)) {
+            attached.erase(w);
+            if (w == pid || attached.empty())
+                break;
+        }
+    }
+
+    // Cleanup: restore the page's original protection once, then detach every thread.
+    bool restored = false;
+    for (pid_t tid : attached) {
+        if (ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) != 0)
+            continue;
+        int st = 0;
+        pid_t r = waitpid(tid, &st, __WALL);
+        if (r != tid || WIFEXITED(st) || WIFSIGNALED(st))
+            continue;
+        if (!restored) {
+            injectSyscallStopped(tid, 10, pageStart, pageLen, origProt);
+            restored = true;
+        }
+        ptrace(PTRACE_DETACH, tid, nullptr, nullptr);
     }
     running_ = false;
 }

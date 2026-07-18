@@ -343,6 +343,9 @@ public:
     void indentRows(QList<int> rows);
     void outdentRows(QList<int> rows);
     void setFreezeMode(int row, ce::FreezeMode mode);
+    // Obfuscation codec for an entry: value is stored as encode(logical) in memory.
+    void setEntryCodec(int row, ce::ValueCodec codec);
+    std::string entryCodecSpec(int row) const;   // "none" or e.g. "xor:0x1234"
     void setAllActive(bool active);
     void setShowAsHex(int row, bool hex);
     void setEntryType(int row, ce::ValueType t);

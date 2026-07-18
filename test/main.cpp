@@ -244,6 +244,16 @@ static void test_value_codec() {
                 && pa && pa->op == C::Op::Add && pa->key == 12
                 && !C::parse("xor") && !C::parse("bogus:1") && !C::parse("add:") && !C::parse("add:xyz");
     printf("  parse valid + reject malformed: %s\n", parseOk ? "OK" : "FAILED");
+
+    // describe() -> parse() round-trips for every active codec. The GUI persists codecs
+    // as their describe() spec string and reloads them via parse(), so this must hold.
+    bool descRt = true;
+    for (auto& c : cases) {
+        C codec{c.op, c.key};
+        auto back = C::parse(codec.describe());
+        if (!back || back->op != codec.op || back->key != codec.key) descRt = false;
+    }
+    printf("  describe/parse round-trip (persistence): %s\n", descRt ? "OK" : "FAILED");
 }
 
 static void test_ns_attach() {

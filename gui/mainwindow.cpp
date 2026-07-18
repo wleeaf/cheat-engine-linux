@@ -1661,6 +1661,33 @@ void MainWindow::setupUi() {
                 for (auto& idx : selected) addressListModel_->setFreezeMode(idx.row(), FreezeMode::NeverDecrease);
             });
 
+            // Obfuscated values: declare a codec so the value is displayed decoded and
+            // edited/frozen by its logical value (block 6). Reuses ce::ValueCodec::parse.
+            menu.addAction("Set value codec...", [this, selected]() {
+                if (selected.isEmpty()) return;
+                QString cur = QString::fromStdString(
+                    addressListModel_->entryCodecSpec(selected.first().row()));
+                bool ok = false;
+                QString spec = QInputDialog::getText(this, "Value codec",
+                    "Obfuscation codec for the stored value:\n"
+                    "  none | xor:0xKEY | add:N | rol:N | ror:N\n"
+                    "(stored as encode(logical); display decodes, edit/freeze encode)",
+                    QLineEdit::Normal, cur, &ok);
+                if (!ok) return;
+                spec = spec.trimmed();
+                ce::ValueCodec codec;   // default: none
+                if (!spec.isEmpty() && spec.compare("none", Qt::CaseInsensitive) != 0) {
+                    auto c = ce::ValueCodec::parse(spec.toStdString());
+                    if (!c) {
+                        QMessageBox::warning(this, "Invalid codec",
+                            "Use none, xor:0xKEY, add:N, rol:N, or ror:N.");
+                        return;
+                    }
+                    codec = *c;
+                }
+                for (auto& idx : selected) addressListModel_->setEntryCodec(idx.row(), codec);
+            });
+
             menu.addSeparator();
             auto* typeMenu = menu.addMenu("Change type");
             const std::pair<const char*, ValueType> typeChoices[] = {
@@ -4279,6 +4306,8 @@ QJsonArray AddressListModel::toJson() const {
         obj["group"] = e.isGroup;
         obj["showAsHex"] = e.showAsHex;
         obj["freezeMode"] = (int)e.freezeMode;
+        if (e.codec.active())   // obfuscation codec, as its round-trippable spec string
+            obj["codec"] = QString::fromStdString(e.codec.describe());
         if (e.indent > 0 && e.indent - 1 < (int)lastRowAtIndent.size())
             obj["parent"] = lastRowAtIndent[e.indent - 1];
         arr.append(obj);
@@ -4326,6 +4355,10 @@ void AddressListModel::fromJson(const QJsonArray& arr) {
         e.showAsHex = obj["showAsHex"].toBool();
         if (obj.contains("freezeMode"))
             e.freezeMode = (ce::FreezeMode)obj["freezeMode"].toInt();
+        if (obj.contains("codec")) {
+            if (auto c = ce::ValueCodec::parse(obj["codec"].toString().toStdString()))
+                e.codec = *c;
+        }
         if (e.isGroup) {
             e.address = 0;
             e.currentValue.clear();
@@ -4342,6 +4375,18 @@ void AddressListModel::setFreezeMode(int row, FreezeMode mode) {
     if (row < 0 || row >= (int)entries_.size()) return;
     entries_[row].freezeMode = mode;
     emit dataChanged(index(row, 0), index(row, columnCount() - 1));
+}
+
+void AddressListModel::setEntryCodec(int row, ce::ValueCodec codec) {
+    if (row < 0 || row >= (int)entries_.size()) return;
+    entries_[row].codec = codec;
+    entries_[row].currentValue.clear();   // force a re-read/reformat through the codec
+    emit dataChanged(index(row, 4), index(row, 4), {Qt::DisplayRole, Qt::EditRole});
+}
+
+std::string AddressListModel::entryCodecSpec(int row) const {
+    if (row < 0 || row >= (int)entries_.size()) return "none";
+    return entries_[row].codec.describe();
 }
 
 void AddressListModel::setShowAsHex(int row, bool hex) {

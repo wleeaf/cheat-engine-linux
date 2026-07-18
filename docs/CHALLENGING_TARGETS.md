@@ -286,6 +286,10 @@ check.
    restored it), detect and report it, and offer to find-what-writes the restorer so
    the user can neutralize the check (in-scope: it is the game's own logic, not an
    anti-cheat). Depends on find-what-writes working on the target.
+   [DETECTION DONE] `cescan write --verify[-ms n]` re-reads after a window (default
+   200 ms) and reports whether the value held or was reverted (and to what), pointing
+   the user at find-what-writes. Validated against a target whose watchdog thread
+   restores the value. Remaining: auto-launch find-what-writes on the restorer.
 
 **Effort:** medium. **Priority:** medium; mostly a scanner/UX feature, largely
 arch-agnostic.

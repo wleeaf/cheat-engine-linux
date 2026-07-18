@@ -59,8 +59,10 @@ static void usage() {
         "                                or the interpreted value with --type (i32,\n"
         "                                float, pointer, string, ...); size caps a\n"
         "                                string read; --codec also shows the decoded value\n"
-        "  write <pid> <addr> <val> [--type <t>] [--codec <c>]  Write value to address\n"
-        "                                (--codec writes the encoded/obfuscated form)\n"
+        "  write <pid> <addr> <val> [--type <t>] [--codec <c>] [--verify[-ms <n>]]\n"
+        "                                Write value to address (--codec writes the\n"
+        "                                encoded form; --verify re-reads after n ms\n"
+        "                                (default 200) to detect a protected/reverted value)\n"
         "  freeze <pid> <addr> <val> [--type <t>] [--codec <c>] [--interval <ms>]\n"
         "         [--mode normal|floor|ceil]  Lock a value: re-write it until Ctrl-C\n"
         "                                (floor = never let it drop, ceil = never rise;\n"
@@ -365,7 +367,7 @@ static int64_t parseWriteInt(const char* s, int64_t signedMin, uint64_t unsigned
 }
 
 static int cmd_write(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt,
-                     ce::ValueCodec codec = {}) {
+                     ce::ValueCodec codec = {}, int verifyMs = 0) {
     LinuxProcessHandle proc(pid);
 
     if (codec.active() && vt != ValueType::Byte && vt != ValueType::Int16 &&
@@ -449,6 +451,34 @@ static int cmd_write(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt
         printf("Wrote %zu bytes to 0x%lx (encoded %s)\n", sz, addr, codec.describe().c_str());
     else
         printf("Wrote %zu bytes to 0x%lx\n", sz, addr);
+
+    // --verify: re-read after a short window to catch a value the game or an integrity
+    // check overwrites (the classic "my edit does not stick"). Reports whether it held
+    // and, if not, what it was reverted to.
+    if (verifyMs > 0) {
+        const struct timespec ts{ verifyMs/1000, (long)(verifyMs%1000)*1000000L };
+        nanosleep(&ts, nullptr);
+        uint8_t now[8] = {};
+        auto rr = proc.read(addr, now, sz);
+        if (!rr || *rr < sz) {
+            printf("verify: could not re-read 0x%lx (region unmapped?)\n", addr);
+        } else if (memcmp(now, buf, sz) == 0) {
+            printf("verify: value held after %d ms (not protected here)\n", verifyMs);
+        } else {
+            uint64_t wrote = 0, cur = 0;
+            memcpy(&wrote, buf, sz); memcpy(&cur, now, sz);
+            if (codec.active()) { wrote = codec.decode(wrote, (int)sz); cur = codec.decode(cur, (int)sz); }
+            auto sx = [](uint64_t v, int b) -> long long {
+                return (b < 8 && ((v >> (b*8-1)) & 1))
+                     ? (long long)(v | ~ce::ValueCodec::maskFor(b)) : (long long)v;
+            };
+            printf("verify: value was REVERTED after %d ms (wrote %lld, now %lld / 0x%llx).\n"
+                   "  The game or an integrity check overwrote it. Locate the writer with "
+                   "find-what-writes (GUI) on 0x%lx.\n",
+                   verifyMs, sx(wrote, (int)sz), sx(cur, (int)sz),
+                   (unsigned long long)(cur & ce::ValueCodec::maskFor((int)sz)), addr);
+        }
+    }
     return 0;
 }
 
@@ -1509,6 +1539,7 @@ int main(int argc, char** argv) {
     else if (!strcmp(cmd, "write") && argc >= 5) {
         ValueType vt = ValueType::Int32;
         ce::ValueCodec codec;
+        int verifyMs = 0;
         for (int i = 5; i < argc; ++i) {
             if (!strcmp(argv[i], "--type") && i + 1 < argc) vt = parseType(argv[i+1]);
             else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
@@ -1516,8 +1547,11 @@ int main(int argc, char** argv) {
                 if (!c) { fprintf(stderr, "Invalid --codec (use xor:0xKEY, add:N, rol:N, ror:N)\n"); return 1; }
                 codec = *c;
             }
+            else if (!strcmp(argv[i], "--verify")) verifyMs = 200;
+            else if (!strcmp(argv[i], "--verify-ms") && i + 1 < argc)
+                verifyMs = (int)strtoul(argv[++i], nullptr, 0);
         }
-        return cmd_write(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), argv[4], vt, codec);
+        return cmd_write(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), argv[4], vt, codec, verifyMs);
     }
     else if (!strcmp(cmd, "freeze") && argc >= 5) {
         ValueType vt = ValueType::Int32;

@@ -234,6 +234,13 @@ static void test_guest_view() {
     bool leOk = ce::guestScanExact<uint32_t>(le, 0xCAFEBABEu, 4).empty();
     printf("  exact guest scan (aligned, BE): %s\n", scanOk ? "OK" : "FAILED");
     printf("  endianness affects matches: %s\n", leOk ? "OK" : "FAILED");
+
+    // Next scan: change one of the two matches, then narrow. Only the unchanged one
+    // (0x40) still equals the value.
+    be.write<uint32_t>(0x10, 0x00000001u);   // 0x10 no longer 0xCAFEBABE
+    auto narrowed = ce::guestNextExact<uint32_t>(be, hits, 0xCAFEBABEu);
+    bool nextOk = narrowed.size() == 1 && narrowed[0] == 0x40;
+    printf("  guest next-scan narrows: %s\n", nextOk ? "OK" : "FAILED");
 }
 
 static void test_cheat_table_json() {

@@ -59,9 +59,10 @@ static void usage() {
         "  regions <pid>                 List memory regions\n"
         "  info <pid>                    Probe the target: arch, Wine/emulator/runtime,\n"
         "                                sandbox, already-traced, and what that limits\n"
-        "  guest-scan <pid> <value> [--type <t>] [--be] [--align <n>]\n"
+        "  guest-scan <pid> <value> [--type <t>] [--be] [--align <n>] [--next]\n"
         "                                Scan a recognized emulator's guest RAM for a\n"
-        "                                value (--be byte-swaps for big-endian consoles)\n"
+        "                                value (--be byte-swaps for big-endian consoles);\n"
+        "                                --next narrows the previous scan to <value>\n"
         "  lua <script.lua>|-e <code>|-  Run a Lua script (same API as the GUI console)\n"
         "  lua                           Interactive Lua REPL\n"
         "  il2cpp <global-metadata.dat>  Browse a Unity IL2CPP metadata file's classes/fields (offline)\n"
@@ -634,29 +635,66 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
     return 0;
 }
 
-static int cmd_guest_scan(pid_t pid, const char* valStr, ValueType vt, bool be, size_t align) {
-    ce::TargetProfile p = ce::probeTarget(pid);
-    if (p.guestCandidates.empty()) {
-        fprintf(stderr, "guest-scan: no guest-RAM region for pid %d (is it a recognized "
-                        "emulator? try `cescan info %d`)\n", pid, pid);
-        return 1;
-    }
+// Guest-scan candidate set is persisted per-pid so a later --next can narrow it
+// (cescan is stateless across invocations; the running pid keeps its region base).
+static std::string guestResultPath(pid_t pid) { return "/tmp/.cescan_guest_" + std::to_string(pid); }
+
+static void writeGuestResults(pid_t pid, const ce::TargetProfile::GuestRegion& g,
+                              bool be, ValueType vt, const std::vector<uint64_t>& hits) {
+    FILE* f = fopen(guestResultPath(pid).c_str(), "w");
+    if (!f) return;
+    fprintf(f, "GUESTSCAN 1 base %lx size %lx be %d type %d\n",
+            (unsigned long)g.base, (unsigned long)g.size, be ? 1 : 0, (int)vt);
+    for (uint64_t h : hits) fprintf(f, "%llx\n", (unsigned long long)h);
+    fclose(f);
+}
+
+static int cmd_guest_scan(pid_t pid, const char* valStr, ValueType vt, bool be, size_t align, bool isNext) {
     LinuxProcessHandle proc(pid);
-    const auto& g = p.guestCandidates.front();   // largest, already sorted
-    ce::GuestView gv{ &proc, g.base, g.size, be };
-    printf("scanning %s guest RAM: %zu MB at host 0x%lx (%s-endian) for %s\n",
-           p.emulator.c_str(), static_cast<size_t>(g.size >> 20),
-           static_cast<unsigned long>(g.base), be ? "big" : "little", valStr);
+    ce::TargetProfile::GuestRegion region;
+    std::vector<uint64_t> prev;
+
+    if (isNext) {
+        FILE* f = fopen(guestResultPath(pid).c_str(), "r");
+        if (!f) { fprintf(stderr, "guest-scan --next: no prior scan for pid %d\n", pid); return 1; }
+        int ver = 0, beI = 0, typeI = 0; unsigned long base = 0, size = 0;
+        if (fscanf(f, "GUESTSCAN %d base %lx size %lx be %d type %d", &ver, &base, &size, &beI, &typeI) != 5) {
+            fclose(f); fprintf(stderr, "guest-scan: corrupt state file\n"); return 1;
+        }
+        region.base = base; region.size = size; be = beI != 0; vt = (ValueType)typeI;  // region+type come from the first scan
+        unsigned long long a;
+        while (fscanf(f, "%llx", &a) == 1) prev.push_back(a);
+        fclose(f);
+    } else {
+        ce::TargetProfile p = ce::probeTarget(pid);
+        if (p.guestCandidates.empty()) {
+            fprintf(stderr, "guest-scan: no guest-RAM region for pid %d (recognized emulator? "
+                            "try `cescan info %d`)\n", pid, pid);
+            return 1;
+        }
+        region = p.guestCandidates.front();   // largest, already sorted
+    }
+
+    ce::GuestView gv{ &proc, region.base, region.size, be };
+    printf("%s %zu MB guest RAM at host 0x%lx (%s-endian) for %s\n",
+           isNext ? "next-scanning" : "scanning", static_cast<size_t>(region.size >> 20),
+           static_cast<unsigned long>(region.base), be ? "big" : "little", valStr);
+
     std::vector<uint64_t> hits;
+#define GS(T, parse, defAlign) (isNext ? ce::guestNextExact<T>(gv, prev, (T)(parse)) \
+                                       : ce::guestScanExact<T>(gv, (T)(parse), align ? align : (defAlign)))
     switch (vt) {
-        case ValueType::Byte:   hits = ce::guestScanExact<int8_t>(gv, (int8_t)strtol(valStr, 0, 0), align ? align : 1); break;
-        case ValueType::Int16:  hits = ce::guestScanExact<int16_t>(gv, (int16_t)strtol(valStr, 0, 0), align ? align : 2); break;
-        case ValueType::Int32:  hits = ce::guestScanExact<int32_t>(gv, (int32_t)strtol(valStr, 0, 0), align ? align : 4); break;
-        case ValueType::Int64:  hits = ce::guestScanExact<int64_t>(gv, (int64_t)strtoll(valStr, 0, 0), align ? align : 8); break;
-        case ValueType::Float:  hits = ce::guestScanExact<float>(gv, strtof(valStr, 0), align ? align : 4); break;
-        case ValueType::Double: hits = ce::guestScanExact<double>(gv, strtod(valStr, 0), align ? align : 8); break;
+        case ValueType::Byte:   hits = GS(int8_t,  strtol(valStr, 0, 0), 1); break;
+        case ValueType::Int16:  hits = GS(int16_t, strtol(valStr, 0, 0), 2); break;
+        case ValueType::Int32:  hits = GS(int32_t, strtol(valStr, 0, 0), 4); break;
+        case ValueType::Int64:  hits = GS(int64_t, strtoll(valStr, 0, 0), 8); break;
+        case ValueType::Float:  hits = GS(float,   strtof(valStr, 0), 4); break;
+        case ValueType::Double: hits = GS(double,  strtod(valStr, 0), 8); break;
         default: fprintf(stderr, "guest-scan supports byte/i16/i32/i64/float/double\n"); return 1;
     }
+#undef GS
+
+    writeGuestResults(pid, region, be, vt, hits);
     printf("%zu match(es):\n", hits.size());
     const size_t shown = std::min<size_t>(hits.size(), 200);
     for (size_t i = 0; i < shown; ++i)
@@ -1105,14 +1143,18 @@ int main(int argc, char** argv) {
         return cmd_info(parsePid(argv[2]));
     }
     else if (!strcmp(cmd, "guest-scan") && argc >= 4) {
-        ValueType vt = ValueType::Int32; bool be = false; size_t align = 0;
-        for (int i = 4; i < argc; ++i) {
+        ValueType vt = ValueType::Int32; bool be = false, isNext = false; size_t align = 0;
+        const char* val = nullptr;
+        for (int i = 3; i < argc; ++i) {
             if (!strcmp(argv[i], "--type") && i + 1 < argc) vt = parseType(argv[++i]);
             else if (!strcmp(argv[i], "--be")) be = true;
+            else if (!strcmp(argv[i], "--next")) isNext = true;
             else if (!strcmp(argv[i], "--align") && i + 1 < argc)
                 align = static_cast<size_t>(strtoul(argv[++i], nullptr, 0));
+            else if (!val) val = argv[i];   // first positional after pid is the value
         }
-        return cmd_guest_scan(parsePid(argv[2]), argv[3], vt, be, align);
+        if (!val) { fprintf(stderr, "guest-scan: missing <value>\n"); return 1; }
+        return cmd_guest_scan(parsePid(argv[2]), val, vt, be, align, isNext);
     }
     else if (!strcmp(cmd, "read") && argc >= 4) {
         // Cap the requested size so an adversarial/typo'd argument can't trigger

@@ -107,4 +107,17 @@ std::vector<uint64_t> guestScanExact(const GuestView& gv, T value, size_t alignm
     return hits;
 }
 
+// Next scan: keep only the previously-found guest addresses whose current value
+// still equals `value` (CE's exact next-scan, for narrowing a changing value).
+template <class T>
+std::vector<uint64_t> guestNextExact(const GuestView& gv, const std::vector<uint64_t>& prev, T value) {
+    std::vector<uint64_t> out;
+    out.reserve(prev.size());
+    for (uint64_t g : prev) {
+        auto cur = gv.read<T>(g);
+        if (cur && *cur == value) out.push_back(g);
+    }
+    return out;
+}
+
 } // namespace ce

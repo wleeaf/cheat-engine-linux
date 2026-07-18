@@ -147,9 +147,15 @@ required, and it can be non-linear (paged MMU emulation).
    the guest-RAM region(s) in the host maps (often a large fixed-size anonymous or
    `memfd` mapping; several emulators expose the base via a symbol or a known offset),
    and expose a *guest view*: scan/read/write in guest address space with the right
-   size and endianness.
+   size and endianness.  [CLI DONE] `probeTarget` locates candidate guest RAM;
+   `core/guest_view.hpp` (`GuestView` + `guestScanExact`/`guestNextExact`) does the
+   translation and endianness; `cescan guest-scan [--be] [--next]` drives the full
+   first-scan/next-scan narrowing from the shell. Remaining: GUI integration, more
+   emulator base adapters, guest MMU translation.
 2. **Endianness:** add byte-swap to the scanner value stream for big-endian guests
    (the scanner already handles width; add an endianness flag on the guest view).
+   [DONE for the guest-view/`cescan guest-scan` path; the main GUI scanner is not
+   yet endianness-aware.]
 3. **Per-emulator adapters:** a small table (or agent) per emulator that gives the
    guest-RAM base and, where available, the guest MMU translation. Start with the most
    popular (Dolphin, PCSX2, RPCS3, DuckStation).

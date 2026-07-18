@@ -309,20 +309,34 @@ void CodeFinder::monitorLoopSoftware() {
     { const uint8_t g64[2] = {0x0f, 0x05}; proc_->write(gadget64, g64, sizeof(g64)); }   // syscall
     { const uint8_t g32[2] = {0xcd, 0x80}; proc_->write(gadget32, g32, sizeof(g32)); }   // int 0x80
 
+    // SEIZE every thread BEFORE arming — this begins tracing without stopping them
+    // (a game's render/GPU thread has to keep running). Any thread we fail to trace
+    // will, when it writes the guarded page, take an unintercepted SIGSEGV that goes
+    // straight to the game and crashes it, so re-scan a few times to catch threads
+    // that appear during setup. Once every current thread is seized,
+    // PTRACE_O_TRACECLONE auto-traces their future children (born stopped, so they
+    // cannot write the page until we resume them in the loop).
     std::set<pid_t> attached;
-    std::vector<pid_t> tids;
-    for (auto& t : proc_->threads()) tids.push_back(t.tid);
-    if (tids.empty()) tids.push_back(pid);
-
-    // SEIZE every thread — this begins tracing but does NOT stop them. A game's
-    // render/GPU thread has to keep running; freezing all threads at once to arm
-    // (even briefly) is exactly what tends to break latency-sensitive threads and
-    // crash the game. We only need ONE thread stopped long enough to run the arm
-    // mprotect; every other thread keeps running and its faults still report to us.
-    for (pid_t tid : tids)
-        if (ptrace(PTRACE_SEIZE, tid, nullptr,
-                   reinterpret_cast<void*>(PTRACE_O_TRACECLONE)) == 0)
-            attached.insert(tid);
+    int seizeFail = 0;
+    for (int pass = 0; pass < 6; ++pass) {
+        size_t before = attached.size();
+        std::vector<pid_t> cur;
+        for (auto& t : proc_->threads()) cur.push_back(t.tid);
+        if (cur.empty()) cur.push_back(pid);
+        for (pid_t tid : cur) {
+            if (attached.count(tid)) continue;
+            errno = 0;
+            if (ptrace(PTRACE_SEIZE, tid, nullptr,
+                       reinterpret_cast<void*>(PTRACE_O_TRACECLONE)) == 0) {
+                attached.insert(tid);
+            } else {
+                ++seizeFail;
+                ce::log::debug(ce::log::Cat::Debugger,
+                    "swwp: SEIZE tid {} FAILED errno {}", tid, errno);
+            }
+        }
+        if (attached.size() == before) break;   // no new threads this pass -> stable
+    }
     if (attached.empty()) {
         proc_->free(scratch, 4096);
         running_ = false;
@@ -339,8 +353,10 @@ void CodeFinder::monitorLoopSoftware() {
         ptrace(PTRACE_CONT, armTid, nullptr, nullptr);
     }
     ce::log::debug(ce::log::Cat::Debugger,
-        "swwp: seized {} threads, armed guard via tid {} -> {}",
-        attached.size(), armTid, armRc);
+        "swwp: seized {} threads ({} seize failures), armed guard via tid {} -> {}",
+        attached.size(), seizeFail, armTid, armRc);
+
+    uint64_t faultCount = 0;   // total guarded-page faults handled (diagnostics)
 
     while (!stopRequested_) {
         int status;
@@ -369,6 +385,11 @@ void CodeFinder::monitorLoopSoftware() {
                 uintptr_t fault = haveSi ? reinterpret_cast<uintptr_t>(si.si_addr) : 0;
                 bool ourPage = haveSi && fault >= pageStart && fault < pageEnd;
                 if (ourPage) {
+                    if (faultCount == 0)
+                        ce::log::debug(ce::log::Cat::Debugger,
+                            "swwp: first guarded fault tid {} addr {:#x}{}",
+                            w, (uint64_t)fault, attached.count(w) ? "" : " (UNTRACKED tid!)");
+                    ++faultCount;
                     // A guarded access. Record it only if it lands on the watched
                     // bytes (other bytes on the same page fault too, but aren't ours).
                     if (fault >= watchLo && fault < watchHi)
@@ -403,11 +424,19 @@ void CodeFinder::monitorLoopSoftware() {
                        reinterpret_cast<void*>(static_cast<uintptr_t>(sig)));
             }
         } else if (WIFEXITED(status) || WIFSIGNALED(status)) {
+            if (WIFSIGNALED(status) || w == pid)
+                ce::log::debug(ce::log::Cat::Debugger,
+                    "swwp: tid {} {} (signal {}), faults so far {}", w,
+                    WIFSIGNALED(status) ? "KILLED" : "exited",
+                    WIFSIGNALED(status) ? WTERMSIG(status) : 0, faultCount);
             attached.erase(w);
             if (w == pid || attached.empty())
                 break;
         }
     }
+    ce::log::debug(ce::log::Cat::Debugger,
+        "swwp: loop end (stopRequested={}), total guarded faults {}",
+        stopRequested_.load(), faultCount);
 
     // Cleanup: restore the page's original protection once, detach every thread,
     // then release the scratch gadget page.

@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdlib>
+#include <cstdio>
 #include <utility>
 #include <set>
 
@@ -128,6 +129,43 @@ std::vector<std::string> detectRuntimes(pid_t pid) {
     return {found.begin(), found.end()};
 }
 
+// Large RW mappings that plausibly hold an emulator's guest RAM: anonymous or
+// memfd/shm/[heap]-backed, readable+writable, and big (>= 8 MB skips ordinary
+// stacks/small heaps; a console's main RAM ranges from a few MB to several GB).
+// Sorted largest first, capped at 4.
+std::vector<TargetProfile::GuestRegion> findGuestRam(pid_t pid) {
+    std::vector<TargetProfile::GuestRegion> out;
+    std::ifstream maps("/proc/" + std::to_string(pid) + "/maps");
+    std::string line;
+    while (std::getline(maps, line)) {
+        uintptr_t start = 0, end = 0;
+        char perms[8] = {0};
+        if (std::sscanf(line.c_str(), "%lx-%lx %7s", &start, &end, perms) != 3) continue;
+        if (perms[0] != 'r' || perms[1] != 'w' || end <= start) continue;
+        const size_t size = end - start;
+        if (size < (8u << 20)) continue;
+        // pathname is the 6th whitespace field (absent for anonymous mappings).
+        std::istringstream ss(line);
+        std::string f1, f2, f3, f4, f5, path;
+        ss >> f1 >> f2 >> f3 >> f4 >> f5;
+        std::getline(ss, path);
+        size_t nb = path.find_first_not_of(" \t");
+        path = (nb == std::string::npos) ? std::string() : path.substr(nb);
+        if (path == "[stack]" || path == "[vdso]" || path == "[vvar]") continue;
+        const bool anonLike = path.empty() || path == "[heap]" ||
+            path.rfind("/memfd:", 0) == 0 || path.rfind("/dev/shm/", 0) == 0 ||
+            path.rfind("[anon", 0) == 0;
+        if (!anonLike) continue;   // regular file-backed maps are libs/data, not guest RAM
+        out.push_back({start, size, false});
+    }
+    std::sort(out.begin(), out.end(),
+        [](const TargetProfile::GuestRegion& a, const TargetProfile::GuestRegion& b) {
+            return a.size > b.size;
+        });
+    if (out.size() > 4) out.resize(4);
+    return out;
+}
+
 void parseStatus(pid_t pid, TargetProfile& p) {
     std::ifstream st("/proc/" + std::to_string(pid) + "/status");
     std::string line;
@@ -160,12 +198,24 @@ void buildNotes(TargetProfile& p) {
             "and the software page-guard watchpoint is disabled here (it fights Proton's "
             "write-watch). Memory scan and edit are unaffected.");
 
-    if (!p.emulator.empty())
-        p.notes.push_back(
-            p.emulator + " emulator: the game's memory is guest memory inside the "
-            "emulator's address space, so scanned addresses are guest-relative and may be "
-            "byte-swapped, and a per-guest 'find what writes' is not yet supported. Scan, "
-            "edit and freeze still work.");
+    if (!p.emulator.empty()) {
+        std::string note = p.emulator + " emulator: the game's memory is guest memory "
+            "inside the emulator's address space, so scanned addresses are guest-relative "
+            "and may be byte-swapped, and a per-guest 'find what writes' is not yet "
+            "supported. Scan, edit and freeze still work.";
+        if (!p.guestCandidates.empty()) {
+            note += " Candidate guest RAM: ";
+            for (size_t i = 0; i < p.guestCandidates.size(); ++i) {
+                const auto& g = p.guestCandidates[i];
+                char buf[64];
+                std::snprintf(buf, sizeof buf, "%s0x%lx (%zu MB)", i ? ", " : "",
+                              static_cast<unsigned long>(g.base), g.size >> 20);
+                note += buf;
+            }
+            note += ". Scan within one of these.";
+        }
+        p.notes.push_back(note);
+    }
 
     // Go is AOT-compiled (no JIT) but moves goroutine stacks and migrates goroutines
     // across OS threads, so it warrants a distinct note; the moving-GC + JIT note below
@@ -244,6 +294,7 @@ TargetProfile probeTarget(pid_t pid) {
     elfIdent(pid, p);   // sets arch + endianness
     p.wine = lower(cmdline).find(".exe") != std::string::npos;
     p.emulator = detectEmulator(pid, cmdline);
+    if (!p.emulator.empty()) p.guestCandidates = findGuestRam(pid);
     p.runtimes = detectRuntimes(pid);
     if (isGoBinary(pid)) p.runtimes.push_back("Go");
     parseStatus(pid, p);

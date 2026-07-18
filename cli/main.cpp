@@ -641,6 +641,8 @@ static int cmd_info(pid_t pid) {
     if (p.seccomp)        printf("seccomp:  filter active\n");
     if (p.pidNamespaced)  printf("sandbox:  PID namespace (Flatpak/Snap/container)\n");
     if (!p.emulator.empty()) printf("emulator: %s\n", p.emulator.c_str());
+    for (const auto& g : p.guestCandidates)
+        printf("guest-ram:0x%lx (%zu MB)\n", (unsigned long)g.base, g.size >> 20);
     for (const auto& r : p.runtimes) printf("runtime:  %s\n", r.c_str());
     if (!p.notes.empty()) {
         printf("\nnotes:\n");

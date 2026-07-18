@@ -179,7 +179,8 @@ static void test_target_profile() {
     bool selfOk = self.valid
         && self.arch == ce::TargetProfile::Arch::X86_64
         && self.endianness == ce::TargetProfile::Endian::Little
-        && !self.wine && self.emulator.empty();
+        && !self.wine && self.emulator.empty()
+        && self.guestCandidates.empty();   // only emulator targets get these
     printf("  probe self: %s (%s)\n", selfOk ? "OK" : "FAILED", self.summary().c_str());
 
     // A bogus pid probes as invalid with no notes.

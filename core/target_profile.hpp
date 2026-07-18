@@ -8,6 +8,7 @@
 /// reads /proc/<pid>/{exe,maps,status,cmdline,comm}. Safe to call on any pid.
 
 #include <sys/types.h>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -32,6 +33,13 @@ struct TargetProfile {
 
     std::vector<std::string> runtimes;   // managed runtimes present, e.g. "CoreCLR (.NET)"
     std::string emulator;                // "" or a known emulator name, e.g. "Dolphin"
+
+    // Large RW mappings that are likely the emulator's guest RAM (only populated for
+    // emulator targets). The value you want is a GUEST address inside one of these,
+    // so scans should be restricted here (and may need byte-swapping on big-endian
+    // consoles). See docs/CHALLENGING_TARGETS.md block 2/D.
+    struct GuestRegion { uintptr_t base = 0; size_t size = 0; bool fileBacked = false; };
+    std::vector<GuestRegion> guestCandidates;
 
     // Plain-language limitations/warnings derived from the above (empty = nothing
     // notable). Suitable for a tooltip, a status line, or `cescan`.

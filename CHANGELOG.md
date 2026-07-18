@@ -13,6 +13,71 @@ reimplementation of Cheat Engine).
 
 ---
 
+## v0.7.0 — emulators, sandboxes, obfuscated values, scriptable find-what-writes (2026-07-19)
+
+A large release that turns hard targets from silent failures into first-class,
+honestly-reported workflows: console emulators, sandboxed (Flatpak / Snap / Proton)
+games, and games that obfuscate or protect their values. Most new backend work is also
+exposed on the `cescan` CLI, so it is scriptable and testable headlessly. See
+`docs/CHALLENGING_TARGETS.md` for the design map behind this work.
+
+### Know the target before you scan (capability probe)
+
+- Attaching now probes the target and reports, in plain language, what it is and what
+  that limits: architecture and endianness, Wine/Proton, whether it is already traced
+  (anti-debug), seccomp, PID namespace (sandbox), managed runtimes (.NET / Mono / JVM /
+  V8 / Go), and recognized emulators. Shown on the GUI status line + tooltip and via
+  `cescan info <pid>`.
+
+### Emulators — scan a console game's guest memory
+
+- **`cescan guest-scan`** scans a recognized emulator's guest RAM in guest-address
+  space, with correct byte order for big-endian consoles (PS3 / Wii / GameCube). Full
+  workflow: exact and unknown-value first scans, `--next`, and
+  `--changed` / `--increased` / `--decreased` / `--unchanged` narrowing, all with `--be`.
+- **`cescan guest-write`** edits a guest address by its logical value (translated and
+  byte-swapped for you). Recognizes Dolphin, PCSX2, RPCS3, DuckStation, yuzu, Ryujinx,
+  Citra, PPSSPP and more, locating candidate guest-RAM regions.
+
+### Sandboxed and containerized apps (Flatpak / Snap / Proton)
+
+- Symbol loading and module analysis now work on sandboxed targets: their backing files
+  exist only inside the sandbox mount namespace, so paths are resolved through
+  `/proc/<pid>/root`. IL2CPP metadata (a data file) resolves the same way, so
+  `global-metadata.dat` opens on Flatpak and Steam-Proton (pressure-vessel) Unity games.
+- The process picker badges sandboxed processes, and the probe reports the target's
+  inner-namespace PID.
+
+### Obfuscated and protected values
+
+- **Value codecs**: a value stored XOR'd, offset, or bit-rotated can be found, read,
+  edited, and frozen by its logical value. In the GUI, right-click a cheat-table entry
+  → "Set value codec…" (`none | xor:0xKEY | add:N | rol:N | ror:N`); the value displays
+  decoded and every write (edit, freeze, adjust, hotkey) stores the encoded form. On the
+  CLI: `scan` / `read` / `write` / `freeze --codec`.
+- **Reverted-value detection**: `cescan write --verify` (and the GUI, after a manual
+  edit) re-reads shortly after and warns if the game or an integrity check overwrote the
+  value, pointing you to find-what-writes.
+
+### Find what writes — scriptable, and more precise in the GUI
+
+- **`cescan watch <pid> <addr>`** exposes find-what-writes/accesses on the CLI (Wine-safe
+  main-thread hardware watch by default). `--regs` reports the register holding the
+  target address, or `[reg + offset]` — the base for a pointer path.
+- **Exact store recovery**: a hardware watchpoint traps one instruction past the writer;
+  both the CLI and the GUI now recover the precise store instruction instead of an
+  occasional backward-disassembly mis-decode.
+- **`cescan write --verify --find-writer`** chains write → detect revert → name the exact
+  restoring instruction in one command.
+- The GUI "Find what writes" window gains a **Pointer path** column.
+
+### Freeze
+
+- **`cescan freeze <pid> <addr> <val>`** locks a value (normal / floor / ceil), and is
+  codec-aware for obfuscated values.
+
+---
+
 ## v0.6.6 — find-what-writes and code injection on Wine/Proton (2026-07-18)
 
 "Find what writes/accesses" and auto-assembler code injection used to freeze or

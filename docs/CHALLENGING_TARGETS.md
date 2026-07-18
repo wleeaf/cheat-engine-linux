@@ -288,11 +288,15 @@ check.
    anti-cheat). Depends on find-what-writes working on the target.
    [DETECTION DONE] `cescan write --verify[-ms n]` re-reads after a window (default
    200 ms) and reports whether the value held or was reverted (and to what), pointing
-   the user at find-what-writes. Validated against a target whose watchdog thread
-   restores the value. Find-what-writes is now also scriptable: `cescan watch <pid>
-   <addr> [--access]` lists the instructions that write/read an address (Wine-safe
-   main-thread hardware watch by default, exact store recovery from the trap rip), so
-   locating the restorer is a CLI step too. Remaining: auto-chain verify -> watch.
+   the user at find-what-writes. Find-what-writes is scriptable too: `cescan watch
+   <pid> <addr> [--access]` lists the instructions that write/read an address (Wine-safe
+   main-thread hardware watch by default, exact store recovery from the trap rip). And
+   `cescan write <val> --verify --find-writer` chains the whole diagnosis into one
+   command: write, detect the revert, then find and name the exact restoring
+   instruction. Validated end-to-end against a target whose watchdog thread restores a
+   value: the chain reports the revert and pinpoints `mov [rax],0x64` at guard+0x17.
+   [DONE] The remaining stretch is neutralizing the check (NOP the restorer), which the
+   GUI code list already does.
 
 **Effort:** medium. **Priority:** medium; mostly a scanner/UX feature, largely
 arch-agnostic.

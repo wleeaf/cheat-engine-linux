@@ -61,9 +61,10 @@ static void usage() {
         "                                float, pointer, string, ...); size caps a\n"
         "                                string read; --codec also shows the decoded value\n"
         "  write <pid> <addr> <val> [--type <t>] [--codec <c>] [--verify[-ms <n>]]\n"
-        "                                Write value to address (--codec writes the\n"
+        "        [--find-writer[-secs <s>]]  Write value to address (--codec writes the\n"
         "                                encoded form; --verify re-reads after n ms\n"
-        "                                (default 200) to detect a protected/reverted value)\n"
+        "                                (default 200) to detect a protected/reverted\n"
+        "                                value; --find-writer then finds what reverts it)\n"
         "  freeze <pid> <addr> <val> [--type <t>] [--codec <c>] [--interval <ms>]\n"
         "         [--mode normal|floor|ceil]  Lock a value: re-write it until Ctrl-C\n"
         "                                (floor = never let it drop, ceil = never rise;\n"
@@ -371,8 +372,12 @@ static int64_t parseWriteInt(const char* s, int64_t signedMin, uint64_t unsigned
     exit(1);
 }
 
+// Forward declaration: write --find-writer chains into find-what-writes after the write.
+static int cmd_watch(pid_t pid, uintptr_t addr, bool writesOnly, int watchSize,
+                     int durationSec, int modeOverride);
+
 static int cmd_write(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt,
-                     ce::ValueCodec codec = {}, int verifyMs = 0) {
+                     ce::ValueCodec codec = {}, int verifyMs = 0, int findWriterSecs = 0) {
     LinuxProcessHandle proc(pid);
 
     if (codec.active() && vt != ValueType::Byte && vt != ValueType::Int16 &&
@@ -477,12 +482,21 @@ static int cmd_write(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt
                 return (b < 8 && ((v >> (b*8-1)) & 1))
                      ? (long long)(v | ~ce::ValueCodec::maskFor(b)) : (long long)v;
             };
-            printf("verify: value was REVERTED after %d ms (wrote %lld, now %lld / 0x%llx).\n"
-                   "  The game or an integrity check overwrote it. Locate the writer with "
-                   "find-what-writes (GUI) on 0x%lx.\n",
+            printf("verify: value was REVERTED after %d ms (wrote %lld, now %lld / 0x%llx).\n",
                    verifyMs, sx(wrote, (int)sz), sx(cur, (int)sz),
-                   (unsigned long long)(cur & ce::ValueCodec::maskFor((int)sz)), addr);
+                   (unsigned long long)(cur & ce::ValueCodec::maskFor((int)sz)));
+            if (findWriterSecs <= 0)
+                printf("  Locate the writer with find-what-writes (GUI) or "
+                       "`cescan watch %d 0x%lx` on 0x%lx.\n", pid, addr, addr);
         }
+    }
+
+    // Chain into find-what-writes so a protected value is diagnosed in one step: the
+    // instruction that reverts it shows up among the writers.
+    if (findWriterSecs > 0) {
+        printf("\nfind-writer: watching 0x%lx for %ds to catch what writes it...\n",
+               addr, findWriterSecs);
+        return cmd_watch(pid, addr, /*writesOnly=*/true, (int)sz, findWriterSecs, /*mode auto*/0);
     }
     return 0;
 }
@@ -1643,7 +1657,7 @@ int main(int argc, char** argv) {
     else if (!strcmp(cmd, "write") && argc >= 5) {
         ValueType vt = ValueType::Int32;
         ce::ValueCodec codec;
-        int verifyMs = 0;
+        int verifyMs = 0, findWriterSecs = 0;
         for (int i = 5; i < argc; ++i) {
             if (!strcmp(argv[i], "--type") && i + 1 < argc) vt = parseType(argv[i+1]);
             else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
@@ -1654,8 +1668,12 @@ int main(int argc, char** argv) {
             else if (!strcmp(argv[i], "--verify")) verifyMs = 200;
             else if (!strcmp(argv[i], "--verify-ms") && i + 1 < argc)
                 verifyMs = (int)strtoul(argv[++i], nullptr, 0);
+            else if (!strcmp(argv[i], "--find-writer")) findWriterSecs = 5;
+            else if (!strcmp(argv[i], "--find-writer-secs") && i + 1 < argc)
+                findWriterSecs = (int)strtoul(argv[++i], nullptr, 0);
         }
-        return cmd_write(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), argv[4], vt, codec, verifyMs);
+        return cmd_write(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), argv[4], vt,
+                         codec, verifyMs, findWriterSecs);
     }
     else if (!strcmp(cmd, "freeze") && argc >= 5) {
         ValueType vt = ValueType::Int32;

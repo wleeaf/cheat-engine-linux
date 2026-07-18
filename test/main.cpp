@@ -241,6 +241,17 @@ static void test_guest_view() {
     auto narrowed = ce::guestNextExact<uint32_t>(be, hits, 0xCAFEBABEu);
     bool nextOk = narrowed.size() == 1 && narrowed[0] == 0x40;
     printf("  guest next-scan narrows: %s\n", nextOk ? "OK" : "FAILED");
+
+    // Comparison next-scan: two candidates (0x60=10, 0x64=20); bump one, drop the
+    // other, then keep by increased / decreased.
+    std::vector<std::pair<uint64_t, int32_t>> cand = {{0x60, 10}, {0x64, 20}};
+    be.write<int32_t>(0x60, 15);   // increased
+    be.write<int32_t>(0x64, 5);    // decreased
+    auto inc = ce::guestNextCompare<int32_t>(be, cand, ce::GuestCompare::Increased);
+    auto dec = ce::guestNextCompare<int32_t>(be, cand, ce::GuestCompare::Decreased);
+    bool cmpOk = inc.size() == 1 && inc[0].first == 0x60 && inc[0].second == 15
+              && dec.size() == 1 && dec[0].first == 0x64 && dec[0].second == 5;
+    printf("  compare next-scan (increased/decreased): %s\n", cmpOk ? "OK" : "FAILED");
 }
 
 static void test_cheat_table_json() {

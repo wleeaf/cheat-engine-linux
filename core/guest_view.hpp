@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <cstring>
 #include <optional>
+#include <utility>
 #include <vector>
 
 namespace ce {
@@ -116,6 +117,32 @@ std::vector<uint64_t> guestNextExact(const GuestView& gv, const std::vector<uint
     for (uint64_t g : prev) {
         auto cur = gv.read<T>(g);
         if (cur && *cur == value) out.push_back(g);
+    }
+    return out;
+}
+
+// Comparison next-scan: narrow a candidate set of (guest address, prior value) by how
+// each value changed, without knowing the exact new value (CE's changed / unchanged /
+// increased / decreased). Returns the survivors with their CURRENT value, so the caller
+// can chain further comparisons.
+enum class GuestCompare { Changed, Unchanged, Increased, Decreased };
+template <class T>
+std::vector<std::pair<uint64_t, T>> guestNextCompare(
+        const GuestView& gv, const std::vector<std::pair<uint64_t, T>>& prev, GuestCompare op) {
+    std::vector<std::pair<uint64_t, T>> out;
+    out.reserve(prev.size());
+    for (const auto& [addr, oldv] : prev) {
+        auto cur = gv.read<T>(addr);
+        if (!cur) continue;
+        const T c = *cur;
+        bool keep = false;
+        switch (op) {
+            case GuestCompare::Changed:   keep = c != oldv; break;
+            case GuestCompare::Unchanged: keep = c == oldv; break;
+            case GuestCompare::Increased: keep = c >  oldv; break;
+            case GuestCompare::Decreased: keep = c <  oldv; break;
+        }
+        if (keep) out.emplace_back(addr, c);
     }
     return out;
 }

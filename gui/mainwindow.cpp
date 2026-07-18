@@ -1496,6 +1496,15 @@ void MainWindow::setupUi() {
     connect(addressListModel_, &QAbstractItemModel::modelReset, this, updateTableHint);
     connect(addressListModel_, &QAbstractItemModel::rowsInserted, this, updateTableHint);
     connect(addressListModel_, &QAbstractItemModel::rowsRemoved, this, updateTableHint);
+    // Surface a reverted (protected) manual edit as a status-bar hint toward
+    // find-what-writes, so "my edit doesn't stick" has an explanation.
+    connect(addressListModel_, &AddressListModel::valueReverted, this,
+        [this](uintptr_t addr, const QString& wrote, const QString& now) {
+            statusBar()->showMessage(
+                QString("Value at 0x%1 was reverted (wrote %2, now %3). It looks protected: "
+                        "right-click the entry and choose \"Find what writes\" to locate the "
+                        "code that overwrites it.").arg(addr, 0, 16).arg(wrote).arg(now), 9000);
+        });
     updateTableHint();
     // System-wide hotkeys (X11): fire while the game is focused, like CE. The
     // dispatch map is keyed by the id we hand registerHotkey in rebuildValueHotkeys.
@@ -4811,13 +4820,35 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
             }
             e.currentValue = rawValue;
             if (e.active) e.frozenValue = writeStr;
-            if (proc_)
+            if (proc_) {
                 writeValueToProcess(proc_, e.address, e.type, writeStr);
+                // A non-frozen value that snaps back is protected: warn and point the
+                // user at find-what-writes. A frozen entry is intentionally held, so
+                // the freeze timer, not this, owns its persistence.
+                if (!e.active) scheduleEditVerify(e.address, e.type, writeStr);
+            }
             emit dataChanged(index, index);
             return true;
         }
     }
     return false;
+}
+
+void AddressListModel::scheduleEditVerify(uintptr_t addr, ce::ValueType type, const QString& wroteStr) {
+    if (!proc_) return;
+    bool okNum = false;
+    const double target = QString(wroteStr).replace(',', '.').toDouble(&okNum);
+    if (!okNum) return;   // non-numeric types (string/byte array): no revert check
+    // `this` as the timer context: the callback is skipped if the model is destroyed.
+    QTimer::singleShot(250, this, [this, addr, type, wroteStr, target]() {
+        if (!proc_) return;
+        double now = 0;
+        if (!readComparableValue(proc_, addr, type, now)) return;
+        const double tol = (type == ce::ValueType::Float || type == ce::ValueType::Double)
+                         ? std::abs(target) * 1e-5 + 1e-6 : 0.5;
+        if (std::abs(now - target) > tol)
+            emit valueReverted(addr, wroteStr, QString::number(now, 'g', 10));
+    });
 }
 
 // ── ce::IAddressList implementation ──

@@ -408,9 +408,18 @@ public:
         activationCb_ = std::move(cb);
     }
 
+signals:
+    // Emitted when a value the user just typed (not frozen) snaps back shortly after,
+    // i.e. the game or an integrity check overwrote it. MainWindow surfaces this as a
+    // hint to use "Find what writes".
+    void valueReverted(uintptr_t addr, const QString& wrote, const QString& now);
+
 private:
     bool setEntryActive(int row, bool active);
     void reportActivationError(const QString& title, const QString& message);
+    // After a manual (non-frozen) value edit, re-read shortly after and emit
+    // valueReverted() if the value did not stick (a protected/reverted value).
+    void scheduleEditVerify(uintptr_t addr, ce::ValueType type, const QString& wroteStr);
     int rowOfId(int id) const;
     int allocId() { return nextId_++; }
 

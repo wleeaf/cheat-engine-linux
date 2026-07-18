@@ -69,8 +69,9 @@ to host offsets. Effort: medium. Unlocks: all emulators, and conceptually Wine.
 Shipped: `ce::probeTarget(pid)` -> `TargetProfile` (`core/target_profile.hpp`),
 surfaced on GUI attach (status line + tooltip + already-traced warning) and via
 `cescan info <pid>`. Detects arch, Wine/Proton, TracerPid, seccomp, PID namespace,
-managed runtimes (CoreCLR/Mono/JVM/V8) and known emulators, with a plain-language
-notes list. Remaining/future: endianness, Go detection, packer/entropy heuristics.
+managed runtimes (CoreCLR/Mono/JVM/V8/Go), endianness, and known emulators, with a
+plain-language notes list. Remaining/future: packer/entropy heuristics, per-thread
+state (which threads are latency-critical) for the hijack/watch-thread picker.
 
 Before scanning/attaching, detect and *report*: architecture and endianness, whether
 the process is already traced (`TracerPid`), whether it self-checksums or is packed,

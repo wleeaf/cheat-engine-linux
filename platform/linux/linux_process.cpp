@@ -75,7 +75,10 @@ bool LinuxProcessHandle::runs32BitCode() {
         if (probed >= 12) break;
         pid_t tid = (pid_t)atoi(e->d_name);
         if (tid <= 0) continue;
-        if (ptrace(PTRACE_ATTACH, tid, nullptr, nullptr) != 0) continue;
+        // SEIZE + INTERRUPT (not ATTACH's SIGSTOP): a clean read-only stop that
+        // doesn't disturb a syscall-parked Wine thread's restart state.
+        if (ptrace(PTRACE_SEIZE, tid, nullptr, nullptr) != 0) continue;
+        ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr);
         int st;
         if (waitpid(tid, &st, __WALL) == tid && WIFSTOPPED(st)) {
             struct user_regs_struct r;

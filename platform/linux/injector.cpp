@@ -15,6 +15,26 @@
 
 namespace ce::os {
 
+// Stop a thread for hijacking via PTRACE_SEIZE + PTRACE_INTERRUPT rather than
+// PTRACE_ATTACH's SIGSTOP. SEIZE gives a clean ptrace-stop that preserves an
+// interrupted syscall's restart state, so hijacking a thread parked in a syscall
+// resumes it cleanly. On Wine/Proton the threads sit in esync/fsync/wineserver
+// syscalls almost all the time, and the old ATTACH path corrupted the wineserver
+// RPC and froze the game. Returns true when the thread is stopped.
+static bool seizeStop(pid_t tid) {
+    if (ptrace(PTRACE_SEIZE, tid, nullptr, nullptr) < 0) return false;
+    if (ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) < 0) {
+        ptrace(PTRACE_DETACH, tid, nullptr, nullptr);
+        return false;
+    }
+    int st = 0;
+    if (waitpid(tid, &st, __WALL) != tid || !WIFSTOPPED(st)) {
+        ptrace(PTRACE_DETACH, tid, nullptr, nullptr);
+        return false;
+    }
+    return true;
+}
+
 // Syscall numbers for x86_64
 static constexpr uint64_t NR_MMAP = 9;
 static constexpr uint64_t NR_MUNMAP = 11;
@@ -254,14 +274,8 @@ injectLibrary32(ProcessHandle& proc, SymbolResolver& resolver, const std::string
     if (!dlopenAddr)
         return std::unexpected("dlopen not found in target process symbols");
 
-    if (ptrace(PTRACE_ATTACH, pid, nullptr, nullptr) < 0)
-        return std::unexpected(std::string("ptrace attach failed: ") + strerror(errno));
-
-    int status;
-    if (waitpid(pid, &status, 0) != pid || !WIFSTOPPED(status)) {
-        ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
-        return std::unexpected("target did not stop cleanly after attach");
-    }
+    if (!seizeStop(pid))
+        return std::unexpected(std::string("ptrace seize failed: ") + strerror(errno));
 
     struct SiblingGuard {
         std::vector<pid_t> tids;
@@ -271,10 +285,8 @@ injectLibrary32(ProcessHandle& proc, SymbolResolver& resolver, const std::string
         while (struct dirent* e = ::readdir(d)) {
             pid_t tid = (pid_t)atoi(e->d_name);
             if (tid <= 0 || tid == pid) continue;
-            if (ptrace(PTRACE_ATTACH, tid, nullptr, nullptr) == 0) {
-                int st; waitpid(tid, &st, __WALL);
+            if (seizeStop(tid))
                 siblings.tids.push_back(tid);
-            }
         }
         ::closedir(d);
     }
@@ -372,14 +384,8 @@ injectLibrary(ProcessHandle& proc, SymbolResolver& resolver, const std::string& 
         return std::unexpected("dlopen not found in target process symbols");
 
     // Attach
-    if (ptrace(PTRACE_ATTACH, pid, nullptr, nullptr) < 0)
-        return std::unexpected(std::string("ptrace attach failed: ") + strerror(errno));
-
-    int status;
-    if (waitpid(pid, &status, 0) != pid || !WIFSTOPPED(status)) {
-        ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
-        return std::unexpected("target did not stop cleanly after attach");
-    }
+    if (!seizeStop(pid))
+        return std::unexpected(std::string("ptrace seize failed: ") + strerror(errno));
 
     // Stop every sibling thread too. We hijack the main thread to call dlopen;
     // if the other threads keep running they can enter the dynamic linker (which
@@ -394,11 +400,8 @@ injectLibrary(ProcessHandle& proc, SymbolResolver& resolver, const std::string& 
         while (struct dirent* e = ::readdir(d)) {
             pid_t tid = (pid_t)atoi(e->d_name);
             if (tid <= 0 || tid == pid) continue;
-            if (ptrace(PTRACE_ATTACH, tid, nullptr, nullptr) == 0) {
-                int st;
-                waitpid(tid, &st, __WALL);
+            if (seizeStop(tid))
                 siblings.tids.push_back(tid);
-            }
         }
         ::closedir(d);
     }
@@ -512,16 +515,9 @@ createRemoteThread(ProcessHandle& proc, SymbolResolver& resolver, uintptr_t entr
 
     pid_t pid = proc.pid();
 
-    if (ptrace(PTRACE_ATTACH, pid, nullptr, nullptr) < 0) {
+    if (!seizeStop(pid)) {
         proc.free(*handleStorage, sizeof(uintptr_t));
-        return std::unexpected(std::string("ptrace attach failed: ") + strerror(errno));
-    }
-
-    int status;
-    if (waitpid(pid, &status, 0) != pid || !WIFSTOPPED(status)) {
-        ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
-        proc.free(*handleStorage, sizeof(uintptr_t));
-        return std::unexpected("target did not stop cleanly after attach");
+        return std::unexpected(std::string("ptrace seize failed: ") + strerror(errno));
     }
 
     // Quiesce sibling threads (mirrors injectLibrary): if another thread is inside
@@ -538,10 +534,8 @@ createRemoteThread(ProcessHandle& proc, SymbolResolver& resolver, uintptr_t entr
         while (struct dirent* e = ::readdir(d)) {
             pid_t tid = (pid_t)atoi(e->d_name);
             if (tid <= 0 || tid == pid) continue;
-            if (ptrace(PTRACE_ATTACH, tid, nullptr, nullptr) == 0) {
-                int st; waitpid(tid, &st, __WALL);
+            if (seizeStop(tid))
                 siblings.tids.push_back(tid);
-            }
         }
         ::closedir(d);
     }

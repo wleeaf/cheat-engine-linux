@@ -51,6 +51,10 @@ CodeFinderWindow::CodeFinderWindow(CodeFinder* finder, const QString& title, QWi
     table_->setColumnCount(8);
     table_->setHorizontalHeaderLabels({"Address", "Instruction", "Hits", "RAX", "RBX", "RCX", "RDX", "RIP"});
     table_->horizontalHeader()->setStretchLastSection(false);
+    // Fit the address, hit count and 64-bit register columns to content (they
+    // clipped at the 100px default); the disassembly text takes the slack.
+    for (int c = 0; c < 8; ++c)
+        table_->horizontalHeader()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
     table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setFont(QFont("Monospace", 9));

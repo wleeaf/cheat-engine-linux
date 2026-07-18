@@ -94,7 +94,11 @@ RegisterEditorWindow::RegisterEditorWindow(ProcessHandle* proc, QWidget* parent)
     fpTable_ = new QTableWidget;
     fpTable_->setColumnCount(3);
     fpTable_->setHorizontalHeaderLabels({"Register", "XMM low 128", "YMM high 128"});
+    // The 128-bit hex value columns are 32 chars wide and clipped at the 100px
+    // default; fit the register name and XMM column, YMM (last) stretches.
     fpTable_->horizontalHeader()->setStretchLastSection(true);
+    fpTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    fpTable_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     fpTable_->setFont(QFont("Monospace", 9));
     fpTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     fpTable_->setRowCount(16);

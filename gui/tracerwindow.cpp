@@ -112,6 +112,10 @@ void TracerWindow::buildUi() {
     table_ = new QTableWidget;
     table_->setColumnCount(8);
     table_->setHorizontalHeaderLabels({"#", "Address", "Instruction", "RAX", "RBX", "RCX", "RDX", "RIP"});
+    // Fit the index, address and 64-bit register columns to content (they clipped
+    // at the 100px default); the disassembly text column takes the slack.
+    for (int c = 0; c < 8; ++c)
+        table_->horizontalHeader()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
     table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setFont(QFont("Monospace", 9));

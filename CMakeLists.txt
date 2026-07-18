@@ -381,6 +381,14 @@ if(Qt6_FOUND)
         target_include_directories(gui_debugger_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
         target_link_libraries(gui_debugger_smoke PRIVATE cecore Qt6::Widgets)
 
+        # End-to-end smoke test for the emulator guest-scan dialog.
+        qt_add_executable(gui_guest_scan_smoke
+            test/gui_guest_scan_smoke.cpp
+            gui/guest_scan_dialog.cpp
+        )
+        target_include_directories(gui_guest_scan_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
+        target_link_libraries(gui_guest_scan_smoke PRIVATE cecore Qt6::Widgets)
+
         # Offscreen smoke test for light/dark theme switching.
         qt_add_executable(gui_theme_smoke
             test/gui_theme_smoke.cpp

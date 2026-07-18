@@ -50,6 +50,7 @@ if [ "$MODE" != "--config" ]; then
     ./build/cecore_test >/dev/null && ok "cecore_test"
     QT_QPA_PLATFORM=offscreen ./build/gui_debugger_smoke >/dev/null && ok "gui_debugger_smoke"
     QT_QPA_PLATFORM=offscreen ./build/gui_theme_smoke >/dev/null && ok "gui_theme_smoke"
+    QT_QPA_PLATFORM=offscreen ./build/gui_guest_scan_smoke >/dev/null && ok "gui_guest_scan_smoke"
     ./build/cescan list >/dev/null && ok "cescan launches"
 fi
 

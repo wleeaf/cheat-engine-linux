@@ -69,6 +69,9 @@ static void usage() {
         "  guest-scan <pid> [<value>] --next|--changed|--unchanged|--increased|--decreased\n"
         "                                Narrow the previous guest scan (--next needs a\n"
         "                                value; the comparisons do not)\n"
+        "  guest-write <pid> <guest-addr> <value> [--type <t>] [--be]\n"
+        "                                Write a value to a guest address (region/type\n"
+        "                                reused from the last guest-scan)\n"
         "  lua <script.lua>|-e <code>|-  Run a Lua script (same API as the GUI console)\n"
         "  lua                           Interactive Lua REPL\n"
         "  il2cpp <global-metadata.dat>  Browse a Unity IL2CPP metadata file's classes/fields (offline)\n"
@@ -798,6 +801,50 @@ static int cmd_guest_scan(pid_t pid, const char* valStr, ValueType vt, bool be, 
     return 0;
 }
 
+static int cmd_guest_write(pid_t pid, uint64_t guestAddr, const char* valStr,
+                           ValueType vt, bool be, bool typeSet, bool beSet) {
+    LinuxProcessHandle proc(pid);
+    ce::TargetProfile::GuestRegion region{};
+    bool haveRegion = false;
+    // Reuse the last scan's region/endian/type so `guest-scan` then `guest-write
+    // <addr> <val>` just works; explicit --type/--be override.
+    if (FILE* f = fopen(guestResultPath(pid).c_str(), "r")) {
+        int ver = 0, beI = 0, typeI = 0; unsigned long base = 0, size = 0;
+        if (fscanf(f, "GUESTSCAN %d base %lx size %lx be %d type %d", &ver, &base, &size, &beI, &typeI) == 5) {
+            region.base = base; region.size = size; haveRegion = true;
+            if (!beSet) be = beI != 0;
+            if (!typeSet) vt = (ValueType)typeI;
+        }
+        fclose(f);
+    }
+    if (!haveRegion) {
+        ce::TargetProfile p = ce::probeTarget(pid);
+        if (p.guestCandidates.empty()) {
+            fprintf(stderr, "guest-write: no guest-RAM region for pid %d (scan first, or "
+                            "recognized emulator?)\n", pid);
+            return 1;
+        }
+        region = p.guestCandidates.front();
+    }
+    ce::GuestView gv{ &proc, region.base, region.size, be };
+    bool ok = false;
+    auto run = [&]<class T>() { ok = gv.write<T>(guestAddr, parseVal<T>(valStr)); };
+    switch (vt) {
+        case ValueType::Byte:   run.template operator()<int8_t>();  break;
+        case ValueType::Int16:  run.template operator()<int16_t>(); break;
+        case ValueType::Int32:  run.template operator()<int32_t>(); break;
+        case ValueType::Int64:  run.template operator()<int64_t>(); break;
+        case ValueType::Float:  run.template operator()<float>();   break;
+        case ValueType::Double: run.template operator()<double>();  break;
+        default: fprintf(stderr, "guest-write supports byte/i16/i32/i64/float/double\n"); return 1;
+    }
+    if (ok) printf("wrote %s to guest 0x%llx (host 0x%lx, %s-endian)\n", valStr,
+                   (unsigned long long)guestAddr, (unsigned long)gv.toHost(guestAddr), be ? "big" : "little");
+    else    fprintf(stderr, "guest-write: failed (guest 0x%llx out of range or unwritable)\n",
+                    (unsigned long long)guestAddr);
+    return ok ? 0 : 1;
+}
+
 static int cmd_info(pid_t pid) {
     ce::TargetProfile p = ce::probeTarget(pid);
     if (!p.valid) { fprintf(stderr, "pid %d: not inspectable (gone, or permission)\n", pid); return 1; }
@@ -1257,6 +1304,15 @@ int main(int argc, char** argv) {
             fprintf(stderr, "guest-scan: missing <value>\n"); return 1;
         }
         return cmd_guest_scan(parsePid(argv[2]), val, vt, be, align, op, cmp);
+    }
+    else if (!strcmp(cmd, "guest-write") && argc >= 5) {
+        ValueType vt = ValueType::Int32; bool be = false, typeSet = false, beSet = false;
+        for (int i = 5; i < argc; ++i) {
+            if (!strcmp(argv[i], "--type") && i + 1 < argc) { vt = parseType(argv[++i]); typeSet = true; }
+            else if (!strcmp(argv[i], "--be")) { be = true; beSet = true; }
+        }
+        return cmd_guest_write(parsePid(argv[2]), strtoull(argv[3], nullptr, 0), argv[4],
+                               vt, be, typeSet, beSet);
     }
     else if (!strcmp(cmd, "read") && argc >= 4) {
         // Cap the requested size so an adversarial/typo'd argument can't trigger

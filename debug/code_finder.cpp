@@ -222,38 +222,32 @@ void CodeFinder::recordHit(pid_t tid, bool afterInstruction) {
     entry.hitCount++;
 }
 
-// Inject a syscall into an already ptrace-stopped, traced thread (the caller owns
-// the stop; unlike LinuxProcessHandle::remoteSyscall this neither attaches nor
-// detaches, so it can run while we hold every thread seized — calling the normal
-// protect(), which re-attaches, would conflict with that seize). Mirrors the ABI
-// handling: a WoW64 / 32-bit compat-mode thread (CS low byte 0x23) goes through
-// int 0x80 with the i386 syscall number. Returns the syscall result, or -1.
-static long injectSyscallStopped(pid_t tid, long nr64,
-                                 uint64_t a1, uint64_t a2, uint64_t a3) {
+// Run a syscall in an already ptrace-stopped, traced thread by pointing its RIP at
+// a pre-placed syscall GADGET (a `syscall` / `int 0x80` instruction in a scratch
+// page we own), NOT by overwriting the instruction at the thread's own RIP. That
+// matters in a multithreaded target: sibling threads run the same code, so poking
+// a syscall over a shared instruction makes them execute it too and corrupts the
+// process (observed as a SIGSEGV / game crash). The gadget page is private, so no
+// running thread ever executes it. WoW64 / 32-bit compat threads (CS 0x23) use the
+// int 0x80 gadget with the i386 syscall number. Returns the syscall result, or -1.
+static long injectSyscallGadget(pid_t tid, uintptr_t gadget64, uintptr_t gadget32,
+                                long nr64, uint64_t a1, uint64_t a2, uint64_t a3) {
     struct user_regs_struct oldRegs, regs;
     if (ptrace(PTRACE_GETREGS, tid, nullptr, &oldRegs) < 0) return -1;
     regs = oldRegs;
     regs.orig_rax = (unsigned long long)-1;   // no syscall-restart on resume
 
     const bool mode32 = ((oldRegs.cs & 0xFFu) == 0x23u);
-    uint64_t instrWord;
     if (mode32) {
         uint32_t nr32 = (nr64 == 10) ? 125u : (uint32_t)nr64;  // mprotect -> i386 125
         regs.rax = nr32;
         regs.rbx = a1; regs.rcx = a2; regs.rdx = a3;
-        instrWord = 0x80CDull;  // int 0x80
+        regs.rip = gadget32;
     } else {
         regs.rax = (unsigned long long)nr64;
         regs.rdi = a1; regs.rsi = a2; regs.rdx = a3;
-        instrWord = 0x050full;  // syscall
+        regs.rip = gadget64;
     }
-
-    errno = 0;
-    uint64_t origInstr = ptrace(PTRACE_PEEKTEXT, tid, (void*)oldRegs.rip, nullptr);
-    if (origInstr == (uint64_t)-1 && errno != 0) return -1;
-    if (ptrace(PTRACE_POKETEXT, tid, (void*)oldRegs.rip,
-               (void*)((origInstr & ~0xFFFFULL) | instrWord)) < 0)
-        return -1;
 
     long result = -1;
     int status;
@@ -265,8 +259,8 @@ static long injectSyscallStopped(pid_t tid, long nr64,
             result = mode32 ? (long)(int32_t)(after.rax & 0xFFFFFFFFu)
                             : (long)after.rax;
     }
-    // Always restore the clobbered instruction word and the saved registers.
-    ptrace(PTRACE_POKETEXT, tid, (void*)oldRegs.rip, (void*)origInstr);
+    // Restore the saved registers (RIP goes back to the faulting store); no shared
+    // instruction was ever modified, so nothing else to undo.
     ptrace(PTRACE_SETREGS, tid, nullptr, &oldRegs);
     return result;
 }
@@ -295,6 +289,18 @@ void CodeFinder::monitorLoopSoftware() {
     // read too (PROT_NONE) so reads fault as well — heavier, but that is inherent.
     const int guardProt = writesOnly_ ? (origProt & ~2) : 0;
 
+    // Allocate a scratch syscall-gadget page BEFORE seizing (allocate() attaches on
+    // its own, so it must not run while we hold the seize). Place it near the target
+    // so a WoW64 32-bit thread — whose RIP must be < 4 GB — can jump to it. Write a
+    // `syscall` gadget for 64-bit threads and an `int 0x80` gadget for 32-bit ones.
+    auto scratchRes = proc_->allocate(4096, MemProt::All, targetAddress_);
+    if (!scratchRes) { running_ = false; return; }
+    const uintptr_t scratch = *scratchRes;
+    const uintptr_t gadget64 = scratch;
+    const uintptr_t gadget32 = scratch + 16;
+    { const uint8_t g64[2] = {0x0f, 0x05}; proc_->write(gadget64, g64, sizeof(g64)); }   // syscall
+    { const uint8_t g32[2] = {0xcd, 0x80}; proc_->write(gadget32, g32, sizeof(g32)); }   // int 0x80
+
     std::set<pid_t> attached;
     std::vector<pid_t> tids;
     for (auto& t : proc_->threads()) tids.push_back(t.tid);
@@ -311,10 +317,15 @@ void CodeFinder::monitorLoopSoftware() {
         }
         attached.insert(tid);
     }
-    if (attached.empty() || anyStopped < 0) { running_ = false; return; }
+    if (attached.empty() || anyStopped < 0) {
+        proc_->free(scratch, 4096);
+        running_ = false;
+        return;
+    }
 
-    // Arm the guard from inside the target, then resume every thread.
-    injectSyscallStopped(anyStopped, 10 /*mprotect*/, pageStart, pageLen, guardProt);
+    // Arm the guard from inside the target (via the gadget), then resume all threads.
+    injectSyscallGadget(anyStopped, gadget64, gadget32, 10 /*mprotect*/,
+                        pageStart, pageLen, guardProt);
     for (pid_t tid : attached) ptrace(PTRACE_CONT, tid, nullptr, nullptr);
 
     while (!stopRequested_) {
@@ -350,11 +361,11 @@ void CodeFinder::monitorLoopSoftware() {
                         recordHit(w, /*afterInstruction=*/false);
                     // Let the faulting instruction complete: briefly restore the real
                     // protection, single-step over the store, then re-arm the guard.
-                    injectSyscallStopped(w, 10, pageStart, pageLen, origProt);
+                    injectSyscallGadget(w, gadget64, gadget32, 10, pageStart, pageLen, origProt);
                     if (ptrace(PTRACE_SINGLESTEP, w, nullptr, nullptr) == 0) {
                         int st; waitpid(w, &st, __WALL);
                     }
-                    injectSyscallStopped(w, 10, pageStart, pageLen, guardProt);
+                    injectSyscallGadget(w, gadget64, gadget32, 10, pageStart, pageLen, guardProt);
                     ptrace(PTRACE_CONT, w, nullptr, nullptr);
                 } else {
                     // A genuine segfault elsewhere — forward it so the game / Wine
@@ -378,7 +389,8 @@ void CodeFinder::monitorLoopSoftware() {
         }
     }
 
-    // Cleanup: restore the page's original protection once, then detach every thread.
+    // Cleanup: restore the page's original protection once, detach every thread,
+    // then release the scratch gadget page.
     bool restored = false;
     for (pid_t tid : attached) {
         if (ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) != 0)
@@ -388,11 +400,12 @@ void CodeFinder::monitorLoopSoftware() {
         if (r != tid || WIFEXITED(st) || WIFSIGNALED(st))
             continue;
         if (!restored) {
-            injectSyscallStopped(tid, 10, pageStart, pageLen, origProt);
+            injectSyscallGadget(tid, gadget64, gadget32, 10, pageStart, pageLen, origProt);
             restored = true;
         }
         ptrace(PTRACE_DETACH, tid, nullptr, nullptr);
     }
+    proc_->free(scratch, 4096);
     running_ = false;
 }
 

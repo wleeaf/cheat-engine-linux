@@ -44,8 +44,21 @@ the multithread `mt soft bp` timing check (already retried in-test).
   running. Treat `.CT` / `.CETRAINER` / ELF / DWARF as untrusted (bounds-checked,
   size-capped, Lua conditions sandboxed + instruction-limited). Don't add
   detection-evasion or anti-cheat-bypass features — out of scope.
+- **Wine/Proton ptrace safety:** never `PTRACE_SEIZE`/stop the *whole* thread group
+  of a Wine/Proton game for a *transient* op, and never hijack a syscall-parked
+  thread with `PTRACE_ATTACH`. Both deadlock the game (its wineserver / esync-fsync
+  / GPU threads sit in syscalls). Rules: `PTRACE_SEIZE + PTRACE_INTERRUPT` (not
+  ATTACH) for a clean stop that preserves syscall restart; for watchpoints on Wine,
+  arm a hardware DR on the **main thread only** (`CodeFinder` single-thread mode);
+  never use the software page-guard on Wine (its `mprotect` fights Proton's kernel
+  write-watch/userfaultfd). The full debugger and break-and-trace deliberately stop
+  the whole process (that is their purpose). WoW64 32-bit syscall results: only
+  `[0xFFFFF001,0xFFFFFFFF]` is `-errno`; zero-extend everything else (a valid
+  `mmap2` address can be > 2 GB). See the `wine-watchpoint-software` memory.
 - **Diagnostics:** `CE_LOG=debug`, per-subsystem `CE_LOG=ptrace:trace`, or
   `CE_LOG_FILE=/path` turn on `ce::log` at runtime with no rebuild.
+  `CE_CODEFINDER_MODE=hw|sw|st` forces the find-what-writes backend (all-thread
+  hardware / software page-guard / single-thread hardware).
 - **Writing style:** never use em dashes (`—`) or en dashes (`–`) as punctuation;
   use commas, parentheses, colons, or separate sentences.
 

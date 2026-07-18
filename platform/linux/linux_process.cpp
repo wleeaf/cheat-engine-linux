@@ -23,6 +23,7 @@
 #include <cerrno>
 #include <cstring>
 #include "core/log.hpp"
+#include "core/ns_attach.hpp"
 
 namespace ce::os {
 
@@ -657,6 +658,13 @@ std::vector<ModuleInfo> LinuxProcessHandle::modules() {
             mods.push_back(std::move(m));
         }
     }
+    // Make backing-file paths host-openable for sandboxed targets (Flatpak/Snap/
+    // container): a path like /app/bin/game exists only inside the target's mount
+    // namespace, so redirect it through /proc/<pid>/root so symbol loading and
+    // module analysis work. No-op for normal processes (path already exists). The
+    // display name (m.name, a basename) is untouched.
+    for (auto& m : mods)
+        if (!m.path.empty()) m.path = resolveProcPath(pid_, m.path);
     return mods;
 }
 

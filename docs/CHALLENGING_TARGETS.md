@@ -53,12 +53,19 @@ to managed runtimes and W^X JITs: instead of fighting the runtime from outside, 
 it from inside. Effort: medium (foundation exists). Unlocks: .NET, JVM, Go, V8,
 emulators (agent inside the emulator), W^X patching (the agent flips its own pages).
 
-### C. Namespace-aware attach
+### C. Namespace-aware attach  [STARTED]
 Resolve a target that lives in a PID/mount/user namespace (Flatpak, Snap, Firejail,
 Docker): translate host<->namespace PIDs (`/proc/<pid>/status` `NSpid`), read the
 right `/proc/<pid>/root/...` for maps/exe, and enter the namespace
 (`setns`) when needed for `process_vm_readv`. Effort: medium. Unlocks: sandboxed apps,
 containers, multi-process browsers.
+Shipped: `core/ns_attach.hpp` (`resolveProcPath`/`nsInnerPid`/`isPidNamespaced`).
+`LinuxProcessHandle::modules()` now redirects each module's backing-file path through
+`/proc/<pid>/root` when it exists only inside the target's mount namespace, so symbol
+loading and module analysis work on sandboxed targets (`process_vm_readv` already
+worked; the files did not open). Validated against a real private-mount-namespace
+process. Remaining: NSpid-based picker badges, region-path resolution, `setns` for
+targets where cross-namespace `process_vm_readv` is refused.
 
 ### D. Guest-memory / address-translation model
 A generic "the interesting memory is a buffer inside another process, at an offset,
@@ -306,7 +313,8 @@ games, RE, learning, native Linux):
 2. **Emulators, scan/edit/freeze (block D + adapters).** Highest user value, in scope,
    medium effort. Start with Dolphin, PCSX2, RPCS3, DuckStation.
 3. **Namespace-aware attach (block C).** Flatpak/Snap are the desktop default; medium
-   effort.
+   effort. STARTED: mount-namespace backing-file resolution (symbols/analysis on
+   sandboxed targets) landed; PID-translation UI and `setns` fallback remain.
 4. **Agent framework generalization (block B)** then a **.NET / Godot / Go** resolver.
    The honest fix for moving-GC targets.
 5. **Arch abstraction (block A)** then an **ARM64 backend.** Large but increasingly

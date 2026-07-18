@@ -26,6 +26,7 @@
 #include "core/log.hpp"
 #include "core/target_profile.hpp"
 #include "core/guest_view.hpp"
+#include "core/ns_attach.hpp"
 #include "arch/disassembler.hpp"
 #include "core/expression.hpp"
 #include "core/trainer.hpp"
@@ -171,6 +172,32 @@ private:
     std::vector<Segment> segments_;
     std::vector<ModuleInfo> modules_;
 };
+
+static void test_ns_attach() {
+    printf("\n── Test: Namespace-aware path resolution ──\n");
+    const pid_t self = getpid();
+
+    // Non-absolute pseudo-paths and empty are passed through untouched.
+    bool passthrough = ce::resolveProcPath(self, "[heap]") == "[heap]"
+                    && ce::resolveProcPath(self, "") == ""
+                    && ce::resolveProcPath(self, "[stack]") == "[stack]";
+    printf("  non-file paths passthrough: %s\n", passthrough ? "OK" : "FAILED");
+
+    // A path that exists on the host is returned as-is (the common, non-sandboxed
+    // case), not rewritten through /proc/<pid>/root.
+    bool hostPath = ce::resolveProcPath(self, "/proc/self/status") == "/proc/self/status";
+    printf("  existing host path unchanged: %s\n", hostPath ? "OK" : "FAILED");
+
+    // A path that exists nowhere is returned unchanged, so the caller fails exactly
+    // as it would have without resolution.
+    bool missing = ce::resolveProcPath(self, "/no/such/file/xyzzy") == "/no/such/file/xyzzy";
+    printf("  missing path unchanged: %s\n", missing ? "OK" : "FAILED");
+
+    // We are not sandboxed, so the inner-namespace pid is our own and we report as
+    // not namespaced.
+    bool nsSelf = ce::nsInnerPid(self) == self && !ce::isPidNamespaced(self);
+    printf("  self not namespaced: %s\n", nsSelf ? "OK" : "FAILED");
+}
 
 static void test_target_profile() {
     printf("\n── Test: Target capability probe ──\n");
@@ -9653,6 +9680,7 @@ int main(int argc, char* argv[]) {
 
     test_target_profile();
     test_guest_view();
+    test_ns_attach();
     test_cheat_table_json();
     test_mono_dissector_parse();
     test_breakpoint_condition();

@@ -199,6 +199,7 @@ add_library(cecore SHARED
     platform/linux/kernel_driver.cpp
     platform/linux/linux_process.cpp
     platform/linux/target_profile.cpp
+    platform/linux/ns_attach.cpp
     platform/linux/ptrace_wrapper.cpp
     platform/linux/injector.cpp
     platform/linux/process_watcher.cpp

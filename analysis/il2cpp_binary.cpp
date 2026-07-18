@@ -1,4 +1,5 @@
 #include "analysis/il2cpp_binary.hpp"
+#include "core/ns_attach.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -564,9 +565,17 @@ Il2CppBinaryLayout resolveIl2CppForProcess(ProcessHandle& proc) {
     namespace fs = std::filesystem;
     Il2CppBinaryLayout out;
 
+    // Make backing-file paths host-openable for sandboxed targets (Flatpak, and
+    // Steam Proton's pressure-vessel bwrap): global-metadata.dat is a data file so it
+    // shows up as a file-backed REGION (not a module), with a path that exists only
+    // inside the sandbox's mount namespace. modules() already resolves module paths;
+    // resolve the region paths here too so the metadata and a region-sourced
+    // GameAssembly open. resolveProcPath is a no-op for normal processes.
+    const pid_t pid = proc.pid();
     std::vector<std::string> paths;
     for (const auto& m : proc.modules()) if (!m.path.empty()) paths.push_back(m.path);
-    for (const auto& r : proc.queryRegions()) if (!r.path.empty()) paths.push_back(r.path);
+    for (const auto& r : proc.queryRegions())
+        if (!r.path.empty()) paths.push_back(ce::resolveProcPath(pid, r.path));
 
     auto metaPath = findIl2CppMetadataPath(paths);
     if (!metaPath) { out.error = "global-metadata.dat not found for this process"; return out; }

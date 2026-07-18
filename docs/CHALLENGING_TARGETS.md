@@ -63,9 +63,12 @@ Shipped: `core/ns_attach.hpp` (`resolveProcPath`/`nsInnerPid`/`isPidNamespaced`)
 `LinuxProcessHandle::modules()` now redirects each module's backing-file path through
 `/proc/<pid>/root` when it exists only inside the target's mount namespace, so symbol
 loading and module analysis work on sandboxed targets (`process_vm_readv` already
-worked; the files did not open). Validated against a real private-mount-namespace
-process. Remaining: NSpid-based picker badges, region-path resolution, `setns` for
-targets where cross-namespace `process_vm_readv` is refused.
+worked; the files did not open). IL2CPP discovery resolves file-backed *region* paths
+too, so `global-metadata.dat` (a data file, not a module) opens on Flatpak/Steam-Proton
+(pressure-vessel) Unity games. `TargetProfile` reports the inner-namespace pid.
+Validated against real private-mount-namespace processes and a live Flatpak app.
+Remaining: NSpid-based picker badges, `setns` for targets where cross-namespace
+`process_vm_readv` is refused.
 
 ### D. Guest-memory / address-translation model
 A generic "the interesting memory is a buffer inside another process, at an offset,

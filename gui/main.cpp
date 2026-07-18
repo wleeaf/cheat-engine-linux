@@ -119,10 +119,13 @@ int main(int argc, char* argv[]) {
     const QStringList cliArgs = app.arguments();
     uintptr_t memviewAddr = 0;
     bool wantMemview = false, wantSettings = false;
-    QString wantPanel;
+    QString wantPanel, wantSettingsPage;
     for (int i = 1; i < cliArgs.size(); ++i) {
         if (cliArgs.at(i) == QLatin1String("--settings")) {
             wantSettings = true;
+        } else if (i + 1 < cliArgs.size() && cliArgs.at(i) == QLatin1String("--settings-page")) {
+            wantSettings = true;
+            wantSettingsPage = cliArgs.at(i + 1);
         } else if (i + 1 < cliArgs.size() && cliArgs.at(i) == QLatin1String("--panel")) {
             wantPanel = cliArgs.at(i + 1);
         } else if (i + 1 < cliArgs.size() && cliArgs.at(i) == QLatin1String("--pid")) {
@@ -142,7 +145,7 @@ int main(int argc, char* argv[]) {
     }
     // `--settings` opens the Settings dialog on launch (jump straight to it).
     if (wantSettings) {
-        if (auto* dlg = w.openSettingsDialog())
+        if (auto* dlg = w.openSettingsDialog(wantSettingsPage))
             shotTarget = dlg;
     }
     // `--panel <name>` opens the panel whose menu entry contains <name> (for

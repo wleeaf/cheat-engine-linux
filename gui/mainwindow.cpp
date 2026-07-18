@@ -3363,7 +3363,7 @@ QWidget* MainWindow::openPanelByName(const QString& name) {
     return nullptr;
 }
 
-QDialog* MainWindow::openSettingsDialog() {
+QDialog* MainWindow::openSettingsDialog(const QString& page) {
     auto* dlg = new SettingsDialog(this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     // Apply the (possibly changed) auto-refresh interval live when it closes.
@@ -3371,6 +3371,14 @@ QDialog* MainWindow::openSettingsDialog() {
         if (valueRefreshTimer_)
             valueRefreshTimer_->start(QSettings().value("memview/refreshMs", 500).toInt());
     });
+    // Optionally jump straight to a named category (used by the UI screenshot
+    // harness, and handy for deep-linking to a settings page).
+    if (!page.isEmpty()) {
+        if (auto* nav = dlg->findChild<QListWidget*>("settingsNav")) {
+            auto matches = nav->findItems(page, Qt::MatchContains);
+            if (!matches.isEmpty()) nav->setCurrentItem(matches.first());
+        }
+    }
     dlg->show();
     dlg->raise();
     return dlg;

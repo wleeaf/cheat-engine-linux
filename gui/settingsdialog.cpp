@@ -314,6 +314,7 @@ QWidget* SettingsDialog::buildHotkeysTab() {
     hotkeyTable_->setColumnCount(2);
     hotkeyTable_->setHorizontalHeaderLabels({"Setting", "Value"});
     hotkeyTable_->horizontalHeader()->setStretchLastSection(true);
+    hotkeyTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     hotkeyTable_->setRowCount(1);
     hotkeyTable_->setItem(0, 0, new QTableWidgetItem("Default value step"));
     hotkeyTable_->setItem(0, 1, new QTableWidgetItem(s.value(HK_VALUE_STEP_KEY, "1").toString()));

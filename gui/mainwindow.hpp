@@ -61,7 +61,7 @@ public:
 
     /// Open the Settings dialog (non-modal) and return it. Used by the Edit menu
     /// and the `--settings` launch flag.
-    QDialog* openSettingsDialog();
+    QDialog* openSettingsDialog(const QString& page = QString());
 
     /// Dev/screenshot hook: trigger the first menu action whose text contains
     /// `name` (reusing its normal open code) and return the window it spawned, so

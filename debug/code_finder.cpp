@@ -1,6 +1,8 @@
 #include "debug/code_finder.hpp"
 #include "core/log.hpp"
+#include "symbols/elf_symbols.hpp"
 
+#include <cstdlib>
 #include <sys/ptrace.h>
 #include <sys/wait.h>
 #include <sys/user.h>
@@ -211,6 +213,37 @@ void CodeFinder::monitorLoop() {
         ptrace(PTRACE_DETACH, tid, nullptr, nullptr); // signal 0 = drop pending
     }
     running_ = false;
+}
+
+RecoveredInstruction recoverStoreInstruction(ProcessHandle& proc, SymbolResolver& resolver,
+                                             uintptr_t trapRip, bool is64) {
+    RecoveredInstruction out;
+    if (trapRip == 0) return out;
+    // Anchor the forward decode at the enclosing function so instruction boundaries are
+    // unambiguous; fall back to a bounded lookback when the address is unsymbolized.
+    uintptr_t anchor = (trapRip > 48) ? trapRip - 48 : 0;
+    std::string sym = resolver.resolve(trapRip - 1);
+    if (auto plus = sym.rfind("+0x"); plus != std::string::npos) {
+        uintptr_t off = std::strtoull(sym.c_str() + plus + 3, nullptr, 16);
+        uintptr_t fstart = (trapRip - 1) - off;
+        if (fstart < trapRip && trapRip - fstart <= 4096) anchor = fstart;
+    }
+    const size_t span = trapRip - anchor;
+    std::vector<uint8_t> buf(span + 16);
+    auto r = proc.read(anchor, buf.data(), buf.size());
+    if (!r || *r < span) return out;
+    Disassembler dis(is64 ? Arch::X86_64 : Arch::X86_32);
+    auto insns = dis.disassemble(anchor, {buf.data(), *r}, span + 4);
+    for (auto& in : insns) {
+        if (in.address >= trapRip) break;
+        if (in.address + in.size == trapRip) {
+            out.address = in.address;
+            out.text = in.operands.empty() ? in.mnemonic : in.mnemonic + " " + in.operands;
+            out.ok = true;
+            return out;
+        }
+    }
+    return out;
 }
 
 void CodeFinder::recordHit(pid_t tid, bool afterInstruction) {

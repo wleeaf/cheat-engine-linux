@@ -588,37 +588,6 @@ static int cmd_freeze(pid_t pid, uintptr_t addr, const char* valStr, ValueType v
     return 0;
 }
 
-// A hardware watchpoint traps AFTER the store retires, so firstContext.rip points at
-// the instruction FOLLOWING the writer. CodeFinder's backward-disassembly picks the
-// longest decode ending at rip, which can land a few bytes early on dense code. Recover
-// the exact store by disassembling FORWARD from the enclosing function (from the symbol)
-// and returning the instruction that ends exactly at rip.
-static bool recoverStore(LinuxProcessHandle& proc, Disassembler& dis, SymbolResolver& resolver,
-                         uintptr_t rip, uintptr_t& outAddr, std::string& outText) {
-    if (rip == 0) return false;
-    uintptr_t anchor = (rip > 48) ? rip - 48 : 0;
-    std::string s = resolver.resolve(rip - 1);            // symbol inside the store
-    if (auto plus = s.rfind("+0x"); plus != std::string::npos) {
-        uintptr_t off = strtoull(s.c_str() + plus + 3, nullptr, 16);
-        uintptr_t fstart = (rip - 1) - off;
-        if (fstart < rip && rip - fstart <= 4096) anchor = fstart;   // enclosing function
-    }
-    const size_t span = rip - anchor;
-    std::vector<uint8_t> buf(span + 16);
-    auto r = proc.read(anchor, buf.data(), buf.size());
-    if (!r || *r < span) return false;
-    auto insns = dis.disassemble(anchor, {buf.data(), *r}, span + 4);
-    for (auto& in : insns) {
-        if (in.address >= rip) break;
-        if (in.address + in.size == rip) {
-            outAddr = in.address;
-            outText = in.operands.empty() ? in.mnemonic : in.mnemonic + " " + in.operands;
-            return true;
-        }
-    }
-    return false;
-}
-
 // Dump the general-purpose registers captured at a writer instruction and, for a
 // pointer path, flag any register that holds the target address or a base such that
 // target == [reg + offset] (the struct base you would pointer-scan for).
@@ -689,7 +658,6 @@ static int cmd_watch(pid_t pid, uintptr_t addr, bool writesOnly, int watchSize,
     // Symbolicate each writer instruction (symbol, else module+offset), like disasm.
     SymbolResolver resolver; resolver.loadProcess(proc);
     auto modules = proc.modules();
-    Disassembler dis(proc.is64bit() ? Arch::X86_64 : Arch::X86_32);
     printf("\n%zu instruction(s) %s 0x%lx (most hits first):\n", results.size(),
            writesOnly ? "wrote" : "accessed", addr);
     for (auto& r : results) {
@@ -698,8 +666,8 @@ static int cmd_watch(pid_t pid, uintptr_t addr, bool writesOnly, int watchSize,
         uintptr_t insAddr = r.instructionAddress;
         std::string insText = r.instructionText;
         if (!software) {
-            uintptr_t a; std::string t;
-            if (recoverStore(proc, dis, resolver, r.firstContext.rip, a, t)) { insAddr = a; insText = t; }
+            auto rec = ce::recoverStoreInstruction(proc, resolver, r.firstContext.rip, proc.is64bit());
+            if (rec.ok) { insAddr = rec.address; insText = rec.text; }
         }
         std::string loc = resolver.resolve(insAddr);
         if (loc.empty()) loc = ce::moduleOffsetString(modules, insAddr);

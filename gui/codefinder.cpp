@@ -54,8 +54,11 @@ static QString fullRegisterDump(const ce::CpuContext& ctx) {
     return s;
 }
 
-CodeFinderWindow::CodeFinderWindow(CodeFinder* finder, const QString& title, QWidget* parent)
-    : QMainWindow(parent), finder_(finder) {
+CodeFinderWindow::CodeFinderWindow(CodeFinder* finder, const QString& title,
+                                   ce::ProcessHandle* proc, QWidget* parent)
+    : QMainWindow(parent), finder_(finder), proc_(proc) {
+    // Load symbols once so exact-store recovery can anchor at the enclosing function.
+    if (proc_) symbols_.loadProcess(*proc_);
     setWindowTitle(title);
     resize(1100, 500);
 
@@ -152,8 +155,17 @@ void CodeFinderWindow::refresh() {
         if (!ptr.isEmpty())
             ptrItem->setToolTip("This instruction addresses the value via this register; "
                                 "pointer-scan the base for a stable address.");
-        table_->setItem(i, 0, new QTableWidgetItem(hexQ(r.instructionAddress)));
-        table_->setItem(i, 1, new QTableWidgetItem(QString::fromStdString(r.instructionText)));
+        // A hardware watchpoint traps one instruction past the store, so recover the
+        // exact writer from the trap rip (software page-guard already stops on it).
+        uintptr_t insAddr = r.instructionAddress;
+        QString insText = QString::fromStdString(r.instructionText);
+        if (proc_ && !finder_->softwareWatch()) {
+            auto rec = ce::recoverStoreInstruction(*proc_, symbols_, r.firstContext.rip,
+                                                   proc_->is64bit());
+            if (rec.ok) { insAddr = rec.address; insText = QString::fromStdString(rec.text); }
+        }
+        table_->setItem(i, 0, new QTableWidgetItem(hexQ(insAddr)));
+        table_->setItem(i, 1, new QTableWidgetItem(insText));
         table_->setItem(i, 2, new QTableWidgetItem(QString::number(r.hitCount)));
         table_->setItem(i, 3, ptrItem);
         table_->setItem(i, 4, new QTableWidgetItem(hexQ(c.rax)));

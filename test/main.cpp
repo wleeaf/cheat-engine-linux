@@ -174,6 +174,32 @@ private:
     std::vector<ModuleInfo> modules_;
 };
 
+static void test_recover_store() {
+    printf("\n── Test: Exact store recovery (find-what-writes) ──\n");
+    // mov edx,[rax]; add edx,1; mov [rax],edx; mov edi,0x7d0
+    //   8b 10 | 83 c2 01 | 89 10 | bf d0 07 00 00
+    // A hardware watchpoint traps with rip AT the `mov edi` (offset 7). The writer is
+    // the 2-byte `mov [rax],edx` at +5, but the longest decode that also ends at rip
+    // starts at +1 (a 6-byte `adc`). Recovery must resolve to +5, not the +1 mis-decode.
+    const uintptr_t base = 0x400000;
+    std::vector<uint8_t> code = {0x8b,0x10, 0x83,0xc2,0x01, 0x89,0x10, 0xbf,0xd0,0x07,0x00,0x00};
+    FakeProcessHandle proc({
+        {{base, code.size(), MemProt::ReadExec, MemType::Image, MemState::Committed, "test"}, code},
+    }, {});
+    SymbolResolver resolver;
+    resolver.addUserSymbol(base, "func");   // enclosing-function anchor
+    auto rec = ce::recoverStoreInstruction(proc, resolver, base + 7, /*is64*/true);
+    bool ok = rec.ok && rec.address == base + 5
+           && rec.text.find("mov") != std::string::npos
+           && rec.text.find("[rax]") != std::string::npos;
+    printf("  recovers 'mov [rax],edx' at +5 (not the +1 adc): %s (got +0x%lx '%s')\n",
+           ok ? "OK" : "FAILED", (unsigned long)(rec.address - base), rec.text.c_str());
+
+    // Empty/zero rip is a no-op (ok=false), so callers keep the original instruction.
+    auto none = ce::recoverStoreInstruction(proc, resolver, 0, true);
+    printf("  zero rip -> not recovered: %s\n", (!none.ok) ? "OK" : "FAILED");
+}
+
 static void test_value_codec() {
     printf("\n── Test: Value codecs (obfuscated values) ──\n");
     using C = ce::ValueCodec;
@@ -9738,6 +9764,7 @@ int main(int argc, char* argv[]) {
     test_guest_view();
     test_ns_attach();
     test_value_codec();
+    test_recover_store();
     test_cheat_table_json();
     test_mono_dissector_parse();
     test_breakpoint_condition();

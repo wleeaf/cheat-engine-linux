@@ -13,6 +13,8 @@
 
 namespace ce {
 
+class SymbolResolver;
+
 struct CodeFinderResult {
     uintptr_t instructionAddress;
     std::string instructionText;
@@ -21,6 +23,23 @@ struct CodeFinderResult {
     CpuContext firstContext{}; // Register state at the first time this instruction hit
     CpuContext lastContext{};  // Register state at the most recent hit
 };
+
+struct RecoveredInstruction {
+    uintptr_t address = 0;
+    std::string text;   // "mnemonic operands"
+    bool ok = false;
+};
+
+/// A hardware watchpoint traps AFTER the store retires, so `trapRip` (a hit's
+/// firstContext.rip) points at the instruction FOLLOWING the writer. CodeFinder's
+/// backward disassembly picks the longest decode ending at rip, which can land a few
+/// bytes early on dense code and mis-decode. This recovers the exact store by
+/// disassembling FORWARD from the enclosing function (located via the symbol resolver)
+/// up to `trapRip` and returning the instruction that ends exactly there. It is not
+/// needed for software page-guard hits (those already stop on the store). Returns
+/// ok=false if it cannot be recovered (caller should keep the original instruction).
+RecoveredInstruction recoverStoreInstruction(ProcessHandle& proc, SymbolResolver& resolver,
+                                             uintptr_t trapRip, bool is64);
 
 class CodeFinder {
 public:
@@ -52,6 +71,10 @@ public:
 
     /// The address being watched (for pointer-path hints in the UI).
     uintptr_t targetAddress() const { return targetAddress_; }
+
+    /// True if the software page-guard backend is in use (its hits stop on the store,
+    /// so exact-store recovery is unnecessary); false for a hardware watchpoint.
+    bool softwareWatch() const { return software_; }
 
     /// Get accumulated results (grouped by instruction address, sorted by hit count).
     std::vector<CodeFinderResult> results() const;

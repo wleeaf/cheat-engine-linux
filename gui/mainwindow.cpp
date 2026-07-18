@@ -3380,7 +3380,7 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
 
     auto title = writesOnly ? "Find what writes" : "Find what accesses";
     auto* window = new CodeFinderWindow(finderPtr,
-        QString("%1 0x%2").arg(title).arg(addr, 0, 16), this);
+        QString("%1 0x%2").arg(title).arg(addr, 0, 16), process_.get(), this);
     window->setAttribute(Qt::WA_DeleteOnClose);
     // Closing the window stops the monitor so it releases the traced thread / debug
     // register (otherwise a later find-what-writes could not seize it). `this`

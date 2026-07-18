@@ -41,21 +41,49 @@ std::string basenameOf(const std::string& p) {
     return slash == std::string::npos ? p : p.substr(slash + 1);
 }
 
-TargetProfile::Arch archFromElf(pid_t pid) {
+void elfIdent(pid_t pid, TargetProfile& p) {
     std::string hdr = slurp("/proc/" + std::to_string(pid) + "/exe", 32);
     if (hdr.size() < 20 || hdr[0] != 0x7f || hdr[1] != 'E' || hdr[2] != 'L' || hdr[3] != 'F')
-        return TargetProfile::Arch::Unknown;
-    const bool is64 = (static_cast<uint8_t>(hdr[4]) == 2);   // EI_CLASS
-    const uint16_t machine = static_cast<uint16_t>(
-        (static_cast<uint8_t>(hdr[18])) | (static_cast<uint8_t>(hdr[19]) << 8));
+        return;
+    p.endianness = (static_cast<uint8_t>(hdr[5]) == 2)   // EI_DATA: 2 = big-endian
+        ? TargetProfile::Endian::Big : TargetProfile::Endian::Little;
+    // e_machine is at offset 18, read in the header's declared byte order.
+    const bool big = p.endianness == TargetProfile::Endian::Big;
+    const uint8_t b0 = static_cast<uint8_t>(hdr[18]), b1 = static_cast<uint8_t>(hdr[19]);
+    const uint16_t machine = big ? static_cast<uint16_t>((b0 << 8) | b1)
+                                 : static_cast<uint16_t>(b0 | (b1 << 8));
     switch (machine) {
-        case 3:   return TargetProfile::Arch::X86_32;    // EM_386
-        case 62:  return TargetProfile::Arch::X86_64;    // EM_X86_64
-        case 40:  return TargetProfile::Arch::Arm32;     // EM_ARM
-        case 183: return TargetProfile::Arch::Arm64;     // EM_AARCH64
-        case 243: return TargetProfile::Arch::RiscV64;   // EM_RISCV
-        default:  return is64 ? TargetProfile::Arch::Other : TargetProfile::Arch::Other;
+        case 3:   p.arch = TargetProfile::Arch::X86_32;  break;  // EM_386
+        case 62:  p.arch = TargetProfile::Arch::X86_64;  break;  // EM_X86_64
+        case 40:  p.arch = TargetProfile::Arch::Arm32;   break;  // EM_ARM
+        case 183: p.arch = TargetProfile::Arch::Arm64;   break;  // EM_AARCH64
+        case 243: p.arch = TargetProfile::Arch::RiscV64; break;  // EM_RISCV
+        default:  p.arch = TargetProfile::Arch::Other;   break;
     }
+}
+
+// A Go binary carries a build-info blob whose header begins "\xff Go buildinf:".
+// Stream the exe (bounded) looking for the printable part; handles chunk splits.
+bool isGoBinary(pid_t pid) {
+    std::ifstream f("/proc/" + std::to_string(pid) + "/exe", std::ios::binary);
+    if (!f) return false;
+    static const std::string kNeedle = "Go buildinf:";
+    std::string chunk(1u << 20, '\0');   // 1 MB
+    std::string carry;
+    size_t total = 0;
+    const size_t kCap = 64u << 20;        // give up after 64 MB
+    while (f && total < kCap) {
+        f.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+        const size_t n = static_cast<size_t>(f.gcount());
+        if (n == 0) break;
+        std::string window = carry;
+        window.append(chunk.data(), n);
+        if (window.find(kNeedle) != std::string::npos) return true;
+        const size_t keep = kNeedle.size() - 1;
+        carry = window.size() > keep ? window.substr(window.size() - keep) : window;
+        total += n;
+    }
+    return false;
 }
 
 // Known standalone emulators, matched against the exe basename / comm.
@@ -139,16 +167,27 @@ void buildNotes(TargetProfile& p) {
             "byte-swapped, and a per-guest 'find what writes' is not yet supported. Scan, "
             "edit and freeze still work.");
 
-    if (!p.runtimes.empty()) {
+    // Go is AOT-compiled (no JIT) but moves goroutine stacks and migrates goroutines
+    // across OS threads, so it warrants a distinct note; the moving-GC + JIT note below
+    // covers .NET/JVM/V8.
+    std::vector<std::string> managed;
+    bool go = false;
+    for (const auto& r : p.runtimes) { if (r == "Go") go = true; else managed.push_back(r); }
+    if (!managed.empty()) {
         std::string names;
-        for (size_t i = 0; i < p.runtimes.size(); ++i)
-            names += (i ? ", " : "") + p.runtimes[i];
+        for (size_t i = 0; i < managed.size(); ++i)
+            names += (i ? ", " : "") + managed[i];
         p.notes.push_back(
             "Managed runtime (" + names + "): values can move when its garbage collector "
             "runs, so a found address may go stale, and the code that writes a value is "
             "JIT-compiled and can relocate. Prefer structure/pointer resolution over raw "
             "pointer scans.");
     }
+    if (go)
+        p.notes.push_back(
+            "Go runtime: goroutine stacks move (stack values relocate) and the scheduler "
+            "migrates goroutines across OS threads, so a per-thread hardware watchpoint may "
+            "not follow a goroutine. Heap objects are mostly address-stable.");
 
     if (p.pidNamespaced)
         p.notes.push_back(
@@ -161,6 +200,11 @@ void buildNotes(TargetProfile& p) {
         p.notes.push_back(
             "Non-x86 architecture (" + p.archName() + "): hardware watchpoints and code "
             "injection are x86-only for now; memory scan and edit work.");
+
+    if (p.endianness == TargetProfile::Endian::Big)
+        p.notes.push_back(
+            "Big-endian target: multi-byte values are byte-swapped relative to this host; "
+            "scans and edits must account for it.");
 }
 
 } // namespace
@@ -197,10 +241,11 @@ TargetProfile probeTarget(pid_t pid) {
     p.valid = true;
 
     const std::string cmdline = cmdlineJoined(pid);
-    p.arch = archFromElf(pid);
+    elfIdent(pid, p);   // sets arch + endianness
     p.wine = lower(cmdline).find(".exe") != std::string::npos;
     p.emulator = detectEmulator(pid, cmdline);
     p.runtimes = detectRuntimes(pid);
+    if (isGoBinary(pid)) p.runtimes.push_back("Go");
     parseStatus(pid, p);
     buildNotes(p);
     return p;

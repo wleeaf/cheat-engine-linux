@@ -22,6 +22,9 @@ struct TargetProfile {
     enum class Arch { Unknown, X86_64, X86_32, Arm64, Arm32, RiscV64, Other };
     Arch arch = Arch::Unknown;
 
+    enum class Endian { Unknown, Little, Big };
+    Endian endianness = Endian::Unknown;   // from the ELF; big-endian matters for scans
+
     bool  wine = false;            // runs a Windows PE under Wine/Proton
     pid_t tracerPid = 0;           // non-zero: already ptrace'd (debugger or anti-debug)
     bool  seccomp = false;         // a seccomp-bpf filter is installed

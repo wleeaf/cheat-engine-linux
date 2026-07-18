@@ -3307,6 +3307,13 @@ static bool targetLooksLikeWine(pid_t pid) {
 void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
     if (!process_) return;
 
+    // A previous "find what writes/accesses" monitor still holds the target thread
+    // ptrace-traced. A new one's PTRACE_SEIZE of the same thread would then fail, so
+    // the second attempt would silently find nothing. Stop finished finders first to
+    // release the trace (and the debug register).
+    for (auto& f : codeFinders_)
+        if (f) f->stop();
+
     // Watchpoint backend selection. On a Wine/Proton game we must NOT seize the
     // whole thread group (that deadlocks the game against wineserver / esync-fsync /
     // GPU threads) and must NOT use the software page-guard (its mprotect fights
@@ -3355,6 +3362,10 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
     auto* window = new CodeFinderWindow(finderPtr,
         QString("%1 0x%2").arg(title).arg(addr, 0, 16), this);
     window->setAttribute(Qt::WA_DeleteOnClose);
+    // Closing the window stops the monitor so it releases the traced thread / debug
+    // register (otherwise a later find-what-writes could not seize it). `this`
+    // context makes the connection auto-drop if the main window goes away first.
+    connect(window, &QObject::destroyed, this, [finderPtr]() { finderPtr->stop(); });
     // CE: "Add to the code list" sends the found opcodes to Advanced Options
     // (the Code list), where they can be disassembled / NOP'd / restored.
     window->setAddToList([this](uintptr_t a, const QString& desc) {

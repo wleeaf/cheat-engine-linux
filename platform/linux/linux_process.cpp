@@ -374,14 +374,22 @@ static int64_t remoteSyscall(pid_t pid, uint64_t nr,
 {
     struct user_regs_struct oldRegs, regs;
 
-    if (ptrace(PTRACE_ATTACH, pid, nullptr, nullptr) < 0)
+    // PTRACE_SEIZE + PTRACE_INTERRUPT (not PTRACE_ATTACH's SIGSTOP): this gives a
+    // clean ptrace-stop that preserves an interrupted syscall's restart state, so
+    // hijacking a thread parked in a syscall resumes it cleanly. On Wine/Proton the
+    // threads sit in esync/fsync/wineserver waits almost all the time, so the old
+    // ATTACH path hijacked a syscall-blocked thread and either failed or corrupted
+    // the wineserver RPC (freezing the game). SEIZE backs RIP up to the syscall
+    // instruction, so our save/inject/restore lands correctly and the original
+    // syscall restarts on detach.
+    if (ptrace(PTRACE_SEIZE, pid, nullptr, nullptr) < 0)
         return -1;
-    // Validate the attach stop: the first wait must be the attach-SIGSTOP. If
-    // it's something else, the tracee isn't cleanly stopped where we expect.
-    // TODO(security): migrate to PTRACE_SEIZE+PTRACE_INTERRUPT and operate on a
-    // specific tid for clean stop semantics against multithreaded targets.
+    if (ptrace(PTRACE_INTERRUPT, pid, nullptr, nullptr) < 0) {
+        ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
+        return -1;
+    }
     int status;
-    if (waitpid(pid, &status, 0) != pid || !WIFSTOPPED(status)) {
+    if (waitpid(pid, &status, __WALL) != pid || !WIFSTOPPED(status)) {
         ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
         return -1;
     }
@@ -441,17 +449,31 @@ static int64_t remoteSyscall(pid_t pid, uint64_t nr,
         ptrace(PTRACE_SINGLESTEP, pid, nullptr, nullptr) == 0) {
         if (waitpid(pid, &status, 0) == pid &&
             WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP) {
-            if (ptrace(PTRACE_GETREGS, pid, nullptr, &regs) == 0)
-                // In compat mode the result is 32-bit eax; sign-extend so an i386
-                // -errno reads back negative.
-                result = mode32 ? (int64_t)(int32_t)(regs.rax & 0xFFFFFFFFu)
-                                : (int64_t)regs.rax;
+            if (ptrace(PTRACE_GETREGS, pid, nullptr, &regs) == 0) {
+                if (mode32) {
+                    // i386 result is 32-bit eax. Only [0xFFFFF001, 0xFFFFFFFF] is
+                    // -errno; sign-extend those so callers see a negative error.
+                    // ANY OTHER value is a valid return (an address can be > 2 GB,
+                    // e.g. mmap2 -> 0xEBDF9000) — zero-extend it, because sign-
+                    // extending a high address reads back negative and makes callers
+                    // like allocate() wrongly reject a successful mmap.
+                    uint32_t raw32 = (uint32_t)(regs.rax & 0xFFFFFFFFu);
+                    result = (raw32 >= 0xFFFFF001u) ? (int64_t)(int32_t)raw32
+                                                    : (int64_t)(uint32_t)raw32;
+                } else {
+                    result = (int64_t)regs.rax;
+                }
+            }
         }
     }
 
     ptrace(PTRACE_POKETEXT, pid, (void*)oldRegs.rip, (void*)origInstr);
     ptrace(PTRACE_SETREGS, pid, nullptr, &oldRegs);
     ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
+    ce::log::debug(ce::log::Cat::Ptrace,
+        "remoteSyscall pid={} nr={} mode32={} rip={:#x} cs={:#x} -> {:#x}",
+        pid, nr, mode32, (uint64_t)oldRegs.rip, (uint64_t)(oldRegs.cs & 0xFF),
+        (uint64_t)result);
     return result;
 }
 

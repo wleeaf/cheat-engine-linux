@@ -3577,9 +3577,9 @@ void MainWindow::showDebugger() {
     // current line); the rest just light the line up where it is already visible.
     connect(w, &ce::gui::DebuggerWindow::stopped, this, [this, w](uintptr_t rip) {
         bool first = true;
-        const uint64_t rflags = w->currentStopRflags();
+        const ce::CpuContext& ctx = w->currentStopContext();
         for (auto& mv : memoryViewers_)
-            if (mv) { mv->showCurrentInstruction(rip, first, rflags); first = false; }
+            if (mv) { mv->showCurrentInstruction(rip, first, ctx); first = false; }
     });
     connect(w, &ce::gui::DebuggerWindow::resumed, this, [this]() {
         for (auto& mv : memoryViewers_) if (mv) mv->clearCurrentInstruction();
@@ -3731,7 +3731,7 @@ MemoryBrowser* MainWindow::openMemoryView(uintptr_t addr) {
     // too (highlight only, without yanking it away from the address it opened at).
     if (debuggerWindow_ && debuggerWindow_->debugStopped())
         browser->showCurrentInstruction(debuggerWindow_->currentStopRip(), false,
-                                        debuggerWindow_->currentStopRflags());
+                                        debuggerWindow_->currentStopContext());
     return browser;
 }
 

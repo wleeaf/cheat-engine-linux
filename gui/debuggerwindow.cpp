@@ -474,6 +474,7 @@ void DebuggerWindow::refreshStopped() {
     auto ctx = session_->getStopContext();
     lastStopRip_ = ctx.rip;
     lastStopRflags_ = ctx.rflags;
+    lastStopContext_ = ctx;
     updateRegisters(ctx);
     updateDisassembly(ctx);
     updateStack(ctx);

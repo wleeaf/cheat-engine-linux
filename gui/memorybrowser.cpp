@@ -1354,11 +1354,27 @@ void DisasmView::paintEvent(QPaintEvent*) {
         if (annotation.isEmpty())
             annotation = ripRefAnnotation(inst, resolver_, proc_);
 
-        // Paused on a conditional branch: show whether it will be taken, from the
-        // stop's flags (CE shows this in the memory-view disassembler too).
-        if (inst.address == currentIp_ && currentRflags_ && inst.mnemonic != "jmp") {
-            if (auto jt = ce::conditionalJumpTaken(inst.mnemonic, currentRflags_))
-                annotation += *jt ? QStringLiteral("  (will jump)") : QStringLiteral("  (no jump)");
+        // Extra hints for the paused instruction, from the live registers (rflags is
+        // non-zero on a real stop; reserved bit 1 is always set). CE shows these in the
+        // memory-view disassembler too.
+        if (inst.address == currentIp_ && currentCtx_.rflags) {
+            // A register-relative memory operand ([rax+8]) resolves to a live effective
+            // address; show where it lands (RIP-relative was already handled above).
+            if (annotation.isEmpty() && inst.memory.present && !inst.memory.ripRelative) {
+                uintptr_t eff = ce::computeEffectiveAddress(inst, currentCtx_);
+                if (eff) {
+                    std::string s = resolver_ ? resolver_->resolve(eff) : std::string();
+                    if (s.empty()) s = ce::moduleOffsetString(moduleCache_, eff);
+                    annotation = s.empty()
+                        ? QStringLiteral("  ; -> 0x%1").arg(eff, 0, 16)
+                        : QStringLiteral("  ; -> 0x%1 %2").arg(eff, 0, 16).arg(QString::fromStdString(s));
+                }
+            }
+            // Conditional branch: will it be taken given the flags?
+            if (inst.mnemonic != "jmp") {
+                if (auto jt = ce::conditionalJumpTaken(inst.mnemonic, currentCtx_.rflags))
+                    annotation += *jt ? QStringLiteral("  (will jump)") : QStringLiteral("  (no jump)");
+            }
         }
 
         p.setPen(mv.operand);
@@ -2039,9 +2055,9 @@ void MemoryBrowser::focusPane(Pane p) {
     }
 }
 
-void MemoryBrowser::showCurrentInstruction(uintptr_t rip, bool follow, uint64_t rflags) {
+void MemoryBrowser::showCurrentInstruction(uintptr_t rip, bool follow, const ce::CpuContext& ctx) {
     if (!disasmView_) return;
-    disasmView_->setCurrentInstruction(rip, rflags);
+    disasmView_->setCurrentInstruction(rip, ctx);
     // Follow execution like CE, but via syncViews (not navigateTo) so single-stepping
     // doesn't flood the back/forward history with one entry per instruction.
     if (follow && rip && rip != currentAddr_) syncViews(rip);

@@ -41,6 +41,7 @@ public:
     bool debugStopped() const { return session_ && session_->isStopped(); }
     uintptr_t currentStopRip() const { return lastStopRip_; }
     uint64_t currentStopRflags() const { return lastStopRflags_; }
+    const ce::CpuContext& currentStopContext() const { return lastStopContext_; }
     // Type `value` into register row `row`'s cell exactly as the UI would (routes
     // through onRegisterEdited -> setStopContext) and report whether the stopped
     // thread's register now holds it. Row order matches the table:
@@ -168,6 +169,7 @@ private:
     std::vector<uintptr_t> disasmLineAddrs_;   // address per rendered disasm line
     uintptr_t lastStopRip_ = 0;
     uint64_t lastStopRflags_ = 0;
+    ce::CpuContext lastStopContext_{};   // full registers at the stop (for operand EA hints)
 
     // Latest event, published by the tracer-thread callback and read on the UI
     // thread after a queued invocation.

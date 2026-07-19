@@ -4610,17 +4610,24 @@ bool AddressListModel::adjustEntryValue(int row, double delta) {
         case ValueType::Byte:
         case ValueType::Int16:
         case ValueType::Int32:
-        case ValueType::Int64:
-            nextText = QString::number(static_cast<qlonglong>(std::llround(next)));
+        case ValueType::Int64: {
+            // Render in the record's display format (hex/signed). This is both what the
+            // column shows until the next refresh AND what writeValueToProcess parses
+            // back: a hex record must NOT receive a bare decimal, which its hex-aware
+            // parse would misread (e.g. "256" as 0x256).
+            uint64_t bits = static_cast<uint64_t>(static_cast<int64_t>(std::llround(next)));
+            nextText = QString::fromStdString(
+                ce::formatIntegerScalar(bits, ce::scalarWidth(e.type), e.showAsSigned, e.showAsHex));
             break;
+        }
         case ValueType::Pointer:
             nextText = QString("0x%1").arg(static_cast<qulonglong>(std::llround(next)), 0, 16);
             break;
         case ValueType::Float:
-            nextText = QString::number(next, 'f', 4);
+            nextText = QString::fromStdString(ce::formatFloatScalar(next, false));
             break;
         case ValueType::Double:
-            nextText = QString::number(next, 'f', 6);
+            nextText = QString::fromStdString(ce::formatFloatScalar(next, true));
             break;
         default:
             return false;

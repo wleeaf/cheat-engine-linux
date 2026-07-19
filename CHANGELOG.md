@@ -42,6 +42,12 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **Fixed: increase/decrease-value hotkeys corrupted hex-display records**: the step hotkeys
+  built the new value as a bare decimal but told the writer to parse it in the record's display
+  base, so a hex record turned an increment into a hex misread (e.g. `256` written as `0x256`).
+  The new value is now rendered in the record's own display format (via the shared
+  `formatIntegerScalar` / `formatFloatScalar`), so it writes back correctly and also matches the
+  column immediately; floats no longer flash fixed-decimal text before the next refresh.
 - **"Set value" on a group applies to its children** (CE `moRecursiveSetValue`): since a group
   header has no value of its own, setting a value on a selected group now writes it to all the
   group's child entries recursively (deduped when a group and a child are both selected). The

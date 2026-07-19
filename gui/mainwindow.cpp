@@ -5285,8 +5285,16 @@ bool AddressListModel::setValue(int id, const std::string& valStr) {
     if (e.isGroup) return false;
     e.currentValue = QString::fromStdString(valStr);
     if (e.active) e.frozenValue = e.currentValue;
-    if (proc_)
+    if (proc_) {
+        // Re-resolve a pointer record to its current target before writing, so an
+        // inline value edit (or Lua setValue) doesn't write to a stale address. Matches
+        // setEntryValueTo / adjustEntryValue / freezeWrite.
+        if (!e.addressExpr.isEmpty()) {
+            ExpressionParser parser(proc_, nullptr);
+            if (auto v = parser.parse(e.addressExpr.toStdString())) e.address = *v;
+        }
         writeValueToProcess(proc_, e.address, e.type, e.currentValue, e.codec, e.bigEndian, e.showAsHex);
+    }
     emit dataChanged(index(row, 4), index(row, 4));
     return true;
 }

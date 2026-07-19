@@ -1668,11 +1668,23 @@ void MainWindow::setupUi() {
             menu.addSeparator();
             // Set the value of ALL selected entries at once (CE's batch set value).
             menu.addAction("Set value...", [this, selected]() {
+                // Pre-fill with the first selected entry's current value (in its display
+                // format), like CE, so the user edits from the existing value not a blank.
+                QString initial;
+                const auto& ents = addressListModel_->entries();
+                for (const auto& idx : selected) {
+                    int r = idx.row();
+                    if (r >= 0 && r < (int)ents.size() && !ents[r].isGroup) {
+                        const QString& cv = ents[r].currentValue;
+                        if (cv != "?" && cv != "??") initial = cv;
+                        break;
+                    }
+                }
                 bool ok = false;
                 QString v = QInputDialog::getText(this, "Set value",
                     QString("New value for %1 selected entr%2:")
                         .arg(selected.size()).arg(selected.size() == 1 ? "y" : "ies"),
-                    QLineEdit::Normal, QString(), &ok);
+                    QLineEdit::Normal, initial, &ok);
                 if (!ok) return;
                 for (const auto& idx : selected)
                     addressListModel_->setEntryValueTo(idx.row(), v);

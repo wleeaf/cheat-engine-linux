@@ -42,6 +42,9 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **"Set value" pre-fills the current value** (CE parity): right-click -> "Set value..." now
+  opens with the first selected entry's current value (in its display format) already in the
+  box, so you edit from it instead of a blank field.
 - **Scan results and the cheat table format integers identically**: scan-result values now
   render through the same shared `ce::formatIntegerScalar` (signed by default, hex
   width-masked) as the cheat table, so a value reads the same in the results list and after

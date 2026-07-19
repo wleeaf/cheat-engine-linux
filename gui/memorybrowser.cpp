@@ -281,7 +281,8 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
     // parameterizes paint/hit-testing/refresh, so changing it adapts everything.
     menu.addSeparator();
     auto* bprMenu = menu.addMenu("Bytes per row");
-    for (int n : {8, 16, 32}) {
+    // 64 divides by every display-type group size (1/2/4/8), so grouping stays valid.
+    for (int n : {8, 16, 32, 64}) {
         auto* a = bprMenu->addAction(QString::number(n));
         a->setCheckable(true);
         a->setChecked(bytesPerRow_ == n);

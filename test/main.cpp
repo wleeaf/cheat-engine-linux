@@ -345,6 +345,15 @@ static void test_value_transform() {
     (void)pv("xyz", true); bool rejectJunk = !pok;
     printf("  parseIntegerScalar hex/decimal/signed: %s\n",
            (parseOk && rejectDecimal && rejectJunk) ? "OK" : "FAILED");
+
+    // Canonical type names match CE's wording (and the Change-address dialog), so the
+    // Type column no longer says "Text"/"Array of Bytes" while the dialog says "String".
+    bool nameOk =
+        std::string(ce::valueTypeName(ValueType::Int32)) == "4 Bytes" &&
+        std::string(ce::valueTypeName(ValueType::String)) == "String" &&
+        std::string(ce::valueTypeName(ValueType::UnicodeString)) == "Unicode String" &&
+        std::string(ce::valueTypeName(ValueType::ByteArray)) == "Array of byte";
+    printf("  valueTypeName matches CE wording: %s\n", nameOk ? "OK" : "FAILED");
 }
 
 static void test_ns_attach() {

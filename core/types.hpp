@@ -104,6 +104,29 @@ enum class ValueType {
     Pointer,     // Native pointer-sized integer
 };
 
+/// Canonical display name for a value type, matching Cheat Engine's wording (and the
+/// Change-address dialog), so the cheat-table Type column, the dialog, and any other
+/// surface all agree. Shared to avoid drift ("String" vs "Text", "Array of byte").
+inline const char* valueTypeName(ValueType t) {
+    switch (t) {
+        case ValueType::Byte:          return "Byte";
+        case ValueType::Int16:         return "2 Bytes";
+        case ValueType::Int32:         return "4 Bytes";
+        case ValueType::Int64:         return "8 Bytes";
+        case ValueType::Float:         return "Float";
+        case ValueType::Double:        return "Double";
+        case ValueType::String:        return "String";
+        case ValueType::UnicodeString: return "Unicode String";
+        case ValueType::ByteArray:     return "Array of byte";
+        case ValueType::Binary:        return "Binary";
+        case ValueType::All:           return "All";
+        case ValueType::Grouped:       return "Grouped";
+        case ValueType::Custom:        return "Custom";
+        case ValueType::Pointer:       return "Pointer";
+    }
+    return "4 Bytes";
+}
+
 // ── Scan comparison ──
 enum class ScanCompare {
     Exact,

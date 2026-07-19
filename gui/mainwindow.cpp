@@ -4807,19 +4807,13 @@ QVariant AddressListModel::data(const QModelIndex& index, int role) const {
         }
         case 3: {
             if (e.isGroup) return "";
-            switch (e.type) {
-                case ValueType::Byte:   return "Byte";
-                case ValueType::Int16:  return "2 Bytes";
-                case ValueType::Int32:  return "4 Bytes";
-                case ValueType::Int64:  return "8 Bytes";
-                case ValueType::Pointer: return "Pointer";
-                case ValueType::Float:  return "Float";
-                case ValueType::Double: return "Double";
-                case ValueType::String: return "Text";
-                case ValueType::UnicodeString: return "Unicode Text";
-                case ValueType::ByteArray: return "Array of Bytes";
-                default: return "?";
-            }
+            // CE-canonical name; String/Array records also show their element length
+            // in brackets (e.g. "String[10]", "Array of byte[8]"), like Cheat Engine.
+            QString name = ce::valueTypeName(e.type);
+            if ((e.type == ValueType::String || e.type == ValueType::UnicodeString ||
+                 e.type == ValueType::ByteArray) && e.byteCount > 0)
+                name += QString("[%1]").arg(e.byteCount);
+            return name;
         }
         case 4: return e.isGroup ? QString("") : e.dropdownList.isEmpty()
             ? e.currentValue

@@ -42,6 +42,11 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **Cheat-table Type column uses CE's wording and shows element length**: the list column
+  said "Text" / "Array of Bytes" / "Unicode Text" while the Change-address dialog (and CE)
+  said "String" / "Array of byte"; both now agree via one shared `ce::valueTypeName`. String
+  and Array records also show their element length in brackets ("String[10]",
+  "Array of byte[8]"). Unit-tested in `cecore_test`.
 - **Editing a hex-displayed value reads the input as hex** (CE parity): when a record shows
   its value in hexadecimal, typing a bare `1a` into the Value cell now writes `0x1A`, not a
   failed decimal parse. Integer value input goes through a Qt-free `ce::parseIntegerScalar`

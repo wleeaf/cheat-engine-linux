@@ -59,6 +59,8 @@ public:
     // True if any GP register row currently paints in the "changed" (red) colour,
     // i.e. the last stop's step highlight fired.
     bool anyRegisterChangedHighlightForTest() const;
+    // The decoded-flags line shown under the register table (e.g. "Flags: PF ZF IF").
+    QString flagsTextForTest() const;
 
 signals:
     /// The target stopped at `rip` (breakpoint / step). Lets other views (e.g. open
@@ -103,6 +105,7 @@ private:
     ce::Disassembler disasm_{ce::Arch::X86_64};
 
     QLabel* statusLabel_ = nullptr;
+    QLabel* flagsLabel_ = nullptr;   // decoded CPU flags (CF PF ZF SF …) at the stop
     QPlainTextEdit* disasmView_ = nullptr;
     QComboBox* threadCombo_ = nullptr;
     QTableWidget* regTable_ = nullptr;

@@ -91,6 +91,15 @@ int main(int argc, char** argv) {
     // table exactly as a user would; the value must reach the stopped thread.
     bool regEdit = hit && win.pokeRegisterForTest(4 /*RBX*/, 0x00000000BADF00D5ull);
 
+    // Decoded-flags line: set RFLAGS to a known value (PF|ZF|IF + reserved) and
+    // confirm the "Flags:" label decodes the individual flags.
+    bool flagsOk = false;
+    if (hit) {
+        win.pokeRegisterForTest(9 /*RFLAGS*/, 0x246);
+        QString ft = win.flagsTextForTest();
+        flagsOk = ft.startsWith("Flags:") && ft.contains("PF") && ft.contains("ZF");
+    }
+
     // XMM view: the worker loads a known value into xmm0 before the breakpoint.
     // Check this while the trapping worker is still the active thread (before the
     // thread switch below retargets the register view to another thread).
@@ -132,8 +141,8 @@ int main(int argc, char** argv) {
     kill(child, SIGKILL);
     waitpid(child, nullptr, 0);
 
-    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight;
-    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d])\n",
-           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels);
+    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk;
+    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d)\n",
+           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk);
     return ok ? 0 : 1;
 }

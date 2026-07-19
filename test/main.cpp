@@ -30,6 +30,7 @@
 #include "core/value_codec.hpp"
 #include "core/value_transform.hpp"
 #include "arch/disassembler.hpp"
+#include "arch/cpu_flags.hpp"
 #include "core/expression.hpp"
 #include "core/trainer.hpp"
 #include "analysis/code_analysis.hpp"
@@ -573,6 +574,21 @@ static void test_target_profile() {
     // archName()/summary() are always non-empty for a valid target.
     printf("  arch/summary strings: %s\n",
            (!self.archName().empty() && !self.summary().empty()) ? "OK" : "FAILED");
+}
+
+static void test_eflags_decode() {
+    printf("\n── Test: EFLAGS decode ──\n");
+    // Standard x86 status/control flag bits, decoded for the debugger's flags display.
+    bool a = ce::describeEflags(0x246) == "PF ZF IF";   // typical "result was zero" flags
+    bool b = ce::describeEflags(0x1)   == "CF";
+    bool c = ce::describeEflags(0x0)   == "";
+    bool d = ce::describeEflags(0xC0)  == "ZF SF";      // 0x40 | 0x80
+    bool e = ce::describeEflags(0x8D5) == "CF PF AF ZF SF OF";
+    printf("  0x246 -> \"PF ZF IF\": %s\n", a ? "OK" : "FAILED");
+    printf("  0x1   -> \"CF\":       %s\n", b ? "OK" : "FAILED");
+    printf("  0x0   -> \"\":         %s\n", c ? "OK" : "FAILED");
+    printf("  0xC0  -> \"ZF SF\":    %s\n", d ? "OK" : "FAILED");
+    printf("  0x8D5 -> full set:    %s\n", e ? "OK" : "FAILED");
 }
 
 static void test_guest_view() {
@@ -10057,6 +10073,7 @@ int main(int argc, char* argv[]) {
     test_yuzu_guest_ram();
     test_rpcs3_mirror_dedup();
     test_parser_fuzz();
+    test_eflags_decode();
     test_guest_view();
     test_ns_attach();
     test_value_codec();

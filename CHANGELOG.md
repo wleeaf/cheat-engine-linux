@@ -47,6 +47,10 @@ transforms across surfaces.
 - **Memory Viewer marks the current instruction** when the debugger is paused: the line at
   the stopped thread's RIP paints green with a ► marker, and the first open viewer follows
   execution. See the debugger notes below.
+- **Debugger shows decoded CPU flags**: a "Flags:" line under the register table spells out
+  the status/control flags set in RFLAGS (CF PF AF ZF SF TF IF DF OF), instead of leaving
+  you to decode the raw hex. Backed by a Qt-free `ce::describeEflags()` unit-tested in
+  cecore_test and asserted end to end in `gui_debugger_smoke`.
 - **Disassembler multi-instruction selection**: Shift+Up/Down and Shift+click select a
   range of instructions (the whole range highlights), and Ctrl+C copies every selected line
   as a block. A plain move or click collapses back to a single line; right-clicking inside a

@@ -1,4 +1,5 @@
 #include "gui/debuggerwindow.hpp"
+#include "arch/cpu_flags.hpp"
 #include "gui/theme.hpp"
 #include "debug/breakpoint_manager.hpp"
 #include "debug/patch.hpp"
@@ -134,6 +135,12 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     for (int i = 0; i < 26; ++i)
         regTable_->setVerticalHeaderItem(i, new QTableWidgetItem(rnames[i]));
     rl->addWidget(regTable_, 3);
+
+    // Decoded CPU flags under the register table (RFLAGS shows only the raw hex).
+    flagsLabel_ = new QLabel(QStringLiteral("Flags:"));
+    flagsLabel_->setFont(mono);
+    flagsLabel_->setToolTip("Status/control flags set in RFLAGS at the current stop");
+    rl->addWidget(flagsLabel_);
 
     auto* bpGroup = new QGroupBox("Breakpoints");
     auto* bl = new QVBoxLayout(bpGroup);
@@ -583,6 +590,11 @@ void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
         it->setForeground(hasPrev && prevGp_[i] != vals[i] ? changedFg : normalFg);
     }
     prevGp_.assign(vals, vals + kGp);
+    if (flagsLabel_) {
+        std::string fl = ce::describeEflags(c.rflags);
+        flagsLabel_->setText(fl.empty() ? QStringLiteral("Flags: (none)")
+                                        : QStringLiteral("Flags: ") + QString::fromStdString(fl));
+    }
     // XMM0-15, view-only, shown as the 128-bit value (most-significant byte first).
     // Same change highlight as the GP regs (a movss/paddd etc. lights up its dest).
     auto xmm = session_->getXmmRegisters();
@@ -609,6 +621,10 @@ bool DebuggerWindow::anyRegisterChangedHighlightForTest() const {
         if (auto* it = regTable_->item(i, 0); it && it->foreground().color() == red)
             return true;
     return false;
+}
+
+QString DebuggerWindow::flagsTextForTest() const {
+    return flagsLabel_ ? flagsLabel_->text() : QString();
 }
 
 // The register value column is editable; committing a cell writes the parsed

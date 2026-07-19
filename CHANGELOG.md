@@ -56,6 +56,11 @@ transforms across surfaces.
   step, in **both** the Debugger window and the Memory Viewer's disassembler (which follows the
   stop). The mnemonic+flags decision is a Qt-free `ce::conditionalJumpTaken`, unit-tested in
   `cecore_test`.
+- **Scan value input parses through the same hex-aware helper**: the integer scan value (and the
+  "Value between" upper bound) went through `toLongLong(base)`, which mishandled a `0x`-prefixed
+  entry in Hex mode; they now use the shared `parseIntField` / `ce::parseIntegerScalar`, so a
+  scan value parses exactly like a cheat-table value (bare hex or `0x`, signed). This was the last
+  integer-parse site not on the shared helper.
 - **Fixed: value comparison ignored the signed-display flag**: the memory-read side interpreted
   a Byte as unsigned but wider ints as signed (a fixed per-type choice), while the frozen/typed
   text follows the record's Signed flag. So a signed-shown byte over 127 (now the default) or an

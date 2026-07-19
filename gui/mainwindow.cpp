@@ -120,6 +120,8 @@ static QString foundLabelText(size_t count) {
 
 // Accepts "," or "." decimals (Turkish comma-locale); defined lower down.
 static double parseUserDouble(const QString& s, bool* ok = nullptr);
+// Hex-aware integer field parse (shared ce::parseIntegerScalar); defined lower down.
+static long long parseIntField(const QString& valStr, bool hex);
 
 // Forward declarations of static helpers
 static QJsonArray cheatEntriesToJson(const ce::CheatTable& table);
@@ -2650,10 +2652,10 @@ void MainWindow::onFirstScan() {
     } else if (config.valueType == ValueType::Pointer) {
         config.intValue = static_cast<int64_t>(text.toULongLong(nullptr, 0));
     } else if (config.valueType == ValueType::All) {
-        config.intValue = text.toLongLong(nullptr, intBase);
+        config.intValue = parseIntField(text, intBase == 16);
         config.floatValue = parseUserDouble(text);
     } else {
-        config.intValue = text.toLongLong(nullptr, intBase);
+        config.intValue = parseIntField(text, intBase == 16);
     }
     // "Value between..." needs a second (upper) bound from its own box.
     if (config.compareType == ScanCompare::Between) {
@@ -2661,7 +2663,7 @@ void MainWindow::onFirstScan() {
         if (config.valueType == ValueType::Float || config.valueType == ValueType::Double)
             config.floatValue2 = parseUserDouble(text2);
         else
-            config.intValue2 = text2.toLongLong(nullptr, intBase);
+            config.intValue2 = parseIntField(text2, intBase == 16);
     }
     applyFloatOptions(config, floatRoundingCombo_, floatToleranceEdit_, text);
     size_t resultValueSize = resultValueSizeForConfig(config);
@@ -2760,17 +2762,17 @@ void MainWindow::onNextScan() {
     } else if (config.valueType == ValueType::Pointer) {
         config.intValue = static_cast<int64_t>(text.toULongLong(nullptr, 0));
     } else if (config.valueType == ValueType::All) {
-        config.intValue = text.toLongLong(nullptr, intBase);
+        config.intValue = parseIntField(text, intBase == 16);
         config.floatValue = parseUserDouble(text);
     } else {
-        config.intValue = text.toLongLong(nullptr, intBase);
+        config.intValue = parseIntField(text, intBase == 16);
     }
     if (config.compareType == ScanCompare::Between) {
         auto text2 = scanValue2Edit_->text();
         if (config.valueType == ValueType::Float || config.valueType == ValueType::Double)
             config.floatValue2 = parseUserDouble(text2);
         else
-            config.intValue2 = text2.toLongLong(nullptr, intBase);
+            config.intValue2 = parseIntField(text2, intBase == 16);
     }
     applyFloatOptions(config, floatRoundingCombo_, floatToleranceEdit_, text);
 

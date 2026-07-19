@@ -443,6 +443,9 @@ private:
                             const ce::ValueCodec& codec = {}, bool bigEndian = false,
                             bool isSigned = true);
     int rowOfId(int id) const;
+    // Re-resolve a pointer/expression record's target from its address expression so a
+    // read/write acts on the current target, not the cached (up to ~500ms stale) address.
+    void reresolveAddress(AddressEntry& e);
     int allocId() { return nextId_++; }
 
     std::vector<AddressEntry> entries_;

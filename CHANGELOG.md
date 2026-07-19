@@ -94,6 +94,11 @@ transforms across surfaces.
   as base-10 and failed, falling through to an unconditional write, so "Increase Only" etc.
   behaved like a plain freeze. The comparison now parses via the shared hex-aware
   `ce::parseIntegerScalar`, so directional freezes hold correctly regardless of hex display.
+- **Refactor: one `reresolveAddress` helper for pointer records**: the six read/write paths that
+  re-resolve a pointer record's address expression (freeze, value refresh, live value, inline
+  edit, "Set value", step hotkeys) now share a single helper instead of six copies of the same
+  block, so the staleness class of bug (fixed twice above) can't reappear in one path but not
+  another.
 - **Fixed: inline-editing a pointer record's value could write to a stale address**: editing the
   Value cell directly (or Lua `setValue`) went through a path that did not re-resolve the pointer
   chain first, unlike the "Set value..." menu, so a moved pointer got the new value written to its

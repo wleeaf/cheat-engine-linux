@@ -4433,19 +4433,21 @@ static bool parseComparableValue(ValueType type, const QString& valStr, double& 
     }
 }
 
+void AddressListModel::reresolveAddress(AddressEntry& e) {
+    if (e.addressExpr.isEmpty() || !proc_) return;
+    ExpressionParser parser(proc_, nullptr);
+    if (auto v = parser.parse(e.addressExpr.toStdString())) e.address = *v;
+}
+
 void AddressListModel::freezeWrite(ProcessHandle* proc) {
     for (auto& e : entries_) {
         if (e.isGroup) continue;
         if (!e.active || e.frozenValue.isEmpty()) continue;
 
-        // Re-resolve pointer/expression records NOW so the freeze writes to the current
-        // target address, not the up-to-500ms-stale cached one (the value refresh runs
-        // far slower than this 100ms freeze). A moved pointer would otherwise get its
-        // frozen value written to unrelated memory. Matches adjustEntryValue.
-        if (!e.addressExpr.isEmpty()) {
-            ExpressionParser parser(proc, nullptr);
-            if (auto v = parser.parse(e.addressExpr.toStdString())) e.address = *v;
-        }
+        // Re-resolve pointer records so the freeze writes to the current target, not the
+        // up-to-500ms-stale cached address (the value refresh runs slower than this 100ms
+        // freeze); a moved pointer would otherwise clobber unrelated memory.
+        reresolveAddress(e);
 
         if (e.freezeMode == FreezeMode::Normal) {
             writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian, e.showAsHex);
@@ -4628,13 +4630,9 @@ bool AddressListModel::adjustEntryValue(int row, double delta) {
     auto& e = entries_[row];
     if (e.isGroup) return false;
 
-    // Re-resolve pointer/expression records NOW so a hotkey acts on the current
-    // target address, not the up-to-500ms-stale cached one (a moved pointer would
-    // otherwise write to the wrong — possibly unrelated — memory).
-    if (!e.addressExpr.isEmpty()) {
-        ExpressionParser parser(proc_, nullptr);
-        if (auto v = parser.parse(e.addressExpr.toStdString())) e.address = *v;
-    }
+    // Re-resolve pointer records so the hotkey acts on the current target, not a stale
+    // cached address (a moved pointer would otherwise hit unrelated memory).
+    reresolveAddress(e);
 
     double current = 0;
     if (!readComparableValue(proc_, e.address, e.type, current, e.codec, e.bigEndian, e.showAsSigned) &&
@@ -4727,11 +4725,7 @@ void AddressListModel::setEntryValueTo(int row, const QString& value) {
     if (row < 0 || row >= (int)entries_.size() || !proc_) return;
     auto& e = entries_[row];
     if (e.isGroup || value.isEmpty()) return;
-    // Re-resolve pointer records so the write lands on the current target.
-    if (!e.addressExpr.isEmpty()) {
-        ExpressionParser parser(proc_, nullptr);
-        if (auto v = parser.parse(e.addressExpr.toStdString())) e.address = *v;
-    }
+    reresolveAddress(e);   // write to the current pointer target
     writeValueToProcess(proc_, e.address, e.type, value, e.codec, e.bigEndian, e.showAsHex);
     e.currentValue = value;
     if (e.active) e.frozenValue = value;
@@ -4852,10 +4846,7 @@ void AddressListModel::updateValues(ProcessHandle* proc) {
 
         // Pointer records: re-evaluate the address expression so a moving pointer
         // chain is followed live (CE re-resolves every refresh).
-        if (!e.addressExpr.isEmpty()) {
-            ExpressionParser parser(proc, nullptr);
-            if (auto v = parser.parse(e.addressExpr.toStdString())) e.address = *v;
-        }
+        reresolveAddress(e);
 
         // Variable-length types: read the element (exact length if known) and format.
         if (auto fv = formatVariableLengthValue(proc, e.address, e.type, e.byteCount)) {
@@ -4884,10 +4875,7 @@ std::string AddressListModel::liveValue(int id) {
     if (e.isGroup) return {};
     // Re-resolve pointer expressions and read the process now (CE's mr.Value does a
     // live read on access, not a cached refresh value).
-    if (!e.addressExpr.isEmpty()) {
-        ExpressionParser parser(proc_, nullptr);
-        if (auto v = parser.parse(e.addressExpr.toStdString())) e.address = *v;
-    }
+    reresolveAddress(e);
     if (auto fv = formatVariableLengthValue(proc_, e.address, e.type, e.byteCount))
         return fv->toStdString();
 
@@ -5286,13 +5274,7 @@ bool AddressListModel::setValue(int id, const std::string& valStr) {
     e.currentValue = QString::fromStdString(valStr);
     if (e.active) e.frozenValue = e.currentValue;
     if (proc_) {
-        // Re-resolve a pointer record to its current target before writing, so an
-        // inline value edit (or Lua setValue) doesn't write to a stale address. Matches
-        // setEntryValueTo / adjustEntryValue / freezeWrite.
-        if (!e.addressExpr.isEmpty()) {
-            ExpressionParser parser(proc_, nullptr);
-            if (auto v = parser.parse(e.addressExpr.toStdString())) e.address = *v;
-        }
+        reresolveAddress(e);   // write to the current pointer target, not a stale address
         writeValueToProcess(proc_, e.address, e.type, e.currentValue, e.codec, e.bigEndian, e.showAsHex);
     }
     emit dataChanged(index(row, 4), index(row, 4));

@@ -696,9 +696,11 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
 }
 
 void DebuggerWindow::updateStack(const ce::CpuContext& c) {
-    // Resolve stack values that point into a loaded module (return addresses) to
-    // "module+offset", so the raw stack reads as a call stack (CE-style). Cached
-    // once per session; modules rarely change while stopped.
+    // Resolve stack values that point into code (return addresses) so the raw stack
+    // reads as a call stack (CE-style): prefer the function name ("func+0xNN" from the
+    // symbol table), falling back to "module+offset" when there is no symbol. Symbols
+    // and the module list are loaded once per session (both rarely change while stopped).
+    if (proc_ && !symbolsLoaded_) { resolver_.loadProcess(*proc_); symbolsLoaded_ = true; }
     if (modules_.empty() && proc_) modules_ = proc_->modules();
     QString out;
     for (int i = 0; i < 16; ++i) {
@@ -706,10 +708,11 @@ void DebuggerWindow::updateStack(const ce::CpuContext& c) {
         uint64_t val = 0;
         auto rr = proc_->read(slotAddr, &val, sizeof(val));
         if (rr && *rr == sizeof(val)) {
-            std::string mo = ce::moduleOffsetString(modules_, static_cast<uintptr_t>(val));
-            if (!mo.empty())
+            std::string anno = resolver_.resolve(static_cast<uintptr_t>(val));
+            if (anno.empty()) anno = ce::moduleOffsetString(modules_, static_cast<uintptr_t>(val));
+            if (!anno.empty())
                 out += QStringLiteral("%1: %2  %3\n")
-                           .arg(hex(slotAddr), hex(val), QString::fromStdString(mo));
+                           .arg(hex(slotAddr), hex(val), QString::fromStdString(anno));
             else
                 out += QStringLiteral("%1: %2\n").arg(hex(slotAddr), hex(val));
         } else {

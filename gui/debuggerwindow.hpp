@@ -7,6 +7,7 @@
 #include "debug/debug_session.hpp"
 #include "arch/disassembler.hpp"
 #include "platform/process_api.hpp"
+#include "symbols/elf_symbols.hpp"
 #include <QMainWindow>
 #include <memory>
 #include <vector>
@@ -109,6 +110,8 @@ private:
     QLabel* statusLabel_ = nullptr;
     QLabel* flagsLabel_ = nullptr;   // decoded CPU flags (CF PF ZF SF …) at the stop
     std::vector<ce::ModuleInfo> modules_;   // for module+offset on stack return addresses
+    ce::SymbolResolver resolver_;           // function names for stack return addresses
+    bool symbolsLoaded_ = false;            // resolver_ populated lazily on the first stop
     QPlainTextEdit* disasmView_ = nullptr;
     QComboBox* threadCombo_ = nullptr;
     QTableWidget* regTable_ = nullptr;

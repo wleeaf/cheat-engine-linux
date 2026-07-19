@@ -20,7 +20,9 @@
 
 static volatile long g_smoke_counter = 0;
 __attribute__((noinline)) static void smoke_hot() { static volatile int s = 0; s = s + 1; }
-static void smoke_worker() {
+// External linkage (not static) so its symbol lands in .symtab and the stack pane can
+// resolve the return address into it to a function name, not just module+offset.
+__attribute__((noinline)) void smoke_worker() {
     for (;;) {
         // Load a known value into xmm0 so the XMM register view can be verified.
         asm volatile("movq %0, %%xmm0" :: "r"(0x0102030405060708ULL) : "xmm0");
@@ -101,8 +103,8 @@ int main(int argc, char** argv) {
     }
 
     // Call-stack annotation: stopped at smoke_hot's entry, [RSP] holds the return
-    // address into this binary, so at least one stack slot resolves to "module+0x…".
-    bool stackAnno = hit && win.stackTextForTest().contains("+0x");
+    // address into smoke_worker, so the stack pane resolves it to the function name.
+    bool stackAnno = hit && win.stackTextForTest().contains("smoke_worker");
 
     // XMM view: the worker loads a known value into xmm0 before the breakpoint.
     // Check this while the trapping worker is still the active thread (before the

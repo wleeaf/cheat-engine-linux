@@ -78,6 +78,38 @@ inline std::string formatIntegerScalar(uint64_t bits, int width, bool isSigned, 
     return std::to_string(u);
 }
 
+/// Parse a user-typed integer value (the input counterpart of formatIntegerScalar).
+/// When `hex` is true a bare token is read as hexadecimal (CE's "Show as hexadecimal"
+/// edit mode); a leading "0x" is always hex; a leading '-'/'+' sets the sign. Returns
+/// the signed value; sets ok=false (and returns 0) on an empty/malformed token. The
+/// caller casts the result to the type width (two's complement handles negatives).
+inline int64_t parseIntegerScalar(const std::string& s, bool hex, bool& ok) {
+    ok = false;
+    size_t a = s.find_first_not_of(" \t");
+    if (a == std::string::npos) return 0;
+    size_t b = s.find_last_not_of(" \t");
+    std::string t = s.substr(a, b - a + 1);
+    size_t i = 0;
+    bool neg = false;
+    if (t[i] == '-' || t[i] == '+') { neg = (t[i] == '-'); ++i; }
+    int base = hex ? 16 : 10;
+    if (i + 1 < t.size() && t[i] == '0' && (t[i + 1] == 'x' || t[i + 1] == 'X')) { base = 16; i += 2; }
+    if (i >= t.size()) return 0;
+    uint64_t val = 0;
+    for (; i < t.size(); ++i) {
+        char c = t[i];
+        int d;
+        if (c >= '0' && c <= '9') d = c - '0';
+        else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+        else return 0;
+        if (d >= base) return 0;   // e.g. a hex letter typed in a decimal field
+        val = val * static_cast<uint64_t>(base) + static_cast<uint64_t>(d);
+    }
+    ok = true;
+    return neg ? -static_cast<int64_t>(val) : static_cast<int64_t>(val);
+}
+
 /// Inverse: from a LOGICAL value's host-order bits, produce the `width(type)` stored
 /// bytes to write (encode via codec for integer types, then reverse for big-endian).
 inline void encodeScalarBits(ValueType type, uint64_t logicalBits,

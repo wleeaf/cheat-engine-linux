@@ -42,6 +42,11 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **Editing a hex-displayed value reads the input as hex** (CE parity): when a record shows
+  its value in hexadecimal, typing a bare `1a` into the Value cell now writes `0x1A`, not a
+  failed decimal parse. Integer value input goes through a Qt-free `ce::parseIntegerScalar`
+  (the input counterpart of `formatIntegerScalar`): hex mode reads a bare token as hex, a
+  `0x` prefix always forces hex, and signs/decimal still work. Unit-tested in `cecore_test`.
 - **Signed display persists to `.CT` tables** (CE `<ShowAsSigned>`): a record's signed/unsigned
   choice now survives save/load in every format (CE XML `.CT`, `.CETRAINER`, and our native
   JSON), so a table shared or reopened keeps its value display. Signed is the default, so only

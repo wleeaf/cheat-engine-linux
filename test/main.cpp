@@ -329,6 +329,22 @@ static void test_value_transform() {
         ce::formatIntegerScalar(0x1Full, 1, true, /*hex*/true) == "0x1f"   &&
         ce::formatIntegerScalar(0xFFFFFFFFull, 4, false, /*hex*/true) == "0xffffffff";
     printf("  formatIntegerScalar signed/unsigned/hex: %s\n", fmtOk ? "OK" : "FAILED");
+
+    // parseIntegerScalar (the input side): in hex-display mode a bare token is hex; a
+    // "0x" prefix is always hex; signs and decimal work; junk sets ok=false.
+    bool pok = false;
+    auto pv = [&pok](const char* s, bool hex) { return ce::parseIntegerScalar(s, hex, pok); };
+    bool parseOk =
+        (pv("1a", true) == 26 && pok) &&                 // bare hex in hex mode
+        (pv("26", false) == 26 && pok) &&                // decimal in decimal mode
+        (pv("0x1a", false) == 26 && pok) &&              // 0x forces hex even in decimal mode
+        (pv("-56", false) == -56 && pok) &&              // signed decimal
+        (uint8_t)pv("-56", false) == 200 &&              // ...casts to the byte the user meant
+        (pv("ff", true) == 255 && pok);
+    (void)pv("1a", false); bool rejectDecimal = !pok;    // "1a" is junk in decimal mode
+    (void)pv("xyz", true); bool rejectJunk = !pok;
+    printf("  parseIntegerScalar hex/decimal/signed: %s\n",
+           (parseOk && rejectDecimal && rejectJunk) ? "OK" : "FAILED");
 }
 
 static void test_ns_attach() {

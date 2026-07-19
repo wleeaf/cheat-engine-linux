@@ -4176,18 +4176,11 @@ static double parseUserDouble(const QString& s, bool* ok) {
 // hex prefix, and both signed and full-width-unsigned magnitudes. Returns a wide
 // value the caller truncates to the target width — so "-1" -> byte 0xFF and
 // "40000" -> int16 fits, matching how CE accepts either sign for a fixed width.
-static long long parseIntField(const QString& valStr) {
-    QString t = valStr.trimmed();
-    bool neg = t.startsWith('-');
-    if (neg || t.startsWith('+')) t = t.mid(1);
+static long long parseIntField(const QString& valStr, bool hex = false) {
+    // In hex-display mode a bare token is hex (CE); a "0x" prefix is always hex.
     bool ok = false;
-    long long v = 0;
-    if (t.startsWith("0x", Qt::CaseInsensitive))
-        v = static_cast<long long>(t.mid(2).toULongLong(&ok, 16));
-    else
-        v = static_cast<long long>(t.toULongLong(&ok, 10));
-    if (!ok) return 0;
-    return neg ? -v : v;
+    long long v = ce::parseIntegerScalar(valStr.toStdString(), hex, ok);
+    return ok ? v : 0;
 }
 
 // Format a fixed-width scalar exactly as the cheat table displays it (decimal or hex,
@@ -4214,7 +4207,7 @@ static QString formatScalarValue(ValueType type, const uint8_t* raw, bool showHe
 
 static void writeValueToProcess(ProcessHandle* proc, uintptr_t addr, ValueType type,
                                 const QString& valStr, const ce::ValueCodec& codec = {},
-                                bool bigEndian = false) {
+                                bool bigEndian = false, bool showHex = false) {
     // Variable-length types: write the raw bytes directly (length = the value's).
     if (type == ValueType::String) {
         auto bytes = valStr.toUtf8();
@@ -4240,10 +4233,10 @@ static void writeValueToProcess(ProcessHandle* proc, uintptr_t addr, ValueType t
     uint8_t buf[8] = {};
     size_t vs = vtSize(type);
     switch (type) {
-        case ValueType::Byte:   { uint8_t v = (uint8_t)parseIntField(valStr); memcpy(buf, &v, 1); break; }
-        case ValueType::Int16:  { uint16_t v = (uint16_t)parseIntField(valStr); memcpy(buf, &v, 2); break; }
-        case ValueType::Int32:  { uint32_t v = (uint32_t)parseIntField(valStr); memcpy(buf, &v, 4); break; }
-        case ValueType::Int64:  { uint64_t v = (uint64_t)parseIntField(valStr); memcpy(buf, &v, 8); break; }
+        case ValueType::Byte:   { uint8_t v = (uint8_t)parseIntField(valStr, showHex); memcpy(buf, &v, 1); break; }
+        case ValueType::Int16:  { uint16_t v = (uint16_t)parseIntField(valStr, showHex); memcpy(buf, &v, 2); break; }
+        case ValueType::Int32:  { uint32_t v = (uint32_t)parseIntField(valStr, showHex); memcpy(buf, &v, 4); break; }
+        case ValueType::Int64:  { uint64_t v = (uint64_t)parseIntField(valStr, showHex); memcpy(buf, &v, 8); break; }
         case ValueType::Pointer:{ uintptr_t v = valStr.toULongLong(nullptr, 0); memcpy(buf, &v, sizeof(v)); break; }
         // Accept either '.' or ',' as the decimal separator: QString::toFloat is
         // C-locale ('.') only, so a comma-locale user typing "2,5" would otherwise
@@ -4320,7 +4313,7 @@ void AddressListModel::freezeWrite(ProcessHandle* proc) {
         if (!e.active || e.frozenValue.isEmpty()) continue;
 
         if (e.freezeMode == FreezeMode::Normal) {
-            writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian);
+            writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian, e.showAsHex);
             continue;
         }
 
@@ -4329,12 +4322,12 @@ void AddressListModel::freezeWrite(ProcessHandle* proc) {
         double frozen = 0;
         if (!readComparableValue(proc, e.address, e.type, current, e.codec, e.bigEndian) ||
             !parseComparableValue(e.type, e.frozenValue, frozen)) {
-            writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian);
+            writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian, e.showAsHex);
             continue;
         }
 
         if (ce::freezeShouldWrite(e.freezeMode, current, frozen))
-            writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian);
+            writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian, e.showAsHex);
     }
 }
 
@@ -4534,7 +4527,7 @@ bool AddressListModel::adjustEntryValue(int row, double delta) {
             return false;
     }
 
-    writeValueToProcess(proc_, e.address, e.type, nextText, e.codec, e.bigEndian);
+    writeValueToProcess(proc_, e.address, e.type, nextText, e.codec, e.bigEndian, e.showAsHex);
     e.currentValue = nextText;
     if (e.active) e.frozenValue = nextText;
     emit dataChanged(index(row, 4), index(row, 4), {Qt::DisplayRole, Qt::EditRole});
@@ -4588,7 +4581,7 @@ void AddressListModel::setEntryValueTo(int row, const QString& value) {
         ExpressionParser parser(proc_, nullptr);
         if (auto v = parser.parse(e.addressExpr.toStdString())) e.address = *v;
     }
-    writeValueToProcess(proc_, e.address, e.type, value, e.codec, e.bigEndian);
+    writeValueToProcess(proc_, e.address, e.type, value, e.codec, e.bigEndian, e.showAsHex);
     e.currentValue = value;
     if (e.active) e.frozenValue = value;
     emit dataChanged(index(row, 4), index(row, 4), {Qt::DisplayRole, Qt::EditRole});
@@ -4954,7 +4947,7 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
             e.currentValue = rawValue;
             if (e.active) e.frozenValue = writeStr;
             if (proc_) {
-                writeValueToProcess(proc_, e.address, e.type, writeStr, e.codec, e.bigEndian);
+                writeValueToProcess(proc_, e.address, e.type, writeStr, e.codec, e.bigEndian, e.showAsHex);
                 // A non-frozen value that snaps back is protected: warn and point the
                 // user at find-what-writes. A frozen entry is intentionally held, so
                 // the freeze timer, not this, owns its persistence.
@@ -5144,7 +5137,7 @@ bool AddressListModel::setValue(int id, const std::string& valStr) {
     e.currentValue = QString::fromStdString(valStr);
     if (e.active) e.frozenValue = e.currentValue;
     if (proc_)
-        writeValueToProcess(proc_, e.address, e.type, e.currentValue, e.codec, e.bigEndian);
+        writeValueToProcess(proc_, e.address, e.type, e.currentValue, e.codec, e.bigEndian, e.showAsHex);
     emit dataChanged(index(row, 4), index(row, 4));
     return true;
 }

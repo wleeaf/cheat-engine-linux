@@ -100,6 +100,10 @@ int main(int argc, char** argv) {
         flagsOk = ft.startsWith("Flags:") && ft.contains("PF") && ft.contains("ZF");
     }
 
+    // Call-stack annotation: stopped at smoke_hot's entry, [RSP] holds the return
+    // address into this binary, so at least one stack slot resolves to "module+0x…".
+    bool stackAnno = hit && win.stackTextForTest().contains("+0x");
+
     // XMM view: the worker loads a known value into xmm0 before the breakpoint.
     // Check this while the trapping worker is still the active thread (before the
     // thread switch below retargets the register view to another thread).
@@ -141,8 +145,8 @@ int main(int argc, char** argv) {
     kill(child, SIGKILL);
     waitpid(child, nullptr, 0);
 
-    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk;
-    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d)\n",
-           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk);
+    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno;
+    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d stackanno=%d)\n",
+           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk, stackAnno);
     return ok ? 0 : 1;
 }

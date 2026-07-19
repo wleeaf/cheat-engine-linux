@@ -1,5 +1,6 @@
 #include "gui/debuggerwindow.hpp"
 #include "arch/cpu_flags.hpp"
+#include "core/types.hpp"   // moduleOffsetString
 #include "gui/theme.hpp"
 #include "debug/breakpoint_manager.hpp"
 #include "debug/patch.hpp"
@@ -695,17 +696,31 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
 }
 
 void DebuggerWindow::updateStack(const ce::CpuContext& c) {
+    // Resolve stack values that point into a loaded module (return addresses) to
+    // "module+offset", so the raw stack reads as a call stack (CE-style). Cached
+    // once per session; modules rarely change while stopped.
+    if (modules_.empty() && proc_) modules_ = proc_->modules();
     QString out;
     for (int i = 0; i < 16; ++i) {
         uintptr_t slotAddr = c.rsp + static_cast<uintptr_t>(i) * 8;
         uint64_t val = 0;
         auto rr = proc_->read(slotAddr, &val, sizeof(val));
-        if (rr && *rr == sizeof(val))
-            out += QStringLiteral("%1: %2\n").arg(hex(slotAddr), hex(val));
-        else
+        if (rr && *rr == sizeof(val)) {
+            std::string mo = ce::moduleOffsetString(modules_, static_cast<uintptr_t>(val));
+            if (!mo.empty())
+                out += QStringLiteral("%1: %2  %3\n")
+                           .arg(hex(slotAddr), hex(val), QString::fromStdString(mo));
+            else
+                out += QStringLiteral("%1: %2\n").arg(hex(slotAddr), hex(val));
+        } else {
             out += QStringLiteral("%1: ??\n").arg(hex(slotAddr));
+        }
     }
     stackView_->setPlainText(out);
+}
+
+QString DebuggerWindow::stackTextForTest() const {
+    return stackView_ ? stackView_->toPlainText() : QString();
 }
 
 uintptr_t DebuggerWindow::currentCursorAddress() const {

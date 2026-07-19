@@ -51,6 +51,9 @@ transforms across surfaces.
   the status/control flags set in RFLAGS (CF PF AF ZF SF TF IF DF OF), instead of leaving
   you to decode the raw hex. Backed by a Qt-free `ce::describeEflags()` unit-tested in
   cecore_test and asserted end to end in `gui_debugger_smoke`.
+- **Debugger stack pane reads as a call stack**: stack slots whose value points into a
+  loaded module (return addresses) are annotated with "module+offset", so you can see the
+  call chain instead of raw pointers. Asserted in `gui_debugger_smoke`.
 - **Disassembler multi-instruction selection**: Shift+Up/Down and Shift+click select a
   range of instructions (the whole range highlights), and Ctrl+C copies every selected line
   as a block. A plain move or click collapses back to a single line; right-clicking inside a

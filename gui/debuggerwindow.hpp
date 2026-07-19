@@ -61,6 +61,8 @@ public:
     bool anyRegisterChangedHighlightForTest() const;
     // The decoded-flags line shown under the register table (e.g. "Flags: PF ZF IF").
     QString flagsTextForTest() const;
+    // The stack pane's current text (address: value [ module+offset ] per slot).
+    QString stackTextForTest() const;
 
 signals:
     /// The target stopped at `rip` (breakpoint / step). Lets other views (e.g. open
@@ -106,6 +108,7 @@ private:
 
     QLabel* statusLabel_ = nullptr;
     QLabel* flagsLabel_ = nullptr;   // decoded CPU flags (CF PF ZF SF …) at the stop
+    std::vector<ce::ModuleInfo> modules_;   // for module+offset on stack return addresses
     QPlainTextEdit* disasmView_ = nullptr;
     QComboBox* threadCombo_ = nullptr;
     QTableWidget* regTable_ = nullptr;

@@ -1882,8 +1882,11 @@ void MainWindow::setupUi() {
                     auto* dlg = new PointerScanDialog(process_.get(), this);
                     dlg->setAttribute(Qt::WA_DeleteOnClose);
                     connect(dlg, &PointerScanDialog::addressSelected, this,
-                            [this](uintptr_t addr, const QString& desc) {
-                                addressListModel_->addEntry(addr, ce::ValueType::Int32, desc);
+                            [this](uintptr_t addr, const QString& expr) {
+                                // The path string is a resolvable pointer expression; store it
+                                // AS the address so the record re-resolves each refresh and
+                                // survives the module rebasing on restart (the point of a scan).
+                                addressListModel_->addEntry(addr, ce::ValueType::Int32, expr, expr);
                             });
                     dlg->show();
                 });
@@ -3935,7 +3938,10 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
         if (!process_) return;
         auto* dlg = new PointerScanDialog(process_.get(), this);
         connect(dlg, &PointerScanDialog::addressSelected, this,
-                [this](uintptr_t a, const QString& d) { addressListModel_->addEntry(a, ce::ValueType::Int32, d); });
+                [this](uintptr_t a, const QString& expr) {
+                    // Add the pointer path AS the address expression so it re-resolves live.
+                    addressListModel_->addEntry(a, ce::ValueType::Int32, expr, expr);
+                });
         dlg->setAttribute(Qt::WA_DeleteOnClose); dlg->show();
     });
     tools->addAction("Emulator guest scan", this, [this]() {

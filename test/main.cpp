@@ -999,6 +999,36 @@ static void test_cheat_table_json() {
     printf("  CETRAINER protected round trip: %s\n", (protectedOk && wrongPasswordOk) ? "OK" : "FAILED");
 }
 
+// A pointer-scan result added to the address list must go in AS its pointer
+// expression, not the resolved numeric address, so it survives a restart. Verify
+// PointerPath::toString() produces an expression ExpressionParser resolves back to the
+// same target the scan found.
+static void test_pointer_path_expression() {
+    printf("\n── Test: PointerPath toString resolves via ExpressionParser ──\n");
+    const uintptr_t moduleBase = 0x400000;
+    const uintptr_t node1 = 0x500000;
+    std::vector<uint8_t> module(0x100, 0), n1(0x100, 0);
+    std::memcpy(module.data() + 0x10, &node1, sizeof(node1));   // [game+0x10] -> node1
+    FakeProcessHandle proc({
+        {{moduleBase, module.size(), MemProt::Read, MemType::Image, MemState::Committed, "/tmp/game"}, module},
+        {{node1, n1.size(), MemProt::ReadWrite, MemType::Private, MemState::Committed, "[heap]"}, n1},
+    }, {
+        {moduleBase, module.size(), "game", "/tmp/game", true},
+    });
+
+    PointerPath path;
+    path.module = "game"; path.moduleBase = moduleBase; path.baseOffset = 0x10;
+    path.offsets = {0x8};                    // final address = [game+0x10] + 0x8 = node1 + 0x8
+    std::string expr = path.toString();
+    ce::ExpressionParser parser(&proc, nullptr);
+    auto resolved = parser.parse(expr);
+    uintptr_t want = node1 + 0x8;
+    bool ok = resolved && *resolved == want;
+    printf("  '%s' resolves to the scanned target: %s (got 0x%lx want 0x%lx)\n",
+           expr.c_str(), ok ? "OK" : "FAILED",
+           (unsigned long)(resolved ? *resolved : 0), (unsigned long)want);
+}
+
 static void test_ce_table_import() {
     printf("\n── Test: Real CE .CT import ──\n");
     // Exactly as Cheat Engine itself writes an entry: the Description is wrapped
@@ -10617,6 +10647,7 @@ int main(int argc, char* argv[]) {
     test_lua_timers();
     test_logging();
     test_ce_table_import();
+    test_pointer_path_expression();
     test_ct_load_from_string();
     test_ct_format_detection();
     test_ct_forms_roundtrip();

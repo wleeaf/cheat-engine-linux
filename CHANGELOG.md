@@ -95,6 +95,11 @@ transforms across surfaces.
   looked for `<DropdownList>` (case-sensitive), so a genuine CE table's dropdown options silently
   vanished. Now reads (and writes) CE's `<DropDownList>`, with the old mis-cased tag accepted as a
   fallback so tables saved by earlier builds of this port still load.
+- **Fixed: a pointer-scan result was added to the address list as a static address, not a
+  pointer.** Double-clicking a pointer-scanner result added the resolved numeric address with the
+  path only in the description, so the record broke as soon as the module rebased (a game
+  restart) - defeating the whole point of pointer scanning. It now adds the path as the record's
+  address expression, so it re-resolves live and survives restarts.
 - **Cheat table: drag-and-drop reordering (CE parity).** Drag an entry to move it in the list
   instead of only the context-menu Move Up/Down. Dragging a group header carries its whole
   subtree, dropping in the empty area moves the entry to the end, and **dropping onto a group

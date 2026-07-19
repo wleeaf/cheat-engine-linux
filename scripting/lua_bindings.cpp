@@ -4563,6 +4563,69 @@ static int ce_lua_firewall(lua_State* L) {
         return luaL_error(L, "unhandled C++ exception in a cecore native binding");
     }
 }
+// ── CE Lua string extensions ────────────────────────────────────────────────
+// printf(...) is print(string.format(...)); startsWith/endsWith/split are added to
+// the `string` table so trainer scripts can call them as methods on a string
+// (s:startsWith(p), s:endsWith(p), s:split(sep)). Pure string ops, no side effects.
+static int l_printf(lua_State* L) {
+    int n = lua_gettop(L);
+    lua_getglobal(L, "string");
+    lua_getfield(L, -1, "format");   // string.format
+    lua_replace(L, -2);              // drop the string table, keep format
+    lua_insert(L, 1);                // [format, args...]
+    lua_call(L, n, 1);               // [formatted]
+    lua_getglobal(L, "print");       // [formatted, print]
+    lua_insert(L, 1);                // [print, formatted]
+    lua_call(L, 1, 0);
+    return 0;
+}
+
+static int l_string_startsWith(lua_State* L) {
+    size_t sl = 0, pl = 0;
+    const char* s = luaL_checklstring(L, 1, &sl);
+    const char* p = luaL_checklstring(L, 2, &pl);
+    lua_pushboolean(L, pl <= sl && std::memcmp(s, p, pl) == 0);
+    return 1;
+}
+
+static int l_string_endsWith(lua_State* L) {
+    size_t sl = 0, pl = 0;
+    const char* s = luaL_checklstring(L, 1, &sl);
+    const char* p = luaL_checklstring(L, 2, &pl);
+    lua_pushboolean(L, pl <= sl && std::memcmp(s + (sl - pl), p, pl) == 0);
+    return 1;
+}
+
+static int l_string_split(lua_State* L) {
+    size_t sl = 0, sepl = 0;
+    const char* s = luaL_checklstring(L, 1, &sl);
+    const char* sep = luaL_checklstring(L, 2, &sepl);
+    lua_newtable(L);
+    int idx = 1;
+    if (sepl == 0) {   // no separator: the whole string is the only element
+        lua_pushlstring(L, s, sl);
+        lua_rawseti(L, -2, idx++);
+        return 1;
+    }
+    // Split on any character in `sep` (CE treats the argument as a separator set),
+    // skipping empty segments so runs of separators don't produce "" entries.
+    auto isSep = [&](char c) {
+        for (size_t k = 0; k < sepl; ++k) if (sep[k] == c) return true;
+        return false;
+    };
+    size_t start = 0;
+    for (size_t i = 0; i <= sl; ++i) {
+        if (i == sl || isSep(s[i])) {
+            if (i > start) {
+                lua_pushlstring(L, s + start, i - start);
+                lua_rawseti(L, -2, idx++);
+            }
+            start = i + 1;
+        }
+    }
+    return 1;
+}
+
 static inline void ce_register_guarded(lua_State* L, const char* name, lua_CFunction fn) {
     lua_pushlightuserdata(L, reinterpret_cast<void*>(fn));
     lua_pushcclosure(L, ce_lua_firewall, 1);
@@ -4836,6 +4899,16 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "inMainThread", l_inMainThread);
     lua_register(L, "setProcessName", l_setProcessName);
     lua_register(L, "getProcessName", l_getProcessName);
+
+    // CE Lua string extensions: printf global + startsWith/endsWith/split string methods.
+    lua_register(L, "printf", l_printf);
+    lua_getglobal(L, "string");
+    if (lua_istable(L, -1)) {
+        lua_pushcfunction(L, l_string_startsWith); lua_setfield(L, -2, "startsWith");
+        lua_pushcfunction(L, l_string_endsWith);   lua_setfield(L, -2, "endsWith");
+        lua_pushcfunction(L, l_string_split);      lua_setfield(L, -2, "split");
+    }
+    lua_pop(L, 1);
 
     // Constants
     registerConstants(L);

@@ -4452,6 +4452,28 @@ static void test_lua_more_bindings() {
            ok ? "OK" : ("FAILED (" + (err.empty() ? err2 : err) + ")").c_str());
 }
 
+// CE Lua string extensions: printf + string:startsWith/endsWith/split. Portable
+// helpers that many .CT trainer scripts rely on. Pure string ops, no process needed.
+static void test_lua_string_extensions() {
+    printf("\n── Test: Lua string extensions (startsWith/endsWith/split/printf) ──\n");
+    LuaEngine eng;
+    std::string err = eng.execute(
+        "assert(('hello world'):startsWith('hello'), 'startsWith true')\n"
+        "assert(not ('hello world'):startsWith('world'), 'startsWith false')\n"
+        "assert(('hello'):startsWith('hello world') == false, 'startsWith longer prefix')\n"
+        "assert(('hello world'):endsWith('world'), 'endsWith true')\n"
+        "assert(not ('hello world'):endsWith('hello'), 'endsWith false')\n"
+        "local t = ('a,b,c'):split(',')\n"
+        "assert(#t == 3 and t[1]=='a' and t[2]=='b' and t[3]=='c', 'split basic')\n"
+        // Separator is a set (comma OR space) and empty segments are skipped.
+        "local t2 = ('1,,2, ,3'):split(', ')\n"
+        "assert(#t2 == 3 and t2[1]=='1' and t2[2]=='2' and t2[3]=='3', 'split set skip-empty')\n"
+        "assert(type(printf) == 'function', 'printf exists')\n"
+        "printf('%d + %d = %d', 2, 3, 5)\n");   // must format + print without erroring
+    bool ok = err.empty();
+    printf("  string extensions: %s%s\n", ok ? "OK" : "FAILED ", ok ? "" : err.c_str());
+}
+
 // A hot function with a single store to one global, plus a worker that spins it,
 // for the "find what addresses this instruction accesses" test below.
 static volatile long g_ifa_target;
@@ -10462,6 +10484,7 @@ int main(int argc, char* argv[]) {
     test_lua_nop_instruction();
     test_lua_region_file();
     test_lua_more_bindings();
+    test_lua_string_extensions();
     test_speedhack_got_injection();
     test_parser_fuzz_negatives();
     test_lua_shellexecute_gate();

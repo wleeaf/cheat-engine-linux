@@ -18,6 +18,11 @@ reimplementation of Cheat Engine).
 Follow-ups since v0.7.0, mostly deepening the hard-target work and unifying the value
 transforms across surfaces.
 
+- **Lua: CE string extensions `startsWith` / `endsWith` / `split` + `printf` (.CT compat).** Added
+  the CE Lua string helpers many trainer scripts use: `s:startsWith(p)`, `s:endsWith(p)`, and
+  `s:split(sep)` (separator is a character set; empty segments are skipped) as methods on the
+  string type, plus the global `printf(...)` (= `print(string.format(...))`). Improves
+  out-of-the-box compatibility for imported `.CT` tables that call these.
 - **Disassembler: double-click a plain instruction to edit it (CE parity).** Double-clicking a
   jump/call/branch or a RIP-relative reference still follows it; double-clicking any other
   instruction now opens the assembler on that line, so you can retype it in place (NOP-padded or

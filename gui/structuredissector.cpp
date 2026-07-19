@@ -281,7 +281,9 @@ void StructureDissector::onContextMenu(const QPoint& pos) {
     if (row < 0) return;
     int off = row * 8;
     uintptr_t addr = baseAddr_ + off;
-    ce::ValueType guessed = guessType(cache_.data() + off, off);
+    // Prefer the field's declared type (set via naming / "Type as C struct") over the
+    // byte-pattern guess, matching what "Add all fields" uses.
+    ce::ValueType guessed = resolveFieldType(off);
     auto typeName = [](ce::ValueType t) {
         switch (t) {
             case ce::ValueType::Pointer: return "Pointer";
@@ -311,7 +313,22 @@ void StructureDissector::onContextMenu(const QPoint& pos) {
     else if (picked == addP) t = ce::ValueType::Pointer;
     else if (picked != addGuess) return;
 
-    addToListCb_(addr, t, QString("Dissect +0x%1").arg(off, 0, 16));
+    addFieldToList(off, t);
+}
+
+ce::ValueType StructureDissector::resolveFieldType(int offset) {
+    ce::ValueType t = guessType(cache_.data() + offset, offset);
+    if (auto it = fieldTypes_.find(offset); it != fieldTypes_.end()) t = it->second;
+    return t;
+}
+
+void StructureDissector::addFieldToList(int offset, ce::ValueType type) {
+    if (!addToListCb_) return;
+    // Carry the field's name (if it has one) to the cheat-table description.
+    auto nit = fieldNames_.find(offset);
+    QString desc = (nit != fieldNames_.end() && !nit->second.isEmpty())
+        ? nit->second : QString("Dissect +0x%1").arg(offset, 0, 16);
+    addToListCb_(baseAddr_ + offset, type, desc);
 }
 
 void StructureDissector::onSaveDefinition() {

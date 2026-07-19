@@ -67,6 +67,10 @@ transforms across surfaces.
   resolves the `[[base]+..]` chain against the target as you edit the base/offsets and shows the
   final address **and the value it lands on** (`→ 0x… = 4321`, or `→ ?? (does not resolve)` when a
   deref fails), so you can confirm the chain reaches the value you expect before committing.
+- **Dissect Data: adding a single field respects its declared type and name.** Right-click "Add
+  ... (auto)" on a dissector row now uses the field's declared type (set via naming / "Type as C
+  struct") and carries its name to the cheat-table description, matching what "Add all fields"
+  already did, instead of the raw byte guess and a generic "Dissect +0x.." label.
 - **Dissect Data: valid-pointer fields are colored (CE parity).** In the Structure Dissector's
   single-struct view, a field whose 8 bytes form a valid pointer now paints its Pointer? cell
   teal, so references stand out at a glance (CE colors pointer fields). The live-change red still

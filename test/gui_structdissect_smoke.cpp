@@ -78,6 +78,16 @@ int main(int argc, char** argv) {
     int returned = diss.addAllFieldsToList();
     bool addAllOk = (returned == 2 && added == 2 && ammoSeen && ammoType == ce::ValueType::Float);
 
+    // Single-field "Add (auto)" from the row context menu uses that field's declared
+    // type (Float) and name (ammo), matching Add All (not the byte guess / generic desc).
+    uintptr_t singleAddr = 0; ce::ValueType singleType = ce::ValueType::Int32; QString singleDesc;
+    diss.setAddToListCallback([&](uintptr_t a, ce::ValueType t, const QString& name) {
+        singleAddr = a; singleType = t; singleDesc = name;
+    });
+    diss.addFieldToListForTest(16);
+    bool singleAddOk = singleAddr == reinterpret_cast<uintptr_t>(g_a) + 16 &&
+                       singleType == ce::ValueType::Float && singleDesc == "ammo";
+
     // Base Address field accepts CE-style expressions, not just bare hex: "#1234" is
     // decimal, "0x.." is hex.
     bool exprDecimal = diss.resolveBaseForTest("#256") == 256;
@@ -103,10 +113,10 @@ int main(int argc, char** argv) {
     bool followTestOk = followOk && noFollowInt;
 
     bool ok = cols == 4 && diffAt0x10 && !sameAt0x00 && !sameAt0x28
-           && changedRow3 && !changedRow0 && ptrColorOk && addAllOk && exprOk && followTestOk;
+           && changedRow3 && !changedRow0 && ptrColorOk && addAllOk && singleAddOk && exprOk && followTestOk;
     printf("gui structdissect smoke: %s (cols=%d diff@0x10=%d same@0x00=%d same@0x28=%d "
-           "changed@0x18=%d changed@0x00=%d ptrColor=%d addAll=%d expr=%d follow=%d noFollowInt=%d)\n",
+           "changed@0x18=%d changed@0x00=%d ptrColor=%d addAll=%d singleAdd=%d expr=%d follow=%d noFollowInt=%d)\n",
            ok ? "OK" : "FAILED", cols, diffAt0x10, sameAt0x00, sameAt0x28, changedRow3, changedRow0,
-           (int)ptrColorOk, addAllOk, exprOk, (int)followOk, (int)noFollowInt);
+           (int)ptrColorOk, addAllOk, (int)singleAddOk, exprOk, (int)followOk, (int)noFollowInt);
     return ok ? 0 : 1;
 }

@@ -50,6 +50,9 @@ public:
     // True if `row`'s Pointer? cell is painted as a valid pointer (CE-style coloring).
     bool pointerColoredForTest(int row) const;
     void refreshNowForTest() { if (proc_) populateTable(); }
+    // Add the field at byte `offset` to the address list as the "auto" context action
+    // does (declared type if set else the byte guess; field name if set else generic).
+    void addFieldToListForTest(int offset) { addFieldToList(offset, resolveFieldType(offset)); }
     // Type an expression into the Compare field and apply it; returns the column count.
     int setCompareExpressionForTest(const QString& expr) {
         compareEdit_->setText(expr); applyCompareAddresses(); return table_->columnCount();
@@ -66,6 +69,11 @@ private slots:
 
 private:
     void populateTable();
+    // The type "Add ... (auto)" uses for a field: its declared type if set, else the
+    // byte-pattern guess. Shared by the context menu and the test hook.
+    ce::ValueType resolveFieldType(int offset);
+    // Add the field at `offset` to the address list with `type` and its name (if set).
+    void addFieldToList(int offset, ce::ValueType type);
     // Base address of the struct instance shown in table column `col` (Base col -> the
     // dissector base; a compare column -> that instance's address); 0 if not a value col.
     uintptr_t instanceBaseForColumn(int col) const;

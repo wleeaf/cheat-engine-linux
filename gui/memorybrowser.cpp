@@ -1019,6 +1019,7 @@ void DisasmView::contextMenuEvent(QContextMenuEvent* e) {
     menu.addSeparator();
     auto* labelAct = menu.addAction("Label this address…");
     auto* commentAct = menu.addAction("Set comment…");
+    auto* addListAct = menu.addAction("Add this address to the list");
     auto* xrefAct = menu.addAction("Find references to this address");
     auto* accessAct = menu.addAction("Find out what addresses this instruction accesses");
     auto* asmAct = menu.addAction("Assemble instruction…");
@@ -1070,6 +1071,10 @@ void DisasmView::contextMenuEvent(QContextMenuEvent* e) {
         emit requestSetSymbol(inst.address);
     } else if (picked == commentAct) {
         emit requestSetComment(inst.address);
+    } else if (picked == addListAct) {
+        // Add the instruction address as a record (CE's disassembler "Add to the list").
+        // 4 Bytes is CE's default for a fresh address; the user retypes it if needed.
+        emit requestAddToList(inst.address, ce::ValueType::Int32);
     } else if (picked == xrefAct) {
         emit requestXrefs(inst.address);
     } else if (picked == accessAct) {
@@ -1943,6 +1948,9 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
             "No code-finder launcher is wired to this memory browser instance.");
     });
     connect(hexView_, &HexView::requestAddToList, this, [this](uintptr_t addr, ce::ValueType type) {
+        if (addToList_) addToList_(addr, type);
+    });
+    connect(disasmView_, &DisasmView::requestAddToList, this, [this](uintptr_t addr, ce::ValueType type) {
         if (addToList_) addToList_(addr, type);
     });
     connect(hexView_, &HexView::requestGoto, this, [this](uintptr_t addr) {

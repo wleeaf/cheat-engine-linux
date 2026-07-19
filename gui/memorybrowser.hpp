@@ -233,6 +233,7 @@ signals:
     void requestInstructionAccess(uintptr_t addr);   // "what addresses does this instr access"
     void requestSetSymbol(uintptr_t addr);
     void requestSetComment(uintptr_t addr);
+    void requestAddToList(uintptr_t addr, ce::ValueType type);   // add the instruction addr
     void requestSaveRegion(uintptr_t addr);
     void requestLoadRegion(uintptr_t addr);
     // Generate a pre-filled auto-assembler injection template for this address.

@@ -1354,6 +1354,11 @@ void DisasmView::keyPressEvent(QKeyEvent* e) {
                e->key() == Qt::Key_Space) {
         // Follow the selected instruction's branch/data target (CE keyboard nav).
         if (!followRow(selectedRow_)) QAbstractScrollArea::keyPressEvent(e);
+    } else if (e->matches(QKeySequence::SelectAll) && !instructions_.empty()) {
+        // Select every visible instruction (then Copy/NOP acts on the whole block).
+        selAnchorRow_ = 0;
+        selectedRow_ = std::min((int)instructions_.size(), visibleRows()) - 1;
+        viewport()->update();
     } else if (int lo, hi; e->matches(QKeySequence::Copy) && selRange(lo, hi)) {
         // Ctrl+C copies every selected line ("addr - bytes - mnemonic ops"), one per
         // line, so a Shift-selected range copies as a block (same format as "Copy line").

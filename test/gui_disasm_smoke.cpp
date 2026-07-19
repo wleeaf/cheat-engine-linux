@@ -62,8 +62,13 @@ int main(int argc, char** argv) {
     sendKey(&dv, Qt::Key_Down, Qt::NoModifier);      // plain move collapses the range
     int collapsed = dv.selectionCountForTest();
 
-    bool ok = single == 1 && rangeThree == 3 && rangeTwo == 2 && collapsed == 1 && copiedLines == 3;
-    printf("gui disasm smoke: %s (single=%d range3=%d range2=%d collapsed=%d copiedLines=%d)\n",
-           ok ? "OK" : "FAILED", single, rangeThree, rangeTwo, collapsed, copiedLines);
+    // Ctrl+A selects every visible instruction (more than the manual 3-line range).
+    sendKey(&dv, Qt::Key_A, Qt::ControlModifier);
+    int selectAll = dv.selectionCountForTest();
+
+    bool ok = single == 1 && rangeThree == 3 && rangeTwo == 2 && collapsed == 1
+           && copiedLines == 3 && selectAll > 3;
+    printf("gui disasm smoke: %s (single=%d range3=%d range2=%d collapsed=%d copiedLines=%d selectAll=%d)\n",
+           ok ? "OK" : "FAILED", single, rangeThree, rangeTwo, collapsed, copiedLines, selectAll);
     return ok ? 0 : 1;
 }

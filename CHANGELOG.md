@@ -64,7 +64,8 @@ transforms across surfaces.
   as a block. A plain move or click collapses back to a single line; right-clicking inside a
   range keeps it so the menu acts on the whole selection. The context menu is range-aware
   too: "Copy bytes", "Copy lines", and "NOP N instructions (M bytes)" all operate on every
-  selected instruction. Covered by a new offscreen `gui_disasm_smoke` in the CI mirror.
+  selected instruction. **Ctrl+A** selects every visible instruction (then Copy/NOP acts on
+  the whole block). Covered by a new offscreen `gui_disasm_smoke` in the CI mirror.
 - **Hex pane highlights changed bytes** (CE-style): bytes whose value differs from the
   previous refresh paint red across the hex and ASCII columns, so live-changing memory is
   obvious at a glance. Navigating to a new address resets the baseline (no false "changed"

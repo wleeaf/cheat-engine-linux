@@ -4485,6 +4485,31 @@ static void test_lua_string_extensions() {
     printf("  string extensions: %s%s\n", ok ? "OK" : "FAILED ", ok ? "" : err.c_str());
 }
 
+// Distinctive-byte function so getUniqueAOB has a unique pattern to find at its entry.
+__attribute__((noinline)) static int uaob_target(int x) {
+    volatile int a = x * 0x1234567;
+    a ^= 0x7EDCBA98;
+    return a + 42;
+}
+
+// getUniqueAOB(address): a unique byte pattern for an in-module code address, offset 0,
+// and nil for a non-module address. Scans this process's own module (getpid()).
+static void test_lua_getUniqueAOB() {
+    printf("\n── Test: Lua getUniqueAOB ──\n");
+    LuaEngine eng;
+    eng.setOwnedProcess(std::make_unique<LinuxProcessHandle>(getpid()));
+    const std::string fn = std::to_string((uintptr_t)&uaob_target);
+    std::string err = eng.execute(
+        "local aob, off = getUniqueAOB(" + fn + ")\n"
+        "assert(type(aob) == 'string' and #aob > 0, 'aob is a non-empty string')\n"
+        "assert(off == 0, 'offset is 0 (pattern starts at the address)')\n"
+        "local firstByte = readByte(" + fn + ")\n"
+        "assert(tonumber(aob:sub(1,2), 16) == (firstByte & 0xFF), 'aob begins with the byte at the address')\n"
+        "assert(getUniqueAOB(0x1000) == nil, 'a non-module address returns nil')\n");
+    bool ok = err.empty();
+    printf("  getUniqueAOB: %s%s\n", ok ? "OK" : "FAILED ", ok ? "" : err.c_str());
+}
+
 // A hot function with a single store to one global, plus a worker that spins it,
 // for the "find what addresses this instruction accesses" test below.
 static volatile long g_ifa_target;
@@ -10496,6 +10521,7 @@ int main(int argc, char* argv[]) {
     test_lua_region_file();
     test_lua_more_bindings();
     test_lua_string_extensions();
+    test_lua_getUniqueAOB();
     test_speedhack_got_injection();
     test_parser_fuzz_negatives();
     test_lua_shellexecute_gate();

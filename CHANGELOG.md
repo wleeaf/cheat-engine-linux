@@ -18,6 +18,10 @@ reimplementation of Cheat Engine).
 Follow-ups since v0.7.0, mostly deepening the hard-target work and unifying the value
 transforms across surfaces.
 
+- **Lua: `getUniqueAOB(address)` (.CT compat).** Returns a byte pattern that uniquely identifies
+  a code address within its module (extended until unique) plus the offset to the address (0),
+  or nil for a non-module address. Backed by the same `uniqueAobSignature` the AOB-injection
+  generator uses, so injection scripts can build a stable signature for a hook site.
 - **Lua: more CE helpers `wideStringToByteTable` / `byteTableToWideString` / `signExtend` /
   `getCPUCount` (.CT compat).** UTF-16LE widestring byte-table conversions (surrogate-pair
   correct, with the `tableindex` start argument), CE's `signExtend(value, msb)`, and

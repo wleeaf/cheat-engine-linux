@@ -19,6 +19,7 @@
 #include "scanner/memory_scanner.hpp"
 #include "scanner/pointer_scanner.hpp"
 #include "core/autoasm.hpp"
+#include "core/injection_gen.hpp"
 #include "arch/disassembler.hpp"
 #include "arch/assembler.hpp"
 #include "debug/patch.hpp"
@@ -4021,6 +4022,26 @@ static int l_AOBScanEx(lua_State* L) {
 
 // AOBScanModule(moduleName, pattern) -> result list restricted to that module's
 // address range (CE convention). Same 0-indexed .Count/.destroy() shape as AOBScan.
+// getUniqueAOB(address) -> aobString, offset. Returns a byte pattern that uniquely
+// identifies `address` within its module (extended until unique), plus the offset from
+// the pattern's start to `address`. Our pattern starts at `address`, so offset is 0.
+// Returns nil if the address is not inside a loaded module.
+static int l_getUniqueAOB(lua_State* L) {
+    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); return 1; }
+    for (auto& m : p->modules()) {
+        if (addr < m.base || addr >= m.base + m.size) continue;
+        std::string sig = ce::uniqueAobSignature(*p, m, addr, /*minLen=*/1, /*maxLen=*/128);
+        if (sig.empty()) break;
+        lua_pushstring(L, sig.c_str());
+        lua_pushinteger(L, 0);   // pattern starts at `address`
+        return 2;
+    }
+    lua_pushnil(L);
+    return 1;
+}
+
 static int l_AOBScanModule(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); return 1; }
@@ -4961,6 +4982,7 @@ void registerExtendedBindings(lua_State* L) {
     // AOB
     lua_register(L, "AOBScan", l_AOBScan);
     lua_register(L, "AOBScanModule", l_AOBScanModule);
+    lua_register(L, "getUniqueAOB", l_getUniqueAOB);
     lua_register(L, "AOBScanEx", l_AOBScanEx);
 
     // Memory protection

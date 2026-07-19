@@ -1726,6 +1726,19 @@ void MainWindow::setupUi() {
                 for (const auto& idx : selected) rows.append(idx.row());
                 addressListModel_->outdentRows(rows);
             });
+            // CE "Add the selected records to a new group": wrap the selection under a
+            // fresh group header (prompts for its name, like CE's group description).
+            menu.addAction("Add to new group...", [this, selected]() {
+                QList<int> rows;
+                for (const auto& idx : selected) rows.append(idx.row());
+                if (rows.isEmpty()) return;
+                bool ok = false;
+                QString name = QInputDialog::getText(this, "New group",
+                    "Group name:", QLineEdit::Normal, "-- Group --", &ok);
+                if (!ok) return;
+                if (name.isEmpty()) name = "-- Group --";
+                addressListModel_->groupSelectedRows(rows, name);
+            });
             if (selected.size() == 1) {
                 int row = selected.first().row();
                 auto* up = menu.addAction("Move Up", [this, row]() { moveSelectedEntry(row, -1); });
@@ -5264,6 +5277,41 @@ void AddressListModel::moveEntryBlock(int srcRow, int destRow, int newRootIndent
     reordered.reserve(n);
     for (int oldIdx : perm) reordered.push_back(std::move(entries_[oldIdx]));
     entries_ = std::move(reordered);
+    endResetModel();
+}
+
+void AddressListModel::groupSelectedRows(QList<int> rows, const QString& desc) {
+    const int n = (int)entries_.size();
+    std::vector<int> indents;
+    indents.reserve(n);
+    for (const auto& e : entries_) indents.push_back(e.indent);
+    std::vector<std::size_t> sel;
+    sel.reserve(rows.size());
+    for (int r : rows) if (r >= 0 && r < n) sel.push_back((std::size_t)r);
+    auto plan = ce::groupSelection(indents, sel);
+    if (!plan.ok) return;
+
+    // Each original index appears exactly once in plan.order (plus one -1 for the new
+    // header), so moving out of entries_ never double-moves.
+    beginResetModel();
+    std::vector<AddressEntry> rebuilt;
+    rebuilt.reserve(plan.order.size());
+    for (std::size_t i = 0; i < plan.order.size(); ++i) {
+        const int oldIdx = plan.order[i];
+        if (oldIdx < 0) {
+            AddressEntry g;
+            g.id = allocId();
+            g.description = desc;
+            g.isGroup = true;
+            g.indent = plan.indent[i];
+            rebuilt.push_back(std::move(g));
+        } else {
+            AddressEntry e = std::move(entries_[oldIdx]);
+            e.indent = plan.indent[i];
+            rebuilt.push_back(std::move(e));
+        }
+    }
+    entries_ = std::move(rebuilt);
     endResetModel();
 }
 

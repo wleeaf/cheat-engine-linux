@@ -10169,6 +10169,34 @@ static void test_group_collapse() {
     bool moveOk = m1 && m2 && m3 && m4 && m5;
     printf("  moveRangePermutation reorders blocks (%d%d%d%d%d): %s\n",
            m1, m2, m3, m4, m5, moveOk ? "OK" : "FAILED");
+
+    // groupSelection: wrap selected rows under a NEW group header. Render the plan as a
+    // compact "<label><indent>" sequence, 'G' marking the freshly-created header.
+    auto renderGroup = [](const std::string& labels, const std::vector<int>& indents,
+                          std::vector<std::size_t> sel) {
+        auto plan = ce::groupSelection(indents, std::move(sel));
+        if (!plan.ok) return std::string("<empty>");
+        std::string out;
+        for (std::size_t i = 0; i < plan.order.size(); ++i) {
+            if (i) out.push_back(' ');
+            out.push_back(plan.order[i] < 0 ? 'G' : labels[plan.order[i]]);
+            out.push_back(char('0' + plan.indent[i]));
+        }
+        return out;
+    };
+    // Flat list A B C D E; group B and C -> header before B, both nested one deeper.
+    bool g1 = renderGroup("ABCDE", {0,0,0,0,0}, {1,2}) == "A0 G0 B1 C1 D0 E0";
+    // Non-contiguous A and C -> gathered under the header; B (between them) falls out below.
+    bool g2 = renderGroup("ABCDE", {0,0,0,0,0}, {0,2}) == "G0 A1 C1 B0 D0 E0";
+    // Group a header A@0 with its child B@1: relative nesting preserved, shifted deeper.
+    bool g3 = renderGroup("ABCD", {0,1,0,0}, {0,1}) == "G0 A1 B2 C0 D0";
+    // Empty / fully out-of-range selection -> not ok.
+    bool g4 = !ce::groupSelection({0,0,0}, {}).ok && !ce::groupSelection({0,0,0}, {9}).ok;
+    // Duplicate + unsorted indices are sanitized to the same result as {1,2}.
+    bool g5 = renderGroup("ABCDE", {0,0,0,0,0}, {2,1,2,1}) == "A0 G0 B1 C1 D0 E0";
+    bool groupSelOk = g1 && g2 && g3 && g4 && g5;
+    printf("  groupSelection wraps a selection under a new header (%d%d%d%d%d): %s\n",
+           g1, g2, g3, g4, g5, groupSelOk ? "OK" : "FAILED");
 }
 
 static void test_expression_parser() {

@@ -367,6 +367,9 @@ public:
     int moveEntry(int row, int delta);
     void indentRows(QList<int> rows);
     void outdentRows(QList<int> rows);
+    /// CE "add the selected records to a new group": wrap `rows` under a new group
+    /// header inserted at the earliest selected row (via ce::groupSelection).
+    void groupSelectedRows(QList<int> rows, const QString& desc = "-- Group --");
     void setFreezeMode(int row, ce::FreezeMode mode);
     // Obfuscation codec for an entry: value is stored as encode(logical) in memory.
     void setEntryCodec(int row, ce::ValueCodec codec);

@@ -5,6 +5,7 @@
 /// references survive row reordering.
 
 #include "core/types.hpp"
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -69,6 +70,57 @@ inline std::vector<int> moveRangePermutation(int count, int start, int len, int 
     for (int i = start; i < start + len; ++i) perm.push_back(i);
     for (int k = insertPos; k < (int)rest.size(); ++k) perm.push_back(rest[k]);
     return perm;
+}
+
+/// Plan for wrapping a set of selected rows under a NEW group header (CE's "add the
+/// selected records to a new group"). `order[i]` is the original row index that belongs
+/// at new position i, or -1 where the freshly-created group header goes; `indent[i]` is
+/// that position's resulting nesting depth. The header is inserted at the earliest
+/// selected row and takes the shallowest indent in the selection; the selected rows are
+/// gathered contiguously right after it (original order preserved, relative nesting
+/// kept) one level deeper. Non-selected rows keep their order and indent, so any row that
+/// sat between two non-adjacent selected rows falls out below the new group. `ok` is
+/// false (and the vectors empty) for an empty or fully out-of-range selection. Pure +
+/// unit-tested; the GUI applies it, creating a real group entry at each -1.
+struct GroupSelectionPlan {
+    std::vector<int> order;    // original index per new position, or -1 for the group header
+    std::vector<int> indent;   // resulting indent per new position
+    bool ok = false;
+};
+
+inline GroupSelectionPlan groupSelection(const std::vector<int>& indents,
+                                         std::vector<std::size_t> selected) {
+    GroupSelectionPlan plan;
+    const std::size_t n = indents.size();
+    std::sort(selected.begin(), selected.end());
+    selected.erase(std::unique(selected.begin(), selected.end()), selected.end());
+    while (!selected.empty() && selected.back() >= n) selected.pop_back();
+    if (selected.empty()) return plan;
+
+    const std::size_t insertAt = selected.front();   // earliest selected row: where the header lands
+    int minSel = indents[selected.front()];
+    for (std::size_t s : selected) minSel = std::min(minSel, indents[s]);
+
+    std::vector<char> isSel(n, 0);
+    for (std::size_t s : selected) isSel[s] = 1;
+
+    plan.order.reserve(n + 1);
+    plan.indent.reserve(n + 1);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (i == insertAt) {
+            plan.order.push_back(-1);        // the new group header
+            plan.indent.push_back(minSel);
+            for (std::size_t s : selected) { // members, in original order, one level deeper
+                plan.order.push_back(static_cast<int>(s));
+                plan.indent.push_back(indents[s] + 1);
+            }
+        }
+        if (isSel[i]) continue;              // members already emitted under the header
+        plan.order.push_back(static_cast<int>(i));
+        plan.indent.push_back(indents[i]);
+    }
+    plan.ok = true;
+    return plan;
 }
 
 struct AddressEntrySnapshot {

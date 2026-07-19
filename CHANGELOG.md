@@ -70,8 +70,9 @@ transforms across surfaces.
   (it is restored to the same address). Asserted in `gui_debugger_smoke`.
 - **Debugger disassembly annotates data references**: a direct memory operand
   (`mov dword ptr [0x…], eax` or `[rip + 0x…]`) is resolved to the symbol / module+offset it
-  points at and shown as a `; -> name` comment, so you can see which global the paused code
-  reads or writes without doing the pointer math. Asserted in `gui_debugger_smoke`.
+  points at **and its current value** (sized by the operand's byte/word/dword/qword prefix),
+  shown as a `; -> name = value` comment, so you can see which global the paused code reads
+  or writes and what it currently holds. Asserted in `gui_debugger_smoke`.
 - **Debugger shows decoded CPU flags**: a "Flags:" line under the register table spells out
   the status/control flags set in RFLAGS (CF PF AF ZF SF TF IF DF OF), instead of leaving
   you to decode the raw hex. Backed by a Qt-free `ce::describeEflags()` unit-tested in

@@ -752,7 +752,27 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
                 if (eff) {
                     std::string es = resolver_.resolve(eff);
                     if (es.empty()) es = ce::moduleOffsetString(modules_, eff);
-                    if (!es.empty()) anno = QStringLiteral("   ; -> %1").arg(QString::fromStdString(es));
+                    // Also show the value currently at that address, sized by the operand's
+                    // "byte/word/dword/qword ptr" prefix, so you can read the global inline.
+                    QString valPart;
+                    const int sz = in.operands.find("qword") != std::string::npos ? 8
+                                 : in.operands.find("dword") != std::string::npos ? 4
+                                 : in.operands.find("word")  != std::string::npos ? 2
+                                 : in.operands.find("byte")  != std::string::npos ? 1 : 0;
+                    if (sz && proc_) {
+                        uint64_t v = 0;
+                        if (auto r = proc_->read(eff, &v, sz); r && *r == static_cast<size_t>(sz)) {
+                            int64_t sv = sz == 1 ? static_cast<int8_t>(v)
+                                       : sz == 2 ? static_cast<int16_t>(v)
+                                       : sz == 4 ? static_cast<int32_t>(v)
+                                                 : static_cast<int64_t>(v);
+                            valPart = QStringLiteral(" = %1").arg(static_cast<qlonglong>(sv));
+                        }
+                    }
+                    if (!es.empty())
+                        anno = QStringLiteral("   ; -> %1%2").arg(QString::fromStdString(es), valPart);
+                    else if (!valPart.isEmpty())
+                        anno = QStringLiteral("   ; ->%1").arg(valPart);
                 }
             }
             out += QStringLiteral("%1%2%3  %4 %5%6\n")

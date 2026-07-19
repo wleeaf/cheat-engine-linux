@@ -112,9 +112,10 @@ int main(int argc, char** argv) {
     // so the disassembly pane annotates it with the function name.
     bool disasmSym = hit && win.disasmTextForTest().contains("smoke_hot");
 
-    // Data-operand annotation: smoke_hot's mov to/from its static reads/writes a global,
-    // so the disassembly resolves that memory operand's address to a symbol ("-> ...").
-    bool disasmData = hit && win.disasmTextForTest().contains("-> ");
+    // Data-operand annotation: smoke_hot's mov to/from its static reads/writes a global, so
+    // the disassembly resolves that memory operand to a symbol and shows its value ("-> s = N").
+    bool disasmData = hit && win.disasmTextForTest().contains("-> ") &&
+                      win.disasmTextForTest().contains(" = ");
 
     // Current-line highlight: the "=>" line carries a background highlight (CE-style).
     bool disasmHl = hit && win.disasmCurrentLineHighlightedForTest();

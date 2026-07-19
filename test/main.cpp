@@ -72,6 +72,7 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/mman.h>
+#include <fcntl.h>
 #include <dlfcn.h>
 #include <sys/syscall.h>
 #include <cstdarg>
@@ -340,6 +341,40 @@ static void test_ns_attach() {
     printf("  forked child seen as a descendant: %s\n", found ? "OK" : "FAILED");
     kill(child, SIGKILL);
     int status = 0; waitpid(child, &status, 0);
+}
+
+static void test_dolphin_guest_ram() {
+    printf("\n── Test: Dolphin guest-RAM adapter ──\n");
+    const size_t MEM1 = 24u << 20, MEM2 = 64u << 20;
+    // Child poses as Dolphin: a /dev/shm/dolphin-emu shm holding MEM1+MEM2, each mapped
+    // twice (cached/uncached mirrors), plus an unrelated 32 MB anon region. The adapter
+    // must return exactly the two DISTINCT shm regions (mirrors collapsed by offset) and
+    // exclude the anon.
+    pid_t child = fork();
+    if (child == 0) {
+        prctl(PR_SET_NAME, "dolphin-emu", 0, 0, 0);
+        shm_unlink("/dolphin-emu-cetest");
+        int fd = shm_open("/dolphin-emu-cetest", O_CREAT | O_RDWR, 0600);
+        if (fd < 0 || ftruncate(fd, MEM1 + MEM2)) _exit(1);
+        mmap(nullptr, MEM1, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        mmap(nullptr, MEM1, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        mmap(nullptr, MEM2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, MEM1);
+        mmap(nullptr, MEM2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, MEM1);
+        mmap(nullptr, 32u << 20, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        for (;;) pause();
+    }
+    bool ok = false;
+    for (int i = 0; i < 300 && !ok; ++i) {
+        auto prof = ce::probeTarget(child);
+        if (prof.emulator == "Dolphin" && prof.guestCandidates.size() == 2 &&
+            prof.guestCandidates[0].size == MEM2 && prof.guestCandidates[1].size == MEM1)
+            ok = true;
+        if (!ok) usleep(1000);
+    }
+    printf("  MEM1+MEM2 deduped from mirrors, anon excluded: %s\n", ok ? "OK" : "FAILED");
+    kill(child, SIGKILL);
+    int st = 0; waitpid(child, &st, 0);
+    shm_unlink("/dolphin-emu-cetest");
 }
 
 static void test_target_profile() {
@@ -9843,6 +9878,7 @@ int main(int argc, char* argv[]) {
     }
 
     test_target_profile();
+    test_dolphin_guest_ram();
     test_guest_view();
     test_ns_attach();
     test_value_codec();

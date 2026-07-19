@@ -134,13 +134,16 @@ std::vector<std::string> detectRuntimes(pid_t pid) {
 // stacks/small heaps; a console's main RAM ranges from a few MB to several GB).
 // Sorted largest first, capped at 4.
 std::vector<TargetProfile::GuestRegion> findGuestRam(pid_t pid) {
-    std::vector<TargetProfile::GuestRegion> out;
+    struct Region { uintptr_t start; size_t size; uintptr_t offset; bool dolphin; };
+    std::vector<Region> regs;
     std::ifstream maps("/proc/" + std::to_string(pid) + "/maps");
     std::string line;
     while (std::getline(maps, line)) {
-        uintptr_t start = 0, end = 0;
+        uintptr_t start = 0, end = 0, offset = 0;
         char perms[8] = {0};
-        if (std::sscanf(line.c_str(), "%lx-%lx %7s", &start, &end, perms) != 3) continue;
+        // Also read the file-offset field (4th): Dolphin distinguishes its guest-RAM
+        // regions by shm offset (see dolphin-memory-engine).
+        if (std::sscanf(line.c_str(), "%lx-%lx %7s %lx", &start, &end, perms, &offset) != 4) continue;
         if (perms[0] != 'r' || perms[1] != 'w' || end <= start) continue;
         const size_t size = end - start;
         if (size < (8u << 20)) continue;
@@ -152,11 +155,32 @@ std::vector<TargetProfile::GuestRegion> findGuestRam(pid_t pid) {
         size_t nb = path.find_first_not_of(" \t");
         path = (nb == std::string::npos) ? std::string() : path.substr(nb);
         if (path == "[stack]" || path == "[vdso]" || path == "[vvar]") continue;
+        // Dolphin (GameCube/Wii) backs guest RAM with a named POSIX shm; it is the
+        // authoritative guest-RAM marker for that emulator.
+        const bool dolphin = path.find("/dev/shm/dolphin-emu") != std::string::npos ||
+                             path.find("/dev/shm/dolphinmem") != std::string::npos;
         const bool anonLike = path.empty() || path == "[heap]" ||
             path.rfind("/memfd:", 0) == 0 || path.rfind("/dev/shm/", 0) == 0 ||
             path.rfind("[anon", 0) == 0;
-        if (!anonLike) continue;   // regular file-backed maps are libs/data, not guest RAM
-        out.push_back({start, size, false});
+        if (!anonLike && !dolphin) continue;   // regular file maps are libs/data, not guest RAM
+        regs.push_back({start, size, offset, dolphin});
+    }
+
+    // Dolphin's fastmem maps the guest-RAM shm at many guest views (MEM1/MEM2 each have
+    // a cached and an uncached mirror at different guest addresses but the SAME shm
+    // offset). When we see the Dolphin shm, restrict to it and collapse mirrors by shm
+    // offset, so the user gets the real distinct regions (MEM1 at offset 0, MEM2 at its
+    // own offset) instead of a dozen duplicates of the same physical memory.
+    const bool haveDolphin = std::any_of(regs.begin(), regs.end(),
+                                         [](const Region& r) { return r.dolphin; });
+    std::vector<TargetProfile::GuestRegion> out;
+    std::set<uintptr_t> seenOffset;
+    for (const auto& r : regs) {
+        if (haveDolphin) {
+            if (!r.dolphin) continue;
+            if (!seenOffset.insert(r.offset).second) continue;   // mirror of an already-kept region
+        }
+        out.push_back({r.start, r.size, r.dolphin});
     }
     std::sort(out.begin(), out.end(),
         [](const TargetProfile::GuestRegion& a, const TargetProfile::GuestRegion& b) {

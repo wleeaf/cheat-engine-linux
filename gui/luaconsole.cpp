@@ -97,6 +97,11 @@ void LuaConsole::onExecute() {
         appendColored(output_, "ERROR: " + QString::fromStdString(err), QColor(0xd6, 0x2b, 0x2b));
 }
 
+void LuaConsole::abandonLine() {
+    input_->clear();                    // drop the current line, keep history intact
+    historyIndex_ = history_.size();
+}
+
 void LuaConsole::recallHistory(bool previous) {
     if (history_.isEmpty()) return;
     if (previous) {
@@ -118,6 +123,7 @@ bool LuaConsole::eventFilter(QObject* obj, QEvent* ev) {
         auto* key = static_cast<QKeyEvent*>(ev);
         if (key->key() == Qt::Key_Up)   { recallHistory(true);  return true; }
         if (key->key() == Qt::Key_Down) { recallHistory(false); return true; }
+        if (key->key() == Qt::Key_Escape) { abandonLine(); return true; }   // clear the line
     }
     return QMainWindow::eventFilter(obj, ev);
 }

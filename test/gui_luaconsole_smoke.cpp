@@ -34,9 +34,14 @@ int main(int argc, char** argv) {
     console.recallForTest(false); bool down2 = console.inputTextForTest() == "print(3)";
     console.recallForTest(false); bool downEmpty = console.inputTextForTest().isEmpty();
 
-    bool ok = up1 && up2 && up3 && upClamp && down1 && down2 && downEmpty;
-    printf("gui luaconsole smoke: %s (up=%d%d%d clamp=%d down=%d%d empty=%d)\n",
+    // Escape abandons the current line: recall something, then clear it.
+    console.recallForTest(true);   // input now holds a recalled command
+    console.abandonLineForTest();
+    bool escapeClears = console.inputTextForTest().isEmpty();
+
+    bool ok = up1 && up2 && up3 && upClamp && down1 && down2 && downEmpty && escapeClears;
+    printf("gui luaconsole smoke: %s (up=%d%d%d clamp=%d down=%d%d empty=%d escape=%d)\n",
            ok ? "OK" : "FAILED", (int)up1, (int)up2, (int)up3, (int)upClamp,
-           (int)down1, (int)down2, (int)downEmpty);
+           (int)down1, (int)down2, (int)downEmpty, (int)escapeClears);
     return ok ? 0 : 1;
 }

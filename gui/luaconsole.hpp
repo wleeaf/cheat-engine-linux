@@ -16,6 +16,7 @@ public:
     // read the input field.
     void runForTest(const QString& code) { input_->setText(code); onExecute(); }
     void recallForTest(bool previous) { recallHistory(previous); }
+    void abandonLineForTest() { abandonLine(); }   // Escape: clear the current input line
     QString inputTextForTest() const { return input_->text(); }
 
 protected:
@@ -26,6 +27,7 @@ private slots:
 
 private:
     void recallHistory(bool previous);   // Up (previous) / Down (next) command recall
+    void abandonLine();                   // Escape: clear the input, reset the browse position
 
     ce::LuaEngine* engine_;
     QPlainTextEdit* output_;

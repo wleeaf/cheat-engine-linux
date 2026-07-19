@@ -179,12 +179,14 @@ required, and it can be non-linear (paged MMU emulation).
    yet endianness-aware.]
 3. **Per-emulator adapters:** a small table (or agent) per emulator that gives the
    guest-RAM base and, where available, the guest MMU translation. Start with the most
-   popular (Dolphin, PCSX2, RPCS3, DuckStation). [Dolphin DONE] `findGuestRam` detects
-   Dolphin's `/dev/shm/dolphin-emu`(`dolphinmem`) shm and collapses its fastmem mirror
-   views by file offset, so the candidates are the real MEM1 (24 MB) + MEM2 (64 MB), not
-   a dozen duplicates or unrelated arenas -- the same shm-name + offset approach as
-   `aldelaro5/dolphin-memory-engine`. Validated on a synthetic Dolphin process and in
-   cecore_test. PCSX2/RPCS3/DuckStation adapters TODO (need the shm/arena signatures).
+   popular (Dolphin, PCSX2, RPCS3, DuckStation). [Dolphin + PCSX2 DONE] `findGuestRam`
+   recognizes an emulator's NAMED guest-RAM shm/memfd (Dolphin `dolphin-emu`/`dolphinmem`,
+   PCSX2 `pcsx2`) and collapses the mirror views by file offset, so the candidates are the
+   real distinct regions (Dolphin MEM1 24 MB + MEM2 64 MB; PCSX2 EE 32 MB), not a dozen
+   duplicates or unrelated JIT/texture arenas -- the same shm-name + offset approach as
+   `aldelaro5/dolphin-memory-engine`. Validated on synthetic Dolphin and PCSX2 processes
+   and in cecore_test. RPCS3 (4 GiB `g_base_addr` sparse arena) and DuckStation adapters
+   TODO -- need their arena signatures.
 4. **Guest code analysis (stretch):** to do a real "find what writes" on the *guest*
    instruction, watch the guest RAM buffer at the host level (page-guard on the host
    buffer works, it is our own page) and, on a host fault, decode the guest PC from

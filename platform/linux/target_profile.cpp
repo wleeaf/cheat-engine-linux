@@ -134,7 +134,7 @@ std::vector<std::string> detectRuntimes(pid_t pid) {
 // stacks/small heaps; a console's main RAM ranges from a few MB to several GB).
 // Sorted largest first, capped at 4.
 std::vector<TargetProfile::GuestRegion> findGuestRam(pid_t pid) {
-    struct Region { uintptr_t start; size_t size; uintptr_t offset; bool dolphin; };
+    struct Region { uintptr_t start; size_t size; uintptr_t offset; bool emuShm; };
     std::vector<Region> regs;
     std::ifstream maps("/proc/" + std::to_string(pid) + "/maps");
     std::string line;
@@ -155,32 +155,38 @@ std::vector<TargetProfile::GuestRegion> findGuestRam(pid_t pid) {
         size_t nb = path.find_first_not_of(" \t");
         path = (nb == std::string::npos) ? std::string() : path.substr(nb);
         if (path == "[stack]" || path == "[vdso]" || path == "[vvar]") continue;
-        // Dolphin (GameCube/Wii) backs guest RAM with a named POSIX shm; it is the
-        // authoritative guest-RAM marker for that emulator.
-        const bool dolphin = path.find("/dev/shm/dolphin-emu") != std::string::npos ||
-                             path.find("/dev/shm/dolphinmem") != std::string::npos;
+        // Several emulators back guest RAM with a NAMED shm/memfd (Dolphin's
+        // "dolphin-emu"/"dolphinmem", PCSX2's "pcsx2"); that name is the authoritative
+        // guest-RAM marker. Guarded to shm/memfd so it never matches the emulator binary.
+        const bool isShm = path.rfind("/dev/shm/", 0) == 0 || path.rfind("/memfd:", 0) == 0;
+        const bool emuShm = isShm &&
+            (path.find("dolphin-emu") != std::string::npos ||
+             path.find("dolphinmem")  != std::string::npos ||
+             path.find("pcsx2")       != std::string::npos);
         const bool anonLike = path.empty() || path == "[heap]" ||
             path.rfind("/memfd:", 0) == 0 || path.rfind("/dev/shm/", 0) == 0 ||
             path.rfind("[anon", 0) == 0;
-        if (!anonLike && !dolphin) continue;   // regular file maps are libs/data, not guest RAM
-        regs.push_back({start, size, offset, dolphin});
+        if (!anonLike && !emuShm) continue;   // regular file maps are libs/data, not guest RAM
+        regs.push_back({start, size, offset, emuShm});
     }
 
-    // Dolphin's fastmem maps the guest-RAM shm at many guest views (MEM1/MEM2 each have
-    // a cached and an uncached mirror at different guest addresses but the SAME shm
-    // offset). When we see the Dolphin shm, restrict to it and collapse mirrors by shm
-    // offset, so the user gets the real distinct regions (MEM1 at offset 0, MEM2 at its
-    // own offset) instead of a dozen duplicates of the same physical memory.
-    const bool haveDolphin = std::any_of(regs.begin(), regs.end(),
-                                         [](const Region& r) { return r.dolphin; });
+    // These emulators map the guest-RAM shm at many views (Dolphin fastmem gives MEM1/
+    // MEM2 a cached and an uncached mirror at different guest addresses but the SAME shm
+    // offset; PCSX2 maps EE/IOP into a reserved arena). When we see such an emulator
+    // shm, restrict to it and collapse mirrors by shm offset, so the user gets the real
+    // distinct regions (Dolphin MEM1+MEM2, PCSX2 EE) rather than a dozen duplicates of
+    // the same physical memory or unrelated JIT/texture arenas. Same shm-name+offset
+    // approach as aldelaro5/dolphin-memory-engine.
+    const bool haveEmuShm = std::any_of(regs.begin(), regs.end(),
+                                        [](const Region& r) { return r.emuShm; });
     std::vector<TargetProfile::GuestRegion> out;
     std::set<uintptr_t> seenOffset;
     for (const auto& r : regs) {
-        if (haveDolphin) {
-            if (!r.dolphin) continue;
+        if (haveEmuShm) {
+            if (!r.emuShm) continue;
             if (!seenOffset.insert(r.offset).second) continue;   // mirror of an already-kept region
         }
-        out.push_back({r.start, r.size, r.dolphin});
+        out.push_back({r.start, r.size, r.emuShm});
     }
     std::sort(out.begin(), out.end(),
         [](const TargetProfile::GuestRegion& a, const TargetProfile::GuestRegion& b) {

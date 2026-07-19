@@ -18,6 +18,10 @@ reimplementation of Cheat Engine).
 Follow-ups since v0.7.0, mostly deepening the hard-target work and unifying the value
 transforms across surfaces.
 
+- **Lua: `getPointerSize()` + `getMemoryRegionInfo(address)` (.CT compat).** Pointer width (8/4)
+  for cross-32/64 scripts, and a region-info table with CE's Windows-style field names/values
+  (BaseAddress, RegionSize, Protect, State, Type, ...) mapped from Linux r/w/x + region type, so
+  scripts that compare against PAGE_*/MEM_* constants work.
 - **Lua: `enumModules()` (.CT compat).** Returns a table of `{Name, Address, Size}` for every
   loaded module using CE's exact field names, so scripts that iterate modules work verbatim
   (companion to our existing lowercase `getModuleList`).

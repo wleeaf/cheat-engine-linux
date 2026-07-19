@@ -1152,6 +1152,42 @@ static int l_enumModules(lua_State* L) {
     return 1;
 }
 
+// getPointerSize() -> 8 for a 64-bit target, 4 for 32-bit (8 when no target is open).
+static int l_getPointerSize(lua_State* L) {
+    auto* p = getProc(L);
+    lua_pushinteger(L, (p && !p->is64bit()) ? 4 : 8);
+    return 1;
+}
+
+// getMemoryRegionInfo(address) -> table of the region containing `address` with CE's
+// Windows-style field names/values (BaseAddress, AllocationBase, AllocationProtect,
+// RegionSize, State, Protect, Type), so .CT scripts that compare against PAGE_*/MEM_*
+// constants work. Linux r/w/x and Private/Image/Mapped map onto those constants.
+static int l_getMemoryRegionInfo(lua_State* L) {
+    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); return 1; }
+    auto reg = p->queryRegion(addr);
+    if (!reg) { lua_pushnil(L); return 1; }
+    const bool r = reg->protection & ce::MemProt::Read;
+    const bool w = reg->protection & ce::MemProt::Write;
+    const bool x = reg->protection & ce::MemProt::Exec;
+    const uint32_t page = x ? (w ? 0x40u : (r ? 0x20u : 0x10u))   // EXECUTE_READWRITE/READ/EXECUTE
+                            : (w ? 0x04u : (r ? 0x02u : 0x01u));  // READWRITE/READONLY/NOACCESS
+    const uint32_t type = reg->type == ce::MemType::Image  ? 0x1000000u   // MEM_IMAGE
+                        : reg->type == ce::MemType::Mapped ? 0x40000u     // MEM_MAPPED
+                                                           : 0x20000u;    // MEM_PRIVATE
+    lua_newtable(L);
+    lua_pushinteger(L, (lua_Integer)reg->base); lua_setfield(L, -2, "BaseAddress");
+    lua_pushinteger(L, (lua_Integer)reg->base); lua_setfield(L, -2, "AllocationBase");
+    lua_pushinteger(L, page);                   lua_setfield(L, -2, "AllocationProtect");
+    lua_pushinteger(L, (lua_Integer)reg->size); lua_setfield(L, -2, "RegionSize");
+    lua_pushinteger(L, 0x1000);                 lua_setfield(L, -2, "State");   // MEM_COMMIT
+    lua_pushinteger(L, page);                   lua_setfield(L, -2, "Protect");
+    lua_pushinteger(L, type);                   lua_setfield(L, -2, "Type");
+    return 1;
+}
+
 // ── Symbol resolution ──
 
 static int l_getNameFromAddress(lua_State* L) {
@@ -4894,6 +4930,8 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "getOperatingSystem",   l_getOperatingSystem);
     lua_register(L, "cheatEngineIs64Bit",   l_cheatEngineIs64Bit);
     lua_register(L, "targetIs64Bit",        l_targetIs64Bit);
+    lua_register(L, "getPointerSize",        l_getPointerSize);
+    lua_register(L, "getMemoryRegionInfo",   l_getMemoryRegionInfo);
     lua_register(L, "inputBox",             l_inputBox);
 
     // File I/O

@@ -4528,6 +4528,28 @@ static void test_lua_enumModules() {
     printf("  enumModules: %s%s\n", ok ? "OK" : "FAILED ", ok ? "" : err.c_str());
 }
 
+// getPointerSize() + getMemoryRegionInfo(): pointer width and CE-style region info for
+// an address in this process (a writable static buffer). Uses getpid()'s /proc/self/maps.
+static uint8_t g_region_probe[64];
+static void test_lua_memory_region_info() {
+    printf("\n── Test: Lua getMemoryRegionInfo / getPointerSize ──\n");
+    LuaEngine eng;
+    eng.setOwnedProcess(std::make_unique<LinuxProcessHandle>(getpid()));
+    const std::string a = std::to_string((uintptr_t)g_region_probe);
+    std::string err = eng.execute(
+        "assert(getPointerSize() == 8, 'pointer size 8 on this 64-bit process')\n"
+        "local info = getMemoryRegionInfo(" + a + ")\n"
+        "assert(type(info) == 'table', 'region info is a table')\n"
+        "assert(info.BaseAddress <= " + a + ", 'base <= address')\n"
+        "assert(info.RegionSize and info.RegionSize > 0, 'region size > 0')\n"
+        "assert(info.BaseAddress + info.RegionSize > " + a + ", 'address within region')\n"
+        "assert(info.Protect == 0x04 or info.Protect == 0x40, 'writable region protect')\n"
+        "assert(info.State == 0x1000, 'committed state')\n"
+        "assert(getMemoryRegionInfo(0x1) == nil, 'unmapped address returns nil')\n");
+    bool ok = err.empty();
+    printf("  region info + pointer size: %s%s\n", ok ? "OK" : "FAILED ", ok ? "" : err.c_str());
+}
+
 // A hot function with a single store to one global, plus a worker that spins it,
 // for the "find what addresses this instruction accesses" test below.
 static volatile long g_ifa_target;
@@ -10557,6 +10579,7 @@ int main(int argc, char* argv[]) {
     test_lua_string_extensions();
     test_lua_getUniqueAOB();
     test_lua_enumModules();
+    test_lua_memory_region_info();
     test_speedhack_got_injection();
     test_parser_fuzz_negatives();
     test_lua_shellexecute_gate();

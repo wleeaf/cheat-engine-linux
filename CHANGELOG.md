@@ -42,6 +42,11 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **Double-clicking a cheat-table Address browses it in the Memory Viewer** (CE parity):
+  the viewer opens at that address and focuses the disassembler for code or the hex dump
+  for data, with **Shift** forcing the disassembler and **Ctrl** forcing the hex dump. The
+  pane-choice policy is a Qt-free helper (`core/memview_nav.hpp`), unit-tested in
+  `cecore_test`; `focusPane` is asserted in `gui_search_smoke`.
 - **`cescan il2cpp --pid <pid>`** resolves a running Unity game's class layouts (field
   offsets + method RVAs) directly, auto-locating the metadata and GameAssembly from the
   process (through the sandbox root for Proton/Flatpak).

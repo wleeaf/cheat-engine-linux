@@ -32,6 +32,7 @@
 #include "arch/disassembler.hpp"
 #include "arch/cpu_flags.hpp"
 #include "core/expression.hpp"
+#include "core/memview_nav.hpp"
 #include "core/trainer.hpp"
 #include "analysis/code_analysis.hpp"
 #include "analysis/managed_runtime.hpp"
@@ -9552,6 +9553,23 @@ static void test_freeze_should_write() {
     printf("  directional freeze decision: %s\n", ok ? "OK" : "FAILED");
 }
 
+static void test_memview_pane_choice() {
+    printf("── Test: Memory Viewer pane choice (double-click routing) ──\n");
+    using P = ce::MemViewPane;
+    // With no modifiers, executability decides: code -> disassembler, data -> hex.
+    bool guessCode = ce::chooseMemViewPane(/*exec=*/true,  false, false) == P::Disassembler;
+    bool guessData = ce::chooseMemViewPane(/*exec=*/false, false, false) == P::HexDump;
+    // Shift forces the disassembler even for data; Ctrl forces the hex dump even for code.
+    bool shiftForcesDisasm = ce::chooseMemViewPane(false, /*shift=*/true, false) == P::Disassembler;
+    bool ctrlForcesHex     = ce::chooseMemViewPane(true,  false, /*ctrl=*/true) == P::HexDump;
+    // Both held: Shift (show-as-code) wins.
+    bool bothShiftWins = ce::chooseMemViewPane(false, true, true) == P::Disassembler;
+    bool ok = guessCode && guessData && shiftForcesDisasm && ctrlForcesHex && bothShiftWins;
+    printf("  guessCode=%d guessData=%d shift=%d ctrl=%d both=%d: %s\n",
+           guessCode, guessData, shiftForcesDisasm, ctrlForcesHex, bothShiftWins,
+           ok ? "OK" : "FAILED");
+}
+
 static void test_expression_parser() {
     printf("── Test: Expression Parser ──\n");
     const uintptr_t base  = 0x100000;
@@ -10100,6 +10118,7 @@ int main(int argc, char* argv[]) {
     test_plt_import_resolution();
     test_freeze_should_write();
     test_expression_parser();
+    test_memview_pane_choice();
     test_string_case_insensitive_scan();
     test_between_reversed_bounds();
     test_unknown_scan_chain();

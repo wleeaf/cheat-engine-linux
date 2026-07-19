@@ -1984,6 +1984,18 @@ void MemoryBrowser::gotoAddress(uintptr_t addr) {
     navigateTo(addr);
 }
 
+void MemoryBrowser::focusPane(Pane p) {
+    lastFocusedPane_ = p;
+    // Both panes already show currentAddr_ (syncViews); giving one keyboard focus is
+    // what "show in the disassembler" / "show in the memory view" means here, so the
+    // arrow keys drive the pane the user asked for.
+    if (p == Pane::Disassembler) {
+        if (disasmView_) { disasmView_->setFocus(Qt::OtherFocusReason); disasmView_->raise(); }
+    } else {
+        if (hexView_) { hexView_->setFocus(Qt::OtherFocusReason); hexView_->raise(); }
+    }
+}
+
 void MemoryBrowser::showCurrentInstruction(uintptr_t rip, bool follow) {
     if (!disasmView_) return;
     disasmView_->setCurrentInstruction(rip);

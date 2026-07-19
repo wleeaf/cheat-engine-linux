@@ -296,6 +296,15 @@ public:
 
     void gotoAddress(uintptr_t addr);
 
+    /// The two panes CE can bring to the front when you jump to an address (see
+    /// ce::chooseMemViewPane): the disassembler for code, the hex dump for data.
+    enum class Pane { Disassembler, HexDump };
+    /// Give keyboard focus to one pane (so the arrow keys drive it) and scroll it to
+    /// the current address. Used when a jump lands on an address: code focuses the
+    /// disassembler, data the hex dump (Shift/Ctrl override).
+    void focusPane(Pane p);
+    Pane focusedPaneForTest() const { return lastFocusedPane_; }
+
     /// Test helper: search readable memory from `start` for `pattern` with an optional
     /// wildcard `mask` (1 = must match, 0 = any). Returns the hit address, or 0.
     uintptr_t searchMemoryForTest(const std::vector<uint8_t>& pattern,
@@ -392,6 +401,7 @@ private:
     ce::DwarfRegistry dwarf_;
     DisasmView* disasmView_;
     HexView* hexView_;
+    Pane lastFocusedPane_ = Pane::Disassembler;  // pane focusPane() last raised
     QTableWidget* registerPanel_ = nullptr;  // CE register panel (right of disasm)
     QTableWidget* stacktracePanel_ = nullptr; // CE stacktrace panel (right of hex)
     QLineEdit* addressEdit_;

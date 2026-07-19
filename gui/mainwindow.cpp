@@ -2,6 +2,7 @@
 #include "gui/mainwindow.hpp"
 #include "gui/theme.hpp"
 #include "core/expression.hpp"
+#include "core/memview_nav.hpp"
 #include "gui/processlistdialog.hpp"
 #include "gui/registereditor.hpp"
 #include "gui/debuggerwindow.hpp"
@@ -1528,8 +1529,34 @@ void MainWindow::setupUi() {
     // Description cell still edits inline.
     connect(addressListView_, &QAbstractItemView::doubleClicked, this,
             [this](const QModelIndex& idx) {
-        if (idx.isValid() && idx.column() != 1 && addressListModel_->isScriptEntry(idx.row()))
+        if (!idx.isValid()) return;
+        if (idx.column() != 1 && addressListModel_->isScriptEntry(idx.row())) {
             editScriptEntry(idx.row());
+            return;
+        }
+        // CE: double-clicking the Address cell browses that address in the Memory
+        // Viewer, focusing the disassembler for code or the hex dump for data
+        // (Shift forces the disassembler, Ctrl forces the hex dump).
+        if (idx.column() == 2) {
+            const int row = idx.row();
+            const auto& ents = addressListModel_->entries();
+            if (row < 0 || row >= (int)ents.size()) return;
+            const auto& e = ents[row];
+            if (e.isGroup || addressListModel_->isScriptEntry(row) || e.address == 0) return;
+            auto* mv = openMemoryView(e.address);
+            if (!mv) return;
+            bool exec = false;
+            if (process_) {
+                if (auto rg = process_->queryRegion(e.address))
+                    exec = (rg->protection & ce::MemProt::Exec);
+            }
+            const auto mods = QApplication::keyboardModifiers();
+            const auto pane = ce::chooseMemViewPane(exec, mods & Qt::ShiftModifier,
+                                                    mods & Qt::ControlModifier);
+            mv->focusPane(pane == ce::MemViewPane::Disassembler
+                              ? MemoryBrowser::Pane::Disassembler
+                              : MemoryBrowser::Pane::HexDump);
+        }
     });
     addressListView_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(addressListView_, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {

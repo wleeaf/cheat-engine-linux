@@ -41,11 +41,19 @@ int main(int argc, char** argv) {
     uintptr_t backHit = browser.searchMemoryForTest(full, exactMask, at + 6, /*backward=*/true);
     uintptr_t backAtNeedle = browser.searchMemoryForTest(full, exactMask, at, /*backward=*/true);
 
+    // focusPane raises the requested pane (CE double-click routing: Shift/exec ->
+    // disassembler, Ctrl/data -> hex dump; the pure choice is unit-tested in cecore).
+    browser.focusPane(ce::gui::MemoryBrowser::Pane::HexDump);
+    bool hexFocused = browser.focusedPaneForTest() == ce::gui::MemoryBrowser::Pane::HexDump;
+    browser.focusPane(ce::gui::MemoryBrowser::Pane::Disassembler);
+    bool disasmFocused = browser.focusedPaneForTest() == ce::gui::MemoryBrowser::Pane::Disassembler;
+    bool paneOk = hexFocused && disasmFocused;
+
     bool ok = (wildHit == at) && (exactHit != at) && (fullHit == at) &&
-              (backHit == at) && (backAtNeedle != at);
+              (backHit == at) && (backAtNeedle != at) && paneOk;
     printf("gui search smoke: %s (wild@needle=%d exactMismatch=%d full@needle=%d "
-           "backFinds=%d backStrictlyBelow=%d)\n",
+           "backFinds=%d backStrictlyBelow=%d paneFocus=%d)\n",
            ok ? "OK" : "FAILED", (int)(wildHit == at), (int)(exactHit != at), (int)(fullHit == at),
-           (int)(backHit == at), (int)(backAtNeedle != at));
+           (int)(backHit == at), (int)(backAtNeedle != at), (int)paneOk);
     return ok ? 0 : 1;
 }

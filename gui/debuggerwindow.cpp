@@ -238,6 +238,7 @@ void DebuggerWindow::setRunningUi(bool running, bool exited) {
         b->setEnabled(stopped);
     detachBtn_->setEnabled(!exited);
     bpInput_->setEnabled(stopped);
+    if (!stopped) emit resumed();   // running or exited: drop the current-line marker
 }
 
 void DebuggerWindow::onContinue() {
@@ -459,6 +460,7 @@ void DebuggerWindow::refreshStopped() {
     statusLabel_->setText(QStringLiteral("Stopped at %1 (tid %2)")
                               .arg(hex(ctx.rip)).arg(static_cast<int>(session_->activeThread())));
     setRunningUi(false);
+    emit stopped(ctx.rip);
 }
 
 void DebuggerWindow::updateThreadList() {

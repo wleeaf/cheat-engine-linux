@@ -3462,6 +3462,17 @@ void MainWindow::showDebugger() {
     auto* w = new ce::gui::DebuggerWindow(process_.get(), this);
     w->setAttribute(Qt::WA_DeleteOnClose);
     debuggerWindow_ = w;   // QPointer auto-nulls on close
+    // Drive the current-instruction highlight in open Memory Viewers from the
+    // debugger's stops, like CE. The first viewer follows execution (scrolls to the
+    // current line); the rest just light the line up where it is already visible.
+    connect(w, &ce::gui::DebuggerWindow::stopped, this, [this](uintptr_t rip) {
+        bool first = true;
+        for (auto& mv : memoryViewers_)
+            if (mv) { mv->showCurrentInstruction(rip, first); first = false; }
+    });
+    connect(w, &ce::gui::DebuggerWindow::resumed, this, [this]() {
+        for (auto& mv : memoryViewers_) if (mv) mv->clearCurrentInstruction();
+    });
     w->show();
 }
 
@@ -3565,6 +3576,10 @@ MemoryBrowser* MainWindow::openMemoryView(uintptr_t addr) {
     // Drop any stale (already-closed) entries while we are here.
     std::erase_if(memoryViewers_, [](const QPointer<MemoryBrowser>& p) { return p.isNull(); });
     memoryViewers_.push_back(browser);
+    // If the debugger is already paused, light up the current line in this new viewer
+    // too (highlight only, without yanking it away from the address it opened at).
+    if (debuggerWindow_ && debuggerWindow_->debugStopped())
+        browser->showCurrentInstruction(debuggerWindow_->currentStopRip(), false);
     return browser;
 }
 

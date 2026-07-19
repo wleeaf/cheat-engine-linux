@@ -7,6 +7,7 @@
 // continue path end to end. Exit 0 on success.
 
 #include "gui/debuggerwindow.hpp"
+#include "gui/memorybrowser.hpp"
 #include "platform/linux/linux_process.hpp"
 
 #include <QApplication>
@@ -57,6 +58,12 @@ int main(int argc, char** argv) {
     bool stoppedInitially = win.debugStopped();
 
     auto hotAddr = reinterpret_cast<uintptr_t>(&smoke_hot);
+    // The stopped(rip) signal drives the Memory Viewer's current-line highlight.
+    // Latch whether it ever fired for the breakpoint address (a later thread-switch
+    // stop re-emits it with another thread's RIP, so don't just check the last one).
+    bool sawStopAtHot = false;
+    QObject::connect(&win, &ce::gui::DebuggerWindow::stopped,
+                     [&](uintptr_t rip) { if (rip == hotAddr) sawStopAtHot = true; });
     win.addBreakpointAt(hotAddr);
     QMetaObject::invokeMethod(&win, "onContinue");   // private slot, invoked by name
 
@@ -101,6 +108,22 @@ int main(int argc, char** argv) {
     // renders the bytes actually there.
     bool memView = hit && win.memoryViewShowsForTest(reinterpret_cast<uintptr_t>(&g_smoke_counter));
 
+    // Current-instruction highlight (CE parity): the debugger emits stopped(rip),
+    // and a Memory Viewer told that rip paints the paused line in the distinct
+    // current-IP colour. Verify the signal carried the breakpoint address and that
+    // the disassembler actually renders the highlight (a filled row = many pixels).
+    bool stopSignal = hit && sawStopAtHot;
+    int ipPixels = 0;
+    if (hit) {
+        ce::gui::MemoryBrowser browser(&proc);
+        browser.resize(900, 600);
+        browser.show();
+        browser.showCurrentInstruction(hotAddr, /*follow=*/true);
+        for (int i = 0; i < 30; ++i) { app.processEvents(); usleep(3000); }
+        ipPixels = browser.currentIpHighlightPixelsForTest();
+    }
+    bool ipHighlight = ipPixels > 200;
+
     // Detach before reaping: a ptrace tracee can only be waited on by its tracer
     // thread, so waitpid() from main would block until the session detaches.
     QMetaObject::invokeMethod(&win, "onDetach");
@@ -109,8 +132,8 @@ int main(int argc, char** argv) {
     kill(child, SIGKILL);
     waitpid(child, nullptr, 0);
 
-    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && xmmView && disasmBp && regHighlight;
-    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d xmm=%d disasmbp=%d reghl=%d)\n",
-           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, xmmView, disasmBp, regHighlight);
+    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight;
+    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d])\n",
+           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels);
     return ok ? 0 : 1;
 }

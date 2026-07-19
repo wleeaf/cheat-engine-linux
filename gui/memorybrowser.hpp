@@ -144,6 +144,13 @@ public:
     uintptr_t selectedAddress() const;
     /// Size in bytes of the currently selected instruction.
     int selectedSize() const;
+    /// Mark the current instruction pointer (debugger stop). The row whose address
+    /// equals this is highlighted distinctly and flagged with a ► marker, like CE's
+    /// Memory Viewer when paused. Pass 0 to clear (target resumed / detached).
+    void setCurrentInstruction(uintptr_t addr) {
+        if (currentIp_ != addr) { currentIp_ = addr; viewport()->update(); }
+    }
+    uintptr_t currentInstruction() const { return currentIp_; }
     void refresh();
     /// Re-read font + colors from QSettings (Disassembler Preferences) and repaint.
     void reloadPreferences();
@@ -196,6 +203,7 @@ private:
     uintptr_t address_ = 0;
     FlatMem flatMem_;             // cached readable-memory model for the scrollbar
     int selectedRow_ = -1;
+    uintptr_t currentIp_ = 0;     // debugger's current instruction pointer (0 = none)
     QFont monoFont_{"Monospace", 10};
     int charW_ = 0;
     int charH_ = 0;
@@ -220,6 +228,18 @@ public:
     explicit MemoryBrowser(ce::ProcessHandle* proc, QWidget* parent = nullptr);
 
     void gotoAddress(uintptr_t addr);
+
+    /// The debugger stopped at `rip`: mark it as the current instruction (green ►
+    /// highlight in the disassembler). When `follow` is true the view also scrolls
+    /// to it (without polluting back/forward history), matching CE's Memory Viewer
+    /// which follows execution. Pass through clearCurrentInstruction() on resume.
+    void showCurrentInstruction(uintptr_t rip, bool follow = true);
+    void clearCurrentInstruction();
+
+    /// Test helper: renders the disassembler and counts the pixels painted in the
+    /// distinct current-instruction background colour, verifying the paused-line
+    /// highlight is actually drawn (0 when no current instruction is set/visible).
+    int currentIpHighlightPixelsForTest();
 
     /// The target exited and its ProcessHandle is about to be destroyed. Stop the
     /// refresh timer and drop the process pointer (here and in the disasm/hex

@@ -376,6 +376,8 @@ if(Qt6_FOUND)
         qt_add_executable(gui_debugger_smoke
             test/gui_debugger_smoke.cpp
             gui/debuggerwindow.cpp
+            gui/memorybrowser.cpp      # current-instruction highlight is verified here
+            gui/memviewpreferences.cpp # (memorybrowser dependency)
             gui/theme.cpp   # debuggerwindow now uses ce::gui::editorPalette()
         )
         target_include_directories(gui_debugger_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})

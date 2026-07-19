@@ -8,6 +8,7 @@
 #include "core/expression.hpp"
 
 #include <QPainter>
+#include <QImage>
 #include <QDialog>
 #include <QTableWidget>
 #include <QHeaderView>
@@ -44,7 +45,7 @@ namespace ce::gui {
 // stylesheet because they paint every pixel themselves).
 struct MvColors {
     QColor bg, addr, text, dim, selection, ascii, symbol, condJump, jump,
-           operand, targetTint, comment, srcAnno;
+           operand, targetTint, comment, srcAnno, currentIp;
 };
 static MvColors mvColors() {
     if (ce::gui::isDarkTheme())
@@ -52,12 +53,12 @@ static MvColors mvColors() {
                  QColor(0x58,0x5b,0x70), QColor(0x45,0x47,0x5a), QColor(0xa6,0xad,0xc8),
                  QColor(0xf9,0xe2,0xaf), QColor(0xfa,0xb3,0x87), QColor(0x89,0xb4,0xfa),
                  QColor(0xcd,0xd6,0xf4), QColor(0x2d,0x40,0x3a), QColor(0xa6,0xe3,0xa1),
-                 QColor(0x94,0xe2,0xd5) };
+                 QColor(0x94,0xe2,0xd5), QColor(0x40,0x62,0x3a) };
     return   { QColor(0xff,0xff,0xff), QColor(0x00,0x00,0xc0), QColor(0x00,0x00,0x00),
                QColor(0x90,0x90,0x90), QColor(0xcc,0xe8,0xff), QColor(0x50,0x50,0x50),
                QColor(0x80,0x60,0x00), QColor(0xc0,0x40,0x00), QColor(0x00,0x00,0xc0),
                QColor(0x3a,0x42,0x52), QColor(0xd8,0xef,0xe0), QColor(0x1f,0x7a,0x33),
-               QColor(0x0e,0x74,0x90) };
+               QColor(0x0e,0x74,0x90), QColor(0xb6,0xe6,0xa8) };
 }
 
 // Effective address of an instruction's RIP-relative memory operand (or 0).
@@ -1080,9 +1081,18 @@ void DisasmView::paintEvent(QPaintEvent*) {
         int rowTop = i * charH_;
         int y = rowTop + charH_ - 2;  // text baseline
 
-        // Selection highlight on this row (and a subtle tint on the selected
-        // branch's target row so you can see where it goes).
-        if (i == selectedRow_) {
+        // Highlight order: the debugger's current instruction (green, like CE's
+        // Memory Viewer when paused) wins over the selection, which wins over the
+        // selected branch's target tint. When the current line is also selected,
+        // keep the selection readable as an outline over the green fill.
+        const bool isCurrentIp = currentIp_ != 0 && inst.address == currentIp_;
+        if (isCurrentIp) {
+            p.fillRect(0, rowTop, viewport()->width(), charH_, mv.currentIp);
+            if (i == selectedRow_) {
+                p.setPen(QPen(mv.selection, 1));
+                p.drawRect(0, rowTop, viewport()->width() - 1, charH_ - 1);
+            }
+        } else if (i == selectedRow_) {
             p.fillRect(0, rowTop, viewport()->width(), charH_, mv.selection);
         } else if (i == targetRow) {
             p.fillRect(0, rowTop, viewport()->width(), charH_, mv.targetTint);
@@ -1095,6 +1105,19 @@ void DisasmView::paintEvent(QPaintEvent*) {
             p.setBrush(mv.bg.lightness() < 128 ? QColor(0xf3, 0x8b, 0xa8) : QColor(0xd2, 0x0f, 0x39));
             p.setPen(Qt::NoPen);
             p.drawEllipse(margin, rowTop + margin, charH_ - 2 * margin, charH_ - 2 * margin);
+        }
+
+        // Current-instruction ► marker (green), at the left of the arrow strip so it
+        // never collides with the breakpoint glyph in the gutter.
+        if (isCurrentIp) {
+            int cy = rowTop + charH_ / 2, mx = gutterW_ + 2;
+            QColor arrowCol = mv.bg.lightness() < 128 ? QColor(0xa6, 0xe3, 0xa1) : QColor(0x1f, 0x7a, 0x33);
+            p.setBrush(arrowCol);
+            p.setPen(Qt::NoPen);
+            QPolygon tri; tri << QPoint(mx, cy - 4) << QPoint(mx, cy + 4) << QPoint(mx + 6, cy);
+            p.setRenderHint(QPainter::Antialiasing, true);
+            p.drawPolygon(tri);
+            p.setRenderHint(QPainter::Antialiasing, false);
         }
 
         // Symbol label (if this address has a symbol). Try the ELF symbol
@@ -1765,6 +1788,33 @@ void MemoryBrowser::updateNavActions() {
 
 void MemoryBrowser::gotoAddress(uintptr_t addr) {
     navigateTo(addr);
+}
+
+void MemoryBrowser::showCurrentInstruction(uintptr_t rip, bool follow) {
+    if (!disasmView_) return;
+    disasmView_->setCurrentInstruction(rip);
+    // Follow execution like CE, but via syncViews (not navigateTo) so single-stepping
+    // doesn't flood the back/forward history with one entry per instruction.
+    if (follow && rip && rip != currentAddr_) syncViews(rip);
+}
+
+void MemoryBrowser::clearCurrentInstruction() {
+    if (disasmView_) disasmView_->setCurrentInstruction(0);
+}
+
+int MemoryBrowser::currentIpHighlightPixelsForTest() {
+    if (!disasmView_) return 0;
+    QWidget* vp = disasmView_->viewport();
+    if (vp->width() <= 0 || vp->height() <= 0) return 0;
+    QImage img(vp->size(), QImage::Format_ARGB32);
+    img.fill(Qt::transparent);
+    vp->render(&img);
+    const QRgb want = mvColors().currentIp.rgb() | 0xff000000u;
+    int n = 0;
+    for (int y = 0; y < img.height(); ++y)
+        for (int x = 0; x < img.width(); ++x)
+            if ((img.pixel(x, y) | 0xff000000u) == want) ++n;
+    return n;
 }
 
 void MemoryBrowser::detachFromTarget() {

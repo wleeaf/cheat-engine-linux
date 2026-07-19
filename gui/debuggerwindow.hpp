@@ -60,6 +60,14 @@ public:
     // i.e. the last stop's step highlight fired.
     bool anyRegisterChangedHighlightForTest() const;
 
+signals:
+    /// The target stopped at `rip` (breakpoint / step). Lets other views (e.g. open
+    /// Memory Viewers) highlight and follow the current instruction, like CE.
+    void stopped(uintptr_t rip);
+    /// The target resumed (continue / run-to-cursor): clear any current-instruction
+    /// highlight until the next stop.
+    void resumed();
+
 private slots:
     void onContinue();
     void onStepInto();

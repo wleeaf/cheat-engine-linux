@@ -804,6 +804,13 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
                 else if (!valPart.isEmpty())
                     anno = QStringLiteral("   ; ->%1").arg(valPart);
             }
+            // For the paused instruction, show whether a conditional branch will be
+            // taken given the live flags (CE-style), so the path is visible before you
+            // step. Unconditional jmp needs no hint.
+            if (in.address == c.rip && in.mnemonic != "jmp") {
+                if (auto jt = ce::conditionalJumpTaken(in.mnemonic, c.rflags))
+                    anno += *jt ? QStringLiteral("   (will jump)") : QStringLiteral("   (no jump)");
+            }
             out += QStringLiteral("%1%2%3  %4 %5%6\n")
                        .arg(marker, bpMark, hex(in.address),
                             QString::fromStdString(in.mnemonic),

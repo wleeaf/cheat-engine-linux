@@ -9716,6 +9716,28 @@ static void test_aob_signature() {
     printf("  script embeds unique signature: %s\n", scriptOk ? "OK" : "FAILED");
 }
 
+static void test_conditional_jump() {
+    printf("── Test: Conditional jump prediction (flags -> taken) ──\n");
+    const uint64_t ZF = 1ull << 6, CF = 1ull << 0, SF = 1ull << 7, OF = 1ull << 11;
+    auto taken = [](const char* m, uint64_t fl) { return ce::conditionalJumpTaken(m, fl); };
+
+    bool ok =
+        taken("jmp", 0) == std::optional<bool>(true) &&           // unconditional
+        taken("je",  ZF) == std::optional<bool>(true) &&           // ZF set -> jump
+        taken("je",  0)  == std::optional<bool>(false) &&
+        taken("jne", 0)  == std::optional<bool>(true) &&
+        taken("jbe", CF) == std::optional<bool>(true) &&           // CF or ZF
+        taken("ja",  0)  == std::optional<bool>(true) &&           // !CF && !ZF
+        taken("ja",  ZF) == std::optional<bool>(false) &&
+        // signed greater: !ZF && SF==OF. SF|OF both set -> equal -> taken.
+        taken("jg",  SF | OF) == std::optional<bool>(true) &&
+        taken("jg",  SF)      == std::optional<bool>(false) &&     // SF!=OF
+        taken("jl",  SF)      == std::optional<bool>(true) &&      // SF!=OF
+        !taken("jecxz", 0).has_value() &&                          // register-based, not flags
+        !taken("mov", 0).has_value();                             // not a jump
+    printf("  conditionalJumpTaken maps mnemonic+flags: %s\n", ok ? "OK" : "FAILED");
+}
+
 static void test_group_collapse() {
     printf("── Test: Cheat-table group collapse (row hiding) ──\n");
     // Rows: groupA(0) child1(1) groupB(1) child2(2) groupC(0)
@@ -10299,6 +10321,7 @@ int main(int argc, char* argv[]) {
     test_freeze_should_write();
     test_expression_parser();
     test_memview_pane_choice();
+    test_conditional_jump();
     test_group_collapse();
     test_aob_signature();
     test_string_case_insensitive_scan();

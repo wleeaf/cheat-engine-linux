@@ -42,6 +42,11 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **Debugger predicts conditional jumps** (CE parity): when the target is paused on a
+  conditional branch (`je`, `jne`, `jbe`, `jg`, ...), the disassembly line now reads
+  `(will jump)` or `(no jump)` based on the live flags, so you can see the path before you
+  step. The mnemonic+flags decision is a Qt-free `ce::conditionalJumpTaken`, unit-tested in
+  `cecore_test`.
 - **Fixed: increase/decrease-value hotkeys corrupted hex-display records**: the step hotkeys
   built the new value as a bare decimal but told the writer to parse it in the record's display
   base, so a hex record turned an increment into a hex misread (e.g. `256` written as `0x256`).

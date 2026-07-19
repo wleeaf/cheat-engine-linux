@@ -372,6 +372,9 @@ public:
     }
     /// Seed this view's resolver with existing user labels so they display here too.
     void addUserSymbols(const std::map<uintptr_t, std::string>& syms);
+    /// Set (name non-empty) or clear (name empty) one label in this view's resolver and
+    /// repaint. Used to fan a label out to every open view so they stay consistent.
+    void setUserSymbol(uintptr_t addr, const std::string& name);
 
     /// Open the full Debugger window at an address (the browser's step buttons use
     /// this — real single-stepping lives in the Debugger; MainWindow provides it).

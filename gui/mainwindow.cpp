@@ -3993,6 +3993,9 @@ MemoryBrowser* MainWindow::openMemoryView(uintptr_t addr) {
         else              luaResolver_.addUserSymbol(addr, name);
         // Re-point any record addressed by that label at the new resolution immediately.
         if (process_) addressListModel_->updateValues(process_.get());
+        // Fan the label out to every other open Memory Viewer so they display it too.
+        for (const auto& mv : memoryViewers_)
+            if (mv) mv->setUserSymbol(addr, name);
     });
 
     // An explicit address wins; otherwise open at a selected scan result.

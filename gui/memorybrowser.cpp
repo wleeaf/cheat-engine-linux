@@ -2246,6 +2246,12 @@ void MemoryBrowser::addUserSymbols(const std::map<uintptr_t, std::string>& syms)
     if (!syms.empty()) onRefresh();
 }
 
+void MemoryBrowser::setUserSymbol(uintptr_t addr, const std::string& name) {
+    if (name.empty()) resolver_.removeUserSymbol(addr);
+    else              resolver_.addUserSymbol(addr, name);
+    onRefresh();   // persistence is the originating view's job; here we only mirror + repaint
+}
+
 void MemoryBrowser::toggleBookmark() {
     // Bookmark the selected instruction if one is selected, else the current view.
     uintptr_t addr = disasmView_->selectedAddress();

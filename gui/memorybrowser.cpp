@@ -1504,6 +1504,8 @@ void MemoryBrowser::buildMenuBar() {
       a->setShortcut(QKeySequence::Find); }
     { auto* a = search->addAction("Find next", this, [this]() { findInMemory(true); });
       a->setShortcut(QKeySequence("F3")); }
+    { auto* a = search->addAction("Find previous", this, [this]() { findInMemory(true, /*backward=*/true); });
+      a->setShortcut(QKeySequence("Shift+F3")); }
 
     viewMenu_ = mb->addMenu("&View");
     viewMenu_->addAction("Disassembler preferences...", this, [this]() {
@@ -1853,6 +1855,8 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     connect(findSc, &QShortcut::activated, this, [this]() { findInMemory(false); });
     auto* findNextSc = new QShortcut(QKeySequence("F3"), this);
     connect(findNextSc, &QShortcut::activated, this, [this]() { findInMemory(true); });
+    auto* findPrevSc = new QShortcut(QKeySequence("Shift+F3"), this);
+    connect(findPrevSc, &QShortcut::activated, this, [this]() { findInMemory(true, /*backward=*/true); });
     auto* gotoShortcut = new QShortcut(QKeySequence("Ctrl+G"), this);
     connect(gotoShortcut, &QShortcut::activated, this, [this]() {
         bool ok;
@@ -2122,9 +2126,11 @@ void MemoryBrowser::assembleAt(uintptr_t addr, int origSize, const QString& curr
 }
 
 uintptr_t MemoryBrowser::searchMemory(const std::vector<uint8_t>& pat, uintptr_t start,
-                                      bool inclusive, const std::vector<char>& mask) {
+                                      bool inclusive, const std::vector<char>& mask,
+                                      bool backward) {
     if (pat.empty() || !proc_) return 0;
     const bool masked = mask.size() == pat.size();   // else treat as an exact match
+    uintptr_t best = 0;   // backward: the largest match strictly below `start`
     // Walk readable regions in order, searching each for the pattern from `start`.
     // A first Find is inclusive (a match sitting exactly at the cursor counts); a
     // Find-Next is exclusive so it advances past the current match.
@@ -2137,7 +2143,9 @@ uintptr_t MemoryBrowser::searchMemory(const std::vector<uint8_t>& pat, uintptr_t
     const size_t overlap = pat.size() > 1 ? pat.size() - 1 : 0;
     std::vector<uint8_t> buf;
     for (auto& r : regions) {
-        if (r.base + r.size <= start) continue;
+        // Forward: skip regions ending before `start`. Backward: skip regions starting at
+        // or after `start` (a match there can't be strictly below the cursor).
+        if (backward ? (r.base >= start) : (r.base + r.size <= start)) continue;
         if (!(r.protection & ce::MemProt::Read)) continue;
         uintptr_t regionEnd = r.base + r.size;
         uintptr_t pos = r.base;
@@ -2148,8 +2156,8 @@ uintptr_t MemoryBrowser::searchMemory(const std::vector<uint8_t>& pat, uintptr_t
             size_t got = rr ? *rr : 0;
             for (size_t off = 0; off + pat.size() <= got; ++off) {
                 uintptr_t found = pos + off;
-                bool pastStart = inclusive ? (found >= start) : (found > start);
-                if (!pastStart) continue;
+                if (backward) { if (found >= start) break; }   // ascending scan: done past start
+                else if (!(inclusive ? (found >= start) : (found > start))) continue;
                 bool match;
                 if (!masked) {
                     match = std::memcmp(buf.data() + off, pat.data(), pat.size()) == 0;
@@ -2158,17 +2166,17 @@ uintptr_t MemoryBrowser::searchMemory(const std::vector<uint8_t>& pat, uintptr_t
                     for (size_t i = 0; i < pat.size(); ++i)
                         if (mask[i] && buf[off + i] != pat[i]) { match = false; break; }
                 }
-                if (match) return found;
+                if (match) { if (backward) best = found; else return found; }
             }
             if (got < want) break;               // short read → rest of region unreadable
             if (pos + want >= regionEnd) break;  // reached region end
             pos += (want > overlap) ? (want - overlap) : want;  // advance, keep overlap
         }
     }
-    return 0;
+    return best;   // forward left `best` at 0
 }
 
-void MemoryBrowser::findInMemory(bool findNext) {
+void MemoryBrowser::findInMemory(bool findNext, bool backward) {
     if (!proc_) return;
     std::vector<uint8_t> pat;
     std::vector<char> mask;   // empty = exact; else 1=must-match, 0=wildcard ("??")
@@ -2201,12 +2209,14 @@ void MemoryBrowser::findInMemory(bool findNext) {
         lastSearchMask_ = mask;
     }
     // First Find is inclusive of the current address; Find Next advances past it.
-    uintptr_t hit = searchMemory(pat, currentAddr_, /*inclusive=*/!findNext, mask);
+    // Backward search always finds the closest match strictly below the cursor.
+    uintptr_t hit = searchMemory(pat, currentAddr_, /*inclusive=*/!findNext, mask, backward);
     if (hit) {
         navigateTo(hit);
     } else {
         QMessageBox::information(this, "Find",
-            "Not found searching forward from the current address.");
+            backward ? "Not found searching backward from the current address."
+                     : "Not found searching forward from the current address.");
     }
 }
 

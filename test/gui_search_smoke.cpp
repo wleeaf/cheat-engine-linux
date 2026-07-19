@@ -36,8 +36,16 @@ int main(int argc, char** argv) {
     std::vector<uint8_t> full = {0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE};
     uintptr_t fullHit = browser.searchMemoryForTest(full, exactMask, at);
 
-    bool ok = (wildHit == at) && (exactHit != at) && (fullHit == at);
-    printf("gui search smoke: %s (wild@needle=%d exactMismatch=%d full@needle=%d)\n",
-           ok ? "OK" : "FAILED", (int)(wildHit == at), (int)(exactHit != at), (int)(fullHit == at));
+    // Backward search from just past the needle finds it (Find Previous); from the needle
+    // itself it must look strictly below, so it must NOT return the needle.
+    uintptr_t backHit = browser.searchMemoryForTest(full, exactMask, at + 6, /*backward=*/true);
+    uintptr_t backAtNeedle = browser.searchMemoryForTest(full, exactMask, at, /*backward=*/true);
+
+    bool ok = (wildHit == at) && (exactHit != at) && (fullHit == at) &&
+              (backHit == at) && (backAtNeedle != at);
+    printf("gui search smoke: %s (wild@needle=%d exactMismatch=%d full@needle=%d "
+           "backFinds=%d backStrictlyBelow=%d)\n",
+           ok ? "OK" : "FAILED", (int)(wildHit == at), (int)(exactHit != at), (int)(fullHit == at),
+           (int)(backHit == at), (int)(backAtNeedle != at));
     return ok ? 0 : 1;
 }

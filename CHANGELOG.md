@@ -34,6 +34,8 @@ transforms across surfaces.
   any byte at the `??` positions, so you can search for a pattern regardless of a
   displacement or immediate. Exact byte and quoted-string search are unchanged. Covered by a
   new offscreen `gui_search_smoke` in the CI mirror.
+- **Memory-viewer "Find previous" (Shift+F3)**: searches backward for the closest match
+  strictly below the cursor, complementing Find next (F3). Asserted in `gui_search_smoke`.
 - **`cescan il2cpp --pid <pid>`** resolves a running Unity game's class layouts (field
   offsets + method RVAs) directly, auto-locating the metadata and GameAssembly from the
   process (through the sandbox root for Proton/Flatpak).

@@ -276,8 +276,9 @@ public:
     /// Test helper: search readable memory from `start` for `pattern` with an optional
     /// wildcard `mask` (1 = must match, 0 = any). Returns the hit address, or 0.
     uintptr_t searchMemoryForTest(const std::vector<uint8_t>& pattern,
-                                  const std::vector<char>& mask, uintptr_t start) {
-        return searchMemory(pattern, start, /*inclusive=*/true, mask);
+                                  const std::vector<char>& mask, uintptr_t start,
+                                  bool backward = false) {
+        return searchMemory(pattern, start, /*inclusive=*/true, mask, backward);
     }
 
     /// The debugger stopped at `rip`: mark it as the current instruction (green ►
@@ -352,9 +353,10 @@ private:
     void updateNavActions();
 
     // Find a byte pattern or ASCII text forward from the current address.
-    void findInMemory(bool findNext);
+    void findInMemory(bool findNext, bool backward = false);
     uintptr_t searchMemory(const std::vector<uint8_t>& pattern, uintptr_t start,
-                           bool inclusive = false, const std::vector<char>& mask = {});
+                           bool inclusive = false, const std::vector<char>& mask = {},
+                           bool backward = false);
 
     void writeNop(uintptr_t addr, int size);
     void assembleAt(uintptr_t addr, int origSize, const QString& current);

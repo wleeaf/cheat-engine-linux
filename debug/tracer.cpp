@@ -12,6 +12,7 @@ namespace ce {
 std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const TraceConfig& config) {
     cancelled_.store(false);
     progress_.store(0);
+    disasm_.setArch(proc.runs32BitCode() ? Arch::X86_32 : Arch::X86_64);   // WoW64-aware
 
     std::vector<TraceEntry> entries;
     entries.reserve(config.maxSteps);

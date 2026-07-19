@@ -200,6 +200,20 @@ static void test_recover_store() {
     // Empty/zero rip is a no-op (ok=false), so callers keep the original instruction.
     auto none = ce::recoverStoreInstruction(proc, resolver, 0, true);
     printf("  zero rip -> not recovered: %s\n", (!none.ok) ? "OK" : "FAILED");
+
+    // Disassembler::setArch re-opens the decoder for a different architecture (used by
+    // the CodeFinder/Tracer members once the target's bitness is known).
+    ce::Disassembler d(ce::Arch::X86_64);
+    d.setArch(ce::Arch::ARM64);
+    const uint8_t arm[] = {0x20, 0x00, 0x80, 0xd2};   // movz x0, #1
+    auto ai = d.disassemble(0x1000, {arm, sizeof(arm)}, 1);
+    bool armOk = !ai.empty() && ai[0].mnemonic == "movz" && d.arch() == ce::Arch::ARM64;
+    d.setArch(ce::Arch::X86_32);
+    const uint8_t x86[] = {0xb8, 0x01, 0x00, 0x00, 0x00};   // mov eax, 1
+    auto xi = d.disassemble(0x1000, {x86, sizeof(x86)}, 1);
+    bool x86Ok = !xi.empty() && xi[0].mnemonic == "mov" && d.arch() == ce::Arch::X86_32;
+    printf("  Disassembler::setArch re-opens (arm64 movz, then x86-32 mov): %s\n",
+           (armOk && x86Ok) ? "OK" : "FAILED");
 }
 
 static void test_value_codec() {

@@ -38,6 +38,28 @@ Disassembler::~Disassembler() {
         cs_close(reinterpret_cast<csh*>(&handle_));
 }
 
+void Disassembler::setArch(Arch arch) {
+    if (arch == arch_ && handle_) return;
+    if (handle_) {
+        cs_close(reinterpret_cast<csh*>(&handle_));
+        handle_ = 0;
+    }
+    arch_ = arch;
+    cs_arch cs_a;
+    cs_mode cs_m;
+    switch (arch) {
+        case Arch::X86_32: cs_a = CS_ARCH_X86; cs_m = CS_MODE_32; break;
+        case Arch::X86_64: cs_a = CS_ARCH_X86; cs_m = CS_MODE_64; break;
+        case Arch::ARM32:  cs_a = CS_ARCH_ARM; cs_m = CS_MODE_ARM; break;
+        case Arch::ARM64:  cs_a = CS_ARCH_ARM64; cs_m = CS_MODE_ARM; break;
+    }
+    csh h;
+    if (cs_open(cs_a, cs_m, &h) != CS_ERR_OK)
+        throw std::runtime_error("Failed to initialize Capstone");
+    cs_option(h, CS_OPT_DETAIL, CS_OPT_ON);
+    handle_ = h;
+}
+
 // Rewrite a RIP-relative memory operand ("[rip + 0x1234]") to its resolved
 // absolute address ("[0x...]"), the way Cheat Engine displays it — much more
 // useful than Capstone's raw rip-relative form. Requires CS_OPT_DETAIL (on).

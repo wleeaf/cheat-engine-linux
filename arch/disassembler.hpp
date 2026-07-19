@@ -84,6 +84,10 @@ public:
         const std::function<bool(uintptr_t, uint8_t*, size_t)>& read);
 
     Arch arch() const { return arch_; }
+    // Re-open the underlying decoder for a different architecture (e.g. a member
+    // Disassembler that is created before the target's bitness is known). No-op if the
+    // arch is unchanged.
+    void setArch(Arch arch);
 
 private:
     Arch arch_;

@@ -26,6 +26,7 @@ bool CodeFinder::start(ProcessHandle& proc, Debugger& dbg, uintptr_t address, bo
 
     proc_ = &proc;
     dbg_ = &dbg;
+    disasm_.setArch(proc.runs32BitCode() ? Arch::X86_32 : Arch::X86_64);   // WoW64-aware
     targetAddress_ = address;
     writesOnly_ = writesOnly;
     watchSize_ = (watchSize == 1 || watchSize == 2 || watchSize == 8) ? watchSize : 4;

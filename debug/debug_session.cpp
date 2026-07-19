@@ -723,7 +723,7 @@ void DebugSession::doStep(StepMode mode, uintptr_t targetAddress) {
             uint8_t buf[16];
             auto rr = proc_->read(regs.rip, buf, sizeof(buf));
             size_t n = (rr && *rr > 0) ? *rr : 0;
-            Disassembler dis(Arch::X86_64);
+            Disassembler dis(proc_->runs32BitCode() ? Arch::X86_32 : Arch::X86_64);
             auto insns = dis.disassemble(regs.rip, {buf, n}, 1);
             if (!insns.empty() && insns[0].mnemonic == "call") {
                 uintptr_t nextAddr = regs.rip + insns[0].size;

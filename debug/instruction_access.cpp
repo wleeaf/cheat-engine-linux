@@ -14,7 +14,7 @@ std::vector<InstructionAccess> findInstructionAccesses(
     ProcessHandle& proc, uintptr_t instructionAddress, int maxHits, int timeoutMs) {
 
     DebugSession session;
-    Disassembler dis(Arch::X86_64);
+    Disassembler dis(proc.runs32BitCode() ? Arch::X86_32 : Arch::X86_64);
 
     if (!session.attach(proc.pid(), &proc)) return {};
 

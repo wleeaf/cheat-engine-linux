@@ -1115,7 +1115,7 @@ static int l_disassemble(lua_State* L) {
     auto r = p->read(addr, buf, sizeof(buf));
     if (!r) { lua_pushnil(L); return 1; }
 
-    Disassembler dis(Arch::X86_64);
+    Disassembler dis(p->runs32BitCode() ? Arch::X86_32 : Arch::X86_64);
     auto insns = dis.disassemble(addr, {buf, *r}, 1);
     if (insns.empty()) { lua_pushnil(L); return 1; }
 
@@ -1162,7 +1162,7 @@ static int l_getInstructionSize(lua_State* L) {
     uint8_t buf[16];
     auto r = p->read(addr, buf, sizeof(buf));
     if (!r) { lua_pushnil(L); return 1; }
-    Disassembler dis(Arch::X86_64);
+    Disassembler dis(p->runs32BitCode() ? Arch::X86_32 : Arch::X86_64);
     auto insns = dis.disassemble(addr, {buf, *r}, 1);
     if (insns.empty()) { lua_pushnil(L); return 1; }
     lua_pushinteger(L, insns[0].size);
@@ -1199,7 +1199,7 @@ static int l_getPreviousOpcode(lua_State* L) {
     // start doesn't make us read unmapped memory (the old fixed 20-byte lookback
     // failed there and fell back to addr-1, mis-reporting a multi-byte previous
     // instruction as ending one byte before addr).
-    Disassembler dis(Arch::X86_64);
+    Disassembler dis(p->runs32BitCode() ? Arch::X86_32 : Arch::X86_64);
     uintptr_t prev = dis.previousInstruction(addr, [&](uintptr_t a, uint8_t* buf, size_t n) {
         auto r = p->read(a, buf, n);
         return r && *r >= n;
@@ -1212,7 +1212,8 @@ static int l_assemble(lua_State* L) {
     const char* code = luaL_checkstring(L, 1);
     uintptr_t addr = (uintptr_t)luaL_optinteger(L, 2, 0);
 
-    Assembler asm64(AsmArch::X86_64);
+    auto* p = getProc(L);   // match the attached target's bitness when one is open
+    Assembler asm64(p && p->runs32BitCode() ? AsmArch::X86_32 : AsmArch::X86_64);
     auto result = asm64.assemble(code, addr);
     if (!result) {
         lua_pushnil(L);

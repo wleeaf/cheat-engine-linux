@@ -8,7 +8,7 @@ std::vector<uint8_t> nopInstruction(ProcessHandle& proc, uintptr_t address) {
     auto rr = proc.read(address, buf, sizeof(buf));
     if (!rr || *rr == 0) return {};
 
-    Disassembler dis(Arch::X86_64);
+    Disassembler dis(proc.runs32BitCode() ? Arch::X86_32 : Arch::X86_64);
     auto insns = dis.disassemble(address, {buf, *rr}, 1);
     if (insns.empty() || insns[0].size == 0) return {};
 

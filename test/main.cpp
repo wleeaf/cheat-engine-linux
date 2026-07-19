@@ -10177,8 +10177,15 @@ static void test_expression_parser() {
         eq(p.parse("[[0x100000]+8]+10"), nodeC + 0x10) &&  // ... + final offset
         // A bracket that is NOT at the start AND has an inner offset: the '+' inside
         // must not be treated as a top-level split (bracket-depth-aware).
-        eq(p.parse("0x1000+[[0x100000]+8]"), 0x1000 + nodeC);
-    printf("  multi-level pointers + inner/outer hex offsets: %s\n", ok ? "OK" : "FAILED");
+        eq(p.parse("0x1000+[[0x100000]+8]"), 0x1000 + nodeC) &&
+        // A module offset with no 0x prefix is hex, not decimal (CE + PointerPath).
+        eq(p.parse("game+100"),           base + 0x100) &&
+        // Negative offsets (real pointer paths and buildPointerExpression emit "-off").
+        eq(p.parse("[0x100000]-8"),       nodeA - 8)    &&
+        eq(p.parse("[[0x100000]+8]-4"),   nodeC - 4)    &&
+        // Plain arithmetic with subtraction outside brackets.
+        eq(p.parse("game+0x100-0x8"),     base + 0x100 - 0x8);
+    printf("  multi-level pointers + inner/outer hex offsets + negatives: %s\n", ok ? "OK" : "FAILED");
 }
 
 // ─── Scanner differential + fuzz test ────────────────────────────────────────

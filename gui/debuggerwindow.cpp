@@ -692,6 +692,7 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
         caretAddr = disasmLineAddrs_[blk];
     disasmLineAddrs_.clear();
     if (proc_ && !symbolsLoaded_) { resolver_.loadProcess(*proc_); symbolsLoaded_ = true; }
+    if (modules_.empty() && proc_) modules_ = proc_->modules();   // for data-operand annotations
     uint8_t buf[128];
     auto rr = proc_->read(c.rip, buf, sizeof(buf));
     QString out;
@@ -727,6 +728,33 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
             }
             if (sym.empty() && in.address == c.rip) sym = resolver_.resolve(in.address);
             QString anno = sym.empty() ? QString() : QStringLiteral("   ; %1").arg(QString::fromStdString(sym));
+            // Data reference: Capstone renders a direct memory operand as its effective
+            // address ("dword ptr [0x556..]") or as "[rip + 0x..]". Resolve that address to
+            // a symbol / module+offset so you can see what global the paused code touches.
+            if (anno.isEmpty() && !branch) {
+                uintptr_t eff = 0;
+                if (auto rp = in.operands.find("[rip"); rp != std::string::npos) {
+                    eff = in.address + in.size;                       // [rip] with no disp
+                    if (auto cb = in.operands.find(']', rp); cb != std::string::npos) {
+                        const std::string inner = in.operands.substr(rp, cb - rp);
+                        if (auto hx = inner.find("0x"); hx != std::string::npos) {
+                            try {
+                                long long d = static_cast<long long>(std::stoull(inner.substr(hx + 2), nullptr, 16));
+                                if (auto mn = inner.find('-'); mn != std::string::npos && mn < hx) d = -d;
+                                eff = in.address + in.size + static_cast<uintptr_t>(d);
+                            } catch (...) { eff = 0; }
+                        }
+                    }
+                } else if (auto ab = in.operands.find("[0x"); ab != std::string::npos) {
+                    try { eff = static_cast<uintptr_t>(std::stoull(in.operands.substr(ab + 3), nullptr, 16)); }
+                    catch (...) { eff = 0; }
+                }
+                if (eff) {
+                    std::string es = resolver_.resolve(eff);
+                    if (es.empty()) es = ce::moduleOffsetString(modules_, eff);
+                    if (!es.empty()) anno = QStringLiteral("   ; -> %1").arg(QString::fromStdString(es));
+                }
+            }
             out += QStringLiteral("%1%2%3  %4 %5%6\n")
                        .arg(marker, bpMark, hex(in.address),
                             QString::fromStdString(in.mnemonic),

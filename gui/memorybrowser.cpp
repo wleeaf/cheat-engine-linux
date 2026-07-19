@@ -690,15 +690,19 @@ void HexView::keyPressEvent(QKeyEvent* e) {
         return;
     }
 
-    // A plain cursor move collapses any range selection back to a single byte.
+    // Shift+Left/Right extends a byte-range selection; a plain move collapses it. The
+    // vertical/paging keys scroll, so they always collapse to a single-byte cursor.
+    const bool shift = e->modifiers() & Qt::ShiftModifier;
+    auto ensureAnchor = [&] { if (selAnchor_ < 0) selAnchor_ = selectedOffset_; };
     switch (e->key()) {
-        case Qt::Key_Left: case Qt::Key_Right: case Qt::Key_Up:
-        case Qt::Key_Down: case Qt::Key_PageUp: case Qt::Key_PageDown:
+        case Qt::Key_Up: case Qt::Key_Down: case Qt::Key_PageUp: case Qt::Key_PageDown:
             selAnchor_ = -1; break;
+        case Qt::Key_Left: case Qt::Key_Right:
+            if (!shift) selAnchor_ = -1; break;
         default: break;
     }
-    if (e->key() == Qt::Key_Left)  { if (selectedOffset_ > 0) { --selectedOffset_; editNibble_ = 0; viewport()->update(); } }
-    else if (e->key() == Qt::Key_Right) { if (selectedOffset_ >= 0 && selectedOffset_ + 1 < (int)cache_.size()) { ++selectedOffset_; editNibble_ = 0; viewport()->update(); } }
+    if (e->key() == Qt::Key_Left)  { if (selectedOffset_ > 0) { if (shift) ensureAnchor(); --selectedOffset_; editNibble_ = 0; viewport()->update(); } }
+    else if (e->key() == Qt::Key_Right) { if (selectedOffset_ >= 0 && selectedOffset_ + 1 < (int)cache_.size()) { if (shift) ensureAnchor(); ++selectedOffset_; editNibble_ = 0; viewport()->update(); } }
     else if (e->key() == Qt::Key_Down) { address_ += bytesPerRow_; editNibble_ = 0; refresh(); }
     else if (e->key() == Qt::Key_Up) { address_ -= bytesPerRow_; editNibble_ = 0; refresh(); }
     else if (e->key() == Qt::Key_PageDown) { address_ += rows * bytesPerRow_; editNibble_ = 0; refresh(); }

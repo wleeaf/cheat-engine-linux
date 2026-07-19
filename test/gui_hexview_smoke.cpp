@@ -94,9 +94,17 @@ int main(int argc, char** argv) {
     std::memcpy(g_buf, &ptrTarget, sizeof(ptrTarget));
     bool ptrOk = (hv.pointerAt(reinterpret_cast<uintptr_t>(g_buf)) == ptrTarget);
 
-    bool ok = baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC && fillOk && typeMap && selBytes && ptrOk;
+    // Shift+Right extends the byte selection from a single cursor; a plain move collapses it.
+    hv.setSelectionForTest(5, 5);
+    sendKey(&hv, Qt::Key_Right, Qt::ShiftModifier);
+    sendKey(&hv, Qt::Key_Right, Qt::ShiftModifier);
+    bool shiftSel = (hv.selectionStartForTest() == 5 && hv.selectionSizeForTest() == 3);
+    sendKey(&hv, Qt::Key_Left, Qt::NoModifier);   // plain move collapses to one byte
+    bool shiftCollapse = (hv.selectionSizeForTest() == 1);
+
+    bool ok = baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC && fillOk && typeMap && selBytes && ptrOk && shiftSel && shiftCollapse;
     printf("gui hexview smoke: %s (baseline=%d afterOneFlip=%d afterNav=%d pasteWrote=%d pasteOk=%d "
-           "ctrlV=%d ctrlC=%d filled=%d fillOk=%d typeMap=%d selBytes=%d ptrOk=%d)\n",
-           ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk, ctrlV, ctrlC, filled, fillOk, typeMap, selBytes, ptrOk);
+           "ctrlV=%d ctrlC=%d filled=%d fillOk=%d typeMap=%d selBytes=%d ptrOk=%d shiftSel=%d shiftCollapse=%d)\n",
+           ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk, ctrlV, ctrlC, filled, fillOk, typeMap, selBytes, ptrOk, shiftSel, shiftCollapse);
     return ok ? 0 : 1;
 }

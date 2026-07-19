@@ -36,6 +36,13 @@ int main(int argc, char** argv) {
     diss.show();
     app.processEvents();
 
+    // Single-struct mode: a value that changes between refreshes is flagged (live-change
+    // highlight). Flip the field at offset 0x18 (row 3), refresh, and check only it lit.
+    g_a[24] ^= 0xFFu;
+    diss.refreshNowForTest();
+    bool changedRow3 = diss.rowValueChangedForTest(3);
+    bool changedRow0 = diss.rowValueChangedForTest(0);
+
     // Enter compare mode against the second struct.
     diss.setCompareAddressesForTest({ reinterpret_cast<uintptr_t>(g_b) });
     app.processEvents();
@@ -45,8 +52,10 @@ int main(int argc, char** argv) {
     bool sameAt0x00 = diss.cellDiffColoredForTest(0, 3);   // row 0 = offset 0x00 equal
     bool sameAt0x28 = diss.cellDiffColoredForTest(5, 3);   // row 5 = offset 0x28 equal
 
-    bool ok = cols == 4 && diffAt0x10 && !sameAt0x00 && !sameAt0x28;
-    printf("gui structdissect smoke: %s (cols=%d diff@0x10=%d same@0x00=%d same@0x28=%d)\n",
-           ok ? "OK" : "FAILED", cols, diffAt0x10, sameAt0x00, sameAt0x28);
+    bool ok = cols == 4 && diffAt0x10 && !sameAt0x00 && !sameAt0x28
+           && changedRow3 && !changedRow0;
+    printf("gui structdissect smoke: %s (cols=%d diff@0x10=%d same@0x00=%d same@0x28=%d "
+           "changed@0x18=%d changed@0x00=%d)\n",
+           ok ? "OK" : "FAILED", cols, diffAt0x10, sameAt0x00, sameAt0x28, changedRow3, changedRow0);
     return ok ? 0 : 1;
 }

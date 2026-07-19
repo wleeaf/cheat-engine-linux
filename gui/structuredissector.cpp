@@ -417,6 +417,21 @@ void StructureDissector::populateTable() {
     const int rows = structSize_ / 8;   // one row per 8 bytes
     const bool cmp = !compareAddrs_.empty();
 
+    // Live-change highlight: which 8-byte rows differ from the previous refresh at the
+    // SAME base (a fresh base resets, so a goto never paints the whole struct changed).
+    std::vector<char> rowChanged(rows, 0);
+    if (prevBaseForChange_ == baseAddr_ && prevCache_.size() == cache_.size()) {
+        for (int i = 0; i < rows; ++i) {
+            int off = i * 8;
+            if (off + 8 <= validBytes_ &&
+                std::memcmp(cache_.data() + off, prevCache_.data() + off, 8) != 0)
+                rowChanged[i] = 1;
+        }
+    }
+    prevCache_ = cache_;
+    prevBaseForChange_ = baseAddr_;
+    const QColor changedFg = ce::gui::isDarkTheme() ? QColor(0xf3, 0x8b, 0xa8) : QColor(0xc0, 0x00, 0x00);
+
     if (!cmp) {
         // Single-struct dissection: one row per 8 bytes, all display types shown.
         if (table_->columnCount() != 7) {
@@ -436,11 +451,15 @@ void StructureDissector::populateTable() {
             auto* nameItem = new QTableWidgetItem(nit != fieldNames_.end() ? nit->second : QString());
             nameItem->setForeground(ce::gui::editorPalette().label);
             table_->setItem(i, 1, nameItem);
-            table_->setItem(i, 2, new QTableWidgetItem(formatValue(d, off, "hex")));
-            table_->setItem(i, 3, new QTableWidgetItem(formatValue(d, off, "int8")));
-            table_->setItem(i, 4, new QTableWidgetItem(formatValue(d, off, "int32")));
-            table_->setItem(i, 5, new QTableWidgetItem(formatValue(d, off, "float")));
-            table_->setItem(i, 6, new QTableWidgetItem(formatValue(d, off, "ptr")));
+            const char* types[] = {"hex", "int8", "int32", "float", "ptr"};
+            for (int c = 0; c < 5; ++c) {
+                auto* it = new QTableWidgetItem(formatValue(d, off, types[c]));
+                if (rowChanged[i]) {   // value changed since the last refresh -> red, CE-style
+                    it->setForeground(changedFg);
+                    if (c == 0) it->setData(Qt::UserRole + 1, true);   // test hook (Hex column)
+                }
+                table_->setItem(i, 2 + c, it);
+            }
         }
         return;
     }
@@ -493,6 +512,11 @@ void StructureDissector::populateTable() {
 
 bool StructureDissector::cellDiffColoredForTest(int row, int col) const {
     auto* it = table_->item(row, col);
+    return it && it->data(Qt::UserRole + 1).toBool();
+}
+
+bool StructureDissector::rowValueChangedForTest(int row) const {
+    auto* it = table_->item(row, 2);   // the Hex column carries the change marker
     return it && it->data(Qt::UserRole + 1).toBool();
 }
 

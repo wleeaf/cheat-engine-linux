@@ -40,8 +40,10 @@ transforms across surfaces.
   or more compare addresses lays each instance out as its own value column next to the
   base, and any cell that differs from the base at that offset is coloured, so the fields
   that discriminate between instances stand out (same = default, different = red). Before,
-  only the base's values were shown with the whole differing row tinted. Covered by a new
-  offscreen `gui_structdissect_smoke` in the CI mirror.
+  only the base's values were shown with the whole differing row tinted. Single-struct mode
+  also gained a **live-change highlight**: a value that changes between refreshes paints
+  red (like CE's Dissect Data and the hex pane), reset on a base-address change. Both are
+  covered by the offscreen `gui_structdissect_smoke` in the CI mirror.
 - **Memory Viewer marks the current instruction** when the debugger is paused: the line at
   the stopped thread's RIP paints green with a ► marker, and the first open viewer follows
   execution. See the debugger notes below.

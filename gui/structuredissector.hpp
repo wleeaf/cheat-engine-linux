@@ -31,6 +31,9 @@ public:
     int  columnCountForTest() const { return table_->columnCount(); }
     // True if the cell at (row, col) is painted in the "differs from base" colour.
     bool cellDiffColoredForTest(int row, int col) const;
+    // True if `row`'s value changed since the previous refresh (live-change highlight).
+    bool rowValueChangedForTest(int row) const;
+    void refreshNowForTest() { if (proc_) populateTable(); }
 
 private slots:
     void onGotoAddress();
@@ -61,6 +64,8 @@ private:
     QTableWidget* table_;
     QTimer* refreshTimer_;
     std::vector<uint8_t> cache_;
+    std::vector<uint8_t> prevCache_;        // previous refresh's bytes (live-change hl)
+    uintptr_t prevBaseForChange_ = 0;       // base prevCache_ was read at (guards goto)
     AddToListFn addToListCb_;
 };
 

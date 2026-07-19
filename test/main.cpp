@@ -4669,6 +4669,30 @@ static void test_lua_getUniqueAOB() {
     printf("  getUniqueAOB: %s%s\n", ok ? "OK" : "FAILED ", ok ? "" : err.c_str());
 }
 
+// disassembleBytes: decode raw bytes with no process attached (CE parity). Accepts a
+// hex string (separators ignored) or a byte table; the address arg only shifts the
+// RIP-relative target. Deterministic across Capstone versions for these encodings.
+static void test_lua_disassembleBytes() {
+    printf("\n── Test: Lua disassembleBytes ──\n");
+    LuaEngine eng;   // deliberately no process: disassembleBytes must work standalone
+    std::string err = eng.execute(
+        "local t, sz = disassembleBytes('90')\n"                       // 0x90 = nop
+        "assert(t:lower():find('nop'), '0x90 is nop, got '..tostring(t))\n"
+        "assert(sz == 1, 'nop is 1 byte')\n"
+        "local t2, sz2 = disassembleBytes({0xC3})\n"                   // byte table, 0xC3 = ret
+        "assert(t2:lower():find('ret'), '0xC3 is ret')\n"
+        "assert(sz2 == 1, 'ret is 1 byte')\n"
+        "local t3, sz3 = disassembleBytes('B8 01 00 00 00')\n"         // mov eax, 1 (spaced hex)
+        "assert(sz3 == 5, 'mov eax,imm32 is 5 bytes, got '..tostring(sz3))\n"
+        "assert(t3:lower():find('mov'), 'mnemonic is mov')\n"
+        "local _, sz4, rip = disassembleBytes('48 8B 05 10 00 00 00', 0x1000)\n"  // mov rax,[rip+0x10]
+        "assert(sz4 == 7, 'rip-relative mov is 7 bytes')\n"
+        "assert(rip == 0x1000 + 7 + 0x10, 'ripTarget = addr + size + disp, got '..string.format('%X', rip))\n"
+        "assert(disassembleBytes('') == nil, 'empty input returns nil')\n");
+    bool ok = err.empty();
+    printf("  disassembleBytes: %s%s\n", ok ? "OK" : "FAILED ", ok ? "" : err.c_str());
+}
+
 // enumModules(): table of {Name, Address, Size} per module (CE field names), agreeing
 // with getModuleAddress. Uses this process's own /proc/self/maps modules.
 static void test_lua_enumModules() {
@@ -10880,6 +10904,7 @@ int main(int argc, char* argv[]) {
     test_lua_more_bindings();
     test_lua_string_extensions();
     test_lua_getUniqueAOB();
+    test_lua_disassembleBytes();
     test_lua_enumModules();
     test_lua_memory_region_info();
     test_lua_md5memory();

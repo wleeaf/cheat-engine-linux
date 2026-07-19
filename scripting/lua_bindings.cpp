@@ -1321,6 +1321,51 @@ static int l_disassembleRange(lua_State* L) {
     return 1;
 }
 
+// disassembleBytes(hexstring | {bytetable}[, address]) -> text, size, ripTarget.
+// CE parity: disassemble raw bytes with no process attached. Accepts a hex string
+// ("48 89 5C" or "48895C", separators ignored) or a byte table. `address` (default 0)
+// only affects RIP-relative operand math. Returns the first instruction's text, its
+// byte length, and the absolute RIP target (0 if not RIP-relative), or nil if the bytes
+// don't decode.
+static int l_disassembleBytes(lua_State* L) {
+    std::vector<uint8_t> bytes;
+    if (lua_istable(L, 1)) {
+        int n = (int)lua_rawlen(L, 1);
+        bytes.reserve(n);
+        for (int i = 1; i <= n; ++i) {
+            lua_rawgeti(L, 1, i);
+            lua_Integer v = luaL_checkinteger(L, -1);
+            lua_pop(L, 1);
+            luaL_argcheck(L, v >= 0 && v <= 255, 1, "byte values must be 0..255");
+            bytes.push_back((uint8_t)v);
+        }
+    } else {
+        const char* s = luaL_checkstring(L, 1);
+        int hi = -1;
+        for (const char* c = s; *c; ++c) {
+            int nib;
+            if (*c >= '0' && *c <= '9')      nib = *c - '0';
+            else if (*c >= 'a' && *c <= 'f') nib = *c - 'a' + 10;
+            else if (*c >= 'A' && *c <= 'F') nib = *c - 'A' + 10;
+            else continue;   // ignore spaces, commas, and other separators
+            if (hi < 0) hi = nib;
+            else { bytes.push_back((uint8_t)((hi << 4) | nib)); hi = -1; }
+        }
+    }
+    if (bytes.empty()) { lua_pushnil(L); return 1; }
+    uintptr_t addr = (uintptr_t)luaL_optinteger(L, 2, 0);
+
+    // Use the target's bitness if attached, else CE's default 64-bit mode.
+    auto* p = getProc(L);
+    Disassembler dis((p && p->runs32BitCode()) ? Arch::X86_32 : Arch::X86_64);
+    auto insns = dis.disassemble(addr, {bytes.data(), bytes.size()}, 1);
+    if (insns.empty()) { lua_pushnil(L); return 1; }
+    lua_pushstring(L, (insns[0].mnemonic + " " + insns[0].operands).c_str());
+    lua_pushinteger(L, insns[0].size);
+    lua_pushinteger(L, (lua_Integer)insns[0].ripTarget);
+    return 3;
+}
+
 // getInstructionSize(address) -> byte length of the instruction at address.
 static int l_getInstructionSize(lua_State* L) {
     auto* p = getProc(L);
@@ -4924,6 +4969,7 @@ void registerExtendedBindings(lua_State* L) {
     // Disassembly / Assembly
     lua_register(L, "disassemble", l_disassemble);
     lua_register(L, "disassembleRange", l_disassembleRange);
+    lua_register(L, "disassembleBytes", l_disassembleBytes);
     lua_register(L, "speedhack_setSpeed", l_speedhack_setSpeed);
     lua_register(L, "setSpeed", l_speedhack_setSpeed);   // convenience alias
     lua_register(L, "injectLibrary", l_injectLibrary);

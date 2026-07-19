@@ -53,6 +53,10 @@ transforms across surfaces.
   `s:split(sep)` (separator is a character set; empty segments are skipped) as methods on the
   string type, plus the global `printf(...)` (= `print(string.format(...))`). Improves
   out-of-the-box compatibility for imported `.CT` tables that call these.
+- **Fixed: a comma-locale value-hotkey step was silently dropped.** The increase/decrease value
+  hotkey parsed its step with C-locale `toDouble`, so a user in a comma-decimal locale (e.g.
+  tr_TR) whose step was "0,5" got it ignored and fell back to 1. It now accepts a comma separator
+  like every other value field.
 - **Find what writes: the watchpoint size matches the record's type.** Running find-what-writes
   on a cheat-table entry now sizes the hardware watchpoint to that entry's value type (Byte -> 1
   byte, 2 Bytes -> 2, Qword/Double -> 8) instead of always 4, so a write to an adjacent byte no

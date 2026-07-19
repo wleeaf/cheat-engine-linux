@@ -3182,7 +3182,10 @@ void MainWindow::rebuildValueHotkeys() {
             continue;
 
         bool ok = false;
-        double step = entry.hotkeyStep.toDouble(&ok);
+        // Accept a comma decimal separator like every other value field, so a "0,5"
+        // step in a comma-locale isn't silently dropped to the default (QString::
+        // toDouble is C-locale only).
+        double step = QString(entry.hotkeyStep).replace(',', '.').toDouble(&ok);
         if (!ok || step == 0.0)
             step = 1.0;
 

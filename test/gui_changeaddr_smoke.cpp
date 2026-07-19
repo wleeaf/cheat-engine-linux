@@ -87,6 +87,12 @@ int main(int argc, char** argv) {
     // The preview shows the resolved address and the Int32 value there (g_val == 4321).
     QString want = QStringLiteral("→ 0x%1 = 4321").arg(reinterpret_cast<uintptr_t>(&g_val), 0, 16);
     bool previewOk = (dprev.previewTextForTest() == want);
+    // Toggling Hexadecimal reformats the previewed value live (still the same address).
+    dprev.setHexForTest(true);
+    QString afterHex = dprev.previewTextForTest();
+    bool hexPreviewOk = afterHex != want && afterHex.startsWith("→ 0x") &&
+                        afterHex.contains(QString::number(reinterpret_cast<uintptr_t>(&g_val), 16));
+    previewOk = previewOk && hexPreviewOk;
     // Without a process, no preview is shown (nothing to resolve against).
     ChangeAddressDialog dnop("0x0", ce::ValueType::Int32, false, 1);
     dnop.setPointerModeForTest(true);

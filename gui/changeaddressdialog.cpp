@@ -81,7 +81,11 @@ ChangeAddressDialog::ChangeAddressDialog(const QString& address, ce::ValueType t
 
     // The Length field and the Unicode box only apply to certain types (CE shows
     // edtSize for String/Array and cbunicode only for String); keep them in sync.
-    connect(typeCombo_, &QComboBox::currentIndexChanged, this, [this](int) { syncFlagState(); });
+    connect(typeCombo_, &QComboBox::currentIndexChanged, this,
+            [this](int) { syncFlagState(); updatePreview(); });
+    // The previewed value formats per the hex/signed flags, so refresh it when they change.
+    connect(hexCheck_, &QCheckBox::toggled, this, [this](bool) { updatePreview(); });
+    connect(signedCheck_, &QCheckBox::toggled, this, [this](bool) { updatePreview(); });
     syncFlagState();
 
     // Pointer editor (CE cbPointer): a base address plus an offset chain. Hidden until
@@ -276,6 +280,7 @@ void ChangeAddressDialog::syncFlagState() {
 
 void ChangeAddressDialog::setTypeIndexForTest(int i) { typeCombo_->setCurrentIndex(i); }
 void ChangeAddressDialog::setUnicodeForTest(bool on) { unicodeCheck_->setChecked(on); }
+void ChangeAddressDialog::setHexForTest(bool on) { hexCheck_->setChecked(on); }
 void ChangeAddressDialog::setLengthForTest(int n) { lengthEdit_->setText(QString::number(n)); }
 bool ChangeAddressDialog::unicodeCheckedForTest() const { return unicodeCheck_->isChecked(); }
 bool ChangeAddressDialog::unicodeEnabledForTest() const { return unicodeCheck_->isEnabled(); }

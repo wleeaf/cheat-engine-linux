@@ -39,6 +39,7 @@ public:
     // Test hooks (offscreen smoke): drive the flag/type state and read it back.
     void setTypeIndexForTest(int i);
     void setUnicodeForTest(bool on);
+    void setHexForTest(bool on);
     void setLengthForTest(int n);
     bool unicodeCheckedForTest() const;
     bool unicodeEnabledForTest() const;

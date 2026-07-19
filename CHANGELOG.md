@@ -60,8 +60,9 @@ transforms across surfaces.
   highlighted (by address) rather than the same screen row, clearing it only when it leaves view.
 - **Cheat table: drag-and-drop reordering (CE parity).** Drag an entry to move it in the list
   instead of only the context-menu Move Up/Down. Dragging a group header carries its whole
-  subtree, and dropping in the empty area moves the entry to the end. The reorder preserves each
-  entry's indent (a flat move, no auto-renesting yet).
+  subtree, dropping in the empty area moves the entry to the end, and **dropping onto a group
+  header nests the entry (and its subtree) into that group**. Dropping between rows is a flat
+  move that preserves each entry's indent.
 - **Region-type scan filters exposed (CE parity).** The scanner's "Memory Scan Options" group
   gains **Private / Image / Mapped** checkboxes (CE's MEM_PRIVATE / MEM_IMAGE / MEM_MAPPED). All
   on by default (scan everything); turn one off to skip that class of memory, e.g. Image-only to

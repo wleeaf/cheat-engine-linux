@@ -412,8 +412,10 @@ public:
     bool dropMimeData(const QMimeData* data, Qt::DropAction action, int row, int column,
                       const QModelIndex& parent) override;
     /// Reorder: move the block starting at `srcRow` (a group carries its descendants)
-    /// so it lands before `destRow`. Shared by dropMimeData and a headless test hook.
-    void moveEntryBlock(int srcRow, int destRow);
+    /// so it lands before `destRow`. When `newRootIndent >= 0`, the block is re-indented
+    /// to that depth (its subtree shifts by the same delta) so dropping onto a group
+    /// nests the entry into it (CE). -1 keeps the current indents (a flat move).
+    void moveEntryBlock(int srcRow, int destRow, int newRootIndent = -1);
 
     // ── ce::IAddressList ──
     int count() const override;

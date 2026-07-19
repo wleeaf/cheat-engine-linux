@@ -5079,16 +5079,30 @@ bool AddressListModel::dropMimeData(const QMimeData* data, Qt::DropAction action
     QDataStream st(&buf, QIODevice::ReadOnly);
     int src = -1; st >> src;
     if (src < 0 || src >= (int)entries_.size()) return false;
-    // Qt's drop row: >=0 means "before this row"; onto a row gives row=-1 + parent; an
-    // empty-area drop gives row=-1 + invalid parent (append at the end).
-    int dest = (row >= 0) ? row : (parent.isValid() ? parent.row() : (int)entries_.size());
-    moveEntryBlock(src, dest);
+    // Qt's drop row: >=0 means "before this row" (drop between rows); onto a row gives
+    // row=-1 + parent; an empty-area drop gives row=-1 + invalid parent (append at end).
+    int dest, nestIndent = -1;
+    if (row >= 0) {
+        dest = row;                                   // between rows: flat move
+    } else if (parent.isValid()) {
+        int pr = parent.row();
+        if (pr >= 0 && pr < (int)entries_.size() && entries_[pr].isGroup && pr != src) {
+            // Dropped onto a group header: nest the entry as the group's first child (CE).
+            dest = pr + 1;
+            nestIndent = entries_[pr].indent + 1;
+        } else {
+            dest = pr;
+        }
+    } else {
+        dest = (int)entries_.size();                  // empty area: move to the end
+    }
+    moveEntryBlock(src, dest, nestIndent);
     // Return false: the move is done here, so Qt must not also remove the source rows
     // (its default InternalMove completion would corrupt the list).
     return false;
 }
 
-void AddressListModel::moveEntryBlock(int srcRow, int destRow) {
+void AddressListModel::moveEntryBlock(int srcRow, int destRow, int newRootIndent) {
     const int n = (int)entries_.size();
     if (srcRow < 0 || srcRow >= n) return;
     // A group header drags its whole subtree; a leaf is a block of one.
@@ -5102,6 +5116,15 @@ void AddressListModel::moveEntryBlock(int srcRow, int destRow) {
     if (destRow >= srcRow && destRow <= srcRow + len) return;
     auto perm = ce::moveRangePermutation(n, srcRow, len, destRow);
     if ((int)perm.size() != n) return;
+    // Re-indent the block before permuting (indents ride along with the entries), so a
+    // drop onto a group nests the whole subtree one level under it.
+    if (newRootIndent >= 0) {
+        int delta = newRootIndent - entries_[srcRow].indent;
+        for (int i = srcRow; i < srcRow + len; ++i) {
+            int ni = entries_[i].indent + delta;
+            entries_[i].indent = ni < 0 ? 0 : ni;
+        }
+    }
     beginResetModel();
     std::vector<AddressEntry> reordered;
     reordered.reserve(n);

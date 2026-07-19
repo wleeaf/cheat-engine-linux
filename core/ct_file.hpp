@@ -42,6 +42,7 @@ struct CheatEntry {
     // The record's raw "<Options .../>" element, preserved verbatim so CE flags we do
     // not model (moHideChildren, moRecursiveSetValue, ...) survive a load+save.
     std::string optionsXml;
+    int length = 0;   // element byte length for String / Array-of-byte (CE <Length>); 0 = unset
 };
 
 struct StructureField {

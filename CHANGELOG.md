@@ -58,6 +58,14 @@ transforms across surfaces.
 - **Disassembler: selection stays on its instruction while scrolling (CE parity).** The same
   anchoring now applies to the disassembler: scrolling the pane keeps the selected instruction
   highlighted (by address) rather than the same screen row, clearing it only when it leaves view.
+- **Fixed: saving a String / Array-of-byte / Custom record to `.CT` corrupted its type to 4
+  Bytes.** The table builder's type map only covered the numeric types, so every String, Unicode
+  String, Array-of-byte, Binary, Grouped, and Custom record became Int32 on save. All are now
+  mapped correctly.
+- **`.CT` string/AoB length + wide-string flag (CE parity).** Import and export CE's `<Length>`
+  (String / Array-of-byte element length) and `<Unicode>` (a `String` record with `<Unicode>1</Unicode>`
+  is our Unicode String, written back the same way), so an imported record keeps its length and
+  wide-ness and round-trips.
 - **Group `<Options>` from CE tables are honored and preserved (CE parity).** A cheat table's
   group-behavior flags now import: `moActivateChildrenAsWell` / `moDeactivateChildrenAsWell`
   gate whether toggling a group header cascades to its children (previously always cascaded), and

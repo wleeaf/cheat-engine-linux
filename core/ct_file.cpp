@@ -98,6 +98,7 @@ static std::string typeToStr(ValueType vt) {
         case ValueType::Float:   return "Float";
         case ValueType::Double:  return "Double";
         case ValueType::String:  return "String";
+        case ValueType::UnicodeString: return "String";   // CE: String + <Unicode>1</Unicode>
         case ValueType::ByteArray: return "Array of byte";
         case ValueType::Binary:  return "Binary";
         case ValueType::Pointer: return "Pointer";
@@ -254,6 +255,14 @@ bool CheatTable::save(const std::string& path) const {
                 f << "      <Address>" << addr << "</Address>\n";
             }
             f << "      <VariableType>" << typeToStr(e.type) << "</VariableType>\n";
+            // CE stores a string/AoB element length in <Length>, and marks wide strings
+            // with <Unicode> (the VariableType stays "String").
+            if (e.type == ValueType::String || e.type == ValueType::UnicodeString) {
+                if (e.length > 0) f << "      <Length>" << e.length << "</Length>\n";
+                f << "      <Unicode>" << (e.type == ValueType::UnicodeString ? 1 : 0) << "</Unicode>\n";
+            } else if (e.type == ValueType::ByteArray && e.length > 0) {
+                f << "      <Length>" << e.length << "</Length>\n";
+            }
             if (!e.offsets.empty()) {
                 f << "      <Offsets>\n";
                 for (int64_t off : e.offsets) {
@@ -473,6 +482,13 @@ static void parseCheatEntriesBlock(const std::string& entriesXml, int parentId,
                 catch (...) {}
             }
             e.type = strToType(getTag(ownXml, "VariableType"));
+            // CE String + <Unicode>1</Unicode> is our UnicodeString; <Length> is the
+            // element byte length for String / Array-of-byte records.
+            if (e.type == ValueType::String && getTag(ownXml, "Unicode") == "1")
+                e.type = ValueType::UnicodeString;
+            if (auto ln = getTag(ownXml, "Length"); !ln.empty()) {
+                try { e.length = std::stoi(ln); } catch (...) {}
+            }
             e.value = xmlUnescape(getTag(ownXml, "Value"));
         }
         e.active = (getTag(ownXml, "Activated") == "1");

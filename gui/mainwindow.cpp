@@ -3091,7 +3091,14 @@ ce::CheatTable MainWindow::buildCheatTable() const {
         else if (typeStr == "pointer") e.type = ce::ValueType::Pointer;
         else if (typeStr == "float") e.type = ce::ValueType::Float;
         else if (typeStr == "double") e.type = ce::ValueType::Double;
+        else if (typeStr == "string") e.type = ce::ValueType::String;
+        else if (typeStr == "unicode") e.type = ce::ValueType::UnicodeString;
+        else if (typeStr == "aob") e.type = ce::ValueType::ByteArray;
+        else if (typeStr == "binary") e.type = ce::ValueType::Binary;
+        else if (typeStr == "grouped") e.type = ce::ValueType::Grouped;
+        else if (typeStr == "custom") e.type = ce::ValueType::Custom;
         else e.type = ce::ValueType::Int32;
+        e.length = obj["byteCount"].toInt(0);   // String/AoB element length -> CE <Length>
         e.value = obj["value"].toString().toStdString();
         e.active = obj["active"].toBool();
         e.showAsHex = obj["showAsHex"].toBool();

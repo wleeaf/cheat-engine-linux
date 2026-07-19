@@ -920,6 +920,33 @@ static void test_cheat_table_json() {
             optReload.entries[0].optionsXml.find("moRecursiveSetValue=\"1\"") != std::string::npos;
     std::filesystem::remove(optPath);
 
+    // CE string/AoB <Length>, and <Unicode>1 on a "String" type -> our UnicodeString.
+    // Type + length must survive a save+reload (UnicodeString writes as String+Unicode).
+    CheatTable strCE;
+    strCE.loadFromString(
+        "<CheatTable><CheatEntries>"
+        "<CheatEntry><ID>1</ID><Description>\"name\"</Description>"
+        "<VariableType>String</VariableType><Length>10</Length><Unicode>1</Unicode>"
+        "<Address>400000</Address></CheatEntry>"
+        "<CheatEntry><ID>2</ID><Description>\"tag\"</Description>"
+        "<VariableType>String</VariableType><Length>8</Length><Address>400010</Address></CheatEntry>"
+        "<CheatEntry><ID>3</ID><Description>\"sig\"</Description>"
+        "<VariableType>Array of byte</VariableType><Length>4</Length><Address>400020</Address></CheatEntry>"
+        "</CheatEntries></CheatTable>");
+    bool strOk = strCE.entries.size() == 3 &&
+        strCE.entries[0].type == ValueType::UnicodeString && strCE.entries[0].length == 10 &&
+        strCE.entries[1].type == ValueType::String && strCE.entries[1].length == 8 &&
+        strCE.entries[2].type == ValueType::ByteArray && strCE.entries[2].length == 4;
+    auto strPath = std::filesystem::temp_directory_path() /
+        ("cecore-strlen-" + std::to_string(getpid()) + ".CT");
+    CheatTable strReload;
+    strOk = strOk && strCE.save(strPath.string()) && strReload.load(strPath.string()) &&
+        strReload.entries.size() == 3 &&
+        strReload.entries[0].type == ValueType::UnicodeString && strReload.entries[0].length == 10 &&
+        strReload.entries[1].type == ValueType::String && strReload.entries[1].length == 8 &&
+        strReload.entries[2].type == ValueType::ByteArray && strReload.entries[2].length == 4;
+    std::filesystem::remove(strPath);
+
     CheatTable protectedLoaded;
     bool protectedOk = protectedLoaded.loadProtected(protectedPath.string(), "secret") &&
         matchesTable(protectedLoaded);
@@ -935,6 +962,7 @@ static void test_cheat_table_json() {
     printf("  group Collapsed round-trips: %s\n", collapseOk ? "OK" : "FAILED");
     printf("  CE <DropDownList> import (+ old-cased fallback): %s\n", dropdownOk ? "OK" : "FAILED");
     printf("  CE group <Options> flags parse + verbatim round-trip: %s\n", optOk ? "OK" : "FAILED");
+    printf("  CE String/AoB <Length> + <Unicode> import + round-trip: %s\n", strOk ? "OK" : "FAILED");
     printf("  CT XML CE type names: %s\n", xmlTypeNamesOk ? "OK" : "FAILED");
     printf("  CETRAINER protected round trip: %s\n", (protectedOk && wrongPasswordOk) ? "OK" : "FAILED");
 }

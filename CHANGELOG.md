@@ -53,6 +53,11 @@ transforms across surfaces.
   `s:split(sep)` (separator is a character set; empty segments are skipped) as methods on the
   string type, plus the global `printf(...)` (= `print(string.format(...))`). Improves
   out-of-the-box compatibility for imported `.CT` tables that call these.
+- **Fixed: cheat-table hotkeys fired on the wrong entry after a reorder.** The toggle / set-value
+  / increase / decrease hotkeys captured an entry's row index, but Move Up/Down (and drag-drop)
+  swaps rows without rebuilding hotkeys, so pressing a hotkey after reordering acted on whatever
+  entry now sat at the old row. They now capture the entry's stable id and resolve the current row
+  each time the key is pressed, matching how the Lua memory-record API already survives reorders.
 - **Fixed: a comma-locale value-hotkey step was silently dropped.** The increase/decrease value
   hotkey parsed its step with C-locale `toDouble`, so a user in a comma-decimal locale (e.g.
   tr_TR) whose step was "0,5" got it ignored and fell back to 1. It now accepts a comma separator

@@ -342,6 +342,9 @@ class AddressListModel : public QAbstractTableModel, public ce::IAddressList {
     Q_OBJECT
 public:
     explicit AddressListModel(QObject* parent = nullptr);
+    // Current row of the entry with stable id `id`, or -1 if gone. Public so callers
+    // (e.g. value hotkeys) can hold an id across reorders and resolve the row live.
+    int rowOfId(int id) const;
     // Returns the new entry's stable id (so the caller can set flags on it).
     int addEntry(uintptr_t addr, ce::ValueType type, const QString& desc = "No description",
                  const QString& addressExpr = {}, size_t byteCount = 0);
@@ -470,7 +473,6 @@ private:
     void scheduleEditVerify(uintptr_t addr, ce::ValueType type, const QString& wroteStr,
                             const ce::ValueCodec& codec = {}, bool bigEndian = false,
                             bool isSigned = true);
-    int rowOfId(int id) const;
     // Re-resolve a pointer/expression record's target from its address expression so a
     // read/write acts on the current target, not the cached (up to ~500ms stale) address.
     void reresolveAddress(AddressEntry& e);

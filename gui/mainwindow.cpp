@@ -3207,22 +3207,31 @@ void MainWindow::rebuildValueHotkeys() {
             valueHotkeyShortcuts_.push_back(shortcut);
         };
 
+        // Capture the entry's stable id, not its row: a reorder (Move Up/Down, drag) or
+        // a delete shifts row indices, but these hotkeys are only rebuilt on insert/
+        // remove/reset, so a row-based capture would fire on the wrong entry. Resolve the
+        // current row from the id each time the key is pressed.
+        const int id = entry.id;
         // Toggle-active hotkey (previously configured + saved but never wired,
         // so it did nothing): flip the entry's active state.
-        addHotkey(entry.hotkeyKeys, [this, row]() {
-            addressListModel_->toggleActive(row);
+        addHotkey(entry.hotkeyKeys, [this, id]() {
+            int r = addressListModel_->rowOfId(id);
+            if (r >= 0) addressListModel_->toggleActive(r);
         });
-        addHotkey(entry.increaseHotkeyKeys, [this, row, step]() {
-            if (!addressListModel_->adjustEntryValue(row, step * 1.0))
+        addHotkey(entry.increaseHotkeyKeys, [this, id, step]() {
+            int r = addressListModel_->rowOfId(id);
+            if (r < 0 || !addressListModel_->adjustEntryValue(r, step * 1.0))
                 QApplication::beep();
         });
-        addHotkey(entry.decreaseHotkeyKeys, [this, row, step]() {
-            if (!addressListModel_->adjustEntryValue(row, step * -1.0))
+        addHotkey(entry.decreaseHotkeyKeys, [this, id, step]() {
+            int r = addressListModel_->rowOfId(id);
+            if (r < 0 || !addressListModel_->adjustEntryValue(r, step * -1.0))
                 QApplication::beep();
         });
         // Set-value hotkey: write a fixed value (e.g. bind a key to "health = 999").
-        addHotkey(entry.setValueHotkeyKeys, [this, row, val = entry.setValueHotkeyValue]() {
-            addressListModel_->setEntryValueTo(row, val);
+        addHotkey(entry.setValueHotkeyKeys, [this, id, val = entry.setValueHotkeyValue]() {
+            int r = addressListModel_->rowOfId(id);
+            if (r >= 0) addressListModel_->setEntryValueTo(r, val);
         });
     }
 }

@@ -110,6 +110,11 @@ transforms across surfaces.
   now offers **Auto Assemble...** (opens a script editor) and **Dissect data/structures...**
   (opens a Structure Dissector at the current address), routed through the openers MainWindow
   owns. Asserted in `gui_search_smoke`.
+- **Fixed: address expressions broke on hyphenated library names**: the expression parser split
+  on `-`, so a Linux library whose name contains a hyphen (e.g. `libssl-1.1.so+0x10`) was split
+  at the hyphen and failed to resolve, which also broke the symbolic address bar's round-trip for
+  such modules. The parser now recognizes a known module-name prefix (longest match) and takes it
+  whole, so its internal `-` is not mistaken for subtraction. Unit-tested in `cecore_test`.
 - **Hex pane offers 64 bytes per row** (CE parity): the "Bytes per row" menu now includes 64
   alongside 8/16/32 for wider dumps; 64 divides by every display-type group size, so grouped
   views stay valid.

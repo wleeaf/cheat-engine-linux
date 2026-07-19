@@ -9791,15 +9791,20 @@ static void test_expression_parser() {
     std::memcpy(mem.data() + 0,     &nodeA, sizeof(nodeA));   // [base]     = nodeA
     std::memcpy(mem.data() + 0x100, &nodeB, sizeof(nodeB));   // [nodeA]    = nodeB
     std::memcpy(mem.data() + 0x108, &nodeC, sizeof(nodeC));   // [nodeA+8]  = nodeC
+    const uintptr_t hyBase = 0x7f0000000000ull;         // a hyphenated Linux library base
     FakeProcessHandle proc({
         {{base, mem.size(), MemProt::ReadWrite, MemType::Private, MemState::Committed, "[heap]"}, mem},
     }, {
         {base, 0x1000, "game", "/tmp/game", true},   // a named module based at `base`
+        {hyBase, 0x1000, "libssl-1.1.so", "/lib/libssl-1.1.so", true},  // '-' in the name
     });
     ExpressionParser p(&proc, nullptr);
     auto eq = [](std::optional<uintptr_t> v, uintptr_t want) { return v && *v == want; };
     bool ok =
         eq(p.parse("game"),           base)         &&   // bare module name -> base
+        // A module name with a '-' must not be split at the hyphen (Linux libs).
+        eq(p.parse("libssl-1.1.so"),      hyBase)         &&
+        eq(p.parse("libssl-1.1.so+0x10"), hyBase + 0x10)  &&
         eq(p.parse("game+0x100"),     base + 0x100) &&   // CE "module+offset" format
         eq(p.parse("[game+0x100]"),   nodeB)        &&   // deref module+offset: [base+0x100]=[nodeA]=nodeB
         eq(p.parse("[0x100000]"),     nodeA)        &&   // 1-level deref

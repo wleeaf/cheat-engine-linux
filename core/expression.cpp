@@ -117,21 +117,43 @@ std::optional<uintptr_t> ExpressionParser::parseImpl(const std::string& expr, in
     bool subtract = false;
     size_t pos = 0;
 
+    // Module names can contain '-' (Linux libraries like "libssl-1.1.so"). Querying the
+    // module list once lets a term that starts with a known module name be taken whole,
+    // so the '-' inside the name is not mistaken for a subtraction operator.
+    std::vector<ModuleInfo> mods;
+    if (proc_) mods = proc_->modules();
+
     while (pos < s.size()) {
         // Find next + or - past the current term (not inside a 0x prefix, and not
         // inside a [pointer] sub-expression — otherwise "0x1000+[base+8]" would
         // split the inner "+8" and mangle the bracket).
         size_t nextOp = std::string::npos;
-        // Count the term's own leading '[' — the scan starts at pos+1, so without
-        // this the outer bracket wouldn't be tracked and an inner '+' would match.
-        int bd = (pos < s.size() && s[pos] == '[') ? 1 : 0;
-        for (size_t i = pos + 1; i < s.size(); ++i) {
-            if (s[i] == '[') ++bd;
-            else if (s[i] == ']') { if (bd > 0) --bd; }
-            else if (bd == 0 && (s[i] == '+' || s[i] == '-') &&
-                     !(i > 1 && (s[i-1] == 'x' || s[i-1] == 'X'))) {
-                nextOp = i;
-                break;
+
+        // If the term begins with a known (possibly hyphenated) module name followed by
+        // an operator or the end of the string, take the whole name as the token so its
+        // internal '-' is not split. Longest match wins for overlapping names.
+        size_t modLen = 0;
+        for (const auto& m : mods) {
+            if (m.name.empty() || m.name.size() <= modLen) continue;
+            if (s.compare(pos, m.name.size(), m.name) != 0) continue;
+            size_t after = pos + m.name.size();
+            if (after >= s.size() || s[after] == '+' || s[after] == '-')
+                modLen = m.name.size();
+        }
+        if (modLen > 0) {
+            nextOp = (pos + modLen < s.size()) ? pos + modLen : std::string::npos;
+        } else {
+            // Count the term's own leading '[' — the scan starts at pos+1, so without
+            // this the outer bracket wouldn't be tracked and an inner '+' would match.
+            int bd = (pos < s.size() && s[pos] == '[') ? 1 : 0;
+            for (size_t i = pos + 1; i < s.size(); ++i) {
+                if (s[i] == '[') ++bd;
+                else if (s[i] == ']') { if (bd > 0) --bd; }
+                else if (bd == 0 && (s[i] == '+' || s[i] == '-') &&
+                         !(i > 1 && (s[i-1] == 'x' || s[i-1] == 'X'))) {
+                    nextOp = i;
+                    break;
+                }
             }
         }
 

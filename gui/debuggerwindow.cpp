@@ -635,9 +635,10 @@ void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
     }
     prevGp_.assign(vals, vals + kGp);
     if (flagsLabel_) {
-        std::string fl = ce::describeEflags(c.rflags);
-        flagsLabel_->setText(fl.empty() ? QStringLiteral("Flags: (none)")
-                                        : QStringLiteral("Flags: ") + QString::fromStdString(fl));
+        // Show every status flag's 0/1 state (CE-style), not just the set ones, so a
+        // clear flag next to a conditional jump is still readable.
+        flagsLabel_->setText(QStringLiteral("Flags: ") +
+                             QString::fromStdString(ce::describeEflagsVerbose(c.rflags)));
     }
     // XMM0-15, view-only, shown as the 128-bit value (most-significant byte first).
     // Same change highlight as the GP regs (a movss/paddd etc. lights up its dest).

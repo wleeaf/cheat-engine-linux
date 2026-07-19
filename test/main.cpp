@@ -9736,6 +9736,15 @@ static void test_conditional_jump() {
         !taken("jecxz", 0).has_value() &&                          // register-based, not flags
         !taken("mov", 0).has_value();                             // not a jump
     printf("  conditionalJumpTaken maps mnemonic+flags: %s\n", ok ? "OK" : "FAILED");
+
+    // describeEflagsVerbose always lists every status flag with its 0/1 state.
+    bool vok =
+        ce::describeEflagsVerbose(0) == "CF=0 PF=0 AF=0 ZF=0 SF=0 DF=0 OF=0" &&
+        ce::describeEflagsVerbose(ZF).find("ZF=1") != std::string::npos &&
+        ce::describeEflagsVerbose(ZF).find("CF=0") != std::string::npos &&
+        ce::describeEflagsVerbose(CF | OF).find("CF=1") != std::string::npos &&
+        ce::describeEflagsVerbose(CF | OF).find("OF=1") != std::string::npos;
+    printf("  describeEflagsVerbose lists all flag states: %s\n", vok ? "OK" : "FAILED");
 }
 
 static void test_group_collapse() {

@@ -42,6 +42,10 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **Debugger flags show every state, not just the set ones** (CE parity): the register panel's
+  Flags line now reads `CF=0 PF=1 AF=0 ZF=1 SF=0 DF=0 OF=0` instead of just the names of the set
+  flags, so you can read a clear flag's state next to a conditional jump. Backed by a Qt-free
+  `ce::describeEflagsVerbose`, unit-tested in `cecore_test`.
 - **Debugger "Run to cursor" gets F4 and a context-menu item** (CE parity): the Run to Cursor
   button now carries CE's **F4** shortcut, and right-clicking a disassembly line offers "Run to
   cursor" (enabled only while paused), so you can run to a clicked instruction without setting a

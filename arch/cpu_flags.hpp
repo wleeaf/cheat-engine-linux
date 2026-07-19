@@ -31,6 +31,25 @@ inline std::string describeEflags(uint64_t rflags) {
     return out;
 }
 
+/// The arithmetic/direction status flags with each one's 0/1 state, the way a debugger
+/// register panel shows them ("CF=0 PF=1 AF=0 ZF=1 SF=0 DF=0 OF=0"). Unlike
+/// describeEflags (set flags only), this always lists every flag so you can read the
+/// state of one that is clear, which is what you need next to a conditional jump.
+inline std::string describeEflagsVerbose(uint64_t rflags) {
+    struct Flag { uint64_t bit; const char* name; };
+    static const Flag kFlags[] = {
+        {1ull << 0,  "CF"}, {1ull << 2,  "PF"}, {1ull << 4,  "AF"},
+        {1ull << 6,  "ZF"}, {1ull << 7,  "SF"}, {1ull << 10, "DF"}, {1ull << 11, "OF"},
+    };
+    std::string out;
+    for (const auto& f : kFlags) {
+        if (!out.empty()) out += ' ';
+        out += f.name;
+        out += (rflags & f.bit) ? "=1" : "=0";
+    }
+    return out;
+}
+
 /// Whether an x86 conditional jump (`mnemonic`, lowercase Capstone form like "je",
 /// "jne", "jbe", "jg") would be taken given `rflags`. `jmp` is always taken. Returns
 /// nullopt for anything that is not a flag-testing jump (including jcxz/jecxz/jrcxz,

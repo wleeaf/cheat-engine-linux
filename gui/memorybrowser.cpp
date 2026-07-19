@@ -815,13 +815,26 @@ void DisasmView::contextMenuEvent(QContextMenuEvent* e) {
     // instructions_) while menu.exec() runs its nested event loop, which would
     // dangle a reference and make the action handlers read garbage.
     const ce::Instruction inst = instructions_[row];
+    // Snapshot the whole selection by value (the refresh timer may reallocate
+    // instructions_ during menu.exec()); Copy/NOP act on every selected instruction.
+    int selLo = row, selHi = row;
+    if (int lo, hi; selRange(lo, hi)) { selLo = lo; selHi = hi; }
+    std::vector<ce::Instruction> selInsts;
+    for (int r = selLo; r <= selHi && r < (int)instructions_.size(); ++r)
+        selInsts.push_back(instructions_[r]);
+    const bool multi = selInsts.size() > 1;
+    int selTotalBytes = 0;
+    for (const auto& in : selInsts) selTotalBytes += (int)in.size;
+
     QMenu menu(this);
     menu.addAction(QString("Address: 0x%1").arg(inst.address, 16, 16, QChar('0')))->setEnabled(false);
     menu.addSeparator();
 
     auto* copyAddr = menu.addAction("Copy address");
-    auto* copyBytes = menu.addAction("Copy bytes");
-    auto* copyLine = menu.addAction("Copy line");
+    auto* copyBytes = menu.addAction(multi ? QString("Copy bytes (%1 instructions)").arg(selInsts.size())
+                                           : QString("Copy bytes"));
+    auto* copyLine = menu.addAction(multi ? QString("Copy lines (%1)").arg(selInsts.size())
+                                          : QString("Copy line"));
     menu.addSeparator();
 
     QAction* followAct = nullptr;
@@ -846,8 +859,9 @@ void DisasmView::contextMenuEvent(QContextMenuEvent* e) {
     auto* commentAct = menu.addAction("Set comment…");
     auto* xrefAct = menu.addAction("Find references to this address");
     auto* asmAct = menu.addAction("Assemble instruction…");
-    auto* nopAct = menu.addAction(QString("NOP this instruction (%1 byte%2)")
-        .arg(inst.size).arg(inst.size == 1 ? "" : "s"));
+    auto* nopAct = menu.addAction(multi
+        ? QString("NOP %1 instructions (%2 bytes)").arg(selInsts.size()).arg(selTotalBytes)
+        : QString("NOP this instruction (%1 byte%2)").arg(inst.size).arg(inst.size == 1 ? "" : "s"));
     // Auto Assemble injection templates, pre-filled for the pointed-at instruction.
     auto* aaMenu = menu.addMenu("Auto Assemble");
     auto* codeInjAct = aaMenu->addAction("Create code injection here");
@@ -861,16 +875,23 @@ void DisasmView::contextMenuEvent(QContextMenuEvent* e) {
     if (picked == copyAddr) {
         clip->setText(QString("0x%1").arg(inst.address, 0, 16));
     } else if (picked == copyBytes) {
-        QString s;
-        for (auto b : inst.bytes) s += QString("%1 ").arg(b, 2, 16, QChar('0'));
-        clip->setText(s.trimmed());
+        QStringList parts;
+        for (const auto& in : selInsts) {
+            QString s;
+            for (auto b : in.bytes) s += QString("%1 ").arg(b, 2, 16, QChar('0'));
+            parts << s.trimmed();
+        }
+        clip->setText(parts.join(' '));   // every selected instruction's bytes, in order
     } else if (picked == copyLine) {
-        QString bytes;
-        for (auto b : inst.bytes) bytes += QString("%1 ").arg(b, 2, 16, QChar('0'));
-        QString text = QString::fromStdString(inst.operands.empty()
-            ? inst.mnemonic : inst.mnemonic + " " + inst.operands);
-        clip->setText(QString("%1 - %2 - %3")
-            .arg(inst.address, 0, 16).arg(bytes.trimmed(), text));
+        QStringList lines;
+        for (const auto& in : selInsts) {
+            QString bytes;
+            for (auto b : in.bytes) bytes += QString("%1 ").arg(b, 2, 16, QChar('0'));
+            QString text = QString::fromStdString(in.operands.empty()
+                ? in.mnemonic : in.mnemonic + " " + in.operands);
+            lines << QString("%1 - %2 - %3").arg(in.address, 0, 16).arg(bytes.trimmed(), text);
+        }
+        clip->setText(lines.join('\n'));
     } else if (picked == followAct) {
         // Branch → immediate target; otherwise the RIP-relative data address.
         uintptr_t target = isBranch ? parseImmediate(inst.operands) : ripEffectiveAddress(inst);
@@ -892,7 +913,7 @@ void DisasmView::contextMenuEvent(QContextMenuEvent* e) {
             QString::fromStdString(inst.operands.empty() ? inst.mnemonic
                                                          : inst.mnemonic + " " + inst.operands));
     } else if (picked == nopAct) {
-        emit requestNop(inst.address, (int)inst.size);
+        for (const auto& in : selInsts) emit requestNop(in.address, (int)in.size);
     } else if (picked == codeInjAct) {
         emit requestInjection(inst.address, /*aob=*/false);
     } else if (picked == aobInjAct) {

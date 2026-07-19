@@ -8,6 +8,7 @@
 
 #include <QApplication>
 #include <QKeyEvent>
+#include <QClipboard>
 #include <cstdio>
 #include <cstdint>
 #include <unistd.h>
@@ -49,14 +50,20 @@ int main(int argc, char** argv) {
     sendKey(&dv, Qt::Key_Down, Qt::ShiftModifier);   // extend to row 2
     int rangeThree = dv.selectionCountForTest();
 
+    // Ctrl+C copies every selected line as a block (3 lines -> 2 newlines).
+    QApplication::clipboard()->clear();
+    sendKey(&dv, Qt::Key_C, Qt::ControlModifier);
+    QString clip = QApplication::clipboard()->text();
+    int copiedLines = clip.isEmpty() ? 0 : clip.count('\n') + 1;
+
     sendKey(&dv, Qt::Key_Up, Qt::ShiftModifier);     // shrink back to rows 0..1
     int rangeTwo = dv.selectionCountForTest();
 
     sendKey(&dv, Qt::Key_Down, Qt::NoModifier);      // plain move collapses the range
     int collapsed = dv.selectionCountForTest();
 
-    bool ok = single == 1 && rangeThree == 3 && rangeTwo == 2 && collapsed == 1;
-    printf("gui disasm smoke: %s (single=%d range3=%d range2=%d collapsed=%d)\n",
-           ok ? "OK" : "FAILED", single, rangeThree, rangeTwo, collapsed);
+    bool ok = single == 1 && rangeThree == 3 && rangeTwo == 2 && collapsed == 1 && copiedLines == 3;
+    printf("gui disasm smoke: %s (single=%d range3=%d range2=%d collapsed=%d copiedLines=%d)\n",
+           ok ? "OK" : "FAILED", single, rangeThree, rangeTwo, collapsed, copiedLines);
     return ok ? 0 : 1;
 }

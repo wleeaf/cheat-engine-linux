@@ -3529,7 +3529,9 @@ void MainWindow::startCodeFinder(int row, bool writesOnly) {
     if (row < 0 || row >= (int)entries.size()) return;
     const auto& entry = entries[row];
     if (entry.isGroup) return;
-    startCodeFinderForAddress(entry.address, writesOnly);
+    // Size the watchpoint to the record's type (Byte -> 1, Qword -> 8, ...); scalarWidth
+    // returns 0 for String/AoB, which falls back to the configured default.
+    startCodeFinderForAddress(entry.address, writesOnly, ce::scalarWidth(entry.type));
 }
 
 void MainWindow::stopCodeFindersForInjection() {
@@ -3624,7 +3626,7 @@ void MainWindow::showInstructionAccesses(uintptr_t instructionAddr) {
         .arg(results.size()).arg(instructionAddr, 0, 16), 5000);
 }
 
-void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
+void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly, int watchSize) {
     if (!process_) return;
 
     // A previous "find what writes/accesses" monitor still holds the target thread
@@ -3664,8 +3666,10 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
     auto debugger = createDebuggerForCurrentProcess();
     if (!debugger) return;
     auto finder = std::make_unique<CodeFinder>();
-    // Honour the configured hardware-watchpoint size (was ignored -> always 4).
-    int watchSize = QSettings().value("codefinder/watchSize", "4").toInt();
+    // Use the caller's type-derived watch size when valid (e.g. a Byte record watches 1
+    // byte); otherwise fall back to the configured default.
+    if (watchSize != 1 && watchSize != 2 && watchSize != 4 && watchSize != 8)
+        watchSize = QSettings().value("codefinder/watchSize", "4").toInt();
     if (watchSize != 1 && watchSize != 2 && watchSize != 4 && watchSize != 8) watchSize = 4;
     if (!finder->start(*process_, *debugger, addr, writesOnly, watchSize, software, singleThread)) {
         QMessageBox::warning(this, "Code finder unavailable",

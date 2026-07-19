@@ -44,6 +44,11 @@ transforms across surfaces.
   `s:split(sep)` (separator is a character set; empty segments are skipped) as methods on the
   string type, plus the global `printf(...)` (= `print(string.format(...))`). Improves
   out-of-the-box compatibility for imported `.CT` tables that call these.
+- **Find what writes: the watchpoint size matches the record's type.** Running find-what-writes
+  on a cheat-table entry now sizes the hardware watchpoint to that entry's value type (Byte -> 1
+  byte, 2 Bytes -> 2, Qword/Double -> 8) instead of always 4, so a write to an adjacent byte no
+  longer shows up as a false hit (and an 8-byte value's writes aren't missed). String / Array-of-
+  byte and the memory-viewer paths still use the configured default.
 - **Disassembler: "Find out what addresses this instruction accesses" (CE parity).** Right-click
   an instruction in the Memory Viewer's disassembler to monitor it and list the distinct data
   addresses its memory operand touches (with hit counts), the complement of find-what-accesses. The

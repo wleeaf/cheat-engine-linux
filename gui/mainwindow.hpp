@@ -116,7 +116,9 @@ private:
     void loadCheatTableModel(const ce::CheatTable& table);
     void updateScanButtons();
     void startCodeFinder(int row, bool writesOnly);
-    void startCodeFinderForAddress(uintptr_t addr, bool writesOnly);
+    // watchSize 1/2/4/8 sizes the hardware watchpoint (e.g. a Byte record watches 1
+    // byte, a Qword 8). 0 (or an invalid value) falls back to the configured default.
+    void startCodeFinderForAddress(uintptr_t addr, bool writesOnly, int watchSize = 0);
     void showInstructionAccesses(uintptr_t instructionAddr);   // CE "what addresses this instr accesses"
     // Stop active code finders so their ptrace attachment is released (a target
     // can have only one tracer; code injection needs to attach).

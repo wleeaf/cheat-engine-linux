@@ -62,6 +62,9 @@ transforms across surfaces.
   Planted breakpoint bytes are now un-masked to their originals before disassembling, so the
   paused code reads as its real, correctly-aligned instructions. Asserted in
   `gui_debugger_smoke`.
+- **Debugger disassembly keeps the caret on its instruction across re-renders**: toggling a
+  breakpoint, stepping, or an auto-refresh no longer jerks the caret to the top of the pane
+  (it is restored to the same address). Asserted in `gui_debugger_smoke`.
 - **Debugger shows decoded CPU flags**: a "Flags:" line under the register table spells out
   the status/control flags set in RFLAGS (CF PF AF ZF SF TF IF DF OF), instead of leaving
   you to decode the raw hex. Backed by a Qt-free `ce::describeEflags()` unit-tested in

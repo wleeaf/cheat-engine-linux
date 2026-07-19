@@ -684,6 +684,12 @@ bool DebuggerWindow::pokeRegisterForTest(int row, uint64_t value) {
 }
 
 void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
+    // Remember which instruction the caret was on, so re-rendering (a breakpoint toggle,
+    // a step, an auto-refresh) keeps it there instead of jerking it to the top.
+    uintptr_t caretAddr = 0;
+    if (int blk = disasmView_->textCursor().blockNumber();
+        blk >= 0 && blk < static_cast<int>(disasmLineAddrs_.size()))
+        caretAddr = disasmLineAddrs_[blk];
     disasmLineAddrs_.clear();
     if (proc_ && !symbolsLoaded_) { resolver_.loadProcess(*proc_); symbolsLoaded_ = true; }
     uint8_t buf[128];
@@ -731,6 +737,15 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
         out = "  <unable to read code at " + hex(c.rip) + ">";
     }
     disasmView_->setPlainText(out);
+
+    // Restore the caret to the same instruction it was on before the re-render.
+    if (caretAddr) {
+        for (size_t i = 0; i < disasmLineAddrs_.size(); ++i)
+            if (disasmLineAddrs_[i] == caretAddr) {
+                disasmView_->setTextCursor(QTextCursor(disasmView_->document()->findBlockByNumber(static_cast<int>(i))));
+                break;
+            }
+    }
 
     // Highlight the current (=>) line with a full-width background, CE-style, so the
     // stopped location stands out beyond the "=> " text marker.
@@ -815,15 +830,12 @@ void DebuggerWindow::toggleBreakpointAtCursor() {
 }
 
 bool DebuggerWindow::toggleBreakpointAtCursorForTest(int lineIndex) {
-    // Re-seat the caret each time: toggling a breakpoint re-renders the disassembly,
-    // which resets the text cursor to the top (as F5 does in normal use).
-    auto moveTo = [&] {
-        QTextCursor c = disasmView_->textCursor();
-        c.movePosition(QTextCursor::Start);
-        c.movePosition(QTextCursor::Down, QTextCursor::MoveAnchor, lineIndex);
-        disasmView_->setTextCursor(c);
-    };
-    moveTo();
+    // Seat the caret once; the caret is preserved across the toggle's re-render, so the
+    // second toggle acts on the same line without re-seating.
+    QTextCursor c = disasmView_->textCursor();
+    c.movePosition(QTextCursor::Start);
+    c.movePosition(QTextCursor::Down, QTextCursor::MoveAnchor, lineIndex);
+    disasmView_->setTextCursor(c);
     uintptr_t addr = currentCursorAddress();
     auto has = [&] { for (auto& b : bps_) if (b.addr == addr) return true; return false; };
     const bool startedWithBp = has();
@@ -831,10 +843,10 @@ bool DebuggerWindow::toggleBreakpointAtCursorForTest(int lineIndex) {
     const int delta = startedWithBp ? -1 : +1;
     toggleBreakpointAtCursor();                                 // flip
     const bool flipped = (has() != startedWithBp) && static_cast<int>(bps_.size()) == before + delta;
-    moveTo();                                                  // caret was reset by the re-render
+    const bool caretKept = currentCursorAddress() == addr;     // preserved across the re-render
     toggleBreakpointAtCursor();                                 // flip back
     const bool restored = (has() == startedWithBp) && static_cast<int>(bps_.size()) == before;
-    return flipped && restored;
+    return flipped && caretKept && restored;
 }
 
 void DebuggerWindow::nopInstructionAtCursor() {

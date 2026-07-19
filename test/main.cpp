@@ -884,6 +884,21 @@ static void test_cheat_table_json() {
                  collapseReload.entries[0].collapsed && !collapseReload.entries[1].collapsed;
     std::filesystem::remove(collapsePath);
 
+    // CE writes the dropdown options as <DropDownList> (PascalCase, like every other
+    // tag); a real CE file's options must import. The mis-cased <DropdownList> older
+    // builds of this port wrote is still accepted as a fallback.
+    CheatTable ddCE, ddOld;
+    ddCE.loadFromString(
+        "<CheatTable><CheatEntries><CheatEntry><ID>1</ID><Description>\"d\"</Description>"
+        "<VariableType>4 Bytes</VariableType><Address>400000</Address>"
+        "<DropDownList>0:Off\n1:On</DropDownList></CheatEntry></CheatEntries></CheatTable>");
+    ddOld.loadFromString(
+        "<CheatTable><CheatEntries><CheatEntry><ID>1</ID><Description>\"d\"</Description>"
+        "<VariableType>4 Bytes</VariableType><Address>400000</Address>"
+        "<DropdownList>0:Off\n1:On</DropdownList></CheatEntry></CheatEntries></CheatTable>");
+    bool dropdownOk = ddCE.entries.size() == 1 && ddCE.entries[0].dropdownList == "0:Off\n1:On" &&
+                      ddOld.entries.size() == 1 && ddOld.entries[0].dropdownList == "0:Off\n1:On";
+
     CheatTable protectedLoaded;
     bool protectedOk = protectedLoaded.loadProtected(protectedPath.string(), "secret") &&
         matchesTable(protectedLoaded);
@@ -897,6 +912,7 @@ static void test_cheat_table_json() {
     printf("  CT XML round trip: %s\n", xmlOk ? "OK" : "FAILED");
     printf("  ShowAsSigned default/override: %s\n", signedDefaultOk ? "OK" : "FAILED");
     printf("  group Collapsed round-trips: %s\n", collapseOk ? "OK" : "FAILED");
+    printf("  CE <DropDownList> import (+ old-cased fallback): %s\n", dropdownOk ? "OK" : "FAILED");
     printf("  CT XML CE type names: %s\n", xmlTypeNamesOk ? "OK" : "FAILED");
     printf("  CETRAINER protected round trip: %s\n", (protectedOk && wrongPasswordOk) ? "OK" : "FAILED");
 }

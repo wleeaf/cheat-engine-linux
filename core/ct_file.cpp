@@ -298,7 +298,7 @@ bool CheatTable::save(const std::string& path) const {
             f << "      <Color>" << e.color << "</Color>\n";
 
         if (!e.dropdownList.empty())
-            f << "      <DropdownList>" << xmlEscape(e.dropdownList) << "</DropdownList>\n";
+            f << "      <DropDownList>" << xmlEscape(e.dropdownList) << "</DropDownList>\n";
 
         if (!e.hotkeyKeys.empty())
             f << "      <Hotkeys>" << xmlEscape(e.hotkeyKeys) << "</Hotkeys>\n";
@@ -475,7 +475,11 @@ static void parseCheatEntriesBlock(const std::string& entriesXml, int parentId,
         e.autoAsmScript = xmlUnescape(getTag(ownXml, "AssemblerScript"));
         e.luaScript = xmlUnescape(getTag(ownXml, "LuaScript"));
         e.color = getTag(ownXml, "Color");
-        e.dropdownList = xmlUnescape(getTag(ownXml, "DropdownList"));
+        // CE writes the PascalCase <DropDownList> (like every other tag); accept the
+        // mis-cased <DropdownList> older builds of this port wrote as a fallback.
+        e.dropdownList = xmlUnescape(getTag(ownXml, "DropDownList"));
+        if (e.dropdownList.empty())
+            e.dropdownList = xmlUnescape(getTag(ownXml, "DropdownList"));
         e.hotkeyKeys = xmlUnescape(getTag(ownXml, "Hotkeys"));
         e.increaseHotkeyKeys = xmlUnescape(getTag(ownXml, "IncreaseHotkey"));
         e.setValueHotkeyKeys = xmlUnescape(getTag(ownXml, "SetValueHotkey"));

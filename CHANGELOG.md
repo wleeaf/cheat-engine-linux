@@ -58,6 +58,11 @@ transforms across surfaces.
 - **Disassembler: selection stays on its instruction while scrolling (CE parity).** The same
   anchoring now applies to the disassembler: scrolling the pane keeps the selected instruction
   highlighted (by address) rather than the same screen row, clearing it only when it leaves view.
+- **Fixed: `.CT` dropdown options were dropped on import from real CE files.** CE writes a
+  record's value list as `<DropDownList>` (PascalCase, like every other tag), but the parser
+  looked for `<DropdownList>` (case-sensitive), so a genuine CE table's dropdown options silently
+  vanished. Now reads (and writes) CE's `<DropDownList>`, with the old mis-cased tag accepted as a
+  fallback so tables saved by earlier builds of this port still load.
 - **Cheat table: drag-and-drop reordering (CE parity).** Drag an entry to move it in the list
   instead of only the context-menu Move Up/Down. Dragging a group header carries its whole
   subtree, dropping in the empty area moves the entry to the end, and **dropping onto a group

@@ -231,6 +231,10 @@ private:
     QCheckBox* percentCheck_;
     QCheckBox* hexCheck_ = nullptr;   // parse integer scan values as hex
     QCheckBox* caseSensitiveCheck_ = nullptr;  // string scans: case sensitivity
+    // CE "Memory Scan Options" region-type filters (MEM_PRIVATE/IMAGE/MAPPED).
+    QCheckBox* memPrivateCheck_ = nullptr;
+    QCheckBox* memImageCheck_ = nullptr;
+    QCheckBox* memMappedCheck_ = nullptr;
     QLineEdit* alignEdit_;
     QLineEdit* percentValueEdit_;
     QLineEdit* percentValue2Edit_;

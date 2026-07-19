@@ -18,6 +18,12 @@ reimplementation of Cheat Engine).
 Follow-ups since v0.7.0, mostly deepening the hard-target work and unifying the value
 transforms across surfaces.
 
+- **Region-type scan filters exposed (CE parity).** The scanner's "Memory Scan Options" group
+  gains **Private / Image / Mapped** checkboxes (CE's MEM_PRIVATE / MEM_IMAGE / MEM_MAPPED). All
+  on by default (scan everything); turn one off to skip that class of memory, e.g. Image-only to
+  search a module's static data, or Private-only to skip loaded code. The backend already
+  filtered by region type (`ScanConfig::scan{Private,Image,Mapped}`); this wires the toggles that
+  were missing, and they persist across restarts.
 - **Step from the Memory Viewer (CE parity).** The Memory Viewer's Debug menu and toolbar
   gain working **Run (F9)**, **Step into (F7)**, **Step over (F8)**, and **Run to cursor
   (F4)** controls that drive the paused target directly, matching CE where the memory view

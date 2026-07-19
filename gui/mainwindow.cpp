@@ -1437,6 +1437,40 @@ void MainWindow::setupUi() {
     caseSensitiveCheck_->setChecked(true);   // string scans default to case-sensitive
     optLayout->addWidget(caseSensitiveCheck_, 8, 0, 1, 2);
 
+    // Region-type filters (CE's "Memory Scan Options": MEM_PRIVATE / MEM_IMAGE /
+    // MEM_MAPPED). All on = scan everything (the default). Turning one off skips that
+    // class of memory: Private = anonymous heap/stack, Image = loaded ELF modules,
+    // Mapped = other file-backed maps. Backed by ScanConfig::scan{Private,Image,Mapped}.
+    {
+        QSettings s;
+        auto* memRow = new QWidget;
+        auto* memLayout = new QHBoxLayout(memRow);
+        memLayout->setContentsMargins(0, 0, 0, 0);
+        memPrivateCheck_ = new QCheckBox("Private");
+        memPrivateCheck_->setToolTip("Scan MEM_PRIVATE regions (anonymous heap, stack, private maps)");
+        memPrivateCheck_->setChecked(s.value("scan/memPrivate", true).toBool());
+        memImageCheck_ = new QCheckBox("Image");
+        memImageCheck_->setToolTip("Scan MEM_IMAGE regions (loaded executable modules)");
+        memImageCheck_->setChecked(s.value("scan/memImage", true).toBool());
+        memMappedCheck_ = new QCheckBox("Mapped");
+        memMappedCheck_->setToolTip("Scan MEM_MAPPED regions (other file-backed maps)");
+        memMappedCheck_->setChecked(s.value("scan/memMapped", true).toBool());
+        memLayout->addWidget(memPrivateCheck_);
+        memLayout->addWidget(memImageCheck_);
+        memLayout->addWidget(memMappedCheck_);
+        memLayout->addStretch();
+        optLayout->addWidget(memRow, 9, 0, 1, 2);
+        // Persist each toggle so the filter survives a restart (session preference).
+        auto persist = [](const char* key, QCheckBox* box) {
+            connect(box, &QCheckBox::toggled, box, [key](bool on) {
+                QSettings s; s.setValue(key, on);
+            });
+        };
+        persist("scan/memPrivate", memPrivateCheck_);
+        persist("scan/memImage", memImageCheck_);
+        persist("scan/memMapped", memMappedCheck_);
+    }
+
     optLayout->addWidget(new QLabel("Text encoding:"), 7, 0);
     stringEncodingCombo_ = new QComboBox;
     stringEncodingCombo_->addItems({"UTF-8", "ISO-8859-1", "CP1252"});
@@ -2610,6 +2644,10 @@ void MainWindow::onFirstScan() {
     };
     config.writableMatch   = toMatch(writableCheck_->checkState());
     config.executableMatch = toMatch(executableCheck_->checkState());
+    // CE Memory Scan Options: which region classes to scan (all on by default).
+    if (memPrivateCheck_) config.scanPrivate = memPrivateCheck_->isChecked();
+    if (memImageCheck_)   config.scanImage   = memImageCheck_->isChecked();
+    if (memMappedCheck_)  config.scanMapped  = memMappedCheck_->isChecked();
 
     auto text = scanValueEdit_->text();
     int intBase = (hexCheck_ && hexCheck_->isChecked()) ? 16 : 10;

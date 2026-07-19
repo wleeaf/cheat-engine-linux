@@ -8543,6 +8543,53 @@ static void test_protection_filter_scan() {
            ok ? "OK" : "FAILED", yes.first, yes.second, no.first, no.second, any.first, any.second);
 }
 
+// MEM_PRIVATE / MEM_IMAGE / MEM_MAPPED region-type filter (CE's "Memory Scan
+// Options"). The same sentinel sits in three regions of distinct type; turning a
+// filter off must drop exactly that region's hit and keep the other two. This drives
+// ScanConfig::scan{Private,Image,Mapped}, which the scan panel's Private/Image/Mapped
+// checkboxes set.
+static void test_memtype_filter_scan() {
+    printf("\n── Test: MEM type region filter ──\n");
+    const int32_t sentinel = 0x5EED1234;
+    std::vector<uint8_t> data(8, 0);
+    std::memcpy(data.data(), &sentinel, 4);
+    const uintptr_t imgBase = 0x400000, privBase = 0x800000, mapBase = 0xC00000;
+    FakeProcessHandle proc({
+        {{imgBase,  data.size(), MemProt::ReadWrite, MemType::Image,   MemState::Committed, "/tmp/game"},     data},
+        {{privBase, data.size(), MemProt::ReadWrite, MemType::Private, MemState::Committed, "[heap]"},        data},
+        {{mapBase,  data.size(), MemProt::ReadWrite, MemType::Mapped,  MemState::Committed, "/tmp/save.dat"}, data},
+    }, {});
+    MemoryScanner scanner;
+    auto scanWith = [&](bool priv, bool img, bool mapd, bool& hi, bool& hp, bool& hm) {
+        ScanConfig c;
+        c.valueType = ValueType::Int32;
+        c.compareType = ScanCompare::Exact;
+        c.intValue = sentinel;
+        c.alignment = 4;
+        c.startAddress = imgBase;
+        c.stopAddress = mapBase + data.size();
+        c.scanPrivate = priv; c.scanImage = img; c.scanMapped = mapd;
+        auto r = scanner.firstScan(proc, c);
+        hi = hp = hm = false;
+        for (size_t i = 0; i < r.count(); ++i) {
+            if (r.address(i) == imgBase)  hi = true;
+            if (r.address(i) == privBase) hp = true;
+            if (r.address(i) == mapBase)  hm = true;
+        }
+    };
+    bool ai, ap, am;         scanWith(true,  true,  true,  ai, ap, am);
+    bool xi_i, xi_p, xi_m;   scanWith(true,  false, true,  xi_i, xi_p, xi_m);  // no Image
+    bool xp_i, xp_p, xp_m;   scanWith(false, true,  true,  xp_i, xp_p, xp_m);  // no Private
+    bool xm_i, xm_p, xm_m;   scanWith(true,  true,  false, xm_i, xm_p, xm_m);  // no Mapped
+    bool ok =
+        ai && ap && am &&                       // all three found when all filters on
+        !xi_i && xi_p && xi_m &&                // Image off -> only Image dropped
+        xp_i && !xp_p && xp_m &&                // Private off -> only Private dropped
+        xm_i && xm_p && !xm_m;                  // Mapped off -> only Mapped dropped
+    printf("  Private/Image/Mapped filters select the right regions: %s (all=%d%d%d noImg=%d%d%d noPriv=%d%d%d noMap=%d%d%d)\n",
+           ok ? "OK" : "FAILED", ai, ap, am, xi_i, xi_p, xi_m, xp_i, xp_p, xp_m, xm_i, xm_p, xm_m);
+}
+
 // moduleOffsetString: map an absolute address to "basename+0xoffset" using a
 // module list. Deterministic, no process needed.
 static void test_module_offset_string() {
@@ -10496,6 +10543,7 @@ int main(int argc, char* argv[]) {
     test_lua_memscan();
     test_binary_scan_bitmask();
     test_protection_filter_scan();
+    test_memtype_filter_scan();
     test_module_offset_string();
     test_between_numeric_scan();
     test_nextscan_size_guard();

@@ -3108,6 +3108,9 @@ ce::CheatTable MainWindow::buildCheatTable() const {
         e.hotkeyStep = obj["hotkeyStep"].toString().toStdString();
         e.isGroup = obj["group"].toBool();
         e.collapsed = obj["collapsed"].toBool();
+        e.activateChildren = obj["activateChildren"].toBool(true);
+        e.deactivateChildren = obj["deactivateChildren"].toBool(true);
+        e.optionsXml = obj["optionsXml"].toString().toStdString();
         e.parentId = obj["parent"].toInt(-1);
         table.entries.push_back(e);
     }
@@ -3333,6 +3336,9 @@ static QJsonArray cheatEntriesToJson(const ce::CheatTable& table) {
         obj["hotkeyStep"] = QString::fromStdString(e.hotkeyStep);
         obj["group"] = e.isGroup;
         obj["collapsed"] = e.collapsed;
+        obj["activateChildren"] = e.activateChildren;
+        obj["deactivateChildren"] = e.deactivateChildren;
+        obj["optionsXml"] = QString::fromStdString(e.optionsXml);
         obj["parent"] = e.parentId;
         arr.append(obj);
     }
@@ -4561,6 +4567,9 @@ QJsonArray AddressListModel::toJson() const {
         obj["indent"] = e.indent;
         obj["group"] = e.isGroup;
         obj["collapsed"] = e.collapsed;
+        obj["activateChildren"] = e.activateChildren;
+        obj["deactivateChildren"] = e.deactivateChildren;
+        if (!e.optionsXml.isEmpty()) obj["optionsXml"] = e.optionsXml;
         obj["showAsHex"] = e.showAsHex;
         obj["showAsSigned"] = e.showAsSigned;
         obj["freezeMode"] = (int)e.freezeMode;
@@ -4612,6 +4621,9 @@ void AddressListModel::fromJson(const QJsonArray& arr) {
                 : 0));
         e.isGroup = obj["group"].toBool();
         e.collapsed = obj["collapsed"].toBool();
+        e.activateChildren = obj["activateChildren"].toBool(true);
+        e.deactivateChildren = obj["deactivateChildren"].toBool(true);
+        e.optionsXml = obj["optionsXml"].toString();
         e.showAsHex = obj["showAsHex"].toBool();
         e.showAsSigned = obj["showAsSigned"].toBool(true);
         if (obj.contains("freezeMode"))
@@ -5160,8 +5172,10 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
             return false;
         emit dataChanged(index, index);
 
-        // Cascade to children if this is a group
-        if (e.isGroup) {
+        // Cascade to children if this is a group and CE's matching option is set:
+        // moActivateChildrenAsWell for turning on, moDeactivateChildrenAsWell for off.
+        bool cascade = requestedActive ? e.activateChildren : e.deactivateChildren;
+        if (e.isGroup && cascade) {
             int parentIndent = e.indent;
             int lastChangedRow = index.row();
             for (int i = index.row() + 1; i < (int)entries_.size(); ++i) {

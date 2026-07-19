@@ -899,6 +899,27 @@ static void test_cheat_table_json() {
     bool dropdownOk = ddCE.entries.size() == 1 && ddCE.entries[0].dropdownList == "0:Off\n1:On" &&
                       ddOld.entries.size() == 1 && ddOld.entries[0].dropdownList == "0:Off\n1:On";
 
+    // CE group <Options>: parse the two cascade flags, and preserve the whole element
+    // verbatim so unmodeled flags (moRecursiveSetValue, ...) survive a load + save.
+    CheatTable optLoad;
+    optLoad.loadFromString(
+        "<CheatTable><CheatEntries><CheatEntry><ID>1</ID><Description>\"g\"</Description>"
+        "<GroupHeader>1</GroupHeader>"
+        "<Options moHideChildren=\"0\" moActivateChildrenAsWell=\"0\" "
+        "moDeactivateChildrenAsWell=\"1\" moRecursiveSetValue=\"1\"/>"
+        "</CheatEntry></CheatEntries></CheatTable>");
+    bool optOk = optLoad.entries.size() == 1 &&
+                 !optLoad.entries[0].activateChildren && optLoad.entries[0].deactivateChildren &&
+                 optLoad.entries[0].optionsXml.find("moRecursiveSetValue=\"1\"") != std::string::npos;
+    auto optPath = std::filesystem::temp_directory_path() /
+        ("cecore-options-" + std::to_string(getpid()) + ".CT");
+    CheatTable optReload;
+    optOk = optOk && optLoad.save(optPath.string()) && optReload.load(optPath.string()) &&
+            optReload.entries.size() == 1 &&
+            !optReload.entries[0].activateChildren && optReload.entries[0].deactivateChildren &&
+            optReload.entries[0].optionsXml.find("moRecursiveSetValue=\"1\"") != std::string::npos;
+    std::filesystem::remove(optPath);
+
     CheatTable protectedLoaded;
     bool protectedOk = protectedLoaded.loadProtected(protectedPath.string(), "secret") &&
         matchesTable(protectedLoaded);
@@ -913,6 +934,7 @@ static void test_cheat_table_json() {
     printf("  ShowAsSigned default/override: %s\n", signedDefaultOk ? "OK" : "FAILED");
     printf("  group Collapsed round-trips: %s\n", collapseOk ? "OK" : "FAILED");
     printf("  CE <DropDownList> import (+ old-cased fallback): %s\n", dropdownOk ? "OK" : "FAILED");
+    printf("  CE group <Options> flags parse + verbatim round-trip: %s\n", optOk ? "OK" : "FAILED");
     printf("  CT XML CE type names: %s\n", xmlTypeNamesOk ? "OK" : "FAILED");
     printf("  CETRAINER protected round trip: %s\n", (protectedOk && wrongPasswordOk) ? "OK" : "FAILED");
 }

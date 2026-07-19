@@ -34,6 +34,14 @@ struct CheatEntry {
     std::string setValueHotkeyKeys;    // hotkey that sets the value to setValueHotkeyValue
     std::string setValueHotkeyValue;   // target value for the set-value hotkey
     std::string hotkeyStep;
+    // CE group <Options>: whether toggling a group header cascades to its children.
+    // Default on (our long-standing behavior and a sensible default when a table has
+    // no <Options>); an imported CE table's explicit flags override these.
+    bool activateChildren = true;      // moActivateChildrenAsWell
+    bool deactivateChildren = true;    // moDeactivateChildrenAsWell
+    // The record's raw "<Options .../>" element, preserved verbatim so CE flags we do
+    // not model (moHideChildren, moRecursiveSetValue, ...) survive a load+save.
+    std::string optionsXml;
 };
 
 struct StructureField {

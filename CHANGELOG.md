@@ -58,6 +58,12 @@ transforms across surfaces.
 - **Disassembler: selection stays on its instruction while scrolling (CE parity).** The same
   anchoring now applies to the disassembler: scrolling the pane keeps the selected instruction
   highlighted (by address) rather than the same screen row, clearing it only when it leaves view.
+- **Group `<Options>` from CE tables are honored and preserved (CE parity).** A cheat table's
+  group-behavior flags now import: `moActivateChildrenAsWell` / `moDeactivateChildrenAsWell`
+  gate whether toggling a group header cascades to its children (previously always cascaded), and
+  the whole `<Options>` element is preserved verbatim on save so flags we don't model
+  (`moRecursiveSetValue`, `moHideChildren`, ...) survive a load+edit+save round-trip. New groups
+  keep the cascade-on default.
 - **Fixed: `.CT` dropdown options were dropped on import from real CE files.** CE writes a
   record's value list as `<DropDownList>` (PascalCase, like every other tag), but the parser
   looked for `<DropdownList>` (case-sensitive), so a genuine CE table's dropdown options silently

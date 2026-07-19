@@ -320,6 +320,9 @@ struct AddressEntry {
     int indent = 0;           // Nesting level (0 = root, 1 = child, etc.)
     bool isGroup = false;     // Group header (no address, just a label)
     bool collapsed = false;   // Group header whose children are hidden (CE tree collapse)
+    bool activateChildren = true;    // CE moActivateChildrenAsWell: toggling on cascades
+    bool deactivateChildren = true;  // CE moDeactivateChildrenAsWell: toggling off cascades
+    QString optionsXml;       // raw CE <Options .../> element, preserved verbatim on save
     bool showAsHex = false;   // Display/edit the value in hexadecimal
     bool showAsSigned = true; // CE ShowAsSigned: integer values display signed vs unsigned
     QString addressExpr;      // If set, re-evaluated each refresh (pointer records)

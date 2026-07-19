@@ -297,6 +297,15 @@ bool CheatTable::save(const std::string& path) const {
         if (!e.color.empty())
             f << "      <Color>" << e.color << "</Color>\n";
 
+        // Preserve an imported CE record's <Options> element verbatim so flags we do
+        // not model survive a load+save; otherwise synthesize one for a group whose
+        // cascade defaults were changed away from "on".
+        if (!e.optionsXml.empty())
+            f << "      " << e.optionsXml << "\n";
+        else if (e.isGroup && (!e.activateChildren || !e.deactivateChildren))
+            f << "      <Options moActivateChildrenAsWell=\"" << (e.activateChildren ? 1 : 0)
+              << "\" moDeactivateChildrenAsWell=\"" << (e.deactivateChildren ? 1 : 0) << "\"/>\n";
+
         if (!e.dropdownList.empty())
             f << "      <DropDownList>" << xmlEscape(e.dropdownList) << "</DropDownList>\n";
 
@@ -480,6 +489,17 @@ static void parseCheatEntriesBlock(const std::string& entriesXml, int parentId,
         e.dropdownList = xmlUnescape(getTag(ownXml, "DropDownList"));
         if (e.dropdownList.empty())
             e.dropdownList = xmlUnescape(getTag(ownXml, "DropdownList"));
+        // CE group <Options .../> is a self-closing element with attributes; preserve it
+        // verbatim and read the two cascade flags. Absent element -> keep our defaults
+        // (cascade on); present element -> an absent attribute reads as off (CE convention).
+        if (auto op = ownXml.find("<Options"); op != std::string::npos) {
+            auto oe = ownXml.find('>', op);
+            if (oe != std::string::npos) {
+                e.optionsXml = ownXml.substr(op, oe - op + 1);
+                e.activateChildren   = e.optionsXml.find("moActivateChildrenAsWell=\"1\"")   != std::string::npos;
+                e.deactivateChildren = e.optionsXml.find("moDeactivateChildrenAsWell=\"1\"") != std::string::npos;
+            }
+        }
         e.hotkeyKeys = xmlUnescape(getTag(ownXml, "Hotkeys"));
         e.increaseHotkeyKeys = xmlUnescape(getTag(ownXml, "IncreaseHotkey"));
         e.setValueHotkeyKeys = xmlUnescape(getTag(ownXml, "SetValueHotkey"));

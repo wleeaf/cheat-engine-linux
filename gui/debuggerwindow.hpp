@@ -10,6 +10,7 @@
 #include "symbols/elf_symbols.hpp"
 #include <QMainWindow>
 #include <memory>
+#include <map>
 #include <vector>
 #include <array>
 #include <atomic>
@@ -42,6 +43,9 @@ public:
     uintptr_t currentStopRip() const { return lastStopRip_; }
     uint64_t currentStopRflags() const { return lastStopRflags_; }
     const ce::CpuContext& currentStopContext() const { return lastStopContext_; }
+    /// Numeric address -> user comment, so the paused disassembly shows the same inline
+    /// comments the Memory Viewer does. Set/refreshed by MainWindow from the annotations.
+    void setComments(std::map<uintptr_t, std::string> comments) { comments_ = std::move(comments); }
     // Type `value` into register row `row`'s cell exactly as the UI would (routes
     // through onRegisterEdited -> setStopContext) and report whether the stopped
     // thread's register now holds it. Row order matches the table:
@@ -170,6 +174,7 @@ private:
     uintptr_t lastStopRip_ = 0;
     uint64_t lastStopRflags_ = 0;
     ce::CpuContext lastStopContext_{};   // full registers at the stop (for operand EA hints)
+    std::map<uintptr_t, std::string> comments_;   // address -> user comment (from MainWindow)
 
     // Latest event, published by the tracer-thread callback and read on the UI
     // thread after a queued invocation.

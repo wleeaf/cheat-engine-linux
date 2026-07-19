@@ -131,6 +131,7 @@ private:
     void trackStructDissector(StructureDissector* sd);
     void openMonoDissector();   // Mono/.Net class browser (Tools and the .Net menu)
     void reapplyGroupCollapse();  // hide rows under collapsed group headers (CE tree)
+    void rebuildDebuggerComments();  // push resolved address->comment map to the debugger
     /// Resolve a scan-range field: hex, symbol, or module+offset expression.
     std::optional<uintptr_t> parseAddressExpr(const QString& text);
     void rebuildValueHotkeys();

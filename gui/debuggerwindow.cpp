@@ -827,6 +827,10 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
                 if (auto jt = ce::conditionalJumpTaken(in.mnemonic, c.rflags))
                     anno += *jt ? QStringLiteral("   (will jump)") : QStringLiteral("   (no jump)");
             }
+            // User comment (set in the Memory Viewer): show it inline too, so annotated
+            // code reads the same while debugging.
+            if (auto ci = comments_.find(in.address); ci != comments_.end())
+                anno += QStringLiteral("   // %1").arg(QString::fromStdString(ci->second));
             out += QStringLiteral("%1%2%3  %4 %5%6\n")
                        .arg(marker, bpMark, hex(in.address),
                             QString::fromStdString(in.mnemonic),

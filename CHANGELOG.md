@@ -58,6 +58,11 @@ transforms across surfaces.
   button now carries CE's **F4** shortcut, and right-clicking a disassembly line offers "Run to
   cursor" (enabled only while paused), so you can run to a clicked instruction without setting a
   temporary breakpoint.
+- **Debugger disassembly shows your inline comments** (CE parity): comments set in the Memory
+  Viewer ("Set comment...") now also appear on the matching lines in the Debugger window's
+  disassembly, so annotated code reads the same while debugging (labels already did, via the
+  symbol resolver). MainWindow resolves the annotations' symbolic addresses to numbers and pushes
+  the map to the debugger when it opens and whenever a comment changes.
 - **Debugger register panel now shows R8-R15** (CE parity): the panel listed RIP/RSP/RBP/RAX-RDI/
   RFLAGS + XMM but omitted the extended general-purpose registers R8-R15, which modern x86-64 code
   uses heavily. They are now shown (between RFLAGS and XMM0) and editable like the other GP

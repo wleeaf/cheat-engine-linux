@@ -2947,7 +2947,10 @@ void MainWindow::wireBrowserAnnotations(MemoryBrowser* browser) {
     // Seed the browser with the stored comments and have it push changes back to
     // the MainWindow-owned store (which is serialized with the cheat table).
     browser->setAnnotationStore(disasmAnnotations_,
-        [this](std::vector<ce::DisassemblerComment> v) { disasmAnnotations_ = std::move(v); });
+        [this](std::vector<ce::DisassemblerComment> v) {
+            disasmAnnotations_ = std::move(v);
+            rebuildDebuggerComments();   // keep an open debugger's inline comments in sync
+        });
     // The browser's step buttons open the full Debugger (which owns the debug
     // session and does real single-stepping).
     browser->setDebuggerLauncher([this](uintptr_t /*addr*/) { showDebugger(); });
@@ -3584,6 +3587,7 @@ void MainWindow::showDebugger() {
     connect(w, &ce::gui::DebuggerWindow::resumed, this, [this]() {
         for (auto& mv : memoryViewers_) if (mv) mv->clearCurrentInstruction();
     });
+    rebuildDebuggerComments();   // show the same inline comments as the Memory Viewer
     w->show();
 }
 
@@ -3630,6 +3634,19 @@ void MainWindow::reapplyGroupCollapse() {
     const auto hidden = ce::hiddenByCollapse(indents, collapsed);
     for (int r = 0; r < (int)hidden.size(); ++r)
         addressListView_->setRowHidden(r, hidden[r]);
+}
+
+void MainWindow::rebuildDebuggerComments() {
+    if (!debuggerWindow_ || !process_) return;
+    // Resolve each annotation's symbolic address ("libgame.so+0x1234") to a number so the
+    // debugger can show the same inline comments the Memory Viewer does.
+    std::map<uintptr_t, std::string> m;
+    ce::ExpressionParser parser(process_.get(), &luaResolver_);
+    for (const auto& c : disasmAnnotations_) {
+        if (c.comment.empty()) continue;
+        if (auto a = parser.parse(c.address); a && *a) m[*a] = c.comment;
+    }
+    debuggerWindow_->setComments(std::move(m));
 }
 
 QWidget* MainWindow::openPanelByName(const QString& name) {

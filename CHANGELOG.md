@@ -82,7 +82,8 @@ transforms across surfaces.
 - **Paste bytes into the hex pane**: the right-click menu gains "Paste N bytes here" when
   the clipboard holds an array of bytes ("90 90 c3", "9090c3", or "?? c3" with wildcards),
   patching memory at the cursor so you can copy an AOB and paste it as a patch. Wildcards
-  leave the existing byte untouched. Asserted in `gui_hexview_smoke`.
+  leave the existing byte untouched. **Ctrl+V** pastes and **Ctrl+C** copies the selected
+  bytes as an AOB, from the keyboard. Asserted in `gui_hexview_smoke`.
 - **yuzu/Citra guest RAM** is now recognized: the Switch/3DS emulator family (and its
   suyu / sudachi / citron / Lime3DS / Azahar forks) backs guest memory with a
   `memfd_create("HostMemory")` fastmem mapping, so `findGuestRam` picks it up as a named

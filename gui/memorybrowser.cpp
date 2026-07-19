@@ -622,6 +622,19 @@ int HexView::pasteBytes(const QString& aob) {
 void HexView::keyPressEvent(QKeyEvent* e) {
     int rows = visibleRows();
     QString t = e->text();
+    // Clipboard shortcuts take priority over the hex/ascii typing path. Ctrl+V pastes
+    // an AOB into memory at the cursor; Ctrl+C copies the selected bytes as an AOB.
+    if (e->matches(QKeySequence::Paste)) {
+        pasteBytes(QApplication::clipboard()->text());
+        return;
+    }
+    if (int lo, hi; e->matches(QKeySequence::Copy) && selRange(lo, hi)) {
+        QString aob;
+        for (int i = lo; i <= hi && i < (int)cache_.size(); ++i)
+            aob += QString("%1 ").arg(cache_[i], 2, 16, QChar('0'));
+        QApplication::clipboard()->setText(aob.trimmed());
+        return;
+    }
     // ASCII-column editing: typing a printable character overwrites the byte.
     if (editAscii_ && selectedOffset_ >= 0 && selectedOffset_ < (int)cache_.size() &&
         t.size() == 1) {

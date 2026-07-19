@@ -66,6 +66,9 @@ public:
     /// wildcards leave that byte untouched. Returns the number of bytes written.
     int pasteBytes(const QString& aob);
 
+    /// Test helper: set the byte selection to offsets [lo, hi] within the visible window.
+    void setSelectionForTest(int lo, int hi) { selAnchor_ = lo; selectedOffset_ = hi; }
+
 signals:
     void requestFindWhatAccesses(uintptr_t addr, bool writesOnly);
     void requestGoto(uintptr_t addr);

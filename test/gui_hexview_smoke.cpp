@@ -7,12 +7,19 @@
 #include "platform/linux/linux_process.hpp"
 
 #include <QApplication>
+#include <QKeyEvent>
+#include <QClipboard>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
 #include <unistd.h>
 
 alignas(16) static uint8_t g_buf[512];
+
+static void sendKey(QObject* w, int key, Qt::KeyboardModifiers mods) {
+    QKeyEvent e(QEvent::KeyPress, key, mods);
+    QApplication::sendEvent(w, &e);
+}
 
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -46,8 +53,24 @@ int main(int argc, char** argv) {
     int wrote = hv.pasteBytes("aa ?? cc");
     bool pasteOk = (wrote == 2 && g_buf[0] == 0xaa && g_buf[1] == 0x22 && g_buf[2] == 0xcc);
 
-    bool ok = baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk;
-    printf("gui hexview smoke: %s (baseline=%d afterOneFlip=%d afterNav=%d pasteWrote=%d pasteOk=%d)\n",
-           ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk);
+    // Keyboard Ctrl+V pastes the clipboard AOB into memory at the cursor.
+    hv.setSelectionForTest(0, 0);
+    std::memset(g_buf, 0, 8);
+    QApplication::clipboard()->setText("de ad be ef");
+    sendKey(&hv, Qt::Key_V, Qt::ControlModifier);
+    bool ctrlV = (g_buf[0] == 0xde && g_buf[1] == 0xad && g_buf[2] == 0xbe && g_buf[3] == 0xef);
+
+    // Keyboard Ctrl+C copies the selected bytes back out as an AOB.
+    g_buf[0] = 0x01; g_buf[1] = 0x02; g_buf[2] = 0x03;
+    hv.refresh();                         // cache_ picks up the new bytes
+    hv.setSelectionForTest(0, 2);
+    QApplication::clipboard()->clear();
+    sendKey(&hv, Qt::Key_C, Qt::ControlModifier);
+    bool ctrlC = QApplication::clipboard()->text().contains("01 02 03");
+
+    bool ok = baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC;
+    printf("gui hexview smoke: %s (baseline=%d afterOneFlip=%d afterNav=%d pasteWrote=%d pasteOk=%d "
+           "ctrlV=%d ctrlC=%d)\n",
+           ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk, ctrlV, ctrlC);
     return ok ? 0 : 1;
 }

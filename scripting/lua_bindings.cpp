@@ -468,6 +468,61 @@ static int l_extractFileExt(lua_State* L) {
         lua_pushstring(L, s.substr(dot).c_str());
     return 1;
 }
+static int l_extractFileNameWithoutExt(lua_State* L) {
+    std::string s = luaL_checkstring(L, 1);
+    auto slash = s.find_last_of("/\\");
+    std::string name = (slash == std::string::npos) ? s : s.substr(slash + 1);
+    auto dot = name.find_last_of('.');
+    if (dot != std::string::npos && dot != 0)   // keep a leading-dot dotfile ("~/.bashrc") intact
+        name = name.substr(0, dot);
+    lua_pushstring(L, name.c_str());
+    return 1;
+}
+
+// Case-sensitive glob: '*' matches any run (incl. empty), '?' matches one char.
+static bool luaGlobMatch(const char* pat, const char* str) {
+    const char* star = nullptr;
+    const char* ss = nullptr;
+    while (*str) {
+        if (*pat == '?' || *pat == *str) { ++pat; ++str; }
+        else if (*pat == '*') { star = pat++; ss = str; }
+        else if (star) { pat = star + 1; str = ++ss; }
+        else return false;
+    }
+    while (*pat == '*') ++pat;
+    return *pat == '\0';
+}
+
+// getFileList(path[, mask[, recursive]]) -> 1-indexed table of file basenames in `path`
+// matching the glob `mask` (default "*"). Read-only directory enumeration; an unreadable
+// or missing path yields an empty table.
+static int l_getFileList(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    const char* mask = luaL_optstring(L, 2, "*");
+    bool recursive = lua_toboolean(L, 3);
+    lua_newtable(L);
+    int idx = 1;
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    auto emit = [&](const fs::directory_entry& e) {
+        if (!e.is_regular_file(ec)) return;
+        std::string name = e.path().filename().string();
+        if (luaGlobMatch(mask, name.c_str())) {
+            lua_pushstring(L, name.c_str());
+            lua_rawseti(L, -2, idx++);
+        }
+    };
+    if (recursive) {
+        for (fs::recursive_directory_iterator it(path, fs::directory_options::skip_permission_denied, ec), end;
+             !ec && it != end; it.increment(ec))
+            emit(*it);
+    } else {
+        for (fs::directory_iterator it(path, fs::directory_options::skip_permission_denied, ec), end;
+             !ec && it != end; it.increment(ec))
+            emit(*it);
+    }
+    return 1;
+}
 static int l_getCEVersion(lua_State* L) {
     // cecore reports a CE-compatible version float so scripts that gate on it run.
     lua_pushnumber(L, 7.5);
@@ -4967,6 +5022,8 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "extractFileName", l_extractFileName);
     lua_register(L, "extractFilePath", l_extractFilePath);
     lua_register(L, "extractFileExt", l_extractFileExt);
+    lua_register(L, "extractFileNameWithoutExt", l_extractFileNameWithoutExt);
+    lua_register(L, "getFileList", l_getFileList);
     lua_register(L, "getCEVersion", l_getCEVersion);
 
     // Memory write

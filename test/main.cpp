@@ -4728,6 +4728,34 @@ static void test_lua_disassembleBytes() {
     printf("  disassembleBytes: %s%s\n", ok ? "OK" : "FAILED ", ok ? "" : err.c_str());
 }
 
+// extractFileNameWithoutExt (pure string) + getFileList (read-only directory listing
+// with an optional glob mask). CE file utilities used by table/script loaders.
+static void test_lua_fileUtils() {
+    printf("\n── Test: Lua file utilities ──\n");
+    auto dir = std::filesystem::temp_directory_path() / ("ce_filelist_" + std::to_string(getpid()));
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    for (const char* n : {"alpha.CT", "beta.CT", "notes.txt"})
+        std::ofstream(dir / n) << "x";
+    LuaEngine eng;   // no process needed
+    const std::string d = dir.string();
+    std::string err = eng.execute(
+        "assert(extractFileNameWithoutExt('/a/b/game.CT') == 'game', 'strip dir + ext')\n"
+        "assert(extractFileNameWithoutExt('save.tar.gz') == 'save.tar', 'strip only the last ext')\n"
+        "assert(extractFileNameWithoutExt('noext') == 'noext', 'no extension is unchanged')\n"
+        "assert(extractFileNameWithoutExt('.bashrc') == '.bashrc', 'a leading-dot dotfile is kept')\n"
+        "local all = getFileList('" + d + "')\n"
+        "assert(#all == 3, 'lists all 3 files, got '..#all)\n"
+        "local cts = getFileList('" + d + "', '*.CT')\n"
+        "assert(#cts == 2, 'mask *.CT matches 2, got '..#cts)\n"
+        "table.sort(cts)\n"
+        "assert(cts[1] == 'alpha.CT' and cts[2] == 'beta.CT', 'returns basenames')\n"
+        "assert(#getFileList('/no/such/dir/xyz_ce') == 0, 'a missing dir yields an empty table')\n");
+    std::filesystem::remove_all(dir);
+    bool ok = err.empty();
+    printf("  file utilities: %s%s\n", ok ? "OK" : "FAILED ", ok ? "" : err.c_str());
+}
+
 // enumModules(): table of {Name, Address, Size} per module (CE field names), agreeing
 // with getModuleAddress. Uses this process's own /proc/self/maps modules.
 static void test_lua_enumModules() {
@@ -10941,6 +10969,7 @@ int main(int argc, char* argv[]) {
     test_lua_getUniqueAOB();
     test_lua_aobScanUnique();
     test_lua_disassembleBytes();
+    test_lua_fileUtils();
     test_lua_enumModules();
     test_lua_memory_region_info();
     test_lua_md5memory();

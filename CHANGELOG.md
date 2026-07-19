@@ -13,6 +13,32 @@ reimplementation of Cheat Engine).
 
 ---
 
+## Unreleased
+
+Follow-ups since v0.7.0, mostly deepening the hard-target work and unifying the value
+transforms across surfaces.
+
+- **Big-endian everywhere.** `cescan read` / `write` / `freeze` gain `--be`, so a
+  big-endian value at any host address (a console value found via guest-scan and
+  addressed by host address, a network/file buffer) reads, edits, and freezes by its
+  logical value. All value paths -- these, the GUI cheat table, and guest-scan -- now
+  route through one Qt-free, unit-tested transform (`core/value_transform.hpp`), so
+  endianness and obfuscation codecs compose the same way everywhere.
+- **Emulator cheat-table entries are endianness-aware** (GUI): right-click -> "Big-endian
+  value" (guest-scan sets it automatically), so a big-endian guest value reads and edits
+  correctly in the list.
+- **`cescan il2cpp --pid <pid>`** resolves a running Unity game's class layouts (field
+  offsets + method RVAs) directly, auto-locating the metadata and GameAssembly from the
+  process (through the sandbox root for Proton/Flatpak).
+- **`cescan tree <pid>`** lists a process and its descendants (largest RSS first, with a
+  sandbox badge) to find the right renderer/helper of a browser or Electron game.
+- **IL2CPP generics** now spell concrete arguments as `List<PlayerData>`, not
+  `List` + backtick-arity + `<PlayerData>` (validated across all fields of a real game).
+- **Guest-scan dialog** gained an end-to-end offscreen regression test (exact + unknown
+  + comparison narrowing), now in the CI mirror.
+
+---
+
 ## v0.7.0 — emulators, sandboxes, obfuscated values, scriptable find-what-writes (2026-07-19)
 
 A large release that turns hard targets from silent failures into first-class,

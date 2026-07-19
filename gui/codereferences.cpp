@@ -139,7 +139,7 @@ void CodeReferencesWindow::analyzeSelectedModule() {
     if (!proc_ || modules_.empty()) return;
 
     auto module = selectedModule();
-    CodeAnalyzer analyzer;
+    CodeAnalyzer analyzer(analyzerArchFor(*proc_));
 
     // Each pass scans the whole module and can take a while on a big image (libc),
     // so drive a cancelable progress dialog and update it between passes. This

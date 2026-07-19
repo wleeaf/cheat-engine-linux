@@ -3255,7 +3255,7 @@ static int l_findStatics(lua_State* L) {
     } else {
         mod = &mods.front();   // main executable is enumerated first
     }
-    ce::CodeAnalyzer analyzer;
+    ce::CodeAnalyzer analyzer(ce::analyzerArchFor(*p));
     auto statics = analyzer.findStatics(*p, *mod);
     lua_newtable(L);
     for (size_t i = 0; i < statics.size(); ++i) {
@@ -3298,7 +3298,7 @@ static int l_findReferences(lua_State* L) {
         else if (target >= m.base && target < m.base + m.size) { mod = &m; break; }
     }
 
-    ce::CodeAnalyzer an;
+    ce::CodeAnalyzer an(ce::analyzerArchFor(*p));
     std::vector<ce::CodeRef> refs;
     if (mod) {
         refs = an.findReferencesTo(*p, *mod, target);
@@ -3415,7 +3415,7 @@ static int l_enumerateFunctions(lua_State* L) {
     std::string modName = (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) ? luaL_checkstring(L, 1) : "";
     ce::ModuleInfo mod;
     if (!pickModule(*p, modName, mod)) { lua_pushnil(L); lua_pushstring(L, "module not found"); return 2; }
-    ce::CodeAnalyzer an;
+    ce::CodeAnalyzer an(ce::analyzerArchFor(*p));
     auto fns = an.enumerateFunctions(*p, mod);
     lua_newtable(L);
     int i = 1;
@@ -3436,7 +3436,7 @@ static int l_buildCallGraph(lua_State* L) {
     std::string modName = (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) ? luaL_checkstring(L, 1) : "";
     ce::ModuleInfo mod;
     if (!pickModule(*p, modName, mod)) { lua_pushnil(L); lua_pushstring(L, "module not found"); return 2; }
-    ce::CodeAnalyzer an;
+    ce::CodeAnalyzer an(ce::analyzerArchFor(*p));
     auto edges = an.buildCallGraph(*p, mod);
     lua_newtable(L);
     int i = 1;
@@ -3461,7 +3461,7 @@ static int l_findReferencedStrings(lua_State* L) {
     std::string modName = (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) ? luaL_checkstring(L, 1) : "";
     ce::ModuleInfo mod;
     if (!pickModule(*p, modName, mod)) { lua_pushnil(L); lua_pushstring(L, "module not found"); return 2; }
-    ce::CodeAnalyzer an;
+    ce::CodeAnalyzer an(ce::analyzerArchFor(*p));
     auto refs = an.findReferencedStrings(*p, mod);
     lua_newtable(L);
     int i = 1;
@@ -3486,7 +3486,7 @@ static int l_findCodeCaves(lua_State* L) {
     size_t minSize = (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) ? (size_t)luaL_checkinteger(L, 2) : 16;
     ce::ModuleInfo mod;
     if (!pickModule(*p, modName, mod)) { lua_pushnil(L); lua_pushstring(L, "module not found"); return 2; }
-    ce::CodeAnalyzer an;
+    ce::CodeAnalyzer an(ce::analyzerArchFor(*p));
     auto caves = an.findCodeCaves(*p, mod, minSize);
     lua_newtable(L);
     int i = 1;
@@ -3510,7 +3510,7 @@ static int l_findAssemblyPattern(lua_State* L) {
     std::string modName = (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) ? luaL_checkstring(L, 2) : "";
     ce::ModuleInfo mod;
     if (!pickModule(*p, modName, mod)) { lua_pushnil(L); lua_pushstring(L, "module not found"); return 2; }
-    ce::CodeAnalyzer an;
+    ce::CodeAnalyzer an(ce::analyzerArchFor(*p));
     auto hits = an.findAssemblyPattern(*p, mod, assembly);
     lua_newtable(L);
     int i = 1;

@@ -46,6 +46,12 @@ struct CallGraphEdge {
 
 class CodeAnalyzer {
 public:
+    // Default is x86-64; pass Arch::X86_32 for a 32-bit target so the disassembly and
+    // assembly are decoded/encoded correctly (see analyzerArchFor()).
+    explicit CodeAnalyzer(Arch arch = Arch::X86_64)
+        : disasm_(arch),
+          assembler_(arch == Arch::X86_32 ? AsmArch::X86_32 : AsmArch::X86_64) {}
+
     /// Dissect a module — find all calls, jumps, string references.
     std::vector<CodeRef> dissectModule(ProcessHandle& proc, const ModuleInfo& module);
 
@@ -88,8 +94,14 @@ public:
                                           uintptr_t target);
 
 private:
-    Disassembler disasm_{Arch::X86_64};
-    Assembler assembler_{AsmArch::X86_64};
+    Disassembler disasm_;
+    Assembler assembler_;
 };
+
+/// The analysis arch for a target: WoW64-aware, so a 32-bit game running under a 64-bit
+/// host (a Wine/Proton title) is analyzed as x86-32. (ARM targets are not yet analyzed.)
+inline Arch analyzerArchFor(ProcessHandle& proc) {
+    return proc.runs32BitCode() ? Arch::X86_32 : Arch::X86_64;
+}
 
 } // namespace ce

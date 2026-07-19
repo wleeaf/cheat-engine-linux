@@ -1641,7 +1641,7 @@ static int cmd_analyze(pid_t pid, int argc, char** argv) {
         mod = &mods.front();   // main executable is enumerated first
     }
 
-    ce::CodeAnalyzer an;
+    ce::CodeAnalyzer an(ce::analyzerArchFor(proc));
     if (!strcmp(what, "strings")) {
         for (const auto& r : an.findReferencedStrings(proc, *mod))
             printf("0x%lx  %s\n", (unsigned long)r.target, r.text.c_str());

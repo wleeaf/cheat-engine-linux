@@ -1993,7 +1993,7 @@ void MemoryBrowser::showXrefs(uintptr_t addr) {
     }
 
     QApplication::setOverrideCursor(Qt::WaitCursor);
-    ce::CodeAnalyzer analyzer;
+    ce::CodeAnalyzer analyzer(ce::analyzerArchFor(*proc_));
     auto refs = analyzer.findReferencesTo(*proc_, mod, addr);
     QApplication::restoreOverrideCursor();
 

@@ -42,6 +42,12 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **Memory Viewer address bar shows the location symbolically** (CE parity): after any
+  jump the box reads `module+offset` (e.g. `libc.so.6+0x1234`) when the address is inside a
+  mapped module, instead of a bare hex number, so you can see where you are at a glance. The
+  symbolic form round-trips: pressing Enter on it navigates back to the same address.
+  Off-module addresses (heap, stack, anonymous) still show as hex. Asserted in
+  `gui_search_smoke`.
 - **Structure Dissector follows pointers on double-click** (CE Dissect Data spider):
   double-clicking a pointer field re-bases the dissector to the pointed-to structure, so
   you can walk a linked structure by clicking through it. Non-pointer cells still open the

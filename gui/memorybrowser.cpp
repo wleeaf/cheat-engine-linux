@@ -1930,9 +1930,21 @@ void MemoryBrowser::closeEvent(QCloseEvent* ev) {
     QMainWindow::closeEvent(ev);
 }
 
+QString MemoryBrowser::addressBarText(uintptr_t addr) const {
+    // CE shows the current location symbolically in the address box. Prefer the
+    // "module+offset" form (e.g. "libc.so.6+0x1234"): it names where you are and
+    // round-trips back through the expression parser on Enter (both sides key off
+    // ModuleInfo::name). Off-module addresses (heap, stack, anonymous) fall back to hex.
+    if (addr) {
+        std::string mo = ce::moduleOffsetString(modules_, addr);
+        if (!mo.empty()) return QString::fromStdString(mo);
+    }
+    return QString("0x%1").arg(addr, 16, 16, QChar('0'));
+}
+
 void MemoryBrowser::syncViews(uintptr_t addr) {
     currentAddr_ = addr;
-    addressEdit_->setText(QString("0x%1").arg(addr, 16, 16, QChar('0')));
+    addressEdit_->setText(addressBarText(addr));
     disasmView_->setAddress(addr);
     hexView_->setAddress(addr);
     // When a deliberate jump (Go, follow, back/forward) lands on memory we can't
@@ -2309,7 +2321,7 @@ void MemoryBrowser::showXrefs(uintptr_t addr) {
         if (!it) return;
         uintptr_t a = it->data(Qt::UserRole).toULongLong();
         disasmView_->setAddress(a);
-        addressEdit_->setText(QString("0x%1").arg(a, 16, 16, QChar('0')));
+        addressEdit_->setText(addressBarText(a));
         hexView_->setAddress(a);
         dlg->raise();
     });

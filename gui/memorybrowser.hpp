@@ -304,6 +304,7 @@ public:
     /// disassembler, data the hex dump (Shift/Ctrl override).
     void focusPane(Pane p);
     Pane focusedPaneForTest() const { return lastFocusedPane_; }
+    QString addressBarTextForTest(uintptr_t addr) const { return addressBarText(addr); }
 
     /// Test helper: search readable memory from `start` for `pattern` with an optional
     /// wildcard `mask` (1 = must match, 0 = any). Returns the hit address, or 0.
@@ -380,6 +381,9 @@ private:
     // current spot before moving; goBack/goForward replay the stacks.
     void navigateTo(uintptr_t addr);
     void syncViews(uintptr_t addr);
+    // CE-style symbolic label for the address box: "module+offset" inside a mapped
+    // module (round-trips through the expression parser), otherwise raw hex.
+    QString addressBarText(uintptr_t addr) const;
     void goBack();
     void goForward();
     void updateNavActions();

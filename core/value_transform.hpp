@@ -11,7 +11,9 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <string>
 
 namespace ce {
 
@@ -47,6 +49,33 @@ inline uint64_t decodeScalarBits(ValueType type, const uint8_t* stored,
     std::memcpy(&raw, buf, static_cast<size_t>(w));
     if (codec.active() && isIntegerScalar(type)) raw = codec.decode(raw, w);
     return raw;
+}
+
+/// Format an integer scalar's decoded bits for display (CE ShowAsSigned + hex flags).
+/// `width` is 1/2/4/8 bytes. Hex shows the width-masked unsigned value; decimal shows
+/// it signed (sign-extended from `width`) or unsigned. Qt-free so it is unit-tested in
+/// cecore and shared by the GUI's value formatter.
+inline std::string formatIntegerScalar(uint64_t bits, int width, bool isSigned, bool hex) {
+    if (width < 1) width = 1;
+    if (width > 8) width = 8;
+    uint64_t mask = (width >= 8) ? ~0ull : ((1ull << (width * 8)) - 1);
+    uint64_t u = bits & mask;
+    if (hex) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "0x%llx", static_cast<unsigned long long>(u));
+        return buf;
+    }
+    if (isSigned) {
+        int64_t s;
+        switch (width) {
+            case 1:  s = static_cast<int8_t>(u);  break;
+            case 2:  s = static_cast<int16_t>(u); break;
+            case 4:  s = static_cast<int32_t>(u); break;
+            default: s = static_cast<int64_t>(u); break;
+        }
+        return std::to_string(s);
+    }
+    return std::to_string(u);
 }
 
 /// Inverse: from a LOGICAL value's host-order bits, produce the `width(type)` stored

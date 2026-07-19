@@ -42,6 +42,13 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **"Change address" dialog: Signed toggle now works** (CE `ShowAsSigned`): the last dead
+  control is wired. Ticking **Signed** shows integer values as signed (e.g. a byte `200`
+  reads `-56`), unticking shows unsigned (`200`); the box is offered only for integer types,
+  round-trips a record's flag, and persists in saved tables. This also makes the value
+  formatter consistent (Byte was always unsigned, the wider ints always signed). The
+  signed/unsigned/hex rendering is a Qt-free `ce::formatIntegerScalar`, unit-tested in
+  `cecore_test`; the dialog wiring is asserted in `gui_changeaddr_smoke`.
 - **"Change address" dialog: structured pointer editor** (CE parity): ticking **Pointer**
   reveals a base-address field plus an offset chain (Add offset / remove per row), and the
   address field shows the composed `[[base]+..]` as you edit. Opening an existing pointer

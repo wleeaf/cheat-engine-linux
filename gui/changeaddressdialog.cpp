@@ -1,5 +1,6 @@
 #include "gui/changeaddressdialog.hpp"
 #include "core/ct_file.hpp"
+#include "core/value_transform.hpp"
 
 #include <QFormLayout>
 #include <QHBoxLayout>
@@ -30,7 +31,8 @@ static const struct { const char* label; ce::ValueType type; } kTypes[] = {
 };
 
 ChangeAddressDialog::ChangeAddressDialog(const QString& address, ce::ValueType type,
-                                         bool showHex, int length, QWidget* parent)
+                                         bool showHex, int length, QWidget* parent,
+                                         bool showSigned)
     : QDialog(parent) {
     setWindowTitle("Change address");
 
@@ -65,6 +67,7 @@ ChangeAddressDialog::ChangeAddressDialog(const QString& address, ce::ValueType t
     hexCheck_     = new QCheckBox("Hexadecimal");  // CE cbHex
     hexCheck_->setChecked(showHex);
     signedCheck_  = new QCheckBox("Signed");       // CE cbSigned
+    signedCheck_->setChecked(showSigned);
     unicodeCheck_ = new QCheckBox("Unicode");      // CE cbunicode
     unicodeCheck_->setChecked(startUnicode);
     flags->addWidget(pointerCheck_);
@@ -201,6 +204,7 @@ void ChangeAddressDialog::syncFlagState() {
     bool isString = (base == ce::ValueType::String);
     lengthEdit_->setEnabled(isString || base == ce::ValueType::ByteArray);
     unicodeCheck_->setEnabled(isString);   // CE only offers Unicode for String
+    signedCheck_->setEnabled(ce::isIntegerScalar(base));  // signed only for integer types
 }
 
 void ChangeAddressDialog::setTypeIndexForTest(int i) { typeCombo_->setCurrentIndex(i); }
@@ -208,6 +212,7 @@ void ChangeAddressDialog::setUnicodeForTest(bool on) { unicodeCheck_->setChecked
 void ChangeAddressDialog::setLengthForTest(int n) { lengthEdit_->setText(QString::number(n)); }
 bool ChangeAddressDialog::unicodeCheckedForTest() const { return unicodeCheck_->isChecked(); }
 bool ChangeAddressDialog::unicodeEnabledForTest() const { return unicodeCheck_->isEnabled(); }
+bool ChangeAddressDialog::signedEnabledForTest() const { return signedCheck_->isEnabled(); }
 void ChangeAddressDialog::setPointerModeForTest(bool on) { setPointerMode(on); }
 void ChangeAddressDialog::setPointerBaseForTest(const QString& base) {
     pointerBaseEdit_->setText(base); recomposeAddress();

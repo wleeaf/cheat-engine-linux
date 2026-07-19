@@ -317,6 +317,18 @@ static void test_value_transform() {
     uint64_t decoded = ce::decodeScalarBits(ValueType::Float, f, false, xr);  // codec ignored for float
     float back; memcpy(&back, &decoded, 4);
     printf("  codec skipped for float: %s\n", (back == pi) ? "OK" : "FAILED");
+
+    // formatIntegerScalar: the CE ShowAsSigned flag decides signed vs unsigned decimal;
+    // hex always shows the width-masked unsigned value.
+    bool fmtOk =
+        ce::formatIntegerScalar(200, 1, /*signed*/true,  false) == "-56"  &&
+        ce::formatIntegerScalar(200, 1, /*signed*/false, false) == "200"  &&
+        ce::formatIntegerScalar(0xFFFFFFFFull, 4, true,  false) == "-1"    &&
+        ce::formatIntegerScalar(0xFFFFFFFFull, 4, false, false) == "4294967295" &&
+        ce::formatIntegerScalar(0xFFFFull, 2, true, false) == "-1"         &&
+        ce::formatIntegerScalar(0x1Full, 1, true, /*hex*/true) == "0x1f"   &&
+        ce::formatIntegerScalar(0xFFFFFFFFull, 4, false, /*hex*/true) == "0xffffffff";
+    printf("  formatIntegerScalar signed/unsigned/hex: %s\n", fmtOk ? "OK" : "FAILED");
 }
 
 static void test_ns_attach() {

@@ -313,6 +313,7 @@ struct AddressEntry {
     int indent = 0;           // Nesting level (0 = root, 1 = child, etc.)
     bool isGroup = false;     // Group header (no address, just a label)
     bool showAsHex = false;   // Display/edit the value in hexadecimal
+    bool showAsSigned = true; // CE ShowAsSigned: integer values display signed vs unsigned
     QString addressExpr;      // If set, re-evaluated each refresh (pointer records)
     ce::ValueCodec codec;     // Obfuscation codec: value is stored encode(logical) in
                               // memory; display decodes, edit/freeze encode (default none)
@@ -414,6 +415,7 @@ public:
     bool setFreezeMode(int id, int mode) override;
     bool setHexView(int id, bool hex) override;
     bool setByteCount(int id, std::size_t count) override;
+    bool setSigned(int id, bool isSigned) override;
     bool setIndent(int id, int indent) override;
     std::string liveValue(int id) override;
     void setActivationCallback(ce::IAddressList::ActivationCallback cb) override {

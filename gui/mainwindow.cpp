@@ -1579,7 +1579,7 @@ void MainWindow::setupUi() {
                     QString addrStr = !e.addressExpr.isEmpty()
                         ? e.addressExpr : QString("%1").arg((qulonglong)e.address, 0, 16);
                     ce::gui::ChangeAddressDialog dlg(addrStr, e.type, e.showAsHex,
-                                                     (int)e.byteCount, this);
+                                                     (int)e.byteCount, this, e.showAsSigned);
                     if (dlg.exec() != QDialog::Accepted) return;
                     const int id = e.id;
                     const QString a = dlg.address();
@@ -1592,6 +1592,7 @@ void MainWindow::setupUi() {
                     const ce::ValueType nt = dlg.valueType();
                     addressListModel_->setType(id, nt);
                     addressListModel_->setHexView(id, dlg.showHex());
+                    addressListModel_->setSigned(id, dlg.isSigned());
                     // Length applies to String / Array of byte (and Unicode strings).
                     if (nt == ce::ValueType::String || nt == ce::ValueType::UnicodeString ||
                         nt == ce::ValueType::ByteArray)
@@ -4192,18 +4193,16 @@ static long long parseIntField(const QString& valStr) {
 // transform (ce::decodeScalarBits); this only formats the resulting logical value.
 // Returns empty for non-scalar types.
 static QString formatScalarValue(ValueType type, const uint8_t* raw, bool showHex,
-                                 const ce::ValueCodec& codec, bool bigEndian) {
+                                 const ce::ValueCodec& codec, bool bigEndian, bool isSigned) {
     const uint64_t bits = ce::decodeScalarBits(type, raw, bigEndian, codec);
     switch (type) {
-        case ValueType::Byte:   { uint8_t  x = (uint8_t)bits;
-                                  return showHex ? QString("0x%1").arg(x, 0, 16) : QString::number(x); }
-        case ValueType::Int16:  { uint16_t x = (uint16_t)bits;
-                                  return showHex ? QString("0x%1").arg(x, 0, 16) : QString::number((int16_t)x); }
-        case ValueType::Int32:  { uint32_t x = (uint32_t)bits;
-                                  return showHex ? QString("0x%1").arg(x, 0, 16) : QString::number((int32_t)x); }
-        case ValueType::Int64:  { uint64_t x = bits;
-                                  return showHex ? QString("0x%1").arg((quint64)x, 0, 16)
-                                                 : QString::number((qlonglong)(int64_t)x); }
+        case ValueType::Byte:
+        case ValueType::Int16:
+        case ValueType::Int32:
+        case ValueType::Int64:
+            // CE ShowAsSigned decides signed vs unsigned decimal (hex is width-masked).
+            return QString::fromStdString(
+                ce::formatIntegerScalar(bits, ce::scalarWidth(type), isSigned, showHex));
         case ValueType::Pointer:{ return QString("0x%1").arg((qulonglong)bits, 0, 16); }
         case ValueType::Float:  { float  v; memcpy(&v, &bits, 4); return QString::number(v, 'f', 4); }
         case ValueType::Double: { double v; memcpy(&v, &bits, 8); return QString::number(v, 'f', 6); }
@@ -4363,6 +4362,7 @@ QJsonArray AddressListModel::toJson() const {
         obj["indent"] = e.indent;
         obj["group"] = e.isGroup;
         obj["showAsHex"] = e.showAsHex;
+        obj["showAsSigned"] = e.showAsSigned;
         obj["freezeMode"] = (int)e.freezeMode;
         if (e.codec.active())   // obfuscation codec, as its round-trippable spec string
             obj["codec"] = QString::fromStdString(e.codec.describe());
@@ -4412,6 +4412,7 @@ void AddressListModel::fromJson(const QJsonArray& arr) {
                 : 0));
         e.isGroup = obj["group"].toBool();
         e.showAsHex = obj["showAsHex"].toBool();
+        e.showAsSigned = obj["showAsSigned"].toBool(true);
         if (obj.contains("freezeMode"))
             e.freezeMode = (ce::FreezeMode)obj["freezeMode"].toInt();
         if (obj.contains("codec")) {
@@ -4720,7 +4721,7 @@ void AddressListModel::updateValues(ProcessHandle* proc) {
         size_t vs = vtSize(e.type);
         auto r = proc->read(e.address, buf, vs);
         if (r && *r >= vs) {
-            QString s = formatScalarValue(e.type, buf, e.showAsHex, e.codec, e.bigEndian);
+            QString s = formatScalarValue(e.type, buf, e.showAsHex, e.codec, e.bigEndian, e.showAsSigned);
             e.currentValue = s.isEmpty() ? "?" : s;
         } else {
             e.currentValue = "??";
@@ -4748,7 +4749,7 @@ std::string AddressListModel::liveValue(int id) {
     size_t vs = vtSize(e.type);
     auto r = proc_->read(e.address, buf, vs);
     if (!r || *r < vs) return "??";
-    QString out = formatScalarValue(e.type, buf, e.showAsHex, e.codec, e.bigEndian);
+    QString out = formatScalarValue(e.type, buf, e.showAsHex, e.codec, e.bigEndian, e.showAsSigned);
     return out.isEmpty() ? std::string("?") : out.toStdString();
 }
 
@@ -5021,6 +5022,14 @@ bool AddressListModel::setByteCount(int id, std::size_t count) {
     int row = rowOfId(id);
     if (row < 0) return false;
     entries_[row].byteCount = count;   // element length for String / Array of byte
+    emit dataChanged(index(row, 0), index(row, columnCount() - 1));
+    return true;
+}
+
+bool AddressListModel::setSigned(int id, bool isSigned) {
+    int row = rowOfId(id);
+    if (row < 0) return false;
+    entries_[row].showAsSigned = isSigned;   // CE ShowAsSigned: re-render the value column
     emit dataChanged(index(row, 0), index(row, columnCount() - 1));
     return true;
 }

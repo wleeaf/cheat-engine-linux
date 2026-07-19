@@ -23,7 +23,7 @@ class ChangeAddressDialog : public QDialog {
     Q_OBJECT
 public:
     ChangeAddressDialog(const QString& address, ce::ValueType type, bool showHex,
-                        int length, QWidget* parent = nullptr);
+                        int length, QWidget* parent = nullptr, bool showSigned = true);
 
     QString address() const;
     ce::ValueType valueType() const;   // folds the Unicode box into String -> UnicodeString
@@ -39,6 +39,7 @@ public:
     void setLengthForTest(int n);
     bool unicodeCheckedForTest() const;
     bool unicodeEnabledForTest() const;
+    bool signedEnabledForTest() const;
     void setPointerModeForTest(bool on);
     void setPointerBaseForTest(const QString& base);
     void addOffsetForTest(long long value);

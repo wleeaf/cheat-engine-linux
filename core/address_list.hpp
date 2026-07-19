@@ -65,6 +65,8 @@ public:
     virtual bool setHexView(int /*id*/, bool /*hex*/) { return false; }
     /// Element length for String / Array-of-byte records (bytes). Default no-op.
     virtual bool setByteCount(int /*id*/, std::size_t /*count*/) { return false; }
+    /// Display integer values signed vs unsigned (CE ShowAsSigned). Default no-op.
+    virtual bool setSigned(int /*id*/, bool /*isSigned*/) { return false; }
     /// Nesting depth under group headers (0 = root). The current level is exposed
     /// read-side via AddressEntrySnapshot::indent. Default no-op for non-GUI lists.
     virtual bool setIndent(int /*id*/, int /*indent*/) { return false; }

@@ -1551,6 +1551,11 @@ void MemoryBrowser::buildMenuBar() {
         b->gotoAddress(currentAddr_);
         b->show();
     });
+    file->addSeparator();
+    // CE keeps Save/Load memory region in the File menu too (also on the right-click);
+    // these act at the address currently in view.
+    file->addAction("Save region to file…", this, [this]() { saveRegionToFile(currentAddr_); });
+    file->addAction("Load region from file…", this, [this]() { loadRegionFromFile(currentAddr_); });
 
     auto* search = mb->addMenu("&Search");
     { auto* a = search->addAction("Find memory...", this, [this]() { findInMemory(false); });

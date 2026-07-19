@@ -645,6 +645,14 @@ void HexView::keyPressEvent(QKeyEvent* e) {
         pasteBytes(QApplication::clipboard()->text());
         return;
     }
+    if (e->matches(QKeySequence::SelectAll) && !cache_.empty()) {
+        // Select every readable byte in the window (then Copy/Fill acts on the block).
+        int last = static_cast<int>(std::min(cache_.size(), readableBytes_)) - 1;
+        if (last < 0) last = static_cast<int>(cache_.size()) - 1;
+        selAnchor_ = 0; selectedOffset_ = last;
+        viewport()->update();
+        return;
+    }
     if (int lo, hi; e->matches(QKeySequence::Copy) && selRange(lo, hi)) {
         QString aob;
         for (int i = lo; i <= hi && i < (int)cache_.size(); ++i)

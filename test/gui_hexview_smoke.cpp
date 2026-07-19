@@ -113,9 +113,14 @@ int main(int argc, char** argv) {
     bool shiftEndKey = (hv.selectionStartForTest() == 0 && hv.selectionSizeForTest() == 16);
     bool homeEndOk = homeKey && endKey && shiftEndKey;
 
-    bool ok = baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC && fillOk && typeMap && selBytes && ptrOk && shiftSel && shiftCollapse && homeEndOk;
+    // Ctrl+A selects every readable byte in the window (more than a single row).
+    hv.setSelectionForTest(5, 5);
+    sendKey(&hv, Qt::Key_A, Qt::ControlModifier);
+    bool selectAllHex = (hv.selectionStartForTest() == 0 && hv.selectionSizeForTest() > 16);
+
+    bool ok = baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC && fillOk && typeMap && selBytes && ptrOk && shiftSel && shiftCollapse && homeEndOk && selectAllHex;
     printf("gui hexview smoke: %s (baseline=%d afterOneFlip=%d afterNav=%d pasteWrote=%d pasteOk=%d "
-           "ctrlV=%d ctrlC=%d filled=%d fillOk=%d typeMap=%d selBytes=%d ptrOk=%d shiftSel=%d shiftCollapse=%d homeEnd=%d)\n",
-           ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk, ctrlV, ctrlC, filled, fillOk, typeMap, selBytes, ptrOk, shiftSel, shiftCollapse, homeEndOk);
+           "ctrlV=%d ctrlC=%d filled=%d fillOk=%d typeMap=%d selBytes=%d ptrOk=%d shiftSel=%d shiftCollapse=%d homeEnd=%d selAll=%d)\n",
+           ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk, ctrlV, ctrlC, filled, fillOk, typeMap, selBytes, ptrOk, shiftSel, shiftCollapse, homeEndOk, selectAllHex);
     return ok ? 0 : 1;
 }

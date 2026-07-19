@@ -18,6 +18,10 @@ reimplementation of Cheat Engine).
 Follow-ups since v0.7.0, mostly deepening the hard-target work and unifying the value
 transforms across surfaces.
 
+- **Lua: more CE helpers `wideStringToByteTable` / `byteTableToWideString` / `signExtend` /
+  `getCPUCount` (.CT compat).** UTF-16LE widestring byte-table conversions (surrogate-pair
+  correct, with the `tableindex` start argument), CE's `signExtend(value, msb)`, and
+  `getCPUCount()`, all matching CE 7.7 semantics.
 - **Lua: CE string extensions `startsWith` / `endsWith` / `split` + `printf` (.CT compat).** Added
   the CE Lua string helpers many trainer scripts use: `s:startsWith(p)`, `s:endsWith(p)`, and
   `s:split(sep)` (separator is a character set; empty segments are skipped) as methods on the

@@ -316,6 +316,101 @@ static int l_stringToByteTable(lua_State* L) {
     return 1;
 }
 
+// UTF-8 (Lua string) <-> UTF-16LE (CE "widestring") byte tables. Game strings are
+// usually BMP, but surrogate pairs are handled so astral code points round-trip.
+static void appendUtf8(std::string& out, uint32_t cp) {
+    if (cp <= 0x7F) out.push_back((char)cp);
+    else if (cp <= 0x7FF) {
+        out.push_back((char)(0xC0 | (cp >> 6)));
+        out.push_back((char)(0x80 | (cp & 0x3F)));
+    } else if (cp <= 0xFFFF) {
+        out.push_back((char)(0xE0 | (cp >> 12)));
+        out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back((char)(0x80 | (cp & 0x3F)));
+    } else {
+        out.push_back((char)(0xF0 | (cp >> 18)));
+        out.push_back((char)(0x80 | ((cp >> 12) & 0x3F)));
+        out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back((char)(0x80 | (cp & 0x3F)));
+    }
+}
+
+static int l_wideStringToByteTable(lua_State* L) {
+    size_t len = 0;
+    const char* s = luaL_checklstring(L, 1, &len);
+    lua_newtable(L);
+    int outIdx = 1;
+    auto emit16 = [&](uint16_t u) {
+        lua_pushinteger(L, u & 0xFF);        lua_rawseti(L, -2, outIdx++);
+        lua_pushinteger(L, (u >> 8) & 0xFF); lua_rawseti(L, -2, outIdx++);
+    };
+    size_t i = 0;
+    while (i < len) {
+        uint8_t c = (uint8_t)s[i];
+        uint32_t cp; int extra;
+        if (c < 0x80)            { cp = c;        extra = 0; }
+        else if ((c >> 5) == 0x6){ cp = c & 0x1F; extra = 1; }
+        else if ((c >> 4) == 0xE){ cp = c & 0x0F; extra = 2; }
+        else if ((c >> 3) == 0x1E){ cp = c & 0x07; extra = 3; }
+        else                     { cp = 0xFFFD;   extra = 0; }
+        ++i;
+        for (int k = 0; k < extra && i < len; ++k, ++i) {
+            if (((uint8_t)s[i] & 0xC0) != 0x80) { cp = 0xFFFD; break; }
+            cp = (cp << 6) | ((uint8_t)s[i] & 0x3F);
+        }
+        if (cp <= 0xFFFF) emit16((uint16_t)cp);
+        else { cp -= 0x10000; emit16((uint16_t)(0xD800 + (cp >> 10)));
+                               emit16((uint16_t)(0xDC00 + (cp & 0x3FF))); }
+    }
+    return 1;
+}
+
+static int l_byteTableToWideString(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TTABLE);
+    int start = (int)luaL_optinteger(L, 2, 1);
+    int n = (int)lua_rawlen(L, 1);
+    std::vector<uint8_t> bytes;
+    for (int i = start; i <= n; ++i) {
+        lua_rawgeti(L, 1, i);
+        bytes.push_back((uint8_t)(luaL_checkinteger(L, -1) & 0xFF));
+        lua_pop(L, 1);
+    }
+    std::string out;
+    size_t count = bytes.size() / 2;
+    for (size_t i = 0; i < count; ++i) {
+        uint16_t u = (uint16_t)(bytes[2 * i] | (bytes[2 * i + 1] << 8));
+        uint32_t cp = u;
+        if (u >= 0xD800 && u <= 0xDBFF && i + 1 < count) {   // high surrogate
+            uint16_t lo = (uint16_t)(bytes[2 * (i + 1)] | (bytes[2 * (i + 1) + 1] << 8));
+            if (lo >= 0xDC00 && lo <= 0xDFFF) {
+                cp = 0x10000 + (((u - 0xD800) << 10) | (lo - 0xDC00));
+                ++i;
+            }
+        }
+        appendUtf8(out, cp);
+    }
+    lua_pushlstring(L, out.data(), out.size());
+    return 1;
+}
+
+// signExtend(value, mostSignificantBit): treat bit `msb` as the sign bit and extend.
+static int l_signExtend(lua_State* L) {
+    int64_t v = (int64_t)luaL_checkinteger(L, 1);
+    int msb = (int)luaL_checkinteger(L, 2);
+    if (msb < 0 || msb >= 63) { lua_pushinteger(L, v); return 1; }   // already full width
+    uint64_t mask = (1ULL << (msb + 1)) - 1;
+    uint64_t uv = (uint64_t)v & mask;
+    if (uv & (1ULL << msb)) uv |= ~mask;   // sign bit set -> fill the high bits
+    lua_pushinteger(L, (lua_Integer)(int64_t)uv);
+    return 1;
+}
+
+static int l_getCPUCount(lua_State* L) {
+    long n = sysconf(_SC_NPROCESSORS_ONLN);
+    lua_pushinteger(L, n > 0 ? (lua_Integer)n : 1);
+    return 1;
+}
+
 // N-wide integer -> little-endian byte table (CE's wordToByteTable etc.).
 static int pushLeBytes(lua_State* L, uint64_t v, int nbytes) {
     lua_newtable(L);
@@ -4662,6 +4757,10 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "byteTableToQword", l_byteTableToQword);
     lua_register(L, "byteTableToString", l_byteTableToString);
     lua_register(L, "stringToByteTable", l_stringToByteTable);
+    lua_register(L, "byteTableToWideString", l_byteTableToWideString);
+    lua_register(L, "wideStringToByteTable", l_wideStringToByteTable);
+    lua_register(L, "signExtend", l_signExtend);
+    lua_register(L, "getCPUCount", l_getCPUCount);
     lua_register(L, "stringToMD5String", l_stringToMD5String);
     lua_register(L, "bAnd", l_bAnd);
     lua_register(L, "bOr", l_bOr);

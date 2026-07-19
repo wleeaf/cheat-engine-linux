@@ -4469,7 +4469,18 @@ static void test_lua_string_extensions() {
         "local t2 = ('1,,2, ,3'):split(', ')\n"
         "assert(#t2 == 3 and t2[1]=='1' and t2[2]=='2' and t2[3]=='3', 'split set skip-empty')\n"
         "assert(type(printf) == 'function', 'printf exists')\n"
-        "printf('%d + %d = %d', 2, 3, 5)\n");   // must format + print without erroring
+        "printf('%d + %d = %d', 2, 3, 5)\n"      // must format + print without erroring
+        // Widestring (UTF-16LE) byte-table conversions.
+        "local wb = wideStringToByteTable('AB')\n"
+        "assert(#wb==4 and wb[1]==0x41 and wb[2]==0 and wb[3]==0x42 and wb[4]==0, 'wideStringToByteTable')\n"
+        "assert(byteTableToWideString(wb) == 'AB', 'byteTableToWideString roundtrip')\n"
+        "assert(byteTableToWideString({0,0,0x48,0,0x69,0}, 3) == 'Hi', 'byteTableToWideString tableindex')\n"
+        // signExtend: MSB set -> negative, clear -> unchanged.
+        "assert(signExtend(0xFF, 7) == -1, 'signExtend 0xFF/7')\n"
+        "assert(signExtend(0x7F, 7) == 0x7F, 'signExtend 0x7F/7')\n"
+        "assert(signExtend(0x80, 7) == -128, 'signExtend 0x80/7')\n"
+        "assert(signExtend(0x1234, 15) == 0x1234, 'signExtend positive 16')\n"
+        "assert(getCPUCount() >= 1, 'getCPUCount')\n");
     bool ok = err.empty();
     printf("  string extensions: %s%s\n", ok ? "OK" : "FAILED ", ok ? "" : err.c_str());
 }

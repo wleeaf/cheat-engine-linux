@@ -4389,7 +4389,10 @@ static bool parseComparableValue(ValueType type, const QString& valStr, double& 
         case ValueType::Int16:
         case ValueType::Int32:
         case ValueType::Int64:
-            value = valStr.toLongLong(&ok);
+            // Parse via the shared helper so a hex-display record's value ("0xff", with
+            // the prefix the formatter emits) compares correctly. Base-10 toLongLong
+            // failed on it, which silently degraded a directional freeze to unconditional.
+            value = static_cast<double>(ce::parseIntegerScalar(valStr.toStdString(), false, ok));
             return ok;
         case ValueType::Pointer:
             value = static_cast<double>(valStr.toULongLong(&ok, 0));

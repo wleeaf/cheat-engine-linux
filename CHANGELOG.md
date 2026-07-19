@@ -56,6 +56,11 @@ transforms across surfaces.
   step, in **both** the Debugger window and the Memory Viewer's disassembler (which follows the
   stop). The mnemonic+flags decision is a Qt-free `ce::conditionalJumpTaken`, unit-tested in
   `cecore_test`.
+- **Fixed: directional freeze (Increase/Decrease Only) silently broke on hex-display records**:
+  a hex record stores its frozen value with a `0x` prefix, but the freeze comparison parsed it
+  as base-10 and failed, falling through to an unconditional write, so "Increase Only" etc.
+  behaved like a plain freeze. The comparison now parses via the shared hex-aware
+  `ce::parseIntegerScalar`, so directional freezes hold correctly regardless of hex display.
 - **Fixed: increase/decrease-value hotkeys corrupted hex-display records**: the step hotkeys
   built the new value as a bare decimal but told the writer to parse it in the record's display
   base, so a hex record turned an increment into a hex misread (e.g. `256` written as `0x256`).

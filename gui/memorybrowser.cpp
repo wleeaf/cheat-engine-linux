@@ -1732,9 +1732,11 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     // Persisted default width from the Settings dialog (was ignored; the view
     // always opened at 16 bytes per row).
     hexView_->setBytesPerRow(QSettings().value("memview/bytesPerRow", 16).toInt());
-    // Persisted "Display type" (Byte/Word/Dword/... from the hex context menu).
-    hexView_->setDisplayType(static_cast<HexView::DisplayType>(
-        QSettings().value("memview/displayType", 0).toInt()));
+    // Persisted "Display type" (Byte/Word/Dword/... from the hex context menu). Clamp
+    // to the valid enum range so a stale/corrupt setting can't select an invalid type.
+    int dtSaved = QSettings().value("memview/displayType", 0).toInt();
+    if (dtSaved < 0 || dtSaved > static_cast<int>(HexView::DisplayType::Double)) dtSaved = 0;
+    hexView_->setDisplayType(static_cast<HexView::DisplayType>(dtSaved));
     hexView_->setProcess(proc);
 
     // Cheat-Engine layout: the disassembler with a register panel on its right,

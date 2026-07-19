@@ -151,6 +151,9 @@ transforms across surfaces.
 - **Hex pane offers 64 bytes per row** (CE parity): the "Bytes per row" menu now includes 64
   alongside 8/16/32 for wider dumps; 64 divides by every display-type group size, so grouped
   views stay valid.
+- **Robustness: clamp the persisted hex "Display type"**: a stale or out-of-range
+  `memview/displayType` setting is now clamped to the valid enum range on load instead of casting
+  to an invalid display type.
 - **Memory Viewer remembers "Bytes per row" and "Display type"** (CE parity): both hex-pane
   choices now persist across sessions. Bytes-per-row was loaded from settings but the menu
   change never saved it (so it always reverted to 16), and display type wasn't persisted at all;

@@ -27,6 +27,9 @@ transforms across surfaces.
 - **Emulator cheat-table entries are endianness-aware** (GUI): right-click -> "Big-endian
   value" (guest-scan sets it automatically), so a big-endian guest value reads and edits
   correctly in the list.
+- **Hex pane "Add address to the list" uses the current display type** (CE-style): adding
+  from Float display makes a Float record, Qword display an 8-byte record, etc., instead of
+  always Int32. Asserted in `gui_hexview_smoke`.
 - **`cescan il2cpp --pid <pid>`** resolves a running Unity game's class layouts (field
   offsets + method RVAs) directly, auto-locating the metadata and GameAssembly from the
   process (through the sandbox root for Proton/Flatpak).

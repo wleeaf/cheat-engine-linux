@@ -358,7 +358,7 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
             if (r && *r >= sizeof(ptr) && ptr) emit requestGoto((uintptr_t)ptr);
         }
     } else if (picked == addToList) {
-        emit requestAddToList(addr);
+        emit requestAddToList(addr, valueTypeForDisplay());
     } else if (pasteAct && picked == pasteAct) {
         pasteBytes(clip->text());   // patch memory at the cursor with the clipboard AOB
     } else if (picked == findWrites) {
@@ -1743,8 +1743,8 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         else QMessageBox::information(this, "Code finder unavailable",
             "No code-finder launcher is wired to this memory browser instance.");
     });
-    connect(hexView_, &HexView::requestAddToList, this, [this](uintptr_t addr) {
-        if (addToList_) addToList_(addr);
+    connect(hexView_, &HexView::requestAddToList, this, [this](uintptr_t addr, ce::ValueType type) {
+        if (addToList_) addToList_(addr, type);
     });
     connect(hexView_, &HexView::requestGoto, this, [this](uintptr_t addr) {
         gotoAddress(addr);

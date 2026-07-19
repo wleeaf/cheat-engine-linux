@@ -75,9 +75,18 @@ int main(int argc, char** argv) {
     bool fillOk = (filled == 4 && g_buf[3] == 0x00 && g_buf[4] == 0x90 && g_buf[5] == 0x90 &&
                    g_buf[6] == 0x90 && g_buf[7] == 0x90 && g_buf[8] == 0x00);
 
-    bool ok = baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC && fillOk;
+    // "Add to list" uses the current display type: float display -> Float, qword -> 8 bytes.
+    hv.setDisplayType(ce::gui::HexView::DisplayType::Float);
+    bool typeFloat = hv.valueTypeForDisplay() == ce::ValueType::Float;
+    hv.setDisplayType(ce::gui::HexView::DisplayType::Qword);
+    bool typeQword = hv.valueTypeForDisplay() == ce::ValueType::Int64;
+    hv.setDisplayType(ce::gui::HexView::DisplayType::Byte);
+    bool typeByte = hv.valueTypeForDisplay() == ce::ValueType::Byte;
+    bool typeMap = typeFloat && typeQword && typeByte;
+
+    bool ok = baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC && fillOk && typeMap;
     printf("gui hexview smoke: %s (baseline=%d afterOneFlip=%d afterNav=%d pasteWrote=%d pasteOk=%d "
-           "ctrlV=%d ctrlC=%d filled=%d fillOk=%d)\n",
-           ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk, ctrlV, ctrlC, filled, fillOk);
+           "ctrlV=%d ctrlC=%d filled=%d fillOk=%d typeMap=%d)\n",
+           ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk, ctrlV, ctrlC, filled, fillOk, typeMap);
     return ok ? 0 : 1;
 }

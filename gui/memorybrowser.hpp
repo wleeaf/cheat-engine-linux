@@ -42,6 +42,18 @@ public:
     enum class DisplayType { Byte, Word, Dword, Qword, Float, Double };
     void setDisplayType(DisplayType t) { displayType_ = t; viewport()->update(); }
     DisplayType displayType() const { return displayType_; }
+    /// The cheat-table value type matching the current display type (so "add to list"
+    /// adds a Float in float display, an 8-byte in Qword display, etc. — like CE).
+    ce::ValueType valueTypeForDisplay() const {
+        switch (displayType_) {
+            case DisplayType::Word:   return ce::ValueType::Int16;
+            case DisplayType::Dword:  return ce::ValueType::Int32;
+            case DisplayType::Qword:  return ce::ValueType::Int64;
+            case DisplayType::Float:  return ce::ValueType::Float;
+            case DisplayType::Double: return ce::ValueType::Double;
+            default:                  return ce::ValueType::Byte;
+        }
+    }
     void setBytesPerRow(int n) {
         if (n <= 0) return;
         bytesPerRow_ = n; selectedOffset_ = -1; selAnchor_ = -1;
@@ -76,7 +88,7 @@ public:
 signals:
     void requestFindWhatAccesses(uintptr_t addr, bool writesOnly);
     void requestGoto(uintptr_t addr);
-    void requestAddToList(uintptr_t addr);
+    void requestAddToList(uintptr_t addr, ce::ValueType type);
     void cursorMoved(uintptr_t addr);
 
 protected:
@@ -287,7 +299,7 @@ public:
     void setBreakpointQuery(BpQuery fn) { bpQuery_ = std::move(fn); refreshBreakpoints(); }
     void setCodeFinderLauncher(CodeFinderLauncher fn) { cfLauncher_ = std::move(fn); }
     /// Add an address (from the hex view's context menu) to the cheat table.
-    void setAddToList(std::function<void(uintptr_t)> fn) { addToList_ = std::move(fn); }
+    void setAddToList(std::function<void(uintptr_t, ce::ValueType)> fn) { addToList_ = std::move(fn); }
 
     /// Open the full Debugger window at an address (the browser's step buttons use
     /// this — real single-stepping lives in the Debugger; MainWindow provides it).
@@ -372,7 +384,7 @@ private:
 
     BpToggle bpSetter_;
     std::function<void(uintptr_t)> bpRemover_;
-    std::function<void(uintptr_t)> addToList_;
+    std::function<void(uintptr_t, ce::ValueType)> addToList_;
     BpQuery bpQuery_;
     CodeFinderLauncher cfLauncher_;
     DebuggerLauncher debuggerLauncher_;

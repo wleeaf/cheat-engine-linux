@@ -8,6 +8,7 @@
 #include <QMessageBox>
 #include "analysis/structure_tools.hpp"
 #include "core/expression.hpp"
+#include "core/value_transform.hpp"
 #include <QLabel>
 #include <QHeaderView>
 #include <QMenu>
@@ -234,7 +235,7 @@ QString StructureDissector::formatValue(const uint8_t* data, int offset, const Q
         if (std::isnan(v) || std::isinf(v)) return "NaN";
         if (v == 0.0f) return "0";
         if (std::abs(v) < 1e-20 || std::abs(v) > 1e20) return "-";
-        return QString::number(v, 'f', 4);
+        return QString::fromStdString(ce::formatFloatScalar(v, false));
     }
     if (type == "ptr") {
         uintptr_t v; memcpy(&v, data, 8);
@@ -441,7 +442,7 @@ static QString fmtByType(const uint8_t* d, ce::ValueType t) {
         case ce::ValueType::Pointer: { uintptr_t v; std::memcpy(&v, d, 8); return QString("0x%1").arg(v, 0, 16); }
         case ce::ValueType::Float:   { float v; std::memcpy(&v, d, 4);
             if (std::isnan(v) || std::isinf(v)) return "NaN";
-            return QString::number(v, 'f', 4); }
+            return QString::fromStdString(ce::formatFloatScalar(v, false)); }
         case ce::ValueType::Int64:   { int64_t v; std::memcpy(&v, d, 8); return QString::number((qlonglong)v); }
         default:                     { int32_t v; std::memcpy(&v, d, 4); return QString::number(v); }
     }

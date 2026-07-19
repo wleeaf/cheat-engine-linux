@@ -44,8 +44,8 @@ transforms across surfaces.
   `gui_hexview_smoke`.
 - **Float values display trimmed of trailing zeros** (CE parity): a float of `100.0` now reads
   `100`, not `100.0000`, and `99.5` reads `99.5`; precision matches the type (~7 significant
-  digits for Float, ~15 for Double). The cheat table and scan results share one Qt-free
-  `ce::formatFloatScalar`, unit-tested in `cecore_test`.
+  digits for Float, ~15 for Double). The cheat table, scan results, and Structure Dissector all
+  share one Qt-free `ce::formatFloatScalar`, unit-tested in `cecore_test`.
 - **.Net menu is functional; empty menus removed**: the top-level **.Net** menu (previously an
   empty dropdown) now opens the Mono/IL2CPP dissector (shared with Tools via a new
   `openMonoDissector`), and the empty **Plugins** / **Languages** menus are dropped (no plugin

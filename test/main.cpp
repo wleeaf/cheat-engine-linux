@@ -354,6 +354,15 @@ static void test_value_transform() {
         std::string(ce::valueTypeName(ValueType::UnicodeString)) == "Unicode String" &&
         std::string(ce::valueTypeName(ValueType::ByteArray)) == "Array of byte";
     printf("  valueTypeName matches CE wording: %s\n", nameOk ? "OK" : "FAILED");
+
+    // formatFloatScalar trims trailing zeros (CE), so a round float reads cleanly.
+    bool floatFmtOk =
+        ce::formatFloatScalar(100.0, false) == "100" &&
+        ce::formatFloatScalar(99.5, false) == "99.5" &&
+        ce::formatFloatScalar(0.0, true) == "0" &&
+        ce::formatFloatScalar(-2.5, true) == "-2.5" &&
+        ce::formatFloatScalar(std::nan(""), false) == "nan";
+    printf("  formatFloatScalar trims trailing zeros: %s\n", floatFmtOk ? "OK" : "FAILED");
 }
 
 static void test_ns_attach() {

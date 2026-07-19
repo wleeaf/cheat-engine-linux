@@ -3951,8 +3951,8 @@ static QString formatScanValue(ValueType vt, bool displayHex, const uint8_t* buf
             return QString::fromStdString(ce::formatIntegerScalar(bits, w, /*isSigned=*/true, displayHex));
         }
         case ValueType::Pointer:{ uintptr_t v; memcpy(&v, buf, sizeof(v)); return QString("0x%1").arg(v, 0, 16); }
-        case ValueType::Float:  { float v; memcpy(&v, buf, 4); return QString::number(v, 'f', 4); }
-        case ValueType::Double: { double v; memcpy(&v, buf, 8); return QString::number(v, 'f', 6); }
+        case ValueType::Float:  { float v; memcpy(&v, buf, 4); return QString::fromStdString(ce::formatFloatScalar(v, false)); }
+        case ValueType::Double: { double v; memcpy(&v, buf, 8); return QString::fromStdString(ce::formatFloatScalar(v, true)); }
         case ValueType::String: {
             size_t len = strnlen(reinterpret_cast<const char*>(buf), vs);
             return QString::fromUtf8(reinterpret_cast<const char*>(buf), static_cast<int>(len));
@@ -4247,8 +4247,10 @@ static QString formatScalarValue(ValueType type, const uint8_t* raw, bool showHe
             return QString::fromStdString(
                 ce::formatIntegerScalar(bits, ce::scalarWidth(type), isSigned, showHex));
         case ValueType::Pointer:{ return QString("0x%1").arg((qulonglong)bits, 0, 16); }
-        case ValueType::Float:  { float  v; memcpy(&v, &bits, 4); return QString::number(v, 'f', 4); }
-        case ValueType::Double: { double v; memcpy(&v, &bits, 8); return QString::number(v, 'f', 6); }
+        case ValueType::Float:  { float  v; memcpy(&v, &bits, 4);
+                                  return QString::fromStdString(ce::formatFloatScalar(v, false)); }
+        case ValueType::Double: { double v; memcpy(&v, &bits, 8);
+                                  return QString::fromStdString(ce::formatFloatScalar(v, true)); }
         default: return QString();
     }
 }

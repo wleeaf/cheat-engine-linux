@@ -10,6 +10,7 @@
 #include "core/value_codec.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -108,6 +109,18 @@ inline int64_t parseIntegerScalar(const std::string& s, bool hex, bool& ok) {
     }
     ok = true;
     return neg ? -static_cast<int64_t>(val) : static_cast<int64_t>(val);
+}
+
+/// Format a float/double for display the way Cheat Engine does: trimmed of trailing
+/// zeros (100.0 -> "100", 99.5 -> "99.5") with precision matching the type's
+/// significant digits (~7 for float, ~15 for double). Qt-free and shared, so the cheat
+/// table and scan results render floats identically. NaN/Inf render as short tokens.
+inline std::string formatFloatScalar(double v, bool isDouble) {
+    if (std::isnan(v)) return "nan";
+    if (std::isinf(v)) return v < 0 ? "-inf" : "inf";
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.*g", isDouble ? 15 : 7, v);
+    return buf;
 }
 
 /// Inverse: from a LOGICAL value's host-order bits, produce the `width(type)` stored

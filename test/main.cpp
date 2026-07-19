@@ -964,6 +964,19 @@ static void test_cheat_table_json() {
         hkCE.entries[0].setValueHotkeyKeys == "F5" && hkCE.entries[0].setValueHotkeyValue == "100" &&
         hkCE.entries[0].increaseHotkeyKeys == "Ctrl+Up" && hkCE.entries[0].hotkeyStep == "10" &&
         hkCE.entries[0].decreaseHotkeyKeys == "Ctrl+Down";
+    // Our save now emits CE's nested <Hotkey> structure (VK codes), not the old flat tag.
+    auto hkPath = std::filesystem::temp_directory_path() /
+        ("cecore-hkw-" + std::to_string(getpid()) + ".CT");
+    std::string savedXml;
+    if (hkCE.save(hkPath.string())) {
+        std::ifstream in(hkPath.string());
+        savedXml.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+    std::filesystem::remove(hkPath);
+    hkOk = hkOk && savedXml.find("<Hotkey>") != std::string::npos &&
+                   savedXml.find("<Action>0</Action>") != std::string::npos &&
+                   savedXml.find("<Key>17</Key>") != std::string::npos &&
+                   savedXml.find("<Key>72</Key>") != std::string::npos;
 
     CheatTable protectedLoaded;
     bool protectedOk = protectedLoaded.loadProtected(protectedPath.string(), "secret") &&

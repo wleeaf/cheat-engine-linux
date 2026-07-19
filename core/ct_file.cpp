@@ -159,6 +159,43 @@ static std::string vksToKeyString(const std::vector<int>& vks) {
     return out;
 }
 
+// Inverse of vkToKeyToken: a Qt key token -> Windows VK code (0 if unknown), so we can
+// write CE's <Hotkey><Keys> from our stored key-sequence strings.
+static int keyTokenToVK(const std::string& t) {
+    if (t == "Ctrl") return 17;  if (t == "Alt") return 18;   if (t == "Shift") return 16;
+    if (t == "Meta") return 91;
+    if (t == "Backspace") return 8;  if (t == "Tab") return 9;
+    if (t == "Return" || t == "Enter") return 13;
+    if (t == "Esc") return 27;   if (t == "Space") return 32;
+    if (t == "PgUp") return 33;   if (t == "PgDown") return 34;
+    if (t == "End") return 35;    if (t == "Home") return 36;
+    if (t == "Left") return 37;   if (t == "Up") return 38;
+    if (t == "Right") return 39;  if (t == "Down") return 40;
+    if (t == "Ins") return 45;    if (t == "Del") return 46;
+    if (t.size() == 1 && t[0] >= '0' && t[0] <= '9') return static_cast<unsigned char>(t[0]);  // 48-57
+    if (t.size() == 1 && t[0] >= 'A' && t[0] <= 'Z') return static_cast<unsigned char>(t[0]);  // 65-90
+    if (t.size() >= 2 && t[0] == 'F') {
+        try { int n = std::stoi(t.substr(1)); if (n >= 1 && n <= 12) return 111 + n; } catch (...) {}
+    }
+    return 0;
+}
+
+// "Ctrl+Shift+F1" -> {17, 16, 112}. Unknown tokens are dropped.
+static std::vector<int> keyStringToVKs(const std::string& s) {
+    std::vector<int> vks;
+    size_t start = 0;
+    while (start <= s.size()) {
+        size_t plus = s.find('+', start);
+        std::string tok = s.substr(start, plus == std::string::npos ? std::string::npos : plus - start);
+        while (!tok.empty() && tok.front() == ' ') tok.erase(tok.begin());
+        while (!tok.empty() && tok.back() == ' ') tok.pop_back();
+        if (int vk = keyTokenToVK(tok)) vks.push_back(vk);
+        if (plus == std::string::npos) break;
+        start = plus + 1;
+    }
+    return vks;
+}
+
 static ValueType strToType(const std::string& s) {
     bool numeric = !s.empty();
     for (unsigned char c : s) {
@@ -361,18 +398,33 @@ bool CheatTable::save(const std::string& path) const {
         if (!e.dropdownList.empty())
             f << "      <DropDownList>" << xmlEscape(e.dropdownList) << "</DropDownList>\n";
 
-        if (!e.hotkeyKeys.empty())
-            f << "      <Hotkeys>" << xmlEscape(e.hotkeyKeys) << "</Hotkeys>\n";
-        if (!e.increaseHotkeyKeys.empty())
-            f << "      <IncreaseHotkey>" << xmlEscape(e.increaseHotkeyKeys) << "</IncreaseHotkey>\n";
-        if (!e.setValueHotkeyKeys.empty())
-            f << "      <SetValueHotkey>" << xmlEscape(e.setValueHotkeyKeys) << "</SetValueHotkey>\n";
-        if (!e.setValueHotkeyValue.empty())
-            f << "      <SetValueHotkeyValue>" << xmlEscape(e.setValueHotkeyValue) << "</SetValueHotkeyValue>\n";
-        if (!e.decreaseHotkeyKeys.empty())
-            f << "      <DecreaseHotkey>" << xmlEscape(e.decreaseHotkeyKeys) << "</DecreaseHotkey>\n";
-        if (!e.hotkeyStep.empty())
-            f << "      <HotkeyStep>" << xmlEscape(e.hotkeyStep) << "</HotkeyStep>\n";
+        // Hotkeys in CE's nested form so Cheat Engine can read them: one <Hotkey> per
+        // binding with its mrh <Action>, a <Keys> list of VK codes, and an optional
+        // <Value> (set-value target, or the step for increase/decrease).
+        struct HkOut { int action; const std::string* keys; const std::string* value; };
+        const std::string empty;
+        std::vector<HkOut> hks;
+        if (!e.hotkeyKeys.empty())          hks.push_back({0, &e.hotkeyKeys, &empty});               // Toggle
+        if (!e.setValueHotkeyKeys.empty())  hks.push_back({5, &e.setValueHotkeyKeys, &e.setValueHotkeyValue});
+        if (!e.increaseHotkeyKeys.empty())  hks.push_back({6, &e.increaseHotkeyKeys, &e.hotkeyStep});
+        if (!e.decreaseHotkeyKeys.empty())  hks.push_back({7, &e.decreaseHotkeyKeys, &e.hotkeyStep});
+        if (!hks.empty()) {
+            f << "      <Hotkeys>\n";
+            int hkId = 0;
+            for (const auto& hk : hks) {
+                f << "        <Hotkey>\n";
+                f << "          <Action>" << hk.action << "</Action>\n";
+                f << "          <Keys>\n";
+                for (int vk : keyStringToVKs(*hk.keys))
+                    f << "            <Key>" << vk << "</Key>\n";
+                f << "          </Keys>\n";
+                if (!hk.value->empty())
+                    f << "          <Value>" << xmlEscape(*hk.value) << "</Value>\n";
+                f << "          <ID>" << hkId++ << "</ID>\n";
+                f << "        </Hotkey>\n";
+            }
+            f << "      </Hotkeys>\n";
+        }
     };
 
     // Nest children inside their parent group's <CheatEntries> (CE's format), so

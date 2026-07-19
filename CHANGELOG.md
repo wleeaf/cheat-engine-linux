@@ -58,12 +58,13 @@ transforms across surfaces.
 - **Disassembler: selection stays on its instruction while scrolling (CE parity).** The same
   anchoring now applies to the disassembler: scrolling the pane keeps the selected instruction
   highlighted (by address) rather than the same screen row, clearing it only when it leaves view.
-- **`.CT` hotkeys import from real CE tables (CE parity).** CE stores a record's hotkeys as a
-  nested `<Hotkeys><Hotkey><Action>N</Action><Keys><Key>vk</Key>...</Keys></Hotkey>...` structure
+- **`.CT` hotkeys are now CE-compatible both ways (CE parity).** CE stores a record's hotkeys as
+  a nested `<Hotkeys><Hotkey><Action>N</Action><Keys><Key>vk</Key>...</Keys></Hotkey>...` structure
   with Windows virtual-key codes; we only understood our own flat format, so a CE table's hotkeys
-  imported as garbage. The loader now detects the nested form, maps each `Action` (toggle / set
-  value / increase / decrease) to the matching hotkey slot, and translates the VK codes to a Qt
-  key sequence (e.g. `Ctrl+H`, `F5`, `Ctrl+Up`). Our own flat save format is unchanged.
+  imported as garbage and CE couldn't read ours. The loader now maps each `Action` (toggle / set
+  value / increase / decrease) to the matching hotkey slot and translates the VK codes to a Qt key
+  sequence (`Ctrl+H`, `F5`, `Ctrl+Up`); the saver writes the same nested structure, so tables
+  round-trip through Cheat Engine. Our old flat format still loads (auto-detected).
 - **Fixed: saving a String / Array-of-byte / Custom record to `.CT` corrupted its type to 4
   Bytes.** The table builder's type map only covered the numeric types, so every String, Unicode
   String, Array-of-byte, Binary, Grouped, and Custom record became Int32 on save. All are now

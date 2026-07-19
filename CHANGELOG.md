@@ -47,6 +47,11 @@ transforms across surfaces.
 - **Memory Viewer marks the current instruction** when the debugger is paused: the line at
   the stopped thread's RIP paints green with a ► marker, and the first open viewer follows
   execution. See the debugger notes below.
+- **Disassembler multi-instruction selection**: Shift+Up/Down and Shift+click select a
+  range of instructions (the whole range highlights), and Ctrl+C copies every selected line
+  as a block. A plain move or click collapses back to a single line; right-clicking inside a
+  range keeps it so the menu acts on the whole selection. Covered by a new offscreen
+  `gui_disasm_smoke` in the CI mirror.
 - **Hex pane highlights changed bytes** (CE-style): bytes whose value differs from the
   previous refresh paint red across the hex and ASCII columns, so live-changing memory is
   obvious at a glance. Navigating to a new address resets the baseline (no false "changed"

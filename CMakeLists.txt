@@ -411,6 +411,16 @@ if(Qt6_FOUND)
         target_include_directories(gui_hexview_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
         target_link_libraries(gui_hexview_smoke PRIVATE cecore Qt6::Widgets)
 
+        # Offscreen smoke test for the disassembler's multi-instruction range selection.
+        qt_add_executable(gui_disasm_smoke
+            test/gui_disasm_smoke.cpp
+            gui/memorybrowser.cpp
+            gui/memviewpreferences.cpp
+            gui/theme.cpp
+        )
+        target_include_directories(gui_disasm_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
+        target_link_libraries(gui_disasm_smoke PRIVATE cecore Qt6::Widgets)
+
         # Offscreen smoke test for light/dark theme switching.
         qt_add_executable(gui_theme_smoke
             test/gui_theme_smoke.cpp

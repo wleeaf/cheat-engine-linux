@@ -761,6 +761,13 @@ void DisasmView::mousePressEvent(QMouseEvent* e) {
         return;
     }
 
+    // Shift+click extends a range selection from the current cursor to the clicked
+    // row; a plain click starts a fresh single-line selection.
+    if ((e->modifiers() & Qt::ShiftModifier) && selectedRow_ >= 0) {
+        if (selAnchorRow_ < 0) selAnchorRow_ = selectedRow_;
+    } else {
+        selAnchorRow_ = -1;
+    }
     selectedRow_ = row;
     viewport()->update();
     QAbstractScrollArea::mousePressEvent(e);
@@ -796,7 +803,12 @@ void DisasmView::mouseDoubleClickEvent(QMouseEvent* e) {
 void DisasmView::contextMenuEvent(QContextMenuEvent* e) {
     int row = rowAtY(e->pos().y());
     if (row < 0) return;
-    selectedRow_ = row;
+    // Right-clicking inside an existing range keeps it (so the menu acts on the whole
+    // selection); clicking elsewhere collapses to the single clicked line.
+    if (int lo, hi; !(selRange(lo, hi) && row >= lo && row <= hi)) {
+        selAnchorRow_ = -1;
+        selectedRow_ = row;
+    }
     viewport()->update();
 
     // Copy by value: the auto-refresh timer can re-disassemble (reallocating
@@ -1097,6 +1109,10 @@ void DisasmView::paintEvent(QPaintEvent*) {
                 if (instructions_[d].address == t) { targetRow = d; break; }
     }
 
+    int selLo = -1, selHi = -1;
+    const bool haveSel = selRange(selLo, selHi);
+    auto inSel = [&](int i) { return haveSel && i >= selLo && i <= selHi; };
+
     std::string prevDwarfFunc;  // last DWARF function label drawn (once per function)
     for (int i = 0; i < (int)instructions_.size() && i < visibleRows(); ++i) {
         auto& inst = instructions_[i];
@@ -1106,15 +1122,16 @@ void DisasmView::paintEvent(QPaintEvent*) {
         // Highlight order: the debugger's current instruction (green, like CE's
         // Memory Viewer when paused) wins over the selection, which wins over the
         // selected branch's target tint. When the current line is also selected,
-        // keep the selection readable as an outline over the green fill.
+        // keep the selection readable as an outline over the green fill. The
+        // selection can span several rows (Shift+Up/Down or Shift+click range).
         const bool isCurrentIp = currentIp_ != 0 && inst.address == currentIp_;
         if (isCurrentIp) {
             p.fillRect(0, rowTop, viewport()->width(), charH_, mv.currentIp);
-            if (i == selectedRow_) {
+            if (inSel(i)) {
                 p.setPen(QPen(mv.selection, 1));
                 p.drawRect(0, rowTop, viewport()->width() - 1, charH_ - 1);
             }
-        } else if (i == selectedRow_) {
+        } else if (inSel(i)) {
             p.fillRect(0, rowTop, viewport()->width(), charH_, mv.selection);
         } else if (i == targetRow) {
             p.fillRect(0, rowTop, viewport()->width(), charH_, mv.targetTint);
@@ -1284,17 +1301,26 @@ uintptr_t DisasmView::scrollBack(uintptr_t addr, int count) {
 }
 
 void DisasmView::keyPressEvent(QKeyEvent* e) {
+    // Shift extends a multi-instruction range selection (Shift+Up/Down); a plain move
+    // collapses it back to a single line. The anchor stays put while the cursor moves.
+    const bool shift = e->modifiers() & Qt::ShiftModifier;
     if (e->key() == Qt::Key_Down && !instructions_.empty()) {
         // Move the selection cursor down (CE-style); scroll one instruction when
         // it's already at the bottom so the selection keeps advancing.
         int lastVisible = std::min((int)instructions_.size(), visibleRows()) - 1;
-        if (selectedRow_ < 0) { selectedRow_ = 0; viewport()->update(); }
-        else if (selectedRow_ < lastVisible) { selectedRow_++; viewport()->update(); }
-        else { address_ = instructions_.size() > 1 ? instructions_[1].address : address_ + 1; refresh(); }
+        if (selectedRow_ < 0) { selectedRow_ = 0; selAnchorRow_ = -1; viewport()->update(); }
+        else if (selectedRow_ < lastVisible) {
+            if (shift) { if (selAnchorRow_ < 0) selAnchorRow_ = selectedRow_; } else selAnchorRow_ = -1;
+            selectedRow_++; viewport()->update();
+        }
+        else { selAnchorRow_ = -1; address_ = instructions_.size() > 1 ? instructions_[1].address : address_ + 1; refresh(); }
     } else if (e->key() == Qt::Key_Up) {
-        if (selectedRow_ > 0) { selectedRow_--; viewport()->update(); }
-        else if (selectedRow_ < 0) { selectedRow_ = 0; viewport()->update(); }
-        else { address_ = scrollBack(address_, 1); refresh(); }  // at top: scroll, keep selection at row 0
+        if (selectedRow_ < 0) { selectedRow_ = 0; selAnchorRow_ = -1; viewport()->update(); }
+        else if (selectedRow_ > 0) {
+            if (shift) { if (selAnchorRow_ < 0) selAnchorRow_ = selectedRow_; } else selAnchorRow_ = -1;
+            selectedRow_--; viewport()->update();
+        }
+        else { selAnchorRow_ = -1; address_ = scrollBack(address_, 1); refresh(); }  // at top: scroll, keep selection at row 0
     } else if (e->key() == Qt::Key_PageDown && !instructions_.empty()) {
         int rows = visibleRows();
         if ((int)instructions_.size() > rows)
@@ -1307,17 +1333,19 @@ void DisasmView::keyPressEvent(QKeyEvent* e) {
                e->key() == Qt::Key_Space) {
         // Follow the selected instruction's branch/data target (CE keyboard nav).
         if (!followRow(selectedRow_)) QAbstractScrollArea::keyPressEvent(e);
-    } else if (e->matches(QKeySequence::Copy) &&
-               selectedRow_ >= 0 && selectedRow_ < (int)instructions_.size()) {
-        // Ctrl+C copies the selected line ("addr - bytes - mnemonic ops"), the
-        // same text the context menu's "Copy line" produces.
-        const auto& inst = instructions_[selectedRow_];
-        QString bytes;
-        for (auto b : inst.bytes) bytes += QString("%1 ").arg(b, 2, 16, QChar('0'));
-        QString text = QString::fromStdString(inst.operands.empty()
-            ? inst.mnemonic : inst.mnemonic + " " + inst.operands);
-        QApplication::clipboard()->setText(QString("%1 - %2 - %3")
-            .arg(inst.address, 0, 16).arg(bytes.trimmed(), text));
+    } else if (int lo, hi; e->matches(QKeySequence::Copy) && selRange(lo, hi)) {
+        // Ctrl+C copies every selected line ("addr - bytes - mnemonic ops"), one per
+        // line, so a Shift-selected range copies as a block (same format as "Copy line").
+        QStringList lines;
+        for (int r = lo; r <= hi && r < (int)instructions_.size(); ++r) {
+            const auto& inst = instructions_[r];
+            QString bytes;
+            for (auto b : inst.bytes) bytes += QString("%1 ").arg(b, 2, 16, QChar('0'));
+            QString text = QString::fromStdString(inst.operands.empty()
+                ? inst.mnemonic : inst.mnemonic + " " + inst.operands);
+            lines << QString("%1 - %2 - %3").arg(inst.address, 0, 16).arg(bytes.trimmed(), text);
+        }
+        QApplication::clipboard()->setText(lines.join('\n'));
     } else {
         QAbstractScrollArea::keyPressEvent(e);
     }

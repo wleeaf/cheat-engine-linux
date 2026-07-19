@@ -149,10 +149,13 @@ public:
     }
     const std::map<uintptr_t, std::string>& comments() const { return comments_; }
     void clearComments() { comments_.clear(); viewport()->update(); }
-    /// Address of the currently selected instruction, or 0 if none.
+    /// Address of the currently selected instruction (the cursor row), or 0 if none.
     uintptr_t selectedAddress() const;
     /// Size in bytes of the currently selected instruction.
     int selectedSize() const;
+    /// Number of instructions in the current selection (1 for a single line, more
+    /// when a range is selected via Shift+Up/Down or Shift+click). 0 if none.
+    int selectionCountForTest() const { int lo, hi; return selRange(lo, hi) ? hi - lo + 1 : 0; }
     /// Mark the current instruction pointer (debugger stop). The row whose address
     /// equals this is highlighted distinctly and flagged with a ► marker, like CE's
     /// Memory Viewer when paused. Pass 0 to clear (target resumed / detached).
@@ -211,7 +214,15 @@ public:
 private:
     uintptr_t address_ = 0;
     FlatMem flatMem_;             // cached readable-memory model for the scrollbar
-    int selectedRow_ = -1;
+    int selectedRow_ = -1;        // cursor instruction (visible-window row index)
+    int selAnchorRow_ = -1;       // other end of a Shift range selection, -1 = single
+    /// Selected instruction range [lo, hi] (visible-window rows), false if none.
+    bool selRange(int& lo, int& hi) const {
+        if (selectedRow_ < 0) return false;
+        int a = selAnchorRow_ < 0 ? selectedRow_ : selAnchorRow_;
+        lo = std::min(a, selectedRow_); hi = std::max(a, selectedRow_);
+        return true;
+    }
     uintptr_t currentIp_ = 0;     // debugger's current instruction pointer (0 = none)
     QFont monoFont_{"Monospace", 10};
     int charW_ = 0;

@@ -18,6 +18,7 @@
 #include "core/target_profile.hpp"
 #include "core/guest_view.hpp"
 #include "core/value_codec.hpp"
+#include "core/value_transform.hpp"
 #include "core/ns_attach.hpp"
 #include <type_traits>
 #include <utility>
@@ -57,11 +58,12 @@ static void usage() {
         "Commands:\n"
         "  list                          List all processes\n"
         "  scan <pid> [options]          Scan process memory\n"
-        "  read <pid> <addr> [size] [--type <t>] [--codec <c>]  Read memory: hex dump,\n"
-        "                                or the interpreted value with --type (i32,\n"
-        "                                float, pointer, string, ...); size caps a\n"
-        "                                string read; --codec also shows the decoded value\n"
-        "  write <pid> <addr> <val> [--type <t>] [--codec <c>] [--verify[-ms <n>]]\n"
+        "  read <pid> <addr> [size] [--type <t>] [--codec <c>] [--be]  Read memory: hex\n"
+        "                                dump, or the interpreted value with --type (i32,\n"
+        "                                float, pointer, string, ...); size caps a string\n"
+        "                                read; --codec shows the decoded value; --be reads\n"
+        "                                big-endian\n"
+        "  write <pid> <addr> <val> [--type <t>] [--codec <c>] [--be] [--verify[-ms <n>]]\n"
         "        [--find-writer[-secs <s>]]  Write value to address (--codec writes the\n"
         "                                encoded form; --verify re-reads after n ms\n"
         "                                (default 200) to detect a protected/reverted\n"
@@ -271,7 +273,7 @@ static int cmd_modules(pid_t pid) {
 }
 
 static int cmd_read(pid_t pid, uintptr_t addr, size_t size, const char* typeStr = nullptr,
-                    ce::ValueCodec codec = {}) {
+                    ce::ValueCodec codec = {}, bool bigEndian = false) {
     LinuxProcessHandle proc(pid);
 
     // --type interprets the bytes instead of dumping hex. Fixed-width types read
@@ -292,6 +294,10 @@ static int cmd_read(pid_t pid, uintptr_t addr, size_t size, const char* typeStr 
         if (!r) { fprintf(stderr, "Read failed: %s\n", r.error().message().c_str()); return 1; }
         size_t got = *r;
         if (need <= 8 && got < need) { fprintf(stderr, "Read failed: short read (%zu/%zu)\n", got, need); return 1; }
+        // Big-endian value (emulated console / network buffer): reverse to host order so
+        // the interpretation below (and any codec decode) sees the logical value.
+        if (bigEndian && (need == 2 || need == 4 || need == 8))
+            std::reverse(b.begin(), b.begin() + need);
         printf("0x%lx: ", (unsigned long)addr);
         switch (vt) {
             case ValueType::Byte:   printf("%u (0x%02x)\n", b[0], b[0]); break;
@@ -386,7 +392,8 @@ static int cmd_watch(pid_t pid, uintptr_t addr, bool writesOnly, int watchSize,
                      int durationSec, int modeOverride, bool showRegs = false);
 
 static int cmd_write(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt,
-                     ce::ValueCodec codec = {}, int verifyMs = 0, int findWriterSecs = 0) {
+                     ce::ValueCodec codec = {}, int verifyMs = 0, int findWriterSecs = 0,
+                     bool bigEndian = false) {
     LinuxProcessHandle proc(pid);
 
     if (codec.active() && vt != ValueType::Byte && vt != ValueType::Int16 &&
@@ -453,13 +460,9 @@ static int cmd_write(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt
             return 1;
     }
 
-    // Encode the value into its stored (obfuscated) form so the user edits by the
-    // logical value the game shows. buf holds the raw little-endian integer.
-    if (codec.active()) {
-        uint64_t raw = 0; memcpy(&raw, buf, sz);
-        uint64_t enc = codec.encode(raw, static_cast<int>(sz));
-        memcpy(buf, &enc, sz);
-    }
+    // Encode into the stored form (obfuscation codec + target byte order) so the user
+    // edits by the logical value. Shared cecore transform; buf holds the logical LE bits.
+    { uint64_t bits = 0; memcpy(&bits, buf, sz); ce::encodeScalarBits(vt, bits, bigEndian, codec, buf); }
 
     auto r = proc.write(addr, buf, sz);
     if (!r) {
@@ -1717,6 +1720,7 @@ int main(int argc, char** argv) {
         size_t size = 64;
         const char* typeStr = nullptr;
         ce::ValueCodec codec;
+        bool bigEndian = false;
         int i = 4;
         // Optional positional [size] (only if it isn't the --type flag), then --type.
         if (argc >= 5 && argv[4][0] != '-') {
@@ -1725,20 +1729,23 @@ int main(int argc, char** argv) {
         }
         for (; i < argc; ++i) {
             if (!strcmp(argv[i], "--type") && i + 1 < argc) typeStr = argv[++i];
+            else if (!strcmp(argv[i], "--be")) bigEndian = true;
             else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
                 auto c = ce::ValueCodec::parse(argv[++i]);
                 if (!c) { fprintf(stderr, "Invalid --codec (use xor:0xKEY, add:N, rol:N, ror:N)\n"); return 1; }
                 codec = *c;
             }
         }
-        return cmd_read(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), size, typeStr, codec);
+        return cmd_read(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), size, typeStr, codec, bigEndian);
     }
     else if (!strcmp(cmd, "write") && argc >= 5) {
         ValueType vt = ValueType::Int32;
         ce::ValueCodec codec;
+        bool bigEndian = false;
         int verifyMs = 0, findWriterSecs = 0;
         for (int i = 5; i < argc; ++i) {
             if (!strcmp(argv[i], "--type") && i + 1 < argc) vt = parseType(argv[i+1]);
+            else if (!strcmp(argv[i], "--be")) bigEndian = true;
             else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
                 auto c = ce::ValueCodec::parse(argv[i+1]);
                 if (!c) { fprintf(stderr, "Invalid --codec (use xor:0xKEY, add:N, rol:N, ror:N)\n"); return 1; }
@@ -1752,7 +1759,7 @@ int main(int argc, char** argv) {
                 findWriterSecs = (int)strtoul(argv[++i], nullptr, 0);
         }
         return cmd_write(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), argv[4], vt,
-                         codec, verifyMs, findWriterSecs);
+                         codec, verifyMs, findWriterSecs, bigEndian);
     }
     else if (!strcmp(cmd, "freeze") && argc >= 5) {
         ValueType vt = ValueType::Int32;

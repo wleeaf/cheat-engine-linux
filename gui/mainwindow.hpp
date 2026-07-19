@@ -413,6 +413,7 @@ public:
     bool setScript(int id, const std::string& script) override;
     bool setFreezeMode(int id, int mode) override;
     bool setHexView(int id, bool hex) override;
+    bool setByteCount(int id, std::size_t count) override;
     bool setIndent(int id, int indent) override;
     std::string liveValue(int id) override;
     void setActivationCallback(ce::IAddressList::ActivationCallback cb) override {

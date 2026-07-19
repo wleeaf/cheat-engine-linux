@@ -1578,7 +1578,8 @@ void MainWindow::setupUi() {
                     const auto& e = addressListModel_->entries()[firstRow];
                     QString addrStr = !e.addressExpr.isEmpty()
                         ? e.addressExpr : QString("%1").arg((qulonglong)e.address, 0, 16);
-                    ce::gui::ChangeAddressDialog dlg(addrStr, e.type, e.showAsHex, 1, this);
+                    ce::gui::ChangeAddressDialog dlg(addrStr, e.type, e.showAsHex,
+                                                     (int)e.byteCount, this);
                     if (dlg.exec() != QDialog::Accepted) return;
                     const int id = e.id;
                     const QString a = dlg.address();
@@ -1588,8 +1589,13 @@ void MainWindow::setupUi() {
                         addressListModel_->setAddress(id, (uintptr_t)v);
                     else
                         addressListModel_->setAddressExpression(id, a.toStdString());
-                    addressListModel_->setType(id, dlg.valueType());
+                    const ce::ValueType nt = dlg.valueType();
+                    addressListModel_->setType(id, nt);
                     addressListModel_->setHexView(id, dlg.showHex());
+                    // Length applies to String / Array of byte (and Unicode strings).
+                    if (nt == ce::ValueType::String || nt == ce::ValueType::UnicodeString ||
+                        nt == ce::ValueType::ByteArray)
+                        addressListModel_->setByteCount(id, (std::size_t)dlg.length());
                 });
                 menu.addSeparator();
             }
@@ -5008,6 +5014,14 @@ bool AddressListModel::setHexView(int id, bool hex) {
     int row = rowOfId(id);
     if (row < 0) return false;
     setShowAsHex(row, hex);   // existing row-based method: updates + emits dataChanged
+    return true;
+}
+
+bool AddressListModel::setByteCount(int id, std::size_t count) {
+    int row = rowOfId(id);
+    if (row < 0) return false;
+    entries_[row].byteCount = count;   // element length for String / Array of byte
+    emit dataChanged(index(row, 0), index(row, columnCount() - 1));
     return true;
 }
 

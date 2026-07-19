@@ -5,6 +5,7 @@
 /// references survive row reordering.
 
 #include "core/types.hpp"
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -62,6 +63,8 @@ public:
     virtual bool setFreezeMode(int /*id*/, int /*mode*/) { return false; }
     /// Display/edit the record's value in hexadecimal (by id). Default no-op.
     virtual bool setHexView(int /*id*/, bool /*hex*/) { return false; }
+    /// Element length for String / Array-of-byte records (bytes). Default no-op.
+    virtual bool setByteCount(int /*id*/, std::size_t /*count*/) { return false; }
     /// Nesting depth under group headers (0 = root). The current level is exposed
     /// read-side via AddressEntrySnapshot::indent. Default no-op for non-GUI lists.
     virtual bool setIndent(int /*id*/, int /*indent*/) { return false; }

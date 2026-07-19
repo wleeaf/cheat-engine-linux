@@ -431,6 +431,14 @@ if(Qt6_FOUND)
         target_include_directories(gui_search_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
         target_link_libraries(gui_search_smoke PRIVATE cecore Qt6::Widgets)
 
+        # Offscreen smoke test for the "Change address" dialog (Unicode/length folding).
+        qt_add_executable(gui_changeaddr_smoke
+            test/gui_changeaddr_smoke.cpp
+            gui/changeaddressdialog.cpp
+        )
+        target_include_directories(gui_changeaddr_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
+        target_link_libraries(gui_changeaddr_smoke PRIVATE cecore Qt6::Widgets)
+
         # Offscreen smoke test for light/dark theme switching.
         qt_add_executable(gui_theme_smoke
             test/gui_theme_smoke.cpp

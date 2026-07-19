@@ -21,11 +21,22 @@ public:
                         int length, QWidget* parent = nullptr);
 
     QString address() const;
-    ce::ValueType valueType() const;
+    ce::ValueType valueType() const;   // folds the Unicode box into String -> UnicodeString
     bool showHex() const;
+    bool isUnicode() const;
+    bool isPointer() const;
+    bool isSigned() const;
     int length() const;      // for String / Array of byte
 
+    // Test hooks (offscreen smoke): drive the flag/type state and read it back.
+    void setTypeIndexForTest(int i);
+    void setUnicodeForTest(bool on);
+    void setLengthForTest(int n);
+    bool unicodeCheckedForTest() const;
+    bool unicodeEnabledForTest() const;
+
 private:
+    void syncFlagState();    // enable Unicode only for String; length only for String/Array
     QLineEdit* addrEdit_;
     QComboBox* typeCombo_;
     QCheckBox* hexCheck_;

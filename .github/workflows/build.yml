@@ -72,6 +72,9 @@ jobs:
       - name: Run GUI memory-search smoke test (wildcard AOB, offscreen Qt)
         run: ./build/gui_search_smoke
 
+      - name: Run GUI change-address dialog smoke test (Unicode/length, offscreen Qt)
+        run: ./build/gui_changeaddr_smoke
+
       - name: Run Wayland GlobalShortcuts portal test (mock portal, private bus)
         run: |
           if [ -x ./build/wayland_shortcuts_test ]; then

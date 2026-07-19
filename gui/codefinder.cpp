@@ -169,7 +169,7 @@ void CodeFinderWindow::refresh() {
                                                    proc_->is64bit());
             if (rec.ok) { insAddr = rec.address; insText = QString::fromStdString(rec.text); }
         }
-        if (noppedAddrs_.count(insAddr)) insText = "[NOP] " + insText;   // patched to NOPs
+        if (noppedOriginals_.count(insAddr)) insText = "[NOP] " + insText;   // patched to NOPs
         table_->setItem(i, 0, new QTableWidgetItem(hexQ(insAddr)));
         table_->setItem(i, 1, new QTableWidgetItem(insText));
         table_->setItem(i, 2, new QTableWidgetItem(QString::number(r.hitCount)));
@@ -248,7 +248,16 @@ bool CodeFinderWindow::nopInstructionAt(uintptr_t addr) {
     if (!proc_ || !addr) return false;
     auto orig = ce::nopInstruction(*proc_, addr);   // returns the replaced bytes (empty on failure)
     if (orig.empty()) return false;
-    noppedAddrs_.insert(addr);
+    noppedOriginals_.emplace(addr, std::move(orig));   // keep the original for Restore
+    return true;
+}
+
+bool CodeFinderWindow::restoreInstructionAt(uintptr_t addr) {
+    if (!proc_) return false;
+    auto it = noppedOriginals_.find(addr);
+    if (it == noppedOriginals_.end()) return false;
+    if (!ce::restoreBytes(*proc_, addr, it->second)) return false;
+    noppedOriginals_.erase(it);
     return true;
 }
 
@@ -258,9 +267,12 @@ void CodeFinderWindow::onContextMenu(const QPoint& pos) {
     uintptr_t addr = addressOfRow(row);
     if (!addr) return;
 
+    const bool isNopped = noppedOriginals_.count(addr) > 0;
     QMenu menu(this);
     QAction* showAct = showInDisasm_ ? menu.addAction("Show in the disassembler") : nullptr;
-    QAction* nopAct  = proc_ ? menu.addAction("Replace with code that does nothing (NOP)") : nullptr;
+    QAction* nopAct  = proc_ && !isNopped
+                       ? menu.addAction("Replace with code that does nothing (NOP)") : nullptr;
+    QAction* restoreAct = proc_ && isNopped ? menu.addAction("Restore with original code") : nullptr;
     QAction* addAct  = addToList_ ? menu.addAction("Add to the address list") : nullptr;
     if (menu.isEmpty()) return;
 
@@ -275,6 +287,16 @@ void CodeFinderWindow::onContextMenu(const QPoint& pos) {
             statusLabel_->setText(QString("Patched 0x%1 to NOPs.").arg(addr, 0, 16));
         } else {
             statusLabel_->setText(QString("Could not patch 0x%1.").arg(addr, 0, 16));
+        }
+    } else if (picked == restoreAct) {
+        if (restoreInstructionAt(addr)) {
+            if (auto* it = table_->item(row, 1)) {
+                QString t = it->text();
+                if (t.startsWith("[NOP] ")) it->setText(t.mid(6));
+            }
+            statusLabel_->setText(QString("Restored the original code at 0x%1.").arg(addr, 0, 16));
+        } else {
+            statusLabel_->setText(QString("Could not restore 0x%1.").arg(addr, 0, 16));
         }
     } else if (picked == addAct) {
         onAddToList();

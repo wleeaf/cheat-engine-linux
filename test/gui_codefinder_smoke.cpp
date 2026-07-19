@@ -45,8 +45,15 @@ int main(int argc, char** argv) {
                      g_code[3] == 0x90 && g_code[4] == 0x90 && g_code[5] == 0xCC);
     bool nopOk = nopped && nopBytes;
 
-    bool ok = showOk && nopOk;
-    printf("gui codefinder smoke: %s (show=%d nopped=%d nopBytes=%d)\n",
-           ok ? "OK" : "FAILED", (int)showOk, (int)nopped, (int)nopBytes);
+    // "Restore with original code": writes the saved original bytes back over the NOPs.
+    bool restored = win.restoreInstructionForTest(codeAddr);
+    bool restoreBytes = (g_code[0] == 0xB8 && g_code[1] == 0x01 && g_code[2] == 0x00 &&
+                         g_code[3] == 0x00 && g_code[4] == 0x00 && g_code[5] == 0xCC);
+    bool restoreOk = restored && restoreBytes;
+
+    bool ok = showOk && nopOk && restoreOk;
+    printf("gui codefinder smoke: %s (show=%d nopped=%d nopBytes=%d restored=%d restoreBytes=%d)\n",
+           ok ? "OK" : "FAILED", (int)showOk, (int)nopped, (int)nopBytes,
+           (int)restored, (int)restoreBytes);
     return ok ? 0 : 1;
 }

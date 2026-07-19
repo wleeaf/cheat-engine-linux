@@ -7,7 +7,9 @@
 #include <QPushButton>
 #include <QTimer>
 #include <functional>
-#include <set>
+#include <map>
+#include <vector>
+#include <cstdint>
 
 namespace ce::gui {
 
@@ -30,8 +32,9 @@ public:
     void setShowInDisassembler(ShowFn fn) { showInDisasm_ = std::move(fn); }
 
     // Test hooks (headless): NOP the instruction at `addr` (returns true if patched);
-    // fire the show-in-disassembler hook for `addr`; read the address a row displays.
+    // restore its original bytes; fire the show hook; read a row's displayed address.
     bool nopInstructionForTest(uintptr_t addr) { return nopInstructionAt(addr); }
+    bool restoreInstructionForTest(uintptr_t addr) { return restoreInstructionAt(addr); }
     void showInDisassemblerForTest(uintptr_t addr) { if (showInDisasm_) showInDisasm_(addr); }
     uintptr_t rowAddressForTest(int row) const { return addressOfRow(row); }
 
@@ -45,6 +48,7 @@ private:
     void onContextMenu(const QPoint& pos);   // per-result right-click actions
     uintptr_t addressOfRow(int row) const;   // the (recovered) address shown in column 0
     bool nopInstructionAt(uintptr_t addr);   // overwrite the instruction with NOPs
+    bool restoreInstructionAt(uintptr_t addr);   // write the saved original bytes back
 
     ce::CodeFinder* finder_;
     ce::ProcessHandle* proc_ = nullptr;   // for exact-store recovery (may be null)
@@ -56,7 +60,7 @@ private:
     QTimer* refreshTimer_;
     AddToListFn addToList_;
     ShowFn showInDisasm_;
-    std::set<uintptr_t> noppedAddrs_;     // instructions patched to NOP (marked on refresh)
+    std::map<uintptr_t, std::vector<uint8_t>> noppedOriginals_;  // NOPped addr -> original bytes
 };
 
 } // namespace ce::gui

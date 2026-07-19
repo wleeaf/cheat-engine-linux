@@ -44,11 +44,12 @@ transforms across surfaces.
   `s:split(sep)` (separator is a character set; empty segments are skipped) as methods on the
   string type, plus the global `printf(...)` (= `print(string.format(...))`). Improves
   out-of-the-box compatibility for imported `.CT` tables that call these.
-- **Find what writes/accesses: right-click a result to NOP it or show it (CE parity).** The
-  results window gains a context menu with **Replace with code that does nothing (NOP)** (the
-  canonical CE workflow: NOP the store to freeze a value), **Show in the disassembler** (jump the
-  Memory Viewer to the writing/accessing instruction), and **Add to the address list**. NOP acts
-  on the recovered writing-instruction address and marks the patched row.
+- **Find what writes/accesses: right-click a result to NOP it, restore it, or show it (CE
+  parity).** The results window gains a context menu with **Replace with code that does nothing
+  (NOP)** (the canonical CE workflow: NOP the store to freeze a value), **Restore with original
+  code** (revert a NOP back to the saved original bytes), **Show in the disassembler** (jump the
+  Memory Viewer to the writing/accessing instruction), and **Add to the address list**. NOP/restore
+  act on the recovered writing-instruction address and mark the patched row.
 - **Disassembler: double-click a plain instruction to edit it (CE parity).** Double-clicking a
   jump/call/branch or a RIP-relative reference still follows it; double-clicking any other
   instruction now opens the assembler on that line, so you can retype it in place (NOP-padded or

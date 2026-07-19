@@ -8735,6 +8735,39 @@ static void test_binary_scan_bitmask() {
     printf("  bit wildcard match: %s\n", ok ? "OK" : "FAILED");
 }
 
+// AOB nibble-wildcard scan match: a pattern like "48 8B 4? 05" must match a byte whose
+// high nibble is 4 (4A) and reject one whose high nibble is 5 (5A). parseAOB is already
+// tested for validity; this locks the actual masked matching in the scan.
+static void test_aob_nibble_wildcard() {
+    printf("\n── Test: AOB nibble-wildcard scan match ──\n");
+    const size_t pageSize = 4096;
+    void* page = mmap(nullptr, pageSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (page == MAP_FAILED) { printf("  setup: FAILED (mmap)\n"); return; }
+    auto* b = static_cast<uint8_t*>(page);
+    b[100] = 0x48; b[101] = 0x8B; b[102] = 0x4A; b[103] = 0x05;   // 3rd byte high nibble = 4 (match)
+    b[200] = 0x48; b[201] = 0x8B; b[202] = 0x5A; b[203] = 0x05;   // 3rd byte high nibble = 5 (miss)
+
+    LinuxProcessHandle proc(getpid());
+    MemoryScanner scanner;
+    ScanConfig c;
+    c.valueType = ValueType::ByteArray;
+    c.compareType = ScanCompare::Exact;
+    c.parseAOB("48 8B 4? 05");
+    c.alignment = 1;
+    c.startAddress = reinterpret_cast<uintptr_t>(page);
+    c.stopAddress = c.startAddress + pageSize;
+    auto r = scanner.firstScan(proc, c);
+    bool has100 = false, has200 = false;
+    for (size_t i = 0; i < r.count(); ++i) {
+        if (r.address(i) == c.startAddress + 100) has100 = true;
+        if (r.address(i) == c.startAddress + 200) has200 = true;
+    }
+    munmap(page, pageSize);
+    bool ok = has100 && !has200;
+    printf("  '48 8B 4? 05' matches 4A, rejects 5A: %s (100=%d 200=%d)\n",
+           ok ? "OK" : "FAILED", (int)has100, (int)has200);
+}
+
 // Tri-state Writable region filter (CE's grey/checked/unchecked box). Place the
 // same sentinel in a writable (rw-p) page and a read-only (r--p) page, then scan
 // with each ProtMatch and confirm the region selection: Yes -> only the writable
@@ -10805,6 +10838,7 @@ int main(int argc, char* argv[]) {
     test_example_scripts();
     test_lua_memscan();
     test_binary_scan_bitmask();
+    test_aob_nibble_wildcard();
     test_protection_filter_scan();
     test_memtype_filter_scan();
     test_module_offset_string();

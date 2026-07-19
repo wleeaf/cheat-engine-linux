@@ -183,6 +183,10 @@ transforms across surfaces.
   symbolic form round-trips: pressing Enter on it navigates back to the same address.
   Off-module addresses (heap, stack, anonymous) still show as hex. Asserted in
   `gui_search_smoke`.
+- **Structure Dissector resolves where pointer fields point** (CE Dissect Data): a pointer field
+  now reads `-> module+0xoffset` when it lands inside a mapped module (e.g. `-> libgame.so+0x1234`)
+  instead of a bare `-> 0xADDRESS`, so you can tell a pointer into game code/data from a heap
+  pointer at a glance. Falls back to the raw address off-module.
 - **Structure Dissector follows pointers on double-click** (CE Dissect Data spider):
   double-clicking a pointer field re-bases the dissector to the pointed-to structure, so
   you can walk a linked structure by clicking through it. Non-pointer cells still open the

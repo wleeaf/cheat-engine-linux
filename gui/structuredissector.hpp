@@ -90,6 +90,7 @@ private:
     QSpinBox* sizeSpin_ = nullptr;
     QTableWidget* table_;
     QTimer* refreshTimer_;
+    std::vector<ce::ModuleInfo> moduleCache_;  // for "-> module+offset" on pointer fields
     std::vector<uint8_t> cache_;
     std::vector<uint8_t> prevCache_;        // previous refresh's bytes (live-change hl)
     uintptr_t prevBaseForChange_ = 0;       // base prevCache_ was read at (guards goto)

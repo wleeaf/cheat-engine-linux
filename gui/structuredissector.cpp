@@ -33,6 +33,7 @@ namespace ce::gui {
 StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, QWidget* parent)
     : QMainWindow(parent), proc_(proc), baseAddr_(baseAddr) {
 
+    if (proc_) moduleCache_ = proc_->modules();   // for "-> module+offset" on pointer fields
     setWindowTitle("Structure Dissector");
     resize(750, 600);
 
@@ -239,8 +240,13 @@ QString StructureDissector::formatValue(const uint8_t* data, int offset, const Q
     }
     if (type == "ptr") {
         uintptr_t v; memcpy(&v, data, 8);
-        if (looksLikePointer(v))
-            return QString("-> 0x%1").arg(v, 0, 16);
+        if (looksLikePointer(v)) {
+            // Show where the pointer lands (CE Dissect Data): module+offset when it is
+            // inside a mapped module, else the raw address.
+            std::string mo = ce::moduleOffsetString(moduleCache_, v);
+            return mo.empty() ? QString("-> 0x%1").arg(v, 0, 16)
+                              : QString("-> %1").arg(QString::fromStdString(mo));
+        }
         return "-";
     }
     return "?";

@@ -325,8 +325,9 @@ class AddressListModel : public QAbstractTableModel, public ce::IAddressList {
     Q_OBJECT
 public:
     explicit AddressListModel(QObject* parent = nullptr);
-    void addEntry(uintptr_t addr, ce::ValueType type, const QString& desc = "No description",
-                  const QString& addressExpr = {}, size_t byteCount = 0);
+    // Returns the new entry's stable id (so the caller can set flags on it).
+    int addEntry(uintptr_t addr, ce::ValueType type, const QString& desc = "No description",
+                 const QString& addressExpr = {}, size_t byteCount = 0);
     // Add a cheat-table entry whose checkbox runs an auto-assembler script's
     // [ENABLE]/[DISABLE] (an "(Auto Assembler script)" row, like CE).
     void addScriptEntry(const QString& desc, const QString& script);

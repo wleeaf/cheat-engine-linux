@@ -42,6 +42,11 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **"Add Address Manually" opens the full address dialog** (CE parity): instead of a bare
+  text prompt, adding an address by hand now uses the same `formAddressChangeUnit` dialog as
+  "Change address", so a new entry gets its type, hex/signed flags, length, and an optional
+  structured pointer chain in one step. `AddressListModel::addEntry` now returns the new id so
+  the flags can be applied.
 - **Memory Viewer Tools menu is populated** (CE parity): the previously empty **Tools** menu
   now offers **Auto Assemble...** (opens a script editor) and **Dissect data/structures...**
   (opens a Structure Dissector at the current address), routed through the openers MainWindow

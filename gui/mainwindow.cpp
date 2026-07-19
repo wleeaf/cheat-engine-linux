@@ -1895,19 +1895,30 @@ void MainWindow::setupUi() {
 
         menu.addSeparator();
         menu.addAction("Add Address Manually...", [this]() {
-            bool ok;
-            auto text = QInputDialog::getText(this, "Add Address",
-                "Address, symbol, module+offset, or [pointer]+off:", QLineEdit::Normal, "", &ok);
-            if (ok && !text.trimmed().isEmpty()) {
-                auto addr = parseAddressExpr(text);
-                if (addr) {
-                    // A '[' means a pointer deref — store the expression so the entry
-                    // re-resolves and follows the pointer chain each refresh.
-                    QString expr = text.contains('[') ? text.trimmed() : QString();
-                    addressListModel_->addEntry(*addr, mapValueType(valueTypeCombo_->currentIndex()),
-                                                "Manual entry", expr);
-                }
+            // CE's "Add Address Manually" opens the same formAddressChangeUnit as
+            // "Change address", so a new entry gets its type, flags, length, and an
+            // optional structured pointer in one dialog.
+            ce::gui::ChangeAddressDialog dlg("", mapValueType(valueTypeCombo_->currentIndex()),
+                                             false, 0, this);
+            if (dlg.exec() != QDialog::Accepted) return;
+            const QString a = dlg.address();
+            if (a.trimmed().isEmpty()) return;
+            bool numeric = false;
+            qulonglong v = a.toULongLong(&numeric, 16);
+            int id;
+            if (numeric && !a.contains('[') && !a.contains('+') && !a.contains(' ')) {
+                id = addressListModel_->addEntry((uintptr_t)v, dlg.valueType(),
+                                                 "No description", QString(), (size_t)dlg.length());
+            } else {
+                // Symbolic / module+offset / pointer chain: store the expression so it
+                // re-resolves live, seeding the initial numeric address if resolvable.
+                uintptr_t addr0 = 0;
+                if (auto r = parseAddressExpr(a)) addr0 = *r;
+                id = addressListModel_->addEntry(addr0, dlg.valueType(),
+                                                 "No description", a, (size_t)dlg.length());
             }
+            addressListModel_->setHexView(id, dlg.showHex());
+            addressListModel_->setSigned(id, dlg.isSigned());
         });
         menu.addAction("Add Group", [this]() {
             addressListModel_->addGroup();
@@ -3998,8 +4009,8 @@ uintptr_t ScanResultsModel::addressAt(int row) const {
 
 AddressListModel::AddressListModel(QObject* parent) : QAbstractTableModel(parent) {}
 
-void AddressListModel::addEntry(uintptr_t addr, ValueType type, const QString& desc,
-                                const QString& addressExpr, size_t byteCount) {
+int AddressListModel::addEntry(uintptr_t addr, ValueType type, const QString& desc,
+                               const QString& addressExpr, size_t byteCount) {
     beginInsertRows({}, entries_.size(), entries_.size());
     AddressEntry entry;
     entry.id = allocId();
@@ -4009,8 +4020,10 @@ void AddressListModel::addEntry(uintptr_t addr, ValueType type, const QString& d
     entry.type = type;
     entry.byteCount = byteCount;       // element length for AOB/string (0 = unknown)
     entry.currentValue = "?";
+    int id = entry.id;
     entries_.push_back(std::move(entry));
     endInsertRows();
+    return id;
 }
 
 void AddressListModel::addScriptEntry(const QString& desc, const QString& script) {

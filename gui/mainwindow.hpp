@@ -120,6 +120,9 @@ private:
     // byte, a Qword 8). 0 (or an invalid value) falls back to the configured default.
     void startCodeFinderForAddress(uintptr_t addr, bool writesOnly, int watchSize = 0);
     void showInstructionAccesses(uintptr_t instructionAddr);   // CE "what addresses this instr accesses"
+    /// Run every .lua in the user's autorun/ config dir at startup (CE autorun/), in
+    /// the shared, sandboxed Lua engine. Returns how many ran; the dir is opt-in.
+    int runAutorunScripts();
     // Stop active code finders so their ptrace attachment is released (a target
     // can have only one tracer; code injection needs to attach).
     void stopCodeFindersForInjection();

@@ -69,6 +69,7 @@
 #include <QFileInfo>
 #include <QProcess>
 #include <QStandardPaths>
+#include <QDir>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QLabel>
@@ -1523,6 +1524,8 @@ void MainWindow::setupUi() {
     luaEngine_.setAddressList(addressListModel_);
     registerLuaGuiBindings(luaEngine_.state());
     setLuaMainForm(this);
+    // Run the user's autorun/ Lua scripts (CE autorun/) once the window is fully up.
+    QTimer::singleShot(0, this, [this]() { runAutorunScripts(); });
     addressListView_ = new QTableView;
     addressListView_->setModel(addressListModel_);
     addressListView_->setAlternatingRowColors(true);   // activates the theme's zebra rows
@@ -3624,6 +3627,32 @@ void MainWindow::showInstructionAccesses(uintptr_t instructionAddr) {
     dlg->show();
     statusBar()->showMessage(QString("%1 address(es) accessed by 0x%2")
         .arg(results.size()).arg(instructionAddr, 0, 16), 5000);
+}
+
+int MainWindow::runAutorunScripts() {
+    // CE runs every .lua in its autorun/ folder at startup. Ours lives under the user's
+    // config dir and is opt-in (only runs if the user creates it). These are the user's
+    // own scripts (like a shell rc file), and they run in the same sandboxed engine as
+    // any Lua, so shellExecute and file writes stay gated behind CECORE_LUA_ALLOW_UNSAFE.
+    QDir d(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation) + "/autorun");
+    if (!d.exists()) return 0;
+    const QStringList files = d.entryList(QStringList{"*.lua", "*.LUA"}, QDir::Files, QDir::Name);
+    int ran = 0, failed = 0;
+    for (const QString& f : files) {
+        QFile file(d.filePath(f));
+        if (!file.open(QIODevice::ReadOnly)) continue;
+        const QString code = QString::fromUtf8(file.readAll());
+        file.close();
+        const auto err = luaEngine_.execute(code.toStdString());
+        ++ran;
+        if (!err.empty()) {
+            ++failed;
+            statusBar()->showMessage(QString("autorun %1: %2").arg(f, QString::fromStdString(err)), 8000);
+        }
+    }
+    if (ran > 0 && failed == 0)
+        statusBar()->showMessage(QString("Ran %1 autorun script(s).").arg(ran), 4000);
+    return ran;
 }
 
 void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly, int watchSize) {

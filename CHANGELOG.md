@@ -18,6 +18,12 @@ reimplementation of Cheat Engine).
 Follow-ups since v0.7.0, mostly deepening the hard-target work and unifying the value
 transforms across surfaces.
 
+- **Autorun Lua scripts on startup (CE parity).** Every `.lua` in the user's
+  `<config>/cecore/Cheat Engine/autorun/` directory now runs once at startup in the shared Lua
+  engine (like CE's `autorun/` folder), so extensions can add functions, hotkeys, timers, or menu
+  items without touching the app. Opt-in (the folder is only scanned if it exists), run in the
+  same sandbox as any script (`shellExecute` / file-write functions stay gated), and a failing
+  script is reported without blocking the others.
 - **Lua Console: Up/Down command history.** The interactive console now recalls previously run
   commands with the arrow keys (newest-first on Up, forward to an empty new line on Down), like
   CE's console and any REPL. Immediate repeats aren't stored twice.

@@ -18,6 +18,9 @@ reimplementation of Cheat Engine).
 Follow-ups since v0.7.0, mostly deepening the hard-target work and unifying the value
 transforms across surfaces.
 
+- **Lua Console: Up/Down command history.** The interactive console now recalls previously run
+  commands with the arrow keys (newest-first on Up, forward to an empty new line on Down), like
+  CE's console and any REPL. Immediate repeats aren't stored twice.
 - **Lua: `md5memory(address, size)` (.CT compat).** Returns the MD5 hex of a block of target
   memory (matching `stringToMD5String` of the same bytes), for the tamper/change-detection
   checksums CE trainer scripts use. Reuses our RFC-1321 MD5; no new capability.

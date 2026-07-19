@@ -421,6 +421,17 @@ if(Qt6_FOUND)
         target_include_directories(gui_disasm_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
         target_link_libraries(gui_disasm_smoke PRIVATE cecore Qt6::Widgets)
 
+        # Offscreen smoke test for the Lua Console command history (Up/Down recall).
+        qt_add_executable(gui_luaconsole_smoke
+            test/gui_luaconsole_smoke.cpp
+            gui/luaconsole.cpp
+            scripting/lua_gui.cpp
+            gui/canvaswidget.cpp
+            scripting/lua_bitmap.cpp
+        )
+        target_include_directories(gui_luaconsole_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
+        target_link_libraries(gui_luaconsole_smoke PRIVATE cecore Qt6::Widgets)
+
         # Offscreen smoke test for the find-what-writes results window actions
         # (show-in-disassembler + NOP the instruction).
         qt_add_executable(gui_codefinder_smoke

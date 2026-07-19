@@ -179,14 +179,17 @@ required, and it can be non-linear (paged MMU emulation).
    yet endianness-aware.]
 3. **Per-emulator adapters:** a small table (or agent) per emulator that gives the
    guest-RAM base and, where available, the guest MMU translation. Start with the most
-   popular (Dolphin, PCSX2, RPCS3, DuckStation). [Dolphin + PCSX2 DONE] `findGuestRam`
-   recognizes an emulator's NAMED guest-RAM shm/memfd (Dolphin `dolphin-emu`/`dolphinmem`,
-   PCSX2 `pcsx2`) and collapses the mirror views by file offset, so the candidates are the
-   real distinct regions (Dolphin MEM1 24 MB + MEM2 64 MB; PCSX2 EE 32 MB), not a dozen
-   duplicates or unrelated JIT/texture arenas -- the same shm-name + offset approach as
-   `aldelaro5/dolphin-memory-engine`. Validated on synthetic Dolphin and PCSX2 processes
-   and in cecore_test. RPCS3 (4 GiB `g_base_addr` sparse arena) and DuckStation adapters
-   TODO -- need their arena signatures.
+   popular (Dolphin, PCSX2, RPCS3, DuckStation). [Dolphin + PCSX2 + DuckStation DONE]
+   `findGuestRam` recognizes an emulator's NAMED guest-RAM shm/memfd (Dolphin
+   `dolphin-emu`/`dolphinmem`, PCSX2 `pcsx2`, DuckStation `duckstation` with its Export
+   Shared Memory option) and collapses the mirror views by file offset, so the candidates
+   are the real distinct regions (Dolphin MEM1 24 MB + MEM2 64 MB; PCSX2 EE 32 MB + IOP
+   2 MB; DuckStation 8 MB) rather than a dozen duplicates or unrelated JIT/texture arenas
+   -- the shm-name + offset approach from `aldelaro5/dolphin-memory-engine`, with the shm
+   names taken from each emulator's source. A named emulator shm counts at any real size
+   (sub-MB caches skipped); generic anonymous mappings still need >= 8 MB. Validated on
+   synthetic Dolphin/PCSX2/DuckStation processes and in cecore_test. RPCS3 (4 GiB
+   `g_base_addr` sparse arena) TODO -- needs its arena signature.
 4. **Guest code analysis (stretch):** to do a real "find what writes" on the *guest*
    instruction, watch the guest RAM buffer at the host level (page-guard on the host
    buffer works, it is our own page) and, on a host fault, decode the guest PC from

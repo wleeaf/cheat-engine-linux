@@ -146,7 +146,6 @@ std::vector<TargetProfile::GuestRegion> findGuestRam(pid_t pid) {
         if (std::sscanf(line.c_str(), "%lx-%lx %7s %lx", &start, &end, perms, &offset) != 4) continue;
         if (perms[0] != 'r' || perms[1] != 'w' || end <= start) continue;
         const size_t size = end - start;
-        if (size < (8u << 20)) continue;
         // pathname is the 6th whitespace field (absent for anonymous mappings).
         std::istringstream ss(line);
         std::string f1, f2, f3, f4, f5, path;
@@ -156,17 +155,23 @@ std::vector<TargetProfile::GuestRegion> findGuestRam(pid_t pid) {
         path = (nb == std::string::npos) ? std::string() : path.substr(nb);
         if (path == "[stack]" || path == "[vdso]" || path == "[vvar]") continue;
         // Several emulators back guest RAM with a NAMED shm/memfd (Dolphin's
-        // "dolphin-emu"/"dolphinmem", PCSX2's "pcsx2"); that name is the authoritative
+        // "dolphin-emu"/"dolphinmem", PCSX2's "pcsx2", DuckStation's "duckstation" when
+        // its Export Shared Memory option is on); that name is the authoritative
         // guest-RAM marker. Guarded to shm/memfd so it never matches the emulator binary.
         const bool isShm = path.rfind("/dev/shm/", 0) == 0 || path.rfind("/memfd:", 0) == 0;
         const bool emuShm = isShm &&
             (path.find("dolphin-emu") != std::string::npos ||
              path.find("dolphinmem")  != std::string::npos ||
-             path.find("pcsx2")       != std::string::npos);
+             path.find("pcsx2")       != std::string::npos ||
+             path.find("duckstation") != std::string::npos);
         const bool anonLike = path.empty() || path == "[heap]" ||
             path.rfind("/memfd:", 0) == 0 || path.rfind("/dev/shm/", 0) == 0 ||
             path.rfind("[anon", 0) == 0;
         if (!anonLike && !emuShm) continue;   // regular file maps are libs/data, not guest RAM
+        // A named emulator shm IS guest RAM at any real size (DuckStation's 2-8 MB,
+        // PCSX2's 2 MB IOP), so only skip tiny sub-MB caches; a generic anonymous mapping
+        // must be large to plausibly be guest RAM.
+        if (size < (emuShm ? (1u << 20) : (8u << 20))) continue;
         regs.push_back({start, size, offset, emuShm});
     }
 

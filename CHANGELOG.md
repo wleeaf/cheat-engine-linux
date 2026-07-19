@@ -68,11 +68,12 @@ transforms across surfaces.
 - **Debugger disassembly keeps the caret on its instruction across re-renders**: toggling a
   breakpoint, stepping, or an auto-refresh no longer jerks the caret to the top of the pane
   (it is restored to the same address). Asserted in `gui_debugger_smoke`.
-- **Debugger disassembly annotates data references**: a direct memory operand
-  (`mov dword ptr [0x…], eax` or `[rip + 0x…]`) is resolved to the symbol / module+offset it
-  points at **and its current value** (sized by the operand's byte/word/dword/qword prefix),
-  shown as a `; -> name = value` comment, so you can see which global the paused code reads
-  or writes and what it currently holds. Asserted in `gui_debugger_smoke`.
+- **Debugger disassembly annotates data references**: a memory operand is resolved (via the
+  disassembler's pre-computed effective address) to the symbol / module+offset it points at
+  **and its current value** — sized by the operand's byte/word/dword/qword prefix, or shown
+  as a quoted string when the target is printable text — as a `; -> name = value` /
+  `; -> name "text"` comment. So you can see which global the paused code reads or writes and
+  what it holds. Asserted in `gui_debugger_smoke`.
 - **Debugger shows decoded CPU flags**: a "Flags:" line under the register table spells out
   the status/control flags set in RFLAGS (CF PF AF ZF SF TF IF DF OF), instead of leaving
   you to decode the raw hex. Backed by a Qt-free `ce::describeEflags()` unit-tested in

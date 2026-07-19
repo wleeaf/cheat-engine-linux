@@ -728,40 +728,39 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
             }
             if (sym.empty() && in.address == c.rip) sym = resolver_.resolve(in.address);
             QString anno = sym.empty() ? QString() : QStringLiteral("   ; %1").arg(QString::fromStdString(sym));
-            // Data reference: Capstone renders a direct memory operand as its effective
-            // address ("dword ptr [0x556..]") or as "[rip + 0x..]". Resolve that address to
-            // a symbol / module+offset so you can see what global the paused code touches.
-            if (anno.isEmpty() && !branch) {
-                uintptr_t eff = 0;
-                if (auto rp = in.operands.find("[rip"); rp != std::string::npos) {
-                    eff = in.address + in.size;                       // [rip] with no disp
-                    if (auto cb = in.operands.find(']', rp); cb != std::string::npos) {
-                        const std::string inner = in.operands.substr(rp, cb - rp);
-                        if (auto hx = inner.find("0x"); hx != std::string::npos) {
-                            try {
-                                long long d = static_cast<long long>(std::stoull(inner.substr(hx + 2), nullptr, 16));
-                                if (auto mn = inner.find('-'); mn != std::string::npos && mn < hx) d = -d;
-                                eff = in.address + in.size + static_cast<uintptr_t>(d);
-                            } catch (...) { eff = 0; }
+            // Data reference: the disassembler resolves a memory operand to its effective
+            // address (in.ripTarget). Annotate it with the symbol / module+offset it points
+            // at and the value there, so you can see which global the paused code touches
+            // and what it holds (a printable target shows as a string).
+            if (anno.isEmpty() && !branch && in.ripTarget) {
+                const uintptr_t eff = in.ripTarget;
+                std::string es = resolver_.resolve(eff);
+                if (es.empty()) es = ce::moduleOffsetString(modules_, eff);
+                QString valPart;
+                if (proc_) {
+                    uint8_t vb[24] = {};
+                    if (auto r = proc_->read(eff, vb, sizeof(vb)); r && *r > 0) {
+                        const size_t n = *r;
+                        size_t printable = 0;
+                        for (size_t k = 0; k < n && vb[k]; ++k) {
+                            if (vb[k] >= 0x20 && vb[k] < 0x7f) ++printable; else break;
+                        }
+                        if (printable >= 3 && (printable == n || vb[printable] == 0)) {
+                            valPart = QStringLiteral(" \"%1\"").arg(QString::fromLatin1(
+                                reinterpret_cast<const char*>(vb), static_cast<int>(printable)));
                         }
                     }
-                } else if (auto ab = in.operands.find("[0x"); ab != std::string::npos) {
-                    try { eff = static_cast<uintptr_t>(std::stoull(in.operands.substr(ab + 3), nullptr, 16)); }
-                    catch (...) { eff = 0; }
                 }
-                if (eff) {
-                    std::string es = resolver_.resolve(eff);
-                    if (es.empty()) es = ce::moduleOffsetString(modules_, eff);
-                    // Also show the value currently at that address, sized by the operand's
-                    // "byte/word/dword/qword ptr" prefix, so you can read the global inline.
-                    QString valPart;
+                if (valPart.isEmpty() && proc_) {
+                    // Not a string: show the sized integer (from the operand's ptr prefix).
                     const int sz = in.operands.find("qword") != std::string::npos ? 8
                                  : in.operands.find("dword") != std::string::npos ? 4
                                  : in.operands.find("word")  != std::string::npos ? 2
                                  : in.operands.find("byte")  != std::string::npos ? 1 : 0;
-                    if (sz && proc_) {
-                        uint64_t v = 0;
-                        if (auto r = proc_->read(eff, &v, sz); r && *r == static_cast<size_t>(sz)) {
+                    uint64_t v = 0;
+                    if (sz) {
+                        auto r = proc_->read(eff, &v, sz);
+                        if (r && *r == static_cast<size_t>(sz)) {
                             int64_t sv = sz == 1 ? static_cast<int8_t>(v)
                                        : sz == 2 ? static_cast<int16_t>(v)
                                        : sz == 4 ? static_cast<int32_t>(v)
@@ -769,11 +768,11 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
                             valPart = QStringLiteral(" = %1").arg(static_cast<qlonglong>(sv));
                         }
                     }
-                    if (!es.empty())
-                        anno = QStringLiteral("   ; -> %1%2").arg(QString::fromStdString(es), valPart);
-                    else if (!valPart.isEmpty())
-                        anno = QStringLiteral("   ; ->%1").arg(valPart);
                 }
+                if (!es.empty())
+                    anno = QStringLiteral("   ; -> %1%2").arg(QString::fromStdString(es), valPart);
+                else if (!valPart.isEmpty())
+                    anno = QStringLiteral("   ; ->%1").arg(valPart);
             }
             out += QStringLiteral("%1%2%3  %4 %5%6\n")
                        .arg(marker, bpMark, hex(in.address),

@@ -8,6 +8,7 @@
 #include "scanner/snapshot.hpp"
 #include "core/autoasm.hpp"
 #include "core/value_codec.hpp"
+#include "core/value_transform.hpp"
 #include "core/address_list.hpp"
 #include "core/ct_file.hpp"
 #include "scripting/lua_engine.hpp"

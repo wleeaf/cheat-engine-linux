@@ -4139,35 +4139,26 @@ static long long parseIntField(const QString& valStr) {
     return neg ? -v : v;
 }
 
-// Reverse `n` bytes in place (host <-> big-endian for a scalar value).
-static void swapBytes(uint8_t* p, int n) {
-    for (int i = 0; i < n / 2; ++i) std::swap(p[i], p[n - 1 - i]);
-}
-
 // Format a fixed-width scalar exactly as the cheat table displays it (decimal or hex,
-// float precision). Byte-swaps a big-endian value to host order, then decodes an
-// obfuscated value through its codec. A single formatter so every read path renders
-// identically; returns empty for non-scalar types.
+// float precision). The byte-swap (big-endian) + codec decode is the shared cecore
+// transform (ce::decodeScalarBits); this only formats the resulting logical value.
+// Returns empty for non-scalar types.
 static QString formatScalarValue(ValueType type, const uint8_t* raw, bool showHex,
                                  const ce::ValueCodec& codec, bool bigEndian) {
-    uint8_t buf[8] = {};
-    const int w = std::min<int>(8, (int)vtSize(type));
-    memcpy(buf, raw, w);
-    if (bigEndian && w > 1) swapBytes(buf, w);
-    auto dec = [&](uint64_t v, int bytes) { return codec.active() ? codec.decode(v, bytes) : v; };
+    const uint64_t bits = ce::decodeScalarBits(type, raw, bigEndian, codec);
     switch (type) {
-        case ValueType::Byte:   { uint8_t  v; memcpy(&v, buf, 1); uint8_t  x = (uint8_t)dec(v, 1);
+        case ValueType::Byte:   { uint8_t  x = (uint8_t)bits;
                                   return showHex ? QString("0x%1").arg(x, 0, 16) : QString::number(x); }
-        case ValueType::Int16:  { uint16_t v; memcpy(&v, buf, 2); uint16_t x = (uint16_t)dec(v, 2);
+        case ValueType::Int16:  { uint16_t x = (uint16_t)bits;
                                   return showHex ? QString("0x%1").arg(x, 0, 16) : QString::number((int16_t)x); }
-        case ValueType::Int32:  { uint32_t v; memcpy(&v, buf, 4); uint32_t x = (uint32_t)dec(v, 4);
+        case ValueType::Int32:  { uint32_t x = (uint32_t)bits;
                                   return showHex ? QString("0x%1").arg(x, 0, 16) : QString::number((int32_t)x); }
-        case ValueType::Int64:  { uint64_t v; memcpy(&v, buf, 8); uint64_t x = dec(v, 8);
+        case ValueType::Int64:  { uint64_t x = bits;
                                   return showHex ? QString("0x%1").arg((quint64)x, 0, 16)
                                                  : QString::number((qlonglong)(int64_t)x); }
-        case ValueType::Pointer:{ uintptr_t v; memcpy(&v, buf, sizeof(v)); return QString("0x%1").arg(v, 0, 16); }
-        case ValueType::Float:  { float  v; memcpy(&v, buf, 4); return QString::number(v, 'f', 4); }
-        case ValueType::Double: { double v; memcpy(&v, buf, 8); return QString::number(v, 'f', 6); }
+        case ValueType::Pointer:{ return QString("0x%1").arg((qulonglong)bits, 0, 16); }
+        case ValueType::Float:  { float  v; memcpy(&v, &bits, 4); return QString::number(v, 'f', 4); }
+        case ValueType::Double: { double v; memcpy(&v, &bits, 8); return QString::number(v, 'f', 6); }
         default: return QString();
     }
 }
@@ -4218,16 +4209,10 @@ static void writeValueToProcess(ProcessHandle* proc, uintptr_t addr, ValueType t
         // String/UnicodeString/ByteArray address-list entries.
         default: return;
     }
-    // Encode into the stored (obfuscated) form so the user edits by the logical value.
-    // Only integer widths are codec-eligible; float/double/pointer pass through.
-    if (codec.active() && (type == ValueType::Byte || type == ValueType::Int16 ||
-                           type == ValueType::Int32 || type == ValueType::Int64)) {
-        uint64_t raw = 0; memcpy(&raw, buf, vs);
-        uint64_t enc = codec.encode(raw, (int)vs);
-        memcpy(buf, &enc, vs);
-    }
-    // Store in the target's byte order: swap host -> big-endian just before writing.
-    if (bigEndian && vs > 1) swapBytes(buf, (int)vs);
+    // Encode into the stored form (obfuscation codec + target byte order) so the user
+    // edits by the logical value. Shared cecore transform; `buf` holds the logical
+    // little-endian value at this point.
+    { uint64_t bits = 0; memcpy(&bits, buf, vs); ce::encodeScalarBits(type, bits, bigEndian, codec, buf); }
     proc->write(addr, buf, vs);
 }
 
@@ -4238,33 +4223,19 @@ static bool readComparableValue(ProcessHandle* proc, uintptr_t addr, ValueType t
     size_t vs = vtSize(type);
     auto r = proc->read(addr, buf, vs);
     if (!r || *r < vs) return false;
-    if (bigEndian && vs > 1) swapBytes(buf, (int)vs);   // to host order before decode
 
-    // Integer types decode through the codec so directional freeze, the adjust hotkey,
-    // and edit-verify all compare the LOGICAL value, not the obfuscated bytes.
-    auto dec = [&](uint64_t raw, int bytes) { return codec.active() ? codec.decode(raw, bytes) : raw; };
+    // Shared cecore transform: reverse big-endian to host order, then codec-decode
+    // (integer types), so directional freeze, the adjust hotkey and edit-verify all
+    // compare the LOGICAL value.
+    const uint64_t bits = ce::decodeScalarBits(type, buf, bigEndian, codec);
     switch (type) {
-        case ValueType::Byte: {
-            uint8_t v; memcpy(&v, buf, 1); value = (uint8_t)dec(v, 1); return true;
-        }
-        case ValueType::Int16: {
-            uint16_t v; memcpy(&v, buf, 2); value = (int16_t)dec(v, 2); return true;
-        }
-        case ValueType::Int32: {
-            uint32_t v; memcpy(&v, buf, 4); value = (int32_t)dec(v, 4); return true;
-        }
-        case ValueType::Int64: {
-            uint64_t v; memcpy(&v, buf, 8); value = static_cast<double>((int64_t)dec(v, 8)); return true;
-        }
-        case ValueType::Pointer: {
-            uintptr_t v; memcpy(&v, buf, sizeof(v)); value = static_cast<double>(v); return true;
-        }
-        case ValueType::Float: {
-            float v; memcpy(&v, buf, 4); value = v; return true;
-        }
-        case ValueType::Double: {
-            double v; memcpy(&v, buf, 8); value = v; return true;
-        }
+        case ValueType::Byte:    value = (uint8_t)bits;                    return true;
+        case ValueType::Int16:   value = (int16_t)bits;                   return true;
+        case ValueType::Int32:   value = (int32_t)bits;                   return true;
+        case ValueType::Int64:   value = static_cast<double>((int64_t)bits); return true;
+        case ValueType::Pointer: value = static_cast<double>((uintptr_t)bits); return true;
+        case ValueType::Float:  { float  v; memcpy(&v, &bits, 4); value = v; return true; }
+        case ValueType::Double: { double v; memcpy(&v, &bits, 8); value = v; return true; }
         default:
             return false;
     }

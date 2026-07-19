@@ -28,6 +28,7 @@
 #include "core/guest_view.hpp"
 #include "core/ns_attach.hpp"
 #include "core/value_codec.hpp"
+#include "core/value_transform.hpp"
 #include "arch/disassembler.hpp"
 #include "core/expression.hpp"
 #include "core/trainer.hpp"
@@ -254,6 +255,51 @@ static void test_value_codec() {
         if (!back || back->op != codec.op || back->key != codec.key) descRt = false;
     }
     printf("  describe/parse round-trip (persistence): %s\n", descRt ? "OK" : "FAILED");
+}
+
+static void test_value_transform() {
+    printf("\n── Test: Scalar value transform (endianness + codec) ──\n");
+    using ce::ValueType;
+    using ce::ValueCodec;
+    const ValueCodec none;
+    const ValueCodec xr{ValueCodec::Op::Xor, 0xDEADBEEFull};
+
+    // Round-trip: decode(encode(v)) == v for every combination of endianness and codec.
+    bool rt = true;
+    const uint64_t vals[] = {0, 1, 100, 1000, 0x7fffffffull, 0xdeadbeefull};
+    for (auto type : {ValueType::Byte, ValueType::Int16, ValueType::Int32, ValueType::Int64})
+        for (bool be : {false, true})
+            for (const auto* codec : {&none, &xr}) {
+                const int w = ce::scalarWidth(type);
+                for (uint64_t v : vals) {
+                    uint64_t masked = v & ce::ValueCodec::maskFor(w);
+                    uint8_t stored[8] = {};
+                    ce::encodeScalarBits(type, masked, be, *codec, stored);
+                    if (ce::decodeScalarBits(type, stored, be, *codec) != masked) rt = false;
+                }
+            }
+    printf("  decode(encode(v)) round-trips (all types/endian/codec): %s\n", rt ? "OK" : "FAILED");
+
+    // Big-endian layout: i32 1000 stored big-endian is 00 00 03 e8.
+    uint8_t be32[4] = {};
+    ce::encodeScalarBits(ValueType::Int32, 1000, /*bigEndian*/true, none, be32);
+    bool beOk = be32[0] == 0x00 && be32[1] == 0x00 && be32[2] == 0x03 && be32[3] == 0xe8
+             && ce::decodeScalarBits(ValueType::Int32, be32, true, none) == 1000;
+    printf("  big-endian i32 1000 = 00 00 03 e8: %s\n", beOk ? "OK" : "FAILED");
+
+    // Codec wraps endianness: logical 1000 with xor, stored big-endian, decodes back.
+    uint8_t bx[4] = {};
+    ce::encodeScalarBits(ValueType::Int32, 1000, true, xr, bx);
+    bool bxOk = ce::decodeScalarBits(ValueType::Int32, bx, true, xr) == 1000
+             && ce::decodeScalarBits(ValueType::Int32, bx, true, none) != 1000;  // still encoded w/o codec
+    printf("  big-endian + xor codec composes: %s\n", bxOk ? "OK" : "FAILED");
+
+    // The codec never touches float/pointer; big-endian still byte-swaps them.
+    uint8_t f[4] = {};
+    float pi = 3.5f; memcpy(f, &pi, 4);
+    uint64_t decoded = ce::decodeScalarBits(ValueType::Float, f, false, xr);  // codec ignored for float
+    float back; memcpy(&back, &decoded, 4);
+    printf("  codec skipped for float: %s\n", (back == pi) ? "OK" : "FAILED");
 }
 
 static void test_ns_attach() {
@@ -9800,6 +9846,7 @@ int main(int argc, char* argv[]) {
     test_guest_view();
     test_ns_attach();
     test_value_codec();
+    test_value_transform();
     test_recover_store();
     test_cheat_table_json();
     test_mono_dissector_parse();

@@ -128,15 +128,16 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     threadCombo_ = new QComboBox();
     threadRow->addWidget(threadCombo_, 1);
     rl->addLayout(threadRow);
-    regTable_ = new QTableWidget(26, 1);   // 10 GP/flags + 16 XMM
+    regTable_ = new QTableWidget(34, 1);   // 18 GP/flags + 16 XMM
     regTable_->setFont(mono);
     regTable_->horizontalHeader()->setVisible(false);
     regTable_->horizontalHeader()->setStretchLastSection(true);
     regTable_->verticalHeader()->setVisible(true);
     static const char* rnames[] = {"RIP","RSP","RBP","RAX","RBX","RCX","RDX","RSI","RDI","RFLAGS",
+        "R8","R9","R10","R11","R12","R13","R14","R15",
         "XMM0","XMM1","XMM2","XMM3","XMM4","XMM5","XMM6","XMM7",
         "XMM8","XMM9","XMM10","XMM11","XMM12","XMM13","XMM14","XMM15"};
-    for (int i = 0; i < 26; ++i)
+    for (int i = 0; i < 34; ++i)
         regTable_->setVerticalHeaderItem(i, new QTableWidgetItem(rnames[i]));
     rl->addWidget(regTable_, 3);
 
@@ -605,14 +606,15 @@ bool DebuggerWindow::memoryViewShowsForTest(uintptr_t addr) {
 
 bool DebuggerWindow::xmm0ShowsForTest(uint64_t lo) {
     if (!regTable_) return false;
-    auto* it = regTable_->item(10, 0);   // XMM0 row
+    auto* it = regTable_->item(18, 0);   // XMM0 row (after 18 GP/flags rows)
     if (!it) return false;
     return it->text().contains(QString::asprintf("%016llx", static_cast<unsigned long long>(lo)));
 }
 
 void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
-    const uintptr_t vals[] = {c.rip, c.rsp, c.rbp, c.rax, c.rbx, c.rcx, c.rdx, c.rsi, c.rdi, c.rflags};
-    constexpr int kGp = 10;
+    const uintptr_t vals[] = {c.rip, c.rsp, c.rbp, c.rax, c.rbx, c.rcx, c.rdx, c.rsi, c.rdi, c.rflags,
+                              c.r8, c.r9, c.r10, c.r11, c.r12, c.r13, c.r14, c.r15};
+    constexpr int kGp = 18;
     // Flag registers the last instruction changed, like CE: red when the value
     // differs from the previous stop, default colour otherwise. Skipped on the
     // first stop of a session (prevGp_ empty), so nothing lights up spuriously.
@@ -645,11 +647,11 @@ void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
     // Same change highlight as the GP regs (a movss/paddd etc. lights up its dest).
     auto xmm = session_->getXmmRegisters();
     for (int r = 0; r < 16; ++r) {
-        auto* it = regTable_->item(10 + r, 0);
+        auto* it = regTable_->item(kGp + r, 0);
         if (!it) {
             it = new QTableWidgetItem();
             it->setFlags(it->flags() & ~Qt::ItemIsEditable);
-            regTable_->setItem(10 + r, 0, it);
+            regTable_->setItem(kGp + r, 0, it);
         }
         QString s;
         for (int b = 15; b >= 0; --b) s += QString::asprintf("%02x", xmm[r][b]);
@@ -697,7 +699,15 @@ void DebuggerWindow::onRegisterEdited(QTableWidgetItem* item) {
             case 7: ctx.rsi = v; break;
             case 8: ctx.rdi = v; break;
             case 9: ctx.rflags = v; break;
-            default: return;
+            case 10: ctx.r8 = v; break;
+            case 11: ctx.r9 = v; break;
+            case 12: ctx.r10 = v; break;
+            case 13: ctx.r11 = v; break;
+            case 14: ctx.r12 = v; break;
+            case 15: ctx.r13 = v; break;
+            case 16: ctx.r14 = v; break;
+            case 17: ctx.r15 = v; break;
+            default: return;   // rows 18+ are the view-only XMM registers
         }
         session_->setStopContext(ctx);
     }

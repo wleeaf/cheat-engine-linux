@@ -56,6 +56,10 @@ transforms across surfaces.
   button now carries CE's **F4** shortcut, and right-clicking a disassembly line offers "Run to
   cursor" (enabled only while paused), so you can run to a clicked instruction without setting a
   temporary breakpoint.
+- **Debugger register panel now shows R8-R15** (CE parity): the panel listed RIP/RSP/RBP/RAX-RDI/
+  RFLAGS + XMM but omitted the extended general-purpose registers R8-R15, which modern x86-64 code
+  uses heavily. They are now shown (between RFLAGS and XMM0) and editable like the other GP
+  registers; the XMM rows shifted down accordingly.
 - **Debugger predicts conditional jumps** (CE parity): when the target is paused on a
   conditional branch (`je`, `jne`, `jbe`, `jg`, ...), the disassembly line now reads
   `(will jump)` or `(no jump)` based on the live flags, so you can see the path before you

@@ -78,10 +78,24 @@ int main(int argc, char** argv) {
     bool exprCompare = diss.setCompareExpressionForTest("0x3000, #16384") == 5;
     bool exprOk = exprDecimal && exprHex && exprCompare;
 
+    // Follow-pointer: double-clicking a pointer field re-bases the dissector to the
+    // pointed-to struct (CE Dissect Data spider). Put a pointer to g_b at offset 0x20
+    // of g_a (row 4), point the base back at g_a, then follow it.
+    diss.resolveBaseForTest(QString("0x%1").arg(reinterpret_cast<uintptr_t>(g_a), 0, 16));
+    uintptr_t pb = reinterpret_cast<uintptr_t>(g_b);
+    std::memcpy(g_a + 0x20, &pb, sizeof(pb));
+    bool followed = diss.followPointerForTest(4 /*offset 0x20*/, 2 /*Base column*/);
+    bool followOk = followed && diss.baseAddressForTest() == reinterpret_cast<uintptr_t>(g_b);
+    // A non-pointer field (the int 7 at offset 0x28) must NOT follow.
+    diss.resolveBaseForTest(QString("0x%1").arg(reinterpret_cast<uintptr_t>(g_a), 0, 16));
+    bool noFollowInt = !diss.followPointerForTest(5 /*offset 0x28*/, 2);
+    bool followTestOk = followOk && noFollowInt;
+
     bool ok = cols == 4 && diffAt0x10 && !sameAt0x00 && !sameAt0x28
-           && changedRow3 && !changedRow0 && addAllOk && exprOk;
+           && changedRow3 && !changedRow0 && addAllOk && exprOk && followTestOk;
     printf("gui structdissect smoke: %s (cols=%d diff@0x10=%d same@0x00=%d same@0x28=%d "
-           "changed@0x18=%d changed@0x00=%d addAll=%d expr=%d)\n",
-           ok ? "OK" : "FAILED", cols, diffAt0x10, sameAt0x00, sameAt0x28, changedRow3, changedRow0, addAllOk, exprOk);
+           "changed@0x18=%d changed@0x00=%d addAll=%d expr=%d follow=%d noFollowInt=%d)\n",
+           ok ? "OK" : "FAILED", cols, diffAt0x10, sameAt0x00, sameAt0x28, changedRow3, changedRow0,
+           addAllOk, exprOk, (int)followOk, (int)noFollowInt);
     return ok ? 0 : 1;
 }

@@ -133,8 +133,10 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
     table_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(table_, &QTableWidget::customContextMenuRequested,
             this, &StructureDissector::onContextMenu);
-    // Double-click a row to name that field (stored by offset; blank clears).
-    connect(table_, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
+    // Double-click a pointer value cell to follow it (CE Dissect Data spider: re-base
+    // the dissector to the pointed-to structure). Any other cell names that field.
+    connect(table_, &QTableWidget::cellDoubleClicked, this, [this](int row, int col) {
+        if (followPointerAt(row, col)) return;
         int off = row * 8;
         bool ok = false;
         QString cur = fieldNames_.count(off) ? fieldNames_[off] : QString();
@@ -171,6 +173,27 @@ uintptr_t StructureDissector::resolveAddress(const QString& text) {
 
 void StructureDissector::onGotoAddress() {
     if (uintptr_t a = resolveAddress(addressEdit_->text())) { baseAddr_ = a; populateTable(); }
+}
+
+uintptr_t StructureDissector::instanceBaseForColumn(int col) const {
+    // Columns are: 0 Offset, 1 Name, 2 Base value, 3.. one per compare instance.
+    if (col == 2) return baseAddr_;
+    int j = col - 3;
+    if (j >= 0 && j < (int)compareAddrs_.size()) return compareAddrs_[j];
+    return 0;
+}
+
+bool StructureDissector::followPointerAt(int row, int col) {
+    if (row < 0 || col < 2 || !proc_) return false;
+    uintptr_t ibase = instanceBaseForColumn(col);
+    if (!ibase) return false;
+    uintptr_t val = 0;
+    auto r = proc_->read(ibase + static_cast<uintptr_t>(row) * 8, &val, sizeof(val));
+    if (!r || *r < sizeof(val) || !looksLikePointer(val)) return false;
+    baseAddr_ = val;
+    if (addressEdit_) addressEdit_->setText(QString("0x%1").arg(val, 0, 16));
+    populateTable();
+    return true;
 }
 
 void StructureDissector::applyCompareAddresses() {

@@ -42,6 +42,11 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **Structure Dissector follows pointers on double-click** (CE Dissect Data spider):
+  double-clicking a pointer field re-bases the dissector to the pointed-to structure, so
+  you can walk a linked structure by clicking through it. Non-pointer cells still open the
+  field-name dialog. Asserted in `gui_structdissect_smoke` (follows a real pointer, and a
+  plain integer field does not follow).
 - **Double-clicking a cheat-table Address browses it in the Memory Viewer** (CE parity):
   the viewer opens at that address and focuses the disassembler for code or the hex dump
   for data, with **Shift** forcing the disassembler and **Ctrl** forcing the hex dump. The

@@ -40,6 +40,9 @@ public:
     }
     void typeFieldForTest(int offset, ce::ValueType t) { fieldTypes_[offset] = t; }
     int  columnCountForTest() const { return table_->columnCount(); }
+    // Follow the pointer in the cell at (row, col); returns true if it re-based.
+    bool followPointerForTest(int row, int col) { return followPointerAt(row, col); }
+    uintptr_t baseAddressForTest() const { return baseAddr_; }
     // True if the cell at (row, col) is painted in the "differs from base" colour.
     bool cellDiffColoredForTest(int row, int col) const;
     // True if `row`'s value changed since the previous refresh (live-change highlight).
@@ -61,6 +64,12 @@ private slots:
 
 private:
     void populateTable();
+    // Base address of the struct instance shown in table column `col` (Base col -> the
+    // dissector base; a compare column -> that instance's address); 0 if not a value col.
+    uintptr_t instanceBaseForColumn(int col) const;
+    // If (row, col) holds a pointer, re-base the dissector to the pointed-to address
+    // (CE Dissect Data "follow pointer" / spider). Returns true when it followed.
+    bool followPointerAt(int row, int col);
     uintptr_t resolveAddress(const QString& text);   // CE-style address expression -> address
     void applyCompareAddresses();                    // parse the Compare field, repopulate
     QString formatValue(const uint8_t* data, int offset, const QString& type) const;

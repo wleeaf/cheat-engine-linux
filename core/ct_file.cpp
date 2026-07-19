@@ -275,6 +275,10 @@ bool CheatTable::save(const std::string& path) const {
             f << "      <Activated>1</Activated>\n";
         if (e.showAsHex)
             f << "      <ShowAsHex>1</ShowAsHex>\n";   // CE-standard tag
+        // Signed display defaults to on, so only the unsigned override needs writing
+        // (CE reads <ShowAsSigned> and omits it at its default too).
+        if (!e.showAsSigned)
+            f << "      <ShowAsSigned>0</ShowAsSigned>\n";
         // Directional freeze (Allow Increase/Decrease etc.) — a custom tag CE
         // ignores but our loader restores, so it round-trips through CE XML too.
         if (e.freezeMode != FreezeMode::Normal)
@@ -461,6 +465,7 @@ static void parseCheatEntriesBlock(const std::string& entriesXml, int parentId,
         }
         e.active = (getTag(ownXml, "Activated") == "1");
         e.showAsHex = (getTag(ownXml, "ShowAsHex") == "1");
+        e.showAsSigned = (getTag(ownXml, "ShowAsSigned") != "0");  // absent -> signed default
         if (auto fm = getTag(ownXml, "freezeMode"); !fm.empty()) {
             try { e.freezeMode = (FreezeMode)std::stoi(fm); } catch (...) {}
         }
@@ -1038,6 +1043,7 @@ bool CheatTable::saveJson(const std::string& path) const {
         }
         if (e.active) f << ",\"active\":true";
         if (e.showAsHex) f << ",\"showAsHex\":true";
+        if (!e.showAsSigned) f << ",\"showAsSigned\":false";
         if (e.freezeMode != FreezeMode::Normal)
             f << ",\"freezeMode\":" << (int)e.freezeMode;
         if (e.isGroup) f << ",\"group\":true";
@@ -1133,6 +1139,7 @@ bool CheatTable::loadJson(const std::string& path) {
         e.value = jsonStringField(item, "value");
         e.active = jsonBoolField(item, "active");
         e.showAsHex = jsonBoolField(item, "showAsHex");
+        e.showAsSigned = getField(item, "showAsSigned") ? jsonBoolField(item, "showAsSigned") : true;
         e.freezeMode = (FreezeMode)jsonIntField(item, "freezeMode", 0);
         e.isGroup = jsonBoolField(item, "group");
         e.autoAsmScript = jsonStringField(item, "asm");

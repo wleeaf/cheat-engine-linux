@@ -18,6 +18,7 @@ struct CheatEntry {
     std::string value;
     bool active = false;
     bool showAsHex = false;     // Display the value as hexadecimal (CE <ShowAsHex>)
+    bool showAsSigned = true;   // Display integer values signed vs unsigned (CE <ShowAsSigned>)
     FreezeMode freezeMode = FreezeMode::Normal;
     std::string autoAsmScript;  // [ENABLE]/[DISABLE] script
     std::string luaScript;      // Lua code

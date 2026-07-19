@@ -708,6 +708,7 @@ static void test_cheat_table_json() {
     entry.increaseHotkeyKeys = "Ctrl+Up";
     entry.decreaseHotkeyKeys = "Ctrl+Down";
     entry.hotkeyStep = "5";
+    entry.showAsSigned = false;   // non-default (CE <ShowAsSigned>0</ShowAsSigned>) must survive
     table.entries.push_back(entry);
 
     StructureDefinition structure;
@@ -762,6 +763,7 @@ static void test_cheat_table_json() {
             loaded.entries[0].type == entry.type &&
             loaded.entries[0].value == entry.value &&
             loaded.entries[0].active == entry.active &&
+            loaded.entries[0].showAsSigned == entry.showAsSigned &&
             loaded.entries[0].autoAsmScript == entry.autoAsmScript &&
             loaded.entries[0].luaScript == entry.luaScript &&
             loaded.entries[0].color == entry.color &&
@@ -790,6 +792,22 @@ static void test_cheat_table_json() {
         xmlText.find("<Type>4 Bytes</Type>") != std::string::npos &&
         xmlText.find("<Type>Float</Type>") != std::string::npos &&
         xmlText.find("<Type>Array of byte</Type>") != std::string::npos;
+
+    // A CE .CT that omits <ShowAsSigned> loads as signed (our default); an explicit
+    // <ShowAsSigned>0</ShowAsSigned> loads as unsigned.
+    CheatTable absentTag;
+    absentTag.loadFromString(
+        "<CheatTable><CheatEntries><CheatEntry><ID>1</ID><Description>\"x\"</Description>"
+        "<VariableType>4 Bytes</VariableType><Address>400000</Address></CheatEntry>"
+        "</CheatEntries></CheatTable>");
+    CheatTable zeroTag;
+    zeroTag.loadFromString(
+        "<CheatTable><CheatEntries><CheatEntry><ID>1</ID><Description>\"x\"</Description>"
+        "<VariableType>4 Bytes</VariableType><Address>400000</Address>"
+        "<ShowAsSigned>0</ShowAsSigned></CheatEntry></CheatEntries></CheatTable>");
+    bool signedDefaultOk = absentTag.entries.size() == 1 && absentTag.entries[0].showAsSigned &&
+                           zeroTag.entries.size() == 1 && !zeroTag.entries[0].showAsSigned;
+
     CheatTable protectedLoaded;
     bool protectedOk = protectedLoaded.loadProtected(protectedPath.string(), "secret") &&
         matchesTable(protectedLoaded);
@@ -801,6 +819,7 @@ static void test_cheat_table_json() {
 
     printf("  JSON round trip: %s\n", jsonOk ? "OK" : "FAILED");
     printf("  CT XML round trip: %s\n", xmlOk ? "OK" : "FAILED");
+    printf("  ShowAsSigned default/override: %s\n", signedDefaultOk ? "OK" : "FAILED");
     printf("  CT XML CE type names: %s\n", xmlTypeNamesOk ? "OK" : "FAILED");
     printf("  CETRAINER protected round trip: %s\n", (protectedOk && wrongPasswordOk) ? "OK" : "FAILED");
 }

@@ -2956,6 +2956,7 @@ ce::CheatTable MainWindow::buildCheatTable() const {
         e.value = obj["value"].toString().toStdString();
         e.active = obj["active"].toBool();
         e.showAsHex = obj["showAsHex"].toBool();
+        e.showAsSigned = obj["showAsSigned"].toBool(true);
         e.freezeMode = (ce::FreezeMode)obj["freezeMode"].toInt();
         e.autoAsmScript = obj["asm"].toString().toStdString();
         e.color = obj["color"].toString().toStdString();
@@ -3179,6 +3180,7 @@ static QJsonArray cheatEntriesToJson(const ce::CheatTable& table) {
         obj["value"] = QString::fromStdString(e.value);
         obj["active"] = e.active;
         obj["showAsHex"] = e.showAsHex;
+        obj["showAsSigned"] = e.showAsSigned;
         obj["freezeMode"] = (int)e.freezeMode;
         obj["asm"] = QString::fromStdString(e.autoAsmScript);
         obj["color"] = QString::fromStdString(e.color);

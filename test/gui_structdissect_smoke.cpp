@@ -67,10 +67,16 @@ int main(int argc, char** argv) {
     int returned = diss.addAllFieldsToList();
     bool addAllOk = (returned == 2 && added == 2 && ammoSeen && ammoType == ce::ValueType::Float);
 
+    // Base Address field accepts CE-style expressions, not just bare hex: "#1234" is
+    // decimal, "0x.." is hex.
+    bool exprDecimal = diss.resolveBaseForTest("#256") == 256;
+    bool exprHex = diss.resolveBaseForTest("0x2000") == 0x2000;
+    bool exprOk = exprDecimal && exprHex;
+
     bool ok = cols == 4 && diffAt0x10 && !sameAt0x00 && !sameAt0x28
-           && changedRow3 && !changedRow0 && addAllOk;
+           && changedRow3 && !changedRow0 && addAllOk && exprOk;
     printf("gui structdissect smoke: %s (cols=%d diff@0x10=%d same@0x00=%d same@0x28=%d "
-           "changed@0x18=%d changed@0x00=%d addAll=%d)\n",
-           ok ? "OK" : "FAILED", cols, diffAt0x10, sameAt0x00, sameAt0x28, changedRow3, changedRow0, addAllOk);
+           "changed@0x18=%d changed@0x00=%d addAll=%d expr=%d)\n",
+           ok ? "OK" : "FAILED", cols, diffAt0x10, sameAt0x00, sameAt0x28, changedRow3, changedRow0, addAllOk, exprOk);
     return ok ? 0 : 1;
 }

@@ -34,6 +34,10 @@ public:
         compareAddrs_ = std::move(addrs); if (baseAddr_) populateTable();
     }
     void nameFieldForTest(int offset, const QString& name) { fieldNames_[offset] = name; }
+    // Type an expression into the Base Address field, resolve it, and report the base.
+    uintptr_t resolveBaseForTest(const QString& expr) {
+        addressEdit_->setText(expr); onGotoAddress(); return baseAddr_;
+    }
     void typeFieldForTest(int offset, ce::ValueType t) { fieldTypes_[offset] = t; }
     int  columnCountForTest() const { return table_->columnCount(); }
     // True if the cell at (row, col) is painted in the "differs from base" colour.

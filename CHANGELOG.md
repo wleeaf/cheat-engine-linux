@@ -59,6 +59,10 @@ transforms across surfaces.
   also gained a **live-change highlight**: a value that changes between refreshes paints
   red (like CE's Dissect Data and the hex pane), reset on a base-address change. Both are
   covered by the offscreen `gui_structdissect_smoke` in the CI mirror.
+- **Structure Dissector Base Address accepts expressions**: the address field now takes a
+  CE-style expression (module+offset `game.exe+0x100`, pointer deref `[rax+8]`, decimal
+  `#1234`) via the shared ExpressionParser, not just a bare hex address. Asserted in
+  `gui_structdissect_smoke`.
 - **Structure Dissector "Add All to List"**: after labelling a struct's fields (by hand or
   via Type as IL2CPP / C struct), one button adds every named field to the cheat table
   (base+offset, name, type) instead of adding them one at a time. Fields typed via Type-as

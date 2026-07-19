@@ -7,6 +7,7 @@
 #include <QApplication>
 #include <QMessageBox>
 #include "analysis/structure_tools.hpp"
+#include "core/expression.hpp"
 #include <QLabel>
 #include <QHeaderView>
 #include <QMenu>
@@ -167,9 +168,15 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
 }
 
 void StructureDissector::onGotoAddress() {
-    bool ok;
-    baseAddr_ = addressEdit_->text().toULongLong(&ok, 16);
-    if (ok) populateTable();
+    QString text = addressEdit_->text().trimmed();
+    if (text.isEmpty()) return;
+    // Accept CE-style expressions: module+offset ("game.exe+0x100"), pointer derefs
+    // ("[rax+8]"), decimal ("#1234"), or hex -- not just a bare hex address.
+    ce::ExpressionParser parser(proc_, nullptr);
+    if (auto a = parser.parse(text.toStdString()); a && *a) { baseAddr_ = *a; populateTable(); return; }
+    bool ok = false;
+    uintptr_t a = text.toULongLong(&ok, 16);
+    if (ok) { baseAddr_ = a; populateTable(); }
 }
 
 void StructureDissector::onRefresh() {

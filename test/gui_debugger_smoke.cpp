@@ -130,6 +130,55 @@ int main(int argc, char** argv) {
     // thread switch below retargets the register view to another thread).
     bool xmmView = hit && win.xmm0ShowsForTest(0x0102030405060708ULL);
 
+    // In-Memory-Viewer debug controls (CE parity): the Memory Viewer's Debug menu drives
+    // the debug session the Debugger window owns. Wire a browser's controls to this window
+    // exactly as MainWindow does, then exercise Run-to-cursor (F4) and Step-into (F7) from
+    // the viewer. Done here, before the disasm-line breakpoint below, so only the entry
+    // breakpoint exists and the RTC target is not shadowed; we return to the entry stop
+    // afterwards so the remaining at-entry checks still see the int3.
+    ce::gui::MemoryBrowser stepBrowser(&proc);
+    stepBrowser.setStepControls(
+        [&]() { if (win.debugStopped()) QMetaObject::invokeMethod(&win, "onStepInto"); },
+        [&]() { if (win.debugStopped()) QMetaObject::invokeMethod(&win, "onStepOver"); },
+        [&]() { if (win.debugStopped()) QMetaObject::invokeMethod(&win, "onContinue"); });
+    stepBrowser.setRunToCursor([&](uintptr_t a) { win.runToAddress(a); });
+
+    // Run to cursor (F4): run to smoke_hot's return address (which [RSP] holds at the
+    // function's entry). It carries no user breakpoint, so this drives the one-shot RTC
+    // breakpoint, and the worker reaches it when smoke_hot returns. Stop must land on it.
+    bool memViewRtc = false;
+    if (hit && win.currentStopRip() == hotAddr) {
+        uintptr_t rsp = static_cast<uintptr_t>(win.currentStopContext().rsp);
+        uintptr_t retAddr = 0;
+        proc.read(rsp, &retAddr, sizeof(retAddr));
+        if (retAddr && stepBrowser.runToCursorForTest(retAddr)) {
+            for (int i = 0; i < 150 && win.currentStopRip() != retAddr; ++i) {
+                app.processEvents(); usleep(4000);
+            }
+            memViewRtc = win.debugStopped() && win.currentStopRip() == retAddr;
+        }
+    }
+
+    // Step into (F7): from the RTC stop, one instruction advances RIP. Triggered through
+    // the browser's Debug menu, exactly as a user pressing F7 in the Memory Viewer.
+    bool memViewStep = false;
+    if (memViewRtc) {
+        uintptr_t ripBefore = win.currentStopRip();
+        bool triggered = stepBrowser.triggerDebugActionForTest("Step into");
+        for (int i = 0; i < 80 && win.currentStopRip() == ripBefore; ++i) {
+            app.processEvents(); usleep(4000);
+        }
+        memViewStep = triggered && win.debugStopped() && win.currentStopRip() != ripBefore;
+    }
+
+    // Return to the entry breakpoint so the remaining checks run at smoke_hot's int3.
+    if (hit) {
+        QMetaObject::invokeMethod(&win, "onContinue");
+        for (int i = 0; i < 200 && win.currentStopRip() != hotAddr; ++i) {
+            app.processEvents(); usleep(4000);
+        }
+    }
+
     // Disassembler right-click: set a breakpoint at a disasm line via the cursor
     // path the context menu uses (while the worker's code is shown).
     bool disasmBp = hit && win.disasmSetBreakpointForTest(1);
@@ -143,26 +192,6 @@ int main(int argc, char** argv) {
     // F5 toggle: at a fresh line (no breakpoint), the first F5 adds one and the second
     // removes it. Line 3 is a distinct instruction now that the disassembly is readable.
     bool bpToggle = hit && win.toggleBreakpointAtCursorForTest(3);
-
-    // In-Memory-Viewer stepping (CE parity): the Memory Viewer's Debug menu drives
-    // the debug session that the Debugger window owns. Wire a browser's step controls
-    // to this window exactly as MainWindow does, trigger "Step into" from the browser,
-    // and confirm the debugger single-stepped (its reported RIP advanced). Done before
-    // the thread switch below so the trapping thread is still active.
-    bool memViewStep = false;
-    if (hit) {
-        ce::gui::MemoryBrowser stepBrowser(&proc);
-        stepBrowser.setStepControls(
-            [&]() { if (win.debugStopped()) QMetaObject::invokeMethod(&win, "onStepInto"); },
-            [&]() { if (win.debugStopped()) QMetaObject::invokeMethod(&win, "onStepOver"); },
-            [&]() { if (win.debugStopped()) QMetaObject::invokeMethod(&win, "onContinue"); });
-        uintptr_t ripBefore = win.currentStopRip();
-        bool triggered = stepBrowser.triggerDebugActionForTest("Step into");
-        for (int i = 0; i < 80 && win.currentStopRip() == ripBefore; ++i) {
-            app.processEvents(); usleep(4000);
-        }
-        memViewStep = triggered && win.debugStopped() && win.currentStopRip() != ripBefore;
-    }
 
     // Thread switcher: the child has >= 2 frozen threads; the dropdown lists them
     // and switching moves the session's active thread.
@@ -199,8 +228,8 @@ int main(int argc, char** argv) {
     kill(child, SIGKILL);
     waitpid(child, nullptr, 0);
 
-    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && memHl && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno && disasmSym && disasmData && disasmHl && disasmComment && disasmUnmasked && bpToggle && memViewStep;
-    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d memhl=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d stackanno=%d disasmsym=%d disasmdata=%d disasmhl=%d disasmcomment=%d unmasked=%d bptoggle=%d memviewstep=%d)\n",
-           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, memHl, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk, stackAnno, disasmSym, disasmData, disasmHl, disasmComment, disasmUnmasked, bpToggle, memViewStep);
+    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && memHl && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno && disasmSym && disasmData && disasmHl && disasmComment && disasmUnmasked && bpToggle && memViewStep && memViewRtc;
+    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d memhl=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d stackanno=%d disasmsym=%d disasmdata=%d disasmhl=%d disasmcomment=%d unmasked=%d bptoggle=%d memviewstep=%d memviewrtc=%d)\n",
+           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, memHl, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk, stackAnno, disasmSym, disasmData, disasmHl, disasmComment, disasmUnmasked, bpToggle, memViewStep, memViewRtc);
     return ok ? 0 : 1;
 }

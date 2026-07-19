@@ -1607,6 +1607,12 @@ void MemoryBrowser::buildMenuBar() {
       a->setShortcut(QKeySequence("F7")); }
     { auto* a = debugMenu_->addAction("Step over", this, [this]() { if (stepOverFn_) stepOverFn_(); });
       a->setShortcut(QKeySequence("F8")); }
+    { auto* a = debugMenu_->addAction("Run to cursor", this, [this]() {
+          uintptr_t addr = disasmView_->selectedAddress();
+          if (!addr) addr = currentAddr_;
+          if (addr && runToCursorFn_) runToCursorFn_(addr);
+      });
+      a->setShortcut(QKeySequence("F4")); }
 
     toolsMenu_ = mb->addMenu("&Tools");
     toolsMenu_->addAction("Auto Assemble...", this, [this]() {
@@ -1631,6 +1637,12 @@ bool MemoryBrowser::triggerDebugActionForTest(const QString& text) {
         if (!a->isSeparator() && a->text().startsWith(text)) { a->trigger(); return true; }
     }
     return false;
+}
+
+bool MemoryBrowser::runToCursorForTest(uintptr_t addr) {
+    if (!runToCursorFn_) return false;
+    runToCursorFn_(addr);
+    return true;
 }
 
 MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
@@ -1719,6 +1731,13 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     { auto* a = dbgBar->addAction("Step over");
       a->setToolTip("Step over one instruction (F8)");
       connect(a, &QAction::triggered, this, [this]() { if (stepOverFn_) stepOverFn_(); }); }
+    { auto* a = dbgBar->addAction("Run to cursor");
+      a->setToolTip("Continue until the selected instruction (F4)");
+      connect(a, &QAction::triggered, this, [this]() {
+          uintptr_t addr = disasmView_->selectedAddress();
+          if (!addr) addr = currentAddr_;
+          if (addr && runToCursorFn_) runToCursorFn_(addr);
+      }); }
     dbgBar->addSeparator();
     // The full Debugger window owns the debug session; this opens/raises it at the
     // selected address so breakpoints, watches, and the register view are available.

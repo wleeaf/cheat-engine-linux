@@ -283,8 +283,11 @@ void DebuggerWindow::onStepOut() {
 }
 
 void DebuggerWindow::onRunToCursor() {
+    runToAddress(currentCursorAddress());
+}
+
+void DebuggerWindow::runToAddress(uintptr_t addr) {
     if (!session_->isAttached() || !session_->isStopped()) return;
-    uintptr_t addr = currentCursorAddress();
     if (!addr) return;
     // If a user breakpoint already sits there, just continue to it.
     bool existing = false;

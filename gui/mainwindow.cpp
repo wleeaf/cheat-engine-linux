@@ -2965,6 +2965,11 @@ void MainWindow::wireBrowserAnnotations(MemoryBrowser* browser) {
                        QMetaObject::invokeMethod(debuggerWindow_, "onStepOver"); },
         [this]() { if (debuggerWindow_ && debuggerWindow_->debugStopped())
                        QMetaObject::invokeMethod(debuggerWindow_, "onContinue"); });
+    // Run to cursor (F4): run to the viewer's own selected line, not the Debugger's.
+    browser->setRunToCursor([this](uintptr_t addr) {
+        if (addr && debuggerWindow_ && debuggerWindow_->debugStopped())
+            debuggerWindow_->runToAddress(addr);
+    });
     // "Auto Assemble > Create code/AOB injection here" opens a script editor
     // pre-filled with the generated template.
     browser->setAutoAssembleOpener([this](const QString& script) {

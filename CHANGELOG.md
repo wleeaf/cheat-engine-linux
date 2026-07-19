@@ -19,10 +19,11 @@ Follow-ups since v0.7.0, mostly deepening the hard-target work and unifying the 
 transforms across surfaces.
 
 - **Step from the Memory Viewer (CE parity).** The Memory Viewer's Debug menu and toolbar
-  gain working **Run (F9)**, **Step into (F7)**, and **Step over (F8)** controls that drive
-  the paused target directly, matching CE where the memory view is the debug view. They
-  delegate to the debug session the Debugger window owns, so the current-instruction line in
-  the viewer advances on each stop. The controls are harmless no-ops while nothing is paused.
+  gain working **Run (F9)**, **Step into (F7)**, **Step over (F8)**, and **Run to cursor
+  (F4)** controls that drive the paused target directly, matching CE where the memory view
+  is the debug view. They delegate to the debug session the Debugger window owns, so the
+  current-instruction line in the viewer advances on each stop. Run-to-cursor targets the
+  viewer's own selected line (a one-shot breakpoint). All are no-ops while nothing is paused.
 
 - **Big-endian everywhere.** `cescan read` / `write` / `freeze` gain `--be`, so a
   big-endian value at any host address (a console value found via guest-scan and

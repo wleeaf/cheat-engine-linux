@@ -41,6 +41,9 @@ public:
     bool debugAttached() const { return session_ && session_->isAttached(); }
     bool debugStopped() const { return session_ && session_->isStopped(); }
     uintptr_t currentStopRip() const { return lastStopRip_; }
+    /// Continue until execution reaches `addr` (a one-shot breakpoint), then stop.
+    /// Public so the Memory Viewer's "Run to cursor" can target its own selected line.
+    void runToAddress(uintptr_t addr);
     uint64_t currentStopRflags() const { return lastStopRflags_; }
     const ce::CpuContext& currentStopContext() const { return lastStopContext_; }
     /// Numeric address -> user comment, so the paused disassembly shows the same inline

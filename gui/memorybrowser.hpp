@@ -361,6 +361,9 @@ public:
         stepOverFn_ = std::move(stepOver);
         runFn_ = std::move(run);
     }
+    /// Run-to-cursor (F4): continue until the *viewer's* selected instruction. Takes
+    /// the target address so it runs to this window's cursor, not the Debugger's.
+    void setRunToCursor(std::function<void(uintptr_t)> fn) { runToCursorFn_ = std::move(fn); }
 
     /// Persistent disassembler comments (saved with the cheat table). The store is
     /// owned by MainWindow and keyed by module-relative address EXPRESSION so it
@@ -385,6 +388,10 @@ public:
     /// Test helper: trigger a Debug-menu action whose text starts with `text`
     /// (e.g. "Step into"); returns false if there is no such action.
     bool triggerDebugActionForTest(const QString& text);
+
+    /// Test helper: invoke the run-to-cursor callback with an explicit target
+    /// (bypasses disasm selection); returns false if no controller is wired.
+    bool runToCursorForTest(uintptr_t addr);
 
     /// CE keeps the memory/debug tools in the Memory Viewer's own menu bar (not the
     /// main window). MainWindow populates these with the actions that need its
@@ -463,6 +470,7 @@ private:
     CodeFinderLauncher cfLauncher_;
     DebuggerLauncher debuggerLauncher_;
     std::function<void()> stepIntoFn_, stepOverFn_, runFn_;   // delegate to the debug session
+    std::function<void(uintptr_t)> runToCursorFn_;            // run to the viewer's selected line
 
     std::function<void(const QString&)> autoAssembleOpener_;
     std::function<void(uintptr_t)> dissectOpener_;

@@ -7,6 +7,8 @@
 #include <functional>
 #include <atomic>
 #include <filesystem>
+#include <memory>
+#include <vector>
 
 namespace ce {
 
@@ -209,5 +211,14 @@ private:
 
     static size_t valueSizeFor(ValueType vt);
 };
+
+/// Build a new ScanResult (in a fresh scan directory) holding only the source rows
+/// whose index is NOT flagged in `remove` (indices past remove.size() are kept). Each
+/// survivor's current value and first-scan value are preserved, so a subsequent Next
+/// Scan narrows the pruned set consistently. Backs CE's "remove selected addresses from
+/// the list". Reads only the on-disk result (independent of the live process);
+/// unit-tested. `valueSize` is the result's per-record value stride.
+std::unique_ptr<ScanResult> pruneScanResult(const ScanResult& src, size_t valueSize,
+                                             const std::vector<bool>& remove);
 
 } // namespace ce

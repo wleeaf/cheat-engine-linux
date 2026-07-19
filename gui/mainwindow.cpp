@@ -1165,6 +1165,9 @@ void MainWindow::setupUi() {
         auto* browseAct = menu.addAction("Browse this memory region");
         auto* disasmAct = menu.addAction("Disassemble this memory region");
         auto* copyAct = menu.addAction("Copy selected addresses");
+        auto* removeAct = menu.addAction(sel.size() > 1
+            ? QString("Remove %1 selected addresses from the list").arg(sel.size())
+            : QString("Remove selected address from the list"));
         menu.addSeparator();
         auto* accAct = menu.addAction("Find out what accesses this address");
         auto* wrAct  = menu.addAction("Find out what writes to this address");
@@ -1184,6 +1187,23 @@ void MainWindow::setupUi() {
             for (auto& idx : sel)
                 addrs << QString("0x%1").arg(resultsModel_->addressAt(idx.row()), 0, 16);
             QApplication::clipboard()->setText(addrs.join('\n'));
+        } else if (picked == removeAct) {
+            // Swap in a pruned copy of the result so the removal persists into a later
+            // Next Scan (CE "remove selected addresses from the list"). The pre-prune set
+            // becomes the undo state, so "Undo scan" brings the removed rows back.
+            std::vector<bool> mask(lastResult_->count(), false);
+            for (auto& idx : sel) {
+                int r = idx.row();
+                if (r >= 0 && r < (int)mask.size()) mask[r] = true;
+            }
+            auto pruned = ce::pruneScanResult(*lastResult_, lastResultValueSize_, mask);
+            resultsModel_->setResult(pruned.get(), lastResultType_, lastResultValueSize_);
+            undoResult_ = std::move(lastResult_);
+            undoResultType_ = lastResultType_;
+            undoResultValueSize_ = lastResultValueSize_;
+            lastResult_ = std::move(pruned);
+            foundLabel_->setText(foundLabelText(lastResult_->count()));
+            updateScanButtons();
         } else if (picked == accAct) {
             startCodeFinderForAddress(firstAddr, /*writesOnly=*/false);
         } else if (picked == wrAct) {

@@ -2030,6 +2030,29 @@ static std::filesystem::path makeScanDir() {
            ("scan-" + std::to_string(getpid()) + "-" + std::to_string(scanCounter.fetch_add(1)));
 }
 
+std::unique_ptr<ScanResult> pruneScanResult(const ScanResult& src, size_t valueSize,
+                                            const std::vector<bool>& remove) {
+    // storeFirst=true so the pruned copy keeps a first-scan-value stream: a survivor's
+    // firstValue is carried across, letting a later "same as first scan" / directional
+    // Next Scan compare correctly. Matches arrive (and are re-emitted) in ascending
+    // address order, which the frame encoding in addResult requires.
+    auto out = std::make_unique<ScanResult>(makeScanDir() / "results", /*storeFirst=*/true);
+    const size_t n = src.count();
+    std::vector<uint8_t> vbuf(valueSize ? valueSize : 1);
+    std::vector<uint8_t> fbuf(valueSize ? valueSize : 1);
+    for (size_t i = 0; i < n; ++i) {
+        if (i < remove.size() && remove[i]) continue;
+        const uintptr_t addr = src.address(i);
+        if (valueSize) {
+            src.value(i, vbuf.data(), valueSize);
+            src.firstValue(i, fbuf.data(), valueSize);
+        }
+        out->addResult(addr, vbuf.data(), fbuf.data(), valueSize);
+    }
+    out->finalize();
+    return out;
+}
+
 ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& config) {
     cancelled_.store(false);
     progress_.store(0);

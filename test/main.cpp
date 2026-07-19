@@ -8998,6 +8998,43 @@ static void test_nextscan_size_guard() {
     printf("  reject changed string length: %s\n", ok ? "OK" : "FAILED");
 }
 
+static void test_prune_scan_result() {
+    printf("\n── Test: Prune scan result (remove selected addresses) ──\n");
+    auto dir = std::filesystem::temp_directory_path() / ("ce_prune_" + std::to_string(getpid()));
+    std::filesystem::remove_all(dir);
+    ce::ScanResult src(dir / "src", /*storeFirst=*/true);
+    const uintptr_t addrs[] = {0x1000, 0x2000, 0x3000, 0x4000};
+    const int32_t   vals[]  = {10, 20, 30, 40};   // current values
+    const int32_t   fvals[] = {1, 2, 3, 4};       // first-scan values
+    for (int i = 0; i < 4; ++i)
+        src.addResult(addrs[i], &vals[i], &fvals[i], sizeof(int32_t));
+    src.finalize();
+
+    // Remove rows 1 and 3 (0x2000, 0x4000); keep 0x1000, 0x3000.
+    std::vector<bool> mask = {false, true, false, true};
+    auto pruned = ce::pruneScanResult(src, sizeof(int32_t), mask);
+
+    bool countOk = pruned->count() == 2;
+    bool addrOk = countOk && pruned->address(0) == 0x1000 && pruned->address(1) == 0x3000;
+    int32_t v0 = 0, v1 = 0, f0 = 0, f1 = 0;
+    if (countOk) {
+        pruned->value(0, &v0, sizeof(int32_t));
+        pruned->value(1, &v1, sizeof(int32_t));
+        pruned->firstValue(0, &f0, sizeof(int32_t));
+        pruned->firstValue(1, &f1, sizeof(int32_t));
+    }
+    bool valOk = v0 == 10 && v1 == 30;      // current values carried across
+    bool firstOk = f0 == 1 && f1 == 3;      // first-scan values preserved for later narrowing
+    // An empty mask keeps every row (indices past mask.size() are kept).
+    auto keepAll = ce::pruneScanResult(src, sizeof(int32_t), {});
+    bool keepOk = keepAll->count() == 4;
+
+    std::filesystem::remove_all(dir);
+    bool ok = countOk && addrOk && valOk && firstOk && keepOk;
+    printf("  prune keeps survivors + values + firstValues (c=%d a=%d v=%d f=%d keep=%d): %s\n",
+           countOk, addrOk, valOk, firstOk, keepOk, ok ? "OK" : "FAILED");
+}
+
 static void test_unicode_string_scan() {
     printf("\n── Test: Unicode string scan ──\n");
 
@@ -10921,6 +10958,7 @@ int main(int argc, char* argv[]) {
     test_module_offset_string();
     test_between_numeric_scan();
     test_nextscan_size_guard();
+    test_prune_scan_result();
     test_unicode_string_scan();
     test_codepage_string_scan();
     test_all_types_scan();

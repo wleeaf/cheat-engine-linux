@@ -50,6 +50,10 @@ transforms across surfaces.
   jump/call/branch or a RIP-relative reference still follows it; double-clicking any other
   instruction now opens the assembler on that line, so you can retype it in place (NOP-padded or
   overwrite-warned like the context-menu "Assemble instruction").
+- **Change Address: live pointer-chain resolution preview (CE parity).** The pointer editor now
+  resolves the `[[base]+..]` chain against the target as you edit the base/offsets and shows the
+  final address (`→ 0x…`, or `→ ?? (does not resolve)` when a deref fails), so you can tell at a
+  glance whether the chain lands on valid memory before committing.
 - **Dissect Data: valid-pointer fields are colored (CE parity).** In the Structure Dissector's
   single-struct view, a field whose 8 bytes form a valid pointer now paints its Pointer? cell
   teal, so references stand out at a glance (CE colors pointer fields). The live-change red still

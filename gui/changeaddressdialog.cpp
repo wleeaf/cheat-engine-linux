@@ -1,6 +1,7 @@
 #include "gui/changeaddressdialog.hpp"
 #include "core/ct_file.hpp"
 #include "core/value_transform.hpp"
+#include "core/expression.hpp"
 
 #include <QFormLayout>
 #include <QHBoxLayout>
@@ -32,8 +33,8 @@ static const struct { const char* label; ce::ValueType type; } kTypes[] = {
 
 ChangeAddressDialog::ChangeAddressDialog(const QString& address, ce::ValueType type,
                                          bool showHex, int length, QWidget* parent,
-                                         bool showSigned)
-    : QDialog(parent) {
+                                         bool showSigned, ce::ProcessHandle* proc)
+    : QDialog(parent), proc_(proc) {
     setWindowTitle("Change address");
 
     auto* v = new QVBoxLayout(this);
@@ -96,6 +97,10 @@ ChangeAddressDialog::ChangeAddressDialog(const QString& address, ce::ValueType t
     pv->addLayout(offsetsLayout_);
     auto* addOffBtn = new QPushButton("Add offset");
     pv->addWidget(addOffBtn, 0, Qt::AlignLeft);
+    // Live resolution of the chain (CE shows the pointer resolving as you edit it).
+    previewLabel_ = new QLabel;
+    previewLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    pv->addWidget(previewLabel_);
     v->addWidget(pointerBox_);
     pointerBox_->setVisible(false);
 
@@ -149,6 +154,29 @@ void ChangeAddressDialog::recomposeAddress() {
     addrEdit_->setText(QString::fromStdString(
         ce::buildPointerExpression(pointerBaseEdit_->text().trimmed().toStdString(),
                                    collectOffsets())));
+    updatePreview();
+}
+
+void ChangeAddressDialog::updatePreview() {
+    if (!previewLabel_) return;
+    if (!proc_ || !pointerCheck_->isChecked() ||
+        pointerBaseEdit_->text().trimmed().isEmpty()) {
+        previewLabel_->clear();
+        return;
+    }
+    // Resolve the composed [[base]+..] chain live so the user sees whether it lands on
+    // valid memory (CE resolves the pointer as you build it). A failed deref shows "??".
+    std::string expr = ce::buildPointerExpression(
+        pointerBaseEdit_->text().trimmed().toStdString(), collectOffsets());
+    ce::ExpressionParser parser(proc_, nullptr);
+    if (auto addr = parser.parse(expr); addr && *addr)
+        previewLabel_->setText(QStringLiteral("→ 0x%1").arg(*addr, 0, 16));
+    else
+        previewLabel_->setText(QStringLiteral("→ ?? (does not resolve)"));
+}
+
+QString ChangeAddressDialog::previewTextForTest() const {
+    return previewLabel_ ? previewLabel_->text() : QString();
 }
 
 void ChangeAddressDialog::addOffsetRow(long long value) {
@@ -181,6 +209,7 @@ void ChangeAddressDialog::setPointerMode(bool on) {
     pointerBox_->setVisible(on);
     addrEdit_->setReadOnly(on);   // in pointer mode the address is composed, not typed
     if (on) recomposeAddress();
+    updatePreview();              // clears the preview when leaving pointer mode
 }
 ce::ValueType ChangeAddressDialog::valueType() const {
     int i = typeCombo_->currentIndex();

@@ -1218,7 +1218,7 @@ void MainWindow::setupUi() {
     connect(addAddrBtn, &QPushButton::clicked, this, [this]() {
         // CE uses formAddressChange for both add and edit.
         ce::gui::ChangeAddressDialog dlg("", mapValueType(valueTypeCombo_->currentIndex()),
-                                         false, 1, this);
+                                         false, 1, this, /*showSigned=*/true, process_.get());
         dlg.setWindowTitle("Add address");
         if (dlg.exec() != QDialog::Accepted) return;
         auto text = dlg.address();
@@ -1643,7 +1643,8 @@ void MainWindow::setupUi() {
                     QString addrStr = !e.addressExpr.isEmpty()
                         ? e.addressExpr : QString("%1").arg((qulonglong)e.address, 0, 16);
                     ce::gui::ChangeAddressDialog dlg(addrStr, e.type, e.showAsHex,
-                                                     (int)e.byteCount, this, e.showAsSigned);
+                                                     (int)e.byteCount, this, e.showAsSigned,
+                                                     process_.get());
                     if (dlg.exec() != QDialog::Accepted) return;
                     const int id = e.id;
                     const QString a = dlg.address();
@@ -1993,7 +1994,7 @@ void MainWindow::setupUi() {
             // "Change address", so a new entry gets its type, flags, length, and an
             // optional structured pointer in one dialog.
             ce::gui::ChangeAddressDialog dlg("", mapValueType(valueTypeCombo_->currentIndex()),
-                                             false, 0, this);
+                                             false, 0, this, /*showSigned=*/true, process_.get());
             if (dlg.exec() != QDialog::Accepted) return;
             const QString a = dlg.address();
             if (a.trimmed().isEmpty()) return;

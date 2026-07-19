@@ -6,11 +6,19 @@
 // offered for the String type. Exit 0 on success.
 
 #include "gui/changeaddressdialog.hpp"
+#include "platform/linux/linux_process.hpp"
 
 #include <QApplication>
 #include <cstdio>
+#include <cstdint>
+#include <unistd.h>
 
 using ce::gui::ChangeAddressDialog;
+
+// A one-level pointer in this process: g_ptrslot holds &g_val, so the chain
+// [g_ptrslot]+0 resolves to &g_val for the live-resolution preview test.
+static int g_val = 4321;
+static uintptr_t g_ptrslot;
 
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -68,12 +76,30 @@ int main(int argc, char** argv) {
     bool signedDisabledForFloat = !ds2.signedEnabledForTest();
     bool signedOk = signedRoundTripOff && signedRoundTripOn && signedDisabledForFloat;
 
+    // Live pointer resolution preview (CE resolves the chain as you build it): with a
+    // process, the composed chain resolves and the preview shows the target address.
+    g_ptrslot = reinterpret_cast<uintptr_t>(&g_val);
+    ce::os::LinuxProcessHandle proc(getpid());
+    ChangeAddressDialog dprev("0x0", ce::ValueType::Int32, false, 1, nullptr, /*showSigned=*/true, &proc);
+    dprev.setPointerModeForTest(true);
+    dprev.setPointerBaseForTest(QString("0x%1").arg(reinterpret_cast<uintptr_t>(&g_ptrslot), 0, 16));
+    dprev.addOffsetForTest(0);   // [g_ptrslot]+0 -> &g_val
+    QString want = QStringLiteral("→ 0x%1").arg(reinterpret_cast<uintptr_t>(&g_val), 0, 16);
+    bool previewOk = (dprev.previewTextForTest() == want);
+    // Without a process, no preview is shown (nothing to resolve against).
+    ChangeAddressDialog dnop("0x0", ce::ValueType::Int32, false, 1);
+    dnop.setPointerModeForTest(true);
+    dnop.setPointerBaseForTest("0x1000");
+    dnop.addOffsetForTest(0);
+    bool noPreviewOk = dnop.previewTextForTest().isEmpty();
+    bool livePreviewOk = previewOk && noPreviewOk;
+
     bool ok = lenOk && foldUnicode && plainString && roundTrip && disabledForInt
-           && enabledForString && ptrOk && signedOk;
+           && enabledForString && ptrOk && signedOk && livePreviewOk;
     printf("gui changeaddr smoke: %s (len=%d fold=%d plain=%d roundTrip=%d intDisabled=%d "
-           "strEnabled=%d compose=%d ptrRoundTrip=%d plainAddr=%d signed=%d)\n",
+           "strEnabled=%d compose=%d ptrRoundTrip=%d plainAddr=%d signed=%d livePreview=%d)\n",
            ok ? "OK" : "FAILED", (int)lenOk, (int)foldUnicode, (int)plainString, (int)roundTrip,
            (int)disabledForInt, (int)enabledForString, (int)composeOk, (int)rtOk, (int)plainOk,
-           (int)signedOk);
+           (int)signedOk, (int)livePreviewOk);
     return ok ? 0 : 1;
 }

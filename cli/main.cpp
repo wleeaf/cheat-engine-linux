@@ -704,13 +704,12 @@ static uintptr_t branchImmTarget(const std::string& operands) {
 // cases are handled by the `--arch` override at the call site.
 static Arch autoDisasmArch(pid_t pid) {
     ce::TargetProfile p = ce::probeTarget(pid);
-    switch (p.arch) {
-        case ce::TargetProfile::Arch::X86_32: return Arch::X86_32;
-        case ce::TargetProfile::Arch::X86_64: return Arch::X86_64;
-        case ce::TargetProfile::Arch::Arm32:  return Arch::ARM32;
-        case ce::TargetProfile::Arch::Arm64:  return Arch::ARM64;
-        default: { LinuxProcessHandle proc(pid); return proc.is64bit() ? Arch::X86_64 : Arch::X86_32; }
-    }
+    if (p.arch == ce::TargetProfile::Arch::Arm64) return Arch::ARM64;
+    if (p.arch == ce::TargetProfile::Arch::Arm32) return Arch::ARM32;
+    // x86: runs32BitCode() is WoW64-aware (a 64-bit host running 32-bit game code, e.g.
+    // Warband under Proton), so it beats the raw ELF arch / is64bit here.
+    LinuxProcessHandle proc(pid);
+    return proc.runs32BitCode() ? Arch::X86_32 : Arch::X86_64;
 }
 
 static const char* archName(Arch a) {

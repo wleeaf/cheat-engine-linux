@@ -57,6 +57,9 @@ public:
     int setCompareExpressionForTest(const QString& expr) {
         compareEdit_->setText(expr); applyCompareAddresses(); return table_->columnCount();
     }
+    // Persist / restore the structure definition to a path (drives the file-dialog slots).
+    bool saveDefinitionForTest(const QString& path) { return saveDefinition(path); }
+    bool loadDefinitionForTest(const QString& path) { return loadDefinition(path); }
 
 private slots:
     void onGotoAddress();
@@ -68,6 +71,8 @@ private slots:
     void onTypeAsCStruct();
 
 private:
+    bool saveDefinition(const QString& path);   // JSON write, no dialog (testable)
+    bool loadDefinition(const QString& path);   // JSON read, no dialog (testable)
     void populateTable();
     // The type "Add ... (auto)" uses for a field: its declared type if set, else the
     // byte-pattern guess. Shared by the context menu and the test hook.

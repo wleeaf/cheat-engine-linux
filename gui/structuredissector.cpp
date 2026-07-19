@@ -303,9 +303,53 @@ void StructureDissector::onContextMenu(const QPoint& pos) {
     auto* addF  = menu.addAction("Add as Float");
     auto* addP  = menu.addAction("Add as Pointer");
 
-    QAction* picked = menu.exec(table_->viewport()->mapToGlobal(pos));
-    if (!picked || !addToListCb_) return;
+    // Build the structure in place (CE's "Change element"): name a field and pin its
+    // type, so the value column reinterprets it and save/load persists the definition.
+    menu.addSeparator();
+    auto* nameAct = menu.addAction("Name field...");
+    auto* typeMenu = menu.addMenu("Set field type");
+    const std::pair<const char*, ce::ValueType> typeOpts[] = {
+        {"Byte", ce::ValueType::Byte}, {"2 Bytes", ce::ValueType::Int16},
+        {"4 Bytes", ce::ValueType::Int32}, {"8 Bytes", ce::ValueType::Int64},
+        {"Float", ce::ValueType::Float}, {"Double", ce::ValueType::Double},
+        {"Pointer", ce::ValueType::Pointer}, {"String", ce::ValueType::String},
+    };
+    QList<QAction*> typeActs;
+    for (const auto& [label, vt] : typeOpts) {
+        auto* a = typeMenu->addAction(label);
+        a->setData(static_cast<int>(vt));
+        a->setCheckable(true);
+        if (fieldTypes_.count(off) && fieldTypes_[off] == vt) a->setChecked(true);
+        typeActs.append(a);
+    }
+    typeMenu->addSeparator();
+    auto* autoTypeAct = typeMenu->addAction("Auto (guess)");
 
+    QAction* picked = menu.exec(table_->viewport()->mapToGlobal(pos));
+    if (!picked) return;
+
+    // Field name / type edits need no add-to-list callback.
+    if (picked == nameAct) {
+        bool ok = false;
+        QString cur = fieldNames_.count(off) ? fieldNames_[off] : QString();
+        QString name = QInputDialog::getText(this, "Name field",
+            QString("Name for offset +0x%1:").arg(off, 0, 16), QLineEdit::Normal, cur, &ok);
+        if (!ok) return;
+        if (name.trimmed().isEmpty()) fieldNames_.erase(off);
+        else                          fieldNames_[off] = name.trimmed();
+        populateTable();
+        return;
+    }
+    if (picked == autoTypeAct) { fieldTypes_.erase(off); populateTable(); return; }
+    for (QAction* a : typeActs) {
+        if (picked == a) {
+            fieldTypes_[off] = static_cast<ce::ValueType>(a->data().toInt());
+            populateTable();
+            return;
+        }
+    }
+
+    if (!addToListCb_) return;
     ce::ValueType t = guessed;
     if (picked == add4) t = ce::ValueType::Int32;
     else if (picked == add8) t = ce::ValueType::Int64;
@@ -331,10 +375,7 @@ void StructureDissector::addFieldToList(int offset, ce::ValueType type) {
     addToListCb_(baseAddr_ + offset, type, desc);
 }
 
-void StructureDissector::onSaveDefinition() {
-    auto path = QFileDialog::getSaveFileName(this, "Save structure definition",
-        "structure.json", "Structure def (*.json);;All (*)");
-    if (path.isEmpty()) return;
+bool StructureDissector::saveDefinition(const QString& path) {
     QJsonObject root;
     root["size"] = structSize_;
     QJsonArray fields;
@@ -348,27 +389,15 @@ void StructureDissector::onSaveDefinition() {
     }
     root["fields"] = fields;
     QFile file(path);
-    if (!file.open(QIODevice::WriteOnly)) {
-        QMessageBox::warning(this, "Save failed", "Could not write the definition file.");
-        return;
-    }
-    file.write(QJsonDocument(root).toJson());
+    if (!file.open(QIODevice::WriteOnly)) return false;
+    return file.write(QJsonDocument(root).toJson()) >= 0;
 }
 
-void StructureDissector::onLoadDefinition() {
-    auto path = QFileDialog::getOpenFileName(this, "Load structure definition",
-        "", "Structure def (*.json);;All (*)");
-    if (path.isEmpty()) return;
+bool StructureDissector::loadDefinition(const QString& path) {
     QFile file(path);
-    if (!file.open(QIODevice::ReadOnly)) {
-        QMessageBox::warning(this, "Load failed", "Could not read the definition file.");
-        return;
-    }
+    if (!file.open(QIODevice::ReadOnly)) return false;
     auto doc = QJsonDocument::fromJson(file.readAll());
-    if (!doc.isObject()) {
-        QMessageBox::warning(this, "Load failed", "Not a valid structure definition.");
-        return;
-    }
+    if (!doc.isObject()) return false;
     auto root = doc.object();
     fieldNames_.clear();
     fieldTypes_.clear();
@@ -381,6 +410,24 @@ void StructureDissector::onLoadDefinition() {
     int sz = root["size"].toInt(structSize_);
     if (sz >= 8 && sz <= 8192) { structSize_ = (sz / 8) * 8; sizeSpin_->setValue(structSize_); }
     if (baseAddr_) populateTable();
+    return true;
+}
+
+void StructureDissector::onSaveDefinition() {
+    auto path = QFileDialog::getSaveFileName(this, "Save structure definition",
+        "structure.json", "Structure def (*.json);;All (*)");
+    if (path.isEmpty()) return;
+    if (!saveDefinition(path))
+        QMessageBox::warning(this, "Save failed", "Could not write the definition file.");
+}
+
+void StructureDissector::onLoadDefinition() {
+    auto path = QFileDialog::getOpenFileName(this, "Load structure definition",
+        "", "Structure def (*.json);;All (*)");
+    if (path.isEmpty()) return;
+    if (!loadDefinition(path))
+        QMessageBox::warning(this, "Load failed",
+            "Could not read the file or it is not a valid structure definition.");
 }
 
 void StructureDissector::onTypeAsIl2Cpp() {

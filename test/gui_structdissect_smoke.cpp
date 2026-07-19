@@ -112,11 +112,31 @@ int main(int argc, char** argv) {
     bool noFollowInt = !diss.followPointerForTest(5 /*offset 0x28*/, 2);
     bool followTestOk = followOk && noFollowInt;
 
+    // Save/load definition round-trip: a structure built in the UI (named + typed fields,
+    // as the "Name field..." / "Set field type" context actions now do) must persist. Save
+    // the current def (health@0, ammo@16:Float), clobber both fields, load it back, and
+    // confirm the field re-reports its saved name + type through the add-to-list path.
+    QString defPath = QString("/tmp/ce_structdef_%1.json").arg(getpid());
+    bool saved = diss.saveDefinitionForTest(defPath);
+    diss.nameFieldForTest(16, "wrong");
+    diss.typeFieldForTest(16, ce::ValueType::Int64);
+    bool loaded = diss.loadDefinitionForTest(defPath);
+    uintptr_t rtAddr = 0; ce::ValueType rtType = ce::ValueType::Int32; QString rtDesc;
+    diss.setAddToListCallback([&](uintptr_t a, ce::ValueType t, const QString& name) {
+        rtAddr = a; rtType = t; rtDesc = name;
+    });
+    diss.addFieldToListForTest(16);
+    bool defRoundTripOk = saved && loaded && rtType == ce::ValueType::Float && rtDesc == "ammo";
+    ::unlink(defPath.toLocal8Bit().constData());
+
     bool ok = cols == 4 && diffAt0x10 && !sameAt0x00 && !sameAt0x28
-           && changedRow3 && !changedRow0 && ptrColorOk && addAllOk && singleAddOk && exprOk && followTestOk;
+           && changedRow3 && !changedRow0 && ptrColorOk && addAllOk && singleAddOk && exprOk && followTestOk
+           && defRoundTripOk;
     printf("gui structdissect smoke: %s (cols=%d diff@0x10=%d same@0x00=%d same@0x28=%d "
-           "changed@0x18=%d changed@0x00=%d ptrColor=%d addAll=%d singleAdd=%d expr=%d follow=%d noFollowInt=%d)\n",
+           "changed@0x18=%d changed@0x00=%d ptrColor=%d addAll=%d singleAdd=%d expr=%d follow=%d noFollowInt=%d "
+           "defRoundTrip=%d)\n",
            ok ? "OK" : "FAILED", cols, diffAt0x10, sameAt0x00, sameAt0x28, changedRow3, changedRow0,
-           (int)ptrColorOk, addAllOk, (int)singleAddOk, exprOk, (int)followOk, (int)noFollowInt);
+           (int)ptrColorOk, addAllOk, (int)singleAddOk, exprOk, (int)followOk, (int)noFollowInt,
+           (int)defRoundTripOk);
     return ok ? 0 : 1;
 }

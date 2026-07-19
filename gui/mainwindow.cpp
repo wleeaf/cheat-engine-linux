@@ -3922,10 +3922,17 @@ QVariant ScanResultsModel::headerData(int section, Qt::Orientation o, int role) 
 // Previous columns).
 static QString formatScanValue(ValueType vt, bool displayHex, const uint8_t* buf, size_t vs) {
     switch (vt) {
-        case ValueType::Byte:   return displayHex ? QString("0x%1").arg(buf[0], 0, 16) : QString::number(buf[0]);
-        case ValueType::Int16:  { uint16_t v; memcpy(&v, buf, 2); return displayHex ? QString("0x%1").arg(v, 0, 16) : QString::number((int16_t)v); }
-        case ValueType::Int32:  { uint32_t v; memcpy(&v, buf, 4); return displayHex ? QString("0x%1").arg(v, 0, 16) : QString::number((int32_t)v); }
-        case ValueType::Int64:  { uint64_t v; memcpy(&v, buf, 8); return displayHex ? QString("0x%1").arg((qulonglong)v, 0, 16) : QString::number((int64_t)v); }
+        // Integers render through the same shared helper as the cheat table (signed by
+        // default, hex width-masked), so a value reads identically in the results and
+        // after "Add to the address list".
+        case ValueType::Byte:
+        case ValueType::Int16:
+        case ValueType::Int32:
+        case ValueType::Int64: {
+            int w = ce::scalarWidth(vt);
+            uint64_t bits = 0; memcpy(&bits, buf, static_cast<size_t>(w));
+            return QString::fromStdString(ce::formatIntegerScalar(bits, w, /*isSigned=*/true, displayHex));
+        }
         case ValueType::Pointer:{ uintptr_t v; memcpy(&v, buf, sizeof(v)); return QString("0x%1").arg(v, 0, 16); }
         case ValueType::Float:  { float v; memcpy(&v, buf, 4); return QString::number(v, 'f', 4); }
         case ValueType::Double: { double v; memcpy(&v, buf, 8); return QString::number(v, 'f', 6); }

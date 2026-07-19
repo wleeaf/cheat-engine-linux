@@ -42,6 +42,11 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **Scan results and the cheat table format integers identically**: scan-result values now
+  render through the same shared `ce::formatIntegerScalar` (signed by default, hex
+  width-masked) as the cheat table, so a value reads the same in the results list and after
+  "Add to the address list" (previously a byte could show unsigned in results but signed once
+  added). Removes the internal quirk where results showed Byte unsigned but wider ints signed.
 - **"Add Address Manually" opens the full address dialog** (CE parity): instead of a bare
   text prompt, adding an address by hand now uses the same `formAddressChangeUnit` dialog as
   "Change address", so a new entry gets its type, hex/signed flags, length, and an optional

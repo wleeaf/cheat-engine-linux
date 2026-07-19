@@ -3570,10 +3570,11 @@ void MainWindow::showDebugger() {
     // Drive the current-instruction highlight in open Memory Viewers from the
     // debugger's stops, like CE. The first viewer follows execution (scrolls to the
     // current line); the rest just light the line up where it is already visible.
-    connect(w, &ce::gui::DebuggerWindow::stopped, this, [this](uintptr_t rip) {
+    connect(w, &ce::gui::DebuggerWindow::stopped, this, [this, w](uintptr_t rip) {
         bool first = true;
+        const uint64_t rflags = w->currentStopRflags();
         for (auto& mv : memoryViewers_)
-            if (mv) { mv->showCurrentInstruction(rip, first); first = false; }
+            if (mv) { mv->showCurrentInstruction(rip, first, rflags); first = false; }
     });
     connect(w, &ce::gui::DebuggerWindow::resumed, this, [this]() {
         for (auto& mv : memoryViewers_) if (mv) mv->clearCurrentInstruction();
@@ -3724,7 +3725,8 @@ MemoryBrowser* MainWindow::openMemoryView(uintptr_t addr) {
     // If the debugger is already paused, light up the current line in this new viewer
     // too (highlight only, without yanking it away from the address it opened at).
     if (debuggerWindow_ && debuggerWindow_->debugStopped())
-        browser->showCurrentInstruction(debuggerWindow_->currentStopRip(), false);
+        browser->showCurrentInstruction(debuggerWindow_->currentStopRip(), false,
+                                        debuggerWindow_->currentStopRflags());
     return browser;
 }
 

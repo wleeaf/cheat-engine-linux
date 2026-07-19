@@ -206,8 +206,10 @@ public:
     /// Mark the current instruction pointer (debugger stop). The row whose address
     /// equals this is highlighted distinctly and flagged with a ► marker, like CE's
     /// Memory Viewer when paused. Pass 0 to clear (target resumed / detached).
-    void setCurrentInstruction(uintptr_t addr) {
-        if (currentIp_ != addr) { currentIp_ = addr; viewport()->update(); }
+    void setCurrentInstruction(uintptr_t addr, uint64_t rflags = 0) {
+        if (currentIp_ != addr || currentRflags_ != rflags) {
+            currentIp_ = addr; currentRflags_ = rflags; viewport()->update();
+        }
     }
     uintptr_t currentInstruction() const { return currentIp_; }
     void refresh();
@@ -271,6 +273,7 @@ private:
         return true;
     }
     uintptr_t currentIp_ = 0;     // debugger's current instruction pointer (0 = none)
+    uint64_t currentRflags_ = 0;  // flags at the stop, for the conditional-jump hint
     QFont monoFont_{"Monospace", 10};
     int charW_ = 0;
     int charH_ = 0;
@@ -318,7 +321,7 @@ public:
     /// highlight in the disassembler). When `follow` is true the view also scrolls
     /// to it (without polluting back/forward history), matching CE's Memory Viewer
     /// which follows execution. Pass through clearCurrentInstruction() on resume.
-    void showCurrentInstruction(uintptr_t rip, bool follow = true);
+    void showCurrentInstruction(uintptr_t rip, bool follow = true, uint64_t rflags = 0);
     void clearCurrentInstruction();
 
     /// Test helper: renders the disassembler and counts the pixels painted in the

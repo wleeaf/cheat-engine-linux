@@ -40,6 +40,7 @@ public:
     bool debugAttached() const { return session_ && session_->isAttached(); }
     bool debugStopped() const { return session_ && session_->isStopped(); }
     uintptr_t currentStopRip() const { return lastStopRip_; }
+    uint64_t currentStopRflags() const { return lastStopRflags_; }
     // Type `value` into register row `row`'s cell exactly as the UI would (routes
     // through onRegisterEdited -> setStopContext) and report whether the stopped
     // thread's register now holds it. Row order matches the table:
@@ -166,6 +167,7 @@ private:
     static QString bpDataLabel(uintptr_t addr, int type, int size);     // data-bp list text
     std::vector<uintptr_t> disasmLineAddrs_;   // address per rendered disasm line
     uintptr_t lastStopRip_ = 0;
+    uint64_t lastStopRflags_ = 0;
 
     // Latest event, published by the tracer-thread callback and read on the UI
     // thread after a queued invocation.

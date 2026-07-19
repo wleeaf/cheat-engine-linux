@@ -473,6 +473,7 @@ void DebuggerWindow::refreshStopped() {
     updateThreadList();
     auto ctx = session_->getStopContext();
     lastStopRip_ = ctx.rip;
+    lastStopRflags_ = ctx.rflags;
     updateRegisters(ctx);
     updateDisassembly(ctx);
     updateStack(ctx);

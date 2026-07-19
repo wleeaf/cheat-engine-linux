@@ -4,6 +4,7 @@
 #include <QMenuBar>
 #include "core/injection_gen.hpp"
 #include "arch/assembler.hpp"
+#include "arch/cpu_flags.hpp"
 #include "analysis/code_analysis.hpp"
 #include "core/expression.hpp"
 
@@ -1348,6 +1349,13 @@ void DisasmView::paintEvent(QPaintEvent*) {
         if (annotation.isEmpty())
             annotation = ripRefAnnotation(inst, resolver_, proc_);
 
+        // Paused on a conditional branch: show whether it will be taken, from the
+        // stop's flags (CE shows this in the memory-view disassembler too).
+        if (inst.address == currentIp_ && currentRflags_ && inst.mnemonic != "jmp") {
+            if (auto jt = ce::conditionalJumpTaken(inst.mnemonic, currentRflags_))
+                annotation += *jt ? QStringLiteral("  (will jump)") : QStringLiteral("  (no jump)");
+        }
+
         p.setPen(mv.operand);
         int opX = mnemonicX + charW_ * 8;
         p.drawText(opX, y, operands);
@@ -2023,9 +2031,9 @@ void MemoryBrowser::focusPane(Pane p) {
     }
 }
 
-void MemoryBrowser::showCurrentInstruction(uintptr_t rip, bool follow) {
+void MemoryBrowser::showCurrentInstruction(uintptr_t rip, bool follow, uint64_t rflags) {
     if (!disasmView_) return;
-    disasmView_->setCurrentInstruction(rip);
+    disasmView_->setCurrentInstruction(rip, rflags);
     // Follow execution like CE, but via syncViews (not navigateTo) so single-stepping
     // doesn't flood the back/forward history with one entry per instruction.
     if (follow && rip && rip != currentAddr_) syncViews(rip);

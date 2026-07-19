@@ -402,6 +402,19 @@ public:
     Qt::ItemFlags flags(const QModelIndex& index) const override;
     bool setData(const QModelIndex& index, const QVariant& value, int role) override;
 
+    // Drag-and-drop reordering (CE lets you drag entries to reorder; a group header
+    // carries its children). All handled in dropMimeData so Qt's default row removal
+    // never fires (it would corrupt the list).
+    Qt::DropActions supportedDropActions() const override { return Qt::MoveAction; }
+    Qt::DropActions supportedDragActions() const override { return Qt::MoveAction; }
+    QStringList mimeTypes() const override;
+    QMimeData* mimeData(const QModelIndexList& indexes) const override;
+    bool dropMimeData(const QMimeData* data, Qt::DropAction action, int row, int column,
+                      const QModelIndex& parent) override;
+    /// Reorder: move the block starting at `srcRow` (a group carries its descendants)
+    /// so it lands before `destRow`. Shared by dropMimeData and a headless test hook.
+    void moveEntryBlock(int srcRow, int destRow);
+
     // ── ce::IAddressList ──
     int count() const override;
     std::optional<ce::AddressEntrySnapshot> at(int index) const override;

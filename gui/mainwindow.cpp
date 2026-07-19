@@ -99,6 +99,8 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QStringList>
+#include <QMimeData>
+#include <QDataStream>
 #include <QMap>
 #include <cmath>
 #include <cstring>
@@ -1572,6 +1574,14 @@ void MainWindow::setupUi() {
     addressListView_->verticalHeader()->setVisible(false);
     addressListView_->horizontalHeader()->setStretchLastSection(true);
     addressListView_->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    // Drag-and-drop reordering (CE): drag an entry to move it; the model's dropMimeData
+    // does the reorder (a group header carries its children) and the view must not do
+    // its own row removal, so the model returns false from dropMimeData.
+    addressListView_->setDragEnabled(true);
+    addressListView_->setAcceptDrops(true);
+    addressListView_->setDropIndicatorShown(true);
+    addressListView_->setDragDropMode(QAbstractItemView::InternalMove);
+    addressListView_->setDefaultDropAction(Qt::MoveAction);
     // Double-clicking a script entry's Address/Type/Value cell (which carry no
     // editable data for a script) opens the auto-assembler editor for it. The
     // Description cell still edits inline.
@@ -5023,8 +5033,9 @@ QVariant AddressListModel::data(const QModelIndex& index, int role) const {
 
 Qt::ItemFlags AddressListModel::flags(const QModelIndex& index) const {
     auto f = QAbstractTableModel::flags(index);
+    // Empty area (invalid index) accepts drops so an entry can be moved to the end.
     if (!index.isValid() || index.row() < 0 || index.row() >= (int)entries_.size())
-        return f;
+        return f | Qt::ItemIsDropEnabled;
     const auto& e = entries_[index.row()];
     bool isScript = !e.autoAsmScript.isEmpty();
     if (index.column() == 0) f |= Qt::ItemIsUserCheckable;
@@ -5036,7 +5047,67 @@ Qt::ItemFlags AddressListModel::flags(const QModelIndex& index) const {
     else if (!e.isGroup && !isScript &&
              (index.column() == 2 || index.column() == 3 || index.column() == 4))
         f |= Qt::ItemIsEditable;
+    // Rows are draggable, and drop-enabled so a drop onto a row targets that row.
+    f |= Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled;
     return f;
+}
+
+QStringList AddressListModel::mimeTypes() const {
+    return {QStringLiteral("application/x-ce-addresslist-row")};
+}
+
+QMimeData* AddressListModel::mimeData(const QModelIndexList& indexes) const {
+    // Encode the single source row (the smallest selected row); dropMimeData extends it
+    // to the whole group block if it is a header. One row keeps the reorder unambiguous.
+    int src = -1;
+    for (const auto& idx : indexes)
+        if (idx.isValid() && (src < 0 || idx.row() < src)) src = idx.row();
+    if (src < 0) return nullptr;
+    auto* mime = new QMimeData;
+    QByteArray buf;
+    QDataStream st(&buf, QIODevice::WriteOnly);
+    st << src;
+    mime->setData(mimeTypes().first(), buf);
+    return mime;
+}
+
+bool AddressListModel::dropMimeData(const QMimeData* data, Qt::DropAction action, int row,
+                                    int /*column*/, const QModelIndex& parent) {
+    if (action != Qt::MoveAction || !data || !data->hasFormat(mimeTypes().first()))
+        return false;
+    QByteArray buf = data->data(mimeTypes().first());
+    QDataStream st(&buf, QIODevice::ReadOnly);
+    int src = -1; st >> src;
+    if (src < 0 || src >= (int)entries_.size()) return false;
+    // Qt's drop row: >=0 means "before this row"; onto a row gives row=-1 + parent; an
+    // empty-area drop gives row=-1 + invalid parent (append at the end).
+    int dest = (row >= 0) ? row : (parent.isValid() ? parent.row() : (int)entries_.size());
+    moveEntryBlock(src, dest);
+    // Return false: the move is done here, so Qt must not also remove the source rows
+    // (its default InternalMove completion would corrupt the list).
+    return false;
+}
+
+void AddressListModel::moveEntryBlock(int srcRow, int destRow) {
+    const int n = (int)entries_.size();
+    if (srcRow < 0 || srcRow >= n) return;
+    // A group header drags its whole subtree; a leaf is a block of one.
+    std::vector<int> indents;
+    indents.reserve(n);
+    for (const auto& e : entries_) indents.push_back(e.indent);
+    auto sub = ce::descendantRange(indents, srcRow);
+    int len = entries_[srcRow].isGroup ? (int)(sub.second - srcRow) : 1;
+    if (len < 1) len = 1;
+    // No-op when dropping inside the moved block (destination unchanged).
+    if (destRow >= srcRow && destRow <= srcRow + len) return;
+    auto perm = ce::moveRangePermutation(n, srcRow, len, destRow);
+    if ((int)perm.size() != n) return;
+    beginResetModel();
+    std::vector<AddressEntry> reordered;
+    reordered.reserve(n);
+    for (int oldIdx : perm) reordered.push_back(std::move(entries_[oldIdx]));
+    entries_ = std::move(reordered);
+    endResetModel();
 }
 
 // Parse a Type-column display name back to a ValueType. First matches the canonical

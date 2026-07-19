@@ -9924,6 +9924,22 @@ static void test_group_collapse() {
     printf("  descendantRange subtree spans (A=%d B=%d C=%d): %s\n",
            (int)(rA.second - rA.first), (int)(rB.second - rB.first), (int)(rC.second - rC.first),
            rangeOk ? "OK" : "FAILED");
+
+    // moveRangePermutation: reorder entries by dropping a (possibly multi-row group)
+    // block at a position (Qt drop-row = insert before `dest`).
+    auto applyPerm = [](const std::string& s, const std::vector<int>& perm) {
+        std::string out;
+        for (int i : perm) out.push_back(s[i]);
+        return out;
+    };
+    bool m1 = applyPerm("ABCDE", ce::moveRangePermutation(5, 1, 1, 3)) == "ACBDE";  // B down before D
+    bool m2 = applyPerm("ABCDE", ce::moveRangePermutation(5, 3, 1, 1)) == "ADBCE";  // D up before B
+    bool m3 = applyPerm("ABCDE", ce::moveRangePermutation(5, 1, 2, 5)) == "ADEBC";  // group {B,C} to end
+    bool m4 = applyPerm("ABCDE", ce::moveRangePermutation(5, 2, 1, 2)) == "ABCDE";  // drop onto self = no-op
+    bool m5 = applyPerm("ABCDE", ce::moveRangePermutation(5, 4, 3, 0)) == "ABCDE";  // out-of-range = identity
+    bool moveOk = m1 && m2 && m3 && m4 && m5;
+    printf("  moveRangePermutation reorders blocks (%d%d%d%d%d): %s\n",
+           m1, m2, m3, m4, m5, moveOk ? "OK" : "FAILED");
 }
 
 static void test_expression_parser() {

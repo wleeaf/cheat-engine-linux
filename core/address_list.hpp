@@ -46,6 +46,31 @@ inline std::vector<bool> hiddenByCollapse(const std::vector<int>& indents,
     return hidden;
 }
 
+/// Permutation (old index for each new position) after moving the contiguous block
+/// [start, start+len) so it is inserted before the item originally at `dest` (Qt's
+/// drop-row convention). Dragging a group header carries its descendants: pass the
+/// group's descendantRange length as `len`. A drop inside or immediately around the
+/// block, or any out-of-range argument, yields the identity (no move). Pure + unit
+/// tested; the GUI applies the result to reorder its entries on a drag-drop.
+inline std::vector<int> moveRangePermutation(int count, int start, int len, int dest) {
+    std::vector<int> perm;
+    perm.reserve(count > 0 ? count : 0);
+    if (count <= 0 || len <= 0 || start < 0 || start + len > count) {
+        for (int i = 0; i < count; ++i) perm.push_back(i);   // invalid -> identity
+        return perm;
+    }
+    std::vector<int> rest;                                    // indices outside the block, in order
+    rest.reserve(count - len);
+    for (int i = 0; i < count; ++i)
+        if (i < start || i >= start + len) rest.push_back(i);
+    int insertPos = 0;                                        // where the block lands within `rest`
+    for (int r : rest) { if (r < dest) ++insertPos; else break; }
+    for (int k = 0; k < insertPos; ++k) perm.push_back(rest[k]);
+    for (int i = start; i < start + len; ++i) perm.push_back(i);
+    for (int k = insertPos; k < (int)rest.size(); ++k) perm.push_back(rest[k]);
+    return perm;
+}
+
 struct AddressEntrySnapshot {
     int id = 0;
     std::string description;

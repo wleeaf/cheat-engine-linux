@@ -42,6 +42,11 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **Cheat-table groups collapse and expand** (CE tree parity): double-clicking a group header
+  (outside its Description) now hides or shows its child rows, with a `▾`/`▸` marker on the
+  group. Nested groups collapse independently, and the hidden state re-applies after refreshes
+  and reorders. The "which rows to hide" logic is a Qt-free `ce::hiddenByCollapse`, unit-tested
+  in `cecore_test`.
 - **Float values display trimmed of trailing zeros** (CE parity): a float of `100.0` now reads
   `100`, not `100.0000`, and `99.5` reads `99.5`; precision matches the type (~7 significant
   digits for Float, ~15 for Double). The cheat table, scan results, and Structure Dissector all

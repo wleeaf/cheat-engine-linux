@@ -9695,6 +9695,28 @@ static void test_aob_signature() {
     printf("  script embeds unique signature: %s\n", scriptOk ? "OK" : "FAILED");
 }
 
+static void test_group_collapse() {
+    printf("── Test: Cheat-table group collapse (row hiding) ──\n");
+    // Rows: groupA(0) child1(1) groupB(1) child2(2) groupC(0)
+    std::vector<int> indents = {0, 1, 1, 2, 0};
+
+    // groupA collapsed -> its descendants (rows 1..3) hidden, groupC (row 4) stays.
+    auto hA = ce::hiddenByCollapse(indents, {true, false, false, false, false});
+    bool aOk = !hA[0] && hA[1] && hA[2] && hA[3] && !hA[4];
+
+    // Only nested groupB collapsed -> just child2 (row 3) hidden.
+    auto hB = ce::hiddenByCollapse(indents, {false, false, true, false, false});
+    bool bOk = !hB[0] && !hB[1] && !hB[2] && hB[3] && !hB[4];
+
+    // Nothing collapsed -> nothing hidden.
+    auto hNone = ce::hiddenByCollapse(indents, {false, false, false, false, false});
+    bool noneOk = std::none_of(hNone.begin(), hNone.end(), [](bool b) { return b; });
+
+    bool ok = aOk && bOk && noneOk;
+    printf("  collapse hides descendants (outer=%d nested=%d none=%d): %s\n",
+           aOk, bOk, noneOk, ok ? "OK" : "FAILED");
+}
+
 static void test_expression_parser() {
     printf("── Test: Expression Parser ──\n");
     const uintptr_t base  = 0x100000;
@@ -10244,6 +10266,7 @@ int main(int argc, char* argv[]) {
     test_freeze_should_write();
     test_expression_parser();
     test_memview_pane_choice();
+    test_group_collapse();
     test_aob_signature();
     test_string_case_insensitive_scan();
     test_between_reversed_bounds();

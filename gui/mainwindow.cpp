@@ -1501,6 +1501,12 @@ void MainWindow::setupUi() {
     connect(addressListModel_, &QAbstractItemModel::modelReset, this, updateTableHint);
     connect(addressListModel_, &QAbstractItemModel::rowsInserted, this, updateTableHint);
     connect(addressListModel_, &QAbstractItemModel::rowsRemoved, this, updateTableHint);
+    // Row visibility (collapsed groups) is a view property that a model reset or a
+    // structural change clears, so re-hide the collapsed children whenever that happens.
+    connect(addressListModel_, &QAbstractItemModel::modelReset, this, &MainWindow::reapplyGroupCollapse);
+    connect(addressListModel_, &QAbstractItemModel::rowsInserted, this, &MainWindow::reapplyGroupCollapse);
+    connect(addressListModel_, &QAbstractItemModel::rowsRemoved, this, &MainWindow::reapplyGroupCollapse);
+    connect(addressListModel_, &QAbstractItemModel::layoutChanged, this, &MainWindow::reapplyGroupCollapse);
     // Surface a reverted (protected) manual edit as a status-bar hint toward
     // find-what-writes, so "my edit doesn't stick" has an explanation.
     connect(addressListModel_, &AddressListModel::valueReverted, this,
@@ -1533,6 +1539,12 @@ void MainWindow::setupUi() {
     connect(addressListView_, &QAbstractItemView::doubleClicked, this,
             [this](const QModelIndex& idx) {
         if (!idx.isValid()) return;
+        // Double-clicking a group header (outside its editable Description) collapses or
+        // expands it, hiding/showing its children like a CE tree node.
+        if (idx.column() != 1 && addressListModel_->toggleGroupCollapse(idx.row())) {
+            reapplyGroupCollapse();
+            return;
+        }
         if (idx.column() != 1 && addressListModel_->isScriptEntry(idx.row())) {
             editScriptEntry(idx.row());
             return;
@@ -3579,6 +3591,21 @@ void MainWindow::openMonoDissector() {
     w->show();
 }
 
+void MainWindow::reapplyGroupCollapse() {
+    const auto& ents = addressListModel_->entries();
+    std::vector<int> indents;
+    std::vector<bool> collapsed;
+    indents.reserve(ents.size());
+    collapsed.reserve(ents.size());
+    for (const auto& e : ents) {
+        indents.push_back(e.indent);
+        collapsed.push_back(e.isGroup && e.collapsed);
+    }
+    const auto hidden = ce::hiddenByCollapse(indents, collapsed);
+    for (int r = 0; r < (int)hidden.size(); ++r)
+        addressListView_->setRowHidden(r, hidden[r]);
+}
+
 QWidget* MainWindow::openPanelByName(const QString& name) {
     auto tryIn = [this, &name](QWidget* host) -> QWidget* {
         QSet<QWidget*> before;
@@ -4622,6 +4649,13 @@ void AddressListModel::toggleActive(int row) {
     setEntryActive(row, !entries_[row].active);
 }
 
+bool AddressListModel::toggleGroupCollapse(int row) {
+    if (row < 0 || row >= (int)entries_.size() || !entries_[row].isGroup) return false;
+    entries_[row].collapsed = !entries_[row].collapsed;
+    emit dataChanged(index(row, 0), index(row, columnCount() - 1));  // refresh the ▸/▾ marker
+    return true;
+}
+
 void AddressListModel::setEntryValueTo(int row, const QString& value) {
     if (row < 0 || row >= (int)entries_.size() || !proc_) return;
     auto& e = entries_[row];
@@ -4842,6 +4876,9 @@ QVariant AddressListModel::data(const QModelIndex& index, int role) const {
         case 1: {
             QString prefix;
             for (int i = 0; i < e.indent; ++i) prefix += "  ";
+            // A group shows a collapse indicator (CE tree node): open vs collapsed.
+            if (e.isGroup) prefix += e.collapsed ? QString::fromUtf8("▸ ")
+                                                 : QString::fromUtf8("▾ ");
             return prefix + e.description;
         }
         case 2: {

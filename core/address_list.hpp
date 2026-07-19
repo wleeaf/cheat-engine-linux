@@ -14,6 +14,26 @@
 
 namespace ce {
 
+/// Given each cheat-table row's indent depth and which rows are collapsed groups,
+/// return whether each row should be hidden because an ancestor group is collapsed.
+/// A collapsed group at indent d hides the following contiguous rows with indent > d
+/// (its descendants), until a row at indent <= d ends its scope. Nested collapse is
+/// handled. Pure and unit-tested; the GUI feeds the result to setRowHidden.
+inline std::vector<bool> hiddenByCollapse(const std::vector<int>& indents,
+                                          const std::vector<bool>& collapsed) {
+    std::vector<bool> hidden(indents.size(), false);
+    std::vector<int> activeCollapsedIndents;   // stack of collapsed groups still in scope
+    for (std::size_t i = 0; i < indents.size(); ++i) {
+        const int d = indents[i];
+        while (!activeCollapsedIndents.empty() && activeCollapsedIndents.back() >= d)
+            activeCollapsedIndents.pop_back();
+        hidden[i] = !activeCollapsedIndents.empty();
+        if (i < collapsed.size() && collapsed[i])
+            activeCollapsedIndents.push_back(d);
+    }
+    return hidden;
+}
+
 struct AddressEntrySnapshot {
     int id = 0;
     std::string description;

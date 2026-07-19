@@ -130,6 +130,7 @@ private:
     /// (drops stale closed entries first).
     void trackStructDissector(StructureDissector* sd);
     void openMonoDissector();   // Mono/.Net class browser (Tools and the .Net menu)
+    void reapplyGroupCollapse();  // hide rows under collapsed group headers (CE tree)
     /// Resolve a scan-range field: hex, symbol, or module+offset expression.
     std::optional<uintptr_t> parseAddressExpr(const QString& text);
     void rebuildValueHotkeys();
@@ -313,6 +314,7 @@ struct AddressEntry {
     QString hotkeyStep = "1";
     int indent = 0;           // Nesting level (0 = root, 1 = child, etc.)
     bool isGroup = false;     // Group header (no address, just a label)
+    bool collapsed = false;   // Group header whose children are hidden (CE tree collapse)
     bool showAsHex = false;   // Display/edit the value in hexadecimal
     bool showAsSigned = true; // CE ShowAsSigned: integer values display signed vs unsigned
     QString addressExpr;      // If set, re-evaluated each refresh (pointer records)
@@ -363,6 +365,7 @@ public:
     bool adjustEntryValue(int row, double delta);
     const std::vector<AddressEntry>& entries() const { return entries_; }
     void toggleActive(int row);   // flip active state (hotkey target)
+    bool toggleGroupCollapse(int row);  // flip a group header's collapsed flag; true if it was a group
     void setEntryValueTo(int row, const QString& value);  // set-value hotkey target
     void setProcess(ce::ProcessHandle* proc) { proc_ = proc; refreshModuleCache(); }
     /// Refresh the cached module list used to display addresses as module+offset.

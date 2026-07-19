@@ -45,6 +45,10 @@ transforms across surfaces.
 - **Memory Viewer marks the current instruction** when the debugger is paused: the line at
   the stopped thread's RIP paints green with a ► marker, and the first open viewer follows
   execution. See the debugger notes below.
+- **Hex pane highlights changed bytes** (CE-style): bytes whose value differs from the
+  previous refresh paint red across the hex and ASCII columns, so live-changing memory is
+  obvious at a glance. Navigating to a new address resets the baseline (no false "changed"
+  flash). Covered by a new offscreen `gui_hexview_smoke` in the CI mirror.
 - **yuzu/Citra guest RAM** is now recognized: the Switch/3DS emulator family (and its
   suyu / sudachi / citron / Lime3DS / Azahar forks) backs guest memory with a
   `memfd_create("HostMemory")` fastmem mapping, so `findGuestRam` picks it up as a named

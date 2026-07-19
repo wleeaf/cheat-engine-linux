@@ -55,6 +55,12 @@ public:
     uintptr_t cursorAddress() const;
     void refresh();
 
+    /// Test helper: how many bytes changed since the previous refresh (the ones the
+    /// hex pane paints in the "changed" colour, CE-style).
+    int changedByteCountForTest() const {
+        int n = 0; for (char ch : changed_) if (ch) ++n; return n;
+    }
+
 signals:
     void requestFindWhatAccesses(uintptr_t addr, bool writesOnly);
     void requestGoto(uintptr_t addr);
@@ -108,6 +114,9 @@ private:
     std::vector<uint8_t> cache_;
     size_t readableBytes_ = 0;   // how many leading cache_ bytes were actually read
                                  // (the rest render as "??", not zeros)
+    std::vector<uint8_t> prevCache_;   // previous refresh's bytes, for change highlight
+    uintptr_t prevAddress_ = 0;        // address prevCache_ was read at (guards navigation)
+    std::vector<char> changed_;        // per-byte: differs from the previous refresh
     bool hexUpper_ = false;      // uppercase hex bytes/addresses (display/hexUpper)
     int  addrDigits_ = 16;       // hex digits in the address column (8 or 16)
 

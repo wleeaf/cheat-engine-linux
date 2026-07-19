@@ -63,6 +63,9 @@ jobs:
       - name: Run GUI structure-dissector smoke test (compare mode, offscreen Qt)
         run: ./build/gui_structdissect_smoke
 
+      - name: Run GUI hex-view smoke test (changed-byte highlight, offscreen Qt)
+        run: ./build/gui_hexview_smoke
+
       - name: Run Wayland GlobalShortcuts portal test (mock portal, private bus)
         run: |
           if [ -x ./build/wayland_shortcuts_test ]; then

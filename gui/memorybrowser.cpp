@@ -410,6 +410,17 @@ void HexView::refresh() {
         readableBytes_ = 0;
         std::fill(cache_.begin(), cache_.end(), 0);
     }
+    // Change highlight (CE-style): flag bytes that differ from the previous refresh at
+    // the SAME address, so live-changing values light up. A fresh address resets the
+    // baseline, so navigating never paints a whole page as "changed".
+    changed_.assign(cache_.size(), 0);
+    if (prevAddress_ == address_ && prevCache_.size() == cache_.size()) {
+        size_t n = std::min(cache_.size(), readableBytes_);
+        for (size_t i = 0; i < n; ++i)
+            changed_[i] = (cache_[i] != prevCache_[i]) ? 1 : 0;
+    }
+    prevCache_ = cache_;
+    prevAddress_ = address_;
     // cache_ may have shrunk (window resized smaller); drop a now-stale selection
     // so the context menu does not dereference past the end of cache_.
     if (selectedOffset_ >= (int)cache_.size()) selectedOffset_ = -1;
@@ -468,6 +479,13 @@ void HexView::paintEvent(QPaintEvent*) {
     const MvColors c = mvColors();
     p.fillRect(viewport()->rect(), c.bg);
     p.setPen(c.addr);
+    // Bytes that changed since the last refresh paint red (bright on dark, deep on
+    // light), the way CE flags live-changing memory.
+    const QColor changedCol = c.bg.lightness() < 128 ? QColor(0xf3, 0x8b, 0xa8)
+                                                     : QColor(0xc0, 0x00, 0x00);
+    auto byteChanged = [this](int idx) {
+        return idx >= 0 && idx < (int)changed_.size() && changed_[idx];
+    };
 
     for (int row = 0; row < rows && row * bytesPerRow_ < (int)cache_.size(); ++row) {
         int y = (row + 1) * charH_;
@@ -501,7 +519,9 @@ void HexView::paintEvent(QPaintEvent*) {
                 // Unreadable bytes render as a dim "??" so they read as "no
                 // memory here", not as an actual zero value.
                 bool readable = idx < (int)readableBytes_;
-                p.setPen(readable ? (b == 0 ? c.dim : c.text) : c.dim);
+                p.setPen(!readable ? c.dim
+                         : byteChanged(idx) ? changedCol
+                         : (b == 0 ? c.dim : c.text));
                 QString bs = QString("%1").arg(b, 2, 16, QChar('0'));
                 p.drawText(x, y, readable ? (hexUpper_ ? bs.toUpper() : bs)
                                           : QStringLiteral("??"));
@@ -513,7 +533,9 @@ void HexView::paintEvent(QPaintEvent*) {
                 int idx = row * bytesPerRow_ + g * gsize;
                 if (idx + gsize > (int)cache_.size()) break;
                 bool readable = idx + gsize <= (int)readableBytes_;
-                p.setPen(readable ? c.text : c.dim);
+                bool grpChanged = false;
+                for (int j = 0; j < gsize; ++j) if (byteChanged(idx + j)) { grpChanged = true; break; }
+                p.setPen(!readable ? c.dim : (grpChanged ? changedCol : c.text));
                 QString gs = formatHexGroup(&cache_[idx], displayType_);
                 p.drawText(addrColW + g * fieldW, y,
                            readable ? (hexUpper_ ? gs.toUpper() : gs)
@@ -529,7 +551,7 @@ void HexView::paintEvent(QPaintEvent*) {
             int ax = asciiX + col * charW_;
             if (int lo, hi; selRange(lo, hi) && idx >= lo && idx <= hi)
                 p.fillRect(ax, y - charH_ + 2, charW_, charH_, c.selection);
-            p.setPen(c.ascii);
+            p.setPen(byteChanged(idx) && idx < (int)readableBytes_ ? changedCol : c.ascii);
             char ch = (idx < (int)readableBytes_ && b >= 32 && b < 127) ? (char)b : '.';
             p.drawText(ax, y, QString(QChar(ch)));
         }

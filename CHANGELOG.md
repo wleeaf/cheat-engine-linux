@@ -42,6 +42,10 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **Debugger annotates register-relative memory operands** (CE parity): when paused, an
+  instruction like `mov [rax+8],rbx` or `mov rax,[rbx+rcx*4+10]` now shows the effective
+  address it touches (resolved from the live registers) and the symbol / value there, not just
+  RIP-relative operands. Uses the existing (previously unused) `ce::computeEffectiveAddress`.
 - **Debugger flags show every state, not just the set ones** (CE parity): the register panel's
   Flags line now reads `CF=0 PF=1 AF=0 ZF=1 SF=0 DF=0 OF=0` instead of just the names of the set
   flags, so you can read a clear flag's state next to a conditional jump. Backed by a Qt-free

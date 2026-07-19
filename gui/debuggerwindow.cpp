@@ -760,12 +760,15 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
             }
             if (sym.empty() && in.address == c.rip) sym = resolver_.resolve(in.address);
             QString anno = sym.empty() ? QString() : QStringLiteral("   ; %1").arg(QString::fromStdString(sym));
-            // Data reference: the disassembler resolves a memory operand to its effective
-            // address (in.ripTarget). Annotate it with the symbol / module+offset it points
-            // at and the value there, so you can see which global the paused code touches
-            // and what it holds (a printable target shows as a string).
-            if (anno.isEmpty() && !branch && in.ripTarget) {
-                const uintptr_t eff = in.ripTarget;
+            // Data reference: annotate a memory operand's effective address with the
+            // symbol / module+offset it points at and the value there, so you can see
+            // which memory the paused code touches. RIP-relative uses the pre-resolved
+            // ripTarget; for the current instruction a register-relative operand
+            // ([rax+8], [rbx+rcx*4+10]) is resolved from the live registers.
+            uintptr_t eff = in.ripTarget;
+            if (!eff && !branch && in.address == c.rip)
+                eff = ce::computeEffectiveAddress(in, c);
+            if (anno.isEmpty() && !branch && eff) {
                 std::string es = resolver_.resolve(eff);
                 if (es.empty()) es = ce::moduleOffsetString(modules_, eff);
                 QString valPart;

@@ -57,6 +57,9 @@ public:
     // Move the caret to disasm line `lineIndex` and set a breakpoint there via the
     // same path the right-click menu uses; report whether it was planted.
     bool disasmSetBreakpointForTest(int lineIndex);
+    // Move the caret to disasm line `lineIndex`, toggle a breakpoint there twice via the
+    // F5 path, and report that the first toggle added it and the second removed it.
+    bool toggleBreakpointAtCursorForTest(int lineIndex);
     // True if any GP register row currently paints in the "changed" (red) colour,
     // i.e. the last stop's step highlight fired.
     bool anyRegisterChangedHighlightForTest() const;
@@ -98,6 +101,7 @@ private:
     void updateThreadList();   // repopulate the thread dropdown at a stop
     void updateMemoryView(uintptr_t addr);   // hex-dump bytes at addr
     void setBreakpointAtCursor();            // disasm menu action
+    void toggleBreakpointAtCursor();         // F5: add/remove a breakpoint at the cursor
     void setConditionalBreakpointAtCursor(); // disasm menu action (prompts for expr)
     void editBreakpointCondition();          // breakpoint-list action (edit condition)
     void nopInstructionAtCursor();           // disasm menu action

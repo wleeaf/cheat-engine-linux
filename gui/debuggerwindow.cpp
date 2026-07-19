@@ -15,6 +15,7 @@
 #include <QPlainTextEdit>
 #include <QTextEdit>   // QTextEdit::ExtraSelection for the current-line highlight
 #include <QTextBlock>
+#include <QShortcut>
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QComboBox>
@@ -214,6 +215,10 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     connect(dataBpBtn,  &QPushButton::clicked, this, &DebuggerWindow::onAddDataBreakpoint);
     connect(rmBtn,      &QPushButton::clicked, this, &DebuggerWindow::onRemoveBreakpoint);
     connect(bpInput_,   &QLineEdit::returnPressed, this, &DebuggerWindow::onAddBreakpoint);
+    // F5 toggles a breakpoint at the disassembly cursor (matching CE's debugger, which
+    // already binds F7 step-into, F8 step-over, and F9 continue on the buttons above).
+    auto* bpToggleSc = new QShortcut(QKeySequence(Qt::Key_F5), this);
+    connect(bpToggleSc, &QShortcut::activated, this, &DebuggerWindow::toggleBreakpointAtCursor);
     connect(regTable_,  &QTableWidget::itemChanged, this, &DebuggerWindow::onRegisterEdited);
     connect(threadCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &DebuggerWindow::onThreadSelected);
@@ -779,6 +784,39 @@ uintptr_t DebuggerWindow::currentCursorAddress() const {
 
 void DebuggerWindow::setBreakpointAtCursor() {
     addBreakpointAt(currentCursorAddress());
+}
+
+void DebuggerWindow::toggleBreakpointAtCursor() {
+    uintptr_t addr = currentCursorAddress();
+    // F5: if a breakpoint is already planted here, remove it; otherwise add one.
+    for (size_t i = 0; i < bps_.size(); ++i) {
+        if (bps_[i].addr == addr) {
+            if (bps_[i].hardware) session_->removeHardwareBreakpoint(bps_[i].id);
+            else                  session_->removeSoftwareBreakpoint(bps_[i].id);
+            bps_.erase(bps_.begin() + i);
+            delete bpList_->takeItem(static_cast<int>(i));
+            if (session_->isStopped()) updateDisassembly(session_->getStopContext());
+            return;
+        }
+    }
+    addBreakpointAt(addr);
+}
+
+bool DebuggerWindow::toggleBreakpointAtCursorForTest(int lineIndex) {
+    QTextCursor c = disasmView_->textCursor();
+    c.movePosition(QTextCursor::Start);
+    c.movePosition(QTextCursor::Down, QTextCursor::MoveAnchor, lineIndex);
+    disasmView_->setTextCursor(c);
+    uintptr_t addr = currentCursorAddress();
+    auto has = [&] { for (auto& b : bps_) if (b.addr == addr) return true; return false; };
+    const bool startedWithBp = has();
+    const int before = static_cast<int>(bps_.size());
+    const int delta = startedWithBp ? -1 : +1;
+    toggleBreakpointAtCursor();                                 // flip
+    const bool flipped = (has() != startedWithBp) && static_cast<int>(bps_.size()) == before + delta;
+    toggleBreakpointAtCursor();                                 // flip back
+    const bool restored = (has() == startedWithBp) && static_cast<int>(bps_.size()) == before;
+    return flipped && restored;
 }
 
 void DebuggerWindow::nopInstructionAtCursor() {

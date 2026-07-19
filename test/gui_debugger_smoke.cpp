@@ -124,6 +124,10 @@ int main(int argc, char** argv) {
     // path the context menu uses (while the worker's code is shown).
     bool disasmBp = hit && win.disasmSetBreakpointForTest(1);
 
+    // F5 toggle: pressing F5 at the cursor line flips a breakpoint there and pressing it
+    // again restores the previous state (verified on the current line either way).
+    bool bpToggle = hit && win.toggleBreakpointAtCursorForTest(0);
+
     // Thread switcher: the child has >= 2 frozen threads; the dropdown lists them
     // and switching moves the session's active thread.
     bool threadSwitch = hit && win.threadCount() >= 2 && win.switchToOtherThreadForTest();
@@ -156,8 +160,8 @@ int main(int argc, char** argv) {
     kill(child, SIGKILL);
     waitpid(child, nullptr, 0);
 
-    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno && disasmSym && disasmHl;
-    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d stackanno=%d disasmsym=%d disasmhl=%d)\n",
-           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk, stackAnno, disasmSym, disasmHl);
+    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno && disasmSym && disasmHl && bpToggle;
+    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d stackanno=%d disasmsym=%d disasmhl=%d bptoggle=%d)\n",
+           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk, stackAnno, disasmSym, disasmHl, bpToggle);
     return ok ? 0 : 1;
 }

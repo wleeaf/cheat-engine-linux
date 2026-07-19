@@ -1,4 +1,5 @@
 #include "gui/codefinder.hpp"
+#include "debug/patch.hpp"
 #include <QVBoxLayout>
 #include <QHeaderView>
 #include <QFont>
@@ -10,6 +11,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QHBoxLayout>
+#include <QMenu>
 
 namespace ce::gui {
 
@@ -116,6 +118,9 @@ CodeFinderWindow::CodeFinderWindow(CodeFinder* finder, const QString& title,
         dlg->exec();
         dlg->deleteLater();
     });
+    table_->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(table_, &QTableWidget::customContextMenuRequested,
+            this, &CodeFinderWindow::onContextMenu);
     layout->addWidget(table_);
 
     auto* btnRow = new QHBoxLayout;
@@ -164,6 +169,7 @@ void CodeFinderWindow::refresh() {
                                                    proc_->is64bit());
             if (rec.ok) { insAddr = rec.address; insText = QString::fromStdString(rec.text); }
         }
+        if (noppedAddrs_.count(insAddr)) insText = "[NOP] " + insText;   // patched to NOPs
         table_->setItem(i, 0, new QTableWidgetItem(hexQ(insAddr)));
         table_->setItem(i, 1, new QTableWidgetItem(insText));
         table_->setItem(i, 2, new QTableWidgetItem(QString::number(r.hitCount)));
@@ -226,6 +232,53 @@ void CodeFinderWindow::onExportToFile() {
                    .arg(c.rsi,0,16).arg(c.rdi,0,16).arg(c.rip,0,16);
     }
     statusLabel_->setText(QString("Saved %1 instruction(s) to %2").arg(results.size()).arg(path));
+}
+
+uintptr_t CodeFinderWindow::addressOfRow(int row) const {
+    // Column 0 holds the (recovery-adjusted) instruction address exactly as shown, so
+    // NOP/show act on the real writing instruction, not the raw pre-recovery address.
+    auto* it = (row >= 0) ? table_->item(row, 0) : nullptr;
+    if (!it) return 0;
+    bool ok = false;
+    uintptr_t a = it->text().toULongLong(&ok, 0);   // "0x..." -> hex
+    return ok ? a : 0;
+}
+
+bool CodeFinderWindow::nopInstructionAt(uintptr_t addr) {
+    if (!proc_ || !addr) return false;
+    auto orig = ce::nopInstruction(*proc_, addr);   // returns the replaced bytes (empty on failure)
+    if (orig.empty()) return false;
+    noppedAddrs_.insert(addr);
+    return true;
+}
+
+void CodeFinderWindow::onContextMenu(const QPoint& pos) {
+    int row = table_->rowAt(pos.y());
+    if (row < 0) return;
+    uintptr_t addr = addressOfRow(row);
+    if (!addr) return;
+
+    QMenu menu(this);
+    QAction* showAct = showInDisasm_ ? menu.addAction("Show in the disassembler") : nullptr;
+    QAction* nopAct  = proc_ ? menu.addAction("Replace with code that does nothing (NOP)") : nullptr;
+    QAction* addAct  = addToList_ ? menu.addAction("Add to the address list") : nullptr;
+    if (menu.isEmpty()) return;
+
+    QAction* picked = menu.exec(table_->viewport()->mapToGlobal(pos));
+    if (!picked) return;
+    if (picked == showAct) {
+        showInDisasm_(addr);
+    } else if (picked == nopAct) {
+        if (nopInstructionAt(addr)) {
+            if (auto* it = table_->item(row, 1))
+                it->setText("[NOP] " + it->text());
+            statusLabel_->setText(QString("Patched 0x%1 to NOPs.").arg(addr, 0, 16));
+        } else {
+            statusLabel_->setText(QString("Could not patch 0x%1.").arg(addr, 0, 16));
+        }
+    } else if (picked == addAct) {
+        onAddToList();
+    }
 }
 
 } // namespace ce::gui

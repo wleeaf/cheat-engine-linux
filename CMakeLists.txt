@@ -421,6 +421,15 @@ if(Qt6_FOUND)
         target_include_directories(gui_disasm_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
         target_link_libraries(gui_disasm_smoke PRIVATE cecore Qt6::Widgets)
 
+        # Offscreen smoke test for the find-what-writes results window actions
+        # (show-in-disassembler + NOP the instruction).
+        qt_add_executable(gui_codefinder_smoke
+            test/gui_codefinder_smoke.cpp
+            gui/codefinder.cpp
+        )
+        target_include_directories(gui_codefinder_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
+        target_link_libraries(gui_codefinder_smoke PRIVATE cecore Qt6::Widgets)
+
         # Offscreen smoke test for the memory viewer's wildcard AOB search.
         qt_add_executable(gui_search_smoke
             test/gui_search_smoke.cpp

@@ -7,6 +7,7 @@
 #include <QPushButton>
 #include <QTimer>
 #include <functional>
+#include <set>
 
 namespace ce::gui {
 
@@ -23,6 +24,17 @@ public:
     using AddToListFn = std::function<void(uintptr_t addr, const QString& desc)>;
     void setAddToList(AddToListFn fn) { addToList_ = std::move(fn); }
 
+    /// Hook to open the Memory Viewer's disassembler at an instruction address (CE's
+    /// "Show this address in the disassembler"). MainWindow wires it to openMemoryView.
+    using ShowFn = std::function<void(uintptr_t addr)>;
+    void setShowInDisassembler(ShowFn fn) { showInDisasm_ = std::move(fn); }
+
+    // Test hooks (headless): NOP the instruction at `addr` (returns true if patched);
+    // fire the show-in-disassembler hook for `addr`; read the address a row displays.
+    bool nopInstructionForTest(uintptr_t addr) { return nopInstructionAt(addr); }
+    void showInDisassemblerForTest(uintptr_t addr) { if (showInDisasm_) showInDisasm_(addr); }
+    uintptr_t rowAddressForTest(int row) const { return addressOfRow(row); }
+
 private slots:
     void refresh();
     void onStop();
@@ -30,6 +42,9 @@ private slots:
 private:
     void onAddToList();       // add selected (or all) rows to the address list
     void onExportToFile();    // write the findings to a text report
+    void onContextMenu(const QPoint& pos);   // per-result right-click actions
+    uintptr_t addressOfRow(int row) const;   // the (recovered) address shown in column 0
+    bool nopInstructionAt(uintptr_t addr);   // overwrite the instruction with NOPs
 
     ce::CodeFinder* finder_;
     ce::ProcessHandle* proc_ = nullptr;   // for exact-store recovery (may be null)
@@ -40,6 +55,8 @@ private:
     QPushButton* saveBtn_;
     QTimer* refreshTimer_;
     AddToListFn addToList_;
+    ShowFn showInDisasm_;
+    std::set<uintptr_t> noppedAddrs_;     // instructions patched to NOP (marked on refresh)
 };
 
 } // namespace ce::gui

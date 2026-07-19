@@ -3605,6 +3605,9 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
         showAdvancedOptions();
         advancedOptions_->addCode(a, desc.isEmpty() ? QString("code 0x%1").arg(a, 0, 16) : desc);
     });
+    // CE: "Show this address in the disassembler" jumps the Memory Viewer to the
+    // writing/accessing instruction (the found row's recovered address).
+    window->setShowInDisassembler([this](uintptr_t a) { openMemoryView(a); });
     window->show();
 }
 

@@ -66,6 +66,10 @@ public:
     /// wildcards leave that byte untouched. Returns the number of bytes written.
     int pasteBytes(const QString& aob);
 
+    /// Fill every byte in the current selection with `value` (patch memory). Returns the
+    /// number of bytes written; 0 if there is no multi-byte selection.
+    int fillSelection(uint8_t value);
+
     /// Test helper: set the byte selection to offsets [lo, hi] within the visible window.
     void setSelectionForTest(int lo, int hi) { selAnchor_ = lo; selectedOffset_ = hi; }
 

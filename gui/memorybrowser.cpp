@@ -260,6 +260,8 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
         ? menu.addAction(QString("Copy selection as AOB (%1 bytes)").arg(selCount)) : nullptr;
     QAction* copySelHex = selCount > 1
         ? menu.addAction("Copy selection (hex, no spaces)") : nullptr;
+    QAction* fillSel = selCount > 1
+        ? menu.addAction(QString("Fill selection (%1 bytes) with…").arg(selCount)) : nullptr;
     auto* copyAob = menu.addAction("Copy 16 bytes as AOB");
     auto* gotoAct = menu.addAction("Goto…");
     auto* followPtr = menu.addAction("Follow pointer here (qword)");
@@ -337,6 +339,14 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
                                   : QStringLiteral("??");
         }
         clip->setText(out);
+    } else if (fillSel && picked == fillSel) {
+        // Fill the selected range with one byte value (patch), CE-style.
+        bool ok = false;
+        QString v = QInputDialog::getText(this, "Fill selection", "Fill byte (hex):",
+                                          QLineEdit::Normal, "00", &ok);
+        bool hok = false;
+        int b = v.trimmed().toInt(&hok, 16);
+        if (ok && hok && b >= 0 && b <= 255) fillSelection(static_cast<uint8_t>(b));
     } else if (picked == gotoAct) {
         emit requestGoto(addr);
     } else if (picked == followPtr) {
@@ -615,6 +625,16 @@ int HexView::pasteBytes(const QString& aob) {
         if (bytes[i] < 0) continue;   // wildcard: leave the existing byte in place
         if (pokeByte(start + i, static_cast<uint8_t>(bytes[i]))) ++n;
     }
+    refresh();
+    return n;
+}
+
+int HexView::fillSelection(uint8_t value) {
+    int lo, hi;
+    if (!proc_ || !selRange(lo, hi) || hi <= lo) return 0;   // needs a real multi-byte range
+    int n = 0;
+    for (int i = lo; i <= hi; ++i)
+        if (pokeByte(address_ + static_cast<uintptr_t>(i), value)) ++n;
     refresh();
     return n;
 }

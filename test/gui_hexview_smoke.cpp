@@ -68,9 +68,16 @@ int main(int argc, char** argv) {
     sendKey(&hv, Qt::Key_C, Qt::ControlModifier);
     bool ctrlC = QApplication::clipboard()->text().contains("01 02 03");
 
-    bool ok = baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC;
+    // Fill selection: write 0x90 across bytes [4,7], leaving the neighbours untouched.
+    std::memset(g_buf, 0x00, 16);
+    hv.setSelectionForTest(4, 7);
+    int filled = hv.fillSelection(0x90);
+    bool fillOk = (filled == 4 && g_buf[3] == 0x00 && g_buf[4] == 0x90 && g_buf[5] == 0x90 &&
+                   g_buf[6] == 0x90 && g_buf[7] == 0x90 && g_buf[8] == 0x00);
+
+    bool ok = baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC && fillOk;
     printf("gui hexview smoke: %s (baseline=%d afterOneFlip=%d afterNav=%d pasteWrote=%d pasteOk=%d "
-           "ctrlV=%d ctrlC=%d)\n",
-           ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk, ctrlV, ctrlC);
+           "ctrlV=%d ctrlC=%d filled=%d fillOk=%d)\n",
+           ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk, ctrlV, ctrlC, filled, fillOk);
     return ok ? 0 : 1;
 }

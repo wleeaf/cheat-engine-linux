@@ -145,6 +145,8 @@ private:
         int hwSize = 0;          // 1/2/4/8 bytes
         int hitCount = 0;
         bool enabled = true;
+        uint8_t origByte = 0;    // original code byte a software BP replaced with 0xCC
+        bool hasOrig = false;    // origByte was captured (so the disasm can un-mask it)
     };
     std::vector<Bp> bps_;
     QString bpRowText(const Bp& b) const;      // list text incl. condition + hit count

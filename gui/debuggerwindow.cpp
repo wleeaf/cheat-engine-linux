@@ -321,9 +321,14 @@ void DebuggerWindow::addBreakpointAt(uintptr_t addr, const QString& condition) {
         refreshBpRow(static_cast<int>(i));
         return;
     }
+    // Capture the original byte BEFORE planting 0xCC, so the disassembly can un-mask it
+    // and show the real instruction while stopped here (not int3).
+    uint8_t orig = 0; bool hasOrig = false;
+    if (proc_) { uint8_t b = 0; auto rb = proc_->read(addr, &b, 1); if (rb && *rb == 1) { orig = b; hasOrig = true; } }
     int id = session_->setSoftwareBreakpoint(addr);
     if (id <= 0) { statusLabel_->setText("Failed to set breakpoint at " + hex(addr)); return; }
     Bp bp; bp.id = id; bp.addr = addr; bp.condition = condition.toStdString();
+    bp.origByte = orig; bp.hasOrig = hasOrig;
     bps_.push_back(bp);
     bpList_->addItem(new QListWidgetItem());
     refreshBpRow(static_cast<int>(bps_.size()) - 1);
@@ -686,6 +691,13 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
     QString out;
     int currentLineBlock = -1;   // text block index of the "=>" line, for the highlight
     if (rr && *rr > 0) {
+        // Un-mask any planted software breakpoints in this window so the paused code
+        // disassembles as its real instructions instead of int3 (0xCC) — otherwise the
+        // 0xCC replacing an instruction's first byte desyncs the whole disassembly.
+        const size_t nread = *rr;
+        for (const auto& b : bps_)
+            if (!b.hardware && b.hasOrig && b.addr >= c.rip && b.addr < c.rip + nread)
+                buf[b.addr - c.rip] = b.origByte;
         auto insns = disasm_.disassemble(c.rip, {buf, *rr}, 24);
         for (auto& in : insns) {
             if (in.address == c.rip) currentLineBlock = static_cast<int>(disasmLineAddrs_.size());
@@ -803,10 +815,15 @@ void DebuggerWindow::toggleBreakpointAtCursor() {
 }
 
 bool DebuggerWindow::toggleBreakpointAtCursorForTest(int lineIndex) {
-    QTextCursor c = disasmView_->textCursor();
-    c.movePosition(QTextCursor::Start);
-    c.movePosition(QTextCursor::Down, QTextCursor::MoveAnchor, lineIndex);
-    disasmView_->setTextCursor(c);
+    // Re-seat the caret each time: toggling a breakpoint re-renders the disassembly,
+    // which resets the text cursor to the top (as F5 does in normal use).
+    auto moveTo = [&] {
+        QTextCursor c = disasmView_->textCursor();
+        c.movePosition(QTextCursor::Start);
+        c.movePosition(QTextCursor::Down, QTextCursor::MoveAnchor, lineIndex);
+        disasmView_->setTextCursor(c);
+    };
+    moveTo();
     uintptr_t addr = currentCursorAddress();
     auto has = [&] { for (auto& b : bps_) if (b.addr == addr) return true; return false; };
     const bool startedWithBp = has();
@@ -814,6 +831,7 @@ bool DebuggerWindow::toggleBreakpointAtCursorForTest(int lineIndex) {
     const int delta = startedWithBp ? -1 : +1;
     toggleBreakpointAtCursor();                                 // flip
     const bool flipped = (has() != startedWithBp) && static_cast<int>(bps_.size()) == before + delta;
+    moveTo();                                                  // caret was reset by the re-render
     toggleBreakpointAtCursor();                                 // flip back
     const bool restored = (has() == startedWithBp) && static_cast<int>(bps_.size()) == before;
     return flipped && restored;

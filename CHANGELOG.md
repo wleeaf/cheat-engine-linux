@@ -56,6 +56,12 @@ transforms across surfaces.
 - **F5 toggles a breakpoint** at the disassembly cursor in the debugger (adds one if none
   is there, removes it if there is), matching CE's debugger which already binds F7/F8/F9 to
   step-into/over/continue. Asserted in `gui_debugger_smoke`.
+- **Fixed: debugger disassembly showed `int3` when stopped at a breakpoint.** A software
+  breakpoint replaces the instruction's first byte with 0xCC; reading it back for the
+  disassembly rendered `int3` and desynced the whole pane (it collapsed to a single line).
+  Planted breakpoint bytes are now un-masked to their originals before disassembling, so the
+  paused code reads as its real, correctly-aligned instructions. Asserted in
+  `gui_debugger_smoke`.
 - **Debugger shows decoded CPU flags**: a "Flags:" line under the register table spells out
   the status/control flags set in RFLAGS (CF PF AF ZF SF TF IF DF OF), instead of leaving
   you to decode the raw hex. Backed by a Qt-free `ce::describeEflags()` unit-tested in

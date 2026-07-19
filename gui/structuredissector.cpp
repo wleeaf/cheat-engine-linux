@@ -74,17 +74,7 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
         "Enter one or more struct addresses to compare against the base. Rows whose "
         "bytes differ in any instance are highlighted, so the fields that vary "
         "between instances stand out. Press Enter to apply.");
-    connect(compareEdit_, &QLineEdit::returnPressed, this, [this]() {
-        compareAddrs_.clear();
-        const auto tokens = compareEdit_->text().split(
-            QRegularExpression("[\\s,]+"), Qt::SkipEmptyParts);
-        for (const QString& token : tokens) {
-            bool ok = false;
-            uintptr_t addr = token.trimmed().toULongLong(&ok, 16);
-            if (ok && addr) compareAddrs_.push_back(addr);
-        }
-        populateTable();
-    });
+    connect(compareEdit_, &QLineEdit::returnPressed, this, [this]() { applyCompareAddresses(); });
     addrRow->addWidget(compareEdit_, 1);
     layout->addLayout(addrRow);
 
@@ -167,16 +157,28 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
     if (baseAddr_) populateTable();
 }
 
-void StructureDissector::onGotoAddress() {
-    QString text = addressEdit_->text().trimmed();
-    if (text.isEmpty()) return;
-    // Accept CE-style expressions: module+offset ("game.exe+0x100"), pointer derefs
-    // ("[rax+8]"), decimal ("#1234"), or hex -- not just a bare hex address.
+// Resolve a CE-style address expression -- module+offset ("game.exe+0x100"), pointer
+// deref ("[rax+8]"), decimal ("#1234"), or hex -- falling back to a bare hex parse.
+uintptr_t StructureDissector::resolveAddress(const QString& text) {
+    QString t = text.trimmed();
+    if (t.isEmpty()) return 0;
     ce::ExpressionParser parser(proc_, nullptr);
-    if (auto a = parser.parse(text.toStdString()); a && *a) { baseAddr_ = *a; populateTable(); return; }
+    if (auto a = parser.parse(t.toStdString()); a && *a) return *a;
     bool ok = false;
-    uintptr_t a = text.toULongLong(&ok, 16);
-    if (ok) { baseAddr_ = a; populateTable(); }
+    uintptr_t a = t.toULongLong(&ok, 16);
+    return ok ? a : 0;
+}
+
+void StructureDissector::onGotoAddress() {
+    if (uintptr_t a = resolveAddress(addressEdit_->text())) { baseAddr_ = a; populateTable(); }
+}
+
+void StructureDissector::applyCompareAddresses() {
+    compareAddrs_.clear();
+    const auto tokens = compareEdit_->text().split(QRegularExpression("[\\s,]+"), Qt::SkipEmptyParts);
+    for (const QString& token : tokens)
+        if (uintptr_t addr = resolveAddress(token)) compareAddrs_.push_back(addr);
+    populateTable();
 }
 
 void StructureDissector::onRefresh() {

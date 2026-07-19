@@ -71,7 +71,12 @@ int main(int argc, char** argv) {
     // decimal, "0x.." is hex.
     bool exprDecimal = diss.resolveBaseForTest("#256") == 256;
     bool exprHex = diss.resolveBaseForTest("0x2000") == 0x2000;
-    bool exprOk = exprDecimal && exprHex;
+    // Compare addresses accept expressions too: two tokens (hex + #decimal) -> two columns
+    // (Offset, Name, Base + 2 = 5). Point the base back at real memory first, so
+    // populateTable actually rebuilds the columns (it bails on an unreadable base).
+    diss.resolveBaseForTest(QString("0x%1").arg(reinterpret_cast<uintptr_t>(g_a), 0, 16));
+    bool exprCompare = diss.setCompareExpressionForTest("0x3000, #16384") == 5;
+    bool exprOk = exprDecimal && exprHex && exprCompare;
 
     bool ok = cols == 4 && diffAt0x10 && !sameAt0x00 && !sameAt0x28
            && changedRow3 && !changedRow0 && addAllOk && exprOk;

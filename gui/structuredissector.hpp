@@ -45,6 +45,10 @@ public:
     // True if `row`'s value changed since the previous refresh (live-change highlight).
     bool rowValueChangedForTest(int row) const;
     void refreshNowForTest() { if (proc_) populateTable(); }
+    // Type an expression into the Compare field and apply it; returns the column count.
+    int setCompareExpressionForTest(const QString& expr) {
+        compareEdit_->setText(expr); applyCompareAddresses(); return table_->columnCount();
+    }
 
 private slots:
     void onGotoAddress();
@@ -57,6 +61,8 @@ private slots:
 
 private:
     void populateTable();
+    uintptr_t resolveAddress(const QString& text);   // CE-style address expression -> address
+    void applyCompareAddresses();                    // parse the Compare field, repopulate
     QString formatValue(const uint8_t* data, int offset, const QString& type) const;
     void onCopyAsCpp();
     ce::ValueType guessType(const uint8_t* data, int offset) const;

@@ -27,6 +27,7 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QMenu>
+#include <QAction>
 #include <QToolButton>
 #include <QStatusBar>
 #include <QSettings>
@@ -1546,6 +1547,20 @@ void MemoryBrowser::buildMenuBar() {
       a->setShortcut(QKeySequence("F5")); }
 
     toolsMenu_ = mb->addMenu("&Tools");
+    toolsMenu_->addAction("Auto Assemble...", this, [this]() {
+        if (autoAssembleOpener_) autoAssembleOpener_(QString());   // empty script editor
+    });
+    toolsMenu_->addAction("Dissect data/structures...", this, [this]() {
+        if (dissectOpener_) dissectOpener_(currentAddr_);          // at the current address
+    });
+}
+
+bool MemoryBrowser::triggerToolActionForTest(const QString& text) {
+    if (!toolsMenu_) return false;
+    for (QAction* a : toolsMenu_->actions()) {
+        if (a->text().startsWith(text)) { a->trigger(); return true; }
+    }
+    return false;
 }
 
 MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)

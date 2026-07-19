@@ -359,6 +359,13 @@ public:
     void setAutoAssembleOpener(std::function<void(const QString&)> fn) {
         autoAssembleOpener_ = std::move(fn);
     }
+    /// Hook to open a Structure Dissector at an address (Tools > Dissect data/
+    /// structures). MainWindow owns the dissector windows.
+    void setDissectOpener(std::function<void(uintptr_t)> fn) { dissectOpener_ = std::move(fn); }
+
+    /// Test helper: find a Tools-menu action whose text starts with `text` and
+    /// trigger it; returns false if there is no such action.
+    bool triggerToolActionForTest(const QString& text);
 
     /// CE keeps the memory/debug tools in the Memory Viewer's own menu bar (not the
     /// main window). MainWindow populates these with the actions that need its
@@ -437,6 +444,7 @@ private:
     DebuggerLauncher debuggerLauncher_;
 
     std::function<void(const QString&)> autoAssembleOpener_;
+    std::function<void(uintptr_t)> dissectOpener_;
     // Persistent-comment plumbing (see setAnnotationStore).
     std::function<void(std::vector<ce::DisassemblerComment>)> annotationSaver_;
     std::string addrToExpr(uintptr_t addr) const;   // absolute -> "module+0xoff"

@@ -2902,6 +2902,17 @@ void MainWindow::wireBrowserAnnotations(MemoryBrowser* browser) {
         editor->setScript(script.toStdString());
         editor->show();
     });
+    // Tools > Dissect data/structures opens a Structure Dissector at the address.
+    browser->setDissectOpener([this](uintptr_t addr) {
+        if (!process_) return;
+        auto* sd = new StructureDissector(process_.get(), addr, this);
+        sd->setAttribute(Qt::WA_DeleteOnClose);
+        sd->setAddToListCallback([this](uintptr_t a, ce::ValueType t, const QString& d) {
+            addressListModel_->addEntry(a, t, d);
+        });
+        trackStructDissector(sd);
+        sd->show();
+    });
 }
 
 void MainWindow::editScriptEntry(int row) {

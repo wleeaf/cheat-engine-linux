@@ -42,6 +42,10 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **Memory Viewer Tools menu is populated** (CE parity): the previously empty **Tools** menu
+  now offers **Auto Assemble...** (opens a script editor) and **Dissect data/structures...**
+  (opens a Structure Dissector at the current address), routed through the openers MainWindow
+  owns. Asserted in `gui_search_smoke`.
 - **Cheat-table Type column uses CE's wording and shows element length**: the list column
   said "Text" / "Array of Bytes" / "Unicode Text" while the Change-address dialog (and CE)
   said "String" / "Array of byte"; both now agree via one shared `ce::valueTypeName`. String

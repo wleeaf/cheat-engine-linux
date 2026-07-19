@@ -60,11 +60,19 @@ int main(int argc, char** argv) {
     bool hexFallback = browser.addressBarTextForTest(0x1234).startsWith("0x");
     bool addrBarOk = symBar && hexFallback;
 
+    // Tools menu (CE): "Auto Assemble..." and "Dissect data/structures..." route to the
+    // openers MainWindow wires; here we assert the actions exist and fire their hooks.
+    bool aaFired = false, dissectFired = false;
+    browser.setAutoAssembleOpener([&](const QString&) { aaFired = true; });
+    browser.setDissectOpener([&](uintptr_t) { dissectFired = true; });
+    bool toolsOk = browser.triggerToolActionForTest("Auto Assemble") && aaFired &&
+                   browser.triggerToolActionForTest("Dissect") && dissectFired;
+
     bool ok = (wildHit == at) && (exactHit != at) && (fullHit == at) &&
-              (backHit == at) && (backAtNeedle != at) && paneOk && addrBarOk;
+              (backHit == at) && (backAtNeedle != at) && paneOk && addrBarOk && toolsOk;
     printf("gui search smoke: %s (wild@needle=%d exactMismatch=%d full@needle=%d "
-           "backFinds=%d backStrictlyBelow=%d paneFocus=%d addrBar=%d)\n",
+           "backFinds=%d backStrictlyBelow=%d paneFocus=%d addrBar=%d tools=%d)\n",
            ok ? "OK" : "FAILED", (int)(wildHit == at), (int)(exactHit != at), (int)(fullHit == at),
-           (int)(backHit == at), (int)(backAtNeedle != at), (int)paneOk, (int)addrBarOk);
+           (int)(backHit == at), (int)(backAtNeedle != at), (int)paneOk, (int)addrBarOk, (int)toolsOk);
     return ok ? 0 : 1;
 }

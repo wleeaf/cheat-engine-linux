@@ -842,6 +842,26 @@ static void test_cheat_table_json() {
     bool signedDefaultOk = absentTag.entries.size() == 1 && absentTag.entries[0].showAsSigned &&
                            zeroTag.entries.size() == 1 && !zeroTag.entries[0].showAsSigned;
 
+    // Group collapse persists: <Collapsed>1</Collapsed> loads true (absent loads false),
+    // and a collapsed group survives a save + reload round-trip.
+    CheatTable collapseLoad;
+    collapseLoad.loadFromString(
+        "<CheatTable><CheatEntries>"
+        "<CheatEntry><ID>1</ID><Description>\"g1\"</Description><GroupHeader>1</GroupHeader>"
+        "<Collapsed>1</Collapsed></CheatEntry>"
+        "<CheatEntry><ID>2</ID><Description>\"g2\"</Description><GroupHeader>1</GroupHeader>"
+        "</CheatEntry></CheatEntries></CheatTable>");
+    bool collapseOk = collapseLoad.entries.size() == 2 &&
+                      collapseLoad.entries[0].collapsed && !collapseLoad.entries[1].collapsed;
+    auto collapsePath = std::filesystem::temp_directory_path() /
+        ("cecore-collapse-" + std::to_string(getpid()) + ".CT");
+    CheatTable collapseReload;
+    collapseOk = collapseOk && collapseLoad.save(collapsePath.string()) &&
+                 collapseReload.load(collapsePath.string()) &&
+                 collapseReload.entries.size() == 2 &&
+                 collapseReload.entries[0].collapsed && !collapseReload.entries[1].collapsed;
+    std::filesystem::remove(collapsePath);
+
     CheatTable protectedLoaded;
     bool protectedOk = protectedLoaded.loadProtected(protectedPath.string(), "secret") &&
         matchesTable(protectedLoaded);
@@ -854,6 +874,7 @@ static void test_cheat_table_json() {
     printf("  JSON round trip: %s\n", jsonOk ? "OK" : "FAILED");
     printf("  CT XML round trip: %s\n", xmlOk ? "OK" : "FAILED");
     printf("  ShowAsSigned default/override: %s\n", signedDefaultOk ? "OK" : "FAILED");
+    printf("  group Collapsed round-trips: %s\n", collapseOk ? "OK" : "FAILED");
     printf("  CT XML CE type names: %s\n", xmlTypeNamesOk ? "OK" : "FAILED");
     printf("  CETRAINER protected round trip: %s\n", (protectedOk && wrongPasswordOk) ? "OK" : "FAILED");
 }

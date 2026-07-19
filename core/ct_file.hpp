@@ -25,6 +25,7 @@ struct CheatEntry {
     int parentId = -1;          // -1 = root level
     std::vector<int> childIds;
     bool isGroup = false;       // True = group header, no address
+    bool collapsed = false;     // Group header whose children are hidden (CE Collapsed)
     std::string color;          // Hex color for display
     std::string dropdownList;   // Semicolon-separated choices
     std::string hotkeyKeys;     // Hotkey binding

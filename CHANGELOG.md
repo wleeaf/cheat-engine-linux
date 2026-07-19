@@ -42,6 +42,9 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **Group collapse state persists** (CE `Collapsed`): a collapsed group stays collapsed after
+  saving and reopening a table (CE XML `.CT`, `.CETRAINER`, and native JSON), via a
+  `<Collapsed>1</Collapsed>` tag, and re-hides its children on load. Asserted in `cecore_test`.
 - **Cheat-table groups collapse and expand** (CE tree parity): double-clicking a group header
   (outside its Description) now hides or shows its child rows, with a `▾`/`▸` marker on the
   group. Nested groups collapse independently, and the hidden state re-applies after refreshes

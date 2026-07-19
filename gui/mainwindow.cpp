@@ -3017,6 +3017,7 @@ ce::CheatTable MainWindow::buildCheatTable() const {
         e.decreaseHotkeyKeys = obj["decreaseHotkey"].toString().toStdString();
         e.hotkeyStep = obj["hotkeyStep"].toString().toStdString();
         e.isGroup = obj["group"].toBool();
+        e.collapsed = obj["collapsed"].toBool();
         e.parentId = obj["parent"].toInt(-1);
         table.entries.push_back(e);
     }
@@ -3241,6 +3242,7 @@ static QJsonArray cheatEntriesToJson(const ce::CheatTable& table) {
         obj["decreaseHotkey"] = QString::fromStdString(e.decreaseHotkeyKeys);
         obj["hotkeyStep"] = QString::fromStdString(e.hotkeyStep);
         obj["group"] = e.isGroup;
+        obj["collapsed"] = e.collapsed;
         obj["parent"] = e.parentId;
         arr.append(obj);
     }
@@ -4433,6 +4435,7 @@ QJsonArray AddressListModel::toJson() const {
         obj["hotkeyStep"] = e.hotkeyStep;
         obj["indent"] = e.indent;
         obj["group"] = e.isGroup;
+        obj["collapsed"] = e.collapsed;
         obj["showAsHex"] = e.showAsHex;
         obj["showAsSigned"] = e.showAsSigned;
         obj["freezeMode"] = (int)e.freezeMode;
@@ -4483,6 +4486,7 @@ void AddressListModel::fromJson(const QJsonArray& arr) {
                 ? parentIndentById[obj["parent"].toInt()] + 1
                 : 0));
         e.isGroup = obj["group"].toBool();
+        e.collapsed = obj["collapsed"].toBool();
         e.showAsHex = obj["showAsHex"].toBool();
         e.showAsSigned = obj["showAsSigned"].toBool(true);
         if (obj.contains("freezeMode"))

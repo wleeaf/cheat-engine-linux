@@ -229,6 +229,8 @@ bool CheatTable::save(const std::string& path) const {
 
         if (e.isGroup) {
             f << "      <GroupHeader>1</GroupHeader>\n";
+            if (e.collapsed)
+                f << "      <Collapsed>1</Collapsed>\n";
         } else if (!e.autoAsmScript.empty()) {
             // An entry carrying an AssemblerScript IS an "Auto Assembler Script"
             // record in CE (the two are equivalent). CE writes the type name and,
@@ -448,6 +450,7 @@ static void parseCheatEntriesBlock(const std::string& entriesXml, int parentId,
         if (e.description.size() >= 2 && e.description.front() == '"' && e.description.back() == '"')
             e.description = e.description.substr(1, e.description.size() - 2);
         e.isGroup = (getTag(ownXml, "GroupHeader") == "1");
+        e.collapsed = (getTag(ownXml, "Collapsed") == "1");
         if (!e.isGroup) {
             auto addrStr = getTag(ownXml, "Address");
             if (!addrStr.empty()) {
@@ -1047,6 +1050,7 @@ bool CheatTable::saveJson(const std::string& path) const {
         if (e.freezeMode != FreezeMode::Normal)
             f << ",\"freezeMode\":" << (int)e.freezeMode;
         if (e.isGroup) f << ",\"group\":true";
+        if (e.collapsed) f << ",\"collapsed\":true";
         if (!e.autoAsmScript.empty()) f << ",\"asm\":\"" << jsonEscape(e.autoAsmScript) << "\"";
         if (!e.luaScript.empty()) f << ",\"lua\":\"" << jsonEscape(e.luaScript) << "\"";
         if (!e.color.empty()) f << ",\"color\":\"" << jsonEscape(e.color) << "\"";
@@ -1142,6 +1146,7 @@ bool CheatTable::loadJson(const std::string& path) {
         e.showAsSigned = getField(item, "showAsSigned") ? jsonBoolField(item, "showAsSigned") : true;
         e.freezeMode = (FreezeMode)jsonIntField(item, "freezeMode", 0);
         e.isGroup = jsonBoolField(item, "group");
+        e.collapsed = jsonBoolField(item, "collapsed");
         e.autoAsmScript = jsonStringField(item, "asm");
         e.luaScript = jsonStringField(item, "lua");
         e.color = jsonStringField(item, "color");

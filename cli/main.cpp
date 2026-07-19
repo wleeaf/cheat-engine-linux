@@ -78,7 +78,8 @@ static void usage() {
         "                                Wine-safe by default (main-thread hardware watch);\n"
         "                                --regs dumps registers + the base-pointer for a\n"
         "                                pointer path\n"
-        "  disasm <pid> <addr> [count]   Disassemble instructions\n"
+        "  disasm <pid> <addr> [count] [--arch x86-32|x86-64|arm32|arm64]  Disassemble\n"
+        "                                instructions (arch auto-detected from the target)\n"
         "  modules <pid>                 List loaded modules\n"
         "  regions <pid>                 List memory regions\n"
         "  info <pid>                    Probe the target: arch, Wine/emulator/runtime,\n"
@@ -698,7 +699,35 @@ static uintptr_t branchImmTarget(const std::string& operands) {
     catch (...) { return 0; }
 }
 
-static int cmd_disasm(pid_t pid, uintptr_t addr, size_t count) {
+// Pick the disassembler arch for a target: the ELF/probe architecture, refined by the
+// process bitness for x86. WoW64 (64-bit host running 32-bit code) and other ambiguous
+// cases are handled by the `--arch` override at the call site.
+static Arch autoDisasmArch(pid_t pid) {
+    ce::TargetProfile p = ce::probeTarget(pid);
+    switch (p.arch) {
+        case ce::TargetProfile::Arch::X86_32: return Arch::X86_32;
+        case ce::TargetProfile::Arch::X86_64: return Arch::X86_64;
+        case ce::TargetProfile::Arch::Arm32:  return Arch::ARM32;
+        case ce::TargetProfile::Arch::Arm64:  return Arch::ARM64;
+        default: { LinuxProcessHandle proc(pid); return proc.is64bit() ? Arch::X86_64 : Arch::X86_32; }
+    }
+}
+
+static const char* archName(Arch a) {
+    switch (a) { case Arch::X86_32: return "x86-32"; case Arch::X86_64: return "x86-64";
+                 case Arch::ARM32: return "arm32"; case Arch::ARM64: return "arm64"; }
+    return "?";
+}
+
+static std::optional<Arch> parseArch(const std::string& s) {
+    if (s == "x86" || s == "x86-32" || s == "i386" || s == "32") return Arch::X86_32;
+    if (s == "x64" || s == "x86-64" || s == "amd64" || s == "64") return Arch::X86_64;
+    if (s == "arm" || s == "arm32") return Arch::ARM32;
+    if (s == "arm64" || s == "aarch64") return Arch::ARM64;
+    return std::nullopt;
+}
+
+static int cmd_disasm(pid_t pid, uintptr_t addr, size_t count, Arch arch) {
     LinuxProcessHandle proc(pid);
 
     // Load symbols for annotation
@@ -713,7 +742,8 @@ static int cmd_disasm(pid_t pid, uintptr_t addr, size_t count) {
         return 1;
     }
 
-    Disassembler dis(Arch::X86_64);
+    fprintf(stderr, "# arch: %s\n", archName(arch));
+    Disassembler dis(arch);
     auto insns = dis.disassemble(addr, {buf.data(), *r}, count);
     for (auto& i : insns) {
         // Resolve the instruction address itself
@@ -1813,8 +1843,23 @@ int main(int argc, char** argv) {
         // Bound count before the buffer's count*15 multiply (which would otherwise
         // overflow/throw on huge or negative input).
         constexpr unsigned long long kMaxDisasmCount = 100000;
-        size_t count = (argc >= 5) ? static_cast<size_t>(parseUInt(argv[4], "disasm count", kMaxDisasmCount)) : 20;
-        return cmd_disasm(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), count);
+        const pid_t pid = parsePid(argv[2]);
+        const uintptr_t addr = strtoul(argv[3], nullptr, 0);
+        size_t count = 20;
+        const char* archStr = nullptr;
+        for (int i = 4; i < argc; ++i) {
+            if (!strcmp(argv[i], "--arch") && i + 1 < argc) archStr = argv[++i];
+            else if (argv[i][0] != '-') count = static_cast<size_t>(parseUInt(argv[i], "disasm count", kMaxDisasmCount));
+        }
+        Arch arch = Arch::X86_64;
+        if (archStr) {
+            auto a = parseArch(archStr);
+            if (!a) { fprintf(stderr, "disasm: --arch must be x86-32|x86-64|arm32|arm64\n"); return 1; }
+            arch = *a;
+        } else {
+            arch = autoDisasmArch(pid);   // from the target's ELF/probe + bitness
+        }
+        return cmd_disasm(pid, addr, count, arch);
     }
     else if (!strcmp(cmd, "scan") && argc >= 3) {
         pid_t pid = parsePid(argv[2]);

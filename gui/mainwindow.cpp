@@ -302,9 +302,12 @@ void MainWindow::setupMenus() {
     // dead top-level menu. Graphics hooking is out of scope (see docs/DEVELOPMENT).
     auto* tools = menuBar()->addMenu("&Tools");
     auto* dotnet = menuBar()->addMenu(".Net");
+    // CE's .Net/Mono menu: dissect a Mono/IL2CPP runtime's classes and fields.
+    dotnet->addAction("Mono dissector...", this, &MainWindow::openMonoDissector);
     auto* network = menuBar()->addMenu("Network");
-    menuBar()->addMenu("P&lugins");
-    menuBar()->addMenu("Languages");
+    // CE also has Plugins and Languages menus, but this build has no plugin loader
+    // and ships English-only, so they are dropped rather than shown as empty dropdowns
+    // (same call the D3D menu got above).
 
     // ── Table (CE: Lua script + forms) ──
     table->addAction("Show Cheat Table Lua Script", this, &MainWindow::showTableLuaScript,
@@ -3551,6 +3554,31 @@ void MainWindow::trackStructDissector(StructureDissector* sd) {
     structDissectors_.push_back(sd);
 }
 
+void MainWindow::openMonoDissector() {
+    if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
+    auto* w = new ce::gui::MonoDissectorWindow(process_.get(), this);
+    w->setAttribute(Qt::WA_DeleteOnClose);
+    // Double-clicking a field asks for the object's base address, then adds
+    // base+offset to the address list with the field's mapped type.
+    connect(w, &ce::gui::MonoDissectorWindow::addFieldRequested, this,
+            [this](quint32 offset, int valueType, const QString& label) {
+        bool ok = false;
+        QString base = QInputDialog::getText(this, "Add Mono field",
+            QString("Object base address for '%1' (field at +0x%2):")
+                .arg(label).arg(offset, 0, 16),
+            QLineEdit::Normal, "", &ok);
+        if (!ok || base.trimmed().isEmpty()) return;
+        QString expr = QString("%1+0x%2").arg(base.trimmed()).arg(offset, 0, 16);
+        // Resolve now for the initial address; keep the expression so it
+        // re-evaluates each refresh (the base may be a pointer/symbol).
+        ce::ExpressionParser parser(process_.get(), &luaResolver_);
+        auto addr = parser.parse(expr.toStdString());
+        addressListModel_->addEntry(addr.value_or(0),
+            static_cast<ce::ValueType>(valueType), label, expr);
+    });
+    w->show();
+}
+
 QWidget* MainWindow::openPanelByName(const QString& name) {
     auto tryIn = [this, &name](QWidget* host) -> QWidget* {
         QSet<QWidget*> before;
@@ -3781,30 +3809,7 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
         auto* w = new FindStaticsWindow(process_.get(), this);
         w->setAttribute(Qt::WA_DeleteOnClose); w->show();
     });
-    tools->addAction("Mono dissector...", this, [this]() {
-        if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
-        auto* w = new ce::gui::MonoDissectorWindow(process_.get(), this);
-        w->setAttribute(Qt::WA_DeleteOnClose);
-        // Double-clicking a field asks for the object's base address, then adds
-        // base+offset to the address list with the field's mapped type.
-        connect(w, &ce::gui::MonoDissectorWindow::addFieldRequested, this,
-                [this](quint32 offset, int valueType, const QString& label) {
-            bool ok = false;
-            QString base = QInputDialog::getText(this, "Add Mono field",
-                QString("Object base address for '%1' (field at +0x%2):")
-                    .arg(label).arg(offset, 0, 16),
-                QLineEdit::Normal, "", &ok);
-            if (!ok || base.trimmed().isEmpty()) return;
-            QString expr = QString("%1+0x%2").arg(base.trimmed()).arg(offset, 0, 16);
-            // Resolve now for the initial address; keep the expression so it
-            // re-evaluates each refresh (the base may be a pointer/symbol).
-            ce::ExpressionParser parser(process_.get(), &luaResolver_);
-            auto addr = parser.parse(expr.toStdString());
-            addressListModel_->addEntry(addr.value_or(0),
-                static_cast<ce::ValueType>(valueType), label, expr);
-        });
-        w->show();
-    });
+    tools->addAction("Mono dissector...", this, &MainWindow::openMonoDissector);
     tools->addAction("Lua Engine", this, [this]() {
         luaEngine_.setProcess(process_.get());
         luaEngine_.setAddressList(addressListModel_);   // so getMemoryRecord etc. work

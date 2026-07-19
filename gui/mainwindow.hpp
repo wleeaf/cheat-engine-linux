@@ -129,6 +129,7 @@ private:
     /// Register an open Structure Dissector so it is frozen on target exit/re-attach
     /// (drops stale closed entries first).
     void trackStructDissector(StructureDissector* sd);
+    void openMonoDissector();   // Mono/.Net class browser (Tools and the .Net menu)
     /// Resolve a scan-range field: hex, symbol, or module+offset expression.
     std::optional<uintptr_t> parseAddressExpr(const QString& text);
     void rebuildValueHotkeys();

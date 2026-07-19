@@ -42,6 +42,10 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **.Net menu is functional; empty menus removed**: the top-level **.Net** menu (previously an
+  empty dropdown) now opens the Mono/IL2CPP dissector (shared with Tools via a new
+  `openMonoDissector`), and the empty **Plugins** / **Languages** menus are dropped (no plugin
+  loader, English-only), the same treatment the dead D3D menu already got.
 - **"Set value" pre-fills the current value** (CE parity): right-click -> "Set value..." now
   opens with the first selected entry's current value (in its display format) already in the
   box, so you edit from it instead of a blank field.

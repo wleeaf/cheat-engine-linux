@@ -1293,7 +1293,10 @@ void MainWindow::setupUi() {
 
     // Value type
     valueTypeCombo_ = new QComboBox;
-    valueTypeCombo_->addItems({"Byte", "2 Bytes", "4 Bytes", "8 Bytes", "Float", "Double", "Text", "Unicode Text", "Array of Bytes", "Binary", "All Types", "Pointer", "Grouped", "Custom"});
+    // Names match the cheat-table Type column / Change-address dialog (ce::valueTypeName)
+    // and CE, so a type reads the same in the scanner and the address list. mapValueType
+    // keys on the index, not the text, so the labels are free to be canonical.
+    valueTypeCombo_->addItems({"Byte", "2 Bytes", "4 Bytes", "8 Bytes", "Float", "Double", "String", "Unicode String", "Array of byte", "Binary", "All", "Pointer", "Grouped", "Custom"});
     valueTypeCombo_->setCurrentIndex(2); // 4 Bytes default
     rightLayout->addWidget(valueTypeCombo_);
 

@@ -110,6 +110,10 @@ transforms across surfaces.
   now offers **Auto Assemble...** (opens a script editor) and **Dissect data/structures...**
   (opens a Structure Dissector at the current address), routed through the openers MainWindow
   owns. Asserted in `gui_search_smoke`.
+- **Scan value-type dropdown uses the same names as the cheat table**: the scanner said "Text" /
+  "Unicode Text" / "Array of Bytes" / "All Types" while the address list and Change-address dialog
+  said "String" / "Unicode String" / "Array of byte" / "All" (`ce::valueTypeName`); the scanner now
+  matches, so a type reads the same when you scan it and when it lands in the list.
 - **Cheat-table Type column uses CE's wording and shows element length**: the list column
   said "Text" / "Array of Bytes" / "Unicode Text" while the Change-address dialog (and CE)
   said "String" / "Array of byte"; both now agree via one shared `ce::valueTypeName`. String

@@ -80,6 +80,8 @@ static void usage() {
         "                                pointer path\n"
         "  disasm <pid> <addr> [count] [--arch x86-32|x86-64|arm32|arm64]  Disassemble\n"
         "                                instructions (arch auto-detected from the target)\n"
+        "  asm \"<instr>\" [--arch x86-32|x86-64|arm32|arm64]  Assemble to bytes (no target\n"
+        "                                needed; default x86-64; newline-separate for several)\n"
         "  modules <pid>                 List loaded modules\n"
         "  regions <pid>                 List memory regions\n"
         "  info <pid>                    Probe the target: arch, Wine/emulator/runtime,\n"
@@ -777,6 +779,29 @@ static int cmd_disasm(pid_t pid, uintptr_t addr, size_t count, Arch arch) {
     }
     printf("\n%zu instructions\n", insns.size());
     return 0;
+}
+
+// Standalone inline assembler: assemble one or more instructions (newline-separated) to
+// bytes, for any supported arch. No target needed -- useful for crafting AA patches /
+// signatures.
+static int cmd_asm(const char* code, Arch arch) {
+    const AsmArch aa = arch == Arch::X86_32 ? AsmArch::X86_32
+                     : arch == Arch::ARM32  ? AsmArch::ARM32
+                     : arch == Arch::ARM64  ? AsmArch::ARM64
+                     :                        AsmArch::X86_64;
+    try {
+        Assembler as(aa);   // throws if this Keystone build lacks the arch
+        auto r = as.assemble(code, 0);
+        if (!r) { fprintf(stderr, "asm (%s): %s\n", archName(arch), r.error().c_str()); return 1; }
+        for (size_t i = 0; i < r->size(); ++i) printf("%02x%s", (*r)[i], i + 1 < r->size() ? " " : "");
+        printf("\n");
+        fprintf(stderr, "# %zu bytes (%s)\n", r->size(), archName(arch));
+        return 0;
+    } catch (const std::exception& e) {
+        fprintf(stderr, "asm (%s): %s (this Keystone build may lack %s support)\n",
+                archName(arch), e.what(), archName(arch));
+        return 1;
+    }
 }
 
 static int cmd_scan(pid_t pid, int argc, char** argv) {
@@ -1859,6 +1884,17 @@ int main(int argc, char** argv) {
             arch = autoDisasmArch(pid);   // from the target's ELF/probe + bitness
         }
         return cmd_disasm(pid, addr, count, arch);
+    }
+    else if (!strcmp(cmd, "asm") && argc >= 3) {
+        Arch arch = Arch::X86_64;
+        for (int i = 3; i < argc; ++i) {
+            if (!strcmp(argv[i], "--arch") && i + 1 < argc) {
+                auto a = parseArch(argv[++i]);
+                if (!a) { fprintf(stderr, "asm: --arch must be x86-32|x86-64|arm32|arm64\n"); return 1; }
+                arch = *a;
+            }
+        }
+        return cmd_asm(argv[2], arch);
     }
     else if (!strcmp(cmd, "scan") && argc >= 3) {
         pid_t pid = parsePid(argv[2]);

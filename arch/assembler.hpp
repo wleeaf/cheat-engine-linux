@@ -9,7 +9,7 @@
 
 namespace ce {
 
-enum class AsmArch { X86_32, X86_64 };
+enum class AsmArch { X86_32, X86_64, ARM32, ARM64 };
 
 class Assembler {
 public:

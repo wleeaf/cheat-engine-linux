@@ -36,16 +36,20 @@ Assembler::Assembler(AsmArch arch) : arch_(arch) {
     ks_arch ka;
     ks_mode km;
     switch (arch) {
-        case AsmArch::X86_32: ka = KS_ARCH_X86; km = KS_MODE_32; break;
-        case AsmArch::X86_64: ka = KS_ARCH_X86; km = KS_MODE_64; break;
+        case AsmArch::X86_32: ka = KS_ARCH_X86;   km = KS_MODE_32; break;
+        case AsmArch::X86_64: ka = KS_ARCH_X86;   km = KS_MODE_64; break;
+        case AsmArch::ARM32:  ka = KS_ARCH_ARM;   km = KS_MODE_ARM; break;
+        case AsmArch::ARM64:  ka = KS_ARCH_ARM64; km = KS_MODE_LITTLE_ENDIAN; break;
     }
 
     ks_engine* ks;
     if (ks_open(ka, km, &ks) != KS_ERR_OK)
         throw std::runtime_error("Failed to initialize Keystone");
 
-    // Use NASM syntax (matches CE's assembler style)
-    ks_option(ks, KS_OPT_SYNTAX, KS_OPT_SYNTAX_NASM);
+    // NASM syntax matches CE's assembler style; it applies to x86 only (ARM uses its
+    // own syntax, and setting NASM on an ARM engine is rejected).
+    if (arch == AsmArch::X86_32 || arch == AsmArch::X86_64)
+        ks_option(ks, KS_OPT_SYNTAX, KS_OPT_SYNTAX_NASM);
     handle_ = reinterpret_cast<size_t>(ks);
 }
 

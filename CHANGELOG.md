@@ -18,6 +18,9 @@ reimplementation of Cheat Engine).
 Follow-ups since v0.7.0, mostly deepening the hard-target work and unifying the value
 transforms across surfaces.
 
+- **Lua: `md5memory(address, size)` (.CT compat).** Returns the MD5 hex of a block of target
+  memory (matching `stringToMD5String` of the same bytes), for the tamper/change-detection
+  checksums CE trainer scripts use. Reuses our RFC-1321 MD5; no new capability.
 - **Lua: `getPointerSize()` + `getMemoryRegionInfo(address)` (.CT compat).** Pointer width (8/4)
   for cross-32/64 scripts, and a region-info table with CE's Windows-style field names/values
   (BaseAddress, RegionSize, Protect, State, Type, ...) mapped from Linux r/w/x + region type, so

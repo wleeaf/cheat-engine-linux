@@ -4648,6 +4648,21 @@ static void test_lua_memory_region_info() {
     printf("  region info + pointer size: %s%s\n", ok ? "OK" : "FAILED ", ok ? "" : err.c_str());
 }
 
+// md5memory(address, size): MD5 of target memory, matching stringToMD5String of the
+// same bytes and the RFC vector for "abc".
+static uint8_t g_md5_probe[3] = {'a', 'b', 'c'};
+static void test_lua_md5memory() {
+    printf("\n── Test: Lua md5memory ──\n");
+    LuaEngine eng;
+    eng.setOwnedProcess(std::make_unique<LinuxProcessHandle>(getpid()));
+    const std::string a = std::to_string((uintptr_t)g_md5_probe);
+    std::string err = eng.execute(
+        "assert(md5memory(" + a + ", 3) == '900150983cd24fb0d6963f7d28e17f72', 'md5 of abc')\n"
+        "assert(md5memory(" + a + ", 3) == stringToMD5String('abc'), 'md5memory == stringToMD5String')\n");
+    bool ok = err.empty();
+    printf("  md5memory: %s%s\n", ok ? "OK" : "FAILED ", ok ? "" : err.c_str());
+}
+
 // A hot function with a single store to one global, plus a worker that spins it,
 // for the "find what addresses this instruction accesses" test below.
 static volatile long g_ifa_target;
@@ -10678,6 +10693,7 @@ int main(int argc, char* argv[]) {
     test_lua_getUniqueAOB();
     test_lua_enumModules();
     test_lua_memory_region_info();
+    test_lua_md5memory();
     test_speedhack_got_injection();
     test_parser_fuzz_negatives();
     test_lua_shellexecute_gate();

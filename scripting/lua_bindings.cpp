@@ -705,6 +705,22 @@ static int l_stringToMD5String(lua_State* L) {
     return 1;
 }
 
+// md5memory(address, size) -> MD5 hex of `size` bytes read from the target (nil on a
+// failed read). Handy for tamper/change detection. No new capability: the script can
+// already readBytes the same memory.
+static int l_md5memory(lua_State* L) {
+    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    lua_Integer size = luaL_checkinteger(L, 2);
+    luaL_argcheck(L, size >= 0 && size <= (1 << 26), 2, "size out of range (0..64MB)");
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); return 1; }
+    std::vector<uint8_t> buf(static_cast<size_t>(size));
+    auto r = p->read(addr, buf.data(), buf.size());
+    if (!r) { lua_pushnil(L); return 1; }
+    lua_pushstring(L, md5Hex(buf.data(), *r).c_str());   // hash the bytes actually read
+    return 1;
+}
+
 // ── Bitwise-op compat family ──
 // CE predates Lua 5.3's native &|~<<>> operators, so its scripts call bAnd/bOr/
 // bXor/bNot/bShl/bShr. Provide them as 64-bit integer ops (matching modern CE and
@@ -4838,6 +4854,7 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "signExtend", l_signExtend);
     lua_register(L, "getCPUCount", l_getCPUCount);
     lua_register(L, "stringToMD5String", l_stringToMD5String);
+    lua_register(L, "md5memory", l_md5memory);
     lua_register(L, "bAnd", l_bAnd);
     lua_register(L, "bOr", l_bOr);
     lua_register(L, "bXor", l_bXor);

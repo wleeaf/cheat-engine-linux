@@ -117,6 +117,7 @@ private:
     void updateScanButtons();
     void startCodeFinder(int row, bool writesOnly);
     void startCodeFinderForAddress(uintptr_t addr, bool writesOnly);
+    void showInstructionAccesses(uintptr_t instructionAddr);   // CE "what addresses this instr accesses"
     // Stop active code finders so their ptrace attachment is released (a target
     // can have only one tracer; code injection needs to attach).
     void stopCodeFindersForInjection();

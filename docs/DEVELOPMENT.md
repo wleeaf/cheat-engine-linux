@@ -348,8 +348,10 @@ routing both the disassembler and Lua through it closes many at once.
 17. **Break&Trace:** multi-thread (single-tid `PTRACE_ATTACH` today,
     `debug/tracer.cpp:18`), Lua stop-conditions, and trace the thread that hit
     the breakpoint. **[M]**
-18. **find-what-writes follow-ups:** NOP-the-instruction, "find what this
-    instruction accesses", and configurable watch size (hardcoded 4-byte,
+18. **find-what-writes follow-ups:** NOP-the-instruction *(done: results window +
+    Advanced Options both NOP/restore)*, "find what this instruction accesses" *(done:
+    `findInstructionAccesses` is now wired to the disassembler context menu with a
+    results dialog)*, and configurable watch size (still hardcoded 4-byte,
     `debug/code_finder.cpp:63`). **[M]**
 
 ### P2 — Breadth / CE parity

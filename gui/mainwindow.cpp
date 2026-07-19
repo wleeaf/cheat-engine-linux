@@ -19,6 +19,7 @@
 #include "gui/luaconsole.hpp"
 #include "gui/breakpointlist.hpp"
 #include "gui/codefinder.hpp"
+#include "debug/instruction_access.hpp"
 #include "gui/codereferences.hpp"
 #include "gui/heapregions.hpp"
 #include "gui/memoryregions.hpp"
@@ -3564,6 +3565,65 @@ static bool targetLooksLikeWine(pid_t pid) {
     return cmd.find(".exe") != std::string::npos;
 }
 
+void MainWindow::showInstructionAccesses(uintptr_t instructionAddr) {
+    if (!process_) return;
+    // Release any active find-what-writes monitor first: it holds the target thread
+    // ptrace-traced, and the instruction-access monitor's SEIZE would then fail.
+    for (auto& f : codeFinders_)
+        if (f) f->stop();
+
+    // Runs synchronously: plant an execute breakpoint on the instruction, resolve the
+    // data address of its memory operand from the live registers on each hit, until
+    // 32 hits or a 4s timeout. Usually fast for a hot instruction; brief wait otherwise.
+    statusBar()->showMessage(QString("Monitoring the instruction at 0x%1…").arg(instructionAddr, 0, 16));
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    QApplication::processEvents();
+    auto results = ce::findInstructionAccesses(*process_, instructionAddr);
+    QApplication::restoreOverrideCursor();
+
+    if (results.empty()) {
+        statusBar()->clearMessage();
+        QMessageBox::information(this, "What this instruction accesses",
+            QString("No data accesses were recorded for the instruction at 0x%1.\n\nIt may not have "
+                    "run during the sample window, or it has no memory operand.").arg(instructionAddr, 0, 16));
+        return;
+    }
+
+    auto* dlg = new QDialog(this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->setWindowTitle(QString("Addresses accessed by 0x%1").arg(instructionAddr, 0, 16));
+    dlg->resize(440, 360);
+    auto* lay = new QVBoxLayout(dlg);
+    lay->addWidget(new QLabel(QString("%1 distinct address(es) accessed (double-click to add to the list):")
+        .arg(results.size())));
+    auto* table = new QTableWidget((int)results.size(), 2, dlg);
+    table->setHorizontalHeaderLabels({"Address", "Hits"});
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    for (int i = 0; i < (int)results.size(); ++i) {
+        std::string modOff = ce::moduleOffsetString(process_->modules(), results[i].address);
+        QString label = modOff.empty() ? QString("0x%1").arg(results[i].address, 0, 16)
+            : QString("%1 (0x%2)").arg(QString::fromStdString(modOff)).arg(results[i].address, 0, 16);
+        auto* a = new QTableWidgetItem(label);
+        a->setData(Qt::UserRole, (qulonglong)results[i].address);
+        table->setItem(i, 0, a);
+        table->setItem(i, 1, new QTableWidgetItem(QString::number(results[i].hitCount)));
+    }
+    table->resizeColumnsToContents();
+    connect(table, &QTableWidget::cellDoubleClicked, this, [this, table](int row, int) {
+        if (auto* it = table->item(row, 0))
+            addressListModel_->addEntry((uintptr_t)it->data(Qt::UserRole).toULongLong(),
+                                        ce::ValueType::Int32, "Accessed address");
+    });
+    lay->addWidget(table);
+    auto* close = new QPushButton("Close");
+    connect(close, &QPushButton::clicked, dlg, &QDialog::accept);
+    lay->addWidget(close, 0, Qt::AlignRight);
+    dlg->show();
+    statusBar()->showMessage(QString("%1 address(es) accessed by 0x%2")
+        .arg(results.size()).arg(instructionAddr, 0, 16), 5000);
+}
+
 void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly) {
     if (!process_) return;
 
@@ -3807,6 +3867,9 @@ MemoryBrowser* MainWindow::openMemoryView(uintptr_t addr) {
     });
     browser->setCodeFinderLauncher([this](uintptr_t addr, bool writesOnly) {
         startCodeFinderForAddress(addr, writesOnly);
+    });
+    browser->setInstructionAccessLauncher([this](uintptr_t addr) {
+        showInstructionAccesses(addr);
     });
     browser->setAddToList([this](uintptr_t addr, ce::ValueType type) {
         addressListModel_->addEntry(addr, type);

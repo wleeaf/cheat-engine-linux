@@ -44,6 +44,10 @@ transforms across surfaces.
   `s:split(sep)` (separator is a character set; empty segments are skipped) as methods on the
   string type, plus the global `printf(...)` (= `print(string.format(...))`). Improves
   out-of-the-box compatibility for imported `.CT` tables that call these.
+- **Disassembler: "Find out what addresses this instruction accesses" (CE parity).** Right-click
+  an instruction in the Memory Viewer's disassembler to monitor it and list the distinct data
+  addresses its memory operand touches (with hit counts), the complement of find-what-accesses. The
+  backend existed; this exposes it. Double-click a result to add that address to the cheat table.
 - **Find what writes/accesses: right-click a result to NOP it, restore it, or show it (CE
   parity).** The results window gains a context menu with **Replace with code that does nothing
   (NOP)** (the canonical CE workflow: NOP the store to freeze a value), **Restore with original

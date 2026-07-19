@@ -230,6 +230,7 @@ signals:
     void requestNop(uintptr_t addr, int size);
     void requestAssemble(uintptr_t addr, int size, const QString& current);
     void requestXrefs(uintptr_t addr);
+    void requestInstructionAccess(uintptr_t addr);   // "what addresses does this instr access"
     void requestSetSymbol(uintptr_t addr);
     void requestSetComment(uintptr_t addr);
     void requestSaveRegion(uintptr_t addr);
@@ -355,6 +356,11 @@ public:
     void setBreakpointRemover(std::function<void(uintptr_t)> fn) { bpRemover_ = std::move(fn); }
     void setBreakpointQuery(BpQuery fn) { bpQuery_ = std::move(fn); refreshBreakpoints(); }
     void setCodeFinderLauncher(CodeFinderLauncher fn) { cfLauncher_ = std::move(fn); }
+    /// "Find out what addresses this instruction accesses" (CE): MainWindow runs the
+    /// instruction-access monitor and shows the results.
+    void setInstructionAccessLauncher(std::function<void(uintptr_t)> fn) {
+        instrAccessLauncher_ = std::move(fn);
+    }
     /// Add an address (from the hex view's context menu) to the cheat table.
     void setAddToList(std::function<void(uintptr_t, ce::ValueType)> fn) { addToList_ = std::move(fn); }
 
@@ -482,6 +488,7 @@ private:
     std::function<void(uintptr_t, ce::ValueType)> addToList_;
     BpQuery bpQuery_;
     CodeFinderLauncher cfLauncher_;
+    std::function<void(uintptr_t)> instrAccessLauncher_;
     DebuggerLauncher debuggerLauncher_;
     std::function<void()> stepIntoFn_, stepOverFn_, runFn_;   // delegate to the debug session
     std::function<void(uintptr_t)> runToCursorFn_;            // run to the viewer's selected line

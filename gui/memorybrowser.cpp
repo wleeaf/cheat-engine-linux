@@ -1020,6 +1020,7 @@ void DisasmView::contextMenuEvent(QContextMenuEvent* e) {
     auto* labelAct = menu.addAction("Label this address…");
     auto* commentAct = menu.addAction("Set comment…");
     auto* xrefAct = menu.addAction("Find references to this address");
+    auto* accessAct = menu.addAction("Find out what addresses this instruction accesses");
     auto* asmAct = menu.addAction("Assemble instruction…");
     auto* nopAct = menu.addAction(multi
         ? QString("NOP %1 instructions (%2 bytes)").arg(selInsts.size()).arg(selTotalBytes)
@@ -1071,6 +1072,8 @@ void DisasmView::contextMenuEvent(QContextMenuEvent* e) {
         emit requestSetComment(inst.address);
     } else if (picked == xrefAct) {
         emit requestXrefs(inst.address);
+    } else if (picked == accessAct) {
+        emit requestInstructionAccess(inst.address);
     } else if (picked == asmAct) {
         emit requestAssemble(inst.address, (int)inst.size,
             QString::fromStdString(inst.operands.empty() ? inst.mnemonic
@@ -1994,6 +1997,8 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         });
     connect(disasmView_, &DisasmView::requestXrefs, this,
         [this](uintptr_t addr) { showXrefs(addr); });
+    connect(disasmView_, &DisasmView::requestInstructionAccess, this,
+        [this](uintptr_t addr) { if (instrAccessLauncher_) instrAccessLauncher_(addr); });
     connect(disasmView_, &DisasmView::requestSetComment, this, [this](uintptr_t addr) {
         bool ok = false;
         QString cur = QString::fromStdString(disasmView_->comment(addr));

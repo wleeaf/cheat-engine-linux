@@ -52,13 +52,20 @@ int main(int argc, char** argv) {
     bool sameAt0x00 = diss.cellDiffColoredForTest(0, 3);   // row 0 = offset 0x00 equal
     bool sameAt0x28 = diss.cellDiffColoredForTest(5, 3);   // row 5 = offset 0x28 equal
 
-    // "Add All to List": name two fields and confirm both are pushed to the callback.
+    // "Add All to List": name two fields and confirm both are pushed to the callback,
+    // and that a field's DECLARED type (Type-as) flows through instead of a guess.
     int added = 0;
-    diss.setAddToListCallback([&](uintptr_t, ce::ValueType, const QString&) { ++added; });
+    ce::ValueType ammoType = ce::ValueType::Int32;
+    bool ammoSeen = false;
+    diss.setAddToListCallback([&](uintptr_t, ce::ValueType t, const QString& name) {
+        ++added;
+        if (name == "ammo") { ammoType = t; ammoSeen = true; }
+    });
     diss.nameFieldForTest(0, "health");
     diss.nameFieldForTest(16, "ammo");
+    diss.typeFieldForTest(16, ce::ValueType::Float);   // declared Float (bytes guess as Int32)
     int returned = diss.addAllFieldsToList();
-    bool addAllOk = (returned == 2 && added == 2);
+    bool addAllOk = (returned == 2 && added == 2 && ammoSeen && ammoType == ce::ValueType::Float);
 
     bool ok = cols == 4 && diffAt0x10 && !sameAt0x00 && !sameAt0x28
            && changedRow3 && !changedRow0 && addAllOk;

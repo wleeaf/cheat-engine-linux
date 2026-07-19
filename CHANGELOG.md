@@ -46,8 +46,10 @@ transforms across surfaces.
   covered by the offscreen `gui_structdissect_smoke` in the CI mirror.
 - **Structure Dissector "Add All to List"**: after labelling a struct's fields (by hand or
   via Type as IL2CPP / C struct), one button adds every named field to the cheat table
-  (base+offset, name, guessed type) instead of adding them one at a time. Asserted in
-  `gui_structdissect_smoke`.
+  (base+offset, name, type) instead of adding them one at a time. Fields typed via Type-as
+  now keep their **declared type** (float stays float, int32 stays int32) in the compare
+  columns and when added to the list, rather than re-guessing from the bytes; the type is
+  saved/loaded with the structure definition. Asserted in `gui_structdissect_smoke`.
 - **Memory Viewer marks the current instruction** when the debugger is paused: the line at
   the stopped thread's RIP paints green with a ► marker, and the first open viewer follows
   execution. See the debugger notes below.

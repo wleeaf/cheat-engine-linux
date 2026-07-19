@@ -34,6 +34,7 @@ public:
         compareAddrs_ = std::move(addrs); if (baseAddr_) populateTable();
     }
     void nameFieldForTest(int offset, const QString& name) { fieldNames_[offset] = name; }
+    void typeFieldForTest(int offset, ce::ValueType t) { fieldTypes_[offset] = t; }
     int  columnCountForTest() const { return table_->columnCount(); }
     // True if the cell at (row, col) is painted in the "differs from base" colour.
     bool cellDiffColoredForTest(int row, int col) const;
@@ -57,7 +58,8 @@ private:
     ce::ValueType guessType(const uint8_t* data, int offset) const;
     bool looksLikePointer(uintptr_t p) const;
 
-    std::map<int, QString> fieldNames_;   // offset -> user field name
+    std::map<int, QString> fieldNames_;       // offset -> user field name
+    std::map<int, ce::ValueType> fieldTypes_; // offset -> type (from Type-as; else guessed)
     ce::ProcessHandle* proc_;
     uintptr_t baseAddr_ = 0;
     int structSize_ = 256;

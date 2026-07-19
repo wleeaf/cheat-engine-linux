@@ -286,6 +286,8 @@ void StructureDissector::onSaveDefinition() {
         QJsonObject f;
         f["offset"] = off;
         f["name"] = name;
+        if (auto tit = fieldTypes_.find(off); tit != fieldTypes_.end())
+            f["type"] = static_cast<int>(tit->second);
         fields.append(f);
     }
     root["fields"] = fields;
@@ -313,9 +315,12 @@ void StructureDissector::onLoadDefinition() {
     }
     auto root = doc.object();
     fieldNames_.clear();
+    fieldTypes_.clear();
     for (const auto& v : root["fields"].toArray()) {
         auto f = v.toObject();
         fieldNames_[f["offset"].toInt()] = f["name"].toString();
+        if (f.contains("type"))
+            fieldTypes_[f["offset"].toInt()] = static_cast<ce::ValueType>(f["type"].toInt());
     }
     int sz = root["size"].toInt(structSize_);
     if (sz >= 8 && sz <= 8192) { structSize_ = (sz / 8) * 8; sizeSpin_->setValue(structSize_); }
@@ -351,8 +356,11 @@ void StructureDissector::onTypeAsIl2Cpp() {
     // 8-byte-row view labels the fields that land on a row start.
     ce::StructureDefinition def = ce::il2cppClassToStructure(*found);
     fieldNames_.clear();
-    for (const auto& f : def.fields)
+    fieldTypes_.clear();
+    for (const auto& f : def.fields) {
         fieldNames_[static_cast<int>(f.offset)] = QString::fromStdString(f.name);
+        fieldTypes_[static_cast<int>(f.offset)] = f.type;
+    }
     if (def.size > 0) {
         structSize_ = std::max(8, (static_cast<int>(def.size) + 7) / 8 * 8);
         if (sizeSpin_) sizeSpin_->setValue(structSize_);
@@ -382,8 +390,11 @@ void StructureDissector::onTypeAsCStruct() {
     }
     ce::StructureDefinition def = ce::dwarfStructToStructure(*st);
     fieldNames_.clear();
-    for (const auto& f : def.fields)
+    fieldTypes_.clear();
+    for (const auto& f : def.fields) {
         fieldNames_[static_cast<int>(f.offset)] = QString::fromStdString(f.name);
+        fieldTypes_[static_cast<int>(f.offset)] = f.type;
+    }
     if (def.size > 0) {
         structSize_ = std::max(8, (static_cast<int>(def.size) + 7) / 8 * 8);
         if (sizeSpin_) sizeSpin_->setValue(structSize_);
@@ -495,7 +506,10 @@ void StructureDissector::populateTable() {
     for (int i = 0; i < rows; ++i) {
         int off = i * 8;
         const uint8_t* base = cache_.data() + off;
-        ce::ValueType vt = guessType(base, off);
+        // A field typed via Type-as displays with its declared type; otherwise guess.
+        ce::ValueType vt;
+        if (auto tit = fieldTypes_.find(off); tit != fieldTypes_.end()) vt = tit->second;
+        else vt = guessType(base, off);
         int width = (vt == ce::ValueType::Pointer || vt == ce::ValueType::Int64) ? 8 : 4;
 
         table_->setItem(i, 0, new QTableWidgetItem(QString("+0x%1").arg(off, 2, 16, QChar('0'))));
@@ -526,10 +540,15 @@ int StructureDissector::addAllFieldsToList() {
     int n = 0;
     for (const auto& [off, name] : fieldNames_) {
         if (off < 0) continue;
-        // guessType is bounds-checked against validBytes_ (defaults to Int32 past the
-        // readable end), so a field beyond the readable struct still adds cleanly.
-        ce::ValueType t = (off < (int)cache_.size()) ? guessType(cache_.data() + off, off)
-                                                     : ce::ValueType::Int32;
+        // Prefer the declared type (from Type-as); else guess from the bytes. guessType
+        // is bounds-checked (defaults to Int32 past the readable end), so a field beyond
+        // the readable struct still adds cleanly.
+        ce::ValueType t;
+        if (auto tit = fieldTypes_.find(off); tit != fieldTypes_.end())
+            t = tit->second;
+        else
+            t = (off < (int)cache_.size()) ? guessType(cache_.data() + off, off)
+                                           : ce::ValueType::Int32;
         addToListCb_(baseAddr_ + static_cast<uintptr_t>(off), t, name);
         ++n;
     }

@@ -122,6 +122,11 @@ transforms across surfaces.
   choices now persist across sessions. Bytes-per-row was loaded from settings but the menu
   change never saved it (so it always reverted to 16), and display type wasn't persisted at all;
   both are now written on change and restored when a Memory Viewer opens.
+- **Fixed: inline-editing a record's Type parsed the new type names wrong**: after the Type
+  column was renamed to CE's wording, the reverse parser still only knew the old names, so
+  committing a Type-cell edit on a Unicode-String record (or "All") fell back to 4 Bytes. The
+  reverse parser now derives from the same `ce::valueTypeName`, so every displayed name
+  round-trips, with the old names kept as synonyms.
 - **Scan value-type dropdown uses the same names as the cheat table**: the scanner said "Text" /
   "Unicode Text" / "Array of Bytes" / "All Types" while the address list and Change-address dialog
   said "String" / "Unicode String" / "Array of byte" / "All" (`ce::valueTypeName`); the scanner now

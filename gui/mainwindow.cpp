@@ -4966,22 +4966,22 @@ Qt::ItemFlags AddressListModel::flags(const QModelIndex& index) const {
     return f;
 }
 
-// Parse a Type-column display name ("4 Bytes", "Text", "Array of Bytes", ...) back
-// to a ValueType, tolerant of common synonyms. Falls back to Int32.
+// Parse a Type-column display name back to a ValueType. First matches the canonical
+// name (ce::valueTypeName), so every name the column can show round-trips ("String",
+// "Unicode String", "Array of byte", "All", ...); then a few common synonyms. Int32 fallback.
 static ValueType valueTypeFromDisplayName(const QString& s) {
     QString n = s.trimmed().toLower();
-    if (n == "byte") return ValueType::Byte;
-    if (n == "2 bytes" || n == "word" || n == "short") return ValueType::Int16;
-    if (n == "4 bytes" || n == "dword" || n == "int") return ValueType::Int32;
-    if (n == "8 bytes" || n == "qword" || n == "long" || n == "int64") return ValueType::Int64;
-    if (n == "float") return ValueType::Float;
-    if (n == "double") return ValueType::Double;
-    if (n == "text" || n == "string") return ValueType::String;
+    for (auto t : {ValueType::Byte, ValueType::Int16, ValueType::Int32, ValueType::Int64,
+                   ValueType::Float, ValueType::Double, ValueType::String, ValueType::UnicodeString,
+                   ValueType::ByteArray, ValueType::Binary, ValueType::All, ValueType::Grouped,
+                   ValueType::Custom, ValueType::Pointer})
+        if (n == QString(ce::valueTypeName(t)).toLower()) return t;
+    if (n == "word" || n == "short") return ValueType::Int16;
+    if (n == "dword" || n == "int") return ValueType::Int32;
+    if (n == "qword" || n == "long" || n == "int64") return ValueType::Int64;
+    if (n == "text") return ValueType::String;
     if (n == "unicode text" || n == "unicode" || n == "utf-16") return ValueType::UnicodeString;
-    if (n == "array of bytes" || n == "array of byte" || n == "aob" || n == "bytes")
-        return ValueType::ByteArray;
-    if (n == "binary") return ValueType::Binary;
-    if (n == "pointer") return ValueType::Pointer;
+    if (n == "array of bytes" || n == "aob" || n == "bytes") return ValueType::ByteArray;
     return ValueType::Int32;
 }
 

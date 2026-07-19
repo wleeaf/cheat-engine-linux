@@ -36,6 +36,8 @@ transforms across surfaces.
   new offscreen `gui_search_smoke` in the CI mirror.
 - **Memory-viewer "Find previous" (Shift+F3)**: searches backward for the closest match
   strictly below the cursor, complementing Find next (F3). Asserted in `gui_search_smoke`.
+- **A search hit highlights the matched bytes** in the hex pane, so you can see exactly what
+  Find landed on instead of just the address. Asserted in `gui_hexview_smoke`.
 - **`cescan il2cpp --pid <pid>`** resolves a running Unity game's class layouts (field
   offsets + method RVAs) directly, auto-locating the metadata and GameAssembly from the
   process (through the sandbox root for Proton/Flatpak).

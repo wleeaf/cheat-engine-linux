@@ -82,8 +82,21 @@ public:
     /// number of bytes written; 0 if there is no multi-byte selection.
     int fillSelection(uint8_t value);
 
+    /// Select `len` bytes starting at absolute address `addr` (e.g. to highlight a
+    /// search hit). No-op if the address is above the current window's top.
+    void selectBytes(uintptr_t addr, int len) {
+        if (len <= 0 || addr < address_) return;
+        int off = static_cast<int>(addr - address_);
+        selAnchor_ = off;
+        selectedOffset_ = off + len - 1;
+        editNibble_ = 0;
+        viewport()->update();
+    }
+
     /// Test helper: set the byte selection to offsets [lo, hi] within the visible window.
     void setSelectionForTest(int lo, int hi) { selAnchor_ = lo; selectedOffset_ = hi; }
+    int selectionStartForTest() const { int lo, hi; return selRange(lo, hi) ? lo : -1; }
+    int selectionSizeForTest() const { int lo, hi; return selRange(lo, hi) ? hi - lo + 1 : 0; }
 
 signals:
     void requestFindWhatAccesses(uintptr_t addr, bool writesOnly);

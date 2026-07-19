@@ -84,9 +84,14 @@ int main(int argc, char** argv) {
     bool typeByte = hv.valueTypeForDisplay() == ce::ValueType::Byte;
     bool typeMap = typeFloat && typeQword && typeByte;
 
-    bool ok = baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC && fillOk && typeMap;
+    // selectBytes highlights a range at an absolute address (used to mark a search hit).
+    hv.setAddress(reinterpret_cast<uintptr_t>(g_buf));
+    hv.selectBytes(reinterpret_cast<uintptr_t>(g_buf) + 4, 3);
+    bool selBytes = (hv.selectionStartForTest() == 4 && hv.selectionSizeForTest() == 3);
+
+    bool ok = baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC && fillOk && typeMap && selBytes;
     printf("gui hexview smoke: %s (baseline=%d afterOneFlip=%d afterNav=%d pasteWrote=%d pasteOk=%d "
-           "ctrlV=%d ctrlC=%d filled=%d fillOk=%d typeMap=%d)\n",
-           ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk, ctrlV, ctrlC, filled, fillOk, typeMap);
+           "ctrlV=%d ctrlC=%d filled=%d fillOk=%d typeMap=%d selBytes=%d)\n",
+           ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk, ctrlV, ctrlC, filled, fillOk, typeMap, selBytes);
     return ok ? 0 : 1;
 }

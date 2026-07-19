@@ -2213,6 +2213,7 @@ void MemoryBrowser::findInMemory(bool findNext, bool backward) {
     uintptr_t hit = searchMemory(pat, currentAddr_, /*inclusive=*/!findNext, mask, backward);
     if (hit) {
         navigateTo(hit);
+        if (hexView_) hexView_->selectBytes(hit, static_cast<int>(pat.size()));  // highlight the match
     } else {
         QMessageBox::information(this, "Find",
             backward ? "Not found searching backward from the current address."

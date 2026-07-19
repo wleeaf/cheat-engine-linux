@@ -10197,6 +10197,17 @@ static void test_group_collapse() {
     bool groupSelOk = g1 && g2 && g3 && g4 && g5;
     printf("  groupSelection wraps a selection under a new header (%d%d%d%d%d): %s\n",
            g1, g2, g3, g4, g5, groupSelOk ? "OK" : "FAILED");
+
+    // expandGroupDeletion: deleting a group header takes its whole subtree with it.
+    // Rows: groupA(0) child1(1) groupB(1) child2(2) groupC(0) [indents {0,1,1,2,0}].
+    bool d1 = ce::expandGroupDeletion(indents, {0}) == std::vector<std::size_t>{0,1,2,3}; // groupA + subtree
+    bool d2 = ce::expandGroupDeletion(indents, {2}) == std::vector<std::size_t>{2,3};     // nested groupB + child2
+    bool d3 = ce::expandGroupDeletion(indents, {1}) == std::vector<std::size_t>{1};       // a leaf deletes alone
+    bool d4 = ce::expandGroupDeletion(indents, {2,3}) == std::vector<std::size_t>{2,3};   // overlap dedupes
+    bool d5 = ce::expandGroupDeletion(indents, {4,99}) == std::vector<std::size_t>{4};    // childless + out-of-range
+    bool delOk = d1 && d2 && d3 && d4 && d5;
+    printf("  expandGroupDeletion removes a group's whole subtree (%d%d%d%d%d): %s\n",
+           d1, d2, d3, d4, d5, delOk ? "OK" : "FAILED");
 }
 
 static void test_expression_parser() {

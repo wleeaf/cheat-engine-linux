@@ -123,6 +123,29 @@ inline GroupSelectionPlan groupSelection(const std::vector<int>& indents,
     return plan;
 }
 
+/// Expand a delete selection so that removing a group header also removes its whole
+/// subtree (CE: a group carries its descendants; deleting the header deletes the
+/// children too). Given each row's indent and the initially selected rows, return the
+/// full ascending, deduplicated set of rows to remove: every selected row plus, for any
+/// selected row that heads a subtree, its descendantRange. A leaf's descendantRange is
+/// empty, so leaves delete alone; overlapping selections (a group and a row already
+/// inside it) collapse cleanly. Pure + unit-tested; removeEntries applies it so no
+/// orphaned, wrongly-indented children are left behind.
+inline std::vector<std::size_t> expandGroupDeletion(const std::vector<int>& indents,
+                                                    const std::vector<std::size_t>& selected) {
+    std::vector<char> mark(indents.size(), 0);
+    for (std::size_t r : selected) {
+        if (r >= indents.size()) continue;
+        mark[r] = 1;
+        auto sub = descendantRange(indents, r);   // [begin,end) subtree; empty for a leaf
+        for (std::size_t i = sub.first; i < sub.second; ++i) mark[i] = 1;
+    }
+    std::vector<std::size_t> out;
+    for (std::size_t i = 0; i < mark.size(); ++i)
+        if (mark[i]) out.push_back(i);
+    return out;   // ascending
+}
+
 struct AddressEntrySnapshot {
     int id = 0;
     std::string description;

@@ -5001,9 +5001,18 @@ void AddressListModel::removeEntry(int row) {
 }
 
 void AddressListModel::removeEntries(QList<int> rows) {
-    std::sort(rows.begin(), rows.end(), std::greater<int>());
-    for (int row : rows)
-        removeEntry(row);
+    // Deleting a group header takes its whole subtree with it (CE: a group carries its
+    // descendants), so children are never left orphaned at a now-invalid indent.
+    std::vector<int> indents;
+    indents.reserve(entries_.size());
+    for (const auto& e : entries_) indents.push_back(e.indent);
+    std::vector<std::size_t> sel;
+    sel.reserve(rows.size());
+    for (int r : rows) if (r >= 0 && r < (int)entries_.size()) sel.push_back((std::size_t)r);
+    auto expanded = ce::expandGroupDeletion(indents, sel);
+    // Delete high-to-low so earlier indices stay valid as rows are removed.
+    for (auto it = expanded.rbegin(); it != expanded.rend(); ++it)
+        removeEntry((int)*it);
 }
 
 int AddressListModel::moveEntry(int row, int delta) {

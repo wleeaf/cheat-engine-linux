@@ -10391,6 +10391,21 @@ static void test_expression_parser() {
         // Plain arithmetic with subtraction outside brackets.
         eq(p.parse("game+0x100-0x8"),     base + 0x100 - 0x8);
     printf("  multi-level pointers + inner/outer hex offsets + negatives: %s\n", ok ? "OK" : "FAILED");
+
+    // User-defined symbol resolution: a label registered in the resolver resolves by
+    // name and composes with offsets/derefs. This is exactly the path a record's
+    // addressExpr now takes (AddressListModel::reresolveAddress passes the shared
+    // resolver), so labelling an address in the Memory Viewer makes it usable as a
+    // record address / in Lua.
+    SymbolResolver usyms;
+    usyms.addUserSymbol(nodeA, "health");
+    ExpressionParser pr(&proc, &usyms);
+    bool userSymOk =
+        eq(pr.parse("health"),      nodeA)        &&   // bare label -> its address
+        eq(pr.parse("health+0x10"), nodeA + 0x10) &&   // label composes with an offset
+        eq(pr.parse("[health]"),    nodeB);            // deref the label: [nodeA] = nodeB
+    printf("  user-defined symbol resolves by name (label/offset/deref): %s\n",
+           userSymOk ? "OK" : "FAILED");
 }
 
 // ─── Scanner differential + fuzz test ────────────────────────────────────────

@@ -1535,6 +1535,9 @@ void MainWindow::setupUi() {
     // ── Bottom: address list ──
     addressListModel_ = new AddressListModel(this);
     addressListModel_->setAutoAssembler(&autoAsm_);
+    // Resolve record address expressions through the app-wide symbol table, so a label
+    // set in the Memory Viewer (or a module export) works as a record address.
+    addressListModel_->setSymbolResolver(&luaResolver_);
     addressListModel_->setBeforeAaExecute([this]() { stopCodeFindersForInjection(); });
     // Let inline Address-column edits accept the full expression syntax.
     addressListModel_->setAddressResolver([this](const QString& t) { return parseAddressExpr(t); });
@@ -3981,6 +3984,16 @@ MemoryBrowser* MainWindow::openMemoryView(uintptr_t addr) {
         addressListModel_->addEntry(addr, type);
         statusBar()->showMessage(QString("Added 0x%1 to the cheat table").arg(addr, 0, 16), 3000);
     });
+    // Global user-defined symbols: a label set in one Memory Viewer must resolve
+    // everywhere (records, Lua, other views). Seed this view with the app-wide labels,
+    // and mirror any new label back into the shared resolver the address list uses.
+    browser->addUserSymbols(luaResolver_.userSymbols());
+    browser->setUserSymbolCallback([this](uintptr_t addr, const std::string& name) {
+        if (name.empty()) luaResolver_.removeUserSymbol(addr);
+        else              luaResolver_.addUserSymbol(addr, name);
+        // Re-point any record addressed by that label at the new resolution immediately.
+        if (process_) addressListModel_->updateValues(process_.get());
+    });
 
     // An explicit address wins; otherwise open at a selected scan result.
     if (addr) {
@@ -4691,7 +4704,9 @@ static bool parseComparableValue(ValueType type, const QString& valStr, double& 
 
 void AddressListModel::reresolveAddress(AddressEntry& e) {
     if (e.addressExpr.isEmpty() || !proc_) return;
-    ExpressionParser parser(proc_, nullptr);
+    // Pass the shared resolver so a record can be addressed by a user-defined label
+    // (or a module export) set in the Memory Viewer, not just a raw/module+offset expr.
+    ExpressionParser parser(proc_, symbolResolver_);
     if (auto v = parser.parse(e.addressExpr.toStdString())) e.address = *v;
 }
 

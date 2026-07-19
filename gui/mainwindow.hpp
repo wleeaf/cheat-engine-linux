@@ -388,6 +388,10 @@ public:
     bool toggleGroupCollapse(int row);  // flip a group header's collapsed flag; true if it was a group
     void setEntryValueTo(int row, const QString& value);  // set-value hotkey target
     void setProcess(ce::ProcessHandle* proc) { proc_ = proc; refreshModuleCache(); }
+    /// Shared symbol resolver used to resolve record address expressions, so a
+    /// user-defined label set in the Memory Viewer works as a record address too
+    /// (CE's userdefined symbols are global). Null keeps the previous behaviour.
+    void setSymbolResolver(ce::SymbolResolver* r) { symbolResolver_ = r; }
     /// Refresh the cached module list used to display addresses as module+offset.
     /// Cheap enough to call from the periodic value refresh so it tracks modules
     /// that load after attach.
@@ -484,6 +488,7 @@ private:
     std::vector<AddressEntry> entries_;
     std::vector<ce::ModuleInfo> moduleCache_;   // for module+offset address display
     ce::ProcessHandle* proc_ = nullptr;
+    ce::SymbolResolver* symbolResolver_ = nullptr;   // shared user/module symbols (may be null)
     ce::AutoAssembler* autoAsm_ = nullptr;
     std::function<void()> beforeAaExecute_;
     std::function<void(const QString&, const QString&)> activationErrorCb_;

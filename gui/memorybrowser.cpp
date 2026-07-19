@@ -2024,8 +2024,11 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
             QString("Name for 0x%1 (blank to clear):").arg(addr, 0, 16),
             QLineEdit::Normal, QString::fromStdString(existing), &ok);
         if (!ok) return;
-        if (name.trimmed().isEmpty()) resolver_.removeUserSymbol(addr);
-        else                          resolver_.addUserSymbol(addr, name.trimmed().toStdString());
+        const std::string trimmed = name.trimmed().toStdString();
+        if (trimmed.empty()) resolver_.removeUserSymbol(addr);
+        else                 resolver_.addUserSymbol(addr, trimmed);
+        // Mirror into the app-wide symbol table so the label resolves in records/Lua too.
+        if (userSymbolCb_) userSymbolCb_(addr, trimmed);
         persistComments();
         onRefresh();
     });
@@ -2235,6 +2238,12 @@ void MemoryBrowser::detachFromTarget() {
     if (hexView_)    hexView_->setProcess(nullptr);
     setWindowTitle("Memory Viewer (target exited)");
     statusBar()->showMessage("Target process exited; this view is frozen.", 0);
+}
+
+void MemoryBrowser::addUserSymbols(const std::map<uintptr_t, std::string>& syms) {
+    // Seed this view's resolver with labels defined elsewhere so they display here too.
+    for (const auto& [addr, name] : syms) resolver_.addUserSymbol(addr, name);
+    if (!syms.empty()) onRefresh();
 }
 
 void MemoryBrowser::toggleBookmark() {

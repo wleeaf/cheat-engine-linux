@@ -365,6 +365,14 @@ public:
     /// Add an address (from the hex view's context menu) to the cheat table.
     void setAddToList(std::function<void(uintptr_t, ce::ValueType)> fn) { addToList_ = std::move(fn); }
 
+    /// Notified whenever the user labels/unlabels an address here (name empty = cleared),
+    /// so the owner can mirror it into the app-wide symbol table (CE global symbols).
+    void setUserSymbolCallback(std::function<void(uintptr_t, const std::string&)> cb) {
+        userSymbolCb_ = std::move(cb);
+    }
+    /// Seed this view's resolver with existing user labels so they display here too.
+    void addUserSymbols(const std::map<uintptr_t, std::string>& syms);
+
     /// Open the full Debugger window at an address (the browser's step buttons use
     /// this — real single-stepping lives in the Debugger; MainWindow provides it).
     using DebuggerLauncher = std::function<void(uintptr_t addr)>;
@@ -487,6 +495,7 @@ private:
     BpToggle bpSetter_;
     std::function<void(uintptr_t)> bpRemover_;
     std::function<void(uintptr_t, ce::ValueType)> addToList_;
+    std::function<void(uintptr_t, const std::string&)> userSymbolCb_;   // label mirror to owner
     BpQuery bpQuery_;
     CodeFinderLauncher cfLauncher_;
     std::function<void(uintptr_t)> instrAccessLauncher_;

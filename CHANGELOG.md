@@ -55,6 +55,10 @@ transforms across surfaces.
   (return addresses) are annotated with the **function name** (`func+0xNN` from the symbol
   table), falling back to "module+offset" when there is no symbol, so you can read the call
   chain instead of raw pointers. Asserted in `gui_debugger_smoke`.
+- **Debugger disassembly is symbol-annotated**: a direct call/jmp shows its target's symbol
+  and the current (`=>`) line shows the function it is stopped in, appended inline as a
+  `; symbol` comment (so it never shifts the line/address mapping the breakpoint actions
+  rely on). Asserted in `gui_debugger_smoke`.
 - **Disassembler multi-instruction selection**: Shift+Up/Down and Shift+click select a
   range of instructions (the whole range highlights), and Ctrl+C copies every selected line
   as a block. A plain move or click collapses back to a single line; right-clicking inside a

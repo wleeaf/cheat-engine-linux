@@ -19,7 +19,9 @@
 #include <sys/wait.h>
 
 static volatile long g_smoke_counter = 0;
-__attribute__((noinline)) static void smoke_hot() { static volatile int s = 0; s = s + 1; }
+// External linkage so the disassembly's current-line annotation can resolve RIP to
+// this function's name (the breakpoint sits at its entry).
+__attribute__((noinline)) void smoke_hot() { static volatile int s = 0; s = s + 1; }
 // External linkage (not static) so its symbol lands in .symtab and the stack pane can
 // resolve the return address into it to a function name, not just module+offset.
 __attribute__((noinline)) void smoke_worker() {
@@ -106,6 +108,10 @@ int main(int argc, char** argv) {
     // address into smoke_worker, so the stack pane resolves it to the function name.
     bool stackAnno = hit && win.stackTextForTest().contains("smoke_worker");
 
+    // Disassembly symbol annotation: the current (=>) line is at smoke_hot's entry,
+    // so the disassembly pane annotates it with the function name.
+    bool disasmSym = hit && win.disasmTextForTest().contains("smoke_hot");
+
     // XMM view: the worker loads a known value into xmm0 before the breakpoint.
     // Check this while the trapping worker is still the active thread (before the
     // thread switch below retargets the register view to another thread).
@@ -147,8 +153,8 @@ int main(int argc, char** argv) {
     kill(child, SIGKILL);
     waitpid(child, nullptr, 0);
 
-    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno;
-    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d stackanno=%d)\n",
-           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk, stackAnno);
+    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno && disasmSym;
+    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d stackanno=%d disasmsym=%d)\n",
+           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk, stackAnno, disasmSym);
     return ok ? 0 : 1;
 }

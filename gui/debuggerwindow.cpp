@@ -673,6 +673,7 @@ bool DebuggerWindow::pokeRegisterForTest(int row, uint64_t value) {
 
 void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
     disasmLineAddrs_.clear();
+    if (proc_ && !symbolsLoaded_) { resolver_.loadProcess(*proc_); symbolsLoaded_ = true; }
     uint8_t buf[128];
     auto rr = proc_->read(c.rip, buf, sizeof(buf));
     QString out;
@@ -683,10 +684,26 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
             for (auto& b : bps_) if (b.addr == in.address) isBp = true;
             QString marker = (in.address == c.rip) ? "=> " : "   ";
             QString bpMark = isBp ? "*" : " ";
-            out += QStringLiteral("%1%2%3  %4 %5\n")
+            // Symbol annotation (CE-style), inline so it never shifts the line/address
+            // mapping: a direct call/jmp shows its target's symbol; the current line
+            // shows the function it is stopped in.
+            std::string sym;
+            const bool branch = in.mnemonic == "call" || in.mnemonic == "jmp" ||
+                                (in.mnemonic.size() > 1 && in.mnemonic[0] == 'j');
+            if (branch && in.operands.find('[') == std::string::npos) {
+                if (auto pos = in.operands.find("0x"); pos != std::string::npos) {
+                    try {
+                        auto t = static_cast<uintptr_t>(std::stoull(in.operands.substr(pos + 2), nullptr, 16));
+                        sym = resolver_.resolve(t);
+                    } catch (...) {}
+                }
+            }
+            if (sym.empty() && in.address == c.rip) sym = resolver_.resolve(in.address);
+            QString anno = sym.empty() ? QString() : QStringLiteral("   ; %1").arg(QString::fromStdString(sym));
+            out += QStringLiteral("%1%2%3  %4 %5%6\n")
                        .arg(marker, bpMark, hex(in.address),
                             QString::fromStdString(in.mnemonic),
-                            QString::fromStdString(in.operands));
+                            QString::fromStdString(in.operands), anno);
             disasmLineAddrs_.push_back(in.address);
         }
     } else {
@@ -724,6 +741,10 @@ void DebuggerWindow::updateStack(const ce::CpuContext& c) {
 
 QString DebuggerWindow::stackTextForTest() const {
     return stackView_ ? stackView_->toPlainText() : QString();
+}
+
+QString DebuggerWindow::disasmTextForTest() const {
+    return disasmView_ ? disasmView_->toPlainText() : QString();
 }
 
 uintptr_t DebuggerWindow::currentCursorAddress() const {

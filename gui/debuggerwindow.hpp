@@ -64,6 +64,8 @@ public:
     QString flagsTextForTest() const;
     // The stack pane's current text (address: value [ module+offset ] per slot).
     QString stackTextForTest() const;
+    // The disassembly pane's current text (with inline symbol annotations).
+    QString disasmTextForTest() const;
 
 signals:
     /// The target stopped at `rip` (breakpoint / step). Lets other views (e.g. open

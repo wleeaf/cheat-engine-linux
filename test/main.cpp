@@ -477,6 +477,81 @@ static void test_rpcs3_mirror_dedup() {
     int st = 0; waitpid(child, &st, 0);
 }
 
+static void test_parser_fuzz() {
+    printf("\n── Test: untrusted-parser negative-input / mutation fuzz ──\n");
+    // .CT/.CETRAINER tables and a target's ELF/PE modules are loaded from untrusted
+    // sources (downloaded tables, the game's own binaries), so the hand-rolled parsers
+    // must never crash on malformed input (CLAUDE.md: treat these as untrusted,
+    // bounds-checked). This is a deterministic, seeded mutation fuzz plus a hand-picked
+    // pathological corpus; reaching the end without a SIGSEGV/abort is the pass, and
+    // under the CI sanitizers (ASan/UBSan) job it additionally gates memory safety.
+    // (Also validated out-of-band with 400k .CT + 300k ELF ASan/UBSan iterations
+    //  incl. loadAuto/loadJson; this is the fast CI-friendly distillation of that.)
+    uint64_t rs = 0x123456789abcdef0ull;
+    auto rnd = [&]() -> uint32_t { rs ^= rs << 13; rs ^= rs >> 7; rs ^= rs << 17; return (uint32_t)(rs >> 32); };
+    auto mutate = [&](std::string m) -> std::string {
+        int n = 1 + rnd() % 12;
+        for (int k = 0; k < n && !m.empty(); ++k) {
+            switch (rnd() % 6) {
+                case 0: m[rnd() % m.size()] = (char)(rnd() & 0xff); break;                       // byte flip
+                case 1: m.erase(rnd() % m.size(), 1 + rnd() % 7); break;                         // delete run
+                case 2: m.insert(rnd() % m.size(), std::string(1 + rnd() % 8, (char)(rnd() & 0xff))); break;
+                case 3: m.resize(rnd() % (m.size() + 1)); break;                                 // truncate
+                case 4: { static const char* big[] = {"999999999999", "-1", "0x7fffffffffffffff", "4294967296"};
+                          m.insert(rnd() % m.size(), big[rnd() % 4]); break; }                   // huge count/offset
+                case 5: if (m.size() >= 8) { size_t a = rnd() % (m.size() - 7); uint64_t v = ~0ull >> (8 * (rnd() % 8));
+                          for (int b = 0; b < 8; ++b) m[a + b] = (char)(v >> (8 * b)); } break;  // smash a 64-bit field
+            }
+        }
+        return m;
+    };
+
+    // --- .CT XML parser (loadFromString): pathological corpus + mutation fuzz ---
+    static const char* kEvil[] = {
+        "", "<", "<CheatTable", "<CheatTable>", "<CheatEntries>", "<CheatEntries",
+        "<CheatTable><CheatEntries>", "<CheatEntries></CheatEntries>",
+        "<CheatTable><CheatEntries><CheatEntry>",
+        "<CheatEntries><CheatEntry><Offsets><Offset>",
+        "<CheatEntries><CheatEntry><Address>game.exe+",
+        "<CheatTable><Structures><Structure><Elements><Element Offset=\"",
+        "<CheatEntries><CheatEntry><VariableType>String</VariableType><Length>999999999999</Length></CheatEntry></CheatEntries>",
+        "<CheatEntries><CheatEntry><Description>\"</Description></CheatEntry></CheatEntries>",
+    };
+    for (const char* e : kEvil) { CheatTable t; t.loadFromString(e); }
+    const std::string ctSeed =
+        "<?xml version=\"1.0\"?><CheatTable><CheatEntries>"
+        "<CheatEntry><ID>1</ID><Description>\"H\"</Description><VariableType>4 Bytes</VariableType>"
+        "<Address>game.exe+1C</Address><Offsets><Offset>10</Offset><Offset>8</Offset></Offsets></CheatEntry>"
+        "<CheatEntry><ID>2</ID><Description>\"S\"</Description><VariableType>String</VariableType>"
+        "<Length>16</Length><Address>00401000</Address></CheatEntry>"
+        "</CheatEntries><LuaScript>print(1)</LuaScript></CheatTable>";
+    for (int i = 0; i < 6000; ++i) { CheatTable t; t.loadFromString(mutate(ctSeed)); }
+    printf("  .CT XML parser: %zu pathological + 6000 mutations, no crash: OK\n",
+           sizeof(kEvil) / sizeof(kEvil[0]));
+
+    // --- ELF module parser (loadModule): seed from our own binary, corrupt + truncate ---
+    std::ifstream exeIn("/proc/self/exe", std::ios::binary);
+    std::string exe((std::istreambuf_iterator<char>(exeIn)), std::istreambuf_iterator<char>());
+    if (!exe.empty()) {
+        auto tmp = std::filesystem::temp_directory_path() / "ce_fuzz_elf.tmp";
+        auto feed = [&](const std::string& bytes) {
+            { std::ofstream o(tmp, std::ios::binary); o.write(bytes.data(), (std::streamsize)bytes.size()); }
+            SymbolResolver r; r.loadModule(tmp.string(), "m", 0x400000);
+        };
+        // Truncations at boundary lengths (empty / partial header / partway / full).
+        size_t lens[] = {0, 1, 4, 15, 16, 52, 63, 64, 120, 4096, exe.size() / 4, exe.size() / 2};
+        for (size_t len : lens) feed(exe.substr(0, len > exe.size() ? exe.size() : len));
+        // Structural mutations of a bounded prefix (keeps the per-iteration file small).
+        std::string prefix = exe.substr(0, exe.size() < (64u << 10) ? exe.size() : (64u << 10));
+        for (int i = 0; i < 1500; ++i) feed(mutate(prefix));
+        std::error_code ec; std::filesystem::remove(tmp, ec);
+        printf("  ELF module parser: %zu truncations + 1500 mutations, no crash: OK\n",
+               sizeof(lens) / sizeof(lens[0]));
+    } else {
+        printf("  ELF module parser: (skipped: /proc/self/exe unreadable)\n");
+    }
+}
+
 static void test_target_profile() {
     printf("\n── Test: Target capability probe ──\n");
     // Probe ourselves: a valid x86-64 native process, not Wine, not an emulator,
@@ -9981,6 +10056,7 @@ int main(int argc, char* argv[]) {
     test_dolphin_guest_ram();
     test_yuzu_guest_ram();
     test_rpcs3_mirror_dedup();
+    test_parser_fuzz();
     test_guest_view();
     test_ns_attach();
     test_value_codec();

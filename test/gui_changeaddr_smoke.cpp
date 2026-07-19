@@ -84,7 +84,8 @@ int main(int argc, char** argv) {
     dprev.setPointerModeForTest(true);
     dprev.setPointerBaseForTest(QString("0x%1").arg(reinterpret_cast<uintptr_t>(&g_ptrslot), 0, 16));
     dprev.addOffsetForTest(0);   // [g_ptrslot]+0 -> &g_val
-    QString want = QStringLiteral("→ 0x%1").arg(reinterpret_cast<uintptr_t>(&g_val), 0, 16);
+    // The preview shows the resolved address and the Int32 value there (g_val == 4321).
+    QString want = QStringLiteral("→ 0x%1 = 4321").arg(reinterpret_cast<uintptr_t>(&g_val), 0, 16);
     bool previewOk = (dprev.previewTextForTest() == want);
     // Without a process, no preview is shown (nothing to resolve against).
     ChangeAddressDialog dnop("0x0", ce::ValueType::Int32, false, 1);

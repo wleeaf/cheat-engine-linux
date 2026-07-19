@@ -2,6 +2,7 @@
 #include "core/ct_file.hpp"
 #include "core/value_transform.hpp"
 #include "core/expression.hpp"
+#include "platform/process_api.hpp"
 
 #include <QFormLayout>
 #include <QHBoxLayout>
@@ -169,10 +170,47 @@ void ChangeAddressDialog::updatePreview() {
     std::string expr = ce::buildPointerExpression(
         pointerBaseEdit_->text().trimmed().toStdString(), collectOffsets());
     ce::ExpressionParser parser(proc_, nullptr);
-    if (auto addr = parser.parse(expr); addr && *addr)
-        previewLabel_->setText(QStringLiteral("→ 0x%1").arg(*addr, 0, 16));
-    else
+    auto addr = parser.parse(expr);
+    if (!addr || !*addr) {
         previewLabel_->setText(QStringLiteral("→ ?? (does not resolve)"));
+        return;
+    }
+    QString txt = QStringLiteral("→ 0x%1").arg(*addr, 0, 16);
+    // Also show the value the pointer lands on for fixed-width numeric types, so you
+    // can confirm the chain reaches the value you expect (CE shows this too).
+    QString valStr = previewValueAt(*addr);
+    if (!valStr.isEmpty()) txt += " = " + valStr;
+    previewLabel_->setText(txt);
+}
+
+QString ChangeAddressDialog::previewValueAt(unsigned long long addr) {
+    ce::ValueType vt = valueType();
+    switch (vt) {
+        case ce::ValueType::Byte: case ce::ValueType::Int16:
+        case ce::ValueType::Int32: case ce::ValueType::Int64: {
+            int w = ce::scalarWidth(vt);
+            uint64_t raw = 0;
+            auto r = proc_->read((uintptr_t)addr, &raw, (size_t)w);
+            if (!r || *r < (size_t)w) return {};
+            return QString::fromStdString(ce::formatIntegerScalar(raw, w, isSigned(), showHex()));
+        }
+        case ce::ValueType::Float: {
+            float f = 0; auto r = proc_->read((uintptr_t)addr, &f, 4);
+            if (!r || *r < 4) return {};
+            return QString::fromStdString(ce::formatFloatScalar(f, false));
+        }
+        case ce::ValueType::Double: {
+            double d = 0; auto r = proc_->read((uintptr_t)addr, &d, 8);
+            if (!r || *r < 8) return {};
+            return QString::fromStdString(ce::formatFloatScalar(d, true));
+        }
+        case ce::ValueType::Pointer: {
+            uint64_t p = 0; auto r = proc_->read((uintptr_t)addr, &p, 8);
+            if (!r || *r < 8) return {};
+            return QStringLiteral("0x%1").arg(p, 0, 16);
+        }
+        default: return {};   // String / Array of byte / etc: address only
+    }
 }
 
 QString ChangeAddressDialog::previewTextForTest() const {

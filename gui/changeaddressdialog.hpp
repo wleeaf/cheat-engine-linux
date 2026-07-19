@@ -52,6 +52,7 @@ public:
 private:
     void syncFlagState();    // enable Unicode only for String; length only for String/Array
     void updatePreview();    // resolve the pointer chain live and show the target address
+    QString previewValueAt(unsigned long long addr);   // formatted value at a resolved address
     void setPointerMode(bool on);              // CE cbPointer: reveal the base+offsets editor
     void addOffsetRow(long long value);        // append one offset row (hex, signed)
     void recomposeAddress();                   // rebuild the address field from base+offsets

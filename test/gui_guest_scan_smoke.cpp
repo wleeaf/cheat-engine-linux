@@ -7,6 +7,7 @@
 
 #include "gui/guest_scan_dialog.hpp"
 #include "platform/linux/linux_process.hpp"
+#include "core/target_profile.hpp"
 
 #include <QApplication>
 #include <QLineEdit>
@@ -55,25 +56,46 @@ int main(int argc, char** argv) {
     auto* nextBtn = buttonByText(&dlg, "Next Scan");
     const bool wired = valueEdit && table && firstBtn && nextBtn;
 
-    int firstRows = -1, nextRows = -1;
-    if (wired) {
+    auto* newBtn = buttonByText(&dlg, "New Scan");
+    auto* unknownBtn = buttonByText(&dlg, "Unknown Scan");
+    auto* increasedBtn = buttonByText(&dlg, "Increased");
+    const bool wired2 = wired && newBtn && unknownBtn && increasedBtn;
+
+    int firstRows = -1, nextRows = -1, incRows = -1;
+    if (wired2) {
+        // 1) exact First Scan for the known value, then an exact Next Scan (unchanged).
         valueEdit->setText("12345");
         firstBtn->click();
         app.processEvents();
         firstRows = table->rowCount();
-
-        // Value is unchanged, so an exact Next Scan for 12345 keeps the hit(s).
         nextBtn->click();
         app.processEvents();
         nextRows = table->rowCount();
+
+        // 2) unknown-value scan + comparison narrowing: snapshot, raise the value in the
+        //    target, then "Increased" must narrow to the one offset that grew.
+        newBtn->click();
+        unknownBtn->click();       // snapshots the region (value still 12345)
+        app.processEvents();
+
+        ce::TargetProfile prof = ce::probeTarget(child);
+        if (!prof.guestCandidates.empty()) {
+            uintptr_t hostAddr = prof.guestCandidates.front().base + 0x1000;
+            int32_t bigger = 99999;
+            proc.write(hostAddr, &bigger, sizeof(bigger));   // raise it above the snapshot
+        }
+        increasedBtn->click();
+        app.processEvents();
+        incRows = table->rowCount();
     }
 
     kill(child, SIGKILL);
     int status = 0;
     waitpid(child, &status, 0);
 
-    const bool ok = wired && firstRows >= 1 && nextRows >= 1 && nextRows <= firstRows;
-    printf("gui guest-scan smoke: %s (wired=%d firstRows=%d nextRows=%d)\n",
-           ok ? "OK" : "FAILED", wired, firstRows, nextRows);
+    const bool ok = wired2 && firstRows >= 1 && nextRows >= 1 && nextRows <= firstRows &&
+                    incRows >= 1;
+    printf("gui guest-scan smoke: %s (wired=%d firstRows=%d nextRows=%d incRows=%d)\n",
+           ok ? "OK" : "FAILED", wired2, firstRows, nextRows, incRows);
     return ok ? 0 : 1;
 }

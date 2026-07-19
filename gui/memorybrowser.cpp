@@ -976,6 +976,7 @@ void DisasmView::contextMenuEvent(QContextMenuEvent* e) {
     auto* codeInjAct = aaMenu->addAction("Create code injection here");
     auto* aobInjAct = aaMenu->addAction("Create AOB injection here");
     auto* saveAct = menu.addAction("Save region to file…");
+    auto* loadAct = menu.addAction("Load region from file…");
 
     QAction* picked = menu.exec(e->globalPos());
     if (!picked) return;
@@ -1029,6 +1030,8 @@ void DisasmView::contextMenuEvent(QContextMenuEvent* e) {
         emit requestInjection(inst.address, /*aob=*/true);
     } else if (picked == saveAct) {
         emit requestSaveRegion(inst.address);
+    } else if (picked == loadAct) {
+        emit requestLoadRegion(inst.address);
     }
 }
 
@@ -1892,6 +1895,9 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     connect(disasmView_, &DisasmView::requestSaveRegion, this, [this](uintptr_t addr) {
         saveRegionToFile(addr);
     });
+    connect(disasmView_, &DisasmView::requestLoadRegion, this, [this](uintptr_t addr) {
+        loadRegionFromFile(addr);
+    });
     connect(disasmView_, &DisasmView::requestInjection, this, [this](uintptr_t addr, bool aob) {
         if (!proc_ || !autoAssembleOpener_) return;
         std::string err;
@@ -2397,6 +2403,37 @@ void MemoryBrowser::saveRegionToFile(uintptr_t addr) {
         return;
     }
     f.write(reinterpret_cast<const char*>(buf.data()), (qint64)*r);
+}
+
+void MemoryBrowser::loadRegionFromFile(uintptr_t addr) {
+    if (!proc_) return;
+    auto path = QFileDialog::getOpenFileName(this, "Load region into memory", QString(),
+                                             "Binary (*.bin);;All (*)");
+    if (path.isEmpty()) return;
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, "Load failed", f.errorString());
+        return;
+    }
+    QByteArray data = f.readAll();
+    if (data.isEmpty()) return;
+
+    // Writing to the target's memory is destructive, so confirm the byte count and
+    // destination before patching (CE-style "are you sure").
+    if (QMessageBox::question(this, "Load region",
+            QString("Write %1 bytes from\n%2\nto 0x%3?")
+                .arg(data.size()).arg(path).arg(addr, 0, 16),
+            QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
+        return;
+
+    auto w = proc_->write(addr, data.constData(), static_cast<size_t>(data.size()));
+    if (!w || *w < static_cast<size_t>(data.size())) {
+        QMessageBox::warning(this, "Write failed",
+            QString("Wrote %1 of %2 bytes at 0x%3 (memory may be protected).")
+                .arg(w ? (qulonglong)*w : 0).arg(data.size()).arg(addr, 0, 16));
+    }
+    if (hexView_) hexView_->refresh();       // re-read so the patched bytes show now
+    if (disasmView_) disasmView_->refresh();
 }
 
 std::string MemoryBrowser::addrToExpr(uintptr_t addr) const {

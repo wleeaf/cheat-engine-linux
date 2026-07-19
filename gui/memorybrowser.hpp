@@ -225,6 +225,7 @@ signals:
     void requestSetSymbol(uintptr_t addr);
     void requestSetComment(uintptr_t addr);
     void requestSaveRegion(uintptr_t addr);
+    void requestLoadRegion(uintptr_t addr);
     // Generate a pre-filled auto-assembler injection template for this address.
     void requestInjection(uintptr_t addr, bool aob);
 
@@ -407,6 +408,7 @@ private:
     bool patchBytes(uintptr_t addr, const std::vector<uint8_t>& bytes);
     void showXrefs(uintptr_t addr);
     void saveRegionToFile(uintptr_t addr);
+    void loadRegionFromFile(uintptr_t addr);
 
     ce::ProcessHandle* proc_;
     ce::SymbolResolver resolver_;

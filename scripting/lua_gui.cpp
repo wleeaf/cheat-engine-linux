@@ -14,6 +14,9 @@ extern "C" {
 
 #include <QWidget>
 #include <QMainWindow>
+#include <QMenu>
+#include <QMenuBar>
+#include <QAction>
 #include <QDialog>
 #include <QPushButton>
 #include <QLabel>
@@ -606,6 +609,26 @@ static int l_getMainForm(lua_State* L) {
     return 1;
 }
 
+// A "Scripts" menu on the main form, created lazily, that Lua (typically an autorun
+// script) populates with tools.
+static QPointer<QMenu> guiScriptsMenu;
+
+// addMainMenuItem(caption, onclick) -> boolean. Adds an item to the main window's
+// "Scripts" menu that calls the Lua function `onclick` when clicked. Lets an autorun /
+// extension script surface a tool in the UI. Returns false if there is no main form.
+static int l_addMainMenuItem(lua_State* L) {
+    const char* caption = luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    if (!guiMainForm) { lua_pushboolean(L, false); return 1; }
+    if (!guiScriptsMenu)
+        guiScriptsMenu = guiMainForm->menuBar()->addMenu(QStringLiteral("Scripts"));
+    int ref = storeCallback(L, 2);   // the menu item lives for the session; ref persists
+    QAction* act = guiScriptsMenu->addAction(QString::fromUtf8(caption));
+    QObject::connect(act, &QAction::triggered, act, [ref]() { invokeLuaCallback(ref, nullptr); });
+    lua_pushboolean(L, true);
+    return 1;
+}
+
 // ── Canvas — drawing surface backed by CanvasWidget (QImage) ──
 
 static const char* CANVAS_MT = "CECanvas";
@@ -850,6 +873,7 @@ void registerLuaGuiBindings(lua_State* L) {
     lua_register(L, "createGroupBox", l_createGroupBox);
     lua_register(L, "createTimer", l_createTimer);
     lua_register(L, "getMainForm", l_getMainForm);
+    lua_register(L, "addMainMenuItem", l_addMainMenuItem);
     lua_register(L, "getProperty", l_getProperty);
     lua_register(L, "setProperty", l_setProperty);
 }

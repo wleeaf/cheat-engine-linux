@@ -18,6 +18,9 @@ reimplementation of Cheat Engine).
 Follow-ups since v0.7.0, mostly deepening the hard-target work and unifying the value
 transforms across surfaces.
 
+- **Lua: `addMainMenuItem(caption, onclick)` for extensions.** A script (typically an autorun
+  one) can add a tool to a "Scripts" menu on the main window that runs its Lua callback when
+  clicked, so extensions can surface themselves in the UI, the natural companion to autorun.
 - **Autorun Lua scripts on startup (CE parity).** Every `.lua` in the user's
   `<config>/cecore/Cheat Engine/autorun/` directory now runs once at startup in the shared Lua
   engine (like CE's `autorun/` folder), so extensions can add functions, hotkeys, timers, or menu

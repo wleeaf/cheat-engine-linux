@@ -147,6 +147,9 @@ int main(int argc, char** argv) {
     // renders the bytes actually there.
     bool memView = hit && win.memoryViewShowsForTest(reinterpret_cast<uintptr_t>(&g_smoke_counter));
 
+    // Memory pane change highlight: flipping a byte between two dumps flags exactly it.
+    bool memHl = hit && win.memViewChangeHighlightForTest(reinterpret_cast<uintptr_t>(&g_smoke_counter));
+
     // Current-instruction highlight (CE parity): the debugger emits stopped(rip),
     // and a Memory Viewer told that rip paints the paused line in the distinct
     // current-IP colour. Verify the signal carried the breakpoint address and that
@@ -171,8 +174,8 @@ int main(int argc, char** argv) {
     kill(child, SIGKILL);
     waitpid(child, nullptr, 0);
 
-    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno && disasmSym && disasmData && disasmHl && disasmUnmasked && bpToggle;
-    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d stackanno=%d disasmsym=%d disasmdata=%d disasmhl=%d unmasked=%d bptoggle=%d)\n",
-           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk, stackAnno, disasmSym, disasmData, disasmHl, disasmUnmasked, bpToggle);
+    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && memHl && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno && disasmSym && disasmData && disasmHl && disasmUnmasked && bpToggle;
+    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d memhl=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d stackanno=%d disasmsym=%d disasmdata=%d disasmhl=%d unmasked=%d bptoggle=%d)\n",
+           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, memHl, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk, stackAnno, disasmSym, disasmData, disasmHl, disasmUnmasked, bpToggle);
     return ok ? 0 : 1;
 }

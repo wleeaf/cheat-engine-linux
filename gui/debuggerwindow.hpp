@@ -16,6 +16,7 @@
 
 class QLineEdit;
 class QPlainTextEdit;
+class QTextEdit;
 class QTableWidget;
 class QTableWidgetItem;
 class QComboBox;
@@ -52,6 +53,13 @@ public:
     // Point the memory/hex pane at `addr` and report whether it rendered the
     // bytes actually there (verifies the pane against a fresh read).
     bool memoryViewShowsForTest(uintptr_t addr);
+    // Bytes flagged changed in the memory pane since the previous dump (painted red).
+    int  memViewChangedByteCountForTest() const {
+        int c = 0; for (char x : memChanged_) if (x) ++c; return c;
+    }
+    // Dump `addr`, flip a byte in the target, re-dump, and report that exactly one byte
+    // lit up as changed (then restore it). Verifies the memory-pane change highlight.
+    bool memViewChangeHighlightForTest(uintptr_t addr);
     // Whether the XMM0 register row displays a value whose low 64 bits are `lo`.
     bool xmm0ShowsForTest(uint64_t lo);
     // Move the caret to disasm line `lineIndex` and set a breakpoint there via the
@@ -127,7 +135,10 @@ private:
     std::array<std::array<uint8_t, 16>, 16> prevXmm_{};   // ditto for XMM0-15
     QPlainTextEdit* stackView_ = nullptr;
     QLineEdit* memAddrInput_ = nullptr;
-    QPlainTextEdit* memView_ = nullptr;
+    QTextEdit* memView_ = nullptr;
+    std::vector<uint8_t> prevMem_;      // previous memory dump, for the change highlight
+    uintptr_t prevMemAddr_ = 0;         // address prevMem_ was read at
+    std::vector<char> memChanged_;      // per-byte: differs from the previous dump
     uintptr_t lastMemAddr_ = 0;   // address the hex pane is following (0 = none)
     QLineEdit* bpInput_ = nullptr;
     QListWidget* bpList_ = nullptr;

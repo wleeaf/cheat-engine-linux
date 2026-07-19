@@ -56,6 +56,10 @@ transforms across surfaces.
 - **Memory Viewer marks the current instruction** when the debugger is paused: the line at
   the stopped thread's RIP paints green with a ► marker, and the first open viewer follows
   execution. See the debugger notes below.
+- **Debugger memory pane highlights changed bytes** as you step: bytes that differ from the
+  previous dump at the same address paint red, so you can watch what the code writes (like
+  the standalone hex pane). A new address resets the baseline. Asserted in
+  `gui_debugger_smoke`.
 - **F5 toggles a breakpoint** at the disassembly cursor in the debugger (adds one if none
   is there, removes it if there is), matching CE's debugger which already binds F7/F8/F9 to
   step-into/over/continue. Asserted in `gui_debugger_smoke`.

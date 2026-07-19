@@ -109,10 +109,10 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     memAddrInput_ = new QLineEdit();
     memAddrInput_->setPlaceholderText("memory address (hex), then Enter");
     memLayout->addWidget(memAddrInput_);
-    memView_ = new QPlainTextEdit();
+    memView_ = new QTextEdit();
     memView_->setReadOnly(true);
     memView_->setFont(mono);
-    memView_->setLineWrapMode(QPlainTextEdit::NoWrap);
+    memView_->setLineWrapMode(QTextEdit::NoWrap);
     memLayout->addWidget(memView_);
     leftSplit->addWidget(memWidget);
 
@@ -532,23 +532,53 @@ void DebuggerWindow::updateMemoryView(uintptr_t addr) {
     uint8_t buf[128];
     auto r = proc_->read(addr, buf, sizeof(buf));
     size_t n = (r && *r) ? *r : 0;
-    if (n == 0) { memView_->setPlainText("  <unreadable at " + hex(addr) + ">"); return; }
-    QString out;
+    if (n == 0) { memView_->setPlainText("  <unreadable at " + hex(addr) + ">"); memChanged_.clear(); return; }
+
+    // Flag bytes that changed since the previous dump at the SAME address, so stepping
+    // shows what the code just wrote (like the standalone hex pane). A new address resets.
+    memChanged_.assign(n, 0);
+    if (prevMemAddr_ == addr && prevMem_.size() >= n)
+        for (size_t i = 0; i < n; ++i) memChanged_[i] = (buf[i] != prevMem_[i]) ? 1 : 0;
+    prevMem_.assign(buf, buf + n);
+    prevMemAddr_ = addr;
+
+    const QString changedCol = ce::gui::editorPalette().error.name();  // theme-aware red
+    QString html = QStringLiteral("<pre style=\"margin:0\">");
     for (size_t row = 0; row < n; row += 16) {
-        out += hex(addr + row) + "  ";
+        html += hex(addr + row) + "  ";
         QString ascii;
         for (size_t i = 0; i < 16; ++i) {
             if (row + i < n) {
                 uint8_t b = buf[row + i];
-                out += QString::asprintf("%02x ", b);
+                QString bs = QString::asprintf("%02x ", b);
+                html += memChanged_[row + i]
+                    ? QStringLiteral("<span style=\"color:%1\">%2</span>").arg(changedCol, bs)
+                    : bs;
                 ascii += (b >= 0x20 && b < 0x7f) ? QChar(b) : QChar('.');
             } else {
-                out += "   ";
+                html += QStringLiteral("   ");
             }
         }
-        out += " " + ascii + "\n";
+        html += " " + ascii.toHtmlEscaped() + "\n";
     }
-    memView_->setPlainText(out);
+    html += QStringLiteral("</pre>");
+    memView_->setHtml(html);
+}
+
+bool DebuggerWindow::memViewChangeHighlightForTest(uintptr_t addr) {
+    if (!proc_) return false;
+    uint8_t orig = 0;
+    auto r0 = proc_->read(addr, &orig, 1);
+    if (!r0 || *r0 != 1) return false;
+    updateMemoryView(addr);                                  // baseline
+    const int base = memViewChangedByteCountForTest();
+    const uint8_t nb = static_cast<uint8_t>(orig ^ 0xFF);
+    if (auto w = proc_->write(addr, &nb, 1); !w || *w < 1) return false;
+    updateMemoryView(addr);                                  // one byte changed
+    const int after = memViewChangedByteCountForTest();
+    proc_->write(addr, &orig, 1);                            // restore
+    updateMemoryView(addr);
+    return base == 0 && after == 1;
 }
 
 void DebuggerWindow::onMemAddrEntered() {

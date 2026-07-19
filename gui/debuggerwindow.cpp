@@ -726,6 +726,13 @@ bool DebuggerWindow::pokeRegisterForTest(int row, uint64_t value) {
     return got[row] == value;
 }
 
+void DebuggerWindow::setComments(std::map<uintptr_t, std::string> comments) {
+    comments_ = std::move(comments);
+    // Re-render the paused disassembly so a comment added mid-session appears at once.
+    if (session_ && session_->isStopped())
+        updateDisassembly(session_->getStopContext());
+}
+
 void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
     // Remember which instruction the caret was on, so re-rendering (a breakpoint toggle,
     // a step, an auto-refresh) keeps it there instead of jerking it to the top.

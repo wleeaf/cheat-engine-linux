@@ -44,8 +44,9 @@ public:
     uint64_t currentStopRflags() const { return lastStopRflags_; }
     const ce::CpuContext& currentStopContext() const { return lastStopContext_; }
     /// Numeric address -> user comment, so the paused disassembly shows the same inline
-    /// comments the Memory Viewer does. Set/refreshed by MainWindow from the annotations.
-    void setComments(std::map<uintptr_t, std::string> comments) { comments_ = std::move(comments); }
+    /// comments the Memory Viewer does. Set/refreshed by MainWindow from the annotations;
+    /// re-renders the disassembly immediately when stopped so a new comment shows at once.
+    void setComments(std::map<uintptr_t, std::string> comments);
     // Type `value` into register row `row`'s cell exactly as the UI would (routes
     // through onRegisterEdited -> setStopContext) and report whether the stopped
     // thread's register now holds it. Row order matches the table:

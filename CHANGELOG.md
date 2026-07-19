@@ -62,7 +62,8 @@ transforms across surfaces.
   Viewer ("Set comment...") now also appear on the matching lines in the Debugger window's
   disassembly, so annotated code reads the same while debugging (labels already did, via the
   symbol resolver). MainWindow resolves the annotations' symbolic addresses to numbers and pushes
-  the map to the debugger when it opens and whenever a comment changes.
+  the map to the debugger when it opens and whenever a comment changes; the paused disassembly
+  re-renders at once so a new comment appears immediately. Asserted in `gui_debugger_smoke`.
 - **Debugger register panel now shows R8-R15** (CE parity): the panel listed RIP/RSP/RBP/RAX-RDI/
   RFLAGS + XMM but omitted the extended general-purpose registers R8-R15, which modern x86-64 code
   uses heavily. They are now shown (between RFLAGS and XMM0) and editable like the other GP

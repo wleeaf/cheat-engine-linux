@@ -36,6 +36,13 @@ transforms across surfaces.
   `List` + backtick-arity + `<PlayerData>` (validated across all fields of a real game).
 - **Guest-scan dialog** gained an end-to-end offscreen regression test (exact + unknown
   + comparison narrowing), now in the CI mirror.
+- **yuzu/Citra guest RAM** is now recognized: the Switch/3DS emulator family (and its
+  suyu / sudachi / citron / Lime3DS / Azahar forks) backs guest memory with a
+  `memfd_create("HostMemory")` fastmem mapping, so `findGuestRam` picks it up as a named
+  guest-RAM marker and collapses the fastmem mirrors by file offset, exactly like the
+  Dolphin / PCSX2 / DuckStation adapters. Switch/3DS are little-endian with no fixed
+  console base, so the regions surface 0-based and unswapped. Validated against a
+  synthetic `HostMemory` process in cecore_test.
 
 ---
 

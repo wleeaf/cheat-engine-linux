@@ -156,14 +156,17 @@ std::vector<TargetProfile::GuestRegion> findGuestRam(pid_t pid) {
         if (path == "[stack]" || path == "[vdso]" || path == "[vvar]") continue;
         // Several emulators back guest RAM with a NAMED shm/memfd (Dolphin's
         // "dolphin-emu"/"dolphinmem", PCSX2's "pcsx2", DuckStation's "duckstation" when
-        // its Export Shared Memory option is on); that name is the authoritative
-        // guest-RAM marker. Guarded to shm/memfd so it never matches the emulator binary.
+        // its Export Shared Memory option is on, and the yuzu/Citra family's fastmem
+        // "HostMemory" memfd shared by suyu/sudachi/citron/Lime3DS/Azahar); that name is
+        // the authoritative guest-RAM marker. Guarded to shm/memfd so it never matches
+        // the emulator binary.
         const bool isShm = path.rfind("/dev/shm/", 0) == 0 || path.rfind("/memfd:", 0) == 0;
         const bool dolphin = isShm && (path.find("dolphin-emu") != std::string::npos ||
                                        path.find("dolphinmem")  != std::string::npos);
         const bool emuShm = dolphin || (isShm &&
             (path.find("pcsx2")       != std::string::npos ||
-             path.find("duckstation") != std::string::npos));
+             path.find("duckstation") != std::string::npos ||
+             path.find("HostMemory")  != std::string::npos));
         const bool anonLike = path.empty() || path == "[heap]" ||
             path.rfind("/memfd:", 0) == 0 || path.rfind("/dev/shm/", 0) == 0 ||
             path.rfind("[anon", 0) == 0;
@@ -180,11 +183,12 @@ std::vector<TargetProfile::GuestRegion> findGuestRam(pid_t pid) {
 
     // These emulators map the guest-RAM shm at many views (Dolphin fastmem gives MEM1/
     // MEM2 a cached and an uncached mirror at different guest addresses but the SAME shm
-    // offset; PCSX2 maps EE/IOP into a reserved arena). When we see such an emulator
-    // shm, restrict to it and collapse mirrors by shm offset, so the user gets the real
-    // distinct regions (Dolphin MEM1+MEM2, PCSX2 EE) rather than a dozen duplicates of
-    // the same physical memory or unrelated JIT/texture arenas. Same shm-name+offset
-    // approach as aldelaro5/dolphin-memory-engine.
+    // offset; PCSX2 maps EE/IOP into a reserved arena; the yuzu/Citra HostMemory memfd is
+    // mapped MAP_FIXED into a large virtual reservation, mirrored per fastmem). When we
+    // see such an emulator shm, restrict to it and collapse mirrors by shm offset, so the
+    // user gets the real distinct regions (Dolphin MEM1+MEM2, PCSX2 EE) rather than a
+    // dozen duplicates of the same physical memory or unrelated JIT/texture arenas. Same
+    // shm-name+offset approach as aldelaro5/dolphin-memory-engine.
     const bool haveEmuShm = std::any_of(regs.begin(), regs.end(),
                                         [](const Region& r) { return r.emuShm; });
     std::vector<TargetProfile::GuestRegion> out;

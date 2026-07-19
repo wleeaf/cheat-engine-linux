@@ -179,21 +179,23 @@ required, and it can be non-linear (paged MMU emulation).
    yet endianness-aware.]
 3. **Per-emulator adapters:** a small table (or agent) per emulator that gives the
    guest-RAM base and, where available, the guest MMU translation. Start with the most
-   popular (Dolphin, PCSX2, RPCS3, DuckStation). [Dolphin + PCSX2 + DuckStation DONE]
-   `findGuestRam` recognizes an emulator's NAMED guest-RAM shm/memfd (Dolphin
+   popular (Dolphin, PCSX2, RPCS3, DuckStation). [Dolphin + PCSX2 + DuckStation + yuzu/
+   Citra DONE] `findGuestRam` recognizes an emulator's NAMED guest-RAM shm/memfd (Dolphin
    `dolphin-emu`/`dolphinmem`, PCSX2 `pcsx2`, DuckStation `duckstation` with its Export
-   Shared Memory option) and collapses the mirror views by file offset, so the candidates
-   are the real distinct regions (Dolphin MEM1 24 MB + MEM2 64 MB; PCSX2 EE 32 MB + IOP
-   2 MB; DuckStation 8 MB) rather than a dozen duplicates or unrelated JIT/texture arenas
-   -- the shm-name + offset approach from `aldelaro5/dolphin-memory-engine`, with the shm
-   names taken from each emulator's source. A named emulator shm counts at any real size
-   (sub-MB caches skipped); generic anonymous mappings still need >= 8 MB. Dolphin regions
-   also carry a console `guestBase` (MEM1 0x80000000, MEM2 0x90000000), so `cescan
-   guest-scan` and the GUI dialog report console-native addresses (a MEM2 hit shows `guest
-   0x90002000`) that match existing Dolphin cheat tables / RetroAchievements; other
-   emulators' RAM is already 0-based so no rebase. Validated on synthetic Dolphin/PCSX2/
-   DuckStation processes (incl. an end-to-end console-address scan) and in cecore_test.
-   RPCS3 (4 GiB `g_base_addr` sparse arena) TODO -- needs its arena signature.
+   Shared Memory option, and the yuzu/Citra family's fastmem `HostMemory` memfd, shared by
+   the suyu/sudachi/citron/Lime3DS/Azahar forks) and collapses the mirror views by file
+   offset, so the candidates are the real distinct regions (Dolphin MEM1 24 MB + MEM2
+   64 MB; PCSX2 EE 32 MB + IOP 2 MB; DuckStation 8 MB; yuzu/Citra HostMemory regions)
+   rather than a dozen duplicates or unrelated JIT/texture arenas -- the shm-name + offset
+   approach from `aldelaro5/dolphin-memory-engine`, with the shm names taken from each
+   emulator's source. A named emulator shm counts at any real size (sub-MB caches skipped);
+   generic anonymous mappings still need >= 8 MB. Dolphin regions also carry a console
+   `guestBase` (MEM1 0x80000000, MEM2 0x90000000), so `cescan guest-scan` and the GUI
+   dialog report console-native addresses (a MEM2 hit shows `guest 0x90002000`) that match
+   existing Dolphin cheat tables / RetroAchievements; other emulators' RAM is 0-based (and
+   Switch/3DS are little-endian) so no rebase or byte-swap. Validated on synthetic Dolphin/
+   PCSX2/DuckStation/yuzu processes (incl. an end-to-end console-address scan) and in
+   cecore_test. RPCS3 (4 GiB `g_base_addr` sparse arena) TODO -- needs its arena signature.
 4. **Guest code analysis (stretch):** to do a real "find what writes" on the *guest*
    instruction, watch the guest RAM buffer at the host level (page-guard on the host
    buffer works, it is our own page) and, on a host fault, decode the guest PC from

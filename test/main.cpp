@@ -393,6 +393,49 @@ static void test_dolphin_guest_ram() {
     shm_unlink("/dolphin-emu-cetest");
 }
 
+static void test_yuzu_guest_ram() {
+    printf("\n── Test: yuzu/Citra guest-RAM adapter ──\n");
+    // The yuzu/Citra family (suyu, sudachi, citron, Lime3DS, Azahar) backs guest RAM with
+    // a memfd_create("HostMemory") mapped MAP_FIXED into a large virtual reservation, with
+    // fastmem mirrors. In /proc/pid/maps that shows as "/memfd:HostMemory (deleted)". The
+    // child poses as yuzu: a HostMemory memfd holding two guest regions, each mapped twice
+    // (mirrors), plus an unrelated 32 MB anon region. Switch/3DS are little-endian with no
+    // fixed console base, so the adapter must return the two DISTINCT regions (mirrors
+    // collapsed by offset), guestBase 0, and exclude the anon.
+    const size_t RA = 32u << 20, RB = 48u << 20;
+    pid_t child = fork();
+    if (child == 0) {
+        prctl(PR_SET_NAME, "yuzu", 0, 0, 0);
+        int fd = static_cast<int>(syscall(SYS_memfd_create, "HostMemory", 0u));
+        if (fd < 0 || ftruncate(fd, RA + RB)) _exit(1);
+        mmap(nullptr, RA, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        mmap(nullptr, RA, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        mmap(nullptr, RB, PROT_READ | PROT_WRITE, MAP_SHARED, fd, RA);
+        mmap(nullptr, RB, PROT_READ | PROT_WRITE, MAP_SHARED, fd, RA);
+        mmap(nullptr, 32u << 20, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        for (;;) pause();
+    }
+    bool ok = false, memfdUnsupported = false;
+    for (int i = 0; i < 300 && !ok; ++i) {
+        auto prof = ce::probeTarget(child);
+        if (prof.emulator == "yuzu" && prof.guestCandidates.size() == 2 &&
+            prof.guestCandidates[0].size == RB && prof.guestCandidates[1].size == RA &&
+            prof.guestCandidates[0].fileBacked && prof.guestCandidates[1].fileBacked &&
+            prof.guestCandidates[0].guestBase == 0 && prof.guestCandidates[1].guestBase == 0)
+            ok = true;
+        // Detect a dead child early (e.g. SYS_memfd_create absent on an ancient kernel):
+        // don't fail the suite for a missing kernel feature, just note it.
+        if (!ok) { int s = 0; if (waitpid(child, &s, WNOHANG) == child) { memfdUnsupported = true; break; } usleep(1000); }
+    }
+    if (memfdUnsupported)
+        printf("  HostMemory memfd (skipped: memfd_create unsupported here)\n");
+    else
+        printf("  HostMemory regions deduped from mirrors, anon excluded, guestBase 0: %s\n",
+               ok ? "OK" : "FAILED");
+    kill(child, SIGKILL);
+    int st = 0; waitpid(child, &st, 0);
+}
+
 static void test_target_profile() {
     printf("\n── Test: Target capability probe ──\n");
     // Probe ourselves: a valid x86-64 native process, not Wine, not an emulator,
@@ -9895,6 +9938,7 @@ int main(int argc, char* argv[]) {
 
     test_target_profile();
     test_dolphin_guest_ram();
+    test_yuzu_guest_ram();
     test_guest_view();
     test_ns_attach();
     test_value_codec();

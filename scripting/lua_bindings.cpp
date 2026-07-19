@@ -1133,6 +1133,25 @@ static int l_getModuleList(lua_State* L) {
     return 1;
 }
 
+// enumModules([processid]) -> table of {Name, Address, Size} per loaded module, using
+// CE's exact field names (companion to our lowercase getModuleList, for .CT scripts).
+// The optional processid is accepted for compatibility; the current target's modules
+// are returned.
+static int l_enumModules(lua_State* L) {
+    auto* p = getProc(L);
+    lua_newtable(L);
+    if (!p) return 1;
+    auto mods = p->modules();
+    for (size_t i = 0; i < mods.size(); ++i) {
+        lua_newtable(L);
+        lua_pushstring(L, mods[i].name.c_str());       lua_setfield(L, -2, "Name");
+        lua_pushinteger(L, (lua_Integer)mods[i].base); lua_setfield(L, -2, "Address");
+        lua_pushinteger(L, (lua_Integer)mods[i].size); lua_setfield(L, -2, "Size");
+        lua_rawseti(L, -2, (int)i + 1);
+    }
+    return 1;
+}
+
 // ── Symbol resolution ──
 
 static int l_getNameFromAddress(lua_State* L) {
@@ -4835,6 +4854,7 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "getModuleList", l_getModuleList);
     lua_register(L, "getModuleBase", l_getModuleBase);
     lua_register(L, "getModuleSize", l_getModuleSize);
+    lua_register(L, "enumModules", l_enumModules);
     lua_register(L, "inModule", l_inModule);
     lua_register(L, "isAddress", l_isAddress);
     lua_register(L, "pause", l_pause);

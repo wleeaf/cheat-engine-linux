@@ -4510,6 +4510,24 @@ static void test_lua_getUniqueAOB() {
     printf("  getUniqueAOB: %s%s\n", ok ? "OK" : "FAILED ", ok ? "" : err.c_str());
 }
 
+// enumModules(): table of {Name, Address, Size} per module (CE field names), agreeing
+// with getModuleAddress. Uses this process's own /proc/self/maps modules.
+static void test_lua_enumModules() {
+    printf("\n── Test: Lua enumModules ──\n");
+    LuaEngine eng;
+    eng.setOwnedProcess(std::make_unique<LinuxProcessHandle>(getpid()));
+    std::string err = eng.execute(
+        "local mods = enumModules()\n"
+        "assert(type(mods) == 'table' and #mods >= 1, 'returns a non-empty table')\n"
+        "local m = mods[1]\n"
+        "assert(type(m.Name) == 'string' and #m.Name > 0, 'Name field')\n"
+        "assert(type(m.Address) == 'number' and m.Address > 0, 'Address field')\n"
+        "assert(type(m.Size) == 'number' and m.Size > 0, 'Size field')\n"
+        "assert(getModuleAddress(m.Name) == m.Address, 'agrees with getModuleAddress')\n");
+    bool ok = err.empty();
+    printf("  enumModules: %s%s\n", ok ? "OK" : "FAILED ", ok ? "" : err.c_str());
+}
+
 // A hot function with a single store to one global, plus a worker that spins it,
 // for the "find what addresses this instruction accesses" test below.
 static volatile long g_ifa_target;
@@ -10522,6 +10540,7 @@ int main(int argc, char* argv[]) {
     test_lua_more_bindings();
     test_lua_string_extensions();
     test_lua_getUniqueAOB();
+    test_lua_enumModules();
     test_speedhack_got_injection();
     test_parser_fuzz_negatives();
     test_lua_shellexecute_gate();

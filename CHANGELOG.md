@@ -18,6 +18,9 @@ reimplementation of Cheat Engine).
 Follow-ups since v0.7.0, mostly deepening the hard-target work and unifying the value
 transforms across surfaces.
 
+- **Lua: `enumModules()` (.CT compat).** Returns a table of `{Name, Address, Size}` for every
+  loaded module using CE's exact field names, so scripts that iterate modules work verbatim
+  (companion to our existing lowercase `getModuleList`).
 - **Lua: `getUniqueAOB(address)` (.CT compat).** Returns a byte pattern that uniquely identifies
   a code address within its module (extended until unique) plus the offset to the address (0),
   or nil for a non-module address. Backed by the same `uniqueAobSignature` the AOB-injection

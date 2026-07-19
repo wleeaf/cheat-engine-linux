@@ -9736,6 +9736,18 @@ static void test_group_collapse() {
     bool ok = aOk && bOk && noneOk;
     printf("  collapse hides descendants (outer=%d nested=%d none=%d): %s\n",
            aOk, bOk, noneOk, ok ? "OK" : "FAILED");
+
+    // descendantRange: groupA(0) spans rows 1..4; nested groupB(2) spans just row 3;
+    // groupC(4) has no children.
+    auto rA = ce::descendantRange(indents, 0);
+    auto rB = ce::descendantRange(indents, 2);
+    auto rC = ce::descendantRange(indents, 4);
+    bool rangeOk = rA.first == 1 && rA.second == 4 &&
+                   rB.first == 3 && rB.second == 4 &&
+                   rC.first == 5 && rC.second == 5;
+    printf("  descendantRange subtree spans (A=%d B=%d C=%d): %s\n",
+           (int)(rA.second - rA.first), (int)(rB.second - rB.first), (int)(rC.second - rC.first),
+           rangeOk ? "OK" : "FAILED");
 }
 
 static void test_expression_parser() {

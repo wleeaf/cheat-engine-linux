@@ -1701,8 +1701,26 @@ void MainWindow::setupUi() {
                         .arg(selected.size()).arg(selected.size() == 1 ? "y" : "ies"),
                     QLineEdit::Normal, initial, &ok);
                 if (!ok) return;
-                for (const auto& idx : selected)
-                    addressListModel_->setEntryValueTo(idx.row(), v);
+                // A group header has no value of its own, so setting a group applies the
+                // value to its child entries recursively (CE moRecursiveSetValue). A set
+                // dedupes when a group and its child are both selected.
+                std::vector<int> indents;
+                indents.reserve(ents.size());
+                for (const auto& e : ents) indents.push_back(e.indent);
+                std::set<int> targets;
+                for (const auto& idx : selected) {
+                    int r = idx.row();
+                    if (r < 0 || r >= (int)ents.size()) continue;
+                    if (ents[r].isGroup) {
+                        auto [b, en] = ce::descendantRange(indents, (size_t)r);
+                        for (size_t i = b; i < en; ++i)
+                            if (!ents[i].isGroup) targets.insert((int)i);
+                    } else {
+                        targets.insert(r);
+                    }
+                }
+                for (int r : targets)
+                    addressListModel_->setEntryValueTo(r, v);
             });
 
             menu.addSeparator();

@@ -14,6 +14,18 @@
 
 namespace ce {
 
+/// [begin, end) of the rows nested under the group/parent at `row`: the contiguous
+/// following rows with a deeper indent. end == row+1 when it has no children. Used to
+/// apply a group operation (set value, activate) to its whole subtree.
+inline std::pair<std::size_t, std::size_t> descendantRange(const std::vector<int>& indents,
+                                                           std::size_t row) {
+    std::size_t begin = row + 1, end = begin;
+    if (row >= indents.size()) return {begin, begin};
+    const int parent = indents[row];
+    while (end < indents.size() && indents[end] > parent) ++end;
+    return {begin, end};
+}
+
 /// Given each cheat-table row's indent depth and which rows are collapsed groups,
 /// return whether each row should be hidden because an ancestor group is collapsed.
 /// A collapsed group at indent d hides the following contiguous rows with indent > d

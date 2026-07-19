@@ -42,6 +42,10 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **"Set value" on a group applies to its children** (CE `moRecursiveSetValue`): since a group
+  header has no value of its own, setting a value on a selected group now writes it to all the
+  group's child entries recursively (deduped when a group and a child are both selected). The
+  subtree-span logic is a Qt-free `ce::descendantRange`, unit-tested in `cecore_test`.
 - **Group collapse state persists** (CE `Collapsed`): a collapsed group stays collapsed after
   saving and reopening a table (CE XML `.CT`, `.CETRAINER`, and native JSON), via a
   `<Collapsed>1</Collapsed>` tag, and re-hides its children on load. Asserted in `cecore_test`.

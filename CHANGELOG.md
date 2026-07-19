@@ -94,6 +94,12 @@ transforms across surfaces.
   as base-10 and failed, falling through to an unconditional write, so "Increase Only" etc.
   behaved like a plain freeze. The comparison now parses via the shared hex-aware
   `ce::parseIntegerScalar`, so directional freezes hold correctly regardless of hex display.
+- **Fixed: freezing a pointer record could write to a stale address**: the freeze runs every
+  100 ms but the value refresh (which re-resolves pointer chains into the cached address) runs
+  far slower, so between refreshes the freeze wrote its frozen value to the pointer's *old*
+  target, up to ~500 ms out of date, if the pointer moved. `freezeWrite` now re-resolves a
+  record's address expression each tick before writing, exactly as the increase/decrease hotkeys
+  already do, so a frozen pointer always hits its current target.
 - **Fixed: increase/decrease-value hotkeys corrupted hex-display records**: the step hotkeys
   built the new value as a bare decimal but told the writer to parse it in the record's display
   base, so a hex record turned an increment into a hex misread (e.g. `256` written as `0x256`).

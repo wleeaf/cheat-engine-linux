@@ -4438,6 +4438,15 @@ void AddressListModel::freezeWrite(ProcessHandle* proc) {
         if (e.isGroup) continue;
         if (!e.active || e.frozenValue.isEmpty()) continue;
 
+        // Re-resolve pointer/expression records NOW so the freeze writes to the current
+        // target address, not the up-to-500ms-stale cached one (the value refresh runs
+        // far slower than this 100ms freeze). A moved pointer would otherwise get its
+        // frozen value written to unrelated memory. Matches adjustEntryValue.
+        if (!e.addressExpr.isEmpty()) {
+            ExpressionParser parser(proc, nullptr);
+            if (auto v = parser.parse(e.addressExpr.toStdString())) e.address = *v;
+        }
+
         if (e.freezeMode == FreezeMode::Normal) {
             writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian, e.showAsHex);
             continue;

@@ -842,6 +842,24 @@ static void test_ce_table_import() {
         ce::buildPointerExpression("game.exe+1C", {0x10, 0x8}) == "[[game.exe+1C]+8]+10";
     printf("  pointer expression matches CE offset order: %s\n", exprOk ? "OK" : "FAILED");
 
+    // parsePointerExpression is the exact inverse: it round-trips every built chain,
+    // rejects a plain (non-bracketed) address, and reads negative offsets.
+    auto roundtrips = [](const std::string& base, const std::vector<int64_t>& offs) {
+        auto p = ce::parsePointerExpression(ce::buildPointerExpression(base, offs));
+        return p && p->base == base && p->offsets == offs;
+    };
+    bool parseOk =
+        roundtrips("game.exe+1C", {0x10}) &&
+        roundtrips("game.exe+1C", {0x10, 0x8}) &&
+        roundtrips("mono.dll", {0x0, 0x18, 0x4}) &&
+        !ce::parsePointerExpression("game.exe+1C").has_value() &&   // plain addr, not a chain
+        !ce::parsePointerExpression("00400000").has_value();
+    // Negative offsets survive the round-trip.
+    auto pn = ce::parsePointerExpression("[base]-8");
+    bool negOk = pn && pn->base == "base" && pn->offsets.size() == 1 && pn->offsets[0] == -8;
+    printf("  parsePointerExpression inverts buildPointerExpression: %s\n",
+           (parseOk && negOk) ? "OK" : "FAILED");
+
     // CE nests child entries inside a group's <CheatEntries>. Loading a grouped
     // table must yield the group AND its child, with the child parented correctly.
     const char* grouped =

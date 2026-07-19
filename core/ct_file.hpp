@@ -2,6 +2,7 @@
 /// .CT Cheat Table format — XML-based save/load compatible with CE format.
 
 #include "core/types.hpp"
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -116,5 +117,19 @@ struct CheatTable {
 /// (deref(deref(...deref(base)+off[n-1]...)+off[1]) + off[0]). With no offsets it
 /// returns the base unchanged. e.g. ("game.exe+1C", {0x10,0x8}) -> "[[game.exe+1C]+8]+10".
 std::string buildPointerExpression(const std::string& base, const std::vector<int64_t>& offsets);
+
+/// A parsed pointer expression: the (symbolic) base and its offset chain, ordered
+/// exactly as buildPointerExpression takes them (offsets[0] = the outermost, final
+/// offset added to the last dereferenced pointer).
+struct PointerExpr {
+    std::string base;
+    std::vector<int64_t> offsets;
+};
+
+/// Inverse of buildPointerExpression: parse a bracketed pointer chain such as
+/// "[[game.exe+1C]+8]+10" back into { base, offsets }. Returns nullopt when `expr`
+/// is not a bracketed pointer chain (a plain address/expression), so a caller can
+/// keep showing it verbatim. Round-trips buildPointerExpression exactly.
+std::optional<PointerExpr> parsePointerExpression(const std::string& expr);
 
 } // namespace ce

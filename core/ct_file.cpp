@@ -928,6 +928,59 @@ std::string buildPointerExpression(const std::string& base, const std::vector<in
     return expr;
 }
 
+namespace {
+std::string trimPtrExpr(const std::string& s) {
+    size_t a = s.find_first_not_of(" \t");
+    if (a == std::string::npos) return {};
+    size_t b = s.find_last_not_of(" \t");
+    return s.substr(a, b - a + 1);
+}
+
+// Parse "+1a" / "-4" / "0x1a" / "1a" (already trimmed) as a signed hex offset.
+bool parseSignedHexOffset(const std::string& s, int64_t& out) {
+    if (s.empty()) return false;
+    size_t i = 0;
+    bool neg = false;
+    if (s[i] == '+' || s[i] == '-') { neg = (s[i] == '-'); ++i; }
+    if (i + 1 < s.size() && s[i] == '0' && (s[i + 1] == 'x' || s[i + 1] == 'X')) i += 2;
+    if (i >= s.size()) return false;
+    uint64_t val = 0;
+    for (; i < s.size(); ++i) {
+        char c = s[i];
+        int d;
+        if (c >= '0' && c <= '9') d = c - '0';
+        else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+        else return false;
+        val = val * 16 + static_cast<uint64_t>(d);
+    }
+    out = neg ? -static_cast<int64_t>(val) : static_cast<int64_t>(val);
+    return true;
+}
+} // namespace
+
+std::optional<PointerExpr> parsePointerExpression(const std::string& expr) {
+    std::string e = trimPtrExpr(expr);
+    if (e.empty() || e.front() != '[') return std::nullopt;   // a plain address, not a chain
+    PointerExpr out;
+    // Peel one bracket level at a time. The outermost '[' is closed by the LAST ']';
+    // whatever trails it is this level's "+/-offset" (buildPointerExpression always
+    // emits one, including +0). offsets accumulate outermost-first, matching the
+    // vector order buildPointerExpression consumes.
+    while (!e.empty() && e.front() == '[') {
+        size_t rb = e.find_last_of(']');
+        if (rb == std::string::npos) return std::nullopt;
+        std::string tail = trimPtrExpr(e.substr(rb + 1));
+        int64_t off = 0;
+        if (!tail.empty() && !parseSignedHexOffset(tail, off)) return std::nullopt;
+        out.offsets.push_back(off);
+        e = trimPtrExpr(e.substr(1, rb - 1));
+    }
+    if (e.empty()) return std::nullopt;   // malformed: bracket chain with no base
+    out.base = e;
+    return out;
+}
+
 // ── JSON format (our native format, simpler) ──
 
 bool CheatTable::saveJson(const std::string& path) const {

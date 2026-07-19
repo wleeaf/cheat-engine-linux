@@ -39,9 +39,30 @@ int main(int argc, char** argv) {
     d3.setTypeIndexForTest(6);
     bool enabledForString = d3.unicodeEnabledForTest();
 
-    bool ok = lenOk && foldUnicode && plainString && roundTrip && disabledForInt && enabledForString;
-    printf("gui changeaddr smoke: %s (len=%d fold=%d plain=%d roundTrip=%d intDisabled=%d strEnabled=%d)\n",
+    // Pointer editor: ticking Pointer composes [[base]+..] from base + offset chain.
+    ChangeAddressDialog dp("0x1000", ce::ValueType::Int32, false, 1);
+    dp.setPointerModeForTest(true);
+    dp.setPointerBaseForTest("game.exe+1C");
+    dp.addOffsetForTest(0x10);   // first-added offset is the outermost (final)
+    dp.addOffsetForTest(0x8);
+    bool composeOk = dp.isPointer() && dp.offsetRowCountForTest() == 2
+                  && dp.address() == "[[game.exe+1C]+8]+10";
+
+    // A pointer entry opens in pointer mode with its rows populated, and round-trips.
+    ChangeAddressDialog dr("[[game.exe+1C]+8]+10", ce::ValueType::Int32, false, 1);
+    bool rtOk = dr.isPointer() && dr.offsetRowCountForTest() == 2
+             && dr.address() == "[[game.exe+1C]+8]+10";
+
+    // A plain address stays a non-pointer entry.
+    ChangeAddressDialog dpl("00400000", ce::ValueType::Int32, false, 1);
+    bool plainOk = !dpl.isPointer() && dpl.address() == "00400000";
+    bool ptrOk = composeOk && rtOk && plainOk;
+
+    bool ok = lenOk && foldUnicode && plainString && roundTrip && disabledForInt
+           && enabledForString && ptrOk;
+    printf("gui changeaddr smoke: %s (len=%d fold=%d plain=%d roundTrip=%d intDisabled=%d "
+           "strEnabled=%d compose=%d ptrRoundTrip=%d plainAddr=%d)\n",
            ok ? "OK" : "FAILED", (int)lenOk, (int)foldUnicode, (int)plainString, (int)roundTrip,
-           (int)disabledForInt, (int)enabledForString);
+           (int)disabledForInt, (int)enabledForString, (int)composeOk, (int)rtOk, (int)plainOk);
     return ok ? 0 : 1;
 }

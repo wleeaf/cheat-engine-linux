@@ -42,6 +42,12 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **"Change address" dialog: structured pointer editor** (CE parity): ticking **Pointer**
+  reveals a base-address field plus an offset chain (Add offset / remove per row), and the
+  address field shows the composed `[[base]+..]` as you edit. Opening an existing pointer
+  record parses its expression back into the base and offset rows, so it round-trips. The
+  compose/parse pair is the Qt-free `buildPointerExpression` / new `parsePointerExpression`
+  (unit-tested inverse) in `core/ct_file`; the editor is asserted in `gui_changeaddr_smoke`.
 - **"Change address" dialog: Unicode box and Length now work** (CE parity): ticking
   **Unicode** on a String record makes it a Unicode string (CE has no separate type, it is
   String + the box), and it round-trips: a Unicode record reopens as String with the box

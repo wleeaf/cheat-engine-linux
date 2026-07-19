@@ -1,4 +1,5 @@
 #include "gui/changeaddressdialog.hpp"
+#include "core/ct_file.hpp"
 
 #include <QFormLayout>
 #include <QHBoxLayout>
@@ -9,6 +10,9 @@
 #include <QCheckBox>
 #include <QPushButton>
 #include <QDialogButtonBox>
+#include <QSignalBlocker>
+
+#include <algorithm>
 
 namespace ce::gui {
 
@@ -75,13 +79,106 @@ ChangeAddressDialog::ChangeAddressDialog(const QString& address, ce::ValueType t
     connect(typeCombo_, &QComboBox::currentIndexChanged, this, [this](int) { syncFlagState(); });
     syncFlagState();
 
+    // Pointer editor (CE cbPointer): a base address plus an offset chain. Hidden until
+    // "Pointer" is ticked; the address field then shows the composed [[base]+..] chain.
+    pointerBox_ = new QWidget;
+    auto* pv = new QVBoxLayout(pointerBox_);
+    pv->setContentsMargins(0, 0, 0, 0);
+    auto* baseRow = new QHBoxLayout;
+    baseRow->addWidget(new QLabel("Base:"));
+    pointerBaseEdit_ = new QLineEdit;
+    baseRow->addWidget(pointerBaseEdit_);
+    pv->addLayout(baseRow);
+    offsetsLayout_ = new QVBoxLayout;
+    pv->addLayout(offsetsLayout_);
+    auto* addOffBtn = new QPushButton("Add offset");
+    pv->addWidget(addOffBtn, 0, Qt::AlignLeft);
+    v->addWidget(pointerBox_);
+    pointerBox_->setVisible(false);
+
+    connect(addOffBtn, &QPushButton::clicked, this, [this]() { addOffsetRow(0); });
+    connect(pointerBaseEdit_, &QLineEdit::textChanged, this, [this](const QString&) { recomposeAddress(); });
+    connect(pointerCheck_, &QCheckBox::toggled, this, [this](bool on) { setPointerMode(on); });
+
+    // If the incoming address is already a pointer chain, open in pointer mode with the
+    // base and offsets populated (round-trips buildPointerExpression); otherwise seed the
+    // base field so ticking "Pointer" starts from the current address.
+    if (auto pp = ce::parsePointerExpression(address.toStdString())) {
+        pointerBaseEdit_->setText(QString::fromStdString(pp->base));
+        for (int64_t off : pp->offsets) addOffsetRow(off);
+        setPointerMode(true);
+    } else {
+        pointerBaseEdit_->setText(address);
+    }
+
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     v->addWidget(buttons);
 }
 
-QString ChangeAddressDialog::address() const { return addrEdit_->text().trimmed(); }
+QString ChangeAddressDialog::address() const {
+    if (pointerCheck_->isChecked())
+        return QString::fromStdString(
+            ce::buildPointerExpression(pointerBaseEdit_->text().trimmed().toStdString(),
+                                       collectOffsets()));
+    return addrEdit_->text().trimmed();
+}
+
+std::vector<int64_t> ChangeAddressDialog::collectOffsets() const {
+    std::vector<int64_t> offs;
+    offs.reserve(offsetEdits_.size());
+    for (auto* e : offsetEdits_) {
+        QString q = e->text().trimmed();
+        bool neg = false;
+        if (q.startsWith('-')) { neg = true; q = q.mid(1); }
+        else if (q.startsWith('+')) q = q.mid(1);
+        if (q.startsWith("0x") || q.startsWith("0X")) q = q.mid(2);
+        bool ok = false;
+        qulonglong val = q.toULongLong(&ok, 16);
+        offs.push_back(ok ? (neg ? -static_cast<int64_t>(val) : static_cast<int64_t>(val)) : 0);
+    }
+    return offs;
+}
+
+void ChangeAddressDialog::recomposeAddress() {
+    if (!pointerCheck_->isChecked()) return;
+    addrEdit_->setText(QString::fromStdString(
+        ce::buildPointerExpression(pointerBaseEdit_->text().trimmed().toStdString(),
+                                   collectOffsets())));
+}
+
+void ChangeAddressDialog::addOffsetRow(long long value) {
+    auto* row = new QWidget;
+    auto* h = new QHBoxLayout(row);
+    h->setContentsMargins(0, 0, 0, 0);
+    h->addWidget(new QLabel("Offset:"));
+    auto* edit = new QLineEdit;
+    edit->setText(value < 0 ? "-" + QString::number(-value, 16) : QString::number(value, 16));
+    h->addWidget(edit);
+    auto* rm = new QPushButton("−");
+    rm->setFixedWidth(28);
+    h->addWidget(rm);
+    offsetsLayout_->addWidget(row);
+    offsetEdits_.push_back(edit);
+
+    connect(edit, &QLineEdit::textChanged, this, [this](const QString&) { recomposeAddress(); });
+    connect(rm, &QPushButton::clicked, this, [this, row, edit]() {
+        offsetEdits_.erase(std::remove(offsetEdits_.begin(), offsetEdits_.end(), edit),
+                           offsetEdits_.end());
+        offsetsLayout_->removeWidget(row);
+        row->deleteLater();
+        recomposeAddress();
+    });
+    recomposeAddress();
+}
+
+void ChangeAddressDialog::setPointerMode(bool on) {
+    { QSignalBlocker b(pointerCheck_); pointerCheck_->setChecked(on); }
+    pointerBox_->setVisible(on);
+    addrEdit_->setReadOnly(on);   // in pointer mode the address is composed, not typed
+    if (on) recomposeAddress();
+}
 ce::ValueType ChangeAddressDialog::valueType() const {
     int i = typeCombo_->currentIndex();
     ce::ValueType t = (i >= 0 && i < (int)(sizeof(kTypes) / sizeof(kTypes[0])))
@@ -111,5 +208,11 @@ void ChangeAddressDialog::setUnicodeForTest(bool on) { unicodeCheck_->setChecked
 void ChangeAddressDialog::setLengthForTest(int n) { lengthEdit_->setText(QString::number(n)); }
 bool ChangeAddressDialog::unicodeCheckedForTest() const { return unicodeCheck_->isChecked(); }
 bool ChangeAddressDialog::unicodeEnabledForTest() const { return unicodeCheck_->isEnabled(); }
+void ChangeAddressDialog::setPointerModeForTest(bool on) { setPointerMode(on); }
+void ChangeAddressDialog::setPointerBaseForTest(const QString& base) {
+    pointerBaseEdit_->setText(base); recomposeAddress();
+}
+void ChangeAddressDialog::addOffsetForTest(long long value) { addOffsetRow(value); }
+int ChangeAddressDialog::offsetRowCountForTest() const { return (int)offsetEdits_.size(); }
 
 }  // namespace ce::gui

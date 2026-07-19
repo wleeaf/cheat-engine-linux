@@ -346,6 +346,28 @@ static void test_value_transform() {
     printf("  parseIntegerScalar hex/decimal/signed: %s\n",
            (parseOk && rejectDecimal && rejectJunk) ? "OK" : "FAILED");
 
+    // Round-trip: format(bits) -> string -> parse -> the same width-masked bytes, for the
+    // signed and unsigned display and hex and decimal input. This ties the two halves of
+    // the value pipeline together (the source of several fixed hex/signed bugs).
+    bool rtInt = true;
+    for (int w : {1, 2, 4, 8}) {
+        uint64_t mask = (w >= 8) ? ~0ull : ((1ull << (w * 8)) - 1);
+        const uint64_t samples[] = {0, 1, 127, 128, 200, 255, 0x7fff, 0x8000,
+                                    0xdeadbeefu, 0x80000000u, 0xffffffffu, ~0ull};
+        for (uint64_t raw : samples) {
+            uint64_t bits = raw & mask;
+            for (bool sgn : {false, true})
+                for (bool hex : {false, true}) {
+                    std::string s = ce::formatIntegerScalar(bits, w, sgn, hex);
+                    bool ok = false;
+                    int64_t v = ce::parseIntegerScalar(s, hex, ok);
+                    if (!ok || (static_cast<uint64_t>(v) & mask) != bits) rtInt = false;
+                }
+        }
+    }
+    printf("  format<->parse integer round-trip (all widths/signs/bases): %s\n",
+           rtInt ? "OK" : "FAILED");
+
     // Canonical type names match CE's wording (and the Change-address dialog), so the
     // Type column no longer says "Text"/"Array of Bytes" while the dialog says "String".
     bool nameOk =

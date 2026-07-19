@@ -62,6 +62,10 @@ transforms across surfaces.
   step, in **both** the Debugger window and the Memory Viewer's disassembler (which follows the
   stop). The mnemonic+flags decision is a Qt-free `ce::conditionalJumpTaken`, unit-tested in
   `cecore_test`.
+- **Regression guard: integer format<->parse round-trip test**: `cecore_test` now formats every
+  width/sign/base combination of representative values (0, 127, 128, 255, min-signed, max-unsigned,
+  ...) and parses it back, asserting the width-masked bytes match. This locks in the consolidated
+  value pipeline where several hex/signed display-vs-parse bugs were fixed.
 - **Scan value input parses through the same hex-aware helper**: the integer scan value (and the
   "Value between" upper bound) went through `toLongLong(base)`, which mishandled a `0x`-prefixed
   entry in Hex mode; they now use the shared `parseIntField` / `ce::parseIntegerScalar`, so a

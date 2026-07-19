@@ -978,6 +978,25 @@ static void test_cheat_table_json() {
                    savedXml.find("<Key>17</Key>") != std::string::npos &&
                    savedXml.find("<Key>72</Key>") != std::string::npos;
 
+    // XML special characters in a description/value must escape and round-trip
+    // losslessly, including the quote-wrapping CE puts around descriptions.
+    CheatTable specialsSave, specialsLoad;
+    {
+        CheatEntry se;
+        se.description = "HP & <max> \"cur\" it's here";
+        se.type = ValueType::Int32;
+        se.address = 0x9000;
+        se.value = "a<b>&c\"d";
+        specialsSave.entries.push_back(se);
+    }
+    auto spPath = std::filesystem::temp_directory_path() /
+        ("cecore-specials-" + std::to_string(getpid()) + ".CT");
+    bool specialsOk = specialsSave.save(spPath.string()) && specialsLoad.load(spPath.string()) &&
+        specialsLoad.entries.size() == 1 &&
+        specialsLoad.entries[0].description == "HP & <max> \"cur\" it's here" &&
+        specialsLoad.entries[0].value == "a<b>&c\"d";
+    std::filesystem::remove(spPath);
+
     CheatTable protectedLoaded;
     bool protectedOk = protectedLoaded.loadProtected(protectedPath.string(), "secret") &&
         matchesTable(protectedLoaded);
@@ -995,6 +1014,7 @@ static void test_cheat_table_json() {
     printf("  CE group <Options> flags parse + verbatim round-trip: %s\n", optOk ? "OK" : "FAILED");
     printf("  CE String/AoB <Length> + <Unicode> import + round-trip: %s\n", strOk ? "OK" : "FAILED");
     printf("  CE nested <Hotkeys> (VK codes + actions) import: %s\n", hkOk ? "OK" : "FAILED");
+    printf("  XML special chars (& < > \") in desc/value round-trip: %s\n", specialsOk ? "OK" : "FAILED");
     printf("  CT XML CE type names: %s\n", xmlTypeNamesOk ? "OK" : "FAILED");
     printf("  CETRAINER protected round trip: %s\n", (protectedOk && wrongPasswordOk) ? "OK" : "FAILED");
 }

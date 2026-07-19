@@ -42,6 +42,10 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **Debugger "Run to cursor" gets F4 and a context-menu item** (CE parity): the Run to Cursor
+  button now carries CE's **F4** shortcut, and right-clicking a disassembly line offers "Run to
+  cursor" (enabled only while paused), so you can run to a clicked instruction without setting a
+  temporary breakpoint.
 - **Debugger predicts conditional jumps** (CE parity): when the target is paused on a
   conditional branch (`je`, `jne`, `jbe`, `jg`, ...), the disassembly line now reads
   `(will jump)` or `(no jump)` based on the live flags, so you can see the path before you

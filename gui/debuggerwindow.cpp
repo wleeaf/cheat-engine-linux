@@ -47,7 +47,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     intoBtn_   = new QPushButton("Step Into");    intoBtn_->setShortcut(Qt::Key_F7);
     overBtn_   = new QPushButton("Step Over");    overBtn_->setShortcut(Qt::Key_F8);
     outBtn_    = new QPushButton("Step Out");
-    rtcBtn_    = new QPushButton("Run to Cursor");
+    rtcBtn_    = new QPushButton("Run to Cursor"); rtcBtn_->setShortcut(Qt::Key_F4);
     detachBtn_ = new QPushButton("Detach");
     for (auto* b : {contBtn_, intoBtn_, overBtn_, outBtn_, rtcBtn_, detachBtn_})
         controls->addWidget(b);
@@ -946,6 +946,10 @@ void DebuggerWindow::onDisasmContextMenu(const QPoint& pos) {
     menu.addAction("Set breakpoint here", this, &DebuggerWindow::setBreakpointAtCursor);
     menu.addAction("Set conditional breakpoint...", this, &DebuggerWindow::setConditionalBreakpointAtCursor);
     menu.addAction("Replace with NOPs",  this, &DebuggerWindow::nopInstructionAtCursor);
+    menu.addSeparator();
+    // Run to this line (CE's F4): only meaningful while the target is paused.
+    QAction* rtc = menu.addAction("Run to cursor", this, &DebuggerWindow::onRunToCursor);
+    rtc->setEnabled(session_ && session_->isStopped());
     menu.exec(disasmView_->viewport()->mapToGlobal(pos));
 }
 

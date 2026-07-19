@@ -43,6 +43,12 @@ transforms across surfaces.
   Dolphin / PCSX2 / DuckStation adapters. Switch/3DS are little-endian with no fixed
   console base, so the regions surface 0-based and unswapped. Validated against a
   synthetic `HostMemory` process in cecore_test.
+- **Emulator guest-RAM mirror dedup now keys on the backing inode**, not just a named
+  shm's offset, so an emulator that maps guest RAM at several virtual addresses via
+  *unnamed* memfds no longer shows duplicate candidates. RPCS3 maps every object at both
+  `g_base_addr` and a `g_sudo` write-mirror (`memfd_create("")` / `"2M"`), which carry no
+  usable name -- its guest RAM now surfaces once through the generic large-region
+  heuristic with the mirrors collapsed. Anonymous arenas (inode 0) stay distinct.
 
 ---
 

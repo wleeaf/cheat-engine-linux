@@ -195,7 +195,14 @@ required, and it can be non-linear (paged MMU emulation).
    existing Dolphin cheat tables / RetroAchievements; other emulators' RAM is 0-based (and
    Switch/3DS are little-endian) so no rebase or byte-swap. Validated on synthetic Dolphin/
    PCSX2/DuckStation/yuzu processes (incl. an end-to-end console-address scan) and in
-   cecore_test. RPCS3 (4 GiB `g_base_addr` sparse arena) TODO -- needs its arena signature.
+   cecore_test. Mirror views are collapsed by their backing object's inode, not just by a
+   named shm's offset, so an emulator that maps guest RAM at several addresses via UNNAMED
+   memfds -- RPCS3 maps each object at both `g_base_addr` and a `g_sudo` write-mirror
+   (`memfd_create("")`/`"2M"`, confirmed in `rpcs3/util/vm_native.cpp`) -- no longer shows
+   duplicate candidates: its guest RAM surfaces through the generic large-region heuristic
+   with the mirrors deduped. A full RPCS3 adapter (guest-address translation over the 4 GiB
+   `g_base_addr` arena, so hits read back as PS3 addresses) is still TODO -- needs the arena
+   layout and can only be validated against the real emulator.
 4. **Guest code analysis (stretch):** to do a real "find what writes" on the *guest*
    instruction, watch the guest RAM buffer at the host level (page-guard on the host
    buffer works, it is our own page) and, on a host fault, decode the guest PC from

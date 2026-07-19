@@ -134,7 +134,7 @@ std::vector<std::string> detectRuntimes(pid_t pid) {
 // stacks/small heaps; a console's main RAM ranges from a few MB to several GB).
 // Sorted largest first, capped at 4.
 std::vector<TargetProfile::GuestRegion> findGuestRam(pid_t pid) {
-    struct Region { uintptr_t start; size_t size; uintptr_t offset; bool emuShm; uintptr_t guestBase; };
+    struct Region { uintptr_t start; size_t size; uintptr_t offset; unsigned long inode; bool emuShm; uintptr_t guestBase; };
     std::vector<Region> regs;
     std::ifstream maps("/proc/" + std::to_string(pid) + "/maps");
     std::string line;
@@ -146,10 +146,14 @@ std::vector<TargetProfile::GuestRegion> findGuestRam(pid_t pid) {
         if (std::sscanf(line.c_str(), "%lx-%lx %7s %lx", &start, &end, perms, &offset) != 4) continue;
         if (perms[0] != 'r' || perms[1] != 'w' || end <= start) continue;
         const size_t size = end - start;
-        // pathname is the 6th whitespace field (absent for anonymous mappings).
+        // Fields: "start-end perms offset dev inode pathname". The inode (5th, f5)
+        // uniquely identifies a file/memfd/shm backing object, so it collapses mirror
+        // views of the same object even when they carry no useful path name (RPCS3's
+        // unnamed g_base/g_sudo memfds). Anonymous mappings have inode 0.
         std::istringstream ss(line);
         std::string f1, f2, f3, f4, f5, path;
         ss >> f1 >> f2 >> f3 >> f4 >> f5;
+        const unsigned long inode = std::strtoul(f5.c_str(), nullptr, 10);
         std::getline(ss, path);
         size_t nb = path.find_first_not_of(" \t");
         path = (nb == std::string::npos) ? std::string() : path.substr(nb);
@@ -178,26 +182,28 @@ std::vector<TargetProfile::GuestRegion> findGuestRam(pid_t pid) {
         // Dolphin's guest addresses are console-native (MEM1 at 0x80000000 shm offset 0,
         // MEM2 at 0x90000000). Other emulators' RAM is already 0-based, so no rebase.
         const uintptr_t guestBase = dolphin ? (offset == 0 ? 0x80000000u : 0x90000000u) : 0;
-        regs.push_back({start, size, offset, emuShm, guestBase});
+        regs.push_back({start, size, offset, inode, emuShm, guestBase});
     }
 
-    // These emulators map the guest-RAM shm at many views (Dolphin fastmem gives MEM1/
-    // MEM2 a cached and an uncached mirror at different guest addresses but the SAME shm
-    // offset; PCSX2 maps EE/IOP into a reserved arena; the yuzu/Citra HostMemory memfd is
-    // mapped MAP_FIXED into a large virtual reservation, mirrored per fastmem). When we
-    // see such an emulator shm, restrict to it and collapse mirrors by shm offset, so the
-    // user gets the real distinct regions (Dolphin MEM1+MEM2, PCSX2 EE) rather than a
-    // dozen duplicates of the same physical memory or unrelated JIT/texture arenas. Same
-    // shm-name+offset approach as aldelaro5/dolphin-memory-engine.
+    // Emulators map the guest-RAM shm/memfd at many views: Dolphin fastmem gives MEM1/MEM2
+    // a cached and an uncached mirror at different guest addresses but the SAME backing
+    // object; PCSX2 maps EE/IOP into a reserved arena; the yuzu/Citra HostMemory memfd is
+    // mapped MAP_FIXED into a large virtual reservation, mirrored per fastmem; RPCS3 maps
+    // each object at both g_base_addr and a g_sudo write-mirror. A named shm, when present,
+    // pins the guest RAM (ignore everything else); then, in every case, collapse mirror
+    // views by their backing object so the user gets the real distinct regions (Dolphin
+    // MEM1+MEM2, PCSX2 EE) rather than a dozen duplicates. The (inode, file offset) pair
+    // identifies the object+slice, so it collapses mirrors even for RPCS3's UNNAMED memfds
+    // that the name-based marker can't see; anonymous arenas (inode 0) stay distinct. Same
+    // backing+offset approach as aldelaro5/dolphin-memory-engine.
     const bool haveEmuShm = std::any_of(regs.begin(), regs.end(),
                                         [](const Region& r) { return r.emuShm; });
     std::vector<TargetProfile::GuestRegion> out;
-    std::set<uintptr_t> seenOffset;
+    std::set<std::pair<unsigned long, uintptr_t>> seenBacking;   // (inode, file offset)
     for (const auto& r : regs) {
-        if (haveEmuShm) {
-            if (!r.emuShm) continue;
-            if (!seenOffset.insert(r.offset).second) continue;   // mirror of an already-kept region
-        }
+        if (haveEmuShm && !r.emuShm) continue;   // a named shm pins the guest RAM
+        if (r.inode != 0 && !seenBacking.insert({r.inode, r.offset}).second)
+            continue;   // mirror view of an already-kept backing object
         out.push_back({r.start, r.size, r.emuShm, r.guestBase});
     }
     std::sort(out.begin(), out.end(),

@@ -436,6 +436,47 @@ static void test_yuzu_guest_ram() {
     int st = 0; waitpid(child, &st, 0);
 }
 
+static void test_rpcs3_mirror_dedup() {
+    printf("\n── Test: RPCS3-style mirror dedup (generic path, by inode) ──\n");
+    // RPCS3 backs PS3 guest RAM with UNNAMED memfds (memfd_create("") / "2M"), mapped at
+    // both g_base_addr and a g_sudo write-mirror -- one backing object, two virtual
+    // addresses. With no named shm marker the generic path can't key on the name, so it
+    // must collapse the mirror by the backing object's INODE. A distinct second memfd and
+    // an anonymous arena (inode 0) must survive as separate regions. Sizes are odd so they
+    // can't collide with any incidental region the forked child inherits.
+    const size_t A = 33u << 20, B = 50u << 20;
+    pid_t child = fork();
+    if (child == 0) {
+        prctl(PR_SET_NAME, "rpcs3", 0, 0, 0);
+        int fa = static_cast<int>(syscall(SYS_memfd_create, "", 0u));   // unnamed, like RPCS3
+        int fb = static_cast<int>(syscall(SYS_memfd_create, "", 0u));   // distinct object
+        if (fa < 0 || fb < 0 || ftruncate(fa, A) || ftruncate(fb, B)) _exit(1);
+        mmap(nullptr, A, PROT_READ | PROT_WRITE, MAP_SHARED, fa, 0);   // g_base view
+        mmap(nullptr, A, PROT_READ | PROT_WRITE, MAP_SHARED, fa, 0);   // g_sudo mirror
+        mmap(nullptr, B, PROT_READ | PROT_WRITE, MAP_SHARED, fb, 0);
+        mmap(nullptr, 17u << 20, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        for (;;) pause();
+    }
+    bool ok = false, unsupported = false;
+    for (int i = 0; i < 300 && !ok; ++i) {
+        auto prof = ce::probeTarget(child);
+        if (prof.emulator == "RPCS3") {
+            int nA = 0, nB = 0;
+            for (const auto& g : prof.guestCandidates) { if (g.size == A) nA++; if (g.size == B) nB++; }
+            // memfd A's two mirror views collapse to exactly one; distinct memfd B survives.
+            if (nA == 1 && nB == 1) ok = true;
+        }
+        if (!ok) { int s = 0; if (waitpid(child, &s, WNOHANG) == child) { unsupported = true; break; } usleep(1000); }
+    }
+    if (unsupported)
+        printf("  (skipped: memfd_create unsupported here)\n");
+    else
+        printf("  unnamed-memfd mirror collapsed by inode, distinct memfd kept: %s\n",
+               ok ? "OK" : "FAILED");
+    kill(child, SIGKILL);
+    int st = 0; waitpid(child, &st, 0);
+}
+
 static void test_target_profile() {
     printf("\n── Test: Target capability probe ──\n");
     // Probe ourselves: a valid x86-64 native process, not Wine, not an emulator,
@@ -9939,6 +9980,7 @@ int main(int argc, char* argv[]) {
     test_target_profile();
     test_dolphin_guest_ram();
     test_yuzu_guest_ram();
+    test_rpcs3_mirror_dedup();
     test_guest_view();
     test_ns_attach();
     test_value_codec();

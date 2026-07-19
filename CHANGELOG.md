@@ -126,7 +126,8 @@ transforms across surfaces.
   leave the existing byte untouched. **Ctrl+V** pastes and **Ctrl+C** copies the selected
   bytes as an AOB, from the keyboard. A **"Fill selection with…"** action writes one byte
   value across the whole selected range (e.g. 0x90 to NOP a region). **Shift+Left/Right**
-  extends the byte selection from the keyboard. Asserted in `gui_hexview_smoke`.
+  extends the byte selection from the keyboard, and **Home/End** jump the cursor to the
+  start/end of its row (Shift extends). Asserted in `gui_hexview_smoke`.
 - **yuzu/Citra guest RAM** is now recognized: the Switch/3DS emulator family (and its
   suyu / sudachi / citron / Lime3DS / Azahar forks) backs guest memory with a
   `memfd_create("HostMemory")` fastmem mapping, so `findGuestRam` picks it up as a named

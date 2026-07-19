@@ -697,12 +697,23 @@ void HexView::keyPressEvent(QKeyEvent* e) {
     switch (e->key()) {
         case Qt::Key_Up: case Qt::Key_Down: case Qt::Key_PageUp: case Qt::Key_PageDown:
             selAnchor_ = -1; break;
-        case Qt::Key_Left: case Qt::Key_Right:
+        case Qt::Key_Left: case Qt::Key_Right: case Qt::Key_Home: case Qt::Key_End:
             if (!shift) selAnchor_ = -1; break;
         default: break;
     }
     if (e->key() == Qt::Key_Left)  { if (selectedOffset_ > 0) { if (shift) ensureAnchor(); --selectedOffset_; editNibble_ = 0; viewport()->update(); } }
     else if (e->key() == Qt::Key_Right) { if (selectedOffset_ >= 0 && selectedOffset_ + 1 < (int)cache_.size()) { if (shift) ensureAnchor(); ++selectedOffset_; editNibble_ = 0; viewport()->update(); } }
+    else if (e->key() == Qt::Key_Home && selectedOffset_ >= 0) {
+        if (shift) ensureAnchor();
+        selectedOffset_ = (selectedOffset_ / bytesPerRow_) * bytesPerRow_;   // start of the row
+        editNibble_ = 0; viewport()->update();
+    }
+    else if (e->key() == Qt::Key_End && selectedOffset_ >= 0) {
+        if (shift) ensureAnchor();
+        int end = (selectedOffset_ / bytesPerRow_) * bytesPerRow_ + bytesPerRow_ - 1;   // end of the row
+        if (end >= (int)cache_.size()) end = (int)cache_.size() - 1;
+        selectedOffset_ = end; editNibble_ = 0; viewport()->update();
+    }
     else if (e->key() == Qt::Key_Down) { address_ += bytesPerRow_; editNibble_ = 0; refresh(); }
     else if (e->key() == Qt::Key_Up) { address_ -= bytesPerRow_; editNibble_ = 0; refresh(); }
     else if (e->key() == Qt::Key_PageDown) { address_ += rows * bytesPerRow_; editNibble_ = 0; refresh(); }

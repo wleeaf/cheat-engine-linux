@@ -47,6 +47,8 @@ public:
     bool cellDiffColoredForTest(int row, int col) const;
     // True if `row`'s value changed since the previous refresh (live-change highlight).
     bool rowValueChangedForTest(int row) const;
+    // True if `row`'s Pointer? cell is painted as a valid pointer (CE-style coloring).
+    bool pointerColoredForTest(int row) const;
     void refreshNowForTest() { if (proc_) populateTable(); }
     // Type an expression into the Compare field and apply it; returns the column count.
     int setCompareExpressionForTest(const QString& expr) {

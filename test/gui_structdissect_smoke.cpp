@@ -28,6 +28,11 @@ int main(int argc, char** argv) {
     uint32_t equalField = 7;                 // offset 0x28: same in both
     std::memcpy(g_a + 40, &equalField, 4);
     std::memcpy(g_b + 40, &equalField, 4);
+    // Offset 0x20 (row 4) of g_a holds a valid pointer (to g_b) from the start, so the
+    // Pointer? column colours it teal (CE Dissect Data). Set before the first populate
+    // so the row isn't also flagged "changed" (change-red would win over pointer-teal).
+    uintptr_t pbInit = reinterpret_cast<uintptr_t>(g_b);
+    std::memcpy(g_a + 0x20, &pbInit, sizeof(pbInit));
 
     QApplication app(argc, argv);
     ce::os::LinuxProcessHandle proc(getpid());
@@ -42,6 +47,12 @@ int main(int argc, char** argv) {
     diss.refreshNowForTest();
     bool changedRow3 = diss.rowValueChangedForTest(3);
     bool changedRow0 = diss.rowValueChangedForTest(0);
+
+    // Pointer coloring (CE Dissect Data): a field holding a valid pointer paints teal in
+    // the Pointer? column. Offset 0x20 (row 4) holds &g_b; offset 0x00 (row 0) is zero.
+    bool ptrColored = diss.pointerColoredForTest(4);
+    bool ptrNotColored = !diss.pointerColoredForTest(0);
+    bool ptrColorOk = ptrColored && ptrNotColored;
 
     // Enter compare mode against the second struct.
     diss.setCompareAddressesForTest({ reinterpret_cast<uintptr_t>(g_b) });
@@ -92,10 +103,10 @@ int main(int argc, char** argv) {
     bool followTestOk = followOk && noFollowInt;
 
     bool ok = cols == 4 && diffAt0x10 && !sameAt0x00 && !sameAt0x28
-           && changedRow3 && !changedRow0 && addAllOk && exprOk && followTestOk;
+           && changedRow3 && !changedRow0 && ptrColorOk && addAllOk && exprOk && followTestOk;
     printf("gui structdissect smoke: %s (cols=%d diff@0x10=%d same@0x00=%d same@0x28=%d "
-           "changed@0x18=%d changed@0x00=%d addAll=%d expr=%d follow=%d noFollowInt=%d)\n",
+           "changed@0x18=%d changed@0x00=%d ptrColor=%d addAll=%d expr=%d follow=%d noFollowInt=%d)\n",
            ok ? "OK" : "FAILED", cols, diffAt0x10, sameAt0x00, sameAt0x28, changedRow3, changedRow0,
-           addAllOk, exprOk, (int)followOk, (int)noFollowInt);
+           (int)ptrColorOk, addAllOk, exprOk, (int)followOk, (int)noFollowInt);
     return ok ? 0 : 1;
 }

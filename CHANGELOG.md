@@ -18,6 +18,10 @@ reimplementation of Cheat Engine).
 Follow-ups since v0.7.0, mostly deepening the hard-target work and unifying the value
 transforms across surfaces.
 
+- **Dissect Data: valid-pointer fields are colored (CE parity).** In the Structure Dissector's
+  single-struct view, a field whose 8 bytes form a valid pointer now paints its Pointer? cell
+  teal, so references stand out at a glance (CE colors pointer fields). The live-change red still
+  wins when a row also changed that refresh.
 - **Hex view: selection stays anchored to its address while scrolling (CE parity).** Selecting
   bytes and then scrolling with the wheel or scrollbar now keeps the highlight on the same
   memory (the selected addresses), instead of the same screen position, and drops the selection

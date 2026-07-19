@@ -492,6 +492,9 @@ void StructureDissector::populateTable() {
     prevCache_ = cache_;
     prevBaseForChange_ = baseAddr_;
     const QColor changedFg = ce::gui::isDarkTheme() ? QColor(0xf3, 0x8b, 0xa8) : QColor(0xc0, 0x00, 0x00);
+    // Valid-pointer fields paint teal (CE Dissect Data colors pointers so the eye
+    // catches which offsets are references). Change-red wins when a row also changed.
+    const QColor pointerFg = ce::gui::isDarkTheme() ? QColor(0x94, 0xe2, 0xd5) : QColor(0x0b, 0x72, 0x85);
 
     if (!cmp) {
         // Single-struct dissection: one row per 8 bytes, all display types shown.
@@ -518,6 +521,13 @@ void StructureDissector::populateTable() {
                 if (rowChanged[i]) {   // value changed since the last refresh -> red, CE-style
                     it->setForeground(changedFg);
                     if (c == 0) it->setData(Qt::UserRole + 1, true);   // test hook (Hex column)
+                } else if (c == 4) {   // Pointer? column: color a valid pointer teal
+                    uintptr_t pv;
+                    std::memcpy(&pv, d, sizeof(pv));
+                    if (off + 8 <= validBytes_ && looksLikePointer(pv)) {
+                        it->setForeground(pointerFg);
+                        it->setData(Qt::UserRole + 2, true);   // test hook (Pointer? column)
+                    }
                 }
                 table_->setItem(i, 2 + c, it);
             }
@@ -602,6 +612,11 @@ bool StructureDissector::cellDiffColoredForTest(int row, int col) const {
 bool StructureDissector::rowValueChangedForTest(int row) const {
     auto* it = table_->item(row, 2);   // the Hex column carries the change marker
     return it && it->data(Qt::UserRole + 1).toBool();
+}
+
+bool StructureDissector::pointerColoredForTest(int row) const {
+    auto* it = table_->item(row, 6);   // the Pointer? column carries the pointer marker
+    return it && it->data(Qt::UserRole + 2).toBool();
 }
 
 

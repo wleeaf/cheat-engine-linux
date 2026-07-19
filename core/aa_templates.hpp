@@ -43,9 +43,13 @@ std::string buildCodeInjectionScript(uintptr_t targetAddress,
 /// point is located with `aobscanmodule(INJECT, module, <signature>)` so the
 /// script survives the module rebasing / game updates. `signature` is normally
 /// the original bytes rendered as a hex AOB. Pure string assembly (testable).
+/// `signatureOverride`, when non-empty, is used verbatim as the aobscanmodule
+/// signature (e.g. a uniqueness-extended AOB from uniqueAobSignature); otherwise the
+/// raw `originalBytes` are rendered as the signature.
 std::string buildAobInjectionScript(const std::string& module,
                                     uintptr_t moduleOffset,
                                     const std::vector<StolenInstruction>& originalCode,
-                                    const std::vector<uint8_t>& originalBytes);
+                                    const std::vector<uint8_t>& originalBytes,
+                                    const std::string& signatureOverride = "");
 
 } // namespace ce

@@ -9570,6 +9570,48 @@ static void test_memview_pane_choice() {
            ok ? "OK" : "FAILED");
 }
 
+static void test_aob_signature() {
+    printf("── Test: Unique AOB signature (CE-style AOB injection) ──\n");
+
+    // A 64-byte module: the first 5 bytes {AA BB CC DD EE} repeat at offset 16, but
+    // the 6th byte differs (11 vs 22), so a 6-byte signature is uniquely the hook site.
+    std::vector<uint8_t> mod(64, 0x00);
+    const uint8_t head[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x11};
+    const uint8_t dup[6]  = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x22};
+    std::memcpy(mod.data() + 0,  head, 6);
+    std::memcpy(mod.data() + 16, dup,  6);
+    // A distinct, already-unique 5-byte run near the end.
+    const uint8_t uniq[5] = {0xDE, 0xAD, 0xBE, 0xEF, 0xCA};
+    std::memcpy(mod.data() + 40, uniq, 5);
+
+    // Pure: 5 bytes are ambiguous (two matches) so it extends to 6; the unique run
+    // stays at 5; an all-equal region never disambiguates and caps at maxLen.
+    bool extends  = ce::shortestUniqueAobLen(mod, 0,  5, 16) == 6;
+    bool alreadyU = ce::shortestUniqueAobLen(mod, 40, 5, 16) == 5;
+    std::vector<uint8_t> flat(32, 0x90);
+    bool capped   = ce::shortestUniqueAobLen(flat, 0, 2, 8) == 8;
+    printf("  pure shortestUniqueAobLen (extend=%d alreadyUnique=%d cappedAtMax=%d): %s\n",
+           extends, alreadyU, capped, (extends && alreadyU && capped) ? "OK" : "FAILED");
+
+    // End-to-end: a fake module whose signature is scanned from process memory.
+    const uintptr_t base = 0x400000;
+    FakeProcessHandle proc({
+        {{base, mod.size(), MemProt::ReadExec, MemType::Private, MemState::Committed, "game"}, mod},
+    }, {
+        {base, mod.size(), "game", "/tmp/game", true},
+    });
+    std::string sig = ce::uniqueAobSignature(proc, proc.modules()[0], base, 5, 16);
+    bool sigOk = (sig == "AA BB CC DD EE 11");
+    printf("  uniqueAobSignature at base -> \"%s\": %s\n", sig.c_str(), sigOk ? "OK" : "FAILED");
+
+    // The generated AOB-injection script carries that unique signature into aobscanmodule.
+    std::vector<ce::StolenInstruction> stolen{{base, "nop", 5}};
+    std::vector<uint8_t> orig(mod.begin(), mod.begin() + 5);
+    std::string script = ce::buildAobInjectionScript("game", 0, stolen, orig, sig);
+    bool scriptOk = script.find("aobscanmodule(INJECT,game,AA BB CC DD EE 11)") != std::string::npos;
+    printf("  script embeds unique signature: %s\n", scriptOk ? "OK" : "FAILED");
+}
+
 static void test_expression_parser() {
     printf("── Test: Expression Parser ──\n");
     const uintptr_t base  = 0x100000;
@@ -10119,6 +10161,7 @@ int main(int argc, char* argv[]) {
     test_freeze_should_write();
     test_expression_parser();
     test_memview_pane_choice();
+    test_aob_signature();
     test_string_case_insensitive_scan();
     test_between_reversed_bounds();
     test_unknown_scan_chain();

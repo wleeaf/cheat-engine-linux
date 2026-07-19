@@ -72,7 +72,8 @@ std::string buildCodeInjectionScript(uintptr_t targetAddress,
 std::string buildAobInjectionScript(const std::string& module,
                                     uintptr_t moduleOffset,
                                     const std::vector<StolenInstruction>& originalCode,
-                                    const std::vector<uint8_t>& originalBytes) {
+                                    const std::vector<uint8_t>& originalBytes,
+                                    const std::string& signatureOverride) {
     size_t nopCount = originalBytes.size() > 5 ? originalBytes.size() - 5 : 0;
 
     std::string dbBytes;
@@ -82,9 +83,10 @@ std::string buildAobInjectionScript(const std::string& module,
         if (i) dbBytes += ' ';
         dbBytes += b;
     }
-    // The original bytes double as the scan signature (space-separated hex). The
-    // user can replace stable-but-not-unique bytes with `??` wildcards if needed.
-    const std::string& signature = dbBytes;
+    // Prefer a caller-supplied unique signature (extended past the stolen bytes until
+    // it matches only the hook site); otherwise the raw stolen bytes are the signature
+    // and the user can wildcard stable-but-not-unique bytes with `??`.
+    const std::string& signature = signatureOverride.empty() ? dbBytes : signatureOverride;
 
     std::ostringstream s;
     s << "{ AOB injection auto-generated for " << module << "+0x" << std::hex << moduleOffset

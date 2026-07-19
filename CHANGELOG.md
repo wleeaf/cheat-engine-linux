@@ -42,6 +42,12 @@ transforms across surfaces.
   process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
   32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
   `gui_hexview_smoke`.
+- **AOB injection generates a unique signature** (CE parity): "Create AOB injection here"
+  now scans the containing module and extends the byte pattern past the stolen bytes until
+  it matches only the hook site, so the generated `aobscanmodule(...)` finds exactly one
+  address instead of the raw (possibly repeated) opcode bytes. The uniqueness search is a
+  pure, unit-tested helper (`ce::shortestUniqueAobLen` / `ce::uniqueAobSignature`); it falls
+  back to the raw bytes when the module can't be scanned. Asserted in `cecore_test`.
 - **Memory Viewer address bar shows the location symbolically** (CE parity): after any
   jump the box reads `module+offset` (e.g. `libc.so.6+0x1234`) when the address is inside a
   mapped module, instead of a bare hex number, so you can see where you are at a glance. The

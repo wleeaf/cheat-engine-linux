@@ -4756,6 +4756,23 @@ static void test_lua_fileUtils() {
     printf("  file utilities: %s%s\n", ok ? "OK" : "FAILED ", ok ? "" : err.c_str());
 }
 
+// convertToUTF8 / convertFromUTF8 / ansiToUTF8: code-page <-> UTF-8 for Windows/Proton
+// game strings. CP1252 0xE9 is 'é' (U+00E9), which UTF-8-encodes as 0xC3 0xA9.
+static void test_lua_encoding() {
+    printf("\n── Test: Lua string encoding (convertToUTF8/FromUTF8/ansiToUTF8) ──\n");
+    LuaEngine eng;   // pure string conversion, no process needed
+    std::string err = eng.execute(
+        "assert(convertToUTF8('hello', 1252) == 'hello', 'ASCII passes through unchanged')\n"
+        "assert(convertToUTF8('\\xE9', 1252) == '\\xC3\\xA9', 'CP1252 0xE9 -> UTF-8 C3 A9')\n"
+        "assert(ansiToUTF8('\\xE9') == '\\xC3\\xA9', 'ansiToUTF8 assumes CP1252')\n"
+        "assert(convertFromUTF8('\\xC3\\xA9', 1252) == '\\xE9', 'UTF-8 C3 A9 -> CP1252 0xE9')\n"
+        "assert(convertFromUTF8(convertToUTF8('\\xE9\\xF6\\xFc', 1252), 1252) == '\\xE9\\xF6\\xFc',\n"
+        "       'CP1252 round-trips through UTF-8')\n"
+        "assert(convertToUTF8('A', 65001) == 'A', 'codepage 65001 is UTF-8 (identity)')\n");
+    bool ok = err.empty();
+    printf("  string encoding: %s%s\n", ok ? "OK" : "FAILED ", ok ? "" : err.c_str());
+}
+
 // enumModules(): table of {Name, Address, Size} per module (CE field names), agreeing
 // with getModuleAddress. Uses this process's own /proc/self/maps modules.
 static void test_lua_enumModules() {
@@ -10985,6 +11002,7 @@ int main(int argc, char* argv[]) {
     test_lua_aobScanUnique();
     test_lua_disassembleBytes();
     test_lua_fileUtils();
+    test_lua_encoding();
     test_lua_enumModules();
     test_lua_memory_region_info();
     test_lua_md5memory();

@@ -41,6 +41,8 @@ extern "C" {
 }
 
 #include <cstring>
+#include <cerrno>
+#include <iconv.h>
 #include <cstdlib>
 #include <ctime>
 #include <fstream>
@@ -445,6 +447,66 @@ static int l_byteTableToDwordTable(lua_State* L) {
 }
 
 // Path string helpers (CE's extractFileName/Path/Ext). Pure string ops.
+// Map a CE code-page number to an iconv charset name. 65001 = UTF-8; 0 = the Windows
+// "Ansi" default, treated as CP1252 (the usual western game encoding under Proton).
+static std::string codepageToCharset(int cp) {
+    if (cp == 65001) return "UTF-8";
+    if (cp == 0 || cp == 1252) return "CP1252";
+    return "CP" + std::to_string(cp);
+}
+
+// iconv `in` from charset `from` to `to`. Returns `in` unchanged if the pairing is
+// unavailable; skips bytes that don't map so malformed game data can't throw.
+static std::string iconvString(const std::string& in, const char* from, const char* to) {
+    iconv_t cd = iconv_open(to, from);
+    if (cd == reinterpret_cast<iconv_t>(-1)) return in;
+    std::string out(in.size() * 4 + 8, '\0');
+    char* inPtr = const_cast<char*>(in.data());
+    size_t inLeft = in.size();
+    char* outPtr = out.data();
+    size_t outLeft = out.size();
+    while (inLeft) {
+        size_t r = iconv(cd, &inPtr, &inLeft, &outPtr, &outLeft);
+        if (r != static_cast<size_t>(-1)) continue;
+        if (errno == E2BIG) {
+            size_t used = out.size() - outLeft;
+            out.resize(out.size() * 2);
+            outPtr = out.data() + used;
+            outLeft = out.size() - used;
+        } else {                    // EILSEQ / EINVAL: drop the offending byte
+            ++inPtr; --inLeft;
+        }
+    }
+    out.resize(out.size() - outLeft);
+    iconv_close(cd);
+    return out;
+}
+
+// convertToUTF8(string, codepage=1252) -> UTF-8. Decodes a code-page string (e.g. bytes
+// read from a Windows/Proton game) into UTF-8. Bytes preserved via length.
+static int l_convertToUTF8(lua_State* L) {
+    size_t len = 0; const char* p = luaL_checklstring(L, 1, &len);
+    int cp = static_cast<int>(luaL_optinteger(L, 2, 1252));
+    std::string out = iconvString(std::string(p, len), codepageToCharset(cp).c_str(), "UTF-8");
+    lua_pushlstring(L, out.data(), out.size());
+    return 1;
+}
+// convertFromUTF8(utf8string, codepage) -> code-page-encoded string (inverse).
+static int l_convertFromUTF8(lua_State* L) {
+    size_t len = 0; const char* p = luaL_checklstring(L, 1, &len);
+    int cp = static_cast<int>(luaL_checkinteger(L, 2));
+    std::string out = iconvString(std::string(p, len), "UTF-8", codepageToCharset(cp).c_str());
+    lua_pushlstring(L, out.data(), out.size());
+    return 1;
+}
+// ansiToUTF8(string) -> UTF-8, assuming the CP1252 "Ansi" code page.
+static int l_ansiToUTF8(lua_State* L) {
+    size_t len = 0; const char* p = luaL_checklstring(L, 1, &len);
+    std::string out = iconvString(std::string(p, len), "CP1252", "UTF-8");
+    lua_pushlstring(L, out.data(), out.size());
+    return 1;
+}
+
 static int l_extractFileName(lua_State* L) {
     std::string s = luaL_checkstring(L, 1);
     auto slash = s.find_last_of("/\\");
@@ -5019,6 +5081,9 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "dwordToByteTable", l_dwordToByteTable);
     lua_register(L, "qwordToByteTable", l_qwordToByteTable);
     lua_register(L, "byteTableToDwordTable", l_byteTableToDwordTable);
+    lua_register(L, "convertToUTF8", l_convertToUTF8);
+    lua_register(L, "convertFromUTF8", l_convertFromUTF8);
+    lua_register(L, "ansiToUTF8", l_ansiToUTF8);
     lua_register(L, "extractFileName", l_extractFileName);
     lua_register(L, "extractFilePath", l_extractFilePath);
     lua_register(L, "extractFileExt", l_extractFileExt);

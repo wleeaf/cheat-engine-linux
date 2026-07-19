@@ -69,6 +69,7 @@ private:
     std::vector<uint8_t> snapshot_;   // whole-region snapshot for an unknown-value scan
     bool      unknownMode_ = false;   // snapshot taken, no explicit candidates yet
     uintptr_t regionBase_ = 0;
+    uintptr_t regionGuestBase_ = 0;   // console address of the region start (Dolphin), else 0
     uint64_t  regionSize_ = 0;
     ce::ValueType scanType_ = ce::ValueType::Int32;
     bool      scanBigEndian_ = false;

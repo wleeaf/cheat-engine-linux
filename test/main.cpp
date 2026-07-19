@@ -381,7 +381,9 @@ static void test_dolphin_guest_ram() {
     for (int i = 0; i < 300 && !ok; ++i) {
         auto prof = ce::probeTarget(child);
         if (prof.emulator == "Dolphin" && prof.guestCandidates.size() == 2 &&
-            prof.guestCandidates[0].size == MEM2 && prof.guestCandidates[1].size == MEM1)
+            prof.guestCandidates[0].size == MEM2 && prof.guestCandidates[1].size == MEM1 &&
+            prof.guestCandidates[0].guestBase == 0x90000000u &&   // MEM2 console base
+            prof.guestCandidates[1].guestBase == 0x80000000u)     // MEM1 console base
             ok = true;
         if (!ok) usleep(1000);
     }

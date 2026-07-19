@@ -1035,8 +1035,9 @@ static void writeGuestResults(pid_t pid, const ce::TargetProfile::GuestRegion& g
                               ValueType vt, const std::vector<std::pair<uint64_t, uint64_t>>& hits) {
     FILE* f = fopen(guestResultPath(pid).c_str(), "w");
     if (!f) return;
-    fprintf(f, "GUESTSCAN 2 base %lx size %lx be %d type %d\n",
-            (unsigned long)g.base, (unsigned long)g.size, be ? 1 : 0, (int)vt);
+    fprintf(f, "GUESTSCAN 2 base %lx size %lx be %d type %d gbase %lx\n",
+            (unsigned long)g.base, (unsigned long)g.size, be ? 1 : 0, (int)vt,
+            (unsigned long)g.guestBase);
     for (const auto& [a, v] : hits)
         fprintf(f, "%llx %llx\n", (unsigned long long)a, (unsigned long long)v);
     fclose(f);
@@ -1069,8 +1070,9 @@ static int cmd_guest_scan(pid_t pid, const char* valStr, ValueType vt, bool be, 
             fwrite(bytes.data(), 1, bytes.size(), sf); fclose(sf);
         }
         if (FILE* f = fopen(guestResultPath(pid).c_str(), "w")) {
-            fprintf(f, "GUESTSCAN 3 base %lx size %lx be %d type %d\n",
-                    (unsigned long)region.base, (unsigned long)region.size, be ? 1 : 0, (int)vt);
+            fprintf(f, "GUESTSCAN 3 base %lx size %lx be %d type %d gbase %lx\n",
+                    (unsigned long)region.base, (unsigned long)region.size, be ? 1 : 0, (int)vt,
+                    (unsigned long)region.guestBase);
             fclose(f);
         }
         printf("snapshot taken: %zu MB of %s guest RAM (%s-endian). Change the value "
@@ -1083,11 +1085,13 @@ static int cmd_guest_scan(pid_t pid, const char* valStr, ValueType vt, bool be, 
     if (op != GsOp::ExactFirst) {
         FILE* f = fopen(guestResultPath(pid).c_str(), "r");
         if (!f) { fprintf(stderr, "guest-scan: no prior scan for pid %d\n", pid); return 1; }
-        int ver = 0, beI = 0, typeI = 0; unsigned long base = 0, size = 0;
-        if (fscanf(f, "GUESTSCAN %d base %lx size %lx be %d type %d", &ver, &base, &size, &beI, &typeI) != 5) {
+        int ver = 0, beI = 0, typeI = 0; unsigned long base = 0, size = 0, gbase = 0;
+        if (fscanf(f, "GUESTSCAN %d base %lx size %lx be %d type %d gbase %lx",
+                   &ver, &base, &size, &beI, &typeI, &gbase) < 5) {
             fclose(f); fprintf(stderr, "guest-scan: corrupt state file\n"); return 1;
         }
         region.base = base; region.size = size; be = beI != 0; vt = (ValueType)typeI;  // carry over
+        region.guestBase = gbase;
         if (ver >= 3) {
             fclose(f);
             if (op != GsOp::Compare) {
@@ -1170,7 +1174,8 @@ static int cmd_guest_scan(pid_t pid, const char* valStr, ValueType vt, bool be, 
     const size_t shown = std::min<size_t>(result.size(), 200);
     for (size_t i = 0; i < shown; ++i)
         printf("  guest 0x%llx  (host 0x%lx)\n",
-               (unsigned long long)result[i].first, (unsigned long)gv.toHost(result[i].first));
+               (unsigned long long)(region.guestBase + result[i].first),
+               (unsigned long)gv.toHost(result[i].first));
     if (result.size() > shown) printf("  ... (%zu more)\n", result.size() - shown);
     return 0;
 }

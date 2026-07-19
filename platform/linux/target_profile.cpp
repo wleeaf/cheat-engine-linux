@@ -134,7 +134,7 @@ std::vector<std::string> detectRuntimes(pid_t pid) {
 // stacks/small heaps; a console's main RAM ranges from a few MB to several GB).
 // Sorted largest first, capped at 4.
 std::vector<TargetProfile::GuestRegion> findGuestRam(pid_t pid) {
-    struct Region { uintptr_t start; size_t size; uintptr_t offset; bool emuShm; };
+    struct Region { uintptr_t start; size_t size; uintptr_t offset; bool emuShm; uintptr_t guestBase; };
     std::vector<Region> regs;
     std::ifstream maps("/proc/" + std::to_string(pid) + "/maps");
     std::string line;
@@ -159,11 +159,11 @@ std::vector<TargetProfile::GuestRegion> findGuestRam(pid_t pid) {
         // its Export Shared Memory option is on); that name is the authoritative
         // guest-RAM marker. Guarded to shm/memfd so it never matches the emulator binary.
         const bool isShm = path.rfind("/dev/shm/", 0) == 0 || path.rfind("/memfd:", 0) == 0;
-        const bool emuShm = isShm &&
-            (path.find("dolphin-emu") != std::string::npos ||
-             path.find("dolphinmem")  != std::string::npos ||
-             path.find("pcsx2")       != std::string::npos ||
-             path.find("duckstation") != std::string::npos);
+        const bool dolphin = isShm && (path.find("dolphin-emu") != std::string::npos ||
+                                       path.find("dolphinmem")  != std::string::npos);
+        const bool emuShm = dolphin || (isShm &&
+            (path.find("pcsx2")       != std::string::npos ||
+             path.find("duckstation") != std::string::npos));
         const bool anonLike = path.empty() || path == "[heap]" ||
             path.rfind("/memfd:", 0) == 0 || path.rfind("/dev/shm/", 0) == 0 ||
             path.rfind("[anon", 0) == 0;
@@ -172,7 +172,10 @@ std::vector<TargetProfile::GuestRegion> findGuestRam(pid_t pid) {
         // PCSX2's 2 MB IOP), so only skip tiny sub-MB caches; a generic anonymous mapping
         // must be large to plausibly be guest RAM.
         if (size < (emuShm ? (1u << 20) : (8u << 20))) continue;
-        regs.push_back({start, size, offset, emuShm});
+        // Dolphin's guest addresses are console-native (MEM1 at 0x80000000 shm offset 0,
+        // MEM2 at 0x90000000). Other emulators' RAM is already 0-based, so no rebase.
+        const uintptr_t guestBase = dolphin ? (offset == 0 ? 0x80000000u : 0x90000000u) : 0;
+        regs.push_back({start, size, offset, emuShm, guestBase});
     }
 
     // These emulators map the guest-RAM shm at many views (Dolphin fastmem gives MEM1/
@@ -191,7 +194,7 @@ std::vector<TargetProfile::GuestRegion> findGuestRam(pid_t pid) {
             if (!r.emuShm) continue;
             if (!seenOffset.insert(r.offset).second) continue;   // mirror of an already-kept region
         }
-        out.push_back({r.start, r.size, r.emuShm});
+        out.push_back({r.start, r.size, r.emuShm, r.guestBase});
     }
     std::sort(out.begin(), out.end(),
         [](const TargetProfile::GuestRegion& a, const TargetProfile::GuestRegion& b) {

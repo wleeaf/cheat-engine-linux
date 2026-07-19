@@ -40,7 +40,14 @@ struct TargetProfile {
     // emulator targets). The value you want is a GUEST address inside one of these,
     // so scans should be restricted here (and may need byte-swapping on big-endian
     // consoles). See docs/CHALLENGING_TARGETS.md block 2/D.
-    struct GuestRegion { uintptr_t base = 0; size_t size = 0; bool fileBacked = false; };
+    // `base` is the HOST address of the region's start; `guestBase` is the console
+    // address that host address represents (Dolphin MEM1 = 0x80000000, MEM2 =
+    // 0x90000000), so a scan hit at host offset N is console address guestBase + N --
+    // matching existing cheat tables. 0 means guest addresses are region-relative (the
+    // console's physical addressing is already 0-based, e.g. PS2 EE / PS1 RAM).
+    struct GuestRegion {
+        uintptr_t base = 0; size_t size = 0; bool fileBacked = false; uintptr_t guestBase = 0;
+    };
     std::vector<GuestRegion> guestCandidates;
 
     // Plain-language limitations/warnings derived from the above (empty = nothing

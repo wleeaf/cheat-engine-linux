@@ -187,9 +187,13 @@ required, and it can be non-linear (paged MMU emulation).
    2 MB; DuckStation 8 MB) rather than a dozen duplicates or unrelated JIT/texture arenas
    -- the shm-name + offset approach from `aldelaro5/dolphin-memory-engine`, with the shm
    names taken from each emulator's source. A named emulator shm counts at any real size
-   (sub-MB caches skipped); generic anonymous mappings still need >= 8 MB. Validated on
-   synthetic Dolphin/PCSX2/DuckStation processes and in cecore_test. RPCS3 (4 GiB
-   `g_base_addr` sparse arena) TODO -- needs its arena signature.
+   (sub-MB caches skipped); generic anonymous mappings still need >= 8 MB. Dolphin regions
+   also carry a console `guestBase` (MEM1 0x80000000, MEM2 0x90000000), so `cescan
+   guest-scan` and the GUI dialog report console-native addresses (a MEM2 hit shows `guest
+   0x90002000`) that match existing Dolphin cheat tables / RetroAchievements; other
+   emulators' RAM is already 0-based so no rebase. Validated on synthetic Dolphin/PCSX2/
+   DuckStation processes (incl. an end-to-end console-address scan) and in cecore_test.
+   RPCS3 (4 GiB `g_base_addr` sparse arena) TODO -- needs its arena signature.
 4. **Guest code analysis (stretch):** to do a real "find what writes" on the *guest*
    instruction, watch the guest RAM buffer at the host level (page-guard on the host
    buffer works, it is our own page) and, on a host fault, decode the guest PC from

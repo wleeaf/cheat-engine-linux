@@ -161,6 +161,7 @@ void GuestScanDialog::beginScan() {
     scanType_ = selectedType();
     scanBigEndian_ = bigEndianCheck_->isChecked();
     regionBase_ = region.base;
+    regionGuestBase_ = region.guestBase;
     regionSize_ = region.size;
     haveScan_ = true;
     typeCombo_->setEnabled(false);
@@ -254,7 +255,8 @@ void GuestScanDialog::refreshResults() {
         dispatchType(scanType_, [&]<class T>() {
             for (size_t i = 0; i < shown; ++i) {
                 const uint64_t g = candidates_[i].first;
-                resultsTable_->setItem((int)i, 0, new QTableWidgetItem(QString("0x%1").arg(g, 0, 16)));
+                resultsTable_->setItem((int)i, 0, new QTableWidgetItem(
+                    QString("0x%1").arg(regionGuestBase_ + g, 0, 16)));
                 resultsTable_->setItem((int)i, 1, new QTableWidgetItem(
                     QString("0x%1").arg((qulonglong)gv.toHost(g), 0, 16)));
                 resultsTable_->setItem((int)i, 2, new QTableWidgetItem(fmtBits<T>(candidates_[i].second)));
@@ -297,7 +299,7 @@ void GuestScanDialog::onAddToList() {
         if (row < 0 || row >= (int)candidates_.size()) continue;
         const uint64_t g = candidates_[row].first;
         emit addressSelected(gv.toHost(g), scanType_, scanBigEndian_,
-                             QString("guest 0x%1").arg(g, 0, 16));
+                             QString("guest 0x%1").arg(regionGuestBase_ + g, 0, 16));
     }
 }
 

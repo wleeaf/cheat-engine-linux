@@ -822,8 +822,21 @@ void DisasmView::updateScrollBar() {
 // Scroll by `rows` instructions (negative = up). Up uses the region-safe
 // scrollBack and refuses to strand the pane in an unmapped gap; down steps
 // through the decoded instructions, or a fixed amount when the pane is blank.
+int DisasmView::rowOfAddress(uintptr_t addr) const {
+    int limit = std::min((int)instructions_.size(), visibleRows());
+    for (int i = 0; i < limit; ++i)
+        if (instructions_[i].address == addr) return i;
+    return -1;
+}
+
 void DisasmView::scrollRows(int rows) {
     if (rows == 0) return;
+    // Anchor the selection to its instruction addresses so a scroll keeps the same
+    // instructions selected (CE-style), not the same screen rows.
+    uintptr_t selAddr = (selectedRow_ >= 0 && selectedRow_ < (int)instructions_.size())
+                        ? instructions_[selectedRow_].address : 0;
+    uintptr_t ancAddr = (selAnchorRow_ >= 0 && selAnchorRow_ < (int)instructions_.size())
+                        ? instructions_[selAnchorRow_].address : 0;
     if (rows < 0) {
         uintptr_t back = scrollBack(address_, -rows);
         if (back != address_ && proc_) {
@@ -838,6 +851,12 @@ void DisasmView::scrollRows(int rows) {
         address_ += static_cast<uintptr_t>(rows) * 16;
     }
     refresh();
+    // Re-map the anchored addresses to their new rows; drop the selection if the
+    // cursor instruction scrolled out of view.
+    if (selAddr) {
+        selectedRow_ = rowOfAddress(selAddr);
+        selAnchorRow_ = (selectedRow_ >= 0 && ancAddr) ? rowOfAddress(ancAddr) : -1;
+    }
 }
 
 uintptr_t DisasmView::selectedAddress() const {

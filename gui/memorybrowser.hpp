@@ -210,6 +210,7 @@ public:
     /// when a range is selected via Shift+Up/Down or Shift+click). 0 if none.
     int selectionCountForTest() const { int lo, hi; return selRange(lo, hi) ? hi - lo + 1 : 0; }
     void activateRowForTest(int row) { activateRow(row); }
+    void scrollRowsForTest(int rows) { scrollRows(rows); }
     /// Mark the current instruction pointer (debugger stop). The row whose address
     /// equals this is highlighted distinctly and flagged with a ► marker, like CE's
     /// Memory Viewer when paused. Pass 0 to clear (target resumed / detached).
@@ -258,6 +259,9 @@ private:
     // Double-click / activate a row: follow a branch/data reference, else open the
     // assembler on the instruction (CE edits an instruction in place on double-click).
     void activateRow(int row);
+    // Visible-row index of the instruction starting at `addr`, or -1 if it is not a
+    // visible instruction start (used to keep the selection anchored across a scroll).
+    int rowOfAddress(uintptr_t addr) const;
     static uintptr_t parseImmediate(const std::string& operands);
 
     ce::ProcessHandle* proc_ = nullptr;

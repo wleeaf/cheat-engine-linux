@@ -85,12 +85,28 @@ int main(int argc, char** argv) {
     dv.activateRowForTest(2);
     bool dblAssemble = (asmAddr != 0 && asmSize > 0 && asmSize <= 15);
 
+    // Selection stays anchored to its instruction address across a scroll (CE-style):
+    // select an instruction, scroll down, and the same address stays selected until it
+    // leaves the view, at which point the selection clears.
+    dv.setAddress(reinterpret_cast<uintptr_t>(&decodeTarget) & ~0xFULL);
+    app.processEvents();
+    sendKey(&dv, Qt::Key_Home, Qt::NoModifier);   // cursor to row 0
+    sendKey(&dv, Qt::Key_Down, Qt::NoModifier);   // row 1
+    sendKey(&dv, Qt::Key_Down, Qt::NoModifier);   // row 2
+    uintptr_t selAddrBefore = dv.selectedAddress();
+    dv.scrollRowsForTest(2);                        // scroll down 2 instructions
+    bool scrollAnchored = (selAddrBefore != 0 && dv.selectedAddress() == selAddrBefore
+                           && dv.selectionCountForTest() == 1);
+    dv.scrollRowsForTest(100);                       // push the selection well off the top
+    bool scrollCleared = (dv.selectionCountForTest() == 0);
+    bool disasmSticky = scrollAnchored && scrollCleared;
+
     bool ok = single == 1 && rangeThree == 3 && rangeTwo == 2 && collapsed == 1
            && copiedLines == 3 && selectAll > 3
-           && homeSel == 1 && shiftEndSel == selectAll && escSel == 1 && dblAssemble;
+           && homeSel == 1 && shiftEndSel == selectAll && escSel == 1 && dblAssemble && disasmSticky;
     printf("gui disasm smoke: %s (single=%d range3=%d range2=%d collapsed=%d copiedLines=%d "
-           "selectAll=%d home=%d shiftEnd=%d esc=%d dblAssemble=%d)\n",
+           "selectAll=%d home=%d shiftEnd=%d esc=%d dblAssemble=%d disasmSticky=%d)\n",
            ok ? "OK" : "FAILED", single, rangeThree, rangeTwo, collapsed, copiedLines,
-           selectAll, homeSel, shiftEndSel, escSel, (int)dblAssemble);
+           selectAll, homeSel, shiftEndSel, escSel, (int)dblAssemble, (int)disasmSticky);
     return ok ? 0 : 1;
 }

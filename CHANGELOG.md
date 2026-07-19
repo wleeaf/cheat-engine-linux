@@ -39,6 +39,9 @@ transforms across surfaces.
   bytes and then scrolling with the wheel or scrollbar now keeps the highlight on the same
   memory (the selected addresses), instead of the same screen position, and drops the selection
   once it scrolls out of view. Arrow-key cursor movement is unchanged.
+- **Disassembler: selection stays on its instruction while scrolling (CE parity).** The same
+  anchoring now applies to the disassembler: scrolling the pane keeps the selected instruction
+  highlighted (by address) rather than the same screen row, clearing it only when it leaves view.
 - **Region-type scan filters exposed (CE parity).** The scanner's "Memory Scan Options" group
   gains **Private / Image / Mapped** checkboxes (CE's MEM_PRIVATE / MEM_IMAGE / MEM_MAPPED). All
   on by default (scan everything); turn one off to skip that class of memory, e.g. Image-only to

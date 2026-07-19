@@ -94,6 +94,10 @@ transforms across surfaces.
   as base-10 and failed, falling through to an unconditional write, so "Increase Only" etc.
   behaved like a plain freeze. The comparison now parses via the shared hex-aware
   `ce::parseIntegerScalar`, so directional freezes hold correctly regardless of hex display.
+- **Fixed: inline-editing a pointer record's Value cell could write to a stale address**: typing a
+  new value directly into the Value column wrote through the address cached at the last refresh
+  instead of re-resolving the pointer chain first, so for a moving pointer the write could land on
+  the wrong target. It now re-resolves before writing, matching every other value-write path.
 - **Refactor: one `reresolveAddress` helper for pointer records**: the six read/write paths that
   re-resolve a pointer record's address expression (freeze, value refresh, live value, inline
   edit, "Set value", step hotkeys) now share a single helper instead of six copies of the same

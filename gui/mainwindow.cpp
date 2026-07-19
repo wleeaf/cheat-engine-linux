@@ -5083,6 +5083,9 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
             e.currentValue = rawValue;
             if (e.active) e.frozenValue = writeStr;
             if (proc_) {
+                // Inline value edits write live too, so follow a moving pointer chain to
+                // its current target rather than the address cached at the last refresh.
+                reresolveAddress(e);
                 writeValueToProcess(proc_, e.address, e.type, writeStr, e.codec, e.bigEndian, e.showAsHex);
                 // A non-frozen value that snaps back is protected: warn and point the
                 // user at find-what-writes. A frozen entry is intentionally held, so

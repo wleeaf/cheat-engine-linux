@@ -56,6 +56,12 @@ transforms across surfaces.
   step, in **both** the Debugger window and the Memory Viewer's disassembler (which follows the
   stop). The mnemonic+flags decision is a Qt-free `ce::conditionalJumpTaken`, unit-tested in
   `cecore_test`.
+- **Fixed: value comparison ignored the signed-display flag**: the memory-read side interpreted
+  a Byte as unsigned but wider ints as signed (a fixed per-type choice), while the frozen/typed
+  text follows the record's Signed flag. So a signed-shown byte over 127 (now the default) or an
+  unsigned-shown int never equalled its own frozen text, breaking directional freeze, the step
+  hotkeys, and edit-revert detection. The read side now honors the record's Signed flag, matching
+  the parse, and the edit-verify target is parsed hex/signed-aware too.
 - **Fixed: directional freeze (Increase/Decrease Only) silently broke on hex-display records**:
   a hex record stores its frozen value with a `0x` prefix, but the freeze comparison parsed it
   as base-10 and failed, falling through to an unconditional write, so "Increase Only" etc.

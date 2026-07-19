@@ -4359,7 +4359,7 @@ static void writeValueToProcess(ProcessHandle* proc, uintptr_t addr, ValueType t
 
 static bool readComparableValue(ProcessHandle* proc, uintptr_t addr, ValueType type,
                                 double& value, const ce::ValueCodec& codec = {},
-                                bool bigEndian = false) {
+                                bool bigEndian = false, bool isSigned = true) {
     uint8_t buf[8] = {};
     size_t vs = vtSize(type);
     auto r = proc->read(addr, buf, vs);
@@ -4367,13 +4367,15 @@ static bool readComparableValue(ProcessHandle* proc, uintptr_t addr, ValueType t
 
     // Shared cecore transform: reverse big-endian to host order, then codec-decode
     // (integer types), so directional freeze, the adjust hotkey and edit-verify all
-    // compare the LOGICAL value.
+    // compare the LOGICAL value. Integers are interpreted per the record's signed
+    // display (isSigned) so this matches parseComparableValue on the display string;
+    // otherwise a signed-shown byte read as unsigned would never equal its frozen text.
     const uint64_t bits = ce::decodeScalarBits(type, buf, bigEndian, codec);
     switch (type) {
-        case ValueType::Byte:    value = (uint8_t)bits;                    return true;
-        case ValueType::Int16:   value = (int16_t)bits;                   return true;
-        case ValueType::Int32:   value = (int32_t)bits;                   return true;
-        case ValueType::Int64:   value = static_cast<double>((int64_t)bits); return true;
+        case ValueType::Byte:    value = isSigned ? (double)(int8_t)bits  : (double)(uint8_t)bits;  return true;
+        case ValueType::Int16:   value = isSigned ? (double)(int16_t)bits : (double)(uint16_t)bits; return true;
+        case ValueType::Int32:   value = isSigned ? (double)(int32_t)bits : (double)(uint32_t)bits; return true;
+        case ValueType::Int64:   value = isSigned ? (double)(int64_t)bits : (double)(uint64_t)bits; return true;
         case ValueType::Pointer: value = static_cast<double>((uintptr_t)bits); return true;
         case ValueType::Float:  { float  v; memcpy(&v, &bits, 4); value = v; return true; }
         case ValueType::Double: { double v; memcpy(&v, &bits, 8); value = v; return true; }
@@ -4422,7 +4424,7 @@ void AddressListModel::freezeWrite(ProcessHandle* proc) {
         // Read current value to compare for directional freeze.
         double current = 0;
         double frozen = 0;
-        if (!readComparableValue(proc, e.address, e.type, current, e.codec, e.bigEndian) ||
+        if (!readComparableValue(proc, e.address, e.type, current, e.codec, e.bigEndian, e.showAsSigned) ||
             !parseComparableValue(e.type, e.frozenValue, frozen)) {
             writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian, e.showAsHex);
             continue;
@@ -4604,7 +4606,7 @@ bool AddressListModel::adjustEntryValue(int row, double delta) {
     }
 
     double current = 0;
-    if (!readComparableValue(proc_, e.address, e.type, current, e.codec, e.bigEndian) &&
+    if (!readComparableValue(proc_, e.address, e.type, current, e.codec, e.bigEndian, e.showAsSigned) &&
         !parseComparableValue(e.type, e.currentValue, current)) {
         return false;
     }
@@ -5066,7 +5068,7 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
                 // A non-frozen value that snaps back is protected: warn and point the
                 // user at find-what-writes. A frozen entry is intentionally held, so
                 // the freeze timer, not this, owns its persistence.
-                if (!e.active) scheduleEditVerify(e.address, e.type, writeStr, e.codec, e.bigEndian);
+                if (!e.active) scheduleEditVerify(e.address, e.type, writeStr, e.codec, e.bigEndian, e.showAsSigned);
             }
             emit dataChanged(index, index);
             return true;
@@ -5077,16 +5079,17 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
 
 void AddressListModel::scheduleEditVerify(uintptr_t addr, ce::ValueType type,
                                           const QString& wroteStr, const ce::ValueCodec& codec,
-                                          bool bigEndian) {
+                                          bool bigEndian, bool isSigned) {
     if (!proc_) return;
-    bool okNum = false;
-    const double target = QString(wroteStr).replace(',', '.').toDouble(&okNum);
-    if (!okNum) return;   // non-numeric types (string/byte array): no revert check
+    double target = 0;
+    // Parse the written text the same way the read side interprets memory (hex-aware
+    // for integers, so a "0xff" edit verifies), else no revert check (string/AOB).
+    if (!parseComparableValue(type, wroteStr, target)) return;
     // `this` as the timer context: the callback is skipped if the model is destroyed.
-    QTimer::singleShot(250, this, [this, addr, type, wroteStr, target, codec, bigEndian]() {
+    QTimer::singleShot(250, this, [this, addr, type, wroteStr, target, codec, bigEndian, isSigned]() {
         if (!proc_) return;
         double now = 0;
-        if (!readComparableValue(proc_, addr, type, now, codec, bigEndian)) return;
+        if (!readComparableValue(proc_, addr, type, now, codec, bigEndian, isSigned)) return;
         const double tol = (type == ce::ValueType::Float || type == ce::ValueType::Double)
                          ? std::abs(target) * 1e-5 + 1e-6 : 0.5;
         if (std::abs(now - target) > tol)

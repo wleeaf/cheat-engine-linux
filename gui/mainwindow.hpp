@@ -439,7 +439,8 @@ private:
     // After a manual (non-frozen) value edit, re-read shortly after and emit
     // valueReverted() if the value did not stick (a protected/reverted value).
     void scheduleEditVerify(uintptr_t addr, ce::ValueType type, const QString& wroteStr,
-                            const ce::ValueCodec& codec = {}, bool bigEndian = false);
+                            const ce::ValueCodec& codec = {}, bool bigEndian = false,
+                            bool isSigned = true);
     int rowOfId(int id) const;
     int allocId() { return nextId_++; }
 

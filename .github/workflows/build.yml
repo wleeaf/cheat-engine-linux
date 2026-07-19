@@ -60,6 +60,9 @@ jobs:
       - name: Run GUI theme smoke test (light/dark, offscreen Qt)
         run: ./build/gui_theme_smoke
 
+      - name: Run GUI structure-dissector smoke test (compare mode, offscreen Qt)
+        run: ./build/gui_structdissect_smoke
+
       - name: Run Wayland GlobalShortcuts portal test (mock portal, private bus)
         run: |
           if [ -x ./build/wayland_shortcuts_test ]; then

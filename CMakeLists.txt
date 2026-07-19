@@ -391,6 +391,16 @@ if(Qt6_FOUND)
         target_include_directories(gui_guest_scan_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
         target_link_libraries(gui_guest_scan_smoke PRIVATE cecore Qt6::Widgets)
 
+        # Offscreen smoke test for the Structure Dissector's compare mode
+        # (side-by-side per-instance columns with differing cells coloured).
+        qt_add_executable(gui_structdissect_smoke
+            test/gui_structdissect_smoke.cpp
+            gui/structuredissector.cpp
+            gui/theme.cpp
+        )
+        target_include_directories(gui_structdissect_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
+        target_link_libraries(gui_structdissect_smoke PRIVATE cecore Qt6::Widgets)
+
         # Offscreen smoke test for light/dark theme switching.
         qt_add_executable(gui_theme_smoke
             test/gui_theme_smoke.cpp

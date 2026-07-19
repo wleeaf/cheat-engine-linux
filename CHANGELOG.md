@@ -36,6 +36,15 @@ transforms across surfaces.
   `List` + backtick-arity + `<PlayerData>` (validated across all fields of a real game).
 - **Guest-scan dialog** gained an end-to-end offscreen regression test (exact + unknown
   + comparison narrowing), now in the CI mirror.
+- **Structure Dissector compare mode is now side-by-side** (CE Dissect Data): entering one
+  or more compare addresses lays each instance out as its own value column next to the
+  base, and any cell that differs from the base at that offset is coloured, so the fields
+  that discriminate between instances stand out (same = default, different = red). Before,
+  only the base's values were shown with the whole differing row tinted. Covered by a new
+  offscreen `gui_structdissect_smoke` in the CI mirror.
+- **Memory Viewer marks the current instruction** when the debugger is paused: the line at
+  the stopped thread's RIP paints green with a ► marker, and the first open viewer follows
+  execution. See the debugger notes below.
 - **yuzu/Citra guest RAM** is now recognized: the Switch/3DS emulator family (and its
   suyu / sudachi / citron / Lime3DS / Azahar forks) backs guest memory with a
   `memfd_create("HostMemory")` fastmem mapping, so `findGuestRam` picks it up as a named

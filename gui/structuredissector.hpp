@@ -24,6 +24,14 @@ public:
     using AddToListFn = std::function<void(uintptr_t addr, ce::ValueType type, const QString& desc)>;
     void setAddToListCallback(AddToListFn fn) { addToListCb_ = std::move(fn); }
 
+    // Test helpers (offscreen smoke): drive compare mode and inspect the result.
+    void setCompareAddressesForTest(std::vector<uintptr_t> addrs) {
+        compareAddrs_ = std::move(addrs); if (baseAddr_) populateTable();
+    }
+    int  columnCountForTest() const { return table_->columnCount(); }
+    // True if the cell at (row, col) is painted in the "differs from base" colour.
+    bool cellDiffColoredForTest(int row, int col) const;
+
 private slots:
     void onGotoAddress();
     void onRefresh();

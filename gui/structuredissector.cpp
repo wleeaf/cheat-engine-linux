@@ -19,6 +19,7 @@
 #include <QMessageBox>
 #include <QFileDialog>
 #include <QFont>
+#include <QStringList>
 #include <QRegularExpression>
 #include <cstring>
 #include <cmath>
@@ -379,6 +380,19 @@ void StructureDissector::onTypeAsCStruct() {
     if (baseAddr_) populateTable();
 }
 
+// Format the 8 bytes at `d` as a single value of the given guessed type, for the
+// side-by-side compare columns (one value per instance, like CE's Dissect Data).
+static QString fmtByType(const uint8_t* d, ce::ValueType t) {
+    switch (t) {
+        case ce::ValueType::Pointer: { uintptr_t v; std::memcpy(&v, d, 8); return QString("0x%1").arg(v, 0, 16); }
+        case ce::ValueType::Float:   { float v; std::memcpy(&v, d, 4);
+            if (std::isnan(v) || std::isinf(v)) return "NaN";
+            return QString::number(v, 'f', 4); }
+        case ce::ValueType::Int64:   { int64_t v; std::memcpy(&v, d, 8); return QString::number((qlonglong)v); }
+        default:                     { int32_t v; std::memcpy(&v, d, 4); return QString::number(v); }
+    }
+}
+
 void StructureDissector::populateTable() {
     if (!proc_) return;
 
@@ -389,10 +403,9 @@ void StructureDissector::populateTable() {
     // page; only bytes [0, validBytes_) are real, the rest may be stale.
     validBytes_ = (int)std::min<size_t>(*r, (size_t)structSize_);
 
-    // Compare mode: read every compare instance so we can flag rows that vary
-    // across the set. Each instance tracks how many bytes are real: a partial
-    // read (the struct straddles an unmapped page) leaves stale bytes past *cr,
-    // which must not drive the row-diff highlight.
+    // Compare mode: read every compare instance. Each tracks how many bytes are
+    // real: a partial read (the struct straddles an unmapped page) leaves stale
+    // bytes past *cr, which must not drive the value diff.
     compareCaches_.assign(compareAddrs_.size(), {});
     std::vector<int> compareValid(compareAddrs_.size(), 0);
     for (size_t k = 0; k < compareAddrs_.size(); ++k) {
@@ -401,43 +414,86 @@ void StructureDissector::populateTable() {
         compareValid[k] = cr ? (int)std::min<size_t>(*cr, (size_t)structSize_) : 0;
     }
 
-    int rows = structSize_ / 8; // Show every 8 bytes
-    table_->setRowCount(rows);
+    const int rows = structSize_ / 8;   // one row per 8 bytes
+    const bool cmp = !compareAddrs_.empty();
 
+    if (!cmp) {
+        // Single-struct dissection: one row per 8 bytes, all display types shown.
+        if (table_->columnCount() != 7) {
+            table_->setColumnCount(7);
+            table_->setHorizontalHeaderLabels({"Offset", "Name", "Hex", "Int8", "Int32", "Float", "Pointer?"});
+            auto* hh = table_->horizontalHeader();
+            hh->setStretchLastSection(false);
+            for (int c = 0; c < 7; ++c) hh->setSectionResizeMode(c, QHeaderView::ResizeToContents);
+            hh->setSectionResizeMode(1, QHeaderView::Stretch);
+        }
+        table_->setRowCount(rows);
+        for (int i = 0; i < rows; ++i) {
+            int off = i * 8;
+            const uint8_t* d = cache_.data() + off;
+            table_->setItem(i, 0, new QTableWidgetItem(QString("+0x%1").arg(off, 2, 16, QChar('0'))));
+            auto nit = fieldNames_.find(off);
+            auto* nameItem = new QTableWidgetItem(nit != fieldNames_.end() ? nit->second : QString());
+            nameItem->setForeground(ce::gui::editorPalette().label);
+            table_->setItem(i, 1, nameItem);
+            table_->setItem(i, 2, new QTableWidgetItem(formatValue(d, off, "hex")));
+            table_->setItem(i, 3, new QTableWidgetItem(formatValue(d, off, "int8")));
+            table_->setItem(i, 4, new QTableWidgetItem(formatValue(d, off, "int32")));
+            table_->setItem(i, 5, new QTableWidgetItem(formatValue(d, off, "float")));
+            table_->setItem(i, 6, new QTableWidgetItem(formatValue(d, off, "ptr")));
+        }
+        return;
+    }
+
+    // Compare mode (CE Dissect Data side-by-side): Offset, Name, Base, then one
+    // value column per compare instance. A cell that differs from the base at that
+    // offset is coloured (same = default, different = red), so the fields that
+    // discriminate between the instances stand out.
+    const int cols = 3 + (int)compareAddrs_.size();
+    if (table_->columnCount() != cols) {
+        table_->setColumnCount(cols);
+        QStringList headers; headers << "Offset" << "Name" << "Base";
+        for (auto a : compareAddrs_) headers << QString("0x%1").arg(a, 0, 16);
+        table_->setHorizontalHeaderLabels(headers);
+        auto* hh = table_->horizontalHeader();
+        hh->setStretchLastSection(false);
+        for (int c = 0; c < cols; ++c) hh->setSectionResizeMode(c, QHeaderView::ResizeToContents);
+        hh->setSectionResizeMode(1, QHeaderView::Stretch);
+    }
+    table_->setRowCount(rows);
+    const QColor diffFg = ce::gui::isDarkTheme() ? QColor(0xf3, 0x8b, 0xa8) : QColor(0xc0, 0x00, 0x00);
     for (int i = 0; i < rows; ++i) {
         int off = i * 8;
-        const uint8_t* d = cache_.data() + off;
+        const uint8_t* base = cache_.data() + off;
+        ce::ValueType vt = guessType(base, off);
+        int width = (vt == ce::ValueType::Pointer || vt == ce::ValueType::Int64) ? 8 : 4;
 
         table_->setItem(i, 0, new QTableWidgetItem(QString("+0x%1").arg(off, 2, 16, QChar('0'))));
         auto nit = fieldNames_.find(off);
         auto* nameItem = new QTableWidgetItem(nit != fieldNames_.end() ? nit->second : QString());
-        nameItem->setForeground(ce::gui::editorPalette().label);  // theme-aware (was fixed green, invisible on white)
+        nameItem->setForeground(ce::gui::editorPalette().label);
         table_->setItem(i, 1, nameItem);
-        table_->setItem(i, 2, new QTableWidgetItem(formatValue(d, off, "hex")));
-        table_->setItem(i, 3, new QTableWidgetItem(formatValue(d, off, "int8")));
-        table_->setItem(i, 4, new QTableWidgetItem(formatValue(d, off, "int32")));
-        table_->setItem(i, 5, new QTableWidgetItem(formatValue(d, off, "float")));
-        table_->setItem(i, 6, new QTableWidgetItem(formatValue(d, off, "ptr")));
 
-        // Highlight rows that differ from the base in any compare instance (only
-        // where BOTH snapshots have real bytes, so stale tail bytes can't fake a
-        // diff). This is the per-row form of the N-instance field detector.
-        bool rowVaries = false;
-        if (off + 8 <= validBytes_) {
-            for (size_t k = 0; k < compareCaches_.size() && !rowVaries; ++k)
-                rowVaries = off + 8 <= compareValid[k] &&
-                    std::memcmp(d, compareCaches_[k].data() + off, 8) != 0;
-        }
-        if (rowVaries) {
-            // "Changed since base" highlight: a deep red on dark, a soft red on
-            // light, so the default (theme) text stays readable on top of it.
-            const QColor changedBg = ce::gui::isDarkTheme()
-                ? QColor(0x5c, 0x25, 0x25) : QColor(0xff, 0xd6, 0xd6);
-            for (int c = 0; c < table_->columnCount(); ++c)
-                if (auto* it = table_->item(i, c))
-                    it->setBackground(changedBg);
+        const bool baseValid = off + width <= validBytes_;
+        table_->setItem(i, 2, new QTableWidgetItem(baseValid ? fmtByType(base, vt) : QStringLiteral("??")));
+
+        for (size_t k = 0; k < compareAddrs_.size(); ++k) {
+            int col = 3 + (int)k;
+            const uint8_t* inst = compareCaches_[k].data() + off;
+            const bool instValid = off + width <= compareValid[k];
+            auto* it = new QTableWidgetItem(instValid ? fmtByType(inst, vt) : QStringLiteral("??"));
+            if (baseValid && instValid && std::memcmp(base, inst, width) != 0) {
+                it->setForeground(diffFg);
+                it->setData(Qt::UserRole + 1, true);   // marks a "differs from base" cell (test hook)
+            }
+            table_->setItem(i, col, it);
         }
     }
+}
+
+bool StructureDissector::cellDiffColoredForTest(int row, int col) const {
+    auto* it = table_->item(row, col);
+    return it && it->data(Qt::UserRole + 1).toBool();
 }
 
 

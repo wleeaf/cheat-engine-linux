@@ -68,7 +68,7 @@ static void usage() {
         "                                encoded form; --verify re-reads after n ms\n"
         "                                (default 200) to detect a protected/reverted\n"
         "                                value; --find-writer then finds what reverts it)\n"
-        "  freeze <pid> <addr> <val> [--type <t>] [--codec <c>] [--interval <ms>]\n"
+        "  freeze <pid> <addr> <val> [--type <t>] [--codec <c>] [--be] [--interval <ms>]\n"
         "         [--mode normal|floor|ceil]  Lock a value: re-write it until Ctrl-C\n"
         "                                (floor = never let it drop, ceil = never rise;\n"
         "                                 --codec locks an obfuscated value by its value)\n"
@@ -521,40 +521,39 @@ static void onFreezeSignal(int) { g_freezeStop = 1; }
 // unsupported type. Applies the codec so an obfuscated value is frozen by its logical
 // value.
 static int freezeEncode(const char* valStr, ValueType vt, const ce::ValueCodec& codec,
-                        uint8_t out[8], double& frozenNum) {
+                        bool bigEndian, uint8_t out[8], double& frozenNum) {
     const int sz = static_cast<int>(typeSize(vt));
+    uint64_t bits = 0;
     switch (vt) {
-        case ValueType::Byte:   { int64_t v = parseWriteInt(valStr, INT8_MIN,  UINT8_MAX);  uint8_t t=(uint8_t)v; memcpy(out,&t,1); frozenNum=(double)(int8_t)v; break; }
-        case ValueType::Int16:  { int64_t v = parseWriteInt(valStr, INT16_MIN, UINT16_MAX); int16_t t=(int16_t)v; memcpy(out,&t,2); frozenNum=(double)t; break; }
-        case ValueType::Int32:  { int64_t v = parseWriteInt(valStr, INT32_MIN, UINT32_MAX); int32_t t=(int32_t)v; memcpy(out,&t,4); frozenNum=(double)t; break; }
-        case ValueType::Int64:  { int64_t v = atoll(valStr); memcpy(out,&v,8); frozenNum=(double)v; break; }
-        case ValueType::Pointer:{ uintptr_t v = strtoull(valStr,nullptr,0); memcpy(out,&v,8); frozenNum=(double)v; break; }
-        case ValueType::Float:  { float v = (float)atof(valStr); memcpy(out,&v,4); frozenNum=v; break; }
-        case ValueType::Double: { double v = atof(valStr); memcpy(out,&v,8); frozenNum=v; break; }
+        case ValueType::Byte:   { int64_t v = parseWriteInt(valStr, INT8_MIN,  UINT8_MAX);  uint8_t t=(uint8_t)v; memcpy(&bits,&t,1); frozenNum=(double)(int8_t)v; break; }
+        case ValueType::Int16:  { int64_t v = parseWriteInt(valStr, INT16_MIN, UINT16_MAX); int16_t t=(int16_t)v; memcpy(&bits,&t,2); frozenNum=(double)t; break; }
+        case ValueType::Int32:  { int64_t v = parseWriteInt(valStr, INT32_MIN, UINT32_MAX); int32_t t=(int32_t)v; memcpy(&bits,&t,4); frozenNum=(double)t; break; }
+        case ValueType::Int64:  { int64_t v = atoll(valStr); memcpy(&bits,&v,8); frozenNum=(double)v; break; }
+        case ValueType::Pointer:{ uintptr_t v = strtoull(valStr,nullptr,0); memcpy(&bits,&v,8); frozenNum=(double)v; break; }
+        case ValueType::Float:  { float v = (float)atof(valStr); memcpy(&bits,&v,4); frozenNum=v; break; }
+        case ValueType::Double: { double v = atof(valStr); memcpy(&bits,&v,8); frozenNum=v; break; }
         default: return 0;
     }
-    if (codec.active()) {
-        uint64_t raw=0; memcpy(&raw,out,sz);
-        uint64_t enc=codec.encode(raw,sz);
-        memcpy(out,&enc,sz);
-    }
+    ce::encodeScalarBits(vt, bits, bigEndian, codec, out);   // shared: codec + byte order
     return sz;
 }
 
-// Read the current LOGICAL value at addr as a double (decoding via codec for ints).
+// Read the current LOGICAL value at addr as a double (byte-order + codec via the shared
+// transform).
 static bool freezeReadCurrent(LinuxProcessHandle& proc, uintptr_t addr, ValueType vt,
-                              const ce::ValueCodec& codec, double& cur) {
+                              const ce::ValueCodec& codec, bool bigEndian, double& cur) {
     uint8_t b[8]={}; const int sz = static_cast<int>(typeSize(vt));
     auto r = proc.read(addr, b, sz);
     if (!r || *r < (size_t)sz) return false;
+    const uint64_t bits = ce::decodeScalarBits(vt, b, bigEndian, codec);
     switch (vt) {
-        case ValueType::Byte:   { uint64_t raw=b[0];                if(codec.active())raw=codec.decode(raw,1); cur=(double)(int8_t)raw;  return true; }
-        case ValueType::Int16:  { uint64_t raw=0; memcpy(&raw,b,2); if(codec.active())raw=codec.decode(raw,2); cur=(double)(int16_t)raw; return true; }
-        case ValueType::Int32:  { uint64_t raw=0; memcpy(&raw,b,4); if(codec.active())raw=codec.decode(raw,4); cur=(double)(int32_t)raw; return true; }
-        case ValueType::Int64:  { int64_t v; memcpy(&v,b,8); uint64_t raw=(uint64_t)v; if(codec.active())raw=codec.decode(raw,8); cur=(double)(int64_t)raw; return true; }
-        case ValueType::Pointer:{ uint64_t v; memcpy(&v,b,8); if(codec.active())v=codec.decode(v,8); cur=(double)v; return true; }
-        case ValueType::Float:  { float v;  memcpy(&v,b,4); cur=v; return true; }
-        case ValueType::Double: { double v; memcpy(&v,b,8); cur=v; return true; }
+        case ValueType::Byte:    cur=(double)(int8_t)bits;    return true;
+        case ValueType::Int16:   cur=(double)(int16_t)bits;   return true;
+        case ValueType::Int32:   cur=(double)(int32_t)bits;   return true;
+        case ValueType::Int64:   cur=(double)(int64_t)bits;   return true;
+        case ValueType::Pointer: cur=(double)(uintptr_t)bits; return true;
+        case ValueType::Float:  { float v;  memcpy(&v,&bits,4); cur=v; return true; }
+        case ValueType::Double: { double v; memcpy(&v,&bits,8); cur=v; return true; }
         default: return false;
     }
 }
@@ -563,13 +562,14 @@ static bool freezeReadCurrent(LinuxProcessHandle& proc, uintptr_t addr, ValueTyp
 // --mode floor/ceil use the directional FreezeMode logic; --codec locks an obfuscated
 // value by its logical value. Runs until SIGINT/SIGTERM.
 static int cmd_freeze(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt,
-                      ce::ValueCodec codec, unsigned intervalMs, ce::FreezeMode mode) {
+                      ce::ValueCodec codec, unsigned intervalMs, ce::FreezeMode mode,
+                      bool bigEndian = false) {
     LinuxProcessHandle proc(pid);
     if (codec.active() && (vt == ValueType::Float || vt == ValueType::Double)) {
         fprintf(stderr, "freeze: --codec applies to integer types only\n"); return 1;
     }
     uint8_t buf[8]={}; double frozen=0;
-    const int sz = freezeEncode(valStr, vt, codec, buf, frozen);
+    const int sz = freezeEncode(valStr, vt, codec, bigEndian, buf, frozen);
     if (!sz) { fprintf(stderr, "freeze: unsupported --type for this command\n"); return 1; }
 
     g_freezeStop = 0;
@@ -586,7 +586,7 @@ static int cmd_freeze(pid_t pid, uintptr_t addr, const char* valStr, ValueType v
         bool doWrite = true;
         if (mode != ce::FreezeMode::Normal) {
             double cur;
-            if (freezeReadCurrent(proc, addr, vt, codec, cur))
+            if (freezeReadCurrent(proc, addr, vt, codec, bigEndian, cur))
                 doWrite = ce::freezeShouldWrite(mode, cur, frozen);
             else { ++misses; doWrite = false; }
         }
@@ -1764,10 +1764,12 @@ int main(int argc, char** argv) {
     else if (!strcmp(cmd, "freeze") && argc >= 5) {
         ValueType vt = ValueType::Int32;
         ce::ValueCodec codec;
+        bool bigEndian = false;
         unsigned interval = 100;
         ce::FreezeMode mode = ce::FreezeMode::Normal;
         for (int i = 5; i < argc; ++i) {
             if (!strcmp(argv[i], "--type") && i + 1 < argc) vt = parseType(argv[++i]);
+            else if (!strcmp(argv[i], "--be")) bigEndian = true;
             else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
                 auto c = ce::ValueCodec::parse(argv[++i]);
                 if (!c) { fprintf(stderr, "Invalid --codec (use xor:0xKEY, add:N, rol:N, ror:N)\n"); return 1; }
@@ -1784,7 +1786,7 @@ int main(int argc, char** argv) {
             }
         }
         if (interval < 1) interval = 1;
-        return cmd_freeze(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), argv[4], vt, codec, interval, mode);
+        return cmd_freeze(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), argv[4], vt, codec, interval, mode, bigEndian);
     }
     else if (!strcmp(cmd, "watch") && argc >= 4) {
         bool writesOnly = true, showRegs = false; int watchSize = 4, duration = 10, mode = 0;

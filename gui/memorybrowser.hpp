@@ -61,6 +61,11 @@ public:
         int n = 0; for (char ch : changed_) if (ch) ++n; return n;
     }
 
+    /// Write an AOB (e.g. "90 90 c3", "9090c3", "?? c3") from the clipboard/text into
+    /// the target starting at the cursor byte, patching memory CE-style. "??"/"*"
+    /// wildcards leave that byte untouched. Returns the number of bytes written.
+    int pasteBytes(const QString& aob);
+
 signals:
     void requestFindWhatAccesses(uintptr_t addr, bool writesOnly);
     void requestGoto(uintptr_t addr);

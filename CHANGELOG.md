@@ -79,6 +79,10 @@ transforms across surfaces.
   previous refresh paint red across the hex and ASCII columns, so live-changing memory is
   obvious at a glance. Navigating to a new address resets the baseline (no false "changed"
   flash). Covered by a new offscreen `gui_hexview_smoke` in the CI mirror.
+- **Paste bytes into the hex pane**: the right-click menu gains "Paste N bytes here" when
+  the clipboard holds an array of bytes ("90 90 c3", "9090c3", or "?? c3" with wildcards),
+  patching memory at the cursor so you can copy an AOB and paste it as a patch. Wildcards
+  leave the existing byte untouched. Asserted in `gui_hexview_smoke`.
 - **yuzu/Citra guest RAM** is now recognized: the Switch/3DS emulator family (and its
   suyu / sudachi / citron / Lime3DS / Azahar forks) backs guest memory with a
   `memfd_create("HostMemory")` fastmem mapping, so `findGuestRam` picks it up as a named

@@ -63,6 +63,8 @@ static MvColors mvColors() {
 
 // Effective address of an instruction's RIP-relative memory operand (or 0).
 static uintptr_t ripEffectiveAddress(const ce::Instruction& inst);
+// Parse an AOB string into byte values (-1 = wildcard); {} if unparseable.
+static std::vector<int> parseAob(const QString& s);
 
 // ═══════════════════════════════════════════════════════════════
 // HexView
@@ -262,6 +264,10 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
     auto* gotoAct = menu.addAction("Goto…");
     auto* followPtr = menu.addAction("Follow pointer here (qword)");
     auto* addToList = menu.addAction("Add address to the list");
+    // Paste an AOB from the clipboard into memory at the cursor (patch), CE-style.
+    const auto clipAob = parseAob(QApplication::clipboard()->text());
+    QAction* pasteAct = clipAob.empty() ? nullptr
+        : menu.addAction(QString("Paste %1 bytes here").arg(clipAob.size()));
 
     menu.addSeparator();
     auto* findWrites = menu.addAction("Find what writes this address");
@@ -343,6 +349,8 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
         }
     } else if (picked == addToList) {
         emit requestAddToList(addr);
+    } else if (pasteAct && picked == pasteAct) {
+        pasteBytes(clip->text());   // patch memory at the cursor with the clipboard AOB
     } else if (picked == findWrites) {
         emit requestFindWhatAccesses(addr, /*writesOnly=*/true);
     } else if (picked == findAccesses) {
@@ -568,6 +576,47 @@ bool HexView::pokeByte(uintptr_t addr, uint8_t value) {
         if (!r || *r < 1) return false;
     }
     return true;
+}
+
+// Parse an "array of bytes" string ("90 90 c3", "9090c3", "?? c3") into byte values,
+// where -1 marks a wildcard (leave that byte untouched). Returns {} if unparseable.
+static std::vector<int> parseAob(const QString& s) {
+    QString t = s.simplified();
+    if (t.isEmpty()) return {};
+    QStringList toks;
+    if (t.contains(' ')) {
+        toks = t.split(' ', Qt::SkipEmptyParts);
+    } else {
+        if (t.size() % 2 != 0) return {};           // bare hex must be whole bytes
+        for (int i = 0; i + 1 < t.size(); i += 2) toks << t.mid(i, 2);
+    }
+    std::vector<int> out;
+    out.reserve(toks.size());
+    for (const QString& tok : toks) {
+        if (tok == "??" || tok == "?" || tok == "*" || tok.compare("xx", Qt::CaseInsensitive) == 0) {
+            out.push_back(-1);
+            continue;
+        }
+        bool ok = false;
+        int v = tok.toInt(&ok, 16);
+        if (!ok || v < 0 || v > 255) return {};     // not a valid AOB -> reject the whole thing
+        out.push_back(v);
+    }
+    return out;
+}
+
+int HexView::pasteBytes(const QString& aob) {
+    if (!proc_) return 0;
+    const auto bytes = parseAob(aob);
+    if (bytes.empty()) return 0;
+    const uintptr_t start = address_ + static_cast<uintptr_t>(selectedOffset_ >= 0 ? selectedOffset_ : 0);
+    int n = 0;
+    for (size_t i = 0; i < bytes.size(); ++i) {
+        if (bytes[i] < 0) continue;   // wildcard: leave the existing byte in place
+        if (pokeByte(start + i, static_cast<uint8_t>(bytes[i]))) ++n;
+    }
+    refresh();
+    return n;
 }
 
 void HexView::keyPressEvent(QKeyEvent* e) {

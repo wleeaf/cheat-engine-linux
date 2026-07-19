@@ -40,8 +40,14 @@ int main(int argc, char** argv) {
     hv.setAddress(reinterpret_cast<uintptr_t>(other));
     int afterNav = hv.changedByteCountForTest();
 
-    bool ok = baseline == 0 && afterOne == 1 && afterNav == 0;
-    printf("gui hexview smoke: %s (baseline=%d afterOneFlip=%d afterNav=%d)\n",
-           ok ? "OK" : "FAILED", baseline, afterOne, afterNav);
+    // Paste an AOB with a wildcard: patch g_buf at the cursor; "??" leaves that byte.
+    hv.setAddress(reinterpret_cast<uintptr_t>(g_buf));
+    g_buf[0] = 0x11; g_buf[1] = 0x22; g_buf[2] = 0x33;
+    int wrote = hv.pasteBytes("aa ?? cc");
+    bool pasteOk = (wrote == 2 && g_buf[0] == 0xaa && g_buf[1] == 0x22 && g_buf[2] == 0xcc);
+
+    bool ok = baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk;
+    printf("gui hexview smoke: %s (baseline=%d afterOneFlip=%d afterNav=%d pasteWrote=%d pasteOk=%d)\n",
+           ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk);
     return ok ? 0 : 1;
 }

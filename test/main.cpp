@@ -4669,6 +4669,41 @@ static void test_lua_getUniqueAOB() {
     printf("  getUniqueAOB: %s%s\n", ok ? "OK" : "FAILED ", ok ? "" : err.c_str());
 }
 
+// AOBScanUnique / AOBScanModuleUnique: return the first match as a single integer (or
+// nil), unlike AOBScan which returns a result list. Derive a module-unique pattern from
+// uaob_target via getUniqueAOB, then confirm both variants locate it.
+static void test_lua_aobScanUnique() {
+    printf("\n── Test: Lua AOBScanUnique / AOBScanModuleUnique ──\n");
+    LuaEngine eng;
+    eng.setOwnedProcess(std::make_unique<LinuxProcessHandle>(getpid()));
+    const uintptr_t target = (uintptr_t)&uaob_target;
+    // Resolve the module (the test binary) that contains the target for the scoped scan.
+    LinuxProcessHandle probe(getpid());
+    std::string modName;
+    for (auto& m : probe.modules())
+        if (target >= m.base && target < m.base + m.size) { modName = m.name; break; }
+    const std::string fn = std::to_string(target);
+    std::string err = eng.execute(
+        "local aob = getUniqueAOB(" + fn + ")\n"
+        "assert(aob, 'derived a unique AOB for the target')\n"
+        "local addr = AOBScanUnique(aob)\n"
+        "assert(addr ~= nil, 'AOBScanUnique returns a single integer')\n"
+        "assert(readByte(addr) == readByte(" + fn + "), 'the match starts with the target byte')\n"
+        // Module-scoped scan: the pattern is unique within the module, so the first (and
+        // only) match must be exactly the target address.
+        "local m = AOBScanModuleUnique('" + modName + "', aob)\n"
+        "assert(m == " + fn + ", 'AOBScanModuleUnique finds the exact target, got '..tostring(m))\n"
+        // A pattern not present in the module returns nil (whole-process nil can't be
+        // tested here: self-scanning our own process finds the scanner's own pattern
+        // buffer in the heap, so any pattern "matches" outside a module scope).
+        "assert(AOBScanModuleUnique('" + modName + "', "
+        "       'DE AD C0 DE FE ED FA CE BA 5E BA 11 D0 0D CA FE 0B AD F0 0D') == nil,\n"
+        "       'a pattern absent from the module returns nil')\n"
+        "assert(AOBScanModuleUnique('no.such.module', aob) == nil, 'an unknown module returns nil')\n");
+    bool ok = err.empty();
+    printf("  AOBScanUnique/ModuleUnique: %s%s\n", ok ? "OK" : "FAILED ", ok ? "" : err.c_str());
+}
+
 // disassembleBytes: decode raw bytes with no process attached (CE parity). Accepts a
 // hex string (separators ignored) or a byte table; the address arg only shifts the
 // RIP-relative target. Deterministic across Capstone versions for these encodings.
@@ -10904,6 +10939,7 @@ int main(int argc, char* argv[]) {
     test_lua_more_bindings();
     test_lua_string_extensions();
     test_lua_getUniqueAOB();
+    test_lua_aobScanUnique();
     test_lua_disassembleBytes();
     test_lua_enumModules();
     test_lua_memory_region_info();

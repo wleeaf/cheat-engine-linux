@@ -4195,6 +4195,60 @@ static int l_AOBScanModule(lua_State* L) {
     return 1;
 }
 
+// AOBScanUnique(aobstring) -> first matching address (integer) or nil. CE convenience
+// over AOBScan that returns a single address instead of a result list. Like CE, the
+// "Unique" is the caller's responsibility: it returns the first match found and does not
+// verify the pattern is unique.
+static int l_AOBScanUnique(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); return 1; }
+    const char* pattern = luaL_checkstring(L, 1);
+    try {
+        ScanConfig cfg;
+        cfg.valueType = ValueType::ByteArray;
+        if (!cfg.parseAOB(pattern))
+            return luaL_error(L, "AOBScanUnique: invalid AOB pattern '%s'", pattern);
+        cfg.alignment = 1;
+        MemoryScanner scanner;
+        auto result = scanner.firstScan(*p, cfg);
+        if (result.count() == 0) { lua_pushnil(L); return 1; }
+        lua_pushinteger(L, (lua_Integer)result.address(0));
+    } catch (const std::exception& ex) {
+        return luaL_error(L, "%s", ex.what());
+    } catch (...) {
+        return luaL_error(L, "AOBScanUnique failed");
+    }
+    return 1;
+}
+
+// AOBScanModuleUnique(modulename, aobstring) -> first match within the module, or nil.
+static int l_AOBScanModuleUnique(lua_State* L) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); return 1; }
+    const char* modName = luaL_checkstring(L, 1);
+    const char* pattern = luaL_checkstring(L, 2);
+    const auto* mod = findModuleByName(p, modName);
+    if (!mod) { lua_pushnil(L); return 1; }
+    try {
+        ScanConfig cfg;
+        cfg.valueType = ValueType::ByteArray;
+        if (!cfg.parseAOB(pattern))
+            return luaL_error(L, "AOBScanModuleUnique: invalid AOB pattern '%s'", pattern);
+        cfg.alignment = 1;
+        cfg.startAddress = mod->base;
+        cfg.stopAddress = mod->base + mod->size;
+        MemoryScanner scanner;
+        auto result = scanner.firstScan(*p, cfg);
+        if (result.count() == 0) { lua_pushnil(L); return 1; }
+        lua_pushinteger(L, (lua_Integer)result.address(0));
+    } catch (const std::exception& ex) {
+        return luaL_error(L, "%s", ex.what());
+    } catch (...) {
+        return luaL_error(L, "AOBScanModuleUnique failed");
+    }
+    return 1;
+}
+
 static int l_fullAccess(lua_State* L) {
     auto* p = getProc(L);
     if (!p) return 0;
@@ -5103,6 +5157,8 @@ void registerExtendedBindings(lua_State* L) {
     // AOB
     lua_register(L, "AOBScan", l_AOBScan);
     lua_register(L, "AOBScanModule", l_AOBScanModule);
+    lua_register(L, "AOBScanUnique", l_AOBScanUnique);
+    lua_register(L, "AOBScanModuleUnique", l_AOBScanModuleUnique);
     lua_register(L, "getUniqueAOB", l_getUniqueAOB);
     lua_register(L, "AOBScanEx", l_AOBScanEx);
 

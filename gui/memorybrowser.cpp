@@ -128,7 +128,7 @@ HexView::HexView(QWidget* parent) : QAbstractScrollArea(parent) {
     // memory (absolute), so the handle reflects where you are and stays there.
     connect(verticalScrollBar(), &QScrollBar::valueChanged, this, [this](int v) {
         uintptr_t a = flatValueToAddr(flatMem_, v, address_) & ~static_cast<uintptr_t>(bytesPerRow_ - 1);
-        if (a != address_) { address_ = a; refresh(); }
+        if (a != address_) { uintptr_t old = address_; address_ = a; keepSelectionAnchored(old); refresh(); }
     });
     // On release, re-sync the handle to the (aligned) address it landed on.
     connect(verticalScrollBar(), &QScrollBar::sliderReleased, this, [this]() { updateScrollBar(); });
@@ -398,8 +398,28 @@ void HexView::updateScrollBar() {
 // Move the view by `rows` (negative = up), with the same readability guards as
 // the wheel: never underflow past 0, and only move up onto memory that is
 // actually mapped so the pane can't get stranded in an unmapped gap.
+void HexView::keepSelectionAnchored(uintptr_t oldAddr) {
+    if (selectedOffset_ < 0) return;                       // nothing selected
+    // The window moved by (address_ - oldAddr) bytes; move the offsets the other way
+    // so the highlighted bytes keep their absolute addresses. Scrolls are row-aligned,
+    // so a column-aligned selection stays column-aligned.
+    long delta = static_cast<long>(static_cast<intptr_t>(address_) -
+                                   static_cast<intptr_t>(oldAddr));
+    long newSel = selectedOffset_ - delta;
+    long newAnc = (selAnchor_ >= 0) ? selAnchor_ - delta : -1;
+    const long visible = static_cast<long>(visibleRows()) * bytesPerRow_;
+    auto offscreen = [&](long o) { return o < 0 || o >= visible; };
+    if (offscreen(newSel) || (newAnc >= 0 && offscreen(newAnc))) {
+        selectedOffset_ = -1; selAnchor_ = -1;             // scrolled out of view
+    } else {
+        selectedOffset_ = static_cast<int>(newSel);
+        selAnchor_ = static_cast<int>(newAnc);
+    }
+}
+
 void HexView::scrollRows(int rows) {
     if (rows == 0) return;
+    const uintptr_t oldAddr = address_;
     if (rows < 0) {
         const uintptr_t step = static_cast<uintptr_t>(-rows) * bytesPerRow_;
         uintptr_t target = (address_ > step) ? address_ - step : 0;
@@ -413,6 +433,7 @@ void HexView::scrollRows(int rows) {
     } else {
         address_ += static_cast<uintptr_t>(rows) * bytesPerRow_;
     }
+    keepSelectionAnchored(oldAddr);
     refresh();
 }
 

@@ -118,9 +118,24 @@ int main(int argc, char** argv) {
     sendKey(&hv, Qt::Key_A, Qt::ControlModifier);
     bool selectAllHex = (hv.selectionStartForTest() == 0 && hv.selectionSizeForTest() > 16);
 
-    bool ok = baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC && fillOk && typeMap && selBytes && ptrOk && shiftSel && shiftCollapse && homeEndOk && selectAllHex;
+    // Sticky selection on scroll (CE parity): a selection stays pinned to its absolute
+    // address as the view scrolls, instead of the same screen position, and clears once
+    // it leaves the window. Select a byte 8 rows down, scroll down a few rows (still
+    // visible) and confirm the same absolute address stays selected; scroll further so
+    // it passes the top and confirm the selection is dropped.
+    hv.setAddress(reinterpret_cast<uintptr_t>(g_buf));
+    uintptr_t stickyAddr = reinterpret_cast<uintptr_t>(g_buf) + 8 * 16;
+    hv.selectBytes(stickyAddr, 1);
+    bool stickyBefore = (hv.cursorAddress() == stickyAddr && hv.selectionSizeForTest() == 1);
+    hv.scrollRowsForTest(4);   // scroll down 4 rows: selection moves up 4 rows, still visible
+    bool stickyAnchored = (hv.cursorAddress() == stickyAddr && hv.selectionSizeForTest() == 1);
+    hv.scrollRowsForTest(9);   // scroll well past the top: selection leaves the window
+    bool stickyCleared = (hv.selectionSizeForTest() == 0);
+    bool stickyScroll = stickyBefore && stickyAnchored && stickyCleared;
+
+    bool ok = baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC && fillOk && typeMap && selBytes && ptrOk && shiftSel && shiftCollapse && homeEndOk && selectAllHex && stickyScroll;
     printf("gui hexview smoke: %s (baseline=%d afterOneFlip=%d afterNav=%d pasteWrote=%d pasteOk=%d "
-           "ctrlV=%d ctrlC=%d filled=%d fillOk=%d typeMap=%d selBytes=%d ptrOk=%d shiftSel=%d shiftCollapse=%d homeEnd=%d selAll=%d)\n",
-           ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk, ctrlV, ctrlC, filled, fillOk, typeMap, selBytes, ptrOk, shiftSel, shiftCollapse, homeEndOk, selectAllHex);
+           "ctrlV=%d ctrlC=%d filled=%d fillOk=%d typeMap=%d selBytes=%d ptrOk=%d shiftSel=%d shiftCollapse=%d homeEnd=%d selAll=%d stickyScroll=%d)\n",
+           ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk, ctrlV, ctrlC, filled, fillOk, typeMap, selBytes, ptrOk, shiftSel, shiftCollapse, homeEndOk, selectAllHex, stickyScroll);
     return ok ? 0 : 1;
 }

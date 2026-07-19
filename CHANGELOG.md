@@ -18,6 +18,10 @@ reimplementation of Cheat Engine).
 Follow-ups since v0.7.0, mostly deepening the hard-target work and unifying the value
 transforms across surfaces.
 
+- **Hex view: selection stays anchored to its address while scrolling (CE parity).** Selecting
+  bytes and then scrolling with the wheel or scrollbar now keeps the highlight on the same
+  memory (the selected addresses), instead of the same screen position, and drops the selection
+  once it scrolls out of view. Arrow-key cursor movement is unchanged.
 - **Region-type scan filters exposed (CE parity).** The scanner's "Memory Scan Options" group
   gains **Private / Image / Mapped** checkboxes (CE's MEM_PRIVATE / MEM_IMAGE / MEM_MAPPED). All
   on by default (scan everything); turn one off to skip that class of memory, e.g. Image-only to

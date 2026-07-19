@@ -107,6 +107,8 @@ public:
     void setSelectionForTest(int lo, int hi) { selAnchor_ = lo; selectedOffset_ = hi; }
     int selectionStartForTest() const { int lo, hi; return selRange(lo, hi) ? lo : -1; }
     int selectionSizeForTest() const { int lo, hi; return selRange(lo, hi) ? hi - lo + 1 : 0; }
+    /// Test helper: scroll the view by `rows` (as the wheel/scrollbar would).
+    void scrollRowsForTest(int rows) { scrollRows(rows); }
 
 signals:
     void requestFindWhatAccesses(uintptr_t addr, bool writesOnly);
@@ -138,6 +140,10 @@ private:
     /// Scroll the view by `rows` (negative = toward lower addresses), clamped at 0
     /// and only moving up onto mapped memory. Shared by the wheel and scrollbar.
     void scrollRows(int rows);
+    /// After a pure scroll changed `address_` from `oldAddr`, keep the byte selection
+    /// pinned to the same absolute addresses (CE-style) instead of the same screen
+    /// position. Clears the selection if it scrolled out of the visible window.
+    void keepSelectionAnchored(uintptr_t oldAddr);
     int visibleRows() const;
     /// Translate a viewport-local point into a byte offset from `address_`,
     /// or -1 if outside the hex grid.

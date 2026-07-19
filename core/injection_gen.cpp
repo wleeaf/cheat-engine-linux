@@ -96,11 +96,15 @@ std::string generateInjectionScript(ProcessHandle& proc, uintptr_t address,
     }
     std::vector<uint8_t> originalBytes(buf, buf + covered);
 
-    // Resolve the containing module for a readable header / AOB scan.
+    // Resolve the containing module for a readable header / AOB scan. Hold the module
+    // list in a local: proc.modules() returns by value, so iterating it directly and
+    // keeping a pointer into it past the loop is a use-after-free (the temporary vector
+    // is destroyed at the end of the range-for).
+    const auto modules = proc.modules();
     std::string module;
     uintptr_t moduleOffset = 0;
     const ModuleInfo* mod = nullptr;
-    for (const auto& m : proc.modules()) {
+    for (const auto& m : modules) {
         if (address >= m.base && address < m.base + m.size) {
             module = m.name;
             moduleOffset = address - m.base;

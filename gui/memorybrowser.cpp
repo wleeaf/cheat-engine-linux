@@ -1362,15 +1362,30 @@ void DisasmView::paintEvent(QPaintEvent*) {
         // memory-view disassembler too.
         if (inst.address == currentIp_ && currentCtx_.rflags) {
             // A register-relative memory operand ([rax+8]) resolves to a live effective
-            // address; show where it lands (RIP-relative was already handled above).
+            // address; show where it lands AND the value there (RIP-relative was handled
+            // above and already shows the value), so both operand kinds read the same.
             if (annotation.isEmpty() && inst.memory.present && !inst.memory.ripRelative) {
                 uintptr_t eff = ce::computeEffectiveAddress(inst, currentCtx_);
                 if (eff) {
                     std::string s = resolver_ ? resolver_->resolve(eff) : std::string();
                     if (s.empty()) s = ce::moduleOffsetString(moduleCache_, eff);
-                    annotation = s.empty()
-                        ? QStringLiteral("  ; -> 0x%1").arg(eff, 0, 16)
-                        : QStringLiteral("  ; -> 0x%1 %2").arg(eff, 0, 16).arg(QString::fromStdString(s));
+                    QString where = s.empty() ? QStringLiteral("0x%1").arg(eff, 0, 16)
+                        : QStringLiteral("0x%1 %2").arg(eff, 0, 16).arg(QString::fromStdString(s));
+                    // Value at eff, sized by the operand's ptr width (default ptr-sized).
+                    QString valPart;
+                    if (proc_) {
+                        const int sz = inst.operands.find("qword") != std::string::npos ? 8
+                                     : inst.operands.find("dword") != std::string::npos ? 4
+                                     : inst.operands.find("word")  != std::string::npos ? 2
+                                     : inst.operands.find("byte")  != std::string::npos ? 1 : 8;
+                        uint64_t u = 0;
+                        if (auto r = proc_->read(eff, &u, sz); r && *r == (size_t)sz) {
+                            int64_t sv = sz == 1 ? (int8_t)u : sz == 2 ? (int16_t)u
+                                       : sz == 4 ? (int32_t)u : (int64_t)u;
+                            valPart = QStringLiteral(" = %1").arg((qlonglong)sv);
+                        }
+                    }
+                    annotation = QStringLiteral("  ; -> %1%2").arg(where, valPart);
                 }
             }
             // Conditional branch: will it be taken given the flags?

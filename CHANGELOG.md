@@ -47,7 +47,9 @@ transforms across surfaces.
   address it touches (resolved from the live registers) and the symbol / value there, not just
   RIP-relative operands, in **both** the Debugger window and the Memory Viewer's disassembler.
   Uses the existing (previously unused) `ce::computeEffectiveAddress`; the current-instruction
-  highlight now carries the full register context, not just the flags.
+  highlight now carries the full register context, not just the flags. The Memory Viewer's
+  register-relative hint also shows the sized value at the effective address, matching its
+  RIP-relative hint and the Debugger.
 - **Debugger flags show every state, not just the set ones** (CE parity): the register panel's
   Flags line now reads `CF=0 PF=1 AF=0 ZF=1 SF=0 DF=0 OF=0` instead of just the names of the set
   flags, so you can read a clear flag's state next to a conditional jump. Backed by a Qt-free

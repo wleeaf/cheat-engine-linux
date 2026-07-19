@@ -8918,7 +8918,18 @@ static void test_module_offset_string() {
         {0x1200, 0x0100, "inner", "", true},
     };
     ok = ok && ce::moduleOffsetString(mods3, 0x1250) == "inner+0x50";
-    printf("  moduleOffsetString maps addresses to module+offset: %s\n", ok ? "OK" : "FAILED");
+    // Round-trip: the produced "module+offset" must resolve back to the original
+    // address via the ExpressionParser. This is the invariant the "Convert to
+    // module+offset" record action relies on (a static address stays durable only if
+    // its module-relative form re-resolves next launch).
+    FakeProcessHandle rtProc({}, mods);
+    ce::ExpressionParser rtParser(&rtProc, nullptr);
+    auto rt1 = rtParser.parse(ce::moduleOffsetString(mods, 0x401234));
+    auto rt2 = rtParser.parse(ce::moduleOffsetString(mods, 0x7f0010));
+    bool rtOk = rt1 && *rt1 == 0x401234 && rt2 && *rt2 == 0x7f0010;
+    ok = ok && rtOk;
+    printf("  moduleOffsetString maps addresses to module+offset (round-trip=%d): %s\n",
+           rtOk, ok ? "OK" : "FAILED");
 }
 
 static void test_between_numeric_scan() {

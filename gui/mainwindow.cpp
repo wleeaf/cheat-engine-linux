@@ -1890,6 +1890,34 @@ void MainWindow::setupUi() {
                 for (auto& idx : selected) addressListModel_->setShowAsHex(idx.row(), !firstHex);
             });
 
+            // Static-address durability: rewrite a raw scanned address as
+            // "module+0xoffset" so a saved table survives the module rebasing
+            // (PIE/ASLR) on the next launch. Only meaningful with a process attached
+            // (module bases known); leaves pointer/expression records untouched.
+            if (process_) {
+                menu.addAction("Convert to module+offset", [this, selected]() {
+                    if (!process_) return;
+                    const auto modules = process_->modules();   // by value: hold it, don't dangle
+                    const auto& entries = addressListModel_->entries();
+                    int converted = 0, skipped = 0;
+                    for (const auto& idx : selected) {
+                        int row = idx.row();
+                        if (row < 0 || row >= (int)entries.size()) continue;
+                        const auto& e = entries[row];
+                        if (e.isGroup || !e.autoAsmScript.isEmpty()) continue;
+                        if (!e.addressExpr.isEmpty()) { ++skipped; continue; } // already symbolic
+                        std::string expr = ce::moduleOffsetString(modules, e.address);
+                        if (expr.empty()) { ++skipped; continue; }             // not inside a module
+                        addressListModel_->setAddressExpression(e.id, expr);
+                        ++converted;
+                    }
+                    statusBar()->showMessage(
+                        QString("Converted %1 address%2 to module+offset%3")
+                            .arg(converted).arg(converted == 1 ? "" : "es")
+                            .arg(skipped ? QString(" (%1 skipped)").arg(skipped) : QString()), 4000);
+                });
+            }
+
             // Open the memory browser at this entry's exact address (CE's
             // "Browse this memory region"). Skipped for script/group rows, which
             // have no address.

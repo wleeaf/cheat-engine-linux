@@ -121,7 +121,8 @@ transforms across surfaces.
   "Load region from file..." to complement "Save region to file...", writing a saved/prepared
   binary back into the target at the clicked address (with a confirmation of the byte count and
   destination, since it patches live memory) and refreshing the panes. Both are also in the
-  Memory Viewer's **File** menu (acting at the address in view), like CE.
+  Memory Viewer's **File** menu (acting at the address in view), like CE. The load is capped at
+  256 MB (matching the save prompt) so a huge or wrong file can't exhaust memory.
 - **Memory Viewer Tools menu is populated** (CE parity): the previously empty **Tools** menu
   now offers **Auto Assemble...** (opens a script editor) and **Dissect data/structures...**
   (opens a Structure Dissector at the current address), routed through the openers MainWindow

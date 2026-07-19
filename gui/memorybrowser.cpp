@@ -2420,6 +2420,15 @@ void MemoryBrowser::loadRegionFromFile(uintptr_t addr) {
         QMessageBox::warning(this, "Load failed", f.errorString());
         return;
     }
+    // Cap the load like the save side (256 MB) so a huge/wrong file can't exhaust memory
+    // or blanket-overwrite the target before the confirmation.
+    constexpr qint64 kMaxLoad = 1 << 28;
+    if (f.size() > kMaxLoad) {
+        QMessageBox::warning(this, "File too large",
+            QString("The file is %1 bytes; the maximum region load is %2 bytes.")
+                .arg(f.size()).arg((qint64)kMaxLoad));
+        return;
+    }
     QByteArray data = f.readAll();
     if (data.isEmpty()) return;
 

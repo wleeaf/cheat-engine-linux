@@ -38,6 +38,10 @@ transforms across surfaces.
   strictly below the cursor, complementing Find next (F3). Asserted in `gui_search_smoke`.
 - **A search hit highlights the matched bytes** in the hex pane, so you can see exactly what
   Find landed on instead of just the address. Asserted in `gui_hexview_smoke`.
+- **Fixed: "Follow pointer" now sizes the pointer to the target** (4 bytes on a 32-bit
+  process, 8 on a 64-bit one). It previously always read an 8-byte qword, so following a
+  32-bit pointer jumped to a bogus address built from unrelated high bytes. Asserted in
+  `gui_hexview_smoke`.
 - **`cescan il2cpp --pid <pid>`** resolves a running Unity game's class layouts (field
   offsets + method RVAs) directly, auto-locating the metadata and GameAssembly from the
   process (through the sandbox root for Proton/Flatpak).

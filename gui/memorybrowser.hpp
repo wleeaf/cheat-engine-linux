@@ -82,6 +82,16 @@ public:
     /// number of bytes written; 0 if there is no multi-byte selection.
     int fillSelection(uint8_t value);
 
+    /// Read the pointer stored at `addr`, sized to the target (4 bytes on a 32-bit
+    /// process, 8 on a 64-bit one). Returns 0 if unreadable. Used by "Follow pointer".
+    uintptr_t pointerAt(uintptr_t addr) const {
+        if (!proc_) return 0;
+        const int psz = proc_->runs32BitCode() ? 4 : 8;
+        uint64_t ptr = 0;
+        auto r = proc_->read(addr, &ptr, psz);
+        return (r && *r >= static_cast<size_t>(psz)) ? static_cast<uintptr_t>(ptr) : 0;
+    }
+
     /// Select `len` bytes starting at absolute address `addr` (e.g. to highlight a
     /// search hit). No-op if the address is above the current window's top.
     void selectBytes(uintptr_t addr, int len) {

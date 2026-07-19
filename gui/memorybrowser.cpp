@@ -350,13 +350,10 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
     } else if (picked == gotoAct) {
         emit requestGoto(addr);
     } else if (picked == followPtr) {
-        // Read the 8-byte value under the cursor and jump both views to where it
-        // points — manual pointer traversal, like CE's memory view.
-        uint64_t ptr = 0;
-        if (proc_) {
-            auto r = proc_->read(addr, &ptr, sizeof(ptr));
-            if (r && *r >= sizeof(ptr) && ptr) emit requestGoto((uintptr_t)ptr);
-        }
+        // Jump both views to where the pointer under the cursor points -- manual pointer
+        // traversal, like CE's memory view. pointerAt() sizes the read to the target
+        // (4 bytes on a 32-bit process, 8 on a 64-bit one).
+        if (uintptr_t p = pointerAt(addr)) emit requestGoto(p);
     } else if (picked == addToList) {
         emit requestAddToList(addr, valueTypeForDisplay());
     } else if (pasteAct && picked == pasteAct) {

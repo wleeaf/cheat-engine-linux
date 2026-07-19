@@ -89,9 +89,14 @@ int main(int argc, char** argv) {
     hv.selectBytes(reinterpret_cast<uintptr_t>(g_buf) + 4, 3);
     bool selBytes = (hv.selectionStartForTest() == 4 && hv.selectionSizeForTest() == 3);
 
-    bool ok = baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC && fillOk && typeMap && selBytes;
+    // pointerAt reads a target-sized pointer (8 bytes on this 64-bit process).
+    uintptr_t ptrTarget = reinterpret_cast<uintptr_t>(g_buf) + 128;
+    std::memcpy(g_buf, &ptrTarget, sizeof(ptrTarget));
+    bool ptrOk = (hv.pointerAt(reinterpret_cast<uintptr_t>(g_buf)) == ptrTarget);
+
+    bool ok = baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC && fillOk && typeMap && selBytes && ptrOk;
     printf("gui hexview smoke: %s (baseline=%d afterOneFlip=%d afterNav=%d pasteWrote=%d pasteOk=%d "
-           "ctrlV=%d ctrlC=%d filled=%d fillOk=%d typeMap=%d selBytes=%d)\n",
-           ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk, ctrlV, ctrlC, filled, fillOk, typeMap, selBytes);
+           "ctrlV=%d ctrlC=%d filled=%d fillOk=%d typeMap=%d selBytes=%d ptrOk=%d)\n",
+           ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk, ctrlV, ctrlC, filled, fillOk, typeMap, selBytes, ptrOk);
     return ok ? 0 : 1;
 }

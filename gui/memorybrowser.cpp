@@ -1350,6 +1350,18 @@ void DisasmView::keyPressEvent(QKeyEvent* e) {
     } else if (e->key() == Qt::Key_PageUp) {
         address_ = scrollBack(address_, visibleRows());
         refresh();
+    } else if (e->key() == Qt::Key_Home && !instructions_.empty()) {
+        // Move the cursor to the first visible instruction (Shift extends the range).
+        if (shift) { if (selAnchorRow_ < 0) selAnchorRow_ = (selectedRow_ < 0 ? 0 : selectedRow_); }
+        else selAnchorRow_ = -1;
+        selectedRow_ = 0; viewport()->update();
+    } else if (e->key() == Qt::Key_End && !instructions_.empty()) {
+        // Move the cursor to the last visible instruction (Shift extends the range).
+        if (shift) { if (selAnchorRow_ < 0) selAnchorRow_ = (selectedRow_ < 0 ? 0 : selectedRow_); }
+        else selAnchorRow_ = -1;
+        selectedRow_ = std::min((int)instructions_.size(), visibleRows()) - 1; viewport()->update();
+    } else if (e->key() == Qt::Key_Escape && selAnchorRow_ >= 0) {
+        selAnchorRow_ = -1; viewport()->update();   // collapse a range back to the cursor line
     } else if (e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter ||
                e->key() == Qt::Key_Space) {
         // Follow the selected instruction's branch/data target (CE keyboard nav).

@@ -66,9 +66,20 @@ int main(int argc, char** argv) {
     sendKey(&dv, Qt::Key_A, Qt::ControlModifier);
     int selectAll = dv.selectionCountForTest();
 
+    // Home collapses to the first line; Shift+End extends to the last; Escape collapses.
+    sendKey(&dv, Qt::Key_Home, Qt::NoModifier);
+    int homeSel = dv.selectionCountForTest();          // single line
+    sendKey(&dv, Qt::Key_End, Qt::ShiftModifier);
+    int shiftEndSel = dv.selectionCountForTest();       // whole visible range
+    sendKey(&dv, Qt::Key_Escape, Qt::NoModifier);
+    int escSel = dv.selectionCountForTest();            // collapsed back to one
+
     bool ok = single == 1 && rangeThree == 3 && rangeTwo == 2 && collapsed == 1
-           && copiedLines == 3 && selectAll > 3;
-    printf("gui disasm smoke: %s (single=%d range3=%d range2=%d collapsed=%d copiedLines=%d selectAll=%d)\n",
-           ok ? "OK" : "FAILED", single, rangeThree, rangeTwo, collapsed, copiedLines, selectAll);
+           && copiedLines == 3 && selectAll > 3
+           && homeSel == 1 && shiftEndSel == selectAll && escSel == 1;
+    printf("gui disasm smoke: %s (single=%d range3=%d range2=%d collapsed=%d copiedLines=%d "
+           "selectAll=%d home=%d shiftEnd=%d esc=%d)\n",
+           ok ? "OK" : "FAILED", single, rangeThree, rangeTwo, collapsed, copiedLines,
+           selectAll, homeSel, shiftEndSel, escSel);
     return ok ? 0 : 1;
 }

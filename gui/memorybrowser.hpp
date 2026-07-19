@@ -349,6 +349,19 @@ public:
     using DebuggerLauncher = std::function<void(uintptr_t addr)>;
     void setDebuggerLauncher(DebuggerLauncher fn) { debuggerLauncher_ = std::move(fn); }
 
+    /// Single-step / run controls (CE parity: the Memory Viewer drives stepping).
+    /// The debug session itself lives in the Debugger window; MainWindow wires these
+    /// to it so the viewer's F7/F8/F9 step the paused target. Each is a no-op when no
+    /// session is stopped (the wired callback checks). After a step the Debugger's
+    /// stopped(rip) signal re-highlights this view's current line via MainWindow.
+    void setStepControls(std::function<void()> stepInto,
+                         std::function<void()> stepOver,
+                         std::function<void()> run) {
+        stepIntoFn_ = std::move(stepInto);
+        stepOverFn_ = std::move(stepOver);
+        runFn_ = std::move(run);
+    }
+
     /// Persistent disassembler comments (saved with the cheat table). The store is
     /// owned by MainWindow and keyed by module-relative address EXPRESSION so it
     /// survives ASLR. setAnnotationStore installs the initial set (applied now) and
@@ -368,6 +381,10 @@ public:
     /// Test helper: find a Tools-menu action whose text starts with `text` and
     /// trigger it; returns false if there is no such action.
     bool triggerToolActionForTest(const QString& text);
+
+    /// Test helper: trigger a Debug-menu action whose text starts with `text`
+    /// (e.g. "Step into"); returns false if there is no such action.
+    bool triggerDebugActionForTest(const QString& text);
 
     /// CE keeps the memory/debug tools in the Memory Viewer's own menu bar (not the
     /// main window). MainWindow populates these with the actions that need its
@@ -445,6 +462,7 @@ private:
     BpQuery bpQuery_;
     CodeFinderLauncher cfLauncher_;
     DebuggerLauncher debuggerLauncher_;
+    std::function<void()> stepIntoFn_, stepOverFn_, runFn_;   // delegate to the debug session
 
     std::function<void(const QString&)> autoAssembleOpener_;
     std::function<void(uintptr_t)> dissectOpener_;

@@ -2954,6 +2954,17 @@ void MainWindow::wireBrowserAnnotations(MemoryBrowser* browser) {
     // The browser's step buttons open the full Debugger (which owns the debug
     // session and does real single-stepping).
     browser->setDebuggerLauncher([this](uintptr_t /*addr*/) { showDebugger(); });
+    // In-Memory-Viewer stepping (CE parity): F7/F8/F9 in the viewer drive the debug
+    // session hosted in the Debugger window. Each is a no-op unless a target is
+    // paused; the onStep*/onContinue slots run on the debugger and re-emit stopped(),
+    // which this window forwards to open viewers to advance the highlighted line.
+    browser->setStepControls(
+        [this]() { if (debuggerWindow_ && debuggerWindow_->debugStopped())
+                       QMetaObject::invokeMethod(debuggerWindow_, "onStepInto"); },
+        [this]() { if (debuggerWindow_ && debuggerWindow_->debugStopped())
+                       QMetaObject::invokeMethod(debuggerWindow_, "onStepOver"); },
+        [this]() { if (debuggerWindow_ && debuggerWindow_->debugStopped())
+                       QMetaObject::invokeMethod(debuggerWindow_, "onContinue"); });
     // "Auto Assemble > Create code/AOB injection here" opens a script editor
     // pre-filled with the generated template.
     browser->setAutoAssembleOpener([this](const QString& script) {

@@ -339,6 +339,12 @@ routing both the disassembler and Lua through it closes many at once.
     captures every thread; UI shows only the trapping one), a memory/hex + watch
     pane, richer disasm (reuse `MemoryBrowser`: symbols/xrefs/goto/follow), and
     breakpoint persistence to the table. **[M]**
+    *Progress:* register editing + full GP/R8-R15/flags/XMM, the thread switcher,
+    the memory/hex pane, and symbol/xref/goto/follow disasm all shipped. The
+    **Memory Viewer now drives stepping** too (Run/Step-into/Step-over = F9/F7/F8),
+    delegating to the debug session the Debugger window owns, so CE's "the memory
+    view is the debug view" holds. *Remaining:* a watch pane and breakpoint
+    persistence to the table.
 17. **Break&Trace:** multi-thread (single-tid `PTRACE_ATTACH` today,
     `debug/tracer.cpp:18`), Lua stop-conditions, and trace the thread that hit
     the breakpoint. **[M]**

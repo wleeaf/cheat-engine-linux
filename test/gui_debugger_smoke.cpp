@@ -144,6 +144,26 @@ int main(int argc, char** argv) {
     // removes it. Line 3 is a distinct instruction now that the disassembly is readable.
     bool bpToggle = hit && win.toggleBreakpointAtCursorForTest(3);
 
+    // In-Memory-Viewer stepping (CE parity): the Memory Viewer's Debug menu drives
+    // the debug session that the Debugger window owns. Wire a browser's step controls
+    // to this window exactly as MainWindow does, trigger "Step into" from the browser,
+    // and confirm the debugger single-stepped (its reported RIP advanced). Done before
+    // the thread switch below so the trapping thread is still active.
+    bool memViewStep = false;
+    if (hit) {
+        ce::gui::MemoryBrowser stepBrowser(&proc);
+        stepBrowser.setStepControls(
+            [&]() { if (win.debugStopped()) QMetaObject::invokeMethod(&win, "onStepInto"); },
+            [&]() { if (win.debugStopped()) QMetaObject::invokeMethod(&win, "onStepOver"); },
+            [&]() { if (win.debugStopped()) QMetaObject::invokeMethod(&win, "onContinue"); });
+        uintptr_t ripBefore = win.currentStopRip();
+        bool triggered = stepBrowser.triggerDebugActionForTest("Step into");
+        for (int i = 0; i < 80 && win.currentStopRip() == ripBefore; ++i) {
+            app.processEvents(); usleep(4000);
+        }
+        memViewStep = triggered && win.debugStopped() && win.currentStopRip() != ripBefore;
+    }
+
     // Thread switcher: the child has >= 2 frozen threads; the dropdown lists them
     // and switching moves the session's active thread.
     bool threadSwitch = hit && win.threadCount() >= 2 && win.switchToOtherThreadForTest();
@@ -179,8 +199,8 @@ int main(int argc, char** argv) {
     kill(child, SIGKILL);
     waitpid(child, nullptr, 0);
 
-    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && memHl && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno && disasmSym && disasmData && disasmHl && disasmComment && disasmUnmasked && bpToggle;
-    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d memhl=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d stackanno=%d disasmsym=%d disasmdata=%d disasmhl=%d disasmcomment=%d unmasked=%d bptoggle=%d)\n",
-           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, memHl, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk, stackAnno, disasmSym, disasmData, disasmHl, disasmComment, disasmUnmasked, bpToggle);
+    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && memHl && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno && disasmSym && disasmData && disasmHl && disasmComment && disasmUnmasked && bpToggle && memViewStep;
+    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d memhl=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d stackanno=%d disasmsym=%d disasmdata=%d disasmhl=%d disasmcomment=%d unmasked=%d bptoggle=%d memviewstep=%d)\n",
+           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, memHl, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk, stackAnno, disasmSym, disasmData, disasmHl, disasmComment, disasmUnmasked, bpToggle, memViewStep);
     return ok ? 0 : 1;
 }

@@ -64,5 +64,6 @@ the multithread `mt soft bp` timing check (already retried in-test).
 
 ## Scope
 Single-player games, reverse engineering, learning. Windows / kernel-stealth
-(DBVM/DBK) is parked; IL2CPP live dissection and in-Memory-Viewer stepping are
-known open items (see `docs/DEVELOPMENT.md`).
+(DBVM/DBK) is parked; IL2CPP live dissection is the main known open item (see
+`docs/DEVELOPMENT.md`). In-Memory-Viewer stepping now works: the Memory Viewer's
+Run/Step-into/Step-over (F9/F7/F8) drive the debug session the Debugger window owns.

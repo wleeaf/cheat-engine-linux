@@ -1597,6 +1597,16 @@ void MemoryBrowser::buildMenuBar() {
           if (addr && bpSetter_) { bpSetter_(addr, /*hardware=*/false); refreshBreakpoints(); }
       });
       a->setShortcut(QKeySequence("F5")); }
+    debugMenu_->addSeparator();
+    // Step / run controls (CE parity: the Memory Viewer drives the debug session).
+    // Each delegates to the Debugger window that owns the session; a no-op when the
+    // target is not paused. The current line re-highlights via MainWindow on stop.
+    { auto* a = debugMenu_->addAction("Run", this, [this]() { if (runFn_) runFn_(); });
+      a->setShortcut(QKeySequence("F9")); }
+    { auto* a = debugMenu_->addAction("Step into", this, [this]() { if (stepIntoFn_) stepIntoFn_(); });
+      a->setShortcut(QKeySequence("F7")); }
+    { auto* a = debugMenu_->addAction("Step over", this, [this]() { if (stepOverFn_) stepOverFn_(); });
+      a->setShortcut(QKeySequence("F8")); }
 
     toolsMenu_ = mb->addMenu("&Tools");
     toolsMenu_->addAction("Auto Assemble...", this, [this]() {
@@ -1611,6 +1621,14 @@ bool MemoryBrowser::triggerToolActionForTest(const QString& text) {
     if (!toolsMenu_) return false;
     for (QAction* a : toolsMenu_->actions()) {
         if (a->text().startsWith(text)) { a->trigger(); return true; }
+    }
+    return false;
+}
+
+bool MemoryBrowser::triggerDebugActionForTest(const QString& text) {
+    if (!debugMenu_) return false;
+    for (QAction* a : debugMenu_->actions()) {
+        if (!a->isSeparator() && a->text().startsWith(text)) { a->trigger(); return true; }
     }
     return false;
 }
@@ -1667,9 +1685,9 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
 
     // Debug toolbar (CE MemoryBrowserFormUnit.tbDebug): breakpoint + step controls
     // on their own row. Toggle-breakpoint uses the same setter as the disasm
-    // context menu. Single-stepping needs a debug session hosted in the browser;
-    // until that lands, the step/run buttons are present (matching CE's toolbar)
-    // but disabled, pointing at the Debugger window.
+    // context menu. The Run/Step buttons drive the debug session that the Debugger
+    // window owns (CE parity: the Memory Viewer controls stepping); each is a no-op
+    // until the target is paused, and the "Debugger" button opens/raises that window.
     addToolBarBreak();
     auto* dbgBar = new QToolBar("Debug");
     auto* bpAct = dbgBar->addAction("Toggle BP");
@@ -1689,9 +1707,21 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         refreshBreakpoints();
     });
     dbgBar->addSeparator();
-    // Real single-stepping runs in the full Debugger window (it owns the debug
-    // session), so one "Debugger" button opens it at the selected address, rather
-    // than six near-identical Run/Step buttons that each just opened it.
+    // Step / run the paused target from the Memory Viewer (F9/F7/F8). These delegate
+    // to the debug session in the Debugger window; the current line re-highlights
+    // here on each stop. Harmless no-ops when nothing is paused.
+    { auto* a = dbgBar->addAction("Run");
+      a->setToolTip("Continue the paused target (F9)");
+      connect(a, &QAction::triggered, this, [this]() { if (runFn_) runFn_(); }); }
+    { auto* a = dbgBar->addAction("Step");
+      a->setToolTip("Step into one instruction (F7)");
+      connect(a, &QAction::triggered, this, [this]() { if (stepIntoFn_) stepIntoFn_(); }); }
+    { auto* a = dbgBar->addAction("Step over");
+      a->setToolTip("Step over one instruction (F8)");
+      connect(a, &QAction::triggered, this, [this]() { if (stepOverFn_) stepOverFn_(); }); }
+    dbgBar->addSeparator();
+    // The full Debugger window owns the debug session; this opens/raises it at the
+    // selected address so breakpoints, watches, and the register view are available.
     auto* dbgAct = dbgBar->addAction("Debugger");
     dbgAct->setToolTip("Open the Debugger here to run, step, and set breakpoints");
     connect(dbgAct, &QAction::triggered, this, [this]() {

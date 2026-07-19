@@ -74,12 +74,23 @@ int main(int argc, char** argv) {
     sendKey(&dv, Qt::Key_Escape, Qt::NoModifier);
     int escSel = dv.selectionCountForTest();            // collapsed back to one
 
+    // Double-click / activate a plain instruction opens the assembler on it (CE edits an
+    // instruction in place). decodeTarget's body is branch-free, so activating a row
+    // emits requestAssemble (rather than following a branch/data target).
+    dv.setAddress(reinterpret_cast<uintptr_t>(&decodeTarget) & ~0xFULL);
+    app.processEvents();
+    uintptr_t asmAddr = 0; int asmSize = 0;
+    QObject::connect(&dv, &ce::gui::DisasmView::requestAssemble,
+        [&](uintptr_t a, int sz, const QString&) { asmAddr = a; asmSize = sz; });
+    dv.activateRowForTest(2);
+    bool dblAssemble = (asmAddr != 0 && asmSize > 0 && asmSize <= 15);
+
     bool ok = single == 1 && rangeThree == 3 && rangeTwo == 2 && collapsed == 1
            && copiedLines == 3 && selectAll > 3
-           && homeSel == 1 && shiftEndSel == selectAll && escSel == 1;
+           && homeSel == 1 && shiftEndSel == selectAll && escSel == 1 && dblAssemble;
     printf("gui disasm smoke: %s (single=%d range3=%d range2=%d collapsed=%d copiedLines=%d "
-           "selectAll=%d home=%d shiftEnd=%d esc=%d)\n",
+           "selectAll=%d home=%d shiftEnd=%d esc=%d dblAssemble=%d)\n",
            ok ? "OK" : "FAILED", single, rangeThree, rangeTwo, collapsed, copiedLines,
-           selectAll, homeSel, shiftEndSel, escSel);
+           selectAll, homeSel, shiftEndSel, escSel, (int)dblAssemble);
     return ok ? 0 : 1;
 }

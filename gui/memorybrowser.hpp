@@ -209,6 +209,7 @@ public:
     /// Number of instructions in the current selection (1 for a single line, more
     /// when a range is selected via Shift+Up/Down or Shift+click). 0 if none.
     int selectionCountForTest() const { int lo, hi; return selRange(lo, hi) ? hi - lo + 1 : 0; }
+    void activateRowForTest(int row) { activateRow(row); }
     /// Mark the current instruction pointer (debugger stop). The row whose address
     /// equals this is highlighted distinctly and flagged with a ► marker, like CE's
     /// Memory Viewer when paused. Pass 0 to clear (target resumed / detached).
@@ -254,6 +255,9 @@ private:
     uintptr_t scrollBack(uintptr_t addr, int count);
     int rowAtY(int y) const;
     bool followRow(int row);   // follow a row's branch target / RIP-relative data
+    // Double-click / activate a row: follow a branch/data reference, else open the
+    // assembler on the instruction (CE edits an instruction in place on double-click).
+    void activateRow(int row);
     static uintptr_t parseImmediate(const std::string& operands);
 
     ce::ProcessHandle* proc_ = nullptr;

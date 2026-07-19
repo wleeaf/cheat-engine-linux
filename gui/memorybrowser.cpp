@@ -925,8 +925,21 @@ bool DisasmView::followRow(int row) {
     return false;
 }
 
+void DisasmView::activateRow(int row) {
+    if (followRow(row)) return;   // branch / RIP-relative data reference: navigate there
+    // A plain instruction (no follow target): open the assembler on it, so double-click
+    // edits an instruction in place (CE Memory Viewer behaviour). Same request the
+    // context-menu "Assemble instruction…" emits.
+    if (row < 0 || row >= (int)instructions_.size()) return;
+    const auto& inst = instructions_[row];
+    emit requestAssemble(inst.address, (int)inst.size,
+        QString::fromStdString(inst.operands.empty() ? inst.mnemonic
+                                                     : inst.mnemonic + " " + inst.operands));
+}
+
 void DisasmView::mouseDoubleClickEvent(QMouseEvent* e) {
-    if (followRow(rowAtY(e->position().toPoint().y()))) return;
+    int row = rowAtY(e->position().toPoint().y());
+    if (row >= 0 && row < (int)instructions_.size()) { activateRow(row); return; }
     QAbstractScrollArea::mouseDoubleClickEvent(e);
 }
 

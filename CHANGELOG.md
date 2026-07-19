@@ -18,6 +18,10 @@ reimplementation of Cheat Engine).
 Follow-ups since v0.7.0, mostly deepening the hard-target work and unifying the value
 transforms across surfaces.
 
+- **Disassembler: double-click a plain instruction to edit it (CE parity).** Double-clicking a
+  jump/call/branch or a RIP-relative reference still follows it; double-clicking any other
+  instruction now opens the assembler on that line, so you can retype it in place (NOP-padded or
+  overwrite-warned like the context-menu "Assemble instruction").
 - **Dissect Data: valid-pointer fields are colored (CE parity).** In the Structure Dissector's
   single-struct view, a field whose 8 bytes form a valid pointer now paints its Pointer? cell
   teal, so references stand out at a glance (CE colors pointer fields). The live-change red still

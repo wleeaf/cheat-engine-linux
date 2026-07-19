@@ -24,10 +24,16 @@ public:
     using AddToListFn = std::function<void(uintptr_t addr, ce::ValueType type, const QString& desc)>;
     void setAddToListCallback(AddToListFn fn) { addToListCb_ = std::move(fn); }
 
+    // Add every named field to the address list (base+offset, guessed type, field
+    // name), so a labelled or type-as'd struct lands in the cheat table in one action.
+    // Returns the number of fields added.
+    int addAllFieldsToList();
+
     // Test helpers (offscreen smoke): drive compare mode and inspect the result.
     void setCompareAddressesForTest(std::vector<uintptr_t> addrs) {
         compareAddrs_ = std::move(addrs); if (baseAddr_) populateTable();
     }
+    void nameFieldForTest(int offset, const QString& name) { fieldNames_[offset] = name; }
     int  columnCountForTest() const { return table_->columnCount(); }
     // True if the cell at (row, col) is painted in the "differs from base" colour.
     bool cellDiffColoredForTest(int row, int col) const;

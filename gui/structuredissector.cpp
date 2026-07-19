@@ -20,6 +20,7 @@
 #include <QFileDialog>
 #include <QFont>
 #include <QStringList>
+#include <QStatusBar>
 #include <QRegularExpression>
 #include <cstring>
 #include <cmath>
@@ -110,6 +111,16 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
     cstructBtn->setToolTip("Label these bytes with a native struct from the target's DWARF debug info");
     connect(cstructBtn, &QPushButton::clicked, this, &StructureDissector::onTypeAsCStruct);
     actionRow->addWidget(cstructBtn);
+    auto* addAllBtn = new QPushButton("Add All to List");
+    addAllBtn->setToolTip("Add every named field (base+offset, name, guessed type) to the cheat table");
+    connect(addAllBtn, &QPushButton::clicked, this, [this]() {
+        int n = addAllFieldsToList();
+        statusBar()->showMessage(n > 0 ? QString("Added %1 field%2 to the cheat table")
+                                             .arg(n).arg(n == 1 ? "" : "s")
+                                       : QStringLiteral("No named fields to add (double-click a row, or Type as…)"),
+                                 4000);
+    });
+    actionRow->addWidget(addAllBtn);
     actionRow->addStretch(1);
     layout->addLayout(actionRow);
 
@@ -508,6 +519,21 @@ void StructureDissector::populateTable() {
             table_->setItem(i, col, it);
         }
     }
+}
+
+int StructureDissector::addAllFieldsToList() {
+    if (!addToListCb_) return 0;
+    int n = 0;
+    for (const auto& [off, name] : fieldNames_) {
+        if (off < 0) continue;
+        // guessType is bounds-checked against validBytes_ (defaults to Int32 past the
+        // readable end), so a field beyond the readable struct still adds cleanly.
+        ce::ValueType t = (off < (int)cache_.size()) ? guessType(cache_.data() + off, off)
+                                                     : ce::ValueType::Int32;
+        addToListCb_(baseAddr_ + static_cast<uintptr_t>(off), t, name);
+        ++n;
+    }
+    return n;
 }
 
 bool StructureDissector::cellDiffColoredForTest(int row, int col) const {

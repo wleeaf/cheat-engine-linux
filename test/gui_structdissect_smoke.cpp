@@ -52,10 +52,18 @@ int main(int argc, char** argv) {
     bool sameAt0x00 = diss.cellDiffColoredForTest(0, 3);   // row 0 = offset 0x00 equal
     bool sameAt0x28 = diss.cellDiffColoredForTest(5, 3);   // row 5 = offset 0x28 equal
 
+    // "Add All to List": name two fields and confirm both are pushed to the callback.
+    int added = 0;
+    diss.setAddToListCallback([&](uintptr_t, ce::ValueType, const QString&) { ++added; });
+    diss.nameFieldForTest(0, "health");
+    diss.nameFieldForTest(16, "ammo");
+    int returned = diss.addAllFieldsToList();
+    bool addAllOk = (returned == 2 && added == 2);
+
     bool ok = cols == 4 && diffAt0x10 && !sameAt0x00 && !sameAt0x28
-           && changedRow3 && !changedRow0;
+           && changedRow3 && !changedRow0 && addAllOk;
     printf("gui structdissect smoke: %s (cols=%d diff@0x10=%d same@0x00=%d same@0x28=%d "
-           "changed@0x18=%d changed@0x00=%d)\n",
-           ok ? "OK" : "FAILED", cols, diffAt0x10, sameAt0x00, sameAt0x28, changedRow3, changedRow0);
+           "changed@0x18=%d changed@0x00=%d addAll=%d)\n",
+           ok ? "OK" : "FAILED", cols, diffAt0x10, sameAt0x00, sameAt0x28, changedRow3, changedRow0, addAllOk);
     return ok ? 0 : 1;
 }

@@ -44,6 +44,10 @@ transforms across surfaces.
   also gained a **live-change highlight**: a value that changes between refreshes paints
   red (like CE's Dissect Data and the hex pane), reset on a base-address change. Both are
   covered by the offscreen `gui_structdissect_smoke` in the CI mirror.
+- **Structure Dissector "Add All to List"**: after labelling a struct's fields (by hand or
+  via Type as IL2CPP / C struct), one button adds every named field to the cheat table
+  (base+offset, name, guessed type) instead of adding them one at a time. Asserted in
+  `gui_structdissect_smoke`.
 - **Memory Viewer marks the current instruction** when the debugger is paused: the line at
   the stopped thread's RIP paints green with a ► marker, and the first open viewer follows
   execution. See the debugger notes below.

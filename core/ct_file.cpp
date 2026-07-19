@@ -116,6 +116,49 @@ static std::string normalizedTypeName(const std::string& s) {
     return out;
 }
 
+// Windows virtual-key code -> a Qt key-sequence token, for importing CE's
+// <Hotkey><Keys><Key>vk</Key>...</Keys>. Unknown codes yield "" (dropped).
+static std::string vkToKeyToken(int vk) {
+    switch (vk) {
+        case 16: return "Shift";  case 17: return "Ctrl";   case 18: return "Alt";
+        case 91: case 92: return "Meta";
+        case 8:  return "Backspace"; case 9: return "Tab";  case 13: return "Return";
+        case 27: return "Esc";    case 32: return "Space";
+        case 33: return "PgUp";   case 34: return "PgDown"; case 35: return "End";
+        case 36: return "Home";   case 37: return "Left";   case 38: return "Up";
+        case 39: return "Right";  case 40: return "Down";   case 45: return "Ins";
+        case 46: return "Del";
+        default: break;
+    }
+    if (vk >= 48 && vk <= 57)  return std::string(1, static_cast<char>('0' + (vk - 48)));  // 0-9
+    if (vk >= 65 && vk <= 90)  return std::string(1, static_cast<char>('A' + (vk - 65)));  // A-Z
+    if (vk >= 96 && vk <= 105) return std::string(1, static_cast<char>('0' + (vk - 96)));  // Numpad 0-9
+    if (vk >= 112 && vk <= 123) return "F" + std::to_string(vk - 111);                      // F1-F12
+    return {};
+}
+
+// A CE key list (VK codes) -> "Ctrl+Alt+Shift+<key>" in Qt's canonical order.
+static std::string vksToKeyString(const std::vector<int>& vks) {
+    bool ctrl = false, alt = false, shift = false, meta = false;
+    std::string key;
+    for (int vk : vks) {
+        std::string tok = vkToKeyToken(vk);
+        if (tok == "Ctrl") ctrl = true;
+        else if (tok == "Alt") alt = true;
+        else if (tok == "Shift") shift = true;
+        else if (tok == "Meta") meta = true;
+        else if (!tok.empty() && key.empty()) key = tok;
+    }
+    std::string out;
+    if (ctrl)  out += "Ctrl+";
+    if (alt)   out += "Alt+";
+    if (shift) out += "Shift+";
+    if (meta)  out += "Meta+";
+    out += key;
+    if (!out.empty() && out.back() == '+') out.pop_back();   // modifier-only (rare)
+    return out;
+}
+
 static ValueType strToType(const std::string& s) {
     bool numeric = !s.empty();
     for (unsigned char c : s) {
@@ -516,12 +559,38 @@ static void parseCheatEntriesBlock(const std::string& entriesXml, int parentId,
                 e.deactivateChildren = e.optionsXml.find("moDeactivateChildrenAsWell=\"1\"") != std::string::npos;
             }
         }
-        e.hotkeyKeys = xmlUnescape(getTag(ownXml, "Hotkeys"));
-        e.increaseHotkeyKeys = xmlUnescape(getTag(ownXml, "IncreaseHotkey"));
-        e.setValueHotkeyKeys = xmlUnescape(getTag(ownXml, "SetValueHotkey"));
-        e.setValueHotkeyValue = xmlUnescape(getTag(ownXml, "SetValueHotkeyValue"));
-        e.decreaseHotkeyKeys = xmlUnescape(getTag(ownXml, "DecreaseHotkey"));
-        e.hotkeyStep = xmlUnescape(getTag(ownXml, "HotkeyStep"));
+        // Hotkeys: CE uses a nested <Hotkeys><Hotkey><Action>N</Action><Keys><Key>vk
+        // </Key>...</Keys><Value>..</Value></Hotkey>...</Hotkeys>; older builds of this
+        // port wrote a flat "<Hotkeys>Ctrl+H</Hotkeys>" plus separate tags. Detect the
+        // nested form by the inner <Hotkey and map each action to our slot; else read flat.
+        auto hkXml = getTag(ownXml, "Hotkeys");
+        if (hkXml.find("<Hotkey") != std::string::npos) {
+            for (const auto& hk : getTagBlocks(hkXml, "Hotkey")) {
+                int action = 0;
+                if (auto a = getTag(hk, "Action"); !a.empty()) {
+                    try { action = std::stoi(a); } catch (...) {}
+                }
+                std::vector<int> vks;
+                for (const auto& kb : getTagBlocks(getTag(hk, "Keys"), "Key")) {
+                    try { vks.push_back(std::stoi(getTag(kb, "Key"))); } catch (...) {}
+                }
+                std::string keyStr = vksToKeyString(vks);
+                std::string val = xmlUnescape(getTag(hk, "Value"));
+                switch (action) {   // CE mrh* action codes
+                    case 5: e.setValueHotkeyKeys = keyStr; e.setValueHotkeyValue = val; break;  // SetValue
+                    case 6: e.increaseHotkeyKeys = keyStr; if (!val.empty()) e.hotkeyStep = val; break;  // Increase
+                    case 7: e.decreaseHotkeyKeys = keyStr; if (!val.empty()) e.hotkeyStep = val; break;  // Decrease
+                    default: if (e.hotkeyKeys.empty()) e.hotkeyKeys = keyStr; break;            // Toggle (0-4)
+                }
+            }
+        } else {
+            e.hotkeyKeys = xmlUnescape(hkXml);
+            e.increaseHotkeyKeys = xmlUnescape(getTag(ownXml, "IncreaseHotkey"));
+            e.setValueHotkeyKeys = xmlUnescape(getTag(ownXml, "SetValueHotkey"));
+            e.setValueHotkeyValue = xmlUnescape(getTag(ownXml, "SetValueHotkeyValue"));
+            e.decreaseHotkeyKeys = xmlUnescape(getTag(ownXml, "DecreaseHotkey"));
+            e.hotkeyStep = xmlUnescape(getTag(ownXml, "HotkeyStep"));
+        }
 
         int myId = e.id;
         entries.push_back(std::move(e));

@@ -947,6 +947,24 @@ static void test_cheat_table_json() {
         strReload.entries[2].type == ValueType::ByteArray && strReload.entries[2].length == 4;
     std::filesystem::remove(strPath);
 
+    // CE nested <Hotkeys>: each <Hotkey> has an mrh Action + VK <Key> codes (+ Value);
+    // they map to our toggle/set/increase/decrease slots with Qt key-sequence strings.
+    CheatTable hkCE;
+    hkCE.loadFromString(
+        "<CheatTable><CheatEntries><CheatEntry><ID>1</ID><Description>\"h\"</Description>"
+        "<VariableType>4 Bytes</VariableType><Address>400000</Address>"
+        "<Hotkeys>"
+        "<Hotkey><Action>0</Action><Keys><Key>17</Key><Key>72</Key></Keys><ID>0</ID></Hotkey>"
+        "<Hotkey><Action>5</Action><Keys><Key>116</Key></Keys><Value>100</Value><ID>1</ID></Hotkey>"
+        "<Hotkey><Action>6</Action><Keys><Key>17</Key><Key>38</Key></Keys><Value>10</Value></Hotkey>"
+        "<Hotkey><Action>7</Action><Keys><Key>17</Key><Key>40</Key></Keys><Value>10</Value></Hotkey>"
+        "</Hotkeys></CheatEntry></CheatEntries></CheatTable>");
+    bool hkOk = hkCE.entries.size() == 1 &&
+        hkCE.entries[0].hotkeyKeys == "Ctrl+H" &&
+        hkCE.entries[0].setValueHotkeyKeys == "F5" && hkCE.entries[0].setValueHotkeyValue == "100" &&
+        hkCE.entries[0].increaseHotkeyKeys == "Ctrl+Up" && hkCE.entries[0].hotkeyStep == "10" &&
+        hkCE.entries[0].decreaseHotkeyKeys == "Ctrl+Down";
+
     CheatTable protectedLoaded;
     bool protectedOk = protectedLoaded.loadProtected(protectedPath.string(), "secret") &&
         matchesTable(protectedLoaded);
@@ -963,6 +981,7 @@ static void test_cheat_table_json() {
     printf("  CE <DropDownList> import (+ old-cased fallback): %s\n", dropdownOk ? "OK" : "FAILED");
     printf("  CE group <Options> flags parse + verbatim round-trip: %s\n", optOk ? "OK" : "FAILED");
     printf("  CE String/AoB <Length> + <Unicode> import + round-trip: %s\n", strOk ? "OK" : "FAILED");
+    printf("  CE nested <Hotkeys> (VK codes + actions) import: %s\n", hkOk ? "OK" : "FAILED");
     printf("  CT XML CE type names: %s\n", xmlTypeNamesOk ? "OK" : "FAILED");
     printf("  CETRAINER protected round trip: %s\n", (protectedOk && wrongPasswordOk) ? "OK" : "FAILED");
 }

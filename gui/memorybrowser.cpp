@@ -2122,8 +2122,9 @@ void MemoryBrowser::assembleAt(uintptr_t addr, int origSize, const QString& curr
 }
 
 uintptr_t MemoryBrowser::searchMemory(const std::vector<uint8_t>& pat, uintptr_t start,
-                                      bool inclusive) {
+                                      bool inclusive, const std::vector<char>& mask) {
     if (pat.empty() || !proc_) return 0;
+    const bool masked = mask.size() == pat.size();   // else treat as an exact match
     // Walk readable regions in order, searching each for the pattern from `start`.
     // A first Find is inclusive (a match sitting exactly at the cursor counts); a
     // Find-Next is exclusive so it advances past the current match.
@@ -2148,8 +2149,16 @@ uintptr_t MemoryBrowser::searchMemory(const std::vector<uint8_t>& pat, uintptr_t
             for (size_t off = 0; off + pat.size() <= got; ++off) {
                 uintptr_t found = pos + off;
                 bool pastStart = inclusive ? (found >= start) : (found > start);
-                if (pastStart && std::memcmp(buf.data() + off, pat.data(), pat.size()) == 0)
-                    return found;
+                if (!pastStart) continue;
+                bool match;
+                if (!masked) {
+                    match = std::memcmp(buf.data() + off, pat.data(), pat.size()) == 0;
+                } else {
+                    match = true;
+                    for (size_t i = 0; i < pat.size(); ++i)
+                        if (mask[i] && buf[off + i] != pat[i]) { match = false; break; }
+                }
+                if (match) return found;
             }
             if (got < want) break;               // short read → rest of region unreadable
             if (pos + want >= regionEnd) break;  // reached region end
@@ -2162,34 +2171,37 @@ uintptr_t MemoryBrowser::searchMemory(const std::vector<uint8_t>& pat, uintptr_t
 void MemoryBrowser::findInMemory(bool findNext) {
     if (!proc_) return;
     std::vector<uint8_t> pat;
+    std::vector<char> mask;   // empty = exact; else 1=must-match, 0=wildcard ("??")
     if (findNext && !lastSearch_.empty()) {
         pat = lastSearch_;
+        mask = lastSearchMask_;
     } else {
         bool ok = false;
         QString s = QInputDialog::getText(this, "Find in memory",
-            "Bytes (e.g. 48 8B 05) or \"text\":", QLineEdit::Normal, "", &ok);
+            "Bytes (e.g. 48 8B ?? 05) or \"text\":", QLineEdit::Normal, "", &ok);
         if (!ok || s.trimmed().isEmpty()) return;
         s = s.trimmed();
         if (s.startsWith('"') && s.endsWith('"') && s.size() >= 2) {
             QByteArray ba = s.mid(1, s.size() - 2).toUtf8();
             pat.assign(ba.begin(), ba.end());
         } else {
-            QString hex = s; hex.remove(' ');
-            bool okh = true;
-            if (hex.isEmpty() || hex.size() % 2 != 0) okh = false;
-            for (int i = 0; okh && i < hex.size(); i += 2) {
-                pat.push_back((uint8_t)hex.mid(i, 2).toInt(&okh, 16));
-            }
-            if (!okh) {
+            // AOB with optional "??" wildcards (48 8B ?? 05 / 488b??05).
+            auto bytes = parseAob(s);
+            if (bytes.empty()) {
                 QMessageBox::warning(this, "Find",
-                    "Enter whitespace-separated hex byte pairs (48 8B 05) or a quoted \"string\".");
+                    "Enter hex bytes (48 8B 05), a wildcard AOB (48 8B ?? 05), or a quoted \"string\".");
                 return;
+            }
+            for (int b : bytes) {
+                pat.push_back(b < 0 ? 0 : static_cast<uint8_t>(b));
+                mask.push_back(b < 0 ? char(0) : char(1));
             }
         }
         lastSearch_ = pat;
+        lastSearchMask_ = mask;
     }
     // First Find is inclusive of the current address; Find Next advances past it.
-    uintptr_t hit = searchMemory(pat, currentAddr_, /*inclusive=*/!findNext);
+    uintptr_t hit = searchMemory(pat, currentAddr_, /*inclusive=*/!findNext, mask);
     if (hit) {
         navigateTo(hit);
     } else {

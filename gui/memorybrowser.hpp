@@ -273,6 +273,13 @@ public:
 
     void gotoAddress(uintptr_t addr);
 
+    /// Test helper: search readable memory from `start` for `pattern` with an optional
+    /// wildcard `mask` (1 = must match, 0 = any). Returns the hit address, or 0.
+    uintptr_t searchMemoryForTest(const std::vector<uint8_t>& pattern,
+                                  const std::vector<char>& mask, uintptr_t start) {
+        return searchMemory(pattern, start, /*inclusive=*/true, mask);
+    }
+
     /// The debugger stopped at `rip`: mark it as the current instruction (green ►
     /// highlight in the disassembler). When `follow` is true the view also scrolls
     /// to it (without polluting back/forward history), matching CE's Memory Viewer
@@ -347,7 +354,7 @@ private:
     // Find a byte pattern or ASCII text forward from the current address.
     void findInMemory(bool findNext);
     uintptr_t searchMemory(const std::vector<uint8_t>& pattern, uintptr_t start,
-                           bool inclusive = false);
+                           bool inclusive = false, const std::vector<char>& mask = {});
 
     void writeNop(uintptr_t addr, int size);
     void assembleAt(uintptr_t addr, int origSize, const QString& current);
@@ -370,6 +377,7 @@ private:
     uintptr_t currentAddr_ = 0;
     std::vector<ce::ModuleInfo> modules_;   // cached for module+offset status display
     std::vector<uint8_t> lastSearch_;
+    std::vector<char> lastSearchMask_;   // wildcard mask for Find Next (parallel to lastSearch_)
     QAction* backAct_ = nullptr;
     QAction* fwdAct_ = nullptr;
 

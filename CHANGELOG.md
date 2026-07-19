@@ -30,6 +30,10 @@ transforms across surfaces.
 - **Hex pane "Add address to the list" uses the current display type** (CE-style): adding
   from Float display makes a Float record, Qword display an 8-byte record, etc., instead of
   always Int32. Asserted in `gui_hexview_smoke`.
+- **Memory-viewer Find supports wildcard AOBs**: `48 8B ?? 05` (or `488b??05`) now matches
+  any byte at the `??` positions, so you can search for a pattern regardless of a
+  displacement or immediate. Exact byte and quoted-string search are unchanged. Covered by a
+  new offscreen `gui_search_smoke` in the CI mirror.
 - **`cescan il2cpp --pid <pid>`** resolves a running Unity game's class layouts (field
   offsets + method RVAs) directly, auto-locating the metadata and GameAssembly from the
   process (through the sandbox root for Proton/Flatpak).

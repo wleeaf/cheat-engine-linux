@@ -287,6 +287,7 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
         a->setChecked(bytesPerRow_ == n);
         connect(a, &QAction::triggered, this, [this, n]() {
             bytesPerRow_ = n;
+            QSettings().setValue("memview/bytesPerRow", n);   // persist (loaded on next open)
             selectedOffset_ = -1; selAnchor_ = -1;
             updateScrollBar();
             refresh();
@@ -304,7 +305,10 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
         auto* a = dtMenu->addAction(name);
         a->setCheckable(true);
         a->setChecked(displayType_ == dt);
-        connect(a, &QAction::triggered, this, [this, dt]() { setDisplayType(dt); });
+        connect(a, &QAction::triggered, this, [this, dt]() {
+            setDisplayType(dt);
+            QSettings().setValue("memview/displayType", static_cast<int>(dt));  // persist
+        });
     }
 
     QAction* picked = menu.exec(e->globalPos());
@@ -1688,6 +1692,9 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     // Persisted default width from the Settings dialog (was ignored; the view
     // always opened at 16 bytes per row).
     hexView_->setBytesPerRow(QSettings().value("memview/bytesPerRow", 16).toInt());
+    // Persisted "Display type" (Byte/Word/Dword/... from the hex context menu).
+    hexView_->setDisplayType(static_cast<HexView::DisplayType>(
+        QSettings().value("memview/displayType", 0).toInt()));
     hexView_->setProcess(proc);
 
     // Cheat-Engine layout: the disassembler with a register panel on its right,

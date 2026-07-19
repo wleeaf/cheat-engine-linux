@@ -110,6 +110,10 @@ transforms across surfaces.
   now offers **Auto Assemble...** (opens a script editor) and **Dissect data/structures...**
   (opens a Structure Dissector at the current address), routed through the openers MainWindow
   owns. Asserted in `gui_search_smoke`.
+- **Memory Viewer remembers "Bytes per row" and "Display type"** (CE parity): both hex-pane
+  choices now persist across sessions. Bytes-per-row was loaded from settings but the menu
+  change never saved it (so it always reverted to 16), and display type wasn't persisted at all;
+  both are now written on change and restored when a Memory Viewer opens.
 - **Scan value-type dropdown uses the same names as the cheat table**: the scanner said "Text" /
   "Unicode Text" / "Array of Bytes" / "All Types" while the address list and Change-address dialog
   said "String" / "Unicode String" / "Array of byte" / "All" (`ce::valueTypeName`); the scanner now

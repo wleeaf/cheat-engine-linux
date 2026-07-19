@@ -66,6 +66,8 @@ public:
     QString stackTextForTest() const;
     // The disassembly pane's current text (with inline symbol annotations).
     QString disasmTextForTest() const;
+    // True if the disassembly's current (=>) line carries the background highlight.
+    bool disasmCurrentLineHighlightedForTest() const;
 
 signals:
     /// The target stopped at `rip` (breakpoint / step). Lets other views (e.g. open

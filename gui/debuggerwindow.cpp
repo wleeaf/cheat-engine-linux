@@ -13,6 +13,8 @@
 #include <QToolButton>
 #include <QLabel>
 #include <QPlainTextEdit>
+#include <QTextEdit>   // QTextEdit::ExtraSelection for the current-line highlight
+#include <QTextBlock>
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QComboBox>
@@ -677,9 +679,11 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
     uint8_t buf[128];
     auto rr = proc_->read(c.rip, buf, sizeof(buf));
     QString out;
+    int currentLineBlock = -1;   // text block index of the "=>" line, for the highlight
     if (rr && *rr > 0) {
         auto insns = disasm_.disassemble(c.rip, {buf, *rr}, 24);
         for (auto& in : insns) {
+            if (in.address == c.rip) currentLineBlock = static_cast<int>(disasmLineAddrs_.size());
             bool isBp = false;
             for (auto& b : bps_) if (b.addr == in.address) isBp = true;
             QString marker = (in.address == c.rip) ? "=> " : "   ";
@@ -710,6 +714,19 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
         out = "  <unable to read code at " + hex(c.rip) + ">";
     }
     disasmView_->setPlainText(out);
+
+    // Highlight the current (=>) line with a full-width background, CE-style, so the
+    // stopped location stands out beyond the "=> " text marker.
+    if (currentLineBlock >= 0) {
+        QTextEdit::ExtraSelection sel;
+        sel.cursor = QTextCursor(disasmView_->document()->findBlockByNumber(currentLineBlock));
+        sel.format.setBackground(ce::gui::isDarkTheme() ? QColor(0x33, 0x53, 0x3a)
+                                                        : QColor(0xcf, 0xef, 0xd0));
+        sel.format.setProperty(QTextFormat::FullWidthSelection, true);
+        disasmView_->setExtraSelections({sel});
+    } else {
+        disasmView_->setExtraSelections({});
+    }
 }
 
 void DebuggerWindow::updateStack(const ce::CpuContext& c) {
@@ -745,6 +762,12 @@ QString DebuggerWindow::stackTextForTest() const {
 
 QString DebuggerWindow::disasmTextForTest() const {
     return disasmView_ ? disasmView_->toPlainText() : QString();
+}
+
+bool DebuggerWindow::disasmCurrentLineHighlightedForTest() const {
+    if (!disasmView_) return false;
+    const auto sels = disasmView_->extraSelections();
+    return !sels.isEmpty() && sels.first().cursor.block().text().contains("=>");
 }
 
 uintptr_t DebuggerWindow::currentCursorAddress() const {

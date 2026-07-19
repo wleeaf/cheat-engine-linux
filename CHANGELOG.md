@@ -58,7 +58,8 @@ transforms across surfaces.
 - **Debugger disassembly is symbol-annotated**: a direct call/jmp shows its target's symbol
   and the current (`=>`) line shows the function it is stopped in, appended inline as a
   `; symbol` comment (so it never shifts the line/address mapping the breakpoint actions
-  rely on). Asserted in `gui_debugger_smoke`.
+  rely on). The current line also gets a **full-width background highlight** so the stopped
+  location stands out at a glance. Both asserted in `gui_debugger_smoke`.
 - **Disassembler multi-instruction selection**: Shift+Up/Down and Shift+click select a
   range of instructions (the whole range highlights), and Ctrl+C copies every selected line
   as a block. A plain move or click collapses back to a single line; right-clicking inside a

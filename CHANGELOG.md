@@ -13,11 +13,32 @@ reimplementation of Cheat Engine).
 
 ---
 
-## Unreleased
+## v0.8.0: CE parity sweep, global symbols, code pages, Lua breadth (2026-07-20)
 
-Follow-ups since v0.7.0, mostly deepening the hard-target work and unifying the value
-transforms across surfaces.
+Also carries the v0.7.0 work, which was written up below but never tagged or published.
 
+- **Fixed: heap use-after-free generating an AOB injection.** `generateInjectionScript` kept a
+  pointer into the temporary `proc.modules()` vector past the loop. Caught by the ASan CI job.
+- **String scan results decode from the scan's code page.** A CP1252 hit like "café" rendered as
+  mojibake; the match was always correct, only the display was wrong. New `ce::decodeStringBytes`.
+- **User-defined labels are global (CE parity).** A label set in the Memory Viewer now resolves
+  everywhere: as a record address, in Lua, and in every open view (previously siloed per view).
+- **Cheat table: "Add to new group".** Wraps the selected records under a new group header.
+- **Fixed: deleting a group header now removes its whole subtree**, instead of orphaning the
+  children at an indent with no parent.
+- **Cheat table: "Convert to module+offset".** Rewrites a raw scanned address as `module+0x…` so a
+  saved table survives PIE/ASLR rebasing on the next launch.
+- **Scan results: "Remove selected addresses from the list" (CE parity).** Prunes the result set
+  properly (a rebuilt result), so a later Next Scan stays consistent. Undo restores them.
+- **Dissect Data: set a field's type from the context menu.** You could name a field but never type
+  one, which left save/load and the value column half-usable for a hand-built struct.
+- **Memory Viewer: "Add this address to the list" from the disassembler**, matching the hex pane.
+- **Lua: `disassembleBytes(bytes[, address])`.** Decode raw bytes with no process attached.
+- **Lua: `AOBScanUnique` / `AOBScanModuleUnique`.** Return a single address instead of a result list.
+- **Lua: `convertToUTF8` / `convertFromUTF8` / `ansiToUTF8`.** Code page conversion (iconv-backed)
+  for reading strings out of Windows games under Proton.
+- **Lua: `extractFileNameWithoutExt` + `getFileList`.** Basename minus extension, and a read-only
+  directory listing with a glob mask.
 - **Lua: `addMainMenuItem(caption, onclick)` for extensions.** A script (typically an autorun
   one) can add a tool to a "Scripts" menu on the main window that runs its Lua callback when
   clicked, so extensions can surface themselves in the UI, the natural companion to autorun.

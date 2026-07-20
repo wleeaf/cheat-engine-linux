@@ -4683,12 +4683,22 @@ static void test_lua_aobScanUnique() {
     for (auto& m : probe.modules())
         if (target >= m.base && target < m.base + m.size) { modName = m.name; break; }
     const std::string fn = std::to_string(target);
+    // The whole-process AOBScanUnique is skipped under ASan: an instrumented process
+    // carries a ~20 TB shadow reservation, so scanning the full address space takes hours
+    // and times the sanitizer job out (the same reason the pointer-scan tests are gated).
+    // The module-scoped variant below stays, it is bounded to the module's range, and the
+    // uninstrumented build job still covers the whole-process path.
+    std::string wholeProcess;
+#ifndef __SANITIZE_ADDRESS__
+    wholeProcess =
+        "local addr = AOBScanUnique(aob)\n"
+        "assert(addr ~= nil, 'AOBScanUnique returns a single integer')\n"
+        "assert(readByte(addr) == readByte(" + fn + "), 'the match starts with the target byte')\n";
+#endif
     std::string err = eng.execute(
         "local aob = getUniqueAOB(" + fn + ")\n"
         "assert(aob, 'derived a unique AOB for the target')\n"
-        "local addr = AOBScanUnique(aob)\n"
-        "assert(addr ~= nil, 'AOBScanUnique returns a single integer')\n"
-        "assert(readByte(addr) == readByte(" + fn + "), 'the match starts with the target byte')\n"
+        + wholeProcess +
         // Module-scoped scan: the pattern is unique within the module, so the first (and
         // only) match must be exactly the target address.
         "local m = AOBScanModuleUnique('" + modName + "', aob)\n"

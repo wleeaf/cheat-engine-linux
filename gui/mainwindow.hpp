@@ -270,7 +270,9 @@ class ScanResultsModel : public QAbstractTableModel {
     Q_OBJECT
 public:
     explicit ScanResultsModel(QObject* parent = nullptr);
-    void setResult(ScanResult* result, ce::ValueType vt, size_t valueSize = 0);
+    void setResult(ScanResult* result, ce::ValueType vt, size_t valueSize = 0,
+                   const std::string& stringEncoding = "UTF-8");
+    const std::string& stringEncoding() const { return stringEncoding_; }
     void clear();
 
     int rowCount(const QModelIndex& = {}) const override;
@@ -297,6 +299,7 @@ private:
     ScanResult* result_ = nullptr;
     ce::ValueType valueType_ = ce::ValueType::Int32;
     size_t valueSize_ = 0;
+    std::string stringEncoding_ = "UTF-8";   // decode String results from this code page
     ce::ProcessHandle* proc_ = nullptr;
     std::vector<ce::ModuleInfo> modules_;                      // cached for static-address (green) coloring
     std::unordered_map<int, std::vector<uint8_t>> liveValues_; // row -> current bytes (empty = unreadable)

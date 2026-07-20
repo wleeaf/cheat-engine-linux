@@ -1197,7 +1197,7 @@ void MainWindow::setupUi() {
                 if (r >= 0 && r < (int)mask.size()) mask[r] = true;
             }
             auto pruned = ce::pruneScanResult(*lastResult_, lastResultValueSize_, mask);
-            resultsModel_->setResult(pruned.get(), lastResultType_, lastResultValueSize_);
+            resultsModel_->setResult(pruned.get(), lastResultType_, lastResultValueSize_, resultsModel_->stringEncoding());
             undoResult_ = std::move(lastResult_);
             undoResultType_ = lastResultType_;
             undoResultValueSize_ = lastResultValueSize_;
@@ -2811,7 +2811,7 @@ void MainWindow::onFirstScan() {
         QMessageBox::warning(this, "Scan results truncated",
             "A scan-result file could not be fully written (the disk may be full). "
             "Some results are unreliable; free space and scan again.");
-    resultsModel_->setResult(result.get(), config.valueType, resultValueSize);
+    resultsModel_->setResult(result.get(), config.valueType, resultValueSize, config.stringEncoding);
 
     undoResult_ = std::move(lastResult_);
     undoResultType_ = lastResultType_;
@@ -2928,7 +2928,7 @@ void MainWindow::onNextScan() {
         QMessageBox::warning(this, "Scan results truncated",
             "A scan-result file could not be fully written (the disk may be full). "
             "Some results are unreliable; free space and scan again.");
-    resultsModel_->setResult(result.get(), config.valueType, resultValueSize);
+    resultsModel_->setResult(result.get(), config.valueType, resultValueSize, config.stringEncoding);
 
     undoResult_ = std::move(lastResult_);
     undoResultType_ = lastResultType_;
@@ -2946,7 +2946,7 @@ void MainWindow::onUndoScan() {
     lastResultValueSize_ = undoResultValueSize_;
     undoResultType_ = ValueType::Int32;
     undoResultValueSize_ = 0;
-    resultsModel_->setResult(lastResult_.get(), lastResultType_, lastResultValueSize_);
+    resultsModel_->setResult(lastResult_.get(), lastResultType_, lastResultValueSize_, resultsModel_->stringEncoding());
     foundLabel_->setText(foundLabelText(lastResult_->count()));
     updateScanButtons();
 }
@@ -4240,11 +4240,13 @@ void ScanResultsModel::refreshRange(int firstRow, int lastRow) {
     emit dataChanged(index(firstRow, 1), index(lastRow, 1), {Qt::DisplayRole, Qt::ForegroundRole});
 }
 
-void ScanResultsModel::setResult(ScanResult* result, ValueType vt, size_t valueSize) {
+void ScanResultsModel::setResult(ScanResult* result, ValueType vt, size_t valueSize,
+                                 const std::string& stringEncoding) {
     beginResetModel();
     result_ = result;
     valueType_ = vt;
     valueSize_ = valueSize;
+    stringEncoding_ = stringEncoding.empty() ? "UTF-8" : stringEncoding;
     liveValues_.clear();
     changed_.clear();
     // Cache the module map so the Address column can flag "static" results (those
@@ -4280,7 +4282,8 @@ QVariant ScanResultsModel::headerData(int section, Qt::Orientation o, int role) 
 
 // Format `vs` bytes at `buf` as `vt` (shared by the live Value and the scan-time
 // Previous columns).
-static QString formatScanValue(ValueType vt, bool displayHex, const uint8_t* buf, size_t vs) {
+static QString formatScanValue(ValueType vt, bool displayHex, const uint8_t* buf, size_t vs,
+                               const std::string& stringEncoding = "UTF-8") {
     switch (vt) {
         // Integers render through the same shared helper as the cheat table (signed by
         // default, hex width-masked), so a value reads identically in the results and
@@ -4298,7 +4301,9 @@ static QString formatScanValue(ValueType vt, bool displayHex, const uint8_t* buf
         case ValueType::Double: { double v; memcpy(&v, buf, 8); return QString::fromStdString(ce::formatFloatScalar(v, true)); }
         case ValueType::String: {
             size_t len = strnlen(reinterpret_cast<const char*>(buf), vs);
-            return QString::fromUtf8(reinterpret_cast<const char*>(buf), static_cast<int>(len));
+            // Decode the matched bytes from the scan's code page (CP1252 etc.) to UTF-8,
+            // so a non-ASCII string result reads correctly instead of as mojibake.
+            return QString::fromStdString(ce::decodeStringBytes(buf, len, stringEncoding));
         }
         case ValueType::UnicodeString: {
             const char16_t* u = reinterpret_cast<const char16_t*>(buf);
@@ -4352,7 +4357,7 @@ QVariant ScanResultsModel::data(const QModelIndex& index, int role) const {
     if (index.column() == 2) {
         // Previous: always the value captured at scan time.
         result_->value(index.row(), buf.data(), vs);
-        return formatScanValue(valueType_, displayHex_, buf.data(), vs);
+        return formatScanValue(valueType_, displayHex_, buf.data(), vs, stringEncoding_);
     }
     // Value: prefer the live re-read for on-screen rows; fall back to the
     // scan-time value for rows not currently refreshed.
@@ -4363,7 +4368,7 @@ QVariant ScanResultsModel::data(const QModelIndex& index, int role) const {
     } else {
         result_->value(index.row(), buf.data(), vs);
     }
-    return formatScanValue(valueType_, displayHex_, buf.data(), vs);
+    return formatScanValue(valueType_, displayHex_, buf.data(), vs, stringEncoding_);
 }
 
 uintptr_t ScanResultsModel::addressAt(int row) const {

@@ -137,6 +137,9 @@ bool isUtf8Encoding(const std::string& encoding) {
     return normalized.empty() || normalized == "utf8" || normalized == "utf-8";
 }
 
+}  // end anonymous namespace: encodeStringBytes/decodeStringBytes need external linkage
+   // (the header declares them; the GUI decodes String scan results with decodeStringBytes)
+
 std::vector<uint8_t> encodeStringBytes(const std::string& text, const std::string& encoding) {
     if (isUtf8Encoding(encoding))
         return {text.begin(), text.end()};
@@ -170,6 +173,41 @@ std::vector<uint8_t> encodeStringBytes(const std::string& text, const std::strin
     iconv_close(cd);
     return out;
 }
+
+std::string decodeStringBytes(const uint8_t* data, size_t len, const std::string& encoding) {
+    // Inverse of encodeStringBytes: interpret `len` code-page bytes as UTF-8 text for
+    // display. A UTF-8 (or empty) encoding is already UTF-8; an unavailable charset
+    // passes through unchanged; bytes that don't map are skipped so display never throws.
+    if (isUtf8Encoding(encoding))
+        return std::string(reinterpret_cast<const char*>(data), len);
+
+    iconv_t cd = iconv_open("UTF-8", encoding.c_str());
+    if (cd == reinterpret_cast<iconv_t>(-1))
+        return std::string(reinterpret_cast<const char*>(data), len);
+
+    char* inPtr = const_cast<char*>(reinterpret_cast<const char*>(data));
+    size_t inLeft = len;
+    std::string out(len * 4 + 8, '\0');
+    char* outPtr = out.data();
+    size_t outLeft = out.size();
+    while (inLeft) {
+        size_t r = iconv(cd, &inPtr, &inLeft, &outPtr, &outLeft);
+        if (r != static_cast<size_t>(-1)) continue;
+        if (errno == E2BIG) {
+            size_t used = out.size() - outLeft;
+            out.resize(out.size() * 2);
+            outPtr = out.data() + used;
+            outLeft = out.size() - used;
+        } else {                     // EILSEQ / EINVAL: drop the offending byte
+            ++inPtr; --inLeft;
+        }
+    }
+    out.resize(out.size() - outLeft);
+    iconv_close(cd);
+    return out;
+}
+
+namespace {  // reopen the anonymous namespace for the remaining file-local helpers
 
 template<typename T>
 using CompareFn = bool(*)(T current, T scanVal, T scanVal2);

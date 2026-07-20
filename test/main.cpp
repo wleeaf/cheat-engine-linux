@@ -9150,6 +9150,26 @@ static void test_prune_scan_result() {
            countOk, addrOk, valOk, firstOk, keepOk, ok ? "OK" : "FAILED");
 }
 
+// decodeStringBytes: interpret code-page bytes as UTF-8 for display (inverse of
+// encodeStringBytes). CP1252 0xE9 is 'é' (U+00E9) = UTF-8 C3 A9. Fixes scan-result
+// mojibake for non-ASCII string scans; the primitive the record code page will reuse.
+static void test_decode_string_bytes() {
+    printf("\n── Test: decodeStringBytes (code page -> UTF-8) ──\n");
+    const uint8_t cp1252[] = {'c', 'a', 'f', 0xE9};                 // "café" in CP1252
+    bool decOk = ce::decodeStringBytes(cp1252, sizeof(cp1252), "CP1252") == "caf\xC3\xA9";
+    // Round-trip against encodeStringBytes: UTF-8 -> CP1252 -> UTF-8.
+    auto enc = ce::encodeStringBytes("caf\xC3\xA9", "CP1252");
+    bool encOk = enc.size() == 4 && enc[3] == 0xE9;
+    bool rtOk = ce::decodeStringBytes(enc.data(), enc.size(), "CP1252") == "caf\xC3\xA9";
+    // A UTF-8 (or empty) encoding returns the bytes verbatim.
+    const uint8_t raw[] = {'h', 'i', 0xC3, 0xA9};
+    bool passOk = ce::decodeStringBytes(raw, sizeof(raw), "UTF-8") == std::string("hi\xC3\xA9") &&
+                  ce::decodeStringBytes(raw, sizeof(raw), "")      == std::string("hi\xC3\xA9");
+    bool ok = decOk && encOk && rtOk && passOk;
+    printf("  decodeStringBytes (dec=%d enc=%d roundtrip=%d passthru=%d): %s\n",
+           decOk, encOk, rtOk, passOk, ok ? "OK" : "FAILED");
+}
+
 static void test_unicode_string_scan() {
     printf("\n── Test: Unicode string scan ──\n");
 
@@ -11093,6 +11113,7 @@ int main(int argc, char* argv[]) {
     test_between_numeric_scan();
     test_nextscan_size_guard();
     test_prune_scan_result();
+    test_decode_string_bytes();
     test_unicode_string_scan();
     test_codepage_string_scan();
     test_all_types_scan();

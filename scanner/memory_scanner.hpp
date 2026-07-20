@@ -12,6 +12,14 @@
 
 namespace ce {
 
+/// UTF-8 <-> code-page string conversion (iconv charset name, e.g. "CP1252"), shared by
+/// code-page-aware string scanning and result display. `encode` turns UTF-8 text into
+/// bytes in `encoding`; `decode` turns `len` bytes in `encoding` back into UTF-8. A
+/// UTF-8/empty encoding or an unavailable charset passes the bytes through unchanged;
+/// bytes that don't map are skipped rather than throwing.
+std::vector<std::uint8_t> encodeStringBytes(const std::string& text, const std::string& encoding);
+std::string decodeStringBytes(const std::uint8_t* data, std::size_t len, const std::string& encoding);
+
 /// Tri-state region-protection filter (CE's grey/checked/unchecked boxes):
 /// Any = don't care, Yes = region must have the bit, No = must NOT have it.
 enum class ProtMatch { Any, Yes, No };

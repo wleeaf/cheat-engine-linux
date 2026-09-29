@@ -13,6 +13,49 @@ reimplementation of Cheat Engine).
 
 ---
 
+## v0.9.0: correctness, safety, and portability fixes (2026-09-29)
+
+A full-tree audit fix release, with new regression tests. No new features; it makes
+existing behaviour correct and safe.
+
+- **Cheat tables: a table-level `<LuaScript>` is no longer shadowed by a record's script.**
+  With a nested group the loader matched the first `</CheatEntries>` (a child's), so a
+  later sibling record's `<LuaScript>` was read as the table script. It now uses the
+  matching close.
+- **`.CETRAINER` / JSON round-trip keeps pointer chains and element lengths.**
+  `saveJson`/`loadJson` dropped `addressString`, `<Offsets>`, `<Length>`, and `<Options>`,
+  so a protected table reloaded as a flat record at 0. These now round-trip.
+- **"All types" scans no longer emit duplicate rows.** A value matching several widths
+  (a 4-byte `42` also matches as int8/int16) produced one row per width; now one per
+  address.
+- **Compact AOB patterns parse correctly.** `488B05` was accepted as one all-hex token and
+  truncated to a single byte (`05`); it now splits into bytes (odd-length/non-hex rejected).
+- **Snapshots larger than 256 MB reload.** Save wrote a uint32 size but load rejected
+  anything over 256 MB; load now bounds by the real remaining file size.
+- **Memory safety.** Fixed a heap out-of-bounds read in the IL2CPP PE parser, a metadata
+  type-count stride overflow, a hotkey error-message use-after-free, a Lua-console output
+  callback use-after-free, and several dangling-handle GUI paths (process replacement /
+  target exit / remote connect).
+- **Debugger.** `PTRACE_SEIZE`+`INTERRUPT` instead of `PTRACE_ATTACH` on arbitrary threads
+  (Wine/Proton safety); newly cloned threads get the start breakpoint; a user breakpoint
+  hit during step-over/out/run-to-cursor is surfaced instead of mistaken for step
+  completion; hardware-breakpoint arm failures are propagated; a partially seized thread is
+  no longer left frozen.
+- **Platform.** `ProcessWatcher` no longer aborts on destruction; `ceserver` `stop()` no
+  longer hangs with a connected client and rejects negative/oversized transfers.
+- **Lua.** `tostring(MemoryRecord)` no longer raises; `createFileStream(path,"w")`
+  truncates/creates; numeric `findMonoFunction` params parse; `readString` and the IL2CPP
+  metadata file reads are bounded.
+- **DWARF.** Pointer width comes from the CU address size, correct for 32-bit modules.
+- **GUI.** Hex value edits (and freeze) no longer write the wrong number; the Debugger and
+  viewers are torn down before the process handle is replaced or freed; "New window"
+  viewers are tracked; `.CT` `<Length>` is preserved on load; the Settings default value
+  type maps to the right scanner type; Save Memory Region is capped.
+- **Build.** The fetched Keystone is patched to drop its `CMP0051 OLD` policy (rejected by
+  CMake ≥ 4.0) and add the `<cstdint>` include newer GCC needs.
+
+---
+
 ## v0.8.0: CE parity sweep, global symbols, code pages, Lua breadth (2026-07-20)
 
 Also carries the v0.7.0 work, which was written up below but never tagged or published.

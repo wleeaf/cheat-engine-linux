@@ -19,13 +19,23 @@ LinuxDebugger::~LinuxDebugger() {
 }
 
 Result<void> LinuxDebugger::attach(pid_t pid) {
-    if (ptrace(PTRACE_ATTACH, pid, nullptr, nullptr) < 0)
+    // SEIZE + INTERRUPT, never ATTACH: ATTACH's injected SIGSTOP deadlocks a
+    // syscall-parked Wine/Proton thread, whereas SEIZE stops it without
+    // delivering a signal (preserving syscall restart). Matches the rule used by
+    // CodeFinder/DebugSession and the injector.
+    if (ptrace(PTRACE_SEIZE, pid, nullptr, nullptr) < 0)
         return std::unexpected(errFromErrno());
+    if (ptrace(PTRACE_INTERRUPT, pid, nullptr, nullptr) < 0) {
+        ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
+        return std::unexpected(errFromErrno());
+    }
 
     int status;
-    // Confirm the attach-stop actually landed before programming options/regs on
+    // Confirm the seize-stop actually landed before programming options/regs on
     // a tracee that may not be stopped yet.
-    if (waitpid(pid, &status, 0) != pid || !WIFSTOPPED(status)) {
+    pid_t w;
+    do { w = waitpid(pid, &status, __WALL); } while (w < 0 && errno == EINTR);
+    if (w != pid || !WIFSTOPPED(status)) {
         ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
         return std::unexpected(std::make_error_code(std::errc::no_such_process));
     }

@@ -80,6 +80,10 @@ bool LuaEngine::nextDebugHit(DebugHit& out, int timeoutMs) {
 }
 
 void LuaEngine::setAddressList(IAddressList* list) {
+    // Detach the previous list's callback, which captures `this`; otherwise it
+    // would outlive this engine and touch a closed lua_State.
+    if (addressList_ && addressList_ != list)
+        addressList_->setActivationCallback(nullptr);
     addressList_ = list;
     if (!L_) return;
 
@@ -259,6 +263,9 @@ LuaEngine::~LuaEngine() {
     // whose callback touches debugMutex_/debugQueue_/debugCv_, which must still be
     // alive here (and before lua_close, since a hit could reference this state).
     debugSession_.reset();
+    // The address list may outlive this engine; drop its callback (captures
+    // `this` and L_) before closing the state so a later activation can't UAF.
+    if (addressList_) addressList_->setActivationCallback(nullptr);
     if (L_) lua_close(L_);
 }
 

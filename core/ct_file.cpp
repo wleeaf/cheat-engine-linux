@@ -1005,7 +1005,13 @@ bool CheatTable::loadFromString(const std::string& xml) {
     // entries block instead; per-entry <LuaScript> tags stay inside and are never
     // matched here.
     auto entriesStart = xml.find("<CheatEntries>");
-    auto entriesClose = xml.find("</CheatEntries>");
+    // Must be the matching close: a group nests its children in their own
+    // <CheatEntries>, so the first close tag can be a child's, which would leave
+    // later per-entry fields in the "outside" region and let getTag() pick up a
+    // record's <LuaScript> as the table-level one.
+    auto entriesClose = (entriesStart == std::string::npos)
+        ? std::string::npos
+        : findMatchingClose(xml, entriesStart, "CheatEntries");
     std::string headerXml;
     if (entriesStart != std::string::npos && entriesClose != std::string::npos) {
         headerXml = xml.substr(0, entriesStart);
@@ -1204,6 +1210,18 @@ bool CheatTable::saveJson(const std::string& path) const {
             f << ",\"addr\":\"" << addr << "\"";
             f << ",\"type\":" << (int)e.type;
             f << ",\"value\":\"" << jsonEscape(e.value) << "\"";
+            // Persist the fields the XML path round-trips too; otherwise a
+            // pointer chain / symbolic base / String-AoB length is lost through
+            // saveJson+loadJson (i.e. every .CETRAINER save/load).
+            if (!e.addressString.empty())
+                f << ",\"addrString\":\"" << jsonEscape(e.addressString) << "\"";
+            if (!e.offsets.empty()) {
+                f << ",\"offsets\":[";
+                for (size_t k = 0; k < e.offsets.size(); ++k)
+                    f << (k ? "," : "") << e.offsets[k];
+                f << "]";
+            }
+            if (e.length > 0) f << ",\"length\":" << e.length;
         }
         if (e.active) f << ",\"active\":true";
         if (e.showAsHex) f << ",\"showAsHex\":true";
@@ -1214,6 +1232,7 @@ bool CheatTable::saveJson(const std::string& path) const {
         if (e.collapsed) f << ",\"collapsed\":true";
         if (!e.autoAsmScript.empty()) f << ",\"asm\":\"" << jsonEscape(e.autoAsmScript) << "\"";
         if (!e.luaScript.empty()) f << ",\"lua\":\"" << jsonEscape(e.luaScript) << "\"";
+        if (!e.optionsXml.empty()) f << ",\"options\":\"" << jsonEscape(e.optionsXml) << "\"";
         if (!e.color.empty()) f << ",\"color\":\"" << jsonEscape(e.color) << "\"";
         if (!e.dropdownList.empty()) f << ",\"dropdown\":\"" << jsonEscape(e.dropdownList) << "\"";
         if (!e.hotkeyKeys.empty()) f << ",\"hotkeys\":\"" << jsonEscape(e.hotkeyKeys) << "\"";
@@ -1300,8 +1319,19 @@ bool CheatTable::loadJson(const std::string& path) {
         e.id = jsonIntField(item, "id");
         e.description = jsonStringField(item, "desc");
         e.address = jsonAddressField(item, "addr");
+        e.addressString = jsonStringField(item, "addrString");
         e.type = jsonValueTypeField(item);
         e.value = jsonStringField(item, "value");
+        if (auto* offs = getField(item, "offsets"); offs && offs->type == JsonValue::Type::Array) {
+            for (const auto& ov : offs->arrayValue) {
+                if (ov.type == JsonValue::Type::Number)
+                    e.offsets.push_back(static_cast<int64_t>(ov.numberValue));
+                else if (ov.type == JsonValue::Type::String) {
+                    try { e.offsets.push_back(std::stoll(ov.stringValue, nullptr, 0)); } catch (...) {}
+                }
+            }
+        }
+        e.length = jsonIntField(item, "length", 0);
         e.active = jsonBoolField(item, "active");
         e.showAsHex = jsonBoolField(item, "showAsHex");
         e.showAsSigned = getField(item, "showAsSigned") ? jsonBoolField(item, "showAsSigned") : true;
@@ -1310,6 +1340,11 @@ bool CheatTable::loadJson(const std::string& path) {
         e.collapsed = jsonBoolField(item, "collapsed");
         e.autoAsmScript = jsonStringField(item, "asm");
         e.luaScript = jsonStringField(item, "lua");
+        e.optionsXml = jsonStringField(item, "options");
+        if (!e.optionsXml.empty()) {
+            e.activateChildren   = e.optionsXml.find("moActivateChildrenAsWell=\"1\"")   != std::string::npos;
+            e.deactivateChildren = e.optionsXml.find("moDeactivateChildrenAsWell=\"1\"") != std::string::npos;
+        }
         e.color = jsonStringField(item, "color");
         e.dropdownList = jsonStringField(item, "dropdown");
         e.hotkeyKeys = jsonStringField(item, "hotkeys");

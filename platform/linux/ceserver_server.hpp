@@ -36,6 +36,9 @@ private:
     void serveClient(int fd);
 
     int listenFd_ = -1;
+    // Accepted client fd, so stop() can shutdown() it to wake a serveClient
+    // blocked in recv() (closing only listenFd_ would leave join() hanging).
+    std::atomic<int> clientFd_{-1};
     uint16_t port_ = 0;
     std::thread thread_;
     std::atomic<bool> running_{false};

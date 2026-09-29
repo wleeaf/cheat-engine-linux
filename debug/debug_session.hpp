@@ -143,7 +143,11 @@ private:
     bool doSetRegs(const CpuContext& ctx);
     bool doSelectThread(pid_t tid);
     void publishStoppedThreads();   // snapshot stoppedTids_ for stoppedThreads()
-    void rewindOverBreakpoint(pid_t tid, int status, uintptr_t bpAddr);
+    // Run `tid` until the temporary int3 at `expected` traps (rewinding RIP so
+    // the original instruction re-executes). If a user software breakpoint is
+    // hit en route it is surfaced as a BreakpointHit and the step is abandoned
+    // there; returns false in that case and on tracee exit, true on success.
+    bool runToTempBreakpoint(pid_t tid, uintptr_t expected);
     // ── All-stop multi-thread helpers (tracer thread only) ──
     // Seize every thread of the target with PTRACE_O_TRACECLONE and leave them
     // stopped. Populates traced_/stoppedTids_. Returns false if none seized.

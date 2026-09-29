@@ -191,6 +191,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             // the shared Lua engine (a table timer/script would do the same).
             for (auto& mv : memoryViewers_) if (mv) mv->detachFromTarget();
             for (auto& sd : structDissectors_) if (sd) sd->detachFromTarget();
+            // The Debugger holds the same raw handle; destroy it too or its
+            // memory-address field would call read() on the freed ProcessHandle.
+            if (debuggerWindow_) delete debuggerWindow_;
             luaEngine_.setProcess(nullptr);
             process_.reset();
             currentPid_ = 0;
@@ -368,15 +371,9 @@ void MainWindow::setupMenus() {
         }
         if (pid < 0) { QMessageBox::warning(this, "Create Process", "fork() failed."); return; }
         usleep(120000);   // let it map its image
-        currentPid_ = pid;
-        ceserverClient_.reset();
-        process_ = std::make_unique<os::LinuxProcessHandle>(pid);
-        processLabel_->setText(QString("PID: %1 - %2 (created)").arg(pid).arg(QFileInfo(path).fileName()));
-        setWindowTitle(QString("Cheat Engine - %1 (%2)").arg(QFileInfo(path).fileName()).arg(pid));
-        addressListModel_->setProcess(process_.get());
-        resultsModel_->setProcess(process_.get());
-        firstScanBtn_->setEnabled(true);
-        updateScanButtons();
+        // Through attachToPid so the old target's Debugger/views are torn down
+        // before process_ is replaced (they hold a raw handle).
+        attachToPid(pid, QFileInfo(path).fileName());
     });
     process->addAction("Process/System Info", this, [this]() {
         if (!process_) { QMessageBox::information(this, "Process Info", "No process opened."); return; }
@@ -448,6 +445,13 @@ void MainWindow::setupMenus() {
             uintptr_t from = fromEdit->text().toULongLong(nullptr, 16);
             uintptr_t to = toEdit->text().toULongLong(nullptr, 16);
             if (to <= from) { QMessageBox::warning(dlg, "Save", "\"To\" must be greater than \"From\"."); return; }
+            // Cap like the Save Disassembly path: an unbounded range would throw
+            // std::bad_alloc out of a Qt slot (terminate) and OOM.
+            constexpr uintptr_t kMaxSave = 64ull * 1024 * 1024;  // 64 MiB
+            if (to - from > kMaxSave) {
+                QMessageBox::warning(dlg, "Save", "Region too large (max 64 MiB).");
+                return;
+            }
             auto path = QFileDialog::getSaveFileName(dlg, "Save memory region", "region.bin");
             if (path.isEmpty()) return;
             std::vector<uint8_t> buf(to - from);
@@ -640,19 +644,9 @@ void MainWindow::setupMenus() {
                         QString("Auto-attached to %1 (pid %2)")
                             .arg(QString::fromStdString(procName)).arg(pid),
                         4000);
-                    currentPid_ = pid;
-                    ceserverClient_.reset();
-                    process_ = std::make_unique<os::LinuxProcessHandle>(pid);
-                    processLabel_->setText(QString("PID: %1 - %2 (auto-attached)")
-                        .arg(pid).arg(QString::fromStdString(procName)));
-                    setWindowTitle(QString("Cheat Engine - %1 (%2)")
-                        .arg(QString::fromStdString(procName)).arg(pid));
-                    warnIfMemoryUnreadable(this, process_.get(), pid,
-                                           QString::fromStdString(procName));
-                    addressListModel_->setProcess(process_.get());
-                    resultsModel_->setProcess(process_.get());
-                    firstScanBtn_->setEnabled(true);
-                    updateScanButtons();
+                    // Through attachToPid so the old target's Debugger/views are
+                    // torn down before process_ is replaced (they hold a raw handle).
+                    attachToPid(pid, QString::fromStdString(procName));
                     if (processWatcher_) processWatcher_->stop();
                 }, Qt::QueuedConnection);
             });
@@ -1437,8 +1431,15 @@ void MainWindow::setupUi() {
         fastScanCheck_->setChecked(s.value("scan/fast", true).toBool());
         alignEdit_->setText(QString::number(s.value("scan/alignment", 4).toInt()));
         alignEdit_->setEnabled(fastScanCheck_->isChecked());
+        // The Settings dialog's default-type combo is shorter than the scanner's
+        // (it omits Unicode String/Binary/All/Grouped/Custom), so its index must
+        // be mapped, not applied raw: e.g. its "Array of byte" (7) and "Pointer"
+        // (8) are scanner indices 8 and 11.
         int dvt = s.value("scan/defaultValueType", 2).toInt();
-        if (dvt >= 0 && dvt < valueTypeCombo_->count()) valueTypeCombo_->setCurrentIndex(dvt);
+        static const int kSettingsToScanner[] = {0, 1, 2, 3, 4, 5, 6, 8, 11};
+        constexpr int kMapSize = (int)(sizeof(kSettingsToScanner) / sizeof(kSettingsToScanner[0]));
+        if (dvt >= 0 && dvt < kMapSize && kSettingsToScanner[dvt] < valueTypeCombo_->count())
+            valueTypeCombo_->setCurrentIndex(kSettingsToScanner[dvt]);
     }
 
     percentCheck_ = new QCheckBox("Compare by %");
@@ -2476,6 +2477,13 @@ void MainWindow::onConnectCeserver() {
             return;
         }
 
+        // Tear down the previous target's Debugger/views before replacing the
+        // handle they point at (they would otherwise read a freed ProcessHandle).
+        if (debuggerWindow_) delete debuggerWindow_;
+        for (auto& mv : memoryViewers_) if (mv) mv->detachFromTarget();
+        memoryViewers_.clear();
+        for (auto& sd : structDissectors_) if (sd) sd->detachFromTarget();
+        structDissectors_.clear();
         ceserverClient_ = std::move(client);
         process_ = std::move(handle);
         currentPid_ = pid;
@@ -3113,6 +3121,9 @@ void MainWindow::wireBrowserAnnotations(MemoryBrowser* browser) {
         trackStructDissector(sd);
         sd->show();
     });
+    // File > New window: open through openMemoryView so the new viewer is tracked
+    // (and frozen on target exit), not left holding a stale ProcessHandle.
+    browser->setNewWindowOpener([this](uintptr_t addr) { openMemoryView(addr); });
 }
 
 void MainWindow::editScriptEntry(int row) {
@@ -3132,6 +3143,12 @@ void MainWindow::editScriptEntry(int row) {
     // Save back to THIS entry (found by stable id, so it survives reordering)
     // instead of appending a duplicate row.
     editor->setAddToTable([this, id](const QString& d, const QString& s) {
+        // An active entry's injected code and saved DisableInfo describe the OLD
+        // script. Disable it (running the old disable path) before replacing the
+        // script, so a later toggle-off can't restore with stale info. The user
+        // re-enables to apply the edited script.
+        if (auto snap = addressListModel_->byId(id); snap && snap->active)
+            addressListModel_->setActive(id, false);
         addressListModel_->updateScriptEntryById(id, d, s);
     });
     editor->setBeforeExecute([this]() { stopCodeFindersForInjection(); });
@@ -3412,6 +3429,9 @@ static QJsonArray cheatEntriesToJson(const ce::CheatTable& table) {
         }
         obj["type"] = QString::number((int)e.type);
         obj["value"] = QString::fromStdString(e.value);
+        // CE <Length> for String / Array-of-byte elements; without it the record
+        // reads/displays at the 64-byte default and a re-save drops the length.
+        if (e.length > 0) obj["byteCount"] = (int)e.length;
         obj["active"] = e.active;
         obj["showAsHex"] = e.showAsHex;
         obj["showAsSigned"] = e.showAsSigned;
@@ -4420,8 +4440,9 @@ void AddressListModel::updateScriptEntryById(int id, const QString& desc, const 
     auto& e = entries_[row];
     e.autoAsmScript = script;
     if (!desc.isEmpty()) e.description = desc;
-    // The script changed; if it is currently enabled its saved DisableInfo is
-    // stale, so drop it (the user should re-toggle to re-apply the new script).
+    // editScriptEntry() disables an ACTIVE entry before calling this (so the old
+    // script is cleanly un-injected and its autoAsmDisableInfo cleared); nothing
+    // stale is left here.
     emit dataChanged(index(row, 0), index(row, columnCount() - 1));
 }
 
@@ -5482,30 +5503,28 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
             auto rawValue = e.dropdownList.isEmpty()
                 ? value.toString()
                 : resolveDropdownInput(value.toString(), e.dropdownList);
-            // When the entry displays in hex, the user types hex; convert it to a
-            // decimal string for the (base-10) writer.
-            QString writeStr = rawValue;
+            // Keep the display form: a hex entry stays "0x..." and parseIntField
+            // reads the 0x prefix as hex. Pre-converting to a bare decimal here and
+            // still passing showHex=true re-read "255" as 0x255 (wrong value), and
+            // the decimal frozenValue was then written the same wrong way.
             if (e.showAsHex) {
                 QString h = rawValue.trimmed();
                 if (h.startsWith("0x") || h.startsWith("0X")) h = h.mid(2);
                 bool okh = false;
                 qulonglong hv = h.toULongLong(&okh, 16);
-                if (okh) {
-                    writeStr = QString::number((qlonglong)hv);
-                    rawValue = "0x" + QString::number(hv, 16);
-                }
+                if (okh) rawValue = "0x" + QString::number(hv, 16);
             }
             e.currentValue = rawValue;
-            if (e.active) e.frozenValue = writeStr;
+            if (e.active) e.frozenValue = rawValue;
             if (proc_) {
                 // Inline value edits write live too, so follow a moving pointer chain to
                 // its current target rather than the address cached at the last refresh.
                 reresolveAddress(e);
-                writeValueToProcess(proc_, e.address, e.type, writeStr, e.codec, e.bigEndian, e.showAsHex);
+                writeValueToProcess(proc_, e.address, e.type, rawValue, e.codec, e.bigEndian, e.showAsHex);
                 // A non-frozen value that snaps back is protected: warn and point the
                 // user at find-what-writes. A frozen entry is intentionally held, so
                 // the freeze timer, not this, owns its persistence.
-                if (!e.active) scheduleEditVerify(e.address, e.type, writeStr, e.codec, e.bigEndian, e.showAsSigned);
+                if (!e.active) scheduleEditVerify(e.address, e.type, rawValue, e.codec, e.bigEndian, e.showAsSigned);
             }
             emit dataChanged(index, index);
             return true;

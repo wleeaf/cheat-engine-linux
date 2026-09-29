@@ -9,6 +9,7 @@
 #include <QColor>
 #include <QEvent>
 #include <QKeyEvent>
+#include <QPointer>
 
 namespace ce::gui {
 
@@ -54,9 +55,12 @@ LuaConsole::LuaConsole(LuaEngine* engine, QWidget* parent)
 
     setCentralWidget(central);
 
-    // Set output callback
-    engine_->setOutputCallback([this](const std::string& msg) {
-        output_->appendPlainText(QString::fromStdString(msg));
+    // Set output callback. Guard with a QPointer: the engine outlives this
+    // console (WA_DeleteOnClose) and keeps calling the callback, so a raw `this`
+    // would be a use-after-free after the window is closed.
+    QPointer<LuaConsole> self(this);
+    engine_->setOutputCallback([self](const std::string& msg) {
+        if (self) self->output_->appendPlainText(QString::fromStdString(msg));
     });
 
     // Register GUI bindings (needs Qt, so done here not in engine)

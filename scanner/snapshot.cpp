@@ -132,7 +132,18 @@ bool Snapshot::load(const std::string& path, std::string* error) {
             !readAll(&byteCount, sizeof(byteCount))) {
             std::fclose(f); return fail("truncated record");
         }
-        if (byteCount > (1u << 28)) { std::fclose(f); return fail("byte count out of range"); }
+        // Bound byteCount by the bytes actually left in the file instead of an
+        // arbitrary per-region cap: save() writes a uint32 byteCount, so a
+        // snapshot of a large region (>256 MB) could be saved but never loaded.
+        // A corrupt/hostile size still cannot force a huge allocation, because
+        // the file must really contain that many bytes.
+        long pos = std::ftell(f);
+        if (pos < 0 || std::fseek(f, 0, SEEK_END) != 0) { std::fclose(f); return fail("seek failed"); }
+        long end = std::ftell(f);
+        if (end < 0 || std::fseek(f, pos, SEEK_SET) != 0) { std::fclose(f); return fail("seek failed"); }
+        if ((uint64_t)byteCount > (uint64_t)(end - pos)) {
+            std::fclose(f); return fail("truncated bytes");
+        }
         SnapshotRegion r;
         r.base = base; r.size = size; r.protection = prot;
         r.bytes.resize(byteCount);

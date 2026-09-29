@@ -209,7 +209,11 @@ static void test_recover_store() {
     d.setArch(ce::Arch::ARM64);
     const uint8_t arm[] = {0x20, 0x00, 0x80, 0xd2};   // movz x0, #1
     auto ai = d.disassemble(0x1000, {arm, sizeof(arm)}, 1);
-    bool armOk = !ai.empty() && ai[0].mnemonic == "movz" && d.arch() == ce::Arch::ARM64;
+    // Capstone >= 5 aliases "movz x0, #1" to "mov x0, #1"; Capstone 4 prints
+    // "movz". Accept either so the fallback (pinned Capstone 5.0.1) and a system
+    // Capstone 4 both pass. The arch() check below still distinguishes ARM64.
+    bool armOk = !ai.empty() && (ai[0].mnemonic == "movz" || ai[0].mnemonic == "mov") &&
+                 d.arch() == ce::Arch::ARM64;
     d.setArch(ce::Arch::X86_32);
     const uint8_t x86[] = {0xb8, 0x01, 0x00, 0x00, 0x00};   // mov eax, 1
     auto xi = d.disassemble(0x1000, {x86, sizeof(x86)}, 1);
@@ -3437,7 +3441,85 @@ static void test_ct_table_luascript_after_entries() {
     bool ok = t.load(path) && t.luaScript == "return 1+1";
     std::filesystem::remove(path);
     printf("  table LuaScript after entries is parsed: %s\n", ok ? "OK" : "FAILED");
+
+    // A group nests its own <CheatEntries>, so the FIRST "</CheatEntries>" is the
+    // child's. Searching "outside the first entries block" then left the sibling
+    // entry after the group in scope, and its per-record <LuaScript> shadowed the
+    // real table-level one. Must use the MATCHING outer close.
+    const char* nested =
+        "<?xml version=\"1.0\"?>\n<CheatTable>\n<CheatEntries>\n"
+        "<CheatEntry><ID>1</ID><Description>grp</Description><GroupHeader>1</GroupHeader>"
+        "<CheatEntries><CheatEntry><ID>2</ID><Description>c</Description>"
+        "<VariableType>4 Bytes</VariableType><Address>400000</Address></CheatEntry></CheatEntries>"
+        "</CheatEntry>\n"
+        "<CheatEntry><ID>3</ID><Description>sib</Description>"
+        "<VariableType>4 Bytes</VariableType><Address>400010</Address>"
+        "<LuaScript>return 'entry'</LuaScript></CheatEntry>\n"
+        "</CheatEntries>\n<LuaScript>return 'table'</LuaScript>\n</CheatTable>\n";
+    auto path2 = (dir / "ce_luascript_nested.ct").string();
+    { std::ofstream o(path2); o << nested; }
+    ce::CheatTable t2;
+    bool nestedOk = t2.load(path2) && t2.luaScript == "return 'table'" && t2.entries.size() == 3;
+    std::filesystem::remove(path2);
+    printf("  table LuaScript not shadowed by a sibling record: %s (got '%s')\n",
+           nestedOk ? "OK" : "FAILED", t2.luaScript.c_str());
 }
+static void test_ct_json_pointer_roundtrip() {
+    printf("\n── Test: JSON round-trip preserves pointer chain / length ──\n");
+    // saveJson/loadJson (also the .CETRAINER path) used to drop these, so a
+    // protected table lost pointer chains, symbolic bases and String/AoB length.
+    CheatTable t;
+    CheatEntry e;
+    e.id = 1;
+    e.description = "ptr";
+    e.type = ValueType::String;
+    e.addressString = "\"game.exe\"+1C";
+    e.offsets = {0x10, 0x8};
+    e.length = 12;
+    e.optionsXml = "<Options moActivateChildrenAsWell=\"1\" moDeactivateChildrenAsWell=\"0\"/>";
+    t.entries.push_back(e);
+
+    auto path = std::filesystem::temp_directory_path() /
+        ("cecore-json-ptr-" + std::to_string(getpid()) + ".json");
+    bool saved = t.saveJson(path.string());
+    CheatTable l;
+    bool loaded = saved && l.loadJson(path.string()) && l.entries.size() == 1;
+    std::filesystem::remove(path);
+    bool ok = loaded &&
+        l.entries[0].addressString == e.addressString &&
+        l.entries[0].offsets == e.offsets &&
+        l.entries[0].length == e.length &&
+        l.entries[0].optionsXml == e.optionsXml;
+    printf("  addressString/offsets/length/optionsXml survive: %s\n", ok ? "OK" : "FAILED");
+}
+
+static void test_il2cpp_pe_header_bounds() {
+    printf("\n── Test: IL2CPP PE optional-header bounds ──\n");
+    // A PE32+ whose SizeOfOptionalHeader does not cover the fields loadPE reads
+    // (magic at +0, ImageBase at +24). With opt at/near EOF this was an OOB read
+    // (caught under the CI ASan job); it must be rejected outright.
+    std::vector<uint8_t> pe(128, 0);
+    pe[0] = 'M'; pe[1] = 'Z';
+    uint32_t e = 0x67;                        // PE header near EOF
+    std::memcpy(&pe[0x3C], &e, 4);
+    std::memcpy(&pe[e], "PE\0\0", 4);
+    size_t coff = e + 4;
+    uint16_t machine = 0x8664; std::memcpy(&pe[coff], &machine, 2);
+    uint16_t nsec = 0;         std::memcpy(&pe[coff + 2], &nsec, 2);
+    uint16_t optSize = 0;      std::memcpy(&pe[coff + 16], &optSize, 2);
+
+    auto path = std::filesystem::temp_directory_path() /
+        ("cecore-il2cpp-pe-" + std::to_string(getpid()) + ".bin");
+    { std::ofstream o(path, std::ios::binary);
+      o.write(reinterpret_cast<const char*>(pe.data()), (std::streamsize)pe.size()); }
+    ce::Il2CppMetadata md;
+    md.tablesDecoded = true;
+    ce::Il2CppBinaryLayout layout = ce::resolveIl2CppLayout(md, path.string());
+    std::filesystem::remove(path);
+    bool ok = !layout.error.empty();   // rejected instead of reading past EOF
+    printf("  undersized optional header rejected: %s\n", ok ? "OK" : "FAILED");
+}
+
 static void test_dwarf_symbols() {
     printf("\n── Test: DWARF symbols ──\n");
 
@@ -3935,6 +4017,28 @@ static void test_lua_streams() {
         assert(b:getString(0) == "one")
     )");
     std::filesystem::remove(tmp);
+
+    // createFileStream "w" must truncate an existing file AND create a missing one.
+    // It used to open in|out, which did neither (stale bytes / nil handle).
+    auto tmpw = std::filesystem::temp_directory_path() / "cecore_stream_w.txt";
+    auto tmpn = std::filesystem::temp_directory_path() / "cecore_stream_new.txt";
+    { std::ofstream o(tmpw, std::ios::binary); o << "OLDDATA"; }
+    std::filesystem::remove(tmpn);
+    std::string sw = "_TMP_W = '" + tmpw.string() + "'\n_TMP_N = '" + tmpn.string() + "'\n";
+    eng.execute(sw);
+    run("createFileStream 'w' truncates and creates", R"(
+        local s = createFileStream(_TMP_W, "w")
+        assert(s ~= nil)
+        s:close()
+        assert(createFileStream(_TMP_W, "r"):getSize() == 0)
+        local n = createFileStream(_TMP_N, "w")
+        assert(n ~= nil)
+        n:write("NEW")
+        n:close()
+        assert(createFileStream(_TMP_N, "r"):getSize() == 3)
+    )");
+    std::filesystem::remove(tmpw);
+    std::filesystem::remove(tmpn);
 }
 
 static void test_snapshot_engine() {
@@ -6881,6 +6985,11 @@ static void test_lua_memrec() {
         m.Description = "Made by Lua"
         local found = getAddressList():getMemoryRecordByDescription("Made by Lua")
         assert(found ~= nil and found.ID == m.ID, "by-description lookup failed")
+        -- __tostring used lua_pushfstring("%llx"), which raises
+        -- "invalid option '%l'"; it must return a string instead.
+        local str = tostring(m)
+        assert(type(str) == "string" and str:find("MemoryRecord") ~= nil,
+               "tostring(mr) failed: " .. tostring(str))
     )");
 
     run("OnActivate fires on activation flip", R"(
@@ -8911,6 +9020,50 @@ static void test_aob_nibble_wildcard() {
     bool ok = has100 && !has200;
     printf("  '48 8B 4? 05' matches 4A, rejects 5A: %s (100=%d 200=%d)\n",
            ok ? "OK" : "FAILED", (int)has100, (int)has200);
+
+    // Compact (space-less) hex must split into bytes; it used to be accepted as
+    // one all-hex token and truncated via strtoul to the last byte only.
+    ScanConfig cc;
+    bool compactOk = cc.parseAOB("488B05") && cc.byteArray.size() == 3 &&
+                     cc.byteArray[0] == 0x48 && cc.byteArray[1] == 0x8B && cc.byteArray[2] == 0x05;
+    ScanConfig odd;
+    bool oddRejected = !odd.parseAOB("488B0");   // odd digit count is invalid
+    printf("  compact AOB '488B05' -> 3 bytes, odd count rejected: %s\n",
+           (compactOk && oddRejected) ? "OK" : "FAILED");
+}
+
+// A value that matches at several widths (a 4-byte 42 also matches as int8/int16)
+// must still yield ONE address row: every All hit stores the same 8-byte window.
+static void test_all_types_no_duplicate_addresses() {
+    printf("\n── Test: All-types scan emits one row per address ──\n");
+    const size_t pageSize = 4096;
+    void* page = mmap(nullptr, pageSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (page == MAP_FAILED) { printf("  setup: FAILED (mmap)\n"); return; }
+    auto* b = static_cast<uint8_t*>(page);
+    const int32_t v = 42;
+    std::memcpy(b + 64, &v, 4);
+
+    LinuxProcessHandle proc(getpid());
+    MemoryScanner scanner;
+    ScanConfig c;
+    c.valueType = ValueType::All;
+    c.compareType = ScanCompare::Exact;
+    c.intValue = 42;
+    c.alignment = 1;
+    c.startAddress = reinterpret_cast<uintptr_t>(page);
+    c.stopAddress = c.startAddress + pageSize;
+    auto r = scanner.firstScan(proc, c);
+
+    std::vector<uintptr_t> addrs;
+    for (size_t i = 0; i < r.count(); ++i) addrs.push_back(r.address(i));
+    std::sort(addrs.begin(), addrs.end());
+    bool dup = std::adjacent_find(addrs.begin(), addrs.end()) != addrs.end();
+    size_t at64 = 0;
+    for (uintptr_t a : addrs) if (a == c.startAddress + 64) ++at64;
+    munmap(page, pageSize);
+    bool ok = !dup && at64 == 1;
+    printf("  one row at the planted address, no duplicates: %s (total=%zu at64=%zu)\n",
+           ok ? "OK" : "FAILED", addrs.size(), at64);
 }
 
 // Tri-state Writable region filter (CE's grey/checked/unchecked box). Place the
@@ -10995,6 +11148,8 @@ int main(int argc, char* argv[]) {
     test_pointer_scan_shard_through_static();
     test_pointer_scan_persistence();
     test_ct_table_luascript_after_entries();
+    test_ct_json_pointer_roundtrip();
+    test_il2cpp_pe_header_bounds();
     test_dwarf_symbols();
     test_plugin_abi();
     test_autoasm_lua_blocks();
@@ -11117,6 +11272,7 @@ int main(int argc, char* argv[]) {
     test_lua_memscan();
     test_binary_scan_bitmask();
     test_aob_nibble_wildcard();
+    test_all_types_no_duplicate_addresses();
     test_protection_filter_scan();
     test_memtype_filter_scan();
     test_module_offset_string();

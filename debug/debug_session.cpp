@@ -122,12 +122,20 @@ bool DebugSession::seizeAllThreads() {
         if (ptrace(PTRACE_SEIZE, tid, nullptr,
                    reinterpret_cast<void*>(PTRACE_O_TRACECLONE)) < 0)
             continue;
-        if (ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) == 0) {
-            int st = 0;
-            if (waitpid(tid, &st, __WALL) == tid) {
-                traced_.insert(tid);
-                stoppedTids_.insert(tid);
-            }
+        if (ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) != 0) {
+            ptrace(PTRACE_DETACH, tid, nullptr, nullptr);   // don't leave it seized
+            continue;
+        }
+        int st = 0;
+        pid_t w;
+        do { w = waitpid(tid, &st, __WALL); } while (w < 0 && errno == EINTR);
+        if (w == tid) {
+            traced_.insert(tid);
+            stoppedTids_.insert(tid);
+        } else {
+            // Seized but never stopped: detach so the thread is not left frozen
+            // (traced_ is what resume/cleanup iterate, so an untracked tid leaks).
+            ptrace(PTRACE_DETACH, tid, nullptr, nullptr);
         }
     }
     return !traced_.empty();
@@ -404,7 +412,12 @@ long DebugSession::doSetHwBp(uintptr_t address, int type, int size) {
     if (reg < 0) return -1;                                   // no free debug register
     int len  = (size == 1) ? 0 : (size == 2) ? 1 : (size == 8) ? 2 : 3;
     int cond = (type == 1) ? 1 : 3;                           // 1=write, else access
-    for (pid_t tid : traced_) armHwBp(tid, reg, address, cond, len);
+    int armed = 0;
+    for (pid_t tid : traced_)
+        if (armHwBp(tid, reg, address, cond, len)) ++armed;
+    // Don't report success if the DR was armed on no thread (e.g. the command
+    // ran while the target was running, so PTRACE_POKEUSER failed).
+    if (!traced_.empty() && armed == 0) return -1;
     int id = nextHwBpId_++;
     hwBreakpoints_.push_back({id, address, reg, cond, len});
     return id;
@@ -647,16 +660,76 @@ void DebugSession::handleStop(pid_t w, int status) {
     ptrace(PTRACE_CONT, w, nullptr, reinterpret_cast<void*>(static_cast<long>(sig)));
 }
 
-// After a temporary software breakpoint (0xCC) traps, RIP points one byte past
-// it. Rewind so the subsequent resume re-executes the original instruction.
-void DebugSession::rewindOverBreakpoint(pid_t tid, int status, uintptr_t bpAddr) {
-    if (!WIFSTOPPED(status)) return;
-    struct user_regs_struct regs;
-    if (ptrace(PTRACE_GETREGS, tid, nullptr, &regs) < 0) return;
-    if (regs.rip == bpAddr + 1) {
-        regs.rip = bpAddr;
-        ptrace(PTRACE_SETREGS, tid, nullptr, &regs);
+// Resume `tid` until the temporary int3 at `expected` traps. A single waitpid
+// used to be assumed to be that temp breakpoint, so a user breakpoint hit during
+// a step-over/out/run-to-cursor was mistaken for step completion (the temp was
+// cleared and a bogus SingleStep reported). Handle each stop: our temp completes
+// the step (RIP rewound), a user int3 is surfaced as a BreakpointHit and the
+// step is abandoned there, other signals are re-delivered.
+bool DebugSession::runToTempBreakpoint(pid_t tid, uintptr_t expected) {
+    long contSig = 0;
+    for (int guard = 0; guard < 1000000; ++guard) {
+        if (ptrace(PTRACE_CONT, tid, nullptr, reinterpret_cast<void*>(contSig)) < 0)
+            return false;
+        contSig = 0;
+        int status = 0;
+        pid_t w;
+        do { w = waitpid(tid, &status, __WALL); } while (w < 0 && errno == EINTR);
+        if (w != tid) return false;
+        if (WIFEXITED(status) || WIFSIGNALED(status)) {
+            DebugEvent evt{};
+            evt.type = DebugEventType::ProcessExited;
+            evt.tid = w;
+            if (eventCb_) eventCb_(evt);
+            attached_ = false;
+            stopped_ = false;
+            return false;
+        }
+        if (!WIFSTOPPED(status)) continue;
+        int sig = WSTOPSIG(status);
+        if (sig != SIGTRAP) { contSig = sig; continue; }   // re-deliver real signal
+        struct user_regs_struct regs;
+        if (ptrace(PTRACE_GETREGS, tid, nullptr, &regs) < 0) continue;
+        if (regs.rip == expected + 1) {                    // our temp int3
+            regs.rip = expected;                           // re-execute the instruction
+            ptrace(PTRACE_SETREGS, tid, nullptr, &regs);
+            return true;
+        }
+        uintptr_t bpAddr = regs.rip - 1;
+        bool hitSoftBp = false;
+        {
+            std::lock_guard lk(bpMutex_);
+            auto it = softBreakpoints_.find(bpAddr);
+            hitSoftBp = (it != softBreakpoints_.end() && it->second.active);
+        }
+        if (hitSoftBp) {                                   // user breakpoint: surface it
+            regs.rip = bpAddr;
+            ptrace(PTRACE_SETREGS, tid, nullptr, &regs);
+            activeTid_ = tid;
+            stoppedTids_.insert(tid);
+            stopOtherThreads(tid);
+            stopped_ = true;
+            captureRegs(tid);
+            DebugEvent evt{};
+            evt.type = DebugEventType::BreakpointHit;
+            evt.tid = tid;
+            evt.address = bpAddr;
+            evt.signal = sig;
+            { std::lock_guard lk(contextMutex_); evt.context = stopContext_; }
+            if (eventCb_) eventCb_(evt);
+            return false;
+        }
+        // Stray SIGTRAP (leftover single-step/group-stop): swallow and continue.
     }
+    // Safety net (pathological signal storm): stop where we are and let doStep
+    // report the stop rather than leaving the thread running with stopped_ true.
+    if (ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) == 0) {
+        int st = 0;
+        pid_t w;
+        do { w = waitpid(tid, &st, __WALL); } while (w < 0 && errno == EINTR);
+        return true;
+    }
+    return false;
 }
 
 void DebugSession::step(StepMode mode, uintptr_t targetAddress) {
@@ -706,6 +779,10 @@ void DebugSession::doStep(StepMode mode, uintptr_t targetAddress) {
             pokeByte(pid_, rip, 0xCC, nullptr);
     };
 
+    // False when a step was abandoned because a user breakpoint was hit en route
+    // (runToTempBreakpoint already surfaced it), so we must not also report a
+    // SingleStep at that stop.
+    bool stepCompleted = true;
     switch (mode) {
         case StepMode::Into: {
             // stepThreadOverBp single-steps if sitting on a bp; otherwise plain step.
@@ -729,10 +806,7 @@ void DebugSession::doStep(StepMode mode, uintptr_t targetAddress) {
                 uintptr_t nextAddr = regs.rip + insns[0].size;
                 bool lifted = liftCurrentBp(regs.rip);
                 Temp t = setTemp(nextAddr);
-                ptrace(PTRACE_CONT, tid, nullptr, nullptr);
-                int status = 0;
-                waitpid(tid, &status, __WALL);
-                rewindOverBreakpoint(tid, status, nextAddr);
+                stepCompleted = runToTempBreakpoint(tid, nextAddr);
                 clearTemp(t);
                 if (lifted) rearmCurrentBp(regs.rip);
             } else {
@@ -753,10 +827,7 @@ void DebugSession::doStep(StepMode mode, uintptr_t targetAddress) {
             if (retAddr) {
                 bool lifted = liftCurrentBp(regs.rip);
                 Temp t = setTemp(retAddr);
-                ptrace(PTRACE_CONT, tid, nullptr, nullptr);
-                int status = 0;
-                waitpid(tid, &status, __WALL);
-                rewindOverBreakpoint(tid, status, retAddr);
+                stepCompleted = runToTempBreakpoint(tid, retAddr);
                 clearTemp(t);
                 if (lifted) rearmCurrentBp(regs.rip);
             }
@@ -769,15 +840,14 @@ void DebugSession::doStep(StepMode mode, uintptr_t targetAddress) {
                 ptrace(PTRACE_GETREGS, tid, nullptr, &regs);
                 bool lifted = liftCurrentBp(regs.rip);
                 Temp t = setTemp(targetAddress);
-                ptrace(PTRACE_CONT, tid, nullptr, nullptr);
-                int status = 0;
-                waitpid(tid, &status, __WALL);
-                rewindOverBreakpoint(tid, status, targetAddress);
+                stepCompleted = runToTempBreakpoint(tid, targetAddress);
                 clearTemp(t);
                 if (lifted) rearmCurrentBp(regs.rip);
             }
             break;
     }
+
+    if (!stepCompleted) return;   // a BreakpointHit/exit was already surfaced
 
     stopped_ = true;
     captureRegs(tid);

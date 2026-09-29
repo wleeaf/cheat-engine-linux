@@ -6,6 +6,13 @@
 
 namespace ce::os {
 
+ProcessWatcher::~ProcessWatcher() {
+    // Must join: destroying a joinable std::thread calls std::terminate, so a
+    // still-running watcher (e.g. window closed while "Wait for process..." is
+    // active) would abort the app.
+    stop();
+}
+
 void ProcessWatcher::start(const std::string& processName, Callback callback, int pollIntervalMs) {
     // Claim ownership atomically: only the caller that flips running_ false->true
     // proceeds, so two concurrent start() calls can't both spawn a watchLoop

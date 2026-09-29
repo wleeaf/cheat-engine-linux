@@ -153,6 +153,11 @@ bool decodeTables(const uint8_t* data, size_t size, Il2CppMetadata& md,
     for (size_t k = 0; k < nImages; ++k)
         totalTypes += rdU32(data + imgOff + k * L->imageSize + L->imgTypeCountOff);
     if (totalTypes == 0) return false;
+    if (L->typeDefSize == 0) return false;
+    // Guard the multiply: totalTypes is an unchecked sum of per-image uint32
+    // counts, so a crafted file could overflow uint64 and make the stride check
+    // pass while nTypes stays astronomically large (huge reserve / OOB loop).
+    if (totalTypes > static_cast<uint64_t>(tdSize) / L->typeDefSize) return false;
     if (static_cast<uint64_t>(tdSize) != totalTypes * L->typeDefSize) return false;
 
     const size_t nFields = static_cast<size_t>(fieldsSize) / kFieldRecSize;

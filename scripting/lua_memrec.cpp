@@ -20,6 +20,7 @@ extern "C" {
 #include <lualib.h>
 }
 
+#include <cstdio>
 #include <cstring>
 #include <string>
 
@@ -460,7 +461,11 @@ int l_mr__index(lua_State* L) {
 
 int l_mr__newindex(lua_State* L) {
     auto* ref = static_cast<MemRecRef*>(luaL_checkudata(L, 1, MEMREC_MT));
-    const char* key = luaL_checkstring(L, 2);
+    // Copy the key: lua_remove(L, 2) below drops the stack reference, and a long
+    // dynamically-built key would otherwise be collectible before the dispatch
+    // (and luaL_error's %s) reads it.
+    const std::string keyStr = luaL_checkstring(L, 2);
+    const char* key = keyStr.c_str();
 
     // OnActivate handler — store function in registry callbacks table keyed by id.
     if (strcmp(key, "OnActivate") == 0 || strcmp(key, "OnDeactivate") == 0) {
@@ -522,8 +527,12 @@ int l_mr__tostring(lua_State* L) {
     if (!list) { lua_pushfstring(L, "MemoryRecord(id=%d, detached)", ref->id); return 1; }
     auto snap = list->byId(ref->id);
     if (!snap) { lua_pushfstring(L, "MemoryRecord(id=%d, deleted)", ref->id); return 1; }
-    lua_pushfstring(L, "MemoryRecord(id=%d, addr=0x%llx, type=%s, desc=%s)",
-        ref->id, (long long)snap->address, typeName(snap->type), snap->description.c_str());
+    // lua_pushfstring supports only %s %c %d %I %f %p %U %% — a %llx here made
+    // tostring(mr) raise "invalid option '%l'". Format the address first.
+    char addr[32];
+    std::snprintf(addr, sizeof(addr), "0x%llx", static_cast<unsigned long long>(snap->address));
+    lua_pushfstring(L, "MemoryRecord(id=%d, addr=%s, type=%s, desc=%s)",
+        ref->id, addr, typeName(snap->type), snap->description.c_str());
     return 1;
 }
 

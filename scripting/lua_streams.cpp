@@ -79,16 +79,22 @@ void pushMemoryStream(lua_State* L) {
 }
 
 void pushFileStream(lua_State* L, const std::string& path, const std::string& mode) {
-    auto openMode = std::ios::binary | std::ios::in;
+    // stdio-like modes: "w" must truncate (and create); the old in|out mapping
+    // neither truncated nor created, so a "w" script silently read stale data.
+    const bool hasR    = mode.find('r') != std::string::npos || mode == "rw";
+    const bool hasW    = mode.find('w') != std::string::npos;
+    const bool hasA    = mode.find('a') != std::string::npos;
+    const bool hasPlus = mode.find('+') != std::string::npos || mode == "rw";
+    auto openMode = std::ios::binary;
     bool readOnly = true;
-    if (mode.find('w') != std::string::npos) {
+    if (hasW || hasA || hasPlus) {
         openMode |= std::ios::out;
         readOnly = false;
     }
-    if (mode.find('+') != std::string::npos || mode == "rw") {
-        openMode |= std::ios::out;
-        readOnly = false;
-    }
+    if (hasW) openMode |= std::ios::trunc;
+    if (hasA) openMode |= std::ios::app;
+    if (hasR || hasPlus) openMode |= std::ios::in;
+    if (!(openMode & (std::ios::in | std::ios::out))) openMode |= std::ios::in;
     if (!readOnly && isExistingSymlink(path.c_str())) {
         lua_pushnil(L);
         return;

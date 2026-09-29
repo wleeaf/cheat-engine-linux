@@ -85,7 +85,9 @@ bool loadPE(Image& img) {
     uint16_t nSec = img.u16(coff + 2);
     uint16_t optSize = img.u16(coff + 16);
     size_t opt = coff + 20;
-    if (!img.inRange(opt, optSize)) return false;
+    // optSize must actually cover the fields read below (magic at +0, ImageBase
+    // at +24..+32); inRange(opt, optSize) alone lets optSize == 0 read past EOF.
+    if (!img.inRange(opt, optSize) || optSize < 0x20) return false;
     if (img.u16(opt) != 0x20B) return false;         // PE32+ (magic)
     img.imageBase = img.u64(opt + 24);
     size_t secTbl = opt + optSize;

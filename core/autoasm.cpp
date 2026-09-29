@@ -2013,6 +2013,13 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
                 auto addrExpr = trim(args.substr(0, comma));
                 auto sizeStr = trim(args.substr(comma + 1));
                 auto addr = resolveAddress(addrExpr, allocs, labels, defines);
+                // The sizing pass always advances by the READMEM size, so an
+                // unresolved source here would place every later instruction at
+                // the wrong address. Fail loudly instead of silently skipping.
+                if (!addr) {
+                    result.error = "READMEM source address unresolved: " + addrExpr;
+                    return result;
+                }
                 // Parse the size identically to the forward-label sizing pass
                 // (base-0, so CE-style 0x.. hex sizes are honored); otherwise
                 // the two passes disagree and later code lands at a wrong
@@ -2026,7 +2033,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
                     result.error = "READMEM size too large: " + sizeStr;
                     return result;
                 }
-                if (addr && sz > 0) {
+                if (sz > 0) {
                     std::vector<uint8_t> mem(sz);
                     auto rr = proc.read(addr, mem.data(), sz);
                     if (!rr || *rr < sz) {

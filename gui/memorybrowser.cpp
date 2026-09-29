@@ -1622,6 +1622,9 @@ void MemoryBrowser::buildMenuBar() {
 
     auto* file = mb->addMenu("&File");
     file->addAction("New window", this, [this]() {
+        // Prefer the owner's opener so the new viewer is tracked (and frozen on
+        // target exit); the raw fallback is only for a browser opened standalone.
+        if (newWindowOpener_) { newWindowOpener_(currentAddr_); return; }
         auto* b = new MemoryBrowser(proc_, parentWidget());
         b->setAttribute(Qt::WA_DeleteOnClose);
         b->gotoAddress(currentAddr_);

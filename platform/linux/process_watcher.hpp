@@ -13,6 +13,8 @@ class ProcessWatcher {
 public:
     using Callback = std::function<void(pid_t pid, const std::string& name)>;
 
+    ~ProcessWatcher();
+
     void start(const std::string& processName, Callback callback, int pollIntervalMs = 500);
     void stop();
     bool running() const { return running_.load(); }

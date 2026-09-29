@@ -199,7 +199,13 @@ static std::string dwarfTypeName(Dwarf_Die* type, uint64_t& sizeOut,
         }
         case DW_TAG_pointer_type: {
             isPointer = true;
-            sizeOut = 8;
+            // Pointer width is the CU's address size (4 for ELFCLASS32, 8 for
+            // ELFCLASS64), not always 8. dwarf_diecu gives it; fall back to 8.
+            uint8_t addrsize = 8;
+            Dwarf_Die cu;
+            if (dwarf_diecu(type, &cu, &addrsize, nullptr) == nullptr || addrsize == 0)
+                addrsize = 8;
+            sizeOut = static_cast<uint64_t>(addrsize);
             Dwarf_Die inner;
             if (followType(&inner)) {
                 uint64_t s2 = 0; bool f2 = false, p2 = false;

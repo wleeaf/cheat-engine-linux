@@ -191,7 +191,7 @@ bool evaluateBreakpointCondition(const std::string& condition, const CpuContext&
     Breakpoint bp;
     bp.condition = condition;
     bp.address = rip;
-    BreakpointHit hit;
+    BreakpointHit hit{};   // value-init: conditionMatches reads hit.tid (no tid here)
     hit.context = ctx;
     hit.rip = rip;
     hit.address = rip;

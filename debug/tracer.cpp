@@ -3,6 +3,7 @@
 #include <sys/ptrace.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <cerrno>
 #include <cstring>
 #include <set>
 #include <vector>
@@ -65,8 +66,29 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
                 continue;
             }
             if (!WIFSTOPPED(status)) continue;
-            // A newly cloned thread: it is auto-seized+stopped; resume it (+parent).
+            // A newly cloned thread: it is auto-seized+stopped. Arm the start
+            // breakpoint on it and resume both it and the parent, or a start
+            // address first reached on the new thread is missed (and its
+            // SIGSTOP would otherwise be re-delivered by the generic path).
             if ((status >> 8) == (SIGTRAP | (PTRACE_EVENT_CLONE << 8))) {
+                unsigned long newTid = 0;
+                if (ptrace(PTRACE_GETEVENTMSG, w, nullptr, &newTid) == 0 && newTid != 0) {
+                    pid_t child = static_cast<pid_t>(newTid);
+                    int cst = 0;
+                    pid_t cw;
+                    do { cw = waitpid(child, &cst, __WALL); } while (cw < 0 && errno == EINTR);
+                    if (cw == child && WIFSTOPPED(cst)) {
+                        seized.insert(child);
+                        if (config.startAddress)
+                            dbg.setBreakpoint(child, 0, config.startAddress, 0 /*execute*/, 0 /*1 byte*/);
+                        ptrace(PTRACE_CONT, child, nullptr, nullptr);
+                    } else {
+                        // Could not consume its initial stop; release it so it is
+                        // not left seized/stopped forever (detachAll only knows
+                        // about `seized`).
+                        ptrace(PTRACE_DETACH, child, nullptr, nullptr);
+                    }
+                }
                 ptrace(PTRACE_CONT, w, nullptr, nullptr);
                 continue;
             }

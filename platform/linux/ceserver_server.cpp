@@ -32,6 +32,10 @@ constexpr uint8_t CMD_CREATETOOLHELP32SNAPSHOTEX = 35;
 constexpr uint32_t TH32CS_SNAPTHREAD = 0x4;
 constexpr uint32_t TH32CS_SNAPMODULE = 0x8;
 
+// Cap a single client read/write so a hostile/corrupt size can't OOM the server
+// (a negative int32 write size cast to size_t is ~2^64) or drive a huge vector.
+constexpr uint32_t kMaxTransfer = 64u * 1024 * 1024;  // 64 MB
+
 bool recvAll(int fd, void* buf, size_t n) {
     auto* p = static_cast<uint8_t*>(buf);
     while (n > 0) {
@@ -81,6 +85,12 @@ uint16_t CeserverServer::start(uint16_t port) {
 void CeserverServer::stop() {
     if (!running_.exchange(false)) return;
     if (listenFd_ >= 0) { ::shutdown(listenFd_, SHUT_RDWR); ::close(listenFd_); listenFd_ = -1; }
+    // Wake a serveClient blocked in recv() on the accepted socket, or join()
+    // below would wait for it forever.
+    if (int fd = clientFd_.exchange(-1); fd >= 0) {
+        ::shutdown(fd, SHUT_RDWR);
+        ::close(fd);
+    }
     if (thread_.joinable()) thread_.join();
     // The accept thread (and its serveClient) is gone; tear the debug session
     // down now so its tracer thread joins before our members are destroyed.
@@ -92,8 +102,12 @@ void CeserverServer::acceptLoop() {
     while (running_.load()) {
         int fd = ::accept(listenFd_, nullptr, nullptr);
         if (fd < 0) break;
+        clientFd_.store(fd);
         serveClient(fd);   // one client at a time (minimal)
-        ::close(fd);
+        // Only close if stop() did not already take (and close) the fd.
+        int expected = fd;
+        if (clientFd_.compare_exchange_strong(expected, -1))
+            ::close(fd);
     }
 }
 
@@ -128,6 +142,7 @@ void CeserverServer::serveClient(int fd) {
                 uint32_t handle = 0, size = 0; uint64_t address = 0; uint8_t compress = 0;
                 if (!recvAll(fd, &handle, 4) || !recvAll(fd, &address, 8) ||
                     !recvAll(fd, &size, 4) || !recvAll(fd, &compress, 1)) return;
+                if (size > kMaxTransfer) { int32_t got = 0; if (!sendAll(fd, &got, 4)) return; break; }
                 std::vector<uint8_t> buf(size);
                 LinuxProcessHandle proc(static_cast<pid_t>(handle));
                 auto r = proc.read(static_cast<uintptr_t>(address), buf.data(), size);
@@ -140,7 +155,10 @@ void CeserverServer::serveClient(int fd) {
                 int32_t handle = 0, size = 0; int64_t address = 0;
                 if (!recvAll(fd, &handle, 4) || !recvAll(fd, &address, 8) ||
                     !recvAll(fd, &size, 4)) return;
-                std::vector<uint8_t> buf(size > 0 ? static_cast<size_t>(size) : 0);
+                // Reject a bad size by dropping the connection: the announced
+                // bytes were not read, so the stream can no longer be trusted.
+                if (size < 0 || static_cast<uint32_t>(size) > kMaxTransfer) return;
+                std::vector<uint8_t> buf(static_cast<size_t>(size));
                 if (size > 0 && !recvAll(fd, buf.data(), static_cast<size_t>(size))) return;
                 LinuxProcessHandle proc(static_cast<pid_t>(handle));
                 auto r = proc.write(static_cast<uintptr_t>(address), buf.data(),

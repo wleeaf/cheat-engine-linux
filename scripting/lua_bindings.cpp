@@ -156,10 +156,14 @@ static int l_readString(lua_State* L) {
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
     int maxLen = luaL_optinteger(L, 2, 256);
     luaL_argcheck(L, maxLen >= 0, 2, "max length must be non-negative");
+    // Cap like readBytes: an unbounded maxLen could OOM, and maxLen == INT_MAX
+    // made `maxLen + 1` signed-overflow (UB) before the allocation.
+    constexpr int kMaxReadString = 1 << 24;  // 16 MB
+    if (maxLen > kMaxReadString) maxLen = kMaxReadString;
     // Allocate under try/catch: a large maxLen can throw bad_alloc, which must
     // not escape this C function into C-compiled Lua frames (UB).
     try {
-        std::vector<char> buf(maxLen + 1, 0);
+        std::vector<char> buf(static_cast<size_t>(maxLen) + 1, 0);
         auto r = p->read(addr, buf.data(), maxLen);
         if (r) {
             buf[*r] = 0;
@@ -960,6 +964,10 @@ static int l_readStringLocal(lua_State* L) {
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
     int maxLen = luaL_optinteger(L, 2, 256);
     luaL_argcheck(L, maxLen >= 0, 2, "max length must be non-negative");
+    // Cap the scan so a huge maxLen cannot walk far past the string into
+    // unmapped memory (strnlen faults) or stall.
+    constexpr int kMaxReadString = 1 << 24;  // 16 MB
+    if (maxLen > kMaxReadString) maxLen = kMaxReadString;
 
     auto* str = reinterpret_cast<const char*>(addr);
     lua_pushlstring(L, str, strnlen(str, maxLen));
@@ -2886,12 +2894,14 @@ static int l_findMonoFunction(lua_State* L) {
     const char* cls  = luaL_checkstring(L, 2);
     const char* meth = luaL_checkstring(L, 3);
     int paramCount = -1;
-    if (lua_isstring(L, 4)) {
+    // lua_isstring() is true for numbers too, so check the concrete type: a
+    // numeric arg is the param count, not a comma-separated type list.
+    if (lua_type(L, 4) == LUA_TNUMBER) {
+        paramCount = (int)lua_tointeger(L, 4);
+    } else if (lua_type(L, 4) == LUA_TSTRING) {
         std::string params = lua_tostring(L, 4);
         if (params.empty()) paramCount = 0;
         else paramCount = 1 + (int)std::count(params.begin(), params.end(), ',');
-    } else if (lua_isnumber(L, 4)) {
-        paramCount = (int)lua_tointeger(L, 4);
     }
     ce::SymbolResolver resolver;
     resolver.loadProcess(*p);
@@ -2963,6 +2973,31 @@ static int l_getIl2CppMetadataPath(lua_State* L) {
     return 1;
 }
 
+// Metadata files are tens of MB at most; cap well above that. The path can come
+// from a table's Lua, and an unbounded istreambuf_iterator read of /dev/zero
+// never hits EOF (grows until OOM) and a huge file OOMs, so read in a capped
+// loop like readFromFile does.
+constexpr size_t kMaxMetadataBytes = 256u * 1024 * 1024;  // 256 MB
+static bool readFileCapped(const std::string& path, size_t maxBytes,
+                           std::vector<uint8_t>& out, std::string& err) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) { err = "cannot open metadata file"; return false; }
+    out.clear();
+    try {
+        char buf[65536];
+        while (in && out.size() < maxBytes) {
+            in.read(buf, (std::streamsize)std::min(sizeof(buf), maxBytes - out.size()));
+            std::streamsize got = in.gcount();
+            if (got <= 0) break;
+            out.insert(out.end(), buf, buf + got);
+        }
+    } catch (const std::exception& ex) {
+        err = ex.what();
+        return false;
+    }
+    return true;
+}
+
 // getIl2CppClasses([path]) -> { version, decoded, classes = { {image, namespace,
 //   name, fullName, fields = { "name", ... } }, ... } }, or nil + message.
 // With no path, auto-locates global-metadata.dat for the open process. This is
@@ -2986,10 +3021,11 @@ static int l_getIl2CppClasses(lua_State* L) {
         path = *found;
     }
 
-    std::ifstream in(path, std::ios::binary);
-    if (!in) { lua_pushnil(L); lua_pushstring(L, "cannot open metadata file"); return 2; }
-    std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)),
-                             std::istreambuf_iterator<char>());
+    std::vector<uint8_t> buf;
+    std::string err;
+    if (!readFileCapped(path, kMaxMetadataBytes, buf, err)) {
+        lua_pushnil(L); lua_pushstring(L, err.c_str()); return 2;
+    }
     auto md = ce::parseIl2CppMetadata(buf.data(), buf.size());
     if (!md) { lua_pushnil(L); lua_pushstring(L, "not a valid global-metadata.dat"); return 2; }
 
@@ -3036,10 +3072,11 @@ static int l_getIl2CppClasses(lua_State* L) {
 static bool luaBuildIl2CppLayout(lua_State* L, const std::string& metaPath,
                                  const std::string& binPath, ce::Il2CppBinaryLayout& layout) {
     if (!metaPath.empty()) {
-        std::ifstream in(metaPath, std::ios::binary);
-        if (!in) { lua_pushnil(L); lua_pushstring(L, "cannot open metadata file"); return false; }
-        std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)),
-                                 std::istreambuf_iterator<char>());
+        std::vector<uint8_t> buf;
+        std::string err;
+        if (!readFileCapped(metaPath, kMaxMetadataBytes, buf, err)) {
+            lua_pushnil(L); lua_pushstring(L, err.c_str()); return false;
+        }
         auto md = ce::parseIl2CppMetadata(buf.data(), buf.size());
         if (!md) { lua_pushnil(L); lua_pushstring(L, "not a valid global-metadata.dat"); return false; }
         std::string ga = binPath;
@@ -3192,10 +3229,11 @@ static int l_getIl2CppStructure(lua_State* L) {
 
     ce::Il2CppBinaryLayout layout;
     if (!metaPath.empty()) {
-        std::ifstream in(metaPath, std::ios::binary);
-        if (!in) { lua_pushnil(L); lua_pushstring(L, "cannot open metadata file"); return 2; }
-        std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)),
-                                 std::istreambuf_iterator<char>());
+        std::vector<uint8_t> buf;
+        std::string err;
+        if (!readFileCapped(metaPath, kMaxMetadataBytes, buf, err)) {
+            lua_pushnil(L); lua_pushstring(L, err.c_str()); return 2;
+        }
         auto md = ce::parseIl2CppMetadata(buf.data(), buf.size());
         if (!md) { lua_pushnil(L); lua_pushstring(L, "not a valid global-metadata.dat"); return 2; }
         std::string ga = binPath;
@@ -3315,10 +3353,9 @@ static std::string luaIl2CppMethodContext(lua_State* L, const std::string& metaP
                                           std::optional<ce::Il2CppMetadata>& md,
                                           std::string& binary, uint64_t& moduleBase) {
     if (!metaPath.empty()) {
-        std::ifstream in(metaPath, std::ios::binary);
-        if (!in) return "cannot open metadata file";
-        std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)),
-                                 std::istreambuf_iterator<char>());
+        std::vector<uint8_t> buf;
+        std::string err;
+        if (!readFileCapped(metaPath, kMaxMetadataBytes, buf, err)) return err;
         md = ce::parseIl2CppMetadata(buf.data(), buf.size());
         if (!md) return "not a valid global-metadata.dat";
         binary = binPath;
@@ -3340,9 +3377,9 @@ static std::string luaIl2CppMethodContext(lua_State* L, const std::string& metaP
     auto paths = mappedFilePaths(*p);
     auto mp = ce::findIl2CppMetadataPath(paths);
     if (!mp) return "global-metadata.dat not found for this process";
-    std::ifstream in(*mp, std::ios::binary);
-    if (!in) return "cannot open " + *mp;
-    std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::vector<uint8_t> buf;
+    std::string err;
+    if (!readFileCapped(*mp, kMaxMetadataBytes, buf, err)) return err;
     md = ce::parseIl2CppMetadata(buf.data(), buf.size());
     if (!md) return "failed to parse metadata";
     binary = ce::findGameAssemblyPath(paths);
@@ -4406,10 +4443,13 @@ static int l_hotkey_trigger(lua_State* L) {
 
     lua_rawgeti(L, LUA_REGISTRYINDEX, hotkey->callbackRef);
     if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+        // Copy the message before popping it: pushing a new string can run a GC
+        // step that collects the now-unreferenced error string (use-after-free).
         const char* err = lua_tostring(L, -1);
+        std::string msg = err ? err : "hotkey callback failed";
         lua_pop(L, 1);
         lua_pushnil(L);
-        lua_pushstring(L, err ? err : "hotkey callback failed");
+        lua_pushlstring(L, msg.data(), msg.size());
         return 2;
     }
     lua_pushboolean(L, 1);
@@ -4705,7 +4745,9 @@ static bool pushCustomType(lua_State* L, const char* name) {
 }
 
 static std::string customBytesArg(lua_State* L, int index) {
-    if (lua_isstring(L, index)) {
+    // lua_isstring() is true for numbers; require a real string so a numeric arg
+    // is rejected rather than silently converted to its decimal text ("5" -> 0x35).
+    if (lua_type(L, index) == LUA_TSTRING) {
         size_t len = 0;
         const char* bytes = lua_tolstring(L, index, &len);
         return std::string(bytes, len);

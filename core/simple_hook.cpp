@@ -77,6 +77,7 @@ std::optional<SimpleHook> installSimpleHook(ProcessHandle& proc, uintptr_t addre
     int64_t rel = (int64_t)gate - (int64_t)(address + 5);
     if (rel > 0x7FFFFFFFLL || rel < -0x80000000LL) {
         ce::log::warn(ce::log::Cat::General, "createSimpleHook: codecave out of rel32 range");
+        proc.free(*cave, 64 + patchLen);
         return std::nullopt;
     }
 
@@ -88,6 +89,7 @@ std::optional<SimpleHook> installSimpleHook(ProcessHandle& proc, uintptr_t addre
     if (!proc.write(gate, gateBytes.data(), gateBytes.size()) ||
         !proc.write(trampoline, tramp.data(), tramp.size())) {
         ce::log::warn(ce::log::Cat::General, "createSimpleHook: codecave write failed");
+        proc.free(*cave, 64 + patchLen);
         return std::nullopt;
     }
 
@@ -100,6 +102,8 @@ std::optional<SimpleHook> installSimpleHook(ProcessHandle& proc, uintptr_t addre
     proc.protect(address, patchLen, MemProt::Read | MemProt::Write | MemProt::Exec);
     if (!proc.write(address, patch.data(), patch.size())) {
         ce::log::warn(ce::log::Cat::General, "createSimpleHook: patch write failed @ {:#x}", address);
+        proc.protect(address, patchLen, MemProt::Read | MemProt::Exec);
+        proc.free(*cave, 64 + patchLen);
         return std::nullopt;
     }
     proc.protect(address, patchLen, MemProt::Read | MemProt::Exec);

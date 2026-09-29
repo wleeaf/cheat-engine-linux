@@ -902,32 +902,37 @@ void scanBufferAllTypes(const uint8_t* buf, size_t bufSize, uintptr_t baseAddr,
         result.addResult(baseAddr + off, w, 8);
     };
     for (size_t offset = 0; offset < emitLimit; offset += alignment) {
+        // A given address often matches at several widths (a 4-byte 42 also
+        // matches as int8/int16), but every hit stores the same 8-byte window, so
+        // emit at most one result per offset. Otherwise the found list fills with
+        // duplicate addresses and nextScan rescans each duplicate.
+        bool matched = false;
         // Byte
         if (offset < bufSize) {
             int8_t v; std::memcpy(&v, buf + offset, 1);
             if (cmpI8(v, (int8_t)intVal, 0))
-                addAll(offset);
+                matched = true;
         }
         // Int16
-        if (offset + 2 <= bufSize) {
+        if (!matched && offset + 2 <= bufSize) {
             int16_t v; std::memcpy(&v, buf + offset, 2);
             if (cmpI16(v, (int16_t)intVal, 0))
-                addAll(offset);
+                matched = true;
         }
         // Int32
-        if (offset + 4 <= bufSize) {
+        if (!matched && offset + 4 <= bufSize) {
             int32_t v; std::memcpy(&v, buf + offset, 4);
             if (cmpI32(v, (int32_t)intVal, 0))
-                addAll(offset);
+                matched = true;
         }
         // Int64
-        if (offset + 8 <= bufSize) {
+        if (!matched && offset + 8 <= bufSize) {
             int64_t v; std::memcpy(&v, buf + offset, 8);
             if (cmpI64(v, intVal, 0))
-                addAll(offset);
+                matched = true;
         }
         // Float
-        if (offset + 4 <= bufSize) {
+        if (!matched && offset + 4 <= bufSize) {
             float v; std::memcpy(&v, buf + offset, 4);
             // The magnitude squelch (drop tiny/huge floats as implausible) is a
             // heuristic that only makes sense for Unknown/initial scans — it
@@ -938,18 +943,20 @@ void scanBufferAllTypes(const uint8_t* buf, size_t bufSize, uintptr_t baseAddr,
                              (std::abs(v) < 1e15f && std::abs(v) > 1e-15f);
             if (!std::isnan(v) && !std::isinf(v) && plausible)
                 if (cmpF32(v, (float)floatVal, 0))
-                    addAll(offset);
+                    matched = true;
         }
         // Double
-        if (offset + 8 <= bufSize) {
+        if (!matched && offset + 8 <= bufSize) {
             double v; std::memcpy(&v, buf + offset, 8);
             bool plausible = (cmp != ScanCompare::Unknown) ||
                              (v == 0.0) ||
                              (std::abs(v) < 1e100 && std::abs(v) > 1e-100);
             if (!std::isnan(v) && !std::isinf(v) && plausible)
                 if (cmpF64(v, floatVal, 0))
-                    addAll(offset);
+                    matched = true;
         }
+        if (matched)
+            addAll(offset);
     }
 }
 
@@ -1338,8 +1345,24 @@ bool ScanConfig::parseAOB(const std::string& pattern) {
             nib(token[0], hv, hm); nib(token[1], lv, lm);
             byteArray.push_back((uint8_t)((hv << 4) | lv));
             byteArrayMask.push_back((uint8_t)((hm << 4) | lm));
+        } else if (token.size() > 2) {
+            // Compact multi-byte token ("488B05"): split into 2-digit bytes.
+            // Accepting it as one all-hex token and truncating via strtoul to a
+            // single byte silently scanned the wrong pattern, so split instead.
+            // Require all-hex and an even digit count; reject anything else.
+            for (char c : token) if (!isHex(c)) valid = false;
+            if (!valid || token.size() % 2 != 0) {
+                valid = false;
+            } else {
+                for (size_t i = 0; i < token.size(); i += 2) {
+                    uint8_t hv, hm, lv, lm;
+                    nib(token[i], hv, hm); nib(token[i + 1], lv, lm);
+                    byteArray.push_back((uint8_t)((hv << 4) | lv));
+                    byteArrayMask.push_back((uint8_t)((hm << 4) | lm));
+                }
+            }
         } else {
-            // A single hex digit or an over-long token: accept only if all-hex.
+            // A single hex digit: a one-byte value (0x0..0xF).
             for (char c : token) if (!isHex(c)) valid = false;
             byteArray.push_back((uint8_t)strtoul(token.c_str(), nullptr, 16));
             byteArrayMask.push_back(0xFF);

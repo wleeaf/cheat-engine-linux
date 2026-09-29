@@ -25,9 +25,10 @@ std::string PointerPath::toString() const {
     for (auto off : offsets) {
         result += "]";
         if (off >= 0)
-            snprintf(buf, sizeof(buf), "+0x%x", off);
+            snprintf(buf, sizeof(buf), "+0x%x", (unsigned)off);
         else
-            snprintf(buf, sizeof(buf), "-0x%x", -off);
+            // Negate in 64-bit: -INT32_MIN overflows a 32-bit int (UB).
+            snprintf(buf, sizeof(buf), "-0x%x", (unsigned)(-(int64_t)off));
         result += buf;
     }
     return result;

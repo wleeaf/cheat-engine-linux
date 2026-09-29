@@ -412,6 +412,10 @@ public:
     /// Hook to open a Structure Dissector at an address (Tools > Dissect data/
     /// structures). MainWindow owns the dissector windows.
     void setDissectOpener(std::function<void(uintptr_t)> fn) { dissectOpener_ = std::move(fn); }
+    /// Hook to open a new Memory Viewer (File > New window). MainWindow uses it to
+    /// register the window so it is torn down with the target; when unset the
+    /// browser falls back to an untracked sibling.
+    void setNewWindowOpener(std::function<void(uintptr_t)> fn) { newWindowOpener_ = std::move(fn); }
 
     /// Test helper: find a Tools-menu action whose text starts with `text` and
     /// trigger it; returns false if there is no such action.
@@ -508,6 +512,7 @@ private:
 
     std::function<void(const QString&)> autoAssembleOpener_;
     std::function<void(uintptr_t)> dissectOpener_;
+    std::function<void(uintptr_t)> newWindowOpener_;
     // Persistent-comment plumbing (see setAnnotationStore).
     std::function<void(std::vector<ce::DisassemblerComment>)> annotationSaver_;
     std::string addrToExpr(uintptr_t addr) const;   // absolute -> "module+0xoff"

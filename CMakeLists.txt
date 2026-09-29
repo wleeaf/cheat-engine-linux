@@ -70,7 +70,10 @@ if(NOT KEYSTONE_LIB OR NOT KEYSTONE_INCLUDE)
     FetchContent_Declare(keystone
         GIT_REPOSITORY https://github.com/keystone-engine/keystone.git
         # Immutable commit SHA that tag 0.9.2 resolves to (see capstone note).
-        GIT_TAG        dc7932ef2b2c4a793836caec6ecab485005139d6)
+        GIT_TAG        dc7932ef2b2c4a793836caec6ecab485005139d6
+        # Neutralize upstream's `cmake_policy(SET CMP0051 OLD)` (rejected by
+        # CMake >= 4.0) and add the <cstdint> include newer GCC needs. Idempotent.
+        PATCH_COMMAND  ${CMAKE_COMMAND} -P "${CMAKE_SOURCE_DIR}/cmake/patch_keystone.cmake")
     FetchContent_MakeAvailable(keystone)
     set(KEYSTONE_LIB keystone)
     set(KEYSTONE_INCLUDE "${keystone_SOURCE_DIR}/include")

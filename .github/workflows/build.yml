@@ -63,6 +63,8 @@ jobs:
         run: ./build/gui_theme_smoke
 
       - name: Run GUI guest-scan and code-finder smoke tests
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: |
           ./build/gui_guest_scan_smoke
           ./build/gui_codefinder_smoke

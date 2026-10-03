@@ -17,7 +17,12 @@ class AdvancedOptionsWindow : public QMainWindow {
 public:
     explicit AdvancedOptionsWindow(ce::ProcessHandle* proc, QWidget* parent = nullptr);
 
-    void setProcess(ce::ProcessHandle* proc) { proc_ = proc; }
+    void setProcess(ce::ProcessHandle* proc) {
+        if (proc_ == proc) return;
+        proc_ = proc;
+        nopOriginals_.clear();
+        table_->setRowCount(0);
+    }
     /// Add a code address to the list (deduped). Used by find-what-writes results.
     void addCode(uintptr_t addr, const QString& name);
 

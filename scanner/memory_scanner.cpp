@@ -746,6 +746,27 @@ inline void anchorScan(const uint8_t* buf, size_t startPos, size_t endPos,
         if (buf[p] == anchor) verify(p);
 }
 
+// ASCII case folding must agree across first, next and grouped scans. UTF-16
+// folds whole ASCII code units only, never the low byte of a non-ASCII unit.
+bool stringBytesMatch(const uint8_t* value, const uint8_t* needle, size_t size,
+                      bool caseSensitive, bool unicode = false) {
+    if (caseSensitive) return std::memcmp(value, needle, size) == 0;
+    auto lower = [](uint8_t c) { return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c; };
+    if (unicode) {
+        if (size % 2) return false;
+        for (size_t i = 0; i < size; i += 2) {
+            if (value[i + 1] != needle[i + 1]) return false;
+            if (value[i + 1] == 0 && value[i] < 128 && needle[i] < 128) {
+                if (lower(value[i]) != lower(needle[i])) return false;
+            } else if (value[i] != needle[i]) return false;
+        }
+    } else {
+        for (size_t i = 0; i < size; ++i)
+            if (lower(value[i]) != lower(needle[i])) return false;
+    }
+    return true;
+}
+
 /// Scan buffer for a string (exact substring match).
 void scanBufferString(const uint8_t* buf, size_t bufSize, uintptr_t baseAddr,
                       const std::vector<uint8_t>& needle, ScanResult& result,
@@ -765,16 +786,8 @@ void scanBufferString(const uint8_t* buf, size_t bufSize, uintptr_t baseAddr,
     }
 
     for (size_t offset = 0; offset < limit; ++offset) {
-        bool match;
-        {
-            // ASCII case fold per byte (handles UTF-8/ASCII; multibyte letters
-            // outside ASCII compare exactly, as CE's case-insensitive does).
-            match = true;
-            for (size_t i = 0; i < nLen; ++i) {
-                if (std::tolower(buf[offset + i]) != std::tolower(needle[i])) { match = false; break; }
-            }
-        }
-        if (match) result.addResult(baseAddr + offset, buf + offset, nLen);
+        if (stringBytesMatch(buf + offset, needle.data(), nLen, false))
+            result.addResult(baseAddr + offset, buf + offset, nLen);
     }
 }
 
@@ -787,9 +800,7 @@ void scanBufferUnicode(const uint8_t* buf, size_t bufSize, uintptr_t baseAddr,
 {
     // Encode the needle with the same explicit little-endian encoder used by
     // the next-scan / grouped paths so both agree regardless of host
-    // endianness. (Still ASCII→UTF-16LE only; see TODO.)
-    // TODO(portability): decode a real UTF-8 needle to UTF-16LE (e.g. via
-    // iconv, like encodeStringBytes) so non-ASCII unicode searches are correct.
+    // endianness. Convert the UTF-8 input to UTF-16LE, including surrogate pairs.
     std::vector<uint8_t> n = utf16LeBytes(needle);
     size_t nBytes = n.size();
     if (nBytes == 0 || bufSize < nBytes) return;
@@ -797,19 +808,8 @@ void scanBufferUnicode(const uint8_t* buf, size_t bufSize, uintptr_t baseAddr,
     size_t limit = bufSize - nBytes + 1;
 
     for (size_t offset = 0; offset < limit; offset += 2) {
-        bool match;
-        if (!caseInsensitive) {
-            match = std::memcmp(buf + offset, n.data(), nBytes) == 0;
-        } else {
-            // UTF-16LE code unit = [low, high]. ASCII-fold the low byte, compare
-            // the high byte exactly (non-ASCII units then compare exactly).
-            match = true;
-            for (size_t i = 0; i + 1 < nBytes; i += 2) {
-                if (std::tolower(buf[offset + i]) != std::tolower(n[i]) ||
-                    buf[offset + i + 1] != n[i + 1]) { match = false; break; }
-            }
-        }
-        if (match) result.addResult(baseAddr + offset, buf + offset, nBytes);
+        if (stringBytesMatch(buf + offset, n.data(), nBytes, !caseInsensitive, true))
+            result.addResult(baseAddr + offset, buf + offset, nBytes);
     }
 }
 
@@ -961,13 +961,7 @@ void scanBufferAllTypes(const uint8_t* buf, size_t bufSize, uintptr_t baseAddr,
 }
 
 std::vector<uint8_t> utf16LeBytes(const std::string& text) {
-    std::vector<uint8_t> bytes;
-    bytes.reserve(text.size() * 2);
-    for (char c : text) {
-        bytes.push_back(static_cast<uint8_t>(c));
-        bytes.push_back(0);
-    }
-    return bytes;
+    return encodeStringBytes(text, "UTF-16LE");
 }
 
 bool compareMaskedBytes(const uint8_t* currentVal,
@@ -990,7 +984,7 @@ size_t groupedTermValueSize(const ScanConfig::GroupedTerm& term) {
         case ValueType::String:
             return std::max<size_t>(1, term.stringValue.size());
         case ValueType::UnicodeString:
-            return std::max<size_t>(2, term.stringValue.size() * 2);
+            return std::max<size_t>(2, utf16LeBytes(term.stringValue).size());
         case ValueType::ByteArray:
         case ValueType::Binary:
             return std::max<size_t>(1, term.byteArray.size());
@@ -1036,10 +1030,11 @@ bool groupedTermMatches(const uint8_t* value, const ScanConfig::GroupedTerm& ter
             return compareFloatingExact(config, current, term.floatValue);
         }
         case ValueType::String:
-            return std::memcmp(value, term.stringValue.data(), term.stringValue.size()) == 0;
+            return stringBytesMatch(value, reinterpret_cast<const uint8_t*>(term.stringValue.data()),
+                                    term.stringValue.size(), config.caseSensitive);
         case ValueType::UnicodeString: {
             auto needle = utf16LeBytes(term.stringValue);
-            return std::memcmp(value, needle.data(), needle.size()) == 0;
+            return stringBytesMatch(value, needle.data(), needle.size(), config.caseSensitive, true);
         }
         case ValueType::ByteArray:
             return compareMaskedBytes(value, term.byteArray, term.byteArrayMask);
@@ -1097,7 +1092,7 @@ size_t valueSizeForConfig(const ScanConfig& config) {
         case ValueType::String:
             return std::max<size_t>(1, config.stringValueSize());
         case ValueType::UnicodeString:
-            return std::max<size_t>(2, config.stringValue.size() * 2);
+            return std::max<size_t>(2, utf16LeBytes(config.stringValue).size());
         case ValueType::ByteArray:
         case ValueType::Binary:
             return std::max<size_t>(1, config.byteArray.size());
@@ -1552,6 +1547,42 @@ size_t ScanConfig::groupedValueSize() const {
 
 // ── ScanResult ──
 
+ScanResult::~ScanResult() {
+    if (offsetFd_ >= 0) close(offsetFd_);
+    if (valueFd_ >= 0) close(valueFd_);
+    if (firstValueFd_ >= 0) close(firstValueFd_);
+}
+
+void ScanResult::swap(ScanResult& other) noexcept {
+    using std::swap;
+    swap(dir_, other.dir_);
+    swap(count_, other.count_);
+    swap(valueSize_, other.valueSize_);
+    swap(writeError_, other.writeError_);
+    swap(storeFirst_, other.storeFirst_);
+    swap(finalized_, other.finalized_);
+    swap(offsetBuf_, other.offsetBuf_);
+    swap(valueBuf_, other.valueBuf_);
+    swap(firstValueBuf_, other.firstValueBuf_);
+    swap(offsetFd_, other.offsetFd_);
+    swap(valueFd_, other.valueFd_);
+    swap(firstValueFd_, other.firstValueFd_);
+    swap(curFrameBase_, other.curFrameBase_);
+    swap(curFrameCount_, other.curFrameCount_);
+    swap(haveFrame_, other.haveFrame_);
+    swap(frames_, other.frames_);
+    swap(shards_, other.shards_);
+}
+
+ScanResult::ScanResult(ScanResult&& other) noexcept { swap(other); }
+ScanResult& ScanResult::operator=(ScanResult&& other) noexcept {
+    if (this != &other) {
+        ScanResult moved(std::move(other));
+        swap(moved);
+    }
+    return *this;
+}
+
 ScanResult::ScanResult(const std::filesystem::path& dir, bool storeFirst)
     : dir_(dir), storeFirst_(storeFirst) {
     auto offPath  = dir / "offsets.bin";
@@ -1567,16 +1598,18 @@ ScanResult::ScanResult(const std::filesystem::path& dir, bool storeFirst)
         firstValueFd_ = -1;
     } else {
         // Creating new scan results (write mode)
+        finalized_ = false;
         std::filesystem::create_directories(dir);
+        offsetBuf_.reserve(8192);
+        valueBuf_.reserve(8192 * 8);
+        if (storeFirst_) firstValueBuf_.reserve(8192 * 8);
         offsetFd_ = open(offPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
         valueFd_ = open(valPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
         // A first scan (storeFirst == false) has firstValue == value, so it does
         // not write first_values.bin at all; firstValue(i) falls back to value(i).
         firstValueFd_ = storeFirst_
             ? open(firstValPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644) : -1;
-        offsetBuf_.reserve(8192);
-        valueBuf_.reserve(8192 * 8);
-        if (storeFirst_) firstValueBuf_.reserve(8192 * 8);
+        writeError_ = offsetFd_ < 0 || valueFd_ < 0 || (storeFirst_ && firstValueFd_ < 0);
     }
 }
 
@@ -1586,7 +1619,7 @@ std::vector<ScanResult::Frame> ScanResult::loadFrames(const std::filesystem::pat
     std::error_code ec;
     auto path = dir / "frames.bin";
     auto bytes = std::filesystem::file_size(path, ec);
-    if (ec || bytes < 16) return frames;
+    if (ec || bytes < 16 || bytes % 16 != 0) return frames;
     int fd = open(path.c_str(), O_RDONLY);
     if (fd < 0) return frames;
     size_t n = bytes / 16;
@@ -1595,6 +1628,10 @@ std::vector<ScanResult::Frame> ScanResult::loadFrames(const std::filesystem::pat
         size_t start = 0;
         for (size_t k = 0; k < n; ++k) {
             uint64_t base = raw[k * 2], cnt = raw[k * 2 + 1];
+            if (base > UINTPTR_MAX || cnt == 0 || cnt > SIZE_MAX - start) {
+                frames.clear();
+                break;
+            }
             frames.push_back({ base, start, static_cast<size_t>(cnt) });
             start += static_cast<size_t>(cnt);
         }
@@ -1607,9 +1644,9 @@ uintptr_t ScanResult::reconstruct(const std::vector<Frame>& frames, size_t local
     // Find the frame owning local index `local` (frames partition [0,count) into
     // contiguous [start, start+count) runs, ascending). Few frames → linear.
     for (const auto& f : frames)
-        if (local >= f.start && local < f.start + f.count)
-            return static_cast<uintptr_t>(f.base) + offset;
-    return offset; // out of range / no frames: best effort
+        if (local >= f.start && local - f.start < f.count)
+            return offset <= UINTPTR_MAX - f.base ? static_cast<uintptr_t>(f.base) + offset : 0;
+    return 0;
 }
 
 void ScanResult::loadShards() {
@@ -1617,33 +1654,50 @@ void ScanResult::loadShards() {
     count_ = 0;
     std::error_code ec;
     auto manifestPath = dir_ / "shards.txt";
-    auto shardCount = [](const std::filesystem::path& d) -> size_t {
+    auto addShard = [&](const std::filesystem::path& d, std::optional<size_t> expected) {
         std::error_code e;
-        auto b = std::filesystem::file_size(d / "offsets.bin", e);
-        return e ? 0 : b / sizeof(uint32_t);
+        auto bytes = std::filesystem::file_size(d / "offsets.bin", e);
+        if (e || bytes % sizeof(uint32_t) || bytes / sizeof(uint32_t) > SIZE_MAX) return false;
+        size_t c = bytes / sizeof(uint32_t);
+        if ((expected && *expected != c) || c > SIZE_MAX - count_) return false;
+        auto frames = loadFrames(d);
+        if (c && (frames.empty() || frames.back().start > c || frames.back().count != c - frames.back().start)) return false;
+        auto vb = std::filesystem::file_size(d / "values.bin", e);
+        if (e || (c == 0 ? vb != 0 : vb == 0 || vb % c != 0 || vb / c > SIZE_MAX)) return false;
+        size_t stride = c ? vb / c : 0;
+        if (stride && valueSize_ && stride != valueSize_) return false;
+        if (std::filesystem::exists(d / "first_values.bin", e)) {
+            auto fb = std::filesystem::file_size(d / "first_values.bin", e);
+            if (e || fb != vb) return false;
+        } else if (e) return false;
+        if (stride) valueSize_ = stride;
+        shards_.push_back({ d, c, count_, std::move(frames) });
+        count_ += c;
+        return true;
     };
     if (std::filesystem::exists(manifestPath, ec)) {
         // Manifest lines: "<count> <shard directory>". The shard directories hold
         // the actual offsets/frames/values/first_values files (written once by
         // the scan workers — never copied into a merged file).
         std::ifstream in(manifestPath);
+        if (!in) writeError_ = true;
         std::string line;
         while (std::getline(in, line)) {
             if (line.empty()) continue;
             size_t sp = line.find(' ');
-            if (sp == std::string::npos) continue;
+            if (sp == std::string::npos || sp + 1 == line.size()) { writeError_ = true; break; }
             size_t c = 0;
-            try { c = std::stoull(line.substr(0, sp)); } catch (...) { continue; }
+            auto parsed = std::from_chars(line.data(), line.data() + sp, c);
+            if (parsed.ec != std::errc{} || parsed.ptr != line.data() + sp) { writeError_ = true; break; }
             std::filesystem::path sdir(line.substr(sp + 1));
-            shards_.push_back({ sdir, c, count_, loadFrames(sdir) });
-            count_ += c;
+            if (!addShard(sdir, c)) { writeError_ = true; break; }
         }
+        if (in.bad()) writeError_ = true;
     } else if (std::filesystem::exists(dir_ / "offsets.bin", ec)) {
         // Single result directory: it is the one shard.
-        size_t c = shardCount(dir_);
-        shards_.push_back({ dir_, c, 0, loadFrames(dir_) });
-        count_ = c;
+        if (!addShard(dir_, std::nullopt)) writeError_ = true;
     }
+    if (writeError_) { shards_.clear(); count_ = 0; valueSize_ = 0; }
 }
 
 const ScanResult::Shard* ScanResult::shardAt(size_t i) const {
@@ -1670,13 +1724,18 @@ size_t ScanResult::recordStride() const {
         if (cnt == 0) return 0;
         std::error_code ec;
         auto vb = std::filesystem::file_size(d / "values.bin", ec);
-        return (ec || vb == 0) ? 0 : vb / cnt;
+        return (ec || vb == 0 || vb % cnt != 0) ? 0 : vb / cnt;
     };
-    for (const auto& s : shards_)
-        if (size_t st = strideOf(s.dir, s.count)) return st;
+    size_t stride = 0;
+    for (const auto& s : shards_) {
+        if (!s.count) continue;
+        size_t st = strideOf(s.dir, s.count);
+        if (!st || (stride && stride != st)) return 0;
+        stride = st;
+    }
     if (shards_.empty())
         return strideOf(dir_, count_);
-    return 0;
+    return stride;
 }
 
 void ScanResult::addResult(uintptr_t addr, const void* value, size_t valueSize) {
@@ -1684,6 +1743,11 @@ void ScanResult::addResult(uintptr_t addr, const void* value, size_t valueSize) 
 }
 
 void ScanResult::addResult(uintptr_t addr, const void* value, const void* firstValue, size_t valueSize) {
+    if (finalized_ || writeError_ || !value || (storeFirst_ && !firstValue) ||
+        !valueSize || (valueSize_ && valueSize != valueSize_)) {
+        writeError_ = true;
+        return;
+    }
     // Encode the address as a 4-byte offset from the current frame base. Matches
     // arrive in ascending order, so a new frame is needed only when the address
     // runs past the base by 2^32 (a big VA gap, e.g. heap -> stack), which is
@@ -1776,8 +1840,11 @@ struct ShardReader {
             s.ofd = open((si.dir / "offsets.bin").c_str(), O_RDONLY);
             s.vfd = open((si.dir / "values.bin").c_str(), O_RDONLY);
             s.ffd = open((si.dir / "first_values.bin").c_str(), O_RDONLY);
+            if (s.ffd < 0 && errno != ENOENT) ok = false;
             s.frames = ScanResult::loadFrames(si.dir);
             if (s.ofd < 0 || s.vfd < 0) ok = false;
+            if (s.count && (s.frames.empty() || s.frames.back().start > s.count ||
+                           s.frames.back().count != s.count - s.frames.back().start)) ok = false;
             shards.push_back(std::move(s));
         }
     }
@@ -1817,16 +1884,17 @@ struct ShardReader {
             for (size_t j = 0; j < take; ++j) {
                 size_t li = local + j;
                 while (fi < sh->frames.size() && li >= sh->frames[fi].start + sh->frames[fi].count) ++fi;
-                uint64_t base = fi < sh->frames.size() ? sh->frames[fi].base : 0;
-                addrs[got + j] = static_cast<uintptr_t>(base) + offTmp[j];
+                if (fi == sh->frames.size() || offTmp[j] > UINTPTR_MAX - sh->frames[fi].base)
+                    return false;
+                addrs[got + j] = static_cast<uintptr_t>(sh->frames[fi].base) + offTmp[j];
             }
             if (!preadFull(sh->vfd, oldVals + got * valueSize, take * valueSize,
                            (off_t)(local * valueSize)))
                 return false;
-            if (sh->ffd < 0 ||
-                !preadFull(sh->ffd, firstVals + got * valueSize, take * valueSize,
-                           (off_t)(local * valueSize)))
+            if (sh->ffd < 0)
                 std::memcpy(firstVals + got * valueSize, oldVals + got * valueSize, take * valueSize);
+            else if (!preadFull(sh->ffd, firstVals + got * valueSize, take * valueSize,
+                                (off_t)(local * valueSize))) return false;
             got += take;
         }
         return true;
@@ -1872,7 +1940,7 @@ static bool nextScanCompare(const ScanConfig& config, size_t valueSize,
                          config.compareType == ScanCompare::Decreased);
             else if (config.compareType == ScanCompare::Exact)
                 match = stringNeedle.size() == valueSize &&
-                        std::memcmp(currentVal, stringNeedle.data(), valueSize) == 0;
+                        stringBytesMatch(currentVal, stringNeedle.data(), valueSize, config.caseSensitive);
             else if (config.compareType == ScanCompare::Unknown)
                 match = true;
             break;
@@ -1887,7 +1955,7 @@ static bool nextScanCompare(const ScanConfig& config, size_t valueSize,
                          config.compareType == ScanCompare::Decreased);
             else if (config.compareType == ScanCompare::Exact)
                 match = unicodeNeedle.size() == valueSize &&
-                        std::memcmp(currentVal, unicodeNeedle.data(), valueSize) == 0;
+                        stringBytesMatch(currentVal, unicodeNeedle.data(), valueSize, config.caseSensitive, true);
             else if (config.compareType == ScanCompare::Unknown)
                 match = true;
             break;
@@ -1972,6 +2040,7 @@ void ScanResult::flush() {
 }
 
 void ScanResult::finalize() {
+    if (finalized_) return;
     flush();
     // Close the open frame and write the frame table (base + count per frame).
     if (haveFrame_) { frames_.emplace_back(curFrameBase_, curFrameCount_); haveFrame_ = false; }
@@ -2001,6 +2070,7 @@ void ScanResult::finalize() {
         start += static_cast<size_t>(fr.second);
     }
     shards_.assign(1, Shard{ dir_, count_, 0, std::move(shardFrames) });
+    finalized_ = true;
 }
 
 uintptr_t ScanResult::address(size_t i) const {
@@ -2016,32 +2086,40 @@ uintptr_t ScanResult::address(size_t i) const {
 }
 
 void ScanResult::value(size_t i, void* buf, size_t valueSize) const {
+    std::memset(buf, 0, valueSize);
+    if (writeError_ || !valueSize_ || valueSize > valueSize_) return;
     const Shard* s = shardAt(i);
     if (!s) return;
     int fd = open((s->dir / "values.bin").c_str(), O_RDONLY);
     if (fd < 0) return;
-    if (!preadFull(fd, buf, valueSize, (i - s->cum) * valueSize))
+    if (!preadFull(fd, buf, valueSize, (i - s->cum) * valueSize_))
         std::memset(buf, 0, valueSize);
     close(fd);
 }
 
 void ScanResult::firstValue(size_t i, void* buf, size_t valueSize) const {
+    std::memset(buf, 0, valueSize);
+    if (writeError_ || !valueSize_ || valueSize > valueSize_) return;
     const Shard* s = shardAt(i);
     if (!s) return;
     int fd = open((s->dir / "first_values.bin").c_str(), O_RDONLY);
     if (fd < 0) {
-        value(i, buf, valueSize);
+        std::error_code ec;
+        if (!std::filesystem::exists(s->dir / "first_values.bin", ec) && !ec)
+            value(i, buf, valueSize);
         return;
     }
-    if (!preadFull(fd, buf, valueSize, (i - s->cum) * valueSize))
+    if (!preadFull(fd, buf, valueSize, (i - s->cum) * valueSize_))
         std::memset(buf, 0, valueSize);
     close(fd);
 }
 
 void ScanResult::forEach(std::function<void(uintptr_t, const void*, size_t)> callback, size_t valueSize) const {
+    if (writeError_ || !valueSize || valueSize > valueSize_) return;
     constexpr size_t BATCH = 4096;
+    if (valueSize_ > SIZE_MAX / BATCH) return;
     std::vector<uint32_t> offs(BATCH);
-    std::vector<uint8_t> vals(BATCH * valueSize);
+    std::vector<uint8_t> vals(BATCH * valueSize_);
 
     // Stream each shard in address order, reconstructing addresses from the
     // shard's frame table as the local index crosses frame boundaries.
@@ -2061,13 +2139,12 @@ void ScanResult::forEach(std::function<void(uintptr_t, const void*, size_t)> cal
             // A short/truncated read here would pair addresses with the wrong
             // values; treat this shard's files as truncated and stop it.
             if (!readFull(ofd, offs.data(), n * sizeof(uint32_t)) ||
-                !readFull(vfd, vals.data(), n * valueSize))
+                !readFull(vfd, vals.data(), n * valueSize_))
                 break;
             for (size_t i = 0; i < n; ++i) {
                 size_t gi = local + i;
                 while (fi < s.frames.size() && gi >= s.frames[fi].start + s.frames[fi].count) ++fi;
-                uint64_t base = fi < s.frames.size() ? s.frames[fi].base : 0;
-                callback(static_cast<uintptr_t>(base) + offs[i], vals.data() + i * valueSize, valueSize);
+                callback(reconstruct(s.frames, gi, offs[i]), vals.data() + i * valueSize_, valueSize);
             }
             local += n;
         }
@@ -2084,15 +2161,17 @@ MemoryScanner::MemoryScanner(int threadCount)
     if (threadCount_ < 1) threadCount_ = 1;
 }
 
-static std::atomic<uint64_t> scanCounter{0};
-
 static std::filesystem::path makeScanDir() {
-    return std::filesystem::temp_directory_path() / "ce-scan" /
-           ("scan-" + std::to_string(getpid()) + "-" + std::to_string(scanCounter.fetch_add(1)));
+    std::string pattern = (std::filesystem::temp_directory_path() / "ce-scan-XXXXXX").string();
+    if (!mkdtemp(pattern.data()))
+        throw std::system_error(errno, std::generic_category(), "create scan directory");
+    return pattern;
 }
 
 std::unique_ptr<ScanResult> pruneScanResult(const ScanResult& src, size_t valueSize,
                                             const std::vector<bool>& remove) {
+    if (src.hasWriteError() || !valueSize || (src.count() && src.recordStride() != valueSize))
+        throw std::invalid_argument("cannot prune incomplete results or change their value size");
     // storeFirst=true so the pruned copy keeps a first-scan-value stream: a survivor's
     // firstValue is carried across, letting a later "same as first scan" / directional
     // Next Scan compare correctly. Matches arrive (and are re-emitted) in ascending
@@ -2422,6 +2501,8 @@ ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& confi
 }
 
 ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& config, const ScanResult& previous) {
+    if (previous.hasWriteError())
+        throw std::invalid_argument("previous scan result has incomplete or invalid backing files");
     cancelled_.store(false);
     progress_.store(0);
 
@@ -2461,12 +2542,10 @@ ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& config
     // the wrong bytes. Reject rather than silently produce wrong matches.
     // (For fixed-width types the two sizes always agree, so this never fires.)
     //
-    // Derive the previous stride from a shard's actual values.bin size rather
-    // than ScanResult::valueSize(): a scan returns a result reconstructed from
-    // files, so its in-memory valueSize_ is 0 and can't be trusted here.
+    // Recheck the persisted stride to detect backing files truncated after load.
     if (previous.count() > 0) {
         size_t prevStride = previous.recordStride();
-        if (prevStride != 0 && prevStride != valueSize) {
+        if (prevStride == 0 || prevStride != valueSize) {
             throw std::invalid_argument(
                 "next scan value size differs from the previous scan; "
                 "the search length must stay constant across scans");
@@ -2511,6 +2590,7 @@ ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& config
     auto worker = [&](size_t begin, size_t end, ScanResult& res) {
         ShardReader reader(layout); // own fds → positional reads don't collide
         if (!reader.ok) {
+            res.markWriteError();
             res.finalize();
             return;
         }
@@ -2532,8 +2612,10 @@ ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& config
             // A short/interrupted read would desync the streams or feed garbage
             // addresses into readMany; on truncation stop rather than emit wrong
             // matches.
-            if (!reader.read(idx, n, addrs.data(), oldVals.data(), firstVals.data(), valueSize))
+            if (!reader.read(idx, n, addrs.data(), oldVals.data(), firstVals.data(), valueSize)) {
+                res.markWriteError();
                 break;
+            }
 
             proc.readMany(addrs.data(), n, valueSize, curVals.data(), okFlags.data());
 

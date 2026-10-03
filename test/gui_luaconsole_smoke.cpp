@@ -63,7 +63,12 @@ int main(int argc, char** argv) {
     bool menuItemOk = menuAdded && menuClicked;
     ce::setLuaMainForm(nullptr);         // don't leave a dangling main form
 
-    bool ok = up1 && up2 && up3 && upClamp && down1 && down2 && downEmpty && escapeClears && menuItemOk;
+    bool bitmapGc = engine.execute("local b=createBitmap(); local gc=getmetatable(b).__gc; gc(b); gc(b); assert(not pcall(function() return b.Width end))").empty();
+    bool widgetGc = engine.execute("local w=createForm(); local gc=getmetatable(w).__gc; gc(w); gc(w); assert(not pcall(function() return w.Caption end))").empty();
+    bool fontGc = engine.execute("local w=createForm(); local f=w.Font; local gc=getmetatable(f).__gc; gc(f); gc(f); assert(not pcall(function() return f.Size end)); w:close()").empty();
+    bool canvasGc = engine.execute("local c=createCanvas(); local gc=getmetatable(c).__gc; gc(c); gc(c); assert(not pcall(function() c:clear() end))").empty();
+    printf("GUI userdata collection: bitmap=%d widget=%d font=%d canvas=%d\n", bitmapGc, widgetGc, fontGc, canvasGc);
+    bool ok = up1 && up2 && up3 && upClamp && down1 && down2 && downEmpty && escapeClears && menuItemOk && bitmapGc && widgetGc && fontGc && canvasGc;
     printf("gui luaconsole smoke: %s (up=%d%d%d clamp=%d down=%d%d empty=%d escape=%d menuItem=%d)\n",
            ok ? "OK" : "FAILED", (int)up1, (int)up2, (int)up3, (int)upClamp,
            (int)down1, (int)down2, (int)downEmpty, (int)escapeClears, (int)menuItemOk);

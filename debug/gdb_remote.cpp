@@ -80,7 +80,8 @@ void GdbRemoteClient::close() {
 bool GdbRemoteClient::sendAll(const std::string& data, std::string& error) {
     size_t sent = 0;
     while (sent < data.size()) {
-        ssize_t n = ::send(fd_, data.data() + sent, data.size() - sent, 0);
+        ssize_t n = ::send(fd_, data.data() + sent, data.size() - sent, MSG_NOSIGNAL);
+        if (n < 0 && errno == EINTR) continue;
         if (n <= 0) {
             error = errnoString("send");
             return false;

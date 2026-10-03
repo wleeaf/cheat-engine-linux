@@ -116,18 +116,19 @@ extern "C" __attribute__((noinline)) void cecore_trace_target_tick() {
     asm volatile("nop\nnop\nnop\n" ::: "memory");
 }
 
-class FakeProcessHandle final : public ProcessHandle {
+class FakeProcessHandle : public ProcessHandle {
 public:
     struct Segment {
         MemoryRegion region;
         std::vector<uint8_t> data;
     };
 
-    explicit FakeProcessHandle(std::vector<Segment> segments, std::vector<ModuleInfo> modules)
-        : segments_(std::move(segments)), modules_(std::move(modules)) {}
+    explicit FakeProcessHandle(std::vector<Segment> segments, std::vector<ModuleInfo> modules,
+                               bool is64bit = true)
+        : segments_(std::move(segments)), modules_(std::move(modules)), is64bit_(is64bit) {}
 
     pid_t pid() const override { return getpid(); }
-    bool is64bit() const override { return true; }
+    bool is64bit() const override { return is64bit_; }
 
     Result<size_t> read(uintptr_t address, void* buffer, size_t size) override {
         for (const auto& segment : segments_) {
@@ -176,6 +177,7 @@ public:
 private:
     std::vector<Segment> segments_;
     std::vector<ModuleInfo> modules_;
+    bool is64bit_;
 };
 
 static void test_recover_store() {
@@ -2197,8 +2199,9 @@ static void test_gdb_remote_client() {
         regs = client.readRegisters();
         mem = client.readMemory(0x1000, 4);
     }
-    client.close();
     stub.join();
+    bool disconnectOk = connected && !client.readRegisters() && !client.readRegisters();
+    client.close();
     ::close(server);
 
     bool ok = connected &&
@@ -2206,6 +2209,7 @@ static void test_gdb_remote_client() {
         mem && *mem == std::vector<uint8_t>({0x11, 0x22, 0x33, 0x44}) &&
         serverOk;
     printf("  packet exchange: %s\n", ok ? "OK" : "FAILED");
+    printf("  disconnected GDB peer returns errors without SIGPIPE: %s\n", disconnectOk ? "OK" : "FAILED");
 }
 
 static void test_ceserver_client() {
@@ -2253,8 +2257,9 @@ static void test_ceserver_client() {
     std::expected<CEServerVersionInfo, std::string> version = std::unexpected(error);
     if (connected)
         version = client.getVersion();
-    client.close();
     stub.join();
+    bool disconnectOk = connected && !client.getVersion() && !client.getVersion();
+    client.close();
     ::close(server);
 
     bool ok = connected &&
@@ -2263,6 +2268,7 @@ static void test_ceserver_client() {
         version->versionString == "CHEATENGINE Network 2.3" &&
         serverOk;
     printf("  version handshake: %s\n", ok ? "OK" : "FAILED");
+    printf("  disconnected ceserver peer returns errors without SIGPIPE: %s\n", disconnectOk ? "OK" : "FAILED");
 }
 
 // Exercises the Mono soft-debugger client against an in-process mock agent that
@@ -3928,7 +3934,7 @@ static void test_code_injection_builder() {
     bool ok = has("alloc(newmem,$1000,0x400000)")    // cave near the hook
            && has("mov [rax+8], ecx")                // original code relocated
            && has("add ecx, 1")
-           && has("jmp newmem")                       // hook
+           && has("jmp near newmem")                  // fixed-size hook
            && has("jmp return")                       // cave returns
            && has("db 89 48 08 83 C1 01 90")          // original bytes array
            && has("dealloc(newmem)")
@@ -3944,7 +3950,7 @@ static void test_code_injection_builder() {
     bool aobOk = hasA("aobscanmodule(INJECT,game.exe,89 48 08 83 C1 01 90)")
               && hasA("alloc(newmem,$1000,INJECT)")
               && hasA("mov [rax+8], ecx")
-              && hasA("jmp newmem")
+              && hasA("jmp near newmem")
               && hasA("registersymbol(INJECT)")
               && hasA("db 89 48 08 83 C1 01 90")
               && hasA("unregistersymbol(INJECT)")
@@ -5206,6 +5212,7 @@ static void test_lua_real_breakpoint() {
     LuaEngine eng;
     eng.setProcess(&proc);
     auto hotAddr = reinterpret_cast<uintptr_t>(&bp_child_hot);
+    const uint8_t originalByte = *reinterpret_cast<const uint8_t*>(hotAddr);
 
     std::string script =
         "hits = 0\n"
@@ -5233,12 +5240,21 @@ static void test_lua_real_breakpoint() {
         "assert(quiet, 'breakpoint kept firing after removal')\n";
     std::string err = eng.execute(script);
 
-    kill(child, SIGKILL);
-    waitpid(child, nullptr, 0);
+    usleep(80000);
+    uint8_t restoredByte = 0;
+    const auto readBack = proc.read(hotAddr, &restoredByte, 1);
+    const bool restored = readBack && *readBack == 1 && restoredByte == originalByte;
+    const bool survived = waitpid(child, nullptr, WNOHANG) == 0;
+    if (survived) {
+        kill(child, SIGKILL);
+        waitpid(child, nullptr, 0);
+    }
 
-    bool ok = err.empty();
+    bool ok = err.empty() && restored && survived;
     printf("  real breakpoint fires debugger_onBreakpoint: %s\n",
            ok ? "OK" : ("FAILED (" + err + ")").c_str());
+    printf("  removing a running breakpoint restores code and keeps target alive: %s\n",
+           restored && survived ? "OK" : "FAILED");
 }
 
 // obs_hot stores RAX to a global as its FIRST instruction (the breakpoint site),
@@ -5819,6 +5835,7 @@ static void test_pe_exports() {
     f[0x80] = 'P'; f[0x81] = 'E';
     pU16(0x84, 0x8664); pU16(0x86, 1); pU16(0x94, 0xF0);   // machine, nSec, optSize
     pU16(0x98, 0x20B);                                     // PE32+
+    pU32(0x104, 2);                                       // NumberOfRvaAndSizes
     pU32(0x108, 0x1000); pU32(0x10C, 0x100);               // DataDirectory[0] export {rva,size}
     const char* sn = ".rdata"; for (int i = 0; i < 6; ++i) f[0x188 + i] = sn[i];
     pU32(0x190, 0x1000); pU32(0x194, 0x1000); pU32(0x198, 0x1000); pU32(0x19C, 0x400);
@@ -6726,7 +6743,7 @@ static void test_injection_script_generation() {
     std::string script = generateInjectionScript(proc, addr, /*aob=*/false, err);
     bool codeOk = err.empty() && !script.empty() &&
         script.find("alloc(newmem") != std::string::npos &&
-        script.find("jmp newmem") != std::string::npos &&
+        script.find("jmp near newmem") != std::string::npos &&
         script.find("[DISABLE]") != std::string::npos &&
         script.find("push") != std::string::npos &&   // stolen prologue mnemonics
         script.find("sub") != std::string::npos;
@@ -6735,7 +6752,7 @@ static void test_injection_script_generation() {
     std::string aob = generateInjectionScript(proc, addr, /*aob=*/true, aobErr);
     bool aobOk = aobErr.empty() && !aob.empty() &&
         aob.find("aobscanmodule(INJECT,game.bin") != std::string::npos &&
-        aob.find("jmp newmem") != std::string::npos;
+        aob.find("jmp near newmem") != std::string::npos;
 
     // Error path: fewer than 5 readable bytes cannot host a 5-byte jmp.
     std::vector<uint8_t> tiny = {0x90, 0x90, 0x90};
@@ -10398,12 +10415,12 @@ static void test_aob_signature() {
     std::memcpy(mod.data() + 40, uniq, 5);
 
     // Pure: 5 bytes are ambiguous (two matches) so it extends to 6; the unique run
-    // stays at 5; an all-equal region never disambiguates and caps at maxLen.
+    // stays at 5; an all-equal region never disambiguates and is rejected.
     bool extends  = ce::shortestUniqueAobLen(mod, 0,  5, 16) == 6;
     bool alreadyU = ce::shortestUniqueAobLen(mod, 40, 5, 16) == 5;
     std::vector<uint8_t> flat(32, 0x90);
-    bool capped   = ce::shortestUniqueAobLen(flat, 0, 2, 8) == 8;
-    printf("  pure shortestUniqueAobLen (extend=%d alreadyUnique=%d cappedAtMax=%d): %s\n",
+    bool capped   = ce::shortestUniqueAobLen(flat, 0, 2, 8) == 0;
+    printf("  pure shortestUniqueAobLen (extend=%d alreadyUnique=%d ambiguousRejected=%d): %s\n",
            extends, alreadyU, capped, (extends && alreadyU && capped) ? "OK" : "FAILED");
 
     // End-to-end: a fake module whose signature is scanned from process memory.
@@ -11066,6 +11083,198 @@ void test_scanner_differential() {
 
 }  // namespace
 
+static void test_review_regressions() {
+    printf("\n── Test: Project review regressions ──\n");
+    bool ok = false;
+    const int64_t minimum = std::numeric_limits<int64_t>::min();
+    bool integerOk = ce::parseIntegerScalar("-9223372036854775808", false, ok) == minimum && ok;
+    integerOk &= static_cast<uint64_t>(ce::parseIntegerScalar("18446744073709551615", false, ok)) == UINT64_MAX && ok;
+    for (const char* text : {"18446744073709551616", "-9223372036854775809", "999999999999999999999999999999"}) {
+        (void)ce::parseIntegerScalar(text, false, ok);
+        integerOk &= !ok;
+    }
+    (void)ce::parseIntegerScalar("10000000000000000", true, ok);
+    integerOk &= !ok;
+    printf("  integer limits, overflow rejection and INT64_MIN: %s\n", integerOk ? "OK" : "FAILED");
+
+    constexpr uintptr_t M = 0x400000, H = 0x10000000;
+    const uint32_t ptr = H;
+    // A four-byte slot at the end of a mapping must be readable without touching
+    // the following bytes, and 32-bit alignment includes offsets divisible by 4.
+    std::vector<uint8_t> module(8, 0xff), heap(64, 0);
+    std::memcpy(module.data() + 4, &ptr, 4);
+    FakeProcessHandle proc32({
+        {{M, module.size(), MemProt::Read, MemType::Image, MemState::Committed, "/tmp/game32"}, module},
+        {{H, heap.size(), MemProt::ReadWrite, MemType::Private, MemState::Committed, "[heap]"}, heap},
+    }, {{M, module.size(), "game32", "/tmp/game32", false}}, false);
+    PointerPath path{"game32", M, 4, {8}};
+    PointerScanConfig cfg;
+    cfg.targetAddress = H + 8; cfg.maxDepth = 1; cfg.maxOffset = 8;
+    PointerScanner scanner;
+    const auto paths = scanner.scan(proc32, cfg);
+    const auto map = buildPointerMap(proc32, cfg);
+    ExpressionParser ep(&proc32);
+    auto expression = ep.parse(path.toString());
+    bool pointer32Ok = paths.size() == 1 && paths[0].baseOffset == 4 &&
+        map.valueAt(M + 4) == H && map.resolve(path) == H + 8 &&
+        PointerScanner::dereference(proc32, path) == H + 8 && expression && *expression == H + 8;
+    printf("  32-bit pointer scan/map/dereference/expression: %s\n", pointer32Ok ? "OK" : "FAILED");
+
+    auto sub = ep.parse("[game32+4]-8-4");
+    auto add = ep.parse("[game32+4]+8-4");
+    bool exprOk = sub && *sub == H - 12 && add && *add == H + 4 &&
+        ep.parse("game32 + 4") == M + 4 && ep.parse("0") == 0;
+    for (const char* text : {"missing+8", "game32+", "0x12junk", "#12junk", "0x", "0x1 0x2",
+                             "[game32+4]junk", "0x1+[missing]", "0x1++2", "+", "[]", "0x1]"})
+        exprOk &= !ep.parse(text);
+    printf("  expression arithmetic and malformed/unresolved rejection: %s\n", exprOk ? "OK" : "FAILED");
+
+    PointerPath longPath{std::string(100, 'g'), M, 0x123, {8}};
+    const auto longExpr = longPath.toString();
+    printf("  pointer expression retains long module names: %s\n",
+           longExpr.find(longPath.module + "+123") != std::string::npos ? "OK" : "FAILED");
+
+    // Two downstream nodes share the same upstream pointer slot. Both chains
+    // must survive, even though reverse BFS visits that slot twice.
+    PointerMap graph;
+    graph.setModules({{M, 0x100, "game", "/tmp/game", true}});
+    constexpr uintptr_t T = H + 0x1000, A = H + 0x100, B = H + 0x108, X = H + 0x200;
+    graph.setEntries({{T, A}, {T, B}, {A, X}, {X, M}});
+    cfg.targetAddress = T; cfg.maxOffset = 8; cfg.maxDepth = 3;
+    auto branches = scanner.scanWithMap(graph, cfg);
+    bool branchesOk = branches.size() == 2;
+    for (const auto& branch : branches) branchesOk &= graph.resolve(branch) == T;
+    printf("  converging pointer graph retains both valid paths: %s\n", branchesOk ? "OK" : "FAILED");
+    cfg.maxOffset = -1;
+    bool configOk = scanner.scanWithMap(graph, cfg).empty();
+    cfg.maxOffset = 8; cfg.maxDepth = 0;
+    configOk &= scanner.scanWithMap(graph, cfg).empty();
+    printf("  invalid pointer scan limits rejected: %s\n", configOk ? "OK" : "FAILED");
+
+    // UTF-8 e-acute plus a non-BMP emoji is six bytes in UTF-16LE.
+    const std::string unicode = "\xc3\xa9\xf0\x9f\x98\x80";
+    std::vector<uint8_t> utf16(32, 0);
+    const uint8_t expected[] = {0xe9, 0, 0x3d, 0xd8, 0, 0xde};
+    std::memcpy(utf16.data() + 4, expected, sizeof(expected));
+    FakeProcessHandle unicodeProc({
+        {{M, utf16.size(), MemProt::ReadWrite, MemType::Private, MemState::Committed, "[heap]"}, utf16},
+    }, {});
+    MemoryScanner memoryScanner;
+    ScanConfig unicodeCfg;
+    unicodeCfg.valueType = ValueType::UnicodeString; unicodeCfg.stringValue = unicode;
+    unicodeCfg.alignment = 2; unicodeCfg.startAddress = M; unicodeCfg.stopAddress = M + utf16.size();
+    auto first = memoryScanner.firstScan(unicodeProc, unicodeCfg);
+    auto next = memoryScanner.nextScan(unicodeProc, unicodeCfg, first);
+    bool unicodeOk = first.count() == 1 && first.address(0) == M + 4 &&
+        next.count() == 1 && next.address(0) == M + 4;
+    unicodeCfg.valueType = ValueType::Grouped;
+    unicodeCfg.groupedTerms = {{}};
+    unicodeCfg.groupedTerms[0].valueType = ValueType::UnicodeString;
+    unicodeCfg.groupedTerms[0].stringValue = unicode;
+    auto grouped = memoryScanner.firstScan(unicodeProc, unicodeCfg);
+    unicodeOk &= unicodeCfg.groupedValueSize() == sizeof(expected) && grouped.count() == 1 && grouped.address(0) == M + 4;
+    printf("  non-ASCII UTF-16 and surrogate pairs (first/next/grouped): %s\n", unicodeOk ? "OK" : "FAILED");
+
+    bool caseOk = true;
+    for (ValueType type : {ValueType::String, ValueType::UnicodeString}) {
+        std::vector<uint8_t> letters(32, 0);
+        if (type == ValueType::String) std::memcpy(letters.data() + 4, "Hi", 2);
+        else { letters[4] = 'H'; letters[6] = 'i'; }
+        FakeProcessHandle letterProc({
+            {{M, letters.size(), MemProt::ReadWrite, MemType::Private, MemState::Committed, "[heap]"}, letters},
+        }, {});
+        ScanConfig letterCfg;
+        letterCfg.valueType = type; letterCfg.stringValue = "hi"; letterCfg.caseSensitive = false;
+        letterCfg.startAddress = M; letterCfg.stopAddress = M + letters.size();
+        auto letterFirst = memoryScanner.firstScan(letterProc, letterCfg);
+        auto letterNext = memoryScanner.nextScan(letterProc, letterCfg, letterFirst);
+        caseOk &= letterFirst.count() == 1 && letterNext.count() == 1;
+        letterCfg.valueType = ValueType::Grouped; letterCfg.groupedTerms = {{}};
+        letterCfg.groupedTerms[0].valueType = type; letterCfg.groupedTerms[0].stringValue = "hi";
+        auto letterGrouped = memoryScanner.firstScan(letterProc, letterCfg);
+        caseOk &= letterGrouped.count() == 1 && letterGrouped.address(0) == M + 4;
+    }
+    printf("  case-insensitive strings agree across first/next/grouped scans: %s\n", caseOk ? "OK" : "FAILED");
+
+    // U+0141 and U+0161 are different letters, whose low bytes happen to be
+    // ASCII 'A' and 'a'. Folding those low bytes corrupts Unicode comparisons.
+    FakeProcessHandle nonAsciiProc({
+        {{M, 2, MemProt::ReadWrite, MemType::Private, MemState::Committed, "[heap]"}, {0x41, 0x01}},
+    }, {});
+    ScanConfig nonAsciiCfg;
+    nonAsciiCfg.valueType = ValueType::UnicodeString; nonAsciiCfg.stringValue = "\xc5\xa1";
+    nonAsciiCfg.caseSensitive = false; nonAsciiCfg.startAddress = M; nonAsciiCfg.stopAddress = M + 2;
+    printf("  UTF-16 case folding preserves non-ASCII code units: %s\n",
+           memoryScanner.firstScan(nonAsciiProc, nonAsciiCfg).empty() ? "OK" : "FAILED");
+
+    Snapshot snapshot = Snapshot::capture(unicodeProc, 16);
+    const auto file = std::filesystem::temp_directory_path() /
+        ("ce-review-snapshot-" + std::to_string(getpid()) + ".bin");
+    bool snapshotOk = snapshot.save(file.string());
+    std::string error = "stale error";
+    snapshotOk &= snapshot.load(file.string(), &error) && error.empty();
+    const auto original = snapshot.regions()[0].bytes;
+    auto writeBadSnapshot = [&](uint32_t count, uint64_t size, uint32_t byteCount) {
+        std::ofstream out(file, std::ios::binary | std::ios::trunc);
+        out.write("CESNAP01", 8);
+        out.write(reinterpret_cast<const char*>(&count), sizeof(count));
+        const uint64_t base = M; const uint32_t protection = 3;
+        out.write(reinterpret_cast<const char*>(&base), sizeof(base));
+        out.write(reinterpret_cast<const char*>(&size), sizeof(size));
+        out.write(reinterpret_cast<const char*>(&protection), sizeof(protection));
+        out.write(reinterpret_cast<const char*>(&byteCount), sizeof(byteCount));
+        out.write("abcd", 4);
+    };
+    writeBadSnapshot(2, 4, 4);
+    snapshotOk &= !snapshot.load(file.string(), &error) && !error.empty() &&
+        snapshot.regionCount() == 1 && snapshot.regions()[0].bytes == original;
+    writeBadSnapshot(1, 1, 4);
+    snapshotOk &= !snapshot.load(file.string(), &error) && snapshot.regions()[0].bytes == original;
+    writeBadSnapshot(1u << 24, 4, 4);
+    snapshotOk &= !snapshot.load(file.string(), &error) && snapshot.regions()[0].bytes == original;
+    std::filesystem::remove(file);
+    printf("  invalid/truncated snapshots preserve the checkpoint: %s\n", snapshotOk ? "OK" : "FAILED");
+    const std::vector<int> identity = {0, 1, 2, 3, 4};
+    bool moveOk = moveRangePermutation(5, 1, 1, -1) == identity &&
+        moveRangePermutation(5, 1, 1, 6) == identity &&
+        moveRangePermutation(5, 1, INT32_MAX, 0) == identity;
+    printf("  row moves reject invalid destinations and overflowing lengths: %s\n", moveOk ? "OK" : "FAILED");
+
+    class ShortWriteProcess final : public FakeProcessHandle {
+    public:
+        using FakeProcessHandle::FakeProcessHandle;
+        Result<size_t> write(uintptr_t, const void*, size_t size) override { return size - 1; }
+        Result<uintptr_t> allocate(size_t, MemProt, uintptr_t) override { return uintptr_t{0x400100}; }
+        Result<void> free(uintptr_t, size_t) override { return {}; }
+        Result<void> protect(uintptr_t, size_t, MemProt) override { return {}; }
+    };
+    ShortWriteProcess shortWriter({
+        {{M, 6, MemProt::ReadExec, MemType::Image, MemState::Committed, "/tmp/code"}, {0x48, 0x89, 0xd8, 0x90, 0x90, 0x90}},
+    }, {});
+    bool writeOk = nopInstruction(shortWriter, M).empty() &&
+        !restoreBytes(shortWriter, M, {0x48, 0x89, 0xd8});
+    printf("  instruction patch/restore reject partial writes: %s\n", writeOk ? "OK" : "FAILED");
+
+    SimpleHook shortHook;
+    shortHook.address = M; shortHook.original = {0x48, 0x89, 0xd8};
+    bool hookOk = !installSimpleHook(shortWriter, M, M + 0x200) &&
+        !removeSimpleHook(shortWriter, shortHook);
+    printf("  hook install/remove reject partial writes: %s\n", hookOk ? "OK" : "FAILED");
+
+    CheatTable trainerTable;
+    trainerTable.gameName = "trailing backslash\\";
+    trainerTable.author = "author\\";
+    trainerTable.luaScript = "\xc3\xa9" "abc";
+    auto trainerSource = TrainerGenerator{}.generateSource(trainerTable);
+    bool escapeOk = trainerSource.find("\\303\\251abc") != std::string::npos &&
+        trainerSource.find("// Author: author\\ \n#define _GNU_SOURCE") != std::string::npos;
+    printf("  trainer escapes UTF-8 before hex digits and trailing comment backslashes: %s\n", escapeOk ? "OK" : "FAILED");
+
+    bool diskOk = !snapshot.save("/dev/full") && !graph.save("/dev/full") &&
+        !savePointerPaths("/dev/full", {path});
+    printf("  buffered file write errors reported: %s\n", diskOk ? "OK" : "FAILED");
+}
+
 int main(int argc, char* argv[]) {
     if (getuid() != 0) {
         fprintf(stderr, "WARNING: Not running as root. Some operations may fail.\n");
@@ -11096,6 +11305,7 @@ int main(int argc, char* argv[]) {
     test_eflags_decode();
     test_guest_view();
     test_ns_attach();
+    test_review_regressions();
     test_value_codec();
     test_value_transform();
     test_recover_store();

@@ -9,6 +9,9 @@
 #include <QApplication>
 #include <QKeyEvent>
 #include <QClipboard>
+#include <QScrollBar>
+#include <QMouseEvent>
+#include <QFontMetrics>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -133,7 +136,21 @@ int main(int argc, char** argv) {
     bool stickyCleared = (hv.selectionSizeForTest() == 0);
     bool stickyScroll = stickyBefore && stickyAnchored && stickyCleared;
 
-    bool ok = baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC && fillOk && typeMap && selBytes && ptrOk && shiftSel && shiftCollapse && homeEndOk && selectAllHex && stickyScroll;
+    // Wide rows can be panned; clicks after the midpoint gap still select the byte shown.
+    hv.setAddress(reinterpret_cast<uintptr_t>(g_buf));
+    hv.setBytesPerRow(64);
+    for (int i = 0; i < 4; ++i) { hv.viewport()->repaint(); app.processEvents(); }
+    bool horizontal = hv.horizontalScrollBar()->maximum() > 0;
+    hv.horizontalScrollBar()->setValue(160);
+    int cw = QFontMetrics(QFont("Monospace", 10)).horizontalAdvance('0');
+    int ch = QFontMetrics(QFont("Monospace", 10)).height();
+    QPointF point(cw * (18 + 12 * 3 + 1) + cw / 2 - hv.horizontalScrollBar()->value(), ch / 2);
+    QMouseEvent click(QEvent::MouseButtonPress, point, point, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(hv.viewport(), &click);
+    horizontal = horizontal && hv.cursorAddress() == reinterpret_cast<uintptr_t>(g_buf) + 12;
+    std::printf("GUI hex horizontal scrolling: %s\n", horizontal ? "OK" : "FAILED");
+
+    bool ok = horizontal && baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC && fillOk && typeMap && selBytes && ptrOk && shiftSel && shiftCollapse && homeEndOk && selectAllHex && stickyScroll;
     printf("gui hexview smoke: %s (baseline=%d afterOneFlip=%d afterNav=%d pasteWrote=%d pasteOk=%d "
            "ctrlV=%d ctrlC=%d filled=%d fillOk=%d typeMap=%d selBytes=%d ptrOk=%d shiftSel=%d shiftCollapse=%d homeEnd=%d selAll=%d stickyScroll=%d)\n",
            ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk, ctrlV, ctrlC, filled, fillOk, typeMap, selBytes, ptrOk, shiftSel, shiftCollapse, homeEndOk, selectAllHex, stickyScroll);

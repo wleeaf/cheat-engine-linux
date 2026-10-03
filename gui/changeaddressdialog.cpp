@@ -40,6 +40,8 @@ ChangeAddressDialog::ChangeAddressDialog(const QString& address, ce::ValueType t
 
     auto* v = new QVBoxLayout(this);
     auto* form = new QFormLayout;
+    form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    form->setRowWrapPolicy(QFormLayout::WrapLongRows);
 
     addrEdit_ = new QLineEdit(address);          // CE editAddress
     addrEdit_->setMinimumWidth(240);
@@ -61,7 +63,9 @@ ChangeAddressDialog::ChangeAddressDialog(const QString& address, ce::ValueType t
     form->addRow("Type:", typeCombo_);
 
     lengthEdit_ = new QLineEdit(QString::number(length > 0 ? length : 1));  // CE edtSize
-    form->addRow("Length:", lengthEdit_);          // CE lengthlabel — for String/Array
+    lengthLabel_ = new QLabel("Length:");
+    lengthLabel_->setBuddy(lengthEdit_);
+    form->addRow(lengthLabel_, lengthEdit_);
     v->addLayout(form);
 
     auto* flags = new QHBoxLayout;
@@ -127,6 +131,7 @@ ChangeAddressDialog::ChangeAddressDialog(const QString& address, ce::ValueType t
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    v->addStretch();
     v->addWidget(buttons);
 }
 
@@ -274,7 +279,10 @@ void ChangeAddressDialog::syncFlagState() {
                              ? kTypes[i].type : ce::ValueType::Int32;
     bool isString = (base == ce::ValueType::String);
     lengthEdit_->setEnabled(isString || base == ce::ValueType::ByteArray);
+    lengthEdit_->setVisible(isString || base == ce::ValueType::ByteArray);
+    lengthLabel_->setVisible(isString || base == ce::ValueType::ByteArray);
     unicodeCheck_->setEnabled(isString);   // CE only offers Unicode for String
+    unicodeCheck_->setVisible(isString);
     signedCheck_->setEnabled(ce::isIntegerScalar(base));  // signed only for integer types
 }
 

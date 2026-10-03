@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(cecore VERSION 0.9.0 LANGUAGES C CXX)
+project(cecore VERSION 0.9.5 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -75,6 +75,13 @@ if(NOT KEYSTONE_LIB OR NOT KEYSTONE_INCLUDE)
         # CMake >= 4.0) and add the <cstdint> include newer GCC needs. Idempotent.
         PATCH_COMMAND  ${CMAKE_COMMAND} -P "${CMAKE_SOURCE_DIR}/cmake/patch_keystone.cmake")
     FetchContent_MakeAvailable(keystone)
+    # FetchContent's patch stamp can survive in CI/developer caches even when
+    # patch_keystone.cmake changes. Reapply its idempotent fixes on configure so
+    # cached LLVM sources also get the allocator correction.
+    execute_process(
+        COMMAND ${CMAKE_COMMAND} -P "${CMAKE_SOURCE_DIR}/cmake/patch_keystone.cmake"
+        WORKING_DIRECTORY "${keystone_SOURCE_DIR}"
+        COMMAND_ERROR_IS_FATAL ANY)
     set(KEYSTONE_LIB keystone)
     set(KEYSTONE_INCLUDE "${keystone_SOURCE_DIR}/include")
 else()
@@ -176,6 +183,7 @@ endif()
 # ── libcecore C++ library ──
 add_library(cecore SHARED
     core/types.cpp
+    core/value_io.cpp
     core/autoasm.cpp
     core/aa_templates.cpp
     core/injection_gen.cpp
@@ -376,6 +384,13 @@ if(Qt6_FOUND)
 
     # Headless offscreen smoke test for the interactive debugger window.
     if(CECORE_BUILD_TESTS)
+        # Exercise target replacement with the same window implementation as the app.
+        get_target_property(CE_GUI_TEST_SOURCES cheatengine SOURCES)
+        list(REMOVE_ITEM CE_GUI_TEST_SOURCES gui/main.cpp gui/resources.qrc)
+        qt_add_executable(gui_lifecycle_smoke test/gui_lifecycle_smoke.cpp ${CE_GUI_TEST_SOURCES})
+        target_include_directories(gui_lifecycle_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
+        target_link_libraries(gui_lifecycle_smoke PRIVATE cecore Qt6::Widgets)
+
         qt_add_executable(gui_debugger_smoke
             test/gui_debugger_smoke.cpp
             gui/debuggerwindow.cpp
@@ -428,6 +443,7 @@ if(Qt6_FOUND)
         qt_add_executable(gui_luaconsole_smoke
             test/gui_luaconsole_smoke.cpp
             gui/luaconsole.cpp
+            gui/theme.cpp
             scripting/lua_gui.cpp
             gui/canvaswidget.cpp
             scripting/lua_bitmap.cpp
@@ -530,6 +546,8 @@ endif()
 if(CECORE_BUILD_TESTS)
     add_executable(cecore_test test/main.cpp)
     target_link_libraries(cecore_test PRIVATE cecore)
+    add_executable(cecore_deep_test test/deep_review_test.cpp test/underlying_review_test.cpp)
+    target_link_libraries(cecore_deep_test PRIVATE cecore)
     # So the example-scripts test can find the repo's examples/ directory.
     target_compile_definitions(cecore_test PRIVATE CE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 

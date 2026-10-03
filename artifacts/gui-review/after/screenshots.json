@@ -1,0 +1,492 @@
+[
+    {
+        "file": "light-main-empty.png",
+        "height": 760,
+        "width": 920
+    },
+    {
+        "file": "light-main-populated.png",
+        "height": 780,
+        "width": 1000
+    },
+    {
+        "file": "light-main-compact.png",
+        "height": 600,
+        "width": 760
+    },
+    {
+        "file": "light-main-large-font.png",
+        "height": 820,
+        "width": 1000
+    },
+    {
+        "file": "light-processes.png",
+        "height": 500,
+        "width": 600
+    },
+    {
+        "file": "light-processes-empty.png",
+        "height": 480,
+        "width": 460
+    },
+    {
+        "file": "light-settings-0.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-settings-1.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-settings-2.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-settings-3.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-settings-4.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-settings-5.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-settings-6.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-settings-7.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-settings-8.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-settings-9.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-settings-10.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-settings-11.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-settings-12.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-settings-13.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-settings-14.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-memory.png",
+        "height": 720,
+        "width": 1000
+    },
+    {
+        "file": "light-assembler.png",
+        "height": 580,
+        "width": 820
+    },
+    {
+        "file": "light-assembler-compact.png",
+        "height": 400,
+        "width": 520
+    },
+    {
+        "file": "light-lua.png",
+        "height": 440,
+        "width": 760
+    },
+    {
+        "file": "light-structure.png",
+        "height": 620,
+        "width": 1050
+    },
+    {
+        "file": "light-pointers.png",
+        "height": 500,
+        "width": 820
+    },
+    {
+        "file": "light-address.png",
+        "height": 430,
+        "width": 520
+    },
+    {
+        "file": "light-modules.png",
+        "height": 560,
+        "width": 900
+    },
+    {
+        "file": "light-regions.png",
+        "height": 560,
+        "width": 900
+    },
+    {
+        "file": "light-threads.png",
+        "height": 420,
+        "width": 700
+    },
+    {
+        "file": "light-debugger.png",
+        "height": 720,
+        "width": 1000
+    },
+    {
+        "file": "light-advanced.png",
+        "height": 400,
+        "width": 500
+    },
+    {
+        "file": "light-branches.png",
+        "height": 600,
+        "width": 900
+    },
+    {
+        "file": "light-references.png",
+        "height": 560,
+        "width": 900
+    },
+    {
+        "file": "light-elf.png",
+        "height": 640,
+        "width": 900
+    },
+    {
+        "file": "light-file-patcher.png",
+        "height": 420,
+        "width": 540
+    },
+    {
+        "file": "light-find-statics.png",
+        "height": 540,
+        "width": 720
+    },
+    {
+        "file": "light-form-designer.png",
+        "height": 720,
+        "width": 1100
+    },
+    {
+        "file": "light-form-designer-large-canvas.png",
+        "height": 640,
+        "width": 900
+    },
+    {
+        "file": "light-graphical-memory.png",
+        "height": 620,
+        "width": 680
+    },
+    {
+        "file": "light-graphical-memory-populated.png",
+        "height": 620,
+        "width": 680
+    },
+    {
+        "file": "light-guest-scan.png",
+        "height": 520,
+        "width": 600
+    },
+    {
+        "file": "light-heaps.png",
+        "height": 480,
+        "width": 760
+    },
+    {
+        "file": "light-fill.png",
+        "height": 158,
+        "width": 350
+    },
+    {
+        "file": "light-disasm-preferences.png",
+        "height": 620,
+        "width": 500
+    },
+    {
+        "file": "light-registers.png",
+        "height": 680,
+        "width": 820
+    },
+    {
+        "file": "light-stack.png",
+        "height": 560,
+        "width": 850
+    },
+    {
+        "file": "light-mono.png",
+        "height": 640,
+        "width": 720
+    },
+    {
+        "file": "dark-main-empty.png",
+        "height": 760,
+        "width": 920
+    },
+    {
+        "file": "dark-main-populated.png",
+        "height": 780,
+        "width": 1000
+    },
+    {
+        "file": "dark-main-compact.png",
+        "height": 600,
+        "width": 760
+    },
+    {
+        "file": "dark-main-large-font.png",
+        "height": 820,
+        "width": 1000
+    },
+    {
+        "file": "dark-processes.png",
+        "height": 500,
+        "width": 600
+    },
+    {
+        "file": "dark-processes-empty.png",
+        "height": 480,
+        "width": 460
+    },
+    {
+        "file": "dark-settings-0.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-settings-1.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-settings-2.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-settings-3.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-settings-4.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-settings-5.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-settings-6.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-settings-7.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-settings-8.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-settings-9.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-settings-10.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-settings-11.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-settings-12.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-settings-13.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-settings-14.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-memory.png",
+        "height": 720,
+        "width": 1000
+    },
+    {
+        "file": "dark-assembler.png",
+        "height": 580,
+        "width": 820
+    },
+    {
+        "file": "dark-assembler-compact.png",
+        "height": 400,
+        "width": 520
+    },
+    {
+        "file": "dark-lua.png",
+        "height": 440,
+        "width": 760
+    },
+    {
+        "file": "dark-structure.png",
+        "height": 620,
+        "width": 1050
+    },
+    {
+        "file": "dark-pointers.png",
+        "height": 500,
+        "width": 820
+    },
+    {
+        "file": "dark-address.png",
+        "height": 430,
+        "width": 520
+    },
+    {
+        "file": "dark-modules.png",
+        "height": 560,
+        "width": 900
+    },
+    {
+        "file": "dark-regions.png",
+        "height": 560,
+        "width": 900
+    },
+    {
+        "file": "dark-threads.png",
+        "height": 420,
+        "width": 700
+    },
+    {
+        "file": "dark-debugger.png",
+        "height": 720,
+        "width": 1000
+    },
+    {
+        "file": "dark-advanced.png",
+        "height": 400,
+        "width": 500
+    },
+    {
+        "file": "dark-branches.png",
+        "height": 600,
+        "width": 900
+    },
+    {
+        "file": "dark-references.png",
+        "height": 560,
+        "width": 900
+    },
+    {
+        "file": "dark-elf.png",
+        "height": 640,
+        "width": 900
+    },
+    {
+        "file": "dark-file-patcher.png",
+        "height": 420,
+        "width": 540
+    },
+    {
+        "file": "dark-find-statics.png",
+        "height": 540,
+        "width": 720
+    },
+    {
+        "file": "dark-form-designer.png",
+        "height": 720,
+        "width": 1100
+    },
+    {
+        "file": "dark-form-designer-large-canvas.png",
+        "height": 640,
+        "width": 900
+    },
+    {
+        "file": "dark-graphical-memory.png",
+        "height": 620,
+        "width": 680
+    },
+    {
+        "file": "dark-graphical-memory-populated.png",
+        "height": 620,
+        "width": 680
+    },
+    {
+        "file": "dark-guest-scan.png",
+        "height": 520,
+        "width": 600
+    },
+    {
+        "file": "dark-heaps.png",
+        "height": 480,
+        "width": 760
+    },
+    {
+        "file": "dark-fill.png",
+        "height": 158,
+        "width": 350
+    },
+    {
+        "file": "dark-disasm-preferences.png",
+        "height": 620,
+        "width": 500
+    },
+    {
+        "file": "dark-registers.png",
+        "height": 680,
+        "width": 820
+    },
+    {
+        "file": "dark-stack.png",
+        "height": 560,
+        "width": 850
+    },
+    {
+        "file": "dark-mono.png",
+        "height": 640,
+        "width": 720
+    }
+]

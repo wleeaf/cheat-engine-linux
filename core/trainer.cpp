@@ -28,7 +28,8 @@ std::string cString(const std::string& text) {
             default:
                 if (c < 0x20 || c >= 0x7f) {
                     char buf[8];
-                    snprintf(buf, sizeof(buf), "\\x%02x", c);
+                    // Three octal digits cannot consume a following hex digit.
+                    snprintf(buf, sizeof(buf), "\\%03o", c);
                     escaped += buf;
                 } else {
                     escaped.push_back(static_cast<char>(c));
@@ -57,6 +58,8 @@ std::string lineCommentText(std::string text) {
         if (c == '\r' || c == '\n')
             c = ' ';
     }
+    // C splices backslash-newline before parsing comments.
+    if (!text.empty() && text.back() == '\\') text.push_back(' ');
     return text;
 }
 

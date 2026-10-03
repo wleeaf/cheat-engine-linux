@@ -52,13 +52,20 @@ jobs:
 
       - name: Run regression suite
         timeout-minutes: 15   # fail fast on a hang instead of burning the whole job
-        run: ./build/cecore_test
+        run: |
+          ./build/cecore_test
+          ./build/cecore_deep_test
 
       - name: Run GUI debugger smoke test (offscreen Qt)
         run: ./build/gui_debugger_smoke
 
       - name: Run GUI theme smoke test (light/dark, offscreen Qt)
         run: ./build/gui_theme_smoke
+
+      - name: Run GUI guest-scan and code-finder smoke tests
+        run: |
+          ./build/gui_guest_scan_smoke
+          ./build/gui_codefinder_smoke
 
       - name: Run GUI structure-dissector smoke test (compare mode, offscreen Qt)
         run: ./build/gui_structdissect_smoke
@@ -75,6 +82,11 @@ jobs:
       - name: Run GUI change-address dialog smoke test (Unicode/length, offscreen Qt)
         run: ./build/gui_changeaddr_smoke
 
+      - name: Run GUI ownership and target lifecycle regression tests
+        run: |
+          ./build/gui_luaconsole_smoke
+          ./build/gui_lifecycle_smoke
+
       - name: Run Wayland GlobalShortcuts portal test (mock portal, private bus)
         run: |
           if [ -x ./build/wayland_shortcuts_test ]; then
@@ -88,6 +100,9 @@ jobs:
 
       - name: Verify cescan launches
         run: ./build/cescan list | head -5
+
+      - name: Run CLI usability workflows
+        run: python3 test/cli_usability_test.py build/cescan
 
       - name: Build kernel module (out-of-tree)
         run: |
@@ -129,15 +144,15 @@ jobs:
       # auto-skip under __SANITIZE_ADDRESS__ (they deliberately fault / inject,
       # which conflicts with the sanitizer runtime — not product bugs).
       - name: Build test targets (instrumented)
-        run: cmake --build build-asan --target cecore_test speedhack -j"$(nproc)"
+        run: cmake --build build-asan --target cecore_test cecore_deep_test speedhack -j"$(nproc)"
 
       - name: Run suite under ASan + UBSan
         timeout-minutes: 20   # fail fast on a hang instead of burning the whole job
         env:
-          # new_delete_type_mismatch=0: the vendored Keystone/LLVM MemoryBuffer
-          # uses an operator-new/sized-delete pattern ASan flags as a mismatch.
-          # It's third-party and benign (LLVM's own allocator idiom); disabling
-          # that one check keeps every real check (heap-overflow/UAF/UB) on our code.
-          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:new_delete_type_mismatch=0
+          # Keystone's oversized MemoryBuffer allocations are patched to use
+          # unsized delete, so type-mismatch checking remains enabled.
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: ./build-asan/cecore_test
+        run: |
+          ./build-asan/cecore_test
+          ./build-asan/cecore_deep_test

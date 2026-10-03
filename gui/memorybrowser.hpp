@@ -204,6 +204,7 @@ public:
     void clearComments() { comments_.clear(); viewport()->update(); }
     /// Address of the currently selected instruction (the cursor row), or 0 if none.
     uintptr_t selectedAddress() const;
+    std::pair<uintptr_t, size_t> injectionSelection() const;
     /// Size in bytes of the currently selected instruction.
     int selectedSize() const;
     /// Number of instructions in the current selection (1 for a single line, more
@@ -237,7 +238,7 @@ signals:
     void requestSaveRegion(uintptr_t addr);
     void requestLoadRegion(uintptr_t addr);
     // Generate a pre-filled auto-assembler injection template for this address.
-    void requestInjection(uintptr_t addr, bool aob);
+    void requestInjection(uintptr_t addr, bool aob, size_t size);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -406,9 +407,10 @@ public:
 
     /// Hook to open a script editor pre-loaded with a generated injection script
     /// (MainWindow owns the AutoAssembler and creates the editor).
-    void setAutoAssembleOpener(std::function<void(const QString&)> fn) {
+    void setAutoAssembleOpener(std::function<void(const QString&, uintptr_t, size_t)> fn) {
         autoAssembleOpener_ = std::move(fn);
     }
+    std::pair<uintptr_t, size_t> injectionSelection() const;
     /// Hook to open a Structure Dissector at an address (Tools > Dissect data/
     /// structures). MainWindow owns the dissector windows.
     void setDissectOpener(std::function<void(uintptr_t)> fn) { dissectOpener_ = std::move(fn); }
@@ -510,7 +512,7 @@ private:
     std::function<void()> stepIntoFn_, stepOverFn_, runFn_;   // delegate to the debug session
     std::function<void(uintptr_t)> runToCursorFn_;            // run to the viewer's selected line
 
-    std::function<void(const QString&)> autoAssembleOpener_;
+    std::function<void(const QString&, uintptr_t, size_t)> autoAssembleOpener_;
     std::function<void(uintptr_t)> dissectOpener_;
     std::function<void(uintptr_t)> newWindowOpener_;
     // Persistent-comment plumbing (see setAnnotationStore).

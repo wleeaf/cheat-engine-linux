@@ -51,7 +51,16 @@ jobs:
 
       - name: Run regression suite
         timeout-minutes: 15   # fail fast on a hang instead of burning the whole job
-        run: ./build/cecore_test
+        run: |
+          ./build/cecore_test
+          ./build/cecore_deep_test
+          for test in gui_debugger_smoke gui_theme_smoke gui_guest_scan_smoke \
+                      gui_structdissect_smoke gui_hexview_smoke gui_disasm_smoke \
+                      gui_search_smoke gui_changeaddr_smoke gui_luaconsole_smoke \
+                      gui_codefinder_smoke gui_lifecycle_smoke; do
+            QT_QPA_PLATFORM=offscreen "./build/$test"
+          done
+          python3 test/cli_usability_test.py build/cescan
 
       - name: Build .deb package
         run: (cd build && cpack -G DEB)

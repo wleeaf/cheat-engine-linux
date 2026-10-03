@@ -13,6 +13,8 @@
 #include <QStackedWidget>
 #include <QSettings>
 #include <QHeaderView>
+#include <QScrollArea>
+#include <QFontMetrics>
 
 namespace ce::gui {
 
@@ -52,7 +54,7 @@ constexpr const char* NET_GDB_PORT_KEY      = "network/gdbDefaultPort";
 
 SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     setWindowTitle("Settings");
-    resize(560, 480);
+    resize(720, 520);
 
     auto* root = new QVBoxLayout(this);
 
@@ -60,12 +62,24 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     // page name is visible at once, with normal (unrotated) horizontal text.
     auto* nav = new QListWidget;
     nav->setObjectName("settingsNav");
-    nav->setFixedWidth(150);
+    nav->setFixedWidth(std::max(150, QFontMetrics(nav->font()).horizontalAdvance("Unrandomizer") + 30));
     nav->setUniformItemSizes(true);
     nav->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     nav->setFrameShape(QFrame::NoFrame);
+    nav->setStyleSheet("QListWidget::item { padding: 5px 8px; }");
     auto* pages = new QStackedWidget;
-    auto addPage = [&](QWidget* w, const QString& name) { nav->addItem(name); pages->addWidget(w); };
+    auto addPage = [&](QWidget* w, const QString& name) {
+        if (auto* form = qobject_cast<QFormLayout*>(w->layout())) {
+            form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+            form->setRowWrapPolicy(QFormLayout::WrapLongRows);
+        }
+        auto* scroll = new QScrollArea;
+        scroll->setWidgetResizable(true);
+        scroll->setFrameShape(QFrame::NoFrame);
+        scroll->setWidget(w);
+        nav->addItem(name);
+        pages->addWidget(scroll);
+    };
     addPage(buildScanTab(),       "Scan");
     addPage(buildDisplayTab(),    "Display");
     addPage(buildDebuggerTab(),   "Debugger");
@@ -73,25 +87,24 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     addPage(buildHotkeysTab(),    "Hotkeys");
     addPage(buildNetworkTab(),    "Network");
 
-    // Additional CE setting tabs (formsettingsunit). These persist on change, so
-    // they need no onApply plumbing.
+    // Additional CE setting tabs stage edits until Apply or OK is selected.
     {
         QSettings st;
         auto* sym = new QWidget; auto* sf = new QFormLayout(sym);
         auto* demangle = new QCheckBox("Demangle C++ symbol names");
         demangle->setChecked(st.value("symbols/demangle", true).toBool());
-        connect(demangle, &QCheckBox::toggled, this, [](bool v){ QSettings().setValue("symbols/demangle", v); });
+        connect(demangle, &QCheckBox::toggled, this, [this](bool v){ pendingSettings_["symbols/demangle"] = v; });
         sf->addRow("", demangle);
         auto* dwarf = new QCheckBox("Load DWARF debug info when available");
         dwarf->setChecked(st.value("symbols/dwarf", true).toBool());
-        connect(dwarf, &QCheckBox::toggled, this, [](bool v){ QSettings().setValue("symbols/dwarf", v); });
+        connect(dwarf, &QCheckBox::toggled, this, [this](bool v){ pendingSettings_["symbols/dwarf"] = v; });
         sf->addRow("", dwarf);
         addPage(sym, "Symbols");
 
         auto* cf = new QWidget; auto* cff = new QFormLayout(cf);
         auto* watch = new QComboBox; watch->addItems({"1", "2", "4", "8"});
         watch->setCurrentText(st.value("codefinder/watchSize", "4").toString());
-        connect(watch, &QComboBox::currentTextChanged, this, [](const QString& v){ QSettings().setValue("codefinder/watchSize", v); });
+        connect(watch, &QComboBox::currentTextChanged, this, [this](const QString& v){ pendingSettings_["codefinder/watchSize"] = v; });
         cff->addRow("Default watch size (bytes):", watch);
         addPage(cf, "CodeFinder");
 
@@ -126,7 +139,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
             auto* langCombo = new QComboBox; langCombo->addItems({"System default", "English"});
             langCombo->setCurrentText(st.value("ui/language", "System default").toString());
             connect(langCombo, &QComboBox::currentTextChanged, this,
-                    [](const QString& v){ QSettings().setValue("ui/language", v); });
+                    [this](const QString& v){ pendingSettings_["ui/language"] = v; });
             lgf->addRow("Language:", langCombo);
             auto* note = new QLabel("Translations ship as translations/cheatengine_<locale>.qm; "
                                     "restart to apply.");
@@ -152,6 +165,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     auto* applyBtn = new QPushButton("Apply");
     connect(applyBtn, &QPushButton::clicked, this, &SettingsDialog::onApply);
     auto* okBtn = new QPushButton("OK");
+    okBtn->setDefault(true);
     connect(okBtn, &QPushButton::clicked, this, [this]() { onApply(); accept(); });
     auto* cancelBtn = new QPushButton("Cancel");
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
@@ -219,6 +233,7 @@ QWidget* SettingsDialog::buildDisplayTab() {
     form->addRow("Monospace font:", fontFamilyCombo_);
 
     fontSizeSpin_ = new QSpinBox;
+    fontSizeSpin_->setObjectName("displayFontSize");
     fontSizeSpin_->setRange(7, 24);
     fontSizeSpin_->setValue(s.value(DISP_FONT_SIZE_KEY, 10).toInt());
     form->addRow("Font size:", fontSizeSpin_);
@@ -351,6 +366,9 @@ QWidget* SettingsDialog::buildNetworkTab() {
 }
 
 void SettingsDialog::onApply() {
+    for (auto it = pendingSettings_.cbegin(); it != pendingSettings_.cend(); ++it)
+        QSettings().setValue(it.key(), it.value());
+    pendingSettings_.clear();
     QSettings s;
     s.setValue(SCAN_ALIGN_KEY,        alignSpin_->value());
     s.setValue(SCAN_WRITABLE_KEY,     writableCheck_->isChecked());
@@ -386,6 +404,7 @@ void SettingsDialog::onApply() {
     s.setValue(NET_CESERVER_PORT_KEY, ceserverPortSpin_->value());
     s.setValue(NET_COMPRESSION_KEY,   compressionLevelSpin_->value());
     s.setValue(NET_GDB_PORT_KEY,      gdbDefaultPortSpin_->value());
+    emit settingsApplied();
 }
 
 } // namespace ce::gui

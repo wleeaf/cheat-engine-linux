@@ -9,6 +9,7 @@ extern "C" {
 #include <algorithm>
 #include <cstdio>
 #include <memory>
+#include <limits>
 
 namespace ce {
 namespace {
@@ -41,7 +42,7 @@ void setTableString(lua_State* L, const char* name, const std::string& value) {
 
 void exposeConditionGlobals(lua_State* L, const Breakpoint& bp, const BreakpointHit& hit) {
     const auto& ctx = hit.context;
-    const auto nextHitCount = static_cast<uint64_t>(bp.hitCount + 1);
+    const auto nextHitCount = static_cast<uint64_t>(bp.hitCount) + 1;
 
     setGlobalInteger(L, "bpId", bp.id);
     setGlobalInteger(L, "address", hit.address);
@@ -204,9 +205,16 @@ bool evaluateBreakpointCondition(const std::string& condition, const CpuContext&
 int BreakpointManager::add(const Breakpoint& bp) {
     std::lock_guard lock(mutex_);
     Breakpoint b = bp;
+    if (b.method == BpMethod::Hardware) {
+        if (b.hwRegister < 0) b.hwRegister = findFreeHwRegisterUnlocked();
+        if (b.enabled && (b.hwRegister < 0 || b.hwRegister > 3)) return -1;
+        if (b.hwRegister > 3) return -1;
+        for (const auto& other : breakpoints_)
+            if (b.enabled && other.enabled && other.method == BpMethod::Hardware &&
+                other.hwRegister == b.hwRegister) return -1;
+    }
+    if (nextId_ == std::numeric_limits<int>::max()) return -1;
     b.id = nextId_++;
-    if (b.method == BpMethod::Hardware && b.hwRegister < 0)
-        b.hwRegister = findFreeHwRegister();
     breakpoints_.push_back(b);
     return b.id;
 }
@@ -222,8 +230,15 @@ void BreakpointManager::remove(int id) {
 
 void BreakpointManager::setEnabled(int id, bool enabled) {
     std::lock_guard lock(mutex_);
-    for (auto& b : breakpoints_)
-        if (b.id == id) { b.enabled = enabled; break; }
+    for (auto& b : breakpoints_) {
+        if (b.id != id) continue;
+        if (enabled && !b.enabled && b.method == BpMethod::Hardware) {
+            b.hwRegister = findFreeHwRegisterUnlocked();
+            if (b.hwRegister < 0) return;
+        }
+        b.enabled = enabled;
+        break;
+    }
 }
 
 std::vector<Breakpoint> BreakpointManager::list() const {
@@ -231,17 +246,22 @@ std::vector<Breakpoint> BreakpointManager::list() const {
     return breakpoints_;
 }
 
-const Breakpoint* BreakpointManager::get(int id) const {
+std::optional<Breakpoint> BreakpointManager::get(int id) const {
     std::lock_guard lock(mutex_);
     for (auto& b : breakpoints_)
-        if (b.id == id) return &b;
-    return nullptr;
+        if (b.id == id) return b;
+    return std::nullopt;
 }
 
 int BreakpointManager::findFreeHwRegister() const {
+    std::lock_guard lock(mutex_);
+    return findFreeHwRegisterUnlocked();
+}
+
+int BreakpointManager::findFreeHwRegisterUnlocked() const {
     bool used[4] = {};
     for (auto& b : breakpoints_)
-        if (b.enabled && b.hwRegister >= 0 && b.hwRegister < 4)
+        if (b.enabled && b.method == BpMethod::Hardware && b.hwRegister >= 0 && b.hwRegister < 4)
             used[b.hwRegister] = true;
     for (int i = 0; i < 4; ++i)
         if (!used[i]) return i;
@@ -296,12 +316,15 @@ bool BreakpointManager::applyToThread(Debugger& dbg, pid_t tid) {
 
 bool BreakpointManager::removeFromThread(Debugger& dbg, pid_t tid) {
     std::lock_guard lock(mutex_);
+    bool success = true;
     for (auto& bp : breakpoints_) {
         if (bp.method != BpMethod::Hardware) continue;
-        if (bp.hwRegister >= 0)
-            dbg.removeBreakpoint(tid, bp.hwRegister);
+        if (bp.enabled && bp.hwRegister >= 0 &&
+            (bp.threadFilter == 0 || bp.threadFilter == tid)) {
+            if (!dbg.removeBreakpoint(tid, bp.hwRegister)) success = false;
+        }
     }
-    return true;
+    return success;
 }
 
 bool BreakpointManager::recordHit(int id, const BreakpointHit& hit) {
@@ -336,10 +359,11 @@ bool BreakpointManager::recordHit(int id, const BreakpointHit& hit) {
 
         auto bpIt = std::find_if(breakpoints_.begin(), breakpoints_.end(),
             [id](const Breakpoint& bp) { return bp.id == id; });
-        if (bpIt == breakpoints_.end())
+        if (bpIt == breakpoints_.end() || !bpIt->enabled ||
+            (bpIt->threadFilter != 0 && bpIt->threadFilter != hit.tid))
             return false;
 
-        bpIt->hitCount++;
+        if (bpIt->hitCount < std::numeric_limits<int>::max()) ++bpIt->hitCount;
         callbackBp = *bpIt;
         if (bpIt->oneShot)
             callbackBp.enabled = false;

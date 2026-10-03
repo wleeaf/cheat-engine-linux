@@ -9,6 +9,7 @@
 #include <queue>
 #include <set>
 #include <stdexcept>
+#include <limits>
 
 namespace ce {
 
@@ -19,8 +20,8 @@ std::string PointerPath::toString() const {
         result += "[";
 
     char buf[64];
-    snprintf(buf, sizeof(buf), "%s+%lx", module.c_str(), baseOffset);
-    result += buf;
+    snprintf(buf, sizeof(buf), "+%lx", baseOffset);
+    result += module + buf;
 
     for (auto off : offsets) {
         result += "]";
@@ -40,7 +41,7 @@ std::string PointerPath::toString() const {
 
 static bool isInRange(uintptr_t addr, const std::vector<MemoryRegion>& regions) {
     for (auto& r : regions)
-        if (addr >= r.base && addr < r.base + r.size)
+        if (addr >= r.base && addr - r.base < r.size)
             return true;
     return false;
 }
@@ -123,11 +124,12 @@ bool PointerMap::save(const std::string& path) const {
         ok = w(&base, 8) && w(&size, 8) && w(&nameLen, 4) && w(&is64, 1);
         if (ok && nameLen) ok = w(m.name.data(), nameLen);
     }
-    std::fclose(f);
+    if (std::fclose(f) != 0) ok = false;
     return ok;
 }
 
 PointerMap PointerMap::load(const std::string& path, std::string* error) {
+    if (error) error->clear();
     auto fail = [&](const char* m) { if (error) *error = m; return PointerMap{}; };
     FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) return fail("open failed");
@@ -199,6 +201,7 @@ PointerMap buildPointerMap(ProcessHandle& proc, const PointerScanConfig& config,
     // memory reallocation amortisation.
     const bool gpuActive = config.useGpu && CudaSearch::available();
     CudaSearch gpu;
+    const size_t ptrSize = proc.is64bit() ? 8 : 4;
 
     for (auto& region : regions) {
         if (cancelled()) break;
@@ -211,23 +214,23 @@ PointerMap buildPointerMap(ProcessHandle& proc, const PointerScanConfig& config,
 
         // Read the region in bounded windows so a single multi-GB mapping in a
         // hostile target can't drive one buf.resize(region.size) into bad_alloc.
-        // Each window keeps a 7-byte overlap so an 8-byte pointer straddling a
+        // Each window keeps an overlap so a target pointer straddling a
         // window boundary is still examined (owning offsets stay consecutive).
         constexpr size_t kPtrReadWindow = 64u * 1024 * 1024; // 64 MB
-        const size_t ptrStep = config.alignedOnly ? 8 : 1;
+        const size_t ptrStep = config.alignedOnly ? ptrSize : 1;
         const size_t ownedLen = std::max<size_t>(ptrStep, (kPtrReadWindow / ptrStep) * ptrStep);
         for (size_t windowStart = 0; windowStart < region.size; windowStart += ownedLen) {
             if (cancelled()) break;
-            size_t want = std::min<size_t>(ownedLen + 7, region.size - windowStart);
+            size_t want = std::min<size_t>(ownedLen + ptrSize - 1, region.size - windowStart);
             buf.resize(want);
             auto rr = proc.read(region.base + windowStart, buf.data(), want);
-            if (!rr || *rr < 8) continue;
+            if (!rr || *rr < ptrSize) continue;
             size_t bytesRead = *rr;
             uintptr_t winBase = region.base + windowStart;
 
             const bool useGpuHere = gpuActive &&
                 bytesRead >= config.gpuMinRegionBytes &&
-                config.alignedOnly; // GPU kernel walks 8-byte slots
+                config.alignedOnly && ptrSize == 8; // GPU kernel walks 8-byte slots
 
             if (useGpuHere) {
                 auto candidates = gpu.searchU64Range(buf.data(), bytesRead, kPtrLow, kPtrHigh);
@@ -239,10 +242,10 @@ PointerMap buildPointerMap(ProcessHandle& proc, const PointerScanConfig& config,
                     entries.push_back({val, winBase + off});
                 }
             } else {
-                size_t limit = bytesRead - 7;
+                size_t limit = std::min(ownedLen, bytesRead - ptrSize + 1);
                 for (size_t offset = 0; offset < limit; offset += ptrStep) {
-                    uintptr_t val;
-                    std::memcpy(&val, buf.data() + offset, 8);
+                    uintptr_t val = 0;
+                    std::memcpy(&val, buf.data() + offset, ptrSize);
 
                     if (val < kPtrLow || val > kPtrHigh) continue;
                     if (!isInRange(val, regions)) continue;
@@ -266,7 +269,8 @@ PointerMap buildPointerMap(ProcessHandle& proc, const PointerScanConfig& config,
 std::vector<PointerPath> PointerScanner::scan(ProcessHandle& proc, const PointerScanConfig& config) {
     cancelled_.store(false);
     progress_.store(0);
-    if (config.shardCount == 0 || config.shardIndex >= config.shardCount)
+    if (config.shardCount == 0 || config.shardIndex >= config.shardCount ||
+        config.maxDepth <= 0 || config.maxOffset < 0)
         return {};
 
     PointerMap map = buildPointerMap(proc, config, &cancelled_, &progress_, 0.5f);
@@ -276,7 +280,8 @@ std::vector<PointerPath> PointerScanner::scan(ProcessHandle& proc, const Pointer
 
 std::vector<PointerPath> PointerScanner::scanWithMap(const PointerMap& map,
                                                      const PointerScanConfig& config) {
-    if (config.shardCount == 0 || config.shardIndex >= config.shardCount)
+    if (config.shardCount == 0 || config.shardIndex >= config.shardCount ||
+        config.maxDepth <= 0 || config.maxOffset < 0)
         return {};
 
     const std::vector<PointerMap::Entry>& entries = map.entriesByTarget();
@@ -285,7 +290,7 @@ std::vector<PointerPath> PointerScanner::scanWithMap(const PointerMap& map,
     // Build quick lookup: is address in a module? (static pointer)
     auto findModule = [&](uintptr_t addr) -> const ModuleInfo* {
         for (auto& m : modules)
-            if (addr >= m.base && addr < m.base + m.size)
+            if (addr >= m.base && addr - m.base < m.size)
                 return &m;
         return nullptr;
     };
@@ -296,14 +301,12 @@ std::vector<PointerPath> PointerScanner::scanWithMap(const PointerMap& map,
         uintptr_t address;          // Address to find pointers TO
         std::vector<int32_t> offsets; // Offsets collected so far
         int depth;
+        std::vector<uintptr_t> ancestors;
     };
 
     std::vector<PointerPath> results;
     std::queue<WorkItem> queue;
-    std::set<uintptr_t> visited; // Prevent cycles
-
-    queue.push({config.targetAddress, {}, 0});
-    visited.insert(config.targetAddress);
+    queue.push({config.targetAddress, {}, 0, {config.targetAddress}});
 
     size_t totalWork = 1;
     size_t doneWork = 0;
@@ -321,7 +324,8 @@ std::vector<PointerPath> PointerScanner::scanWithMap(const PointerMap& map,
             item.address - config.maxOffset : 0;
         uintptr_t searchMax = item.address;
         if (config.negativeOffsets)
-            searchMax = item.address + config.maxOffset;
+            searchMax = item.address + std::min<uintptr_t>(config.maxOffset,
+                std::numeric_limits<uintptr_t>::max() - item.address);
 
         // Binary search for range [searchMin, searchMax] in sorted entries
         auto lo = std::lower_bound(entries.begin(), entries.end(), searchMin,
@@ -362,9 +366,11 @@ std::vector<PointerPath> PointerScanner::scanWithMap(const PointerMap& map,
 
             // Go deeper if not at max depth and not static-only
             if (item.depth + 1 < config.maxDepth) {
-                if (!visited.count(it->locatedAt)) {
-                    visited.insert(it->locatedAt);
-                    queue.push({it->locatedAt, newOffsets, item.depth + 1});
+                if (std::find(item.ancestors.begin(), item.ancestors.end(), it->locatedAt) ==
+                    item.ancestors.end()) {
+                    auto ancestors = item.ancestors;
+                    ancestors.push_back(it->locatedAt);
+                    queue.push({it->locatedAt, newOffsets, item.depth + 1, std::move(ancestors)});
                     ++totalWork;
                 }
             }
@@ -390,10 +396,11 @@ uintptr_t PointerScanner::dereference(ProcessHandle& proc, const std::vector<Mod
     if (base == 0) return 0;
 
     uintptr_t addr = base + path.baseOffset;
+    const size_t ptrSize = proc.is64bit() ? 8 : 4;
     for (auto off : path.offsets) {
         uintptr_t ptr = 0;
-        auto r = proc.read(addr, &ptr, sizeof(ptr));
-        if (!r || *r < sizeof(ptr) || ptr == 0) return 0;
+        auto r = proc.read(addr, &ptr, ptrSize);
+        if (!r || *r != ptrSize || ptr == 0) return 0;
         addr = ptr + off;
     }
     return addr;
@@ -436,11 +443,12 @@ bool savePointerPaths(const std::string& path, const std::vector<PointerPath>& p
         if (ok && offCount > 0) ok = writeAll(p.offsets.data(), offCount * sizeof(int32_t));
     }
 
-    std::fclose(f);
+    if (std::fclose(f) != 0) ok = false;
     return ok;
 }
 
 std::vector<PointerPath> loadPointerPaths(const std::string& path, std::string* error) {
+    if (error) error->clear();
     auto fail = [&](const char* msg) {
         if (error) *error = msg;
         return std::vector<PointerPath>{};

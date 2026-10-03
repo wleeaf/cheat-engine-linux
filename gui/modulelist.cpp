@@ -48,6 +48,7 @@ void ModuleListWindow::populate() {
         table_->setItem(i, 1, new QTableWidgetItem(QString::number(module.size)));
         table_->setItem(i, 2, new QTableWidgetItem(QString::fromStdString(module.name)));
         table_->setItem(i, 3, new QTableWidgetItem(QString::fromStdString(module.path)));
+        for (int column : {2, 3}) table_->item(i, column)->setToolTip(table_->item(i, column)->text());
     }
     setWindowTitle(QString("Module List - %1 modules").arg(modules.size()));
 }

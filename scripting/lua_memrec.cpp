@@ -24,6 +24,14 @@ extern "C" {
 #include <cstring>
 #include <string>
 
+#include "scripting/lua_safe.hpp"
+
+#undef lua_pushcfunction
+#define lua_pushcfunction(L, f) ce::pushSafeLuaFunction((L), (f))
+#undef lua_register
+#define lua_register(L, n, f) ce::registerSafeLuaFunction((L), (n), (f))
+#define luaL_setfuncs(L, f, n) ce::setSafeLuaFunctions((L), (f), (n))
+
 namespace ce {
 
 namespace {
@@ -35,6 +43,7 @@ constexpr const char* MEMREC_CALLBACKS_KEY = "ce_memrec_callbacks";
 
 struct MemRecRef {
     int id;
+    lua_Integer generation;
 };
 
 struct AddrListRef {
@@ -49,7 +58,12 @@ IAddressList* currentList(lua_State* L) {
 }
 
 MemRecRef* checkMemRec(lua_State* L, int idx) {
-    return static_cast<MemRecRef*>(luaL_checkudata(L, idx, MEMREC_MT));
+    auto* ref = static_cast<MemRecRef*>(luaL_checkudata(L, idx, MEMREC_MT));
+    lua_getfield(L, LUA_REGISTRYINDEX, "ce_addresslist_generation");
+    lua_Integer generation = lua_tointeger(L, -1);
+    lua_pop(L, 1);
+    if (generation != ref->generation) luaL_error(L, "memory record belongs to a previous address list");
+    return ref;
 }
 
 [[maybe_unused]] AddrListRef* checkAddrList(lua_State* L, int idx) {
@@ -59,6 +73,9 @@ MemRecRef* checkMemRec(lua_State* L, int idx) {
 void pushMemRec(lua_State* L, int id) {
     auto* ref = static_cast<MemRecRef*>(lua_newuserdata(L, sizeof(MemRecRef)));
     ref->id = id;
+    lua_getfield(L, LUA_REGISTRYINDEX, "ce_addresslist_generation");
+    ref->generation = lua_tointeger(L, -1);
+    lua_pop(L, 1);
     luaL_getmetatable(L, MEMREC_MT);
     lua_setmetatable(L, -2);
 }
@@ -460,7 +477,7 @@ int l_mr__index(lua_State* L) {
 }
 
 int l_mr__newindex(lua_State* L) {
-    auto* ref = static_cast<MemRecRef*>(luaL_checkudata(L, 1, MEMREC_MT));
+    auto* ref = checkMemRec(L, 1);
     // Copy the key: lua_remove(L, 2) below drops the stack reference, and a long
     // dynamically-built key would otherwise be collectible before the dispatch
     // (and luaL_error's %s) reads it.

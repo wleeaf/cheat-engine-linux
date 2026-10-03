@@ -10,6 +10,12 @@
 #include <algorithm>
 
 namespace ce {
+namespace {
+bool terminated(const std::vector<char>& bytes, size_t offset) {
+    return offset < bytes.size() && std::memchr(bytes.data() + offset, 0, bytes.size() - offset);
+}
+}
+
 
 void SymbolResolver::clear() {
     symbols_.clear();
@@ -22,8 +28,9 @@ void SymbolResolver::loadProcess(ProcessHandle& proc) {
     auto modules = proc.modules();
     for (auto& m : modules) {
         if (m.path.empty() || m.path[0] != '/') continue;
-        if (!std::filesystem::exists(m.path)) continue;
-        parseElfSymbols(m.path, m.name, m.base);
+        std::error_code ec;
+        if (!std::filesystem::exists(m.path, ec)) continue;
+        loadModule(m.path, m.name, m.base);
     }
 }
 
@@ -42,7 +49,7 @@ void SymbolResolver::loadModule(const std::string& path, const std::string& modu
 void SymbolResolver::parsePeExports(const std::string& path, const std::string& moduleName,
                                     uintptr_t baseAddr) {
     for (const auto& e : ce::parsePEExports(path)) {
-        if (e.name.empty() || e.rva == 0) continue;   // skip ordinal-only / forwarders
+        if (e.name.empty() || e.rva == 0 || e.rva > UINTPTR_MAX - baseAddr) continue;   // skip ordinal-only / forwarders
         uintptr_t addr = baseAddr + e.rva;
         if (addrIndex_.count(addr)) continue;          // first name at an address wins
         size_t idx = symbols_.size();
@@ -74,9 +81,11 @@ static std::string findSeparateDebugFile(const std::vector<Elf64_Shdr>& shdrs,
             Elf64_Nhdr nh;
             std::memcpy(&nh, buf.data() + off, sizeof(nh));
             size_t nameOff = off + sizeof(Elf64_Nhdr);
-            size_t descOff = nameOff + ((nh.n_namesz + 3u) & ~3u);
-            size_t descPad = (nh.n_descsz + 3u) & ~3u;
-            if (descOff > buf.size() || nh.n_descsz > buf.size() - descOff) break;
+            size_t namePad = (static_cast<size_t>(nh.n_namesz) + 3) & ~size_t{3};
+            size_t descPad = (static_cast<size_t>(nh.n_descsz) + 3) & ~size_t{3};
+            if (namePad > buf.size() - nameOff) break;
+            size_t descOff = nameOff + namePad;
+            if (descPad > buf.size() - descOff) break;
             if (nh.n_type == NT_GNU_BUILD_ID && nh.n_namesz >= 3 && nh.n_descsz >= 2 &&
                 std::memcmp(buf.data() + nameOff, "GNU", 3) == 0) {
                 static const char* hx = "0123456789abcdef";
@@ -103,16 +112,15 @@ static std::string findSeparateDebugFile(const std::vector<Elf64_Shdr>& shdrs,
             std::vector<char> names(shstr.sh_size);
             f.clear(); f.seekg(shstr.sh_offset); f.read(names.data(), shstr.sh_size);
             if (f) {
-                names.back() = '\0';
                 for (const auto& sh : shdrs) {
-                    if (sh.sh_name >= names.size()) continue;
+                    if (!terminated(names, sh.sh_name)) continue;
                     if (std::strcmp(names.data() + sh.sh_name, ".gnu_debuglink") != 0) continue;
                     if (sh.sh_offset > fileSize || sh.sh_size > fileSize - sh.sh_offset ||
                         sh.sh_size < 5 || sh.sh_size > 4096) break;
                     std::vector<char> dl(sh.sh_size);
                     f.clear(); f.seekg(sh.sh_offset); f.read(dl.data(), sh.sh_size);
                     if (!f) break;
-                    dl.back() = '\0';
+                    if (!terminated(dl, 0)) break;
                     std::string debugName = dl.data();
                     if (debugName.empty()) break;
                     fs::path dir = fs::path(origPath).parent_path();
@@ -147,7 +155,8 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
     if (!f) return;
 
     // Verify ELF magic
-    if (memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0) return;
+    if (memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0 ||
+        ehdr.e_ident[EI_DATA] != ELFDATA2LSB || ehdr.e_ident[EI_VERSION] != EV_CURRENT) return;
 
     // 32-bit (i386) ELFs go through the parallel Elf32 symbol path; the rest of
     // this function is Elf64-typed.
@@ -155,11 +164,13 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
         parseElf32Symbols(path, moduleName, baseAddr);
         return;
     }
-    if (ehdr.e_ident[EI_CLASS] != ELFCLASS64) return;
+    if (ehdr.e_ident[EI_CLASS] != ELFCLASS64 || ehdr.e_version != EV_CURRENT ||
+        ehdr.e_ehsize != sizeof(Elf64_Ehdr) || ehdr.e_shentsize != sizeof(Elf64_Shdr)) return;
 
     // Read section headers
     if (ehdr.e_shoff == 0 || ehdr.e_shnum == 0) return;
 
+    if (ehdr.e_shoff > fileSize || ehdr.e_shnum > (fileSize - ehdr.e_shoff) / sizeof(Elf64_Shdr)) return;
     std::vector<Elf64_Shdr> shdrs(ehdr.e_shnum);
     f.clear();  // reset any prior failbit so this section read is independent
     f.seekg(ehdr.e_shoff);
@@ -190,11 +201,6 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
         f.seekg(strShdr.sh_offset);
         f.read(strtab.data(), strShdr.sh_size);
         if (!f) return;
-        // Guarantee NUL-termination: symbol names below are read as C strings,
-        // and a valid strtab already ends in NUL, so this is a no-op on good
-        // files but caps the strlen scan on hostile ones.
-        if (!strtab.empty()) strtab.back() = '\0';
-
         // Read symbol entries — exactly numSyms * sizeof(Elf64_Sym) bytes, never
         // sh_size, so the destination buffer and the read length always match.
         size_t numSyms = symShdr.sh_size / sizeof(Elf64_Sym);
@@ -208,7 +214,7 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
             // Skip undefined, no-name, and non-function/object symbols
             if (sym.st_name == 0) continue;
             if (sym.st_shndx == SHN_UNDEF) continue;
-            if (sym.st_name >= strShdr.sh_size) continue;
+            if (!terminated(strtab, sym.st_name)) continue;
 
             uint8_t type = ELF64_ST_TYPE(sym.st_info);
             if (type != STT_FUNC && type != STT_OBJECT && type != STT_NOTYPE) continue;
@@ -217,7 +223,10 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
             if (name[0] == '\0') continue;
 
             uintptr_t addr = sym.st_value;
-            if (isPIE) addr += baseAddr;
+            if (isPIE && sym.st_shndx != SHN_ABS) {
+                if (addr > UINTPTR_MAX - baseAddr) continue;
+                addr += baseAddr;
+            }
 
             Symbol s;
             s.name = name;
@@ -283,7 +292,6 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
         f.seekg(strShdr.sh_offset);
         f.read(strtab.data(), strShdr.sh_size);
         if (!f) return;
-        if (!strtab.empty()) strtab.back() = '\0';
 
         size_t numSyms = symShdr.sh_size / sizeof(Elf64_Sym);
         std::vector<Elf64_Sym> syms(numSyms);
@@ -303,7 +311,7 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
             uint32_t symIdx = ELF64_R_SYM(rel.r_info);
             if (symIdx == 0 || symIdx >= numSyms) continue;
             const Elf64_Sym& sym = syms[symIdx];
-            if (sym.st_name == 0 || sym.st_name >= strShdr.sh_size) continue;
+            if (sym.st_name == 0 || !terminated(strtab, sym.st_name)) continue;
             const char* name = strtab.data() + sym.st_name;
             if (name[0] == '\0') continue;
 
@@ -317,7 +325,10 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
             gotSlotName[rel.r_offset] = base;   // for PLT-stub matching (file vaddr key)
 
             uintptr_t slot = rel.r_offset;
-            if (isPIE) slot += baseAddr;
+            if (isPIE) {
+                if (slot > UINTPTR_MAX - baseAddr) continue;
+                slot += baseAddr;
+            }
             if (addrIndex_.count(slot)) continue;   // don't shadow a real symbol
 
             Symbol s;
@@ -349,9 +360,8 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
             f.seekg(shstr.sh_offset);
             f.read(secNames.data(), shstr.sh_size);
             if (f && !secNames.empty()) {
-                secNames.back() = '\0';
                 for (const auto& sh : shdrs) {
-                    if (sh.sh_type != SHT_PROGBITS || sh.sh_name >= shstr.sh_size) continue;
+                    if (sh.sh_type != SHT_PROGBITS || !terminated(secNames, sh.sh_name)) continue;
                     std::string sname = secNames.data() + sh.sh_name;
                     if (sname.rfind(".plt", 0) != 0) continue;   // .plt / .plt.sec / .plt.got
                     if (sh.sh_offset > fileSize || sh.sh_size > fileSize - sh.sh_offset) continue;
@@ -368,12 +378,19 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
                             if (code[off + j] != 0xff || code[off + j + 1] != 0x25) continue;
                             int32_t disp;
                             std::memcpy(&disp, &code[off + j + 2], 4);
-                            uintptr_t jmpVaddr = sh.sh_addr + off + j;              // file vaddr
-                            uintptr_t target   = jmpVaddr + 6 + (int64_t)disp;      // GOT slot
+                            if (off > UINTPTR_MAX - sh.sh_addr || j + 6 > UINTPTR_MAX - (sh.sh_addr + off)) continue;
+                            uintptr_t next = sh.sh_addr + off + j + 6;
+                            int64_t displacement = disp;
+                            if ((displacement < 0 && static_cast<uintptr_t>(-displacement) > next) ||
+                                (displacement >= 0 && static_cast<uintptr_t>(displacement) > UINTPTR_MAX - next)) continue;
+                            uintptr_t target = next + displacement;
                             auto it = gotSlotName.find(target);
                             if (it != gotSlotName.end()) {
                                 uintptr_t stub = sh.sh_addr + off;                  // entry start
-                                if (isPIE) stub += baseAddr;
+                                if (isPIE) {
+                                    if (stub > UINTPTR_MAX - baseAddr) continue;
+                                    stub += baseAddr;
+                                }
                                 if (!addrIndex_.count(stub)) {
                                     Symbol s;
                                     s.name = it->second + "@plt";
@@ -407,10 +424,13 @@ void SymbolResolver::parseElf32Symbols(const std::string& path, const std::strin
     Elf32_Ehdr ehdr;
     f.read(reinterpret_cast<char*>(&ehdr), sizeof(ehdr));
     if (!f) return;
-    if (memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0) return;
-    if (ehdr.e_ident[EI_CLASS] != ELFCLASS32) return;
+    if (memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0 ||
+        ehdr.e_ident[EI_DATA] != ELFDATA2LSB || ehdr.e_ident[EI_VERSION] != EV_CURRENT) return;
+    if (ehdr.e_ident[EI_CLASS] != ELFCLASS32 || ehdr.e_version != EV_CURRENT ||
+        ehdr.e_ehsize != sizeof(Elf32_Ehdr) || ehdr.e_shentsize != sizeof(Elf32_Shdr)) return;
     if (ehdr.e_shoff == 0 || ehdr.e_shnum == 0) return;
 
+    if (ehdr.e_shoff > fileSize || ehdr.e_shnum > (fileSize - ehdr.e_shoff) / sizeof(Elf32_Shdr)) return;
     std::vector<Elf32_Shdr> shdrs(ehdr.e_shnum);
     f.clear();
     f.seekg(ehdr.e_shoff);
@@ -431,7 +451,6 @@ void SymbolResolver::parseElf32Symbols(const std::string& path, const std::strin
         f.seekg(strShdr.sh_offset);
         f.read(strtab.data(), strShdr.sh_size);
         if (!f) return;
-        if (!strtab.empty()) strtab.back() = '\0';
 
         size_t numSyms = symShdr.sh_size / sizeof(Elf32_Sym);
         std::vector<Elf32_Sym> syms(numSyms);
@@ -442,7 +461,7 @@ void SymbolResolver::parseElf32Symbols(const std::string& path, const std::strin
 
         for (auto& sym : syms) {
             if (sym.st_name == 0 || sym.st_shndx == SHN_UNDEF) continue;
-            if (sym.st_name >= strShdr.sh_size) continue;
+            if (!terminated(strtab, sym.st_name)) continue;
 
             uint8_t type = ELF32_ST_TYPE(sym.st_info);
             if (type != STT_FUNC && type != STT_OBJECT && type != STT_NOTYPE) continue;
@@ -451,7 +470,10 @@ void SymbolResolver::parseElf32Symbols(const std::string& path, const std::strin
             if (name[0] == '\0') continue;
 
             uintptr_t addr = sym.st_value;
-            if (isPIE) addr += baseAddr;
+            if (isPIE && sym.st_shndx != SHN_ABS) {
+                if (addr > UINTPTR_MAX - baseAddr) continue;
+                addr += baseAddr;
+            }
 
             Symbol s;
             s.name = name;
@@ -482,15 +504,23 @@ void SymbolResolver::parseElf32Symbols(const std::string& path, const std::strin
 }
 
 void SymbolResolver::addUserSymbol(uintptr_t address, const std::string& name) {
+    removeUserSymbol(address);
+    if (name.empty()) return;
     userSymbols_[address] = name;
-    nameIndex_[name] = address;
+    userNameIndex_[name] = address;
 }
 
 void SymbolResolver::removeUserSymbol(uintptr_t address) {
     auto it = userSymbols_.find(address);
     if (it != userSymbols_.end()) {
-        nameIndex_.erase(it->second);
+        std::string name = it->second;
         userSymbols_.erase(it);
+        auto index = userNameIndex_.find(name);
+        if (index != userNameIndex_.end() && index->second == address) {
+            userNameIndex_.erase(index);
+            for (const auto& [otherAddress, otherName] : userSymbols_)
+                if (otherName == name) userNameIndex_[name] = otherAddress;
+        }
     }
 }
 
@@ -538,6 +568,8 @@ std::string SymbolResolver::resolve(uintptr_t address) const {
 }
 
 uintptr_t SymbolResolver::lookup(const std::string& name) const {
+    auto user = userNameIndex_.find(name);
+    if (user != userNameIndex_.end()) return user->second;
     auto it = nameIndex_.find(name);
     return it != nameIndex_.end() ? it->second : 0;
 }

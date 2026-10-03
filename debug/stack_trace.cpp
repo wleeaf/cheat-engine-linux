@@ -24,15 +24,16 @@ bool isReadable(ProcessHandle& proc, uintptr_t address, size_t size) {
     return end <= region->base + region->size;
 }
 
-bool readPointer(ProcessHandle& proc, uintptr_t address, uintptr_t& value) {
-    auto read = proc.read(address, &value, sizeof(value));
-    return read && *read == sizeof(value);
+bool readPointer(ProcessHandle& proc, uintptr_t address, uintptr_t& value, size_t width) {
+    value = 0;
+    auto read = proc.read(address, &value, width);
+    return read && *read == width;
 }
 
-bool isPlausibleNextFrame(uintptr_t currentRbp, uintptr_t nextRbp) {
+bool isPlausibleNextFrame(uintptr_t currentRbp, uintptr_t nextRbp, size_t width) {
     if (nextRbp == 0) return false;
     if (nextRbp <= currentRbp) return false;
-    if ((nextRbp % sizeof(uintptr_t)) != 0) return false;
+    if ((nextRbp % width) != 0) return false;
     return nextRbp - currentRbp <= kMaxFrameSpan;
 }
 
@@ -61,26 +62,27 @@ std::vector<StackFrame> buildStackTrace(ProcessHandle& proc,
     });
 
     uintptr_t rbp = context.rbp;
+    const size_t width = proc.runs32BitCode() ? 4 : 8;
     for (size_t index = 1; index < maxFrames; ++index) {
-        if (rbp == 0 || addWouldOverflow(rbp, sizeof(uintptr_t) * 2)) break;
-        if (!isReadable(proc, rbp, sizeof(uintptr_t) * 2)) break;
+        if (rbp == 0 || addWouldOverflow(rbp, width * 2)) break;
+        if (!isReadable(proc, rbp, width * 2)) break;
 
         uintptr_t nextRbp = 0;
         uintptr_t returnAddress = 0;
-        if (!readPointer(proc, rbp, nextRbp)) break;
-        if (!readPointer(proc, rbp + sizeof(uintptr_t), returnAddress)) break;
+        if (!readPointer(proc, rbp, nextRbp, width)) break;
+        if (!readPointer(proc, rbp + width, returnAddress, width)) break;
         if (returnAddress == 0) break;
 
         frames.push_back(StackFrame{
             .index = index,
             .instructionPointer = returnAddress,
-            .stackPointer = rbp + sizeof(uintptr_t) * 2,
+            .stackPointer = rbp + width * 2,
             .framePointer = rbp,
             .returnAddress = returnAddress,
             .symbol = resolveSymbol(symbols, returnAddress),
         });
 
-        if (!isPlausibleNextFrame(rbp, nextRbp)) break;
+        if (!isPlausibleNextFrame(rbp, nextRbp, width)) break;
         rbp = nextRbp;
     }
 

@@ -2,8 +2,10 @@
 #include "gui/theme.hpp"
 #include "core/aa_templates.hpp"
 #include "core/injection_gen.hpp"
-#include "arch/disassembler.hpp"
+#include "core/expression.hpp"
+#include "symbols/elf_symbols.hpp"
 #include <QVBoxLayout>
+#include <QApplication>
 #include <QHBoxLayout>
 #include <QSplitter>
 #include <QFont>
@@ -14,10 +16,12 @@
 #include <QMessageBox>
 #include <QFileDialog>
 #include <QFile>
+#include <QSaveFile>
 #include <QTextStream>
 #include <QInputDialog>
 #include <QSyntaxHighlighter>
 #include <QRegularExpression>
+#include <algorithm>
 
 namespace ce::gui {
 
@@ -26,6 +30,12 @@ namespace ce::gui {
 class AaHighlighter : public QSyntaxHighlighter {
 public:
     explicit AaHighlighter(QTextDocument* doc) : QSyntaxHighlighter(doc) {
+        updateColors();
+        connect(qApp, &QApplication::paletteChanged, this, [this]() { updateColors(); rehighlight(); });
+    }
+
+    void updateColors() {
+        rules_.clear();
         // Token colors follow the active theme (dark pastels or light inks) so the
         // editor is readable in both, rather than being tuned only for a dark bg.
         const ce::gui::EditorPalette pal = ce::gui::editorPalette();
@@ -40,6 +50,8 @@ public:
         QTextCharFormat number    = fmt(pal.number);
         QTextCharFormat label     = fmt(pal.label);
         QTextCharFormat str       = fmt(pal.string);
+        stringFmt_ = str;
+        directiveFmt_ = directive;
 
         auto add = [&](const QString& pat, const QTextCharFormat& f,
                        QRegularExpression::PatternOptions o = QRegularExpression::NoPatternOption) {
@@ -47,7 +59,7 @@ public:
         };
         // [ENABLE] / [DISABLE] and other {$...} directives
         add(R"(\[(ENABLE|DISABLE)\])", directive, QRegularExpression::CaseInsensitiveOption);
-        add(R"(\{\$[A-Za-z]+\})", directive);
+        add(R"(\{\$\s*[A-Za-z]+[^}]*\})", directive);
         // AA commands
         add(R"(\b(globalalloc|aobscanmodule|aobscan|registersymbol|unregistersymbol|fullaccess|createthread(andwait)?|loadbinary|loadlibrary|reassemble|readmem|dealloc|kalloc|alloc|label|define|assert|include|nop|db|dw|dd|dq)\b)",
             keyword, QRegularExpression::CaseInsensitiveOption);
@@ -71,26 +83,46 @@ protected:
                 setFormat(m.capturedStart(), m.capturedLength(), rule.fmt);
             }
         }
-        // Line comments: // to end of line (after other rules so they win).
-        int slash = text.indexOf("//");
-        if (slash >= 0) setFormat(slash, text.length() - slash, commentFmt_);
-
-        // Multi-line { ... } brace comments via block state.
         setCurrentBlockState(0);
-        int start = (previousBlockState() == 1) ? 0 : text.indexOf('{');
-        while (start >= 0) {
-            int end = text.indexOf('}', start);
-            int len = (end < 0) ? (text.length() - start) : (end - start + 1);
-            setFormat(start, len, commentFmt_);
-            if (end < 0) { setCurrentBlockState(1); break; }
-            start = text.indexOf('{', end + 1);
+        int i = 0;
+        if (previousBlockState() == 1) {
+            int end = text.indexOf('}');
+            setFormat(0, end < 0 ? text.size() : end + 1, commentFmt_);
+            if (end < 0) { setCurrentBlockState(1); return; }
+            i = end + 1;
         }
+        while (i < text.size()) {
+            if (text[i] == '\"' || text[i] == '\'') {
+                int start = i;
+                auto quote = text[i++];
+                while (i < text.size() && text[i] != quote) {
+                    if (text[i] == '\\' && i + 1 < text.size()) ++i;
+                    ++i;
+                }
+                setFormat(start, std::min(i + 1, int(text.size())) - start, stringFmt_);
+            } else if (text.mid(i, 2) == "//") {
+                setFormat(i, text.size() - i, commentFmt_);
+                break;
+            } else if (text[i] == '{') {
+                int end = text.indexOf('}', i);
+                bool directive = text.mid(i, 2) == "{$";
+                if (directive && end >= 0) setFormat(i, end - i + 1, directiveFmt_);
+                if (!directive) {
+                    setFormat(i, end < 0 ? text.size() - i : end - i + 1, commentFmt_);
+                    if (end < 0) { setCurrentBlockState(1); break; }
+                }
+                if (end >= 0) i = end;
+            }
+            ++i;
+        }
+
     }
 
 private:
     struct Rule { QRegularExpression re; QTextCharFormat fmt; };
     std::vector<Rule> rules_;
     QTextCharFormat commentFmt_;
+    QTextCharFormat stringFmt_, directiveFmt_;
 };
 
 ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget* parent)
@@ -101,73 +133,82 @@ ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget*
 
     // Toolbar
     auto* toolbar = new QToolBar;
-    executeBtn_ = new QPushButton("Execute");
-    executeBtn_->setStyleSheet("font-weight: bold; color: green;");
-    connect(executeBtn_, &QPushButton::clicked, this, &ScriptEditor::onExecute);
+    executeBtn_ = new QAction("Execute", this);
+    executeBtn_->setEnabled(proc_ && autoAsm_);
+    executeBtn_->setObjectName("primaryButton");
+    executeBtn_->setToolTip("Enable the script in the selected process");
+    connect(executeBtn_, &QAction::triggered, this, &ScriptEditor::onExecute);
 
-    disableBtn_ = new QPushButton("Disable");
+    disableBtn_ = new QAction("Disable", this);
     disableBtn_->setEnabled(false);
-    connect(disableBtn_, &QPushButton::clicked, this, &ScriptEditor::onDisable);
+    connect(disableBtn_, &QAction::triggered, this, &ScriptEditor::onDisable);
 
-    auto* checkBtn = new QPushButton("Syntax Check");
-    connect(checkBtn, &QPushButton::clicked, this, &ScriptEditor::onCheck);
+    auto* checkBtn = new QAction("Syntax Check", this);
+    connect(checkBtn, &QAction::triggered, this, &ScriptEditor::onCheck);
 
-    auto* addTableBtn = new QPushButton("Add to Cheat Table");
+    auto* addTableBtn = new QAction("Add to Cheat Table", this);
     addTableBtn_ = addTableBtn;
+    addTableBtn_->setEnabled(false);
     addTableBtn->setToolTip("Save this script as a cheat-table entry whose checkbox "
                             "enables/disables it.");
-    connect(addTableBtn, &QPushButton::clicked, this, &ScriptEditor::onAddToTable);
+    connect(addTableBtn, &QAction::triggered, this, &ScriptEditor::onAddToTable);
 
-    auto* loadBtn = new QPushButton("Load");
-    connect(loadBtn, &QPushButton::clicked, this, [this]() {
+    auto* loadBtn = new QAction("Load", this);
+    connect(loadBtn, &QAction::triggered, this, [this]() {
         auto path = QFileDialog::getOpenFileName(this, "Load Script", "", "CE Scripts (*.cea *.asm);;All Files (*)");
         if (path.isEmpty()) return;
         QFile f(path);
         if (f.open(QIODevice::ReadOnly)) {
             editor_->setPlainText(QTextStream(&f).readAll());
-        }
+        } else QMessageBox::warning(this, "Load failed", f.errorString());
     });
 
-    auto* saveBtn = new QPushButton("Save");
-    connect(saveBtn, &QPushButton::clicked, this, [this]() {
+    auto* saveBtn = new QAction("Save", this);
+    connect(saveBtn, &QAction::triggered, this, [this]() {
         auto path = QFileDialog::getSaveFileName(this, "Save Script", "", "CE Scripts (*.cea);;All Files (*)");
         if (path.isEmpty()) return;
-        QFile f(path);
-        if (f.open(QIODevice::WriteOnly)) {
-            QTextStream(&f) << editor_->toPlainText();
-        }
+        QSaveFile file(path);
+        const QByteArray bytes = editor_->toPlainText().toUtf8();
+        if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit())
+            QMessageBox::warning(this, "Save failed", file.errorString());
     });
 
-    toolbar->addWidget(executeBtn_);
-    toolbar->addWidget(disableBtn_);
+    toolbar->setMovable(false);
+    toolbar->addAction(executeBtn_);
+    toolbar->addAction(disableBtn_);
     toolbar->addSeparator();
-    toolbar->addWidget(checkBtn);
-    toolbar->addWidget(addTableBtn);
+    toolbar->addAction(checkBtn);
+    toolbar->addAction(addTableBtn);
     toolbar->addSeparator();
-    toolbar->addWidget(loadBtn);
-    toolbar->addWidget(saveBtn);
+    toolbar->addAction(loadBtn);
+    toolbar->addAction(saveBtn);
     toolbar->addSeparator();
 
-    // Templates menu — paste a CE-style skeleton into the editor.
-    auto* templateBtn = new QToolButton;
-    templateBtn->setText("Templates ▾");
-    templateBtn->setPopupMode(QToolButton::InstantPopup);
-    templateBtn->setToolTip("Insert a code template (Ctrl+I in Cheat Engine)");
-    auto* templateMenu = new QMenu(templateBtn);
+    toolbar->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    toolbar->widgetForAction(executeBtn_)->setObjectName("primaryButton");
+    executeBtn_->setShortcut(QKeySequence("Ctrl+Return"));
+    addAction(executeBtn_);
+    loadBtn->setShortcut(QKeySequence::Open);
+    addAction(loadBtn);
+    saveBtn->setShortcut(QKeySequence::Save);
+    addAction(saveBtn);
 
-    // Auto code-injection: read+disassemble the live target at an address and
-    // emit a ready-to-run script (original code relocated, original bytes as a
-    // db array) — the automatic equivalent of CE's "Code injection".
-    auto* autoInject = templateMenu->addAction("Code injection at address (auto)...");
-    autoInject->setToolTip("Read the process at an address and generate a complete "
-                           "injection with the original bytes filled in");
-    connect(autoInject, &QAction::triggered, this, &ScriptEditor::onGenerateCodeInjection);
-    templateMenu->addSeparator();
+    // Injection templates gather a site and delegate to the live-code generator.
+    auto* templateMenu = new QMenu(toolbar);
 
     for (const auto& t : ce::builtinAaTemplates()) {
         QString label = QString::fromStdString(t.name);
         auto* action = templateMenu->addAction(label);
         action->setToolTip(QString::fromStdString(t.description));
+        if (t.injection != ce::InjectionKind::None) {
+            auto kind = t.injection;
+            connect(action, &QAction::triggered, this, [this, kind]() { onGenerateInjection(kind); });
+            if (kind == ce::InjectionKind::Code) {
+                action->setShortcut(QKeySequence("Ctrl+I"));
+                addAction(action);
+            }
+            continue;
+        }
         QString body = QString::fromStdString(t.body);
         QString name = label;
         connect(action, &QAction::triggered, this, [this, body, name]() {
@@ -186,8 +227,11 @@ ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget*
             editor_->insertPlainText(body);
         });
     }
-    templateBtn->setMenu(templateMenu);
-    toolbar->addWidget(templateBtn);
+    auto* templateAction = toolbar->addAction("Templates");
+    templateAction->setMenu(templateMenu);
+    templateAction->setToolTip("Generate a template for the selected instruction (Ctrl+I)");
+    if (auto* button = qobject_cast<QToolButton*>(toolbar->widgetForAction(templateAction)))
+        button->setPopupMode(QToolButton::InstantPopup);
 
     addToolBar(toolbar);
 
@@ -196,20 +240,11 @@ ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget*
 
     editor_ = new QPlainTextEdit;
     editor_->setFont(QFont("Monospace", 10));
+    editor_->setLineWrapMode(QPlainTextEdit::NoWrap);
+    editor_->setTabStopDistance(QFontMetricsF(editor_->font()).horizontalAdvance(' ') * 4);
     new AaHighlighter(editor_->document());   // syntax coloring
-    editor_->setPlaceholderText(
-        "[ENABLE]\n"
-        "// Your auto-assembler script here\n"
-        "alloc(newmem, 1024)\n"
-        "label(returnhere)\n"
-        "\n"
-        "newmem:\n"
-        "  mov eax, 999\n"
-        "  jmp returnhere\n"
-        "\n"
-        "[DISABLE]\n"
-        "dealloc(newmem)\n"
-    );
+    editor_->setPlaceholderText("Choose Templates to generate an injection at the selected instruction,\n"
+                                "or write an Auto Assembler script here.");
     splitter->addWidget(editor_);
 
     output_ = new QTextEdit;
@@ -219,11 +254,11 @@ ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget*
     // The console paints its own line colors, so it can't inherit the app
     // stylesheet; give it the theme's editor background/text (was hardcoded dark,
     // which stayed dark in light mode).
-    {
-        const ce::gui::EditorPalette pal = ce::gui::editorPalette();
-        output_->setStyleSheet(QString("background: %1; color: %2;")
-            .arg(pal.background.name(), pal.text.name()));
-    }
+    connect(qApp, &QApplication::paletteChanged, this, [this, previous = editorPalette()]() mutable {
+        auto current = editorPalette();
+        recolorConsole(output_->document(), previous, current);
+        previous = current;
+    });
     splitter->addWidget(output_);
 
     splitter->setStretchFactor(0, 3);
@@ -294,43 +329,65 @@ void ScriptEditor::onDisable() {
 }
 
 void ScriptEditor::onGenerateCodeInjection() {
+    onGenerateInjection(ce::InjectionKind::Code);
+}
+
+void ScriptEditor::onGenerateInjection(ce::InjectionKind kind) {
     if (!proc_) {
         QMessageBox::warning(this, "No process", "Attach to a process first.");
         return;
     }
+    if (enabled_) {
+        QMessageBox::information(this, "Injection template", "Disable the current script before generating another injection.");
+        return;
+    }
+    QString initial;
+    if (injectionAddress_) {
+        initial = "0x" + QString::number(injectionAddress_, 16);
+        for (const auto& m : proc_->modules()) {
+            if (injectionAddress_ >= m.base && injectionAddress_ - m.base < m.size) {
+                initial = QString("\"%1\"+0x%2").arg(QString::fromStdString(m.name), QString::number(injectionAddress_ - m.base, 16));
+                break;
+            }
+        }
+    }
     bool ok = false;
-    QString text = QInputDialog::getText(this, "Code injection",
-        "Address (hex) to inject at:", QLineEdit::Normal, "", &ok);
+    QString text = QInputDialog::getText(this, "Injection template",
+        "Address or expression to inject at:", QLineEdit::Normal, initial, &ok);
     if (!ok || text.trimmed().isEmpty()) return;
-
-    // Accept an optional "0x" prefix (QString::toULongLong(base 16) does not
-    // reliably strip it), so both "0x1234" and "1234" work.
-    QString hexText = text.trimmed();
-    if (hexText.startsWith("0x", Qt::CaseInsensitive)) hexText = hexText.mid(2);
-    uintptr_t address = hexText.toULongLong(&ok, 16);
-    if (!ok || address == 0) {
-        QMessageBox::warning(this, "Bad address", "Enter a valid hex address.");
+    ce::SymbolResolver symbols;
+    symbols.loadProcess(*proc_);
+    auto address = ce::ExpressionParser(proc_, &symbols).parse(text.trimmed().toStdString());
+    if (!address || !*address) {
+        QMessageBox::warning(this, "Bad address", "Enter a valid address, module offset, or symbol expression.");
         return;
     }
-
+    std::string pointerRegister;
+    if (kind == ce::InjectionKind::Pointer) {
+        QString reg = QInputDialog::getText(this, "Pointer injection", "Register holding the pointer:",
+            QLineEdit::Normal, proc_->runs32BitCode() ? "eax" : "rax", &ok);
+        if (!ok || reg.trimmed().isEmpty()) return;
+        pointerRegister = reg.trimmed().toStdString();
+    }
     std::string genErr;
-    std::string script = ce::generateInjectionScript(*proc_, address, /*aob=*/false, genErr);
+    size_t size = *address == injectionAddress_ ? injectionSize_ : 5;
+    std::string script = ce::generateInjectionScript(*proc_, *address, kind, genErr, pointerRegister, size);
     if (script.empty()) {
-        QMessageBox::warning(this, "Code injection",
-            QString::fromStdString(genErr.empty() ? "Could not generate a template here." : genErr));
+        QMessageBox::warning(this, "Injection template", QString::fromStdString(genErr));
         return;
     }
-
     if (!editor_->toPlainText().trimmed().isEmpty()) {
         auto answer = QMessageBox::question(this, "Replace script?",
             "Replace the current script with the generated injection?",
             QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
         if (answer != QMessageBox::Yes) return;
     }
+    injectionAddress_ = *address;
+    injectionSize_ = size;
     editor_->setPlainText(QString::fromStdString(script));
     output_->clear();
     output_->setTextColor(ce::gui::editorPalette().success);
-    output_->append("Generated code injection. Fill in the code at '// your code here'.");
+    output_->append(QString("Generated injection at 0x%1. Edit the code in newmem.").arg(QString::number(*address, 16)));
 }
 
 void ScriptEditor::onAddToTable() {

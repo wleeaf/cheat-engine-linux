@@ -13,6 +13,57 @@ reimplementation of Cheat Engine).
 
 ---
 
+## v0.9.5: deeper correctness fixes, site-specific injection, and GUI improvements (2026-10-03)
+
+This release combines deeper audits of the shared backend with usability improvements
+across the GUI, CLI, and Lua. It includes repeatable GUI screenshots and additional
+regression suites.
+
+- **Site-specific auto-assembler templates.** Code, AOB, full-code, and pointer
+  templates use the selected injection address and instruction range. Scripts keep
+  whole instructions, assert and restore the exact original bytes, use an explicit
+  five-byte near jump, and carry module-relative addresses or a unique AOB signature.
+  Relative branches and RIP-relative operands are preserved when moved to the cave.
+  Ambiguous AOB signatures and out-of-range relative jumps produce errors.
+- **Shared typed memory operations.** Integer overflow, malformed byte arrays, short
+  transfers, pointer width, byte order, string encoding, and floating-point round
+  trips are handled consistently. Lua gains `readValue` and `writeValue`; the CLI
+  accepts unique process names, address expressions, typed reads/writes/freezes,
+  verification, and auto-assembler scripts with timed cleanup.
+- **Scan results and editing.** The GUI loads additional results while scrolling and
+  exports every stored match to CSV with correct quoting and cancellation behavior.
+  String edits preserve their new byte lengths, shorter strings are terminated
+  within their previous length, and clearing a string writes a zero terminator.
+- **Scanner and persistence correctness.** Additional fixes cover Unicode and
+  case-insensitive matching, grouped and next scans, snapshot validation, disk-backed
+  results, pointer scanning, and interrupted or failed output writes.
+- **Debugger and hook correctness.** More reliable breakpoint failure handling,
+  stepping and tracing cleanup, stack bounds, hook relocation, and process/watchpoint
+  lifetimes. Changing targets closes dependent windows and releases their resources.
+- **Parser and Lua safety.** Additional bounds and consistency checks in ELF, PE,
+  IL2CPP, expressions, and auto-assembler preprocessing. Lua stream, snapshot, bitmap,
+  widget, and memory-record lifetimes are checked, including repeated cleanup.
+- **GUI layouts and readability.** Better column sizing, readable empty states,
+  compact-window scrolling, text-only scan options, and full-value tooltips. Hex
+  bytes align correctly after the midpoint gap; hex and disassembly panes scroll
+  horizontally. Function labels no longer replace the first instruction.
+- **Live themes and settings.** Custom views, assembler highlighting, console history,
+  and form canvases follow live theme changes. Font settings update existing result
+  and address tables. Cancel discards pending settings, and untouched disassembler
+  colors keep following the theme. Dark checkboxes, disabled controls, and toolbar
+  overflow buttons are easier to see.
+- **Dialogs and auxiliary views.** Process filtering clears hidden selections,
+  disables Open when no matches remain, and preserves selection on Refresh. Pointer
+  scanning and graphical memory views give address fields more room. The debugger
+  shows its active thread; register columns remain accessible. Large form canvases
+  scroll without enlarging the window, generated Lua follows form-size changes, and
+  Delete respects text editing. Invalid fill bytes are rejected before writing.
+- **Release validation.** Core and deep regressions, ASan/UBSan without Qt, 11 GUI
+  checks, CLI workflows, and a repeatable visual review covering 98 updated captures.
+  Release packaging runs the expanded regression checks before uploading assets.
+
+---
+
 ## v0.9.0: correctness, safety, and portability fixes (2026-09-29)
 
 A full-tree audit fix release, with new regression tests. No new features; it makes

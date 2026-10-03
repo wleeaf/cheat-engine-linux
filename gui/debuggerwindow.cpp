@@ -28,6 +28,7 @@
 #include <QFontDatabase>
 #include <QTextCursor>
 #include <csignal>
+#include <algorithm>
 
 namespace ce::gui {
 
@@ -253,6 +254,7 @@ void DebuggerWindow::setRunningUi(bool running, bool exited) {
     for (auto* b : {contBtn_, intoBtn_, overBtn_, outBtn_, rtcBtn_})
         b->setEnabled(stopped);
     detachBtn_->setEnabled(!exited);
+    threadCombo_->setEnabled(stopped && threadCombo_->count() > 0);
     bpInput_->setEnabled(stopped);
     if (!stopped) emit resumed();   // running or exited: drop the current-line marker
 }
@@ -493,6 +495,9 @@ void DebuggerWindow::updateThreadList() {
     if (!threadCombo_) return;
     auto tids = session_->stoppedThreads();
     pid_t active = session_->activeThread();
+    // The initial attach can supply a context before the stopped-thread list is populated.
+    if (active > 0 && std::find(tids.begin(), tids.end(), active) == tids.end())
+        tids.push_back(active);
     // Block signals: repopulating must not be seen as a user thread switch.
     threadCombo_->blockSignals(true);
     threadCombo_->clear();

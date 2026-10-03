@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -34,7 +35,9 @@ struct GuestView {
     bool      bigEndian = false;
 
     bool contains(uint64_t guestAddr, size_t n) const {
-        return proc && n > 0 && guestAddr + n >= guestAddr && guestAddr + n <= size;
+        constexpr auto maxHost = std::numeric_limits<uintptr_t>::max();
+        return proc && n > 0 && guestAddr <= size && n <= size - guestAddr &&
+               guestAddr <= maxHost - base && n - 1 <= maxHost - base - guestAddr;
     }
     uintptr_t toHost(uint64_t guestAddr) const { return base + static_cast<uintptr_t>(guestAddr); }
 
@@ -83,27 +86,31 @@ struct GuestView {
 template <class T>
 std::vector<uint64_t> guestScanExact(const GuestView& gv, T value, size_t alignment = sizeof(T)) {
     std::vector<uint64_t> hits;
-    if (!gv.proc || gv.size < sizeof(T)) return hits;
+    if (gv.size < sizeof(T) || gv.size > SIZE_MAX || !gv.contains(0, gv.size)) return hits;
     if (alignment == 0) alignment = 1;
 
     const T needle = gv.bigEndian ? GuestView::byteswap(value) : value;
     uint8_t np[sizeof(T)];
     std::memcpy(np, &needle, sizeof(T));
 
-    constexpr uint64_t kStride = 1u << 20;   // 1 MB windows (a multiple of any align)
+    constexpr uint64_t kStride = 1u << 20;   // 1 MB windows
     std::vector<uint8_t> buf(kStride + sizeof(T));
     for (uint64_t off = 0; off + sizeof(T) <= gv.size; off += kStride) {
         const uint64_t want = std::min<uint64_t>(kStride + sizeof(T) - 1, gv.size - off);
         auto r = gv.proc->read(gv.toHost(off), buf.data(), want);
         if (!r) continue;
-        const size_t got = *r;
+        const size_t got = std::min<size_t>(*r, want);
         if (got < sizeof(T)) continue;
         // Report starts only within [0, kStride); the sizeof(T)-1 tail is rescanned
         // as the next window's head, so straddlers are caught exactly once.
         const size_t limit = std::min<size_t>(kStride, got - sizeof(T) + 1);
-        for (size_t i = 0; i < limit; i += alignment)
+        const size_t remainder = off % alignment;
+        for (size_t i = remainder ? alignment - remainder : 0; i < limit;) {
             if (std::memcmp(buf.data() + i, np, sizeof(T)) == 0)
                 hits.push_back(off + i);
+            if (alignment >= limit - i) break;
+            i += alignment;
+        }
     }
     return hits;
 }
@@ -153,7 +160,7 @@ std::vector<std::pair<uint64_t, T>> guestNextCompare(
 // first scan.
 inline std::vector<uint8_t> guestReadRegion(const GuestView& gv) {
     std::vector<uint8_t> buf;
-    if (!gv.proc || gv.size == 0) return buf;
+    if (gv.size > SIZE_MAX || !gv.contains(0, gv.size)) return buf;
     buf.resize(gv.size);
     uint64_t off = 0;
     while (off < gv.size) {

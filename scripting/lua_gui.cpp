@@ -5,6 +5,7 @@
 /// reads/writes the widget's current QFont.
 
 #include "scripting/lua_gui.hpp"
+#include "scripting/lua_safe.hpp"
 #include "gui/canvaswidget.hpp"
 
 extern "C" {
@@ -43,6 +44,12 @@ extern "C" {
 #include <unordered_map>
 #include <string>
 
+#undef lua_pushcfunction
+#define lua_pushcfunction(L, fn) ce::pushSafeLuaFunction((L), (fn))
+#undef lua_register
+#define lua_register(L, name, fn) ce::registerSafeLuaFunction((L), (name), (fn))
+#define luaL_setfuncs(L, functions, upvalues) ce::setSafeLuaFunctions((L), (functions), (upvalues))
+
 namespace ce {
 
 struct CallbackBinding {
@@ -79,8 +86,19 @@ struct LuaWidgetFont {
     QPointer<QWidget> widget;
 };
 
+struct LuaWidgetRef { LuaWidget* data; };
+struct LuaWidgetFontRef { LuaWidgetFont* data; };
+
 static LuaWidget* checkWidget(lua_State* L, int idx) {
-    return (LuaWidget*)luaL_checkudata(L, idx, WIDGET_MT);
+    auto* ref = (LuaWidgetRef*)luaL_checkudata(L, idx, WIDGET_MT);
+    if (!ref->data) luaL_error(L, "widget userdata has been collected");
+    return ref->data;
+}
+
+static LuaWidgetFont* checkWidgetFont(lua_State* L, int idx) {
+    auto* ref = (LuaWidgetFontRef*)luaL_checkudata(L, idx, WIDGETFONT_MT);
+    if (!ref->data) luaL_error(L, "font userdata has been collected");
+    return ref->data;
 }
 
 // Fetch the live QWidget* from a widget userdata, raising a Lua error if the
@@ -96,24 +114,24 @@ static QWidget* liveWidget(lua_State* L, int idx) {
 }
 
 static void pushWidget(lua_State* L, QWidget* w, QTimer* t = nullptr) {
-    auto* lw = (LuaWidget*)lua_newuserdata(L, sizeof(LuaWidget));
-    new (lw) LuaWidget();
-    lw->widget = w;
-    lw->timer = t;
+    auto* ref = (LuaWidgetRef*)lua_newuserdata(L, sizeof(LuaWidgetRef));
+    ref->data = nullptr;
     luaL_setmetatable(L, WIDGET_MT);
+    ref->data = new LuaWidget{w, t};
 }
 
 static int widget_gc(lua_State* L) {
-    auto* lw = checkWidget(L, 1);
-    lw->~LuaWidget();
+    auto* ref = (LuaWidgetRef*)luaL_checkudata(L, 1, WIDGET_MT);
+    delete ref->data;
+    ref->data = nullptr;
     return 0;
 }
 
 static void pushWidgetFont(lua_State* L, QWidget* w) {
-    auto* f = (LuaWidgetFont*)lua_newuserdata(L, sizeof(LuaWidgetFont));
-    new (f) LuaWidgetFont();
-    f->widget = w;
+    auto* ref = (LuaWidgetFontRef*)lua_newuserdata(L, sizeof(LuaWidgetFontRef));
+    ref->data = nullptr;
     luaL_setmetatable(L, WIDGETFONT_MT);
+    ref->data = new LuaWidgetFont{w};
 }
 
 // Parse 0x00BBGGRR (CE's TColor convention) or "#RRGGBB" / "RRGGBB" / Qt color name.
@@ -179,7 +197,7 @@ static void trackDestroyed(QObject* object) {
 
 // ── Font sub-object ──
 static int widgetfont_index(lua_State* L) {
-    auto* f = (LuaWidgetFont*)luaL_checkudata(L, 1, WIDGETFONT_MT);
+    auto* f = checkWidgetFont(L, 1);
     const char* key = luaL_checkstring(L, 2);
     if (!f->widget) { lua_pushnil(L); return 1; }
     QFont qf = f->widget->font();
@@ -199,7 +217,7 @@ static int widgetfont_index(lua_State* L) {
     return 1;
 }
 static int widgetfont_newindex(lua_State* L) {
-    auto* f = (LuaWidgetFont*)luaL_checkudata(L, 1, WIDGETFONT_MT);
+    auto* f = checkWidgetFont(L, 1);
     if (!f->widget) return 0;
     const char* key = luaL_checkstring(L, 2);
     QFont qf = f->widget->font();
@@ -217,8 +235,9 @@ static int widgetfont_newindex(lua_State* L) {
     return 0;
 }
 static int widgetfont_gc(lua_State* L) {
-    auto* f = (LuaWidgetFont*)luaL_checkudata(L, 1, WIDGETFONT_MT);
-    f->~LuaWidgetFont();
+    auto* ref = (LuaWidgetFontRef*)luaL_checkudata(L, 1, WIDGETFONT_MT);
+    delete ref->data;
+    ref->data = nullptr;
     return 0;
 }
 
@@ -509,8 +528,8 @@ static int widget_newindex(lua_State* L) {
 
 static QWidget* getParentWidget(lua_State* L, int idx) {
     if (lua_isuserdata(L, idx)) {
-        auto* lw = (LuaWidget*)luaL_testudata(L, idx, WIDGET_MT);
-        if (lw) return lw->widget;
+        auto* ref = (LuaWidgetRef*)luaL_testudata(L, idx, WIDGET_MT);
+        if (ref) return checkWidget(L, idx)->widget;
     }
     return nullptr;
 }
@@ -636,9 +655,12 @@ static const char* CANVAS_MT = "CECanvas";
 struct LuaCanvas {
     QPointer<ce::gui::CanvasWidget> widget;
 };
+struct LuaCanvasRef { LuaCanvas* data; };
 
 static LuaCanvas* checkCanvas(lua_State* L, int idx) {
-    return (LuaCanvas*)luaL_checkudata(L, idx, CANVAS_MT);
+    auto* ref = (LuaCanvasRef*)luaL_checkudata(L, idx, CANVAS_MT);
+    if (!ref->data) luaL_error(L, "canvas userdata has been collected");
+    return ref->data;
 }
 
 // Fetch the live CanvasWidget*, raising a Lua error if it was destroyed.
@@ -652,8 +674,9 @@ static ce::gui::CanvasWidget* liveCanvas(lua_State* L, int idx) {
 }
 
 static int canvas_gc(lua_State* L) {
-    auto* c = checkCanvas(L, 1);
-    c->~LuaCanvas();
+    auto* ref = (LuaCanvasRef*)luaL_checkudata(L, 1, CANVAS_MT);
+    delete ref->data;
+    ref->data = nullptr;
     return 0;
 }
 
@@ -744,7 +767,7 @@ static int l_canvas_clear(lua_State* L) {
 }
 
 static int l_canvas__index(lua_State* L) {
-    luaL_checkudata(L, 1, CANVAS_MT);
+    checkCanvas(L, 1);
     luaL_getmetatable(L, CANVAS_MT);
     lua_pushvalue(L, 2);
     lua_rawget(L, -2);
@@ -761,10 +784,10 @@ static int l_createCanvas(lua_State* L) {
         canvas->raise();
     }
     trackDestroyed(canvas);
-    auto* lc = (LuaCanvas*)lua_newuserdata(L, sizeof(LuaCanvas));
-    new (lc) LuaCanvas();
-    lc->widget = canvas;
+    auto* ref = (LuaCanvasRef*)lua_newuserdata(L, sizeof(LuaCanvasRef));
+    ref->data = nullptr;
     luaL_setmetatable(L, CANVAS_MT);
+    ref->data = new LuaCanvas{canvas};
     return 1;
 }
 

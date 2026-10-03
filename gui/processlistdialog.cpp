@@ -13,13 +13,15 @@ namespace ce::gui {
 
 ProcessListDialog::ProcessListDialog(QWidget* parent) : QDialog(parent) {
     setWindowTitle("Open Process");
-    resize(400, 500);
+    resize(600, 500);
 
     auto* layout = new QVBoxLayout(this);
 
     // Filter
     filterEdit_ = new QLineEdit;
-    filterEdit_->setPlaceholderText("Type to filter by name (e.g. warband)...");
+    filterEdit_->setPlaceholderText("Filter by process name, PID, or path");
+    filterEdit_->setAccessibleName("Filter processes");
+    filterEdit_->setClearButtonEnabled(true);
     connect(filterEdit_, &QLineEdit::textChanged, this, &ProcessListDialog::onFilter);
     layout->addWidget(filterEdit_);
     filterEdit_->setFocus();   // type the game name immediately
@@ -32,10 +34,15 @@ ProcessListDialog::ProcessListDialog(QWidget* parent) : QDialog(parent) {
 
     tabs_->addTab(processList_, "Processes");
     layout->addWidget(tabs_);
+    statusLabel_ = new QLabel;
+    statusLabel_->setProperty("secondary", true);
+    layout->addWidget(statusLabel_);
 
     // Buttons
     auto* btnLayout = new QHBoxLayout;
     auto* openBtn = new QPushButton("Open");
+    openBtn_ = openBtn;
+    openBtn_->setObjectName("primaryButton");
     openBtn->setDefault(true);
     auto* cancelBtn = new QPushButton("Cancel");
     auto* refreshBtn = new QPushButton("Refresh");
@@ -48,6 +55,10 @@ ProcessListDialog::ProcessListDialog(QWidget* parent) : QDialog(parent) {
     btnLayout->addWidget(openBtn);
     btnLayout->addWidget(cancelBtn);
     layout->addLayout(btnLayout);
+    connect(processList_, &QListWidget::currentItemChanged, this, [this]() {
+        auto* current = processList_->currentItem();
+        openBtn_->setEnabled(current && !current->isHidden());
+    });
 
     refreshList();
 }
@@ -62,6 +73,8 @@ static uint64_t residentBytes(pid_t pid) {
 }
 
 void ProcessListDialog::refreshList() {
+    auto* selected = processList_->currentItem();
+    qlonglong previousPid = selected ? selected->data(Qt::UserRole).toLongLong() : 0;
     processList_->clear();
     os::LinuxProcessEnumerator enumerator;
     auto procs = enumerator.list();
@@ -106,15 +119,16 @@ void ProcessListDialog::refreshList() {
             tip += (tip.isEmpty() ? QString() : QStringLiteral("\n")) +
                    QStringLiteral("Sandboxed (Flatpak/Snap/container): attaching reaches into "
                                   "its namespace; scan, edit and symbols work.");
-        if (!tip.isEmpty())
-            item->setToolTip(tip);
+        item->setToolTip(tip.isEmpty() ? text : text + "\n" + tip);
         processList_->addItem(item);
+        if (p.pid == previousPid) processList_->setCurrentItem(item);
     }
+    onFilter(filterEdit_->text());
 }
 
 void ProcessListDialog::onAccept() {
     auto* item = processList_->currentItem();
-    if (!item) return;
+    if (!item || item->isHidden()) return;
     selectedPid_ = item->data(Qt::UserRole).toLongLong();
     selectedName_ = item->data(Qt::UserRole + 1).toString();
     accept();
@@ -131,6 +145,18 @@ void ProcessListDialog::onFilter(const QString& text) {
         }
         item->setHidden(!match);
     }
+    QListWidgetItem* first = nullptr;
+    int visible = 0;
+    for (int i = 0; i < processList_->count(); ++i) {
+        auto* item = processList_->item(i);
+        if (!item->isHidden()) { ++visible; if (!first) first = item; }
+    }
+    auto* current = processList_->currentItem();
+    if (!current || current->isHidden()) processList_->setCurrentItem(first);
+    openBtn_->setEnabled(visible > 0 && processList_->currentItem());
+    statusLabel_->setText(visible ? QString("%1 matching processes").arg(visible)
+                                : "No processes match this filter.");
+    if (auto* item = processList_->currentItem()) processList_->scrollToItem(item);
 }
 
 } // namespace ce::gui

@@ -13,6 +13,13 @@ extern "C" {
 #include <string>
 #include <new>
 #include <memory>
+#include "scripting/lua_safe.hpp"
+
+#undef lua_pushcfunction
+#define lua_pushcfunction(L, f) ce::pushSafeLuaFunction((L), (f))
+#undef lua_register
+#define lua_register(L, n, f) ce::registerSafeLuaFunction((L), (n), (f))
+#define luaL_setfuncs(L, f, n) ce::setSafeLuaFunctions((L), (f), (n))
 
 namespace ce {
 
@@ -21,11 +28,13 @@ namespace {
 constexpr const char* SNAPSHOT_MT = "ce.Snapshot";
 
 struct LuaSnapshotHolder {
-    std::shared_ptr<Snapshot> snap;
+    Snapshot* snap;
 };
 
 LuaSnapshotHolder* checkSnap(lua_State* L, int idx) {
-    return static_cast<LuaSnapshotHolder*>(luaL_checkudata(L, idx, SNAPSHOT_MT));
+    auto* h = static_cast<LuaSnapshotHolder*>(luaL_checkudata(L, idx, SNAPSHOT_MT));
+    if (!h->snap) luaL_error(L, "snapshot is destroyed");
+    return h;
 }
 
 ProcessHandle* getProcFromRegistry(lua_State* L) {
@@ -35,16 +44,18 @@ ProcessHandle* getProcFromRegistry(lua_State* L) {
     return p;
 }
 
-void pushSnapshot(lua_State* L, std::shared_ptr<Snapshot> snap) {
+void pushSnapshot(lua_State* L, std::unique_ptr<Snapshot> snap) {
     auto* h = static_cast<LuaSnapshotHolder*>(
         lua_newuserdata(L, sizeof(LuaSnapshotHolder)));
-    new (h) LuaSnapshotHolder{std::move(snap)};
+    h->snap = nullptr;
     luaL_setmetatable(L, SNAPSHOT_MT);
+    h->snap = snap.release();
 }
 
 int l_snap__gc(lua_State* L) {
-    auto* h = checkSnap(L, 1);
-    h->~LuaSnapshotHolder();
+    auto* h = static_cast<LuaSnapshotHolder*>(luaL_checkudata(L, 1, SNAPSHOT_MT));
+    delete h->snap;
+    h->snap = nullptr;
     return 0;
 }
 
@@ -60,14 +71,14 @@ int l_captureSnapshot(lua_State* L) {
             return luaL_argerror(L, 1, "byte budget must be non-negative");
         maxBytes = (uint64_t)arg;
     }
-    auto snap = std::make_shared<Snapshot>(Snapshot::capture(*proc, maxBytes));
+    auto snap = std::make_unique<Snapshot>(Snapshot::capture(*proc, maxBytes));
     pushSnapshot(L, std::move(snap));
     return 1;
 }
 
 int l_loadSnapshot(lua_State* L) {
     const char* path = luaL_checkstring(L, 1);
-    auto snap = std::make_shared<Snapshot>();
+    auto snap = std::make_unique<Snapshot>();
     std::string err;
     if (!snap->load(path, &err)) {
         lua_pushnil(L);

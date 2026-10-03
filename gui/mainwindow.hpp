@@ -107,6 +107,9 @@ protected:
 
 private:
     void setupUi();
+    void releaseTargetUsers();
+    void trackTargetWindow(QWidget* window) { targetWindows_.push_back(window); }
+    std::vector<QPointer<QWidget>> targetWindows_;
     /// Move the cheat-table entry at `row` up (-1) or down (+1) and keep it selected.
     void moveSelectedEntry(int row, int delta);
     void setupMenus();
@@ -176,8 +179,8 @@ private:
     ce::gui::AdvancedOptionsWindow* advancedOptions_ = nullptr;
 
     // Process — local (LinuxProcessHandle) or remote (RemoteProcessHandle).
-    std::unique_ptr<ce::ProcessHandle> process_;
     std::unique_ptr<ce::os::CEServerClient> ceserverClient_;  // Outlives the remote handle.
+    std::unique_ptr<ce::ProcessHandle> process_;
     std::unique_ptr<ce::Snapshot> snapshot_;  // Captured baseline for diff/restore.
     std::vector<QPair<qulonglong, qulonglong>> allocations_;  // (address,size) blocks we allocated.
     std::unique_ptr<ce::os::ProcessWatcher> processWatcher_;
@@ -281,6 +284,10 @@ public:
     QVariant headerData(int section, Qt::Orientation, int role) const override;
 
     uintptr_t addressAt(int row) const;
+    size_t resultCount() const { return result_ ? result_->count() : 0; }
+    QString displayValueAt(size_t row, int column) const;
+    bool canFetchMore(const QModelIndex& parent = {}) const override;
+    void fetchMore(const QModelIndex& parent = {}) override;
 
     // Live-value support: re-read the current value of the visible rows from the
     // target so the Value column tracks the process in real time (CE does the
@@ -299,6 +306,7 @@ private:
     ScanResult* result_ = nullptr;
     ce::ValueType valueType_ = ce::ValueType::Int32;
     size_t valueSize_ = 0;
+    int shownRows_ = 0;
     std::string stringEncoding_ = "UTF-8";   // decode String results from this code page
     ce::ProcessHandle* proc_ = nullptr;
     std::vector<ce::ModuleInfo> modules_;                      // cached for static-address (green) coloring

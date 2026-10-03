@@ -22,6 +22,8 @@ struct SimpleHook {
     uintptr_t codecave = 0;             // base of the allocated gate+trampoline block
     std::vector<uint8_t> original;      // original bytes at `address` (for removal)
     size_t patchLen = 0;
+    struct ProtectionRange { uintptr_t address; size_t size; MemProt protection; };
+    std::vector<ProtectionRange> protections;
 };
 
 /// Install a detour at `address` -> `target`. Returns the hook (for removal) or

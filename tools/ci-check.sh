@@ -15,7 +15,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 MODE="${1:-full}"
-JOBS="$(nproc)"
+JOBS="${CECORE_CI_JOBS:-$(nproc)}"
 # CI uses Ninja; fall back to the default generator locally if it's not installed
 # (the generator doesn't affect dependency resolution — the gaps we care about
 # surface at configure/link time either way).
@@ -25,16 +25,21 @@ step(){ printf '\n\033[1m== %s ==\033[0m\n' "$1"; }
 
 # ── Job 1: sanitizers (ASan+UBSan, NO Qt) — the one that catches portability gaps ──
 step "sanitizers job (ASan, no-GUI): configure"
-rm -rf build-ci-asan
+# Reconfigure the existing tree so repeated checks can reuse compiled dependencies.
 cmake -S . -B build-ci-asan "${GEN[@]}" -DCMAKE_BUILD_TYPE=Debug \
     -DCECORE_SANITIZE=ON -DCMAKE_DISABLE_FIND_PACKAGE_Qt6=ON >/dev/null
 ok "configured (Qt disabled, as in CI)"
 if [ "$MODE" != "--config" ]; then
     step "sanitizers job: build test targets (instrumented)"
-    cmake --build build-ci-asan --target cecore_test speedhack -j"$JOBS" >/dev/null
+    cmake --build build-ci-asan --target cecore_test cecore_deep_test speedhack -j"$JOBS" >/dev/null
     ok "built"
     step "sanitizers job: run suite under ASan + UBSan"
-    ./build-ci-asan/cecore_test >/dev/null
+    ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:abort_on_error=1}" \
+        UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
+        ./build-ci-asan/cecore_test >/dev/null
+    ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:abort_on_error=1}" \
+        UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
+        ./build-ci-asan/cecore_deep_test >/dev/null
     ok "suite passed under ASan+UBSan"
 fi
 
@@ -47,11 +52,29 @@ if [ "$MODE" != "--config" ]; then
     cmake --build build -j"$JOBS" >/dev/null
     ok "built"
     step "ubuntu-build job: regression suite + GUI smokes"
-    ./build/cecore_test >/dev/null && ok "cecore_test"
-    QT_QPA_PLATFORM=offscreen ./build/gui_debugger_smoke >/dev/null && ok "gui_debugger_smoke"
-    QT_QPA_PLATFORM=offscreen ./build/gui_theme_smoke >/dev/null && ok "gui_theme_smoke"
-    QT_QPA_PLATFORM=offscreen ./build/gui_guest_scan_smoke >/dev/null && ok "gui_guest_scan_smoke"
-    ./build/cescan list >/dev/null && ok "cescan launches"
+    # Keep checks out of && lists: Bash suppresses errexit for their left-hand
+    # commands, which used to print "passed" after a failed regression test.
+    ./build/cecore_test >/dev/null
+    ok "cecore_test"
+    ./build/cecore_deep_test >/dev/null
+    ok "cecore_deep_test"
+    ./build/scan_test >/dev/null
+    ok "scan_test"
+    for test in gui_debugger_smoke gui_theme_smoke gui_guest_scan_smoke \
+                gui_structdissect_smoke gui_hexview_smoke gui_disasm_smoke \
+                gui_search_smoke gui_changeaddr_smoke gui_luaconsole_smoke \
+                gui_codefinder_smoke gui_lifecycle_smoke; do
+        QT_QPA_PLATFORM=offscreen "./build/$test" >/dev/null
+        ok "$test"
+    done
+    if [ -x ./build/wayland_shortcuts_test ]; then
+        dbus-run-session -- ./build/wayland_shortcuts_test >/dev/null
+        ok "wayland_shortcuts_test"
+    fi
+    ./build/cescan list >/dev/null
+    ok "cescan launches"
+    python3 test/cli_usability_test.py build/cescan
+    ok "CLI usability workflows"
 fi
 
 printf '\n\033[32m== CI mirror passed — safe to push ==\033[0m\n'

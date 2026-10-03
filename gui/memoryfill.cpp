@@ -20,6 +20,7 @@ MemoryFillDialog::MemoryFillDialog(ProcessHandle* proc, uintptr_t startAddr, QWi
     // A form layout keeps the three labels in one aligned column (the previous
     // per-row HBoxes left the fields at ragged left edges).
     auto* form = new QFormLayout;
+    form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     addrEdit_ = new QLineEdit(QString("0x%1").arg(startAddr, 0, 16));
     addrEdit_->setFont(QFont("Monospace", 10));
     form->addRow("Start address:", addrEdit_);
@@ -34,6 +35,7 @@ MemoryFillDialog::MemoryFillDialog(ProcessHandle* proc, uintptr_t startAddr, QWi
 
     auto* btnRow = new QHBoxLayout;
     auto* fillBtn = new QPushButton("Fill");
+    fillBtn->setObjectName("primaryButton");
     connect(fillBtn, &QPushButton::clicked, this, &MemoryFillDialog::onFill);
     auto* cancelBtn = new QPushButton("Cancel");
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
@@ -47,26 +49,32 @@ void MemoryFillDialog::onFill() {
     if (!proc_) return;
     bool ok;
     uintptr_t addr = addrEdit_->text().toULongLong(&ok, 16);
-    if (!ok) return;
+    if (!ok) { QMessageBox::warning(this, "Fill Memory", "Enter a valid hexadecimal start address."); return; }
     size_t size = sizeEdit_->text().toULongLong(&ok, 0);
-    if (!ok || size == 0) return;
+    if (!ok || size == 0) { QMessageBox::warning(this, "Fill Memory", "Enter a positive size in bytes."); return; }
     constexpr size_t kMaxFillSize = 1u << 28; // 256 MiB, matches saveRegionToFile cap
     if (size > kMaxFillSize) {
         QMessageBox::warning(this, "Fill Memory",
             QString("Fill size too large (max %1 bytes).").arg(kMaxFillSize));
         return;
     }
-    uint8_t fillByte = (uint8_t)valueEdit_->text().toUInt(&ok, 16);
-    if (!ok) fillByte = 0;
+    unsigned int parsedByte = valueEdit_->text().toUInt(&ok, 16);
+    if (!ok || parsedByte > 0xff) {
+        QMessageBox::warning(this, "Fill Memory", "Enter a hexadecimal byte from 00 to FF.");
+        valueEdit_->setFocus(); valueEdit_->selectAll();
+        return;
+    }
+    uint8_t fillByte = static_cast<uint8_t>(parsedByte);
 
     std::vector<uint8_t> buf(size, fillByte);
     auto r = proc_->write(addr, buf.data(), buf.size());
-    if (r)
+    if (r && *r == buf.size()) {
         QMessageBox::information(this, "Fill Memory", QString("Filled %1 bytes at 0x%2 with 0x%3")
             .arg(size).arg(addr, 0, 16).arg(fillByte, 2, 16, QChar('0')));
-    else
-        QMessageBox::warning(this, "Fill Memory", "Write failed");
-    accept();
+        accept();
+    } else
+        QMessageBox::warning(this, "Fill Memory", r ? QString("Only %1 of %2 bytes were written.").arg(*r).arg(size)
+                                                   : QString("Write failed."));
 }
 
 } // namespace ce::gui

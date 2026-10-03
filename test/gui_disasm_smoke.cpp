@@ -9,6 +9,7 @@
 #include <QApplication>
 #include <QKeyEvent>
 #include <QClipboard>
+#include <QScrollBar>
 #include <cstdio>
 #include <cstdint>
 #include <unistd.h>
@@ -45,10 +46,14 @@ int main(int argc, char** argv) {
 
     sendKey(&dv, Qt::Key_Down, Qt::NoModifier);      // select row 0 (single)
     int single = dv.selectionCountForTest();
+    uintptr_t selectionStart = dv.selectedAddress();
 
     sendKey(&dv, Qt::Key_Down, Qt::ShiftModifier);   // extend to row 1
     sendKey(&dv, Qt::Key_Down, Qt::ShiftModifier);   // extend to row 2
     int rangeThree = dv.selectionCountForTest();
+    auto injectionRange = dv.injectionSelection();
+    bool injectionSelection = injectionRange.first == selectionStart &&
+        injectionRange.second == dv.selectedAddress() + dv.selectedSize() - selectionStart;
 
     // Ctrl+C copies every selected line as a block (3 lines -> 2 newlines).
     QApplication::clipboard()->clear();
@@ -100,8 +105,13 @@ int main(int argc, char** argv) {
     dv.scrollRowsForTest(100);                       // push the selection well off the top
     bool scrollCleared = (dv.selectionCountForTest() == 0);
     bool disasmSticky = scrollAnchored && scrollCleared;
+    dv.setAddress(reinterpret_cast<uintptr_t>(&decodeTarget));
+    dv.setComment(dv.currentAddress(), std::string(300, 'X'));
+    for (int i = 0; i < 4; ++i) { dv.viewport()->repaint(); app.processEvents(); }
+    bool horizontal = dv.horizontalScrollBar()->maximum() > 0;
+    std::printf("GUI disassembly horizontal scrolling: %s\n", horizontal ? "OK" : "FAILED");
 
-    bool ok = single == 1 && rangeThree == 3 && rangeTwo == 2 && collapsed == 1
+    bool ok = horizontal && injectionSelection && single == 1 && rangeThree == 3 && rangeTwo == 2 && collapsed == 1
            && copiedLines == 3 && selectAll > 3
            && homeSel == 1 && shiftEndSel == selectAll && escSel == 1 && dblAssemble && disasmSticky;
     printf("gui disasm smoke: %s (single=%d range3=%d range2=%d collapsed=%d copiedLines=%d "

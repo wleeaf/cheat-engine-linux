@@ -24,7 +24,7 @@ public:
 
 private:
     std::optional<uintptr_t> parseImpl(const std::string& expr, int depth) const;
-    uintptr_t resolveToken(const std::string& token) const;
+    std::optional<uintptr_t> resolveToken(const std::string& token) const;
     ProcessHandle* proc_;
     SymbolResolver* resolver_;
 };

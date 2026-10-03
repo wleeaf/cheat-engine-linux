@@ -1,4 +1,6 @@
 #include "arch/assembler.hpp"
+#include "arch/disassembler.hpp"
+#include "core/expression.hpp"
 #include <keystone/keystone.h>
 #include <stdexcept>
 #include <cctype>
@@ -72,6 +74,47 @@ Assembler::assembleEx(const std::string& code, uintptr_t address, size_t& statem
     size_t count = 0;
 
     std::string normalized = stripPtrKeyword(code);
+    auto prefix = normalized.substr(0, 9);
+    for (auto& c : prefix) c = std::tolower(static_cast<unsigned char>(c));
+    if ((arch_ == AsmArch::X86_32 || arch_ == AsmArch::X86_64) && prefix == "jmp near ") {
+        auto target = ExpressionParser().parse(normalized.substr(9));
+        if (!target || address > UINTPTR_MAX - 5)
+            return std::unexpected("Unresolved near jump destination");
+        uintptr_t next = address + 5;
+        uint32_t bits;
+        if (arch_ == AsmArch::X86_32) {
+            if (*target > UINT32_MAX || next > uint64_t(UINT32_MAX) + 1)
+                return std::unexpected("Near jump exceeds the 32-bit address space");
+            bits = static_cast<uint32_t>(*target) - static_cast<uint32_t>(next);
+        } else {
+            uint64_t distance = *target >= next ? *target - next : next - *target;
+            if (distance > (*target >= next ? uint64_t(INT32_MAX) : uint64_t(INT32_MAX) + 1))
+                return std::unexpected("Near jump destination is outside the 2 GiB range");
+            bits = static_cast<uint32_t>(*target >= next ? int64_t(distance) : -int64_t(distance));
+        }
+        statementsOut = 1;
+        return std::vector<uint8_t>{0xe9, static_cast<uint8_t>(bits), static_cast<uint8_t>(bits >> 8),
+                                   static_cast<uint8_t>(bits >> 16), static_cast<uint8_t>(bits >> 24)};
+    }
+    std::optional<uintptr_t> relativeTarget;
+    // NASM's [rel address] denotes an absolute destination encoded relative to
+    // the end of this instruction. Keystone treats it as a literal displacement.
+    // Assemble the shape first, then fill the displacement using its actual size.
+    if (arch_ == AsmArch::X86_64) {
+        for (size_t pos = 0; (pos = normalized.find('[', pos)) != std::string::npos; ++pos) {
+            auto end = normalized.find(']', pos);
+            if (end == std::string::npos) break;
+            auto begin = normalized.find_first_not_of(" \t", pos + 1);
+            if (begin == std::string::npos || begin + 3 >= end) continue;
+            auto keyword = normalized.substr(begin, 3);
+            for (auto& c : keyword) c = std::tolower(static_cast<unsigned char>(c));
+            if (keyword != "rel" || !std::isspace(static_cast<unsigned char>(normalized[begin + 3]))) continue;
+            if (relativeTarget) return std::unexpected("Only one relative memory operand is supported");
+            relativeTarget = ExpressionParser().parse(normalized.substr(begin + 4, end - begin - 4));
+            if (!relativeTarget) return std::unexpected("Unresolved relative memory destination");
+            normalized.replace(pos + 1, end - pos - 1, "rip+0");
+        }
+    }
     int r = ks_asm(ks, normalized.c_str(), address, &encoded, &size, &count);
     if (r != 0) {
         auto err = ks_errno(ks);
@@ -98,6 +141,20 @@ Assembler::assembleEx(const std::string& code, uintptr_t address, size_t& statem
     }
 
     std::vector<uint8_t> result(encoded, encoded + size);
+    if (relativeTarget) {
+        Disassembler dis(Arch::X86_64);
+        auto inst = dis.disassembleOne(address, result);
+        if (!inst || inst->size != result.size() || !inst->memory.ripRelative ||
+            inst->dispSize != 4 || inst->dispOffset + 4 > result.size() || size > UINTPTR_MAX - address)
+            return std::unexpected("Cannot encode this relative memory operand");
+        uintptr_t next = address + size;
+        uint64_t distance = *relativeTarget >= next ? *relativeTarget - next : next - *relativeTarget;
+        if (distance > (*relativeTarget >= next ? uint64_t(INT32_MAX) : uint64_t(INT32_MAX) + 1))
+            return std::unexpected("Relative memory destination is outside the 2 GiB range");
+        int64_t displacement = *relativeTarget >= next ? int64_t(distance) : -int64_t(distance);
+        uint32_t bits = static_cast<uint32_t>(displacement);
+        for (size_t i = 0; i < 4; ++i) result[inst->dispOffset + i] = static_cast<uint8_t>(bits >> (8 * i));
+    }
     statementsOut = count;
     return result;
 }

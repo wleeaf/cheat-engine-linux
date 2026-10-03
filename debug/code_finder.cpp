@@ -1,6 +1,7 @@
 #include "debug/code_finder.hpp"
 #include "core/log.hpp"
 #include "symbols/elf_symbols.hpp"
+#include "platform/linux/ceserver_process.hpp"
 
 #include <cstdlib>
 #include <sys/ptrace.h>
@@ -22,7 +23,9 @@
 namespace ce {
 
 bool CodeFinder::start(ProcessHandle& proc, Debugger& dbg, uintptr_t address, bool writesOnly, int watchSize, bool software, bool singleThread) {
+    if (dynamic_cast<os::RemoteProcessHandle*>(&proc)) return false;
     if (running_) return false;
+    if (monitorThread_.joinable()) monitorThread_.join();
 
     proc_ = &proc;
     dbg_ = &dbg;
@@ -35,8 +38,13 @@ bool CodeFinder::start(ProcessHandle& proc, Debugger& dbg, uintptr_t address, bo
     stopRequested_ = false;
     running_ = true;
 
-    monitorThread_ = std::thread(software_ ? &CodeFinder::monitorLoopSoftware
-                                           : &CodeFinder::monitorLoop, this);
+    try {
+        monitorThread_ = std::thread(software_ ? &CodeFinder::monitorLoopSoftware
+                                               : &CodeFinder::monitorLoop, this);
+    } catch (...) {
+        running_ = false;
+        throw;
+    }
     return true;
 }
 
@@ -75,7 +83,7 @@ void CodeFinder::monitorLoop() {
     int bpSize = (watchSize_ == 1) ? 0 : (watchSize_ == 2) ? 1 : (watchSize_ == 8) ? 2 : 3;
 
     auto armThread = [&](pid_t tid) {
-        dbg_->setBreakpoint(tid, 0, targetAddress_, bpType, bpSize);
+        return dbg_->setBreakpoint(tid, 0, targetAddress_, bpType, bpSize);
     };
 
     std::set<pid_t> attached;
@@ -100,11 +108,16 @@ void CodeFinder::monitorLoop() {
             continue;
         }
         // Stop the thread so its debug registers can be programmed.
+        int st = 0;
+        pid_t stopped = -1;
         if (ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) == 0) {
-            int st;
-            waitpid(tid, &st, __WALL);
+            do { stopped = waitpid(tid, &st, __WALL); } while (stopped < 0 && errno == EINTR);
         }
-        armThread(tid);
+        if (stopped != tid || !WIFSTOPPED(st) || !armThread(tid)) {
+            ++armFail;
+            ptrace(PTRACE_DETACH, tid, nullptr, nullptr);
+            continue;
+        }
         attached.insert(tid);
         ptrace(PTRACE_CONT, tid, nullptr, nullptr);
     }
@@ -121,7 +134,7 @@ void CodeFinder::monitorLoop() {
 
     while (!stopRequested_) {
         int status;
-        pid_t w = waitpid(-1, &status, __WALL | WNOHANG);
+        pid_t w = waitpid(-1, &status, __WALL | __WNOTHREAD | WNOHANG);
         if (w <= 0) {
             usleep(1000); // 1ms poll
             continue;
@@ -132,11 +145,16 @@ void CodeFinder::monitorLoop() {
             (status >> 8) == (SIGTRAP | (PTRACE_EVENT_CLONE << 8))) {
             unsigned long newTid = 0;
             if (ptrace(PTRACE_GETEVENTMSG, w, nullptr, &newTid) == 0 && newTid) {
-                int st;
-                waitpid(static_cast<pid_t>(newTid), &st, __WALL);
-                armThread(static_cast<pid_t>(newTid));
-                attached.insert(static_cast<pid_t>(newTid));
-                ptrace(PTRACE_CONT, static_cast<pid_t>(newTid), nullptr, nullptr);
+                pid_t child = static_cast<pid_t>(newTid);
+                int st = 0;
+                pid_t stopped;
+                do { stopped = waitpid(child, &st, __WALL); } while (stopped < 0 && errno == EINTR);
+                if (stopped == child && WIFSTOPPED(st) && armThread(child)) {
+                    attached.insert(child);
+                    ptrace(PTRACE_CONT, child, nullptr, nullptr);
+                } else {
+                    ptrace(PTRACE_DETACH, child, nullptr, nullptr);
+                }
             }
             ptrace(PTRACE_CONT, w, nullptr, nullptr);
             continue;
@@ -207,7 +225,8 @@ void CodeFinder::monitorLoop() {
         if (ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) != 0)
             continue; // thread already gone / not seized
         int st = 0;
-        pid_t r = waitpid(tid, &st, __WALL);
+        pid_t r;
+        do { r = waitpid(tid, &st, __WALL); } while (r < 0 && errno == EINTR);
         if (r != tid || WIFEXITED(st) || WIFSIGNALED(st))
             continue; // exited before we could disarm it
         dbg_->removeBreakpoint(tid, 0);       // clears DR7 while stopped
@@ -423,7 +442,7 @@ void CodeFinder::monitorLoopSoftware() {
 
     while (!stopRequested_) {
         int status;
-        pid_t w = waitpid(-1, &status, __WALL | WNOHANG);
+        pid_t w = waitpid(-1, &status, __WALL | __WNOTHREAD | WNOHANG);
         if (w <= 0) { usleep(1000); continue; }
 
         // Newly cloned thread: trace + resume (the guard is process-wide, so it will

@@ -1,5 +1,5 @@
 /// cescan: Cheat Engine CLI for Linux
-/// Usage: sudo cescan <command> [args...]
+/// Usage: cescan <command> [args...]
 
 #include "core/log.hpp"
 #include <clocale>
@@ -19,6 +19,8 @@
 #include "core/guest_view.hpp"
 #include "core/value_codec.hpp"
 #include "core/value_transform.hpp"
+#include "core/value_io.hpp"
+#include "core/expression.hpp"
 #include "core/ns_attach.hpp"
 #include <type_traits>
 #include <utility>
@@ -53,7 +55,7 @@ static void usage() {
     fprintf(stderr,
         "cescan: Cheat Engine CLI for Linux\n"
         "\n"
-        "Usage: sudo cescan <command> [args...]\n"
+        "Usage: cescan <command> [args...]\n"
         "\n"
         "Commands:\n"
         "  list                          List all processes\n"
@@ -69,7 +71,7 @@ static void usage() {
         "                                (default 200) to detect a protected/reverted\n"
         "                                value; --find-writer then finds what reverts it)\n"
         "  freeze <pid> <addr> <val> [--type <t>] [--codec <c>] [--be] [--interval <ms>]\n"
-        "         [--mode normal|floor|ceil]  Lock a value: re-write it until Ctrl-C\n"
+        "         [--count <n>] [--mode normal|floor|ceil]  Lock a value: re-write it until Ctrl-C\n"
         "                                (floor = never let it drop, ceil = never rise;\n"
         "                                 --codec locks an obfuscated value by its value)\n"
         "  watch <pid> <addr> [--access] [--regs] [--size <n>] [--duration <s>]\n"
@@ -82,6 +84,8 @@ static void usage() {
         "                                instructions (arch auto-detected from the target)\n"
         "  asm \"<instr>\" [--arch x86-32|x86-64|arm32|arm64]  Assemble to bytes (no target\n"
         "                                needed; default x86-64; newline-separate for several)\n"
+        "  autoasm <pid> <script.aa> [--disable-after <seconds>]  Execute Auto Assembler\n"
+        "                                script, optionally restore it after a delay or Ctrl-C\n"
         "  modules <pid>                 List loaded modules\n"
         "  regions <pid>                 List memory regions\n"
         "  info <pid>                    Probe the target: arch, Wine/emulator/runtime,\n"
@@ -132,9 +136,14 @@ static void usage() {
         "  --writable        Only scan writable memory (--no-writable for read-only)\n"
         "  --executable      Only scan executable memory (--no-executable to exclude code)\n"
         "\n"
+        "Targets accept a PID or an unambiguous process name. Host addresses accept\n"
+        "numbers, module+offset, symbols and [pointer]+offset expressions.\n"
+        "Read/write/freeze support --encoding; write/freeze --terminate appends a NUL.\n"
+        "Unsigned read types: u8, u16, u32, u64. freeze --count 0 runs until Ctrl-C.\n"
+        "\n"
         "Write options:\n"
         "  --type <type>     byte, i16, i32, i64, pointer, float, double,\n"
-        "                    string (raw text), aob (\"90 90 05\" hex bytes) (default: i32)\n"
+        "                    string, unicode, aob (\"90 90 05\" hex bytes) (default: i32)\n"
     );
 }
 
@@ -170,31 +179,42 @@ static unsigned long long parseUInt(const char* s, const char* what,
 
 // Parse a PID token: validate numeric and positive (PIDs are > 0).
 static pid_t parsePid(const char* s) {
-    unsigned long long v = parseUInt(s, "pid", static_cast<unsigned long long>(INT_MAX));
-    if (v == 0) {
-        fprintf(stderr, "Invalid pid '%s': must be positive\n", s);
+    if (s && *s && !std::all_of(s, s + std::strlen(s), [](unsigned char c) { return std::isdigit(c); })) {
+        LinuxProcessEnumerator enumerator;
+        std::vector<ProcessInfo> matches;
+        for (auto& process : enumerator.list())
+            if (process.name == s || std::filesystem::path(process.path).filename() == s) matches.push_back(process);
+        if (matches.size() == 1) return matches.front().pid;
+        if (matches.empty()) fprintf(stderr, "No process named '%s' was found\n", s);
+        else {
+            fprintf(stderr, "Process name '%s' is ambiguous; choose a PID:", s);
+            for (const auto& process : matches) fprintf(stderr, " %d", process.pid);
+            fprintf(stderr, "\n");
+        }
         exit(1);
     }
+    unsigned long long v = parseUInt(s, "pid", static_cast<unsigned long long>(INT_MAX));
+    if (v == 0) { fprintf(stderr, "PID must be positive\n"); exit(1); }
     return static_cast<pid_t>(v);
 }
 
-static ValueType parseType(const char* s) {
-    if (!strcmp(s, "byte"))   return ValueType::Byte;
-    if (!strcmp(s, "i16"))    return ValueType::Int16;
-    if (!strcmp(s, "i32"))    return ValueType::Int32;
-    if (!strcmp(s, "i64"))    return ValueType::Int64;
-    if (!strcmp(s, "pointer") || !strcmp(s, "ptr")) return ValueType::Pointer;
-    if (!strcmp(s, "float"))  return ValueType::Float;
-    if (!strcmp(s, "double")) return ValueType::Double;
-    if (!strcmp(s, "string")) return ValueType::String;
-    if (!strcmp(s, "unicode")) return ValueType::UnicodeString;
-    if (!strcmp(s, "aob"))    return ValueType::ByteArray;
-    if (!strcmp(s, "binary")) return ValueType::Binary;
-    if (!strcmp(s, "all"))    return ValueType::All;
-    if (!strcmp(s, "grouped") || !strcmp(s, "group")) return ValueType::Grouped;
-    if (!strcmp(s, "custom")) return ValueType::Custom;
-    fprintf(stderr, "Unknown type: %s\n", s);
+static uintptr_t parseAddress(const char* target, const char* expression) {
+    // Preserve existing decimal/0x addresses, then accept the GUI's expression syntax.
+    errno = 0; char* end = nullptr;
+    unsigned long long numeric = std::strtoull(expression, &end, 0);
+    if (end != expression && *end == 0 && *expression != '-' && errno != ERANGE && numeric <= UINTPTR_MAX)
+        return static_cast<uintptr_t>(numeric);
+    LinuxProcessHandle process(parsePid(target));
+    if (auto address = ExpressionParser(&process).parse(expression)) return *address;
+    SymbolResolver resolver; resolver.loadProcess(process);
+    if (auto address = ExpressionParser(&process, &resolver).parse(expression)) return *address;
+    fprintf(stderr, "Cannot resolve address '%s'; use a number, module+offset, symbol, or [pointer]+offset\n", expression);
     exit(1);
+}
+
+static ValueType parseType(const char* s) {
+    if (auto type = ce::parseValueType(s)) return *type;
+    fprintf(stderr, "Unknown type: %s\n", s); exit(1);
 }
 
 static ScanCompare parseCompare(const char* s) {
@@ -276,66 +296,16 @@ static int cmd_modules(pid_t pid) {
 }
 
 static int cmd_read(pid_t pid, uintptr_t addr, size_t size, const char* typeStr = nullptr,
-                    ce::ValueCodec codec = {}, bool bigEndian = false) {
+                    ce::ValueCodec codec = {}, bool bigEndian = false, const std::string& encoding = "UTF-8") {
     LinuxProcessHandle proc(pid);
 
-    // --type interprets the bytes instead of dumping hex. Fixed-width types read
-    // their own size; string/aob use `size` as a length cap.
     if (typeStr) {
-        ValueType vt = parseType(typeStr);
-        size_t need;
-        switch (vt) {
-            case ValueType::Byte:                                        need = 1; break;
-            case ValueType::Int16:                                       need = 2; break;
-            case ValueType::Int32: case ValueType::Float:                need = 4; break;
-            case ValueType::Int64: case ValueType::Double:
-            case ValueType::Pointer:                                     need = 8; break;
-            default:                                                     need = size; break;
-        }
-        std::vector<uint8_t> b(need ? need : 1);
-        auto r = proc.read(addr, b.data(), b.size());
-        if (!r) { fprintf(stderr, "Read failed: %s\n", r.error().message().c_str()); return 1; }
-        size_t got = *r;
-        if (need <= 8 && got < need) { fprintf(stderr, "Read failed: short read (%zu/%zu)\n", got, need); return 1; }
-        // Big-endian value (emulated console / network buffer): reverse to host order so
-        // the interpretation below (and any codec decode) sees the logical value.
-        if (bigEndian && (need == 2 || need == 4 || need == 8))
-            std::reverse(b.begin(), b.begin() + need);
-        printf("0x%lx: ", (unsigned long)addr);
-        switch (vt) {
-            case ValueType::Byte:   printf("%u (0x%02x)\n", b[0], b[0]); break;
-            case ValueType::Int16:  { int16_t v;   memcpy(&v, b.data(), 2); printf("%d (0x%x)\n", v, (unsigned)(uint16_t)v); break; }
-            case ValueType::Int32:  { int32_t v;   memcpy(&v, b.data(), 4); printf("%d (0x%x)\n", v, (unsigned)(uint32_t)v); break; }
-            case ValueType::Int64:  { int64_t v;   memcpy(&v, b.data(), 8); printf("%ld (0x%lx)\n", (long)v, (unsigned long)(uint64_t)v); break; }
-            case ValueType::Pointer:{ uintptr_t v; memcpy(&v, b.data(), 8); printf("0x%lx\n", (unsigned long)v); break; }
-            case ValueType::Float:  { float v;     memcpy(&v, b.data(), 4); printf("%g\n", v); break; }
-            case ValueType::Double: { double v;    memcpy(&v, b.data(), 8); printf("%g\n", v); break; }
-            case ValueType::String: { size_t len = strnlen((char*)b.data(), got); printf("\"%.*s\"\n", (int)len, (char*)b.data()); break; }
-            default:                { for (size_t i = 0; i < got; ++i) printf("%02X ", b[i]); printf("\n"); break; }
-        }
-        // Show the decoded logical value for an obfuscated integer.
-        if (codec.active()) {
-            int wbytes = 0;
-            switch (vt) {
-                case ValueType::Byte:    wbytes = 1; break;
-                case ValueType::Int16:   wbytes = 2; break;
-                case ValueType::Int32:   wbytes = 4; break;
-                case ValueType::Int64:
-                case ValueType::Pointer: wbytes = 8; break;
-                default: break;
-            }
-            if (wbytes) {
-                uint64_t raw = 0; memcpy(&raw, b.data(), wbytes);
-                uint64_t logical = codec.decode(raw, wbytes);
-                // Sign-extend for a readable signed display.
-                int64_t s = (wbytes < 8 && (logical >> (wbytes * 8 - 1)) & 1)
-                          ? (int64_t)(logical | ~ce::ValueCodec::maskFor(wbytes)) : (int64_t)logical;
-                printf("  decoded (%s): %lld (0x%llx)\n", codec.describe().c_str(),
-                       (long long)s, (unsigned long long)logical);
-            } else {
-                fprintf(stderr, "  (--codec applies to integer types only)\n");
-            }
-        }
+        ValueIoOptions options;
+        options.size = size; options.codec = codec; options.bigEndian = bigEndian; options.encoding = encoding;
+        options.isSigned = !(std::tolower(static_cast<unsigned char>(typeStr[0])) == 'u' && typeStr[1] >= '0' && typeStr[1] <= '9');
+        auto value = readTypedValue(proc, addr, parseType(typeStr), options);
+        if (!value) { fprintf(stderr, "Read failed: %s\n", value.error().c_str()); return 1; }
+        printf("0x%lx: %s\n", addr, value->c_str());
         return 0;
     }
 
@@ -362,218 +332,61 @@ static int cmd_read(pid_t pid, uintptr_t addr, size_t size, const char* typeStr 
     return 0;
 }
 
-// Parse a signed integer token for cmd_write, accepting either the signed or
-// unsigned range for the destination width (CE-style leniency). Errors out on
-// non-numeric input or values that don't fit the width.
-static int64_t parseWriteInt(const char* s, int64_t signedMin, uint64_t unsignedMax) {
-    if (!s || *s == '\0') {
-        fprintf(stderr, "Invalid write value: empty\n");
-        exit(1);
-    }
-    errno = 0;
-    char* end = nullptr;
-    // Try signed first; if it ranges out, accept the unsigned form (e.g. 0xFF for a byte).
-    long long sv = strtoll(s, &end, 0);
-    if (end != s && *end == '\0' && errno != ERANGE
-        && sv >= signedMin && sv <= static_cast<long long>(unsignedMax)) {
-        return static_cast<int64_t>(sv);
-    }
-    errno = 0;
-    end = nullptr;
-    unsigned long long uv = strtoull(s, &end, 0);
-    const char* p = s;
-    while (*p == ' ' || *p == '\t') ++p;
-    if (*p != '-' && end != s && *end == '\0' && errno != ERANGE && uv <= unsignedMax) {
-        return static_cast<int64_t>(uv);
-    }
-    fprintf(stderr, "Invalid write value '%s': not a number or out of range\n", s);
-    exit(1);
-}
-
 // Forward declaration: write --find-writer chains into find-what-writes after the write.
 static int cmd_watch(pid_t pid, uintptr_t addr, bool writesOnly, int watchSize,
                      int durationSec, int modeOverride, bool showRegs = false);
 
 static int cmd_write(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt,
                      ce::ValueCodec codec = {}, int verifyMs = 0, int findWriterSecs = 0,
-                     bool bigEndian = false) {
+                     bool bigEndian = false, bool terminate = false, const std::string& encoding = "UTF-8") {
     LinuxProcessHandle proc(pid);
 
-    if (codec.active() && vt != ValueType::Byte && vt != ValueType::Int16 &&
-        vt != ValueType::Int32 && vt != ValueType::Int64 && vt != ValueType::Pointer) {
-        fprintf(stderr, "write: --codec applies to integer types only "
-                        "(byte/i16/i32/i64/pointer)\n");
-        return 1;
+    ValueIoOptions options;
+    options.codec = codec; options.bigEndian = bigEndian; options.terminate = terminate; options.encoding = encoding;
+    options.pointerWidth = proc.is64bit() ? 8 : 4;
+    auto bytes = encodeTypedValue(vt, valStr, options);
+    if (!bytes) { fprintf(stderr, "Write failed: %s\n", bytes.error().c_str()); return 1; }
+    if (findWriterSecs > 0 && bytes->size() != 1 && bytes->size() != 2 && bytes->size() != 4 && bytes->size() != 8) {
+        fprintf(stderr, "find-writer needs a 1, 2, 4, or 8-byte value; watch a byte within this value instead\n"); return 1;
     }
-
-    // Variable-length writes: a raw string (its UTF-8 bytes) or a concrete byte
-    // array ("90 90 05", for patching code). These write exactly their length.
-    if (vt == ValueType::String || vt == ValueType::ByteArray) {
-        std::vector<uint8_t> bytes;
-        if (vt == ValueType::String) {
-            for (const char* p = valStr; *p; ++p) bytes.push_back((uint8_t)*p);
-        } else {
-            // Parse space/comma-separated hex bytes; wildcards make no sense for an
-            // in-place write, so reject them instead of guessing.
-            std::string tok;
-            auto flush = [&]() -> int {
-                if (tok.empty()) return 0;
-                if (tok == "??" || tok == "?" || tok == "*") {
-                    fprintf(stderr, "write: wildcard '%s' not allowed when writing bytes\n", tok.c_str());
-                    return 1;
-                }
-                char* end = nullptr;
-                long b = strtol(tok.c_str(), &end, 16);
-                if (*end != 0 || b < 0 || b > 255) {
-                    fprintf(stderr, "write: '%s' is not a hex byte\n", tok.c_str());
-                    return 1;
-                }
-                bytes.push_back((uint8_t)b);
-                tok.clear();
-                return 0;
-            };
-            for (const char* p = valStr;; ++p) {
-                if (*p == ' ' || *p == ',' || *p == '\0') { if (flush()) return 1; if (!*p) break; }
-                else tok.push_back(*p);
-            }
-        }
-        if (bytes.empty()) { fprintf(stderr, "write: nothing to write\n"); return 1; }
-        auto r = proc.write(addr, bytes.data(), bytes.size());
-        if (!r) { fprintf(stderr, "Write failed: %s\n", r.error().message().c_str()); return 1; }
-        printf("Wrote %zu bytes to 0x%lx\n", bytes.size(), addr);
-        return 0;
-    }
-
-    uint8_t buf[8] = {};
-    size_t sz = typeSize(vt);
-
-    switch (vt) {
-        case ValueType::Byte:   { uint8_t  v = (uint8_t) parseWriteInt(valStr, INT8_MIN,  UINT8_MAX);  memcpy(buf, &v, 1); break; }
-        case ValueType::Int16:  { int16_t  v = (int16_t)parseWriteInt(valStr, INT16_MIN, UINT16_MAX); memcpy(buf, &v, 2); break; }
-        case ValueType::Int32:  { int32_t  v = (int32_t)parseWriteInt(valStr, INT32_MIN, UINT32_MAX); memcpy(buf, &v, 4); break; }
-        case ValueType::Int64:  { int64_t v = atoll(valStr); memcpy(buf, &v, 8); break; }
-        case ValueType::Pointer:{ uintptr_t v = strtoull(valStr, nullptr, 0); memcpy(buf, &v, sizeof(v)); break; }
-        case ValueType::Float:  { float v = atof(valStr); memcpy(buf, &v, 4); break; }
-        case ValueType::Double: { double v = atof(valStr); memcpy(buf, &v, 8); break; }
-        default:
-            // Unicode/Binary/All/Grouped/Custom are not supported here; refuse
-            // rather than silently writing zero bytes and reporting success.
-            fprintf(stderr, "write: unsupported --type for this command "
-                            "(use byte, i16, i32, i64, pointer, float, double, string, aob)\n");
-            return 1;
-    }
-
-    // Encode into the stored form (obfuscation codec + target byte order) so the user
-    // edits by the logical value. Shared cecore transform; buf holds the logical LE bits.
-    { uint64_t bits = 0; memcpy(&bits, buf, sz); ce::encodeScalarBits(vt, bits, bigEndian, codec, buf); }
-
-    auto r = proc.write(addr, buf, sz);
-    if (!r) {
-        fprintf(stderr, "Write failed: %s\n", r.error().message().c_str());
-        return 1;
-    }
-    if (codec.active())
-        printf("Wrote %zu bytes to 0x%lx (encoded %s)\n", sz, addr, codec.describe().c_str());
-    else
-        printf("Wrote %zu bytes to 0x%lx\n", sz, addr);
-
-    // --verify: re-read after a short window to catch a value the game or an integrity
-    // check overwrites (the classic "my edit does not stick"). Reports whether it held
-    // and, if not, what it was reverted to.
+    auto written = writeTypedValue(proc, addr, vt, valStr, options);
+    if (!written) { fprintf(stderr, "Write failed: %s\n", written.error().c_str()); return 1; }
+    printf("Wrote %zu bytes to 0x%lx\n", *written, addr);
+    bool changed = false;
     if (verifyMs > 0) {
-        const struct timespec ts{ verifyMs/1000, (long)(verifyMs%1000)*1000000L };
-        nanosleep(&ts, nullptr);
-        uint8_t now[8] = {};
-        auto rr = proc.read(addr, now, sz);
-        if (!rr || *rr < sz) {
-            printf("verify: could not re-read 0x%lx (region unmapped?)\n", addr);
-        } else if (memcmp(now, buf, sz) == 0) {
-            printf("verify: value held after %d ms (not protected here)\n", verifyMs);
-        } else {
-            uint64_t wrote = 0, cur = 0;
-            memcpy(&wrote, buf, sz); memcpy(&cur, now, sz);
-            if (codec.active()) { wrote = codec.decode(wrote, (int)sz); cur = codec.decode(cur, (int)sz); }
-            auto sx = [](uint64_t v, int b) -> long long {
-                return (b < 8 && ((v >> (b*8-1)) & 1))
-                     ? (long long)(v | ~ce::ValueCodec::maskFor(b)) : (long long)v;
-            };
-            printf("verify: value was REVERTED after %d ms (wrote %lld, now %lld / 0x%llx).\n",
-                   verifyMs, sx(wrote, (int)sz), sx(cur, (int)sz),
-                   (unsigned long long)(cur & ce::ValueCodec::maskFor((int)sz)));
-            if (findWriterSecs <= 0)
-                printf("  Locate the writer with find-what-writes (GUI) or "
-                       "`cescan watch %d 0x%lx` on 0x%lx.\n", pid, addr, addr);
-        }
+        const struct timespec delay{verifyMs / 1000, static_cast<long>(verifyMs % 1000) * 1000000L};
+        nanosleep(&delay, nullptr);
+        std::vector<uint8_t> current(bytes->size());
+        auto read = proc.read(addr, current.data(), current.size());
+        if (!read || *read != current.size()) { fprintf(stderr, "verify: incomplete memory read\n"); return 1; }
+        if (current == *bytes) printf("verify: value held after %d ms\n", verifyMs);
+        else { changed = true; printf("verify: value changed after %d ms\n", verifyMs); }
     }
-
-    // Chain into find-what-writes so a protected value is diagnosed in one step: the
-    // instruction that reverts it shows up among the writers.
-    if (findWriterSecs > 0) {
-        printf("\nfind-writer: watching 0x%lx for %ds to catch what writes it...\n",
-               addr, findWriterSecs);
-        return cmd_watch(pid, addr, /*writesOnly=*/true, (int)sz, findWriterSecs, /*mode auto*/0);
-    }
-    return 0;
+    if (findWriterSecs > 0)
+        return cmd_watch(pid, addr, true, static_cast<int>(bytes->size()), findWriterSecs, 0);
+    return changed ? 1 : 0;
 }
 
 static volatile sig_atomic_t g_freezeStop = 0;
 static void onFreezeSignal(int) { g_freezeStop = 1; }
-
-// Build the little-endian STORED bytes to write for a logical value, and the frozen
-// value as a double (for directional freeze comparisons). Returns byte width, 0 on
-// unsupported type. Applies the codec so an obfuscated value is frozen by its logical
-// value.
-static int freezeEncode(const char* valStr, ValueType vt, const ce::ValueCodec& codec,
-                        bool bigEndian, uint8_t out[8], double& frozenNum) {
-    const int sz = static_cast<int>(typeSize(vt));
-    uint64_t bits = 0;
-    switch (vt) {
-        case ValueType::Byte:   { int64_t v = parseWriteInt(valStr, INT8_MIN,  UINT8_MAX);  uint8_t t=(uint8_t)v; memcpy(&bits,&t,1); frozenNum=(double)(int8_t)v; break; }
-        case ValueType::Int16:  { int64_t v = parseWriteInt(valStr, INT16_MIN, UINT16_MAX); int16_t t=(int16_t)v; memcpy(&bits,&t,2); frozenNum=(double)t; break; }
-        case ValueType::Int32:  { int64_t v = parseWriteInt(valStr, INT32_MIN, UINT32_MAX); int32_t t=(int32_t)v; memcpy(&bits,&t,4); frozenNum=(double)t; break; }
-        case ValueType::Int64:  { int64_t v = atoll(valStr); memcpy(&bits,&v,8); frozenNum=(double)v; break; }
-        case ValueType::Pointer:{ uintptr_t v = strtoull(valStr,nullptr,0); memcpy(&bits,&v,8); frozenNum=(double)v; break; }
-        case ValueType::Float:  { float v = (float)atof(valStr); memcpy(&bits,&v,4); frozenNum=v; break; }
-        case ValueType::Double: { double v = atof(valStr); memcpy(&bits,&v,8); frozenNum=v; break; }
-        default: return 0;
-    }
-    ce::encodeScalarBits(vt, bits, bigEndian, codec, out);   // shared: codec + byte order
-    return sz;
-}
-
-// Read the current LOGICAL value at addr as a double (byte-order + codec via the shared
-// transform).
-static bool freezeReadCurrent(LinuxProcessHandle& proc, uintptr_t addr, ValueType vt,
-                              const ce::ValueCodec& codec, bool bigEndian, double& cur) {
-    uint8_t b[8]={}; const int sz = static_cast<int>(typeSize(vt));
-    auto r = proc.read(addr, b, sz);
-    if (!r || *r < (size_t)sz) return false;
-    const uint64_t bits = ce::decodeScalarBits(vt, b, bigEndian, codec);
-    switch (vt) {
-        case ValueType::Byte:    cur=(double)(int8_t)bits;    return true;
-        case ValueType::Int16:   cur=(double)(int16_t)bits;   return true;
-        case ValueType::Int32:   cur=(double)(int32_t)bits;   return true;
-        case ValueType::Int64:   cur=(double)(int64_t)bits;   return true;
-        case ValueType::Pointer: cur=(double)(uintptr_t)bits; return true;
-        case ValueType::Float:  { float v;  memcpy(&v,&bits,4); cur=v; return true; }
-        case ValueType::Double: { double v; memcpy(&v,&bits,8); cur=v; return true; }
-        default: return false;
-    }
-}
 
 // Continuously re-write a value so the game cannot change it (CE's freeze/lock).
 // --mode floor/ceil use the directional FreezeMode logic; --codec locks an obfuscated
 // value by its logical value. Runs until SIGINT/SIGTERM.
 static int cmd_freeze(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt,
                       ce::ValueCodec codec, unsigned intervalMs, ce::FreezeMode mode,
-                      bool bigEndian = false) {
+                      bool bigEndian = false, size_t maxCycles = 0, bool terminate = false, const std::string& encoding = "UTF-8", bool isSigned = true) {
     LinuxProcessHandle proc(pid);
     if (codec.active() && (vt == ValueType::Float || vt == ValueType::Double)) {
         fprintf(stderr, "freeze: --codec applies to integer types only\n"); return 1;
     }
-    uint8_t buf[8]={}; double frozen=0;
-    const int sz = freezeEncode(valStr, vt, codec, bigEndian, buf, frozen);
-    if (!sz) { fprintf(stderr, "freeze: unsupported --type for this command\n"); return 1; }
+    ValueIoOptions options; options.codec = codec; options.bigEndian = bigEndian; options.terminate = terminate; options.encoding = encoding;
+    options.pointerWidth = proc.is64bit() ? 8 : 4; options.isSigned = isSigned;
+    auto bytes = encodeTypedValue(vt, valStr, options);
+    if (!bytes) { fprintf(stderr, "freeze: %s\n", bytes.error().c_str()); return 1; }
+    if (mode != FreezeMode::Normal && !scalarWidth(vt)) {
+        fprintf(stderr, "freeze: floor and ceil compare numbers; use --mode normal for strings and byte arrays\n"); return 1;
+    }
 
     g_freezeStop = 0;
     signal(SIGINT, onFreezeSignal);
@@ -583,22 +396,23 @@ static int cmd_freeze(pid_t pid, uintptr_t addr, const char* valStr, ValueType v
     printf("Freezing 0x%lx = %s%s%s every %u ms. Ctrl-C to stop.\n", addr, valStr,
            codec.active() ? " [encoded]" : "", modeStr, intervalMs);
 
-    unsigned long long writes=0, misses=0;
+    unsigned long long writes=0, misses=0; size_t cycles = 0;
     const struct timespec ts{ intervalMs/1000, (long)(intervalMs%1000)*1000000L };
-    while (!g_freezeStop) {
+    while (!g_freezeStop && (!maxCycles || cycles < maxCycles)) {
+        ++cycles;
         bool doWrite = true;
         if (mode != ce::FreezeMode::Normal) {
-            double cur;
-            if (freezeReadCurrent(proc, addr, vt, codec, bigEndian, cur))
-                doWrite = ce::freezeShouldWrite(mode, cur, frozen);
+            auto comparison = compareTypedValue(proc, addr, vt, valStr, options);
+            if (comparison) doWrite = mode == FreezeMode::NeverDecrease ? *comparison < 0 : *comparison > 0;
             else { ++misses; doWrite = false; }
         }
-        if (doWrite) { auto wr = proc.write(addr, buf, sz); if (wr) ++writes; else ++misses; }
+        if (doWrite) { auto wr = proc.write(addr, bytes->data(), bytes->size()); if (wr && *wr == bytes->size()) ++writes; else ++misses; }
+        if (maxCycles && cycles >= maxCycles) break;
         nanosleep(&ts, nullptr);
     }
     printf("\nStopped: %llu write(s)%s.\n", writes,
            misses ? (" (" + std::to_string(misses) + " miss(es))").c_str() : "");
-    return 0;
+    return misses ? 1 : 0;
 }
 
 // Dump the general-purpose registers captured at a writer instruction and, for a
@@ -1343,19 +1157,17 @@ static int cmd_deref(pid_t pid, int argc, char** argv) {
     return addr ? 0 : 1;
 }
 
-static int cmd_asm(pid_t pid, const char* scriptFile, bool disableMode) {
+static int cmd_autoasm(pid_t pid, const char* scriptFile, std::optional<unsigned> disableAfter) {
     // Read script
     std::ifstream f(scriptFile);
     if (!f) { fprintf(stderr, "Cannot open: %s\n", scriptFile); return 1; }
     std::string script((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 
     LinuxProcessHandle proc(pid);
+    SymbolResolver resolver; resolver.loadProcess(proc);
+    LuaEngine engine; engine.setProcess(&proc); engine.setResolver(&resolver);
     AutoAssembler autoAsm;
-
-    if (disableMode) {
-        printf("Disable mode not supported from CLI (no saved state)\n");
-        return 1;
-    }
+    autoAsm.setLuaEvaluator([&](const std::string& chunk) { return engine.evalToString(chunk); });
 
     printf("Executing script on PID %d...\n", pid);
     auto result = autoAsm.execute(proc, script);
@@ -1369,6 +1181,16 @@ static int cmd_asm(pid_t pid, const char* scriptFile, bool disableMode) {
     } else {
         printf("FAILED: %s\n", result.error.c_str());
         return 1;
+    }
+    if (disableAfter) {
+        g_freezeStop = 0;
+        auto oldInt = signal(SIGINT, onFreezeSignal);
+        auto oldTerm = signal(SIGTERM, onFreezeSignal);
+        for (unsigned elapsed = 0; elapsed < *disableAfter && !g_freezeStop; ++elapsed) sleep(1);
+        signal(SIGINT, oldInt); signal(SIGTERM, oldTerm);
+        auto disabled = autoAsm.disable(proc, script, result.disableInfo);
+        if (!disabled.success) { fprintf(stderr, "Disable failed: %s\n", disabled.error.c_str()); return 1; }
+        printf("Disabled: original bytes restored and allocations released\n");
     }
     return 0;
 }
@@ -1717,6 +1539,7 @@ int main(int argc, char** argv) {
     if (argc < 2) { usage(); return 1; }
 
     const char* cmd = argv[1];
+    if (argc == 3 && (!std::strcmp(argv[2], "--help") || !std::strcmp(argv[2], "-h"))) { usage(); return 0; }
 
     if (!strcmp(cmd, "--version") || !strcmp(cmd, "-v") || !strcmp(cmd, "version")) {
         printf("cescan (cheat-engine-linux) %s\n", CECORE_VERSION);
@@ -1769,7 +1592,7 @@ int main(int argc, char** argv) {
             if (!strcmp(argv[i], "--type") && i + 1 < argc) { vt = parseType(argv[++i]); typeSet = true; }
             else if (!strcmp(argv[i], "--be")) { be = true; beSet = true; }
         }
-        return cmd_guest_write(parsePid(argv[2]), strtoull(argv[3], nullptr, 0), argv[4],
+        return cmd_guest_write(parsePid(argv[2]), parseUInt(argv[3], "guest address", UINT64_MAX), argv[4],
                                vt, be, typeSet, beSet);
     }
     else if (!strcmp(cmd, "read") && argc >= 4) {
@@ -1780,6 +1603,7 @@ int main(int argc, char** argv) {
         const char* typeStr = nullptr;
         ce::ValueCodec codec;
         bool bigEndian = false;
+        std::string encoding = "UTF-8";
         int i = 4;
         // Optional positional [size] (only if it isn't the --type flag), then --type.
         if (argc >= 5 && argv[4][0] != '-') {
@@ -1789,53 +1613,67 @@ int main(int argc, char** argv) {
         for (; i < argc; ++i) {
             if (!strcmp(argv[i], "--type") && i + 1 < argc) typeStr = argv[++i];
             else if (!strcmp(argv[i], "--be")) bigEndian = true;
+            else if (!strcmp(argv[i], "--encoding") && i + 1 < argc) encoding = argv[++i];
             else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
                 auto c = ce::ValueCodec::parse(argv[++i]);
                 if (!c) { fprintf(stderr, "Invalid --codec (use xor:0xKEY, add:N, rol:N, ror:N)\n"); return 1; }
                 codec = *c;
             }
+            else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
         }
-        return cmd_read(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), size, typeStr, codec, bigEndian);
+        return cmd_read(parsePid(argv[2]), parseAddress(argv[2], argv[3]), size, typeStr, codec, bigEndian, encoding);
     }
     else if (!strcmp(cmd, "write") && argc >= 5) {
         ValueType vt = ValueType::Int32;
         ce::ValueCodec codec;
-        bool bigEndian = false;
+        bool bigEndian = false, terminate = false;
+        std::string encoding = "UTF-8";
         int verifyMs = 0, findWriterSecs = 0;
         for (int i = 5; i < argc; ++i) {
-            if (!strcmp(argv[i], "--type") && i + 1 < argc) vt = parseType(argv[i+1]);
+            if (!strcmp(argv[i], "--type") && i + 1 < argc) vt = parseType(argv[++i]);
             else if (!strcmp(argv[i], "--be")) bigEndian = true;
+            else if (!strcmp(argv[i], "--terminate")) terminate = true;
+            else if (!strcmp(argv[i], "--encoding") && i + 1 < argc) encoding = argv[++i];
             else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
-                auto c = ce::ValueCodec::parse(argv[i+1]);
+                auto c = ce::ValueCodec::parse(argv[++i]);
                 if (!c) { fprintf(stderr, "Invalid --codec (use xor:0xKEY, add:N, rol:N, ror:N)\n"); return 1; }
                 codec = *c;
             }
             else if (!strcmp(argv[i], "--verify")) verifyMs = 200;
             else if (!strcmp(argv[i], "--verify-ms") && i + 1 < argc)
-                verifyMs = (int)strtoul(argv[++i], nullptr, 0);
+                verifyMs = static_cast<int>(parseUInt(argv[++i], "duration", INT_MAX));
             else if (!strcmp(argv[i], "--find-writer")) findWriterSecs = 5;
             else if (!strcmp(argv[i], "--find-writer-secs") && i + 1 < argc)
-                findWriterSecs = (int)strtoul(argv[++i], nullptr, 0);
+                findWriterSecs = static_cast<int>(parseUInt(argv[++i], "duration", INT_MAX));
+            else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
         }
-        return cmd_write(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), argv[4], vt,
-                         codec, verifyMs, findWriterSecs, bigEndian);
+        return cmd_write(parsePid(argv[2]), parseAddress(argv[2], argv[3]), argv[4], vt,
+                         codec, verifyMs, findWriterSecs, bigEndian, terminate, encoding);
     }
     else if (!strcmp(cmd, "freeze") && argc >= 5) {
         ValueType vt = ValueType::Int32;
         ce::ValueCodec codec;
-        bool bigEndian = false;
-        unsigned interval = 100;
+        bool bigEndian = false, terminate = false, isSigned = true;
+        std::string encoding = "UTF-8";
+        unsigned interval = 100; size_t maxCycles = 0;
         ce::FreezeMode mode = ce::FreezeMode::Normal;
         for (int i = 5; i < argc; ++i) {
-            if (!strcmp(argv[i], "--type") && i + 1 < argc) vt = parseType(argv[++i]);
+            if (!strcmp(argv[i], "--type") && i + 1 < argc) {
+                const char* type = argv[++i]; vt = parseType(type);
+                isSigned = !(std::tolower(static_cast<unsigned char>(type[0])) == 'u' && std::isdigit(static_cast<unsigned char>(type[1])));
+            }
             else if (!strcmp(argv[i], "--be")) bigEndian = true;
+            else if (!strcmp(argv[i], "--terminate")) terminate = true;
+            else if (!strcmp(argv[i], "--encoding") && i + 1 < argc) encoding = argv[++i];
             else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
                 auto c = ce::ValueCodec::parse(argv[++i]);
                 if (!c) { fprintf(stderr, "Invalid --codec (use xor:0xKEY, add:N, rol:N, ror:N)\n"); return 1; }
                 codec = *c;
             }
+            else if (!strcmp(argv[i], "--count") && i + 1 < argc)
+                maxCycles = parseUInt(argv[++i], "freeze count", SIZE_MAX);
             else if (!strcmp(argv[i], "--interval") && i + 1 < argc)
-                interval = (unsigned)strtoul(argv[++i], nullptr, 0);
+                interval = static_cast<unsigned>(parseUInt(argv[++i], "interval", UINT_MAX));
             else if (!strcmp(argv[i], "--mode") && i + 1 < argc) {
                 const char* m = argv[++i];
                 if (!strcmp(m, "normal")) mode = ce::FreezeMode::Normal;
@@ -1843,9 +1681,10 @@ int main(int argc, char** argv) {
                 else if (!strcmp(m, "ceil"))  mode = ce::FreezeMode::NeverIncrease;
                 else { fprintf(stderr, "freeze: --mode must be normal|floor|ceil\n"); return 1; }
             }
+            else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
         }
         if (interval < 1) interval = 1;
-        return cmd_freeze(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), argv[4], vt, codec, interval, mode, bigEndian);
+        return cmd_freeze(parsePid(argv[2]), parseAddress(argv[2], argv[3]), argv[4], vt, codec, interval, mode, bigEndian, maxCycles, terminate, encoding, isSigned);
     }
     else if (!strcmp(cmd, "watch") && argc >= 4) {
         bool writesOnly = true, showRegs = false; int watchSize = 4, duration = 10, mode = 0;
@@ -1865,7 +1704,7 @@ int main(int argc, char** argv) {
         }
         if (watchSize != 1 && watchSize != 2 && watchSize != 4 && watchSize != 8) watchSize = 4;
         if (duration < 1) duration = 1;
-        return cmd_watch(parsePid(argv[2]), strtoul(argv[3], nullptr, 0),
+        return cmd_watch(parsePid(argv[2]), parseAddress(argv[2], argv[3]),
                          writesOnly, watchSize, duration, mode, showRegs);
     }
     else if (!strcmp(cmd, "disasm") && argc >= 4) {
@@ -1873,7 +1712,7 @@ int main(int argc, char** argv) {
         // overflow/throw on huge or negative input).
         constexpr unsigned long long kMaxDisasmCount = 100000;
         const pid_t pid = parsePid(argv[2]);
-        const uintptr_t addr = strtoul(argv[3], nullptr, 0);
+        const uintptr_t addr = parseAddress(argv[2], argv[3]);
         size_t count = 20;
         const char* archStr = nullptr;
         for (int i = 4; i < argc; ++i) {
@@ -1907,7 +1746,7 @@ int main(int argc, char** argv) {
     }
     else if (!strcmp(cmd, "pointerscan") && argc >= 4) {
         pid_t pid = parsePid(argv[2]);
-        uintptr_t target = strtoul(argv[3], nullptr, 0);
+        uintptr_t target = parseAddress(argv[2], argv[3]);
         int depth = (argc >= 5) ? static_cast<int>(parseUInt(argv[4], "depth", 64)) : 4;
         int offset = (argc >= 6) ? static_cast<int>(parseUInt(argv[5], "offset", INT_MAX)) : 2048;
         return cmd_pointerscan(pid, target, depth, offset);
@@ -1915,11 +1754,14 @@ int main(int argc, char** argv) {
     else if (!strcmp(cmd, "deref") && argc >= 4) {
         return cmd_deref(parsePid(argv[2]), argc - 3, argv + 3);
     }
-    else if (!strcmp(cmd, "asm") && argc >= 4) {
-        bool disable = false;
-        const char* file = argv[3];
-        if (argc >= 5 && !strcmp(argv[3], "--disable")) { disable = true; file = argv[4]; }
-        return cmd_asm(parsePid(argv[2]), file, disable);
+    else if (!strcmp(cmd, "autoasm") && argc >= 4) {
+        std::optional<unsigned> disableAfter;
+        for (int i = 4; i < argc; ++i) {
+            if (!strcmp(argv[i], "--disable-after") && i + 1 < argc)
+                disableAfter = static_cast<unsigned>(parseUInt(argv[++i], "disable delay", UINT_MAX));
+            else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
+        }
+        return cmd_autoasm(parsePid(argv[2]), argv[3], disableAfter);
     }
     else if (!strcmp(cmd, "lua")) {
         return cmd_lua(argc - 1, argv + 1);
@@ -1929,7 +1771,7 @@ int main(int argc, char** argv) {
     }
     else if (!strcmp(cmd, "signature") && argc >= 4) {
         size_t maxBytes = (argc >= 5) ? (size_t)parseUInt(argv[4], "maxbytes", 1024) : 64;
-        return cmd_signature(parsePid(argv[2]), strtoul(argv[3], nullptr, 0), maxBytes);
+        return cmd_signature(parsePid(argv[2]), parseAddress(argv[2], argv[3]), maxBytes);
     }
     else if (!strcmp(cmd, "analyze") && argc >= 4) {
         return cmd_analyze(parsePid(argv[2]), argc - 3, argv + 3);

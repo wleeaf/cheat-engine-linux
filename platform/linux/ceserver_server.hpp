@@ -19,7 +19,7 @@ namespace ce::os {
 
 class CeserverServer {
 public:
-    CeserverServer() = default;
+    CeserverServer();
     ~CeserverServer();
     CeserverServer(const CeserverServer&) = delete;
     CeserverServer& operator=(const CeserverServer&) = delete;

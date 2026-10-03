@@ -2,6 +2,7 @@
 #include <charconv>
 #include <csignal>
 #include "scripting/lua_engine.hpp"
+#include "scripting/lua_safe.hpp"
 #include "core/ct_file.hpp"
 #include "core/trainer.hpp"
 #include "core/address_list.hpp"
@@ -19,6 +20,8 @@
 #include "scanner/memory_scanner.hpp"
 #include "scanner/pointer_scanner.hpp"
 #include "core/autoasm.hpp"
+#include "core/value_io.hpp"
+#include "core/expression.hpp"
 #include "core/injection_gen.hpp"
 #include "arch/disassembler.hpp"
 #include "arch/assembler.hpp"
@@ -65,6 +68,9 @@ extern "C" {
 #include <unordered_map>
 #include <cctype>
 
+#undef lua_pushcfunction
+#define lua_pushcfunction(L, f) ce::pushSafeLuaFunction((L), (f))
+
 namespace ce {
 
 // Helper: get process handle from registry
@@ -94,14 +100,113 @@ static SymbolResolver* getResolver(lua_State* L) {
     return r;
 }
 
+// Typed values use strings so 64-bit unsigned values remain exact in Lua.
+static std::expected<ValueIoOptions, std::string> typedOptions(lua_State* L, int index, bool isSigned) {
+    ValueIoOptions options; options.isSigned = isSigned;
+    if (lua_isnoneornil(L, index)) return options;
+    if (!lua_istable(L, index)) return std::unexpected("Options must be a table");
+    std::string error;
+    // Protect option lookups: __index may be a Lua function that raises an error.
+    // A pcall keeps that error from longjmping across C++ option strings.
+    auto field = [&](const char* name) {
+        lua_pushcfunction(L, +[](lua_State* state) {
+            lua_pushvalue(state, 2); lua_gettable(state, 1); return 1;
+        });
+        lua_pushvalue(L, index); lua_pushstring(L, name);
+        if (lua_pcall(L, 2, 1, 0) == LUA_OK) return true;
+        size_t length = 0; const char* message = lua_tolstring(L, -1, &length);
+        error = message ? std::string(message, length) : "Option lookup failed";
+        lua_pop(L, 1); return false;
+    };
+    auto boolean = [&](const char* name, bool& value) {
+        if (!field(name)) return false;
+        if (!lua_isnil(L, -1)) value = lua_toboolean(L, -1);
+        lua_pop(L, 1); return true;
+    };
+    if (!boolean("hex", options.hex) || !boolean("signed", options.isSigned) ||
+        !boolean("bigEndian", options.bigEndian) || !boolean("terminate", options.terminate))
+        return std::unexpected(error);
+    if (!field("size")) return std::unexpected(error);
+    if (!lua_isnil(L, -1)) {
+        int valid = 0; auto size = lua_tointegerx(L, -1, &valid);
+        lua_pop(L, 1);
+        if (!valid || size <= 0 || size > 256 * 1024 * 1024) return std::unexpected("Size must be between 1 byte and 256 MiB");
+        options.size = static_cast<size_t>(size);
+    } else lua_pop(L, 1);
+    if (!field("encoding")) return std::unexpected(error);
+    if (!lua_isnil(L, -1)) {
+        const char* encoding = lua_tostring(L, -1);
+        if (!encoding) { lua_pop(L, 1); return std::unexpected("Encoding must be a string"); }
+        options.encoding = encoding;
+    }
+    lua_pop(L, 1);
+    if (!field("codec")) return std::unexpected(error);
+    if (!lua_isnil(L, -1)) {
+        const char* text = lua_tostring(L, -1);
+        auto codec = text ? ValueCodec::parse(text) : std::nullopt;
+        lua_pop(L, 1);
+        if (!codec) return std::unexpected("Invalid codec; use xor:0xKEY, add:N, rol:N or ror:N");
+        options.codec = *codec;
+    } else lua_pop(L, 1);
+    return options;
+}
+
+static int typedValue(lua_State* L, bool write) {
+    auto fail = [&](const std::string& error) {
+        if (write) lua_pushboolean(L, false); else lua_pushnil(L);
+        lua_pushlstring(L, error.data(), error.size());
+        return 2;
+    };
+    auto* process = getProc(L);
+    if (!process) return fail("Open a process first");
+    const char* name = lua_tostring(L, 2);
+    auto type = name ? parseValueType(name) : std::nullopt;
+    if (!type) return fail("Unknown value type; use i32, u64, pointer, float, string, unicode or aob");
+    uintptr_t address = 0;
+    if (lua_isinteger(L, 1)) address = static_cast<uintptr_t>(lua_tointeger(L, 1));
+    else {
+        const char* expression = lua_tostring(L, 1);
+        auto parsed = expression ? ExpressionParser(process, getResolver(L)).parse(expression) : std::nullopt;
+        if (!parsed) return fail("Cannot resolve the address expression");
+        address = *parsed;
+    }
+    bool isSigned = !(std::tolower(static_cast<unsigned char>(name[0])) == 'u' &&
+                      std::isdigit(static_cast<unsigned char>(name[1])));
+    auto options = typedOptions(L, write ? 4 : 3, isSigned);
+    if (!options) return fail(options.error());
+    if (write) {
+        size_t length = 0;
+        const char* value = lua_tolstring(L, 3, &length);
+        if (!value) return fail("Value must be a string or number");
+        auto result = writeTypedValue(*process, address, *type, std::string_view(value, length), *options);
+        if (!result) return fail(result.error());
+        lua_pushboolean(L, true); lua_pushinteger(L, *result); return 2;
+    }
+    auto result = readTypedValue(*process, address, *type, *options);
+    if (!result) return fail(result.error());
+    lua_pushlstring(L, result->data(), result->size()); return 1;
+}
+static int l_readValue(lua_State* L) { return typedValue(L, false); }
+static int l_writeValue(lua_State* L) { return typedValue(L, true); }
+
 // ── Memory read functions (all widths) ──
+
+static bool readExact(ProcessHandle* proc, uintptr_t address, void* data, size_t size) {
+    auto result = proc->read(address, data, size);
+    return result && *result == size;
+}
+
+static bool writeExact(ProcessHandle* proc, uintptr_t address, const void* data, size_t size) {
+    auto result = proc->write(address, data, size);
+    return result && *result == size;
+}
 
 static int l_readByte(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); return 1; }
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
     uint8_t v = 0;
-    if (p->read(addr, &v, 1)) lua_pushinteger(L, v);
+    if (readExact(p, addr, &v, 1)) lua_pushinteger(L, v);
     else lua_pushnil(L);
     return 1;
 }
@@ -111,7 +216,7 @@ static int l_readSmallInteger(lua_State* L) {
     if (!p) { lua_pushnil(L); return 1; }
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
     int16_t v = 0;
-    if (p->read(addr, &v, 2)) lua_pushinteger(L, v);
+    if (readExact(p, addr, &v, 2)) lua_pushinteger(L, v);
     else lua_pushnil(L);
     return 1;
 }
@@ -121,7 +226,7 @@ static int l_readQword(lua_State* L) {
     if (!p) { lua_pushnil(L); return 1; }
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
     int64_t v = 0;
-    if (p->read(addr, &v, 8)) lua_pushinteger(L, v);
+    if (readExact(p, addr, &v, 8)) lua_pushinteger(L, v);
     else lua_pushnil(L);
     return 1;
 }
@@ -135,7 +240,7 @@ static int l_readPointer(lua_State* L) {
     // a 4-byte little-endian read zero-extends correctly.
     uintptr_t v = 0;
     size_t ptrSize = p->is64bit() ? 8 : 4;
-    if (p->read(addr, &v, ptrSize)) lua_pushinteger(L, (lua_Integer)v);
+    if (readExact(p, addr, &v, ptrSize)) lua_pushinteger(L, (lua_Integer)v);
     else lua_pushnil(L);
     return 1;
 }
@@ -145,7 +250,7 @@ static int l_readDouble(lua_State* L) {
     if (!p) { lua_pushnil(L); return 1; }
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
     double v = 0;
-    if (p->read(addr, &v, 8)) lua_pushnumber(L, v);
+    if (readExact(p, addr, &v, 8)) lua_pushnumber(L, v);
     else lua_pushnil(L);
     return 1;
 }
@@ -219,7 +324,7 @@ static int l_writeString(lua_State* L) {
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
     const char* s = luaL_checkstring(L, 2);
     // Return success like CE (and the other write* bindings).
-    lua_pushboolean(L, (bool)p->write(addr, s, strlen(s) + 1));
+    lua_pushboolean(L, writeExact(p, addr, s, strlen(s) + 1));
     return 1;
 }
 
@@ -259,7 +364,7 @@ static int l_readInteger(lua_State* L) {
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
     bool isSigned = lua_isnoneornil(L, 2) ? true : lua_toboolean(L, 2);
     int32_t v = 0;
-    if (p->read(addr, &v, 4)) {
+    if (readExact(p, addr, &v, 4)) {
         if (isSigned) lua_pushinteger(L, v);
         else          lua_pushinteger(L, (lua_Integer)(uint32_t)v);
     } else lua_pushnil(L);
@@ -271,7 +376,7 @@ static int l_writeInteger(lua_State* L) {
     if (!p) { lua_pushboolean(L, 0); return 1; }
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
     int32_t v = (int32_t)luaL_checkinteger(L, 2);
-    lua_pushboolean(L, (bool)p->write(addr, &v, 4));
+    lua_pushboolean(L, writeExact(p, addr, &v, 4));
     return 1;
 }
 
@@ -280,7 +385,7 @@ static int l_readFloat(lua_State* L) {
     if (!p) { lua_pushnil(L); return 1; }
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
     float v = 0;
-    if (p->read(addr, &v, 4)) lua_pushnumber(L, v);
+    if (readExact(p, addr, &v, 4)) lua_pushnumber(L, v);
     else lua_pushnil(L);
     return 1;
 }
@@ -290,7 +395,7 @@ static int l_writeFloat(lua_State* L) {
     if (!p) { lua_pushboolean(L, 0); return 1; }
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
     float v = (float)luaL_checknumber(L, 2);
-    lua_pushboolean(L, (bool)p->write(addr, &v, 4));
+    lua_pushboolean(L, writeExact(p, addr, &v, 4));
     return 1;
 }
 
@@ -598,13 +703,14 @@ static int l_getCEVersion(lua_State* L) {
 static int l_readBytes(lua_State* L) {
     auto* p = getProc(L);
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
-    int count = (int)luaL_checkinteger(L, 2);
+    lua_Integer requested = luaL_checkinteger(L, 2);
     // Cap the count so an accidental huge value (readBytes(addr, 1e9)) can't OOM
     // the process on the buf allocation below. 16 MB is far above any real read.
-    luaL_argcheck(L, count >= 0 && count <= (1 << 24), 2, "count must be 0..16MB");
+    luaL_argcheck(L, requested >= 0 && requested <= (1 << 24), 2, "count must be 0..16MB");
+    int count = static_cast<int>(requested);
     bool asTable = lua_toboolean(L, 3);
     std::vector<uint8_t> buf(count);
-    if (!p || !p->read(addr, buf.data(), count)) { lua_pushnil(L); return 1; }
+    if (!p || !readExact(p, addr, buf.data(), count)) { lua_pushnil(L); return 1; }
     if (asTable) {
         lua_newtable(L);
         for (int i = 0; i < count; ++i) {
@@ -1873,6 +1979,14 @@ struct LuaScanData {
     std::unique_ptr<ScanResult> result;
 };
 
+struct LuaScanRef { LuaScanData* data; };
+
+static LuaScanData* checkScan(lua_State* L, int index) {
+    auto* ref = static_cast<LuaScanRef*>(luaL_checkudata(L, index, "MemScan"));
+    if (!ref->data) luaL_error(L, "scan is destroyed");
+    return ref->data;
+}
+
 static ValueType mapLuaValueType(int raw) {
     switch (raw) {
         case 0: return ValueType::Byte;
@@ -1992,8 +2106,8 @@ static ScanConfig luaScanConfig(lua_State* L, int scanTypeIndex, int valueTypeIn
 }
 
 static int l_createMemScan(lua_State* L) {
-    auto* sd = (LuaScanData*)lua_newuserdata(L, sizeof(LuaScanData));
-    new (sd) LuaScanData();
+    auto* ref = static_cast<LuaScanRef*>(lua_newuserdata(L, sizeof(LuaScanRef)));
+    ref->data = nullptr;
     luaL_getmetatable(L, "MemScan");
     if (lua_isnil(L, -1)) {
         lua_pop(L, 1);
@@ -2001,14 +2115,15 @@ static int l_createMemScan(lua_State* L) {
         lua_pushvalue(L, -1); lua_setfield(L, -2, "__index");
 
         lua_pushcfunction(L, [](lua_State* L) -> int {
-            auto* sd = (LuaScanData*)luaL_checkudata(L, 1, "MemScan");
-            sd->~LuaScanData();
+            auto* ref = static_cast<LuaScanRef*>(luaL_checkudata(L, 1, "MemScan"));
+            delete ref->data;
+            ref->data = nullptr;
             return 0;
         });
         lua_setfield(L, -2, "__gc");
 
         lua_pushcfunction(L, [](lua_State* L) -> int {
-            auto* sd = (LuaScanData*)luaL_checkudata(L, 1, "MemScan");
+            auto* sd = checkScan(L, 1);
             auto* p = getProc(L);
             if (!p) { lua_pushboolean(L, 0); return 1; }
             try {
@@ -2028,7 +2143,7 @@ static int l_createMemScan(lua_State* L) {
         lua_setfield(L, -2, "firstScan");
 
         lua_pushcfunction(L, [](lua_State* L) -> int {
-            auto* sd = (LuaScanData*)luaL_checkudata(L, 1, "MemScan");
+            auto* sd = checkScan(L, 1);
             auto* p = getProc(L);
             if (!p || !sd->result) { lua_pushboolean(L, 0); return 1; }
             try {
@@ -2048,22 +2163,23 @@ static int l_createMemScan(lua_State* L) {
         lua_setfield(L, -2, "nextScan");
 
         lua_pushcfunction(L, [](lua_State* L) -> int {
-            auto* sd = (LuaScanData*)luaL_checkudata(L, 1, "MemScan");
+            auto* sd = checkScan(L, 1);
             lua_pushinteger(L, sd->result ? sd->result->count() : 0);
             return 1;
         });
         lua_setfield(L, -2, "getFoundCount");
 
         lua_pushcfunction(L, [](lua_State* L) -> int {
-            auto* sd = (LuaScanData*)luaL_checkudata(L, 1, "MemScan");
-            int idx = (int)luaL_checkinteger(L, 2);
-            if (!sd->result || idx < 0 || idx >= (int)sd->result->count()) { lua_pushnil(L); return 1; }
+            auto* sd = checkScan(L, 1);
+            lua_Integer idx = luaL_checkinteger(L, 2);
+            if (!sd->result || idx < 0 || static_cast<uint64_t>(idx) >= sd->result->count()) { lua_pushnil(L); return 1; }
             lua_pushinteger(L, (lua_Integer)sd->result->address(idx));
             return 1;
         });
         lua_setfield(L, -2, "getAddress");
     }
     lua_setmetatable(L, -2);
+    ref->data = new LuaScanData();
     return 1;
 }
 
@@ -2876,8 +2992,13 @@ static int l_removeSimpleHook(lua_State* L) {
     int id = -1;
     if (lua_istable(L, 1)) { lua_getfield(L, 1, "id"); id = (int)lua_tointeger(L, -1); lua_pop(L, 1); }
     else if (lua_isnumber(L, 1)) id = (int)lua_tointeger(L, 1);
-    if (const auto* h = eng->hook(id)) { ce::removeSimpleHook(*p, *h); eng->eraseHook(id); }
-    return 0;
+    bool removed = false;
+    if (const auto* h = eng->hook(id)) {
+        removed = ce::removeSimpleHook(*p, *h);
+        if (removed) eng->eraseHook(id);
+    }
+    lua_pushboolean(L, removed);
+    return 1;
 }
 
 // findMonoFunction(namespace, class, method [, params]) -> address (or nil).
@@ -4375,7 +4496,7 @@ static int l_AOBScanUnique(lua_State* L) {
     return 1;
 }
 
-// AOBScanModuleUnique(modulename, aobstring) -> first match within the module, or nil.
+// AOBScanModuleUnique(modulename, aobstring) -> the sole match within the module, or nil.
 static int l_AOBScanModuleUnique(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); return 1; }
@@ -4393,7 +4514,7 @@ static int l_AOBScanModuleUnique(lua_State* L) {
         cfg.stopAddress = mod->base + mod->size;
         MemoryScanner scanner;
         auto result = scanner.firstScan(*p, cfg);
-        if (result.count() == 0) { lua_pushnil(L); return 1; }
+        if (result.hasWriteError() || result.count() != 1) { lua_pushnil(L); return 1; }
         lua_pushinteger(L, (lua_Integer)result.address(0));
     } catch (const std::exception& ex) {
         return luaL_error(L, "%s", ex.what());
@@ -4420,17 +4541,24 @@ struct LuaHotkey {
     std::vector<int> keys;
 };
 
+struct LuaHotkeyRef { LuaHotkey* data; };
+
 static LuaHotkey* checkHotkey(lua_State* L, int index) {
-    return static_cast<LuaHotkey*>(luaL_checkudata(L, index, "CEHotkey"));
+    auto* ref = static_cast<LuaHotkeyRef*>(luaL_checkudata(L, index, "CEHotkey"));
+    if (!ref->data) luaL_error(L, "hotkey is destroyed");
+    return ref->data;
 }
 
 static int l_hotkey_gc(lua_State* L) {
-    auto* hotkey = checkHotkey(L, 1);
+    auto* ref = static_cast<LuaHotkeyRef*>(luaL_checkudata(L, 1, "CEHotkey"));
+    auto* hotkey = ref->data;
+    if (!hotkey) return 0;
     if (hotkey->callbackRef != LUA_NOREF) {
         luaL_unref(L, LUA_REGISTRYINDEX, hotkey->callbackRef);
         hotkey->callbackRef = LUA_NOREF;
     }
-    hotkey->~LuaHotkey();
+    delete hotkey;
+    ref->data = nullptr;
     return 0;
 }
 
@@ -4523,8 +4651,11 @@ static int l_createHotkey(lua_State* L) {
     luaL_checktype(L, 1, LUA_TFUNCTION);
     ensureHotkeyMetatable(L);
 
-    auto* hotkey = static_cast<LuaHotkey*>(lua_newuserdata(L, sizeof(LuaHotkey)));
-    new (hotkey) LuaHotkey();
+    auto* ref = static_cast<LuaHotkeyRef*>(lua_newuserdata(L, sizeof(LuaHotkeyRef)));
+    ref->data = nullptr;
+    luaL_setmetatable(L, "CEHotkey");
+    auto* hotkey = new LuaHotkey();
+    ref->data = hotkey;
     lua_pushvalue(L, 1);
     hotkey->callbackRef = luaL_ref(L, LUA_REGISTRYINDEX);
 
@@ -4556,38 +4687,53 @@ struct LuaThread {
     bool finished = false;
     bool terminated = false;
     bool suspended = false;
+    bool running = false;
     std::string name;
     std::string lastError;
 };
 
+struct LuaThreadRef { std::shared_ptr<LuaThread>* data; };
+
 static LuaThread* checkThread(lua_State* L, int index) {
-    return static_cast<LuaThread*>(luaL_checkudata(L, index, "CEThread"));
+    auto* ref = static_cast<LuaThreadRef*>(luaL_checkudata(L, index, "CEThread"));
+    if (!ref->data) luaL_error(L, "thread is destroyed");
+    return ref->data->get();
 }
 
 static bool runThreadCallback(lua_State* L, LuaThread* thread) {
+    if (thread->running) {
+        thread->lastError = "thread callback is already running";
+        return false;
+    }
     if (thread->terminated || thread->finished || thread->callbackRef == LUA_NOREF)
         return true;
 
     thread->suspended = false;
+    thread->running = true;
     lua_rawgeti(L, LUA_REGISTRYINDEX, thread->callbackRef);
     if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+        thread->running = false;
         const char* err = lua_tostring(L, -1);
         thread->lastError = err ? err : "thread callback failed";
         lua_pop(L, 1);
         thread->finished = true;
         return false;
     }
+    thread->running = false;
     thread->finished = true;
     return true;
 }
 
 static int l_thread_gc(lua_State* L) {
-    auto* thread = checkThread(L, 1);
+    auto* ref = static_cast<LuaThreadRef*>(luaL_checkudata(L, 1, "CEThread"));
+    if (!ref->data) return 0;
+    auto* thread = ref->data->get();
     if (thread->callbackRef != LUA_NOREF) {
         luaL_unref(L, LUA_REGISTRYINDEX, thread->callbackRef);
         thread->callbackRef = LUA_NOREF;
     }
-    thread->~LuaThread();
+    delete ref->data;
+    ref->data = nullptr;
     return 0;
 }
 
@@ -4615,6 +4761,10 @@ static int l_thread_suspend(lua_State* L) {
 
 static int l_thread_resume(lua_State* L) {
     auto* thread = checkThread(L, 1);
+    // A callback may explicitly collect its userdata. Keep its state alive
+    // until the callback and this method have both finished using it.
+    auto* ref = static_cast<LuaThreadRef*>(luaL_checkudata(L, 1, "CEThread"));
+    auto held = *ref->data;
     bool ok = runThreadCallback(L, thread);
     lua_pushboolean(L, ok);
     if (!ok) {
@@ -4692,8 +4842,12 @@ static int l_createThread(lua_State* L) {
     ensureThreadMetatable(L);
 
     bool suspended = lua_toboolean(L, 2) != 0;
-    auto* thread = static_cast<LuaThread*>(lua_newuserdata(L, sizeof(LuaThread)));
-    new (thread) LuaThread();
+    auto* ref = static_cast<LuaThreadRef*>(lua_newuserdata(L, sizeof(LuaThreadRef)));
+    ref->data = nullptr;
+    luaL_setmetatable(L, "CEThread");
+    auto held = std::make_shared<LuaThread>();
+    ref->data = new std::shared_ptr<LuaThread>(held);
+    auto* thread = held.get();
     thread->suspended = suspended;
     lua_pushvalue(L, 1);
     thread->callbackRef = luaL_ref(L, LUA_REGISTRYINDEX);
@@ -4998,16 +5152,7 @@ static int l_getRegionInfo(lua_State* L) {
 // a light-userdata upvalue (function-pointer <-> void* is POSIX-guaranteed, and
 // cecore is Linux-only). luaL_error longjmps out; the trampoline holds no
 // non-trivial locals across that jump, so it is the standard Lua/C++ pattern.
-static int ce_lua_firewall(lua_State* L) {
-    auto fn = reinterpret_cast<lua_CFunction>(lua_touserdata(L, lua_upvalueindex(1)));
-    try {
-        return fn(L);
-    } catch (const std::exception& e) {
-        return luaL_error(L, "%s", e.what());
-    } catch (...) {
-        return luaL_error(L, "unhandled C++ exception in a cecore native binding");
-    }
-}
+static int ce_lua_firewall(lua_State* L) { return ce::safeLuaCall(L); }
 // ── CE Lua string extensions ────────────────────────────────────────────────
 // printf(...) is print(string.format(...)); startsWith/endsWith/split are added to
 // the `string` table so trainer scripts can call them as methods on a string
@@ -5083,6 +5228,8 @@ static inline void ce_register_guarded(lua_State* L, const char* name, lua_CFunc
 #define lua_register(L, n, f) ce_register_guarded((L), (n), (f))
 
 void registerExtendedBindings(lua_State* L) {
+    lua_register(L, "readValue", l_readValue);
+    lua_register(L, "writeValue", l_writeValue);
     // Memory read
     lua_register(L, "readByte", l_readByte);
     lua_register(L, "readSmallInteger", l_readSmallInteger);

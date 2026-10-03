@@ -25,6 +25,9 @@
 #include <QClipboard>
 #include <QCheckBox>
 #include <QGroupBox>
+#include <QScrollArea>
+#include <QSignalBlocker>
+#include <algorithm>
 #include <QPushButton>
 
 namespace ce::gui {
@@ -64,17 +67,29 @@ FormDesigner::FormDesigner(QWidget* parent) : QMainWindow(parent) {
     auto* centerSplit = new QSplitter(Qt::Vertical);
 
     canvas_ = new QWidget;
-    {
+    canvas_->setObjectName("formDesignerCanvas");
+    auto updateCanvasTheme = [this]() {
         const ce::gui::EditorPalette pal = ce::gui::editorPalette();
-        canvas_->setStyleSheet(QString("background-color: %1; border: 1px dashed %2;")
+        canvas_->setStyleSheet(QString("QWidget#formDesignerCanvas { background-color: %1; border: 1px dashed %2; }")
             .arg(pal.canvas.name(), pal.canvasBorder.name()));
-    }
+    };
+    updateCanvasTheme();
+    connect(qApp, &QApplication::paletteChanged, this, [this, updateCanvasTheme]() {
+        updateCanvasTheme();
+        redrawCanvas();
+    });
     canvas_->setFixedSize(formWidth_, formHeight_);
     auto* canvasWrap = new QWidget;
     auto* canvasLayout = new QVBoxLayout(canvasWrap);
-    canvasLayout->addWidget(new QLabel("<b>Canvas</b>: click a widget on the canvas or in the Items list to select it"));
-    canvasLayout->addWidget(canvas_);
-    canvasLayout->addStretch();
+    auto* canvasHint = new QLabel("<b>Canvas</b>: click a widget on the canvas or in the Items list to select it");
+    canvasHint->setWordWrap(true);
+    canvasLayout->addWidget(canvasHint);
+    auto* canvasScroll = new QScrollArea;
+    canvasScroll->setFrameShape(QFrame::NoFrame);
+    canvasScroll->setWidget(canvas_);
+    canvasScroll->setWidgetResizable(false);
+    canvasScroll->setMinimumSize(200, 160);
+    canvasLayout->addWidget(canvasScroll, 1);
     centerSplit->addWidget(canvasWrap);
 
     auto* luaWrap = new QWidget;
@@ -100,13 +115,13 @@ FormDesigner::FormDesigner(QWidget* parent) : QMainWindow(parent) {
     propsCol->addWidget(new QLabel("<b>Form</b>"));
     {
         auto* form = new QFormLayout;
-        auto* fw = new QSpinBox; fw->setRange(50, 4000); fw->setValue(formWidth_);
-        auto* fh = new QSpinBox; fh->setRange(50, 4000); fh->setValue(formHeight_);
+        auto* fw = new QSpinBox; fw->setObjectName("formWidth"); fw->setRange(1, QWIDGETSIZE_MAX); fw->setValue(formWidth_);
+        auto* fh = new QSpinBox; fh->setObjectName("formHeight"); fh->setRange(1, QWIDGETSIZE_MAX); fh->setValue(formHeight_);
         connect(fw, qOverload<int>(&QSpinBox::valueChanged), this, [this, fw](int v) {
-            formWidth_ = v; canvas_->setFixedSize(formWidth_, formHeight_); redrawCanvas();
+            formWidth_ = v; canvas_->setFixedSize(formWidth_, formHeight_); redrawCanvas(); onGenerateLua();
         });
         connect(fh, qOverload<int>(&QSpinBox::valueChanged), this, [this, fh](int v) {
-            formHeight_ = v; canvas_->setFixedSize(formWidth_, formHeight_); redrawCanvas();
+            formHeight_ = v; canvas_->setFixedSize(formWidth_, formHeight_); redrawCanvas(); onGenerateLua();
         });
         form->addRow("Width:", fw);
         form->addRow("Height:", fh);
@@ -163,6 +178,11 @@ FormDesigner::FormDesigner(QWidget* parent) : QMainWindow(parent) {
     auto* delShortcut = new QShortcut(QKeySequence(Qt::Key_Delete), this);
     delShortcut->setContext(Qt::WindowShortcut);
     connect(delShortcut, &QShortcut::activated, this, &FormDesigner::onDelete);
+    connect(qApp, &QApplication::focusChanged, delShortcut, [delShortcut](QWidget*, QWidget* focused) {
+        bool editing = qobject_cast<QLineEdit*>(focused) || qobject_cast<QSpinBox*>(focused);
+        if (auto* text = qobject_cast<QPlainTextEdit*>(focused)) editing = !text->isReadOnly();
+        delShortcut->setEnabled(!editing);
+    });
 
     redrawCanvas();
     onGenerateLua();
@@ -205,8 +225,10 @@ void FormDesigner::redrawCanvas() {
         }
         if (!w) continue;
         w->setGeometry(it.x, it.y, it.w, it.h);
-        if ((int)i == selected_)
-            w->setStyleSheet(w->styleSheet() + " border: 2px solid #f9e2af;");
+        if ((int)i == selected_) {
+            w->setObjectName("formDesignerSelection");
+            w->setStyleSheet(QString("#formDesignerSelection { border: 2px solid %1; }").arg(editorPalette().directive.name()));
+        }
         // Stash the item index on the widget and install our event filter
         // so a click on it selects + a drag moves it.
         w->setProperty("ce_form_item_index", (int)i);
@@ -396,8 +418,13 @@ void FormDesigner::onLoad() {
         return;
     }
     auto root = doc.object();
-    formWidth_  = root.value("formWidth").toInt(400);
-    formHeight_ = root.value("formHeight").toInt(300);
+    formWidth_  = std::clamp(root.value("formWidth").toInt(400), 1, QWIDGETSIZE_MAX);
+    formHeight_ = std::clamp(root.value("formHeight").toInt(300), 1, QWIDGETSIZE_MAX);
+    for (const auto& field : {QString("formWidth"), QString("formHeight")}) {
+        auto* spin = findChild<QSpinBox*>(field);
+        QSignalBlocker blocked(spin);
+        spin->setValue(field == "formWidth" ? formWidth_ : formHeight_);
+    }
     canvas_->setFixedSize(formWidth_, formHeight_);
     items_.clear();
     itemList_->clear();

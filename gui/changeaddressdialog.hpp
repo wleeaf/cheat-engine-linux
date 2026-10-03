@@ -65,6 +65,7 @@ private:
     QCheckBox* unicodeCheck_;
     QCheckBox* pointerCheck_;
     QLineEdit* lengthEdit_;
+    QLabel* lengthLabel_;
 
     // Pointer editor (hidden unless "Pointer" is ticked): a base + an offset chain.
     QWidget* pointerBox_ = nullptr;

@@ -4,6 +4,8 @@
 #include <QListWidget>
 #include <QLineEdit>
 #include <QTabWidget>
+#include <QPushButton>
+#include <QLabel>
 
 namespace ce::gui {
 
@@ -24,6 +26,8 @@ private:
     QTabWidget* tabs_;
     QListWidget* processList_;
     QLineEdit* filterEdit_;
+    QPushButton* openBtn_;
+    QLabel* statusLabel_;
     pid_t selectedPid_ = 0;
     QString selectedName_;
 };

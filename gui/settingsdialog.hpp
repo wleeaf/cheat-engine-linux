@@ -10,6 +10,8 @@
 #include <QLineEdit>
 #include <QFontComboBox>
 #include <QTableWidget>
+#include <QMap>
+#include <QVariant>
 
 namespace ce::gui {
 
@@ -17,9 +19,12 @@ class SettingsDialog : public QDialog {
     Q_OBJECT
 public:
     explicit SettingsDialog(QWidget* parent = nullptr);
+signals:
+    void settingsApplied();
 private slots:
     void onApply();
 private:
+    QMap<QString, QVariant> pendingSettings_;
     QWidget* buildScanTab();
     QWidget* buildDisplayTab();
     QWidget* buildDebuggerTab();

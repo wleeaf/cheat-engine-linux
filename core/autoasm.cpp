@@ -27,7 +27,7 @@ static std::string trim(const std::string& s) {
 }
 
 static std::string toUpper(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), ::toupper);
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
     return s;
 }
 
@@ -1004,47 +1004,37 @@ uintptr_t AutoAssembler::resolveAddress(const std::string& expr,
     const std::vector<Alloc>& allocs, const std::vector<Label>& labels,
     const std::vector<Define>& defines) const
 {
-    auto name = trim(expr);
-
-    // Check allocs
-    for (auto& a : allocs)
-        if (a.name == name) return a.address;
-
-    // Check labels
-    for (auto& l : labels)
-        if (l.name == name) return l.address;
-
-    // Check defines
-    for (auto& d : defines)
-        if (d.name == name) {
-            uint64_t parsed = 0;
-            if (parseWholeUnsigned(d.value, 16, parsed))
-                return static_cast<uintptr_t>(parsed);
+    std::function<uintptr_t(const std::string&, size_t)> resolve;
+    resolve = [&](const std::string& expression, size_t depth) -> uintptr_t {
+        if (depth > 32) return 0;
+        auto name = trim(expression);
+        if (name.empty()) return 0;
+        for (const auto& a : allocs) if (a.name == name) return a.address;
+        for (const auto& l : labels) if (l.name == name) return l.address;
+        for (const auto& d : defines) if (d.name == name) return resolve(d.value, depth + 1);
+        auto it = globalSymbols_.find(stripOptionalQuotes(name));
+        if (it != globalSymbols_.end()) return it->second;
+        // Quoted module names can contain '+' and '-'; split arithmetic only
+        // outside quotes, from the right, to preserve left-to-right evaluation.
+        char quote = 0;
+        size_t op = std::string::npos;
+        for (size_t i = 0; i < name.size(); ++i) {
+            char c = name[i];
+            if (quote) { if (c == quote) quote = 0; }
+            else if (c == '\"' || c == '\'') quote = c;
+            else if (i && (c == '+' || c == '-')) op = i;
         }
-
-    // Check global symbols
-    auto it = globalSymbols_.find(name);
-    if (it != globalSymbols_.end()) return it->second;
-
-    // Try module+offset format (module.exe+1234)
-    auto plus = name.find('+');
-    if (plus != std::string::npos) {
-        auto base = name.substr(0, plus);
-        auto offset = name.substr(plus + 1);
-        auto baseAddr = resolveAddress(base, allocs, labels, defines);
-        if (baseAddr) {
-            uint64_t parsedOffset = 0;
-            if (parseWholeUnsigned(offset, 16, parsedOffset))
-                return baseAddr + static_cast<uintptr_t>(parsedOffset);
+        if (op != std::string::npos) {
+            auto base = resolve(name.substr(0, op), depth + 1);
+            uint64_t offset = 0;
+            if (!base || !parseWholeUnsigned(trim(name.substr(op + 1)), 16, offset) || offset > UINTPTR_MAX) return 0;
+            if (name[op] == '+') return offset <= UINTPTR_MAX - base ? base + offset : 0;
+            return offset <= base ? base - offset : 0;
         }
-    }
-
-    // Try as hex address
-    uint64_t parsed = 0;
-    if (parseWholeUnsigned(name, 16, parsed))
-        return static_cast<uintptr_t>(parsed);
-
-    return 0;
+        uint64_t parsed = 0;
+        return parseWholeUnsigned(name, 16, parsed) && parsed <= UINTPTR_MAX ? static_cast<uintptr_t>(parsed) : 0;
+    };
+    return resolve(expr, 0);
 }
 
 std::string AutoAssembler::substituteSymbols(const std::string& line,
@@ -1087,7 +1077,10 @@ std::string AutoAssembler::substituteSymbols(const std::string& line,
                 }
             }
         };
-        for (auto& d : sortedDefines) replaceWholeToken(d.name, d.value);
+        for (const auto& d : sortedDefines) {
+            auto address = resolveAddress(d.name, allocs, labels, defines);
+            replaceWholeToken(d.name, address ? formatHexLiteral(address) : d.value);
+        }
         for (auto& a : sortedAllocs) {
             if (a.address == 0) continue;
             char addr[32]; snprintf(addr, sizeof(addr), "0x%lx", a.address);
@@ -1523,8 +1516,6 @@ void AutoAssembler::clearPostprocessorHooks() {
 bool AutoAssembler::preprocessScript(std::string& code,
                                      std::vector<std::string>& log,
                                      std::string& error) {
-    if (!expandLuaBlocks(code, log, error))
-        return false;
     if (!expandConditionalBlocks(code, log, error))
         return false;
     if (!resolveAnonymousLabels(code, log, error))
@@ -2465,112 +2456,113 @@ bool AutoAssembler::expandLuaBlocks(std::string& code, std::vector<std::string>&
 
 // ── {$if} / {$else} / {$endif} preprocessor conditionals ──
 //
-// `{$if expression}` ... `{$else}` ... `{$endif}` — the expression is run
-// through the Lua evaluator and one of the two branches survives based on
-// the truthiness of its return value. Nested ifs aren't supported (CE
-// itself doesn't either in this form); the outer level is the only one
-// processed.
+// `{$if expression}` selects one branch using Lua truthiness before converting
+// the result to text. Blocks are processed in
+// source order, so discarded branches never execute embedded Lua or C code.
 bool AutoAssembler::expandConditionalBlocks(std::string& code,
                                             std::vector<std::string>& log,
                                             std::string& error) {
-    auto findCi = [&](const std::string& needle, size_t from) {
-        if (needle.empty()) return std::string::npos;
-        for (size_t i = from; i + needle.size() <= code.size(); ++i) {
-            bool match = true;
-            for (size_t j = 0; j < needle.size(); ++j) {
-                char a = code[i + j];
-                char b = needle[j];
-                char la = (a >= 'A' && a <= 'Z') ? (char)(a + 32) : a;
-                char lb = (b >= 'A' && b <= 'Z') ? (char)(b + 32) : b;
-                if (la != lb) { match = false; break; }
-            }
-            if (match) return i;
+    struct Branch { bool parent; bool taken; bool seenElse = false; };
+    std::vector<Branch> stack;
+    bool active = true;
+    std::string output;
+    size_t position = 0;
+    auto findCi = [&](const std::string& token, size_t start) {
+        for (size_t i = start; i + token.size() <= code.size(); ++i) {
+            if (toUpper(code.substr(i, token.size())) == token) return i;
         }
         return std::string::npos;
     };
-
-    while (true) {
-        size_t openPos = findCi("{$if", 0);
-        if (openPos == std::string::npos) break;
-
-        size_t exprStart = openPos + 4;  // past "{$if"
-        // Require a full `{$if` token: the next char must be whitespace or the
-        // closing brace, so a `{$ifdef}`-style token is not mistaken for it.
-        if (exprStart < code.size()) {
-            char nextCh = code[exprStart];
-            if (nextCh != ' ' && nextCh != '\t' && nextCh != '}') {
-                error = "Unrecognized preprocessor token starting at '{$if'";
-                return false;
+    while (position < code.size()) {
+        auto open = code.find("{$", position);
+        if (open == std::string::npos) {
+            if (active) output.append(code, position, std::string::npos);
+            break;
+        }
+        if (active) output.append(code, position, open - position);
+        // Skip Lua strings and comments when locating the directive's final brace.
+        auto longStringEnd = [&](size_t start) -> std::optional<size_t> {
+            if (start >= code.size() || code[start] != '[') return std::nullopt;
+            size_t end = start + 1;
+            while (end < code.size() && code[end] == '=') ++end;
+            if (end >= code.size() || code[end] != '[') return std::nullopt;
+            auto marker = "]" + std::string(end - start - 1, '=') + "]";
+            auto finish = code.find(marker, end + 1);
+            return finish == std::string::npos ? code.size() : finish + marker.size() - 1;
+        };
+        size_t close = open + 2;
+        unsigned braces = 0;
+        char quote = 0;
+        for (; close < code.size(); ++close) {
+            char c = code[close];
+            if (quote) {
+                if (c == '\\') { ++close; continue; }
+                if (c == quote) quote = 0;
+                continue;
+            }
+            if (c == '\'' || c == '"') { quote = c; continue; }
+            if (c == '-' && close + 1 < code.size() && code[close + 1] == '-') {
+                if (auto end = longStringEnd(close + 2)) close = *end;
+                else close = code.find('\n', close + 2);
+                if (close >= code.size()) break;
+                continue;
+            }
+            if (auto end = longStringEnd(close)) { close = *end; if (close >= code.size()) break; continue; }
+            if (c == '{') ++braces;
+            else if (c == '}') {
+                if (!braces) break;
+                --braces;
             }
         }
-        size_t openEnd = code.find('}', exprStart);
-        if (openEnd == std::string::npos) {
-            error = "{$if has no closing brace";
-            return false;
+        if (close >= code.size()) { error = "Preprocessor token has no closing brace"; return false; }
+        auto directive = trim(code.substr(open + 2, close - open - 2));
+        auto upper = toUpper(directive);
+        if (upper == "LUA" || upper == "CCODE") {
+            auto terminator = upper == "LUA" ? "{$ASM}" : "{$ENDCCODE}";
+            size_t end = findCi(terminator, close + 1);
+            size_t endLength = std::strlen(terminator);
+            if (upper == "LUA") {
+                auto alternate = findCi("{$ENDLUA}", close + 1);
+                if (alternate < end) { end = alternate; endLength = 9; }
+            }
+            if (end == std::string::npos) { error = "{$" + directive + "} block has no matching terminator"; return false; }
+            if (active) {
+                auto expanded = std::string(upper == "LUA" ? "{$lua}" : "{$ccode}") +
+                    code.substr(close + 1, end - close - 1) + (upper == "LUA" ? "{$asm}" : "{$endccode}");
+                if (!expandLuaBlocks(expanded, log, error)) return false;
+                // Reprocess generated text so generated conditionals work too.
+                code.replace(open, end + endLength - open, expanded);
+                position = open;
+            } else position = end + endLength;
+            continue;
         }
-        std::string conditionRaw = code.substr(exprStart, openEnd - exprStart);
-        // Strip leading whitespace.
-        size_t nonWs = conditionRaw.find_first_not_of(" \t");
-        if (nonWs != std::string::npos) conditionRaw = conditionRaw.substr(nonWs);
-        if (conditionRaw.empty()) {
-            error = "{$if has no expression";
-            return false;
-        }
-
-        size_t elsePos  = findCi("{$else}",  openEnd);
-        size_t endifPos = findCi("{$endif}", openEnd);
-        if (endifPos == std::string::npos) {
-            error = "{$if has no matching {$endif}";
-            return false;
-        }
-        // Nested ifs are unsupported. Detect a second `{$if` before this
-        // block's `{$endif}` and report it explicitly rather than silently
-        // mis-pairing the outer open with the inner endif.
-        size_t innerIf = findCi("{$if", openEnd);
-        if (innerIf != std::string::npos && innerIf < endifPos) {
-            error = "nested {$if} not supported";
-            return false;
-        }
-        if (elsePos != std::string::npos && elsePos > endifPos) elsePos = std::string::npos;
-
-        if (!luaEvaluator_) {
-            error = "{$if requires a Lua evaluator on this AutoAssembler";
-            return false;
-        }
-        std::string luaChunk = "return (" + conditionRaw + ")";
-        auto evalResult = luaEvaluator_(luaChunk);
-        if (!evalResult) {
-            error = "{$if condition error: " + evalResult.error();
-            return false;
-        }
-        // Lua truthiness rules: only `false` and `nil` are false. evalToString
-        // returns the chunk's first return value coerced to string; "false"
-        // or empty (nil) → false branch.
-        const std::string& s = *evalResult;
-        bool truthy = !(s.empty() || s == "false" || s == "nil");
-
-        size_t ifBranchStart = openEnd + 1;
-        size_t ifBranchEnd, elseBranchStart, elseBranchEnd;
-        if (elsePos != std::string::npos) {
-            ifBranchEnd      = elsePos;
-            elseBranchStart  = elsePos + std::string("{$else}").size();
-            elseBranchEnd    = endifPos;
-        } else {
-            ifBranchEnd      = endifPos;
-            elseBranchStart  = endifPos;  // empty else
-            elseBranchEnd    = endifPos;
-        }
-
-        std::string kept = truthy
-            ? code.substr(ifBranchStart, ifBranchEnd - ifBranchStart)
-            : code.substr(elseBranchStart, elseBranchEnd - elseBranchStart);
-
-        size_t blockEnd = endifPos + std::string("{$endif}").size();
-        code.replace(openPos, blockEnd - openPos, kept);
-
-        log.push_back(std::string("{$if}: ") + (truthy ? "true" : "false") +
-                      " branch kept (" + std::to_string(kept.size()) + " bytes)");
+        if (upper == "IF" || (upper.starts_with("IF") && upper.size() > 2 && std::isspace(static_cast<unsigned char>(upper[2])))) {
+            auto expression = trim(directive.substr(2));
+            if (expression.empty()) { error = "{$if has no expression"; return false; }
+            bool taken = false;
+            if (active) {
+                if (!luaEvaluator_) { error = "{$if requires a Lua evaluator on this AutoAssembler"; return false; }
+                auto result = luaEvaluator_("return (" + expression + ") and 'true' or 'false'");
+                if (!result) { error = "{$if condition error: " + result.error(); return false; }
+                taken = *result == "true";
+                log.push_back(std::string("{$if}: ") + (taken ? "true" : "false") + " branch kept");
+            }
+            stack.push_back({active, taken});
+            active = active && taken;
+        } else if (upper == "ELSE") {
+            if (stack.empty() || stack.back().seenElse) { error = "Unexpected or duplicate {$else}"; return false; }
+            auto& branch = stack.back(); branch.seenElse = true;
+            active = branch.parent && !branch.taken;
+        } else if (upper == "ENDIF") {
+            if (stack.empty()) { error = "Unexpected {$endif}"; return false; }
+            active = stack.back().parent; stack.pop_back();
+        } else if (upper.starts_with("IF")) {
+            error = "Unrecognized preprocessor token starting at '{$if'"; return false;
+        } else if (active) output.append(code, open, close + 1 - open);
+        position = close + 1;
     }
+    if (!stack.empty()) { error = "{$if has no matching {$endif}"; return false; }
+    code = std::move(output);
     return true;
 }
 

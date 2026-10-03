@@ -52,12 +52,12 @@ struct MvColors {
 static MvColors mvColors() {
     if (ce::gui::isDarkTheme())
         return { QColor(0x1e,0x1e,0x2e), QColor(0x89,0xb4,0xfa), QColor(0xcd,0xd6,0xf4),
-                 QColor(0x58,0x5b,0x70), QColor(0x45,0x47,0x5a), QColor(0xa6,0xad,0xc8),
+                 QColor(0xa6,0xad,0xc8), QColor(0x45,0x47,0x5a), QColor(0xa6,0xad,0xc8),
                  QColor(0xf9,0xe2,0xaf), QColor(0xfa,0xb3,0x87), QColor(0x89,0xb4,0xfa),
                  QColor(0xcd,0xd6,0xf4), QColor(0x2d,0x40,0x3a), QColor(0xa6,0xe3,0xa1),
                  QColor(0x94,0xe2,0xd5), QColor(0x40,0x62,0x3a) };
     return   { QColor(0xff,0xff,0xff), QColor(0x00,0x00,0xc0), QColor(0x00,0x00,0x00),
-               QColor(0x90,0x90,0x90), QColor(0xcc,0xe8,0xff), QColor(0x50,0x50,0x50),
+               QColor(0x60,0x67,0x77), QColor(0xcc,0xe8,0xff), QColor(0x50,0x50,0x50),
                QColor(0x80,0x60,0x00), QColor(0xc0,0x40,0x00), QColor(0x00,0x00,0xc0),
                QColor(0x3a,0x42,0x52), QColor(0xd8,0xef,0xe0), QColor(0x1f,0x7a,0x33),
                QColor(0x0e,0x74,0x90), QColor(0xb6,0xe6,0xa8) };
@@ -157,7 +157,7 @@ int HexView::byteOffsetAt(QPoint p) const {
     if (row < 0) return -1;
     int addrColW = addrColumnWidth();
     int hexColW = hexColWidth();
-    int x = p.x();
+    int x = p.x() + horizontalScrollBar()->value();
     if (x < addrColW) return -1;
     // Hex column: 3 chars per byte (byte mode) or one field per N-byte group.
     int col = -1;
@@ -205,7 +205,7 @@ void HexView::mousePressEvent(QMouseEvent* e) {
         // display type, or the ASCII-column boundary is wrong in grouped modes.
         int addrColW = addrColumnWidth();
         int hexColW = hexColWidth();
-        editAscii_ = pt.x() >= addrColW + hexColW + charW_;
+        editAscii_ = pt.x() + horizontalScrollBar()->value() >= addrColW + hexColW + charW_;
         viewport()->update();
         emit cursorMoved(address_ + (uintptr_t)off);
     }
@@ -521,6 +521,16 @@ void HexView::paintEvent(QPaintEvent*) {
     // Background (theme-aware)
     const MvColors c = mvColors();
     p.fillRect(viewport()->rect(), c.bg);
+    int contentWidth = addrColumnWidth() + hexColWidth() + charW_ * (bytesPerRow_ + 1);
+    int maximum = std::max(0, contentWidth - viewport()->width());
+    if (horizontalScrollBar()->maximum() != maximum) {
+        QMetaObject::invokeMethod(this, [this, maximum]() {
+            horizontalScrollBar()->setRange(0, maximum);
+            horizontalScrollBar()->setPageStep(viewport()->width());
+            horizontalScrollBar()->setSingleStep(charW_);
+        }, Qt::QueuedConnection);
+    }
+    p.translate(-horizontalScrollBar()->value(), 0);
     p.setPen(c.addr);
     // Bytes that changed since the last refresh paint red (bright on dark, deep on
     // light), the way CE flags live-changing memory.
@@ -538,7 +548,7 @@ void HexView::paintEvent(QPaintEvent*) {
         p.setPen(c.addr);
         {
             QString as = QString("%1").arg(rowAddr, addrDigits_, 16, QChar('0'));
-            p.drawText(0, y, hexUpper_ ? as.toUpper() : as);
+            p.drawText(charW_, y, hexUpper_ ? as.toUpper() : as);
         }
 
         // Hex bytes. Byte mode keeps the classic per-byte grid (with edit cursor
@@ -550,7 +560,7 @@ void HexView::paintEvent(QPaintEvent*) {
                 uint8_t b = cache_[idx];
 
                 int x = addrColW + col * charW_ * 3;
-                if (col == 8) x += charW_; // gap in middle
+                if (col >= 8) x += charW_; // keep every byte after the gap aligned
 
                 // Selection highlight across the selected byte range (single byte
                 // when not dragging / shift-selecting).
@@ -795,6 +805,7 @@ DisasmView::DisasmView(QWidget* parent) : QAbstractScrollArea(parent) {
     hexUpper_ = QSettings().value("display/hexUpper", false).toBool();
     addrDigits_ = QSettings().value("display/addressWidth", 1).toInt() == 0 ? 8 : 16;
     reloadPreferences();
+    connect(qApp, &QApplication::paletteChanged, this, [this]() { reloadPreferences(); });
     setMinimumHeight(charH_ * 8);
     setFocusPolicy(Qt::StrongFocus);
     viewport()->setMouseTracking(true);
@@ -867,6 +878,14 @@ uintptr_t DisasmView::selectedAddress() const {
 int DisasmView::selectedSize() const {
     if (selectedRow_ < 0 || selectedRow_ >= (int)instructions_.size()) return 0;
     return (int)instructions_[selectedRow_].size;
+}
+
+std::pair<uintptr_t, size_t> DisasmView::injectionSelection() const {
+    int lo, hi;
+    if (!selRange(lo, hi) || lo < 0 || hi >= static_cast<int>(instructions_.size())) return {address_, 5};
+    const auto& first = instructions_[lo];
+    const auto& last = instructions_[hi];
+    return {first.address, last.address - first.address + last.size};
 }
 
 int DisasmView::rowAtY(int y) const {
@@ -1086,9 +1105,9 @@ void DisasmView::contextMenuEvent(QContextMenuEvent* e) {
     } else if (picked == nopAct) {
         for (const auto& in : selInsts) emit requestNop(in.address, (int)in.size);
     } else if (picked == codeInjAct) {
-        emit requestInjection(inst.address, /*aob=*/false);
+        emit requestInjection(selInsts.front().address, /*aob=*/false, selTotalBytes);
     } else if (picked == aobInjAct) {
-        emit requestInjection(inst.address, /*aob=*/true);
+        emit requestInjection(selInsts.front().address, /*aob=*/true, selTotalBytes);
     } else if (picked == saveAct) {
         emit requestSaveRegion(inst.address);
     } else if (picked == loadAct) {
@@ -1198,9 +1217,15 @@ void DisasmView::paintEvent(QPaintEvent*) {
     p.setFont(monoFont_);
     const MvColors mv = mvColors();
     p.fillRect(viewport()->rect(), mv.bg);
+    int horizontalOffset = horizontalScrollBar()->value();
+    p.translate(-horizontalOffset, 0);
+    int contentWidth = 0;
 
     // Nothing decoded: explain why rather than showing a blank pane.
     if (instructions_.empty()) {
+        p.resetTransform();
+        if (horizontalScrollBar()->maximum() != 0)
+            QMetaObject::invokeMethod(this, [this]() { horizontalScrollBar()->setRange(0, 0); }, Qt::QueuedConnection);
         p.setPen(mv.ascii);
         p.drawText(viewport()->rect().adjusted(24, 24, -24, -24),
                    Qt::AlignCenter | Qt::TextWordWrap,
@@ -1320,15 +1345,15 @@ void DisasmView::paintEvent(QPaintEvent*) {
         // selection can span several rows (Shift+Up/Down or Shift+click range).
         const bool isCurrentIp = currentIp_ != 0 && inst.address == currentIp_;
         if (isCurrentIp) {
-            p.fillRect(0, rowTop, viewport()->width(), charH_, mv.currentIp);
+            p.fillRect(horizontalOffset, rowTop, viewport()->width(), charH_, mv.currentIp);
             if (inSel(i)) {
                 p.setPen(QPen(mv.selection, 1));
-                p.drawRect(0, rowTop, viewport()->width() - 1, charH_ - 1);
+                p.drawRect(horizontalOffset, rowTop, viewport()->width() - 1, charH_ - 1);
             }
         } else if (inSel(i)) {
-            p.fillRect(0, rowTop, viewport()->width(), charH_, mv.selection);
+            p.fillRect(horizontalOffset, rowTop, viewport()->width(), charH_, mv.selection);
         } else if (i == targetRow) {
-            p.fillRect(0, rowTop, viewport()->width(), charH_, mv.targetTint);
+            p.fillRect(horizontalOffset, rowTop, viewport()->width(), charH_, mv.targetTint);
         }
 
         // Breakpoint glyph in the gutter. Breakpoint red, but brighter on the dark
@@ -1356,25 +1381,16 @@ void DisasmView::paintEvent(QPaintEvent*) {
         // Symbol label (if this address has a symbol). Try the ELF symbol
         // table first; fall back to DWARF subprogram names for binaries
         // that were stripped of .symtab but still carry .debug_info.
+        // Function names annotate the instruction; they must never replace
+        // its address, bytes and mnemonic (including the first hooked opcode).
+        QString functionLabel;
         std::string rsym = resolver_ ? resolver_->resolve(inst.address) : std::string();
-        if (!rsym.empty() && rsym.find('+') == std::string::npos) {
-            p.setPen(mv.symbol);
-            p.drawText(contentX, y, QString::fromStdString(rsym + ":"));
-            continue;
-        }
-        // DWARF function label only when the resolver is clueless (stripped
-        // module with debug info): functionName() returns the SAME name for every
-        // address in the function, so guard on rsym-empty AND a name change to
-        // emit one header per function — not one per instruction (which would
-        // replace the whole disassembly with repeated "func:" lines).
+        if (!rsym.empty() && rsym.find('+') == std::string::npos)
+            functionLabel = QString::fromStdString(rsym);
         if (dwarf_ && rsym.empty()) {
-            if (auto fn = dwarf_->functionName(inst.address); fn && !fn->empty()) {
-                if (*fn != prevDwarfFunc) {
-                    prevDwarfFunc = *fn;
-                    p.setPen(mv.symbol);
-                    p.drawText(contentX, y, QString::fromStdString(*fn + ":"));
-                    continue;
-                }
+            if (auto fn = dwarf_->functionName(inst.address); fn && !fn->empty() && *fn != prevDwarfFunc) {
+                prevDwarfFunc = *fn;
+                functionLabel = QString::fromStdString(*fn);
             }
         }
 
@@ -1476,6 +1492,13 @@ void DisasmView::paintEvent(QPaintEvent*) {
             endX += p.fontMetrics().horizontalAdvance(annotation);
         }
 
+        if (!functionLabel.isEmpty()) {
+            QString text = "  ; " + functionLabel;
+            p.setPen(mv.symbol);
+            p.drawText(endX, y, text);
+            endX += p.fontMetrics().horizontalAdvance(text);
+        }
+
         // DWARF source-line annotation, appended after symbol annotation.
         if (dwarf_) {
             if (auto src = dwarf_->lookup(inst.address); src && src->line > 0) {
@@ -1487,8 +1510,18 @@ void DisasmView::paintEvent(QPaintEvent*) {
                 endX += p.fontMetrics().horizontalAdvance(srcAnno);
             }
         }
+        contentWidth = std::max(contentWidth, endX + charW_ * 2);
+    }
+    int maximum = std::max(0, contentWidth - viewport()->width());
+    if (horizontalScrollBar()->maximum() != maximum) {
+        QMetaObject::invokeMethod(this, [this, maximum]() {
+            horizontalScrollBar()->setRange(0, maximum);
+            horizontalScrollBar()->setPageStep(viewport()->width());
+            horizontalScrollBar()->setSingleStep(charW_);
+        }, Qt::QueuedConnection);
     }
 }
+
 
 // Try to find a valid instruction boundary `count` instructions before `addr`
 uintptr_t DisasmView::scrollBack(uintptr_t addr, int count) {
@@ -1680,7 +1713,10 @@ void MemoryBrowser::buildMenuBar() {
 
     toolsMenu_ = mb->addMenu("&Tools");
     toolsMenu_->addAction("Auto Assemble...", this, [this]() {
-        if (autoAssembleOpener_) autoAssembleOpener_(QString());   // empty script editor
+        if (autoAssembleOpener_) {
+            auto [address, size] = injectionSelection();
+            autoAssembleOpener_(QString(), address, size);
+        }
     });
     toolsMenu_->addAction("Dissect data/structures...", this, [this]() {
         if (dissectOpener_) dissectOpener_(currentAddr_);          // at the current address
@@ -1731,7 +1767,8 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     toolbar->addWidget(new QLabel(" Address: "));
     addressEdit_ = new QLineEdit;
     addressEdit_->setFont(QFont("Monospace", 10));
-    addressEdit_->setFixedWidth(200);
+    addressEdit_->setMinimumWidth(220);
+    addressEdit_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     addressEdit_->setPlaceholderText("0x0000000000000000");
     connect(addressEdit_, &QLineEdit::returnPressed, this, &MemoryBrowser::onGotoAddress);
     toolbar->addWidget(addressEdit_);
@@ -2041,10 +2078,10 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     connect(disasmView_, &DisasmView::requestLoadRegion, this, [this](uintptr_t addr) {
         loadRegionFromFile(addr);
     });
-    connect(disasmView_, &DisasmView::requestInjection, this, [this](uintptr_t addr, bool aob) {
+    connect(disasmView_, &DisasmView::requestInjection, this, [this](uintptr_t addr, bool aob, size_t size) {
         if (!proc_ || !autoAssembleOpener_) return;
         std::string err;
-        std::string script = ce::generateInjectionScript(*proc_, addr, aob, err);
+        std::string script = ce::generateInjectionScript(*proc_, addr, aob, err, size);
         if (script.empty()) {
             QMessageBox::warning(this, "Auto Assemble",
                 QString::fromStdString(err.empty() ? "Could not generate a template here." : err));
@@ -2052,7 +2089,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         }
         // Hand the pre-filled script to MainWindow, which opens a script editor
         // with an AutoAssembler; the cave has a "// your code here" line to fill in.
-        autoAssembleOpener_(QString::fromStdString(script));
+        autoAssembleOpener_(QString::fromStdString(script), addr, size);
     });
     connect(disasmView_, &DisasmView::addressChanged, this, [this](uintptr_t addr) {
         // A follow (double-click / "Follow operand") already moved the disasm;
@@ -2136,6 +2173,12 @@ QString MemoryBrowser::addressBarText(uintptr_t addr) const {
         if (!mo.empty()) return QString::fromStdString(mo);
     }
     return QString("0x%1").arg(addr, 16, 16, QChar('0'));
+}
+
+std::pair<uintptr_t, size_t> MemoryBrowser::injectionSelection() const {
+    auto selection = disasmView_->injectionSelection();
+    if (!selection.first) selection.first = currentAddr_;
+    return selection;
 }
 
 void MemoryBrowser::syncViews(uintptr_t addr) {

@@ -17,6 +17,56 @@ if not layout then print("no IL2CPP here"); return end
 
 ---
 
+## Typed memory access
+
+`readValue(address, type[, options])` returns a text value, or `nil, error`.
+`writeValue(address, type, value[, options])` returns `true, bytesWritten`, or
+`false, error`. Both accept numeric addresses and GUI address expressions.
+Text preserves every bit of unsigned 64-bit integers; use decimal or hex strings
+when a value exceeds Lua's integer range.
+
+```lua
+assert(openProcess("game"))
+local slot = "[game+0x120]+0x8"
+local ok, bytes = writeValue(slot, "u64", "18446744073709551615", {
+  bigEndian = true,
+  codec = "xor:0x25"
+})
+assert(ok, bytes)
+local value, err = readValue(slot, "u64", {bigEndian=true, codec="xor:0x25"})
+assert(value, err)
+print(value)
+assert(writeValue(0x123400, "unicode", "世界 😀", {terminate=true}))
+```
+
+Types include `byte`/`i8`/`u8`, `i16`/`u16`, `i32`/`u32`, `i64`/`u64`,
+`pointer`, `float`, `double`, `string`/`utf8`, `unicode`/`utf16`, and `aob`.
+Options are `hex`, `signed`, `bigEndian`, `codec`, `encoding`, `size`, and
+`terminate`. The default string read size is 64 bytes; array reads use `size`
+as their exact byte count. The pointer width follows the target. `terminate`
+is false by default. `unicode` follows `bigEndian`; `string` uses `encoding`
+(default UTF-8). Write values may be strings or numbers. Byte arrays contain
+concrete hex bytes separated by whitespace or commas.
+
+Auto Assembler supports nested `{$if expression}`, `{$else}`, and `{$endif}`
+blocks. Conditions use Lua truthiness, including truthy zero and empty strings.
+Inactive branches do not evaluate their conditions or execute embedded
+`{$lua}`/`{$ccode}` blocks. Active Lua blocks run in source order, so later
+conditions can use variables defined by earlier blocks. The CLI runs these
+scripts through `cescan autoasm <target> <file.aa>`.
+
+The Auto Assembler's injection templates use the live disassembler selection.
+Code, AOB, Full, and Pointer injection prompt with its module offset already
+filled in. Addresses, quoted module offsets, and symbol expressions are accepted.
+Selected instruction ranges are preserved; shorter selections expand to whole
+instructions covering the five-byte hook. Generated scripts contain editable
+original instructions, a byte assertion, exact disable bytes, and a disassembly
+snapshot. Relative branches and RIP-relative operands are relocated into the cave.
+AOB templates require a verified unique signature. Pointer templates capture a
+chosen target-sized register into the registered `pPlayerBase` symbol.
+
+---
+
 ## IL2CPP (Unity) dissection
 
 Unity's IL2CPP backend compiles C# to native code and strips the managed

@@ -8,6 +8,10 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QFile>
+#include <QTextDocument>
+#include <QTextBlock>
+#include <QTextCursor>
+#include <vector>
 
 // A small chevron (up/down) drawn in `color`, cached to a PNG file whose path the
 // QSS references. (Qt's QSS url() loads via QPixmap, which can't read data: URIs,
@@ -34,6 +38,25 @@ static QString arrowFile(const QColor& color, bool up) {
     return path;
 }
 
+static QString checkFile(const QColor& color, bool partial) {
+    QString dir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/arrows";
+    QDir().mkpath(dir);
+    QString path = QString("%1/%2_%3.png").arg(dir, color.name().mid(1), partial ? "partial" : "check");
+    if (!QFile::exists(path)) {
+        QImage img(28, 28, QImage::Format_ARGB32);
+        img.fill(Qt::transparent);
+        QPainter painter(&img);
+        painter.setRenderHint(QPainter::Antialiasing);
+        QPen pen(color, 3.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+        painter.setPen(pen);
+        if (partial) painter.drawLine(7, 14, 21, 14);
+        else { painter.drawLine(6, 14, 12, 20); painter.drawLine(12, 20, 22, 8); }
+        painter.end();
+        img.save(path, "PNG");
+    }
+    return path;
+}
+
 namespace ce::gui {
 
 static const char* kDarkStyleSheet = R"(
@@ -49,17 +72,18 @@ static const char* kDarkStyleSheet = R"(
     QPushButton, QToolButton { background-color: #313244; color: #cdd6f4; border: 1px solid #45475a;
                   padding: 5px 12px; border-radius: 5px; }
     QPushButton:hover, QToolButton:hover { background-color: #3b3d52; border-color: #585b70; }
+    QPushButton:focus, QToolButton:focus { border-color: #89b4fa; }
     QPushButton:pressed, QToolButton:pressed { background-color: #585b70; }
     QPushButton:disabled, QToolButton:disabled { color: #585b70; border-color: #313244; }
-    QPushButton#primaryButton { background-color: #89b4fa; color: #1e1e2e; border: 1px solid #89b4fa; font-weight: 600; }
-    QPushButton#primaryButton:hover { background-color: #a6c8ff; border-color: #a6c8ff; }
-    QPushButton#primaryButton:pressed { background-color: #74a0e8; }
-    QPushButton#primaryButton:disabled { background-color: #45475a; border-color: #45475a; color: #6c7086; }
-    QLineEdit, QSpinBox { background-color: #313244; color: #cdd6f4; border: 1px solid #45475a;
+    QPushButton#primaryButton, QToolButton#primaryButton { background-color: #89b4fa; color: #1e1e2e; border: 1px solid #89b4fa; font-weight: 600; }
+    QPushButton#primaryButton:hover, QToolButton#primaryButton:hover { background-color: #a6c8ff; border-color: #a6c8ff; }
+    QPushButton#primaryButton:pressed, QToolButton#primaryButton:pressed { background-color: #74a0e8; }
+    QPushButton#primaryButton:disabled, QToolButton#primaryButton:disabled { background-color: #45475a; border-color: #45475a; color: #b4bacd; }
+    QLineEdit, QSpinBox, QDoubleSpinBox { background-color: #313244; color: #cdd6f4; border: 1px solid #45475a;
                           padding: 4px 6px; border-radius: 5px; selection-background-color: #585b70; }
-    QLineEdit:focus, QSpinBox:focus { border-color: #89b4fa; }
+    QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus { border-color: #89b4fa; }
     QComboBox { background-color: #313244; color: #cdd6f4; border: 1px solid #45475a;
-                padding: 4px 6px; border-radius: 5px; }
+                padding: 4px 26px 4px 6px; border-radius: 5px; }
     QComboBox:focus, QComboBox:on { border-color: #89b4fa; }
     QComboBox QAbstractItemView { background-color: #1e1e2e; color: #cdd6f4; border: 1px solid #45475a;
                 selection-background-color: #313244; }
@@ -86,6 +110,7 @@ static const char* kDarkStyleSheet = R"(
     QProgressBar { background-color: #313244; border: none; border-radius: 5px; text-align: center; color: #cdd6f4; }
     QProgressBar::chunk { background-color: #89b4fa; border-radius: 5px; }
     QToolBar { background-color: #181825; border: none; spacing: 4px; padding: 2px; }
+    QToolButton#qt_toolbar_ext_button { padding: 2px; min-width: 16px; }
     QTabWidget::pane { border: 1px solid #45475a; border-radius: 6px; }
     QTabBar::tab { background-color: #181825; color: #a6adc8; padding: 6px 14px; border: 1px solid #45475a;
         border-bottom: none; border-top-left-radius: 5px; border-top-right-radius: 5px; }
@@ -101,6 +126,10 @@ static const char* kDarkStyleSheet = R"(
     QScrollBar::handle:horizontal:hover { background: #585b70; }
     QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
     QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+    QToolButton::menu-indicator { subcontrol-position: bottom right; width: 9px; height: 6px; }
+    QToolTip { padding: 5px 8px; border: 1px solid %TOOLTIP_BORDER%; background: %TOOLTIP_BG%; color: %TOOLTIP_TEXT%; }
+    QLabel[secondary="true"] { color: %SECONDARY%; background: transparent; }
+    QWidget:disabled { color: %DISABLED%; }
     QSlider::groove:horizontal { background: #45475a; height: 4px; border-radius: 2px; }
     QSlider::handle:horizontal { background: #89b4fa; width: 14px; margin: -6px 0; border-radius: 7px; }
     QSlider::handle:horizontal:hover { background: #b4befe; }
@@ -122,17 +151,18 @@ static const char* kLightStyleSheet = R"(
     QPushButton, QToolButton { background-color: #ffffff; color: #1b1f24; border: 1px solid #cdd1d9;
                   padding: 5px 12px; border-radius: 5px; }
     QPushButton:hover, QToolButton:hover { background-color: #f0f5ff; border-color: #4a7fe0; }
+    QPushButton:focus, QToolButton:focus { border-color: #2f6fed; }
     QPushButton:pressed, QToolButton:pressed { background-color: #dfeafc; }
     QPushButton:disabled, QToolButton:disabled { color: #a8adb6; background-color: #f4f5f7; border-color: #e0e2e7; }
-    QPushButton#primaryButton { background-color: #2f6fed; color: #ffffff; border: 1px solid #2f6fed; font-weight: 600; }
-    QPushButton#primaryButton:hover { background-color: #4a7fe0; border-color: #4a7fe0; }
-    QPushButton#primaryButton:pressed { background-color: #2258c9; }
-    QPushButton#primaryButton:disabled { background-color: #c3d3f5; border-color: #c3d3f5; color: #eef2fb; }
-    QLineEdit, QSpinBox { background-color: #ffffff; color: #1b1f24; border: 1px solid #cdd1d9;
+    QPushButton#primaryButton, QToolButton#primaryButton { background-color: #2f6fed; color: #ffffff; border: 1px solid #2f6fed; font-weight: 600; }
+    QPushButton#primaryButton:hover, QToolButton#primaryButton:hover { background-color: #4a7fe0; border-color: #4a7fe0; }
+    QPushButton#primaryButton:pressed, QToolButton#primaryButton:pressed { background-color: #2258c9; }
+    QPushButton#primaryButton:disabled, QToolButton#primaryButton:disabled { background-color: #c3d3f5; border-color: #c3d3f5; color: #606777; }
+    QLineEdit, QSpinBox, QDoubleSpinBox { background-color: #ffffff; color: #1b1f24; border: 1px solid #cdd1d9;
                           padding: 4px 6px; border-radius: 5px; selection-background-color: #cfe0fb; }
-    QLineEdit:focus, QSpinBox:focus { border-color: #2f6fed; }
+    QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus { border-color: #2f6fed; }
     QComboBox { background-color: #ffffff; color: #1b1f24; border: 1px solid #cdd1d9;
-                padding: 4px 6px; border-radius: 5px; }
+                padding: 4px 26px 4px 6px; border-radius: 5px; }
     QComboBox:focus, QComboBox:on { border-color: #2f6fed; }
     QComboBox QAbstractItemView { background-color: #ffffff; color: #1b1f24; border: 1px solid #d4d7dd;
                 selection-background-color: #e4ecfb; selection-color: #1b1f24; }
@@ -158,6 +188,7 @@ static const char* kLightStyleSheet = R"(
     QProgressBar { background-color: #eceef1; border: none; border-radius: 5px; text-align: center; color: #1b1f24; }
     QProgressBar::chunk { background-color: #2f6fed; border-radius: 5px; }
     QToolBar { background-color: #f4f5f7; border: none; spacing: 4px; padding: 2px; }
+    QToolButton#qt_toolbar_ext_button { padding: 2px; min-width: 16px; }
     QTabWidget::pane { border: 1px solid #e0e2e7; border-radius: 6px; }
     QTabBar::tab { background-color: #eceef1; color: #4b5563; padding: 6px 14px; border: 1px solid #e0e2e7;
         border-bottom: none; border-top-left-radius: 5px; border-top-right-radius: 5px; }
@@ -173,12 +204,20 @@ static const char* kLightStyleSheet = R"(
     QScrollBar::handle:horizontal:hover { background: #a6abb5; }
     QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
     QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+    QToolButton::menu-indicator { subcontrol-position: bottom right; width: 9px; height: 6px; }
+    QToolTip { padding: 5px 8px; border: 1px solid %TOOLTIP_BORDER%; background: %TOOLTIP_BG%; color: %TOOLTIP_TEXT%; }
+    QLabel[secondary="true"] { color: %SECONDARY%; background: transparent; }
+    QWidget:disabled { color: %DISABLED%; }
     QSlider::groove:horizontal { background: #d4d7dd; height: 4px; border-radius: 2px; }
     QSlider::handle:horizontal { background: #2f6fed; width: 14px; margin: -6px 0; border-radius: 7px; }
     QSlider::handle:horizontal:hover { background: #4a7fe0; }
 )";
 
 bool isDarkTheme() {
+    // Custom-painted widgets follow the applied theme, even when it is previewed
+    // without writing preferences (or the desktop palette differs from it).
+    if (qApp && qApp->property("ceDarkTheme").isValid())
+        return qApp->property("ceDarkTheme").toBool();
     QSettings s;
     if (s.contains(kDarkThemeKey))
         return s.value(kDarkThemeKey).toBool();
@@ -195,17 +234,59 @@ bool isDarkTheme() {
 void applyTheme(bool dark) {
     auto* app = qApp;
     if (!app) return;
+    if (!app->property("ceSystemDarkTheme").isValid())
+        app->setProperty("ceSystemDarkTheme", app->palette().color(QPalette::Window).lightness() < 128);
     QString qss = QString::fromLatin1(dark ? kDarkStyleSheet : kLightStyleSheet);
     // Substitute the spinbox/combo arrow glyphs, drawn in a colour that reads on
     // this theme's control background.
     const QColor arrow = dark ? QColor(0xa6, 0xad, 0xc8) : QColor(0x4b, 0x55, 0x63);
     qss.replace(QStringLiteral("%DOWN_ARROW%"), arrowFile(arrow, /*up=*/false));
     qss.replace(QStringLiteral("%UP_ARROW%"),   arrowFile(arrow, /*up=*/true));
+    qss.replace("%TOOLTIP_BORDER%", dark ? "#585b70" : "#cdd1d9");
+    qss.replace("%TOOLTIP_BG%", dark ? "#313244" : "#ffffff");
+    qss.replace("%TOOLTIP_TEXT%", dark ? "#cdd6f4" : "#1b1f24");
+    qss.replace("%SECONDARY%", dark ? "#a6adc8" : "#606777");
+    qss.replace("%DISABLED%", dark ? "#9399b2" : "#737985");
+    qss += QString(R"(
+        QCheckBox::indicator, QAbstractItemView::indicator { width: 13px; height: 13px;
+            border: 1px solid %1; border-radius: 2px; background: %2; }
+        QCheckBox::indicator:checked, QAbstractItemView::indicator:checked {
+            background: %3; border-color: %3; image: url("%4"); }
+        QCheckBox::indicator:indeterminate, QAbstractItemView::indicator:indeterminate {
+            background: %3; border-color: %3; image: url("%5"); }
+        QCheckBox::indicator:disabled, QAbstractItemView::indicator:disabled { border-color: %6; }
+    )").arg(dark ? "#9399b2" : "#737985", dark ? "#181825" : "#ffffff",
+            dark ? "#89b4fa" : "#2f6fed",
+            checkFile(dark ? QColor("#1e1e2e") : QColor("#ffffff"), false),
+            checkFile(dark ? QColor("#1e1e2e") : QColor("#ffffff"), true),
+            dark ? "#585b70" : "#b5bac4");
+    app->setProperty("ceDarkTheme", dark);
+    QPalette palette;
+    const QColor text = dark ? QColor("#cdd6f4") : QColor("#1b1f24");
+    palette.setColor(QPalette::Window, dark ? QColor("#1e1e2e") : QColor("#f4f5f7"));
+    palette.setColor(QPalette::WindowText, text);
+    palette.setColor(QPalette::Text, text);
+    palette.setColor(QPalette::Base, dark ? QColor("#181825") : QColor("#ffffff"));
+    palette.setColor(QPalette::AlternateBase, dark ? QColor("#1e1e2e") : QColor("#eef1f6"));
+    palette.setColor(QPalette::Button, dark ? QColor("#313244") : QColor("#ffffff"));
+    palette.setColor(QPalette::ButtonText, text);
+    palette.setColor(QPalette::Highlight, dark ? QColor("#3a4463") : QColor("#dbe8fd"));
+    palette.setColor(QPalette::HighlightedText, text);
+    palette.setColor(QPalette::ToolTipBase, dark ? QColor("#313244") : QColor("#ffffff"));
+    palette.setColor(QPalette::ToolTipText, text);
+    palette.setColor(QPalette::PlaceholderText, dark ? QColor("#a6adc8") : QColor("#6b7280"));
+    for (auto role : {QPalette::WindowText, QPalette::Text, QPalette::ButtonText})
+        palette.setColor(QPalette::Disabled, role, dark ? QColor("#9399b2") : QColor("#737985"));
     app->setStyleSheet(qss);
+    app->setPalette(palette);
 }
 
 void applyStoredTheme() {
-    applyTheme(isDarkTheme());
+    QSettings settings;
+    bool systemDark = qApp && (qApp->property("ceSystemDarkTheme").isValid()
+        ? qApp->property("ceSystemDarkTheme").toBool()
+        : qApp->palette().color(QPalette::Window).lightness() < 128);
+    applyTheme(settings.value(kDarkThemeKey, systemDark).toBool());
 }
 
 EditorPalette editorPalette() {
@@ -213,8 +294,8 @@ EditorPalette editorPalette() {
         // Catppuccin Mocha (pastels on a dark base), matching the disassembler.
         return EditorPalette{
             .background = QColor(0x1e, 0x1e, 0x2e), .text = QColor(0xcd, 0xd6, 0xf4),
-            .dim = QColor(0x6c, 0x70, 0x86),
-            .comment = QColor(0x6c, 0x70, 0x86), .directive = QColor(0xf9, 0xe2, 0xaf),
+            .dim = QColor(0xa6, 0xad, 0xc8),
+            .comment = QColor(0x93, 0x99, 0xb2), .directive = QColor(0xf9, 0xe2, 0xaf),
             .keyword = QColor(0xcb, 0xa6, 0xf7), .reg = QColor(0x89, 0xdc, 0xeb),
             .number = QColor(0xfa, 0xb3, 0x87), .label = QColor(0xa6, 0xe3, 0xa1),
             .string = QColor(0xa6, 0xe3, 0xa1),
@@ -226,14 +307,42 @@ EditorPalette editorPalette() {
     // token stays legible on a light editor.
     return EditorPalette{
         .background = QColor(0xff, 0xff, 0xff), .text = QColor(0x00, 0x00, 0x00),
-        .dim = QColor(0x8c, 0x8f, 0xa1),
-        .comment = QColor(0x7c, 0x7f, 0x93), .directive = QColor(0xdf, 0x8e, 0x1d),
-        .keyword = QColor(0x88, 0x39, 0xef), .reg = QColor(0x04, 0x9d, 0xd5),
-        .number = QColor(0xfe, 0x64, 0x0b), .label = QColor(0x40, 0xa0, 0x2b),
-        .string = QColor(0x40, 0xa0, 0x2b),
+        .dim = QColor(0x60, 0x67, 0x77),
+        .comment = QColor(0x60, 0x67, 0x77), .directive = QColor(0x8a, 0x58, 0x00),
+        .keyword = QColor(0x88, 0x39, 0xef), .reg = QColor(0x00, 0x68, 0x96),
+        .number = QColor(0xa8, 0x40, 0x00), .label = QColor(0x25, 0x70, 0x20),
+        .string = QColor(0x25, 0x70, 0x20),
         .error = QColor(0xd2, 0x0f, 0x39), .success = QColor(0x2e, 0x7d, 0x32),
         .canvas = QColor(0xf5, 0xf5, 0xf5), .canvasBorder = QColor(0xb0, 0xb0, 0xb0),
     };
+}
+
+void recolorConsole(QTextDocument* document, const EditorPalette& previous, const EditorPalette& current) {
+    struct Span { int position, length; QColor color; };
+    std::vector<Span> spans;
+    for (auto block = document->begin(); block.isValid(); block = block.next()) {
+        for (auto it = block.begin(); !it.atEnd(); ++it) {
+            auto fragment = it.fragment();
+            if (!fragment.isValid()) continue;
+            auto format = fragment.charFormat();
+            if (!format.hasProperty(QTextFormat::ForegroundBrush)) continue;
+            QColor old = format.foreground().color();
+            QColor replacement;
+            if (old == previous.text) replacement = current.text;
+            else if (old == previous.dim) replacement = current.dim;
+            else if (old == previous.success) replacement = current.success;
+            else if (old == previous.error) replacement = current.error;
+            if (replacement.isValid()) spans.push_back({fragment.position(), fragment.length(), replacement});
+        }
+    }
+    QTextCursor cursor(document);
+    for (const auto& span : spans) {
+        cursor.setPosition(span.position);
+        cursor.setPosition(span.position + span.length, QTextCursor::KeepAnchor);
+        QTextCharFormat format;
+        format.setForeground(span.color);
+        cursor.mergeCharFormat(format);
+    }
 }
 
 } // namespace ce::gui

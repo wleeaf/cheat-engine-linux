@@ -95,6 +95,11 @@ struct ScanConfig {
 class ScanResult {
 public:
     ScanResult() = default;
+    ~ScanResult();
+    ScanResult(const ScanResult&) = delete;
+    ScanResult& operator=(const ScanResult&) = delete;
+    ScanResult(ScanResult&& other) noexcept;
+    ScanResult& operator=(ScanResult&& other) noexcept;
     /// `storeFirst` controls whether a separate first-scan-value stream is
     /// written. A first scan has firstValue == value for every match, so it
     /// passes false and skips the duplicate stream (a third of the output for a
@@ -106,9 +111,8 @@ public:
     /// Byte stride of each persisted value record (0 if empty).
     size_t valueSize() const { return valueSize_; }
     bool empty() const { return count_ == 0; }
-    /// True if a backing-file write was short/failed (e.g. ENOSPC): the result is
-    /// then truncated and trailing entries read back as zeroes, so consumers should
-    /// treat it as unreliable and warn the user.
+    /// True if backing files could not be opened, read or fully written, or their
+    /// persisted layout is invalid. Consumers must treat the result as unreliable.
     bool hasWriteError() const { return writeError_; }
     /// Mark the result truncated/unreliable (used by the merge path when a
     /// concatenation write was short).
@@ -137,9 +141,8 @@ public:
     std::vector<ShardInfo> shardLayout() const;
 
     /// Byte stride of one persisted value record, derived from a shard's
-    /// values.bin size (0 if empty/unknown). Lets a next scan detect a
-    /// value-size change without trusting the in-memory valueSize_, which is 0
-    /// for a result reconstructed from files.
+    /// values.bin sizes (0 if empty/invalid). Validates that every nonempty shard
+    /// uses the same stride so a next scan can detect truncation or size changes.
     size_t recordStride() const;
 
     /// Add a result (used during scanning).
@@ -166,6 +169,8 @@ private:
 
     bool writeError_ = false;   // a backing-file write was short/failed
     bool storeFirst_ = true;    // write a separate first_values stream
+    bool finalized_ = true;
+    void swap(ScanResult& other) noexcept;
 
     // Addresses are stored compactly as 4-byte offsets from a frame base rather
     // than 8-byte absolutes. A frame is a (base, count) run of consecutive

@@ -16,7 +16,10 @@ std::vector<uint8_t> nopInstruction(ProcessHandle& proc, uintptr_t address) {
     std::vector<uint8_t> original(buf, buf + n);
     std::vector<uint8_t> nops(n, 0x90);
     auto wr = proc.write(address, nops.data(), n);
-    if (!wr) return {};
+    if (!wr || *wr != n) {
+        proc.write(address, original.data(), original.size());
+        return {};
+    }
     return original;
 }
 
@@ -24,7 +27,7 @@ bool restoreBytes(ProcessHandle& proc, uintptr_t address,
                   const std::vector<uint8_t>& original) {
     if (original.empty()) return false;
     auto wr = proc.write(address, original.data(), original.size());
-    return static_cast<bool>(wr);
+    return wr && *wr == original.size();
 }
 
 } // namespace ce

@@ -17,13 +17,24 @@ using namespace ce::os;
 static volatile int32_t* shared_value = nullptr;
 static pid_t child_pid = 0;
 
-static void spawn_target() {
+static bool spawn_target() {
     // Create shared memory so we can modify the child's value
     shared_value = (volatile int32_t*)mmap(nullptr, 4096,
         PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    if (shared_value == MAP_FAILED) {
+        shared_value = nullptr;
+        perror("mmap");
+        return false;
+    }
     *shared_value = 12345;
 
     child_pid = fork();
+    if (child_pid < 0) {
+        perror("fork");
+        munmap((void*)shared_value, 4096);
+        shared_value = nullptr;
+        return false;
+    }
     if (child_pid == 0) {
         // Child: just spin reading the shared value
         volatile int32_t* val = shared_value;
@@ -35,6 +46,7 @@ static void spawn_target() {
     }
     usleep(200000); // let child start
     printf("Target PID: %d, value at %p = %d\n\n", child_pid, (void*)shared_value, *shared_value);
+    return true;
 }
 
 static void kill_target() {
@@ -48,7 +60,7 @@ static void kill_target() {
 }
 
 // ── Disassembler test ──
-static void test_disassembler() {
+static bool test_disassembler() {
     printf("── Test: Disassembler (Capstone) ──\n");
     Disassembler dis(Arch::X86_64);
 
@@ -60,10 +72,22 @@ static void test_disassembler() {
     for (auto& i : insns)
         printf("  %s\n", i.toString().c_str());
     printf("\n");
+    return insns.size() == 5 && insns.front().mnemonic == "push" &&
+           insns.back().mnemonic == "ret" && insns.back().address == 0x400009;
+}
+
+static bool containsSharedValue(const ScanResult& result, int32_t expected) {
+    for (size_t i = 0; i < result.count(); ++i) {
+        if (result.address(i) != reinterpret_cast<uintptr_t>(shared_value)) continue;
+        int32_t value = 0;
+        result.value(i, &value, sizeof(value));
+        return value == expected;
+    }
+    return false;
 }
 
 // ── First scan test ──
-static void test_first_scan() {
+static bool test_first_scan() {
     printf("── Test: First Scan (exact int32 = 12345) ──\n");
     LinuxProcessHandle proc(child_pid);
     MemoryScanner scanner;
@@ -94,10 +118,11 @@ static void test_first_scan() {
         }
     }
     printf("\n");
+    return containsSharedValue(result, 12345);
 }
 
 // ── Next scan test ──
-static void test_next_scan() {
+static bool test_next_scan() {
     printf("── Test: Full Scan Workflow ──\n");
     LinuxProcessHandle proc(child_pid);
     MemoryScanner scanner;
@@ -148,32 +173,36 @@ static void test_next_scan() {
         }
     }
 
-    // Verify we can write to the found address
-    if (result3.count() > 0) {
-        uintptr_t addr = result3.address(0);
+    bool ok = containsSharedValue(result1, 12345) &&
+              containsSharedValue(result2, 99999) && containsSharedValue(result3, 99999);
+    // Write only the known target slot, rather than an unrelated coincidental
+    // match that might overwrite the child's stack or other live data.
+    if (ok) {
+        uintptr_t addr = reinterpret_cast<uintptr_t>(shared_value);
         int32_t newVal = 42;
         auto wr = proc.write(addr, &newVal, sizeof(newVal));
-        if (wr) {
+        ok = wr && *wr == sizeof(newVal) && *shared_value == newVal;
+        if (ok) {
             printf("\n  Wrote 42 to 0x%lx\n", addr);
             printf("  Shared value is now: %d %s\n", *shared_value,
                    *shared_value == 42 ? "(CORRECT!)" : "(wrong address)");
         }
     }
     printf("\n");
+    return ok;
 }
 
 int main() {
-    if (getuid() != 0) {
-        fprintf(stderr, "Run as root: sudo ./scan_test\n");
-        return 1;
-    }
-
-    spawn_target();
-    test_disassembler();
-    test_first_scan();
-    test_next_scan();
+    // A parent may access its own child under the usual ptrace policy; test
+    // actual access instead of rejecting every non-root developer.
+    if (!spawn_target()) return 1;
+    const bool disassemblerOk = test_disassembler();
+    const bool firstOk = test_first_scan();
+    const bool nextOk = test_next_scan();
     kill_target();
 
-    printf("All tests complete.\n");
-    return 0;
+    const bool ok = disassemblerOk && firstOk && nextOk;
+    printf("Cross-process scan/write: %s (disassembler=%d first=%d workflow=%d)\n",
+           ok ? "OK" : "FAILED", disassemblerOk, firstOk, nextOk);
+    return ok ? 0 : 1;
 }

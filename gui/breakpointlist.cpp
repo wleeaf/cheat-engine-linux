@@ -84,7 +84,7 @@ void BreakpointListWindow::onToggle() {
     auto row = table_->currentRow();
     if (row < 0) return;
     int id = table_->item(row, 0)->text().toInt();
-    auto* bp = mgr_->get(id);
+    auto bp = mgr_->get(id);
     if (bp) mgr_->setEnabled(id, !bp->enabled);
     refresh();
 }

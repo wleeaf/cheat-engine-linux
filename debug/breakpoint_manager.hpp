@@ -9,6 +9,7 @@
 #include <mutex>
 #include <atomic>
 #include <unordered_map>
+#include <optional>
 
 namespace ce {
 
@@ -54,7 +55,7 @@ class BreakpointManager {
 public:
     BreakpointManager() = default;
 
-    /// Add a breakpoint. Returns its ID.
+    /// Add a breakpoint. Returns its ID, or -1 if no hardware slot is available.
     int add(const Breakpoint& bp);
 
     /// Remove a breakpoint by ID.
@@ -67,7 +68,7 @@ public:
     std::vector<Breakpoint> list() const;
 
     /// Get a specific breakpoint.
-    const Breakpoint* get(int id) const;
+    std::optional<Breakpoint> get(int id) const;
 
     /// Find the next available hardware register (0-3).
     int findFreeHwRegister() const;
@@ -89,9 +90,10 @@ public:
 
     /// Set callback for when a breakpoint is hit.
     using HitCallback = std::function<void(const Breakpoint&, const BreakpointHit&)>;
-    void setHitCallback(HitCallback cb) { hitCallback_ = std::move(cb); }
+    void setHitCallback(HitCallback cb) { std::lock_guard lock(mutex_); hitCallback_ = std::move(cb); }
 
 private:
+    int findFreeHwRegisterUnlocked() const;
     mutable std::mutex mutex_;
     std::vector<Breakpoint> breakpoints_;
     std::unordered_map<int, std::vector<BreakpointHit>> hitLog_;

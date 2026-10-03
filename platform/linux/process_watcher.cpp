@@ -1,80 +1,99 @@
 #include "platform/linux/process_watcher.hpp"
+#include "core/log.hpp"
 #include <filesystem>
 #include <fstream>
-#include <unistd.h>
 #include <algorithm>
+#include <charconv>
+#include <chrono>
+#include <cctype>
 
 namespace ce::os {
 
-ProcessWatcher::~ProcessWatcher() {
-    // Must join: destroying a joinable std::thread calls std::terminate, so a
-    // still-running watcher (e.g. window closed while "Wait for process..." is
-    // active) would abort the app.
-    stop();
-}
+ProcessWatcher::~ProcessWatcher() { stop(); }
 
 void ProcessWatcher::start(const std::string& processName, Callback callback, int pollIntervalMs) {
-    // Claim ownership atomically: only the caller that flips running_ false->true
-    // proceeds, so two concurrent start() calls can't both spawn a watchLoop
-    // (which would leak/overwrite a joinable thread_ -> std::terminate).
-    bool expected = false;
-    if (!running_.compare_exchange_strong(expected, true)) return;
-
-    // A previous run may have requested stop without join (e.g. via the
-    // destructor path); make sure any old thread is joined before we
-    // reassign thread_ below.
+    std::lock_guard lock(lifecycleMutex_);
+    if (running_) return;
     if (thread_.joinable()) thread_.join();
 
-    target_ = processName;
-    callback_ = std::move(callback);
-    pollMs_ = pollIntervalMs;
-    stopRequested_ = false;
-
-    // Snapshot current PIDs
-    knownPids_.clear();
-    for (auto& entry : std::filesystem::directory_iterator("/proc")) {
-        auto name = entry.path().filename().string();
-        try { knownPids_.insert(std::stoi(name)); } catch (...) {}
+    std::set<pid_t> known;
+    std::error_code ec;
+    for (auto it = std::filesystem::directory_iterator("/proc", ec);
+         !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+        auto name = it->path().filename().string();
+        pid_t pid = 0;
+        auto parsed = std::from_chars(name.data(), name.data() + name.size(), pid);
+        if (parsed.ec == std::errc{} && parsed.ptr == name.data() + name.size()) known.insert(pid);
     }
-
-    thread_ = std::thread(&ProcessWatcher::watchLoop, this);
+    stopRequested_ = false;
+    running_ = true;
+    try {
+        thread_ = std::thread(&ProcessWatcher::watchLoop, this, processName,
+                              std::move(callback), std::max(1, pollIntervalMs), std::move(known));
+        workerId_ = thread_.get_id();
+    } catch (...) {
+        running_ = false;
+        throw;
+    }
 }
 
 void ProcessWatcher::stop() {
-    stopRequested_ = true;
-    if (thread_.joinable()) thread_.join();
-    running_ = false;
+    std::thread toJoin;
+    {
+        std::lock_guard lock(lifecycleMutex_);
+        stopRequested_ = true;
+        wake_.notify_all();
+        if (workerId_ == std::this_thread::get_id()) return;
+        toJoin = std::move(thread_);
+    }
+    if (toJoin.joinable()) toJoin.join();
 }
 
-void ProcessWatcher::watchLoop() {
-    // Convert target to lowercase for case-insensitive match
-    std::string targetLower = target_;
-    std::transform(targetLower.begin(), targetLower.end(), targetLower.begin(), ::tolower);
-
-    while (!stopRequested_) {
-        usleep(pollMs_ * 1000);
-
-        for (auto& entry : std::filesystem::directory_iterator("/proc")) {
-            auto pidStr = entry.path().filename().string();
-            pid_t pid;
-            try { pid = std::stoi(pidStr); } catch (...) { continue; }
-
-            if (knownPids_.count(pid)) continue; // Already known
-            knownPids_.insert(pid);
-
-            // Read process name
-            std::string comm;
-            std::ifstream f("/proc/" + pidStr + "/comm");
-            if (f) std::getline(f, comm);
-
-            std::string commLower = comm;
-            std::transform(commLower.begin(), commLower.end(), commLower.begin(), ::tolower);
-
-            if (commLower.find(targetLower) != std::string::npos) {
-                callback_(pid, comm);
+void ProcessWatcher::watchLoop(std::string target, Callback callback, int pollMs, std::set<pid_t> known) {
+    auto lower = [](unsigned char c) { return static_cast<char>(std::tolower(c)); };
+    std::transform(target.begin(), target.end(), target.begin(), lower);
+    try {
+        while (!stopRequested_) {
+            {
+                std::unique_lock lock(lifecycleMutex_);
+                if (wake_.wait_for(lock, std::chrono::milliseconds(pollMs),
+                                   [this] { return stopRequested_.load(); })) break;
             }
+            std::set<pid_t> observed;
+            std::error_code ec;
+            for (auto it = std::filesystem::directory_iterator("/proc", ec);
+                 !ec && it != std::filesystem::directory_iterator() && !stopRequested_; it.increment(ec)) {
+                auto name = it->path().filename().string();
+                pid_t pid = 0;
+                auto parsed = std::from_chars(name.data(), name.data() + name.size(), pid);
+                if (parsed.ec != std::errc{} || parsed.ptr != name.data() + name.size()) continue;
+                observed.insert(pid);
+                if (known.count(pid)) continue;
+                std::string comm;
+                std::ifstream in("/proc/" + name + "/comm");
+                if (!std::getline(in, comm) || comm.empty()) continue;
+                std::string commLower = comm;
+                std::transform(commLower.begin(), commLower.end(), commLower.begin(), lower);
+                if (commLower.find(target) != std::string::npos) {
+                    known.insert(pid);
+                    if (callback) callback(pid, comm);
+                }
+            }
+            // Keep unmatched new PIDs eligible after exec or a name change, and
+            // remove vanished PIDs so their future reuse is treated as new.
+            if (!ec) std::erase_if(known, [&](pid_t pid) { return !observed.count(pid); });
         }
+    } catch (const std::exception& error) {
+        ce::log::warn(ce::log::Cat::General, "process watcher stopped: {}", error.what());
+    } catch (...) {
+        ce::log::warn(ce::log::Cat::General, "process watcher stopped after callback failure");
     }
+    {
+        std::lock_guard lock(lifecycleMutex_);
+        running_ = false;
+        workerId_ = {};
+    }
+    wake_.notify_all();
 }
 
 } // namespace ce::os

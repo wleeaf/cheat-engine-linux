@@ -12,6 +12,7 @@
 
 class QLineEdit;
 class QSpinBox;
+class QLabel;
 
 namespace ce::gui {
 
@@ -46,6 +47,7 @@ private:
     QLineEdit* addrEdit_;
     QSpinBox* perLineSpin_;
     QSpinBox* rowsSpin_;
+    QLabel* statusLabel_;
 };
 
 }  // namespace ce::gui

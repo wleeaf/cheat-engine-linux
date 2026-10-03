@@ -32,6 +32,15 @@
   <url type="bugtracker">https://github.com/wleeaf/cheat-engine-linux/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.9.5" date="2026-10-03">
+      <description>
+        <p>Site-specific auto-assembler injection templates, consistent typed
+        memory operations across the GUI, CLI, and Lua, and extensive correctness
+        fixes for scanning, debugging, parsing, and scripting.</p>
+        <p>Improved GUI layouts, light and dark themes, scrolling, process
+        selection, live settings, and large form canvases.</p>
+      </description>
+    </release>
     <release version="0.4.1" date="2026-07-13">
       <description>
         <p>Bug-fix release: light/dark theme applies live from Settings; the memory

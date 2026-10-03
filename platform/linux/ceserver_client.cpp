@@ -96,7 +96,7 @@ bool CEServerClient::sendAll(const void* data, size_t size, std::string& error) 
     auto* bytes = static_cast<const uint8_t*>(data);
     size_t sent = 0;
     while (sent < size) {
-        ssize_t n = ::send(fd_, bytes + sent, size - sent, 0);
+        ssize_t n = ::send(fd_, bytes + sent, size - sent, MSG_NOSIGNAL);
         if (n < 0 && errno == EINTR) continue; // retry on signal interruption
         if (n <= 0) {
             error = errnoString("send");

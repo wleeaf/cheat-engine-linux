@@ -13,6 +13,7 @@
 #include <QColorDialog>
 #include <QFontDialog>
 #include <QSettings>
+#include <QScrollArea>
 
 namespace ce::gui {
 
@@ -25,6 +26,7 @@ QPushButton* MemviewPreferences::colorButton(const QString& key, const QColor& d
     auto* btn = new QPushButton;
     btn->setProperty("prefKey", key);
     btn->setProperty("color", cur);
+    btn->setAccessibleName(key.mid(5) + " color");
     auto paint = [btn]() {
         QColor c = btn->property("color").value<QColor>();
         btn->setStyleSheet(QString("background:%1; min-width:44px;").arg(c.name()));
@@ -32,17 +34,25 @@ QPushButton* MemviewPreferences::colorButton(const QString& key, const QColor& d
     paint();
     connect(btn, &QPushButton::clicked, this, [this, btn, paint]() {
         QColor c = QColorDialog::getColor(btn->property("color").value<QColor>(), this);
-        if (c.isValid()) { btn->setProperty("color", c); paint(); }
+        if (c.isValid()) { btn->setProperty("color", c); btn->setProperty("colorEdited", true); paint(); }
     });
     return btn;
 }
 
 MemviewPreferences::MemviewPreferences(QWidget* parent) : QDialog(parent) {
     setWindowTitle("Disassembler Preferences");
+    resize(500, 620);
     QSettings s;
     font_.fromString(s.value("disasm/font", QFont("Monospace", 10).toString()).toString());
 
-    auto* v = new QVBoxLayout(this);
+    auto* root = new QVBoxLayout(this);
+    auto* content = new QWidget;
+    auto* v = new QVBoxLayout(content);
+    auto* scroll = new QScrollArea;
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setWidget(content);
+    root->addWidget(scroll, 1);
 
     // GroupBox2 "Disassembler": font + color group selector.
     auto* gbDisasm = new QGroupBox("Disassembler");
@@ -95,13 +105,16 @@ MemviewPreferences::MemviewPreferences(QWidget* parent) : QDialog(parent) {
     sl->addRow("Below", spaceBelow_);
     v->addWidget(gbSpace);
 
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Apply | QDialogButtonBox::Cancel);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Apply | QDialogButtonBox::Cancel);
     connect(buttons->button(QDialogButtonBox::Apply), &QPushButton::clicked, this, [this]() {
+        apply();
+    });
+    connect(buttons, &QDialogButtonBox::accepted, this, [this]() {
         apply();
         accept();
     });
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    v->addWidget(buttons);
+    root->addWidget(buttons);
 }
 
 void MemviewPreferences::apply() {
@@ -109,7 +122,7 @@ void MemviewPreferences::apply() {
     s.setValue("disasm/font", font_.toString());
     for (auto* btn : findChildren<QPushButton*>()) {
         auto key = btn->property("prefKey").toString();
-        if (!key.isEmpty())
+        if (!key.isEmpty() && (btn->property("colorEdited").toBool() || s.contains("disasm/" + key)))
             s.setValue("disasm/" + key, btn->property("color").value<QColor>().name());
     }
     s.setValue("disasm/jlThickness", jlThickness_->text().toInt());

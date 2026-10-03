@@ -1,5 +1,6 @@
 #include "debug/debug_session.hpp"
 #include "arch/disassembler.hpp"
+#include "platform/linux/ceserver_process.hpp"
 
 #include <sys/ptrace.h>
 #include <sys/wait.h>
@@ -10,6 +11,7 @@
 #include <cerrno>
 #include <unistd.h>
 #include <vector>
+#include <algorithm>
 
 namespace ce {
 
@@ -43,7 +45,13 @@ DebugSession::~DebugSession() {
 }
 
 bool DebugSession::attach(pid_t pid, ProcessHandle* proc) {
-    if (attached_) return false;
+    if (attached_ || !proc || dynamic_cast<os::RemoteProcessHandle*>(proc)) return false;
+    // Target exit and detach from a callback leave a finished, joinable tracer.
+    // Complete its cleanup before replacing the thread or its process handle.
+    if (eventThread_.joinable()) {
+        if (eventThread_.get_id() == std::this_thread::get_id()) return false;
+        eventThread_.join();
+    }
     pid_ = pid;
     proc_ = proc;
 
@@ -150,7 +158,9 @@ void DebugSession::stopOtherThreads(pid_t active) {
         if (tid == active || stoppedTids_.count(tid)) continue;
         if (ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) != 0) continue;
         int st = 0;
-        if (waitpid(tid, &st, __WALL) != tid) continue;
+        pid_t w;
+        do { w = waitpid(tid, &st, __WALL); } while (w < 0 && errno == EINTR);
+        if (w != tid || !WIFSTOPPED(st)) continue;
         stoppedTids_.insert(tid);
         if (WIFSTOPPED(st) && WSTOPSIG(st) == SIGTRAP) {
             struct user_regs_struct r;
@@ -237,13 +247,7 @@ void DebugSession::resumeAllThreads() {
 // Runs on the tracer thread once the loop exits: stop the world, restore
 // breakpoints, and detach every thread.
 void DebugSession::tracerCleanup() {
-    for (pid_t tid : traced_) {
-        if (stoppedTids_.count(tid)) continue;
-        if (ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) == 0) {
-            int st = 0;
-            waitpid(tid, &st, __WALL);
-        }
-    }
+    stopOtherThreads(0);
     {
         std::lock_guard lock(bpMutex_);
         for (auto& [addr, bp] : softBreakpoints_)
@@ -283,17 +287,31 @@ long DebugSession::postCommand(Command cmd) {
 }
 
 long DebugSession::performCommand(const Command& cmd) {
-    switch (cmd.type) {
-        case CmdType::Continue:     doContinue(); return 0;
-        case CmdType::Step:         doStep(cmd.stepMode, cmd.addr); return 0;
-        case CmdType::SetSoftBp:    return doSetSoftBp(cmd.addr);
-        case CmdType::RemoveSoftBp: doRemoveSoftBp(cmd.id); return 0;
-        case CmdType::SetRegs:      return doSetRegs(cmd.regs) ? 1 : 0;
-        case CmdType::SelectThread: return doSelectThread(static_cast<pid_t>(cmd.id)) ? 1 : 0;
-        case CmdType::SetHwBp:      return doSetHwBp(cmd.addr, cmd.hwType, cmd.hwSize);
-        case CmdType::RemoveHwBp:   doRemoveHwBp(cmd.id); return 0;
+    // Breakpoint writes require stopped tracees. Lua and GUI callers can add
+    // or remove breakpoints while running; stop every thread and rewind any
+    // pending int3 hits before restoring a byte or forgetting its address.
+    // Otherwise POKETEXT fails and a later untracked int3 skips the original
+    // instruction, potentially corrupting a function's stack frame.
+    const bool mutation = cmd.type == CmdType::SetSoftBp || cmd.type == CmdType::RemoveSoftBp ||
+                          cmd.type == CmdType::SetHwBp || cmd.type == CmdType::RemoveHwBp;
+    const bool resume = mutation && !stopped_.load();
+    if (resume) {
+        stopOtherThreads(0);
+        stopped_ = true;
     }
-    return 0;
+    long result = 0;
+    switch (cmd.type) {
+        case CmdType::Continue:     doContinue(); break;
+        case CmdType::Step:         doStep(cmd.stepMode, cmd.addr); break;
+        case CmdType::SetSoftBp:    result = doSetSoftBp(cmd.addr); break;
+        case CmdType::RemoveSoftBp: doRemoveSoftBp(cmd.id); break;
+        case CmdType::SetRegs:      result = doSetRegs(cmd.regs) ? 1 : 0; break;
+        case CmdType::SelectThread: result = doSelectThread(static_cast<pid_t>(cmd.id)) ? 1 : 0; break;
+        case CmdType::SetHwBp:      result = doSetHwBp(cmd.addr, cmd.hwType, cmd.hwSize); break;
+        case CmdType::RemoveHwBp:   doRemoveHwBp(cmd.id); break;
+    }
+    if (resume) doContinue();
+    return result;
 }
 
 bool DebugSession::setStopContext(const CpuContext& ctx) {
@@ -350,7 +368,7 @@ void DebugSession::doRemoveSoftBp(int id) {
     for (auto it = softBreakpoints_.begin(); it != softBreakpoints_.end(); ++it) {
         if (it->second.id == id) {
             if (it->second.active)
-                pokeByte(pid_, it->first, it->second.originalByte, nullptr);
+                if (!pokeByte(pid_, it->first, it->second.originalByte, nullptr)) return;
             softBreakpoints_.erase(it);
             return;
         }
@@ -502,7 +520,7 @@ void DebugSession::tracerThread() {
         // 2) Running: poll for the next event from ANY thread (__WALL).
         if (!stopped_.load()) {
             int st = 0;
-            pid_t w = waitpid(-1, &st, __WALL | WNOHANG);
+            pid_t w = waitpid(-1, &st, __WALL | __WNOTHREAD | WNOHANG);
             if (w == 0) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(2));
                 continue;
@@ -746,17 +764,17 @@ void DebugSession::doStep(StepMode mode, uintptr_t targetAddress) {
 
     // Plant a temporary int3 only if the address isn't already an armed user
     // breakpoint; report whether we created it so we can cleanly remove it.
-    struct Temp { uintptr_t addr; uint8_t orig; bool created; };
+    struct Temp { uintptr_t addr; uint8_t orig; bool created; bool valid; };
     auto setTemp = [&](uintptr_t addr) -> Temp {
         {
             std::lock_guard lk(bpMutex_);
             auto it = softBreakpoints_.find(addr);
             if (it != softBreakpoints_.end() && it->second.active)
-                return {addr, 0, false};
+                return {addr, 0, false, true};
         }
         uint8_t orig = 0;
         bool ok = pokeByte(pid_, addr, 0xCC, &orig);
-        return {addr, orig, ok};
+        return {addr, orig, ok, ok};
     };
     auto clearTemp = [&](const Temp& t) {
         if (t.created) pokeByte(pid_, t.addr, t.orig, nullptr);
@@ -799,13 +817,20 @@ void DebugSession::doStep(StepMode mode, uintptr_t targetAddress) {
             ptrace(PTRACE_GETREGS, tid, nullptr, &regs);
             uint8_t buf[16];
             auto rr = proc_->read(regs.rip, buf, sizeof(buf));
-            size_t n = (rr && *rr > 0) ? *rr : 0;
+            size_t n = rr ? std::min(*rr, sizeof(buf)) : 0;
+            if (n) {
+                std::lock_guard lk(bpMutex_);
+                auto it = softBreakpoints_.find(regs.rip);
+                if (it != softBreakpoints_.end() && it->second.active)
+                    buf[0] = it->second.originalByte;
+            }
             Disassembler dis(proc_->runs32BitCode() ? Arch::X86_32 : Arch::X86_64);
             auto insns = dis.disassemble(regs.rip, {buf, n}, 1);
             if (!insns.empty() && insns[0].mnemonic == "call") {
                 uintptr_t nextAddr = regs.rip + insns[0].size;
-                bool lifted = liftCurrentBp(regs.rip);
                 Temp t = setTemp(nextAddr);
+                if (!t.valid) return;
+                bool lifted = liftCurrentBp(regs.rip);
                 stepCompleted = runToTempBreakpoint(tid, nextAddr);
                 clearTemp(t);
                 if (lifted) rearmCurrentBp(regs.rip);
@@ -823,10 +848,12 @@ void DebugSession::doStep(StepMode mode, uintptr_t targetAddress) {
             struct user_regs_struct regs;
             ptrace(PTRACE_GETREGS, tid, nullptr, &regs);
             uintptr_t retAddr = 0;
-            proc_->read(regs.rsp, &retAddr, sizeof(retAddr));
-            if (retAddr) {
-                bool lifted = liftCurrentBp(regs.rip);
+            size_t ptrSize = proc_->is64bit() ? 8 : 4;
+            auto read = proc_->read(regs.rsp, &retAddr, ptrSize);
+            if (read && *read == ptrSize && retAddr) {
                 Temp t = setTemp(retAddr);
+                if (!t.valid) return;
+                bool lifted = liftCurrentBp(regs.rip);
                 stepCompleted = runToTempBreakpoint(tid, retAddr);
                 clearTemp(t);
                 if (lifted) rearmCurrentBp(regs.rip);
@@ -838,8 +865,10 @@ void DebugSession::doStep(StepMode mode, uintptr_t targetAddress) {
             if (targetAddress) {
                 struct user_regs_struct regs;
                 ptrace(PTRACE_GETREGS, tid, nullptr, &regs);
-                bool lifted = liftCurrentBp(regs.rip);
+                if (regs.rip == targetAddress) return;
                 Temp t = setTemp(targetAddress);
+                if (!t.valid) return;
+                bool lifted = liftCurrentBp(regs.rip);
                 stepCompleted = runToTempBreakpoint(tid, targetAddress);
                 clearTemp(t);
                 if (lifted) rearmCurrentBp(regs.rip);

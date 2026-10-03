@@ -3,6 +3,7 @@
 /// bitmaps procedurally and save them to disk.
 
 #include "gui/canvaswidget.hpp"
+#include "scripting/lua_safe.hpp"
 
 extern "C" {
 #include <lua.h>
@@ -15,6 +16,12 @@ extern "C" {
 #include <new>
 #include <cstring>
 
+#undef lua_pushcfunction
+#define lua_pushcfunction(L, fn) ce::pushSafeLuaFunction((L), (fn))
+#undef lua_register
+#define lua_register(L, name, fn) ce::registerSafeLuaFunction((L), (name), (fn))
+#define luaL_setfuncs(L, functions, upvalues) ce::setSafeLuaFunctions((L), (functions), (upvalues))
+
 namespace ce {
 
 namespace {
@@ -26,7 +33,9 @@ struct LuaBitmap {
 };
 
 LuaBitmap* checkBmp(lua_State* L, int idx) {
-    return (LuaBitmap*)luaL_checkudata(L, idx, BITMAP_MT);
+    auto* b = (LuaBitmap*)luaL_checkudata(L, idx, BITMAP_MT);
+    if (!b->image) luaL_error(L, "bitmap has been collected");
+    return b;
 }
 
 QColor parseBmpColor(lua_State* L, int idx) {
@@ -38,7 +47,7 @@ QColor parseBmpColor(lua_State* L, int idx) {
 }
 
 int l_bmp__gc(lua_State* L) {
-    auto* b = checkBmp(L, 1);
+    auto* b = (LuaBitmap*)luaL_checkudata(L, 1, BITMAP_MT);
     delete b->image;
     b->image = nullptr;
     return 0;
@@ -107,7 +116,7 @@ int l_bmp_getPixel(lua_State* L) {
 }
 
 int l_bmp__index(lua_State* L) {
-    luaL_checkudata(L, 1, BITMAP_MT);
+    checkBmp(L, 1);
     const char* key = luaL_checkstring(L, 2);
     if (!std::strcmp(key, "Width"))  return l_bmp_width(L);
     if (!std::strcmp(key, "Height")) return l_bmp_height(L);

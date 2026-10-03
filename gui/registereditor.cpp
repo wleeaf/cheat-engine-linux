@@ -54,7 +54,7 @@ QString bytesToHex(const uint8_t* data, size_t size) {
 RegisterEditorWindow::RegisterEditorWindow(ProcessHandle* proc, QWidget* parent)
     : QMainWindow(parent), proc_(proc) {
     setWindowTitle("Register Editor");
-    resize(420, 620);
+    resize(820, 680);
 
     auto* central = new QWidget;
     auto* layout = new QVBoxLayout(central);
@@ -94,11 +94,11 @@ RegisterEditorWindow::RegisterEditorWindow(ProcessHandle* proc, QWidget* parent)
     fpTable_ = new QTableWidget;
     fpTable_->setColumnCount(3);
     fpTable_->setHorizontalHeaderLabels({"Register", "XMM low 128", "YMM high 128"});
-    // The 128-bit hex value columns are 32 chars wide and clipped at the 100px
-    // default; fit the register name and XMM column, YMM (last) stretches.
-    fpTable_->horizontalHeader()->setStretchLastSection(true);
+    // Fit both 128-bit value columns so YMM values remain accessible when narrowed.
+    fpTable_->horizontalHeader()->setStretchLastSection(false);
     fpTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     fpTable_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    fpTable_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     fpTable_->setFont(QFont("Monospace", 9));
     fpTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     fpTable_->setRowCount(16);

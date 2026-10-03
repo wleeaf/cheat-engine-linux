@@ -31,45 +31,47 @@ struct Image {
     uint64_t u64(size_t o) const { uint64_t v = 0; std::memcpy(&v, buf.data() + o, 8); return v; }
 
     // Virtual address (or RVA when imageBase==0) -> file offset.
-    std::optional<size_t> rvaToOff(uint64_t rva) const {
+    std::optional<size_t> rvaToOff(uint64_t rva, size_t n = 1) const {
         for (const auto& s : segs) {
-            if (rva >= s.rva && rva < s.rva + s.vsize) {
+            if (rva >= s.rva && rva - s.rva < s.vsize) {
                 uint64_t d = rva - s.rva;
-                if (d < s.fileSize) {
+                if (d < s.fileSize && n <= s.fileSize - d) {
                     uint64_t off = s.fileOff + d;
-                    if (off < buf.size()) return static_cast<size_t>(off);
+                    if (inRange(off, n)) return static_cast<size_t>(off);
                 }
                 return std::nullopt;  // in the bss tail (no file bytes)
             }
         }
         return std::nullopt;
     }
-    std::optional<size_t> vaToOff(uint64_t va) const {
+    std::optional<size_t> vaToOff(uint64_t va, size_t n = 1, uint64_t offset = 0) const {
+        if (offset > UINT64_MAX - va) return std::nullopt;
+        va += offset;
         if (va < imageBase) return std::nullopt;
-        return rvaToOff(va - imageBase);
+        return rvaToOff(va - imageBase, n);
     }
     bool vaValid(uint64_t va) const { return va >= imageBase && rvaToOff(va - imageBase).has_value(); }
 
-    std::optional<uint64_t> readPtrVA(uint64_t va) const {
-        auto o = vaToOff(va); if (!o || !inRange(*o, 8)) return std::nullopt; return u64(*o);
+    std::optional<uint64_t> readPtrVA(uint64_t va, uint64_t offset = 0) const {
+        auto o = vaToOff(va, 8, offset); if (!o) return std::nullopt; return u64(*o);
     }
-    std::optional<int32_t> readI32VA(uint64_t va) const {
-        auto o = vaToOff(va); if (!o || !inRange(*o, 4)) return std::nullopt;
+    std::optional<int32_t> readI32VA(uint64_t va, uint64_t offset = 0) const {
+        auto o = vaToOff(va, 4, offset); if (!o) return std::nullopt;
         return static_cast<int32_t>(u32(*o));
     }
-    std::optional<uint32_t> readU32VA(uint64_t va) const {
-        auto o = vaToOff(va); if (!o || !inRange(*o, 4)) return std::nullopt; return u32(*o);
+    std::optional<uint32_t> readU32VA(uint64_t va, uint64_t offset = 0) const {
+        auto o = vaToOff(va, 4, offset); if (!o) return std::nullopt; return u32(*o);
     }
     std::string readCStrVA(uint64_t va, size_t maxLen = 256) const {
-        auto o = vaToOff(va);
-        if (!o) return {};
         std::string s;
-        for (size_t i = 0; i < maxLen && *o + i < buf.size(); ++i) {
+        for (size_t i = 0; i < maxLen; ++i) {
+            auto o = vaToOff(va, i + 1);
+            if (!o) return {};
             char c = static_cast<char>(buf[*o + i]);
-            if (c == '\0') break;
+            if (c == '\0') return s;
             s.push_back(c);
         }
-        return s;
+        return {};
     }
 };
 
@@ -91,13 +93,16 @@ bool loadPE(Image& img) {
     if (img.u16(opt) != 0x20B) return false;         // PE32+ (magic)
     img.imageBase = img.u64(opt + 24);
     size_t secTbl = opt + optSize;
+    if (!img.inRange(secTbl, static_cast<size_t>(nSec) * 40)) return false;
     for (uint16_t k = 0; k < nSec; ++k) {
         size_t so = secTbl + static_cast<size_t>(k) * 40;
-        if (!img.inRange(so, 40)) break;
         uint64_t vsize = img.u32(so + 8);
         uint64_t vaddr = img.u32(so + 12);
         uint64_t rawSize = img.u32(so + 16);
         uint64_t rawPtr = img.u32(so + 20);
+        if (!img.inRange(rawPtr, rawSize) || vaddr > UINT64_MAX - img.imageBase ||
+            std::max(vsize, rawSize) > UINT64_MAX - img.imageBase - vaddr)
+            return false;
         img.segs.push_back({vaddr, std::max(vsize, rawSize), rawPtr, rawSize});
     }
     return !img.segs.empty();
@@ -106,19 +111,23 @@ bool loadPE(Image& img) {
 bool loadELF64(Image& img) {
     const auto& b = img.buf;
     if (b.size() < 0x40 || std::memcmp(b.data(), "\x7f""ELF", 4) != 0) return false;
-    if (b[4] != 2) return false;                     // ELFCLASS64
+    if (b[4] != 2 || b[5] != 1 || b[6] != 1 || img.u16(0x12) != 62 || img.u32(0x14) != 1)
+        return false;                               // little-endian x86-64 ELF
     img.imageBase = 0;                               // PIE .so: VA == RVA
     uint64_t phoff = img.u64(0x20);
     uint16_t phentsize = img.u16(0x36);
     uint16_t phnum = img.u16(0x38);
+    if (phentsize < 56 || phoff > img.buf.size() ||
+        !img.inRange(phoff, static_cast<size_t>(phnum) * phentsize)) return false;
     for (uint16_t k = 0; k < phnum; ++k) {
         size_t po = static_cast<size_t>(phoff) + static_cast<size_t>(k) * phentsize;
-        if (!img.inRange(po, 56)) break;
         if (img.u32(po + 0) != 1) continue;          // PT_LOAD
         uint64_t off = img.u64(po + 8);
         uint64_t vaddr = img.u64(po + 16);
         uint64_t filesz = img.u64(po + 32);
         uint64_t memsz = img.u64(po + 40);
+        if (off > img.buf.size() || filesz > img.buf.size() - off ||
+            filesz > memsz || memsz > UINT64_MAX - vaddr) return false;
         img.segs.push_back({vaddr, std::max(memsz, filesz), off, filesz});
     }
     return !img.segs.empty();
@@ -160,15 +169,15 @@ std::optional<size_t> findMetadataRegistration(const Image& img, size_t nTypes) 
             size_t ok = 0, tot = 0;
             size_t probe = std::min<size_t>(nTypes, 256);
             for (size_t k = 0; k < probe; ++k) {
-                auto e = img.readPtrVA(foVA + k * 8);
+                auto e = img.readPtrVA(foVA, k * 8);
                 if (!e) break;
                 ++tot;
                 if (*e == 0 || img.vaValid(*e)) ++ok;
             }
-            if (tot == 0 || ok * 5 < tot * 4) continue;   // < 80% plausible
-            if (p < kMR_fieldOffsetsCount) continue;
+            if (tot != probe || tot == 0 || ok * 5 < tot * 4) continue;   // < 80% plausible
+            if (p - begin < kMR_fieldOffsetsCount) continue;
             size_t base = p - kMR_fieldOffsetsCount;      // struct base
-            if (!img.inRange(base, 0x70)) continue;
+            if (base > end || end - base < 0x70) continue;
             int32_t typesCount = static_cast<int32_t>(img.u32(base + kMR_typesCount));
             uint64_t typesVA = img.u64(base + kMR_types);
             if (typesCount < want || typesCount > 50'000'000) continue;  // types >= typeDefs
@@ -189,6 +198,7 @@ constexpr size_t kCGM_methodPointers = 0x10;
 // followed by a pointer to an array of that many Il2CppCodeGenModule* whose
 // moduleName fields are valid ".dll" strings. Returns the array VA.
 std::optional<uint64_t> findCodeGenModules(const Image& img, size_t imageCount) {
+    if (imageCount == 0) return std::nullopt;
     auto looksLikeModuleName = [](const std::string& s) {
         return s.size() > 4 && s.compare(s.size() - 4, 4, ".dll") == 0;
     };
@@ -202,14 +212,14 @@ std::optional<uint64_t> findCodeGenModules(const Image& img, size_t imageCount) 
             if (!img.vaValid(arrVA)) continue;
             size_t ok = 0, tot = 0, probe = std::min<size_t>(imageCount, 32);
             for (size_t i = 0; i < probe; ++i) {
-                auto m = img.readPtrVA(arrVA + i * 8);
+                auto m = img.readPtrVA(arrVA, i * 8);
                 if (!m) break;
                 ++tot;
                 if (*m == 0 || !img.vaValid(*m)) continue;
-                auto nmp = img.readPtrVA(*m + kCGM_moduleName);
+                auto nmp = img.readPtrVA(*m, kCGM_moduleName);
                 if (nmp && img.vaValid(*nmp) && looksLikeModuleName(img.readCStrVA(*nmp))) ++ok;
             }
-            if (tot >= 8 && ok * 5 >= tot * 4) return arrVA;
+            if (tot == probe && ok >= std::min<size_t>(probe, 8) && ok * 5 >= tot * 4) return arrVA;
         }
     }
     return std::nullopt;
@@ -247,13 +257,13 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
     // types pointer array), or 0.
     auto typeVAForIndex = [&](int32_t typeIndex) -> uint64_t {
         if (typeIndex < 0 || typeIndex >= typesCount) return 0u;
-        auto tp = img.readPtrVA(typesVA + static_cast<uint64_t>(typeIndex) * 8);
+        auto tp = img.readPtrVA(typesVA, static_cast<uint64_t>(typeIndex) * 8);
         return tp ? *tp : 0u;
     };
     // Read a field's Il2CppType word: low16 = C# attrs, bits16-23 = type enum.
     auto typeWordAt = [&](uint64_t typeVA) -> uint32_t {
         if (!typeVA) return 0u;
-        auto a = img.readU32VA(typeVA + kType_attrs);
+        auto a = img.readU32VA(typeVA, kType_attrs);
         return a ? *a : 0u;   // low16 = C# field attrs; bits16-23 = Il2CppTypeEnum
     };
 
@@ -308,13 +318,13 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
                 if (base.empty()) return {};                     // e.g. "...List`1"
                 // Spell the type arguments from context.class_inst (an
                 // Il2CppGenericInst{ uint32 type_argc; Il2CppType** type_argv }).
-                if (auto instVA = img.readPtrVA(data + 0x08); instVA && *instVA) {
+                if (auto instVA = img.readPtrVA(data, 0x08); instVA && *instVA) {
                     auto argc = img.readU32VA(*instVA + 0x00);
-                    auto argvVA = img.readPtrVA(*instVA + 0x08);
+                    auto argvVA = img.readPtrVA(*instVA, 0x08);
                     if (argc && argvVA && *argc > 0 && *argc <= 32) {
                         std::string args;
                         for (uint32_t a = 0; a < *argc; ++a) {
-                            auto at = img.readPtrVA(*argvVA + static_cast<uint64_t>(a) * 8);
+                            auto at = img.readPtrVA(*argvVA, static_cast<uint64_t>(a) * 8);
                             std::string an = at ? nameOfTypeVA(*at, depth + 1) : std::string();
                             if (an.empty()) an = "?";
                             if (!args.empty()) args += ", ";
@@ -369,7 +379,7 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
         }
 
         // fieldOffsets[t] -> per-type int32 array (or 0 for generic defs).
-        std::optional<uint64_t> entryVA = img.readPtrVA(fieldOffsetsVA + t * 8);
+        std::optional<uint64_t> entryVA = img.readPtrVA(fieldOffsetsVA, t * 8);
         for (size_t i = 0; i < mt.fields.size(); ++i) {
             Il2CppResolvedField rf;
             rf.name = mt.fields[i].name;
@@ -381,7 +391,7 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
             rf.typeEnum = static_cast<uint8_t>((typeWord >> 16) & 0xFF);  // Il2CppTypeEnum
             rf.typeName = nameOfTypeVA(typeVA, 0);
             if (entryVA && *entryVA != 0) {
-                if (auto o = img.readI32VA(*entryVA + i * 4)) rf.offset = *o;
+                if (auto o = img.readI32VA(*entryVA, i * 4)) rf.offset = *o;
             }
             cl.fields.push_back(std::move(rf));
         }
@@ -394,14 +404,14 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
     if (auto arrVA = findCodeGenModules(img, md.images.size())) {
         std::unordered_map<std::string, std::pair<uint64_t, uint64_t>> mods;  // image -> (count, ptrsVA)
         for (size_t k = 0; k < md.images.size(); ++k) {
-            auto m = img.readPtrVA(*arrVA + k * 8);
+            auto m = img.readPtrVA(*arrVA, k * 8);
             if (!m || *m == 0) continue;
-            auto nmp = img.readPtrVA(*m + kCGM_moduleName);
+            auto nmp = img.readPtrVA(*m, kCGM_moduleName);
             if (!nmp) continue;
             std::string name = img.readCStrVA(*nmp);
             uint64_t mc = 0, mp = 0;
-            if (auto c = img.readPtrVA(*m + kCGM_methodCount)) mc = *c;
-            if (auto pp = img.readPtrVA(*m + kCGM_methodPointers)) mp = *pp;
+            if (auto c = img.readPtrVA(*m, kCGM_methodCount)) mc = *c;
+            if (auto pp = img.readPtrVA(*m, kCGM_methodPointers)) mp = *pp;
             if (!name.empty() && mp) mods[name] = {mc, mp};
         }
         for (size_t t = 0; t < nTypes; ++t) {
@@ -413,7 +423,7 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
             for (const auto& method : mt.methods) {
                 uint32_t rid = method.token & 0x00FFFFFF;
                 if (rid == 0 || rid > mc) continue;
-                auto fp = img.readPtrVA(mp + static_cast<uint64_t>(rid - 1) * 8);
+                auto fp = img.readPtrVA(mp, static_cast<uint64_t>(rid - 1) * 8);
                 if (!fp || *fp == 0 || !img.vaValid(*fp)) continue;
                 out.classes[t].methods.push_back({method.name, *fp - img.imageBase});
             }
@@ -543,12 +553,12 @@ resolveIl2CppMethods(const Il2CppMetadata& md, const std::string& binaryPath,
     // Find the codeGenModule whose moduleName matches this class's image.
     uint64_t methodCount = 0, methodPointersVA = 0;
     for (size_t k = 0; k < md.images.size(); ++k) {
-        auto m = img.readPtrVA(*arrVA + k * 8);
+        auto m = img.readPtrVA(*arrVA, k * 8);
         if (!m || *m == 0) continue;
-        auto nmp = img.readPtrVA(*m + kCGM_moduleName);
+        auto nmp = img.readPtrVA(*m, kCGM_moduleName);
         if (!nmp || img.readCStrVA(*nmp) != imageName) continue;
-        if (auto mc = img.readPtrVA(*m + kCGM_methodCount)) methodCount = *mc;
-        if (auto mp = img.readPtrVA(*m + kCGM_methodPointers)) methodPointersVA = *mp;
+        if (auto mc = img.readPtrVA(*m, kCGM_methodCount)) methodCount = *mc;
+        if (auto mp = img.readPtrVA(*m, kCGM_methodPointers)) methodPointersVA = *mp;
         break;
     }
     if (methodPointersVA == 0) return out;
@@ -557,7 +567,7 @@ resolveIl2CppMethods(const Il2CppMetadata& md, const std::string& binaryPath,
     for (const auto& m : cls->methods) {
         uint32_t rid = m.token & 0x00FFFFFF;
         if (rid == 0 || rid > methodCount) continue;
-        auto fp = img.readPtrVA(methodPointersVA + static_cast<uint64_t>(rid - 1) * 8);
+        auto fp = img.readPtrVA(methodPointersVA, static_cast<uint64_t>(rid - 1) * 8);
         if (!fp || *fp == 0 || !img.vaValid(*fp)) continue;   // no compiled body
         out.push_back({m.name, *fp - img.imageBase});
     }

@@ -1,4 +1,6 @@
 #include "gui/luaconsole.hpp"
+#include "gui/theme.hpp"
+#include <QApplication>
 #include "scripting/lua_gui.hpp"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -12,6 +14,7 @@
 #include <QPointer>
 
 namespace ce::gui {
+static void appendColored(QPlainTextEdit* out, const QString& text, const QColor& color);
 
 LuaConsole::LuaConsole(LuaEngine* engine, QWidget* parent)
     : QMainWindow(parent), engine_(engine) {
@@ -54,13 +57,18 @@ LuaConsole::LuaConsole(LuaEngine* engine, QWidget* parent)
     layout->addLayout(inputRow);
 
     setCentralWidget(central);
+    connect(qApp, &QApplication::paletteChanged, this, [this, previous = editorPalette()]() mutable {
+        auto current = editorPalette();
+        recolorConsole(output_->document(), previous, current);
+        previous = current;
+    });
 
     // Set output callback. Guard with a QPointer: the engine outlives this
     // console (WA_DeleteOnClose) and keeps calling the callback, so a raw `this`
     // would be a use-after-free after the window is closed.
     QPointer<LuaConsole> self(this);
     engine_->setOutputCallback([self](const std::string& msg) {
-        if (self) self->output_->appendPlainText(QString::fromStdString(msg));
+        if (self) appendColored(self->output_, QString::fromStdString(msg), editorPalette().text);
     });
 
     // Register GUI bindings (needs Qt, so done here not in engine)
@@ -92,13 +100,13 @@ void LuaConsole::onExecute() {
     historyIndex_ = history_.size();
 
     // Echo the command dimmed so it reads as input, not output.
-    appendColored(output_, "> " + code, QColor(0x80, 0x86, 0x94));
+    appendColored(output_, "> " + code, editorPalette().dim);
     input_->clear();
 
     auto err = engine_->execute(code.toStdString());
     if (!err.empty())
         // Errors in red (legible on both the light and dark themes).
-        appendColored(output_, "ERROR: " + QString::fromStdString(err), QColor(0xd6, 0x2b, 0x2b));
+        appendColored(output_, "ERROR: " + QString::fromStdString(err), editorPalette().error);
 }
 
 void LuaConsole::abandonLine() {

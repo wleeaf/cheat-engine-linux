@@ -51,6 +51,7 @@ void MemoryRegionsWindow::populate() {
         if (r.protection & MemProt::Exec) perms[2] = 'x';
         table_->setItem(i, 3, new QTableWidgetItem(perms));
         table_->setItem(i, 4, new QTableWidgetItem(QString::fromStdString(r.path)));
+        table_->item(i, 4)->setToolTip(table_->item(i, 4)->text());
         if (r.protection & MemProt::Read) totalReadable += r.size;
     }
     setWindowTitle(QString("Memory Regions: %1 regions, %2 MB readable")

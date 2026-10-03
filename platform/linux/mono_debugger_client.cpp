@@ -45,7 +45,7 @@ bool MonoDebuggerClient::sendAll(const void* data, size_t n, std::string& err) {
     auto* p = static_cast<const uint8_t*>(data);
     size_t sent = 0;
     while (sent < n) {
-        ssize_t r = ::send(fd_, p + sent, n - sent, 0);
+        ssize_t r = ::send(fd_, p + sent, n - sent, MSG_NOSIGNAL);
         if (r < 0 && errno == EINTR) continue; // retry on signal interruption
         if (r <= 0) { err = errnoString("send"); return false; }
         sent += (size_t)r;

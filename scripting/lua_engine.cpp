@@ -17,6 +17,14 @@ extern "C" {
 #include <exception>
 #include <utility>
 
+#include "scripting/lua_safe.hpp"
+
+#undef lua_pushcfunction
+#define lua_pushcfunction(L, f) ce::pushSafeLuaFunction((L), (f))
+#undef lua_register
+#define lua_register(L, n, f) ce::registerSafeLuaFunction((L), (n), (f))
+#define luaL_setfuncs(L, f, n) ce::setSafeLuaFunctions((L), (f), (n))
+
 namespace ce {
 
 // Store engine pointer in Lua registry
@@ -32,10 +40,54 @@ LuaEngine* LuaEngine::instanceFromState(lua_State* L) {
 }
 
 void LuaEngine::setOwnedCeserverClient(std::unique_ptr<os::CEServerClient> client) {
+    // A remote handle's destructor sends CLOSEHANDLE through its client.
+    // Release the old target before replacing the connection it references.
+    setProcess(nullptr);
     ownedCeserverClient_ = std::move(client);
 }
 
+void LuaEngine::resetTarget() {
+    debugSession_.reset();
+    {
+        std::lock_guard lock(debugMutex_);
+        debugQueue_.clear();
+    }
+    if (proc_) {
+        for (const auto& [id, hook] : hooks_) {
+            if (!removeSimpleHook(*proc_, hook))
+                ce::log::warn(ce::log::Cat::Lua, "could not restore hook {} before switching target", id);
+        }
+    }
+    hooks_.clear();
+    if (L_) {
+        lua_pushnil(L_);
+        lua_setfield(L_, LUA_REGISTRYINDEX, "ce_lua_breakpoints");
+        lua_pushboolean(L_, 0);
+        lua_setfield(L_, LUA_REGISTRYINDEX, "ce_lua_debug_broken");
+    }
+}
+
+void LuaEngine::setProcess(ProcessHandle* proc) {
+    if (proc == proc_) return;
+    resetTarget();
+    ownedProc_.reset();
+    proc_ = proc;
+    if (L_) {
+        lua_pushlightuserdata(L_, proc_);
+        lua_setfield(L_, LUA_REGISTRYINDEX, "ce_proc");
+    }
+}
+
+void LuaEngine::setResolver(SymbolResolver* resolver) {
+    resolver_ = resolver;
+    if (L_) {
+        lua_pushlightuserdata(L_, resolver_);
+        lua_setfield(L_, LUA_REGISTRYINDEX, "ce_resolver");
+    }
+}
+
 void LuaEngine::setOwnedProcess(std::unique_ptr<ProcessHandle> proc) {
+    resetTarget();
     ownedProc_ = std::move(proc);
     proc_ = ownedProc_.get();
 
@@ -46,7 +98,8 @@ void LuaEngine::setOwnedProcess(std::unique_ptr<ProcessHandle> proc) {
 }
 
 DebugSession* LuaEngine::debugSession() {
-    if (debugSession_) return debugSession_.get();
+    if (debugSession_ && debugSession_->isAttached()) return debugSession_.get();
+    debugSession_.reset();
     if (!proc_) return nullptr;
     auto sess = std::make_unique<DebugSession>();
     // Runs on the tracer thread — it MUST NOT touch Lua. It only queues the hit;
@@ -84,8 +137,18 @@ void LuaEngine::setAddressList(IAddressList* list) {
     // would outlive this engine and touch a closed lua_State.
     if (addressList_ && addressList_ != list)
         addressList_->setActivationCallback(nullptr);
+    bool changed = addressList_ != list;
     addressList_ = list;
     if (!L_) return;
+    if (changed) {
+        lua_getfield(L_, LUA_REGISTRYINDEX, "ce_addresslist_generation");
+        lua_Integer generation = lua_tointeger(L_, -1);
+        lua_pop(L_, 1);
+        lua_pushinteger(L_, generation == LUA_MAXINTEGER ? 1 : generation + 1);
+        lua_setfield(L_, LUA_REGISTRYINDEX, "ce_addresslist_generation");
+        lua_newtable(L_);
+        lua_setfield(L_, LUA_REGISTRYINDEX, MEMREC_CALLBACKS_KEY);
+    }
 
     lua_pushlightuserdata(L_, list);
     lua_setfield(L_, LUA_REGISTRYINDEX, ADDRESSLIST_KEY);
@@ -325,12 +388,14 @@ std::string LuaEngine::execute(const std::string& code) {
     lua_pushlightuserdata(L_, resolver_);
     lua_setfield(L_, LUA_REGISTRYINDEX, "ce_resolver");
 
+    int top = lua_gettop(L_);
     if (luaL_dostring(L_, code.c_str()) != LUA_OK) {
         const char* msg = lua_tostring(L_, -1);
         std::string err = msg ? msg : "lua error";
-        lua_pop(L_, 1);
+        lua_settop(L_, top);
         return err;
     }
+    lua_settop(L_, top);
     return {};
 }
 
@@ -352,8 +417,9 @@ LuaEngine::evalToString(const std::string& code) {
     int returned = lua_gettop(L_) - top;
     std::string result;
     if (returned > 0) {
-        const char* s = lua_tostring(L_, -returned);
-        if (s) result = s;
+        size_t length = 0;
+        const char* s = lua_tolstring(L_, -returned, &length);
+        if (s) result.assign(s, length);
         lua_pop(L_, returned);
     }
     return result;
@@ -365,12 +431,14 @@ std::string LuaEngine::executeFile(const std::string& path) {
     lua_pushlightuserdata(L_, resolver_);
     lua_setfield(L_, LUA_REGISTRYINDEX, "ce_resolver");
 
+    int top = lua_gettop(L_);
     if (luaL_dofile(L_, path.c_str()) != LUA_OK) {
         const char* msg = lua_tostring(L_, -1);
         std::string err = msg ? msg : "lua error";
-        lua_pop(L_, 1);
+        lua_settop(L_, top);
         return err;
     }
+    lua_settop(L_, top);
     return {};
 }
 
@@ -461,6 +529,9 @@ void LuaEngine::pumpTimers() {
     for (int id : due) {
         auto it = timers_.find(id);
         if (it == timers_.end()) continue;          // destroyed by an earlier callback
+        const auto& timer = it->second;
+        if (!timer.enabled || timer.intervalMs <= 0 || timer.cbRef < 0 ||
+            now - timer.lastMs < timer.intervalMs) continue;
         it->second.lastMs = now;
         int ref = it->second.cbRef;
         lua_rawgeti(L_, LUA_REGISTRYINDEX, ref);

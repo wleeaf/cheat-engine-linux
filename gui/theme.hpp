@@ -4,14 +4,14 @@
 /// takes effect live via qApp->setStyleSheet, no restart needed.
 
 #include <QColor>
+class QTextDocument;
 
 namespace ce::gui {
 
 /// The QSettings key holding the dark-theme flag (shared so main + settings agree).
 inline constexpr const char* kDarkThemeKey = "display/dark";
 
-/// Whether dark mode is enabled, per QSettings. Default is LIGHT (false) so the
-/// app looks like Cheat Engine's native theme out of the box.
+/// The active theme, falling back to the saved preference or the system palette.
 bool isDarkTheme();
 
 /// Apply the light or dark stylesheet to the whole application (qApp), live.
@@ -35,5 +35,7 @@ struct EditorPalette {
     QColor canvas, canvasBorder;
 };
 EditorPalette editorPalette();
+/// Update existing console text when switching themes without losing its roles.
+void recolorConsole(QTextDocument* document, const EditorPalette& previous, const EditorPalette& current);
 
 } // namespace ce::gui

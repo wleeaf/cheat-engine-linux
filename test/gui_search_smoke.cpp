@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
     // Tools menu (CE): "Auto Assemble..." and "Dissect data/structures..." route to the
     // openers MainWindow wires; here we assert the actions exist and fire their hooks.
     bool aaFired = false, dissectFired = false;
-    browser.setAutoAssembleOpener([&](const QString&) { aaFired = true; });
+    browser.setAutoAssembleOpener([&](const QString&, uintptr_t, size_t) { aaFired = true; });
     browser.setDissectOpener([&](uintptr_t) { dissectFired = true; });
     bool toolsOk = browser.triggerToolActionForTest("Auto Assemble") && aaFired &&
                    browser.triggerToolActionForTest("Dissect") && dissectFired;

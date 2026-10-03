@@ -4,6 +4,8 @@
 
 #include <cstring>
 #include <span>
+#include <limits>
+#include <algorithm>
 
 namespace ce {
 
@@ -27,10 +29,39 @@ void putAbsJmp(std::vector<uint8_t>& out, uint64_t target) {
     for (int i = 0; i < 8; ++i) out.push_back((uint8_t)((target >> (8 * i)) & 0xFF));
 }
 
+void putRelJmp(std::vector<uint8_t>& out, uintptr_t address, uintptr_t target) {
+    out.push_back(0xE9);
+    uint32_t rel = static_cast<uint32_t>(target - (address + 5));
+    for (int i = 0; i < 4; ++i) out.push_back(static_cast<uint8_t>(rel >> (8 * i)));
+}
+
+std::vector<SimpleHook::ProtectionRange> protectionsFor(ProcessHandle& proc, uintptr_t address, size_t size) {
+    std::vector<SimpleHook::ProtectionRange> out;
+    while (size) {
+        auto region = proc.queryRegion(address);
+        if (!region || address < region->base || address - region->base >= region->size) return {};
+        size_t n = std::min(size, region->size - (address - region->base));
+        out.push_back({address, n, region->protection});
+        address += n;
+        size -= n;
+    }
+    return out;
+}
+
+bool setProtections(ProcessHandle& proc, const std::vector<SimpleHook::ProtectionRange>& ranges, bool writable) {
+    bool ok = true;
+    for (const auto& range : ranges)
+        if (!proc.protect(range.address, range.size, writable ? range.protection | MemProt::Write : range.protection))
+            ok = false;
+    return ok;
+}
+
 } // namespace
 
 std::optional<SimpleHook> installSimpleHook(ProcessHandle& proc, uintptr_t address,
                                             uintptr_t target) {
+    bool code32 = proc.runs32BitCode();
+    if (code32 && (address > UINT32_MAX || target > UINT32_MAX)) return std::nullopt;
     // 1. Decode enough whole instructions at `address` to hold a 5-byte E9 jmp.
     uint8_t code[32] = {0};
     auto rd = proc.read(address, code, sizeof(code));
@@ -38,8 +69,8 @@ std::optional<SimpleHook> installSimpleHook(ProcessHandle& proc, uintptr_t addre
         ce::log::warn(ce::log::Cat::General, "createSimpleHook: cannot read code @ {:#x}", address);
         return std::nullopt;
     }
-    Disassembler dis(proc.runs32BitCode() ? Arch::X86_32 : Arch::X86_64);
-    auto insns = dis.disassemble(address, std::span<const uint8_t>(code, *rd), 0);
+    Disassembler dis(code32 ? Arch::X86_32 : Arch::X86_64);
+    auto insns = dis.disassemble(address, std::span<const uint8_t>(code, std::min(*rd, sizeof(code))), 0);
     size_t patchLen = 0;
     for (const auto& in : insns) {
         if (isPositionDependent(in)) {
@@ -60,6 +91,9 @@ std::optional<SimpleHook> installSimpleHook(ProcessHandle& proc, uintptr_t addre
     hook.address = address;
     hook.patchLen = patchLen;
     hook.original.assign(code, code + patchLen);
+    if (patchLen > UINTPTR_MAX - address) return std::nullopt;
+    hook.protections = protectionsFor(proc, address, patchLen);
+    if (hook.protections.empty()) return std::nullopt;
 
     // 2. Allocate a codecave NEAR the hook (within ±2GB so the E9 rel32 reaches).
     //    Layout: [gate: abs-jmp -> target][trampoline: original bytes + abs-jmp back].
@@ -69,13 +103,18 @@ std::optional<SimpleHook> installSimpleHook(ProcessHandle& proc, uintptr_t addre
         return std::nullopt;
     }
     hook.codecave = *cave;
+    if (64 + patchLen > UINTPTR_MAX - *cave ||
+        (code32 && *cave > UINT32_MAX - (64 + patchLen))) {
+        proc.free(*cave, 64 + patchLen);
+        return std::nullopt;
+    }
     const uintptr_t gate = *cave;
     const uintptr_t trampoline = *cave + 16;   // gate is 14 bytes; pad to 16
     hook.trampoline = trampoline;
 
     // The E9 at `address` must reach the gate.
-    int64_t rel = (int64_t)gate - (int64_t)(address + 5);
-    if (rel > 0x7FFFFFFFLL || rel < -0x80000000LL) {
+    uintptr_t rel = gate - (address + 5);
+    if (!code32 && rel > INT32_MAX && rel < UINTPTR_MAX - INT32_MAX) {
         ce::log::warn(ce::log::Cat::General, "createSimpleHook: codecave out of rel32 range");
         proc.free(*cave, 64 + patchLen);
         return std::nullopt;
@@ -83,11 +122,18 @@ std::optional<SimpleHook> installSimpleHook(ProcessHandle& proc, uintptr_t addre
 
     // 3. Write the gate (abs jmp -> user target) and the trampoline (original bytes
     //    then abs jmp back to address+patchLen).
-    std::vector<uint8_t> gateBytes;   putAbsJmp(gateBytes, target);
+    std::vector<uint8_t> gateBytes;
+    if (code32) putRelJmp(gateBytes, gate, target);
+    else putAbsJmp(gateBytes, target);
     std::vector<uint8_t> tramp(hook.original.begin(), hook.original.end());
-    putAbsJmp(tramp, address + patchLen);
-    if (!proc.write(gate, gateBytes.data(), gateBytes.size()) ||
-        !proc.write(trampoline, tramp.data(), tramp.size())) {
+    if (code32) putRelJmp(tramp, trampoline + patchLen, address + patchLen);
+    else putAbsJmp(tramp, address + patchLen);
+    auto gateWrite = proc.write(gate, gateBytes.data(), gateBytes.size());
+    auto trampolineWrite = gateWrite && *gateWrite == gateBytes.size()
+        ? proc.write(trampoline, tramp.data(), tramp.size())
+        : Result<size_t>(std::unexpected(std::make_error_code(std::errc::io_error)));
+    if (!gateWrite || *gateWrite != gateBytes.size() ||
+        !trampolineWrite || *trampolineWrite != tramp.size()) {
         ce::log::warn(ce::log::Cat::General, "createSimpleHook: codecave write failed");
         proc.free(*cave, 64 + patchLen);
         return std::nullopt;
@@ -97,16 +143,24 @@ std::optional<SimpleHook> installSimpleHook(ProcessHandle& proc, uintptr_t addre
     //    page writable first (it is normally r-x).
     std::vector<uint8_t> patch(patchLen, 0x90);
     patch[0] = 0xE9;
-    int32_t r32 = (int32_t)rel;
+    uint32_t r32 = static_cast<uint32_t>(rel);
     std::memcpy(&patch[1], &r32, 4);
-    proc.protect(address, patchLen, MemProt::Read | MemProt::Write | MemProt::Exec);
-    if (!proc.write(address, patch.data(), patch.size())) {
-        ce::log::warn(ce::log::Cat::General, "createSimpleHook: patch write failed @ {:#x}", address);
-        proc.protect(address, patchLen, MemProt::Read | MemProt::Exec);
+    if (!setProtections(proc, hook.protections, true)) {
+        setProtections(proc, hook.protections, false);
         proc.free(*cave, 64 + patchLen);
         return std::nullopt;
     }
-    proc.protect(address, patchLen, MemProt::Read | MemProt::Exec);
+    auto patchWrite = proc.write(address, patch.data(), patch.size());
+    if (!patchWrite || *patchWrite != patch.size()) {
+        ce::log::warn(ce::log::Cat::General, "createSimpleHook: patch write failed @ {:#x}", address);
+        // A short write may already have installed the jump. Restore the code
+        // before freeing its destination; retain the cave if recovery fails.
+        auto restored = proc.write(address, hook.original.data(), hook.original.size());
+        setProtections(proc, hook.protections, false);
+        if (restored && *restored == hook.original.size()) proc.free(*cave, 64 + patchLen);
+        return std::nullopt;
+    }
+    setProtections(proc, hook.protections, false);
 
     ce::log::info(ce::log::Cat::General,
         "createSimpleHook @ {:#x} -> {:#x} (patchLen={}, trampoline={:#x})",
@@ -116,9 +170,14 @@ std::optional<SimpleHook> installSimpleHook(ProcessHandle& proc, uintptr_t addre
 
 bool removeSimpleHook(ProcessHandle& proc, const SimpleHook& hook) {
     if (hook.original.empty()) return false;
-    proc.protect(hook.address, hook.original.size(), MemProt::Read | MemProt::Write | MemProt::Exec);
-    bool ok = proc.write(hook.address, hook.original.data(), hook.original.size()).has_value();
-    proc.protect(hook.address, hook.original.size(), MemProt::Read | MemProt::Exec);
+    auto ranges = hook.protections.empty() ? protectionsFor(proc, hook.address, hook.original.size()) : hook.protections;
+    if (ranges.empty() || !setProtections(proc, ranges, true)) {
+        setProtections(proc, ranges, false);
+        return false;
+    }
+    auto restored = proc.write(hook.address, hook.original.data(), hook.original.size());
+    bool ok = restored && *restored == hook.original.size();
+    ok = setProtections(proc, ranges, false) && ok;
     // Deliberately do not free the codecave: the target could still be executing
     // inside the trampoline.
     ce::log::info(ce::log::Cat::General, "removeSimpleHook @ {:#x}: {}", hook.address, ok ? "ok" : "FAILED");

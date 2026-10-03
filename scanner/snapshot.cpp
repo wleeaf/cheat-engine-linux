@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <unordered_map>
 
 namespace ce {
@@ -29,7 +30,7 @@ Snapshot Snapshot::capture(ProcessHandle& proc, uint64_t maxBytes) {
         if (take == 0) break;
         saved.bytes.resize((size_t)take);
         auto got = proc.read(r.base, saved.bytes.data(), (size_t)take);
-        if (!got) continue;
+        if (!got || *got == 0) continue;
         saved.bytes.resize(*got);
         budget -= (uint64_t)*got;
         snap.regions_.push_back(std::move(saved));
@@ -65,6 +66,9 @@ std::vector<Snapshot::ByteDiff> Snapshot::diff(const Snapshot& later) const {
                 out.push_back({a.base + i, a.bytes[i], matched->bytes[i]});
         }
     }
+    std::sort(out.begin(), out.end(), [](const ByteDiff& a, const ByteDiff& b) {
+        return a.address < b.address;
+    });
     return out;
 }
 
@@ -79,6 +83,9 @@ uint64_t Snapshot::restore(ProcessHandle& proc) const {
 }
 
 bool Snapshot::save(const std::string& path) const {
+    if (regions_.size() > std::numeric_limits<uint32_t>::max()) return false;
+    for (const auto& r : regions_)
+        if (r.bytes.size() > std::numeric_limits<uint32_t>::max()) return false;
     FILE* f = std::fopen(path.c_str(), "wb");
     if (!f) return false;
     auto writeAll = [&](const void* p, size_t n) {
@@ -98,11 +105,12 @@ bool Snapshot::save(const std::string& path) const {
              writeAll(&byteCount, sizeof(byteCount));
         if (ok && byteCount > 0) ok = writeAll(r.bytes.data(), byteCount);
     }
-    std::fclose(f);
+    if (std::fclose(f) != 0) ok = false;
     return ok;
 }
 
 bool Snapshot::load(const std::string& path, std::string* error) {
+    if (error) error->clear();
     auto fail = [&](const char* msg) {
         if (error) *error = msg;
         return false;
@@ -121,8 +129,21 @@ bool Snapshot::load(const std::string& path, std::string* error) {
     uint32_t count = 0;
     if (!readAll(&count, sizeof(count))) { std::fclose(f); return fail("truncated header"); }
     if (count > (1u << 24)) { std::fclose(f); return fail("region count too large"); }
-    regions_.clear();
-    regions_.reserve(count);
+    const long recordsStart = std::ftell(f);
+    if (recordsStart < 0 || std::fseek(f, 0, SEEK_END) != 0) {
+        std::fclose(f); return fail("seek failed");
+    }
+    const long end = std::ftell(f);
+    if (end < recordsStart || std::fseek(f, recordsStart, SEEK_SET) != 0) {
+        std::fclose(f); return fail("seek failed");
+    }
+    if (count > static_cast<uint64_t>(end - recordsStart) / 24) {
+        std::fclose(f); return fail("truncated records");
+    }
+    // Commit only a complete, validated snapshot. Failed loads preserve the
+    // checkpoint so callers cannot accidentally restore a partial file.
+    std::vector<SnapshotRegion> loaded;
+    loaded.reserve(std::min<uint32_t>(count, 4096));
     for (uint32_t i = 0; i < count; ++i) {
         uint64_t base = 0, size = 0;
         uint32_t prot = 0, byteCount = 0;
@@ -137,12 +158,14 @@ bool Snapshot::load(const std::string& path, std::string* error) {
         // snapshot of a large region (>256 MB) could be saved but never loaded.
         // A corrupt/hostile size still cannot force a huge allocation, because
         // the file must really contain that many bytes.
-        long pos = std::ftell(f);
-        if (pos < 0 || std::fseek(f, 0, SEEK_END) != 0) { std::fclose(f); return fail("seek failed"); }
-        long end = std::ftell(f);
-        if (end < 0 || std::fseek(f, pos, SEEK_SET) != 0) { std::fclose(f); return fail("seek failed"); }
+        const long pos = std::ftell(f);
+        if (pos < 0 || pos > end) { std::fclose(f); return fail("seek failed"); }
         if ((uint64_t)byteCount > (uint64_t)(end - pos)) {
             std::fclose(f); return fail("truncated bytes");
+        }
+        if (byteCount > size ||
+            (size && size - 1 > std::numeric_limits<uint64_t>::max() - base)) {
+            std::fclose(f); return fail("invalid region bounds");
         }
         SnapshotRegion r;
         r.base = base; r.size = size; r.protection = prot;
@@ -150,9 +173,10 @@ bool Snapshot::load(const std::string& path, std::string* error) {
         if (byteCount > 0 && !readAll(r.bytes.data(), byteCount)) {
             std::fclose(f); return fail("truncated bytes");
         }
-        regions_.push_back(std::move(r));
+        loaded.push_back(std::move(r));
     }
     std::fclose(f);
+    regions_ = std::move(loaded);
     return true;
 }
 

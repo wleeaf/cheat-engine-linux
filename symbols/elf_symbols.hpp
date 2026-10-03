@@ -68,6 +68,7 @@ private:
     // Sorted by address for binary search in resolve()
     std::map<uintptr_t, size_t> addrIndex_; // address → index into symbols_
     std::unordered_map<std::string, uintptr_t> nameIndex_; // name → address
+    std::unordered_map<std::string, uintptr_t> userNameIndex_;
     std::map<uintptr_t, std::string> userSymbols_;         // user-defined labels
 };
 

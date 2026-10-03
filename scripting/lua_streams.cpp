@@ -18,12 +18,21 @@ extern "C" {
 #include <cstdint>
 #include <cstring>
 #include <fstream>
+#include <filesystem>
 #include <new>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include <sys/stat.h>
+
+#include "scripting/lua_safe.hpp"
+
+#undef lua_pushcfunction
+#define lua_pushcfunction(L, f) ce::pushSafeLuaFunction((L), (f))
+#undef lua_register
+#define lua_register(L, n, f) ce::registerSafeLuaFunction((L), (n), (f))
+#define luaL_setfuncs(L, f, n) ce::setSafeLuaFunctions((L), (f), (n))
 
 namespace ce {
 
@@ -62,10 +71,34 @@ struct LuaStream {
     // File backing.
     std::fstream* file;
     bool readOnly;
+    std::string* path;
+    std::ios::openmode openMode;
 };
 
 LuaStream* checkStream(lua_State* L, int idx) {
-    return static_cast<LuaStream*>(luaL_checkudata(L, idx, STREAM_MT));
+    auto* s = static_cast<LuaStream*>(luaL_checkudata(L, idx, STREAM_MT));
+    if ((s->kind == StreamKind::Memory && !s->mem) ||
+        (s->kind == StreamKind::File && (!s->file || !s->file->is_open())))
+        luaL_error(L, "stream is closed");
+    return s;
+}
+
+std::streampos filePosition(LuaStream* s) {
+    return (s->openMode & std::ios::in) ? s->file->tellg() : s->file->tellp();
+}
+
+void fileSeek(LuaStream* s, std::streamoff pos, std::ios::seekdir dir = std::ios::beg) {
+    s->file->clear();
+    if (s->openMode & std::ios::in) s->file->seekg(pos, dir);
+    else s->file->seekp(pos, dir);
+}
+
+std::streampos fileSize(LuaStream* s) {
+    auto cur = filePosition(s);
+    fileSeek(s, 0, std::ios::end);
+    auto end = filePosition(s);
+    if (cur >= 0) fileSeek(s, cur);
+    return end;
 }
 
 void pushMemoryStream(lua_State* L) {
@@ -75,6 +108,8 @@ void pushMemoryStream(lua_State* L) {
     s->memPos = 0;
     s->file = nullptr;
     s->readOnly = false;
+    s->path = nullptr;
+    s->openMode = {};
     luaL_setmetatable(L, STREAM_MT);
 }
 
@@ -91,7 +126,7 @@ void pushFileStream(lua_State* L, const std::string& path, const std::string& mo
         openMode |= std::ios::out;
         readOnly = false;
     }
-    if (hasW) openMode |= std::ios::trunc;
+    if (hasW && mode != "rw") openMode |= std::ios::trunc;
     if (hasA) openMode |= std::ios::app;
     if (hasR || hasPlus) openMode |= std::ios::in;
     if (!(openMode & (std::ios::in | std::ios::out))) openMode |= std::ios::in;
@@ -100,6 +135,13 @@ void pushFileStream(lua_State* L, const std::string& path, const std::string& mo
         return;
     }
     auto* fs = new std::fstream(path, openMode);
+    if (!fs->is_open() && mode == "rw") {
+        std::error_code ec;
+        if (!std::filesystem::exists(path, ec) && !ec) {
+            fs->clear();
+            fs->open(path, openMode | std::ios::trunc);
+        }
+    }
     if (!fs->is_open()) {
         delete fs;
         lua_pushnil(L);
@@ -111,6 +153,8 @@ void pushFileStream(lua_State* L, const std::string& path, const std::string& mo
     s->memPos = 0;
     s->file = fs;
     s->readOnly = readOnly;
+    s->path = new std::string(path);
+    s->openMode = openMode;
     luaL_setmetatable(L, STREAM_MT);
 }
 
@@ -126,17 +170,17 @@ int l_stream_read(lua_State* L) {
         size_t avail = s->mem->size() > s->memPos ? s->mem->size() - s->memPos : 0;
         want = std::min<size_t>(want, avail);
     } else {
+        if (!(s->openMode & std::ios::in)) return luaL_error(L, "stream is write-only");
         // File: clamp to remaining bytes (size - current read position).
-        std::streampos cur = s->file->tellg();
-        s->file->seekg(0, std::ios::end);
-        std::streampos end = s->file->tellg();
         s->file->clear();
-        s->file->seekg(cur);
+        std::streampos cur = filePosition(s);
+        std::streampos end = fileSize(s);
         size_t remaining = (cur >= 0 && end >= cur)
                                ? (size_t)(end - cur)
                                : (size_t)0;
         want = std::min<size_t>(want, remaining);
     }
+    if (want > kMaxStreamBytes) return luaL_error(L, "stream read exceeds maximum size");
     std::string buf;
     buf.resize(want);
     size_t got = 0;
@@ -170,11 +214,13 @@ int l_stream_write(lua_State* L) {
             return luaL_error(L, "stream write exceeds maximum size");
         if (s->memPos + len > s->mem->size())
             s->mem->resize(s->memPos + len);
-        std::memcpy(s->mem->data() + s->memPos, data, len);
+        if (len) std::memcpy(s->mem->data() + s->memPos, data, len);
         s->memPos += len;
     } else {
         if (s->readOnly) return luaL_error(L, "stream is read-only");
         s->file->write(data, (std::streamsize)len);
+        s->file->flush();
+        if (!*s->file) return luaL_error(L, "stream write failed");
     }
     lua_pushinteger(L, (lua_Integer)len);
     return 1;
@@ -187,9 +233,8 @@ int l_stream_seek(lua_State* L) {
     if (s->kind == StreamKind::Memory) {
         s->memPos = (size_t)pos;
     } else {
-        s->file->clear();
-        s->file->seekg(pos);
-        s->file->seekp(pos);
+        fileSeek(s, pos);
+        if (!*s->file) return luaL_error(L, "stream seek failed");
     }
     lua_pushinteger(L, pos);
     return 1;
@@ -200,7 +245,7 @@ int l_stream_position(lua_State* L) {
     if (s->kind == StreamKind::Memory)
         lua_pushinteger(L, (lua_Integer)s->memPos);
     else
-        lua_pushinteger(L, (lua_Integer)s->file->tellg());
+        lua_pushinteger(L, (lua_Integer)filePosition(s));
     return 1;
 }
 
@@ -209,10 +254,7 @@ int l_stream_size(lua_State* L) {
     if (s->kind == StreamKind::Memory) {
         lua_pushinteger(L, (lua_Integer)s->mem->size());
     } else {
-        auto cur = s->file->tellg();
-        s->file->seekg(0, std::ios::end);
-        auto end = s->file->tellg();
-        s->file->seekg(cur);
+        auto end = fileSize(s);
         lua_pushinteger(L, (lua_Integer)end);
     }
     return 1;
@@ -221,6 +263,16 @@ int l_stream_size(lua_State* L) {
 int l_stream_saveToFile(lua_State* L) {
     auto* s = checkStream(L, 1);
     const char* path = luaL_checkstring(L, 2);
+    if (s->kind == StreamKind::File) {
+        s->file->flush();
+        if (!*s->file) { lua_pushboolean(L, 0); return 1; }
+        std::error_code ec;
+        if (std::filesystem::equivalent(*s->path, path, ec) && !ec) {
+            lua_pushboolean(L, 1);
+            return 1;
+        }
+        if (!(s->openMode & std::ios::in)) { lua_pushboolean(L, 0); return 1; }
+    }
     if (isExistingSymlink(path)) { lua_pushboolean(L, 0); return 1; }
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     if (!out.is_open()) {
@@ -230,21 +282,23 @@ int l_stream_saveToFile(lua_State* L) {
     if (s->kind == StreamKind::Memory) {
         out.write(reinterpret_cast<const char*>(s->mem->data()), (std::streamsize)s->mem->size());
     } else {
-        auto cur = s->file->tellg();
-        s->file->seekg(0);
+        auto cur = filePosition(s);
+        fileSeek(s, 0);
         std::vector<char> buf(4096);
         while (s->file->read(buf.data(), buf.size()) || s->file->gcount() > 0)
             out.write(buf.data(), s->file->gcount());
-        s->file->clear();
-        s->file->seekg(cur);
+        if (s->file->bad()) out.setstate(std::ios::failbit);
+        fileSeek(s, cur);
     }
-    lua_pushboolean(L, 1);
+    out.close();
+    lua_pushboolean(L, !out.fail());
     return 1;
 }
 
 int l_stream_loadFromFile(lua_State* L) {
     auto* s = checkStream(L, 1);
     const char* path = luaL_checkstring(L, 2);
+    if (s->kind == StreamKind::File && s->readOnly) return luaL_error(L, "stream is read-only");
     std::ifstream in(path, std::ios::binary | std::ios::ate);
     if (!in.is_open()) { lua_pushboolean(L, 0); return 1; }
     std::streamoff rawSz = in.tellg();
@@ -257,14 +311,21 @@ int l_stream_loadFromFile(lua_State* L) {
     in.seekg(0);
     std::vector<uint8_t> buf(sz);
     in.read(reinterpret_cast<char*>(buf.data()), (std::streamsize)sz);
+    if (!in) { lua_pushboolean(L, 0); return 1; }
+    in.close();
     if (s->kind == StreamKind::Memory) {
         *s->mem = std::move(buf);
         s->memPos = 0;
     } else {
-        if (s->readOnly) return luaL_error(L, "stream is read-only");
+        if (isExistingSymlink(s->path->c_str())) { lua_pushboolean(L, 0); return 1; }
+        s->file->close();
+        std::ofstream out(*s->path, std::ios::binary | std::ios::trunc);
+        out.write(reinterpret_cast<const char*>(buf.data()), (std::streamsize)buf.size());
+        out.close();
         s->file->clear();
-        s->file->seekp(0);
-        s->file->write(reinterpret_cast<const char*>(buf.data()), (std::streamsize)buf.size());
+        s->file->open(*s->path, s->openMode & ~std::ios::trunc);
+        if (!out || !s->file->is_open()) { lua_pushboolean(L, 0); return 1; }
+        fileSeek(s, 0);
     }
     lua_pushboolean(L, 1);
     return 1;
@@ -282,7 +343,7 @@ int l_stream_clear(lua_State* L) {
 }
 
 int l_stream_close(lua_State* L) {
-    auto* s = checkStream(L, 1);
+    auto* s = static_cast<LuaStream*>(luaL_checkudata(L, 1, STREAM_MT));
     if (s->kind == StreamKind::File && s->file) {
         s->file->close();
     }
@@ -290,7 +351,7 @@ int l_stream_close(lua_State* L) {
 }
 
 int l_stream__gc(lua_State* L) {
-    auto* s = checkStream(L, 1);
+    auto* s = static_cast<LuaStream*>(luaL_checkudata(L, 1, STREAM_MT));
     if (s->kind == StreamKind::Memory) {
         delete s->mem;
         s->mem = nullptr;
@@ -299,6 +360,8 @@ int l_stream__gc(lua_State* L) {
         delete s->file;
         s->file = nullptr;
     }
+    delete s->path;
+    s->path = nullptr;
     return 0;
 }
 
@@ -359,7 +422,9 @@ struct LuaStringList {
 };
 
 LuaStringList* checkSL(lua_State* L, int idx) {
-    return static_cast<LuaStringList*>(luaL_checkudata(L, idx, STRINGLIST_MT));
+    auto* sl = static_cast<LuaStringList*>(luaL_checkudata(L, idx, STRINGLIST_MT));
+    if (!sl->items) luaL_error(L, "string list is destroyed");
+    return sl;
 }
 
 void pushStringList(lua_State* L) {
@@ -379,8 +444,8 @@ int l_sl_add(lua_State* L) {
 
 int l_sl_delete(lua_State* L) {
     auto* sl = checkSL(L, 1);
-    int i = (int)luaL_checkinteger(L, 2);
-    if (i < 0 || i >= (int)sl->items->size()) return 0;
+    lua_Integer i = luaL_checkinteger(L, 2);
+    if (i < 0 || static_cast<uint64_t>(i) >= sl->items->size()) return 0;
     sl->items->erase(sl->items->begin() + i);
     return 0;
 }
@@ -399,8 +464,8 @@ int l_sl_getCount(lua_State* L) {
 
 int l_sl_get(lua_State* L) {
     auto* sl = checkSL(L, 1);
-    int i = (int)luaL_checkinteger(L, 2);
-    if (i < 0 || i >= (int)sl->items->size()) { lua_pushnil(L); return 1; }
+    lua_Integer i = luaL_checkinteger(L, 2);
+    if (i < 0 || static_cast<uint64_t>(i) >= sl->items->size()) { lua_pushnil(L); return 1; }
     const auto& s = (*sl->items)[i];
     lua_pushlstring(L, s.data(), s.size());
     return 1;
@@ -408,10 +473,10 @@ int l_sl_get(lua_State* L) {
 
 int l_sl_set(lua_State* L) {
     auto* sl = checkSL(L, 1);
-    int i = (int)luaL_checkinteger(L, 2);
+    lua_Integer i = luaL_checkinteger(L, 2);
     size_t n = 0;
     const char* v = luaL_checklstring(L, 3, &n);
-    if (i < 0 || i >= (int)sl->items->size()) return 0;
+    if (i < 0 || static_cast<uint64_t>(i) >= sl->items->size()) return 0;
     (*sl->items)[i].assign(v, n);
     return 0;
 }
@@ -462,7 +527,8 @@ int l_sl_saveToFile(lua_State* L) {
     for (size_t i = 0; i < sl->items->size(); ++i) {
         out << (*sl->items)[i] << '\n';
     }
-    lua_pushboolean(L, 1);
+    out.close();
+    lua_pushboolean(L, !out.fail());
     return 1;
 }
 
@@ -471,15 +537,17 @@ int l_sl_loadFromFile(lua_State* L) {
     const char* path = luaL_checkstring(L, 2);
     std::ifstream in(path);
     if (!in.is_open()) { lua_pushboolean(L, 0); return 1; }
-    sl->items->clear();
+    std::vector<std::string> items;
     std::string line;
-    while (std::getline(in, line)) sl->items->push_back(std::move(line));
+    while (std::getline(in, line)) items.push_back(std::move(line));
+    if (!in.eof() || in.bad()) { lua_pushboolean(L, 0); return 1; }
+    *sl->items = std::move(items);
     lua_pushboolean(L, 1);
     return 1;
 }
 
 int l_sl__gc(lua_State* L) {
-    auto* sl = checkSL(L, 1);
+    auto* sl = static_cast<LuaStringList*>(luaL_checkudata(L, 1, STRINGLIST_MT));
     delete sl->items;
     sl->items = nullptr;
     return 0;

@@ -2,6 +2,7 @@
 #include "gui/mainwindow.hpp"
 #include "gui/theme.hpp"
 #include "core/expression.hpp"
+#include "core/value_io.hpp"
 #include "core/memview_nav.hpp"
 #include "gui/processlistdialog.hpp"
 #include "gui/registereditor.hpp"
@@ -45,6 +46,8 @@
 #include <QMenuBar>
 #include <QApplication>
 #include <QEventLoop>
+#include <QScrollArea>
+#include <QFontMetrics>
 #include <thread>
 #include <atomic>
 #include <QCoreApplication>
@@ -66,6 +69,8 @@
 #include <QListWidget>
 #include <sys/prctl.h>
 #include <QFile>
+#include <QSaveFile>
+#include <QProgressDialog>
 #include <QFileInfo>
 #include <QProcess>
 #include <QStandardPaths>
@@ -109,17 +114,11 @@
 #include <exception>
 
 namespace ce::gui {
-// The scan-results table renders at most this many rows (keeping a million-hit
-// first scan responsive). The true hit count is always shown in the label, with
-// a "(showing first N)" note when it exceeds the cap so the list never looks
-// silently truncated.
-static constexpr size_t kResultDisplayCap = 10000;
+// Load rows as the user scrolls, keeping large first scans responsive.
+static constexpr int kResultBatchSize = 1000;
 
 static QString foundLabelText(size_t count) {
-    QString s = QString("Found: %1").arg(QLocale().toString((qulonglong)count));
-    if (count > kResultDisplayCap)
-        s += QString("  (showing first %1)").arg(QLocale().toString((qulonglong)kResultDisplayCap));
-    return s;
+    return QString("Found: %1").arg(QLocale().toString((qulonglong)count));
 }
 
 // Accepts "," or "." decimals (Turkish comma-locale); defined lower down.
@@ -142,8 +141,9 @@ static void warnIfMemoryUnreadable(QWidget* parent, ce::ProcessHandle* p,
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setupUi();
     setupMenus();
+    updateScanButtons();
     setWindowTitle("Cheat Engine");
-    resize(760, 560);
+    resize(960, 760);
     // Restore the last window size/position and splitter layout (no-ops on the
     // first run, leaving the defaults above). Saved back in closeEvent().
     {
@@ -183,18 +183,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (!process_) return;
         // Detect target death: once the pid is gone, stop polling and clear state
         // so the UI doesn't keep showing stale values against a dead process.
-        if (currentPid_ > 0 && ::kill(currentPid_, 0) != 0 && errno == ESRCH) {
+        if (!ceserverClient_ && currentPid_ > 0 && ::kill(currentPid_, 0) != 0 && errno == ESRCH) {
             processLabel_->setText(QString("Process %1 has exited").arg(currentPid_));
             statusBar()->showMessage("Target process exited", 5000);
-            // Sever every raw pointer into process_ BEFORE it is destroyed: open
-            // Memory Viewers (their refresh timer would read a freed handle) and
-            // the shared Lua engine (a table timer/script would do the same).
-            for (auto& mv : memoryViewers_) if (mv) mv->detachFromTarget();
-            for (auto& sd : structDissectors_) if (sd) sd->detachFromTarget();
-            // The Debugger holds the same raw handle; destroy it too or its
-            // memory-address field would call read() on the freed ProcessHandle.
-            if (debuggerWindow_) delete debuggerWindow_;
-            luaEngine_.setProcess(nullptr);
+            releaseTargetUsers();
             process_.reset();
             currentPid_ = 0;
             setWindowTitle("Cheat Engine");
@@ -413,6 +405,14 @@ void MainWindow::setupMenus() {
     // ── Table menu ──
     table->addAction("Auto Assemble...", this, [this]() {
         auto* editor = new ScriptEditor(process_.get(), &autoAsm_, this);
+        for (auto it = memoryViewers_.rbegin(); it != memoryViewers_.rend(); ++it) {
+            if (*it && (*it)->isVisible()) {
+                auto [address, size] = (*it)->injectionSelection();
+                editor->setInjectionAddress(address, size);
+                break;
+            }
+        }
+        trackTargetWindow(editor);
         editor->setAttribute(Qt::WA_DeleteOnClose);
         editor->setAddToTable([this](const QString& d, const QString& s) {
             addressListModel_->addScriptEntry(d, s);
@@ -470,6 +470,7 @@ void MainWindow::setupMenus() {
         if (!process_) { QMessageBox::warning(this, "Memory Allocations", "Open a process first."); return; }
         auto* dlg = new QDialog(this);
         dlg->setWindowTitle("Memory Allocations");
+        trackTargetWindow(dlg);
         dlg->resize(360, 300);
         auto* v = new QVBoxLayout(dlg);
         auto* list = new QListWidget;
@@ -1041,11 +1042,11 @@ void MainWindow::updateOverlayStatus() {
 }
 
 // The monospace font from the Settings dialog (display/fontFamily + fontSize),
-// used for the results / cheat-table views. Falls back to "Monospace" 9.
+// used for the results / cheat-table views. Falls back to "Monospace" 10.
 static QFont settingsMonospaceFont() {
     QSettings s;
     return QFont(s.value("display/fontFamily", "Monospace").toString(),
-                 s.value("display/fontSize", 9).toInt());
+                 s.value("display/fontSize", 10).toInt());
 }
 
 void MainWindow::setupUi() {
@@ -1120,7 +1121,8 @@ void MainWindow::setupUi() {
            "or open a process with Ctrl+O."),
         resultsView_->viewport());
     resultsEmptyHint_->setAlignment(Qt::AlignCenter);
-    resultsEmptyHint_->setStyleSheet("color: gray; background: transparent;");
+    resultsEmptyHint_->setProperty("secondary", true);
+    resultsEmptyHint_->setWordWrap(true);
     resultsEmptyHint_->setAttribute(Qt::WA_TransparentForMouseEvents);
     resultsView_->viewport()->installEventFilter(this);
     auto updateResultsHint = [this]() {
@@ -1229,6 +1231,8 @@ void MainWindow::setupUi() {
 
     auto* leftBtns = new QHBoxLayout;
     auto* memViewBtn = new QPushButton("Memory View");
+    memViewBtn->setObjectName("memoryViewButton");
+    memViewBtn->setToolTip("Browse the selected process's memory");
     connect(memViewBtn, &QPushButton::clicked, this, &MainWindow::onMemoryView);
     auto* addAddrBtn = new QPushButton("Add Address");
     connect(addAddrBtn, &QPushButton::clicked, this, [this]() {
@@ -1496,7 +1500,8 @@ void MainWindow::setupUi() {
         persist("scan/memMapped", memMappedCheck_);
     }
 
-    optLayout->addWidget(new QLabel("Text encoding:"), 7, 0);
+    auto* textEncodingLabel = new QLabel("Text encoding:");
+    optLayout->addWidget(textEncodingLabel, 7, 0);
     stringEncodingCombo_ = new QComboBox;
     stringEncodingCombo_->addItems({"UTF-8", "ISO-8859-1", "CP1252"});
     optLayout->addWidget(stringEncodingCombo_, 7, 1);
@@ -1555,11 +1560,11 @@ void MainWindow::setupUi() {
     addressListView_->setAlternatingRowColors(true);   // activates the theme's zebra rows
     // Centered hint over the empty cheat table (matches the results-list hint).
     tableEmptyHint_ = new QLabel(
-        tr("No saved addresses.\n\nDouble-click a scan result to add it here,\n"
-           "or use Add Address."),
+        tr("No saved addresses.\nDouble-click a result or use Add Address."),
         addressListView_->viewport());
     tableEmptyHint_->setAlignment(Qt::AlignCenter);
-    tableEmptyHint_->setStyleSheet("color: gray; background: transparent;");
+    tableEmptyHint_->setProperty("secondary", true);
+    tableEmptyHint_->setWordWrap(true);
     tableEmptyHint_->setAttribute(Qt::WA_TransparentForMouseEvents);
     addressListView_->viewport()->installEventFilter(this);
     auto updateTableHint = [this]() {
@@ -1600,7 +1605,15 @@ void MainWindow::setupUi() {
     addressListView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     addressListView_->setFont(settingsMonospaceFont());
     addressListView_->verticalHeader()->setVisible(false);
-    addressListView_->horizontalHeader()->setStretchLastSection(true);
+    auto* addressHeader = addressListView_->horizontalHeader();
+    addressHeader->setMinimumSectionSize(48);
+    addressHeader->setSectionResizeMode(0, QHeaderView::Fixed);
+    addressHeader->resizeSection(0, 62);
+    addressHeader->setSectionResizeMode(1, QHeaderView::Stretch);
+    addressHeader->setSectionResizeMode(2, QHeaderView::Interactive);
+    addressHeader->resizeSection(2, QFontMetrics(addressListView_->font()).horizontalAdvance("GameAssembly.so+0x123456") + 18);
+    addressHeader->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    addressHeader->setSectionResizeMode(4, QHeaderView::ResizeToContents);
     addressListView_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     // Drag-and-drop reordering (CE): drag an entry to move it; the model's dropMimeData
     // does the reorder (a group header carries its children) and the view must not do
@@ -1949,6 +1962,7 @@ void MainWindow::setupUi() {
                 menu.addAction("Pointer scan for this address", [this, selected]() {
                     if (!process_ || selected.isEmpty()) return;
                     auto* dlg = new PointerScanDialog(process_.get(), this);
+                    trackTargetWindow(dlg);
                     dlg->setAttribute(Qt::WA_DeleteOnClose);
                     connect(dlg, &PointerScanDialog::addressSelected, this,
                             [this](uintptr_t addr, const QString& expr) {
@@ -2174,7 +2188,6 @@ void MainWindow::setupUi() {
     // so it scales with font size / DPI and leaves no dead space): a button row,
     // a right-aligned label/field form, and the Memory Scan Options group.
     auto* controls = new QWidget;
-    controls->setMaximumWidth(440);
     auto* cv = new QVBoxLayout(controls);
     cv->setContentsMargins(6, 0, 0, 0);
     cv->setSpacing(6);
@@ -2212,8 +2225,25 @@ void MainWindow::setupUi() {
 
     // Memory Scan Options group (From/To, Writable/Executable, Fast Scan, etc.).
     cv->addWidget(optGroup);
+    auto updateTextOptions = [this, textEncodingLabel]() {
+        auto type = mapValueType(valueTypeCombo_->currentIndex());
+        bool text = type == ValueType::String || type == ValueType::UnicodeString;
+        caseSensitiveCheck_->setVisible(text);
+        stringEncodingCombo_->setVisible(type == ValueType::String);
+        textEncodingLabel->setVisible(type == ValueType::String);
+    };
+    connect(valueTypeCombo_, &QComboBox::currentIndexChanged, this, [updateTextOptions]() { updateTextOptions(); });
+    updateTextOptions();
     cv->addStretch(1);
-    mainRow->addWidget(controls);
+    auto* controlsScroll = new QScrollArea;
+    controlsScroll->setObjectName("scanControlsScroll");
+    controlsScroll->setFrameShape(QFrame::NoFrame);
+    controlsScroll->setWidgetResizable(true);
+    controlsScroll->setWidget(controls);
+    controlsScroll->setMinimumWidth(controls->minimumSizeHint().width() + 18);
+    controlsScroll->setMaximumWidth(controls->minimumSizeHint().width() + 36);
+    controlsScroll->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+    mainRow->addWidget(controlsScroll);
     sv->addLayout(mainRow, 1);
 
     // These start hidden; their visibility is driven by scan state, not the layout
@@ -2235,9 +2265,10 @@ void MainWindow::setupUi() {
     vsplit->addWidget(addressListView_);
     vsplit->setStretchFactor(0, 0);
     vsplit->setStretchFactor(1, 1);
-    vsplit->setSizes({440, 220});
+    vsplit->setChildrenCollapsible(false);
+    vsplit->setSizes({480, 220});
     v->addWidget(vsplit, 1);
-    addressListView_->setMinimumHeight(90);
+    addressListView_->setMinimumHeight(140);
 
     auto* bottomBar = new QHBoxLayout;
     auto* advBtn = new QPushButton("Advanced Options");
@@ -2351,18 +2382,8 @@ static void warnIfMemoryUnreadable(QWidget* parent, ce::ProcessHandle* p,
 
 void MainWindow::attachToPid(pid_t pid, const QString& name) {
     currentPid_ = pid;
-    // A Debugger window from a previous target holds a ptrace attachment and a
-    // pointer to the ProcessHandle we are about to replace. Tear it down
-    // synchronously (not close(), which defers deletion past the reset below) so
-    // its detach runs against the still-valid handle and frees ptrace for the new
-    // attach.
-    if (debuggerWindow_) delete debuggerWindow_;
-    // Freeze any Memory Viewers on the previous target for the same reason: the
-    // handle they point at is replaced (destroyed) on the next line.
-    for (auto& mv : memoryViewers_) if (mv) mv->detachFromTarget();
-    memoryViewers_.clear();
-    for (auto& sd : structDissectors_) if (sd) sd->detachFromTarget();
-    structDissectors_.clear();
+    releaseTargetUsers();
+    process_.reset();
     ceserverClient_.reset();
     process_ = std::make_unique<os::LinuxProcessHandle>(pid);
     // Resolve a readable name so the header isn't "PID: 1234 - 1234" when we were
@@ -2477,15 +2498,11 @@ void MainWindow::onConnectCeserver() {
             return;
         }
 
-        // Tear down the previous target's Debugger/views before replacing the
-        // handle they point at (they would otherwise read a freed ProcessHandle).
-        if (debuggerWindow_) delete debuggerWindow_;
-        for (auto& mv : memoryViewers_) if (mv) mv->detachFromTarget();
-        memoryViewers_.clear();
-        for (auto& sd : structDissectors_) if (sd) sd->detachFromTarget();
-        structDissectors_.clear();
+        releaseTargetUsers();
+        process_.reset();
         ceserverClient_ = std::move(client);
         process_ = std::move(handle);
+        luaEngine_.setProcess(process_.get());
         currentPid_ = pid;
         processLabel_->setText(QString("REMOTE PID: %1 @ %2:%3 (%4)")
             .arg((int)pid).arg(hostEdit->text()).arg(portSpin->value())
@@ -2588,7 +2605,7 @@ static size_t resultValueSizeForConfig(const ScanConfig& config) {
         case ValueType::String:
             return std::max<size_t>(1, config.stringValueSize());
         case ValueType::UnicodeString:
-            return std::max<size_t>(2, config.stringValue.size() * 2);
+            return std::max<size_t>(2, ce::encodeStringBytes(config.stringValue, "UTF-16LE").size());
         case ValueType::ByteArray:
         case ValueType::Binary:
             return std::max<size_t>(1, config.byteArray.size());
@@ -2819,6 +2836,7 @@ void MainWindow::onFirstScan() {
         QMessageBox::warning(this, "Scan results truncated",
             "A scan-result file could not be fully written (the disk may be full). "
             "Some results are unreliable; free space and scan again.");
+    if (result->valueSize()) resultValueSize = result->valueSize();
     resultsModel_->setResult(result.get(), config.valueType, resultValueSize, config.stringEncoding);
 
     undoResult_ = std::move(lastResult_);
@@ -2936,6 +2954,7 @@ void MainWindow::onNextScan() {
         QMessageBox::warning(this, "Scan results truncated",
             "A scan-result file could not be fully written (the disk may be full). "
             "Some results are unreliable; free space and scan again.");
+    if (result->valueSize()) resultValueSize = result->valueSize();
     resultsModel_->setResult(result.get(), config.valueType, resultValueSize, config.stringEncoding);
 
     undoResult_ = std::move(lastResult_);
@@ -3052,16 +3071,27 @@ void MainWindow::closeEvent(QCloseEvent* ev) {
     QMainWindow::closeEvent(ev);
 }
 
-MainWindow::~MainWindow() {
-    // Stop every "find what writes/accesses" monitor (joining its background thread)
-    // BEFORE any members are destroyed. Each monitor thread uses process_ and its
-    // ce::Debugger, and member destruction runs in reverse declaration order (the
-    // Debuggers would otherwise be freed while a monitor thread is still calling
-    // dbg_->getContext() on a live hit — a use-after-free crash at exit).
-    for (auto& f : codeFinders_)
-        if (f) f->stop();
+void MainWindow::releaseTargetUsers() {
+    // Delete windows while their target, finders and Lua engine still exist.
+    // QPointer also covers nested windows deleted with one of their parents.
+    for (auto& window : targetWindows_) if (window) delete window.data();
+    targetWindows_.clear();
+    if (debuggerWindow_) delete debuggerWindow_;
+    for (auto& finder : codeFinders_) if (finder) finder->stop();
     codeFinders_.clear();
     codeFinderDebuggers_.clear();
+    for (auto& viewer : memoryViewers_) if (viewer) viewer->detachFromTarget();
+    memoryViewers_.clear();
+    for (auto& dissector : structDissectors_) if (dissector) dissector->detachFromTarget();
+    structDissectors_.clear();
+    if (advancedOptions_) advancedOptions_->setProcess(nullptr);
+    snapshot_.reset();
+    allocations_.clear();
+    luaEngine_.setProcess(nullptr);
+}
+
+MainWindow::~MainWindow() {
+    releaseTargetUsers();
 
     // Drop Lua GUI callback bindings before luaEngine_ (and its lua_State) is
     // destroyed with this window's members, so a stray Qt timer/widget callback
@@ -3100,14 +3130,16 @@ void MainWindow::wireBrowserAnnotations(MemoryBrowser* browser) {
     });
     // "Auto Assemble > Create code/AOB injection here" opens a script editor
     // pre-filled with the generated template.
-    browser->setAutoAssembleOpener([this](const QString& script) {
+    browser->setAutoAssembleOpener([this](const QString& script, uintptr_t address, size_t size) {
         auto* editor = new ScriptEditor(process_.get(), &autoAsm_, this);
+        trackTargetWindow(editor);
         editor->setAttribute(Qt::WA_DeleteOnClose);
         editor->setAddToTable([this](const QString& d, const QString& s) {
             addressListModel_->addScriptEntry(d, s);
         });
         editor->setBeforeExecute([this]() { stopCodeFindersForInjection(); });
         editor->setScript(script.toStdString());
+        editor->setInjectionAddress(address, size);
         editor->show();
     });
     // Tools > Dissect data/structures opens a Structure Dissector at the address.
@@ -3135,6 +3167,7 @@ void MainWindow::editScriptEntry(int row) {
     QString script = entries[row].autoAsmScript;
 
     auto* editor = new ScriptEditor(process_.get(), &autoAsm_, this);
+    trackTargetWindow(editor);
     editor->setAttribute(Qt::WA_DeleteOnClose);
     editor->setWindowTitle("Auto Assembler: " + desc);
     editor->setDefaultDescription(desc);
@@ -3318,34 +3351,46 @@ void MainWindow::rebuildValueHotkeys() {
 }
 
 void MainWindow::onSaveScanResults() {
-    const int rows = resultsModel_ ? resultsModel_->rowCount() : 0;
-    if (rows == 0) {
-        statusBar()->showMessage("No scan results to save.", 4000);
-        return;
-    }
-    const QString path = QFileDialog::getSaveFileName(this, "Save current scan results",
+    if (!resultsModel_ || !resultsModel_->resultCount()) { statusBar()->showMessage("No scan results to save.", 4000); return; }
+    const QString path = QFileDialog::getSaveFileName(this, "Save all current scan results",
         "scanresults.txt", "Text (*.txt);;CSV (*.csv);;All files (*)");
     if (path.isEmpty()) return;
-    QFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        statusBar()->showMessage("Could not open the file for writing.", 4000);
-        return;
+    const size_t rows = resultsModel_->resultCount();
+    if (!rows) { statusBar()->showMessage("No scan results to save.", 4000); return; }
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        statusBar()->showMessage(file.errorString(), 4000); return;
     }
-    // Tab-separated by default; comma when the user picks a .csv name. Values come
-    // through the model's own formatter, so they match exactly what's on screen.
     const bool csv = path.endsWith(".csv", Qt::CaseInsensitive);
-    const QChar sep = csv ? QChar(',') : QChar('\t');
-    QTextStream out(&f);
-    out << "Address" << sep << "Value" << '\n';
-    for (int r = 0; r < rows; ++r) {
-        const QString addr = resultsModel_->data(resultsModel_->index(r, 0), Qt::DisplayRole).toString();
-        const QString val  = resultsModel_->data(resultsModel_->index(r, 1), Qt::DisplayRole).toString();
-        out << addr << sep << val << '\n';
+    const QChar separator = csv ? QChar(',') : QChar('\t');
+    auto field = [csv](QString text) {
+        if (csv) return QString('"') + text.replace("\"", "\"\"") + '"';
+        return text.replace("\t", "\\t").replace("\r", "\\r").replace("\n", "\\n");
+    };
+    QProgressDialog progress("Saving all scan results...", "Cancel", 0, 1000, this);
+    progress.setWindowModality(Qt::WindowModal);
+    bool changed = false;
+    connect(resultsModel_, &QAbstractItemModel::modelReset, &progress, [&] { changed = true; });
+    QTextStream output(&file);
+    output << "Address" << separator << "Value" << '\n';
+    for (size_t row = 0; row < rows; ++row) {
+        if (row % 1000 == 0) {
+            progress.setValue(static_cast<int>(static_cast<long double>(row) / rows * 1000));
+            QCoreApplication::processEvents();
+            if (changed || progress.wasCanceled()) {
+                file.cancelWriting();
+                statusBar()->showMessage(changed ? "Scan results changed; export canceled." : "Export canceled.", 4000);
+                return;
+            }
+        }
+        output << field(resultsModel_->displayValueAt(row, 0)) << separator
+               << field(resultsModel_->displayValueAt(row, 1)) << '\n';
     }
-    QString msg = QString("Saved %1 results to %2").arg(rows).arg(QFileInfo(path).fileName());
-    if (lastResult_ && lastResult_->count() > static_cast<size_t>(rows))
-        msg += QString(" (list capped at %1 of %2 found)").arg(rows).arg(lastResult_->count());
-    statusBar()->showMessage(msg, 6000);
+    output.flush();
+    if (output.status() != QTextStream::Ok || !file.commit()) {
+        statusBar()->showMessage("Could not save scan results: " + file.errorString(), 6000); return;
+    }
+    statusBar()->showMessage(QString("Saved %1 results to %2").arg(qulonglong(rows)).arg(QFileInfo(path).fileName()), 6000);
 }
 
 void MainWindow::onSaveTable() {
@@ -3810,6 +3855,7 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly, int 
     auto title = writesOnly ? "Find what writes" : "Find what accesses";
     auto* window = new CodeFinderWindow(finderPtr,
         QString("%1 0x%2").arg(title).arg(addr, 0, 16), process_.get(), this);
+    trackTargetWindow(window);
     window->setAttribute(Qt::WA_DeleteOnClose);
     // Closing the window stops the monitor so it releases the traced thread / debug
     // register (otherwise a later find-what-writes could not seize it). `this`
@@ -3872,6 +3918,7 @@ void MainWindow::trackStructDissector(StructureDissector* sd) {
 void MainWindow::openMonoDissector() {
     if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
     auto* w = new ce::gui::MonoDissectorWindow(process_.get(), this);
+    trackTargetWindow(w);
     w->setAttribute(Qt::WA_DeleteOnClose);
     // Double-clicking a field asks for the object's base address, then adds
     // base+offset to the address list with the field's mapped type.
@@ -3948,10 +3995,15 @@ QWidget* MainWindow::openPanelByName(const QString& name) {
 QDialog* MainWindow::openSettingsDialog(const QString& page) {
     auto* dlg = new SettingsDialog(this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    // Apply the (possibly changed) auto-refresh interval live when it closes.
-    connect(dlg, &QDialog::finished, this, [this](int) {
+    connect(dlg, &SettingsDialog::settingsApplied, this, [this]() {
         if (valueRefreshTimer_)
             valueRefreshTimer_->start(QSettings().value("memview/refreshMs", 500).toInt());
+        const QFont font = settingsMonospaceFont();
+        resultsView_->setFont(font);
+        addressListView_->setFont(font);
+        addressListView_->setColumnWidth(2, QFontMetrics(font).horizontalAdvance("GameAssembly.so+0x123456") + 18);
+        resultsView_->viewport()->update();
+        addressListView_->viewport()->update();
     });
     // Optionally jump straight to a named category (used by the UI screenshot
     // harness, and handy for deep-linking to a settings page).
@@ -4058,6 +4110,7 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
     view->addAction("Memory Regions", this, [this, openAt]() {
         if (!process_) return;
         auto* w = new MemoryRegionsWindow(process_.get(), this);
+        trackTargetWindow(w);
         w->setAttribute(Qt::WA_DeleteOnClose);
         connect(w, &MemoryRegionsWindow::navigateTo, this, [openAt](uintptr_t a){ openAt(a); });
         w->show();
@@ -4065,6 +4118,7 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
     view->addAction("Heap list", this, [this, openAt]() {
         if (!process_) return;
         auto* w = new HeapRegionsWindow(process_.get(), this);
+        trackTargetWindow(w);
         w->setAttribute(Qt::WA_DeleteOnClose);
         connect(w, &HeapRegionsWindow::navigateTo, this, [openAt](uintptr_t a){ openAt(a); });
         w->show();
@@ -4072,6 +4126,7 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
     view->addAction("Module list", this, [this, openAt]() {
         if (!process_) return;
         auto* w = new ModuleListWindow(process_.get(), this);
+        trackTargetWindow(w);
         w->setAttribute(Qt::WA_DeleteOnClose);
         connect(w, &ModuleListWindow::navigateTo, this, [openAt](uintptr_t a){ openAt(a); });
         w->show();
@@ -4079,6 +4134,7 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
     view->addAction("Referenced strings / functions", this, [this, openAt]() {
         if (!process_) return;
         auto* w = new CodeReferencesWindow(process_.get(), this);
+        trackTargetWindow(w);
         w->setAttribute(Qt::WA_DeleteOnClose);
         connect(w, &CodeReferencesWindow::navigateTo, this, [openAt](uintptr_t a){ openAt(a); });
         w->show();
@@ -4086,16 +4142,19 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
     view->addAction("Thread list", this, [this]() {
         if (!process_) return;
         auto* w = new ThreadListWindow(process_.get(), this);
+        trackTargetWindow(w);
         w->setAttribute(Qt::WA_DeleteOnClose); w->show();
     });
     view->addAction("Stacktrace", this, [this]() {
         if (!process_) return;
         auto* w = new StackViewWindow(process_.get(), this);
+        trackTargetWindow(w);
         w->setAttribute(Qt::WA_DeleteOnClose); w->show();
     });
     view->addAction("Graphical memory view", this, [this]() {
         if (!process_) return;
         auto* w = new ce::gui::GraphicalMemoryView(process_.get(), this);
+        trackTargetWindow(w);
         w->setAttribute(Qt::WA_DeleteOnClose); w->show();
     });
 
@@ -4106,6 +4165,7 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
         dbg->addAction("Registers", this, [this]() {
             if (!process_) return;
             auto* w = new RegisterEditorWindow(process_.get(), this);
+            trackTargetWindow(w);
             w->setAttribute(Qt::WA_DeleteOnClose); w->show();
         });
         dbg->addAction("Breakpoint list", this, [this]() {
@@ -4117,11 +4177,13 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
             if (!process_) return;
             auto* tw = new TracerWindow(process_.get(),
                 [this]() { return createDebuggerForCurrentProcess(); }, this);
+            trackTargetWindow(tw);
             tw->setAttribute(Qt::WA_DeleteOnClose); tw->show();
         });
         dbg->addAction("Branch mapper (LBR)", this, [this]() {
             if (!process_) return;
             auto* bm = new BranchMapper(process_.get(), this);
+            trackTargetWindow(bm);
             bm->setAttribute(Qt::WA_DeleteOnClose); bm->show();
         });
     }
@@ -4134,6 +4196,7 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
 void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
     tools->addAction("Auto Assemble", this, [this]() {
         auto* editor = new ScriptEditor(process_.get(), &autoAsm_, this);
+        trackTargetWindow(editor);
         editor->setAttribute(Qt::WA_DeleteOnClose);
         editor->setAddToTable([this](const QString& d, const QString& s) { addressListModel_->addScriptEntry(d, s); });
         editor->setBeforeExecute([this]() { stopCodeFindersForInjection(); });
@@ -4142,6 +4205,7 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
     tools->addAction("Pointer scan", this, [this]() {
         if (!process_) return;
         auto* dlg = new PointerScanDialog(process_.get(), this);
+        trackTargetWindow(dlg);
         connect(dlg, &PointerScanDialog::addressSelected, this,
                 [this](uintptr_t a, const QString& expr) {
                     // Add the pointer path AS the address expression so it re-resolves live.
@@ -4152,6 +4216,7 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
     tools->addAction("Emulator guest scan", this, [this]() {
         if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
         auto* dlg = new GuestScanDialog(process_.get(), this);
+        trackTargetWindow(dlg);
         connect(dlg, &GuestScanDialog::addressSelected, this,
                 [this](uintptr_t a, ce::ValueType t, bool be, const QString& d) {
                     addressListModel_->addEntry(a, t, d);
@@ -4170,6 +4235,7 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
     tools->addAction("Find static addresses", this, [this]() {
         if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
         auto* w = new FindStaticsWindow(process_.get(), this);
+        trackTargetWindow(w);
         w->setAttribute(Qt::WA_DeleteOnClose); w->show();
     });
     tools->addAction("Mono dissector...", this, &MainWindow::openMonoDissector);
@@ -4193,6 +4259,7 @@ void MainWindow::updateScanButtons() {
     bool scanActive = (lastResult_ != nullptr);   // a First Scan has been run
     bool hasResults = (scanActive && lastResult_->count() > 0);
     firstScanBtn_->setEnabled(hasProcess);
+    if (auto* button = findChild<QPushButton*>("memoryViewButton")) button->setEnabled(hasProcess);
     // CE-style: once a scan session is open, "First Scan" becomes "New Scan" (a
     // reset), the value type is locked (Next Scan must reuse it), and Next Scan
     // is available. A fresh state shows "First Scan" with an editable value type.
@@ -4214,7 +4281,7 @@ size_t ScanResultsModel::valueSizeBytes() const {
         case ValueType::Int16:   return 2;
         case ValueType::Int32:   return 4;
         case ValueType::Int64:   return 8;
-        case ValueType::Pointer: return sizeof(uintptr_t);
+        case ValueType::Pointer: return valueSize_ == 4 || valueSize_ == 8 ? valueSize_ : sizeof(uintptr_t);
         case ValueType::Float:   return 4;
         case ValueType::Double:  return 8;
         // Variable-width types carry their byte length in valueSize_ (set at scan
@@ -4264,8 +4331,9 @@ void ScanResultsModel::setResult(ScanResult* result, ValueType vt, size_t valueS
                                  const std::string& stringEncoding) {
     beginResetModel();
     result_ = result;
+    shownRows_ = result ? static_cast<int>(std::min<size_t>(result->count(), kResultBatchSize)) : 0;
     valueType_ = vt;
-    valueSize_ = valueSize;
+    valueSize_ = result && result->valueSize() ? result->valueSize() : valueSize;
     stringEncoding_ = stringEncoding.empty() ? "UTF-8" : stringEncoding;
     liveValues_.clear();
     changed_.clear();
@@ -4279,17 +4347,31 @@ void ScanResultsModel::setResult(ScanResult* result, ValueType vt, size_t valueS
 void ScanResultsModel::clear() {
     beginResetModel();
     result_ = nullptr;
+    shownRows_ = 0;
     valueSize_ = 0;
     liveValues_.clear();
     changed_.clear();
     endResetModel();
 }
 
-int ScanResultsModel::rowCount(const QModelIndex&) const {
-    return result_ ? std::min(result_->count(), kResultDisplayCap) : 0;
+int ScanResultsModel::rowCount(const QModelIndex& parent) const {
+    return parent.isValid() ? 0 : shownRows_;
 }
 
-int ScanResultsModel::columnCount(const QModelIndex&) const { return 3; }
+bool ScanResultsModel::canFetchMore(const QModelIndex& parent) const {
+    return !parent.isValid() && static_cast<size_t>(shownRows_) < resultCount() && shownRows_ < INT_MAX;
+}
+
+void ScanResultsModel::fetchMore(const QModelIndex& parent) {
+    if (!canFetchMore(parent)) return;
+    int next = static_cast<int>(std::min<size_t>(resultCount(),
+        std::min<size_t>(INT_MAX, static_cast<size_t>(shownRows_) + kResultBatchSize)));
+    beginInsertRows({}, shownRows_, next - 1);
+    shownRows_ = next;
+    endInsertRows();
+}
+
+int ScanResultsModel::columnCount(const QModelIndex& parent) const { return parent.isValid() ? 0 : 3; }
 
 QVariant ScanResultsModel::headerData(int section, Qt::Orientation o, int role) const {
     if (role != Qt::DisplayRole || o != Qt::Horizontal) return {};
@@ -4316,7 +4398,7 @@ static QString formatScanValue(ValueType vt, bool displayHex, const uint8_t* buf
             uint64_t bits = 0; memcpy(&bits, buf, static_cast<size_t>(w));
             return QString::fromStdString(ce::formatIntegerScalar(bits, w, /*isSigned=*/true, displayHex));
         }
-        case ValueType::Pointer:{ uintptr_t v; memcpy(&v, buf, sizeof(v)); return QString("0x%1").arg(v, 0, 16); }
+        case ValueType::Pointer:{ uint64_t v = 0; memcpy(&v, buf, std::min(vs, sizeof(v))); return QString("0x%1").arg(v, 0, 16); }
         case ValueType::Float:  { float v; memcpy(&v, buf, 4); return QString::fromStdString(ce::formatFloatScalar(v, false)); }
         case ValueType::Double: { double v; memcpy(&v, buf, 8); return QString::fromStdString(ce::formatFloatScalar(v, true)); }
         case ValueType::String: {
@@ -4345,7 +4427,7 @@ static QString formatScanValue(ValueType vt, bool displayHex, const uint8_t* buf
 }
 
 QVariant ScanResultsModel::data(const QModelIndex& index, int role) const {
-    if (!result_) return {};
+    if (!index.isValid() || index.row() >= shownRows_ || !result_) return {};
     // Red foreground on the Value column when it changed since the last refresh.
     if (role == Qt::ForegroundRole) {
         if (index.column() == 1) {
@@ -4364,29 +4446,33 @@ QVariant ScanResultsModel::data(const QModelIndex& index, int role) const {
     if (role == Qt::ToolTipRole && index.column() == 0 && !modules_.empty()) {
         std::string modOff = ce::moduleOffsetString(modules_, result_->address(index.row()));
         if (!modOff.empty()) return QString::fromStdString(modOff);
-        return {};
     }
-    if (role != Qt::DisplayRole) return {};
+    if (role != Qt::DisplayRole && role != Qt::ToolTipRole) return {};
 
-    if (index.column() == 0) {
-        return QString("0x%1").arg(result_->address(index.row()), 0, 16);
+    return displayValueAt(static_cast<size_t>(index.row()), index.column());
+}
+
+QString ScanResultsModel::displayValueAt(size_t row, int column) const {
+    if (!result_ || row >= result_->count() || column < 0 || column > 2) return {};
+    if (column == 0) {
+        return QString("0x%1").arg(result_->address(row), 0, 16);
     }
 
     const size_t vs = valueSizeBytes();
     std::vector<uint8_t> buf(vs);
-    if (index.column() == 2) {
+    if (column == 2) {
         // Previous: always the value captured at scan time.
-        result_->value(index.row(), buf.data(), vs);
+        result_->value(row, buf.data(), vs);
         return formatScanValue(valueType_, displayHex_, buf.data(), vs, stringEncoding_);
     }
     // Value: prefer the live re-read for on-screen rows; fall back to the
     // scan-time value for rows not currently refreshed.
-    auto it = liveValues_.find(index.row());
+    auto it = row <= INT_MAX ? liveValues_.find(static_cast<int>(row)) : liveValues_.end();
     if (it != liveValues_.end()) {
         if (it->second.size() == vs) buf = it->second;
         else return QStringLiteral("??");   // unreadable this refresh
     } else {
-        result_->value(index.row(), buf.data(), vs);
+        result_->value(row, buf.data(), vs);
     }
     return formatScanValue(valueType_, displayHex_, buf.data(), vs, stringEncoding_);
 }
@@ -4600,88 +4686,26 @@ static long long parseIntField(const QString& valStr, bool hex = false) {
     return ok ? v : 0;
 }
 
-// Format a fixed-width scalar exactly as the cheat table displays it (decimal or hex,
-// float precision). The byte-swap (big-endian) + codec decode is the shared cecore
-// transform (ce::decodeScalarBits); this only formats the resulting logical value.
-// Returns empty for non-scalar types.
-static QString formatScalarValue(ValueType type, const uint8_t* raw, bool showHex,
-                                 const ce::ValueCodec& codec, bool bigEndian, bool isSigned) {
-    const uint64_t bits = ce::decodeScalarBits(type, raw, bigEndian, codec);
-    switch (type) {
-        case ValueType::Byte:
-        case ValueType::Int16:
-        case ValueType::Int32:
-        case ValueType::Int64:
-            // CE ShowAsSigned decides signed vs unsigned decimal (hex is width-masked).
-            return QString::fromStdString(
-                ce::formatIntegerScalar(bits, ce::scalarWidth(type), isSigned, showHex));
-        case ValueType::Pointer:{ return QString("0x%1").arg((qulonglong)bits, 0, 16); }
-        case ValueType::Float:  { float  v; memcpy(&v, &bits, 4);
-                                  return QString::fromStdString(ce::formatFloatScalar(v, false)); }
-        case ValueType::Double: { double v; memcpy(&v, &bits, 8);
-                                  return QString::fromStdString(ce::formatFloatScalar(v, true)); }
-        default: return QString();
+// Adapt a GUI value to shared typed I/O, terminating shortened strings within
+// their known capacity.
+static std::expected<size_t, std::string> writeValueToProcess(
+    ProcessHandle* proc, uintptr_t addr, ValueType type, const QString& value,
+    const ce::ValueCodec& codec = {}, bool bigEndian = false, bool showHex = false, size_t capacity = 0) {
+    ce::ValueIoOptions options;
+    options.codec = codec; options.bigEndian = bigEndian; options.hex = showHex;
+    if (type == ValueType::String || type == ValueType::UnicodeString) {
+        auto bytes = ce::encodeTypedValue(type, value.toStdString(), options);
+        if (!bytes) return std::unexpected(bytes.error());
+        options.terminate = bytes->empty() || bytes->size() < capacity;
     }
-}
-
-static void writeValueToProcess(ProcessHandle* proc, uintptr_t addr, ValueType type,
-                                const QString& valStr, const ce::ValueCodec& codec = {},
-                                bool bigEndian = false, bool showHex = false) {
-    // Variable-length types: write the raw bytes directly (length = the value's).
-    if (type == ValueType::String) {
-        auto bytes = valStr.toUtf8();
-        if (!bytes.isEmpty()) proc->write(addr, bytes.constData(), (size_t)bytes.size());
-        return;
-    }
-    if (type == ValueType::UnicodeString) {
-        std::vector<uint8_t> u16;                  // UTF-16LE
-        for (QChar c : valStr) { char16_t u = c.unicode(); u16.push_back(u & 0xFF); u16.push_back((u >> 8) & 0xFF); }
-        if (!u16.empty()) proc->write(addr, u16.data(), u16.size());
-        return;
-    }
-    if (type == ValueType::ByteArray) {
-        std::vector<uint8_t> bytes;                // parse space-separated hex ("90 90 48 8b")
-        for (const QString& tok : valStr.split(' ', Qt::SkipEmptyParts)) {
-            bool ok = false; uint b = tok.toUInt(&ok, 16);
-            if (ok && b <= 0xFF) bytes.push_back(static_cast<uint8_t>(b));
-        }
-        if (!bytes.empty()) proc->write(addr, bytes.data(), bytes.size());
-        return;
-    }
-
-    uint8_t buf[8] = {};
-    size_t vs = vtSize(type);
-    switch (type) {
-        case ValueType::Byte:   { uint8_t v = (uint8_t)parseIntField(valStr, showHex); memcpy(buf, &v, 1); break; }
-        case ValueType::Int16:  { uint16_t v = (uint16_t)parseIntField(valStr, showHex); memcpy(buf, &v, 2); break; }
-        case ValueType::Int32:  { uint32_t v = (uint32_t)parseIntField(valStr, showHex); memcpy(buf, &v, 4); break; }
-        case ValueType::Int64:  { uint64_t v = (uint64_t)parseIntField(valStr, showHex); memcpy(buf, &v, 8); break; }
-        case ValueType::Pointer:{ uintptr_t v = valStr.toULongLong(nullptr, 0); memcpy(buf, &v, sizeof(v)); break; }
-        // Accept either '.' or ',' as the decimal separator: QString::toFloat is
-        // C-locale ('.') only, so a comma-locale user typing "2,5" would otherwise
-        // get 0. Value entry never has thousands separators, so this is safe.
-        case ValueType::Float:  { float v = QString(valStr).replace(',', '.').toFloat(); memcpy(buf, &v, 4); break; }
-        case ValueType::Double: { double v = QString(valStr).replace(',', '.').toDouble(); memcpy(buf, &v, 8); break; }
-        // Non-scalar types (String/UnicodeString/ByteArray/All/Grouped/Custom)
-        // have no scalar encoding here; vtSize() falls back to 4, so writing the
-        // zero-filled buffer would silently clobber 4 bytes as Int32. Refuse
-        // instead of corrupting target memory.
-        // TODO(security): implement proper per-type read/format/write for
-        // String/UnicodeString/ByteArray address-list entries.
-        default: return;
-    }
-    // Encode into the stored form (obfuscation codec + target byte order) so the user
-    // edits by the logical value. Shared cecore transform; `buf` holds the logical
-    // little-endian value at this point.
-    { uint64_t bits = 0; memcpy(&bits, buf, vs); ce::encodeScalarBits(type, bits, bigEndian, codec, buf); }
-    proc->write(addr, buf, vs);
+    return ce::writeTypedValue(*proc, addr, type, value.toStdString(), options);
 }
 
 static bool readComparableValue(ProcessHandle* proc, uintptr_t addr, ValueType type,
                                 double& value, const ce::ValueCodec& codec = {},
                                 bool bigEndian = false, bool isSigned = true) {
     uint8_t buf[8] = {};
-    size_t vs = vtSize(type);
+    size_t vs = type == ValueType::Pointer ? (proc->is64bit() ? 8 : 4) : vtSize(type);
     auto r = proc->read(addr, buf, vs);
     if (!r || *r < vs) return false;
 
@@ -4690,7 +4714,12 @@ static bool readComparableValue(ProcessHandle* proc, uintptr_t addr, ValueType t
     // compare the LOGICAL value. Integers are interpreted per the record's signed
     // display (isSigned) so this matches parseComparableValue on the display string;
     // otherwise a signed-shown byte read as unsigned would never equal its frozen text.
-    const uint64_t bits = ce::decodeScalarBits(type, buf, bigEndian, codec);
+    uint64_t bits = 0;
+    if (type == ValueType::Pointer) {
+        if (bigEndian) std::reverse(buf, buf + vs);
+        memcpy(&bits, buf, vs);
+        if (codec.active()) bits = codec.decode(bits, static_cast<int>(vs));
+    } else bits = ce::decodeScalarBits(type, buf, bigEndian, codec);
     switch (type) {
         case ValueType::Byte:    value = isSigned ? (double)(int8_t)bits  : (double)(uint8_t)bits;  return true;
         case ValueType::Int16:   value = isSigned ? (double)(int16_t)bits : (double)(uint16_t)bits; return true;
@@ -4742,7 +4771,7 @@ void AddressListModel::reresolveAddress(AddressEntry& e) {
 void AddressListModel::freezeWrite(ProcessHandle* proc) {
     for (auto& e : entries_) {
         if (e.isGroup) continue;
-        if (!e.active || e.frozenValue.isEmpty()) continue;
+        if (!e.active || (e.frozenValue.isEmpty() && e.type != ValueType::String && e.type != ValueType::UnicodeString)) continue;
 
         // Re-resolve pointer records so the freeze writes to the current target, not the
         // up-to-500ms-stale cached address (the value refresh runs slower than this 100ms
@@ -4750,21 +4779,16 @@ void AddressListModel::freezeWrite(ProcessHandle* proc) {
         reresolveAddress(e);
 
         if (e.freezeMode == FreezeMode::Normal) {
-            writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian, e.showAsHex);
+            (void)writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian, e.showAsHex, e.byteCount);
             continue;
         }
 
-        // Read current value to compare for directional freeze.
-        double current = 0;
-        double frozen = 0;
-        if (!readComparableValue(proc, e.address, e.type, current, e.codec, e.bigEndian, e.showAsSigned) ||
-            !parseComparableValue(e.type, e.frozenValue, frozen)) {
-            writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian, e.showAsHex);
-            continue;
-        }
-
-        if (ce::freezeShouldWrite(e.freezeMode, current, frozen))
-            writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian, e.showAsHex);
+        ce::ValueIoOptions options;
+        options.hex = e.showAsHex; options.isSigned = e.showAsSigned;
+        options.codec = e.codec; options.bigEndian = e.bigEndian;
+        auto comparison = ce::compareTypedValue(*proc, e.address, e.type, e.frozenValue.toStdString(), options);
+        if (comparison && ((e.freezeMode == ce::FreezeMode::NeverDecrease || e.freezeMode == ce::FreezeMode::IncreaseOnly) ? *comparison < 0 : *comparison > 0))
+            (void)writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian, e.showAsHex, e.byteCount);
     }
 }
 
@@ -4975,7 +4999,8 @@ bool AddressListModel::adjustEntryValue(int row, double delta) {
             return false;
     }
 
-    writeValueToProcess(proc_, e.address, e.type, nextText, e.codec, e.bigEndian, e.showAsHex);
+    auto written = writeValueToProcess(proc_, e.address, e.type, nextText, e.codec, e.bigEndian, e.showAsHex);
+    if (!written) { reportActivationError("Value edit failed", QString::fromStdString(written.error())); return false; }
     e.currentValue = nextText;
     if (e.active) e.frozenValue = nextText;
     emit dataChanged(index(row, 4), index(row, 4), {Qt::DisplayRole, Qt::EditRole});
@@ -5029,13 +5054,7 @@ bool AddressListModel::toggleGroupCollapse(int row) {
 
 void AddressListModel::setEntryValueTo(int row, const QString& value) {
     if (row < 0 || row >= (int)entries_.size() || !proc_) return;
-    auto& e = entries_[row];
-    if (e.isGroup || value.isEmpty()) return;
-    reresolveAddress(e);   // write to the current pointer target
-    writeValueToProcess(proc_, e.address, e.type, value, e.codec, e.bigEndian, e.showAsHex);
-    e.currentValue = value;
-    if (e.active) e.frozenValue = value;
-    emit dataChanged(index(row, 4), index(row, 4), {Qt::DisplayRole, Qt::EditRole});
+    setData(index(row, 4), value, Qt::EditRole);
 }
 
 bool AddressListModel::setEntryActive(int row, bool active) {
@@ -5122,35 +5141,14 @@ int AddressListModel::moveEntry(int row, int delta) {
 // nullopt if `type` isn't variable-length; "??" on read failure. Shared by the
 // address-list refresh and the Lua mr.Value read so both agree.
 static std::optional<QString> formatVariableLengthValue(ProcessHandle* proc, uintptr_t addr,
-                                                        ValueType type, size_t byteCount) {
+                                                        ValueType type, size_t byteCount, bool bigEndian) {
     if (type != ValueType::String && type != ValueType::UnicodeString && type != ValueType::ByteArray)
         return std::nullopt;
-    // Read exactly the known element length (AOB pattern / string length) when we
-    // have it, else a reasonable window.
-    const size_t want = byteCount > 0 ? std::min<size_t>(byteCount, 4096) : 64;
-    std::vector<uint8_t> sbuf(want);
-    auto sr = proc->read(addr, sbuf.data(), want);
-    if (!sr || *sr == 0) return QString("??");
-    size_t n = *sr;
-    QString s;
-    if (type == ValueType::String) {
-        for (size_t k = 0; k < n && sbuf[k]; ++k) {
-            if (sbuf[k] < 32 || sbuf[k] > 126) break;
-            s += QChar(sbuf[k]);
-        }
-    } else if (type == ValueType::UnicodeString) {
-        for (size_t k = 0; k + 1 < n; k += 2) {
-            char16_t u = sbuf[k] | (char16_t(sbuf[k + 1]) << 8);
-            if (u == 0 || u < 32) break;
-            s += QChar(u);
-        }
-    } else {  // ByteArray: show the exact pattern length when known, else cap at 16.
-        const size_t cap = byteCount > 0 ? n : std::min<size_t>(n, 16);
-        for (size_t k = 0; k < cap; ++k)
-            s += QString("%1 ").arg(sbuf[k], 2, 16, QChar('0'));
-        s = s.trimmed().toUpper();
-    }
-    return s;
+    ce::ValueIoOptions options;
+    options.size = byteCount ? byteCount : (type == ValueType::ByteArray ? 16 : 64);
+    options.bigEndian = bigEndian;
+    auto value = ce::readTypedValue(*proc, addr, type, options);
+    return value ? QString::fromStdString(*value) : QStringLiteral("??");
 }
 
 void AddressListModel::updateValues(ProcessHandle* proc) {
@@ -5164,20 +5162,16 @@ void AddressListModel::updateValues(ProcessHandle* proc) {
         reresolveAddress(e);
 
         // Variable-length types: read the element (exact length if known) and format.
-        if (auto fv = formatVariableLengthValue(proc, e.address, e.type, e.byteCount)) {
+        if (auto fv = formatVariableLengthValue(proc, e.address, e.type, e.byteCount, e.bigEndian)) {
             e.currentValue = *fv;
             continue;
         }
 
-        uint8_t buf[8] = {};
-        size_t vs = vtSize(e.type);
-        auto r = proc->read(e.address, buf, vs);
-        if (r && *r >= vs) {
-            QString s = formatScalarValue(e.type, buf, e.showAsHex, e.codec, e.bigEndian, e.showAsSigned);
-            e.currentValue = s.isEmpty() ? "?" : s;
-        } else {
-            e.currentValue = "??";
-        }
+        ce::ValueIoOptions options;
+        options.hex = e.showAsHex; options.isSigned = e.showAsSigned;
+        options.codec = e.codec; options.bigEndian = e.bigEndian;
+        auto value = ce::readTypedValue(*proc, e.address, e.type, options);
+        e.currentValue = value ? QString::fromStdString(*value) : "??";
     }
     if (!entries_.empty())
         emit dataChanged(index(0, 4), index(entries_.size() - 1, 4));
@@ -5191,15 +5185,14 @@ std::string AddressListModel::liveValue(int id) {
     // Re-resolve pointer expressions and read the process now (CE's mr.Value does a
     // live read on access, not a cached refresh value).
     reresolveAddress(e);
-    if (auto fv = formatVariableLengthValue(proc_, e.address, e.type, e.byteCount))
+    if (auto fv = formatVariableLengthValue(proc_, e.address, e.type, e.byteCount, e.bigEndian))
         return fv->toStdString();
 
-    uint8_t buf[8] = {};
-    size_t vs = vtSize(e.type);
-    auto r = proc_->read(e.address, buf, vs);
-    if (!r || *r < vs) return "??";
-    QString out = formatScalarValue(e.type, buf, e.showAsHex, e.codec, e.bigEndian, e.showAsSigned);
-    return out.isEmpty() ? std::string("?") : out.toStdString();
+    ce::ValueIoOptions options;
+    options.hex = e.showAsHex; options.isSigned = e.showAsSigned;
+    options.codec = e.codec; options.bigEndian = e.bigEndian;
+    auto value = ce::readTypedValue(*proc_, e.address, e.type, options);
+    return value ? *value : "??";
 }
 
 int AddressListModel::rowCount(const QModelIndex&) const { return entries_.size(); }
@@ -5228,6 +5221,11 @@ QVariant AddressListModel::data(const QModelIndex& index, int role) const {
         return entries_[index.row()].active ? Qt::Checked : Qt::Unchecked;
 
     auto& e = entries_[index.row()];
+    if (role == Qt::ToolTipRole) {
+        if (index.column() == 1) return e.description;
+        if (index.column() == 2 && !e.addressExpr.isEmpty()) return e.addressExpr;
+        return data(index, Qt::DisplayRole);
+    }
     if (role == Qt::ForegroundRole)
         return entryForeground(e.color);
     if (role == Qt::EditRole) {
@@ -5436,6 +5434,8 @@ static ValueType valueTypeFromDisplayName(const QString& s) {
 }
 
 bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, int role) {
+    if (!index.isValid() || index.row() < 0 || index.row() >= (int)entries_.size() ||
+        index.column() < 0 || index.column() >= columnCount()) return false;
     if (role == Qt::CheckStateRole && index.column() == 0) {
         auto& e = entries_[index.row()];
         bool requestedActive = (value.toInt() == Qt::Checked);
@@ -5507,25 +5507,38 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
             // reads the 0x prefix as hex. Pre-converting to a bare decimal here and
             // still passing showHex=true re-read "255" as 0x255 (wrong value), and
             // the decimal frozenValue was then written the same wrong way.
-            if (e.showAsHex) {
+            if (e.showAsHex && (ce::isIntegerScalar(e.type) || e.type == ValueType::Pointer)) {
                 QString h = rawValue.trimmed();
                 if (h.startsWith("0x") || h.startsWith("0X")) h = h.mid(2);
                 bool okh = false;
                 qulonglong hv = h.toULongLong(&okh, 16);
                 if (okh) rawValue = "0x" + QString::number(hv, 16);
             }
-            e.currentValue = rawValue;
-            if (e.active) e.frozenValue = rawValue;
+            ce::ValueIoOptions options;
+            options.codec = e.codec; options.bigEndian = e.bigEndian; options.hex = e.showAsHex;
+            options.pointerWidth = proc_ && !proc_->is64bit() ? 4 : 8;
+            auto bytes = ce::encodeTypedValue(e.type, rawValue.toStdString(), options);
+            if (!bytes) { reportActivationError("Value edit failed", QString::fromStdString(bytes.error())); return false; }
+            size_t nextByteCount = bytes->size();
+            if (e.type == ValueType::String || e.type == ValueType::UnicodeString) {
+                size_t capacity = e.byteCount;
+                if (!capacity && e.currentValue != "?" && e.currentValue != "??") {
+                    auto previous = ce::encodeTypedValue(e.type, e.currentValue.toStdString(), options);
+                    if (previous) capacity = previous->size();
+                }
+                options.terminate = bytes->empty() || bytes->size() < capacity;
+                if (options.terminate) nextByteCount += e.type == ValueType::UnicodeString ? 2 : 1;
+            }
             if (proc_) {
-                // Inline value edits write live too, so follow a moving pointer chain to
-                // its current target rather than the address cached at the last refresh.
                 reresolveAddress(e);
-                writeValueToProcess(proc_, e.address, e.type, rawValue, e.codec, e.bigEndian, e.showAsHex);
-                // A non-frozen value that snaps back is protected: warn and point the
-                // user at find-what-writes. A frozen entry is intentionally held, so
-                // the freeze timer, not this, owns its persistence.
+                auto written = ce::writeTypedValue(*proc_, e.address, e.type, rawValue.toStdString(), options);
+                if (!written) { reportActivationError("Value edit failed", QString::fromStdString(written.error())); return false; }
                 if (!e.active) scheduleEditVerify(e.address, e.type, rawValue, e.codec, e.bigEndian, e.showAsSigned);
             }
+            if (e.type == ValueType::String || e.type == ValueType::UnicodeString || e.type == ValueType::ByteArray)
+                e.byteCount = nextByteCount;
+            e.currentValue = rawValue;
+            if (e.active) e.frozenValue = rawValue;
             emit dataChanged(index, index);
             return true;
         }
@@ -5703,19 +5716,9 @@ bool AddressListModel::setType(int id, ValueType t) {
     return true;
 }
 
-bool AddressListModel::setValue(int id, const std::string& valStr) {
+bool AddressListModel::setValue(int id, const std::string& value) {
     int row = rowOfId(id);
-    if (row < 0) return false;
-    auto& e = entries_[row];
-    if (e.isGroup) return false;
-    e.currentValue = QString::fromStdString(valStr);
-    if (e.active) e.frozenValue = e.currentValue;
-    if (proc_) {
-        reresolveAddress(e);   // write to the current pointer target, not a stale address
-        writeValueToProcess(proc_, e.address, e.type, e.currentValue, e.codec, e.bigEndian, e.showAsHex);
-    }
-    emit dataChanged(index(row, 4), index(row, 4));
-    return true;
+    return row >= 0 && setData(index(row, 4), QString::fromStdString(value), Qt::EditRole);
 }
 
 bool AddressListModel::setActive(int id, bool active) {

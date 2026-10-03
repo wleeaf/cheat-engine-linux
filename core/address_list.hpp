@@ -56,7 +56,8 @@ inline std::vector<bool> hiddenByCollapse(const std::vector<int>& indents,
 inline std::vector<int> moveRangePermutation(int count, int start, int len, int dest) {
     std::vector<int> perm;
     perm.reserve(count > 0 ? count : 0);
-    if (count <= 0 || len <= 0 || start < 0 || start + len > count) {
+    if (count <= 0 || len <= 0 || start < 0 || start > count ||
+        len > count - start || dest < 0 || dest > count) {
         for (int i = 0; i < count; ++i) perm.push_back(i);   // invalid -> identity
         return perm;
     }

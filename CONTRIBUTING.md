@@ -33,7 +33,9 @@ build/cescan --help                              # CLI scanner
 - `build/cecore_test` — the main suite. **It now exits non-zero if any check
   prints `FAILED`**, and CI enforces that. When you add a test, print a line
   containing `OK` or `FAILED` (see existing tests); a `FAILED` fails the build.
-- `sudo build/scan_test` — cross-process scan/write (root-gated).
+- `build/cecore_deep_test`: parser corruption, scan persistence, Lua stream and
+  debugger lifecycle regressions. Included in both release and sanitizer CI.
+- `build/scan_test` — cross-process scan/write against its own child process.
 - `build/gui_debugger_smoke` — offscreen Qt smoke test for the debugger window.
 - **Sanitizers:** `cmake -B build-asan -DCECORE_SANITIZE=ON && cmake --build
   build-asan --target cecore_test && ./build-asan/cecore_test`. CI runs this too.

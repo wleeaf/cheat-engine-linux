@@ -1,0 +1,232 @@
+[
+    {
+        "file": "light-main-empty.png",
+        "height": 760,
+        "width": 920
+    },
+    {
+        "file": "light-main-populated.png",
+        "height": 780,
+        "width": 1000
+    },
+    {
+        "file": "light-main-compact.png",
+        "height": 694,
+        "width": 760
+    },
+    {
+        "file": "light-main-large-font.png",
+        "height": 820,
+        "width": 1000
+    },
+    {
+        "file": "light-processes.png",
+        "height": 500,
+        "width": 600
+    },
+    {
+        "file": "light-processes-empty.png",
+        "height": 480,
+        "width": 460
+    },
+    {
+        "file": "light-settings-0.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-settings-1.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-settings-2.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-settings-3.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-settings-4.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-settings-5.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "light-memory.png",
+        "height": 720,
+        "width": 1000
+    },
+    {
+        "file": "light-assembler.png",
+        "height": 580,
+        "width": 820
+    },
+    {
+        "file": "light-assembler-compact.png",
+        "height": 400,
+        "width": 520
+    },
+    {
+        "file": "light-lua.png",
+        "height": 440,
+        "width": 760
+    },
+    {
+        "file": "light-structure.png",
+        "height": 620,
+        "width": 1050
+    },
+    {
+        "file": "light-pointers.png",
+        "height": 500,
+        "width": 820
+    },
+    {
+        "file": "light-address.png",
+        "height": 430,
+        "width": 520
+    },
+    {
+        "file": "light-modules.png",
+        "height": 560,
+        "width": 900
+    },
+    {
+        "file": "light-regions.png",
+        "height": 560,
+        "width": 900
+    },
+    {
+        "file": "light-threads.png",
+        "height": 420,
+        "width": 700
+    },
+    {
+        "file": "light-debugger.png",
+        "height": 720,
+        "width": 1000
+    },
+    {
+        "file": "dark-main-empty.png",
+        "height": 760,
+        "width": 920
+    },
+    {
+        "file": "dark-main-populated.png",
+        "height": 780,
+        "width": 1000
+    },
+    {
+        "file": "dark-main-compact.png",
+        "height": 694,
+        "width": 760
+    },
+    {
+        "file": "dark-main-large-font.png",
+        "height": 820,
+        "width": 1000
+    },
+    {
+        "file": "dark-processes.png",
+        "height": 500,
+        "width": 600
+    },
+    {
+        "file": "dark-processes-empty.png",
+        "height": 480,
+        "width": 460
+    },
+    {
+        "file": "dark-settings-0.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-settings-1.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-settings-2.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-settings-3.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-settings-4.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-settings-5.png",
+        "height": 500,
+        "width": 720
+    },
+    {
+        "file": "dark-memory.png",
+        "height": 720,
+        "width": 1000
+    },
+    {
+        "file": "dark-assembler.png",
+        "height": 580,
+        "width": 820
+    },
+    {
+        "file": "dark-assembler-compact.png",
+        "height": 400,
+        "width": 520
+    },
+    {
+        "file": "dark-lua.png",
+        "height": 440,
+        "width": 760
+    },
+    {
+        "file": "dark-structure.png",
+        "height": 620,
+        "width": 1050
+    },
+    {
+        "file": "dark-pointers.png",
+        "height": 500,
+        "width": 820
+    },
+    {
+        "file": "dark-address.png",
+        "height": 430,
+        "width": 520
+    },
+    {
+        "file": "dark-modules.png",
+        "height": 560,
+        "width": 900
+    },
+    {
+        "file": "dark-regions.png",
+        "height": 560,
+        "width": 900
+    },
+    {
+        "file": "dark-threads.png",
+        "height": 420,
+        "width": 700
+    },
+    {
+        "file": "dark-debugger.png",
+        "height": 720,
+        "width": 1000
+    }
+]

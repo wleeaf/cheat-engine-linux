@@ -12,35 +12,38 @@ namespace ce::gui {
 PointerScanDialog::PointerScanDialog(ProcessHandle* proc, QWidget* parent)
     : QDialog(parent), proc_(proc) {
     setWindowTitle("Pointer Scanner");
-    resize(700, 500);
+    resize(820, 500);
 
     auto* layout = new QVBoxLayout(this);
 
-    // Config row
+    // Give address expressions a full row; keep options and actions together below.
     auto* configRow = new QHBoxLayout;
     configRow->addWidget(new QLabel("Target Address:"));
     targetEdit_ = new QLineEdit;
     targetEdit_->setFont(QFont("Monospace", 10));
     targetEdit_->setPlaceholderText("0x7f1234");
-    configRow->addWidget(targetEdit_);
+    configRow->addWidget(targetEdit_, 1);
+    layout->addLayout(configRow);
+    auto* optionsRow = new QHBoxLayout;
 
-    configRow->addWidget(new QLabel("Depth:"));
+    optionsRow->addWidget(new QLabel("Depth:"));
     depthSpin_ = new QSpinBox;
     depthSpin_->setRange(1, 7);
     depthSpin_->setValue(4);
-    configRow->addWidget(depthSpin_);
+    optionsRow->addWidget(depthSpin_);
 
-    configRow->addWidget(new QLabel("Max Offset:"));
+    optionsRow->addWidget(new QLabel("Max Offset:"));
     offsetSpin_ = new QSpinBox;
     offsetSpin_->setRange(64, 65536);
     offsetSpin_->setValue(2048);
     offsetSpin_->setSingleStep(256);
-    configRow->addWidget(offsetSpin_);
+    optionsRow->addWidget(offsetSpin_);
+    optionsRow->addStretch();
 
     scanBtn_ = new QPushButton("Scan");
-    scanBtn_->setStyleSheet("font-weight: bold;");
+    scanBtn_->setObjectName("primaryButton");
     connect(scanBtn_, &QPushButton::clicked, this, &PointerScanDialog::onScan);
-    configRow->addWidget(scanBtn_);
+    optionsRow->addWidget(scanBtn_);
 
     // Rescan filters the current paths against a new target address (after the
     // dynamic value has moved) — the key to finding a stable pointer path.
@@ -48,17 +51,17 @@ PointerScanDialog::PointerScanDialog(ProcessHandle* proc, QWidget* parent)
     rescanBtn_->setToolTip("Filter current paths to those that still point at a new target address");
     rescanBtn_->setEnabled(false);
     connect(rescanBtn_, &QPushButton::clicked, this, &PointerScanDialog::onRescan);
-    configRow->addWidget(rescanBtn_);
+    optionsRow->addWidget(rescanBtn_);
 
     saveBtn_ = new QPushButton("Save…");
     saveBtn_->setEnabled(false);
     connect(saveBtn_, &QPushButton::clicked, this, &PointerScanDialog::onSave);
-    configRow->addWidget(saveBtn_);
+    optionsRow->addWidget(saveBtn_);
 
     loadBtn_ = new QPushButton("Load…");
     connect(loadBtn_, &QPushButton::clicked, this, &PointerScanDialog::onLoad);
-    configRow->addWidget(loadBtn_);
-    layout->addLayout(configRow);
+    optionsRow->addWidget(loadBtn_);
+    layout->addLayout(optionsRow);
 
     statusLabel_ = new QLabel("Ready");
     layout->addWidget(statusLabel_);
@@ -75,7 +78,7 @@ PointerScanDialog::PointerScanDialog(ProcessHandle* proc, QWidget* parent)
     hh->setSectionResizeMode(0, QHeaderView::Stretch);
     hh->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     hh->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    hh->setMinimumSectionSize(hh->fontMetrics().horizontalAdvance("Current Address") + 24);
+    hh->setMinimumSectionSize(48);
     resultsTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     resultsTable_->setFont(QFont("Monospace", 9));
     resultsTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -116,6 +119,7 @@ void PointerScanDialog::populateResults() {
     for (size_t i = 0; i < shown; ++i) {
         auto& p = results_[i];
         resultsTable_->setItem(i, 0, new QTableWidgetItem(QString::fromStdString(p.toString())));
+        resultsTable_->item(i, 0)->setToolTip(resultsTable_->item(i, 0)->text());
         auto addr = PointerScanner::dereference(*proc_, p);
         resultsTable_->setItem(i, 1, new QTableWidgetItem(
             addr ? QString("0x%1").arg(addr, 0, 16) : "??"));

@@ -135,9 +135,8 @@ private:
     Assembler& targetAsm() { return targetIs32_ ? asm32_ : asm64_; }
     Arch targetDisArch() const { return targetIs32_ ? Arch::X86_32 : Arch::X86_64; }
 
-    /// Run the full preprocessing chain (lua blocks → conditional blocks →
-    /// anonymous labels → preprocessor hooks → struct definitions →
-    /// postprocessor hooks) over `code`, replacing it in place. Both
+    /// Preprocess conditionals and embedded Lua/C in source order, then anonymous
+    /// labels, preprocessor hooks, struct definitions and postprocessor hooks. Both
     /// execute() and check() call this so the two front-ends stay identical:
     /// a script that passes check() preprocesses byte-for-byte the same at
     /// execute() time.
@@ -148,8 +147,8 @@ private:
                          std::string& error);
     /// Expand `{$if}` / `{$else}` / `{$endif}` preprocessor regions. The
     /// condition expression is evaluated through luaEvaluator_ as a Lua chunk
-    /// that returns a truthy value; without an evaluator, encountering
-    /// `{$if}` is a syntax error. Nested ifs are not currently supported.
+    /// that returns its truthiness as text. Supports nested branches, skipping
+    /// conditions and embedded code in inactive branches.
     bool expandConditionalBlocks(std::string& code, std::vector<std::string>& log,
                                  std::string& error);
     /// Resolve `@@:` anonymous labels and `@F`/`@B` forward/backward

@@ -11,9 +11,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <charconv>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <string>
 
 namespace ce {
@@ -105,22 +107,24 @@ inline int64_t parseIntegerScalar(const std::string& s, bool hex, bool& ok) {
         else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
         else return 0;
         if (d >= base) return 0;   // e.g. a hex letter typed in a decimal field
+        if (val > (std::numeric_limits<uint64_t>::max() - static_cast<uint64_t>(d)) /
+                      static_cast<uint64_t>(base)) return 0;
         val = val * static_cast<uint64_t>(base) + static_cast<uint64_t>(d);
     }
+    if (neg && val > (uint64_t{1} << 63)) return 0;
     ok = true;
-    return neg ? -static_cast<int64_t>(val) : static_cast<int64_t>(val);
+    return static_cast<int64_t>(neg ? uint64_t{0} - val : val);
 }
 
-/// Format a float/double for display the way Cheat Engine does: trimmed of trailing
-/// zeros (100.0 -> "100", 99.5 -> "99.5") with precision matching the type's
-/// significant digits (~7 for float, ~15 for double). Qt-free and shared, so the cheat
-/// table and scan results render floats identically. NaN/Inf render as short tokens.
-inline std::string formatFloatScalar(double v, bool isDouble) {
-    if (std::isnan(v)) return "nan";
-    if (std::isinf(v)) return v < 0 ? "-inf" : "inf";
-    char buf[64];
-    std::snprintf(buf, sizeof(buf), "%.*g", isDouble ? 15 : 7, v);
-    return buf;
+/// Shortest locale-independent text that round trips to the stored float/double.
+/// Ordinary values remain compact (100.0 becomes 100); NaN/Inf use short tokens.
+inline std::string formatFloatScalar(double value, bool isDouble) {
+    if (std::isnan(value)) return "nan";
+    if (std::isinf(value)) return value < 0 ? "-inf" : "inf";
+    char buffer[64];
+    auto result = isDouble ? std::to_chars(buffer, buffer + sizeof(buffer), value)
+                          : std::to_chars(buffer, buffer + sizeof(buffer), static_cast<float>(value));
+    return result.ec == std::errc{} ? std::string(buffer, result.ptr) : std::string{};
 }
 
 /// Inverse: from a LOGICAL value's host-order bits, produce the `width(type)` stored

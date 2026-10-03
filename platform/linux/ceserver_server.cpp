@@ -57,6 +57,7 @@ bool sendAll(int fd, const void* buf, size_t n) {
 
 } // namespace
 
+CeserverServer::CeserverServer() = default;
 CeserverServer::~CeserverServer() { stop(); }
 
 uint16_t CeserverServer::start(uint16_t port) {

@@ -6,6 +6,8 @@
 #include <thread>
 #include <atomic>
 #include <set>
+#include <mutex>
+#include <condition_variable>
 
 namespace ce::os {
 
@@ -20,15 +22,13 @@ public:
     bool running() const { return running_.load(); }
 
 private:
-    void watchLoop();
-
-    std::string target_;
-    Callback callback_;
-    int pollMs_ = 500;
+    void watchLoop(std::string target, Callback callback, int pollMs, std::set<pid_t> knownPids);
     std::atomic<bool> running_{false};
     std::atomic<bool> stopRequested_{false};
     std::thread thread_;
-    std::set<pid_t> knownPids_;
+    std::thread::id workerId_;
+    std::mutex lifecycleMutex_;
+    std::condition_variable wake_;
 };
 
 } // namespace ce::os

@@ -21,7 +21,7 @@ VERSION="${VERSION:-0.0.0}"
 
 echo "Building cecore (Release)..."
 cmake -S "$ROOT" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
-cmake --build "$BUILD_DIR" -j"$(nproc)"
+cmake --build "$BUILD_DIR" -j"${CECORE_BUILD_JOBS:-1}"
 
 echo "Fetching linuxdeploy + Qt plugin + appimagetool (cached in $TOOLS)..."
 mkdir -p "$TOOLS"
@@ -50,6 +50,7 @@ export OUTPUT="$BUILD_DIR/CheatEngine-${VERSION}-x86_64.AppImage"
     --executable "$BUILD_DIR/cheatengine" \
     --executable "$BUILD_DIR/cescan" \
     ${CECORE_LIB:+--library "$CECORE_LIB"} \
+    --library "$BUILD_DIR/libcecore_mono_agent.so" \
     --desktop-file "$SCRIPT_DIR/cheatengine.desktop" \
     --icon-file "$SCRIPT_DIR/cheatengine.png" \
     --plugin qt \

@@ -19,6 +19,8 @@ struct CheatEntry {
     bool active = false;
     bool showAsHex = false;     // Display the value as hexadecimal (CE <ShowAsHex>)
     bool showAsSigned = true;   // Display integer values signed vs unsigned (CE <ShowAsSigned>)
+    ByteOrder dataByteOrder = ByteOrder::Unknown; // Unknown follows the target.
+    uint8_t pointerWidth = 0; // Zero follows the target; explicit encoded pointers use 4/8.
     FreezeMode freezeMode = FreezeMode::Normal;
     std::string autoAsmScript;  // [ENABLE]/[DISABLE] script
     std::string luaScript;      // Lua code
@@ -117,6 +119,9 @@ struct CheatTable {
 
     /// Load from JSON.
     bool loadJson(const std::string& path);
+
+    /// Parse one captured JSON payload, committing only after full validation.
+    bool loadJsonFromString(const std::string& json);
 
     /// Save/load a password-protected .CETRAINER payload.
     bool saveProtected(const std::string& path, const std::string& password) const;

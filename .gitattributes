@@ -1,0 +1,4 @@
+# Evidence and pinned upstream files retain their original bytes and hashes.
+# Serial-console CRLF and upstream indentation are part of those artifacts.
+docs/compatibility-evidence/** -text -whitespace
+third_party/tinyxml2/** -text -whitespace

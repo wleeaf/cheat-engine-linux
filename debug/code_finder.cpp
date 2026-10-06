@@ -1,12 +1,14 @@
+#include "core/target_capabilities.hpp"
+#include "arch/target_arch.hpp"
 #include "debug/code_finder.hpp"
 #include "core/log.hpp"
 #include "symbols/elf_symbols.hpp"
-#include "platform/linux/ceserver_process.hpp"
+#include "platform/linux/target_debug.hpp"
+#include "platform/linux/target_syscall.hpp"
 
 #include <cstdlib>
 #include <sys/ptrace.h>
 #include <sys/wait.h>
-#include <sys/user.h>
 #include <signal.h>
 #include <unistd.h>
 #include <algorithm>
@@ -15,6 +17,10 @@
 #include <cerrno>
 #include <cstring>
 #include <set>
+#include <map>
+#include <functional>
+#include <stdexcept>
+#include <array>
 
 #ifndef __WALL
 #define __WALL 0x40000000
@@ -23,32 +29,57 @@
 namespace ce {
 
 bool CodeFinder::start(ProcessHandle& proc, Debugger& dbg, uintptr_t address, bool writesOnly, int watchSize, bool software, bool singleThread) {
-    if (dynamic_cast<os::RemoteProcessHandle*>(&proc)) return false;
-    if (running_) return false;
+    std::lock_guard lifecycle(lifecycleMutex_);
+    if (running_) { setError(std::make_error_code(std::errc::device_or_resource_busy)); return false; }
+    if (proc.targetDescription().transport!=TargetTransport::Local ||
+        unsupportedTargetOperation(proc,software ? TargetFeature::SoftwareWatchpoint : TargetFeature::HardwareWatchpoint)) {
+        setError(std::make_error_code(std::errc::not_supported)); return false;
+    }
+    if (!address || (watchSize!=1 && watchSize!=2 && watchSize!=4 && watchSize!=8) ||
+        address>UINTPTR_MAX-static_cast<unsigned>(watchSize)) {
+        setError(std::make_error_code(std::errc::invalid_argument)); return false;
+    }
+    setError({});
+    recoveryPending_=false;
     if (monitorThread_.joinable()) monitorThread_.join();
 
     proc_ = &proc;
     dbg_ = &dbg;
-    disasm_.setArch(proc.runs32BitCode() ? Arch::X86_32 : Arch::X86_64);   // WoW64-aware
+    host_=proc.targetDescription().host;
+    disasm_.reset();
+    symbols_.loadProcess(proc);
     targetAddress_ = address;
     writesOnly_ = writesOnly;
-    watchSize_ = (watchSize == 1 || watchSize == 2 || watchSize == 8) ? watchSize : 4;
+    watchSize_ = watchSize;
     software_ = software;
-    singleThread_ = singleThread;
+    singleThread_ = singleThread || proc.targetDescription().runtime == TargetRuntime::Wine;
     stopRequested_ = false;
     running_ = true;
+    startup_ = std::promise<bool>{};
+    auto ready = startup_.get_future();
 
     try {
-        monitorThread_ = std::thread(software_ ? &CodeFinder::monitorLoopSoftware
-                                               : &CodeFinder::monitorLoop, this);
+        monitorThread_=std::thread([this] {
+            try { monitorLoop(); }
+            catch (const std::bad_alloc&) { setError(std::make_error_code(std::errc::not_enough_memory)); }
+            catch (const std::exception&) { setError(std::make_error_code(std::errc::io_error)); }
+            running_=false;
+            try { startup_.set_value(false); } catch (const std::future_error&) {}
+        });
     } catch (...) {
         running_ = false;
         throw;
     }
-    return true;
+    bool armed = ready.get();
+    if (!armed) { stopRequested_=true; if (monitorThread_.joinable()) monitorThread_.join(); }
+    return armed;
 }
 
 void CodeFinder::stop() {
+    stopRequested_ = true;
+    std::lock_guard lifecycle(lifecycleMutex_);
+    // A concurrent startup may clear the flag while holding this mutex.
+    // Request cancellation again once its startup transaction has finished.
     stopRequested_ = true;
     if (monitorThread_.joinable())
         monitorThread_.join();
@@ -62,7 +93,9 @@ std::vector<CodeFinderResult> CodeFinder::results() const {
     for (auto& [_, r] : resultsMap_)
         res.push_back(r);
     std::sort(res.begin(), res.end(),
-        [](const CodeFinderResult& a, const CodeFinderResult& b) { return a.hitCount > b.hitCount; });
+        [](const CodeFinderResult& a, const CodeFinderResult& b) {
+            return a.hitCount!=b.hitCount ? a.hitCount>b.hitCount : a.instructionAddress<b.instructionAddress;
+        });
     return res;
 }
 
@@ -72,167 +105,402 @@ void CodeFinder::clearResults() {
 }
 
 void CodeFinder::monitorLoop() {
-    pid_t pid = proc_->pid();
-
-    // DR0-3 are per-thread CPU state, so the watchpoint must be armed on EVERY
-    // thread of the target — a single-thread attach never sees sibling threads'
-    // accesses. SEIZE each thread with PTRACE_O_TRACECLONE so threads created
-    // later are auto-traced and can be armed too, then wait with __WALL.
-    int bpType = writesOnly_ ? 1 : 3;
-    // x86 DR7 length encoding: 1 byte->0, 2->1, 8->2, 4->3.
-    int bpSize = (watchSize_ == 1) ? 0 : (watchSize_ == 2) ? 1 : (watchSize_ == 8) ? 2 : 3;
-
-    auto armThread = [&](pid_t tid) {
-        return dbg_->setBreakpoint(tid, 0, targetAddress_, bpType, bpSize);
+    struct Thread {
+        bool alive=true,stopped=false,saved=false,armed=false,stepping=false,groupStop=false,guardStop=false;
+        std::optional<siginfo_t> signalInfo;
+        std::optional<siginfo_t> deferredInfo;
+        int deferredSignal=0;
+        int signal=0,event=0;
+        unsigned slot=0;
+        os::NativeHardwareBank original;
     };
+    std::map<pid_t,Thread> threads;
+    uintptr_t scratch=0,pageStart=0,pageEnd=0;
+    size_t pageLength=0,pageSize=0;
+    int originalProtection=0,guardProtection=0;
+    bool guardChanged=false,guardActive=false,imageRetired=false;
+    bool startupReported=false;
+    auto reportStartup=[&](bool success) { if (!startupReported) { startup_.set_value(success); startupReported=true; } };
+    auto consume=[&](pid_t tid,int status) {
+        auto& state=threads.try_emplace(tid).first->second;
+        if (WIFEXITED(status) || WIFSIGNALED(status)) { state.alive=false; return; }
+        if (!WIFSTOPPED(status)) return;
+        state.stopped=true; state.event=status>>16;
+        state.signal=state.event ? 0 : WSTOPSIG(status);
+        state.signalInfo.reset(); state.guardStop=false;
+        if (state.signal) {
+            siginfo_t info{};
+            if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)==0) {
+                state.signalInfo=info;
+                state.guardStop=software_ && guardActive && state.signal==SIGSEGV && info.si_code==SEGV_ACCERR &&
+                    reinterpret_cast<uintptr_t>(info.si_addr)>=pageStart && reinterpret_cast<uintptr_t>(info.si_addr)<pageEnd;
+            }
+        }
+        state.groupStop=state.event==PTRACE_EVENT_STOP && WSTOPSIG(status)!=SIGTRAP;
+        if (state.event==PTRACE_EVENT_EXEC) {
+            for (auto& [otherTid,other] : threads) {
+                other.saved=false; other.armed=false;
+                if (otherTid!=tid) other.alive=false;
+            }
+            state.alive=true; imageRetired=true;
+            setError(std::make_error_code(std::errc::operation_canceled)); stopRequested_=true;
+        }
+        if (state.stepping && !state.event && state.signal==SIGTRAP) {
+            siginfo_t info{};
+            if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)==0 &&
+                (info.si_code==TRAP_TRACE || (nativeTargetMachine().architecture==CpuArchitecture::Arm64 &&
+                 info.si_code==SI_USER && !info.si_pid && !info.si_uid))) state.signal=0;
+        }
+    };
+    auto waitForStop=[&](pid_t tid) {
+        for (;;) {
+            int status=0;
+            pid_t waited=waitpid(tid,&status,__WALL|__WNOTHREAD|WNOHANG);
+            if (waited==tid) { consume(tid,status); return threads.at(tid).alive && threads.at(tid).stopped; }
+            if (waited<0 && errno!=EINTR) {
+                if (errno==ECHILD || errno==ESRCH) threads.at(tid).alive=false;
+                else setError({errno,std::system_category()});
+                return false;
+            }
+            usleep(1000);
+        }
+    };
+    auto restore=[&](pid_t tid) {
+        auto& state=threads.at(tid);
+        if (!state.saved) return true;
+        auto result=os::restoreNativeHardwareBank(tid,false,state.original);
+        if (!result) { setError(result.error()); recoveryPending_=true; return false; }
+        state.armed=false; return true;
+    };
+    auto arm=[&](pid_t tid) {
+        auto& state=threads.at(tid);
+        if (software_) return true;
+        if (!state.saved) {
+            auto bank=os::readNativeHardwareBank(tid,false);
+            if (!bank) { setError(bank.error()); return false; }
+            state.original=*bank;
+            bool arm64=nativeTargetMachine().architecture==CpuArchitecture::Arm64;
+            while (state.slot<bank->count && (bank->entries[state.slot].control&(arm64 ? 1u : 3u))) ++state.slot;
+            if (state.slot==bank->count) { setError(std::make_error_code(std::errc::no_space_on_device)); return false; }
+            state.saved=true;
+        }
+        auto result=os::setNativeHardwareBreakpoint(tid,state.slot,targetAddress_,
+            writesOnly_ ? os::HardwareBreakpointAccess::Write : os::HardwareBreakpointAccess::ReadWrite,watchSize_);
+        if (!result) { setError(result.error()); recoveryPending_=true; return false; }
+        state.armed=true; return true;
+    };
+    auto resume=[&](pid_t tid,bool step=false,bool forceContinue=false) {
+        auto& state=threads.at(tid);
+        auto request=step ? PTRACE_SINGLESTEP : state.groupStop && !forceContinue ? PTRACE_LISTEN : PTRACE_CONT;
+        if (state.signal && state.signalInfo && ptrace(PTRACE_SETSIGINFO,tid,nullptr,&*state.signalInfo)<0) {
+            setError({errno,std::system_category()}); return false;
+        }
+        if (ptrace(request,tid,nullptr,reinterpret_cast<void*>(intptr_t(state.signal)))<0) {
+            setError({errno,std::system_category()}); return false;
+        }
+        state.stopped=false; state.signal=0; state.signalInfo.reset(); state.guardStop=false; state.event=0; state.stepping=step; return true;
+    };
+    auto ownsHardwareTrap=[&](pid_t tid,const siginfo_t& info) -> Result<bool> {
+        auto& state=threads.at(tid);
+        if (software_ || !state.armed || info.si_signo!=SIGTRAP || info.si_code!=TRAP_HWBKPT) return false;
+        if (host_.architecture==CpuArchitecture::Arm64) {
+            auto address=reinterpret_cast<uintptr_t>(info.si_addr);
+            return address>=targetAddress_ && address<targetAddress_+watchSize_;
+        }
+        auto bank=os::readNativeHardwareBank(tid,false);
+        if (!bank) return std::unexpected(bank.error());
+        return (bank->status&(uint64_t{1}<<state.slot))!=0;
+    };
+    auto clearHardwareStop=[&](pid_t tid) {
+        auto& state=threads.at(tid);
+        if (state.event || state.signal!=SIGTRAP) return true;
+        siginfo_t info{};
+        if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)<0) {setError({errno,std::system_category()});return false;}
+        auto owned=ownsHardwareTrap(tid,info);
+        if (!owned) {setError(owned.error());return false;}
+        if (*owned) {state.signal=0;state.signalInfo.reset();}
+        return true;
+    };
+    auto queuedHardwareTrap=[&](pid_t tid) -> Result<bool> {
+        struct {uint64_t offset;uint32_t flags;int32_t count;} peek{0,0,32};
+        std::array<siginfo_t,32> pending{};
+        for (;;) {
+            auto count=ptrace(PTRACE_PEEKSIGINFO,tid,&peek,pending.data());
+            if (count<0) return std::unexpected(Error(errno,std::system_category()));
+            for (long i=0;i<count;++i) {
+                auto owned=ownsHardwareTrap(tid,pending[i]);
+                if (!owned || *owned) return owned;
+            }
+            if (!count) return false;
+            peek.offset+=static_cast<uint64_t>(count);
+        }
+    };
+    auto drainHardwareTraps=[&](pid_t tid) {
+        auto& state=threads.at(tid);
+        if (software_ || !state.armed) return true;
+        while (state.alive && state.armed) {
+            if (!clearHardwareStop(tid)) return false;
+            auto queued=queuedHardwareTrap(tid);
+            if (!queued) {setError(queued.error());return false;}
+            if (!*queued) break;
+            // INTERRUPT can win before a synchronous watchpoint signal reaches
+            // its delivery stop. Drain that signal before clearing DR6/slots.
+            // Keep an already observed application signal for final detach.
+            if (state.signal) {
+                if (state.deferredSignal) {setError(std::make_error_code(std::errc::resource_unavailable_try_again));return false;}
+                state.deferredSignal=state.signal;state.deferredInfo=state.signalInfo;
+                state.signal=0;state.signalInfo.reset();
+            }
+            // A pending synchronous trap stops before another user instruction.
+            // CONT also releases a group-stop to its delivery stop; DETACH
+            // reinstates the kernel's group-stop state without adding SIGSTOP.
+            if (!resume(tid,false,true) || !waitForStop(tid)) return !state.alive;
+        }
+        if (state.deferredSignal) {
+            state.signal=state.deferredSignal;state.signalInfo=state.deferredInfo;
+            state.deferredSignal=0;state.deferredInfo.reset();
+        }
+        return true;
+    };
+    auto adopt=[&](pid_t parent) {
+        unsigned long child=0;
+        if (ptrace(PTRACE_GETEVENTMSG,parent,nullptr,&child)<0 || !child) {
+            setError({errno ? errno : EIO,std::system_category()}); return pid_t{0};
+        }
+        pid_t tid=static_cast<pid_t>(child);
+        threads.try_emplace(tid);
+        // An automatic child stop may have arrived before its parent's event.
+        if (!threads.at(tid).stopped && !waitForStop(tid)) return pid_t{0};
+        threads.at(tid).signal=0;
+        return tid;
+    };
+    auto stopAll=[&] {
+        for (;;) {
+            bool pending=false;
+            for (auto& [tid,state] : threads) {
+                if (!state.alive) continue;
+                if (!state.stopped) {
+                    pending=true;
+                    ptrace(PTRACE_INTERRUPT,tid,nullptr,nullptr);
+                    if (!waitForStop(tid)) continue;
+                }
+                if (state.event==PTRACE_EVENT_CLONE && !adopt(tid)) return false;
+            }
+            bool running=std::any_of(threads.begin(),threads.end(),[](const auto& entry) {
+                return entry.second.alive && !entry.second.stopped;
+            });
+            if (!running) return true;
+            if (pending) usleep(20000);
+        }
+    };
+    auto guardFault=[&](pid_t tid,siginfo_t* details=nullptr) {
+        auto& state=threads.at(tid);
+        if (state.event || state.signal!=SIGSEGV || !state.guardStop) return false;
+        siginfo_t info{};
+        if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)<0 || info.si_code!=SEGV_ACCERR) return false;
+        uintptr_t fault=reinterpret_cast<uintptr_t>(info.si_addr);
+        if (details) *details=info;
+        return fault>=pageStart && fault<pageEnd;
+    };
+    auto releaseScratch=[&] {
+        if (!scratch || imageRetired) { scratch=0; return true; }
+        auto owner=std::find_if(threads.begin(),threads.end(),[](const auto& entry) { return entry.second.alive && entry.second.stopped; });
+        if (owner!=threads.end()) {
+            if (runStoppedSyscall(owner->first,os::MemorySyscall::Unmap,{scratch,pageSize,0,0,0,0},0,owner->second.signal,&owner->second.signalInfo)!=0) return false;
+        } else {
+            if (!proc_->targetDescription().live) { scratch=0; return true; }
+            auto freed=proc_->free(scratch,pageSize);
+            if (!freed) { setError(freed.error()); recoveryPending_=true; return false; }
+        }
+        scratch=0; return true;
+    };
+    struct Cleanup { std::function<void()> action; ~Cleanup() { action(); } } cleanup{[&] {
+        reportStartup(false);
+        if (software_) {
+            for (;;) {
+                if (!stopAll()) { recoveryPending_=true; usleep(20000); continue; }
+                if (imageRetired) { guardChanged=false; guardActive=false; scratch=0; break; }
+                for (auto& [tid,state] : threads) if (state.alive && guardFault(tid)) {
+                    state.signal=0; state.signalInfo.reset(); state.guardStop=false;
+                }
+                auto owner=std::find_if(threads.begin(),threads.end(),[](const auto& entry) { return entry.second.alive && entry.second.stopped; });
+                if (guardChanged && owner!=threads.end()) {
+                    if (setStoppedProtection(owner->first,scratch,pageStart,pageLength,originalProtection,owner->second.signal,&owner->second.signalInfo)!=0) {
+                        recoveryPending_=true; usleep(20000); continue;
+                    }
+                }
+                guardChanged=false; guardActive=false;
+                if (!releaseScratch()) { usleep(20000); continue; }
+                break;
+            }
+        }
+        for (;;) {
+            auto it=std::find_if(threads.begin(),threads.end(),[](const auto& entry) { return entry.second.alive; });
+            if (it==threads.end()) break;
+            auto& [tid,state]=*it;
+            int status=0;
+            pid_t pending=waitpid(tid,&status,__WALL|__WNOTHREAD|WNOHANG);
+            if (pending==tid) consume(tid,status);
+            else if (pending<0 && (errno==ECHILD || errno==ESRCH)) state.alive=false;
+            if (!state.alive) continue;
+            if (!state.stopped) {
+                ptrace(PTRACE_INTERRUPT,tid,nullptr,nullptr);
+                if (!waitForStop(tid)) { usleep(20000); continue; }
+            }
+            if (state.event==PTRACE_EVENT_CLONE && !adopt(tid)) { usleep(20000); continue; }
+            if (!drainHardwareTraps(tid)) {recoveryPending_=true;usleep(20000);continue;}
+            if (!state.alive) continue;
+            if (software_ && guardFault(tid)) state.signal=0;
+            if (!restore(tid)) { usleep(20000); continue; }
+            if (state.signal && state.signalInfo && ptrace(PTRACE_SETSIGINFO,tid,nullptr,&*state.signalInfo)<0) {
+                setError({errno,std::system_category()}); recoveryPending_=true; usleep(20000); continue;
+            }
+            if (ptrace(PTRACE_DETACH,tid,nullptr,reinterpret_cast<void*>(intptr_t(state.signal)))<0 &&
+                errno!=ESRCH && errno!=ECHILD) {
+                setError({errno,std::system_category()}); recoveryPending_=true; usleep(20000); continue;
+            }
+            state.alive=false;
+        }
+        recoveryPending_=false; running_=false;
+    }};
 
-    std::set<pid_t> attached;
+    if (software_) {
+        long nativePageSize=sysconf(_SC_PAGESIZE);
+        if (nativePageSize<=0) { setError(std::make_error_code(std::errc::invalid_argument)); return; }
+        pageSize=static_cast<size_t>(nativePageSize);
+        pageStart=targetAddress_-targetAddress_%pageSize;
+        uintptr_t last=targetAddress_+watchSize_-1;
+        if (last>UINTPTR_MAX-pageSize) { setError(std::make_error_code(std::errc::value_too_large)); return; }
+        pageEnd=last-last%pageSize+pageSize; pageLength=pageEnd-pageStart;
+        bool found=false;
+        for (const auto& region : proc_->queryRegions()) {
+            if (pageStart<region.base || region.size>UINTPTR_MAX-region.base || pageEnd>region.base+region.size) continue;
+            if (region.protection&MemProt::Read) originalProtection|=1;
+            if (region.protection&MemProt::Write) originalProtection|=2;
+            if (region.protection&MemProt::Exec) originalProtection|=4;
+            found=true; break;
+        }
+        if (!found) { setError(std::make_error_code(std::errc::bad_address)); return; }
+        if (writesOnly_ && !(originalProtection&2)) { setError(std::make_error_code(std::errc::permission_denied)); return; }
+        guardProtection=writesOnly_ ? originalProtection&~2 : 0;
+        auto allocation=proc_->allocate(pageSize,MemProt::All,targetAddress_);
+        if (!allocation) { setError(allocation.error()); return; }
+        scratch=*allocation;
+    }
     std::vector<pid_t> tids;
-    if (singleThread_) {
-        // Wine/Proton: trace ONLY the main thread (the thread-group leader, where
-        // Warband-style game logic writes money/HP). Seizing the whole thread group
-        // deadlocks the game, and PTRACE_O_TRACECLONE would drag in siblings, so we
-        // deliberately touch nothing else.
-        tids.push_back(pid);
-    } else {
-        for (auto& t : proc_->threads()) tids.push_back(t.tid);
-        if (tids.empty()) tids.push_back(pid);
+    if (singleThread_ && !software_) {
+        if (proc_->targetDescription().runtime==TargetRuntime::Wine) tids.push_back(proc_->pid());
+        else {
+            auto task=os::processMemoryTask(proc_->pid());
+            if (!task) { setError(task.error()); return; }
+            tids.push_back(*task);
+        }
     }
-    const long seizeOpts = singleThread_ ? 0 : PTRACE_O_TRACECLONE;
-
-    int armFail = 0;
+    else for (const auto& thread : proc_->threads()) tids.push_back(thread.tid);
+    if (tids.empty()) tids.push_back(proc_->pid());
+    unsigned options=PTRACE_O_TRACEEXEC|(singleThread_ && !software_ ? 0 : PTRACE_O_TRACECLONE);
     for (pid_t tid : tids) {
-        if (ptrace(PTRACE_SEIZE, tid, nullptr,
-                   reinterpret_cast<void*>(seizeOpts)) < 0) {
-            ++armFail;
-            continue;
+        if (stopRequested_) return;
+        if (threads.contains(tid)) continue;
+        threads.try_emplace(tid);
+        if (ptrace(PTRACE_SEIZE,tid,nullptr,reinterpret_cast<void*>(uintptr_t(options)))<0) {
+            int failure=errno; threads.erase(tid);
+            if (failure==ESRCH) continue;
+            setError({failure,std::system_category()}); return;
         }
-        // Stop the thread so its debug registers can be programmed.
-        int st = 0;
-        pid_t stopped = -1;
-        if (ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) == 0) {
-            do { stopped = waitpid(tid, &st, __WALL); } while (stopped < 0 && errno == EINTR);
-        }
-        if (stopped != tid || !WIFSTOPPED(st) || !armThread(tid)) {
-            ++armFail;
-            ptrace(PTRACE_DETACH, tid, nullptr, nullptr);
-            continue;
-        }
-        attached.insert(tid);
-        ptrace(PTRACE_CONT, tid, nullptr, nullptr);
+        if (ptrace(PTRACE_INTERRUPT,tid,nullptr,nullptr)<0) { setError({errno,std::system_category()}); return; }
+        if (!waitForStop(tid)) return;
+        if (threads.at(tid).event==PTRACE_EVENT_CLONE && !adopt(tid)) return;
+        if (stopRequested_) return;
     }
-
-    if (attached.empty()) {
-        running_ = false;
-        return;
+    if (threads.empty()) { setError(std::make_error_code(std::errc::no_such_process)); return; }
+    for (auto& [tid,state] : threads) if (state.alive && !arm(tid)) return;
+    if (software_) {
+        auto owner=std::find_if(threads.begin(),threads.end(),[](const auto& entry) { return entry.second.alive; });
+        if (owner==threads.end()) return;
+        guardChanged=true;
+        if (setStoppedProtection(owner->first,scratch,pageStart,pageLength,guardProtection,owner->second.signal,&owner->second.signalInfo)!=0) return;
+        guardActive=true;
     }
-    ce::log::debug(ce::log::Cat::Debugger,
-        "hwwp: watch {:#x} size {} type {} armed on {} thread(s) ({} seize failures){}",
-        (uint64_t)targetAddress_, watchSize_, bpType, attached.size(), armFail,
-        singleThread_ ? " [single-thread / Wine]" : "");
-    uint64_t hwHits = 0;
+    for (auto& [tid,state] : threads) if (state.alive && !resume(tid)) return;
+    reportStartup(true);
 
     while (!stopRequested_) {
-        int status;
-        pid_t w = waitpid(-1, &status, __WALL | __WNOTHREAD | WNOHANG);
-        if (w <= 0) {
-            usleep(1000); // 1ms poll
+        int status=0;
+        pid_t tid=waitpid(-1,&status,__WALL|__WNOTHREAD|WNOHANG);
+        if (tid<0 && errno==ECHILD) break;
+        if (tid<0 && errno!=EINTR) { setError({errno,std::system_category()}); return; }
+        if (tid<=0) { usleep(1000); continue; }
+        bool unknown=!threads.contains(tid);
+        consume(tid,status);
+        auto& state=threads.at(tid);
+        if (!state.alive) continue;
+        if (stopRequested_) return;
+        // Do not release an early child until its parent's clone event arms it.
+        if (unknown) continue;
+        if (state.event==PTRACE_EVENT_CLONE) {
+            pid_t child=adopt(tid);
+            if (!child || !arm(child) || !resume(child) || !resume(tid)) return;
             continue;
         }
-
-        // A newly created thread: it is auto-seized and stopped; arm and resume.
-        if (WIFSTOPPED(status) &&
-            (status >> 8) == (SIGTRAP | (PTRACE_EVENT_CLONE << 8))) {
-            unsigned long newTid = 0;
-            if (ptrace(PTRACE_GETEVENTMSG, w, nullptr, &newTid) == 0 && newTid) {
-                pid_t child = static_cast<pid_t>(newTid);
-                int st = 0;
-                pid_t stopped;
-                do { stopped = waitpid(child, &st, __WALL); } while (stopped < 0 && errno == EINTR);
-                if (stopped == child && WIFSTOPPED(st) && armThread(child)) {
-                    attached.insert(child);
-                    ptrace(PTRACE_CONT, child, nullptr, nullptr);
-                } else {
-                    ptrace(PTRACE_DETACH, child, nullptr, nullptr);
+        if (software_ && guardFault(tid)) {
+            if (!stopAll() || imageRetired) return;
+            siginfo_t info{};
+            if (!guardFault(tid,&info)) return;
+            uintptr_t fault=reinterpret_cast<uintptr_t>(info.si_addr);
+            if (fault>=targetAddress_ && fault<targetAddress_+watchSize_ && !recordHit(tid,false)) return;
+            state.signal=0; state.signalInfo.reset(); state.guardStop=false;
+            if (setStoppedProtection(tid,scratch,pageStart,pageLength,originalProtection,state.signal,&state.signalInfo)!=0) return;
+            guardActive=false;
+            do {
+                if (!resume(tid,true) || !waitForStop(tid)) return;
+            } while (state.event==PTRACE_EVENT_STOP && !state.groupStop && !stopRequested_);
+            if (state.event==PTRACE_EVENT_CLONE && !adopt(tid)) return;
+            if (imageRetired || stopRequested_) return;
+            if (setStoppedProtection(tid,scratch,pageStart,pageLength,guardProtection,state.signal,&state.signalInfo)!=0) return;
+            guardActive=true;
+            for (auto& [otherTid,other] : threads) {
+                if (!other.alive) continue;
+                if (guardFault(otherTid)) other.signal=0;
+                if (!resume(otherTid)) return;
+            }
+            continue;
+        }
+        if (!software_ && !state.event && state.signal==SIGTRAP && state.armed) {
+            siginfo_t info{};
+            if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)<0) { setError({errno,std::system_category()}); return; }
+            auto context=os::readNativeContext(tid);
+            if (!context) { setError(context.error()); return; }
+            bool arm64=context->architecture==CpuArchitecture::Arm64;
+            if (info.si_code==TRAP_HWBKPT && !arm64 && !context->debugRegistersValid) {
+                setError(std::make_error_code(std::errc::io_error));
+                return;
+            }
+            bool own=info.si_code==TRAP_HWBKPT && (arm64 ?
+                reinterpret_cast<uintptr_t>(info.si_addr)>=targetAddress_ &&
+                reinterpret_cast<uintptr_t>(info.si_addr)<targetAddress_+watchSize_ :
+                context->debugRegistersValid && (context->dr6&(uint64_t{1}<<state.slot)));
+            if (own) {
+                state.signal=0;
+                if (!recordHit(tid,!arm64)) return;
+                auto cleared=os::clearNativeHardwareStatus(tid);
+                if (!cleared) { setError(cleared.error()); return; }
+                if (arm64) {
+                    // ARM64 stops before the access. Lift only our slot, step
+                    // the original instruction, and rearm before continuing.
+                    auto removed=os::removeNativeHardwareBreakpoint(tid,state.slot,false);
+                    if (!removed) { setError(removed.error()); recoveryPending_=true; return; }
+                    state.armed=false;
+                    do {
+                        if (!resume(tid,true) || !waitForStop(tid)) return;
+                    } while (state.event==PTRACE_EVENT_STOP && !state.groupStop && !stopRequested_);
+                    if (state.event==PTRACE_EVENT_CLONE && !adopt(tid)) return;
+                    if (stopRequested_ || !state.alive || !arm(tid)) return;
                 }
             }
-            ptrace(PTRACE_CONT, w, nullptr, nullptr);
-            continue;
         }
-
-        if (WIFSTOPPED(status)) {
-            int sig = WSTOPSIG(status);
-
-            // Only treat this SIGTRAP as a watchpoint hit if siginfo confirms a
-            // hardware-breakpoint trap. Report the hit against the tid (w) that
-            // actually trapped, so sibling-thread accesses are attributed right.
-            siginfo_t si{};
-            bool isWatchpoint = (sig == SIGTRAP &&
-                ptrace(PTRACE_GETSIGINFO, w, nullptr, &si) == 0 &&
-                si.si_code == TRAP_HWBKPT);
-
-            if (isWatchpoint) {
-                if (hwHits++ == 0)
-                    ce::log::debug(ce::log::Cat::Debugger, "hwwp: first hit tid {} rip {:#x}",
-                                   w, (uint64_t)si.si_addr);
-                recordHit(w, /*afterInstruction=*/true);
-                // Clear DR6's status bits before resuming. The CPU sets the B0-B3
-                // bit for the debug register that fired and never auto-clears it;
-                // if we leave it set, the tracee reads a stale "a hardware
-                // breakpoint hit" flag back through its own context (Wine/Proton
-                // exposes DR6 via GetThreadContext and re-raises it into the game's
-                // SEH as a Windows debug exception, which shows the game's crash
-                // dialog). The main debugger path already does this; CodeFinder did
-                // not, so its watchpoints were the ones crashing Wine targets.
-                size_t dr6Off = offsetof(struct user, u_debugreg) + 6 * sizeof(long);
-                ptrace(PTRACE_POKEUSER, w, dr6Off, 0L);
-                ptrace(PTRACE_CONT, w, nullptr, nullptr);
-            } else if (sig == SIGTRAP) {
-                // A trap that is not our watchpoint (int3, syscall-stop, an
-                // event-stop). Resume without re-injecting SIGTRAP.
-                ptrace(PTRACE_CONT, w, nullptr, nullptr);
-            } else if (sig == SIGSTOP || sig == SIGTSTP ||
-                       sig == SIGTTIN || sig == SIGTTOU) {
-                // Group-stop / PTRACE_INTERRUPT stop: resume with no signal.
-                ptrace(PTRACE_CONT, w, nullptr, nullptr);
-            } else {
-                // A genuine signal destined for the tracee — forward it.
-                ce::log::debug(ce::log::Cat::Debugger,
-                    "hwwp: tid {} forwarding signal {} (hits so far {})", w, sig, hwHits);
-                ptrace(PTRACE_CONT, w, nullptr, reinterpret_cast<void*>(static_cast<uintptr_t>(sig)));
-            }
-        } else if (WIFEXITED(status) || WIFSIGNALED(status)) {
-            if (WIFSIGNALED(status) || w == pid)
-                ce::log::debug(ce::log::Cat::Debugger, "hwwp: tid {} {} (sig {}), hits {}",
-                    w, WIFSIGNALED(status) ? "KILLED" : "exited",
-                    WIFSIGNALED(status) ? WTERMSIG(status) : 0, hwHits);
-            attached.erase(w);
-            if (w == pid || attached.empty())
-                break; // main thread / whole process gone
-        }
+        if (!resume(tid)) return;
     }
-    ce::log::debug(ce::log::Cat::Debugger,
-        "hwwp: loop end (stopRequested={}), total hits {}", stopRequested_.load(), hwHits);
-
-    // Clean up — remove the watchpoint and detach from every armed thread.
-    // At loop exit every thread is running (each handled stop is CONT'd before
-    // the next iteration). PTRACE_POKEUSER (clearing DR7) and PTRACE_DETACH both
-    // require the tracee to be in a ptrace-stop, so we must INTERRUPT each thread
-    // and wait for the stop first. Skipping this leaves the hardware watchpoint
-    // armed after the kernel auto-detaches on tracer exit; the tracee then takes
-    // a debug-exception SIGTRAP with no tracer installed and is killed.
-    for (pid_t tid : attached) {
-        if (ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) != 0)
-            continue; // thread already gone / not seized
-        int st = 0;
-        pid_t r;
-        do { r = waitpid(tid, &st, __WALL); } while (r < 0 && errno == EINTR);
-        if (r != tid || WIFEXITED(st) || WIFSIGNALED(st))
-            continue; // exited before we could disarm it
-        dbg_->removeBreakpoint(tid, 0);       // clears DR7 while stopped
-        ptrace(PTRACE_DETACH, tid, nullptr, nullptr); // signal 0 = drop pending
-    }
-    running_ = false;
 }
 
 RecoveredInstruction recoverStoreInstruction(ProcessHandle& proc, SymbolResolver& resolver,
@@ -266,33 +534,39 @@ RecoveredInstruction recoverStoreInstruction(ProcessHandle& proc, SymbolResolver
     return out;
 }
 
-void CodeFinder::recordHit(pid_t tid, bool afterInstruction) {
+bool CodeFinder::recordHit(pid_t tid, bool afterInstruction) {
     auto ctxResult = dbg_->getContext(tid);
-    if (!ctxResult) return;
+    if (!ctxResult) { setError(ctxResult.error()); return false; }
     auto& ctx = *ctxResult;
-    uintptr_t rip = ctx.rip;
+    uintptr_t rip = ctx.instructionPointer();
+    auto architecture=disassemblerArchFor(*proc_,rip);
+    if (!architecture) { setError(std::make_error_code(std::errc::not_supported)); return false; }
+    if (!disasm_) disasm_.emplace(*architecture);
+    else disasm_->setArch(*architecture);
     uintptr_t instrAddr = rip;
     if (afterInstruction) {
         // Hardware watchpoint: the trap fires once the store has retired, so rip is
         // at the NEXT instruction — back up to the one that actually touched the
         // address (a software page fault, by contrast, stops on the store itself).
-        uintptr_t prev = disasm_.previousInstruction(rip, [&](uintptr_t a, uint8_t* b, size_t n) {
+        uintptr_t prev = disasm_->previousInstruction(rip, [&](uintptr_t a, uint8_t* b, size_t n) {
             auto r = proc_->read(a, b, n);
             return r && *r >= n;
         });
         if (prev != 0 && prev < rip) instrAddr = prev;
+        auto exact=recoverStoreInstruction(*proc_,symbols_,rip,ctx.architecture==CpuArchitecture::X86_64);
+        if (exact.ok) instrAddr=exact.address;
     }
     uint8_t instrBuf[16];
     auto readResult = proc_->read(instrAddr, instrBuf, sizeof(instrBuf));
     std::string instrText;
     std::vector<uint8_t> instrBytes;
-    if (readResult && *readResult > 0) {
-        auto insns = disasm_.disassemble(instrAddr, {instrBuf, *readResult}, 1);
-        if (!insns.empty()) {
-            instrText = insns[0].mnemonic + " " + insns[0].operands;
-            instrBytes = insns[0].bytes;
-        }
+    if (!readResult || !*readResult) {
+        setError(readResult ? std::make_error_code(std::errc::bad_address) : readResult.error()); return false;
     }
+    auto insns=disasm_->disassemble(instrAddr,{instrBuf,std::min(*readResult,sizeof(instrBuf))},1);
+    if (insns.empty()) { setError(std::make_error_code(std::errc::illegal_byte_sequence)); return false; }
+    instrText=insns[0].mnemonic+" "+insns[0].operands;
+    instrBytes=insns[0].bytes;
     std::lock_guard lock(resultsMutex_);
     auto& entry = resultsMap_[instrAddr];
     if (entry.hitCount == 0) {
@@ -303,241 +577,35 @@ void CodeFinder::recordHit(pid_t tid, bool afterInstruction) {
     }
     entry.lastContext = ctx;
     entry.hitCount++;
+    return true;
 }
 
-// Run a syscall in an already ptrace-stopped, traced thread by pointing its RIP at
-// a pre-placed syscall GADGET (a `syscall` / `int 0x80` instruction in a scratch
-// page we own), NOT by overwriting the instruction at the thread's own RIP. That
-// matters in a multithreaded target: sibling threads run the same code, so poking
-// a syscall over a shared instruction makes them execute it too and corrupts the
-// process (observed as a SIGSEGV / game crash). The gadget page is private, so no
-// running thread ever executes it. WoW64 / 32-bit compat threads (CS 0x23) use the
-// int 0x80 gadget with the i386 syscall number. Returns the syscall result, or -1.
-static long injectSyscallGadget(pid_t tid, uintptr_t gadget64, uintptr_t gadget32,
-                                long nr64, uint64_t a1, uint64_t a2, uint64_t a3) {
-    struct user_regs_struct oldRegs, regs;
-    if (ptrace(PTRACE_GETREGS, tid, nullptr, &oldRegs) < 0) return -1;
-    regs = oldRegs;
-    regs.orig_rax = (unsigned long long)-1;   // no syscall-restart on resume
-
-    const bool mode32 = ((oldRegs.cs & 0xFFu) == 0x23u);
-    if (mode32) {
-        uint32_t nr32 = (nr64 == 10) ? 125u : (uint32_t)nr64;  // mprotect -> i386 125
-        regs.rax = nr32;
-        regs.rbx = a1; regs.rcx = a2; regs.rdx = a3;
-        regs.rip = gadget32;
-    } else {
-        regs.rax = (unsigned long long)nr64;
-        regs.rdi = a1; regs.rsi = a2; regs.rdx = a3;
-        regs.rip = gadget64;
-    }
-
-    long result = -1;
-    int status;
-    if (ptrace(PTRACE_SETREGS, tid, nullptr, &regs) == 0 &&
-        ptrace(PTRACE_SINGLESTEP, tid, nullptr, nullptr) == 0 &&
-        waitpid(tid, &status, __WALL) == tid && WIFSTOPPED(status)) {
-        struct user_regs_struct after;
-        if (ptrace(PTRACE_GETREGS, tid, nullptr, &after) == 0)
-            result = mode32 ? (long)(int32_t)(after.rax & 0xFFFFFFFFu)
-                            : (long)after.rax;
-    }
-    // Restore the saved registers (RIP goes back to the faulting store); no shared
-    // instruction was ever modified, so nothing else to undo.
-    ptrace(PTRACE_SETREGS, tid, nullptr, &oldRegs);
-    return result;
+long CodeFinder::setStoppedProtection(pid_t tid,uintptr_t scratch,uintptr_t address,size_t length,int protection,int& signal,std::optional<siginfo_t>* signalInfo) {
+    return runStoppedSyscall(tid,os::MemorySyscall::Protect,{address,length,static_cast<uint64_t>(protection),0,0,0},scratch,signal,signalInfo);
 }
 
-void CodeFinder::monitorLoopSoftware() {
-    pid_t pid = proc_->pid();
-    const uintptr_t watchLo = targetAddress_;
-    const uintptr_t watchHi = targetAddress_ + (uintptr_t)watchSize_;
-    const uintptr_t pageStart = watchLo & ~uintptr_t(4095);
-    const uintptr_t pageEnd = (watchHi + 4095) & ~uintptr_t(4095);
-    const size_t pageLen = pageEnd - pageStart;
-
-    // Original protection of the region (so we can restore it, and keep READ/EXEC
-    // while dropping WRITE). Linux PROT_*: R=1, W=2, X=4.
-    int origProt = 1;
-    for (auto& r : proc_->queryRegions()) {
-        if (targetAddress_ >= r.base && targetAddress_ < r.base + r.size) {
-            origProt = 0;
-            if (r.protection & MemProt::Read)  origProt |= 1;
-            if (r.protection & MemProt::Write) origProt |= 2;
-            if (r.protection & MemProt::Exec)  origProt |= 4;
-            break;
+long CodeFinder::runStoppedSyscall(pid_t tid,os::MemorySyscall operation,std::array<uint64_t,6> arguments,uintptr_t scratch,int& signal,std::optional<siginfo_t>* signalInfo) {
+    auto result=scratch ? os::executeStoppedMemorySyscall(tid,host_,operation,arguments,scratch) :
+        os::executeQuiescedMemorySyscall(tid,host_,operation,arguments);
+    if (result) return static_cast<long>(*result);
+    auto failure=result.error();
+    setError(failure.code); stopRequested_=true;
+    if (failure.pendingSignal) {
+        signal=failure.pendingSignal;
+        siginfo_t info{};
+        if (signalInfo && ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)==0) *signalInfo=info;
+    }
+    if (failure.recovery) {
+        recoveryPending_=true;
+        for (;;) {
+            auto restored=failure.recovery->retry();
+            if (restored || restored.error()==std::errc::no_such_process || restored.error()==std::errc::operation_canceled) break;
+            usleep(20000);
         }
+        recoveryPending_=false;
     }
-    // Guard: writes-only drops WRITE (reads/exec still allowed); access mode drops
-    // read too (PROT_NONE) so reads fault as well — heavier, but that is inherent.
-    const int guardProt = writesOnly_ ? (origProt & ~2) : 0;
-
-    // Allocate a scratch syscall-gadget page BEFORE seizing (allocate() attaches on
-    // its own, so it must not run while we hold the seize). Place it near the target
-    // so a WoW64 32-bit thread — whose RIP must be < 4 GB — can jump to it. Write a
-    // `syscall` gadget for 64-bit threads and an `int 0x80` gadget for 32-bit ones.
-    auto scratchRes = proc_->allocate(4096, MemProt::All, targetAddress_);
-    if (!scratchRes) {
-        ce::log::debug(ce::log::Cat::Debugger, "swwp: scratch allocate FAILED, aborting");
-        running_ = false; return;
-    }
-    const uintptr_t scratch = *scratchRes;
-    ce::log::debug(ce::log::Cat::Debugger,
-        "swwp: watch {:#x} size {} page [{:#x},{:#x}) origProt {} guardProt {} scratch {:#x}",
-        (uint64_t)targetAddress_, watchSize_, (uint64_t)pageStart, (uint64_t)pageEnd,
-        origProt, guardProt, (uint64_t)scratch);
-    const uintptr_t gadget64 = scratch;
-    const uintptr_t gadget32 = scratch + 16;
-    { const uint8_t g64[2] = {0x0f, 0x05}; proc_->write(gadget64, g64, sizeof(g64)); }   // syscall
-    { const uint8_t g32[2] = {0xcd, 0x80}; proc_->write(gadget32, g32, sizeof(g32)); }   // int 0x80
-
-    // SEIZE every thread BEFORE arming — this begins tracing without stopping them
-    // (a game's render/GPU thread has to keep running). Any thread we fail to trace
-    // will, when it writes the guarded page, take an unintercepted SIGSEGV that goes
-    // straight to the game and crashes it, so re-scan a few times to catch threads
-    // that appear during setup. Once every current thread is seized,
-    // PTRACE_O_TRACECLONE auto-traces their future children (born stopped, so they
-    // cannot write the page until we resume them in the loop).
-    std::set<pid_t> attached;
-    int seizeFail = 0;
-    for (int pass = 0; pass < 6; ++pass) {
-        size_t before = attached.size();
-        std::vector<pid_t> cur;
-        for (auto& t : proc_->threads()) cur.push_back(t.tid);
-        if (cur.empty()) cur.push_back(pid);
-        for (pid_t tid : cur) {
-            if (attached.count(tid)) continue;
-            errno = 0;
-            if (ptrace(PTRACE_SEIZE, tid, nullptr,
-                       reinterpret_cast<void*>(PTRACE_O_TRACECLONE)) == 0) {
-                attached.insert(tid);
-            } else {
-                ++seizeFail;
-                ce::log::debug(ce::log::Cat::Debugger,
-                    "swwp: SEIZE tid {} FAILED errno {}", tid, errno);
-            }
-        }
-        if (attached.size() == before) break;   // no new threads this pass -> stable
-    }
-    if (attached.empty()) {
-        proc_->free(scratch, 4096);
-        running_ = false;
-        return;
-    }
-
-    // Stop a single thread just long enough to arm the guard, then resume it.
-    const pid_t armTid = *attached.begin();
-    long armRc = -1;
-    if (ptrace(PTRACE_INTERRUPT, armTid, nullptr, nullptr) == 0) {
-        int st; waitpid(armTid, &st, __WALL);
-        armRc = injectSyscallGadget(armTid, gadget64, gadget32, 10 /*mprotect*/,
-                                    pageStart, pageLen, guardProt);
-        ptrace(PTRACE_CONT, armTid, nullptr, nullptr);
-    }
-    ce::log::debug(ce::log::Cat::Debugger,
-        "swwp: seized {} threads ({} seize failures), armed guard via tid {} -> {}",
-        attached.size(), seizeFail, armTid, armRc);
-
-    uint64_t faultCount = 0;   // total guarded-page faults handled (diagnostics)
-
-    while (!stopRequested_) {
-        int status;
-        pid_t w = waitpid(-1, &status, __WALL | __WNOTHREAD | WNOHANG);
-        if (w <= 0) { usleep(1000); continue; }
-
-        // Newly cloned thread: trace + resume (the guard is process-wide, so it will
-        // fault on the protected page too).
-        if (WIFSTOPPED(status) &&
-            (status >> 8) == (SIGTRAP | (PTRACE_EVENT_CLONE << 8))) {
-            unsigned long newTid = 0;
-            if (ptrace(PTRACE_GETEVENTMSG, w, nullptr, &newTid) == 0 && newTid) {
-                int st; waitpid(static_cast<pid_t>(newTid), &st, __WALL);
-                attached.insert(static_cast<pid_t>(newTid));
-                ptrace(PTRACE_CONT, static_cast<pid_t>(newTid), nullptr, nullptr);
-            }
-            ptrace(PTRACE_CONT, w, nullptr, nullptr);
-            continue;
-        }
-
-        if (WIFSTOPPED(status)) {
-            int sig = WSTOPSIG(status);
-            if (sig == SIGSEGV) {
-                siginfo_t si{};
-                bool haveSi = (ptrace(PTRACE_GETSIGINFO, w, nullptr, &si) == 0);
-                uintptr_t fault = haveSi ? reinterpret_cast<uintptr_t>(si.si_addr) : 0;
-                bool ourPage = haveSi && fault >= pageStart && fault < pageEnd;
-                if (ourPage) {
-                    if (faultCount == 0)
-                        ce::log::debug(ce::log::Cat::Debugger,
-                            "swwp: first guarded fault tid {} addr {:#x}{}",
-                            w, (uint64_t)fault, attached.count(w) ? "" : " (UNTRACKED tid!)");
-                    ++faultCount;
-                    // A guarded access. Record it only if it lands on the watched
-                    // bytes (other bytes on the same page fault too, but aren't ours).
-                    if (fault >= watchLo && fault < watchHi)
-                        recordHit(w, /*afterInstruction=*/false);
-                    // Let the faulting instruction complete: briefly restore the real
-                    // protection, single-step over the store, then re-arm the guard.
-                    injectSyscallGadget(w, gadget64, gadget32, 10, pageStart, pageLen, origProt);
-                    if (ptrace(PTRACE_SINGLESTEP, w, nullptr, nullptr) == 0) {
-                        int st; waitpid(w, &st, __WALL);
-                    }
-                    injectSyscallGadget(w, gadget64, gadget32, 10, pageStart, pageLen, guardProt);
-                    ptrace(PTRACE_CONT, w, nullptr, nullptr);
-                } else {
-                    // A segfault NOT on our page. si_code tells us if it is a real
-                    // access violation (SEGV_MAPERR/ACCERR) vs something else; log it
-                    // because forwarding a spurious one is a prime crash suspect.
-                    ce::log::debug(ce::log::Cat::Debugger,
-                        "swwp: tid {} SIGSEGV off-page fault={:#x} si_code {} -> forwarding",
-                        w, (uint64_t)fault, haveSi ? si.si_code : -999);
-                    ptrace(PTRACE_CONT, w, nullptr,
-                           reinterpret_cast<void*>(static_cast<uintptr_t>(SIGSEGV)));
-                }
-            } else if (sig == SIGTRAP) {
-                ptrace(PTRACE_CONT, w, nullptr, nullptr);
-            } else if (sig == SIGSTOP || sig == SIGTSTP ||
-                       sig == SIGTTIN || sig == SIGTTOU) {
-                ptrace(PTRACE_CONT, w, nullptr, nullptr);
-            } else {
-                ce::log::debug(ce::log::Cat::Debugger,
-                    "swwp: tid {} forwarding signal {}", w, sig);
-                ptrace(PTRACE_CONT, w, nullptr,
-                       reinterpret_cast<void*>(static_cast<uintptr_t>(sig)));
-            }
-        } else if (WIFEXITED(status) || WIFSIGNALED(status)) {
-            if (WIFSIGNALED(status) || w == pid)
-                ce::log::debug(ce::log::Cat::Debugger,
-                    "swwp: tid {} {} (signal {}), faults so far {}", w,
-                    WIFSIGNALED(status) ? "KILLED" : "exited",
-                    WIFSIGNALED(status) ? WTERMSIG(status) : 0, faultCount);
-            attached.erase(w);
-            if (w == pid || attached.empty())
-                break;
-        }
-    }
-    ce::log::debug(ce::log::Cat::Debugger,
-        "swwp: loop end (stopRequested={}), total guarded faults {}",
-        stopRequested_.load(), faultCount);
-
-    // Cleanup: restore the page's original protection once, detach every thread,
-    // then release the scratch gadget page.
-    bool restored = false;
-    for (pid_t tid : attached) {
-        if (ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) != 0)
-            continue;
-        int st = 0;
-        pid_t r = waitpid(tid, &st, __WALL);
-        if (r != tid || WIFEXITED(st) || WIFSIGNALED(st))
-            continue;
-        if (!restored) {
-            injectSyscallGadget(tid, gadget64, gadget32, 10, pageStart, pageLen, origProt);
-            restored = true;
-        }
-        ptrace(PTRACE_DETACH, tid, nullptr, nullptr);
-    }
-    proc_->free(scratch, 4096);
-    running_ = false;
+    return -1;
 }
+
 
 } // namespace ce

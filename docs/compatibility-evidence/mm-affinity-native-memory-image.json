@@ -1,0 +1,18 @@
+{
+  "suite": "shared-mm-exec-affinity",
+  "passed": true,
+  "utc": "2026-10-06T03:16:01.469124+00:00",
+  "sourceRevision": null,
+  "sourceRef": null,
+  "driverSha256": "0f1ac865ed6905783ac1d86a9889b452cceffb387737dd00c5b9c9eec3cb4b13",
+  "fixtureSha256": "ba8fb1fffe6b7363b2522452c1305497eda19bc226a845bda77e0ab893898f74",
+  "coreSha256": "4766ad33b39d2a5b37161110f9fc7a5b1cdccc24b0e2f7004066baa2869f07b9",
+  "command": [
+    "/home/taceddinsancak/Desktop/Projects/cheat-engine/build/memory_image_integration",
+    "/home/taceddinsancak/Desktop/Projects/cheat-engine/build/shared_mm_fixture"
+  ],
+  "checks": 42,
+  "pageSize": 4096,
+  "exitCode": 0,
+  "outputSha256": "da41427a0bbb3fefddac8e538e35f64b00689449d6c52f17baeee97b8be40ed0"
+}

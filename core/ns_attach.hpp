@@ -22,11 +22,10 @@ namespace ce {
 
 /// Return a version of `rawPath` (a path as it appears in `/proc/<pid>/maps`) that
 /// can be opened from the host. If `rawPath` is empty or not absolute (`[heap]`,
-/// anonymous, `[stack]`) it is returned unchanged. If it already exists on the host
-/// it is returned as-is (the common, non-sandboxed case). Otherwise, if it exists
-/// under the target's mount namespace root (`/proc/<pid>/root<rawPath>`), that
-/// host-openable path is returned. If neither exists, `rawPath` is returned unchanged
-/// so the caller fails exactly as it would have before.
+/// anonymous, `[stack]`) it is returned unchanged. A host path is used only when
+/// its device and inode match the target-root path. Otherwise use
+/// `/proc/<pid>/root<rawPath>`, including when that file cannot be opened, so an
+/// inaccessible target module never silently selects a different host binary.
 std::string resolveProcPath(pid_t pid, const std::string& rawPath);
 
 /// The pid as the process sees itself in its innermost PID namespace, from the last

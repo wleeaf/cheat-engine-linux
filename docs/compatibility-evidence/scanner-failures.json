@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 1,
+  "createdUTC": "2026-10-05T22:11:14.122116+00:00",
+  "passed": true,
+  "sourceState": "uncommitted worktree snapshot",
+  "scope": "Bounded ProcessHandle fault fixtures for scanner first/next worker errors, joining, persisted sample preservation, partial-file/descriptor cleanup and Lua retry. Separate full host CI checks verify the current native frontend/transport/Wine behavior. No universal Linux process, foreign-kernel scan or real host-memory exhaustion claim.",
+  "newModelChecks": [
+    "First scan reports allocation, transport and unknown worker exceptions instead of returning false success",
+    "Single and parallel next scans report worker exceptions without terminating the engine or replacing saved samples",
+    "Failed scans join an independently blocked sibling before reporting the original error",
+    "Failed first/next scans remove partial snapshot directories and release every file descriptor",
+    "The same scanner succeeds after worker failure with original persisted samples and target memory unchanged",
+    "Lua retains the last successful scan after allocation failure and can retry on the same scan object"
+  ],
+  "modelChecksPerBuild": 161,
+  "faultMatrix": {
+    "errors": [
+      "bad_alloc",
+      "connection_reset system_error",
+      "nonstandard thrown value"
+    ],
+    "scanPhases": [
+      "first",
+      "next"
+    ],
+    "workerCounts": [
+      1,
+      2
+    ],
+    "valueTypes": [
+      "Byte",
+      "All"
+    ],
+    "ordinaryFaultOperations": 24,
+    "synchronizedSiblingOperations": 2,
+    "lua": "first and next failures preserve four prior samples, followed by successful retry"
+  },
+  "sources": {
+    "scanner/memory_scanner.cpp": "ee19d4fa88edf4e03c5053a8dfe36fea05070d298a8b2a0029377ab089d046d3",
+    "scanner/memory_scanner.hpp": "084252c8ce1ce72a0ff8228cf361d4df212b3dc51ff21c8cba7649b88881963b",
+    "test/scanner_failure_checks.inc": "6712869869e491a3ca319bac06b5af33b5f9d06275f376fab48979f926127904",
+    "test/target_compatibility_test.cpp": "8075345be5d5e9483b633bb2e0bd5c519dd88b8caf3229f03c1ea1e6e371d3ef",
+    "scripting/lua_bindings.cpp": "86f0e75f1fe8cb947e055cf95a7c9d00f916b275d8c3356063e65c9d1697ea18",
+    "gui/mainwindow.cpp": "536ec794d4d420030f9804120e6b938c09004292697355bfef789a916ea0e78a",
+    "cli/main.cpp": "8a09973417a2b14fe6e002bbcfd675d4a12811c38c6a217f1d4eab0d3c4b54f7",
+    "tools/ci-check.sh": "d662aabd2397c30309cfedf3dc5b385b2bb6974a0eff6fd1a2a563128af8b692"
+  },
+  "binaries": {
+    "build/libcecore.so": "9c96d1e3f2ff1915f50bfb0d4404a3076168d9f47ebe831760951a6f5fe52061",
+    "build/cecore_compatibility_test": "5448f4bd74384c171aeff6bdb42800c3591e40fd7deaafbffe4bedda063567d3",
+    "build/cescan": "17c67ff2f3e4d9aae0709f02c393dc1717afcafd3b85e74a7a3f592c597c65da",
+    "build-ci-asan/libcecore.so": "ff193a40a0b4c0be337365cb8523fec710766cd6599888101d6a1207f717a4a9",
+    "build-ci-asan/cecore_compatibility_test": "f1904e7b636d93252f41d4f8a6269a50c42173fdf1de80271dbf84f760dc9c1c",
+    "build-ci-asan/cescan": "72af17f8d928dbc5d35e9e61ee3ffae22240d66a73abbacedb50efe63ec3119c"
+  },
+  "evidence": {
+    "hostCI": {
+      "path": "scanner-failures-host-ci.log",
+      "sha256": "69927c2095613202c2c38d07ed074a590e9b7025d50a49ea29f7a04e16c6eaeb"
+    },
+    "native": {
+      "path": "scanner-failures-native.log",
+      "sha256": "e3413d0c3444303d86af2c1caebbb530d6bf7d5cfbb8908e22c6402d6708ee0b"
+    },
+    "asan": {
+      "path": "scanner-failures-asan.log",
+      "sha256": "e3413d0c3444303d86af2c1caebbb530d6bf7d5cfbb8908e22c6402d6708ee0b"
+    },
+    "before": {
+      "path": "scanner-failures-before.json",
+      "sha256": "8a3b90c8f074132ac0236b3eda7ba6072c3dbbdb135a430c2bd73da021d554c1"
+    },
+    "after": {
+      "path": "scanner-failures-after.json",
+      "sha256": "8bdd47ff8fc8361cbb5f54de21eda4e6332e64422fd0f3b7826d746c328e8c71"
+    },
+    "probeSource": {
+      "path": "scanner-failures-probe.cpp",
+      "sha256": "744c5fc6ba47d0ffa0f9ef31b7413409389c32ecf25a5fb2ae70299de687675c"
+    },
+    "previousFoundation": {
+      "path": "floating-rounding.json",
+      "sha256": "b63b0e67c8e7892dd0c3d43f51acdd4c847feb251c758d415a8b9ba206c97f80"
+    }
+  },
+  "reports": {
+    "native-gdb-transport": {
+      "path": "scanner-failures-native-gdb-transport.json",
+      "sha256": "805b1687761919f5266750ea2208d4a1174591487461103380cdf0efb8a73f92"
+    },
+    "native-native-syscalls": {
+      "path": "scanner-failures-native-native-syscalls.json",
+      "sha256": "ce3e21cd5494c211a6435d0ae4eabe18fa7c9b02a8d4e997e9c295fc3dc4c530"
+    },
+    "native-native-injector": {
+      "path": "scanner-failures-native-native-injector.json",
+      "sha256": "52bca063e506641d37a6cb29e8d5c452e39d4e94ca026f307bf030b7209c4ef8"
+    },
+    "native-elf-debug": {
+      "path": "scanner-failures-native-elf-debug.json",
+      "sha256": "46c53c8a7d358ef4c211c66fcdc57c6100b809891a285e81fbcb77d3829101c2"
+    },
+    "asan-gdb-transport": {
+      "path": "scanner-failures-asan-gdb-transport.json",
+      "sha256": "ba8d5113999e6838887a5c11b4460ff5029c5c6df6d0a1d51a86cfe99c7214d1"
+    },
+    "asan-native-syscalls": {
+      "path": "scanner-failures-asan-native-syscalls.json",
+      "sha256": "9731ff7710f90459270a8538643fc7bbc11ea20e147e0ee3894b0ca884ede5c5"
+    },
+    "asan-native-injector": {
+      "path": "scanner-failures-asan-native-injector.json",
+      "sha256": "b5d8d9d45cbaaf93c8dcad8409b02fb5f5d3eac0f5a8fa77e7867c63c6a71e04"
+    },
+    "asan-elf-debug": {
+      "path": "scanner-failures-asan-elf-debug.json",
+      "sha256": "640fc68ddb3836e4aff5194eea1c6f1d00ae793dc2bc01713374f0fc66545034"
+    },
+    "gdb-gui": {
+      "path": "scanner-failures-gdb-gui.json",
+      "sha256": "1b2956ae1fa12b16f6e1b77546d2e073ebdb2077577e53e27e168c2bf7791b1b"
+    },
+    "native-frontends": {
+      "path": "scanner-failures-native-frontends.json",
+      "sha256": "4318c28790fa0b2c30ff4f0d5f9df605f00e194127ab4aa8e02ac9d85ca47388"
+    },
+    "native-frontends-leader-exit": {
+      "path": "scanner-failures-native-frontends-leader-exit.json",
+      "sha256": "64c30efaf3ed521c167c41da77968493abf0571daa10beac6035554b63f46c24"
+    },
+    "wine-local": {
+      "path": "scanner-failures-wine-local.json",
+      "sha256": "40cf7a41705aaa06285612d9f0bf7f23c065cccdca36182349b933a345f03e3f"
+    }
+  },
+  "beforeAfter": {
+    "beforeCoreSha256": "22720b65822ad60755170863d22b2988d13af22f7735ea7eab6a3dbf905dcac4",
+    "afterCoreSha256": "9c96d1e3f2ff1915f50bfb0d4404a3076168d9f47ebe831760951a6f5fe52061",
+    "beforeFirstExit": 2,
+    "beforeNextExit": -6,
+    "afterFirstExit": 0,
+    "afterNextExit": 0,
+    "fixture": "synthetic ProcessHandle read throws bad_alloc; 70,000 small saved Byte samples exercise parallel next scan",
+    "baseline": "Previous unreleased floating-rounding snapshot, with its exact core hash captured. Not a released-version baseline."
+  },
+  "fullHostCI": {
+    "passed": true,
+    "gdbNativeCases": 59,
+    "gdbSanitizerCases": 57,
+    "gdbGuiScenarios": 6,
+    "cliWorkflows": 22,
+    "wine": "local Wine 11 PE32 and PE32+",
+    "sourceChangesAfterCI": "documentation and evidence only"
+  },
+  "resources": {
+    "buildJobs": 1,
+    "nice": 10,
+    "heavyChecks": "sequential",
+    "temporaryStorage": "workspace build filesystem"
+  },
+  "limitations": [
+    "Allocation failures are controlled exceptions, not real exhaustion of this host.",
+    "Actual operating-system thread-creation exhaustion has not been exercised; automatic joining during launch failure is implementation coverage.",
+    "Cleanup is best effort if the filesystem or cleanup allocation itself fails.",
+    "The previous All/number/rounding evidence retains its separately hashed earlier snapshot.",
+    "Broader requirements in docs/COMPATIBILITY.md remain incomplete."
+  ]
+}

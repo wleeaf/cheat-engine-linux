@@ -4,6 +4,7 @@
 #include "core/ct_file.hpp"
 #include "arch/disassembler.hpp"
 #include <memory>
+#include <optional>
 #include "symbols/elf_symbols.hpp"
 #include "symbols/dwarf_symbols.hpp"
 
@@ -82,15 +83,10 @@ public:
     /// number of bytes written; 0 if there is no multi-byte selection.
     int fillSelection(uint8_t value);
 
-    /// Read the pointer stored at `addr`, sized to the target (4 bytes on a 32-bit
-    /// process, 8 on a 64-bit one). Returns 0 if unreadable. Used by "Follow pointer".
-    uintptr_t pointerAt(uintptr_t addr) const {
-        if (!proc_) return 0;
-        const int psz = proc_->runs32BitCode() ? 4 : 8;
-        uint64_t ptr = 0;
-        auto r = proc_->read(addr, &ptr, psz);
-        return (r && *r >= static_cast<size_t>(psz)) ? static_cast<uintptr_t>(ptr) : 0;
-    }
+    /// Read a pointer using the program's pointer width and data byte order.
+    /// The optional distinguishes an unreadable pointer from a valid zero address.
+    std::optional<uintptr_t> pointerValueAt(uintptr_t addr) const;
+    uintptr_t pointerAt(uintptr_t addr) const {return pointerValueAt(addr).value_or(0);}
 
     /// Select `len` bytes starting at absolute address `addr` (e.g. to highlight a
     /// search hit). No-op if the address is above the current window's top.
@@ -271,7 +267,7 @@ private:
     ce::SymbolResolver* resolver_ = nullptr;
     const ce::DwarfRegistry* dwarf_ = nullptr;
     std::vector<ce::ModuleInfo> moduleCache_;   // for module+offset branch annotations
-    std::unique_ptr<ce::Disassembler> disasm_ = std::make_unique<ce::Disassembler>(ce::Arch::X86_64);
+    std::unique_ptr<ce::Disassembler> disasm_ = std::make_unique<ce::Disassembler>();
 public:
     /// Decode in 32- or 64-bit mode (set from the target's code bitness so a
     /// 32-bit process shows eax, not rax).
@@ -467,7 +463,7 @@ private:
 
     void writeNop(uintptr_t addr, int size);
     void assembleAt(uintptr_t addr, int origSize, const QString& current);
-    bool patchBytes(uintptr_t addr, const std::vector<uint8_t>& bytes);
+    bool patchBytes(uintptr_t addr, const std::vector<uint8_t>& bytes, QString* error = nullptr);
     void showXrefs(uintptr_t addr);
     void saveRegionToFile(uintptr_t addr);
     void loadRegionFromFile(uintptr_t addr);

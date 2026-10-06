@@ -1,3 +1,4 @@
+#include "test_target.hpp"
 #include "analysis/pe_exports.hpp"
 #include "analysis/il2cpp_binary.hpp"
 #include "core/guest_view.hpp"
@@ -51,6 +52,7 @@ public:
     explicit BufferProcess(size_t n) : bytes(n) {}
     pid_t pid() const override { return getpid(); }
     bool is64bit() const override { return wide; }
+    TargetDescription targetDescription() override { return ce::test::x86Target(is64bit(), runs32BitCode()); }
     Result<size_t> read(uintptr_t at, void* out, size_t n) override {
         if (at > bytes.size() || n > bytes.size() - at)
             return std::unexpected(std::make_error_code(std::errc::bad_address));
@@ -93,6 +95,7 @@ public:
     ~InjectionProcess() { if (available()) munmap(data, capacity); }
     pid_t pid() const override { return getpid(); }
     bool is64bit() const override { return true; }
+    TargetDescription targetDescription() override { return ce::test::x86Target(is64bit(), runs32BitCode()); }
     Result<size_t> read(uintptr_t at, void* out, size_t n) override {
         if (at < base || at - base > capacity || n > capacity - (at - base))
             return std::unexpected(std::make_error_code(std::errc::bad_address));
@@ -255,6 +258,43 @@ static void injectionTemplateTests() {
     // Named defines can refer to other expressions, but cycles cannot recurse indefinitely.
     check(!assembler.execute(process, "[ENABLE]\ndefine(a,b)\ndefine(b,a)\na:\nnop\n").success,
           "cyclic address defines fail safely");
+    BufferProcess hexTargets(0x1000);
+    AutoAssembler hexAssembler;
+    auto hexEnabled = hexAssembler.execute(hexTargets, "[ENABLE]\nABC:\ndb 7f\n");
+    check(hexEnabled.success && hexTargets.bytes[0xabc] == 0x7f &&
+        hexAssembler.disable(hexTargets, "", hexEnabled.disableInfo).success && hexTargets.bytes[0xabc] == 0,
+        "bare hexadecimal targets beginning with A-F do not become implicit labels");
+    auto namedHex = hexAssembler.execute(hexTargets, "[ENABLE]\nlabel(dead)\n100:\ndead:\ndb 55\n");
+    check(namedHex.success && hexTargets.bytes[0x100] == 0x55 &&
+        hexAssembler.disable(hexTargets, "", namedHex.disableInfo).success && hexTargets.bytes[0x100] == 0,
+        "explicitly declared hexadecimal-looking labels keep their symbol meaning");
+
+    BufferProcess moduleLifecycle(0x1000);
+    moduleLifecycle.mappedModules = {{0x100, 0x100, "unload_module", "", true}};
+    AutoAssembler moduleAssembler;
+    const std::string moduleScript = "unload_module:\ndb 55\n";
+    auto moduleWrite = moduleAssembler.execute(moduleLifecycle, moduleScript);
+    check(moduleWrite.success && moduleLifecycle.bytes[0x100] == 0x55 &&
+        moduleAssembler.disable(moduleLifecycle, "", moduleWrite.disableInfo).success && moduleLifecycle.bytes[0x100] == 0,
+        "bare identifier module names remain injection points rather than implicit labels");
+    moduleLifecycle.mappedModules.clear();
+    auto removedModule = moduleAssembler.execute(moduleLifecycle, moduleScript);
+    check(!removedModule.success && moduleLifecycle.bytes[0x100] == 0 && moduleAssembler.resolveSymbol("unload_module") == 0,
+        "unloaded module names cannot modify a still-mapped reused address");
+    moduleLifecycle.mappedModules = {{0x200, 0x100, "unload_module", "", true}};
+    auto movedModule = moduleAssembler.execute(moduleLifecycle, moduleScript);
+    check(movedModule.success && moduleLifecycle.bytes[0x100] == 0 && moduleLifecycle.bytes[0x200] == 0x55 &&
+        moduleAssembler.disable(moduleLifecycle, "", movedModule.disableInfo).success,
+        "reloaded modules resolve their new base without modifying the previous base");
+    moduleAssembler.registerSymbol("unload_module", 0);
+    auto zeroSymbol = moduleAssembler.execute(moduleLifecycle, moduleScript);
+    check(!zeroSymbol.success && moduleLifecycle.bytes[0x200] == 0 && moduleAssembler.resolveSymbol("unload_module") == 0,
+        "explicit zero-valued symbols do not fall through to a matching module");
+    moduleAssembler.unregisterSymbol("unload_module");
+    auto visibleModule = moduleAssembler.execute(moduleLifecycle, moduleScript);
+    check(visibleModule.success && moduleLifecycle.bytes[0x200] == 0x55 &&
+        moduleAssembler.disable(moduleLifecycle, "", visibleModule.disableInfo).success,
+        "unregistering a shadowing symbol restores bare module-name injection");
 }
 
 static void usabilityTests() {

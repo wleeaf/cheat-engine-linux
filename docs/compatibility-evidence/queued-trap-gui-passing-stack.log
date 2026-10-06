@@ -1,0 +1,56 @@
+[New LWP 447937]
+[New LWP 447887]
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <ima:enforcing>
+  <https://debuginfod.fedoraproject.org/>
+  <ima:ignore>
+Enable debuginfod for this session? (y or [n]) [answered N; input not from terminal]
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib64/libthread_db.so.1".
+0x00007f0180d51d53 in __memset_avx2_unaligned_erms () from /lib64/libc.so.6
+
+Thread 3 (Thread 0x7f016e7ff6c0 (LWP 447887) "QDBusConnection"):
+#0  0x00007f0180c82312 in __syscall_cancel_arch () from /lib64/libc.so.6
+#1  0x00007f0180c7652c in __internal_syscall_cancel () from /lib64/libc.so.6
+#2  0x00007f0180c76574 in __syscall_cancel () from /lib64/libc.so.6
+#3  0x00007f0180cf0426 in ppoll () from /lib64/libc.so.6
+#4  0x00007f017fae6125 in g_main_context_iterate_unlocked.isra () from /lib64/libglib-2.0.so.0
+#5  0x00007f017fae61e3 in g_main_context_iteration () from /lib64/libglib-2.0.so.0
+#6  0x00007f018165defd in QEventDispatcherGlib::processEvents(QFlags<QEventLoop::ProcessEventsFlag>) () from /lib64/libQt6Core.so.6
+#7  0x00007f018131a78b in QEventLoop::exec(QFlags<QEventLoop::ProcessEventsFlag>) () from /lib64/libQt6Core.so.6
+#8  0x00007f018144b34a in QThread::exec() () from /lib64/libQt6Core.so.6
+#9  0x00007f018113e5c4 in QDBusConnectionManager::run() () from /lib64/libQt6DBus.so.6
+#10 0x00007f018150788f in QThreadPrivate::start(void*) () from /lib64/libQt6Core.so.6
+#11 0x00007f0180c79c19 in start_thread () from /lib64/libc.so.6
+#12 0x00007f0180cfd5cc in __clone3 () from /lib64/libc.so.6
+
+Thread 2 (Thread 0x7f016dee86c0 (LWP 447937) "gui_lifecycle_s"):
+#0  0x00007f0180c82312 in __syscall_cancel_arch () from /lib64/libc.so.6
+#1  0x00007f0180c7652c in __internal_syscall_cancel () from /lib64/libc.so.6
+#2  0x00007f0180c76877 in __futex_abstimed_wait_cancelable64 () from /lib64/libc.so.6
+#3  0x00007f0180c7954c in pthread_cond_clockwait@GLIBC_2.30 () from /lib64/libc.so.6
+#4  0x00007f018320f547 in ce::DebugSession::tracerThread() () from /home/taceddinsancak/Desktop/Projects/cheat-engine/build/libcecore.so.0
+#5  0x00007f0180e523b6 in execute_native_thread_routine () from /lib64/libstdc++.so.6
+#6  0x00007f0180c79c19 in start_thread () from /lib64/libc.so.6
+#7  0x00007f0180cfd5cc in __clone3 () from /lib64/libc.so.6
+
+Thread 1 (Thread 0x7f01810bda00 (LWP 447884) "gui_lifecycle_s"):
+#0  0x00007f0180d51d53 in __memset_avx2_unaligned_erms () from /lib64/libc.so.6
+#1  0x00007f01830963f4 in std::_Hashtable<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const, unsigned long>, std::allocator<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const, unsigned long> >, std::__detail::_Select1st, std::equal_to<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::hash<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits<true, false, true> >::_M_insert_unique_node(unsigned long, unsigned long, std::__detail::_Hash_node<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const, unsigned long>, true>*, unsigned long) () from /home/taceddinsancak/Desktop/Projects/cheat-engine/build/libcecore.so.0
+#2  0x00007f01831d6110 in std::__detail::_Map_base<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const, unsigned long>, std::allocator<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const, unsigned long> >, std::__detail::_Select1st, std::equal_to<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::hash<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits<true, false, true>, true>::operator[](std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&&) () from /home/taceddinsancak/Desktop/Projects/cheat-engine/build/libcecore.so.0
+#3  0x00007f01831d2e15 in ce::SymbolResolver::parseElfSymbols(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, unsigned long, bool) () from /home/taceddinsancak/Desktop/Projects/cheat-engine/build/libcecore.so.0
+#4  0x00007f01831d45ae in ce::SymbolResolver::loadModule(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, unsigned long) () from /home/taceddinsancak/Desktop/Projects/cheat-engine/build/libcecore.so.0
+#5  0x00007f01831d5122 in ce::SymbolResolver::loadProcess(ce::ProcessHandle&) () from /home/taceddinsancak/Desktop/Projects/cheat-engine/build/libcecore.so.0
+#6  0x00000000005ca7cc in ce::gui::DebuggerWindow::updateDisassembly(ce::CpuContext const&) ()
+#7  0x00000000005cc4e1 in ce::gui::DebuggerWindow::refreshStopped() ()
+#8  0x00000000005cf2d8 in ce::gui::DebuggerWindow::DebuggerWindow(ce::ProcessHandle*, QWidget*) ()
+#9  0x00000000004bcbe7 in ce::gui::MainWindow::showDebugger() ()
+#10 0x00007f0181381db7 in void doActivate<false>(QObject*, int, void**) () from /lib64/libQt6Core.so.6
+#11 0x00007f0181febfea in QAction::triggered(bool) () from /lib64/libQt6Gui.so.6
+#12 0x00007f0181fef30c in QAction::activate(QAction::ActionEvent) () from /lib64/libQt6Gui.so.6
+#13 0x00000000004772f3 in trigger(QObject&, QString const&) ()
+#14 0x00000000004630f8 in main ()
+[Inferior 1 (process 447884) detached]

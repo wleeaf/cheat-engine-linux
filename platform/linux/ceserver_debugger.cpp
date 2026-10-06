@@ -74,16 +74,19 @@ std::vector<uint8_t> encodeX86_64Context(const CpuContext& ctx) {
 } // namespace
 
 RemoteDebugger::RemoteDebugger(CEServerClient& client, int32_t serverHandle)
-    : client_(&client), handle_(serverHandle) {}
+    : client_(&client), handle_(serverHandle), generation_(client.connectionGeneration()) {}
 
 RemoteDebugger::~RemoteDebugger() {
-    if (attached_) {
+    auto operation=client_->lockConnection();
+    if (attached_ && connectionValid()) {
         // Best-effort detach so the remote target isn't left in a debug state.
         client_->stopDebug(handle_);
     }
 }
 
 Result<void> RemoteDebugger::attach(pid_t /*pid*/) {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return std::unexpected(std::make_error_code(std::errc::not_connected));
     auto r = client_->startDebug(handle_);
     if (!r || *r == 0) return std::unexpected(remoteIo());
     attached_ = true;
@@ -91,14 +94,21 @@ Result<void> RemoteDebugger::attach(pid_t /*pid*/) {
 }
 
 Result<void> RemoteDebugger::detach() {
+    auto operation=client_->lockConnection();
     if (!attached_) return {};
+    if (!connectionValid()) {
+        attached_=false;
+        return std::unexpected(std::make_error_code(std::errc::not_connected));
+    }
     auto r = client_->stopDebug(handle_);
     attached_ = false;
-    if (!r) return std::unexpected(remoteIo());
+    if (!r || !*r) return std::unexpected(remoteIo());
     return {};
 }
 
 Result<CpuContext> RemoteDebugger::getContext(pid_t tid) {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return std::unexpected(std::make_error_code(std::errc::not_connected));
     auto blob = client_->getThreadContext(handle_, static_cast<uint32_t>(tid));
     if (!blob || blob->empty()) return std::unexpected(remoteIo());
     CpuContext ctx{};
@@ -107,6 +117,8 @@ Result<CpuContext> RemoteDebugger::getContext(pid_t tid) {
 }
 
 Result<void> RemoteDebugger::setContext(pid_t tid, const CpuContext& ctx) {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return std::unexpected(std::make_error_code(std::errc::not_connected));
     auto blob = encodeX86_64Context(ctx);
     auto r = client_->setThreadContext(handle_, static_cast<uint32_t>(tid),
                                        blob.data(), static_cast<uint32_t>(blob.size()));
@@ -115,18 +127,23 @@ Result<void> RemoteDebugger::setContext(pid_t tid, const CpuContext& ctx) {
 }
 
 Result<void> RemoteDebugger::suspend(pid_t tid) {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return std::unexpected(std::make_error_code(std::errc::not_connected));
     auto r = client_->suspendThread(handle_, static_cast<int32_t>(tid));
     if (!r || *r == 0) return std::unexpected(remoteIo());
     return {};
 }
 
 Result<void> RemoteDebugger::resume(pid_t tid) {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return std::unexpected(std::make_error_code(std::errc::not_connected));
     auto r = client_->resumeThread(handle_, static_cast<int32_t>(tid));
     if (!r || *r == 0) return std::unexpected(remoteIo());
     return {};
 }
 
 Result<void> RemoteDebugger::singleStep(pid_t /*tid*/) {
+    auto operation=client_->lockConnection();
     // CE protocol has no dedicated single-step command. Implementations set
     // EFLAGS.TF=1 via CMD_SETTHREADCONTEXT, then call
     // CMD_CONTINUEFROMDEBUGEVENT. That requires the per-arch CONTEXT layout
@@ -136,6 +153,8 @@ Result<void> RemoteDebugger::singleStep(pid_t /*tid*/) {
 
 Result<void>
 RemoteDebugger::setBreakpoint(pid_t tid, int reg, uintptr_t address, int type, int size) {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return std::unexpected(std::make_error_code(std::errc::not_connected));
     auto r = client_->setRemoteBreakpoint(
         handle_, static_cast<int32_t>(tid), reg, address, type, size);
     if (!r || *r == 0) return std::unexpected(remoteIo());
@@ -143,6 +162,8 @@ RemoteDebugger::setBreakpoint(pid_t tid, int reg, uintptr_t address, int type, i
 }
 
 Result<void> RemoteDebugger::removeBreakpoint(pid_t tid, int reg) {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return std::unexpected(std::make_error_code(std::errc::not_connected));
     auto r = client_->removeRemoteBreakpoint(
         handle_,
         static_cast<uint32_t>(tid),
@@ -153,12 +174,16 @@ Result<void> RemoteDebugger::removeBreakpoint(pid_t tid, int reg) {
 }
 
 std::optional<CeDebugEvent> RemoteDebugger::waitForEvent(int timeoutMs) {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return std::nullopt;
     auto r = client_->waitForDebugEvent(handle_, timeoutMs);
     if (!r) return std::nullopt;
     return *r;
 }
 
 Result<void> RemoteDebugger::continueAfterEvent(pid_t tid, int signalToForward) {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return std::unexpected(std::make_error_code(std::errc::not_connected));
     auto r = client_->continueFromDebugEvent(handle_, static_cast<int32_t>(tid), signalToForward);
     if (!r || *r == 0) return std::unexpected(remoteIo());
     return {};
@@ -185,6 +210,8 @@ constexpr size_t kArm64GeneralBytes  = 34 * 8;     // 31 x + sp + pc + pstate
 constexpr size_t kArm32GeneralBytes  = 18 * 4;     // uregs[18]
 
 std::optional<Arm64Context> RemoteDebugger::getArm64Context(pid_t tid) {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return std::nullopt;
     auto blob = client_->getThreadContext(handle_, static_cast<uint32_t>(tid));
     if (!blob || blob->size() < kHeaderBytes + kArm64GeneralBytes) return std::nullopt;
     Arm64Context out{};
@@ -196,6 +223,8 @@ std::optional<Arm64Context> RemoteDebugger::getArm64Context(pid_t tid) {
 }
 
 std::optional<Arm32Context> RemoteDebugger::getArm32Context(pid_t tid) {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return std::nullopt;
     auto blob = client_->getThreadContext(handle_, static_cast<uint32_t>(tid));
     if (!blob || blob->size() < kHeaderBytes + kArm32GeneralBytes) return std::nullopt;
     Arm32Context out{};

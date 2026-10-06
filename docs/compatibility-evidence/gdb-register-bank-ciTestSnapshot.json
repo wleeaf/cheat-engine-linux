@@ -1,0 +1,5 @@
+{
+  "note": "Full CI passed before the request-counter correction. The correction changes evidence counters only; protocol and GUI gates rerun afterward.",
+  "source": "test/gdb_transport_gate.py",
+  "sha256": "34ab466a67770dac3154e57cbee3d6e2dc9ee9c41c1d437182fce118041291f6"
+}

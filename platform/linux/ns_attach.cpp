@@ -1,6 +1,8 @@
 #include "core/ns_attach.hpp"
+#include "platform/linux/target_syscall.hpp"
 
 #include <unistd.h>
+#include <sys/stat.h>
 
 #include <cstdlib>
 #include <filesystem>
@@ -17,14 +19,21 @@ namespace ce {
 std::string resolveProcPath(pid_t pid, const std::string& rawPath) {
     if (rawPath.empty() || rawPath[0] != '/')
         return rawPath;                       // [heap], [stack], anon, "" — nothing to open
-    if (::access(rawPath.c_str(), F_OK) == 0)
-        return rawPath;                       // openable from the host already (common case)
-    // Try through the target's mount namespace root. Requires ptrace-level access to
-    // traverse /proc/<pid>/root, which we hold when we can read the process at all.
-    std::string viaRoot = "/proc/" + std::to_string(pid) + "/root" + rawPath;
-    if (::access(viaRoot.c_str(), F_OK) == 0)
-        return viaRoot;
-    return rawPath;                           // neither exists; fail as before
+    const auto originalRoot="/proc/"+std::to_string(pid)+"/root";
+    auto task=os::processMemoryTask(pid);
+    auto root="/proc/"+std::to_string(task ? *task : pid)+"/root";
+    if (rawPath==originalRoot || rawPath.starts_with(originalRoot+"/"))
+        return root+rawPath.substr(originalRoot.size());
+    if (rawPath==root || rawPath.starts_with(root+"/")) return rawPath;
+    // Existence on the host does not prove that it is the target's backing file.
+    // Containers commonly have a different libc at the same absolute pathname.
+    std::string viaRoot = root + rawPath;
+    struct stat host{},target{};
+    if (::stat(viaRoot.c_str(),&target)==0 && ::stat(rawPath.c_str(),&host)==0 &&
+        host.st_dev==target.st_dev && host.st_ino==target.st_ino)
+        return rawPath;
+    // A missing/inaccessible target file must not select an unrelated host file.
+    return viaRoot;
 }
 
 // Parse the NSpid: line of /proc/<pid>/status into its whitespace-separated fields.

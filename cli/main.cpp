@@ -4,6 +4,7 @@
 #include "core/log.hpp"
 #include <clocale>
 #include "platform/linux/linux_process.hpp"
+#include "platform/gdb_process.hpp"
 #include "platform/linux/ptrace_wrapper.hpp"
 #include "scanner/memory_scanner.hpp"
 #include "arch/disassembler.hpp"
@@ -16,6 +17,8 @@
 #include "core/simple_address_list.hpp"
 #include "core/types.hpp"   // ce::moduleOffsetString
 #include "core/target_profile.hpp"
+#include "core/target_capabilities.hpp"
+#include "arch/target_arch.hpp"
 #include "core/guest_view.hpp"
 #include "core/value_codec.hpp"
 #include "core/value_transform.hpp"
@@ -38,6 +41,7 @@
 #include <cstdint>
 #include <cerrno>
 #include <climits>
+#include <cmath>
 #include <string>
 #include <csignal>
 #include <ctime>
@@ -59,7 +63,12 @@ static void usage() {
         "\n"
         "Commands:\n"
         "  list                          List all processes\n"
+        "  gdb <host> <port> info|read|write|reg|disasm|scan [args] [--le|--be] [--width 4|8]\n"
+        "                                Inspect a stopped GDB/QEMU target. read: addr size;\n"
+        "                                write: addr hex-bytes; reg: name [hex-bytes];\n"
+        "                                disasm: addr count; scan: addr size aob-pattern.\n"
         "  scan <pid> [options]          Scan process memory\n"
+        "                                --byte-order auto|little|big --pointer-width 4|8 --from ADDR --to ADDR\n"
         "  read <pid> <addr> [size] [--type <t>] [--codec <c>] [--be]  Read memory: hex\n"
         "                                dump, or the interpreted value with --type (i32,\n"
         "                                float, pointer, string, ...); size caps a string\n"
@@ -84,6 +93,7 @@ static void usage() {
         "                                instructions (arch auto-detected from the target)\n"
         "  asm \"<instr>\" [--arch x86-32|x86-64|arm32|arm64]  Assemble to bytes (no target\n"
         "                                needed; default x86-64; newline-separate for several)\n"
+        "        [--origin <address>]     Address where the assembled code will execute\n"
         "  autoasm <pid> <script.aa> [--disable-after <seconds>]  Execute Auto Assembler\n"
         "                                script, optionally restore it after a delay or Ctrl-C\n"
         "  modules <pid>                 List loaded modules\n"
@@ -238,7 +248,7 @@ static int parseRounding(const char* s) {
     if (!strcmp(s, "rounded")) return 1;
     if (!strcmp(s, "truncated")) return 2;
     if (!strcmp(s, "extreme")) return 3;
-    return 0;
+    return -1;
 }
 
 static size_t typeSize(ValueType vt) {
@@ -296,12 +306,12 @@ static int cmd_modules(pid_t pid) {
 }
 
 static int cmd_read(pid_t pid, uintptr_t addr, size_t size, const char* typeStr = nullptr,
-                    ce::ValueCodec codec = {}, bool bigEndian = false, const std::string& encoding = "UTF-8") {
+                    ce::ValueCodec codec = {}, bool bigEndian = false, const std::string& encoding = "UTF-8", std::optional<ByteOrder> byteOrder = std::nullopt) {
     LinuxProcessHandle proc(pid);
 
     if (typeStr) {
         ValueIoOptions options;
-        options.size = size; options.codec = codec; options.bigEndian = bigEndian; options.encoding = encoding;
+        options.size = size; options.codec = codec; options.bigEndian = bigEndian; options.byteOrder = byteOrder; options.encoding = encoding;
         options.isSigned = !(std::tolower(static_cast<unsigned char>(typeStr[0])) == 'u' && typeStr[1] >= '0' && typeStr[1] <= '9');
         auto value = readTypedValue(proc, addr, parseType(typeStr), options);
         if (!value) { fprintf(stderr, "Read failed: %s\n", value.error().c_str()); return 1; }
@@ -338,12 +348,15 @@ static int cmd_watch(pid_t pid, uintptr_t addr, bool writesOnly, int watchSize,
 
 static int cmd_write(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt,
                      ce::ValueCodec codec = {}, int verifyMs = 0, int findWriterSecs = 0,
-                     bool bigEndian = false, bool terminate = false, const std::string& encoding = "UTF-8") {
+                     bool bigEndian = false, bool terminate = false, const std::string& encoding = "UTF-8", std::optional<ByteOrder> byteOrder = std::nullopt) {
     LinuxProcessHandle proc(pid);
 
     ValueIoOptions options;
-    options.codec = codec; options.bigEndian = bigEndian; options.terminate = terminate; options.encoding = encoding;
-    options.pointerWidth = proc.is64bit() ? 8 : 4;
+    options.codec = codec; options.bigEndian = bigEndian; options.byteOrder = byteOrder; options.terminate = terminate; options.encoding = encoding;
+    options.pointerWidth = proc.pointerWidth();
+    auto targetOptions = valueOptionsForTarget(proc, addr, vt, options);
+    if (!targetOptions) { fprintf(stderr, "Value format: %s\n", targetOptions.error().c_str()); return 1; }
+    options = *targetOptions;
     auto bytes = encodeTypedValue(vt, valStr, options);
     if (!bytes) { fprintf(stderr, "Write failed: %s\n", bytes.error().c_str()); return 1; }
     if (findWriterSecs > 0 && bytes->size() != 1 && bytes->size() != 2 && bytes->size() != 4 && bytes->size() != 8) {
@@ -375,13 +388,16 @@ static void onFreezeSignal(int) { g_freezeStop = 1; }
 // value by its logical value. Runs until SIGINT/SIGTERM.
 static int cmd_freeze(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt,
                       ce::ValueCodec codec, unsigned intervalMs, ce::FreezeMode mode,
-                      bool bigEndian = false, size_t maxCycles = 0, bool terminate = false, const std::string& encoding = "UTF-8", bool isSigned = true) {
+                      bool bigEndian = false, size_t maxCycles = 0, bool terminate = false, const std::string& encoding = "UTF-8", bool isSigned = true, std::optional<ByteOrder> byteOrder = std::nullopt) {
     LinuxProcessHandle proc(pid);
     if (codec.active() && (vt == ValueType::Float || vt == ValueType::Double)) {
         fprintf(stderr, "freeze: --codec applies to integer types only\n"); return 1;
     }
-    ValueIoOptions options; options.codec = codec; options.bigEndian = bigEndian; options.terminate = terminate; options.encoding = encoding;
-    options.pointerWidth = proc.is64bit() ? 8 : 4; options.isSigned = isSigned;
+    ValueIoOptions options; options.codec = codec; options.bigEndian = bigEndian; options.byteOrder = byteOrder; options.terminate = terminate; options.encoding = encoding;
+    options.pointerWidth = proc.pointerWidth(); options.isSigned = isSigned;
+    auto targetOptions = valueOptionsForTarget(proc, addr, vt, options);
+    if (!targetOptions) { fprintf(stderr, "Value format: %s\n", targetOptions.error().c_str()); return 1; }
+    options = *targetOptions;
     auto bytes = encodeTypedValue(vt, valStr, options);
     if (!bytes) { fprintf(stderr, "freeze: %s\n", bytes.error().c_str()); return 1; }
     if (mode != FreezeMode::Normal && !scalarWidth(vt)) {
@@ -498,7 +514,7 @@ static int cmd_watch(pid_t pid, uintptr_t addr, bool writesOnly, int watchSize,
         }
         std::string loc = resolver.resolve(insAddr);
         if (loc.empty()) loc = ce::moduleOffsetString(modules, insAddr);
-        printf("  %6d x  0x%lx  %s%s%s\n", r.hitCount, (unsigned long)insAddr,
+        printf("  %6llu x  0x%lx  %s%s%s\n", static_cast<unsigned long long>(r.hitCount), (unsigned long)insAddr,
                insText.c_str(), loc.empty() ? "" : "   ; ", loc.c_str());
         if (showRegs) dumpWriterRegs(r.firstContext, addr);
     }
@@ -518,19 +534,17 @@ static uintptr_t branchImmTarget(const std::string& operands) {
 // Pick the disassembler arch for a target: the ELF/probe architecture, refined by the
 // process bitness for x86. WoW64 (64-bit host running 32-bit code) and other ambiguous
 // cases are handled by the `--arch` override at the call site.
-static Arch autoDisasmArch(pid_t pid) {
-    ce::TargetProfile p = ce::probeTarget(pid);
-    if (p.arch == ce::TargetProfile::Arch::Arm64) return Arch::ARM64;
-    if (p.arch == ce::TargetProfile::Arch::Arm32) return Arch::ARM32;
-    // x86: runs32BitCode() is WoW64-aware (a 64-bit host running 32-bit game code, e.g.
-    // Warband under Proton), so it beats the raw ELF arch / is64bit here.
+static std::expected<Arch, std::string> autoDisasmArch(pid_t pid, uintptr_t address) {
     LinuxProcessHandle proc(pid);
-    return proc.runs32BitCode() ? Arch::X86_32 : Arch::X86_64;
+    return ce::disassemblerArchFor(proc, address);
 }
 
 static const char* archName(Arch a) {
     switch (a) { case Arch::X86_32: return "x86-32"; case Arch::X86_64: return "x86-64";
-                 case Arch::ARM32: return "arm32"; case Arch::ARM64: return "arm64"; }
+                 case Arch::ARM32: return "arm32"; case Arch::ARM64: return "arm64";
+                 case Arch::ARMThumb: return "thumb";
+                 case Arch::ARM32_BE: return "arm32-be";
+                 case Arch::ARMThumb_BE: return "thumb-be"; }
     return "?";
 }
 
@@ -539,6 +553,9 @@ static std::optional<Arch> parseArch(const std::string& s) {
     if (s == "x64" || s == "x86-64" || s == "amd64" || s == "64") return Arch::X86_64;
     if (s == "arm" || s == "arm32") return Arch::ARM32;
     if (s == "arm64" || s == "aarch64") return Arch::ARM64;
+    if (s == "thumb") return Arch::ARMThumb;
+    if (s == "arm32-be") return Arch::ARM32_BE;
+    if (s == "thumb-be") return Arch::ARMThumb_BE;
     return std::nullopt;
 }
 
@@ -598,14 +615,11 @@ static int cmd_disasm(pid_t pid, uintptr_t addr, size_t count, Arch arch) {
 // Standalone inline assembler: assemble one or more instructions (newline-separated) to
 // bytes, for any supported arch. No target needed -- useful for crafting AA patches /
 // signatures.
-static int cmd_asm(const char* code, Arch arch) {
-    const AsmArch aa = arch == Arch::X86_32 ? AsmArch::X86_32
-                     : arch == Arch::ARM32  ? AsmArch::ARM32
-                     : arch == Arch::ARM64  ? AsmArch::ARM64
-                     :                        AsmArch::X86_64;
+static int cmd_asm(const char* code, Arch arch, uintptr_t origin) {
+    const AsmArch aa = ce::assemblerArchFor(arch);
     try {
         Assembler as(aa);   // throws if this Keystone build lacks the arch
-        auto r = as.assemble(code, 0);
+        auto r = as.assemble(code, origin);
         if (!r) { fprintf(stderr, "asm (%s): %s\n", archName(arch), r.error().c_str()); return 1; }
         for (size_t i = 0; i < r->size(); ++i) printf("%02x%s", (*r)[i], i + 1 < r->size() ? " " : "");
         printf("\n");
@@ -636,6 +650,10 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
 
     static struct option long_opts[] = {
         {"codec",    required_argument, nullptr, 1003},
+        {"byte-order", required_argument, nullptr, 1004},
+        {"pointer-width", required_argument, nullptr, 1005},
+        {"from", required_argument, nullptr, 1006},
+        {"to", required_argument, nullptr, 1007},
         {"type",     required_argument, nullptr, 't'},
         {"value",    required_argument, nullptr, 'v'},
         {"value2",   required_argument, nullptr, '2'},
@@ -659,6 +677,19 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
     int opt;
     while ((opt = getopt_long(argc, argv, "t:v:2:e:s:c:p:P:q:r:T:a:wx", long_opts, nullptr)) != -1) {
         switch (opt) {
+            case 1004:
+                if (!std::strcmp(optarg,"auto")) config.byteOrder=ByteOrder::Unknown;
+                else if (!std::strcmp(optarg,"little")) config.byteOrder=ByteOrder::Little;
+                else if (!std::strcmp(optarg,"big")) config.byteOrder=ByteOrder::Big;
+                else {fprintf(stderr,"Scan byte order must be auto, little or big\n");return 1;}
+                break;
+            case 1005: {
+                const auto width=parseUInt(optarg,"scan pointer width",8);
+                if (width!=4 && width!=8) {fprintf(stderr,"Scan pointer width must be 4 or 8\n");return 1;}
+                config.pointerWidth=static_cast<uint8_t>(width);break;
+            }
+            case 1006: config.startAddress=parseAddress(std::to_string(pid).c_str(),optarg);break;
+            case 1007: config.stopAddress=parseAddress(std::to_string(pid).c_str(),optarg);break;
             case 't': config.valueType = parseType(optarg); break;
             case 'v': valueStr = optarg; break;
             case '2': value2Str = optarg; break;
@@ -682,37 +713,53 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
                 codec = *c;
                 break;
             }
+            default: return 1;
         }
     }
+    if (optind!=argc) {fprintf(stderr,"Unexpected scan argument: %s\n",argv[optind]);return 1;}
+    if (config.startAddress>config.stopAddress) {fprintf(stderr,"Scan From must not exceed To\n");return 1;}
 
     if (valueSizeStr)
         config.customValueSize = std::max<size_t>(1, strtoull(valueSizeStr, nullptr, 0));
     if (encodingStr)
         config.stringEncoding = encodingStr;
 
-    if (valueStr) {
+    if (percentStr) {
+        ScanConfig percentages;
+        percentages.compareType = percent2Str ? ScanCompare::Between : ScanCompare::Exact;
+        if (!percentages.parseAllValues(percentStr, percent2Str ? percent2Str : "") ||
+            !std::isfinite(percentages.floatValue) || (percent2Str && !std::isfinite(percentages.floatValue2))) {
+            fprintf(stderr,"Scan percentage values must be finite numbers\n");return 1;
+        }
+        config.percentageScan = true;
+        config.percentageValue = percentages.floatValue;
+        config.percentageValue2 = percent2Str ? percentages.floatValue2 : percentages.floatValue;
+    } else if (percent2Str) {
+        fprintf(stderr,"--percent2 requires --percent\n");return 1;
+    }
+
+    if (config.valueType == ValueType::All) {
+        if (!config.parseAllValues(valueStr ? valueStr : "", value2Str ? value2Str : "")) {
+            fprintf(stderr,"Invalid All scan value or Between upper bound\n");return 1;
+        }
+    } else if (config.valueType == ValueType::Float || config.valueType == ValueType::Double) {
+        if (!config.parseFloatingValues(valueStr ? valueStr : "", value2Str ? value2Str : "")) {
+            fprintf(stderr,"Invalid floating scan value or Between upper bound\n");return 1;
+        }
+    } else if (valueStr) {
         if (config.valueType == ValueType::String || config.valueType == ValueType::UnicodeString) {
             config.stringValue = valueStr;
             config.alignment = 1;
         } else if (config.valueType == ValueType::ByteArray) {
-            config.parseAOB(valueStr);
+            if (!config.parseAOB(valueStr)) {fprintf(stderr,"Invalid scan byte pattern\n");return 1;}
             config.alignment = 1;
         } else if (config.valueType == ValueType::Binary) {
             config.parseBinary(valueStr);
             config.alignment = 1;
-        } else if (config.valueType == ValueType::Float || config.valueType == ValueType::Double) {
-            config.floatValue = atof(valueStr);
-            if (value2Str) config.floatValue2 = atof(value2Str);
         } else if (config.valueType == ValueType::Pointer) {
-            config.intValue = static_cast<int64_t>(strtoull(valueStr, nullptr, 0));
-            if (value2Str) config.intValue2 = static_cast<int64_t>(strtoull(value2Str, nullptr, 0));
-        } else if (config.valueType == ValueType::All) {
-            config.intValue = atoll(valueStr);
-            config.floatValue = atof(valueStr);
-            if (value2Str) {
-                config.intValue2 = atoll(value2Str);
-                config.floatValue2 = atof(value2Str);
-            }
+            bool valid=false;config.intValue=parseIntegerScalar(valueStr,false,valid);
+            if (!valid) {fprintf(stderr,"Invalid scan pointer\n");return 1;}
+            if (value2Str) {config.intValue2=parseIntegerScalar(value2Str,false,valid);if (!valid) {fprintf(stderr,"Invalid second scan pointer\n");return 1;}}
         } else if (config.valueType == ValueType::Grouped) {
             std::string error;
             if (!config.parseGrouped(valueStr, &error)) {
@@ -726,8 +773,9 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
                 return 1;
             }
         } else {
-            config.intValue = atoll(valueStr);
-            if (value2Str) config.intValue2 = atoll(value2Str);
+            bool valid=false;config.intValue=parseIntegerScalar(valueStr,false,valid);
+            if (!valid) {fprintf(stderr,"Invalid scan integer\n");return 1;}
+            if (value2Str) {config.intValue2=parseIntegerScalar(value2Str,false,valid);if (!valid) {fprintf(stderr,"Invalid second scan integer\n");return 1;}}
         }
     } else if (config.valueType == ValueType::Grouped) {
         fprintf(stderr, "Grouped scan requires --value expression\n");
@@ -737,6 +785,7 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
         return 1;
     }
 
+    LinuxProcessHandle proc(pid);
     if (codec.active()) {
         // Obfuscated values: search for the ENCODED needle so the user scans by the
         // logical value the game displays. Only exact integer scans make sense (a
@@ -750,7 +799,12 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
                             "(byte/i16/i32/i64/pointer, --compare exact, with --value)\n");
             return 1;
         }
-        const int wbytes = static_cast<int>(typeSize(config.valueType));
+        const int wbytes = config.valueType==ValueType::Pointer
+            ? (config.pointerWidth ? config.pointerWidth : proc.targetDescription().program.pointerWidth)
+            : static_cast<int>(typeSize(config.valueType));
+        if (wbytes!=1 && wbytes!=2 && wbytes!=4 && wbytes!=8) {
+            fprintf(stderr,"Pointer width is unknown; use --pointer-width 4 or 8\n");return 1;
+        }
         const uint64_t stored =
             codec.encode(static_cast<uint64_t>(config.intValue), wbytes);
         config.intValue = static_cast<int64_t>(stored);
@@ -758,76 +812,49 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
                codec.describe().c_str(), (unsigned long long)(stored & ce::ValueCodec::maskFor(wbytes)));
     }
 
-    if (percentStr) {
-        config.percentageScan = true;
-        config.percentageValue = atof(percentStr);
-        config.percentageValue2 = percent2Str ? atof(percent2Str) : config.percentageValue;
+    if (roundingStr) {
+        config.roundingType = parseRounding(roundingStr);
+        if (config.roundingType<0) {fprintf(stderr,"Invalid scan rounding mode\n");return 1;}
     }
-    if (roundingStr) config.roundingType = parseRounding(roundingStr);
-    if (toleranceStr) config.floatTolerance = atof(toleranceStr);
+    if (toleranceStr) {
+        ScanConfig tolerance;
+        if (!tolerance.parseFloatingValues(toleranceStr) || !std::isfinite(tolerance.floatValue) || tolerance.floatValue<0) {
+            fprintf(stderr,"Scan tolerance must be a finite nonnegative number\n");return 1;
+        }
+        config.floatTolerance=tolerance.floatValue;
+    }
 
-    LinuxProcessHandle proc(pid);
     MemoryScanner scanner;
 
-    if (previousDir) {
-        // Next scan
-        ScanResult previous{std::filesystem::path(previousDir)};
-        printf("Next scan on %zu previous results...\n", previous.count());
-        auto result = scanner.nextScan(proc, config, previous);
-        printf("Found: %zu results\n", result.count());
-        printf("Results: %s\n", result.directory().c_str());
-
-        size_t vs = typeSize(config.valueType);
-        if (config.valueType == ValueType::Grouped)
-            vs = std::max<size_t>(1, config.groupedValueSize());
-        else if (config.valueType == ValueType::Custom)
-            vs = std::max<size_t>(1, config.customValueSize);
-        size_t show = std::min(result.count(), size_t(20));
-        for (size_t i = 0; i < show; ++i) {
-            uintptr_t addr = result.address(i);
-            std::vector<uint8_t> val(vs);
-            result.value(i, val.data(), vs);
-            printf("  0x%lx = ", addr);
-            switch (config.valueType) {
-                case ValueType::Int32: { int32_t v; memcpy(&v, val.data(), 4); printf("%d", v); break; }
-                case ValueType::Pointer: { uintptr_t v; memcpy(&v, val.data(), sizeof(v)); printf("0x%lx", v); break; }
-                case ValueType::Float: { float v; memcpy(&v, val.data(), 4); printf("%f", v); break; }
-                default: {
-                    for (size_t j = 0; j < vs; ++j) printf("%02x", val[j]);
-                }
-            }
-            printf("\n");
+    try {
+        std::unique_ptr<ScanResult> result;
+        if (previousDir) {
+            ScanResult previous{std::filesystem::path(previousDir)};
+            printf("Next scan on %zu previous results...\n",previous.count());
+            result=std::make_unique<ScanResult>(scanner.nextScan(proc,config,previous));
+        } else {
+            printf("Scanning PID %d...\n",pid);
+            result=std::make_unique<ScanResult>(scanner.firstScan(proc,config));
         }
-        if (result.count() > 20) printf("  ... and %zu more\n", result.count() - 20);
-    } else {
-        // First scan
-        printf("Scanning PID %d...\n", pid);
-        auto result = scanner.firstScan(proc, config);
-        printf("Found: %zu results\n", result.count());
-        printf("Results: %s\n", result.directory().c_str());
-
-        size_t vs = typeSize(config.valueType);
-        if (config.valueType == ValueType::Grouped)
-            vs = std::max<size_t>(1, config.groupedValueSize());
-        else if (config.valueType == ValueType::Custom)
-            vs = std::max<size_t>(1, config.customValueSize);
-        size_t show = std::min(result.count(), size_t(20));
-        for (size_t i = 0; i < show; ++i) {
-            uintptr_t addr = result.address(i);
-            std::vector<uint8_t> val(vs);
-            result.value(i, val.data(), vs);
-            printf("  0x%lx = ", addr);
-            switch (config.valueType) {
-                case ValueType::Int32: { int32_t v; memcpy(&v, val.data(), 4); printf("%d", v); break; }
-                case ValueType::Pointer: { uintptr_t v; memcpy(&v, val.data(), sizeof(v)); printf("0x%lx", v); break; }
-                case ValueType::Float: { float v; memcpy(&v, val.data(), 4); printf("%f", v); break; }
-                default: {
-                    for (size_t j = 0; j < vs; ++j) printf("%02x", val[j]);
-                }
-            }
-            printf("\n");
+        if (result->hasWriteError()) {fprintf(stderr,"Incomplete scan result files\n");return 1;}
+        printf("Found: %zu results\nResults: %s\n",result->count(),result->directory().c_str());
+        const size_t size=result->valueSize();
+        std::vector<uint8_t> value(size);
+        const size_t show=std::min(result->count(),size_t(20));
+        for (size_t i=0;i<show;++i) {
+            result->value(i,value.data(),size);
+            const size_t shownSize=result->hasAllTypeCandidates() ? result->allTypeValueSize(i) : size;
+            printf("  0x%lx = ",static_cast<unsigned long>(result->address(i)));
+            ValueIoOptions display;display.byteOrder=result->byteOrder();
+            display.pointerWidth=result->pointerWidth();display.size=shownSize;display.encoding=config.stringEncoding;
+            auto text=decodeTypedValue(config.valueType,{value.data(),shownSize},display);
+            if (text) printf("%s",text->c_str());
+            else for (size_t j=0;j<shownSize;++j) printf("%02x",value[j]);
+            puts("");
         }
-        if (result.count() > 20) printf("  ... and %zu more\n", result.count() - 20);
+        if (result->count()>show) printf("  ... and %zu more\n",result->count()-show);
+    } catch (const std::exception& error) {
+        fprintf(stderr,"Scan: %s\n",error.what());return 1;
     }
     return 0;
 }
@@ -1069,6 +1096,17 @@ static int cmd_info(pid_t pid) {
     printf("summary:  %s\n", p.summary().c_str());
     printf("arch:     %s\n", p.archName().c_str());
     printf("wine:     %s\n", p.wine ? "yes" : "no");
+    LinuxProcessHandle proc(pid);
+    auto target = proc.targetDescription();
+    printf("host-abi: %s\n", ce::targetAbiName(target.host.abi));
+    if (target.pendingRecovery) printf("recovery: pending syscall restoration/cleanup\n");
+    printf("program:  %s (%s, %u-byte pointers, %s)\n",
+        ce::cpuArchitectureName(target.program.architecture), ce::targetAbiName(target.program.abi),
+        unsigned(target.program.pointerWidth), ce::byteOrderName(target.program.byteOrder));
+    printf("\ncapabilities (backend availability; permissions checked at use):\n");
+    for (const auto& c : ce::targetCapabilities(target))
+        printf("  %-27s %-11s %s\n", ce::targetFeatureName(c.feature),
+               ce::capabilityStateName(c.state), c.reason.c_str());
     if (p.tracerPid)      printf("tracer:   %d (already being traced)\n", p.tracerPid);
     if (p.seccomp)        printf("seccomp:  filter active\n");
     if (p.pidNamespaced)  printf("sandbox:  PID namespace (Flatpak/Snap/container)\n");
@@ -1493,7 +1531,7 @@ static int cmd_analyze(pid_t pid, int argc, char** argv) {
         mod = &mods.front();   // main executable is enumerated first
     }
 
-    ce::CodeAnalyzer an(ce::analyzerArchFor(proc));
+    ce::CodeAnalyzer an(ce::analyzerArchFor(proc, mod->base));
     if (!strcmp(what, "strings")) {
         for (const auto& r : an.findReferencedStrings(proc, *mod))
             printf("0x%lx  %s\n", (unsigned long)r.target, r.text.c_str());
@@ -1524,6 +1562,131 @@ static int cmd_analyze(pid_t pid, int argc, char** argv) {
     return 0;
 }
 
+
+static int cmd_gdb(int argc,char** argv) {
+    if (argc<5) {usage();return 1;}
+    const auto port=static_cast<uint16_t>(parseUInt(argv[3],"GDB port",65535));
+    if (!port) {fprintf(stderr,"GDB port must be positive\n");return 1;}
+    GdbProcessOptions options;std::vector<std::string> args;
+    std::optional<ValueType> scanType;
+    auto badArguments=[](){fprintf(stderr,"Invalid GDB arguments; use 'cescan gdb --help'\n");return 1;};
+    for (int i=4;i<argc;++i) {
+        if (!std::strcmp(argv[i],"--le") || !std::strcmp(argv[i],"--be")) {
+            const auto order=!std::strcmp(argv[i],"--le") ? ByteOrder::Little : ByteOrder::Big;
+            if (options.byteOrder!=ByteOrder::Unknown && options.byteOrder!=order) {fprintf(stderr,"Conflicting byte orders\n");return 1;}
+            options.byteOrder=order;
+        } else if (!std::strcmp(argv[i],"--width") && i+1<argc) {
+            const auto width=static_cast<uint8_t>(parseUInt(argv[++i],"pointer width",8));
+            if (width!=4 && width!=8) {fprintf(stderr,"Pointer width must be 4 or 8\n");return 1;}
+            if (options.pointerWidth && options.pointerWidth!=width) {fprintf(stderr,"Conflicting pointer widths\n");return 1;}
+            options.pointerWidth=width;
+        } else if (!std::strcmp(argv[i],"--type") && i+1<argc) {
+            if (scanType) return badArguments();
+            scanType=parseValueType(argv[++i]);
+            if (!scanType) {fprintf(stderr,"Unknown scan type\n");return 1;}
+        } else args.emplace_back(argv[i]);
+    }
+    if (args.empty()) return badArguments();
+    const auto& operation=args[0];
+    if (scanType && operation!="scan") return badArguments();
+    uintptr_t address=0;size_t size=0;ScanConfig config;
+    std::vector<uint8_t> bytes;
+    if (operation=="info") {if (args.size()!=1) return badArguments();}
+    else if (operation=="reg") {if (args.size()!=2 && args.size()!=3) return badArguments();}
+    else if (operation=="read" || operation=="disasm") {
+        if (args.size()!=3) return badArguments();
+        address=static_cast<uintptr_t>(parseUInt(args[1].c_str(),"guest address",UINTPTR_MAX));
+        size=static_cast<size_t>(parseUInt(args[2].c_str(),"read size or instruction count",operation=="read" ? (16u<<20) : 65536));
+    } else if (operation=="write") {
+        if (args.size()!=3) return badArguments();
+        address=static_cast<uintptr_t>(parseUInt(args[1].c_str(),"guest address",UINTPTR_MAX));
+    } else if (operation=="scan") {
+        if (args.size()!=4) return badArguments();
+        address=static_cast<uintptr_t>(parseUInt(args[1].c_str(),"scan address",UINTPTR_MAX));
+        size=static_cast<size_t>(parseUInt(args[2].c_str(),"scan size",UINTPTR_MAX));
+        if (!size || size>UINTPTR_MAX-address) {fprintf(stderr,"Invalid guest scan range\n");return 1;}
+        config.valueType=scanType.value_or(ValueType::ByteArray);
+        if (config.valueType==ValueType::ByteArray) {
+            if (!config.parseAOB(args[3])) {fprintf(stderr,"Invalid guest scan pattern\n");return 1;}
+        } else if (config.valueType==ValueType::String || config.valueType==ValueType::UnicodeString) {
+            if (args[3].empty()) return badArguments();
+            config.stringValue=args[3];
+        } else if (config.valueType==ValueType::Float || config.valueType==ValueType::Double) {
+            char* end=nullptr;errno=0;config.floatValue=std::strtod(args[3].c_str(),&end);
+            if (end==args[3].c_str() || *end || (errno==ERANGE && (config.floatValue==0 || !std::isfinite(config.floatValue)))) {fprintf(stderr,"Invalid guest scan number\n");return 1;}
+        } else if (config.valueType==ValueType::Byte || config.valueType==ValueType::Int16 ||
+                   config.valueType==ValueType::Int32 || config.valueType==ValueType::Int64 || config.valueType==ValueType::Pointer) {
+            bool valid=false;config.intValue=parseIntegerScalar(args[3],false,valid);
+            if (!valid) {fprintf(stderr,"Invalid guest scan integer\n");return 1;}
+        } else {fprintf(stderr,"Guest CLI scans support numeric, pointer, string, unicode and aob types\n");return 1;}
+        options.regions.push_back({address,size,MemProt::ReadWrite,MemType::Private,MemState::Committed,{}});
+        config.compareType=ScanCompare::Exact;config.alignment=1;
+        config.startAddress=address;config.stopAddress=address+size-1;
+    } else {fprintf(stderr,"Unknown GDB operation '%s'\n",operation.c_str());return 1;}
+    if (operation=="write" || (operation=="reg" && args.size()==3)) {
+        const auto& text=args[2];
+        if (text.empty() || text.size()%2 || text.size()>(32u<<20)) {fprintf(stderr,"Expected hexadecimal byte pairs\n");return 1;}
+        auto nibble=[](char c)->int {if (c>='0' && c<='9') return c-'0';if (c>='a' && c<='f') return c-'a'+10;if (c>='A' && c<='F') return c-'A'+10;return -1;};
+        for (size_t i=0;i<text.size();i+=2) {
+            int a=nibble(text[i]),b=nibble(text[i+1]);if (a<0 || b<0) {fprintf(stderr,"Invalid hexadecimal bytes\n");return 1;}
+            bytes.push_back(static_cast<uint8_t>((a<<4)|b));
+        }
+    }
+    auto opened=GdbProcessHandle::connect(argv[2],port,options);
+    if (!opened) {fprintf(stderr,"GDB: %s\n",opened.error().c_str());return 1;}
+    auto& process=**opened;
+    if (operation=="info") {
+        const auto description=process.targetDescription();const auto& target=process.registerDescription();
+        if (!description.live) {fprintf(stderr,"GDB: %s\n",process.lastTransportError().c_str());return 1;}
+        printf("transport=GDB architecture=%s pointerWidth=%u byteOrder=%s abi=%s registers=%zu\n",
+            target.architecture.c_str(),description.program.pointerWidth,byteOrderName(description.program.byteOrder),
+            targetAbiName(description.program.abi),target.registers.size());return 0;
+    }
+    if (operation=="reg") {
+        if (args.size()==3) {auto result=process.writeRegister(args[1],bytes);if (!result) {fprintf(stderr,"%s\n",result.error().c_str());return 1;}}
+        auto result=process.readRegister(args[1]);if (!result) {fprintf(stderr,"%s\n",result.error().c_str());return 1;}
+        printf("%s=",args[1].c_str());for (uint8_t byte:*result) printf("%02x",byte);puts("");return 0;
+    }
+    if (operation=="write") {
+        auto result=process.write(address,bytes.data(),bytes.size());
+        if (!result || *result!=bytes.size()) {fprintf(stderr,"Incomplete GDB write (%zu of %zu bytes): %s\n",result ? *result : 0,bytes.size(),process.lastTransportError().c_str());return 1;}
+        printf("Wrote %zu bytes\n",*result);return 0;
+    }
+    if (operation=="scan") {
+        try {
+            MemoryScanner scanner(1);auto result=scanner.firstScan(process,config);
+            if (result.hasWriteError() || !process.targetDescription().live) {fprintf(stderr,"Guest scan failed or disconnected\n");return 1;}
+            printf("Found %zu matches\n",result.count());
+            ValueIoOptions display;display.byteOrder=result.byteOrder();display.pointerWidth=result.pointerWidth();
+            std::vector<uint8_t> value(result.valueSize());
+            for (size_t i=0;i<result.count();++i) {
+                printf("0x%lx",static_cast<unsigned long>(result.address(i)));
+                if (scanType) {
+                    result.value(i,value.data(),value.size());
+                    auto text=decodeTypedValue(config.valueType,value,display);
+                    printf(" = %s",text ? text->c_str() : "??");
+                }
+                puts("");
+            }
+            return 0;
+        } catch (const std::exception& error) {fprintf(stderr,"Guest scan: %s\n",error.what());return 1;}
+    }
+    if (operation=="disasm") {
+        auto architecture=disassemblerArchFor(process,address);
+        if (!architecture) {fprintf(stderr,"Guest instruction architecture is unavailable\n");return 1;}
+        bytes.resize(size*16);auto read=process.read(address,bytes.data(),bytes.size());
+        if (!read) {fprintf(stderr,"%s\n",process.lastTransportError().c_str());return 1;}
+        Disassembler decoder(*architecture);auto instructions=decoder.disassemble(address,{bytes.data(),*read},size);
+        for (const auto& instruction:instructions) printf("0x%lx  %s %s\n",static_cast<unsigned long>(instruction.address),instruction.mnemonic.c_str(),instruction.operands.c_str());
+        return instructions.empty() && size ? 1 : 0;
+    }
+    bytes.resize(size);auto read=process.read(address,bytes.data(),bytes.size());
+    if (!read) {fprintf(stderr,"%s\n",process.lastTransportError().c_str());return 1;}
+    for (size_t i=0;i<*read;++i) printf("%02x",bytes[i]);
+    puts("");
+    return *read==size ? 0 : 1;
+}
+
 int main(int argc, char** argv) {
     // Force the C locale so atof()/strtod() on scan values always use a '.'
     // decimal separator. cescan never calls setlocale(LC_ALL, "") so it is in the
@@ -1545,6 +1708,8 @@ int main(int argc, char** argv) {
         printf("cescan (cheat-engine-linux) %s\n", CECORE_VERSION);
         return 0;
     }
+
+    if (!strcmp(cmd, "gdb")) return cmd_gdb(argc,argv);
 
     if (!strcmp(cmd, "list")) {
         return cmd_list();
@@ -1604,6 +1769,7 @@ int main(int argc, char** argv) {
         ce::ValueCodec codec;
         bool bigEndian = false;
         std::string encoding = "UTF-8";
+        std::optional<ByteOrder> byteOrder;
         int i = 4;
         // Optional positional [size] (only if it isn't the --type flag), then --type.
         if (argc >= 5 && argv[4][0] != '-') {
@@ -1612,7 +1778,8 @@ int main(int argc, char** argv) {
         }
         for (; i < argc; ++i) {
             if (!strcmp(argv[i], "--type") && i + 1 < argc) typeStr = argv[++i];
-            else if (!strcmp(argv[i], "--be")) bigEndian = true;
+            else if (!strcmp(argv[i], "--be")) { bigEndian = true; byteOrder = ByteOrder::Big; }
+            else if (!strcmp(argv[i], "--le")) { bigEndian = false; byteOrder = ByteOrder::Little; }
             else if (!strcmp(argv[i], "--encoding") && i + 1 < argc) encoding = argv[++i];
             else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
                 auto c = ce::ValueCodec::parse(argv[++i]);
@@ -1621,17 +1788,19 @@ int main(int argc, char** argv) {
             }
             else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
         }
-        return cmd_read(parsePid(argv[2]), parseAddress(argv[2], argv[3]), size, typeStr, codec, bigEndian, encoding);
+        return cmd_read(parsePid(argv[2]), parseAddress(argv[2], argv[3]), size, typeStr, codec, bigEndian, encoding, byteOrder);
     }
     else if (!strcmp(cmd, "write") && argc >= 5) {
         ValueType vt = ValueType::Int32;
         ce::ValueCodec codec;
         bool bigEndian = false, terminate = false;
         std::string encoding = "UTF-8";
+        std::optional<ByteOrder> byteOrder;
         int verifyMs = 0, findWriterSecs = 0;
         for (int i = 5; i < argc; ++i) {
             if (!strcmp(argv[i], "--type") && i + 1 < argc) vt = parseType(argv[++i]);
-            else if (!strcmp(argv[i], "--be")) bigEndian = true;
+            else if (!strcmp(argv[i], "--be")) { bigEndian = true; byteOrder = ByteOrder::Big; }
+            else if (!strcmp(argv[i], "--le")) { bigEndian = false; byteOrder = ByteOrder::Little; }
             else if (!strcmp(argv[i], "--terminate")) terminate = true;
             else if (!strcmp(argv[i], "--encoding") && i + 1 < argc) encoding = argv[++i];
             else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
@@ -1648,13 +1817,14 @@ int main(int argc, char** argv) {
             else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
         }
         return cmd_write(parsePid(argv[2]), parseAddress(argv[2], argv[3]), argv[4], vt,
-                         codec, verifyMs, findWriterSecs, bigEndian, terminate, encoding);
+                         codec, verifyMs, findWriterSecs, bigEndian, terminate, encoding, byteOrder);
     }
     else if (!strcmp(cmd, "freeze") && argc >= 5) {
         ValueType vt = ValueType::Int32;
         ce::ValueCodec codec;
         bool bigEndian = false, terminate = false, isSigned = true;
         std::string encoding = "UTF-8";
+        std::optional<ByteOrder> byteOrder;
         unsigned interval = 100; size_t maxCycles = 0;
         ce::FreezeMode mode = ce::FreezeMode::Normal;
         for (int i = 5; i < argc; ++i) {
@@ -1662,7 +1832,8 @@ int main(int argc, char** argv) {
                 const char* type = argv[++i]; vt = parseType(type);
                 isSigned = !(std::tolower(static_cast<unsigned char>(type[0])) == 'u' && std::isdigit(static_cast<unsigned char>(type[1])));
             }
-            else if (!strcmp(argv[i], "--be")) bigEndian = true;
+            else if (!strcmp(argv[i], "--be")) { bigEndian = true; byteOrder = ByteOrder::Big; }
+            else if (!strcmp(argv[i], "--le")) { bigEndian = false; byteOrder = ByteOrder::Little; }
             else if (!strcmp(argv[i], "--terminate")) terminate = true;
             else if (!strcmp(argv[i], "--encoding") && i + 1 < argc) encoding = argv[++i];
             else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
@@ -1684,7 +1855,7 @@ int main(int argc, char** argv) {
             else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
         }
         if (interval < 1) interval = 1;
-        return cmd_freeze(parsePid(argv[2]), parseAddress(argv[2], argv[3]), argv[4], vt, codec, interval, mode, bigEndian, maxCycles, terminate, encoding, isSigned);
+        return cmd_freeze(parsePid(argv[2]), parseAddress(argv[2], argv[3]), argv[4], vt, codec, interval, mode, bigEndian, maxCycles, terminate, encoding, isSigned, byteOrder);
     }
     else if (!strcmp(cmd, "watch") && argc >= 4) {
         bool writesOnly = true, showRegs = false; int watchSize = 4, duration = 10, mode = 0;
@@ -1725,20 +1896,28 @@ int main(int argc, char** argv) {
             if (!a) { fprintf(stderr, "disasm: --arch must be x86-32|x86-64|arm32|arm64\n"); return 1; }
             arch = *a;
         } else {
-            arch = autoDisasmArch(pid);   // from the target's ELF/probe + bitness
+            auto detected = autoDisasmArch(pid, addr);
+            if (!detected) { fprintf(stderr, "disasm: %s\n", detected.error().c_str()); return 1; }
+            arch = *detected;
         }
         return cmd_disasm(pid, addr, count, arch);
     }
     else if (!strcmp(cmd, "asm") && argc >= 3) {
         Arch arch = Arch::X86_64;
+        uintptr_t origin = 0;
         for (int i = 3; i < argc; ++i) {
             if (!strcmp(argv[i], "--arch") && i + 1 < argc) {
                 auto a = parseArch(argv[++i]);
                 if (!a) { fprintf(stderr, "asm: --arch must be x86-32|x86-64|arm32|arm64\n"); return 1; }
                 arch = *a;
+            } else if (!strcmp(argv[i], "--origin") && i + 1 < argc) {
+                origin = static_cast<uintptr_t>(parseUInt(argv[++i], "assembly origin", UINTPTR_MAX));
+            } else {
+                fprintf(stderr, "asm: unknown or incomplete option: %s\n", argv[i]);
+                return 1;
             }
         }
-        return cmd_asm(argv[2], arch);
+        return cmd_asm(argv[2], arch, origin);
     }
     else if (!strcmp(cmd, "scan") && argc >= 3) {
         pid_t pid = parsePid(argv[2]);

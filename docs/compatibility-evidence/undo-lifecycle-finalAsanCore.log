@@ -1,0 +1,907 @@
+WARNING: Not running as root. Some operations may fail.
+05:10:13.890 W [general] t5538 createSimpleHook: codecave write failed
+Spawned test process: sleep 9999 (PID 356198)
+
+── Test: Target capability probe ──
+  probe self: OK (x86-64 native process)
+  probe bogus pid: OK
+  arch/summary strings: OK
+
+── Test: Dolphin guest-RAM adapter ──
+  MEM1+MEM2 deduped from mirrors, anon excluded: OK
+
+── Test: yuzu/Citra guest-RAM adapter ──
+  HostMemory regions deduped from mirrors, anon excluded, guestBase 0: OK
+
+── Test: RPCS3-style mirror dedup (generic path, by inode) ──
+  (skipped under ASan: forked child's maps polluted by shadow/arenas)
+
+── Test: untrusted-parser negative-input / mutation fuzz ──
+  .CT XML parser: 14 pathological + 6000 mutations, no crash: OK
+  ELF module parser: 12 truncations + 1500 mutations, no crash: OK
+
+── Test: EFLAGS decode ──
+  0x246 -> "PF ZF IF": OK
+  0x1   -> "CF":       OK
+  0x0   -> "":         OK
+  0xC0  -> "ZF SF":    OK
+  0x8D5 -> full set:    OK
+
+── Test: Emulator guest view (endianness) ──
+  byteswap primitives: OK
+  big-endian write layout: OK
+  read-back round trip: OK
+  bounds + address translation: OK
+  exact guest scan (aligned, BE): OK
+  endianness affects matches: OK
+  guest next-scan narrows: OK
+  compare next-scan (increased/decreased): OK
+  unknown-value scan (snapshot + compare): OK
+
+── Test: Namespace-aware path resolution ──
+  non-file paths passthrough: OK
+  existing host path unchanged: OK
+  missing path stays target-scoped: OK
+  inaccessible target never uses an existing host file: OK
+  self not namespaced: OK
+  forked child seen as a descendant: OK
+
+── Test: Project review regressions ──
+  integer limits, overflow rejection and INT64_MIN: OK
+  32-bit pointer scan/map/dereference/expression: OK
+  expression arithmetic and malformed/unresolved rejection: OK
+  pointer expression retains long module names: OK
+  converging pointer graph retains both valid paths: OK
+  invalid pointer scan limits rejected: OK
+  non-ASCII UTF-16 and surrogate pairs (first/next/grouped): OK
+  case-insensitive strings agree across first/next/grouped scans: OK
+  UTF-16 case folding preserves non-ASCII code units: OK
+  invalid/truncated snapshots preserve the checkpoint: OK
+  row moves reject invalid destinations and overflowing lengths: OK
+  instruction patch/restore reject partial writes: OK
+  hook install/remove reject partial writes: OK
+  trainer escapes UTF-8 before hex digits and trailing comment backslashes: OK
+  buffered file write errors reported: OK
+
+── Test: Value codecs (obfuscated values) ──
+  encode/decode round-trip (all ops, widths 1/2/4/8): OK
+  xor i32 (1000 <-> stored 0xdeadbd07): OK
+  add byte wraparound (200 add 100 = 44): OK
+  rol byte width-local (0x12 rol 4 = 0x21): OK
+  parse valid + reject malformed: OK
+  describe/parse round-trip (persistence): OK
+
+── Test: Scalar value transform (endianness + codec) ──
+  decode(encode(v)) round-trips (all types/endian/codec): OK
+  big-endian i32 1000 = 00 00 03 e8: OK
+  big-endian + xor codec composes: OK
+  codec skipped for float: OK
+  formatIntegerScalar signed/unsigned/hex: OK
+  parseIntegerScalar hex/decimal/signed: OK
+  format<->parse integer round-trip (all widths/signs/bases): OK
+  valueTypeName matches CE wording: OK
+  formatFloatScalar trims trailing zeros: OK
+
+── Test: Exact store recovery (find-what-writes) ──
+  recovers 'mov [rax],edx' at +5 (not the +1 adc): OK (got +0x5 'mov dword ptr [rax], edx')
+  zero rip -> not recovered: OK
+  Disassembler::setArch re-opens (arm64 movz, then x86-32 mov): OK
+
+── Test: CheatTable Round Trip ──
+  JSON round trip: OK
+  CT XML round trip: OK
+  ShowAsSigned default/override: OK
+  group Collapsed round-trips: OK
+  CE <DropDownList> import (+ old-cased fallback): OK
+  CE group <Options> flags parse + verbatim round-trip: OK
+  CE String/AoB <Length> + <Unicode> import + round-trip: OK
+  CE nested <Hotkeys> (VK codes + actions) import: OK
+  XML special chars (& < > ") in desc/value round-trip: OK
+  CT XML CE type names: OK
+  CETRAINER protected round trip: OK
+
+── Test: Mono dissector dump parser ──
+  parses images05:10:14.136 W [general] t5538 createSimpleHook: refusing @ 0x3fd000: displaced 'jmp 0x3fd002' is position-dependent
+05:10:14.481 W [ct] t5538 failed to load table '/home/taceddinsancak/Desktop/Projects/cheat-engine/build/.ci-tmp/secret.CETRAINER' (detected format=protected)
+/classes/fields + ready marker: OK
+  field offset/type/static-flag parsed: OK
+  namespaced class name split: OK
+
+── Test: conditional breakpoint evaluation ──
+  register condition true/false: OK
+  uppercase register names + logic: OK
+  empty condition always breaks: OK
+  malformed condition fails safe (breaks): OK
+
+── Test: createSimpleHook / removeSimpleHook (live detour) ──
+  detour fires (5 -> 99): OK (before=5 hooked=99)
+  remove restores (-> 5): OK (after=5)
+  refuses position-dependent displaced code: OK
+
+── Test: Lua stringlist API ──
+  add/count/get (0-based): OK
+  set/remove: OK
+
+── Test: Lua timer API (createTimer/timer_onTimer/pump) ──
+  timer fires from pump (6 ticks): OK
+  disabled timer stops firing: OK
+  object_destroy stops + frees the timer: OK
+
+── Test: diagnostic logging (ce::log) ──
+  parseLevel (names, case-insensitive): OK
+  per-category level gating: OK
+  Off silences a category: OK
+
+── Test: Real CE .CT import ──
+  loads CE-authored .CT (quoted desc, 4 Bytes, hex addr): OK
+  loads CE pointer entry (symbolic base + offsets): OK
+  pointer expression matches CE offset order: OK
+  parsePointerExpression inverts buildPointerExpression: OK
+  loads nested CE group (parent+child hierarchy): OK
+  save/reload preserves group hierarchy: OK
+  save/reload preserves symbolic base + offsets: OK
+  saver: raw address (no over-escape): OK
+  saver: AA record keeps its type, no bogus address: OK
+  saver: negative offset survives round-trip: OK
+
+── Test: PointerPath toString resolves via ExpressionParser ──
+  '[game+10]+0x8' resolves to the scanned target: OK (got 0x500008 want 0x500008)
+
+── Test: CheatTable::loadFromString (clipboard fragment) ──
+  parses a bare <CheatEntries> clipboard fragment: OK
+  parses a full <CheatTable> document: OK
+  rejects non-table text: OK
+
+── Test: table format auto-detection (content, not extension) ──
+  XML content behind .json extension detected+loaded: OK
+  uppercase GAME.CT loads via loadAuto: OK
+  JSON detected + loaded (not misparsed): OK
+  protected .CETRAINER detected, loadAuto declines: OK
+
+── Test: .CT Forms preservation ──
+  <Forms> survives load -> save -> load: OK (captured=1 preserved=1)
+
+── Test: Trainer Generation ──
+  source escaping: OK
+  float/double comma-decimal emits valid C: OK
+  binary compile: OK
+
+── Test: Code Analysis References ──
+  Disassembler RIP resolution: OK
+  Disassembler resolves indirect jmp ripTarget (PLT follow): OK
+  Disassembler previousInstruction: OK
+  Disassembler emitDataBytes (db fallback): OK
+  RIP-resolved operand re-assembles to same bytes: OK
+  RIP-relative stolen insn keeps target when relocated to cave: OK
+  asm<->disasm round-trip safe (match=46 safeErr=0 unsafe=0): OK
+  assembler uses branch address for rel32: OK
+  Referenced strings: OK
+  Referenced functions: OK
+  Function enumeration: OK
+  Call graph: OK
+  Jump detection: OK
+  RIP-relative instructions: OK
+  Find statics (referenced static addresses): OK
+  Assembly pattern scan: OK
+  Code caves: OK
+
+── Test: static find-references ──
+  finds rip-relative + call references to a data address: OK (2 refs)
+
+── Test: multi-arch disassembly ──
+  x86-32/ARM32/ARM64 decode: OK (x32=OK arm32=OK arm64=OK)
+
+── Test: instruction effective-address ──
+  base+index*scale+disp: OK
+  rip-relative: OK
+  no-memory instruction: OK
+
+── Test: C++ symbol demangling ──
+  C++ name demangled in resolve(): OK
+
+── Test: size-0 symbol extent cap ──
+  size-0 symbol not attributed >4KB past it: OK
+
+── Test: PLT/GOT import resolution ──
+  imported function resolves as <func>@got and <func>@plt: OK
+── Test: Directional freeze decision ──
+  directional freeze decision: OK
+── Test: Expression Parser ──
+  multi-level pointers + inner/outer hex offsets + negatives: OK
+  user-defined symbol resolves by name (label/offset/deref): OK
+── Test: Memory Viewer pane choice (double-click routing) ──
+  guessCode=1 guessData=1 shift=1 ctrl=1 both=1: OK
+── Test: Conditional jump prediction (flags -> taken) ──
+  conditionalJumpTaken maps mnemonic+flags: OK
+  describeEflagsVerbose lists all flag states: OK
+── Test: Cheat-table group collapse (row hiding) ──
+  collapse hides descendants (outer=1 nested=1 none=1): OK
+  descendantRange subtree spans (A=3 B=1 C=0): OK
+  moveRangePermutation reorders blocks (11111): OK
+  groupSelection wraps a selection under a new header (11111): OK
+  expandGroupDeletion removes a group's whole subtree (11111): OK
+── Test: Unique AOB signature (CE-style AOB injection) ──
+  pure shortestUniqueAobLen (extend=1 alreadyUnique=1 ambiguousRejected=1): OK
+  uniqueAobSignature at base -> "AA BB CC DD EE 11": OK
+  script embeds unique signature: OK
+
+── Test: Case-insensitive string scan ──
+  case-sensitive misses, case-insensitive finds mixed-case (Text): OK
+  case-insensitive Unicode/UTF-16 finds mixed-case: OK
+
+── Test: Between scan with reversed bounds ──
+  reversed bounds find in-range value (int + float): OK
+  float IncreasedBy tolerant of FP delta (0.1->0.3 by 0.2): OK
+
+── Test: Unknown-initial-value scan chain ──
+  Unknown snapshot -> Increased/Unchanged/Changed refine: OK
+
+── Test: Scan alignment ──
+  aligned=4 misses unaligned value, aligned=1 finds it: OK
+
+── Test: Next-scan comparators ──
+  Increased/Decreased/Changed/Unchanged/By/Greater/Less: OK
+
+── Test: Managed runtime detection ──
+  Mono/CoreCLR modules: OK
+
+── Test: Managed object enumeration ──
+  object headers: OK
+
+── Test: Managed type extraction ──
+  type names: OK
+
+── Test: GDB remote client ──
+  packet exchange: OK
+  disconnected GDB peer returns errors without SIGPIPE: OK
+
+── Test: ceserver TCP client ──
+  version handshake: OK
+  disconnected ceserver peer returns errors without SIGPIPE: OK
+
+── Test: Mono soft-debugger client ──
+  handshake + connect: OK
+  VM/Version parse: OK
+  VM/AllThreads parse: OK
+  suspend/resume: OK
+  agent error surfaced: OK
+
+── Test: Mono soft-debugger client vs real mono agent ──
+  real handshake + VM/Version + AllThreads: SKIPPED (no mono runtime)
+
+── Test: process watcher ──
+  detects a newly-launched matching process: OK
+
+── Test: ceserver memory ops ──
+  openProcess: OK
+  virtualQueryEx: OK
+  virtualQueryExFull: OK
+  readProcessMemory: OK
+  writeProcessMemory: OK
+  closeHandle: OK
+
+── Test: ceserver extended ops ──
+  openProcess: OK
+  getArchitecture: OK
+  allocateMemory: OK
+  freeMemory: OK
+  changeMemoryProtection: OK
+  enumModules: OK
+  enumThreads: OK
+
+── Test: ceserver debug ops ──
+  openProcess: OK
+  startDebug: OK
+  waitForDebugEvent: OK
+  continueFromDebugEvent: OK
+  setRemoteBreakpoint: OK
+  removeRemoteBreakpoint: OK
+  suspendThread: OK
+  resumeThread: OK
+  getThreadContext: OK (got 224 bytes)
+  setThreadContext: OK
+  speedhackSetSpeed: OK
+  stopDebug: OK
+  getSymbolListFromFile (hit): OK
+  getSymbolListFromFile (miss): OK
+
+── Test: RemoteProcessHandle adapter ──
+  open: OK
+  pid + is64bit: OK
+  queryRegions: OK
+  queryRegion: OK
+  modules: OK
+  threads: OK
+  allocate: OK
+  free: OK
+  protect: OK
+
+── Test: RemoteDebugger ──
+  attach: OK
+  suspend: OK
+  resume: OK
+  setBreakpoint: OK
+  removeBreakpoint: OK
+  waitForEvent: OK
+  continueAfterEvent: OK
+  getContext decodes regs: OK
+  setContext encodes regs: OK
+  detach: OK
+
+── Test: Network compression ──
+  zlib round trip: OK
+
+── Test: Distributed pointer scan ──
+  shard merge: OK
+  dereference resolves to target: OK
+  rescan (same target) keeps all valid paths: OK
+  rescan against a different target keeps none: OK
+  pointer scan yields no duplicate paths: OK
+
+── Test: Sharded scan keeps paths through a static intermediate ──
+  sharded scan keeps through-static path: OK
+
+── Test: Pointer scan persistence ──
+  save: OK
+  load round-trip: OK
+  sort by depth: OK
+  sort by baseOffset: OK
+  merge with dedup: OK (got 4, expected 4)
+  merge without dedup: OK
+
+── Test: table LuaScript placed after </CheatE05:10:17.633 W [lua] t5538 eval error: [string "error("boom")"]:1: boom
+ntries> ──
+  table LuaScript after entries is parsed: OK
+  table LuaScript not shadowed by a sibling record: OK (got 'return 'table'')
+
+── Test: JSON round-trip preserves pointer chain / length ──
+  addressString/offsets/length/optionsXml survive: OK
+
+── Test: IL2CPP PE optional-header bounds ──
+  undersized optional header rejected: OK
+
+── Test: DWARF symbols ──
+  libdw available at build time: yes
+  load: OK
+  isLoaded after load: OK
+  isLoaded after close: OK
+  DWARF address->source line lookup: OK
+  DWARF struct listed + members resolved: OK
+  DWARF struct -> typed structure: OK
+
+── Test: Plugin ABI ──
+  sample plugin missing at /home/taceddinsancak/Desktop/Projects/cheat-engine/build-ci-asan/libcecore_sample_plugin.so — SKIPPED
+
+── Test: AutoAssembler {$lua} blocks ──
+  block returns AA text: OK
+  {$endlua} terminator: OK
+  conditional codegen: OK
+  unterminated block flagged: OK
+  lua error surfaced: OK
+  {$ccode} reject: OK
+  no-evaluator detected: OK
+
+── Test: AutoAssembler {$if}/{$else}/{$endif} ──
+  truthy branch kept: OK
+  falsy branch kept: OK
+  missing endif flagged: OK
+
+── Test: AutoAssembler @@: / @F / @B ──
+  @@: + @F + @B parses cleanly: OK
+  dangling @F flagged: OK
+
+── Test: AutoAssembler globalalloc + break ──
+  globalalloc parses: OK
+  break aborts: OK
+  break with message: OK
+  alloc with symbol near-address: OK
+
+── Test: Code-injection auto-generator ──
+  generate injection with byte array: OK
+  generate AOB injection: OK
+
+── Test: Lua Stream + StringList ──
+  MemoryStream round-trip: OK
+  MemoryStream property accessors: OK
+  StringList add/get/count/text: OK
+  StringList setText splits on newlines: OK
+  StringList file round-trip: OK
+  createFileStream 'w' truncates and creates: OK
+
+── Test: Snapshot engine (save/load/diff) ──
+  load A: OK
+  load B: OK
+  metadata: OK
+  diff (2 changes): OK
+  round-trip save/load: OK
+
+── Test: Stack trace frame walk ──
+  frame pointer walk: OK
+
+── Test: Break and trace ──
+  break and trace: OK
+
+── Test: Break and trace (child thread) ──
+  break and trace on a child thread: OK (6 entries, first=startAddr)
+
+── Test: Software breakpoints at 5024be ──
+  soft breakpoint hit at marker: OK
+
+── Test: Software breakpoints at 7fbd0941afff ──
+  soft breakpoint hit at marker: OK
+
+── Test: Multithread watchpoint ──
+  sibling-thread watchpoint: OK (1 instr sites, target survived)
+
+── Test: Multithread software breakpoint (all-stop) ──
+    attempt: ok (hit tid=356326, all-stop=yes, alive=yes, stepped=yes, resumed=yes)
+  mt soft bp: OK (1 attempt)
+
+── Test: debugger register editing ──
+  set + read-back GP registers on a stopped thread: OK (edited=1 preserved=1)
+
+── Test: debugger thread switcher ──
+  enumerate + switch stopped threads: OK (threads>=2=1 switched=1)
+
+── Test: debugger XMM capture ──
+  captures XMM0 of the stopped thread: OK (hit=1 xmm0lo=1)
+
+── Test: Lua real breakpoint (debug_* via DebugSession) ──
+  real breakpoint fires debugger_onBreakpoint: OK
+  removing a running breakpoint restores code and keeps target alive: OK
+
+── Test: Lua breakpoint register edit ──
+  handler's RAX edit reaches the thread: OK (observed=0xabcdef12)
+
+── Test: Lua hardware data watchpoint ──
+  hw write watchpoint fires + tracee survives detach: OK (fired=1 alive=1)
+
+── Test: ceserver server round-trip ──
+  read/write + regions + arch + enum via ceserver protocol: OK
+
+── Test: ceserver remote debug ──
+  remote breakpoint fires + tracee survives detach: OK (event=1 alive=1)
+
+── Test: ceserver remote alloc ──
+  remote alloc + write/read via ceserver protocol: OK
+
+── Test: find what addresses an instruction accesses ──
+  resolves the accessed address: OK (1 addr(s), top=0xd3ae60 expected=0xd3ae60 hits=5)
+
+── Test: NOP an instruction ──
+  nop preserves length + restore round-trips: OK (nopped=1 restored=1)
+
+── Test: Lua nopInstruction ──
+  nopInstructio[speedhack] initialized, speed=10.00
+n patches + returns original bytes: OK
+
+── Test: Lua readRegionToFile / writeRegionFromFile ──
+  dump + restore memory region via file: OK
+
+── Test: Lua getModuleAddress / compareMemory / floatToByteTable ──
+  getModuleAddress + compareMemory + floatToByteTable: OK
+
+── Test: Lua string extensions (startsWith/endsWith/split/printf) ──
+2 + 3 = 5
+  string extensions: OK
+
+── Test: Lua getUniqueAOB ──
+  getUniqueAOB: OK
+
+── Test: Lua AOBScanUnique / AOBScanModuleUnique ──
+  AOBScanUnique/ModuleUnique: OK
+
+── Test: Lua disassembleBytes ──
+  disassembleBytes: OK
+
+── Test: Lua file utilities ──
+  file utilities: OK
+
+── Test: Lua string encoding (convertToUTF8/FromUTF8/ansiToUTF8) ──
+  string encoding: OK
+
+── Test: Lua enumModules ──
+  enumModules: OK
+
+── Test: Lua getMemoryRegionInfo / getPointerSize ──
+  region info + pointer size: OK
+
+── Test: Lua md5memory ──
+  md5memory: OK
+
+── Test: Speedhack GOT injection (dlopen) ──
+  speedhack GOT inject: OK (baseline 161 ms -> injected 17 ms, 9.6x)
+
+── Test: Parser adversarial input ──
+  ExpressionParser (29 adversarial inputs): OK
+  CheatTable malformed .CT (10 blobs): OK
+  ELF malformed parse (7 blobs): OK
+
+── Test: Lua shellExecute RCE gate ──
+  shellExecute default-blocked + env opt-in: OK (blocked=1 allowed=1)
+
+── Test: Lua write*Local self-memory gate ──
+  write*Local default-blocked + read ungated + env opt-in: OK (blocked=1 read=1 allowed=1)
+
+── Test: Lua native exception firewall ──
+  firewall wraps every binding + calls still work: OK
+
+── Test: separate-debug-file symbols (.gnu_debuglink) ──
+  static symbol from .gnu_debuglink: OK (absent-without=1 resolved-with=1)
+
+── Test: 32-bit ELF symbol resolution ──
+  resolve exported symbol in a 32-bit .so: SKIPPED (no gcc -m32)
+
+── Test: pointer rescan by value ──
+  rescan-by-value keeps match / drops mismatch: OK (deref=1 keep=1 miss=0)
+
+── Test: pointer map (reuse + fast rescan) ──
+  build-once, scan two targets == independent scans: OK
+  resolve == dereference, valueAt correct: OK
+  map save/load round-trip resolves: OK
+  map-based rescan (addr + value) matches: OK
+
+── Test: AOB signature generation ──
+  pattern: 48 8B 05 ?? ?? ?? ?? C3 (unique=1)
+  wildcards rip-disp + extends to unique (ends C3): OK
+
+── Test: PE export table parsing ──
+  parses a named export (foo @0x1234, ordinal 1): OK
+  peExportRva(foo) == 0x1234: OK
+  parses an import (OTHER.dll!bar, iat rva 0x1148): OK
+  non-PE input rejected cleanly: OK
+  SymbolResolver symbolicates PE exports: OK
+
+── Test: Lua getSymbolInfo / reinitializeSymbolhandler ──
+  getSymbolInfo + reinitializeSymbolhandler: OK
+
+── Test: Lua getRegionInfo ──
+  getRegionInfo finds the containing region: OK
+
+── Test: find-what-writes 8-byte watch size ──
+  8-byte watch catches 8-byte write: OK (1 sites, target survived)
+
+── Test: IL2CPP global-metadata.dat parser ──
+  header + string pools parse: OK
+  magic detection: OK
+  wrong-magic reject: OK
+  out-of-bounds region reject: OK
+  short-buffer reject: OK
+
+── Test: IL2CPP metadata type/field tables (v29) ──
+  types + fields decode (Game.Player{health,mana}, Enemy{name}): OK
+  image grouping (Assembly-CSharp.dll -> 2 types): OK
+  method decode (Player.Update, Enemy.Attack + tokens): OK
+  version support gate (27/29/31 yes, 24/16 no): OK
+  unsupported version keeps string pools, skips tables: OK
+  corrupt table region is non-fatal: OK
+
+── Test: IL2CPP metadata locate + Lua browse ──
+  locate via executable next to _Data: OK
+  locate via path inside _Data tree: OK
+  system-only paths locate nothing: OK
+  unrelated game dir without metadata: OK
+  Lua getIl2CppClasses(path) browses classes/fields: OK
+  Lua getIl2CppClasses bad path returns nil+error: OK
+
+── Test: IL2CPP real file (set CE_IL2CPP_METADATA to run) ──
+  CE_IL2CPP_METADATA unset: SKIPPED
+
+── Test: IL2CPP field-offset resolution (synthetic PE) ──
+  finds Il2CppBreakpoint 3 condition error: breakpoint condition exceeded instruction limit
+MetadataRegistration + resolves: OK
+  field offsets health=0x10 mana=0x8 name=0x18: OK
+  static/instance from Il2CppType.attrs: OK
+  Lua getIl2CppClassLayout resolves offsets: OK
+  non-il2cpp binary rejected cleanly: OK
+
+── Test: IL2CPP managed structure typing ──
+  class layout -> typed structure (statics/consts skipped): OK
+  Il2CppTypeEnum -> ValueType mapping: OK
+
+── Test: injection script generation ──
+  code injection script: OK
+  AOB injection script: OK
+  short-read error: OK
+  AOB-without-module error: OK
+
+── Test: Structure tools ──
+  template save/load: OK
+  C++ struct export: OK
+  snapshot comparison: OK
+  changed field detection: OK
+  N-instance field detection: OK
+  pointer chain following: OK
+  custom field display: OK
+
+── Test: Lua MemoryRecord/AddressList surface ──
+  count + indexing: OK
+  property writes flow back: OK
+  property persistence: OK
+  createMemoryRecord global + by-description lookup: OK
+  OnActivate fires on activation flip: OK
+  disableAllWithoutExecute deactivates: OK
+  delete removes from list: OK
+  addresslist global resolves to same singleton: OK
+  detached after setAddressList(nullptr): OK
+
+── Test: Lua MemoryRecord group hierarchy ──
+  Count/getChild/getParent walk the group tree: OK (ok)
+
+── Test: Lua headless tool bindings (CLI parity) ──
+  saveTable/loadTable round-trip: OK
+  createGroup + Indent (group/indent/outdent): OK
+  live-process tools (pointerScan/findWhatWrites/breakAndTrace/debug): SKIPPED under ASan
+  branchMapAvailable: OK
+
+── Test: Lua connectToCeserver (remote target) ──
+  connectToCeserver + target install: OK
+
+── Test: AutoAssembler unregistersymbol ──
+  unregistersymbol: OK
+
+── Test: AutoAssembler dealloc ──
+  dealloc: OK
+
+── Test: AutoAssembler dealloc namespace not cross-evicted ──
+  dealloc namespace not cross-evicted: OK
+
+── Test: AutoAssembler far forward jump sizing ──
+  far forward jump sizing: OK
+
+── Test: AutoAssembler db/dw/dd/dq widths ──
+  db/dw/dd/dq widths: OK
+
+── Test: AutoAssembler // inside db string ──
+  // inside db string: OK
+
+── Test: AutoAssembler nop/fillmem ──
+  nop/fillmem: OK
+
+── Test: AutoAssembler try/except ──
+  try/except regions: OK
+
+── Test: AutoAssembler forward labels ──
+  forward label sizing: OK
+  forward named label without label() decl: OK
+  dq <label> stores the label address: OK
+  dq <label>+offset evaluates arithmetic: OK
+  dd (float)/dq (double) store IEEE-754 bits: OK
+  db string with comma/space not split: OK
+  db string containing a symbol name not corrupted: OK
+  sizing pass quote-aware (db "fwd" keeps length): OK
+
+── Test: AA module+offset resolution ──
+  AA resolves <module>+offset and patches it: OK
+
+── Test: AA code-injection template pattern ──
+  code-injection template hooks target with jmp: OK
+
+── Test: AutoAssembler assert ──
+  assert matches -> proceed, mismatch -> abort: OK
+
+── Test: AutoAssembler createthread ──
+  createthread/andwait: OK
+
+── Test: AutoAssembler ds ──
+  ds: OK
+
+── Test: AutoAssembler custom commands ──
+  custom commands: OK
+
+── Test: AutoAssembler processing hooks ──
+  processing hooks: OK
+
+── Test: AutoAssembler loadbinary ──
+  loadbinary: OK
+
+── Test: AutoAssembler struct definitions ──
+  struct definitions: OK
+
+── Test: AutoAssembler aobscanmodule ──
+  aobscanmodule: OK
+  aobscanmodule wildcard (7F ?? 4C 46) finds same addr: OK
+
+── Test: AutoAssembler aobscanregion ──
+  aobscanregion: OK
+
+── Test: AutoAssembler aobscanall ──
+  aobscanall: OK
+
+── Test: AutoAssembler aobscan result as inject label ──
+  execute succeeds (no phantom label): OK
+  INJECT: label wrote at the scanned address: OK
+  full alloc+jmp injection lands E9 at site: OK
+
+── Test: AutoAssembler requires target ──
+  missing target: OK
+
+── Test: Breakpoint Lua Conditions ──
+  Lua condition gate: OK
+  infinite-loop condition aborts (no hang): OK
+
+── Test: One-shot breakpoints �[CE Lua] utility smoke test
+[CE Lua] utility dialog
+�─
+  auto-remove after hit: OK
+
+── Test: Thread-filtered breakpoints ──
+  TID filter: OK
+
+── Test: Managed method breakpoints ──
+  JIT address bridge: OK
+
+── Test: Kernel symbol resolver ──
+  kallsyms parse: OK
+
+── Test: Kernel driver client ──
+  ioctl wrapper: OK
+
+── Test: Vulkan overlay injector ──
+  manifest/env: OK
+
+── Test: Vulkan overlay layer interface ──
+  negotiate + proc resolution + enumeration: OK
+
+── Test: Lua file aliases ──
+  readFile/writeFile: OK
+
+── Test: Lua local memory ──
+  read/write local variants: OK
+
+── Test: Lua autoAssembleCheck ──
+  autoAssembleCheck: OK
+
+── Test: Lua utility bindings ──
+  showMessage/messageDialog/getScreenCanvas: OK
+
+── Test: Lua hotkey bindings ──
+  createHotkey/setHotkeyAction: OK
+
+── Test: Lua thread bindings ──
+  createThread/synchronize/queue: OK
+
+── Test: Lua custom type bindings ──
+  registerCustomTypeLua/customTypeToValue: OK
+
+── Test: Lua address list bindings ──
+  getTableEntry/setTableEntry/addressList: OK
+
+── Test: Lua debug bindings ──
+  debug_set/remove/list/state: OK
+
+── Test: Lua process bindings ──
+  openProcess/getProcessList: OK
+
+── Test: Lua executeCode ──
+  executeCode runs target code (sentinel written): OK (lua=ok val=0xBADF00D)
+
+── Test: Lua code analysis bindings ──
+  enumerateFunctions + buildCallGraph return shaped tables: OK
+  findReferencedStrings + findStatics + findCodeCaves shaped: OK
+
+── Test: shipped example scripts load & run ──
+No IL2CPP layout available. Attach to a Unity IL2CPP game first
+(needs global-metadata.dat + GameAssembly next to it).
+  il2cpp_dump.lua        OK
+could not resolve Player.TakeDamage (abstract, generic, or missing)
+GameAssembly not mapped; attach to the game first.
+  il2cpp_hook.lua        OK
+Attach to a process first (open one in the GUI, or wrap openProcess).
+Set ADDR to a code address for signature / xref / disasm output.
+  reverse_engineer.lua   OK
+No DWARF struct 'GameState' (build with -g, or try listDwarfStructs()).
+  native_struct.lua      OK
+
+── Test: Lua memscan bindings ──
+  firstScan/nextScan: OK
+
+── Test: Binary scan bitmask ──
+  bit wildcard match: OK
+
+── Test: AOB nibble-wildcard scan match ──
+  '48 8B 4? 05' matches 4A, rejects 5A: OK (100=1 200=0)
+  compact AOB '488B05' -> 3 bytes, odd count rejected: OK
+
+── Test: All-types scan emits one row per address ──
+  one row at the planted address, no duplicates: OK (total=4090 at64=1)
+
+── Test: tri-state writable region filter ──
+  Writable Yes/No/Any select the right regions: OK (yes=10 no=01 any=11)
+
+── Test: MEM type region filter ──
+  Private/Image/Mapped filters select the right regions: OK (all=111 noImg=011 noPriv=101 noMap=110)
+
+── Test: module+offset address formatting ──
+  moduleOffsetString maps addresses to module+offset (round-trip=1): OK
+
+── Test: Value-between numeric scan ──
+  between [lo,hi] int32: OK
+
+── Test: Next-scan size-mismatch guard ──
+  reject changed string length: OK
+
+── Test: Prune scan result (remove selected addresses) ──
+  prune keeps survivors + values + firstValues (c=1 a=1 v=1 f=1 keep=1): OK
+
+── Test: decodeStringBytes (code page -> UTF-8) ──
+  decodeStringBytes (dec=1 enc=1 roundtrip=1 passthru=1): OK
+
+── Test: Unicode string scan ──
+  UTF-16LE match: OK
+
+── Test: Codepage string scan ──
+  ISO-8859-1 match: OK
+
+── Test: All types scan ──
+  vtAll numeric match: OK
+  vtAll value(i) stays in lockstep with address(i): OK
+  vtAll nextScan does not throw: OK
+
+── Test: Grouped scan ──
+  grouped float accepts leading '+': OK
+  AOB parseAOB rejects invalid tokens: OK
+  grouped first/next: OK
+
+── Test: Custom formula scan ──
+  custom Lua formula: OK
+
+── Test: Percentage scan ──
+  increased/between by percent: OK
+
+── Test: Same-as-first scan ──
+  same as first: OK
+
+── Test: Pointer type scan ──
+  pointer scan: OK
+
+── Test: Float rounding scan ──
+  rounded/truncated/extreme: OK
+  rounded at decimal precision (CE default): OK
+
+── Test: Scanner differential + fuzz (SIMD paths vs reference) ──
+  415 differential checks across 3 SIMD mode(s): OK
+
+── Test: Lua memscan grouped/custom ──
+  soCustom/vtGrouped: OK
+
+── Test: Process Enumeration ──
+  Found 1060 processes
+         1 systemd
+         2 kthreadd
+         3 pool_workqueue_release
+         4 kworker/R-rcu_gp
+         5 kworker/R-sync_wq
+  ... and 1055 more
+  self listed and not sandboxed: OK
+
+── Test: Memory Operations (pid=356198) ──
+  is64bit: yes
+  Memory regions: 37
+  Total readable: 236519424 bytes (225.6 MB)
+  000055731265a000-000055731265f000 r-x    20480 /usr/bin/sleep
+  000055731265f000-0000557312662000 r--    12288 /usr/bin/sleep
+  0000557312662000-0000557312663000 r--     4096 /usr/bin/sleep
+  0000557312663000-0000557312664000 rw-     4096 /usr/bin/sleep
+  0000557340ea9000-0000557340eca000 rw-   135168 [heap]
+
+  Read 64 bytes from 0x55731265a000:
+  7f 45 4c 46 02 01 01 00 00 00 00 00 00 00 00 00 
+
+  Modules: 17
+  000055731265a000 sleep
+  00007f1d11000000 locale-archive
+  00007f1d1efc7000 LC_CTYPE
+  00007f1d1f025000 libc.so.6
+  00007f1d1f22a000 LC_NUMERIC
+
+  Threads: 1
+  tid=356198
+
+── Test: Memory Write (pid=356198) ──
+  Original 8 bytes at 0x557340ea9000: 0000000000000000
+  After write: deadbeefcafebabe OK
+
+Killed test process 356198
+
+All tests complete.

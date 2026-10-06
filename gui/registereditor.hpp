@@ -1,10 +1,12 @@
 #pragma once
 
-#include "platform/process_api.hpp"
+#include "debug/thread_inspection.hpp"
+#include <optional>
 #include <QComboBox>
 #include <QLabel>
 #include <QMainWindow>
 #include <QTableWidget>
+#include <QPushButton>
 
 namespace ce::gui {
 
@@ -16,15 +18,18 @@ public:
 private:
     void populateThreads();
     void refreshRegisters();
-    void refreshFloatingPointRegisters(pid_t tid);
+    void displaySnapshot(ce::ThreadSnapshot snapshot);
     void applyRegisters();
+    void refreshGdbRegisters();
+    void applyGdbRegisters();
 
     ce::ProcessHandle* proc_;
     QComboBox* threadCombo_;
     QLabel* statusLabel_;
     QTableWidget* table_;
     QTableWidget* fpTable_;
-    ce::CpuContext context_{};
+    QPushButton* applyButton_;
+    std::optional<ce::ThreadSnapshot> snapshot_;
 };
 
 } // namespace ce::gui

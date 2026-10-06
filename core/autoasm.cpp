@@ -1,6 +1,9 @@
 #include "core/autoasm.hpp"
 #include "arch/disassembler.hpp"
+#include "arch/aarch64_relocator.hpp"
 #include "platform/linux/injector.hpp"
+#include "platform/linux/syscall_service.hpp"
+#include "platform/linux/memory_image.hpp"
 #include "symbols/elf_symbols.hpp"
 #include <set>
 #include <sstream>
@@ -229,12 +232,19 @@ static bool evalDataToken(const std::string& tok, uint64_t& out) {
 }
 
 static bool parseDataDirective(const std::string& op, const std::string& data,
-                               std::vector<uint8_t>& bytes, std::string& error) {
+                               std::vector<uint8_t>& bytes, std::string& error, ByteOrder order = ByteOrder::Little) {
     size_t width = 1;
     if (op == "DW") width = 2;
     else if (op == "DD") width = 4;
     else if (op == "DQ") width = 8;
 
+    if (width > 1 && order == ByteOrder::Unknown) { error = "Target byte order is unknown"; return false; }
+    auto appendValue = [&](uint64_t value, size_t count) {
+        for (size_t i = 0; i < count; ++i) {
+            size_t shift = order == ByteOrder::Big ? count - 1 - i : i;
+            bytes.push_back(static_cast<uint8_t>(value >> (8 * shift)));
+        }
+    };
     auto values = splitDataValues(data);
     if (values.empty()) {
         error = op + " requires at least one value";
@@ -276,14 +286,14 @@ static bool parseDataDirective(const std::string& op, const std::string& data,
                         error = "Invalid " + op + " float value: " + token; return false;
                     }
                     uint32_t bits; std::memcpy(&bits, &f, 4);
-                    for (int i = 0; i < 4; ++i) bytes.push_back((uint8_t)((bits >> (i * 8)) & 0xFF));
+                    appendValue(bits, 4);
                 } else {
                     double d = 0;
                     if (std::from_chars(b, e, d).ec != std::errc()) {
                         error = "Invalid " + op + " double value: " + token; return false;
                     }
                     uint64_t bits; std::memcpy(&bits, &d, 8);
-                    for (int i = 0; i < 8; ++i) bytes.push_back((uint8_t)((bits >> (i * 8)) & 0xFF));
+                    appendValue(bits, 8);
                 }
                 continue;
             }
@@ -302,8 +312,7 @@ static bool parseDataDirective(const std::string& op, const std::string& data,
             return false;
         }
 
-        for (size_t i = 0; i < width; ++i)
-            bytes.push_back(static_cast<uint8_t>((value >> (i * 8)) & 0xFF));
+        appendValue(value, width);
     }
 
     return true;
@@ -367,12 +376,15 @@ static bool isSimpleLabelDefinition(const std::string& line) {
 // so mirror the anonymous-label mechanism: emit label() for every named
 // definition that is not already declared (via alloc/label/define/registersymbol/
 // globalalloc). Prepending these declarations makes the label known on pass 1.
-static void autoDeclareNamedLabels(std::string& code) {
+static void autoDeclareNamedLabels(std::string& code, const std::unordered_map<std::string,uintptr_t>& symbols,
+                                  const std::vector<ModuleInfo>& modules) {
     auto firstArg = [](const std::string& line, size_t open) -> std::string {
         size_t end = line.find_first_of(",)", open);
         return trim(line.substr(open, end == std::string::npos ? std::string::npos : end - open));
     };
     std::set<std::string> declared, defined;
+    for (const auto& [name,address] : symbols) declared.insert(name);
+    for (const auto& module : modules) if (!module.name.empty()) declared.insert(module.name);
     std::vector<std::string> order;   // preserve definition order for stable output
     std::istringstream ss(code);
     std::string raw;
@@ -407,7 +419,13 @@ static void autoDeclareNamedLabels(std::string& code) {
                 std::all_of(name.begin(), name.end(), [](unsigned char c) {
                     return std::isalnum(c) || c == '_';
                 });
-            if (ident && name.rfind("__anon_", 0) != 0 && defined.insert(name).second)
+            // Bare addresses can begin with A-F, especially high i386 mmap
+            // addresses. Do not shadow a hexadecimal literal with an implicit
+            // zero-address label. Explicit label()/alloc()/define() declarations
+            // still give names such as "dead" their intended symbol meaning.
+            const bool hexAddress = name.size() > 1 &&
+                std::all_of(name.begin(), name.end(), [](unsigned char c) { return std::isxdigit(c); });
+            if (ident && !hexAddress && name.rfind("__anon_", 0) != 0 && defined.insert(name).second)
                 order.push_back(name);
         }
     }
@@ -419,7 +437,12 @@ static void autoDeclareNamedLabels(std::string& code) {
 
 static bool parseNopCount(const std::string& countExpr, size_t& count, std::string& error) {
     try {
-        count = countExpr.empty() ? 1 : std::stoull(countExpr, nullptr, 0);
+        size_t consumed=0;
+        if (!countExpr.empty() && countExpr.front()=='-') throw std::invalid_argument("negative NOP count");
+        const auto parsed = countExpr.empty() ? 1ull : std::stoull(countExpr, &consumed, 0);
+        if (!countExpr.empty() && consumed!=countExpr.size()) throw std::invalid_argument("trailing NOP count text");
+        if (parsed>256u*1024*1024) {error="NOP count exceeds the buffer limit";return false;}
+        count=static_cast<size_t>(parsed);
     } catch (...) {
         error = "Invalid NOP count: " + countExpr;
         return false;
@@ -952,7 +975,7 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
         return true;
     }
 
-    // NOP [count] — emit one or more 0x90 bytes at the active address.
+    // NOP [count] emits this many target instructions at the active address.
     if (upper == "NOP" || startsWith(upper, "NOP ")) {
         auto count = trim(line.size() > 3 ? line.substr(3) : "1");
         asmLines.push_back("__NOP__:" + count);
@@ -1014,6 +1037,8 @@ uintptr_t AutoAssembler::resolveAddress(const std::string& expr,
         for (const auto& d : defines) if (d.name == name) return resolve(d.value, depth + 1);
         auto it = globalSymbols_.find(stripOptionalQuotes(name));
         if (it != globalSymbols_.end()) return it->second;
+        for (auto module = targetModules_.rbegin(); module != targetModules_.rend(); ++module)
+            if (!module->name.empty() && module->name == stripOptionalQuotes(name)) return module->base;
         // Quoted module names can contain '+' and '-'; split arithmetic only
         // outside quotes, from the right, to preserve left-to-right evaluation.
         char quote = 0;
@@ -1118,7 +1143,7 @@ std::string AutoAssembler::substituteSymbols(const std::string& line,
 bool AutoAssembler::resolveForwardLabels(const std::vector<std::string>& asmLines,
     const std::vector<Alloc>& allocs, std::vector<Label>& labels,
     const std::vector<Define>& defines, ProcessHandle& proc,
-    std::string& error)
+    std::vector<size_t>& reassemblySizes, std::string& error)
 {
     auto isIdentChar = [](char c) {
         return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
@@ -1167,8 +1192,10 @@ bool AutoAssembler::resolveForwardLabels(const std::vector<std::string>& asmLine
     for (size_t pass = 0; pass < maxPasses; ++pass) {
         uintptr_t currentAddr = 0;
         bool changed = false;
+        reassemblySizes.assign(asmLines.size(),0);
 
-        for (const auto& rawLine : asmLines) {
+        for (size_t lineIndex=0;lineIndex<asmLines.size();++lineIndex) {
+            const auto& rawLine=asmLines[lineIndex];
             auto trimmedLine = trim(rawLine);
             if (trimmedLine.empty())
                 continue;
@@ -1237,26 +1264,12 @@ bool AutoAssembler::resolveForwardLabels(const std::vector<std::string>& asmLine
                     return false;
                 }
 
-                uint8_t instrBuf[16];
-                auto rr = proc.read(addr, instrBuf, sizeof(instrBuf));
-                if (!rr || *rr == 0) {
-                    error = "REASSEMBLE read failed at " + addrExpr;
-                    return false;
-                }
-
-                Disassembler dis(targetDisArch());
-                auto insns = dis.disassemble(addr, {instrBuf, *rr}, 1);
-                if (insns.empty()) {
-                    error = "REASSEMBLE disassembly failed at " + addrExpr;
-                    return false;
-                }
-
-                auto asmCode = insns[0].mnemonic + " " + insns[0].operands;
-                auto asmResult = targetAsm().assemble(asmCode, currentAddr);
+                auto asmResult = reassembleTarget(proc,addr,currentAddr);
                 if (!asmResult) {
                     error = "REASSEMBLE sizing failed at " + addrExpr + ": " + asmResult.error();
                     return false;
                 }
+                reassemblySizes[lineIndex]=asmResult->size();
                 currentAddr += asmResult->size();
                 continue;
             }
@@ -1288,7 +1301,9 @@ bool AutoAssembler::resolveForwardLabels(const std::vector<std::string>& asmLine
                 size_t count = 1;
                 if (!parseNopCount(countExpr, count, error))
                     return false;
-                currentAddr += count;
+                auto plan=planNops(currentAddr,count);
+                if (!plan) {error=plan.error();return false;}
+                currentAddr += plan->size;
                 continue;
             }
 
@@ -1312,7 +1327,7 @@ bool AutoAssembler::resolveForwardLabels(const std::vector<std::string>& asmLine
                 auto dataStr = substituteForSizing(trim(trimmedLine.substr(3)), currentAddr);
                 std::vector<uint8_t> dataBytes;
                 std::string parseError;
-                if (!parseDataDirective(op, dataStr, dataBytes, parseError)) {
+                if (!parseDataDirective(op, dataStr, dataBytes, parseError, machineForCode(currentAddr).byteOrder)) {
                     error = parseError;
                     return false;
                 }
@@ -1321,7 +1336,7 @@ bool AutoAssembler::resolveForwardLabels(const std::vector<std::string>& asmLine
             }
 
             auto substituted = substituteForSizing(trimmedLine, currentAddr);
-            auto asmResult = targetAsm().assemble(substituted, currentAddr);
+            auto asmResult = assembleTarget(substituted, currentAddr);
             if (!asmResult) {
                 error = "Assembly sizing error at " + formatHexLiteral(currentAddr) +
                     ": " + asmResult.error() + "\n  Line: " + trimmedLine;
@@ -1468,15 +1483,20 @@ bool AutoAssembler::selectTryExceptBranches(const std::vector<std::string>& asmL
 
 void AutoAssembler::registerSymbol(const std::string& name, uintptr_t address) {
     globalSymbols_[name] = address;
+    symbolOwners_.erase(name);
 }
 
 void AutoAssembler::unregisterSymbol(const std::string& name) {
     globalSymbols_.erase(name);
+    symbolOwners_.erase(name);
 }
 
 uintptr_t AutoAssembler::resolveSymbol(const std::string& name) const {
     auto it = globalSymbols_.find(name);
-    return it != globalSymbols_.end() ? it->second : 0;
+    if (it != globalSymbols_.end()) return it->second;
+    for (auto module = targetModules_.rbegin(); module != targetModules_.rend(); ++module)
+        if (!module->name.empty() && module->name == name) return module->base;
+    return 0;
 }
 
 void AutoAssembler::registerCommand(const std::string& name, CustomCommandHandler handler) {
@@ -1523,7 +1543,7 @@ bool AutoAssembler::preprocessScript(std::string& code,
     // Auto-declare named labels so forward "jmp skip … skip:" works without an
     // explicit label(skip), matching CE. Runs after anonymous-label resolution so
     // the generated __anon_N labels are already declared and skipped.
-    autoDeclareNamedLabels(code);
+    autoDeclareNamedLabels(code, globalSymbols_, targetModules_);
 
     if (!runScriptHooks(preprocessorHooks_, code, log, error, "preprocessor"))
         return false;
@@ -1545,19 +1565,259 @@ bool AutoAssembler::preprocessScript(std::string& code,
 // table's AA script, so a bogus size can't drive a multi-GB bad_alloc/terminate.
 static constexpr uint64_t kMaxAaBufferBytes = 256u * 1024 * 1024; // 256 MB
 
+TargetMachine AutoAssembler::machineForCode(uintptr_t address) const {
+    for (const auto& block : codeAllocations_)
+        if (address >= block.address && address - block.address < block.size) return block.machine;
+    const ModuleInfo* best = nullptr;
+    for (const auto& m : targetModules_)
+        if (address >= m.base && address - m.base < m.size && (!best || m.size < best->size)) best = &m;
+    return best && best->machine.architecture != CpuArchitecture::Unknown ? best->machine : programMachine_;
+}
+
+std::expected<std::vector<uint8_t>, std::string> AutoAssembler::assembleTarget(const std::string& code, uintptr_t address) {
+    auto architecture = disassemblerArchFor(machineForCode(address));
+    if (!architecture) return std::unexpected(architecture.error());
+    auto arch = assemblerArchFor(*architecture);
+    try {
+        auto& assembler = targetAssemblers_[arch];
+        if (!assembler) assembler = std::make_unique<Assembler>(arch);
+        return assembler->assemble(code, address);
+    } catch (const std::exception& error) { return std::unexpected(error.what()); }
+}
+
+std::expected<AutoAssembler::NopPlan,std::string> AutoAssembler::planNops(uintptr_t address,size_t count) {
+    auto architecture=disassemblerArchFor(machineForCode(address));
+    if (!architecture) return std::unexpected(architecture.error());
+    const bool thumb=*architecture==Arch::ARMThumb || *architecture==Arch::ARMThumb_BE;
+    const bool arm=*architecture==Arch::ARM32 || *architecture==Arch::ARM32_BE || *architecture==Arch::ARM64;
+    if ((thumb && address%2) || (arm && address%4)) return std::unexpected("Unaligned NOP instruction address");
+    auto encoding=assembleTarget("nop",address);
+    if (!encoding || encoding->empty()) return std::unexpected(encoding ? "Empty NOP encoding" : encoding.error());
+    if (!count || count>kMaxAaBufferBytes/encoding->size()) return std::unexpected("NOP range exceeds the buffer limit");
+    const size_t size=count*encoding->size();
+    if (size>UINTPTR_MAX-address) return std::unexpected("NOP range overflows the address space");
+    return NopPlan{std::move(*encoding),size};
+}
+
+std::expected<std::vector<uint8_t>,std::string> AutoAssembler::reassembleTarget(
+    ProcessHandle& proc,uintptr_t source,uintptr_t destination) {
+    const auto machine=machineForCode(source);
+    const bool a64=machine.architecture==CpuArchitecture::Arm64;
+    uint8_t buffer[16];const size_t size=a64 ? 4 : sizeof(buffer);
+    auto read=proc.read(source,buffer,size);
+    if (!read || !*read || *read>size) return std::unexpected("REASSEMBLE source read failed");
+    auto architecture=disassemblerArchFor(machine);
+    if (!architecture) return std::unexpected(architecture.error());
+    Disassembler decoder(*architecture);
+    const auto decoded=decoder.disassemble(source,{buffer,*read},1);
+    if (decoded.empty()) return std::unexpected("REASSEMBLE source instruction is invalid");
+    if (a64) {
+        if (machineForCode(destination).architecture!=CpuArchitecture::Arm64)
+            return std::unexpected("REASSEMBLE source and destination instruction architectures differ");
+        auto relocated=relocateAarch64(decoded[0].bytes,source,destination);
+        if (!relocated) return std::unexpected(relocated.error());
+        return std::move(relocated->bytes);
+    }
+    return assembleTarget(decoded[0].mnemonic+" "+decoded[0].operands,destination);
+}
+
+AutoAsmResult AutoAssembler::cleanup(ProcessHandle& proc, const DisableInfo& info) {
+    AutoAsmResult result;
+    result.disableInfo = info;
+    auto fail = [&](const std::string& error) {
+        if (!result.error.empty()) result.error += "\n";
+        result.error += error;
+    };
+    std::unique_lock<std::mutex> ownership;
+    if(info.ownership) {
+        ownership=std::unique_lock(info.ownership->mutex,std::try_to_lock);
+        if(!ownership.owns_lock()) {fail("This undo is already in progress");return result;}
+        if(info.ownership->complete) {result.disableInfo={};result.success=true;return result;}
+    }
+    auto eraseSymbols=[&] {
+        for(const auto& [name,address]:info.symbols) {
+            auto sym=globalSymbols_.find(name);auto owner=symbolOwners_.find(name);
+            const bool ours=!info.ownership || (owner!=symbolOwners_.end() && owner->second.lock()==info.ownership);
+            if(ours && sym!=globalSymbols_.end() && sym->second==address) {globalSymbols_.erase(sym);symbolOwners_.erase(name);}
+        }
+    };
+    if(info.image) {
+        if(info.image->pid()!=proc.pid()) {fail("Saved undo belongs to another process");return result;}
+        auto live=info.image->check();
+        if(!live) {
+            if(live.error()!=std::errc::operation_canceled) {fail(live.error().message());return result;}
+            for(const auto& a:info.allocs) {
+                if(a.released) a.released->store(true);
+                auto tracked=knownAllocations_.find(a.name);
+                if(tracked!=knownAllocations_.end() && tracked->second.address==a.address && (!a.owner || tracked->second.owner==a.owner)) knownAllocations_.erase(tracked);
+            }
+            eraseSymbols();if(info.ownership) info.ownership->complete=true;
+            result.disableInfo={};result.success=true;
+            result.log.push_back("Original address space retired; discarded undo without writing to its replacement");return result;
+        }
+    }
+    auto busy=[&](uintptr_t address,size_t size) {
+        return os::memorySyscallService().threadStorageBusy(proc.pid(),address,size);
+    };
+    auto released = [](const auto& record) {
+        return record.allocationReleased && record.allocationReleased->load();
+    };
+    for (const auto& allocation : info.allocs) if ((!allocation.released || !allocation.released->load()) && busy(allocation.address,allocation.size)) {
+        fail("Injected thread is still running; retain allocations and retry cleanup after it exits"); return result;
+    }
+    for (const auto& patch : info.originals) if (!released(patch) && busy(patch.address,patch.bytes.size())) {
+        fail("Injected thread is still running; retain original bytes and retry cleanup after it exits"); return result;
+    }
+    for (const auto& protection : info.protections) if (!released(protection) && busy(protection.address,protection.size)) {
+        fail("Injected thread is still running; retain page protections and retry cleanup after it exits"); return result;
+    }
+    for (const auto& patch : info.originals)
+        if (!patch.bytes.empty() && patch.bytes.size() - 1 > UINTPTR_MAX - patch.address) {
+            fail("Restoration range overflows the address space"); return result;
+        }
+    // Refuse to overwrite code replaced by the target or another patch owner.
+    // Partial writes/undo and overlapping script lines may leave any byte in
+    // one of this operation's saved states, so accept those states individually.
+    // Ordinary data can legitimately change while a script is enabled.
+    for (const auto& patch : info.originals) {
+        if (!patch.verifyOwnership || released(patch) || patch.written.size() != patch.bytes.size()) continue;
+        for (size_t offset = 0; offset < patch.bytes.size();) {
+            const size_t count = std::min<size_t>(65536, patch.bytes.size() - offset);
+            const uintptr_t address = patch.address + offset;
+            std::vector<uint8_t> actual(count), accepted(count);
+            auto read = info.image ? info.image->read(address, actual.data(), count) : proc.read(address, actual.data(), count);
+            if (!read || *read != count) {
+                fail("Cannot inspect saved code ownership at " + formatHexLiteral(address));
+                return result;
+            }
+            for (const auto& state : info.originals) {
+                if (released(state) || state.bytes.empty()) continue;
+                for (size_t i = 0; i < count; ++i) {
+                    const uintptr_t at = address + i;
+                    if (at < state.address || at - state.address >= state.bytes.size()) continue;
+                    const size_t index = at - state.address;
+                    if (actual[i] == state.bytes[index] ||
+                        (index < state.written.size() && actual[i] == state.written[index])) accepted[i] = 1;
+                }
+            }
+            const auto conflict = std::find(accepted.begin(), accepted.end(), uint8_t(0));
+            if (conflict != accepted.end()) {
+                fail("Code ownership changed at " + formatHexLiteral(address + (conflict - accepted.begin())) + "; saved undo retained");
+                return result;
+            }
+            offset += count;
+        }
+    }
+    // Verify the final restored image; later saved ranges can overlap earlier ones.
+    std::vector<std::pair<uintptr_t, uintptr_t>> ranges;
+    for (const auto& patch : info.originals) {
+        if (patch.bytes.empty() || released(patch)) continue;
+        if (patch.bytes.size() - 1 > UINTPTR_MAX - patch.address) { fail("Restoration range overflows the address space"); return result; }
+        ranges.push_back({patch.address, patch.address + patch.bytes.size() - 1});
+    }
+    std::sort(ranges.begin(), ranges.end());
+    std::vector<std::pair<uintptr_t, uintptr_t>> merged;
+    for (const auto& range : ranges) {
+        if (!merged.empty() && (range.first <= merged.back().second ||
+            (merged.back().second != UINTPTR_MAX && range.first == merged.back().second + 1)))
+            merged.back().second = std::max(merged.back().second, range.second);
+        else merged.push_back(range);
+    }
+    auto firstMismatch = [&]() -> std::optional<uintptr_t> {
+        for (const auto& [first, last] : merged) {
+            uintptr_t address = first;
+            while (true) {
+                size_t count = last - address >= 65535 ? 65536 : last - address + 1;
+                std::vector<uint8_t> wanted(count), actual(count);
+                uintptr_t end = address + count - 1;
+                for (auto patch = info.originals.rbegin(); patch != info.originals.rend(); ++patch) {
+                    if (patch->bytes.empty() || released(*patch)) continue;
+                    uintptr_t patchEnd = patch->address + patch->bytes.size() - 1;
+                    if (patchEnd < address || patch->address > end) continue;
+                    uintptr_t from = std::max(address, patch->address), to = std::min(end, patchEnd);
+                    std::copy_n(patch->bytes.data() + (from - patch->address), to - from + 1, wanted.data() + (from - address));
+                }
+                auto read = info.image ? info.image->read(address,actual.data(),actual.size()) : proc.read(address, actual.data(), actual.size());
+                if (!read || *read != actual.size() || actual != wanted) return address;
+                if (count - 1 == last - address) break;
+                address += count;
+            }
+        }
+        return std::nullopt;
+    };
+    // A retry may follow partial protection restoration. Avoid writing pages
+    // whose final original bytes are already correct and possibly read-only.
+    if (firstMismatch()) {
+        for (auto it = info.originals.rbegin(); it != info.originals.rend(); ++it) {
+            if(released(*it)) continue;
+            const auto region=proc.queryRegion(it->address);
+            auto written = info.image ? info.image->write(it->address,it->bytes,it->executable) : region && (region->protection & MemProt::Exec)
+                ? proc.writeCode(it->address,it->bytes.data(),it->bytes.size())
+                : proc.write(it->address, it->bytes.data(), it->bytes.size());
+            if (!written || *written != it->bytes.size())
+                fail("Cannot restore original bytes at " + formatHexLiteral(it->address));
+        }
+        if (auto mismatch = firstMismatch())
+            fail("Original-byte verification failed at " + formatHexLiteral(*mismatch));
+    }
+    if (!result.error.empty()) return result; // Keep allocations and symbols alive for retry.
+    for (auto it = info.protections.rbegin(); it != info.protections.rend(); ++it) {
+        if(released(*it)) continue;
+        auto restored = info.image ? info.image->protect(it->address,it->size,it->protection) : proc.protect(it->address, it->size, it->protection);
+        if (!restored) fail("Cannot restore page protection at " + formatHexLiteral(it->address));
+    }
+    if (!result.error.empty()) return result;
+    result.disableInfo.originals.clear(); result.disableInfo.protections.clear();
+    std::vector<DisableInfo::AllocEntry> pending;
+    for (const auto& a : info.allocs) {
+        if(a.released ? a.released->load() : cleanedAllocations_.contains({a.address,a.size})) continue;
+        auto freed = a.image ? a.image->free(a.address,a.size) : info.image ? info.image->free(a.address,a.size) : proc.free(a.address, a.size);
+        if (!freed) { pending.push_back(a); fail("Cannot free allocation " + a.name + ": " + freed.error().message()); continue; }
+        cleanedAllocations_.insert({a.address, a.size});
+        if(a.released) a.released->store(true);
+        auto tracked = knownAllocations_.find(a.name);
+        if (tracked != knownAllocations_.end() && tracked->second.address == a.address && (!a.owner || tracked->second.owner==a.owner)) knownAllocations_.erase(tracked);
+    }
+    result.disableInfo.allocs = std::move(pending);
+    if (!result.error.empty()) return result;
+    eraseSymbols();if(info.ownership) info.ownership->complete=true;
+    result.disableInfo = {};
+    result.success = true;
+    result.log.push_back("Disabled: restored original bytes and page protections; freed allocations");
+    return result;
+}
+
 AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& script) {
     AutoAsmResult result;
     result.success = false;
+    // A failed target capture must not leave the previous target's modules
+    // visible to subsequent resolution or syntax checking.
+    targetModules_.clear();
+    result.disableInfo.ownership=std::make_shared<DisableInfo::Ownership>();
+    auto image=os::pinNativeMemoryImage(proc);
+    if(!image) {result.error="Cannot pin original address space: "+image.error().message();return result;}
+    result.disableInfo.image=*image;
 
-    // Assemble/disassemble the cave in the TARGET's bitness so a 32-bit process
-    // gets 32-bit machine code (and its stolen instructions decode correctly).
-    targetIs32_ = proc.runs32BitCode();
+    auto rollback = [&]() -> AutoAsmResult {
+        if (result.success) return result;
+        auto restored = cleanup(proc, result.disableInfo);
+        if (!restored.success) {
+            result.error += "\nRollback incomplete: " + restored.error;
+            result.disableInfo = std::move(restored.disableInfo);
+        } else result.disableInfo = {};
+        result.success = false;
+        return result;
+    };
 
-    // CE's cheat tables address memory as "module+offset" (e.g. game.exe+1C). Seed
-    // every loaded module's base as a resolvable symbol so resolveAddress (and thus
-    // module+offset) works for tables loaded from a .CT.
-    for (const auto& m : proc.modules())
-        if (!m.name.empty()) globalSymbols_[m.name] = m.base;
+    try {
+    programMachine_ = proc.targetDescription().program;
+    targetModules_ = proc.modules();
+    codeAllocations_.clear();
+
+    // CE tables address memory as "module+offset". Resolve modules from this
+    // target snapshot, separate from explicitly registered symbols. Seeding the
+    // persistent map kept unloaded/previous-image names and replaced symbol
+    // ownership whenever a registered name happened to match a module.
 
     // Extract ENABLE section
     auto enableCode = extractSection(script, "ENABLE");
@@ -1567,7 +1827,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
     }
 
     if (!preprocessScript(enableCode, result.log, result.error))
-        return result;
+        return rollback();
 
     // ── Phase 1: Parse directives ──
     std::vector<Alloc> allocs;
@@ -1580,7 +1840,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
     std::string line;
     while (std::getline(ss, line)) {
         if (!parseLine(line, allocs, labels, defines, registeredSymbols, asmLines, result.log, &proc, result.error))
-            return result;
+            return rollback();
     }
 
     // ── Phase 2: Allocate memory ──
@@ -1593,16 +1853,30 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             if (p.front() == '$') p = "0x" + p.substr(1);
             a.preferred = resolveAddress(p, allocs, labels, defines);
         }
-        auto r = proc.allocate(a.size, MemProt::All, a.preferred);
+        // Allocate ownership metadata before asking the target to map memory.
+        auto released = std::make_shared<std::atomic<bool>>(false);
+        DisableInfo::AllocEntry savedAllocation{a.name,0,a.size,std::move(released),result.disableInfo.ownership,result.disableInfo.image};
+        result.disableInfo.allocs.reserve(result.disableInfo.allocs.size() + 1);
+        codeAllocations_.reserve(codeAllocations_.size() + 1);
+        auto r = result.disableInfo.image ? result.disableInfo.image->allocate(a.size,MemProt::All,a.preferred) : proc.allocate(a.size, MemProt::All, a.preferred);
         if (r) {
             a.address = *r;
-            result.disableInfo.allocs.push_back({a.name, a.address, a.size});
+            cleanedAllocations_.erase({a.address, a.size});
+            codeAllocations_.push_back({a.address, a.size, a.preferred ? machineForCode(a.preferred) : programMachine_});
+            size_t mappedSize = a.size;
+            if (result.disableInfo.image) {
+                const size_t page = static_cast<size_t>(sysconf(_SC_PAGESIZE));
+                mappedSize += (page - mappedSize % page) % page;
+            }
+            savedAllocation.address = a.address;
+            savedAllocation.size = mappedSize;
+            result.disableInfo.allocs.push_back(std::move(savedAllocation));
             // Tracked in the cross-script dealloc(name) namespace so a later script
             // can dealloc(name) it (an intended pattern). The namespace is by name
             // (like CE's global alloc names), so distinct scripts must use distinct
             // names; the address-matched erases below keep disable() from evicting a
             // different script's same-named entry.
-            knownAllocations_[a.name] = {a.name, a.address, a.size};
+            knownAllocations_[a.name] = result.disableInfo.allocs.back();
             result.log.push_back("Allocated " + a.name + " at 0x" +
                 ([&]{ char b[32]; snprintf(b, 32, "%lx", a.address); return std::string(b); })());
         } else {
@@ -1633,17 +1907,18 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
                               ? ". (Code injection allocates a cave via ptrace; this can fail if the "
                                 "process denies ptrace or a cave can't be placed near the hook.)"
                               : "." + hint);
-            return result;
+            return rollback();
         }
     }
 
     std::vector<std::string> selectedAsmLines;
     if (!selectTryExceptBranches(asmLines, selectedAsmLines, allocs, labels, defines, &proc, result.log, result.error))
-        return result;
+        return rollback();
     asmLines = std::move(selectedAsmLines);
 
-    if (!resolveForwardLabels(asmLines, allocs, labels, defines, proc, result.error))
-        return result;
+    std::vector<size_t> reassemblySizes;
+    if (!resolveForwardLabels(asmLines, allocs, labels, defines, proc, reassemblySizes, result.error))
+        return rollback();
 
     // ── Phase 3: Assemble and inject ──
     uintptr_t currentAddr = 0;
@@ -1655,6 +1930,19 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
     };
     std::vector<DeferredThread> deferredThreads;
 
+    auto allocationRelease = [&](uintptr_t address, size_t size) -> std::shared_ptr<std::atomic<bool>> {
+        auto contains = [&](const auto& allocation) {
+            return allocation.released && !allocation.released->load() && address >= allocation.address &&
+                address - allocation.address <= allocation.size && size <= allocation.size - (address - allocation.address);
+        };
+        for (const auto& allocation : result.disableInfo.allocs)
+            if (contains(allocation)) return allocation.released;
+        for (const auto& [name, allocation] : knownAllocations_)
+            if (contains(allocation) && (!allocation.image ||
+                (allocation.image->pid()==proc.pid() && allocation.image->check()))) return allocation.released;
+        return {};
+    };
+
     // Apply one patch: fully read+save the original bytes, then write the
     // new bytes, verifying every step. Saving an original buffer from a
     // failed/partial read would let disable() write a zero-filled buffer
@@ -1664,38 +1952,44 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
     // the caves — same as disable(). Called on ANY hard failure during execute so
     // a failed script leaves the target unchanged instead of a half-written cave
     // with an already-live hook (and doesn't leak the allocated RWX pages).
-    auto rollback = [&]() -> AutoAsmResult {
-        for (auto it = result.disableInfo.originals.rbegin();
-             it != result.disableInfo.originals.rend(); ++it)
-            proc.write(it->address, it->bytes.data(), it->bytes.size());
-        for (auto& a : result.disableInfo.allocs) {
-            proc.free(a.address, a.size);
-            auto it = knownAllocations_.find(a.name);
-            if (it != knownAllocations_.end() && it->second.address == a.address)
-                knownAllocations_.erase(it);
+    auto patchMemory = [&](uintptr_t addr, const std::vector<uint8_t>& bytes, bool mutableData = false) -> bool {
+        if (!bytes.empty() && bytes.size() - 1 > UINTPTR_MAX - addr) {
+            result.error = "Patch range overflows the address space"; return false;
         }
-        result.disableInfo = DisableInfo{};
-        result.success = false;
-        return result;
-    };
-
-    auto patchMemory = [&](uintptr_t addr, const std::vector<uint8_t>& bytes) -> bool {
+        auto region = proc.queryRegion(addr);
         std::vector<uint8_t> orig(bytes.size());
-        auto rr = proc.read(addr, orig.data(), orig.size());
+        auto rr = result.disableInfo.image ? result.disableInfo.image->read(addr,orig.data(),orig.size()) : proc.read(addr, orig.data(), orig.size());
         if (!rr || *rr < orig.size()) {
             result.error = "original-byte read failed at " + formatHexLiteral(addr);
             return false;
         }
-        result.disableInfo.originals.push_back({addr, orig});
-
-        auto wr = proc.write(addr, bytes.data(), bytes.size());
+        const bool executable=region && (region->protection & MemProt::Exec);
+        result.disableInfo.originals.push_back({addr, std::move(orig),bytes,executable,allocationRelease(addr,bytes.size()),executable && !mutableData});
+        auto writeBytes=[&] {return result.disableInfo.image ? result.disableInfo.image->write(addr,bytes,executable) : executable ? proc.writeCode(addr,bytes.data(),bytes.size()) : proc.write(addr,bytes.data(),bytes.size());};
+        auto wr = writeBytes();
         if (!wr || *wr < bytes.size()) {
+            if (executable && !machineForCode(addr).isX86()) {
+                result.error="Code write failed: "+(wr ? std::string("short transfer") : wr.error().message());
+                return false;
+            }
             // The target page may be non-writable (e.g. r-x code). Code
             // injection has to patch executable pages, so make the range
             // writable and retry — mirrors CE making the region writable
             // before applying a hook.
-            proc.protect(addr, bytes.size(), MemProt::All);
-            wr = proc.write(addr, bytes.data(), bytes.size());
+            uintptr_t at = addr;
+            size_t remaining = bytes.size();
+            while (remaining) {
+                auto region = proc.queryRegion(at);
+                if (!region || at < region->base || at - region->base >= region->size) {
+                    result.error = "Cannot inspect original page protection"; return false;
+                }
+                size_t count = std::min(remaining, region->size - (at - region->base));
+                result.disableInfo.protections.push_back({at, count, region->protection,allocationRelease(at,count)});
+                auto protectedRange = result.disableInfo.image ? result.disableInfo.image->protect(at,count,region->protection|MemProt::Write) : proc.protect(at, count, region->protection | MemProt::Write);
+                if (!protectedRange) { result.error = protectedRange.error().message(); return false; }
+                at += count; remaining -= count;
+            }
+            wr = writeBytes();
             if (!wr || *wr < bytes.size()) {
                 result.error = "memory write failed at " + formatHexLiteral(addr);
                 return false;
@@ -1704,7 +1998,8 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
         return true;
     };
 
-    for (auto& rawLine : asmLines) {
+    for (size_t lineIndex=0;lineIndex<asmLines.size();++lineIndex) {
+        const auto& rawLine=asmLines[lineIndex];
         auto trimmedLine = trim(rawLine);
 
         // Check for label definition (name:)
@@ -1728,7 +2023,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
                 if (l.name == labelName) {
                     if (currentAddr == 0) {
                         result.error = "Label has no active assembly address: " + labelName;
-                        return result;
+                        return rollback();
                     }
                     l.address = currentAddr;
                     handledLabel = true;
@@ -1741,7 +2036,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             auto targetAddr = resolveAddress(labelName, allocs, labels, defines);
             if (targetAddr == 0) {
                 result.error = "Unresolved auto-assembler target: " + labelName;
-                return result;
+                return rollback();
             }
             currentAddr = targetAddr;
             continue;
@@ -1753,7 +2048,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             auto comma = args.find(',');
             if (comma == std::string::npos) {
                 result.error = "FULLACCESS requires address and size";
-                return result;
+                return rollback();
             }
 
             auto addrExpr = trim(args.substr(0, comma));
@@ -1764,18 +2059,35 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
                 size = std::stoull(sizeStr, nullptr, 0);
             } catch (...) {
                 result.error = "Invalid FULLACCESS size: " + sizeStr;
-                return result;
+                return rollback();
             }
 
             if (!addr || size == 0) {
                 result.error = "Invalid FULLACCESS target: " + addrExpr;
-                return result;
+                return rollback();
             }
 
-            auto protectResult = proc.protect(addr, size, MemProt::All);
-            if (!protectResult) {
-                result.error = "FULLACCESS failed at " + addrExpr + ": " + protectResult.error().message();
-                return result;
+            if (size - 1 > UINTPTR_MAX - addr) {
+                result.error = "FULLACCESS range overflows the address space";
+                return rollback();
+            }
+            uintptr_t at = addr;
+            size_t remaining = size;
+            while (remaining) {
+                auto region = proc.queryRegion(at);
+                if (!region || at < region->base || at - region->base >= region->size) {
+                    result.error = "Cannot inspect FULLACCESS page protection";
+                    return rollback();
+                }
+                size_t count = std::min(remaining, region->size - (at - region->base));
+                result.disableInfo.protections.push_back({at, count, region->protection,allocationRelease(at,count)});
+                auto protectResult = result.disableInfo.image ? result.disableInfo.image->protect(at,count,MemProt::All) : proc.protect(at, count, MemProt::All);
+                if (!protectResult) {
+                    result.error = "FULLACCESS failed at " + addrExpr + ": " + protectResult.error().message();
+                    return rollback();
+                }
+                remaining -= count;
+                if (remaining) at += count;
             }
             result.log.push_back("FULLACCESS: " + addrExpr + " size=" + std::to_string(size));
             continue;
@@ -1785,7 +2097,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             auto comma = args.find(',');
             if (comma == std::string::npos) {
                 result.error = "ASSERT requires address and bytes";
-                return result;
+                return rollback();
             }
 
             auto addrExpr = trim(args.substr(0, comma));
@@ -1793,7 +2105,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             auto addr = resolveAddress(addrExpr, allocs, labels, defines);
             if (!addr) {
                 result.error = "Invalid ASSERT target: " + addrExpr;
-                return result;
+                return rollback();
             }
 
             if (!bytesStr.empty() && bytesStr.front() == '"') bytesStr = bytesStr.substr(1);
@@ -1803,14 +2115,14 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             pattern.parseAOB(bytesStr);
             if (pattern.byteArray.empty()) {
                 result.error = "ASSERT has no bytes: " + bytesStr;
-                return result;
+                return rollback();
             }
 
             std::vector<uint8_t> current(pattern.byteArray.size());
             auto readResult = proc.read(addr, current.data(), current.size());
             if (!readResult || *readResult < current.size()) {
                 result.error = "ASSERT read failed at " + addrExpr;
-                return result;
+                return rollback();
             }
 
             for (size_t i = 0; i < pattern.byteArray.size(); ++i) {
@@ -1823,7 +2135,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
                     snprintf(actual, sizeof(actual), "%02x", current[i]);
                     result.error = "ASSERT failed at " + addrExpr + "+" + std::to_string(i) +
                         ": expected " + expected + ", got " + actual;
-                    return result;
+                    return rollback();
                 }
             }
 
@@ -1838,6 +2150,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
                 name = trim(name);
                 if (name.empty()) continue;
                 globalSymbols_.erase(name);
+                symbolOwners_.erase(name);
                 result.disableInfo.symbols.erase(name);
                 result.log.push_back("UNREGISTERSYMBOL: " + name);
             }
@@ -1856,18 +2169,29 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
                     result.log.push_back("DEALLOC: " + name + " not tracked");
                     continue;
                 }
-
-                auto freeResult = proc.free(it->second.address, it->second.size);
-                if (!freeResult) {
-                    result.error = "DEALLOC failed for " + name + ": " + freeResult.error().message();
-                    return result;
+                if (it->second.image && it->second.image->pid()!=proc.pid()) {
+                    result.error="DEALLOC belongs to another process: "+name;
+                    return rollback();
                 }
 
-                result.disableInfo.allocs.erase(
-                    std::remove_if(result.disableInfo.allocs.begin(), result.disableInfo.allocs.end(),
-                        [&](const DisableInfo::AllocEntry& alloc) { return alloc.name == name; }),
-                    result.disableInfo.allocs.end());
+                std::unique_lock<std::mutex> allocationOwner;
+                if(it->second.owner) {
+                    allocationOwner=std::unique_lock(it->second.owner->mutex,std::try_to_lock);
+                    if(!allocationOwner.owns_lock()) {result.error="Allocation cleanup is already in progress";return rollback();}
+                }
+                auto live = it->second.image ? it->second.image->check() : Result<void>{};
+                auto freeResult = !live && live.error()==std::errc::operation_canceled ? Result<void>{}
+                    : !live ? live : it->second.image ? it->second.image->free(it->second.address,it->second.size) : proc.free(it->second.address,it->second.size);
+                if (!freeResult) {
+                    result.error = "DEALLOC failed for " + name + ": " + freeResult.error().message();
+                    if (allocationOwner.owns_lock()) allocationOwner.unlock();
+                    return rollback();
+                }
+
+                // Keep the released lease in saved undo records. Its byte and
+                // protection records must never follow address reuse.
                 result.log.push_back("DEALLOC: " + name);
+                if(it->second.released) it->second.released->store(true);
                 knownAllocations_.erase(it);
             }
             continue;
@@ -1883,7 +2207,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             auto parts = splitArgs(args, 2);
             if (parts.empty() || parts[0].empty()) {
                 result.error = "CREATETHREADANDWAIT requires an address";
-                return result;
+                return rollback();
             }
 
             int timeoutMs = 5000;
@@ -1892,7 +2216,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
                     timeoutMs = std::stoi(parts[1], nullptr, 0);
                 } catch (...) {
                     result.error = "Invalid CREATETHREADANDWAIT timeout: " + parts[1];
-                    return result;
+                    return rollback();
                 }
             }
             deferredThreads.push_back({trim(parts[0]), true, timeoutMs});
@@ -1905,7 +2229,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             auto parts = splitArgs(args, 2);
             if (parts.size() != 2) {
                 result.error = "LOADBINARY requires address and filename";
-                return result;
+                return rollback();
             }
 
             auto addrExpr = trim(parts[0]);
@@ -1913,34 +2237,22 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             auto addr = resolveAddress(addrExpr, allocs, labels, defines);
             if (!addr) {
                 result.error = "Invalid LOADBINARY target: " + addrExpr;
-                return result;
+                return rollback();
             }
 
             std::ifstream binFile(filename, std::ios::binary);
             if (!binFile) {
                 result.error = "LOADBINARY file not found: " + filename;
-                return result;
+                return rollback();
             }
 
             std::vector<uint8_t> data((std::istreambuf_iterator<char>(binFile)), {});
             if (data.empty()) {
                 result.error = "LOADBINARY file is empty: " + filename;
-                return result;
+                return rollback();
             }
 
-            std::vector<uint8_t> orig(data.size());
-            auto readResult = proc.read(addr, orig.data(), orig.size());
-            if (!readResult || *readResult < orig.size()) {
-                result.error = "LOADBINARY original-byte read failed at " + addrExpr;
-                return result;
-            }
-
-            result.disableInfo.originals.push_back({addr, orig});
-            auto writeResult = proc.write(addr, data.data(), data.size());
-            if (!writeResult || *writeResult < data.size()) {
-                result.error = "LOADBINARY write failed at " + addrExpr;
-                return result;
-            }
+            if (!patchMemory(addr,data)) return rollback();
 
             result.log.push_back("LOADBINARY: " + filename + " -> " + addrExpr);
             continue;
@@ -1950,19 +2262,19 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             auto path = stripOptionalQuotes(trimmedLine.substr(16));
             if (path.empty()) {
                 result.error = "LOADLIBRARY requires a shared library path";
-                return result;
+                return rollback();
             }
             if (!std::filesystem::exists(path)) {
                 result.error = "LOADLIBRARY file not found: " + path;
-                return result;
+                return rollback();
             }
 
             SymbolResolver resolver;
             resolver.loadProcess(proc);
-            auto injectResult = os::injectLibrary(proc, resolver, path);
+            auto injectResult = os::injectLibrary(proc, resolver, path,result.disableInfo.image);
             if (!injectResult) {
                 result.error = "LOADLIBRARY failed for " + path + ": " + injectResult.error();
-                return result;
+                return rollback();
             }
 
             result.log.push_back("LOADLIBRARY: " + path + " handle=0x" + formatHex(*injectResult));
@@ -1971,30 +2283,26 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
 
         if (currentAddr == 0) {
             result.error = "No active assembly address for line: " + trimmedLine;
-            return result;
+            return rollback();
         }
         if (startsWith(trimmedLine, "__REASSEMBLE__:")) {
             auto addrExpr = trimmedLine.substr(15);
             auto addr = resolveAddress(addrExpr, allocs, labels, defines);
-            if (addr) {
-                // Read and disassemble the instruction, then re-emit as bytes
-                uint8_t instrBuf[16];
-                auto rr = proc.read(addr, instrBuf, sizeof(instrBuf));
-                if (rr && *rr > 0) {
-                    Disassembler dis(targetDisArch());
-                    auto insns = dis.disassemble(addr, {instrBuf, *rr}, 1);
-                    if (!insns.empty()) {
-                        // Assemble the instruction at the current address
-                        auto asmCode = insns[0].mnemonic + " " + insns[0].operands;
-                        auto asmResult = targetAsm().assemble(asmCode, currentAddr);
-                        if (asmResult && !asmResult->empty()) {
-                            if (!patchMemory(currentAddr, *asmResult))
-                                return rollback();
-                            currentAddr += asmResult->size();
-                        }
-                    }
-                }
+            if (!addr) {result.error="Invalid REASSEMBLE target: "+addrExpr;return rollback();}
+            auto relocated=reassembleTarget(proc,addr,currentAddr);
+            if (!relocated || relocated->empty()) {
+                result.error="REASSEMBLE failed at "+addrExpr+": "+(relocated ? "empty instruction" : relocated.error());
+                return rollback();
             }
+            // A source instruction may change after sizing, including through
+            // an earlier write in this script. Already emitted forward label
+            // references would point at the wrong instruction if the size changes.
+            if (relocated->size()!=reassemblySizes[lineIndex]) {
+                result.error="REASSEMBLE output size changed after label sizing at "+addrExpr;
+                return rollback();
+            }
+            if (!patchMemory(currentAddr,*relocated)) return rollback();
+            currentAddr+=relocated->size();
             continue;
         }
         if (startsWith(trimmedLine, "__READMEM__:")) {
@@ -2009,7 +2317,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
                 // the wrong address. Fail loudly instead of silently skipping.
                 if (!addr) {
                     result.error = "READMEM source address unresolved: " + addrExpr;
-                    return result;
+                    return rollback();
                 }
                 // Parse the size identically to the forward-label sizing pass
                 // (base-0, so CE-style 0x.. hex sizes are honored); otherwise
@@ -2018,18 +2326,18 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
                 uint64_t sz = 0;
                 if (!parseWholeUnsigned(sizeStr, 0, sz)) {
                     result.error = "Invalid READMEM size: " + sizeStr;
-                    return result;
+                    return rollback();
                 }
                 if (sz > kMaxAaBufferBytes) {
                     result.error = "READMEM size too large: " + sizeStr;
-                    return result;
+                    return rollback();
                 }
                 if (sz > 0) {
                     std::vector<uint8_t> mem(sz);
                     auto rr = proc.read(addr, mem.data(), sz);
                     if (!rr || *rr < sz) {
                         result.error = "READMEM source read failed at " + addrExpr;
-                        return result;
+                        return rollback();
                     }
                     if (!patchMemory(currentAddr, mem))
                         return rollback();
@@ -2043,7 +2351,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             auto parts = splitArgs(args, 3);
             if (parts.size() != 3) {
                 result.error = "FILLMEM requires address, size, and value";
-                return result;
+                return rollback();
             }
 
             auto addr = resolveAddress(parts[0], allocs, labels, defines);
@@ -2054,15 +2362,15 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
                 value = std::stoull(trim(parts[2]), nullptr, 16);
             } catch (...) {
                 result.error = "Invalid FILLMEM argument";
-                return result;
+                return rollback();
             }
             if (!addr || size == 0 || value > 0xff) {
                 result.error = "Invalid FILLMEM target or value";
-                return result;
+                return rollback();
             }
             if (size > kMaxAaBufferBytes) {
                 result.error = "FILLMEM size too large";
-                return result;
+                return rollback();
             }
 
             std::vector<uint8_t> data(size, static_cast<uint8_t>(value));
@@ -2075,9 +2383,13 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             auto countExpr = trim(trimmedLine.substr(8));
             size_t count = 1;
             if (!parseNopCount(countExpr, count, result.error))
-                return result;
+                return rollback();
 
-            std::vector<uint8_t> data(count, 0x90);
+            auto plan=planNops(currentAddr,count);
+            if (!plan) {result.error=plan.error();return rollback();}
+            std::vector<uint8_t> data(plan->size);
+            for (size_t at=0;at<data.size();at+=plan->encoding.size())
+                std::copy(plan->encoding.begin(),plan->encoding.end(),data.begin()+at);
             if (!patchMemory(currentAddr, data))
                 return rollback();
             currentAddr += data.size();
@@ -2087,11 +2399,11 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             auto text = stripOptionalQuotes(trimmedLine.substr(7));
             if (text.empty()) {
                 result.error = "DS requires a string";
-                return result;
+                return rollback();
             }
 
             std::vector<uint8_t> data(text.begin(), text.end());
-            if (!patchMemory(currentAddr, data))
+            if (!patchMemory(currentAddr, data,true))
                 return rollback();
             currentAddr += data.size();
             continue;
@@ -2107,13 +2419,17 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             auto dataStr = substituteSymbols(trim(trimmedLine.substr(3)), allocs, labels, defines);
             std::vector<uint8_t> dataBytes;
             std::string parseError;
-            if (!parseDataDirective(op, dataStr, dataBytes, parseError)) {
+            if (!parseDataDirective(op, dataStr, dataBytes, parseError, machineForCode(currentAddr).byteOrder)) {
                 result.error = parseError;
-                return result;
+                return rollback();
             }
 
             if (!dataBytes.empty()) {
-                if (!patchMemory(currentAddr, dataBytes))
+                // Typed storage and byte buffers inside owned caves can change
+                // at runtime (for example, a pointer-capture slot). Raw DB at
+                // an external executable site also serves as machine code.
+                const bool mutableData = op != "DB" || bool(allocationRelease(currentAddr,dataBytes.size()));
+                if (!patchMemory(currentAddr, dataBytes,mutableData))
                     return rollback();
                 currentAddr += dataBytes.size();
             }
@@ -2124,7 +2440,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
         auto substituted = substituteSymbols(trimmedLine, allocs, labels, defines);
 
         // Assemble
-        auto asmResult = targetAsm().assemble(substituted, currentAddr);
+        auto asmResult = assembleTarget(substituted, currentAddr);
         if (!asmResult) {
             result.error = "Assembly error at 0x" +
                 ([&]{ char b[32]; snprintf(b, 32, "%lx", currentAddr); return std::string(b); })() +
@@ -2152,26 +2468,33 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             auto addr = resolveAddress(thread.addressExpr, allocs, labels, defines);
             if (!addr) {
                 result.error = "Invalid CREATETHREAD target: " + thread.addressExpr;
-                return result;
+                return rollback();
             }
 
-            auto threadResult = os::createRemoteThread(proc, resolver, addr, thread.wait, thread.timeoutMs);
+            std::vector<os::NativeThreadRange> storage;
+            for (const auto& allocation : result.disableInfo.allocs) storage.push_back({allocation.address,allocation.size});
+            for (const auto& patch : result.disableInfo.originals) if (!patch.bytes.empty()) storage.push_back({patch.address,patch.bytes.size()});
+            for (const auto& protection : result.disableInfo.protections) if (protection.size) storage.push_back({protection.address,protection.size});
+            auto stackReleased = std::make_shared<std::atomic<bool>>(false);
+            result.disableInfo.allocs.reserve(result.disableInfo.allocs.size()+1);
+            auto threadResult = os::createRemoteThread(proc, resolver, addr, thread.wait, thread.timeoutMs,storage,result.disableInfo.image);
             if (!threadResult) {
                 result.error = "CREATETHREAD failed for " + thread.addressExpr + ": " + threadResult.error();
-                return result;
+                return rollback();
             }
 
             auto info = *threadResult;
             if (info.stackAddress)
                 result.disableInfo.allocs.push_back({
-                    "__threadstack_" + std::to_string(info.tid), info.stackAddress, info.stackSize});
+                    "__threadstack_" + std::to_string(info.tid), info.stackAddress, info.stackSize,
+                    std::move(stackReleased),result.disableInfo.ownership,result.disableInfo.image});
 
             result.log.push_back(std::string(thread.wait ? "CREATETHREADANDWAIT" : "CREATETHREAD") +
                 ": " + thread.addressExpr + " handle=0x" + formatHex(info.handle));
 
             if (thread.wait && !info.completed) {
                 result.error = "CREATETHREADANDWAIT timed out for " + thread.addressExpr;
-                return result;
+                return rollback();
             }
         }
     }
@@ -2181,48 +2504,28 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
         uintptr_t addr = resolveAddress(sym, allocs, labels, defines);
         if (addr) {
             globalSymbols_[sym] = addr;
+            symbolOwners_[sym]=result.disableInfo.ownership;
             result.disableInfo.symbols[sym] = addr;
         }
     }
 
     result.success = result.error.empty();
-    return result;
+    return rollback();
+    } catch (const std::exception& error) {
+        result.success = false;
+        result.error = std::string("AutoAssembler failed: ")+error.what();
+        return rollback();
+    }
 }
 
 AutoAsmResult AutoAssembler::disable(ProcessHandle& proc, const std::string& script, const DisableInfo& info) {
-    AutoAsmResult result;
-
-    // Seed module bases so the [DISABLE] script's module+offset addresses resolve.
-    for (const auto& m : proc.modules())
-        if (!m.name.empty()) globalSymbols_[m.name] = m.base;
-
-    // Restore original bytes (in reverse order)
-    for (auto it = info.originals.rbegin(); it != info.originals.rend(); ++it) {
-        proc.write(it->address, it->bytes.data(), it->bytes.size());
-    }
-
-    // Free allocated memory
-    for (auto& a : info.allocs) {
-        proc.free(a.address, a.size);
-        // Drop the global-namespace entry only if it's THIS block: a local alloc
-        // sharing a name with some globalalloc must not evict the global entry.
-        auto it = knownAllocations_.find(a.name);
-        if (it != knownAllocations_.end() && it->second.address == a.address)
-            knownAllocations_.erase(it);
-    }
-
-    // Unregister symbols
-    for (auto& [name, _] : info.symbols) {
-        globalSymbols_.erase(name);
-    }
-
-    result.success = true;
-    result.log.push_back("Disabled: restored " + std::to_string(info.originals.size()) +
-        " patches, freed " + std::to_string(info.allocs.size()) + " allocations");
-    return result;
+    (void)script;
+    return cleanup(proc, info);
 }
 
 AutoAsmResult AutoAssembler::check(const std::string& script) {
+    programMachine_ = nativeTargetMachine();
+    targetModules_.clear(); codeAllocations_.clear();
     AutoAsmResult result;
     // Parse without a process — syntax check only
     auto enableCode = extractSection(script, "ENABLE");

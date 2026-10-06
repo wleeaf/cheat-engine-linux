@@ -1,9 +1,11 @@
 #include "arch/disassembler.hpp"
+#include "arch/target_arch.hpp"
 #include <capstone/capstone.h>
 #include <stdexcept>
 #include <format>
 #include <cstdio>
 #include <unordered_map>
+#include <algorithm>
 
 namespace ce {
 
@@ -14,23 +16,14 @@ std::string Instruction::toString() const {
     return std::format("{:016x}  {:<24s} {} {}", address, hex, mnemonic, operands);
 }
 
+Disassembler::Disassembler() : Disassembler([] {
+    auto arch = disassemblerArchFor(nativeTargetMachine());
+    if (!arch) throw std::runtime_error(arch.error());
+    return *arch;
+}()) {}
+
 Disassembler::Disassembler(Arch arch) : arch_(arch) {
-    cs_arch cs_a;
-    cs_mode cs_m;
-
-    switch (arch) {
-        case Arch::X86_32: cs_a = CS_ARCH_X86; cs_m = CS_MODE_32; break;
-        case Arch::X86_64: cs_a = CS_ARCH_X86; cs_m = CS_MODE_64; break;
-        case Arch::ARM32:  cs_a = CS_ARCH_ARM; cs_m = CS_MODE_ARM; break;
-        case Arch::ARM64:  cs_a = CS_ARCH_ARM64; cs_m = CS_MODE_ARM; break;
-    }
-
-    csh h;
-    if (cs_open(cs_a, cs_m, &h) != CS_ERR_OK)
-        throw std::runtime_error("Failed to initialize Capstone");
-
-    cs_option(h, CS_OPT_DETAIL, CS_OPT_ON);
-    handle_ = h;
+    setArch(arch);
 }
 
 Disassembler::~Disassembler() {
@@ -40,11 +33,6 @@ Disassembler::~Disassembler() {
 
 void Disassembler::setArch(Arch arch) {
     if (arch == arch_ && handle_) return;
-    if (handle_) {
-        cs_close(reinterpret_cast<csh*>(&handle_));
-        handle_ = 0;
-    }
-    arch_ = arch;
     cs_arch cs_a;
     cs_mode cs_m;
     switch (arch) {
@@ -52,12 +40,18 @@ void Disassembler::setArch(Arch arch) {
         case Arch::X86_64: cs_a = CS_ARCH_X86; cs_m = CS_MODE_64; break;
         case Arch::ARM32:  cs_a = CS_ARCH_ARM; cs_m = CS_MODE_ARM; break;
         case Arch::ARM64:  cs_a = CS_ARCH_ARM64; cs_m = CS_MODE_ARM; break;
+        case Arch::ARMThumb: cs_a = CS_ARCH_ARM; cs_m = CS_MODE_THUMB; break;
+        case Arch::ARM32_BE: cs_a = CS_ARCH_ARM; cs_m = static_cast<cs_mode>(CS_MODE_ARM | CS_MODE_BIG_ENDIAN); break;
+        case Arch::ARMThumb_BE: cs_a = CS_ARCH_ARM; cs_m = static_cast<cs_mode>(CS_MODE_THUMB | CS_MODE_BIG_ENDIAN); break;
+        default: throw std::invalid_argument("Unknown disassembler architecture");
     }
     csh h;
     if (cs_open(cs_a, cs_m, &h) != CS_ERR_OK)
         throw std::runtime_error("Failed to initialize Capstone");
     cs_option(h, CS_OPT_DETAIL, CS_OPT_ON);
+    if (handle_) cs_close(reinterpret_cast<csh*>(&handle_));
     handle_ = h;
+    arch_ = arch;
 }
 
 // Rewrite a RIP-relative memory operand ("[rip + 0x1234]") to its resolved
@@ -112,6 +106,7 @@ static MemoryOperand extractMemoryOperand(const cs_insn& in, csh handle) {
 static Instruction buildInstruction(const cs_insn& in, csh handle, Arch arch) {
     Instruction inst;
     inst.address = in.address;
+    inst.isCall = cs_insn_group(handle, &in, CS_GRP_CALL);
     inst.size = in.size;
     inst.mnemonic = in.mnemonic;
     inst.operands = in.op_str;
@@ -158,21 +153,37 @@ std::vector<Instruction> Disassembler::disassemble(uintptr_t address, std::span<
         if (n > 0)
             offset = (result.back().address - address) + result.back().size;
 
-        // Stop unless we should emit a "db" for the byte Capstone choked on.
+        // Preserve the instruction boundary after an invalid encoding. ARM and
+        // AArch64 use words; Thumb uses halfwords or a prefix-described word.
         if (!emitDataBytes) break;
         if (count != 0 && result.size() >= count) break;
         if (offset >= code.size()) break;
 
         Instruction dbi;
         dbi.address = address + offset;
-        dbi.size = 1;
-        dbi.bytes = {code[offset]};
+        size_t unit=1;
+        if (arch_==Arch::ARM32 || arch_==Arch::ARM32_BE || arch_==Arch::ARM64) unit=4;
+        else if (arch_==Arch::ARMThumb || arch_==Arch::ARMThumb_BE) {
+            unit=2;
+            if (code.size()-offset>=2) {
+                const auto halfword=arch_==Arch::ARMThumb_BE ?
+                    (unsigned(code[offset])<<8)|code[offset+1] :
+                    (unsigned(code[offset+1])<<8)|code[offset];
+                if (halfword>=0xe800) unit=4;
+            }
+        }
+        unit=std::min(unit,code.size()-offset);
+        dbi.size = static_cast<uint8_t>(unit);
+        dbi.bytes.assign(code.begin()+offset,code.begin()+offset+unit);
         dbi.mnemonic = "db";
         char hb[8];
-        std::snprintf(hb, sizeof(hb), "0x%02x", code[offset]);
-        dbi.operands = hb;
+        for (size_t i=0;i<unit;++i) {
+            std::snprintf(hb, sizeof(hb), "0x%02x", code[offset+i]);
+            if (i) dbi.operands+=", ";
+            dbi.operands+=hb;
+        }
         result.push_back(std::move(dbi));
-        offset += 1;
+        offset += unit;
     }
 
     return result;
@@ -180,6 +191,22 @@ std::vector<Instruction> Disassembler::disassemble(uintptr_t address, std::span<
 
 uintptr_t Disassembler::previousInstruction(uintptr_t addr,
     const std::function<bool(uintptr_t, uint8_t*, size_t)>& read) {
+    if (arch_ != Arch::X86_32 && arch_ != Arch::X86_64) {
+        bool thumb = arch_ == Arch::ARMThumb || arch_ == Arch::ARMThumb_BE;
+        if (!thumb) return addr >= 4 ? addr - 4 : 0;
+        // A Thumb-2 prefix at the preceding halfword identifies a 32-bit instruction.
+        if (addr >= 4) {
+            uint8_t prefix[2]{};
+            if (read(addr - 4, prefix, sizeof(prefix))) {
+                bool big = arch_ == Arch::ARMThumb_BE;
+                uint16_t half = big ? (uint16_t(prefix[0]) << 8) | prefix[1]
+                                    : (uint16_t(prefix[1]) << 8) | prefix[0];
+                unsigned top = half >> 11;
+                if (top == 0x1d || top == 0x1e || top == 0x1f) return addr - 4;
+            }
+        }
+        return addr >= 2 ? addr - 2 : 0;
+    }
     uintptr_t best = addr ? addr - 1 : addr;
     for (int len = 15; len >= 1; --len) {
         if (static_cast<uintptr_t>(len) > addr) continue;

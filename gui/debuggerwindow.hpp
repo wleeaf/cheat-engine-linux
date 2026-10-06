@@ -53,7 +53,7 @@ public:
     // Type `value` into register row `row`'s cell exactly as the UI would (routes
     // through onRegisterEdited -> setStopContext) and report whether the stopped
     // thread's register now holds it. Row order matches the table:
-    // 0=RIP 1=RSP 2=RBP 3=RAX 4=RBX 5=RCX 6=RDX 7=RSI 8=RDI 9=RFLAGS.
+    // Defined by cpuRegisterValues for the active stopped thread's architecture.
     bool pokeRegisterForTest(int row, uint64_t value);
     // Thread switcher automation: number of threads in the dropdown, and a helper
     // that picks a different one via the combo (as the user would) and reports
@@ -72,6 +72,7 @@ public:
     bool memViewChangeHighlightForTest(uintptr_t addr);
     // Whether the XMM0 register row displays a value whose low 64 bits are `lo`.
     bool xmm0ShowsForTest(uint64_t lo);
+    bool vectorRegisterShowsForTest(unsigned index, uint64_t lo);
     // Move the caret to disasm line `lineIndex` and set a breakpoint there via the
     // same path the right-click menu uses; report whether it was planted.
     bool disasmSetBreakpointForTest(int lineIndex);
@@ -131,7 +132,7 @@ private:
 
     ce::ProcessHandle* proc_;
     std::unique_ptr<ce::DebugSession> session_;
-    ce::Disassembler disasm_{ce::Arch::X86_64};
+    ce::Disassembler disasm_;
 
     QLabel* statusLabel_ = nullptr;
     QLabel* flagsLabel_ = nullptr;   // decoded CPU flags (CF PF ZF SF …) at the stop
@@ -141,8 +142,9 @@ private:
     QPlainTextEdit* disasmView_ = nullptr;
     QComboBox* threadCombo_ = nullptr;
     QTableWidget* regTable_ = nullptr;
-    std::vector<uintptr_t> prevGp_;   // last stop's GP regs, to red-flag changes on step
-    std::array<std::array<uint8_t, 16>, 16> prevXmm_{};   // ditto for XMM0-15
+    std::vector<uint64_t> prevGp_;   // last stop's GP regs, to red-flag changes on step
+    ce::CpuArchitecture registerArchitecture_ = ce::CpuArchitecture::Unknown;
+    ce::os::NativeVectorContext prevVectors_{};
     QPlainTextEdit* stackView_ = nullptr;
     QLineEdit* memAddrInput_ = nullptr;
     QTextEdit* memView_ = nullptr;
@@ -166,8 +168,7 @@ private:
         int hwSize = 0;          // 1/2/4/8 bytes
         int hitCount = 0;
         bool enabled = true;
-        uint8_t origByte = 0;    // original code byte a software BP replaced with 0xCC
-        bool hasOrig = false;    // origByte was captured (so the disasm can un-mask it)
+        std::vector<uint8_t> original;   // full native trap width, for unmasked disassembly
     };
     std::vector<Bp> bps_;
     QString bpRowText(const Bp& b) const;      // list text incl. condition + hit count

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "createdUTC": "2026-10-05T21:57:04.516092+00:00",
+  "sourceState": "uncommitted worktree snapshot",
+  "passed": true,
+  "scope": "Independent model data/high-address/perf-layout/All-type candidate, exact numeric and floating precision boundary fixtures; no live foreign Linux scan or hardware perf claim",
+  "cases": [
+    {
+      "name": "native",
+      "passed": true,
+      "checks": 155,
+      "binaries": {
+        "build/cecore_compatibility_test": "33105cd5e8208586d4593051d773e53d115f50d3d1ce3e0ddff523d3a42a94f7",
+        "build/libcecore.so": "22720b65822ad60755170863d22b2988d13af22f7735ea7eab6a3dbf905dcac4"
+      },
+      "log": "scanner-formats-native.log",
+      "logSha256": "088972816e5872440d4a2d7dbf95d4e73cd016269c2083c723472dc2ef2e925f"
+    },
+    {
+      "name": "asan",
+      "passed": true,
+      "checks": 155,
+      "binaries": {
+        "build-ci-asan/cecore_compatibility_test": "7286ab162d53727cdf1a855cb2c7d3afe283dc72b0ca5a3b874d7f1b78522d37",
+        "build-ci-asan/libcecore.so": "2d4b356714fbf72aebd088e823beb9f6e83c6a6386f3f99f04f6d42bb0bd0637"
+      },
+      "log": "scanner-formats-asan.log",
+      "logSha256": "088972816e5872440d4a2d7dbf95d4e73cd016269c2083c723472dc2ef2e925f"
+    }
+  ],
+  "ciValidation": {
+    "fullLocalMirror": {
+      "path": "all-types-host-ci.log",
+      "sha256": "8301aa8c32ddb6263e6ec2477a560d90d3ba5002f147946b5f396409f54d829b"
+    },
+    "buildJobs": 1,
+    "priority": "nice -n 10",
+    "heavyChecks": "sequential",
+    "sourceChangeAfterTests": "Documentation and evidence only"
+  }
+}

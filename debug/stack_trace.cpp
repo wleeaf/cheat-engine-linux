@@ -24,10 +24,14 @@ bool isReadable(ProcessHandle& proc, uintptr_t address, size_t size) {
     return end <= region->base + region->size;
 }
 
-bool readPointer(ProcessHandle& proc, uintptr_t address, uintptr_t& value, size_t width) {
-    value = 0;
-    auto read = proc.read(address, &value, width);
-    return read && *read == width;
+bool readPointer(ProcessHandle& proc, uintptr_t address, uintptr_t& value, size_t width, ByteOrder order) {
+    std::array<uint8_t,8> bytes{};
+    auto read = proc.read(address, bytes.data(), width);
+    if (!read || *read != width) return false;
+    auto decoded = decodeTargetUnsigned({bytes.data(),width},order);
+    if (!decoded || *decoded > std::numeric_limits<uintptr_t>::max()) return false;
+    value = static_cast<uintptr_t>(*decoded);
+    return true;
 }
 
 bool isPlausibleNextFrame(uintptr_t currentRbp, uintptr_t nextRbp, size_t width) {
@@ -54,23 +58,29 @@ std::vector<StackFrame> buildStackTrace(ProcessHandle& proc,
 
     frames.push_back(StackFrame{
         .index = 0,
-        .instructionPointer = context.rip,
-        .stackPointer = context.rsp,
-        .framePointer = context.rbp,
+        .instructionPointer = context.instructionPointer(),
+        .stackPointer = context.stackPointer(),
+        .framePointer = context.framePointer(),
         .returnAddress = 0,
-        .symbol = resolveSymbol(symbols, context.rip),
+        .symbol = resolveSymbol(symbols, context.instructionPointer()),
     });
 
-    uintptr_t rbp = context.rbp;
-    const size_t width = proc.runs32BitCode() ? 4 : 8;
+    uintptr_t rbp = context.framePointer();
+    auto machine=proc.machineAt(context.instructionPointer());
+    auto architecture=context.architecture==CpuArchitecture::Unknown ? machine.architecture : context.architecture;
+    // A frame record stores saved registers. x32 still pushes 64-bit RBP/RIP
+    // even though its data pointers are 32-bit; AArch64 saves X29/LR as 64-bit.
+    const size_t width=architecture==CpuArchitecture::X86_32 ? 4 :
+        architecture==CpuArchitecture::X86_64 || architecture==CpuArchitecture::Arm64 ? 8 : 0;
+    if (!width || machine.byteOrder==ByteOrder::Unknown) return frames;
     for (size_t index = 1; index < maxFrames; ++index) {
         if (rbp == 0 || addWouldOverflow(rbp, width * 2)) break;
         if (!isReadable(proc, rbp, width * 2)) break;
 
         uintptr_t nextRbp = 0;
         uintptr_t returnAddress = 0;
-        if (!readPointer(proc, rbp, nextRbp, width)) break;
-        if (!readPointer(proc, rbp + width, returnAddress, width)) break;
+        if (!readPointer(proc, rbp, nextRbp, width, machine.byteOrder)) break;
+        if (!readPointer(proc, rbp + width, returnAddress, width, machine.byteOrder)) break;
         if (returnAddress == 0) break;
 
         frames.push_back(StackFrame{

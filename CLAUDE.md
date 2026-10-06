@@ -17,11 +17,17 @@ Native Linux reimplementation of Cheat Engine in **C++20/23 + Qt6 + CMake**
 
 ## Build & test
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$(nproc)"
+cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j1
 ./build/cecore_test
 QT_QPA_PLATFORM=offscreen ./build/gui_debugger_smoke
 QT_QPA_PLATFORM=offscreen ./build/gui_theme_smoke
 ```
+
+This workstation has limited resources. Reuse existing build/dependency caches,
+run builds with one compiler job at low priority (`nice -n 10`), and run heavy
+builds, Wine checks and full-system guests sequentially. Keep large temporary
+files on the build filesystem instead of RAM-backed `/tmp`. Increase parallelism
+only when the user explicitly requests it.
 
 ## Before pushing — keep CI green
 Run **`tools/ci-check.sh --config`** (seconds) before every push, and the full

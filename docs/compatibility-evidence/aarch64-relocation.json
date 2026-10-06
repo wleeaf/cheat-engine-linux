@@ -1,0 +1,183 @@
+{
+  "schemaVersion": 1,
+  "createdUTC": "2026-10-06T00:10:32.304333+00:00",
+  "sourceState": "uncommitted worktree snapshot",
+  "baseCommit": "462975248038f5afcf1c245268fcbcbe8f006ddb",
+  "passed": true,
+  "scope": "Shared ARM64 byte-level relocation and GUI/CLI/Lua AutoAssembler REASSEMBLE semantics. Independent GNU code executes under pinned 4 KiB/64 KiB ARM64 Linux kernels. Conservative clobber/indirect-branch policies, model input rejection and exact script rollback/layout. Does not establish native ARM64 hooks, general external-process instruction-cache synchronization, hardware/BE runtime or other ISA backends.",
+  "sources": {
+    "arch/aarch64_relocator.cpp": "bb50eb0b6e3c53266a7d7798b1c75dc59de72d056960932e937e90e6d8753a8e",
+    "arch/aarch64_relocator.hpp": "73fefed51b7e1a765338d0a5dd55fb13568c3918a3b357353b027dd6a75b7511",
+    "core/autoasm.cpp": "f33571cc5fb7de0a3459e0c9c055b00173bf229bd3ae7a6c485c37975cecde2c",
+    "core/autoasm.hpp": "a92a8c87c45da4f1de7c2178d508368c9a45ad5a2065f684f8853f922895da53",
+    "CMakeLists.txt": "c4fa0aceca2e7209adcc3054fa6e6bda22f4759a1f6b9c2961ba6c8e6e81dadd",
+    "test/aarch64_relocation_checks.inc": "3b3fc7d55a8629f839d87907a28c9b1cbcd850e0bf3e8b7a2bbc1d720887ffe7",
+    "test/target_compatibility_test.cpp": "0dabf170bbe62f71e19e3e051abe156cc89a592476d34205db3d9d260039ea53",
+    "test/aarch64_relocation_gate.py": "48ea012849a78bdcd89e4a36dfa5452f0b7918a6c6597b081841f9f53ba20f61",
+    "test/arm64_relocation_integration.cpp": "66c94794cb25587e6678988eaafdc1c343a2895b535bf77df739d4bcf2ca071c",
+    "test/arm64_relocation_fixtures.S": "f413961abbb824560e91dc2ff5d1ee43ee861d76a977cf451b74f10afb8e2a8d",
+    "test/arm64_vm/CMakeLists.txt": "4def059d67c75555aae97b1983bd9269b9ff9861fc4db151addfcb8264e6649d",
+    "test/fullsystem_vm.py": "cb0d9a61465989c96cfbe322b8c51c9be1c90317313b96a0c8fdd1cb517b29e5",
+    "test/gui_lifecycle_smoke.cpp": "3f065708483b587617525528974ba16df3b8157b66c2616a615b261e50335b78",
+    "tools/check-arm64-vm.sh": "1825d0c542d8e4119c68886380bb030a0ddda2a91e8ec559714589538f9dbf12",
+    "tools/ci-check.sh": "d662aabd2397c30309cfedf3dc5b385b2bb6974a0eff6fd1a2a563128af8b692",
+    ".github/workflows/arm64-compatibility.yml": "38fda3ea6ca9ea26a2fb7891b8ec86b25624a3556f6d8dc990bbf0e26e15adcc",
+    ".github/workflows/release.yml": "70a6502547391fb391fed0c12bdf48341c18d7e8c562384e209cb2e59f316e92",
+    "arch/disassembler.cpp": "e1c447731485e8172fc6e3a42ea242a893874ed1672eccbfe9c0b0b68b5ba961",
+    "arch/target_arch.cpp": "da768aa63639048987f6cec88ca3114073e879919dd9a5d2e4c3e1a906297540",
+    "core/target_machine.cpp": "199f7a4e8ce631e16919d53e1aa2ee22c1dbb536dd3b2afc4d98eddd2f14c052",
+    "platform/process_api.cpp": "84eaa9bc5b6e3c8866543597c9c444a65d54f16079a0cc81cbdaa1f84a137c88"
+  },
+  "binaries": {
+    "build/libcecore.so": "60050f42768802f0e668434d27657f39c5dedc8ae878df4c5185dbb422da29a3",
+    "build/cecore_compatibility_test": "c66fb69ce6ec3d6467f4c10ea372e37604b4178d58cceb4c86e2da3b84787c23",
+    "build/cescan": "25da0223c08346823c5485501ebca57c29973a64d498ff97f340cc46c5042b78",
+    "build/gui_lifecycle_smoke": "9ba3363a7d57d49c0a1b6165480ef46ebbc001dbfd11705ca7651e47b7552e49",
+    "build-ci-asan/libcecore.so": "129bb3ee3c8b0d6be3d56bca337b52e72bcb861673d1723e7e2cf79651061d24",
+    "build-ci-asan/cecore_compatibility_test": "36a9b7070103700d7727124c02796244e61cc38c0e977862e4ee4db3e348e11d",
+    "build/.ci-tmp/arm64-relocation/relocation_init": "7c298ba149fe126d5726c5719c98eef9d4c82ab2655bb8bca9183cf7ebb294fa"
+  },
+  "resources": {
+    "compilerJobs": 1,
+    "nice": 10,
+    "heavyJobs": "sequential",
+    "temporaryStorage": "build filesystem; cached cross-build on container /var/tmp",
+    "relocationGuestCPUs": 1,
+    "relocationGuestMemoryMiB": 128
+  },
+  "evidence": {
+    "hostCI": {
+      "path": "aarch64-relocation-hostCI.log",
+      "sha256": "4c9b0bebf9854267e2f80d4e2472211dc642167870dbb536ae5e15e6f1c2a701"
+    },
+    "initialHostCI": {
+      "path": "aarch64-relocation-initial-hostCI.log",
+      "sha256": "0a4d763c96ba82e747f60aa302dbe570851c23f9e85ad80ea1f95e5ec0b681eb"
+    },
+    "guiDiagnosticRetry": {
+      "path": "aarch64-relocation-gui-retry.log",
+      "sha256": "e547d97606a1ffc15aef9d92548edcaae5eb4ed4a0951bd22f7569a75a02f636"
+    },
+    "nativeModel": {
+      "path": "aarch64-relocation-nativeModel.log",
+      "sha256": "389a4befa5ea3cc929b61f9e1212e1776cbf3dad9b615f34615a808eeb077670",
+      "checks": 182
+    },
+    "asanModel": {
+      "path": "aarch64-relocation-asanModel.log",
+      "sha256": "389a4befa5ea3cc929b61f9e1212e1776cbf3dad9b615f34615a808eeb077670",
+      "checks": 182
+    },
+    "crossBuild": {
+      "path": "aarch64-relocation-crossBuild.log",
+      "sha256": "e3e0bd87ce29194c94401e7365a0ac1c0f25f4634fee23f25d887bcb9ea28d70"
+    },
+    "toolchain": {
+      "path": "aarch64-relocation-toolchain.log",
+      "sha256": "5a12cd97b1a6240adaffa4b98294f172687eee88ac13fc393b538508065112c0"
+    },
+    "beforeProbe": {
+      "path": "aarch64-relocation-before.json",
+      "sha256": "edce72adb9e41a78e8fe2585922762863c877b3e6cb6a1753e7c3435d1917974"
+    },
+    "afterProbe": {
+      "path": "aarch64-relocation-after.json",
+      "sha256": "a60d9eae300dfd2fa0f5183de6d1c758e045228564b4fe813260ae4155181a44"
+    },
+    "beforeProbeOutput": {
+      "path": "aarch64-relocation-before.log",
+      "sha256": "f18faa3a9dee732e07615f29f8c6e8dd4dbb1edcbd38295548057ecd11933e78"
+    },
+    "afterProbeOutput": {
+      "path": "aarch64-relocation-after.log",
+      "sha256": "e996702bccfa37745288de15f207c484e222e43f604980cc5bddf882e9892c62"
+    },
+    "probeSource": {
+      "path": "aarch64-relocation-probe.cpp",
+      "sha256": "6bed1aa5b0e297dfe0f1da34bd685ef58d402b61812640eeed130da4b41da590"
+    }
+  },
+  "kernels": {
+    "4096": {
+      "report": {
+        "path": "aarch64-relocation-kernel.json",
+        "sha256": "cbabbf1060acb069f28cf6e09b6e18a5ff511acf1a3777a06e3947b083cbedab"
+      },
+      "output": {
+        "path": "aarch64-relocation-kernel.log",
+        "sha256": "46da73b0533624e26dc2bc1ce906e87b448d5afac8c33ffaf935e86585abfcc5"
+      },
+      "kernel": "6.18.52-0-virt",
+      "kernelSha256": "06196d2cf51e9a2bac421564bb64c63a8b7146c9a22755dd22a713e337023013",
+      "pageSize": 4096,
+      "checks": 21,
+      "executions": 1119
+    },
+    "65536": {
+      "report": {
+        "path": "aarch64-relocation-kernel-64k.json",
+        "sha256": "5acc6ef14151d61915a35046eb3a99187b6cf38494267fa72417fff2572d73aa"
+      },
+      "output": {
+        "path": "aarch64-relocation-kernel-64k.log",
+        "sha256": "34288667d05348429e49b8c15ae234fd67ca2585c306dfd7aa33f434b7c8b28b"
+      },
+      "kernel": "6.8.0-146-generic-64k",
+      "kernelSha256": "d5f5150b83c59404233bde3859817d4665301e0bfab20fa47ccdac4bfbeb1ae8",
+      "pageSize": 65536,
+      "checks": 21,
+      "executions": 1119
+    }
+  },
+  "currentHostReports": {
+    "nativeGdb": {
+      "path": "aarch64-relocation-nativeGdb.json",
+      "sha256": "9b3846e5e3b89ad1138e4eb5714026d7f1557999b838ae18f8e0b96e244b1ea9"
+    },
+    "asanGdb": {
+      "path": "aarch64-relocation-asanGdb.json",
+      "sha256": "9202334616d930690966b7e91b7b7a659a510f80d7ec9c42ae4acc54d86aa143"
+    },
+    "gdbGui": {
+      "path": "aarch64-relocation-gdbGui.json",
+      "sha256": "a026e93a625d99d01ec2bbf610e4a0662de0df69fd0b9dd9e3c7b746e46bb36f"
+    },
+    "wine": {
+      "path": "aarch64-relocation-wine.json",
+      "sha256": "d38ab11019a21f1bcf0a37a4d9e9cf368d70c53fdc652d011587074e3ed9fab2"
+    },
+    "nativeSyscalls": {
+      "path": "aarch64-relocation-nativeSyscalls.json",
+      "sha256": "e8c02e42d7633d4aedfb98880ff105a530578174f266c67c3628ee30fa1752cd"
+    },
+    "nativeCalls": {
+      "path": "aarch64-relocation-nativeCalls.json",
+      "sha256": "e1e04c7fd6017f0fcba084c1e8126d34931d4504709b7d922fb5df10396dc4ae"
+    },
+    "nativeFrontends": {
+      "path": "aarch64-relocation-nativeFrontends.json",
+      "sha256": "ad090b24609e556f7602ced8ecb495ff95705350bfb91d6ad0a1c5a710c56f50"
+    },
+    "leaderExitFrontends": {
+      "path": "aarch64-relocation-leaderExitFrontends.json",
+      "sha256": "7508fbb3e384d9e9f873059ac03aa1fc1bb3de3b0ea11f7f5e21b86016cd6011"
+    }
+  },
+  "initialGUIRun": {
+    "exitCode": 142,
+    "deadlineSeconds": 25,
+    "diagnosticRetryExitCode": 0,
+    "finalHostCIExitCode": 0,
+    "note": "Initial GUI lifecycle run hit its deadline without buffered output. A line-buffered diagnostic rerun passed; the final whole CI run passed. The fixture now line-buffers completed stages. No root cause of the initial timeout was established."
+  },
+  "releaseGate": {
+    "configured": true,
+    "requiredProfiles": [
+      4096,
+      65536
+    ],
+    "workflow": ".github/workflows/arm64-compatibility.yml",
+    "remoteExecution": "pending for this worktree",
+    "artifact": "arm64-syscall-evidence, includes both relocation reports and logs; release packaging waits for this workflow"
+  }
+}

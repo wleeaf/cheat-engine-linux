@@ -26,6 +26,11 @@ include(FetchContent)
 # via Qt/X11, still resolves the target.
 find_package(Threads REQUIRED)
 
+# Pinned, vendored XML parser for untrusted GDB target descriptions; Qt-free.
+add_library(cecore_tinyxml2 STATIC third_party/tinyxml2/tinyxml2.cpp)
+target_include_directories(cecore_tinyxml2 PUBLIC ${CMAKE_SOURCE_DIR}/third_party/tinyxml2)
+set_target_properties(cecore_tinyxml2 PROPERTIES POSITION_INDEPENDENT_CODE ON AUTOMOC OFF)
+
 # Capstone and Keystone declare older cmake_minimum_required values that fail
 # to configure with CMake >= 3.27 unless this is set. Applies to nested
 # FetchContent CMakeLists too.
@@ -182,6 +187,13 @@ endif()
 
 # ── libcecore C++ library ──
 add_library(cecore SHARED
+    core/target_machine.cpp
+    core/cpu_registers.cpp
+    debug/thread_inspection.cpp
+    core/target_capabilities.cpp
+    arch/target_arch.cpp
+    arch/aarch64_relocator.cpp
+    platform/process_api.cpp
     core/types.cpp
     core/value_io.cpp
     core/autoasm.cpp
@@ -209,9 +221,17 @@ add_library(cecore SHARED
     platform/linux/mono_debugger_client.cpp
     platform/linux/kernel_driver.cpp
     platform/linux/linux_process.cpp
+    platform/linux/target_syscall.cpp
+    platform/linux/syscall_service.cpp
+    platform/linux/code_write.cpp platform/linux/memory_image.cpp
+    platform/linux/call_service.cpp
+    platform/linux/thread_entry.cpp
     platform/linux/target_profile.cpp
     platform/linux/ns_attach.cpp
     platform/linux/ptrace_wrapper.cpp
+    platform/linux/target_debug.cpp
+    platform/linux/register_image.cpp
+    platform/linux/arm64_vector_return.cpp
     platform/linux/injector.cpp
     platform/linux/process_watcher.cpp
     platform/linux/ceserver_stubs.c
@@ -225,13 +245,16 @@ add_library(cecore SHARED
     debug/patch.cpp
     debug/stack_trace.cpp
     debug/tracer.cpp
+    debug/perf_ring.cpp
     debug/lbr_tracer.cpp
     debug/intel_pt.cpp
     debug/debug_session.cpp
     debug/gdb_remote.cpp
+    platform/gdb_process.cpp
     debug/managed_breakpoint.cpp
     symbols/kernel_symbols.cpp
     scanner/memory_scanner.cpp
+    scanner/scan_number.cpp
     scanner/pointer_scanner.cpp
     scanner/snapshot.cpp
     $<$<NOT:$<BOOL:${CECORE_HAVE_CUDA}>>:scanner/cuda_search_stub.cpp>
@@ -250,8 +273,12 @@ target_include_directories(cecore PUBLIC
 )
 target_link_libraries(cecore PRIVATE
     dl pthread z ${CAPSTONE_LIB} ${KEYSTONE_LIB}
-    lua_static m  # Static Lua (built from third_party/lua)
+    lua_static m cecore_tinyxml2  # Vendored libraries; no GUI dependency.
 )
+# Keep the private pinned parser from interposing an embedder's TinyXML2 ABI.
+target_link_options(cecore PRIVATE "LINKER:--exclude-libs,libcecore_tinyxml2.a")
+target_link_options(cecore PRIVATE "LINKER:--version-script,${CMAKE_SOURCE_DIR}/cmake/private_xml_symbols.map")
+set_property(TARGET cecore APPEND PROPERTY LINK_DEPENDS "${CMAKE_SOURCE_DIR}/cmake/private_xml_symbols.map")
 
 if(CECORE_HAVE_DWARF)
     target_compile_definitions(cecore PUBLIC CECORE_HAVE_DWARF)
@@ -311,6 +338,10 @@ endif()
 # the mono_* embedding API in-process for ground-truth class/field offsets).
 add_library(cecore_mono_agent SHARED plugins/mono_agent.c)
 target_link_libraries(cecore_mono_agent PRIVATE ${CMAKE_DL_LIBS} Threads::Threads)
+# An injected library must also load into ordinary, unsanitized applications.
+target_compile_options(cecore_mono_agent PRIVATE -fno-sanitize=all)
+target_link_options(cecore_mono_agent PRIVATE -fno-sanitize=all)
+set_target_properties(cecore_mono_agent PROPERTIES AUTOMOC OFF)
 
 add_library(cecore_sample_plugin SHARED plugins/sample_plugin.c)
 target_include_directories(cecore_sample_plugin PRIVATE ${CMAKE_SOURCE_DIR})
@@ -333,6 +364,7 @@ if(Qt6_FOUND)
         gui/theme.cpp
         gui/mainwindow.cpp
         gui/processlistdialog.cpp
+        gui/gdbconnectiondialog.cpp
         gui/memorybrowser.cpp
         gui/scripteditor.cpp
         gui/pointerscan_dialog.cpp
@@ -384,6 +416,13 @@ if(Qt6_FOUND)
 
     # Headless offscreen smoke test for the interactive debugger window.
     if(CECORE_BUILD_TESTS)
+        if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64|aarch64|arm64)$")
+            qt_add_executable(gui_register_smoke test/gui_register_smoke.cpp
+                gui/debuggerwindow.cpp gui/registereditor.cpp gui/stackview.cpp gui/theme.cpp)
+            target_include_directories(gui_register_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
+            target_link_libraries(gui_register_smoke PRIVATE cecore Qt6::Widgets)
+            target_link_options(gui_register_smoke PRIVATE -rdynamic)
+        endif()
         # Exercise target replacement with the same window implementation as the app.
         get_target_property(CE_GUI_TEST_SOURCES cheatengine SOURCES)
         list(REMOVE_ITEM CE_GUI_TEST_SOURCES gui/main.cpp gui/resources.qrc)
@@ -548,6 +587,140 @@ if(CECORE_BUILD_TESTS)
     target_link_libraries(cecore_test PRIVATE cecore)
     add_executable(cecore_deep_test test/deep_review_test.cpp test/underlying_review_test.cpp)
     target_link_libraries(cecore_deep_test PRIVATE cecore)
+    add_executable(elf_symbol_integration test/elf_symbol_integration.cpp)
+    target_link_libraries(elf_symbol_integration PRIVATE cecore)
+    add_executable(gdb_transport_integration test/gdb_transport_integration.cpp)
+    target_link_libraries(gdb_transport_integration PRIVATE cecore)
+    add_executable(ceserver_integration test/ceserver_integration.cpp)
+    target_link_libraries(ceserver_integration PRIVATE cecore)
+    add_executable(ceserver_connection_integration test/ceserver_connection_integration.cpp)
+    target_link_libraries(ceserver_connection_integration PRIVATE cecore)
+    add_executable(ceserver_multiclient_integration test/ceserver_multiclient_integration.cpp)
+    target_link_libraries(ceserver_multiclient_integration PRIVATE cecore)
+    add_executable(cecore_compatibility_test test/target_compatibility_test.cpp)
+    target_link_libraries(cecore_compatibility_test PRIVATE cecore)
+    add_executable(table_persistence_integration test/table_persistence_integration.cpp)
+    target_link_libraries(table_persistence_integration PRIVATE cecore)
+    add_executable(table_json_integration test/table_json_integration.cpp)
+    target_link_libraries(table_json_integration PRIVATE cecore)
+    add_executable(mono_integration test/mono_integration.cpp)
+    target_link_libraries(mono_integration PRIVATE cecore)
+    add_library(mono_fixture_control SHARED test/mono_fixture_control.c)
+    target_compile_options(mono_fixture_control PRIVATE -fno-sanitize=all)
+    target_link_options(mono_fixture_control PRIVATE -fno-sanitize=all)
+    set_target_properties(mono_fixture_control PROPERTIES AUTOMOC OFF)
+    add_executable(mono_embed_fixture test/mono_embed_fixture.c)
+    target_link_libraries(mono_embed_fixture PRIVATE ${CMAKE_DL_LIBS})
+    target_compile_options(mono_embed_fixture PRIVATE -fno-sanitize=all)
+    target_link_options(mono_embed_fixture PRIVATE -fno-sanitize=all)
+    set_target_properties(mono_embed_fixture PROPERTIES AUTOMOC OFF)
+    # Exercise response overflow against a real runtime without allocating a
+    # 64 MiB fixture. This library is test-only and never installed.
+    add_library(mono_limit_agent SHARED plugins/mono_agent.c)
+    target_compile_definitions(mono_limit_agent PRIVATE CE_MONO_MAX_RESPONSE=1024)
+    target_link_libraries(mono_limit_agent PRIVATE ${CMAKE_DL_LIBS} Threads::Threads)
+    target_compile_options(mono_limit_agent PRIVATE -fno-sanitize=all)
+    target_link_options(mono_limit_agent PRIVATE -fno-sanitize=all)
+    set_target_properties(mono_limit_agent PROPERTIES AUTOMOC OFF)
+    # Compile the real process API with its syscall owner service independently
+    # so foreign-kernel checks do not require the unfinished debugger/call backends.
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64|aarch64|arm64)$")
+        add_executable(code_write_integration test/code_write_integration.cpp
+            test/code_write_faults.cpp platform/linux/code_write.cpp platform/linux/memory_image.cpp)
+        target_link_libraries(code_write_integration PRIVATE cecore)
+        target_link_options(code_write_integration PRIVATE -Wl,--wrap=pwrite -Wl,--export-dynamic)
+        add_executable(memory_image_integration test/memory_image_integration.cpp
+            test/code_write_faults.cpp platform/linux/memory_image.cpp)
+        target_link_libraries(memory_image_integration PRIVATE cecore)
+        target_link_options(memory_image_integration PRIVATE -Wl,--wrap=pwrite -Wl,--export-dynamic)
+        add_executable(shared_mm_fixture test/shared_mm_fixture.c)
+        target_compile_options(shared_mm_fixture PRIVATE -fno-sanitize=all)
+        target_link_options(shared_mm_fixture PRIVATE -fno-sanitize=all)
+        set_target_properties(shared_mm_fixture PROPERTIES AUTOMOC OFF)
+        add_dependencies(memory_image_integration shared_mm_fixture)
+        add_executable(native_call_integration test/native_call_integration.cpp)
+        target_link_libraries(native_call_integration PRIVATE cecore)
+        add_executable(native_call_image_integration test/native_call_image_integration.cpp
+            test/code_write_faults.cpp platform/linux/memory_image.cpp)
+        target_link_libraries(native_call_image_integration PRIVATE cecore)
+        target_link_options(native_call_image_integration PRIVATE -Wl,--wrap=pwrite -Wl,--export-dynamic)
+        add_executable(native_call_image_fixture test/native_call_image_fixture.c)
+        target_compile_options(native_call_image_fixture PRIVATE -fno-pie -fno-sanitize=all)
+        target_link_options(native_call_image_fixture PRIVATE -no-pie -fno-sanitize=all)
+        target_link_libraries(native_call_image_fixture PRIVATE Threads::Threads)
+        set_target_properties(native_call_image_fixture PROPERTIES AUTOMOC OFF)
+        add_dependencies(native_call_image_integration native_call_image_fixture)
+        add_executable(native_call_exec_integration test/native_call_exec_integration.cpp
+            platform/linux/call_service.cpp platform/linux/target_syscall.cpp)
+        target_link_libraries(native_call_exec_integration PRIVATE cecore)
+        target_link_options(native_call_exec_integration PRIVATE -Wl,--wrap=ptrace -Wl,--wrap=waitpid)
+        add_dependencies(native_call_exec_integration native_call_image_fixture)
+        add_executable(native_call_fixture test/native_call_fixture.c)
+        target_compile_options(native_call_fixture PRIVATE -fno-sanitize=all)
+        target_link_options(native_call_fixture PRIVATE -rdynamic -fno-sanitize=all)
+        target_link_libraries(native_call_fixture PRIVATE Threads::Threads)
+        add_library(native_call_library SHARED test/native_call_library.c)
+        add_library(namespace_symbol_library SHARED test/namespace_symbol_library.c)
+        target_compile_options(namespace_symbol_library PRIVATE -fno-sanitize=all)
+        target_link_options(namespace_symbol_library PRIVATE -fno-sanitize=all)
+        set_target_properties(namespace_symbol_library PROPERTIES AUTOMOC OFF)
+        target_compile_options(native_call_library PRIVATE -fno-sanitize=all)
+        target_link_options(native_call_library PRIVATE -fno-sanitize=all)
+        target_link_libraries(native_call_library PRIVATE ${CMAKE_DL_LIBS})
+        set_target_properties(native_call_fixture native_call_library PROPERTIES AUTOMOC OFF)
+        add_dependencies(cecore_test native_call_fixture)
+        target_compile_definitions(cecore_test PRIVATE CE_NATIVE_CALL_FIXTURE="$<TARGET_FILE:native_call_fixture>")
+        add_executable(target_syscall_integration test/target_syscall_integration.cpp
+            test/syscall_faults.cpp platform/linux/target_syscall.cpp platform/linux/syscall_service.cpp platform/linux/code_write.cpp platform/linux/memory_image.cpp platform/linux/call_service.cpp platform/linux/thread_entry.cpp
+            platform/linux/linux_process.cpp platform/process_api.cpp core/target_machine.cpp
+            core/target_capabilities.cpp arch/target_arch.cpp core/log.cpp platform/linux/ns_attach.cpp
+            platform/linux/target_debug.cpp platform/linux/register_image.cpp platform/linux/arm64_vector_return.cpp platform/linux/ptrace_wrapper.cpp
+            debug/debug_session.cpp debug/tracer.cpp debug/code_finder.cpp debug/stack_trace.cpp
+            debug/thread_inspection.cpp core/cpu_registers.cpp arch/disassembler.cpp
+            symbols/elf_symbols.cpp analysis/pe_exports.cpp)
+        target_include_directories(target_syscall_integration PRIVATE ${CMAKE_SOURCE_DIR} ${CAPSTONE_INCLUDE})
+        target_link_libraries(target_syscall_integration PRIVATE Threads::Threads ${CAPSTONE_LIB})
+        target_link_options(target_syscall_integration PRIVATE -Wl,--wrap=ptrace -Wl,--wrap=pwrite -Wl,--wrap=_Znwm -Wl,--wrap=stat -Wl,--wrap=waitpid)
+    endif()
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+        option(CECORE_REQUIRE_NATIVE_CALL_I386 "Require dynamic i386 injection fixtures (needs multilib libc)" OFF)
+        include(CheckCSourceCompiles)
+        set(_ce_saved_required_flags "${CMAKE_REQUIRED_FLAGS}")
+        set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -m32")
+        check_c_source_compiles("int main(void) { return 0; }" CECORE_HAVE_DYNAMIC_I386)
+        set(CMAKE_REQUIRED_FLAGS "${_ce_saved_required_flags}")
+        unset(_ce_saved_required_flags)
+        if(CECORE_REQUIRE_NATIVE_CALL_I386 AND NOT CECORE_HAVE_DYNAMIC_I386)
+            message(FATAL_ERROR "Dynamic i386 injection checks require a working gcc -m32 libc toolchain")
+        endif()
+        if(CECORE_HAVE_DYNAMIC_I386)
+            add_executable(native_call_image_fixture32 test/native_call_image_fixture.c)
+            target_compile_options(native_call_image_fixture32 PRIVATE -m32 -fno-pie -fno-sanitize=all)
+            target_link_options(native_call_image_fixture32 PRIVATE -m32 -no-pie -fno-sanitize=all)
+            target_link_libraries(native_call_image_fixture32 PRIVATE Threads::Threads)
+            set_target_properties(native_call_image_fixture32 PROPERTIES AUTOMOC OFF)
+            add_executable(native_call_fixture32 test/native_call_fixture.c)
+            target_compile_options(native_call_fixture32 PRIVATE -m32 -fno-sanitize=all)
+            target_link_options(native_call_fixture32 PRIVATE -m32 -rdynamic -fno-sanitize=all)
+            target_link_libraries(native_call_fixture32 PRIVATE Threads::Threads)
+            add_library(native_call_library32 SHARED test/native_call_library.c)
+            target_compile_options(native_call_library32 PRIVATE -m32 -fno-sanitize=all)
+            target_link_options(native_call_library32 PRIVATE -m32 -fno-sanitize=all)
+            target_link_libraries(native_call_library32 PRIVATE ${CMAKE_DL_LIBS})
+            set_target_properties(native_call_fixture32 native_call_library32 PROPERTIES AUTOMOC OFF)
+        endif()
+        foreach(bits IN ITEMS 64 32)
+            add_executable(compatibility_fixture${bits} test/compatibility_fixture.c)
+            target_compile_options(compatibility_fixture${bits} PRIVATE
+                -m${bits} -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -fomit-frame-pointer -fno-sanitize=all)
+            target_link_options(compatibility_fixture${bits} PRIVATE -m${bits} -nostdlib -static -no-pie -fno-sanitize=all)
+            set_target_properties(compatibility_fixture${bits} PROPERTIES AUTOMOC OFF)
+        endforeach()
+        add_executable(compatibility_integration test/compatibility_integration.cpp)
+        target_link_libraries(compatibility_integration PRIVATE cecore)
+        add_executable(wine_integration test/wine_integration.cpp)
+        target_link_libraries(wine_integration PRIVATE cecore)
+    endif()
     # So the example-scripts test can find the repo's examples/ directory.
     target_compile_definitions(cecore_test PRIVATE CE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
@@ -573,6 +746,8 @@ endif()
 # "public" for now; a curated public-API subset + a CMake package config with
 # transitive Capstone/Keystone handling is a tracked follow-up (see ROADMAP.md).
 include(GNUInstallDirs)
+install(FILES third_party/tinyxml2/LICENSE.txt
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/cheat-engine-linux/tinyxml2)
 set_target_properties(cecore PROPERTIES
     VERSION ${PROJECT_VERSION}
     SOVERSION ${PROJECT_VERSION_MAJOR})
@@ -580,6 +755,8 @@ install(TARGETS cecore
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS cecore_mono_agent
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT MonoAgent)
 foreach(dir core platform arch scanner symbols analysis debug scripting plugins)
     install(DIRECTORY ${dir}/
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/cecore/${dir}

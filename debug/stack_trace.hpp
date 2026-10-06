@@ -1,5 +1,5 @@
 #pragma once
-/// Stack trace helpers for stopped x86_64 Linux threads.
+/// Frame-chain stack traces for stopped x86/i386/x32 and AArch64 threads.
 
 #include "platform/process_api.hpp"
 #include "symbols/elf_symbols.hpp"

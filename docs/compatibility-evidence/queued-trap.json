@@ -1,0 +1,314 @@
+{
+  "schemaVersion": 1,
+  "createdUTC": "2026-10-06T04:15:50.373790+00:00",
+  "sourceState": "uncommitted worktree snapshot",
+  "baseCommit": "462975248038f5afcf1c245268fcbcbe8f006ddb",
+  "passed": true,
+  "scope": "CodeFinder consumes owned hardware SIGTRAP signals queued behind interrupt stops before restoring banks and detaching. Real kernel queue races, target computation, console liveness, genuine SIGUSR1 and SIGSTOP/SIGCONT, original bank restoration, host CI and two ARM64 kernel profiles. Other debugger owners, arbitrary signal combinations, real ARM hardware and universal process compatibility are not certified.",
+  "sources": {
+    "platform/process_api.hpp": "4500320fc1425dd9d2f905f2be461251435b9e670cbfc9fd3d6a7c5b4d99a663",
+    "platform/process_api.cpp": "68cf8e1ac6633e6ab7fd0c273b3dcf460b5a019bf482324bd4e8f9d77ba75588",
+    "platform/linux/linux_process.cpp": "b594f81f0ce3e39fe17296321239c46410b2bdf43f49853d86d936152cc09a30",
+    "platform/linux/linux_process.hpp": "927b9aee6317d400fcd03eccab6c6cd136bf5d1caccd102aa7f88d1f9adfebf1",
+    "platform/linux/memory_image.cpp": "906a8292838315563ac68ab304d1a5ab9d40a74c25bc00ffe3763a69b4096fc6",
+    "platform/linux/memory_image.hpp": "6749cccccd0c3a004def5bd7cda96d98392a48ab1eac7ce625ffb0a7cf7da4dc",
+    "platform/linux/target_syscall.cpp": "42e813aee9c1a2e69dcca949d6f65135dbc464391cd55abf026d2acef7706298",
+    "platform/linux/target_syscall.hpp": "2a89bc8248788d68d6789bd54508271e6361f3bad3226324143fd8eadea8e408",
+    "platform/linux/call_service.cpp": "604f825164a192258fb5eccc2f6585dca2fbed622a98b862ecb521747f8296fc",
+    "platform/linux/call_service.hpp": "2f56a1ed2ab77b9c8ea3a6bce0bb35c4b869a641ea1ad88933b2ebca7c41ee63",
+    "platform/linux/injector.cpp": "1afa1e27c5c6d9c36c5efcefe7c29e6185f9a7d36967d9522c73023cf454d006",
+    "platform/linux/injector.hpp": "5efaabaf16def4bc734474806a78970c95da91a3c7a205dba1166fb4c500e10e",
+    "core/simple_hook.cpp": "e394fc5bfe4aa4078c5dc587d564704124e639ed8a4f30f51a5aab1200a3c38f",
+    "core/simple_hook.hpp": "ad1af224244a32a1f48c8d2df9239946d6cf7addd494616d952b90afccdd4392",
+    "platform/linux/code_write.cpp": "c83999a556bc98e5530fee231660e1ceda6b113c6268e098c7e785269124179d",
+    "platform/linux/code_write.hpp": "ba325443dfbb810da3075715b82a0efdf7064ad96fd3594f3462ad79586db639",
+    "platform/linux/syscall_service.cpp": "1a0401d50f7753f9d1ab4b433ac8b57240ae8cdb86bb7ae2fadcb3281f38d9c2",
+    "platform/linux/syscall_service.hpp": "7b04be118fe101039713cde929e42e8c8e2c6a79cfc0d95cd5751f92fb3cbfab",
+    "core/autoasm.cpp": "ce938612ff048288b7ba5001a660fbbc9fb04c193032a54f74467fd6079ebbe9",
+    "core/autoasm.hpp": "5e9ed86d657b26a20d08ddd4a07d5171b131d6ae32b96364fc263dcaf097fd9c",
+    "debug/patch.cpp": "ccb43f430ee1057b49514bb05b0e7ed47b336a3d9885fb0dac415cea3ba38189",
+    "debug/patch.hpp": "c34255707bfbb24855ba8953a85774939bee2c4e47c700796c1aa068692f5afe",
+    "gui/memorybrowser.cpp": "e20b3e8b575b322aea7ae91356b330e113b57fe3af38e03d3ed9a26461da82c7",
+    "gui/memorybrowser.hpp": "543b80f2dd8ee6b9e840e31931441ef6e02f000e931f9f152ce9177dc266446b",
+    "test/code_write_integration.cpp": "60e603c517f7304861491ffbe5fa01ac61914e6597839917ebfb745a229d7bf2",
+    "test/code_write_faults.cpp": "f773b7ff1958cafb2723971da669741c88a440d09b9e8993f5ff3bded12cdd76",
+    "test/code_write_faults.hpp": "d3d5969de046b86a9547c89d14f67977b8dd240b84f64c39456f4aac444370c0",
+    "test/code_write_checks.inc": "9ddf6335968d736e433488a8b9d609e62d4b4f0c8e3ee6e1f5291399e60d3d15",
+    "test/target_compatibility_test.cpp": "8847f068e28fa721ba133f472747c569b096c03a41b0af9d81cd40e62f0d5a35",
+    "test/code_write_gate.py": "0565b2560c81209b3cfd57883a41dd38bb8a74f0b89d01991be3af408bd22cd0",
+    "test/arm64_vm/CMakeLists.txt": "4c857ce7c27d1ca19b6c8747f9c371d38c1a6bd11a2e2398609f97a74a2ecfff",
+    "test/fullsystem_vm.py": "fadccdecf5187ae49a12f553928c2df0b008c8fd60bec532864c11e79796abde",
+    "test/aarch64_relocation_gate.py": "48ea012849a78bdcd89e4a36dfa5452f0b7918a6c6597b081841f9f53ba20f61",
+    "CMakeLists.txt": "dea88cb42a0f9658ac5499bdd0a80112d80dee4832dd741e677b2d96523bd3e7",
+    "tools/ci-check.sh": "ef1dec6f95b383b61d7009391863b793a539fe47a40ffa417a023c75af2c606c",
+    "tools/check-arm64-vm.sh": "22d7451e47a69c81c2b90d198775b5997f768cceec2feecedd32730b045d64cb",
+    ".github/workflows/build.yml": "5513d7d0ea2bc8b7d52d3597b5bebbadc36cdb4159d4a42d00eb7abb9fae15a5",
+    ".github/workflows/release.yml": "2c4094ec7bbf1b973eaa73eee9e09f9dcd985d231677e290ef7370f046eb1528",
+    ".github/workflows/arm64-compatibility.yml": "48008a097903d1e3db742f9e79fe12ad58a86f432ea74e6ddc73498891769ef1",
+    "test/shared_mm_fixture.c": "d3431afeee6e7727bd875801c5401c094ed2053135563ab10a49486412cf952a",
+    "test/memory_image_integration.cpp": "497fdc149a034dbf57d49755b9236236a76b226dac01c1f92e236267f9f1f110",
+    "test/memory_image_gate.py": "462cc4134021b8f35bfeaca826921f3519789ab65672c22c48eacd2a3ba6968f",
+    "test/target_syscall_integration.cpp": "d9770f08b770246032faaa5c1b9566ffa4439cd988763b50835402a140eb09b2",
+    "README.md": "8d7b73fdf5a13de61480e332e58fdffb943abe5f95c58dcd12cdba278a083053",
+    "CHANGELOG.md": "fc5bc417b3e8f3f62922c506e3e77f7a19b0eefabae67b2fb910f36474fd32ec",
+    "docs/COMPATIBILITY.md": "027299dbb9cb5eefa732bf3a2d1fe49df758b2b428416693866a341198edb5fb",
+    "debug/code_finder.cpp": "8f3f3939b8c41d05f3c4a3f4b07d8b66c08a15c1de3bd50127acba575441b891",
+    "debug/code_finder.hpp": "b774bc1f7c9f68579d0c5225bb000985248aa2178358f745427e7cdfbcd7dd1b",
+    "test/syscall_faults.cpp": "ef5760d4f593d5a7d32d7c791049844729d7877f92a3a8e4bad5f244c01aec61",
+    "test/syscall_faults.hpp": "bfbebb73a56f770d233abfe7c4d2ff63388266a0f8ba7bd7c8e439ad411074bf",
+    "test/compatibility_fixture.c": "c74bccdbdd5dd6623e3ba9633d33277eb524cb119f3ecedcda4fb6583d61e318",
+    "test/native_syscall_gate.py": "6c0b7f010b2345eaaad94ee3b2c25bab2b7afd172c4dac9ffc07cf79e2c3f287",
+    "test/gui_scan_format_checks.inc": "ab05936befb163127120398982d0e2ebb7a9af8d6346b57f39d4db70f950439a",
+    "test/gui_lifecycle_smoke.cpp": "3f065708483b587617525528974ba16df3b8157b66c2616a615b261e50335b78"
+  },
+  "binaries": {
+    "build/libcecore.so": "4b1e7aefed27be51017ee96914a6217a02d898513ebe00b09743521020c23aae",
+    "build/target_syscall_integration": "e1a99e50b3a3424748c4588a3cac1c0dfc673ad737aefe8d9fbdf38b35cc7e59",
+    "build/compatibility_fixture64": "29ff0c8b2d6762c3c9bfbd27731fcf3ff9e371dde42520914bd4b6b75a16413a",
+    "build/compatibility_fixture32": "da1af66397f4985adf6ece3c9328bae6026e2977e52725b0d59639dcbcb563ac",
+    "build-ci-asan/libcecore.so": "722c64c8c9477224c9c9702100da39b43a118609e7b90d601f6e30826141e919",
+    "build-ci-asan/target_syscall_integration": "c765c78f2adeb09a5e2d848e670737cd048c7ba90765b73317f0783b7fee482d",
+    "build-ci-asan/compatibility_fixture64": "3ef49a5861803e8c025415819ee074ea3d0e9e33cb2d49ed41cb3211944810bf",
+    "build-ci-asan/compatibility_fixture32": "399c35fc614845e0c891d0b8b85f2912b278dce66ad72e7267d24320fdf14b89",
+    "build/gui_lifecycle_smoke": "81910ef2117e567059e25891593eebd526363d7d54422167256696574dd1a105",
+    "build/.ci-tmp/teardown-arm/init": "6d95c1b8e5e28eadc6ee4d1814c44dbd471415e6373656295af243911e72fd6e",
+    "build/.ci-tmp/teardown-arm/fixture": "ae471cd76bcc8cf09c81f50478285f7dc5a6a848aa51722f449eb15c9589d2bf"
+  },
+  "host": {
+    "native": {
+      "syscalls": {
+        "path": "queued-trap-native-syscalls.json",
+        "sha256": "5fa30a0c11278fc85a090a5bf24aea0f207986c2106a5419d27027e099dfe7bb"
+      },
+      "checksPerTarget": {
+        "64": 566,
+        "32": 567
+      },
+      "repetitions": {
+        "64": [
+          {
+            "path": "queued-trap-native-64-0.log",
+            "sha256": "2cf7daa4ec1280f18c6ee892d2dbb26f9a7ade7def1de46b1315c11e3e0428c1"
+          },
+          {
+            "path": "queued-trap-native-64-1.log",
+            "sha256": "b6ccdc8970e7e4269ecee2e63c91b32676d07441a56a6ef5c7b9b6b1a3f81f6a"
+          },
+          {
+            "path": "queued-trap-native-64-2.log",
+            "sha256": "6a077ab263c42fa06d04eb36efee64fd6aa51e6476bb608f0c5e5d1dc9410022"
+          },
+          {
+            "path": "queued-trap-native-64-3.log",
+            "sha256": "dfd248dcb2d677615857a56886d56d95e3e68f426262d5e5497d8772732f9ba4"
+          },
+          {
+            "path": "queued-trap-native-64-4.log",
+            "sha256": "31bdf1160254bee03bdd30bb66bb48f06083331e05ef751880db9b96c72e7a18"
+          }
+        ],
+        "32": [
+          {
+            "path": "queued-trap-native-32-0.log",
+            "sha256": "3c6ac5cc3c76436689460e561ea5d0a007e9b09af6753892bb8b3b17894ee902"
+          },
+          {
+            "path": "queued-trap-native-32-1.log",
+            "sha256": "292a8b21730bf5f76db6b7a10d5b37c54469373a9355f8ebbe31d78bd2d2fd50"
+          },
+          {
+            "path": "queued-trap-native-32-2.log",
+            "sha256": "432da95772153102b47f79bf1b44d3901cab7d306e2ec133a42ae8b6f9a42c6c"
+          },
+          {
+            "path": "queued-trap-native-32-3.log",
+            "sha256": "6d8278c79df969a1a6b0d71f4055d03710f9b8c09a1a7ac0e297b681f0b2825a"
+          },
+          {
+            "path": "queued-trap-native-32-4.log",
+            "sha256": "dc7350771c86114591b171fe9d8fbad89795c10c871085e6130dceb873b5c35e"
+          }
+        ]
+      }
+    },
+    "sanitizer": {
+      "syscalls": {
+        "path": "queued-trap-sanitizer-syscalls.json",
+        "sha256": "4ec9cb1afa60ad8b0ab1b33f9c13cdd3712d4fc118f408db5a6f41b55a3001d7"
+      },
+      "checksPerTarget": {
+        "64": 566,
+        "32": 567
+      },
+      "repetitions": {
+        "64": [
+          {
+            "path": "queued-trap-sanitizer-64-0.log",
+            "sha256": "3b6d614d92a2408b9a1b0e171ba1af3e9bcac68a904e4eb5b7e4bcb7abe3252d"
+          },
+          {
+            "path": "queued-trap-sanitizer-64-1.log",
+            "sha256": "8efe74994ce76c16b570c0045f45d876bcea9d9a57ef3654167c14bc36f5516c"
+          },
+          {
+            "path": "queued-trap-sanitizer-64-2.log",
+            "sha256": "2264bc66bb22fd4014f53d1bb69552c333d03616b7829c4beda7aa03fa6d9002"
+          },
+          {
+            "path": "queued-trap-sanitizer-64-3.log",
+            "sha256": "d63e21144223a198d615b7e257554d0157f827a24bc510e90a3b20f30ac88da3"
+          },
+          {
+            "path": "queued-trap-sanitizer-64-4.log",
+            "sha256": "18402031359278530d8d2a57bf69f1eab829f3868f2a6528169b82df48de411c"
+          }
+        ],
+        "32": [
+          {
+            "path": "queued-trap-sanitizer-32-0.log",
+            "sha256": "fd58914ff50705a89d503eaadd491a3579d86077ea3839939840f0b74214b73b"
+          },
+          {
+            "path": "queued-trap-sanitizer-32-1.log",
+            "sha256": "6d8092c407064aa4721e227c259c4663a5f2c522659cbb3b5d5a7a49d7c63a6b"
+          },
+          {
+            "path": "queued-trap-sanitizer-32-2.log",
+            "sha256": "59febf1eadaac53d5eed931eea5b2e0989185cc37bc5d184a9b831ba4473e94d"
+          },
+          {
+            "path": "queued-trap-sanitizer-32-3.log",
+            "sha256": "e01a63b8413a3eb298cde5115d4e6a5a700e290c7418084512b14271b98aef83"
+          },
+          {
+            "path": "queued-trap-sanitizer-32-4.log",
+            "sha256": "a8da1c98de3129c54825c4ec10f66e9560096f079de859a1d77155b66612dd6a"
+          }
+        ]
+      }
+    }
+  },
+  "kernels": {
+    "4096": {
+      "pageSize": 4096,
+      "checks": 906,
+      "report": {
+        "path": "queued-trap-4096-syscalls.json",
+        "sha256": "b426f1364e28bc1c9c88189f731cd6cc33f0cd890d6d072ffa5820f15ff01425"
+      },
+      "output": {
+        "path": "queued-trap-4096-syscalls.log",
+        "sha256": "e855793733e882ba469aebc02c209c221df05c806327feedf29f27d8ccb3cc3c"
+      }
+    },
+    "65536": {
+      "pageSize": 65536,
+      "checks": 747,
+      "report": {
+        "path": "queued-trap-65536-syscalls.json",
+        "sha256": "66cefc438c413d66203cd367b9570b14bc71636db48bb2e4838ba43d59bb7d28"
+      },
+      "output": {
+        "path": "queued-trap-65536-syscalls.log",
+        "sha256": "39406ec3ed1474dfc177f7474d12dccf040167350837ae1316ffc677b1a8a151"
+      }
+    }
+  },
+  "evidence": {
+    "hostCI": {
+      "path": "queued-trap-host-ci.log",
+      "sha256": "8731213324f4ed634f183e73d6401712734c47a6a2fcb29988afe867d212f892"
+    },
+    "gdb": {
+      "path": "queued-trap-gdb.json",
+      "sha256": "ed1aa82ed54c71d673b265cc6787949889c187f828b3979bd62b50015cf9ff5f"
+    },
+    "gdbGui": {
+      "path": "queued-trap-gdbGui.json",
+      "sha256": "6e95a28a891e5b95c4082b4272eb996442f8a87d9c5d0e41ff047fd4cde2522c"
+    },
+    "wine": {
+      "path": "queued-trap-wine.json",
+      "sha256": "6d8fb24a8f9e740246110efcc8d0c39c81c524a02421d9378ed2b10f9c4ff77a"
+    },
+    "nativeFrontends": {
+      "path": "queued-trap-nativeFrontends.json",
+      "sha256": "cbe28eeefa72e927447d256167dfdd5424d5f1dd1ca9f01983d99b5088291bcc"
+    },
+    "leaderExitFrontends": {
+      "path": "queued-trap-leaderExitFrontends.json",
+      "sha256": "234bccc9eff280a817210d857e36ac289ef0da1fd54ef4a704cee5abb40ca878"
+    }
+  },
+  "resourcePolicy": {
+    "buildJobs": 1,
+    "nice": 10,
+    "heavyJobs": "sequential",
+    "guestCpus": 2,
+    "guestMemoryMiB": 512,
+    "temporaryDirectory": "build filesystem; existing dependency and cross-build caches reused"
+  },
+  "reproduction": {
+    "source": {
+      "path": "queued-trap-probe.cpp",
+      "sha256": "e4d500ede8347663ecac076cb79500e16d6e726fc28fda266910032e5df73cb4"
+    },
+    "beforeCoreSha256": "4766ad33b39d2a5b37161110f9fc7a5b1cdccc24b0e2f7004066baa2869f07b9",
+    "beforeCoreMatchesSharedMemorySnapshot": true,
+    "probeSha256": "be9357fe4c9b9d105c1fbee8e0ffe5faec73adea05aec101c6a218f3f3e1550b",
+    "oldCodeFinderObjectSha256": "5782062226aa6277229aa1757a5d737b7cf1d631ecf71f01089974f7ac7c1c62",
+    "baselineIntegrationSha256": "ff61492dc9d4443935dab10c0f13206bcba7997c4aaf6deb6ef7f8bb0c099ab6",
+    "before": {
+      "64": {
+        "path": "queued-trap-before-64.log",
+        "sha256": "d4dbdd7c42d35afd64572e729bf847b5177bd320d623c4e3d088ac34cdb9a795"
+      },
+      "32": {
+        "path": "queued-trap-before-32.log",
+        "sha256": "0c52a646dac3be855428554742e2bec9f09625617b3e2b85a77297220712a2b6"
+      }
+    },
+    "afterStress": {
+      "path": "queued-trap-stress.log",
+      "sha256": "008212d953dfe99282685151360314c158794c154cde3c9acb7ecd8c840a96e6"
+    },
+    "originalLiveProbe": {
+      "path": "queued-trap-original-before.log",
+      "sha256": "63844afac21960691f0ed61d90d30cf0178e82fb40fea548dd28be1db3bc262f"
+    }
+  },
+  "testCoordinatorCorrection": {
+    "note": "First expanded host CI timed out in the test coordinator when cleanup had already consumed a stop. A real INTERRUPT cannot yield a new wait event until a stopped task resumes. The coordinator now detects the actual stopped task, resumes only a test-owned trap/interrupt stop and waits for a real new event. Production fix unchanged; repeated sanitizer cases and final CI pass.",
+    "initialHostCI": {
+      "path": "queued-trap-initial-host-ci.log",
+      "sha256": "7eb0d03af191653fb27366f8763a7d97a23578e126f18c3a02248c550e11e2e1"
+    },
+    "diagnostic": {
+      "path": "queued-trap-coordinator-diagnostic.log",
+      "sha256": "4bb7cad1ab3cb8f56e79e77ec1c02f4f2af9c2dce7b5a29d5420a424266e2061"
+    }
+  },
+  "guiTestTimerCorrection": {
+    "note": "Two subsequent host CI runs timed out in the GUI lifecycle fixture after its printed scan-control checks, before its later lifecycle result. Standalone repetitions passed. The fixture now uses a later Qt timer to order edit verification before reusing bytes, waits after the pointer edit, logs stages, and fails explicitly on unexpected save dialogs. Final host CI passes. A captured stack from that passing run shows active debugger symbol parsing, not a reproduced blocked GUI. The earlier particular GUI timeouts remain unexplained and are not claimed fixed.",
+    "initialHostCI": {
+      "path": "queued-trap-gui-initial-host-ci.log",
+      "sha256": "91aa4d710ee96f9ae2165c2882bf6c4b17f36ef706dbd7967d4c4660021de9e2"
+    },
+    "secondHostCI": {
+      "path": "queued-trap-gui-second-host-ci.log",
+      "sha256": "931262e7d7c31b089c57c4b0a0293f6f31a92084e1ff87de8b49b0bcc3021043"
+    },
+    "output": {
+      "path": "queued-trap-gui-timeout.log",
+      "sha256": "9fb600db04d7056867a922f761b1efdc73ca31942fb93d08c9d83429f59b36ec"
+    },
+    "passingGui": {
+      "path": "queued-trap-gui-passed.log",
+      "sha256": "118d1188f428c2f3c7e74a91cabe9ab7fffd88fec15396faf0fd119b29d46aab"
+    },
+    "passingRunStack": {
+      "path": "queued-trap-gui-passing-stack.log",
+      "sha256": "91e76841defd950926d7e2e79ec907e1f77d4cd04b9c915e5ee4b4ecdfd82bc3"
+    }
+  }
+}

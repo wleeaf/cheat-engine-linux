@@ -59,6 +59,7 @@ void LuaEngine::resetTarget() {
         }
     }
     hooks_.clear();
+    if (resolver_) resolver_->clear();
     if (L_) {
         lua_pushnil(L_);
         lua_setfield(L_, LUA_REGISTRYINDEX, "ce_lua_breakpoints");
@@ -106,10 +107,14 @@ DebugSession* LuaEngine::debugSession() {
     // the Lua thread drains the queue in the debug_pumpEvents binding.
     sess->setEventCallback([this](const DebugEvent& e) {
         if (e.type != DebugEventType::BreakpointHit &&
-            e.type != DebugEventType::ExceptionBreakpointHit) return;
+            e.type != DebugEventType::ExceptionBreakpointHit &&
+            e.type != DebugEventType::SignalReceived &&
+            e.type != DebugEventType::ThreadExiting &&
+            e.type != DebugEventType::ProcessExecuted) return;
         {
             std::lock_guard<std::mutex> lk(debugMutex_);
-            debugQueue_.push_back({e.tid, e.address, e.context});
+            if (e.type==DebugEventType::ProcessExecuted) debugQueue_.clear();
+            debugQueue_.push_back({e.tid,e.address,e.context,e.type,e.generation,e.signal,e.exitingTid});
         }
         debugCv_.notify_all();
     });

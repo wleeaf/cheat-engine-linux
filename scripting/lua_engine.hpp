@@ -22,6 +22,7 @@ namespace ce {
 
 class IAddressList;
 class DebugSession;
+enum class DebugEventType;
 namespace os { class CEServerClient; }
 
 class LuaEngine {
@@ -66,7 +67,15 @@ public:
     lua_State* state() { return L_; }
 
     // ── Interactive debugger backing the Lua debug_* API (P2 #15) ──
-    struct DebugHit { pid_t tid = 0; uintptr_t address = 0; CpuContext context{}; };
+    struct DebugHit {
+        pid_t tid=0;
+        uintptr_t address=0;
+        CpuContext context{};
+        DebugEventType type{};
+        uint64_t generation=0;
+        int signal=0;
+        pid_t exitingTid=0;
+    };
     ProcessHandle* process() const { return proc_; }
     /// Lazily create + attach a DebugSession to the current process, wiring a
     /// tracer-thread callback that queues each breakpoint hit for the Lua thread.

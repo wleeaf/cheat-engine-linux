@@ -1,0 +1,193 @@
+OK: x32 uses x86-64 instructions and four-byte data pointers
+OK: RISC-V class determines address width
+OK: big-endian ELF machine fields are decoded in file byte order
+OK: malformed and truncated ELF headers never default to x86-64
+OK: ARM BE8 separates big-endian data from little-endian instructions
+OK: AArch64 data endianness does not swap instructions
+OK: PE optional-header width and machine describe the Windows program ABI
+OK: hybrid ARM64X modules require an explicit code-mode adapter
+OK: PE width mismatch and truncated optional headers are rejected
+OK: unimplemented architectures remain inspectable without selecting x86 code
+OK: bitness-only process adapters never guess their target ISA or byte order
+OK: WoW64 typed pointers and expressions follow the program ABI instead of loader width
+OK: typed integers default to the target's byte order
+OK: floating point encoding and directional comparisons honor target byte order
+OK: big-endian pointer expressions decode all four bytes correctly
+OK: pointer paths use target width and byte order
+OK: reverse pointer scanning finds big-endian four-byte pointers
+OK: explicit byte order overrides target detection
+OK: unknown machine blocks pointer guesses while preserving raw-byte access
+OK: numeric scans preserve target-order bytes through exact, relational, delta and first-value comparisons
+OK: four- and eight-byte unsigned pointers scan and narrow independently of frontend width
+OK: both floating widths scan target IEEE bytes, deltas, percentages and signed zero
+OK: UTF-16 case folding, BMP, surrogate pairs and mixed grouped terms follow target order
+OK: persisted, reloaded and pruned scan formats prevent accidental byte-order changes
+OK: inclusive To address admits a complete scalar ending at the last byte
+OK: a one-byte From/To scan includes its sole address
+OK: a scalar cannot read past the inclusive To boundary
+OK: unknown data order rejects numeric scanning before memory reads
+OK: an explicit scan order permits numeric data inspection with unknown ISA
+OK: unknown architecture and byte order preserve raw byte scanning
+OK: unknown program pointer width cannot silently become host width
+OK: an explicit pointer width permits narrow encoded data scanning
+OK: a next scan cannot reinterpret a four-byte pointer stream as eight-byte pointers
+OK: signed delta subtraction across INT64 extremes neither overflows nor accepts a negative distance
+OK: invalid versions, fields, truncation, symlinks and FIFOs fail safely while legacy snapshots remain loadable
+OK: captured scalar display validates width and uses target encoding
+OK: unknown sample order never becomes a guessed numeric display
+OK: default scans include known memory above the old 47-bit ceiling
+OK: first and next scans can read the inclusive final address without wrapping an end pointer
+OK: a complete scalar can end at UINTPTR_MAX
+OK: next-scan range narrowing avoids reads of excluded old addresses
+OK: next scans cannot read a scalar crossing their inclusive bounds
+OK: reversed scanner ranges fail before any target memory read
+OK: Lua scans retain a full-width default To address
+OK: perf ring sizing rounds positive counts using actual 4/16/64 KiB pages without overflow
+OK: branch-stack records retain chronological entries across ring boundaries and 64-bit counter wrap
+OK: malformed branch headers, counts, spans and impossible intervals never fabricate samples or stall draining
+OK: AUX bytes preserve wrap order, publish tails, release notifications and reject impossible intervals
+OK: zero target TIDs cannot sample the frontend thread in either tracing backend
+OK: concurrent inactive start, stop and drain calls remain serialized and release resources
+OK: invalid Lua sampling durations and TIDs fail before hardware probing or ptrace
+OK: All-type scans use full integer bounds, typed deltas/percentages and first values without truncating search values
+OK: All-type float/double candidates narrow by numerical comparisons in both data orders
+OK: All-type narrowing preserves type identity and cannot introduce candidates that failed earlier scans
+OK: All-type narrow tails and surviving narrow fields remain readable after wider memory becomes unavailable
+OK: All-type candidates survive reload, move and pruning alongside original samples
+OK: All-type results can select a surviving concrete numeric type with the correct new record stride
+OK: Lua exposes surviving All-type candidates and decodes selected numeric samples without padding or rereads
+OK: All-type masks and raw sample strides remain aligned across chunks, shards and parallel next-scan batches
+OK: invalid All-type masks, nonregular streams and links are rejected instead of guessing candidate types
+OK: All numeric literals preserve fractional and negative integer comparison boundaries in both byte orders
+OK: All numeric literals accept scientific/hex/comma forms and retain exponent-adjusted decimal precision
+OK: All numeric literals retain exact signed 64-bit boundaries independently of double rounding
+OK: All delta literals reject fractional integer changes and preserve the complete unsigned distance across signed endpoints
+OK: All infinity searches and unknown nonfinite candidates never invent integer zero matches
+OK: All floating relational bounds retain double input precision rather than rounding to the candidate's width
+OK: All percentage comparisons use their own thresholds without requiring unrelated numeric search values
+OK: Malformed All numeric literals and missing upper bounds fail atomically rather than scanning zero or a prefix
+OK: Decimal and scientific All boundaries agree with 51102 independent exact rational integer comparisons
+OK: Lua All scans use strict numeric boundaries, explicit Between upper values and preserve results on malformed input
+OK: Rounded float and All first/next scans retain the full requested decimal boundary in both byte orders
+OK: Truncated float and All scans cannot invent matches by rounding requested integers or fractions to float
+OK: Extreme float and All scans preserve the full center/tolerance, including wide finite ranges without infinity matches
+OK: Typed float relational and Between scans retain requested double precision through first and next scans
+OK: Grouped float terms use their full requested value for rounded comparisons
+OK: Floating number parsing retains scientific precision and rejects malformed or missing bounds atomically
+OK: Lua exposes float/All rounding and tolerance controls, floating Between bounds and invalid-input recovery
+OK: Lua ordinary integer Between scans support explicit reversed upper bounds and preserve results when absent
+OK: Independent float/double rounded boundary addresses agree across scalar, supported SIMD modes and both data orders
+OK: First scan reports allocation, transport and unknown worker exceptions instead of returning false success
+OK: Single and parallel next scans report worker exceptions without terminating the engine or replacing saved samples
+OK: Failed scans join an independently blocked sibling before reporting the original error
+OK: Failed first/next scans remove partial snapshot directories and release every file descriptor
+OK: The same scanner succeeds after worker failure with original persisted samples and target memory unchanged
+OK: Lua retains the last successful scan after allocation failure and can retry on the same scan object
+OK: Explicit pointer width and byte order support encoded reads/writes on unknown targets and preserve neighboring fields
+OK: Invalid encoded pointer widths and byte orders fail before target mutation
+OK: Automatic pointer I/O still uses target width while explicit data overrides leave CPU metadata unchanged
+OK: XML, JSON and protected cheat tables retain explicit data byte order and encoded pointer width
+OK: Malformed record format metadata is rejected on table load/save instead of silently using the target format
+OK: AArch64 reassembly at the same address preserves every original byte and instruction boundary
+OK: AArch64 static branches follow relocated internal instructions without padding absent source instructions
+OK: AArch64 conditional veneers invert only real predicates; AL and NV both retain unconditional behavior
+OK: AArch64 CBZ and TBZ relocation retains register width and high tested bits while extending branch reach
+OK: AArch64 ADR/ADRP preserve unaligned absolute addresses and architectural 4 KiB pages across arbitrary distances
+OK: Far AArch64 integer and sign-extending literal loads use their own result register without borrowing live registers
+OK: Far AArch64 vector, prefetch and zero-register literals require an explicitly permitted scratch register
+OK: Nearby AArch64 literal loads retain their original memory address instead of copying a stale literal value
+OK: Far AArch64 calls use LR and jumps require explicit indirect-landing and scratch-register permissions
+OK: Malformed AArch64 blocks, overflowing ranges and invalid scratch registers fail before producing a patch
+OK: AutoAssembler AArch64 REASSEMBLE uses expanded instruction sizes for following labels and data
+OK: Disabling expanded AArch64 REASSEMBLE restores every overwritten destination byte
+OK: A source becoming unreadable after sizing aborts REASSEMBLE and rolls back earlier writes instead of silently skipping it
+OK: AArch64 REASSEMBLE growth and shrinkage after sizing cannot corrupt forward label references; earlier source/data writes roll back
+OK: The REASSEMBLE size-change guard also protects variable-length x86 instructions and restores the modified source
+OK: REASSEMBLE retains same-size source updates without invalidating following labels and disables cleanly
+OK: Unknown instruction architectures cannot patch code or attempt an unverified undo write
+OK: AArch64 NOP bytes remain little endian even when target data uses big endian
+OK: Unaligned, fractional, empty and overflowing AArch64 NOP patches fail before mutation
+OK: AutoAssembler refuses an ARM64 RX target without a cache adapter without promoting protection
+OK: AutoAssembler enable and disable both use an explicit ARM64 code adapter and retain RX protection
+OK: Counted ARM64 NOP directives size forward labels by complete instructions and restore every byte
+OK: Negative, trailing, zero and excessive NOP counts fail before allocating a patch buffer
+OK: AutoAssembler rejects unaligned ARM64 NOPs and overflowing instruction ranges during label sizing
+OK: Shared patch helpers reject a short x86 write and restore actual original bytes without changing protection
+OK: A retired code transaction cannot trigger a second undo write into a replacement process image
+OK: unsupported hook backends fail before touching target state
+OK: Wine capabilities expose thread coverage and page-guard restrictions
+OK: another tracer blocks debugger operations independently of byte access
+OK: remote PIDs cannot select local library-injection helpers
+OK: exited target capabilities never remain available
+OK: invalid ARM words preserve the next instruction boundary and exact short trailing bytes
+OK: invalid ARM words preserve the next instruction boundary and exact short trailing bytes
+OK: invalid ARM words preserve the next instruction boundary and exact short trailing bytes
+OK: invalid wide Thumb encodings do not decode their second halfword as another instruction
+OK: invalid wide Thumb encodings do not decode their second halfword as another instruction
+OK: x86 invalid-byte fallback still resumes at the next byte
+OK: x64 absolute and relative memory operands retain their destinations in labeled assembly blocks
+OK: bare numeric assembly operands preserve NASM decimal semantics
+OK: ARM/Thumb instruction decoding matches independent fixed bytes
+OK: ARM/Thumb assembly uses the selected instruction encoding
+OK: ARM/Thumb instruction decoding matches independent fixed bytes
+OK: ARM/Thumb assembly uses the selected instruction encoding
+OK: ARM/Thumb instruction decoding matches independent fixed bytes
+OK: ARM/Thumb assembly uses the selected instruction encoding
+OK: ARM/Thumb instruction decoding matches independent fixed bytes
+OK: ARM/Thumb assembly uses the selected instruction encoding
+OK: Lua scalar and pointer APIs share target ABI and byte-order semantics
+OK: Lua explicit little-endian selection overrides big-endian target data
+OK: host-only operations retain an actual live local process PID
+OK: remote or unknown identifiers matching a real host PID cannot select host signals, proc paths or perf sampling
+OK: remote or unknown identifiers matching a real host PID cannot select host signals, proc paths or perf sampling
+OK: remote or unknown identifiers matching a real host PID cannot select host signals, proc paths or perf sampling
+OK: an exited local target cannot select host signals, proc paths or perf sampling
+OK: recovery fixture activates a real patch
+OK: failed byte restoration retains recovery state and keeps cave allocations alive
+OK: short restoration writes cannot masquerade as successful cleanup
+OK: failed deallocation reports pending resources after verifying restored bytes
+OK: partial cleanup can be retried to completion
+OK: overlapping patches restore and verify the pre-enable image in reverse order
+OK: FULLACCESS records original protections for every changed range
+OK: partial protection restoration retains retry state after restoring original bytes
+OK: cleanup retries already-restored read-only bytes without writing them again
+OK: failed activation rolls back FULLACCESS page permissions
+OK: raw auto-assembler data directives honor non-x86 target byte order
+OK: non-x86 data patches clean up without an instruction backend
+OK: mixed-code caves inherit the preferred module's architecture instead of the program default
+OK: mixed-code cave cleanup succeeds
+OK: ARM64 frame chains use X29/PC/SP and decode target-endian saved registers
+OK: x32 frame records retain 64-bit saved register slots despite 32-bit data pointers
+OK: i386 frame records use four-byte slots from the stopped instruction ISA
+OK: unknown stack byte order never becomes a host-endian guess
+OK: i386 raw stack reads consecutive four-byte words
+OK: x32 raw stack uses the register ISA width rather than its pointer ABI
+OK: ARM64 raw stack uses native SP and explicit target byte order
+OK: short raw stack reads never display partially initialized words
+OK: partial raw stack words are unavailable rather than zero values
+OK: raw stack address arithmetic never wraps to low memory
+OK: raw stack rejects unknown byte order and excessive requests before reading
+OK: unattached views initialize a decoder for the engine's native ISA
+OK: unknown register ISA never invents an editable bank
+OK: i386 register view uses architectural names and width
+OK: i386 edits reject overflow and nonexistent R8
+OK: i386 condition expressions see EAX in globals and context
+OK: x86-64 exposes and edits the complete general register bank
+OK: all ARM64 PC/SP/X0-X30/PSTATE edits use native fields, without x86 aliases
+OK: ARM64 flags decode NZCV from PSTATE
+OK: ARM64 conditions expose real registers and never fabricate x86 values
+OK: register edits preserve fresh PC/SP and all unedited kernel registers in every supported ISA
+OK: incomplete register snapshots cannot overwrite a thread
+OK: register edits reject a changed thread execution mode
+OK: register edits preserve fresh PC/SP and all unedited kernel registers in every supported ISA
+OK: incomplete register snapshots cannot overwrite a thread
+OK: register edits reject a changed thread execution mode
+OK: register edits preserve fresh PC/SP and all unedited kernel registers in every supported ISA
+OK: incomplete register snapshots cannot overwrite a thread
+OK: register edits reject a changed thread execution mode
+OK: overflowing register edits fail without altering the source context
+OK: ARM64 branch hints cover every NZCV combination without guessing register-testing branches
+OK: live process metadata comes from its actual executable
+OK: live child identity is inspectable
+OK: old handles reject reads and writes after target exit
+0 failed compatibility checks

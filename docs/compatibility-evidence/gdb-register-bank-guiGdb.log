@@ -1,0 +1,50 @@
+PASS gdb-fail
+PASS gdb-cancel
+PASS gdb-pointer
+PASS gdb-unknown
+PASS gdb-unavailable
+PASS gdb-bank
+PASS qemu-gui
+OK: the GUI defaults to the full representable inclusive scan range
+OK: actual GUI screenshot saved
+OK: the actual File menu launches the connection dialog
+OK: the GUI displays the guest endpoint and architecture without a local PID
+OK: visible guest label distinguishes CPU architecture, data order and program pointer width
+OK: target switching freezes the previous memory viewer before releasing its process
+OK: the ordinary memory viewer opens on guest RAM
+OK: the Memory Viewer opens its register editor for the GDB target
+OK: the editor uses guest XML registers without local thread inspection
+OK: the existing Lua console shares the GUI target
+OK: GUI Lua reads the actual GDB target metadata
+OK: guest Lua identifiers cannot select host signals, proc paths or branch sampling
+OK: the actual Branch Mapper opens with a clear guest limitation
+OK: the branch thread selector accepts the kernel PID range and excludes the frontend-thread sentinel
+OK: guest branch sampling is disabled before reaching the host perf backend
+OK: the GUI refuses host signal pause for a guest target
+OK: shared GUI Lua edits actual QEMU RAM and its full 128-bit vector register
+OK: the Hex View edits actual guest bytes
+OK: Lua confirms the actual Hex View edit with guest-order typed reads
+OK: the XML editor exposes actual scalar and vector registers
+OK: Refresh reads all actual vector bytes in target order
+OK: invalid wide edits reject the entire edit set before writing any register
+OK: a live register can change after the editor's earlier snapshot
+OK: Apply edits the guest vector while preserving unedited live scalar and PC state
+OK: the ordinary GUI scanner finds the exact pattern in actual guest RAM
+OK: actual GUI screenshot saved
+OK: actual GUI screenshot saved
+OK: actual GUI screenshot saved
+OK: actual GUI screenshot saved
+OK: actual GUI screenshot saved
+OK: seed independent BE32 encoded pointers without changing guest CPU metadata
+OK: explicit GUI data controls scan BE32 pointers independently of unknown or LE64 guest metadata
+OK: a transferred encoded guest pointer retains its format for actual address-list edits
+OK: the actual guest observes exactly four big-endian edit bytes and unchanged neighbors
+OK: actual GUI screenshot saved
+OK: restore every guest byte changed by explicit pointer scan and record editing
+OK: the GUI and Lua restore every modified guest RAM byte and captured register exactly
+OK: the actual File menu disconnects the guest
+OK: disconnect releases target-bound editors and freezes its memory viewer
+OK: the shared console rejects stale reads after GUI disconnect
+OK: the GUI can return to a native target after a guest disconnect
+GDB_GUI_RESULT=PASSED mode=qemu-gui
+ [] 

@@ -1,0 +1,4 @@
+/* The pinned parser is an implementation detail, including inline members. */
+{
+    local: *tinyxml2*;
+};

@@ -4,12 +4,16 @@
 #include "debug/breakpoint_manager.hpp"
 #include "platform/process_api.hpp"
 #include "arch/disassembler.hpp"
+#include "symbols/elf_symbols.hpp"
+#include "platform/linux/target_syscall.hpp"
 #include <string>
 #include <vector>
 #include <unordered_map>
 #include <mutex>
 #include <atomic>
 #include <thread>
+#include <future>
+#include <signal.h>
 
 namespace ce {
 
@@ -19,7 +23,7 @@ struct CodeFinderResult {
     uintptr_t instructionAddress;
     std::string instructionText;
     std::vector<uint8_t> instructionBytes;
-    int hitCount = 0;
+    uint64_t hitCount = 0;
     CpuContext firstContext{}; // Register state at the first time this instruction hit
     CpuContext lastContext{};  // Register state at the most recent hit
 };
@@ -30,7 +34,7 @@ struct RecoveredInstruction {
     bool ok = false;
 };
 
-/// A hardware watchpoint traps AFTER the store retires, so `trapRip` (a hit's
+/// An x86 hardware watchpoint traps AFTER the store retires, so `trapRip` (a hit's
 /// firstContext.rip) points at the instruction FOLLOWING the writer. CodeFinder's
 /// backward disassembly picks the longest decode ending at rip, which can land a few
 /// bytes early on dense code and mis-decode. This recovers the exact store by
@@ -48,8 +52,8 @@ public:
 
     /// Start monitoring an address for reads (access) or writes only.
     /// Runs in a background thread. Call stop() to finish.
-    // watchSize: bytes to watch (1/2/4/8) — must be watchSize-aligned like any
-    // x86 hardware data breakpoint. Default 4 (a dword).
+    // watchSize: bytes to watch (1/2/4/8), with native hardware alignment/range
+    // validation. Default 4 (a dword).
     // software: use a page-protection watchpoint (mprotect + SIGSEGV) instead of a
     // CPU hardware debug register. Never viable on Wine/Proton (its mprotect fights
     // Proton's kernel write-watch/userfaultfd and deadlocks the game); kept for
@@ -68,6 +72,8 @@ public:
 
     /// Is monitoring active?
     bool running() const { return running_.load(); }
+    Error lastError() const { std::lock_guard lock(errorMutex_); return error_; }
+    bool hasPendingRecovery() const { return recoveryPending_.load(); }
 
     /// The address being watched (for pointer-path hints in the UI).
     uintptr_t targetAddress() const { return targetAddress_; }
@@ -83,16 +89,19 @@ public:
     void clearResults();
 
 private:
-    void monitorLoop();          // hardware debug-register watchpoint
-    void monitorLoopSoftware();  // page-protection (mprotect + SIGSEGV) watchpoint
-    // Record the instruction that touched the address. afterInstruction=true (a
-    // hardware watchpoint traps once the store has retired, so rip is past it) backs
-    // up to the previous instruction; false (a software page fault stops on the
-    // faulting store itself) uses rip directly.
-    void recordHit(pid_t tid, bool afterInstruction);
+    void monitorLoop();          // native hardware and page-guard event loop
+    // x86 hardware stops after the instruction. ARM64 hardware and software page
+    // faults stop before it. Decode using the instruction address's native ISA.
+    bool recordHit(pid_t tid, bool afterInstruction);
+    void setError(Error error) { std::lock_guard lock(errorMutex_); error_=error; }
+    long setStoppedProtection(pid_t tid,uintptr_t scratch,uintptr_t address,size_t length,int protection,int& signal,
+                              std::optional<siginfo_t>* signalInfo=nullptr);
+    long runStoppedSyscall(pid_t tid,os::MemorySyscall operation,std::array<uint64_t,6> arguments,uintptr_t scratch,int& signal,
+                           std::optional<siginfo_t>* signalInfo=nullptr);
 
     ProcessHandle* proc_ = nullptr;
     Debugger* dbg_ = nullptr;
+    TargetMachine host_;
     uintptr_t targetAddress_ = 0;
     bool writesOnly_ = false;
     int  watchSize_ = 4;
@@ -101,7 +110,13 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<bool> stopRequested_{false};
     std::thread monitorThread_;
-    Disassembler disasm_{Arch::X86_64};
+    std::promise<bool> startup_;
+    std::optional<Disassembler> disasm_;
+    SymbolResolver symbols_;
+    std::mutex lifecycleMutex_;
+    mutable std::mutex errorMutex_;
+    Error error_;
+    std::atomic<bool> recoveryPending_{false};
 
     mutable std::mutex resultsMutex_;
     std::unordered_map<uintptr_t, CodeFinderResult> resultsMap_;

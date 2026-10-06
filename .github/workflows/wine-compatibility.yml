@@ -1,0 +1,61 @@
+name: Wine compatibility
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  legacy-wine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install native and Wine32 dependencies
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git pkg-config cmake ninja-build libcapstone-dev zlib1g-dev \
+            libdw-dev ca-certificates python3 wine wine64 wine32:i386 xvfb xauth
+      - name: Build compatibility tools without Qt
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_DISABLE_FIND_PACKAGE_Qt6=ON
+          cmake --build build --target cescan wine_integration -j"$(nproc)"
+      - name: Require real PE32 and PE32+ operations
+        run: xvfb-run -a python3 test/wine_compatibility_test.py build --require-legacy-wine32 --report compatibility-evidence/wine-legacy.json
+      - name: Save operation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine-legacy-evidence
+          path: compatibility-evidence/*.json
+          if-no-files-found: error
+
+  wow64-wine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container:
+      image: fedora:44
+      options: --cap-add SYS_PTRACE --security-opt seccomp=unconfined
+    steps:
+      - name: Install dependencies
+        run: |
+          dnf install -y git gcc gcc-c++ pkgconf-pkg-config cmake ninja-build capstone-devel \
+            zlib-devel elfutils-devel python3 wine xorg-x11-server-Xvfb xorg-x11-xauth
+      - uses: actions/checkout@v7
+      - name: Build compatibility tools without Qt
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_DISABLE_FIND_PACKAGE_Qt6=ON
+          cmake --build build --target cescan wine_integration -j"$(nproc)"
+      - name: Require actual 64-bit-loader WoW64 operations
+        run: xvfb-run -a python3 test/wine_compatibility_test.py build --require-wow64 --report compatibility-evidence/wine-wow64.json
+      - name: Save operation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine-wow64-evidence
+          path: compatibility-evidence/*.json
+          if-no-files-found: error

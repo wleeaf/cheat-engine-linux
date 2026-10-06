@@ -1,8 +1,9 @@
 #pragma once
-/// Debug session — persistent ptrace attachment with event loop, software breakpoints, stepping.
+/// Persistent ptrace attachment with native register/breakpoint backends and stepping.
 
 #include "debug/breakpoint_manager.hpp"
 #include "platform/process_api.hpp"
+#include "platform/linux/target_debug.hpp"
 #include <thread>
 #include <atomic>
 #include <functional>
@@ -26,7 +27,9 @@ enum class DebugEventType {
     ExceptionBreakpointHit,
     SingleStep,
     ProcessExited,
+    ProcessExecuted,
     SignalReceived,
+    ThreadExiting,
 };
 
 struct DebugEvent {
@@ -35,6 +38,10 @@ struct DebugEvent {
     uintptr_t address;
     int signal;
     CpuContext context;
+    uint64_t generation=0;
+    // ThreadExiting carries the surviving selected thread's context in tid;
+    // this separate ID identifies the task irreversibly leaving the group.
+    pid_t exitingTid=0;
 };
 
 class DebugSession {
@@ -51,17 +58,17 @@ public:
     bool isAttached() const { return attached_.load(); }
     pid_t pid() const { return pid_; }
 
-    /// Set a software breakpoint (int3). Returns breakpoint ID.
+    /// Set an architecture-specific software trap. Returns breakpoint ID.
     int setSoftwareBreakpoint(uintptr_t address);
 
     /// Remove a software breakpoint.
-    void removeSoftwareBreakpoint(int id);
+    bool removeSoftwareBreakpoint(int id);
 
-    /// Plant a hardware DATA watchpoint (DR0-3). type: 1=write, 3=access;
-    /// size: 1/2/4/8 bytes. Returns an id, or -1 if no debug register is free.
+    /// Plant a native hardware data watchpoint. type: 1=write, 3=access;
+    /// size: 1/2/4/8 bytes. Returns an id, or -1 if no kernel slot is free.
     int setHardwareBreakpoint(uintptr_t address, int type, int size);
     /// Remove a hardware watchpoint by id.
-    void removeHardwareBreakpoint(int id);
+    bool removeHardwareBreakpoint(int id);
 
     /// Continue execution after a break.
     void continueExecution();
@@ -76,13 +83,18 @@ public:
 
     /// Is the process currently stopped?
     bool isStopped() const { return stopped_.load(); }
+    bool hasPendingRecovery() const { return recoveryPending_.load(); }
+    uint64_t imageGeneration() const { return imageGeneration_.load(); }
+    bool retryPendingOperations();
+    Error lastError() const;
+    os::NativeVectorContext getVectorRegisters() const;
 
     /// Get the current stop context.
     CpuContext getStopContext() const;
 
     /// Overwrite the stopped thread's general-purpose registers and flags
     /// (register editing in the debugger). Only the managed integer registers
-    /// and RFLAGS are written; everything else the thread had is preserved.
+    /// and native flags are written; everything else the thread had is preserved.
     /// Returns false if the target is not currently stopped.
     bool setStopContext(const CpuContext& ctx);
 
@@ -114,7 +126,7 @@ private:
     // sole tracer; public mutators (continue/step/set-bp/remove-bp) post a
     // command that the tracer thread executes while the tracee is stopped.
     enum class CmdType { Continue, Step, SetSoftBp, RemoveSoftBp, SetRegs, SelectThread,
-                         SetHwBp, RemoveHwBp };
+                         SetHwBp, RemoveHwBp, RetryRecovery };
     struct Command {
         CmdType type;
         StepMode stepMode{StepMode::Into};
@@ -129,21 +141,21 @@ private:
     void tracerThread();
     long postCommand(Command cmd);
     long performCommand(const Command& cmd);
-    void handleStop(pid_t tid, int status);
-    void captureRegs(pid_t tid);  // GETREGS on the tracer thread → stopContext_
+    void handleStop(pid_t tid, int status, bool holdStop=false);
+    bool captureRegs(pid_t tid);  // native register banks on the tracer thread
     void tracerCleanup();
     // These run ONLY on the tracer thread.
     void doContinue();
     void doStep(StepMode mode, uintptr_t targetAddress);
     long doSetSoftBp(uintptr_t address);
-    void doRemoveSoftBp(int id);
+    bool doRemoveSoftBp(int id);
     long doSetHwBp(uintptr_t address, int type, int size);
-    void doRemoveHwBp(int id);
-    void disarmAllHwBreakpoints();   // clear DR on every thread (cleanup, before detach)
+    bool doRemoveHwBp(int id);
+    bool disarmAllHwBreakpoints();   // restore native banks before detach
     bool doSetRegs(const CpuContext& ctx);
     bool doSelectThread(pid_t tid);
     void publishStoppedThreads();   // snapshot stoppedTids_ for stoppedThreads()
-    // Run `tid` until the temporary int3 at `expected` traps (rewinding RIP so
+    // Run `tid` until the temporary trap at `expected` fires (restoring PC so
     // the original instruction re-executes). If a user software breakpoint is
     // hit en route it is surfaced as a BreakpointHit and the step is abandoned
     // there; returns false in that case and on tracee exit, true on success.
@@ -157,20 +169,50 @@ private:
     void stopOtherThreads(pid_t active);
     // Resume every stopped thread, stepping any thread that sits on an armed
     // software breakpoint over it first (restore byte, single-step, re-arm).
-    void resumeAllThreads();
-    // If `tid` is stopped exactly on an armed int3, step it past the original
+    bool resumeAllThreads();
+    // If `tid` is stopped exactly on an armed trap, step it past the original
     // instruction with the breakpoint temporarily lifted. Returns true if it did.
     bool stepThreadOverBp(pid_t tid);
+    bool stepThreadOverWatchpoint(pid_t tid);
+    bool adoptClonedThread(pid_t parent);
+    bool singleStepThread(pid_t tid);
+    bool waitForStop(pid_t tid, int& status, bool cancellable = true);
+    bool liftSoftBreakpoint(uintptr_t address);
+    bool rearmSoftBreakpoint(uintptr_t address);
+    bool recoverBreakpoints();
+    bool restoreHardwareState();
+    bool initializeThreadHardware(pid_t tid);
+    bool rewindSoftwareStop(pid_t tid, uintptr_t address);
+    bool isSoftwareStop(pid_t tid, int status) const;
+    pid_t stoppedMemoryThread() const;
+    void setError(Error error);
+    void handleExec(pid_t tid, bool notify = true);
+    bool recoverRenamedExec();
+    bool finishExitStop(pid_t tid);
+    void retireThread(pid_t tid, int status);
+    void publishThreadExits();
 
     pid_t pid_ = 0;
-    pid_t activeTid_ = 0;               // thread currently stopped/reported
+    std::atomic<pid_t> activeTid_{0};               // thread currently stopped/reported
     std::set<pid_t> traced_;            // all seized tids (tracer thread only)
     std::set<pid_t> stoppedTids_;       // currently ptrace-stopped tids
+    std::set<pid_t> pendingExitStops_;  // EXIT stops retained until detach succeeds
+    std::vector<pid_t> exitedDuringStop_;
     std::vector<pid_t> stoppedSnapshot_; // published stopped tids (contextMutex_)
     std::array<std::array<uint8_t, 16>, 16> xmmRegs_{}; // XMM0-15 (contextMutex_)
     ProcessHandle* proc_ = nullptr;
     std::atomic<bool> attached_{false};
     std::atomic<bool> stopped_{false};
+    std::atomic<bool> recoveryPending_{false};
+    bool hardwareRecovery_ = false;
+    std::unordered_map<pid_t, os::NativeHardwareBank> savedHardware_;
+    std::unordered_map<pid_t, int> pendingSignals_;
+    std::unordered_map<pid_t, uintptr_t> pendingRewinds_;
+    std::unordered_map<pid_t, uintptr_t> pendingHardwareSteps_;
+    std::optional<std::pair<pid_t, CpuContext>> registerRecovery_;
+    std::atomic<uint64_t> imageGeneration_{0};
+    os::NativeVectorContext vectorRegisters_{};
+    Error lastError_;
     std::thread eventThread_;
     std::thread::id tracerId_;
     std::promise<bool> attachPromise_;
@@ -184,14 +226,14 @@ private:
     struct SoftBp {
         int id;
         uintptr_t address;
-        uint8_t originalByte;
+        os::NativeSoftwareBreakpoint patch;
         bool active;
     };
     std::mutex bpMutex_;
     std::unordered_map<uintptr_t, SoftBp> softBreakpoints_;
     int nextSoftBpId_ = 1;
-    // Hardware data watchpoints (DR0-3), tracer thread only.
-    struct HwBp { int id; uintptr_t address; int reg; int type; int len; };
+    // Native hardware data watchpoints, tracer thread only.
+    struct HwBp { int id; uintptr_t address; int reg; int type; int size; };
     std::vector<HwBp> hwBreakpoints_;
     int nextHwBpId_ = 1;
     mutable std::mutex exceptionMutex_;

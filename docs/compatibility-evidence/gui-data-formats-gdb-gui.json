@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "createdUTC": "2026-10-05T22:53:59Z",
+  "sourceRevision": null,
+  "sourceState": "uncommitted worktree snapshot",
+  "realGuestRequired": true,
+  "binaries": {
+    "gui_lifecycle_smoke": "cfb2b1ebe449e70e64cf0081e6cb4e6eb293f698e6f3f78bc3915d4d60599850",
+    "libcecore.so": "00e7fdd9e3e622d791fa53fb1789d604be92ef7def9fbce5c0d71a59bc355a5b",
+    "cheatengine": "49dd6571e4c533bfd82b89be6c82e981f67b5df1f53d1d2b9bb03788a7b8dbd1"
+  },
+  "passed": true,
+  "cases": [
+    {
+      "name": "xml-duplicate",
+      "returnCode": 0,
+      "output": "OK: the GUI defaults to the full representable inclusive scan range\nOK: the actual File menu launches the connection dialog\nOK: failed or canceled connection preserves the original target and viewer\nOK: invalid XML is reported in the connection dialog\nGDB_GUI_RESULT=PASSED mode=gdb-fail\n",
+      "seconds": 0.622,
+      "peerErrors": [],
+      "packets": 12,
+      "passed": true
+    },
+    {
+      "name": "gui-cancel",
+      "returnCode": 0,
+      "output": "OK: the GUI defaults to the full representable inclusive scan range\nOK: the actual File menu launches the connection dialog\nOK: failed or canceled connection preserves the original target and viewer\nOK: cancel interrupts a stalled peer while the dialog continues processing events\nGDB_GUI_RESULT=PASSED mode=gdb-cancel\n",
+      "seconds": 0.653,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": true
+    },
+    {
+      "name": "gui-pointer",
+      "returnCode": 0,
+      "output": "OK: the GUI defaults to the full representable inclusive scan range\nOK: the actual File menu launches the connection dialog\nOK: the GUI displays the guest endpoint and architecture without a local PID\nOK: visible guest label distinguishes CPU architecture, data order and program pointer width\nOK: target switching freezes the previous memory viewer before releasing its process\nOK: the ordinary memory viewer opens on guest RAM\nOK: follow-pointer uses four-byte big-endian program pointers on an ARM64 CPU\nOK: a valid guest zero pointer remains distinguishable from an unreadable pointer\nOK: a short pointer read cannot consume invented bytes\nOK: the Memory Viewer opens its register editor for the GDB target\nOK: the editor uses guest XML registers without local thread inspection\nOK: the existing Lua console shares the GUI target\nOK: GUI Lua reads the actual GDB target metadata\nOK: guest Lua identifiers cannot select host signals, proc paths or branch sampling\nOK: the actual Branch Mapper opens with a clear guest limitation\nOK: the branch thread selector accepts the kernel PID range and excludes the frontend-thread sentinel\nOK: guest branch sampling is disabled before reaching the host perf backend\nOK: the GUI refuses host signal pause for a guest target\nOK: seed independent big-endian guest numeric data\nOK: ordinary GUI numeric scan displays big-endian live and captured values correctly\nOK: change actual guest numeric data through the shared Lua target\nOK: live numeric refresh uses the sample byte order while Previous retains its captured bytes\nOK: actual GUI screenshot saved\nOK: GUI next scan compares and saves big-endian numeric samples\nOK: GUI pointer scans use four-byte program pointers on the eight-byte ARM64 CPU\nOK: actual GUI screenshot saved\nOK: restore every guest RAM byte after numeric and pointer GUI scans\nOK: the actual File menu disconnects the guest\nOK: disconnect releases target-bound editors and freezes its memory viewer\nOK: the shared console rejects stale reads after GUI disconnect\nOK: the GUI can return to a native target after a guest disconnect\nGDB_GUI_RESULT=PASSED mode=gdb-pointer\n",
+      "seconds": 0.788,
+      "peerErrors": [],
+      "packets": 958,
+      "passed": true
+    },
+    {
+      "name": "gui-unknown",
+      "returnCode": 0,
+      "output": "OK: the GUI defaults to the full representable inclusive scan range\nOK: the actual File menu launches the connection dialog\nOK: the GUI displays the guest endpoint and architecture without a local PID\nOK: visible guest label distinguishes CPU architecture, data order and program pointer width\nOK: target switching freezes the previous memory viewer before releasing its process\nOK: the ordinary memory viewer opens on guest RAM\nOK: unknown guest data order never becomes a guessed host pointer\nOK: the Memory Viewer opens its register editor for the GDB target\nOK: the editor uses guest XML registers without local thread inspection\nOK: the existing Lua console shares the GUI target\nOK: GUI Lua reads the actual GDB target metadata\nOK: guest Lua identifiers cannot select host signals, proc paths or branch sampling\nOK: the actual Branch Mapper opens with a clear guest limitation\nOK: the branch thread selector accepts the kernel PID range and excludes the frontend-thread sentinel\nOK: guest branch sampling is disabled before reaching the host perf backend\nOK: the GUI refuses host signal pause for a guest target\nOK: seed independent BE32 encoded pointers without changing guest CPU metadata\nOK: explicit GUI data controls scan BE32 pointers independently of unknown or LE64 guest metadata\nOK: a transferred encoded guest pointer retains its format for actual address-list edits\nOK: the actual guest observes exactly four big-endian edit bytes and unchanged neighbors\nOK: restore every guest byte changed by explicit pointer scan and record editing\nOK: the actual File menu disconnects the guest\nOK: disconnect releases target-bound editors and freezes its memory viewer\nOK: the shared console rejects stale reads after GUI disconnect\nOK: the GUI can return to a native target after a guest disconnect\nGDB_GUI_RESULT=PASSED mode=gdb-unknown\n",
+      "seconds": 0.58,
+      "peerErrors": [],
+      "packets": 98,
+      "passed": true
+    },
+    {
+      "name": "gui-unavailable",
+      "returnCode": 0,
+      "output": "OK: the GUI defaults to the full representable inclusive scan range\nOK: the actual File menu launches the connection dialog\nOK: the GUI displays the guest endpoint and architecture without a local PID\nOK: visible guest label distinguishes CPU architecture, data order and program pointer width\nOK: target switching freezes the previous memory viewer before releasing its process\nOK: the ordinary memory viewer opens on guest RAM\nOK: follow-pointer uses four-byte big-endian program pointers on an ARM64 CPU\nOK: a valid guest zero pointer remains distinguishable from an unreadable pointer\nOK: a short pointer read cannot consume invented bytes\nOK: the Memory Viewer opens its register editor for the GDB target\nOK: the editor uses guest XML registers without local thread inspection\nOK: unavailable guest registers remain unavailable and cannot be edited as zero\nOK: the existing Lua console shares the GUI target\nOK: GUI Lua reads the actual GDB target metadata\nOK: guest Lua identifiers cannot select host signals, proc paths or branch sampling\nOK: the actual Branch Mapper opens with a clear guest limitation\nOK: the branch thread selector accepts the kernel PID range and excludes the frontend-thread sentinel\nOK: guest branch sampling is disabled before reaching the host perf backend\nOK: the GUI refuses host signal pause for a guest target\nOK: seed independent big-endian guest numeric data\nOK: ordinary GUI numeric scan displays big-endian live and captured values correctly\nOK: change actual guest numeric data through the shared Lua target\nOK: live numeric refresh uses the sample byte order while Previous retains its captured bytes\nOK: GUI next scan compares and saves big-endian numeric samples\nOK: GUI pointer scans use four-byte program pointers on the eight-byte ARM64 CPU\nOK: restore every guest RAM byte after numeric and pointer GUI scans\nOK: the actual File menu disconnects the guest\nOK: disconnect releases target-bound editors and freezes its memory viewer\nOK: the shared console rejects stale reads after GUI disconnect\nOK: the GUI can return to a native target after a guest disconnect\nGDB_GUI_RESULT=PASSED mode=gdb-unavailable\n",
+      "seconds": 0.778,
+      "peerErrors": [],
+      "packets": 959,
+      "passed": true
+    },
+    {
+      "name": "qemu-gui",
+      "returnCode": 0,
+      "output": "OK: the GUI defaults to the full representable inclusive scan range\nOK: actual GUI screenshot saved\nOK: the actual File menu launches the connection dialog\nOK: the GUI displays the guest endpoint and architecture without a local PID\nOK: visible guest label distinguishes CPU architecture, data order and program pointer width\nOK: target switching freezes the previous memory viewer before releasing its process\nOK: the ordinary memory viewer opens on guest RAM\nOK: the Memory Viewer opens its register editor for the GDB target\nOK: the editor uses guest XML registers without local thread inspection\nOK: the existing Lua console shares the GUI target\nOK: GUI Lua reads the actual GDB target metadata\nOK: guest Lua identifiers cannot select host signals, proc paths or branch sampling\nOK: the actual Branch Mapper opens with a clear guest limitation\nOK: the branch thread selector accepts the kernel PID range and excludes the frontend-thread sentinel\nOK: guest branch sampling is disabled before reaching the host perf backend\nOK: the GUI refuses host signal pause for a guest target\nOK: shared GUI Lua edits actual QEMU RAM and its full 128-bit vector register\nOK: the Hex View edits actual guest bytes\nOK: Lua confirms the actual Hex View edit with guest-order typed reads\nOK: the XML editor exposes actual scalar and vector registers\nOK: Refresh reads all actual vector bytes in target order\nOK: invalid wide edits reject the entire edit set before writing any register\nOK: a live register can change after the editor's earlier snapshot\nOK: Apply edits the guest vector while preserving unedited live scalar and PC state\nOK: the ordinary GUI scanner finds the exact pattern in actual guest RAM\nOK: actual GUI screenshot saved\nOK: actual GUI screenshot saved\nOK: actual GUI screenshot saved\nOK: actual GUI screenshot saved\nOK: actual GUI screenshot saved\nOK: seed independent BE32 encoded pointers without changing guest CPU metadata\nOK: explicit GUI data controls scan BE32 pointers independently of unknown or LE64 guest metadata\nOK: a transferred encoded guest pointer retains its format for actual address-list edits\nOK: the actual guest observes exactly four big-endian edit bytes and unchanged neighbors\nOK: actual GUI screenshot saved\nOK: restore every guest byte changed by explicit pointer scan and record editing\nOK: the GUI and Lua restore every modified guest RAM byte and captured register exactly\nOK: the actual File menu disconnects the guest\nOK: disconnect releases target-bound editors and freezes its memory viewer\nOK: the shared console rejects stale reads after GUI disconnect\nOK: the GUI can return to a native target after a guest disconnect\nGDB_GUI_RESULT=PASSED mode=qemu-gui\n",
+      "guestLog": "",
+      "guestExit": 0,
+      "peerErrors": [],
+      "seconds": 4.504,
+      "command": [
+        "timeout",
+        "45s",
+        "nice",
+        "-n",
+        "10",
+        "/home/taceddinsancak/Desktop/Projects/cheat-engine/build/.ci-tmp/qemu-bin/qemu-system-aarch64",
+        "-machine",
+        "virt",
+        "-cpu",
+        "cortex-a57",
+        "-smp",
+        "1",
+        "-m",
+        "64M",
+        "-display",
+        "none",
+        "-serial",
+        "none",
+        "-nic",
+        "none",
+        "-qmp",
+        "unix:cecompat-gdb-a79ae2abcf1a4c9ba2c8e7ff9bd6b726.monitor,server=on,wait=off",
+        "-S",
+        "-gdb",
+        "stdio"
+      ],
+      "scope": "Bare-metal ARM64 QEMU RAM and vCPU; not Linux guest processes or MMU mapping",
+      "passed": true
+    }
+  ],
+  "screenshots": {
+    "big-endian-numeric.png": "3ab015e533c4b27324e7cc3dad035a9bab0999a56cd2f1dc79e14a3793587a70",
+    "big-endian-pointer.png": "5c4e363c7b05f8173ae53c8a0d98556179ccba8e8fdc4904741031d3c12f6ba5",
+    "branch-mapper.png": "5e0a78d5d61bcc65c02d9f0ade57379999ea71822373757cf35d62fe73e7d96a",
+    "connection.png": "9de47bebcc67e345329d7cd4fc101b1d7591f4c85541719e7ec7bdd1c06ea3ca",
+    "encoded-pointer.png": "9c20c5d8fae3a6aa87a4a38ac052cd57179d991ac6c0cd4bbc97d76ea6dda5af",
+    "lua-console.png": "f8f25b9f3943e8f7a0f490ddc2bc62c688c88e39b1fd8cd5c14eda69496b6829",
+    "main-scan.png": "cc04e64668da46263eb5e388623a6188490c5e0a958f403892b48817d06565e9",
+    "memory-viewer.png": "3c0a860ec72043488b33e497efc62c338a65b8175200834a11532a1e60b5ba73",
+    "xml-registers.png": "34f25b3cc0698508b0f1912ef43465700091e6a5fac2d4447b0cf5f58448771b"
+  }
+}

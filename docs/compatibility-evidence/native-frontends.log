@@ -1,0 +1,42 @@
+GUI_KERNEL release=7.1.8-200.fc44.x86_64 machine=x86_64
+GUI_STAGE name=begin elapsedMs=0
+OK: GUI attaches and reads a real stopped thread
+OK: GUI follows the native program counter at a software breakpoint
+OK: register names and row count match the stopped thread ISA
+OK: highest architectural SIMD register displays actual kernel state
+OK: general register edit is read back from the real kernel and cached stop context
+OK: frame pointer edit and restoration reach the stopped thread
+OK: program counter edit refreshes navigation and current instruction highlighting
+OK: stack pointer edit refreshes the stack pane from the native register
+OK: status edit displays native NZCV or EFLAGS from kernel readback
+OK: disassembly restores the complete planted breakpoint instruction
+OK: instruction view masking preserves the real software trap in target memory
+OK: null stack values never acquire a misleading absolute symbol annotation
+OK: stack pane reads consecutive native-width values from the live target
+OK: debugger screenshot saved
+GUI_STAGE name=primary-screenshot elapsedMs=497
+OK: detached register cells cannot submit stale edits
+OK: GUI detach restores every original instruction byte
+GUI_STAGE name=standalone-begin elapsedMs=497
+OK: standalone editor exposes the actual general and SIMD register banks
+OK: applying unchanged editor cells never replays a stale register snapshot
+OK: standalone editor applies changed general registers through the real kernel owner
+OK: standalone editor refreshes kernel state after applying and restoring an edit
+OK: invalid register text leaves the live target and editable snapshot intact
+OK: refresh replaces invalid editor text with a fresh kernel snapshot
+OK: standalone stack reads stopped-thread native SP and consecutive architectural words
+OK: standalone register and stack screenshots saved
+GUI_STAGE name=standalone-screenshots elapsedMs=901
+GUI_STAGE name=cli-begin elapsedMs=902
+OK: actual CLI inspects the running native target
+OK: actual CLI Lua runner resolves metadata and disassembles live native code
+GUI_STAGE name=application-begin elapsedMs=912
+GUI_STAGE name=application-started elapsedMs=912
+GUI_STAGE name=application-finished elapsedMs=2030
+OK: actual GUI application attaches, opens the memory viewer, renders and exits cleanly
+GUI_STAGE name=paused-exit-begin elapsedMs=2030
+OK: the GUI owns a real paused target before external process death
+OK: a paused target's actual death automatically retires the GUI session and disables stale register edits
+OK: the GUI releases its kernel owner so actual final process death can be reaped normally
+GUI_STAGE name=paused-exit-finished elapsedMs=2380
+GUI_REGISTER_RESULT=PASSED architecture=x86-64

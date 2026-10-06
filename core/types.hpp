@@ -6,6 +6,9 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include <array>
+#include <sys/types.h>
+#include "core/target_machine.hpp"
 
 namespace ce {
 
@@ -60,6 +63,7 @@ struct ModuleInfo {
     std::string name;
     std::string path;
     bool        is64bit = true;
+    TargetMachine machine{};
 };
 
 /// If `addr` lies within one of `modules`, returns "basename+0xOFFSET" (the
@@ -73,17 +77,33 @@ struct ThreadInfo {
     pid_t tid = 0;
 };
 
-// ── CPU register context (x86_64) ──
+// Register banks retain their own names; consumers must select the target ISA.
 struct CpuContext {
-    uint64_t rax, rbx, rcx, rdx;
-    uint64_t rsi, rdi, rbp, rsp;
-    uint64_t r8, r9, r10, r11, r12, r13, r14, r15;
-    uint64_t rip;
-    uint64_t rflags;
-    uint64_t cs, ss, ds, es, fs, gs;
+    uint64_t rax = 0, rbx = 0, rcx = 0, rdx = 0;
+    uint64_t rsi = 0, rdi = 0, rbp = 0, rsp = 0;
+    uint64_t r8 = 0, r9 = 0, r10 = 0, r11 = 0, r12 = 0, r13 = 0, r14 = 0, r15 = 0;
+    uint64_t rip = 0;
+    uint64_t rflags = 0;
+    uint64_t cs = 0, ss = 0, ds = 0, es = 0, fs = 0, gs = 0;
 
     // Debug registers
-    uint64_t dr0, dr1, dr2, dr3, dr6, dr7;
+    uint64_t dr0 = 0, dr1 = 0, dr2 = 0, dr3 = 0, dr6 = 0, dr7 = 0;
+
+    CpuArchitecture architecture = CpuArchitecture::Unknown;
+    // ARM64: X0-X30. ARM32: R0-R12 and LR at index 14; SP, PC and CPSR
+    // use the common fields below. No x86 aliases or duplicated PC/SP storage.
+    std::array<uint64_t, 31> x{};
+    uint64_t sp = 0, pc = 0, pstate = 0;
+    bool debugRegistersValid = false;
+
+    bool hasArmRegisters() const { return architecture == CpuArchitecture::Arm64 || architecture == CpuArchitecture::Arm32; }
+    uint64_t instructionPointer() const { return hasArmRegisters() ? pc : rip; }
+    uint64_t stackPointer() const { return hasArmRegisters() ? sp : rsp; }
+    uint64_t framePointer() const { return architecture == CpuArchitecture::Arm32 ? x[11] : architecture == CpuArchitecture::Arm64 ? x[29] : rbp; }
+    void setInstructionPointer(uint64_t value) {
+        if (hasArmRegisters()) pc = value;
+        else rip = value;
+    }
 };
 
 // ── Scan value types ──

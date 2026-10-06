@@ -1,5 +1,10 @@
+#include <bit>
+#include "core/target_capabilities.hpp"
+#include "arch/target_arch.hpp"
 #include <csignal>
 #include "gui/mainwindow.hpp"
+#include "core/local_target.hpp"
+#include "gui/gdbconnectiondialog.hpp"
 #include "gui/theme.hpp"
 #include "core/expression.hpp"
 #include "core/value_io.hpp"
@@ -39,12 +44,21 @@
 #include "platform/linux/ceserver_debugger.hpp"
 #include "scripting/lua_gui.hpp"
 #include "core/ct_file.hpp"
+#include "core/ct_file_stream.hpp"
+#include <QSaveFile>
+#include <streambuf>
+#include <sstream>
+#include <limits>
+#include <unordered_set>
+#include <stdexcept>
 #include "core/target_profile.hpp"
 #include "core/trainer.hpp"
 #include "analysis/managed_runtime.hpp"
 
 #include <QMenuBar>
 #include <QApplication>
+#include <QScopedValueRollback>
+#include "gui/autoasmoperation.hpp"
 #include <QEventLoop>
 #include <QScrollArea>
 #include <QFontMetrics>
@@ -69,7 +83,6 @@
 #include <QListWidget>
 #include <sys/prctl.h>
 #include <QFile>
-#include <QSaveFile>
 #include <QProgressDialog>
 #include <QFileInfo>
 #include <QProcess>
@@ -181,12 +194,18 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* timer = valueRefreshTimer_;
     connect(timer, &QTimer::timeout, this, [this]() {
         if (!process_) return;
+        if (dynamic_cast<ce::GdbProcessHandle*>(process_.get()) && !process_->targetDescription().live) {
+            onDisconnectProcess();
+            processLabel_->setText("GDB target disconnected or exited");
+            statusBar()->showMessage("GDB target disconnected or exited",5000);
+            return;
+        }
         // Detect target death: once the pid is gone, stop polling and clear state
         // so the UI doesn't keep showing stale values against a dead process.
         if (!ceserverClient_ && currentPid_ > 0 && ::kill(currentPid_, 0) != 0 && errno == ESRCH) {
             processLabel_->setText(QString("Process %1 has exited").arg(currentPid_));
             statusBar()->showMessage("Target process exited", 5000);
-            releaseTargetUsers();
+            if (!releaseTargetUsers()) return;
             process_.reset();
             currentPid_ = 0;
             setWindowTitle("Cheat Engine");
@@ -289,6 +308,8 @@ void MainWindow::setupMenus() {
     file->addAction("Generate generic trainer lua script from table", this, &MainWindow::onCreateTrainer);
     file->addSeparator();
     file->addAction("Connect to ceserver...", this, &MainWindow::onConnectCeserver);  // Linux extra
+    file->addAction("Connect to GDB / QEMU...", this, &MainWindow::onConnectGdb);
+    file->addAction("Disconnect target", this, &MainWindow::onDisconnectProcess);
     file->addSeparator();
     file->addAction("Quit", this, &QWidget::close, QKeySequence("Ctrl+Q"));
 
@@ -391,8 +412,12 @@ void MainWindow::setupMenus() {
     auto* pauseAct = process->addAction("Pause the process");
     pauseAct->setCheckable(true);
     connect(pauseAct, &QAction::toggled, this, [this, pauseAct](bool checked) {
-        if (!process_ || currentPid_ <= 0) { pauseAct->setChecked(false); return; }
-        if (::kill(currentPid_, checked ? SIGSTOP : SIGCONT) != 0)
+        auto pid=ce::localTargetPid(process_.get());
+        if (!pid) {
+            pauseAct->setChecked(false);
+            statusBar()->showMessage("Pause requires a live local process target",5000);return;
+        }
+        if (::kill(*pid, checked ? SIGSTOP : SIGCONT) != 0)
             pauseAct->setChecked(false);
     });
     // Optionally SIGSTOP the target for the duration of each scan (CE's "pause
@@ -616,7 +641,12 @@ void MainWindow::setupMenus() {
         std::vector<uint8_t> buf(to - from);
         auto r = process_->read(from, buf.data(), buf.size());
         if (!r || *r == 0) { QMessageBox::warning(this, "Save Disassembly", "Could not read that range."); return; }
-        ce::Disassembler dis(process_->is64bit() ? ce::Arch::X86_64 : ce::Arch::X86_32);
+        auto architecture = ce::disassemblerArchFor(*process_, from);
+        if (!architecture) {
+            QMessageBox::warning(this, "Save Disassembly", QString::fromStdString(architecture.error()));
+            return;
+        }
+        ce::Disassembler dis(*architecture);
         auto insns = dis.disassemble(from, {buf.data(), *r}, 1000000, /*emitDataBytes=*/true);
         auto path = QFileDialog::getSaveFileName(this, "Save disassembly", "disasm.asm");
         if (path.isEmpty()) return;
@@ -1086,6 +1116,7 @@ void MainWindow::setupUi() {
     openBtn->setIconSize(QSize(24, 24));
     connect(openBtn, &QPushButton::clicked, this, &MainWindow::onOpenProcess);
     processLabel_ = new QLabel("No process selected");
+    processLabel_->setObjectName("processLabel");
     processLabel_->setStyleSheet("font-weight: bold;");
     processBar->addWidget(openBtn);
     processBar->addWidget(processLabel_, 1);
@@ -1274,12 +1305,14 @@ void MainWindow::setupUi() {
     auto* valueLayout = new QHBoxLayout;
     valueLayout->addWidget(new QLabel("Value:"));
     scanValueEdit_ = new QLineEdit;
+    scanValueEdit_->setObjectName("scanValue");
     valueLayout->addWidget(scanValueEdit_);
     // Second bound, only shown for "Value between..." scans.
     betweenAndLabel_ = new QLabel("and");
     betweenAndLabel_->setVisible(false);
     valueLayout->addWidget(betweenAndLabel_);
     scanValue2Edit_ = new QLineEdit;
+    scanValue2Edit_->setObjectName("scanValueUpper");
     scanValue2Edit_->setVisible(false);
     valueLayout->addWidget(scanValue2Edit_);
     hexCheck_ = new QCheckBox("Hex");
@@ -1289,6 +1322,7 @@ void MainWindow::setupUi() {
 
     // Scan type
     scanTypeCombo_ = new QComboBox;
+    scanTypeCombo_->setObjectName("scanComparison");
     scanTypeCombo_->addItems({"Exact Value", "Bigger than...", "Smaller than...",
         "Value between...", "Unknown initial value", "Increased value",
         "Decreased value", "Changed value", "Unchanged value", "Same as first scan",
@@ -1317,6 +1351,7 @@ void MainWindow::setupUi() {
 
     // Value type
     valueTypeCombo_ = new QComboBox;
+    valueTypeCombo_->setObjectName("scanValueType");
     // Names match the cheat-table Type column / Change-address dialog (ce::valueTypeName)
     // and CE, so a type reads the same in the scanner and the address list. mapValueType
     // keys on the index, not the text, so the labels are free to be canonical.
@@ -1326,17 +1361,21 @@ void MainWindow::setupUi() {
 
     auto* floatLayout = new QHBoxLayout;
     floatRoundingCombo_ = new QComboBox;
+    floatRoundingCombo_->setObjectName("scanRounding");
+    floatRoundingCombo_->setToolTip("Exact uses stored precision. Rounded uses the precision of your input. Truncated compares integer parts. Extreme uses a tolerance.");
     floatRoundingCombo_->addItems({"Exact", "Rounded", "Truncated", "Extreme"});
     floatRoundingCombo_->setCurrentIndex(1);  // CE defaults float scans to Rounded
     floatToleranceEdit_ = new QLineEdit;
+    floatToleranceEdit_->setObjectName("scanTolerance");
+    floatToleranceEdit_->setToolTip("Absolute difference allowed in Extreme mode. Leave blank or use 0 for automatic tolerance.");
     floatToleranceEdit_->setPlaceholderText("Tolerance");
-    floatToleranceEdit_->setValidator(new QDoubleValidator(0.0, 1000000.0, 8, floatToleranceEdit_));
+    floatToleranceEdit_->setValidator(new QDoubleValidator(0.0, std::numeric_limits<double>::max(), 4096, floatToleranceEdit_));
     floatLayout->addWidget(floatRoundingCombo_);
     floatLayout->addWidget(floatToleranceEdit_);
     rightLayout->addLayout(floatLayout);
     auto updateFloatOptions = [this]() {
         auto vt = mapValueType(valueTypeCombo_->currentIndex());
-        bool isFloat = vt == ValueType::Float || vt == ValueType::Double;
+        bool isFloat = vt == ValueType::Float || vt == ValueType::Double || vt == ValueType::All;
         // Hide (not just disable) the float-only rounding/tolerance controls for
         // integer/text scans so the row collapses instead of leaving greyed
         // clutter. Tolerance appears only for the "Extreme" rounding mode.
@@ -1368,6 +1407,7 @@ void MainWindow::setupUi() {
     // Accent "primary action" styling comes from the theme (QPushButton#primaryButton).
     firstScanBtn_->setObjectName("primaryButton");
     nextScanBtn_ = new QPushButton("Next Scan");
+    nextScanBtn_->setObjectName("nextScanButton");
     nextScanBtn_->setEnabled(false);
     undoScanBtn_ = new QPushButton("Undo Scan");
     undoScanBtn_->setEnabled(false);
@@ -1392,10 +1432,12 @@ void MainWindow::setupUi() {
     auto* optLayout = new QGridLayout(optGroup);
     optLayout->addWidget(new QLabel("From:"), 0, 0);
     fromAddressEdit_ = new QLineEdit("0000000000");
+    fromAddressEdit_->setObjectName("scanFrom");
     fromAddressEdit_->setFont(QFont("Monospace", 9));
     optLayout->addWidget(fromAddressEdit_, 0, 1);
     optLayout->addWidget(new QLabel("To:"), 1, 0);
-    toAddressEdit_ = new QLineEdit("7fffffffffff");
+    toAddressEdit_ = new QLineEdit(QString::number(UINTPTR_MAX,16));
+    toAddressEdit_->setObjectName("scanTo");
     toAddressEdit_->setFont(QFont("Monospace", 9));
     optLayout->addWidget(toAddressEdit_, 1, 1);
     // Tri-state like CE: checked = must have the protection, unchecked = must NOT,
@@ -1505,6 +1547,38 @@ void MainWindow::setupUi() {
     stringEncodingCombo_ = new QComboBox;
     stringEncodingCombo_->addItems({"UTF-8", "ISO-8859-1", "CP1252"});
     optLayout->addWidget(stringEncodingCombo_, 7, 1);
+
+    auto* orderLabel = new QLabel("Data order:");
+    scanByteOrderCombo_ = new QComboBox;
+    scanByteOrderCombo_->setObjectName("scanByteOrder");
+    scanByteOrderCombo_->addItem("Auto (target)", static_cast<int>(ce::ByteOrder::Unknown));
+    scanByteOrderCombo_->addItem("Little-endian", static_cast<int>(ce::ByteOrder::Little));
+    scanByteOrderCombo_->addItem("Big-endian", static_cast<int>(ce::ByteOrder::Big));
+    scanByteOrderCombo_->setToolTip("Choose the encoding of the data being scanned. Auto uses the selected target's data order.");
+    orderLabel->setBuddy(scanByteOrderCombo_);
+    optLayout->addWidget(orderLabel, 10, 0);
+    optLayout->addWidget(scanByteOrderCombo_, 10, 1);
+    auto* widthLabel = new QLabel("Pointer size:");
+    scanPointerWidthCombo_ = new QComboBox;
+    scanPointerWidthCombo_->setObjectName("scanPointerWidth");
+    scanPointerWidthCombo_->addItem("Auto (target)", 0);
+    scanPointerWidthCombo_->addItem("4 bytes", 4);
+    scanPointerWidthCombo_->addItem("8 bytes", 8);
+    scanPointerWidthCombo_->setToolTip("Size of encoded pointers for Pointer, Grouped and Custom scans. A different saved record size requires a New Scan.");
+    widthLabel->setBuddy(scanPointerWidthCombo_);
+    optLayout->addWidget(widthLabel, 11, 0);
+    optLayout->addWidget(scanPointerWidthCombo_, 11, 1);
+    auto updateDataFormatUi = [this, orderLabel, widthLabel] {
+        const auto type = mapValueType(valueTypeCombo_->currentIndex());
+        const bool order = type != ValueType::Byte && type != ValueType::String &&
+            type != ValueType::ByteArray && type != ValueType::Binary;
+        const bool width = type == ValueType::Pointer || type == ValueType::Grouped || type == ValueType::Custom;
+        orderLabel->setVisible(order); scanByteOrderCombo_->setVisible(order);
+        widthLabel->setVisible(width); scanPointerWidthCombo_->setVisible(width);
+    };
+    connect(valueTypeCombo_, &QComboBox::currentIndexChanged, this,
+        [updateDataFormatUi](int) { updateDataFormatUi(); });
+    updateDataFormatUi();
 
     auto updatePercentUi = [this, percent2Label]() {
         bool enabled = percentCheck_->isChecked();
@@ -1872,14 +1946,32 @@ void MainWindow::setupUi() {
                 for (auto& idx : selected) addressListModel_->setEntryCodec(idx.row(), codec);
             });
 
-            // Big-endian value (emulated PS3 / Wii / GameCube): display byte-swaps to
-            // host order and edits swap back. Guest-scan results set this automatically.
-            auto* beAction = menu.addAction("Big-endian value");
-            beAction->setCheckable(true);
-            beAction->setChecked(addressListModel_->entryBigEndian(selected.first().row()));
-            connect(beAction, &QAction::toggled, this, [this, selected](bool on) {
-                for (auto& idx : selected) addressListModel_->setEntryBigEndian(idx.row(), on);
-            });
+            auto* orderMenu = menu.addMenu("Data order");
+            for (auto choice : {std::pair{"Auto (target)", ByteOrder::Unknown},
+                                std::pair{"Little-endian", ByteOrder::Little},
+                                std::pair{"Big-endian", ByteOrder::Big}}) {
+                auto* action = orderMenu->addAction(choice.first);
+                action->setCheckable(true);
+                const auto& entry = addressListModel_->entries()[selected.first().row()];
+                action->setChecked(entry.dataByteOrder == choice.second);
+                connect(action, &QAction::triggered, this, [this, selected, order=choice.second] {
+                    for (auto& index : selected) {
+                        const auto width = addressListModel_->entries()[index.row()].pointerWidth;
+                        addressListModel_->setEntryDataFormat(index.row(), order, width);
+                    }
+                });
+            }
+            auto* widthMenu = menu.addMenu("Pointer size");
+            for (auto choice : {std::pair{"Auto (target)", 0}, std::pair{"4 bytes", 4}, std::pair{"8 bytes", 8}}) {
+                auto* action = widthMenu->addAction(choice.first); action->setCheckable(true);
+                action->setChecked(addressListModel_->entries()[selected.first().row()].pointerWidth == choice.second);
+                connect(action, &QAction::triggered, this, [this, selected, width=choice.second] {
+                    for (auto& index : selected) {
+                        const auto order = addressListModel_->entries()[index.row()].dataByteOrder;
+                        addressListModel_->setEntryDataFormat(index.row(), order, width);
+                    }
+                });
+            }
 
             menu.addSeparator();
             auto* typeMenu = menu.addMenu("Change type");
@@ -2381,8 +2473,8 @@ static void warnIfMemoryUnreadable(QWidget* parent, ce::ProcessHandle* p,
 }
 
 void MainWindow::attachToPid(pid_t pid, const QString& name) {
+    if (!releaseTargetUsers()) return;
     currentPid_ = pid;
-    releaseTargetUsers();
     process_.reset();
     ceserverClient_.reset();
     process_ = std::make_unique<os::LinuxProcessHandle>(pid);
@@ -2427,6 +2519,14 @@ void MainWindow::attachToPid(pid_t pid, const QString& name) {
         // non-intrusive; hover to read).
         QString tip = QString::fromStdString(prof.summary());
         for (const auto& n : prof.notes) tip += "\n\n• " + QString::fromStdString(n);
+        auto target = process_->targetDescription();
+        tip += QString("\n\nProgram: %1, %2-byte pointers, %3\nHost ABI: %4")
+            .arg(ce::cpuArchitectureName(target.program.architecture)).arg(target.program.pointerWidth)
+            .arg(ce::byteOrderName(target.program.byteOrder)).arg(ce::targetAbiName(target.host.abi));
+        for (const auto& c : ce::targetCapabilities(target))
+            if (c.state != ce::CapabilityState::Available)
+                tip += QString("\n%1: %2. %3").arg(ce::targetFeatureName(c.feature),
+                    ce::capabilityStateName(c.state), QString::fromStdString(c.reason));
         processLabel_->setToolTip(tip);
         // The one note that means nothing will work at all (attach/watch/inject all
         // fail) is worth an explicit dialog: the target is already being traced.
@@ -2440,6 +2540,54 @@ void MainWindow::onOpenProcess() {
     ProcessListDialog dlg(this);
     if (dlg.exec() == QDialog::Accepted)
         attachToPid(dlg.selectedPid(), dlg.selectedName());
+}
+
+bool MainWindow::attachToGdb(std::unique_ptr<ce::GdbProcessHandle> process,const QString& endpoint) {
+    if (!process) return false;
+    const auto description=process->targetDescription();
+    if (!description.live) {statusBar()->showMessage(QString::fromStdString(process->lastTransportError()),5000);return false;}
+    const auto architecture=QString::fromStdString(process->registerDescription().architecture);
+    if (!releaseTargetUsers()) return false;
+    process_.reset();ceserverClient_.reset();
+    process_=std::move(process);currentPid_=0;
+    luaEngine_.setProcess(process_.get());luaEngine_.setAddressList(addressListModel_);
+    addressListModel_->setProcess(process_.get());resultsModel_->setProcess(process_.get());
+    resultsModel_->clear();lastResult_.reset();undoResult_.reset();
+    lastResultType_=undoResultType_=ValueType::Int32;lastResultValueSize_=undoResultValueSize_=0;
+    foundLabel_->setText("Found: 0");
+    const QString dataOrder=description.program.byteOrder==ce::ByteOrder::Unknown
+        ? "data order unknown" : QString("%1 data").arg(ce::byteOrderName(description.program.byteOrder));
+    const QString pointers=description.program.pointerWidth
+        ? QString("%1-bit pointers").arg(description.program.pointerWidth*8) : "pointer width unknown";
+    processLabel_->setText(QString("GDB: %1 (%2, %3, %4)").arg(endpoint,architecture,dataOrder,pointers));
+    QString tip=QString("Guest CPU: %1\nData order: %2\nProgram pointers: %3\nTransport: GDB")
+        .arg(architecture).arg(ce::byteOrderName(description.program.byteOrder)).arg(pointers);
+    for (const auto& capability:ce::targetCapabilities(description))
+        if (capability.state!=ce::CapabilityState::Available)
+            tip+=QString("\n%1: %2. %3").arg(ce::targetFeatureName(capability.feature),ce::capabilityStateName(capability.state),QString::fromStdString(capability.reason));
+    processLabel_->setToolTip(tip);setWindowTitle(QString("Cheat Engine - GDB %1").arg(endpoint));
+    const auto regions=process_->queryRegions();
+    if (!regions.empty()) {
+        fromAddressEdit_->setText(QString("0x%1").arg(regions.front().base,0,16));
+        toAddressEdit_->setText(QString("0x%1").arg(regions.back().base+regions.back().size-1,0,16));
+    }
+    // Raw byte patterns work even when the stub cannot identify data byte order.
+    valueTypeCombo_->setCurrentIndex(8); // ByteArray, see mapValueType.
+    updateScanButtons();
+    statusBar()->showMessage(regions.empty() ? "Connected to GDB; no memory map. Reconnect with a known scan range." : "Connected to GDB target",8000);
+    return true;
+}
+void MainWindow::onConnectGdb() {
+    GdbConnectionDialog dialog(this);
+    if (dialog.exec()==QDialog::Accepted) attachToGdb(dialog.takeProcess(),dialog.endpoint());
+}
+void MainWindow::onDisconnectProcess() {
+    if (!releaseTargetUsers()) return;
+    process_.reset();ceserverClient_.reset();currentPid_=0;
+    addressListModel_->setProcess(nullptr);resultsModel_->setProcess(nullptr);resultsModel_->clear();
+    lastResult_.reset();undoResult_.reset();lastResultType_=undoResultType_=ValueType::Int32;
+    lastResultValueSize_=undoResultValueSize_=0;foundLabel_->setText("Found: 0");
+    processLabel_->setText("No process selected");processLabel_->setToolTip({});setWindowTitle("Cheat Engine");updateScanButtons();
 }
 
 void MainWindow::onConnectCeserver() {
@@ -2498,7 +2646,7 @@ void MainWindow::onConnectCeserver() {
             return;
         }
 
-        releaseTargetUsers();
+        if (!releaseTargetUsers()) return;
         process_.reset();
         ceserverClient_ = std::move(client);
         process_ = std::move(handle);
@@ -2566,27 +2714,21 @@ static ValueType mapValueType(int index) {
     }
 }
 
-static void applyFloatOptions(ScanConfig& config, QComboBox* roundingCombo,
-                              QLineEdit* toleranceEdit, const QString& valueText) {
+static bool applyFloatOptions(ScanConfig& config, QComboBox* roundingCombo,
+                              QLineEdit* toleranceEdit) {
     if (config.valueType != ValueType::Float &&
-        config.valueType != ValueType::Double) {
-        return;
+        config.valueType != ValueType::Double && config.valueType != ValueType::All) {
+        return true;
     }
     config.roundingType = roundingCombo->currentIndex();
-    // parseUserDouble accepts ',' or '.' (Turkish comma-decimal locale).
-    double tolerance = parseUserDouble(toleranceEdit->text());
-    if (tolerance > 0.0)
-        config.floatTolerance = tolerance;
+    if (config.roundingType==3 && !toleranceEdit->text().trimmed().isEmpty()) {
+        ScanConfig tolerance;
+        if (!tolerance.parseFloatingValues(toleranceEdit->text().toStdString()) ||
+            !std::isfinite(tolerance.floatValue) || tolerance.floatValue<0) return false;
+        config.floatTolerance=tolerance.floatValue;
+    }
+    return true;
 
-    // Count the decimal places the user typed (either '.' or ',' separator) so
-    // "Rounded" matches at that precision (CE's Rounded-default). No separator = 0.
-    QString t = valueText.trimmed();
-    int sep = t.indexOf('.');
-    if (sep < 0) sep = t.indexOf(',');
-    int decimals = 0;
-    if (sep >= 0)
-        for (int i = sep + 1; i < t.size() && t[i].isDigit(); ++i) ++decimals;
-    config.floatDecimals = decimals;
 }
 
 static size_t resultValueSizeForConfig(const ScanConfig& config) {
@@ -2660,7 +2802,8 @@ struct ScopedSigstop {
 std::unique_ptr<ScanResult> MainWindow::runScanWithProgress(
     const std::function<ScanResult()>& scanFn) {
     // Optionally freeze the target for the whole scan so it's a consistent snapshot.
-    ScopedSigstop pause(currentPid_, pauseWhileScanning_);
+    const auto pausePid=pauseWhileScanning_ ? ce::localTargetPid(process_.get()) : std::optional<pid_t>{};
+    ScopedSigstop pause(pausePid.value_or(0), pauseWhileScanning_);
     // Pause the live-value refresh so it doesn't fight the scan for the target,
     // and show the progress bar.
     if (valueRefreshTimer_) valueRefreshTimer_->stop();
@@ -2723,6 +2866,7 @@ void MainWindow::onFirstScan() {
     }
 
     ScanConfig config;
+    applyScanDataFormat(config);
     config.valueType = mapValueType(valueTypeCombo_->currentIndex());
     config.compareType = mapScanType(scanTypeCombo_->currentIndex());
     // Fast Scan pins the scan to `alignment`-aligned addresses (much faster);
@@ -2793,24 +2937,30 @@ void MainWindow::onFirstScan() {
         config.customValueSize = std::max<size_t>(1, static_cast<size_t>(config.alignment));
         config.alignment = 1;
     } else if (config.valueType == ValueType::Float || config.valueType == ValueType::Double) {
-        config.floatValue = parseUserDouble(text);
+        if (!config.parseFloatingValues(text.toStdString(), scanValue2Edit_->text().toStdString())) {
+            QMessageBox::warning(this, "Floating scan", "Enter valid numeric values for the selected comparison.");return;
+        }
     } else if (config.valueType == ValueType::Pointer) {
         config.intValue = static_cast<int64_t>(text.toULongLong(nullptr, 0));
     } else if (config.valueType == ValueType::All) {
-        config.intValue = parseIntField(text, intBase == 16);
-        config.floatValue = parseUserDouble(text);
+        if (!config.parseAllValues(text.toStdString(), scanValue2Edit_->text().toStdString(), intBase == 16)) {
+            QMessageBox::warning(this, "All scan", "Enter valid numeric values for the selected comparison.");return;
+        }
     } else {
         config.intValue = parseIntField(text, intBase == 16);
     }
     // "Value between..." needs a second (upper) bound from its own box.
-    if (config.compareType == ScanCompare::Between) {
+    if (config.compareType == ScanCompare::Between && config.valueType != ValueType::All &&
+        config.valueType != ValueType::Float && config.valueType != ValueType::Double) {
         auto text2 = scanValue2Edit_->text();
-        if (config.valueType == ValueType::Float || config.valueType == ValueType::Double)
+        if (config.valueType == ValueType::Float || config.valueType == ValueType::Double || config.valueType == ValueType::All)
             config.floatValue2 = parseUserDouble(text2);
-        else
+        if (config.valueType != ValueType::Float && config.valueType != ValueType::Double)
             config.intValue2 = parseIntField(text2, intBase == 16);
     }
-    applyFloatOptions(config, floatRoundingCombo_, floatToleranceEdit_, text);
+    if (!applyFloatOptions(config, floatRoundingCombo_, floatToleranceEdit_)) {
+        QMessageBox::warning(this, "Floating tolerance", "Enter a finite nonnegative tolerance.");return;
+    }
     size_t resultValueSize = resultValueSizeForConfig(config);
 
     firstScanBtn_->setEnabled(false);
@@ -2846,6 +2996,8 @@ void MainWindow::onFirstScan() {
     lastResultType_ = config.valueType;
     lastResultValueSize_ = resultValueSize;
     updateScanButtons();
+    statusBar()->showMessage(lastResult_->hasWriteError() ? QStringLiteral("Scan results are incomplete.") :
+        QStringLiteral("First scan complete. %1").arg(foundLabelText(lastResult_->count())), 4000);
 }
 
 void MainWindow::onNextScan() {
@@ -2859,11 +3011,10 @@ void MainWindow::onNextScan() {
     }
 
     ScanConfig config;
-    // A Next Scan MUST reuse the first scan's value type. The previous results
-    // are stored at that type's size, so honoring a mid-session combo change would
-    // reinterpret them at the wrong stride and corrupt the narrowing. (CE locks
-    // the type combo after the first scan; we simply pin it here.)
-    config.valueType = lastResultType_;
+    applyScanDataFormat(config);
+    // Ordinary typed samples keep their original stride. All samples carry
+    // candidate metadata, so the backend can select a concrete surviving type.
+    config.valueType = lastResultType_ == ValueType::All ? mapValueType(valueTypeCombo_->currentIndex()) : lastResultType_;
     config.compareType = mapScanType(scanTypeCombo_->currentIndex());
     config.alignment = alignEdit_->text().toInt();
 
@@ -2904,23 +3055,29 @@ void MainWindow::onNextScan() {
         config.customValueSize = std::max<size_t>(1, static_cast<size_t>(config.alignment));
         config.alignment = 1;
     } else if (config.valueType == ValueType::Float || config.valueType == ValueType::Double) {
-        config.floatValue = parseUserDouble(text);
+        if (!config.parseFloatingValues(text.toStdString(), scanValue2Edit_->text().toStdString())) {
+            QMessageBox::warning(this, "Floating scan", "Enter valid numeric values for the selected comparison.");return;
+        }
     } else if (config.valueType == ValueType::Pointer) {
         config.intValue = static_cast<int64_t>(text.toULongLong(nullptr, 0));
     } else if (config.valueType == ValueType::All) {
-        config.intValue = parseIntField(text, intBase == 16);
-        config.floatValue = parseUserDouble(text);
+        if (!config.parseAllValues(text.toStdString(), scanValue2Edit_->text().toStdString(), intBase == 16)) {
+            QMessageBox::warning(this, "All scan", "Enter valid numeric values for the selected comparison.");return;
+        }
     } else {
         config.intValue = parseIntField(text, intBase == 16);
     }
-    if (config.compareType == ScanCompare::Between) {
+    if (config.compareType == ScanCompare::Between && config.valueType != ValueType::All &&
+        config.valueType != ValueType::Float && config.valueType != ValueType::Double) {
         auto text2 = scanValue2Edit_->text();
-        if (config.valueType == ValueType::Float || config.valueType == ValueType::Double)
+        if (config.valueType == ValueType::Float || config.valueType == ValueType::Double || config.valueType == ValueType::All)
             config.floatValue2 = parseUserDouble(text2);
-        else
+        if (config.valueType != ValueType::Float && config.valueType != ValueType::Double)
             config.intValue2 = parseIntField(text2, intBase == 16);
     }
-    applyFloatOptions(config, floatRoundingCombo_, floatToleranceEdit_, text);
+    if (!applyFloatOptions(config, floatRoundingCombo_, floatToleranceEdit_)) {
+        QMessageBox::warning(this, "Floating tolerance", "Enter a finite nonnegative tolerance.");return;
+    }
 
     if (percentCheck_->isChecked()) {
         config.percentageScan = true;
@@ -2964,6 +3121,8 @@ void MainWindow::onNextScan() {
     lastResultType_ = config.valueType;
     lastResultValueSize_ = resultValueSize;
     updateScanButtons();
+    statusBar()->showMessage(lastResult_->hasWriteError() ? QStringLiteral("Scan results are incomplete.") :
+        QStringLiteral("Next scan complete. %1").arg(foundLabelText(lastResult_->count())), 4000);
 }
 
 void MainWindow::onUndoScan() {
@@ -2979,9 +3138,15 @@ void MainWindow::onUndoScan() {
 }
 
 void MainWindow::onResultDoubleClicked(const QModelIndex& index) {
-    if (!lastResult_) return;
+    if (!lastResult_ || !index.isValid() || index.row() < 0 || static_cast<size_t>(index.row()) >= lastResult_->count()) return;
     auto addr = resultsModel_->addressAt(index.row());
-    addressListModel_->addEntry(addr, lastResultType_, "No description", "", lastResultValueSize_);
+    auto type = lastResultType_;
+    size_t size = type == ValueType::All ? lastResult_->allTypeValueSize(index.row()) : lastResultValueSize_;
+    if (type == ValueType::All || type == ValueType::Grouped || type == ValueType::Custom || type == ValueType::Binary)
+        type = ValueType::ByteArray;
+    int id = addressListModel_->addEntry(addr, type, "No description", "", size);
+    if (lastResult_->hasDataFormat())
+        addressListModel_->setEntryDataFormat(addressListModel_->rowOfId(id), lastResult_->byteOrder(), lastResult_->pointerWidth());
 }
 
 void MainWindow::onDeleteAddresses() {
@@ -3052,7 +3217,7 @@ void MainWindow::onPasteAddresses() {
         obj.remove("id");
         entries.append(obj);
     }
-    addressListModel_->fromJson(entries);
+    addressListModel_->fromJson(entries, true);
 }
 
 void MainWindow::onFreezeTimer() {
@@ -3061,6 +3226,7 @@ void MainWindow::onFreezeTimer() {
 }
 
 void MainWindow::closeEvent(QCloseEvent* ev) {
+    if (!releaseTargetUsers()) { ev->ignore(); return; }
     // Remember where the user put the window and how they sized the panels, so
     // the next launch comes up the same (restored in the constructor).
     QSettings s;
@@ -3071,15 +3237,52 @@ void MainWindow::closeEvent(QCloseEvent* ev) {
     QMainWindow::closeEvent(ev);
 }
 
-void MainWindow::releaseTargetUsers() {
-    // Delete windows while their target, finders and Lua engine still exist.
-    // QPointer also covers nested windows deleted with one of their parents.
-    for (auto& window : targetWindows_) if (window) delete window.data();
-    targetWindows_.clear();
+bool MainWindow::releaseTargetUsers(bool force) {
+    AutoAsmUiOperation retirement(&autoAsm_, AutoAsmUiOperation::Purpose::Retire);
+    if (!retirement && !force) return false;
+    // Release debugger traces before restoring injected code. Editors must keep
+    // their original dependencies and recovery UI until cleanup succeeds.
     if (debuggerWindow_) delete debuggerWindow_;
     for (auto& finder : codeFinders_) if (finder) finder->stop();
+    const auto windows = targetWindows_;
+    for (const auto& window : windows)
+        if (window && !qobject_cast<ScriptEditor*>(window.data())) delete window.data();
+    struct Owner { uint64_t order; int id; QPointer<ScriptEditor> editor; };
+    std::vector<Owner> owners;
+    for (const auto& window : targetWindows_)
+        if (auto* editor = qobject_cast<ScriptEditor*>(window.data()); editor && editor->injectionOrder())
+            owners.push_back({editor->injectionOrder(), -1, editor});
+    if (addressListModel_) for (const auto& entry : addressListModel_->entries())
+        if (entry.autoAsmOrder) owners.push_back({entry.autoAsmOrder, entry.id, {}});
+    std::stable_sort(owners.begin(), owners.end(), [](const Owner& a, const Owner& b) { return a.order > b.order; });
+    bool cleaned = true;
+    for (const auto& owner : owners) {
+        if (owner.editor) {
+            if (!owner.editor->cleanupInjection(!force)) {
+                cleaned = false;
+                if (!force) { owner.editor->show(); owner.editor->raise(); return false; }
+            }
+        } else if (owner.id >= 0 && addressListModel_->byId(owner.id) && !addressListModel_->setActive(owner.id, false)) {
+            cleaned = false;
+            if (!force) return false;
+        }
+    }
+    if (addressListModel_ && !addressListModel_->deactivateAll()) cleaned = false;
+    if (!cleaned && !force) return false;
+    // Delete windows while their target, finders and Lua engine still exist.
+    // QPointer also covers nested windows deleted with one of their parents.
+    while (!targetWindows_.empty()) {
+        const auto window = targetWindows_.back();
+        targetWindows_.pop_back();
+        if (window) delete window.data();
+    }
+    // Finder-window destruction callbacks and refresh timers borrow these.
     codeFinders_.clear();
     codeFinderDebuggers_.clear();
+    // Saved undo belongs to the current address space. Keep its process handle
+    // and records available if restoration fails, so the user can repair/retry.
+    if (scanByteOrderCombo_) scanByteOrderCombo_->setCurrentIndex(0);
+    if (scanPointerWidthCombo_) scanPointerWidthCombo_->setCurrentIndex(0);
     for (auto& viewer : memoryViewers_) if (viewer) viewer->detachFromTarget();
     memoryViewers_.clear();
     for (auto& dissector : structDissectors_) if (dissector) dissector->detachFromTarget();
@@ -3088,10 +3291,19 @@ void MainWindow::releaseTargetUsers() {
     snapshot_.reset();
     allocations_.clear();
     luaEngine_.setProcess(nullptr);
+    luaResolver_.clear();
+    return cleaned;
 }
 
 MainWindow::~MainWindow() {
-    releaseTargetUsers();
+    // Normal close can be refused on cleanup failure. Forced destruction still
+    // attempts cleanup while these borrowed dependencies are alive, without a
+    // modal dialog entering an event loop during object destruction.
+    if (addressListModel_) {
+        addressListModel_->setActivationErrorCallback({});
+        addressListModel_->setActivationCallback({});
+    }
+    releaseTargetUsers(true);
 
     // Drop Lua GUI callback bindings before luaEngine_ (and its lua_State) is
     // destroyed with this window's members, so a stray Qt timer/widget callback
@@ -3176,12 +3388,6 @@ void MainWindow::editScriptEntry(int row) {
     // Save back to THIS entry (found by stable id, so it survives reordering)
     // instead of appending a duplicate row.
     editor->setAddToTable([this, id](const QString& d, const QString& s) {
-        // An active entry's injected code and saved DisableInfo describe the OLD
-        // script. Disable it (running the old disable path) before replacing the
-        // script, so a later toggle-off can't restore with stale info. The user
-        // re-enables to apply the edited script.
-        if (auto snap = addressListModel_->byId(id); snap && snap->active)
-            addressListModel_->setActive(id, false);
         addressListModel_->updateScriptEntryById(id, d, s);
     });
     editor->setBeforeExecute([this]() { stopCodeFindersForInjection(); });
@@ -3189,8 +3395,8 @@ void MainWindow::editScriptEntry(int row) {
 }
 
 ce::CheatTable MainWindow::buildCheatTable() const {
-    ce::CheatTable table;
-    table.gameName = processLabel_->text().toStdString();
+    ce::CheatTable table=tableMetadata_;
+    if (table.gameName.empty()) table.gameName = processLabel_->text().toStdString();
     table.comment = tableComment_.toStdString();   // table notes (Comments window)
     table.luaScript = tableLuaScript_.toStdString();  // table-level Lua (CE <LuaScript>)
     auto json = addressListModel_->toJson();
@@ -3198,9 +3404,8 @@ ce::CheatTable MainWindow::buildCheatTable() const {
     for (auto val : json) {
         auto obj = val.toObject();
         ce::CheatEntry e;
-        // toJson emits "parent" as the parent row's index; use the row index as
-        // the id too so the saver links children to parents to nest groups.
-        e.id = saveIdx++;
+        // Keep stable record IDs; translate the GUI parent row to its ID below.
+        e.id = obj.value("id").toInt(saveIdx++);
         e.description = obj["description"].toString().toStdString();
         e.address = obj["address"].toString().toULongLong(nullptr, 16);
         auto exprStr = obj["addressExpr"].toString();
@@ -3225,6 +3430,9 @@ ce::CheatTable MainWindow::buildCheatTable() const {
         e.active = obj["active"].toBool();
         e.showAsHex = obj["showAsHex"].toBool();
         e.showAsSigned = obj["showAsSigned"].toBool(true);
+        const auto order = obj["dataByteOrder"].toString();
+        e.dataByteOrder = order == "big" || (order.isEmpty() && obj["bigEndian"].toBool()) ? ByteOrder::Big : order == "little" ? ByteOrder::Little : ByteOrder::Unknown;
+        e.pointerWidth = static_cast<uint8_t>(obj["pointerWidth"].toInt());
         e.freezeMode = (ce::FreezeMode)obj["freezeMode"].toInt();
         e.autoAsmScript = obj["asm"].toString().toStdString();
         e.color = obj["color"].toString().toStdString();
@@ -3240,7 +3448,9 @@ ce::CheatTable MainWindow::buildCheatTable() const {
         e.activateChildren = obj["activateChildren"].toBool(true);
         e.deactivateChildren = obj["deactivateChildren"].toBool(true);
         e.optionsXml = obj["optionsXml"].toString().toStdString();
-        e.parentId = obj["parent"].toInt(-1);
+        const int parentRow=obj["parent"].toInt(-1);
+        e.parentId=parentRow>=0 && parentRow<json.size()
+            ? json[parentRow].toObject().value("id").toInt(parentRow) : -1;
         table.entries.push_back(e);
     }
     table.disassemblerComments = disasmAnnotations_;
@@ -3393,45 +3603,64 @@ void MainWindow::onSaveScanResults() {
     statusBar()->showMessage(QString("Saved %1 results to %2").arg(qulonglong(rows)).arg(QFileInfo(path).fileName()), 6000);
 }
 
-void MainWindow::onSaveTable() {
-    auto path = QFileDialog::getSaveFileName(this, "Save Cheat Table", "",
-        "Cheat Tables (*.ct);;JSON Tables (*.json);;All Files (*)");
-    if (path.isEmpty()) return;
-
-  try {
-    if (path.endsWith(".ct")) {
-        // Save as CE-compatible XML .CT format
-        CheatTable table = buildCheatTable();
-        table.save(path.toStdString());
-        addRecentTable(path);
-    } else {
-        // Save as JSON
-        QJsonObject root;
-        root["process"] = processLabel_->text();
-        root["entries"] = addressListModel_->toJson();
-        QJsonArray dc;
-        for (const auto& c : disasmAnnotations_) {
-            QJsonObject o;
-            o["address"] = QString::fromStdString(c.address);
-            if (!c.comment.empty()) o["comment"] = QString::fromStdString(c.comment);
-            if (!c.label.empty())   o["label"]   = QString::fromStdString(c.label);
-            dc.append(o);
-        }
-        root["disassemblerComments"] = dc;
-        QFile f(path);
-        if (f.open(QIODevice::WriteOnly)) {
-            f.write(QJsonDocument(root).toJson());
-            addRecentTable(path);
-        }
+namespace {
+class TableDeviceBuffer : public std::streambuf {
+    QIODevice& device_;
+protected:
+    std::streamsize xsputn(const char* bytes,std::streamsize size) override {
+        auto written=device_.write(bytes,static_cast<qint64>(size));
+        return written<0 ? 0 : static_cast<std::streamsize>(written);
     }
-  } catch (const std::exception& ex) {
-    // A serialize/save path may throw; never let it escape the slot into
-    // std::terminate.
-    QMessageBox::critical(this, "Save Cheat Table",
-        QString("Failed to save table:\n%1").arg(ex.what()));
-  } catch (...) {
-    QMessageBox::critical(this, "Save Cheat Table", "Failed to save table (unknown error).");
-  }
+    int_type overflow(int_type c) override {
+        if (traits_type::eq_int_type(c,traits_type::eof())) return traits_type::not_eof(c);
+        char byte=traits_type::to_char_type(c);
+        return device_.write(&byte,1)==1 ? c : traits_type::eof();
+    }
+public:
+    explicit TableDeviceBuffer(QIODevice& device) : device_(device) {}
+};
+}
+
+void MainWindow::onSaveTable() {
+    auto path=QFileDialog::getSaveFileName(this,"Save Cheat Table","",
+        "Cheat Tables (*.ct);;JSON Tables (*.json);;All Files (*)");
+    if (!path.isEmpty()) saveTableToPath(path);
+}
+
+bool MainWindow::saveTableToPath(const QString& path) {
+    auto fail=[&](const QString& reason) {
+        QMessageBox::critical(this,"Save Cheat Table",QString("Could not save %1:\n%2").arg(path,reason));
+        return false;
+    };
+    try {
+        QSaveFile file(path);
+        // Never fall back to truncating the previous table if staging fails.
+        file.setDirectWriteFallback(false);
+        if (!file.open(QIODevice::WriteOnly)) return fail(file.errorString());
+        if (path.endsWith(".ct",Qt::CaseInsensitive)) {
+            auto table=buildCheatTable();
+            TableDeviceBuffer buffer(file);std::ostream output(&buffer);
+            if (!ce::writeTableXml(table,output)) {file.cancelWriting();return fail("Invalid table data or incomplete write.");}
+        } else {
+            // Keep the GUI's richer native records (including codecs), while
+            // serializing shared table metadata through the core JSON writer.
+            auto metadata=tableMetadata_;
+            if (metadata.gameName.empty()) metadata.gameName=processLabel_->text().toStdString();
+            metadata.comment=tableComment_.toStdString();metadata.luaScript=tableLuaScript_.toStdString();
+            metadata.disassemblerComments=disasmAnnotations_;
+            std::ostringstream output;
+            if (!ce::writeTableJson(metadata,output)) {file.cancelWriting();return fail("Invalid table metadata.");}
+            auto root=QJsonDocument::fromJson(QByteArray::fromStdString(output.str())).object();
+            root["process"]=processLabel_->text();root["entries"]=addressListModel_->toJson();
+            const auto bytes=QJsonDocument(root).toJson();
+            if (file.write(bytes)!=bytes.size()) {const auto error=file.errorString();file.cancelWriting();return fail(error);}
+        }
+        if (!file.commit()) return fail(file.errorString());
+        addRecentTable(path);
+        statusBar()->showMessage(QString("Saved table to %1").arg(QFileInfo(path).fileName()),4000);
+        return true;
+    } catch (const std::exception& ex) {return fail(QString::fromUtf8(ex.what()));}
+      catch (...) {return fail("Unknown save error.");}
 }
 
 void MainWindow::onLoadTable() {
@@ -3455,6 +3684,7 @@ static QJsonArray cheatEntriesToJson(const ce::CheatTable& table) {
     std::unordered_map<int, int> indentById;
     for (const auto& e : table.entries) {
         QJsonObject obj;
+        obj["id"]=e.id;
         int indent = 0;
         if (e.parentId != -1) {
             auto it = indentById.find(e.parentId);
@@ -3480,6 +3710,8 @@ static QJsonArray cheatEntriesToJson(const ce::CheatTable& table) {
         obj["active"] = e.active;
         obj["showAsHex"] = e.showAsHex;
         obj["showAsSigned"] = e.showAsSigned;
+        if (e.dataByteOrder != ByteOrder::Unknown) obj["dataByteOrder"] = e.dataByteOrder == ByteOrder::Big ? "big" : "little";
+        if (e.pointerWidth) obj["pointerWidth"] = e.pointerWidth;
         obj["freezeMode"] = (int)e.freezeMode;
         obj["asm"] = QString::fromStdString(e.autoAsmScript);
         obj["color"] = QString::fromStdString(e.color);
@@ -3504,11 +3736,22 @@ static QJsonArray cheatEntriesToJson(const ce::CheatTable& table) {
 // Populate the address list (and table comment / disassembler annotations / table
 // Lua) from a parsed CheatTable. Shared by every load path that yields a
 // CheatTable model (CE XML .CT and password-protected .CETRAINER), so they behave
-// identically. JSON goes through its own reader below.
-void MainWindow::loadCheatTableModel(const ce::CheatTable& table) {
-    tableComment_ = QString::fromStdString(table.comment);   // table notes
+// identically. JSON may add codec/presentation settings to the common records.
+bool MainWindow::loadCheatTableModel(const ce::CheatTable& table,const QJsonArray* originalJson) {
     QJsonArray arr = cheatEntriesToJson(table);
-    loadAddressEntries(arr);
+    if (originalJson && originalJson->size()==arr.size()) {
+        for (qsizetype i=0;i<arr.size();++i) {
+            auto record=arr[i].toObject();const auto original=(*originalJson)[i].toObject();
+            for (const auto* field:{"codec","indent"})
+                if (original.contains(field)) record[field]=original[field];
+            arr[i]=record;
+        }
+    }
+    if (!loadAddressEntries(arr)) return false;
+    tableMetadata_.gameName=table.gameName;tableMetadata_.gameVersion=table.gameVersion;
+    tableMetadata_.author=table.author;tableMetadata_.structures=table.structures;
+    tableMetadata_.rawFormsXml=table.rawFormsXml;
+    tableComment_ = QString::fromStdString(table.comment);
     // Retain the table-level Lua script so it can be viewed/edited (Table > Show
     // Cheat Table Lua Script) and re-saved, not just run once on load.
     tableLuaScript_ = QString::fromStdString(table.luaScript);
@@ -3531,6 +3774,7 @@ void MainWindow::loadCheatTableModel(const ce::CheatTable& table) {
         }
     }
     disasmAnnotations_ = table.disassemblerComments;
+    return true;
 }
 
 void MainWindow::addRecentTable(const QString& path) {
@@ -3570,8 +3814,6 @@ void MainWindow::rebuildRecentMenu() {
 }
 
 void MainWindow::loadTableFromPath(const QString& path) {
-    // Show the loaded table's file name in the title bar, like CE.
-    setWindowTitle(QString("Cheat Engine - %1").arg(QFileInfo(path).fileName()));
   try {
     // Detect the format from the file's contents, not its extension: CE tables are
     // commonly `.CT` (uppercase) or extensionless when downloaded, which a
@@ -3589,35 +3831,38 @@ void MainWindow::loadTableFromPath(const QString& path) {
                 "Could not decrypt the table (wrong password or corrupt file).");
             return;
         }
-        loadCheatTableModel(table);
+        if (!loadCheatTableModel(table)) return;
         addRecentTable(path);
+        setWindowTitle(QString("Cheat Engine - %1").arg(QFileInfo(path).fileName()));
         return;
     }
     if (fmt != ce::TableFormat::Json) {
         // CE XML .CT format (Xml, or Unknown which load() self-validates).
         CheatTable table;
-        if (!table.load(path.toStdString())) return;
-        loadCheatTableModel(table);
+        if (!table.load(path.toStdString())) {QMessageBox::warning(this,"Load Cheat Table","Could not read a valid cheat table.");return;}
+        if (!loadCheatTableModel(table)) return;
         addRecentTable(path);
     } else {
-        // Load JSON
         QFile f(path);
-        if (!f.open(QIODevice::ReadOnly)) return;
-        auto doc = QJsonDocument::fromJson(f.readAll());
-        if (!doc.isObject()) return;
-        loadAddressEntries(doc.object()["entries"].toArray());
-        // Persistent disassembler comments (module-relative address expressions).
-        disasmAnnotations_.clear();
-        for (const auto& v : doc.object()["disassemblerComments"].toArray()) {
-            auto o = v.toObject();
-            ce::DisassemblerComment c;
-            c.address = o["address"].toString().toStdString();
-            c.comment = o["comment"].toString().toStdString();
-            c.label   = o["label"].toString().toStdString();
-            if (!c.address.empty()) disasmAnnotations_.push_back(std::move(c));
+        if (!f.open(QIODevice::ReadOnly)) {QMessageBox::warning(this,"Load Cheat Table",f.errorString());return;}
+        const auto bytes=f.readAll();
+        if (f.error()!=QFileDevice::NoError) {QMessageBox::warning(this,"Load Cheat Table",f.errorString());return;}
+        QJsonParseError parseError;auto doc=QJsonDocument::fromJson(bytes,&parseError);
+        if (!doc.isObject() || !doc.object()["entries"].isArray()) {
+            QMessageBox::warning(this,"Load Cheat Table","Invalid JSON cheat table.");return;
         }
+        for (const auto& value:doc.object()["entries"].toArray()) if (!value.isObject()) {
+            QMessageBox::warning(this,"Load Cheat Table","Invalid JSON record.");return;
+        }
+        CheatTable parsed;
+        if (!parsed.loadJsonFromString(bytes.toStdString())) {QMessageBox::warning(this,"Load Cheat Table","Invalid JSON record data.");return;}
+        // Use the exact validated common fields for either JSON schema. Only
+        // GUI codec/presentation settings come from Qt's parsed representation.
+        const auto original=doc.object()["entries"].toArray();
+        if (!loadCheatTableModel(parsed,&original)) return;
         addRecentTable(path);
     }
+    setWindowTitle(QString("Cheat Engine - %1").arg(QFileInfo(path).fileName()));
   } catch (const std::exception& ex) {
     // A parse/load path (e.g. ct_file) may throw; never let it escape the slot
     // into std::terminate.
@@ -3628,43 +3873,21 @@ void MainWindow::loadTableFromPath(const QString& path) {
   }
 }
 
-void MainWindow::loadAddressEntries(const QJsonArray& entries) {
-    QJsonArray normalized = entries;
-    QStringList failures;
-    bool skippedForMissingProcess = false;
-
-    for (int i = 0; i < normalized.size(); ++i) {
-        auto obj = normalized[i].toObject();
-        auto script = obj["asm"].toString();
-        if (!obj["active"].toBool() || script.isEmpty())
-            continue;
-
-        if (!process_) {
-            obj["active"] = false;
-            skippedForMissingProcess = true;
-            normalized.replace(i, obj);
-            continue;
-        }
-
-        auto result = autoAsm_.execute(*process_, script.toStdString());
-        if (!result.success) {
-            obj["active"] = false;
-            normalized.replace(i, obj);
-            auto desc = obj["description"].toString("Unnamed entry");
-            failures << QString("%1: %2").arg(desc, QString::fromStdString(result.error));
-        }
+static bool validRecordFormats(const QJsonArray& entries) {
+    for (const auto& value : entries) {
+        const auto object = value.toObject();
+        const auto order = object.value("dataByteOrder"), width = object.value("pointerWidth");
+        if ((!order.isUndefined() && (!order.isString() ||
+             (order.toString() != "auto" && order.toString() != "little" && order.toString() != "big"))) ||
+            (!width.isUndefined() && (!width.isDouble() ||
+             (width.toDouble() != 0 && width.toDouble() != 4 && width.toDouble() != 8)))) return false;
     }
+    return true;
+}
 
-    addressListModel_->fromJson(normalized);
-
-    if (skippedForMissingProcess) {
-        QMessageBox::warning(this, "Process required",
-            "Some active auto-assembler records were loaded inactive because no process is open.");
-    }
-    if (!failures.isEmpty()) {
-        QMessageBox::warning(this, "Auto-assembler activation failed",
-            failures.join('\n'));
-    }
+bool MainWindow::loadAddressEntries(const QJsonArray& entries) {
+    // The model owns both activation and its resulting undo state.
+    return addressListModel_->fromJson(entries);
 }
 
 void MainWindow::startCodeFinder(int row, bool writesOnly) {
@@ -3675,7 +3898,11 @@ void MainWindow::startCodeFinder(int row, bool writesOnly) {
     if (entry.isGroup) return;
     // Size the watchpoint to the record's type (Byte -> 1, Qword -> 8, ...); scalarWidth
     // returns 0 for String/AoB, which falls back to the configured default.
-    startCodeFinderForAddress(entry.address, writesOnly, ce::scalarWidth(entry.type));
+    size_t size = ce::scalarWidth(entry.type);
+    if (entry.type == ValueType::Pointer)
+        size = entry.pointerWidth ? entry.pointerWidth : process_ ? process_->pointerWidth(entry.address) : 0;
+    else if (entry.type == ValueType::ByteArray) size = entry.byteCount;
+    startCodeFinderForAddress(entry.address, writesOnly, static_cast<int>(std::min<size_t>(size, 8)));
 }
 
 void MainWindow::stopCodeFindersForInjection() {
@@ -3688,7 +3915,9 @@ void MainWindow::stopCodeFindersForInjection() {
 }
 
 std::unique_ptr<Debugger> MainWindow::createDebuggerForCurrentProcess() {
+    if (AutoAsmUiOperation::retiring(&autoAsm_)) return nullptr;
     if (!process_) return nullptr;
+    if (process_->targetDescription().transport==ce::TargetTransport::Gdb) return nullptr;
     if (auto* remote = dynamic_cast<os::RemoteProcessHandle*>(process_.get())) {
         if (!ceserverClient_) return nullptr;
         return std::make_unique<os::RemoteDebugger>(*ceserverClient_, remote->serverHandle());
@@ -3882,6 +4111,7 @@ void MainWindow::onMemoryView() {
 }
 
 void MainWindow::showDebugger() {
+    if (AutoAsmUiOperation::retiring(&autoAsm_)) return;
     if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
     // Reuse the existing window: it holds the ptrace attachment, so a second one
     // would fail to attach. Just raise it if it is already open.
@@ -4254,6 +4484,11 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
     });
 }
 
+void MainWindow::applyScanDataFormat(ScanConfig& config) const {
+    config.byteOrder = static_cast<ByteOrder>(scanByteOrderCombo_->currentData().toInt());
+    config.pointerWidth = static_cast<uint8_t>(scanPointerWidthCombo_->currentData().toInt());
+}
+
 void MainWindow::updateScanButtons() {
     bool hasProcess = (process_ != nullptr);
     bool scanActive = (lastResult_ != nullptr);   // a First Scan has been run
@@ -4261,12 +4496,12 @@ void MainWindow::updateScanButtons() {
     firstScanBtn_->setEnabled(hasProcess);
     if (auto* button = findChild<QPushButton*>("memoryViewButton")) button->setEnabled(hasProcess);
     // CE-style: once a scan session is open, "First Scan" becomes "New Scan" (a
-    // reset), the value type is locked (Next Scan must reuse it), and Next Scan
-    // is available. A fresh state shows "First Scan" with an editable value type.
+    // reset). Ordinary typed scans lock the value type; All scans permit
+    // selection of a surviving numeric type. A fresh state allows any type.
     firstScanBtn_->setText(scanActive ? "New Scan" : "First Scan");
     nextScanBtn_->setEnabled(hasResults);
     undoScanBtn_->setEnabled(undoResult_ != nullptr);
-    if (valueTypeCombo_) valueTypeCombo_->setEnabled(!scanActive);
+    if (valueTypeCombo_) valueTypeCombo_->setEnabled(!scanActive || lastResultType_ == ValueType::All);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -4284,6 +4519,7 @@ size_t ScanResultsModel::valueSizeBytes() const {
         case ValueType::Pointer: return valueSize_ == 4 || valueSize_ == 8 ? valueSize_ : sizeof(uintptr_t);
         case ValueType::Float:   return 4;
         case ValueType::Double:  return 8;
+        case ValueType::All: return std::max<size_t>(1,valueSize_);
         // Variable-width types carry their byte length in valueSize_ (set at scan
         // time from the pattern / string length). Without this, AOB and string
         // results read only 4 bytes and rendered as "?".
@@ -4314,9 +4550,11 @@ void ScanResultsModel::refreshRange(int firstRow, int lastRow) {
         } else ++it;
     }
     for (int row = firstRow; row <= lastRow; ++row) {
-        std::vector<uint8_t> buf(vs);
-        auto r = proc_->read(result_->address(row), buf.data(), vs);
-        std::vector<uint8_t> nv = (r && *r >= vs) ? std::move(buf) : std::vector<uint8_t>{};
+        const size_t readSize=result_->hasAllTypeCandidates() ? result_->allTypeValueSize(row) : vs;
+        std::vector<uint8_t> buf(readSize);
+        auto r=readSize ? proc_->read(result_->address(row),buf.data(),readSize) :
+            Result<size_t>(std::unexpected(std::make_error_code(std::errc::invalid_argument)));
+        std::vector<uint8_t> nv = (r && *r >= readSize) ? std::move(buf) : std::vector<uint8_t>{};
         // Flag rows whose value changed since the previous refresh (CE-style
         // red highlight for live-changing values).
         auto it = liveValues_.find(row);
@@ -4384,46 +4622,13 @@ QVariant ScanResultsModel::headerData(int section, Qt::Orientation o, int role) 
 
 // Format `vs` bytes at `buf` as `vt` (shared by the live Value and the scan-time
 // Previous columns).
-static QString formatScanValue(ValueType vt, bool displayHex, const uint8_t* buf, size_t vs,
-                               const std::string& stringEncoding = "UTF-8") {
-    switch (vt) {
-        // Integers render through the same shared helper as the cheat table (signed by
-        // default, hex width-masked), so a value reads identically in the results and
-        // after "Add to the address list".
-        case ValueType::Byte:
-        case ValueType::Int16:
-        case ValueType::Int32:
-        case ValueType::Int64: {
-            int w = ce::scalarWidth(vt);
-            uint64_t bits = 0; memcpy(&bits, buf, static_cast<size_t>(w));
-            return QString::fromStdString(ce::formatIntegerScalar(bits, w, /*isSigned=*/true, displayHex));
-        }
-        case ValueType::Pointer:{ uint64_t v = 0; memcpy(&v, buf, std::min(vs, sizeof(v))); return QString("0x%1").arg(v, 0, 16); }
-        case ValueType::Float:  { float v; memcpy(&v, buf, 4); return QString::fromStdString(ce::formatFloatScalar(v, false)); }
-        case ValueType::Double: { double v; memcpy(&v, buf, 8); return QString::fromStdString(ce::formatFloatScalar(v, true)); }
-        case ValueType::String: {
-            size_t len = strnlen(reinterpret_cast<const char*>(buf), vs);
-            // Decode the matched bytes from the scan's code page (CP1252 etc.) to UTF-8,
-            // so a non-ASCII string result reads correctly instead of as mojibake.
-            return QString::fromStdString(ce::decodeStringBytes(buf, len, stringEncoding));
-        }
-        case ValueType::UnicodeString: {
-            const char16_t* u = reinterpret_cast<const char16_t*>(buf);
-            size_t maxch = vs / 2, len = 0;
-            while (len < maxch && u[len] != u'\0') ++len;
-            return QString::fromUtf16(u, static_cast<int>(len));
-        }
-        case ValueType::ByteArray:
-        case ValueType::Binary:
-        case ValueType::Grouped:
-        case ValueType::Custom: {
-            QString hex; hex.reserve(static_cast<int>(vs * 3));
-            for (size_t i = 0; i < vs; ++i)
-                hex += QString("%1 ").arg(buf[i], 2, 16, QChar('0'));
-            return hex.trimmed().toUpper();
-        }
-        default: return "?";
-    }
+static QString formatScanValue(ValueType vt,bool displayHex,const uint8_t* buf,size_t size,
+                               const std::string& encoding="UTF-8",ByteOrder order=ByteOrder::Little) {
+    if (vt==ValueType::Binary || vt==ValueType::Grouped || vt==ValueType::Custom || vt==ValueType::All) vt=ValueType::ByteArray;
+    ce::ValueIoOptions options;options.hex=displayHex;options.size=size;options.encoding=encoding;
+    options.byteOrder=order;options.pointerWidth=static_cast<int>(size);
+    auto decoded=ce::decodeTypedValue(vt,{buf,size},options);
+    return decoded ? QString::fromStdString(*decoded) : QStringLiteral("??");
 }
 
 QVariant ScanResultsModel::data(const QModelIndex& index, int role) const {
@@ -4458,23 +4663,25 @@ QString ScanResultsModel::displayValueAt(size_t row, int column) const {
         return QString("0x%1").arg(result_->address(row), 0, 16);
     }
 
-    const size_t vs = valueSizeBytes();
+    const size_t vs=valueSizeBytes();
+    const size_t shownSize=result_->hasAllTypeCandidates() ? result_->allTypeValueSize(row) : vs;
+    if (!shownSize) return QStringLiteral("??");
     std::vector<uint8_t> buf(vs);
     if (column == 2) {
         // Previous: always the value captured at scan time.
         result_->value(row, buf.data(), vs);
-        return formatScanValue(valueType_, displayHex_, buf.data(), vs, stringEncoding_);
+        return formatScanValue(valueType_, displayHex_, buf.data(), shownSize, stringEncoding_, result_->hasDataFormat() ? result_->byteOrder() : valueType_==ValueType::UnicodeString ? ce::ByteOrder::Little : std::endian::native==std::endian::big ? ce::ByteOrder::Big : ce::ByteOrder::Little);
     }
     // Value: prefer the live re-read for on-screen rows; fall back to the
     // scan-time value for rows not currently refreshed.
     auto it = row <= INT_MAX ? liveValues_.find(static_cast<int>(row)) : liveValues_.end();
     if (it != liveValues_.end()) {
-        if (it->second.size() == vs) buf = it->second;
+        if (it->second.size() == shownSize) std::copy(it->second.begin(),it->second.end(),buf.begin());
         else return QStringLiteral("??");   // unreadable this refresh
     } else {
         result_->value(row, buf.data(), vs);
     }
-    return formatScanValue(valueType_, displayHex_, buf.data(), vs, stringEncoding_);
+    return formatScanValue(valueType_, displayHex_, buf.data(), shownSize, stringEncoding_, result_->hasDataFormat() ? result_->byteOrder() : valueType_==ValueType::UnicodeString ? ce::ByteOrder::Little : std::endian::native==std::endian::big ? ce::ByteOrder::Big : ce::ByteOrder::Little);
 }
 
 uintptr_t ScanResultsModel::addressAt(int row) const {
@@ -4486,6 +4693,19 @@ uintptr_t ScanResultsModel::addressAt(int row) const {
 // ═══════════════════════════════════════════════════════════════
 
 AddressListModel::AddressListModel(QObject* parent) : QAbstractTableModel(parent) {}
+
+int AddressListModel::allocId() {
+    const int first=nextId_;
+    do {
+        const int candidate=nextId_;
+        if (nextId_==std::numeric_limits<int>::max()) {nextId_=1;idWrapped_=true;}
+        else ++nextId_;
+        // Ordinary sequential allocation stays constant-time. After wrapping,
+        // imported sparse IDs can occupy the next slot, so search for a gap.
+        if (!idWrapped_ || rowOfId(candidate)<0) return candidate;
+    } while (nextId_!=first);
+    throw std::overflow_error("No unused record ID is available");
+}
 
 int AddressListModel::addEntry(uintptr_t addr, ValueType type, const QString& desc,
                                const QString& addressExpr, size_t byteCount) {
@@ -4520,16 +4740,18 @@ bool AddressListModel::isScriptEntry(int row) const {
     return row >= 0 && row < (int)entries_.size() && !entries_[row].autoAsmScript.isEmpty();
 }
 
-void AddressListModel::updateScriptEntryById(int id, const QString& desc, const QString& script) {
+bool AddressListModel::updateScriptEntryById(int id, const QString& desc, const QString& script) {
+    if (scriptBusy_ || mutationBusy_ || AutoAsmUiOperation::retiring(autoAsm_)) return false;
+    QScopedValueRollback mutation(mutationBusy_, true);
     int row = rowOfId(id);
-    if (row < 0) return;
+    if (row < 0 || !setEntryActive(row, false)) return false;
+    row = rowOfId(id);
+    if (row < 0) return false;
     auto& e = entries_[row];
     e.autoAsmScript = script;
     if (!desc.isEmpty()) e.description = desc;
-    // editScriptEntry() disables an ACTIVE entry before calling this (so the old
-    // script is cleanly un-injected and its autoAsmDisableInfo cleared); nothing
-    // stale is left here.
     emit dataChanged(index(row, 0), index(row, columnCount() - 1));
+    return true;
 }
 
 void AddressListModel::setEntryAddress(int row, uintptr_t addr, const QString& expr) {
@@ -4656,19 +4878,6 @@ static QVariant entryForeground(const QString& color) {
     return parsed.isValid() ? QVariant(parsed) : QVariant();
 }
 
-static size_t vtSize(ValueType vt) {
-    switch (vt) {
-        case ValueType::Byte:   return 1;
-        case ValueType::Int16:  return 2;
-        case ValueType::Int32:  return 4;
-        case ValueType::Int64:  return 8;
-        case ValueType::Pointer: return sizeof(uintptr_t);
-        case ValueType::Float:  return 4;
-        case ValueType::Double: return 8;
-        default: return 4;
-    }
-}
-
 // Parse a user-entered decimal accepting either '.' or ',' as the separator.
 // QString::toDouble is C-locale ('.') only; comma-locale users type "2,5".
 static double parseUserDouble(const QString& s, bool* ok) {
@@ -4690,9 +4899,16 @@ static long long parseIntField(const QString& valStr, bool hex = false) {
 // their known capacity.
 static std::expected<size_t, std::string> writeValueToProcess(
     ProcessHandle* proc, uintptr_t addr, ValueType type, const QString& value,
-    const ce::ValueCodec& codec = {}, bool bigEndian = false, bool showHex = false, size_t capacity = 0) {
+    const ce::ValueCodec& codec = {}, bool bigEndian = false, bool showHex = false, size_t capacity = 0,
+    ByteOrder order = ByteOrder::Unknown, uint8_t pointerWidth = 0) {
     ce::ValueIoOptions options;
     options.codec = codec; options.bigEndian = bigEndian; options.hex = showHex;
+    if (order != ByteOrder::Unknown) options.byteOrder = order;
+    if (pointerWidth) options.pointerWidthOverride = pointerWidth;
+    if (!proc) return std::unexpected("No process attached");
+    auto resolved = ce::valueOptionsForTarget(*proc, addr, type, options);
+    if (!resolved) return std::unexpected(resolved.error());
+    options = *resolved;
     if (type == ValueType::String || type == ValueType::UnicodeString) {
         auto bytes = ce::encodeTypedValue(type, value.toStdString(), options);
         if (!bytes) return std::unexpected(bytes.error());
@@ -4701,36 +4917,18 @@ static std::expected<size_t, std::string> writeValueToProcess(
     return ce::writeTypedValue(*proc, addr, type, value.toStdString(), options);
 }
 
+static bool parseComparableValue(ValueType type, const QString& valStr, double& value);
 static bool readComparableValue(ProcessHandle* proc, uintptr_t addr, ValueType type,
                                 double& value, const ce::ValueCodec& codec = {},
-                                bool bigEndian = false, bool isSigned = true) {
-    uint8_t buf[8] = {};
-    size_t vs = type == ValueType::Pointer ? (proc->is64bit() ? 8 : 4) : vtSize(type);
-    auto r = proc->read(addr, buf, vs);
-    if (!r || *r < vs) return false;
-
-    // Shared cecore transform: reverse big-endian to host order, then codec-decode
-    // (integer types), so directional freeze, the adjust hotkey and edit-verify all
-    // compare the LOGICAL value. Integers are interpreted per the record's signed
-    // display (isSigned) so this matches parseComparableValue on the display string;
-    // otherwise a signed-shown byte read as unsigned would never equal its frozen text.
-    uint64_t bits = 0;
-    if (type == ValueType::Pointer) {
-        if (bigEndian) std::reverse(buf, buf + vs);
-        memcpy(&bits, buf, vs);
-        if (codec.active()) bits = codec.decode(bits, static_cast<int>(vs));
-    } else bits = ce::decodeScalarBits(type, buf, bigEndian, codec);
-    switch (type) {
-        case ValueType::Byte:    value = isSigned ? (double)(int8_t)bits  : (double)(uint8_t)bits;  return true;
-        case ValueType::Int16:   value = isSigned ? (double)(int16_t)bits : (double)(uint16_t)bits; return true;
-        case ValueType::Int32:   value = isSigned ? (double)(int32_t)bits : (double)(uint32_t)bits; return true;
-        case ValueType::Int64:   value = isSigned ? (double)(int64_t)bits : (double)(uint64_t)bits; return true;
-        case ValueType::Pointer: value = static_cast<double>((uintptr_t)bits); return true;
-        case ValueType::Float:  { float  v; memcpy(&v, &bits, 4); value = v; return true; }
-        case ValueType::Double: { double v; memcpy(&v, &bits, 8); value = v; return true; }
-        default:
-            return false;
-    }
+                                bool bigEndian = false, bool isSigned = true,
+                                ByteOrder order = ByteOrder::Unknown, uint8_t pointerWidth = 0) {
+    if (!proc) return false;
+    ce::ValueIoOptions options;
+    options.codec = codec; options.bigEndian = bigEndian; options.isSigned = isSigned;
+    if (order != ByteOrder::Unknown) options.byteOrder = order;
+    if (pointerWidth) options.pointerWidthOverride = pointerWidth;
+    auto decoded = ce::readTypedValue(*proc, addr, type, options);
+    return decoded && parseComparableValue(type, QString::fromStdString(*decoded), value);
 }
 
 static bool parseComparableValue(ValueType type, const QString& valStr, double& value) {
@@ -4779,16 +4977,18 @@ void AddressListModel::freezeWrite(ProcessHandle* proc) {
         reresolveAddress(e);
 
         if (e.freezeMode == FreezeMode::Normal) {
-            (void)writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian, e.showAsHex, e.byteCount);
+            (void)writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian, e.showAsHex, e.byteCount, e.dataByteOrder, e.pointerWidth);
             continue;
         }
 
         ce::ValueIoOptions options;
         options.hex = e.showAsHex; options.isSigned = e.showAsSigned;
         options.codec = e.codec; options.bigEndian = e.bigEndian;
+        if (e.dataByteOrder != ByteOrder::Unknown) options.byteOrder = e.dataByteOrder;
+        if (e.pointerWidth) options.pointerWidthOverride = e.pointerWidth;
         auto comparison = ce::compareTypedValue(*proc, e.address, e.type, e.frozenValue.toStdString(), options);
         if (comparison && ((e.freezeMode == ce::FreezeMode::NeverDecrease || e.freezeMode == ce::FreezeMode::IncreaseOnly) ? *comparison < 0 : *comparison > 0))
-            (void)writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian, e.showAsHex, e.byteCount);
+            (void)writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian, e.showAsHex, e.byteCount, e.dataByteOrder, e.pointerWidth);
     }
 }
 
@@ -4827,6 +5027,8 @@ QJsonArray AddressListModel::toJson() const {
         if (e.codec.active())   // obfuscation codec, as its round-trippable spec string
             obj["codec"] = QString::fromStdString(e.codec.describe());
         if (e.bigEndian) obj["bigEndian"] = true;
+        if (e.dataByteOrder != ByteOrder::Unknown) obj["dataByteOrder"] = e.dataByteOrder == ByteOrder::Big ? "big" : "little";
+        if (e.pointerWidth) obj["pointerWidth"] = e.pointerWidth;
         if (e.indent > 0 && e.indent - 1 < (int)lastRowAtIndent.size())
             obj["parent"] = lastRowAtIndent[e.indent - 1];
         arr.append(obj);
@@ -4840,15 +5042,46 @@ QJsonArray AddressListModel::toJson() const {
     return arr;
 }
 
-void AddressListModel::fromJson(const QJsonArray& arr) {
-    beginResetModel();
-    entries_.clear();
+static bool hasSavedUndo(const ce::DisableInfo& info) {
+    return info.ownership || info.image || !info.originals.empty() || !info.allocs.empty() ||
+        !info.protections.empty() || !info.symbols.empty();
+}
+
+bool AddressListModel::fromJson(const QJsonArray& arr, bool preserveExisting) {
+    if (scriptBusy_ || mutationBusy_ || AutoAsmUiOperation::retiring(autoAsm_)) return false;
+    QScopedValueRollback mutation(mutationBusy_, true);
+    if (!validRecordFormats(arr)) {
+        reportActivationError("Table format", "Invalid record data order or pointer size."); return false;
+    }
+    std::unordered_set<int> reserved,assigned;
+    int largest=0;
+    for (const auto& value:arr) {
+        const int id=value.toObject().value("id").toInt(-1);
+        if (id>=0) {reserved.insert(id);largest=std::max(largest,id);}
+    }
+    int fresh=largest==std::numeric_limits<int>::max() ? 1:largest+1;
+    auto nextFresh=[&] {
+        const int first=fresh;
+        while (reserved.contains(fresh) || assigned.contains(fresh)) {
+            fresh=fresh==std::numeric_limits<int>::max() ? 1:fresh+1;
+            if (fresh==first) throw std::overflow_error("No unused record ID is available");
+        }
+        const int result=fresh;
+        fresh=fresh==std::numeric_limits<int>::max() ? 1:fresh+1;
+        assigned.insert(result);
+        return result;
+    };
+    std::vector<AddressEntry> incoming;
+    incoming.reserve(arr.size());
+    std::vector<int> activate;
+    std::unordered_set<int> retained;
     std::vector<int> parentIndentById;
     for (auto val : arr) {
         auto obj = val.toObject();
         AddressEntry e;
-        e.id = obj.contains("id") ? obj["id"].toInt() : allocId();
-        if (e.id >= nextId_) nextId_ = e.id + 1;
+        const int imported=obj.value("id").toInt(-1);
+        e.id=imported>=0 && assigned.insert(imported).second ? imported:nextFresh();
+        largest=std::max(largest,e.id);
         e.description = obj["description"].toString();
         e.address = obj["address"].toString().toULongLong(nullptr, 16);
         e.addressExpr = obj["addressExpr"].toString();
@@ -4884,16 +5117,53 @@ void AddressListModel::fromJson(const QJsonArray& arr) {
                 e.codec = *c;
         }
         e.bigEndian = obj["bigEndian"].toBool();
+        const auto order = obj["dataByteOrder"].toString();
+        e.dataByteOrder = order == "little" ? ByteOrder::Little : order == "big" ||
+            (!obj.contains("dataByteOrder") && e.bigEndian) ? ByteOrder::Big : ByteOrder::Unknown;
+        if (obj.contains("dataByteOrder")) e.bigEndian = e.dataByteOrder == ByteOrder::Big;
+        const auto width = obj["pointerWidth"].toInt();
+        e.pointerWidth = width == 4 || width == 8 ? width : 0;
         if (e.isGroup) {
             e.address = 0;
             e.currentValue.clear();
             e.frozenValue.clear();
         }
         if (e.active) e.frozenValue = e.currentValue;
+        const int oldRow = preserveExisting ? rowOfId(e.id) : -1;
+        if (oldRow >= 0 && entries_[oldRow].autoAsmScript == e.autoAsmScript &&
+            entries_[oldRow].active == e.active) {
+            e.autoAsmDisableInfo = entries_[oldRow].autoAsmDisableInfo;
+            e.autoAsmOrder = entries_[oldRow].autoAsmOrder;
+            e.frozenValue = entries_[oldRow].frozenValue;
+            retained.insert(e.id);
+        } else if (e.active && !e.autoAsmScript.isEmpty()) {
+            e.active = false;
+            e.frozenValue.clear();
+            activate.push_back(e.id);
+        }
         parentIndentById.push_back(e.indent);
-        entries_.push_back(e);
+        incoming.push_back(std::move(e));
     }
+    // Parse first, then retire owners while their original process is valid.
+    // On failure retain every row, including the remaining undo for retry.
+    for (int id : cleanupOrder()) {
+        const int row = rowOfId(id);
+        if (!retained.contains(id) && row >= 0 && !setEntryActive(row, false)) return false;
+    }
+    beginResetModel();
+    entries_ = std::move(incoming);
+    const auto revision = ++targetRevision_;
+    idWrapped_=largest==std::numeric_limits<int>::max();
+    nextId_=idWrapped_ ? 1:largest+1;
     endResetModel();
+    mutationBusy_ = false;
+    for (int id : activate) {
+        // A completed activation callback may replace the table or target.
+        // Remaining IDs then belong to a different import, even if reused.
+        if (targetRevision_ != revision) break;
+        setActive(id, true);
+    }
+    return true;
 }
 
 void AddressListModel::setFreezeMode(int row, FreezeMode mode) {
@@ -4917,8 +5187,19 @@ std::string AddressListModel::entryCodecSpec(int row) const {
 void AddressListModel::setEntryBigEndian(int row, bool bigEndian) {
     if (row < 0 || row >= (int)entries_.size()) return;
     entries_[row].bigEndian = bigEndian;
+    entries_[row].dataByteOrder = bigEndian ? ByteOrder::Big : ByteOrder::Little;
     entries_[row].currentValue.clear();   // re-read/reformat in the new byte order
     emit dataChanged(index(row, 4), index(row, 4), {Qt::DisplayRole, Qt::EditRole});
+}
+
+void AddressListModel::setEntryDataFormat(int row, ByteOrder order, uint8_t width) {
+    if (row < 0 || row >= rowCount() || (width && width != 4 && width != 8) ||
+        (order != ByteOrder::Unknown && order != ByteOrder::Little && order != ByteOrder::Big)) return;
+    auto& entry = entries_[row];
+    entry.dataByteOrder = order; entry.pointerWidth = width;
+    entry.bigEndian = order == ByteOrder::Big;
+    entry.currentValue.clear();
+    emit dataChanged(index(row, 3), index(row, 4));
 }
 
 bool AddressListModel::entryBigEndian(int row) const {
@@ -4965,7 +5246,7 @@ bool AddressListModel::adjustEntryValue(int row, double delta) {
     reresolveAddress(e);
 
     double current = 0;
-    if (!readComparableValue(proc_, e.address, e.type, current, e.codec, e.bigEndian, e.showAsSigned) &&
+    if (!readComparableValue(proc_, e.address, e.type, current, e.codec, e.bigEndian, e.showAsSigned, e.dataByteOrder, e.pointerWidth) &&
         !parseComparableValue(e.type, e.currentValue, current)) {
         return false;
     }
@@ -4999,7 +5280,7 @@ bool AddressListModel::adjustEntryValue(int row, double delta) {
             return false;
     }
 
-    auto written = writeValueToProcess(proc_, e.address, e.type, nextText, e.codec, e.bigEndian, e.showAsHex);
+    auto written = writeValueToProcess(proc_, e.address, e.type, nextText, e.codec, e.bigEndian, e.showAsHex, 0, e.dataByteOrder, e.pointerWidth);
     if (!written) { reportActivationError("Value edit failed", QString::fromStdString(written.error())); return false; }
     e.currentValue = nextText;
     if (e.active) e.frozenValue = nextText;
@@ -5008,6 +5289,7 @@ bool AddressListModel::adjustEntryValue(int row, double delta) {
 }
 
 void AddressListModel::indentRows(QList<int> rows) {
+    if (scriptBusy_ || mutationBusy_) return;
     if (rows.isEmpty()) return;
     std::sort(rows.begin(), rows.end());
     for (int row : rows) {
@@ -5019,6 +5301,7 @@ void AddressListModel::indentRows(QList<int> rows) {
 }
 
 void AddressListModel::outdentRows(QList<int> rows) {
+    if (scriptBusy_ || mutationBusy_) return;
     if (rows.isEmpty()) return;
     std::sort(rows.begin(), rows.end());
     for (int row : rows) {
@@ -5034,8 +5317,11 @@ void AddressListModel::reportActivationError(const QString& title, const QString
 }
 
 void AddressListModel::setAllActive(bool active) {
-    for (int i = 0; i < (int)entries_.size(); ++i)
-        if (!entries_[i].isGroup) setEntryActive(i, active);
+    if (!active) { deactivateAll(); return; }
+    for (int id : ids()) {
+        const int row = rowOfId(id);
+        if (row >= 0 && !entries_[row].isGroup) setEntryActive(row, active);
+    }
     if (!entries_.empty())
         emit dataChanged(index(0, 0), index((int)entries_.size() - 1, columnCount() - 1));
 }
@@ -5059,59 +5345,89 @@ void AddressListModel::setEntryValueTo(int row, const QString& value) {
 
 bool AddressListModel::setEntryActive(int row, bool active) {
     if (row < 0 || row >= (int)entries_.size()) return false;
-
-    auto& e = entries_[row];
-    if (e.active == active) return true;
-
-    if (!e.autoAsmScript.isEmpty()) {
+    if (scriptBusy_ || (active && (mutationBusy_ || AutoAsmUiOperation::retiring(autoAsm_)))) return false;
+    const int id = entries_[row].id;
+    const bool pending = hasSavedUndo(entries_[row].autoAsmDisableInfo);
+    if (entries_[row].active == active && !(pending && !active)) return true;
+    // A flag-only disable must not permit a second enable over live patches.
+    if (active && pending && !entries_[row].active) {
+        if (!setEntryActive(row, false)) return false;
+        row = rowOfId(id);
+        if (row < 0) return false;
+    }
+    const QString script = entries_[row].autoAsmScript;
+    if (!script.isEmpty() || pending) {
         if (!proc_ || !autoAsm_) {
             reportActivationError("Process required",
                 "Open a process before activating this auto-assembler record.");
             return false;
         }
 
-        // Code injection needs to ptrace-attach the target, which fails if this
-        // program already traces it (e.g. an open "find what accesses" window).
-        // Release those traces first.
-        if (beforeAaExecute_) beforeAaExecute_();
-
-        if (active) {
-            auto result = autoAsm_->execute(*proc_, e.autoAsmScript.toStdString());
-            if (!result.success) {
-                reportActivationError("Auto-assembler activation failed",
-                    QString::fromStdString(result.error));
-                return false;
-            }
-            e.autoAsmDisableInfo = std::move(result.disableInfo);
-        } else {
-            auto result = autoAsm_->disable(*proc_, e.autoAsmScript.toStdString(), e.autoAsmDisableInfo);
-            if (!result.success) {
-                reportActivationError("Auto-assembler deactivation failed",
-                    QString::fromStdString(result.error));
-                return false;
-            }
-            e.autoAsmDisableInfo = {};
+        AutoAsmUiOperation operation(autoAsm_, active ? AutoAsmUiOperation::Purpose::Execute : AutoAsmUiOperation::Purpose::Cleanup);
+        if (!operation) return false;
+        QScopedValueRollback busy(scriptBusy_, true);
+        // Both hooks and Lua evaluation may append records and reallocate the
+        // vector. Keep a stable ID and reacquire the row after each callback.
+        const auto before = beforeAaExecute_;
+        if (before) before();
+        row = rowOfId(id);
+        if (row < 0) return false;
+        const auto undo = entries_[row].autoAsmDisableInfo;
+        auto result = active ? autoAsm_->execute(*proc_, script.toStdString())
+                             : autoAsm_->disable(*proc_, script.toStdString(), undo);
+        row = rowOfId(id);
+        if (row < 0) return false;
+        entries_[row].autoAsmDisableInfo = std::move(result.disableInfo);
+        if (active && hasSavedUndo(entries_[row].autoAsmDisableInfo))
+            entries_[row].autoAsmOrder = AutoAsmUiOperation::nextOrder();
+        else if (!hasSavedUndo(entries_[row].autoAsmDisableInfo)) entries_[row].autoAsmOrder = 0;
+        if (!result.success) {
+            if (hasSavedUndo(entries_[row].autoAsmDisableInfo)) entries_[row].active = true;
+            emit dataChanged(index(row, 0), index(row, columnCount() - 1));
+            reportActivationError(active ? "Auto-assembler activation failed" : "Auto-assembler deactivation failed",
+                QString::fromStdString(result.error));
+            return false;
         }
     }
-
+    auto& e = entries_[row];
     e.active = active;
     if (e.active)
         e.frozenValue = e.currentValue;
     else
         e.frozenValue.clear();
-    if (activationCb_)
-        activationCb_(e.id, active);
+    emit dataChanged(index(row, 0), index(row, columnCount() - 1));
+    const auto callback = activationCb_;
+    if (callback) callback(id, active);
     return true;
 }
 
-void AddressListModel::removeEntry(int row) {
-    if (row < 0 || row >= (int)entries_.size()) return;
-    beginRemoveRows({}, row, row);
-    entries_.erase(entries_.begin() + row);
-    endRemoveRows();
+bool AddressListModel::deactivateAll() {
+    if (scriptBusy_ || mutationBusy_) return false;
+    QScopedValueRollback mutation(mutationBusy_, true);
+    for (int id : cleanupOrder()) {
+        const int row = rowOfId(id);
+        if (row >= 0 && !setEntryActive(row, false)) return false;
+    }
+    if (!entries_.empty()) emit dataChanged(index(0, 0), index(entries_.size() - 1, columnCount() - 1));
+    return true;
 }
 
-void AddressListModel::removeEntries(QList<int> rows) {
+bool AddressListModel::setProcess(ce::ProcessHandle* proc) {
+    if (scriptBusy_ || mutationBusy_ || AutoAsmUiOperation::busy(autoAsm_)) return false;
+    if (proc_ != proc && !deactivateAll()) return false;
+    if (proc_ != proc) ++targetRevision_;
+    proc_ = proc;
+    refreshModuleCache();
+    return true;
+}
+
+bool AddressListModel::removeEntry(int row) {
+    return removeEntries({row});
+}
+
+bool AddressListModel::removeEntries(QList<int> rows) {
+    if (scriptBusy_ || mutationBusy_ || AutoAsmUiOperation::retiring(autoAsm_)) return false;
+    QScopedValueRollback mutation(mutationBusy_, true);
     // Deleting a group header takes its whole subtree with it (CE: a group carries its
     // descendants), so children are never left orphaned at a now-invalid indent.
     std::vector<int> indents;
@@ -5121,12 +5437,21 @@ void AddressListModel::removeEntries(QList<int> rows) {
     sel.reserve(rows.size());
     for (int r : rows) if (r >= 0 && r < (int)entries_.size()) sel.push_back((std::size_t)r);
     auto expanded = ce::expandGroupDeletion(indents, sel);
+    auto cleanup = expanded;
+    std::stable_sort(cleanup.begin(), cleanup.end(), [&](auto a, auto b) { return entries_[a].autoAsmOrder > entries_[b].autoAsmOrder; });
+    for (auto row : cleanup) if (!setEntryActive(static_cast<int>(row), false)) return false;
     // Delete high-to-low so earlier indices stay valid as rows are removed.
-    for (auto it = expanded.rbegin(); it != expanded.rend(); ++it)
-        removeEntry((int)*it);
+    for (auto it = expanded.rbegin(); it != expanded.rend(); ++it) {
+        const int row = static_cast<int>(*it);
+        beginRemoveRows({}, row, row);
+        entries_.erase(entries_.begin() + row);
+        endRemoveRows();
+    }
+    return !expanded.empty();
 }
 
 int AddressListModel::moveEntry(int row, int delta) {
+    if (scriptBusy_ || mutationBusy_) return row;
     int target = row + delta;
     if (row < 0 || row >= (int)entries_.size() ||
         target < 0 || target >= (int)entries_.size())
@@ -5141,12 +5466,13 @@ int AddressListModel::moveEntry(int row, int delta) {
 // nullopt if `type` isn't variable-length; "??" on read failure. Shared by the
 // address-list refresh and the Lua mr.Value read so both agree.
 static std::optional<QString> formatVariableLengthValue(ProcessHandle* proc, uintptr_t addr,
-                                                        ValueType type, size_t byteCount, bool bigEndian) {
+                                                        ValueType type, size_t byteCount, bool bigEndian, ByteOrder order) {
     if (type != ValueType::String && type != ValueType::UnicodeString && type != ValueType::ByteArray)
         return std::nullopt;
     ce::ValueIoOptions options;
     options.size = byteCount ? byteCount : (type == ValueType::ByteArray ? 16 : 64);
     options.bigEndian = bigEndian;
+    if (order != ByteOrder::Unknown) options.byteOrder = order;
     auto value = ce::readTypedValue(*proc, addr, type, options);
     return value ? QString::fromStdString(*value) : QStringLiteral("??");
 }
@@ -5162,7 +5488,7 @@ void AddressListModel::updateValues(ProcessHandle* proc) {
         reresolveAddress(e);
 
         // Variable-length types: read the element (exact length if known) and format.
-        if (auto fv = formatVariableLengthValue(proc, e.address, e.type, e.byteCount, e.bigEndian)) {
+        if (auto fv = formatVariableLengthValue(proc, e.address, e.type, e.byteCount, e.bigEndian, e.dataByteOrder)) {
             e.currentValue = *fv;
             continue;
         }
@@ -5170,6 +5496,8 @@ void AddressListModel::updateValues(ProcessHandle* proc) {
         ce::ValueIoOptions options;
         options.hex = e.showAsHex; options.isSigned = e.showAsSigned;
         options.codec = e.codec; options.bigEndian = e.bigEndian;
+        if (e.dataByteOrder != ByteOrder::Unknown) options.byteOrder = e.dataByteOrder;
+        if (e.pointerWidth) options.pointerWidthOverride = e.pointerWidth;
         auto value = ce::readTypedValue(*proc, e.address, e.type, options);
         e.currentValue = value ? QString::fromStdString(*value) : "??";
     }
@@ -5185,12 +5513,14 @@ std::string AddressListModel::liveValue(int id) {
     // Re-resolve pointer expressions and read the process now (CE's mr.Value does a
     // live read on access, not a cached refresh value).
     reresolveAddress(e);
-    if (auto fv = formatVariableLengthValue(proc_, e.address, e.type, e.byteCount, e.bigEndian))
+    if (auto fv = formatVariableLengthValue(proc_, e.address, e.type, e.byteCount, e.bigEndian, e.dataByteOrder))
         return fv->toStdString();
 
     ce::ValueIoOptions options;
     options.hex = e.showAsHex; options.isSigned = e.showAsSigned;
     options.codec = e.codec; options.bigEndian = e.bigEndian;
+    if (e.dataByteOrder != ByteOrder::Unknown) options.byteOrder = e.dataByteOrder;
+    if (e.pointerWidth) options.pointerWidthOverride = e.pointerWidth;
     auto value = ce::readTypedValue(*proc_, e.address, e.type, options);
     return value ? *value : "??";
 }
@@ -5349,6 +5679,7 @@ bool AddressListModel::dropMimeData(const QMimeData* data, Qt::DropAction action
 }
 
 void AddressListModel::moveEntryBlock(int srcRow, int destRow, int newRootIndent) {
+    if (scriptBusy_ || mutationBusy_) return;
     const int n = (int)entries_.size();
     if (srcRow < 0 || srcRow >= n) return;
     // A group header drags its whole subtree; a leaf is a block of one.
@@ -5380,6 +5711,7 @@ void AddressListModel::moveEntryBlock(int srcRow, int destRow, int newRootIndent
 }
 
 void AddressListModel::groupSelectedRows(QList<int> rows, const QString& desc) {
+    if (scriptBusy_ || mutationBusy_) return;
     const int n = (int)entries_.size();
     std::vector<int> indents;
     indents.reserve(n);
@@ -5437,30 +5769,36 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
     if (!index.isValid() || index.row() < 0 || index.row() >= (int)entries_.size() ||
         index.column() < 0 || index.column() >= columnCount()) return false;
     if (role == Qt::CheckStateRole && index.column() == 0) {
-        auto& e = entries_[index.row()];
+        const int id = entries_[index.row()].id;
+        const bool group = entries_[index.row()].isGroup;
+        const int parentIndent = entries_[index.row()].indent;
         bool requestedActive = (value.toInt() == Qt::Checked);
-        if (!setEntryActive(index.row(), requestedActive))
-            return false;
-        emit dataChanged(index, index);
-
-        // Cascade to children if this is a group and CE's matching option is set:
-        // moActivateChildrenAsWell for turning on, moDeactivateChildrenAsWell for off.
-        bool cascade = requestedActive ? e.activateChildren : e.deactivateChildren;
-        if (e.isGroup && cascade) {
-            int parentIndent = e.indent;
-            int lastChangedRow = index.row();
-            for (int i = index.row() + 1; i < (int)entries_.size(); ++i) {
-                if (entries_[i].indent <= parentIndent) break;
-                setEntryActive(i, requestedActive);
-                lastChangedRow = i;
-            }
-            // Repaint exactly the rows that were cascaded (the old fixed +50
-            // window left the 51st+ children desynced from the model).
-            if (lastChangedRow > index.row())
-                emit dataChanged(this->index(index.row() + 1, 0),
-                    this->index(lastChangedRow, columnCount() - 1));
+        const bool cascade = requestedActive ? entries_[index.row()].activateChildren
+                                             : entries_[index.row()].deactivateChildren;
+        std::vector<std::pair<uint64_t, int>> children;
+        if (group && cascade) {
+            for (int i = index.row() + 1; i < (int)entries_.size() && entries_[i].indent > parentIndent; ++i)
+                children.emplace_back(entries_[i].autoAsmOrder, entries_[i].id);
         }
-        return true;
+        if (group && !requestedActive) {
+            std::stable_sort(children.begin(), children.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+            for (const auto& child : children) {
+                if (rowOfId(child.second) >= 0 && !setActive(child.second, false)) return false;
+            }
+            children.clear();
+        }
+        const int parentRow = rowOfId(id);
+        if (parentRow < 0) return true;
+        if (!setEntryActive(parentRow, requestedActive))
+            return false;
+        const int row = rowOfId(id);
+        if (row >= 0) emit dataChanged(this->index(row, 0), this->index(row, 0));
+        bool success = true;
+        for (const auto& child : children) {
+            const int childRow = rowOfId(child.second);
+            if (childRow >= 0 && !setActive(child.second, requestedActive)) success = false;
+        }
+        return success;
     }
     if (role == Qt::EditRole) {
         if (index.column() == 1) {
@@ -5515,8 +5853,17 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
                 if (okh) rawValue = "0x" + QString::number(hv, 16);
             }
             ce::ValueIoOptions options;
-            options.codec = e.codec; options.bigEndian = e.bigEndian; options.hex = e.showAsHex;
-            options.pointerWidth = proc_ && !proc_->is64bit() ? 4 : 8;
+            options.codec = e.codec; options.bigEndian = e.bigEndian;
+            if (e.dataByteOrder != ByteOrder::Unknown) options.byteOrder = e.dataByteOrder;
+            if (e.pointerWidth) options.pointerWidthOverride = e.pointerWidth;
+            options.hex = e.showAsHex;
+            options.pointerWidth = e.pointerWidth ? e.pointerWidth : proc_ ? proc_->pointerWidth(e.address) : sizeof(uintptr_t);
+            if (proc_) {
+                reresolveAddress(e);
+                auto resolved = ce::valueOptionsForTarget(*proc_, e.address, e.type, options);
+                if (!resolved) { reportActivationError("Value edit failed", QString::fromStdString(resolved.error())); return false; }
+                options = *resolved;
+            }
             auto bytes = ce::encodeTypedValue(e.type, rawValue.toStdString(), options);
             if (!bytes) { reportActivationError("Value edit failed", QString::fromStdString(bytes.error())); return false; }
             size_t nextByteCount = bytes->size();
@@ -5533,7 +5880,7 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
                 reresolveAddress(e);
                 auto written = ce::writeTypedValue(*proc_, e.address, e.type, rawValue.toStdString(), options);
                 if (!written) { reportActivationError("Value edit failed", QString::fromStdString(written.error())); return false; }
-                if (!e.active) scheduleEditVerify(e.address, e.type, rawValue, e.codec, e.bigEndian, e.showAsSigned);
+                if (!e.active) scheduleEditVerify(e.address, e.type, rawValue, e.codec, e.bigEndian, e.showAsSigned, e.dataByteOrder, e.pointerWidth);
             }
             if (e.type == ValueType::String || e.type == ValueType::UnicodeString || e.type == ValueType::ByteArray)
                 e.byteCount = nextByteCount;
@@ -5548,17 +5895,17 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
 
 void AddressListModel::scheduleEditVerify(uintptr_t addr, ce::ValueType type,
                                           const QString& wroteStr, const ce::ValueCodec& codec,
-                                          bool bigEndian, bool isSigned) {
+                                          bool bigEndian, bool isSigned, ByteOrder order, uint8_t pointerWidth) {
     if (!proc_) return;
     double target = 0;
     // Parse the written text the same way the read side interprets memory (hex-aware
     // for integers, so a "0xff" edit verifies), else no revert check (string/AOB).
     if (!parseComparableValue(type, wroteStr, target)) return;
     // `this` as the timer context: the callback is skipped if the model is destroyed.
-    QTimer::singleShot(250, this, [this, addr, type, wroteStr, target, codec, bigEndian, isSigned]() {
+    QTimer::singleShot(250, this, [this, addr, type, wroteStr, target, codec, bigEndian, isSigned, order, pointerWidth]() {
         if (!proc_) return;
         double now = 0;
-        if (!readComparableValue(proc_, addr, type, now, codec, bigEndian, isSigned)) return;
+        if (!readComparableValue(proc_, addr, type, now, codec, bigEndian, isSigned, order, pointerWidth)) return;
         const double tol = (type == ce::ValueType::Float || type == ce::ValueType::Double)
                          ? std::abs(target) * 1e-5 + 1e-6 : 0.5;
         if (std::abs(now - target) > tol)
@@ -5617,6 +5964,7 @@ bool AddressListModel::setSigned(int id, bool isSigned) {
 }
 
 bool AddressListModel::setIndent(int id, int indent) {
+    if (scriptBusy_ || mutationBusy_) return false;
     int row = rowOfId(id);
     if (row < 0 || row >= (int)entries_.size()) return false;
     entries_[row].indent = indent < 0 ? 0 : indent;
@@ -5649,6 +5997,17 @@ std::vector<int> AddressListModel::ids() const {
     return out;
 }
 
+std::vector<int> AddressListModel::cleanupOrder() const {
+    std::vector<std::pair<uint64_t, int>> owners;
+    owners.reserve(entries_.size());
+    for (const auto& entry : entries_) owners.emplace_back(entry.autoAsmOrder, entry.id);
+    std::stable_sort(owners.begin(), owners.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+    std::vector<int> result;
+    result.reserve(owners.size());
+    for (const auto& owner : owners) result.push_back(owner.second);
+    return result;
+}
+
 int AddressListModel::createEntry(uintptr_t addr, ValueType type, const std::string& description) {
     addEntry(addr, type, QString::fromStdString(description));
     return entries_.empty() ? -1 : entries_.back().id;
@@ -5662,11 +6021,11 @@ int AddressListModel::createGroup(const std::string& description) {
 bool AddressListModel::deleteById(int id) {
     int row = rowOfId(id);
     if (row < 0) return false;
-    removeEntry(row);
-    return true;
+    return removeEntry(row);
 }
 
 bool AddressListModel::disableAllWithoutExecute() {
+    if (scriptBusy_ || mutationBusy_) return false;
     bool any = false;
     for (size_t i = 0; i < entries_.size(); ++i) {
         if (entries_[i].active && !entries_[i].isGroup) {
@@ -5725,7 +6084,8 @@ bool AddressListModel::setActive(int id, bool active) {
     int row = rowOfId(id);
     if (row < 0) return false;
     bool ok = setEntryActive(row, active);
-    emit dataChanged(index(row, 0), index(row, columnCount() - 1));
+    row = rowOfId(id);
+    if (row >= 0) emit dataChanged(index(row, 0), index(row, columnCount() - 1));
     return ok;
 }
 
@@ -5750,10 +6110,7 @@ QString AddressListModel::dropdownList(int row) const {
 }
 
 bool AddressListModel::setScript(int id, const std::string& script) {
-    int row = rowOfId(id);
-    if (row < 0) return false;
-    entries_[row].autoAsmScript = QString::fromStdString(script);
-    return true;
+    return updateScriptEntryById(id, {}, QString::fromStdString(script));
 }
 
 bool AddressListModel::setFreezeMode(int id, int mode) {

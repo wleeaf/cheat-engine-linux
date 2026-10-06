@@ -1,4 +1,5 @@
 #include "gui/scripteditor.hpp"
+#include "gui/autoasmoperation.hpp"
 #include "gui/theme.hpp"
 #include "core/aa_templates.hpp"
 #include "core/injection_gen.hpp"
@@ -21,6 +22,9 @@
 #include <QInputDialog>
 #include <QSyntaxHighlighter>
 #include <QRegularExpression>
+#include <QCloseEvent>
+#include <QPointer>
+#include <QScopeGuard>
 #include <algorithm>
 
 namespace ce::gui {
@@ -155,8 +159,9 @@ ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget*
 
     auto* loadBtn = new QAction("Load", this);
     connect(loadBtn, &QAction::triggered, this, [this]() {
+        QPointer<ScriptEditor> self(this);
         auto path = QFileDialog::getOpenFileName(this, "Load Script", "", "CE Scripts (*.cea *.asm);;All Files (*)");
-        if (path.isEmpty()) return;
+        if (!self || path.isEmpty()) return;
         QFile f(path);
         if (f.open(QIODevice::ReadOnly)) {
             editor_->setPlainText(QTextStream(&f).readAll());
@@ -165,8 +170,9 @@ ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget*
 
     auto* saveBtn = new QAction("Save", this);
     connect(saveBtn, &QAction::triggered, this, [this]() {
+        QPointer<ScriptEditor> self(this);
         auto path = QFileDialog::getSaveFileName(this, "Save Script", "", "CE Scripts (*.cea);;All Files (*)");
-        if (path.isEmpty()) return;
+        if (!self || path.isEmpty()) return;
         QSaveFile file(path);
         const QByteArray bytes = editor_->toPlainText().toUtf8();
         if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit())
@@ -274,20 +280,51 @@ void ScriptEditor::setTableButtonText(const QString& t) {
     if (addTableBtn_) addTableBtn_->setText(t);
 }
 
+ScriptEditor::~ScriptEditor() {
+    cleanupInjection(false);
+}
+
+void ScriptEditor::closeEvent(QCloseEvent* event) {
+    if (!cleanupInjection()) { event->ignore(); return; }
+    QMainWindow::closeEvent(event);
+}
+
+void ScriptEditor::updateExecutionActions() {
+    executeBtn_->setEnabled(proc_ && autoAsm_ && !enabled_ && !busy_);
+    disableBtn_->setEnabled(proc_ && autoAsm_ && enabled_ && !busy_);
+}
+
 void ScriptEditor::onExecute() {
-    if (beforeExecute_) beforeExecute_();
+    if (busy_ || enabled_) return;
     if (!proc_ || !autoAsm_) {
         output_->setTextColor(ce::gui::editorPalette().error);
         output_->append("No process selected!");
         return;
     }
 
-    auto script = editor_->toPlainText().toStdString();
+    AutoAsmUiOperation operation(autoAsm_);
+    if (!operation) return;
+    QPointer<ScriptEditor> self(this);
+    busy_ = true;
+    updateExecutionActions();
+    auto restore = qScopeGuard([self] { if (self) { self->busy_ = false; self->updateExecutionActions(); } });
+    const auto script = editor_->toPlainText().toStdString();
+    auto* process = proc_;
+    auto* assembler = autoAsm_;
+    const auto before = beforeExecute_;
+    if (before) before();
+    if (!self) return;
     output_->clear();
     output_->setTextColor(ce::gui::editorPalette().text);
     output_->append("Executing...");
 
-    auto result = autoAsm_->execute(*proc_, script);
+    auto result = assembler->execute(*process, script);
+    if (!self) {
+        // A deferred/forced widget deletion during a Lua callback must not drop
+        // a successful result before making a cleanup attempt.
+        (void)assembler->disable(*process, script, result.disableInfo);
+        return;
+    }
 
     for (auto& msg : result.log)
         output_->append(QString::fromStdString(msg));
@@ -296,36 +333,72 @@ void ScriptEditor::onExecute() {
         output_->setTextColor(ce::gui::editorPalette().success);
         output_->append("Script executed successfully.");
         lastDisableInfo_ = result.disableInfo;
+        enabledScript_ = script;
         enabled_ = true;
-        executeBtn_->setEnabled(false);
-        disableBtn_->setEnabled(true);
+        enableOrder_ = AutoAsmUiOperation::nextOrder();
     } else {
         output_->setTextColor(ce::gui::editorPalette().error);
         output_->append("FAILED: " + QString::fromStdString(result.error));
+        if (result.disableInfo.ownership || result.disableInfo.image || !result.disableInfo.symbols.empty() ||
+            !result.disableInfo.originals.empty() || !result.disableInfo.allocs.empty() || !result.disableInfo.protections.empty()) {
+            lastDisableInfo_ = std::move(result.disableInfo);
+            enabledScript_ = script;
+            enabled_ = true;
+            enableOrder_ = AutoAsmUiOperation::nextOrder();
+            output_->append("Cleanup is still pending. Use Disable to retry restoration.");
+        }
     }
 }
 
 void ScriptEditor::onDisable() {
-    if (beforeExecute_) beforeExecute_();
-    if (!proc_ || !autoAsm_ || !enabled_) return;
+    cleanupInjection();
+}
 
-    auto script = editor_->toPlainText().toStdString();
-    output_->clear();
-    output_->setTextColor(ce::gui::editorPalette().text);
-    output_->append("Disabling...");
+bool ScriptEditor::cleanupInjection(bool report) {
+    if (busy_) return false;
+    if (!enabled_) return true;
+    if (!proc_ || !autoAsm_) return false;
+    AutoAsmUiOperation operation(autoAsm_, AutoAsmUiOperation::Purpose::Cleanup);
+    if (!operation) return false;
+    QPointer<ScriptEditor> self(this);
+    busy_ = true;
+    updateExecutionActions();
+    auto restore = qScopeGuard([self] { if (self) { self->busy_ = false; self->updateExecutionActions(); } });
+    const auto script = enabledScript_;
+    const auto undo = lastDisableInfo_;
+    auto* process = proc_;
+    auto* assembler = autoAsm_;
+    const auto before = beforeExecute_;
+    if (before) before();
 
-    auto result = autoAsm_->disable(*proc_, script, lastDisableInfo_);
+    if (self && report) {
+        output_->clear();
+        output_->setTextColor(ce::gui::editorPalette().text);
+        output_->append("Disabling...");
+    }
 
-    for (auto& msg : result.log)
-        output_->append(QString::fromStdString(msg));
+    auto result = assembler->disable(*process, script, undo);
+    if (!self) return result.success;
+    lastDisableInfo_ = result.disableInfo;
+
+    if (report) for (auto& msg : result.log) output_->append(QString::fromStdString(msg));
 
     if (result.success) {
-        output_->setTextColor(ce::gui::editorPalette().success);
-        output_->append("Script disabled.");
+        if (report) {
+            output_->setTextColor(ce::gui::editorPalette().success);
+            output_->append("Script disabled.");
+        }
         enabled_ = false;
-        executeBtn_->setEnabled(true);
-        disableBtn_->setEnabled(false);
+        enabledScript_.clear();
+        enableOrder_ = 0;
+    } else {
+        if (report) {
+            output_->setTextColor(ce::gui::editorPalette().error);
+            output_->append("Cleanup incomplete: " + QString::fromStdString(result.error));
+            output_->append("Recovery state retained. Use Disable to retry.");
+        }
     }
+    return result.success;
 }
 
 void ScriptEditor::onGenerateCodeInjection() {
@@ -333,6 +406,7 @@ void ScriptEditor::onGenerateCodeInjection() {
 }
 
 void ScriptEditor::onGenerateInjection(ce::InjectionKind kind) {
+    QPointer<ScriptEditor> self(this);
     if (!proc_) {
         QMessageBox::warning(this, "No process", "Attach to a process first.");
         return;
@@ -354,7 +428,7 @@ void ScriptEditor::onGenerateInjection(ce::InjectionKind kind) {
     bool ok = false;
     QString text = QInputDialog::getText(this, "Injection template",
         "Address or expression to inject at:", QLineEdit::Normal, initial, &ok);
-    if (!ok || text.trimmed().isEmpty()) return;
+    if (!self || !ok || text.trimmed().isEmpty()) return;
     ce::SymbolResolver symbols;
     symbols.loadProcess(*proc_);
     auto address = ce::ExpressionParser(proc_, &symbols).parse(text.trimmed().toStdString());
@@ -366,7 +440,7 @@ void ScriptEditor::onGenerateInjection(ce::InjectionKind kind) {
     if (kind == ce::InjectionKind::Pointer) {
         QString reg = QInputDialog::getText(this, "Pointer injection", "Register holding the pointer:",
             QLineEdit::Normal, proc_->runs32BitCode() ? "eax" : "rax", &ok);
-        if (!ok || reg.trimmed().isEmpty()) return;
+        if (!self || !ok || reg.trimmed().isEmpty()) return;
         pointerRegister = reg.trimmed().toStdString();
     }
     std::string genErr;
@@ -380,7 +454,7 @@ void ScriptEditor::onGenerateInjection(ce::InjectionKind kind) {
         auto answer = QMessageBox::question(this, "Replace script?",
             "Replace the current script with the generated injection?",
             QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
-        if (answer != QMessageBox::Yes) return;
+        if (!self || answer != QMessageBox::Yes) return;
     }
     injectionAddress_ = *address;
     injectionSize_ = size;
@@ -391,6 +465,7 @@ void ScriptEditor::onGenerateInjection(ce::InjectionKind kind) {
 }
 
 void ScriptEditor::onAddToTable() {
+    QPointer<ScriptEditor> self(this);
     auto script = editor_->toPlainText();
     if (script.trimmed().isEmpty()) {
         QMessageBox::information(this, "Add to Cheat Table", "The script is empty.");
@@ -405,17 +480,24 @@ void ScriptEditor::onAddToTable() {
     QString desc = QInputDialog::getText(this, "Add to Cheat Table",
         "Description for the table entry:", QLineEdit::Normal,
         defaultDescription_, &ok);
-    if (!ok) return;
+    if (!self || !ok) return;
     addToTable_(desc, script);
     output_->setTextColor(ce::gui::editorPalette().success);
     output_->append("Saved to the cheat table. Toggle its checkbox to enable/disable.");
 }
 
 void ScriptEditor::onCheck() {
+    if (!autoAsm_ || busy_) return;
+    AutoAsmUiOperation operation(autoAsm_);
+    if (!operation) return;
+    QPointer<ScriptEditor> self(this);
+    busy_ = true;
+    auto restore = qScopeGuard([self] { if (self) { self->busy_ = false; self->updateExecutionActions(); } });
     auto script = editor_->toPlainText().toStdString();
     output_->clear();
 
     auto result = autoAsm_->check(script);
+    if (!self) return;
     for (auto& msg : result.log)
         output_->append(QString::fromStdString(msg));
 

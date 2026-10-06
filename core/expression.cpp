@@ -103,11 +103,14 @@ std::optional<uintptr_t> ExpressionParser::parseImpl(const std::string& expr, in
             if (bracketDepth || !proc_) return std::nullopt;
             auto inner = parseImpl(s.substr(innerStart, pos - innerStart), depth + 1);
             if (!inner) return std::nullopt;
-            uintptr_t ptr = 0;
-            const size_t ptrSize = proc_->is64bit() ? 8 : 4;
-            auto r = proc_->read(*inner, &ptr, ptrSize);
+            const size_t ptrSize = proc_->pointerWidth(*inner);
+            if ((ptrSize != 4 && ptrSize != 8) || ptrSize > sizeof(uintptr_t)) return std::nullopt;
+            uint8_t bytes[8]{};
+            auto r = proc_->read(*inner, bytes, ptrSize);
             if (!r || *r != ptrSize) return std::nullopt;
-            val = ptr;
+            auto ptr = decodeTargetUnsigned({bytes, ptrSize}, proc_->byteOrder(*inner));
+            if (!ptr || *ptr > UINTPTR_MAX) return std::nullopt;
+            val = static_cast<uintptr_t>(*ptr);
             ++pos;
         } else if (s[pos] == '"' || s[pos] == '\'') {
             char quote = s[pos++];

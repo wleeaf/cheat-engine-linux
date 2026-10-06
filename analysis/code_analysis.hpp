@@ -4,6 +4,8 @@
 #include "arch/assembler.hpp"
 #include "platform/process_api.hpp"
 #include "arch/disassembler.hpp"
+#include "arch/target_arch.hpp"
+#include <stdexcept>
 #include "symbols/elf_symbols.hpp"
 #include <vector>
 #include <string>
@@ -50,7 +52,7 @@ public:
     // assembly are decoded/encoded correctly (see analyzerArchFor()).
     explicit CodeAnalyzer(Arch arch = Arch::X86_64)
         : disasm_(arch),
-          assembler_(arch == Arch::X86_32 ? AsmArch::X86_32 : AsmArch::X86_64) {}
+          assembler_(assemblerArchFor(arch)) {}
 
     /// Dissect a module — find all calls, jumps, string references.
     std::vector<CodeRef> dissectModule(ProcessHandle& proc, const ModuleInfo& module);
@@ -100,8 +102,10 @@ private:
 
 /// The analysis arch for a target: WoW64-aware, so a 32-bit game running under a 64-bit
 /// host (a Wine/Proton title) is analyzed as x86-32. (ARM targets are not yet analyzed.)
-inline Arch analyzerArchFor(ProcessHandle& proc) {
-    return proc.runs32BitCode() ? Arch::X86_32 : Arch::X86_64;
+inline Arch analyzerArchFor(ProcessHandle& proc, uintptr_t address = 0) {
+    auto arch = disassemblerArchFor(proc, address);
+    if (!arch) throw std::invalid_argument(arch.error());
+    return *arch;
 }
 
 } // namespace ce

@@ -193,15 +193,18 @@ PointerMap buildPointerMap(ProcessHandle& proc, const PointerScanConfig& config,
     // Pointer-shaped value range: anything that could plausibly be a userspace
     // pointer on x86_64 / aarch64 Linux. We narrow further via isInRange on
     // the candidates returned by the bulk filter.
-    constexpr uint64_t kPtrLow  = 0x10000ULL;
-    constexpr uint64_t kPtrHigh = 0x7fffffffffffULL;
+    constexpr uint64_t kPtrLow  = 0;
+    constexpr uint64_t kPtrHigh = UINTPTR_MAX;
 
     // GPU acceleration is opt-in and gated on CudaSearch::available(); we
     // construct the engine once and re-use it across regions for cheap
     // memory reallocation amortisation.
     const bool gpuActive = config.useGpu && CudaSearch::available();
     CudaSearch gpu;
-    const size_t ptrSize = proc.is64bit() ? 8 : 4;
+    const size_t ptrSize = proc.pointerWidth();
+    const ByteOrder order = proc.byteOrder();
+    if ((ptrSize != 4 && ptrSize != 8) || ptrSize > sizeof(uintptr_t) || order == ByteOrder::Unknown)
+        throw std::runtime_error("Pointer scanning requires a known target pointer width and byte order");
 
     for (auto& region : regions) {
         if (cancelled()) break;
@@ -228,7 +231,8 @@ PointerMap buildPointerMap(ProcessHandle& proc, const PointerScanConfig& config,
             size_t bytesRead = *rr;
             uintptr_t winBase = region.base + windowStart;
 
-            const bool useGpuHere = gpuActive &&
+            const bool useGpuHere = gpuActive && order == ByteOrder::Little &&
+                nativeTargetMachine().byteOrder == ByteOrder::Little &&
                 bytesRead >= config.gpuMinRegionBytes &&
                 config.alignedOnly && ptrSize == 8; // GPU kernel walks 8-byte slots
 
@@ -244,8 +248,8 @@ PointerMap buildPointerMap(ProcessHandle& proc, const PointerScanConfig& config,
             } else {
                 size_t limit = std::min(ownedLen, bytesRead - ptrSize + 1);
                 for (size_t offset = 0; offset < limit; offset += ptrStep) {
-                    uintptr_t val = 0;
-                    std::memcpy(&val, buf.data() + offset, ptrSize);
+                    uintptr_t val = static_cast<uintptr_t>(*decodeTargetUnsigned(
+                        {buf.data() + offset, ptrSize}, order));
 
                     if (val < kPtrLow || val > kPtrHigh) continue;
                     if (!isInRange(val, regions)) continue;
@@ -396,12 +400,19 @@ uintptr_t PointerScanner::dereference(ProcessHandle& proc, const std::vector<Mod
     if (base == 0) return 0;
 
     uintptr_t addr = base + path.baseOffset;
-    const size_t ptrSize = proc.is64bit() ? 8 : 4;
+    if (path.baseOffset > UINTPTR_MAX - base) return 0;
     for (auto off : path.offsets) {
-        uintptr_t ptr = 0;
-        auto r = proc.read(addr, &ptr, ptrSize);
-        if (!r || *r != ptrSize || ptr == 0) return 0;
-        addr = ptr + off;
+        const size_t ptrSize = proc.pointerWidth(addr);
+        if ((ptrSize != 4 && ptrSize != 8) || ptrSize > sizeof(uintptr_t)) return 0;
+        uint8_t bytes[8]{};
+        auto r = proc.read(addr, bytes, ptrSize);
+        if (!r || *r != ptrSize) return 0;
+        auto decoded = decodeTargetUnsigned({bytes, ptrSize}, proc.byteOrder(addr));
+        if (!decoded || !*decoded || *decoded > UINTPTR_MAX) return 0;
+        uintptr_t ptr = static_cast<uintptr_t>(*decoded);
+        uint64_t distance = off < 0 ? -int64_t(off) : off;
+        if ((off < 0 && distance > ptr) || (off >= 0 && distance > UINTPTR_MAX - ptr)) return 0;
+        addr = off < 0 ? ptr - distance : ptr + distance;
     }
     return addr;
 }

@@ -1,0 +1,254 @@
+{
+  "schemaVersion": 1,
+  "createdUTC": "2026-10-06T01:19:56.111138+00:00",
+  "sourceState": "uncommitted worktree snapshot",
+  "baseCommit": "462975248038f5afcf1c245268fcbcbe8f006ddb",
+  "passed": true,
+  "scope": "Native executable-memory writes through an original-mm descriptor, full transfer verification, failure restoration/retry, RX-page and register preservation, debugger ownership, same-file exec retirement, later-chunk failures, target NOP encoding and frontend use. Does not establish atomic live hooks, arbitrary mapping/undo lifecycle, hardware instruction caches, other ISA/remote cache adapters or every kernel proc-mem policy.",
+  "sources": {
+    "platform/process_api.hpp": "4500320fc1425dd9d2f905f2be461251435b9e670cbfc9fd3d6a7c5b4d99a663",
+    "platform/process_api.cpp": "68cf8e1ac6633e6ab7fd0c273b3dcf460b5a019bf482324bd4e8f9d77ba75588",
+    "platform/linux/linux_process.cpp": "be174f56e62e85303a092161229052b71044bfb574e72616b509eb5455ee890d",
+    "platform/linux/linux_process.hpp": "0cc49c308412d48cf7e2f44002f8be3af48357be950dd8181eb70f192b418d39",
+    "platform/linux/code_write.cpp": "495ce86755b8f9c3708dac9488103ee122c586dfec6137a75c0a3349a4cbebc6",
+    "platform/linux/code_write.hpp": "34e72f2f0e7184b4df245868b41985779600b18626477bc83fb3b37f0a516d31",
+    "platform/linux/syscall_service.cpp": "8e775ca0fa65216ae5a5e1aadd0e8751d19b58ff9e357c17dad324674452f42b",
+    "platform/linux/syscall_service.hpp": "faaca573c72197a540244b511eda35445d9ea9c86cc1b34c1c26275c2f26b0ee",
+    "core/autoasm.cpp": "6288f03de4a2d52caef4f8d6271dd8d2778fba45d2463e2056e8882014048afd",
+    "core/autoasm.hpp": "bf1a39eee76dfdbb36a2d8fa4f7aba00951d6801a350fc1e2fe9dea76d687a98",
+    "debug/patch.cpp": "ccb43f430ee1057b49514bb05b0e7ed47b336a3d9885fb0dac415cea3ba38189",
+    "debug/patch.hpp": "c34255707bfbb24855ba8953a85774939bee2c4e47c700796c1aa068692f5afe",
+    "gui/memorybrowser.cpp": "e20b3e8b575b322aea7ae91356b330e113b57fe3af38e03d3ed9a26461da82c7",
+    "gui/memorybrowser.hpp": "543b80f2dd8ee6b9e840e31931441ef6e02f000e931f9f152ce9177dc266446b",
+    "test/code_write_integration.cpp": "08def562173a970f41e0f32003caedda8bdab6958d67673f03edfb1a8a18a639",
+    "test/code_write_faults.cpp": "f773b7ff1958cafb2723971da669741c88a440d09b9e8993f5ff3bded12cdd76",
+    "test/code_write_faults.hpp": "d3d5969de046b86a9547c89d14f67977b8dd240b84f64c39456f4aac444370c0",
+    "test/code_write_checks.inc": "9ddf6335968d736e433488a8b9d609e62d4b4f0c8e3ee6e1f5291399e60d3d15",
+    "test/target_compatibility_test.cpp": "474f1b5d583128d430f829a927ab0ab249e8fff1163e2759dca5a3aaac978e09",
+    "test/code_write_gate.py": "d5f60ebfc8def77e71fe7f54fb9d113662a63a5d4d4a28193233940b99372347",
+    "test/arm64_vm/CMakeLists.txt": "c9e313d4317a65aa5dcbb7478bc749981d524f9ec92f4d762890654107380d9f",
+    "test/fullsystem_vm.py": "cb0d9a61465989c96cfbe322b8c51c9be1c90317313b96a0c8fdd1cb517b29e5",
+    "test/aarch64_relocation_gate.py": "48ea012849a78bdcd89e4a36dfa5452f0b7918a6c6597b081841f9f53ba20f61",
+    "CMakeLists.txt": "a662550855bbb27b7f517cddfc391da7145363d814c611b92a354f8a8f4e10db",
+    "tools/ci-check.sh": "1accd9af9361bc2add992e72246af87a496c0dfd4f7f0bae1415e784f65ecff6",
+    "tools/check-arm64-vm.sh": "aa8e38caf2ee73673b2b831af5ecb0d8674277f8cf0c45161d88aa888643ee89",
+    ".github/workflows/build.yml": "e56c81473e96614a095491def306518f522c0fc5447d0543ff2e9e4edf6c15e5",
+    ".github/workflows/release.yml": "ec04f08fc78f715d95a07b8f7b5b66abd0896f227456d3412c78fb9f696b4827",
+    ".github/workflows/arm64-compatibility.yml": "32c11b137f8c17d626c56eb3dfbbe281329f26bf0148d3b9ee0a2357e232c34b"
+  },
+  "binaries": {
+    "build/libcecore.so": "522e74001740b23208bd0139035a16e6e35fbe34be4ebaf5d6a6c16c3f33e8a2",
+    "build/code_write_integration": "f8a4fa2ddc5a6f8d349053bf35b6d33ef2770522c5a45990be8755f7b8e12c95",
+    "build/cecore_compatibility_test": "b0dac203a7d05984653ef8bea1e1e8e42e9d6bab89e0b16ca0bf4a17ebfcc841",
+    "build/cescan": "2877aa321779b09794d64ad46a5c738901b4ce1252bcda0a910ae74050ee9a60",
+    "build/cheatengine": "cd97720a06585de4ad33ccee13e8cab9d2f672003ffb5c98b08f2318413415a9",
+    "build-ci-asan/libcecore.so": "34c4fc69af5accd2ffcef94bd815e8984614a91316d095ca278a2c4f4c86bfc3",
+    "build-ci-asan/code_write_integration": "46458c56e77c123821c586bfdbdb335953d45759ea3500fe10ce00cfe1401e8f",
+    "build-ci-asan/cecore_compatibility_test": "19441db521266f0d57bb5917608d4322907cef7f85ce434e5d8547f3de5c605d",
+    "build-ci-asan/cescan": "8c7f55ca213205aa67c518f83190da25659b22bee57f49ccbd5f1544a10c407b",
+    "build/.ci-tmp/code-write-arm/init": "7c0e549b61d4eae7678869f8db06267821103fe5bc74ae3af69150ca92239614",
+    "build/.ci-tmp/code-write-arm/code_write_init": "0875b31197d4808520117751fe8ee58e0fa50085585e21b499f6aa224a332abf",
+    "build/.ci-tmp/code-write-arm/relocation_init": "b886d3287ae61f238c7da350f6cbd60f37a324e81c9d3aa12647c7c184b7f0d9"
+  },
+  "resources": {
+    "compilerJobs": 1,
+    "nice": 10,
+    "heavyJobs": "sequential",
+    "temporaryStorage": "build filesystem and cached container /var/tmp",
+    "codeWriteGuestCPUs": 1,
+    "codeWriteGuestMemoryMiB": 128,
+    "existingFullSuiteGuestCPUs": 2,
+    "existingFullSuiteGuestMemoryMiB": 512
+  },
+  "host": {
+    "native": {
+      "report": {
+        "path": "code-write-native.json",
+        "sha256": "0a58d59b8bacabd222c8bebfb0e52fcadfaba4479ed34c0d562e0188db799887"
+      },
+      "output": {
+        "path": "code-write-native.log",
+        "sha256": "af4eea00ef703a49942a1bf71548f4356a4222b58c3aec53415b2c59087c54c6"
+      },
+      "backendChecks": 30,
+      "cliChecks": 5
+    },
+    "asan": {
+      "report": {
+        "path": "code-write-asan.json",
+        "sha256": "9aca06c24ae3e998d70bd1408528305abf002df36fc5e01d4b135c7940a54dcf"
+      },
+      "output": {
+        "path": "code-write-asan.log",
+        "sha256": "6bc45dd69c747e76bd59127a69861ed3413a769deb43097bf64a9968ae94cbcf"
+      },
+      "backendChecks": 30,
+      "cliChecks": 5
+    }
+  },
+  "kernels": {
+    "4096": {
+      "report": {
+        "path": "code-write-kernel.json",
+        "sha256": "f2825de28c8ba61666900c0db3f848352eba285459f4e0c946ee138a60316ca4"
+      },
+      "output": {
+        "path": "code-write-kernel.log",
+        "sha256": "bcc3352914b66564c8f0e655653e1f16cc709868cca32c1a9a8d4047ea1306bf"
+      },
+      "kernel": "6.18.52-0-virt",
+      "kernelSha256": "06196d2cf51e9a2bac421564bb64c63a8b7146c9a22755dd22a713e337023013",
+      "pageSize": 4096,
+      "checks": 27,
+      "existingFullSuite": {
+        "path": "code-write-full-kernel.json",
+        "sha256": "c2a6444c7388da4f20135bd00d472eb0dc1b3cec50eabccd4f3841d70bd29fa3"
+      },
+      "fullSuiteOutput": {
+        "path": "code-write-full-kernel.log",
+        "sha256": "3d72bdccc3dcd617e99717c2437f9d829570feee710664faf1a64521ab2734f6"
+      },
+      "fullSuiteChecks": 881,
+      "relocation": {
+        "path": "code-write-relocation.json",
+        "sha256": "65c089150593297433626725de7bc2fcff280646e3fc4f951ed9e589eb3c71e7"
+      },
+      "relocationOutput": {
+        "path": "code-write-relocation.log",
+        "sha256": "efcdaddf8d3e466ee3d98a6a4b42acbba8ef9f33e6d17ac960cdc2bfed78645e"
+      },
+      "relocationChecks": 21,
+      "relocationExecutions": 1119
+    },
+    "65536": {
+      "report": {
+        "path": "code-write-kernel-64k.json",
+        "sha256": "8fc8ecbefc3384a3cf136c55bf10e4a13171e231e174162e9b95e31e22e5d39b"
+      },
+      "output": {
+        "path": "code-write-kernel-64k.log",
+        "sha256": "f537972a9ee5b2675c781e542a066d66bb55acb13585668a44a9494f5ddab752"
+      },
+      "kernel": "6.8.0-146-generic-64k",
+      "kernelSha256": "d5f5150b83c59404233bde3859817d4665301e0bfab20fa47ccdac4bfbeb1ae8",
+      "pageSize": 65536,
+      "checks": 27,
+      "existingFullSuite": {
+        "path": "code-write-full-kernel-64k.json",
+        "sha256": "bca73a8f6960b2dc25bc8e6dc972ad0bd789f12d575d13b64c4a0f373a76465c"
+      },
+      "fullSuiteOutput": {
+        "path": "code-write-full-kernel-64k.log",
+        "sha256": "7ccb1b6f75fc2ce7896811107ec963b534ff56e07deddb880a87c7d5de0aed2e"
+      },
+      "fullSuiteChecks": 722,
+      "relocation": {
+        "path": "code-write-relocation-64k.json",
+        "sha256": "14c0aad351585e011bc58566e792b5071c05f3d94541a81b11d2b8098ca2b1f0"
+      },
+      "relocationOutput": {
+        "path": "code-write-relocation-64k.log",
+        "sha256": "fa0a9db2fe78e4b575cf5b1e2defa49910ad91f87f628e04f0e7bf783d3c43f1"
+      },
+      "relocationChecks": 21,
+      "relocationExecutions": 1119
+    }
+  },
+  "evidence": {
+    "hostCI": {
+      "path": "code-write-hostCI.log",
+      "sha256": "ece8bfe9344278297d55d69f3b2293e5e2042c42af2cff3af925158c6b332aa9"
+    },
+    "initialHostCI": {
+      "path": "code-write-initial-hostCI.log",
+      "sha256": "456b9d680f64ea8c5042a715121363ab1210b58018fb4c3821c52931e02d5509"
+    },
+    "nativeModel": {
+      "path": "code-write-nativeModel.log",
+      "sha256": "792836557d9465786f1957e6ca741704b77a8b10eeda565ca1296c76b5c818b6",
+      "checks": 192
+    },
+    "asanModel": {
+      "path": "code-write-asanModel.log",
+      "sha256": "792836557d9465786f1957e6ca741704b77a8b10eeda565ca1296c76b5c818b6",
+      "checks": 192
+    },
+    "finalAsanCore": {
+      "path": "code-write-finalAsanCore.log",
+      "sha256": "7633a4cf94bd7e763a073b85e40f0e27693752468d56a38b6fc0ac7f30538af5"
+    },
+    "finalAsanDeep": {
+      "path": "code-write-finalAsanDeep.log",
+      "sha256": "cfb53f1b419a9b07a3f868903f97b36b99013aae3b3bb70c708e79a5cd0bf13d"
+    },
+    "crossBuild": {
+      "path": "code-write-crossBuild.log",
+      "sha256": "2cc9c334fccfd3cb5baf53ddebf35783cdd0eb61c1f4deb495bfa23f235fdba4"
+    },
+    "toolchain": {
+      "path": "code-write-toolchain.log",
+      "sha256": "bb9607e3dc0b438c7d02ef27b1b5f1f59d8b043d4c7809ff6782f37c424dcc66"
+    }
+  },
+  "currentHostReports": {
+    "nativeGdb": {
+      "path": "code-write-nativeGdb.json",
+      "sha256": "4375e9be21981318f7d5144e00e24f76b0f50294900d50aca669028a68c56ad2"
+    },
+    "asanGdb": {
+      "path": "code-write-asanGdb.json",
+      "sha256": "3aa9fa4f2eb2e2a80ec076f54bf670aaf8494e723af3bca6f82fabc270b0f8cd"
+    },
+    "gdbGui": {
+      "path": "code-write-gdbGui.json",
+      "sha256": "6fc7eea1fe72d4d3e8eb98be215a62720114cc931cb0a39e40364498016b71b6"
+    },
+    "wine": {
+      "path": "code-write-wine.json",
+      "sha256": "6b70abf347f71f279ea755a71a8c91d19813615b262e2c556a18b514c8463bce"
+    },
+    "nativeSyscalls": {
+      "path": "code-write-nativeSyscalls.json",
+      "sha256": "c8cbfe1aa0d2529f65d41087f0a46e8ac6f0391e817f00a0b11616887a144690"
+    },
+    "asanSyscalls": {
+      "path": "code-write-asanSyscalls.json",
+      "sha256": "e71a3e0e9dca66a4578b0419e3014120078825bdeaeb9e7237f69a1c42651033"
+    },
+    "nativeCalls": {
+      "path": "code-write-nativeCalls.json",
+      "sha256": "7c9b41e887a941d74f08bc6aea8c6b3ac5adc4d872e98720277bcbe4b89eb37e"
+    },
+    "asanCalls": {
+      "path": "code-write-asanCalls.json",
+      "sha256": "f4e88a0265a9a00cbfc3283e82cb90f92c2438183a092ff685c3fb8ab1effe54"
+    },
+    "nativeFrontends": {
+      "path": "code-write-nativeFrontends.json",
+      "sha256": "15a850882d138df58e6b198f63053fa113ab5950dc75a61153423b89beea0b40"
+    },
+    "leaderExitFrontends": {
+      "path": "code-write-leaderExitFrontends.json",
+      "sha256": "e3fa52e5d726f9eb83636cb0606cd1b90dc6384552216d3c9488890cb4a03d6a"
+    }
+  },
+  "releaseGate": {
+    "configured": true,
+    "requiredProfiles": [
+      4096,
+      65536
+    ],
+    "remoteExecution": "pending for this worktree",
+    "workflow": ".github/workflows/arm64-compatibility.yml",
+    "nativeArmFrontends": "New production AA/CLI/Lua code-write gate configured; not executed remotely for this worktree"
+  },
+  "initialHostCI": {
+    "exitCode": 1,
+    "note": "Local invocation added CECORE_REQUIRE_NATIVE_CALL_I386=1 although the host lacks the optional multilib libc fixture. The gate reported a missing native_call_fixture32. Repeated full CI used supported local configuration; required freestanding i386 memory/syscall tests still ran, and remote multilib release requirements remain unchanged."
+  },
+  "initialLiveRun": {
+    "exitCode": 1,
+    "failedChecks": 2,
+    "note": "Initial test expected a decimal bare assembly literal and a Lua writeBytes return value. Tests were corrected to explicit 0x11 and byte/execution verification; subsequent live checks passed. The initial console output was observed during this turn and was not retained as a separate file."
+  }
+}

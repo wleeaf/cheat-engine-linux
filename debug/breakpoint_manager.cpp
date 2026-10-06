@@ -1,4 +1,6 @@
 #include "debug/breakpoint_manager.hpp"
+#include "core/cpu_registers.hpp"
+#include <cctype>
 
 extern "C" {
 #include <lua.h>
@@ -50,23 +52,42 @@ void exposeConditionGlobals(lua_State* L, const Breakpoint& bp, const Breakpoint
     setGlobalInteger(L, "tid", static_cast<uint64_t>(hit.tid));
     setGlobalInteger(L, "hitCount", nextHitCount);
 
-    setRegister(L, "rax", "RAX", ctx.rax);
-    setRegister(L, "rbx", "RBX", ctx.rbx);
-    setRegister(L, "rcx", "RCX", ctx.rcx);
-    setRegister(L, "rdx", "RDX", ctx.rdx);
-    setRegister(L, "rsi", "RSI", ctx.rsi);
-    setRegister(L, "rdi", "RDI", ctx.rdi);
-    setRegister(L, "rbp", "RBP", ctx.rbp);
-    setRegister(L, "rsp", "RSP", ctx.rsp);
-    setRegister(L, "r8",  "R8",  ctx.r8);
-    setRegister(L, "r9",  "R9",  ctx.r9);
-    setRegister(L, "r10", "R10", ctx.r10);
-    setRegister(L, "r11", "R11", ctx.r11);
-    setRegister(L, "r12", "R12", ctx.r12);
-    setRegister(L, "r13", "R13", ctx.r13);
-    setRegister(L, "r14", "R14", ctx.r14);
-    setRegister(L, "r15", "R15", ctx.r15);
-    setRegister(L, "rflags", "RFLAGS", ctx.rflags);
+    if (!ctx.hasArmRegisters()) {
+        setRegister(L, "rax", "RAX", ctx.rax);
+        setRegister(L, "rbx", "RBX", ctx.rbx);
+        setRegister(L, "rcx", "RCX", ctx.rcx);
+        setRegister(L, "rdx", "RDX", ctx.rdx);
+        setRegister(L, "rsi", "RSI", ctx.rsi);
+        setRegister(L, "rdi", "RDI", ctx.rdi);
+        setRegister(L, "rbp", "RBP", ctx.rbp);
+        setRegister(L, "rsp", "RSP", ctx.rsp);
+        setRegister(L, "r8",  "R8",  ctx.r8);
+        setRegister(L, "r9",  "R9",  ctx.r9);
+        setRegister(L, "r10", "R10", ctx.r10);
+        setRegister(L, "r11", "R11", ctx.r11);
+        setRegister(L, "r12", "R12", ctx.r12);
+        setRegister(L, "r13", "R13", ctx.r13);
+        setRegister(L, "r14", "R14", ctx.r14);
+        setRegister(L, "r15", "R15", ctx.r15);
+        setRegister(L, "rflags", "RFLAGS", ctx.rflags);
+
+    }
+    const auto registers = cpuRegisterValues(ctx);
+    for (const auto& reg : registers) {
+        std::string lower = reg.name;
+        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
+        setRegister(L, lower.c_str(), reg.name.c_str(), reg.value);
+    }
+    if (ctx.architecture == CpuArchitecture::Arm64) {
+        setRegister(L, "fp", "FP", ctx.x[29]);
+        setRegister(L, "lr", "LR", ctx.x[30]);
+    } else if (ctx.architecture == CpuArchitecture::Arm32) {
+        setRegister(L, "fp", "FP", ctx.x[11]);
+        setRegister(L, "lr", "LR", ctx.x[14]);
+        setRegister(L, "r13", "R13", ctx.sp);
+        setRegister(L, "r14", "R14", ctx.x[14]);
+        setRegister(L, "r15", "R15", ctx.pc);
+    }
 
     lua_newtable(L);
     setTableInteger(L, "id", bp.id);
@@ -76,24 +97,42 @@ void exposeConditionGlobals(lua_State* L, const Breakpoint& bp, const Breakpoint
     lua_setglobal(L, "bp");
 
     lua_newtable(L);
-    setTableInteger(L, "rax", ctx.rax);
-    setTableInteger(L, "rbx", ctx.rbx);
-    setTableInteger(L, "rcx", ctx.rcx);
-    setTableInteger(L, "rdx", ctx.rdx);
-    setTableInteger(L, "rsi", ctx.rsi);
-    setTableInteger(L, "rdi", ctx.rdi);
-    setTableInteger(L, "rbp", ctx.rbp);
-    setTableInteger(L, "rsp", ctx.rsp);
-    setTableInteger(L, "r8", ctx.r8);
-    setTableInteger(L, "r9", ctx.r9);
-    setTableInteger(L, "r10", ctx.r10);
-    setTableInteger(L, "r11", ctx.r11);
-    setTableInteger(L, "r12", ctx.r12);
-    setTableInteger(L, "r13", ctx.r13);
-    setTableInteger(L, "r14", ctx.r14);
-    setTableInteger(L, "r15", ctx.r15);
-    setTableInteger(L, "rip", ctx.rip);
-    setTableInteger(L, "rflags", ctx.rflags);
+    if (!ctx.hasArmRegisters()) {
+        setTableInteger(L, "rax", ctx.rax);
+        setTableInteger(L, "rbx", ctx.rbx);
+        setTableInteger(L, "rcx", ctx.rcx);
+        setTableInteger(L, "rdx", ctx.rdx);
+        setTableInteger(L, "rsi", ctx.rsi);
+        setTableInteger(L, "rdi", ctx.rdi);
+        setTableInteger(L, "rbp", ctx.rbp);
+        setTableInteger(L, "rsp", ctx.rsp);
+        setTableInteger(L, "r8", ctx.r8);
+        setTableInteger(L, "r9", ctx.r9);
+        setTableInteger(L, "r10", ctx.r10);
+        setTableInteger(L, "r11", ctx.r11);
+        setTableInteger(L, "r12", ctx.r12);
+        setTableInteger(L, "r13", ctx.r13);
+        setTableInteger(L, "r14", ctx.r14);
+        setTableInteger(L, "r15", ctx.r15);
+        setTableInteger(L, "rip", ctx.rip);
+        setTableInteger(L, "rflags", ctx.rflags);
+    }
+    for (const auto& reg : registers) {
+        std::string lower = reg.name;
+        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
+        setTableInteger(L, lower.c_str(), reg.value);
+        setTableInteger(L, reg.name.c_str(), reg.value);
+    }
+    if (ctx.architecture == CpuArchitecture::Arm64) {
+        setTableInteger(L, "fp", ctx.x[29]);
+        setTableInteger(L, "lr", ctx.x[30]);
+    } else if (ctx.architecture == CpuArchitecture::Arm32) {
+        setTableInteger(L, "fp", ctx.x[11]);
+        setTableInteger(L, "lr", ctx.x[14]);
+        setTableInteger(L, "r13", ctx.sp);
+        setTableInteger(L, "r14", ctx.x[14]);
+        setTableInteger(L, "r15", ctx.pc);
+    }
     lua_setglobal(L, "ctx");
 }
 

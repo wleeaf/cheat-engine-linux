@@ -30,9 +30,24 @@ public:
     // refines it with a read-only CPU-mode probe.
     virtual bool runs32BitCode() { return !is64bit(); }
 
+    // Adapters must report their actual target. A bitness-only adapter retains
+    // its declared pointer width but never guesses an ISA, byte order, or ABI.
+    virtual TargetDescription targetDescription();
+    virtual TargetMachine machineAt(uintptr_t address);
+    virtual size_t pointerWidth(uintptr_t address = 0) {
+        return (address ? machineAt(address) : targetDescription().program).pointerWidth;
+    }
+    virtual ByteOrder byteOrder(uintptr_t address = 0) {
+        return (address ? machineAt(address) : targetDescription().program).byteOrder;
+    }
+
     // ── Memory access ──
     virtual Result<size_t> read(uintptr_t address, void* buffer, size_t size) = 0;
     virtual Result<size_t> write(uintptr_t address, const void* buffer, size_t size) = 0;
+    // Code transfers require target-specific instruction-cache handling.
+    // Callers coordinate execution and mapping lifetime for multi-instruction
+    // edits. The default supports coherent x86 code; other adapters opt in.
+    virtual Result<size_t> writeCode(uintptr_t address,const void* buffer,size_t size);
 
     // Whether read()/readMany() may be called concurrently from multiple
     // threads on this handle. The scanner fans a scan out across cores only when
@@ -76,6 +91,11 @@ public:
     virtual Result<uintptr_t> allocate(size_t size, MemProt protection, uintptr_t preferredBase = 0) = 0;
     virtual Result<void> free(uintptr_t address, size_t size) = 0;
     virtual Result<void> protect(uintptr_t address, size_t size, MemProt newProtection) = 0;
+    // Retry backend-owned recovery on its original transport/ptrace thread.
+    virtual Result<void> retryPendingOperations() { return {}; }
+    virtual Result<void> resumePendingCallSignal(bool) {
+        return std::unexpected(std::make_error_code(std::errc::operation_not_supported));
+    }
 
     // ── Module enumeration ──
     virtual std::vector<ModuleInfo> modules() = 0;

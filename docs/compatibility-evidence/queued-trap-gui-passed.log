@@ -1,0 +1,18 @@
+gui usability: rows=1 export=1 validation=1 UTF8=1 clear=1 bytes=1
+GUI All-type model: OK (guard=1 saved=1 live=1 padding=1 changed=1 screenshot=1)
+GUI All scan controls: OK (first-between=1 next-between=1 selection=1 malformed=1 scientific=1)
+GUI floating scan controls: OK (scientific=1 rounded=1 malformed=1 tolerance=1 extreme=1 wide=1 screenshot=1)
+GUI scan-format stage: attach
+GUI scan-format stage: numeric little
+GUI scan-format stage: numeric big
+GUI scan-format stage: pointer
+GUI scan-format stage: freeze
+GUI scan-format stage: save ct
+GUI scan-format stage: save json
+GUI scan data formats: OK (numeric=1 transfer=1 pointers=1 invalid-width=1 freeze=1 persistence=1 screenshot=1)
+GUI template Code injection (at address): OK
+GUI template AOB injection: OK
+GUI template Full code injection: OK
+GUI template Pointer injection: OK
+GUI visual interactions: OK (picker=1 cancel=1 apply=1 font=1 history=1 syntax=1 canvas=1 fill=1 preferences=1)
+gui lifecycle smoke: OK (windows=1 trace=1 debugger=1 targets=1)

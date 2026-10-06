@@ -35,6 +35,7 @@ struct Instruction {
     // (0 if the instruction has none). The operand text is also rewritten to
     // "[0x<ripTarget>]"; consumers that need the numeric target use this field.
     uintptr_t    ripTarget = 0;
+    bool         isCall = false;
     // First memory operand (for "what addresses does this instruction access").
     MemoryOperand memory;
 
@@ -53,11 +54,14 @@ struct Instruction {
 /// compute base + index*scale + disp from the 64-bit registers.
 uintptr_t computeEffectiveAddress(const Instruction& inst, const CpuContext& ctx);
 
-enum class Arch { X86_32, X86_64, ARM32, ARM64 };
+enum class Arch { X86_32, X86_64, ARM32, ARM64, ARMThumb, ARM32_BE, ARMThumb_BE };
 
 class Disassembler {
 public:
-    explicit Disassembler(Arch arch = Arch::X86_64);
+    // Unattached views start with the engine's native ISA; target views must
+    // subsequently select their actual code ISA, including mixed-mode threads.
+    Disassembler();
+    explicit Disassembler(Arch arch);
     ~Disassembler();
 
     Disassembler(const Disassembler&) = delete;
@@ -65,9 +69,10 @@ public:
 
     /// Disassemble `count` instructions starting at `address` from `code`.
     /// If count == 0, disassembles as many as possible.
-    /// If `emitDataBytes` is true, an undecodable byte is emitted as a 1-byte
-    /// "db 0xXX" pseudo-instruction and disassembly continues past it (like CE),
-    /// instead of stopping at the first byte Capstone can't decode.
+    /// If `emitDataBytes` is true, invalid encodings are emitted as "db" data
+    /// preserving instruction boundaries (one byte for x86, a word for ARM/
+    /// AArch64, a halfword or prefix-described word for Thumb). Short trailing
+    /// data stays exact; no bytes are fabricated to complete an instruction.
     std::vector<Instruction> disassemble(uintptr_t address, std::span<const uint8_t> code,
                                          size_t count = 0, bool emitDataBytes = false);
 

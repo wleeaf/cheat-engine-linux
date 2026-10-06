@@ -1,0 +1,4 @@
+gui usability: rows=1 export=1 validation=1 UTF8=1 clear=1 bytes=1
+GUI All-type model: OK (guard=1 saved=1 live=1 padding=1 changed=1 screenshot=1)
+GUI All scan controls: OK (first-between=1 next-between=1 selection=1 malformed=1 scientific=1)
+GUI floating scan controls: OK (scientific=1 rounded=1 malformed=1 tolerance=1 extreme=1 wide=1 screenshot=1)

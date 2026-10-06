@@ -1,0 +1,8 @@
+[  3%] Building CXX object CMakeFiles/vm_core.dir/src/platform/linux/linux_process.cpp.o
+[ 87%] Built target vm_core
+[ 90%] Linking CXX executable /var/tmp/cecompat-arm-relocation/init
+[100%] Built target init
+[ 90%] Built target vm_core
+[ 93%] Linking CXX executable /var/tmp/cecompat-arm-relocation/code_write_init
+[100%] Built target code_write_init
+[100%] Built target relocation_init

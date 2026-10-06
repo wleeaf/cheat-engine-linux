@@ -1,4 +1,6 @@
+#include "arch/target_arch.hpp"
 #include "gui/memorybrowser.hpp"
+#include "debug/patch.hpp"
 #include "gui/memviewpreferences.hpp"
 #include "gui/theme.hpp"
 #include <QMenuBar>
@@ -7,6 +9,8 @@
 #include "arch/cpu_flags.hpp"
 #include "analysis/code_analysis.hpp"
 #include "core/expression.hpp"
+#include "core/value_io.hpp"
+#include <charconv>
 
 #include <QPainter>
 #include <QImage>
@@ -360,7 +364,7 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
         // Jump both views to where the pointer under the cursor points -- manual pointer
         // traversal, like CE's memory view. pointerAt() sizes the read to the target
         // (4 bytes on a 32-bit process, 8 on a 64-bit one).
-        if (uintptr_t p = pointerAt(addr)) emit requestGoto(p);
+        if (auto p=pointerValueAt(addr)) emit requestGoto(*p);
     } else if (picked == addToList) {
         emit requestAddToList(addr, valueTypeForDisplay());
     } else if (pasteAct && picked == pasteAct) {
@@ -372,6 +376,17 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
     }
 }
 
+std::optional<uintptr_t> HexView::pointerValueAt(uintptr_t addr) const {
+    if (!proc_) return std::nullopt;
+    ce::ValueIoOptions options;options.isSigned=false;
+    auto value=ce::readTypedValue(*proc_,addr,ce::ValueType::Pointer,options);
+    if (!value) return std::nullopt;
+    std::string_view text=*value;
+    if (text.starts_with("0x")) text.remove_prefix(2);
+    uintptr_t pointer=0;auto [end,error]=std::from_chars(text.data(),text.data()+text.size(),pointer,16);
+    if (error!=std::errc{} || end!=text.data()+text.size()) return std::nullopt;
+    return pointer;
+}
 void HexView::setAddress(uintptr_t addr) {
     address_ = addr & ~0xFULL; // Align to 16
     refresh();
@@ -1134,6 +1149,15 @@ void DisasmView::refresh() {
     emptyReason_.clear();
     updateScrollBar();   // keep the bar centred (signal-blocked; no recursion)
     if (!proc_) { viewport()->update(); return; }
+    auto architecture = ce::disassemblerArchFor(*proc_, address_);
+    if (!architecture) {
+        emptyReason_ = QString::fromStdString(architecture.error());
+        viewport()->update(); return;
+    }
+    try { disasm_->setArch(*architecture); }
+    catch (const std::exception& error) {
+        emptyReason_ = QString::fromUtf8(error.what()); viewport()->update(); return;
+    }
 
     int rows = visibleRows() + 5;
     std::vector<uint8_t> buf(rows * 15);
@@ -1875,8 +1899,10 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     disasmView_->setModuleCache(modules_);  // reuse the browser's already-loaded map
     // Disassemble in the target's code bitness (32-bit for a native-32 or WoW64
     // target, so registers read eax/ecx rather than rax/rcx).
-    if (proc && proc->runs32BitCode())
-        disasmView_->setArch(ce::Arch::X86_32);
+    if (proc) {
+        auto architecture = ce::disassemblerArchFor(*proc);
+        if (architecture) disasmView_->setArch(*architecture);
+    }
 
     hexView_ = new HexView;
     // Persisted default width from the Settings dialog (was ignored; the view
@@ -2353,26 +2379,22 @@ void MemoryBrowser::refreshBreakpoints() {
     disasmView_->setActiveBreakpoints(bpQuery_());
 }
 
-bool MemoryBrowser::patchBytes(uintptr_t addr, const std::vector<uint8_t>& bytes) {
+bool MemoryBrowser::patchBytes(uintptr_t addr, const std::vector<uint8_t>& bytes, QString* error) {
     if (!proc_ || bytes.empty()) return false;
-    auto r = proc_->write(addr, bytes.data(), bytes.size());
-    if (!r || *r < bytes.size()) {
-        // Code lives on r-x pages that process_vm_writev can't touch; make the
-        // page writable and retry (same approach as the auto-assembler).
-        proc_->protect(addr, bytes.size(), ce::MemProt::All);
-        r = proc_->write(addr, bytes.data(), bytes.size());
-        if (!r || *r < bytes.size()) return false;
-    }
-    return true;
+    auto patched=ce::patchInstructionBytes(*proc_,addr,bytes);
+    if (!patched && error) *error=QString::fromStdString(patched.error());
+    return patched.has_value();
 }
 
 void MemoryBrowser::writeNop(uintptr_t addr, int size) {
     if (!proc_ || size <= 0) return;
-    std::vector<uint8_t> nops(size, 0x90);
-    if (!patchBytes(addr, nops)) {
+    auto nops=ce::nopBytesFor(*proc_,addr,static_cast<size_t>(size));
+    QString error;
+    if (!nops) error=QString::fromStdString(nops.error());
+    if (!nops || !patchBytes(addr, *nops, &error)) {
         QMessageBox::warning(this, "NOP failed",
-            QString("Could not write %1 NOP byte%2 to 0x%3.")
-                .arg(size).arg(size == 1 ? "" : "s").arg(addr, 0, 16));
+            QString("Could not write %1 NOP byte%2 to 0x%3.\n%4")
+                .arg(size).arg(size == 1 ? "" : "s").arg(addr, 0, 16).arg(error));
         return;
     }
     onRefresh();
@@ -2386,8 +2408,12 @@ void MemoryBrowser::assembleAt(uintptr_t addr, int origSize, const QString& curr
         QLineEdit::Normal, current, &ok);
     if (!ok || text.trimmed().isEmpty()) return;
 
-    ce::Assembler asmr(proc_ && proc_->runs32BitCode() ? ce::AsmArch::X86_32
-                                                        : ce::AsmArch::X86_64);
+    auto architecture = ce::disassemblerArchFor(*proc_, addr);
+    if (!architecture) {
+        QMessageBox::warning(this, "Assemble failed", QString::fromStdString(architecture.error()));
+        return;
+    }
+    ce::Assembler asmr(ce::assemblerArchFor(*architecture));
     auto res = asmr.assemble(text.toStdString(), addr);
     if (!res) {
         QMessageBox::warning(this, "Assemble failed",
@@ -2410,11 +2436,18 @@ void MemoryBrowser::assembleAt(uintptr_t addr, int origSize, const QString& curr
     } else {
         // Pad the remainder of the original instruction with NOPs so the next
         // instruction boundary is preserved.
-        while ((int)bytes.size() < origSize) bytes.push_back(0x90);
+        if ((int)bytes.size()<origSize) {
+            auto nops=ce::nopBytesFor(*proc_,addr+bytes.size(),static_cast<size_t>(origSize)-bytes.size());
+            if (!nops) {
+                QMessageBox::warning(this,"Assemble failed",QString::fromStdString(nops.error()));return;
+            }
+            bytes.insert(bytes.end(),nops->begin(),nops->end());
+        }
     }
-    if (!patchBytes(addr, bytes)) {
+    QString error;
+    if (!patchBytes(addr, bytes, &error)) {
         QMessageBox::warning(this, "Write failed",
-            QString("Assembled %1 bytes but could not write to 0x%2.").arg(bytes.size()).arg(addr, 0, 16));
+            QString("Assembled %1 bytes but could not write to 0x%2.\n%3").arg(bytes.size()).arg(addr, 0, 16).arg(error));
         return;
     }
     onRefresh();

@@ -54,11 +54,12 @@ private:
     // false when recursing into the debug file to avoid loops.
     void parseElfSymbols(const std::string& path, const std::string& moduleName,
                          uintptr_t baseAddr, bool followDebugLink = true);
-    // ELFCLASS32 (i386) symbol tables. Only the .dynsym/.symtab population is
+    // ELFCLASS32 symbol tables, including verified separate debug files.
+    // Only the .dynsym/.symtab population is
     // needed here (to resolve e.g. __libc_dlopen_mode in a 32-bit libc for
     // injection); the PLT/reloc import-naming pass stays 64-bit-only.
     void parseElf32Symbols(const std::string& path, const std::string& moduleName,
-                           uintptr_t baseAddr);
+                           uintptr_t baseAddr, bool followDebugLink);
     // A PE image (Wine/Proton module) exposes its functions via the export table,
     // not an ELF symtab; load those as symbols so addresses in it symbolicate.
     void parsePeExports(const std::string& path, const std::string& moduleName,

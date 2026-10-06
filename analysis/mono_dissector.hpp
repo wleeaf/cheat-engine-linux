@@ -1,7 +1,7 @@
 #pragma once
 /// Host side of the Mono dissector. Injects the in-process Mono agent
 /// (plugins/mono_agent.c -> libcecore_mono_agent.so) into a Mono/Unity target,
-/// then parses the ground-truth image/class/field dump it writes. See the agent
+/// then requests ground-truth image/class/field dumps over its Unix socket. See the agent
 /// for why this must run in-process (only the runtime knows field offsets).
 
 #include "platform/process_api.hpp"
@@ -69,16 +69,19 @@ ManagedKind detectManagedKind(ProcessHandle& proc);
 
 /// Inject the agent .so into `proc`, wait up to timeoutMs for its dump to
 /// complete, and parse it. `agentSoPath` is the path to libcecore_mono_agent.so.
-/// Returns nullopt if injection fails; on success the result's `ready`/`error`
-/// reflect the agent's status. Requires ptrace permission on the target.
+/// Requests fresh metadata even when the agent is already resident. The result's
+/// `ready`/`error` reflect request/runtime status, including injection failure.
+/// Requires ptrace permission for initial injection. The library path must be
+/// accessible inside the target's filesystem, as for injectLibrary().
 std::optional<MonoDissection> dissectMono(ProcessHandle& proc, SymbolResolver& resolver,
                                           const std::string& agentSoPath,
                                           int timeoutMs = 8000);
 
 /// Resolve a Mono method's JIT'd address by name (findMonoFunction). Ensures the
 /// resident agent is injected, then asks it to compile just that one method.
-/// `paramCount` < 0 matches any overload. Returns 0 if not found. The first call
-/// may take a couple of seconds (agent injection + initial dump).
+/// `paramCount` == -1 matches any overload. Smaller values are invalid. Returns
+/// 0 if not found or the request fails. The first call may take a couple of
+/// seconds for agent injection; resident calls request only this method.
 uintptr_t findMonoFunction(ProcessHandle& proc, SymbolResolver& resolver,
                            const std::string& agentSoPath,
                            const std::string& nameSpace, const std::string& className,

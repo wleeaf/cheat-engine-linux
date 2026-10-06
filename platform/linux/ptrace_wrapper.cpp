@@ -1,8 +1,10 @@
+#include "core/target_capabilities.hpp"
+#include "platform/linux/linux_process.hpp"
 #include "platform/linux/ptrace_wrapper.hpp"
+#include "platform/linux/target_debug.hpp"
 
 #include <sys/ptrace.h>
 #include <sys/wait.h>
-#include <sys/user.h>
 #include <sys/syscall.h>
 #include <signal.h>
 #include <cerrno>
@@ -19,6 +21,15 @@ LinuxDebugger::~LinuxDebugger() {
 }
 
 Result<void> LinuxDebugger::attach(pid_t pid) {
+    LinuxProcessHandle target(pid);
+    auto description = target.targetDescription();
+    // The low-level register backend can be exercised independently of the
+    // full DebugSession event loop, whose capability gate remains stricter.
+    bool armRegisters = nativeTargetMachine().architecture == CpuArchitecture::Arm64 &&
+        description.live && !description.pendingRecovery && description.runtime == TargetRuntime::Native &&
+        description.host.architecture == CpuArchitecture::Arm64 && description.host.abi == TargetAbi::LinuxAarch64;
+    if (!armRegisters && unsupportedTargetOperation(target, TargetFeature::Debugger))
+        return std::unexpected(std::make_error_code(std::errc::not_supported));
     // SEIZE + INTERRUPT, never ATTACH: ATTACH's injected SIGSTOP deadlocks a
     // syscall-parked Wine/Proton thread, whereas SEIZE stops it without
     // delivering a signal (preserving syscall restart). Matches the rule used by
@@ -65,7 +76,7 @@ Result<std::vector<pid_t>> LinuxDebugger::pollChildren() {
     // Non-blocking scan for any tracee that's ready with a fork-style event.
     while (true) {
         int status = 0;
-        pid_t who = waitpid(-1, &status, WNOHANG | __WALL);
+        pid_t who = waitpid(-1, &status, WNOHANG | __WALL | __WNOTHREAD);
         if (who <= 0) break;
         if (WIFSTOPPED(status)) {
             int signal = WSTOPSIG(status);
@@ -110,87 +121,16 @@ Result<void> LinuxDebugger::detach() {
 
     attached_ = false;
     pid_ = 0;
+    breakpointExecution_.clear();
     return {};
 }
 
 Result<CpuContext> LinuxDebugger::getContext(pid_t tid) {
-    struct user_regs_struct regs;
-    if (ptrace(PTRACE_GETREGS, tid, nullptr, &regs) < 0)
-        return std::unexpected(errFromErrno());
-
-    CpuContext ctx{};
-    ctx.rax = regs.rax; ctx.rbx = regs.rbx;
-    ctx.rcx = regs.rcx; ctx.rdx = regs.rdx;
-    ctx.rsi = regs.rsi; ctx.rdi = regs.rdi;
-    ctx.rbp = regs.rbp; ctx.rsp = regs.rsp;
-    ctx.r8  = regs.r8;  ctx.r9  = regs.r9;
-    ctx.r10 = regs.r10; ctx.r11 = regs.r11;
-    ctx.r12 = regs.r12; ctx.r13 = regs.r13;
-    ctx.r14 = regs.r14; ctx.r15 = regs.r15;
-    ctx.rip = regs.rip;
-    ctx.rflags = regs.eflags;
-    ctx.cs = regs.cs; ctx.ss = regs.ss;
-    ctx.ds = regs.ds; ctx.es = regs.es;
-    ctx.fs = regs.fs; ctx.gs = regs.gs;
-
-    // Read the hardware debug registers via PTRACE_PEEKUSER so the GUI sees
-    // real DR values (these were previously left zero even when hardware
-    // breakpoints were active via setBreakpoint, and a setContext round-trip
-    // then silently cleared them). PEEKUSER returns -1 on error; we leave the
-    // field zero in that case rather than failing the whole context read.
-    auto peekDr = [&](int idx) -> uint64_t {
-        errno = 0;
-        long v = ptrace(PTRACE_PEEKUSER, tid,
-                        offsetof(struct user, u_debugreg) + idx * sizeof(long), nullptr);
-        if (v == -1 && errno != 0) return 0;
-        return static_cast<uint64_t>(static_cast<unsigned long>(v));
-    };
-    ctx.dr0 = peekDr(0); ctx.dr1 = peekDr(1);
-    ctx.dr2 = peekDr(2); ctx.dr3 = peekDr(3);
-    ctx.dr6 = peekDr(6); ctx.dr7 = peekDr(7);
-    return ctx;
+    return readNativeContext(tid);
 }
 
 Result<void> LinuxDebugger::setContext(pid_t tid, const CpuContext& ctx) {
-    struct user_regs_struct regs;
-    if (ptrace(PTRACE_GETREGS, tid, nullptr, &regs) < 0)
-        return std::unexpected(errFromErrno());
-
-    regs.rax = ctx.rax; regs.rbx = ctx.rbx;
-    regs.rcx = ctx.rcx; regs.rdx = ctx.rdx;
-    regs.rsi = ctx.rsi; regs.rdi = ctx.rdi;
-    regs.rbp = ctx.rbp; regs.rsp = ctx.rsp;
-    regs.r8  = ctx.r8;  regs.r9  = ctx.r9;
-    regs.r10 = ctx.r10; regs.r11 = ctx.r11;
-    regs.r12 = ctx.r12; regs.r13 = ctx.r13;
-    regs.r14 = ctx.r14; regs.r15 = ctx.r15;
-    regs.rip = ctx.rip;
-    regs.eflags = ctx.rflags;
-    regs.cs = ctx.cs; regs.ss = ctx.ss;
-    regs.ds = ctx.ds; regs.es = ctx.es;
-    regs.fs = ctx.fs; regs.gs = ctx.gs;
-
-    if (ptrace(PTRACE_SETREGS, tid, nullptr, &regs) < 0)
-        return std::unexpected(errFromErrno());
-
-    // Write the hardware debug registers back so a getContext->edit->setContext
-    // round-trip preserves them instead of silently dropping DR edits (and so
-    // it no longer zeroes DRs that setBreakpoint set). The kernel rejects
-    // illegal DR7/address values with an error, which we treat as best-effort
-    // here (the GP/SETREGS path above already succeeded). DR6/DR7 reserved
-    // bits are enforced by the kernel on POKEUSER.
-    // TODO(security): mask DR7 reserved/control bits in userspace before the
-    //   poke rather than relying solely on kernel validation, and reconcile
-    //   the two DR-management paths (setContext vs setBreakpoint).
-    auto pokeDr = [&](int idx, uint64_t value) {
-        ptrace(PTRACE_POKEUSER, tid,
-               offsetof(struct user, u_debugreg) + idx * sizeof(long),
-               reinterpret_cast<void*>(static_cast<uintptr_t>(value)));
-    };
-    pokeDr(0, ctx.dr0); pokeDr(1, ctx.dr1);
-    pokeDr(2, ctx.dr2); pokeDr(3, ctx.dr3);
-    pokeDr(6, ctx.dr6); pokeDr(7, ctx.dr7);
-    return {};
+    return writeNativeContext(tid, ctx);
 }
 
 Result<void> LinuxDebugger::suspend(pid_t tid) {
@@ -213,64 +153,52 @@ Result<void> LinuxDebugger::singleStep(pid_t tid) {
     int status;
     // Report failure if the step didn't produce a clean stop (tracee exited or
     // the wait was interrupted) so callers don't read stale registers.
-    if (waitpid(tid, &status, 0) != tid || !WIFSTOPPED(status))
+    pid_t waited;
+    do { waited = waitpid(tid, &status, __WALL | __WNOTHREAD); } while (waited < 0 && errno == EINTR);
+    if (waited != tid || !WIFSTOPPED(status))
         return std::unexpected(std::make_error_code(std::errc::no_such_process));
     return {};
 }
 
 Result<void> LinuxDebugger::setBreakpoint(pid_t tid, int reg, uintptr_t address, int type, int size) {
-    if (reg < 0 || reg > 3)
+    if (reg < 0 || size < 0 || size > 3 || (type != 0 && type != 1 && type != 3))
         return std::unexpected(std::make_error_code(std::errc::invalid_argument));
-
-    // Set DR[reg] address
-    size_t dr_offset = offsetof(struct user, u_debugreg) + reg * sizeof(long);
-    if (ptrace(PTRACE_POKEUSER, tid, dr_offset, address) < 0)
-        return std::unexpected(errFromErrno());
-
-    // Read current DR7. PEEKUSER returns -1 on both a legitimate all-ones value
-    // and an error, so clear errno first and treat -1-with-errno as failure —
-    // otherwise a transient read error pokes a corrupted control register back.
-    size_t dr7_offset = offsetof(struct user, u_debugreg) + 7 * sizeof(long);
-    errno = 0;
-    long dr7 = ptrace(PTRACE_PEEKUSER, tid, dr7_offset, nullptr);
-    if (dr7 == -1 && errno != 0)
-        return std::unexpected(errFromErrno());
-
-    // Enable breakpoint in DR7
-    // Bits: local enable at bit (reg*2), condition at bits (16 + reg*4), length at bits (18 + reg*4)
-    dr7 |= (1L << (reg * 2));                 // Local enable
-    dr7 &= ~(0xFL << (16 + reg * 4));         // Clear condition+length bits
-    dr7 |= ((long)(type & 0x3) << (16 + reg * 4));   // Condition (0=exec, 1=write, 3=rw)
-    dr7 |= ((long)(size & 0x3) << (18 + reg * 4));   // Length (0=1byte, 1=2byte, 3=4byte)
-
-    if (ptrace(PTRACE_POKEUSER, tid, dr7_offset, dr7) < 0)
-        return std::unexpected(errFromErrno());
-
-    return {};
+    constexpr unsigned lengths[] = {1, 2, 8, 4};
+    auto access = type == 0 ? HardwareBreakpointAccess::Execute :
+        type == 1 ? HardwareBreakpointAccess::Write : HardwareBreakpointAccess::ReadWrite;
+    // Preserve the public interface's historic x86 length encoding; the native
+    // backend consumes byte lengths and selects its architecture's bank.
+    unsigned length = lengths[size];
+    if (type == 0 && nativeTargetMachine().architecture == CpuArchitecture::Arm64) length = 4;
+    auto key = std::pair{tid, reg};
+    auto it = breakpointExecution_.find(key);
+    if (it != breakpointExecution_.end() && it->second != (type == 0) &&
+        nativeTargetMachine().architecture == CpuArchitecture::Arm64)
+        return std::unexpected(std::make_error_code(std::errc::device_or_resource_busy));
+    bool inserted = false;
+    if (it == breakpointExecution_.end()) {
+        try { breakpointExecution_.emplace(key, type == 0); inserted = true; }
+        catch (const std::bad_alloc&) {
+            return std::unexpected(std::make_error_code(std::errc::not_enough_memory));
+        }
+    }
+    auto result = setNativeHardwareBreakpoint(tid, unsigned(reg), address, access, length);
+    if (!result && inserted && result.error() != std::make_error_code(std::errc::state_not_recoverable))
+        breakpointExecution_.erase(key);
+    else if (result) breakpointExecution_.find(key)->second = type == 0;
+    return result;
 }
 
 Result<void> LinuxDebugger::removeBreakpoint(pid_t tid, int reg) {
-    if (reg < 0 || reg > 3)
+    if (reg < 0) return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+    auto key = std::pair{tid, reg};
+    auto it = breakpointExecution_.find(key);
+    if (it == breakpointExecution_.end() && nativeTargetMachine().architecture == CpuArchitecture::Arm64)
         return std::unexpected(std::make_error_code(std::errc::invalid_argument));
-
-    // Clear DR[reg] address
-    size_t dr_offset = offsetof(struct user, u_debugreg) + reg * sizeof(long);
-    if (ptrace(PTRACE_POKEUSER, tid, dr_offset, 0) < 0)
-        return std::unexpected(errFromErrno());
-
-    // Disable in DR7 (clear+check errno around PEEKUSER; see setBreakpoint).
-    size_t dr7_offset = offsetof(struct user, u_debugreg) + 7 * sizeof(long);
-    errno = 0;
-    long dr7 = ptrace(PTRACE_PEEKUSER, tid, dr7_offset, nullptr);
-    if (dr7 == -1 && errno != 0)
-        return std::unexpected(errFromErrno());
-    dr7 &= ~(1L << (reg * 2));           // Disable local enable
-    dr7 &= ~(0xFL << (16 + reg * 4));    // Clear condition+length
-
-    if (ptrace(PTRACE_POKEUSER, tid, dr7_offset, dr7) < 0)
-        return std::unexpected(errFromErrno());
-
-    return {};
+    bool execution = it != breakpointExecution_.end() && it->second;
+    auto result = removeNativeHardwareBreakpoint(tid, unsigned(reg), execution);
+    if (result) breakpointExecution_.erase(key);
+    return result;
 }
 
 } // namespace ce::os

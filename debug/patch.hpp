@@ -5,13 +5,20 @@
 #include "platform/process_api.hpp"
 #include <cstdint>
 #include <vector>
+#include <span>
 
 namespace ce {
 
-/// Overwrite the single instruction at `address` with NOPs (0x90), preserving
+std::expected<std::vector<uint8_t>,std::string> nopBytesFor(
+    ProcessHandle& proc,uintptr_t address,size_t size);
+// Preserve/verify the original bytes and use the adapter's code-cache path.
+std::expected<std::vector<uint8_t>,std::string> patchInstructionBytes(
+    ProcessHandle& proc,uintptr_t address,std::span<const uint8_t> bytes);
+
+/// Overwrite the single instruction at `address` with target NOPs, preserving
 /// its exact byte length, and return the original bytes so the patch can be
 /// reverted with restoreBytes. Returns empty if the instruction can't be read,
-/// decoded, or written. Decodes as x86-64 (matches the debug layer).
+/// decoded, or written. Uses the instruction architecture at that address.
 std::vector<uint8_t> nopInstruction(ProcessHandle& proc, uintptr_t address);
 
 /// Write `original` back at `address` (revert a nopInstruction). Returns false

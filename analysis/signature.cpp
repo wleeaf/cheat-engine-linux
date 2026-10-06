@@ -1,5 +1,6 @@
 #include "analysis/signature.hpp"
 #include "arch/disassembler.hpp"
+#include "arch/target_arch.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -64,8 +65,9 @@ SignatureResult makeSignature(ProcessHandle& proc, uintptr_t address,
     const size_t codeOff = static_cast<size_t>(address - regionBase);
     if (codeOff >= region.size()) return out;
 
-    Arch arch = proc.runs32BitCode() ? Arch::X86_32 : Arch::X86_64;
-    Disassembler dis(arch);
+    auto arch = disassemblerArchFor(proc, address);
+    if (!arch) return out;
+    Disassembler dis(*arch);
     const size_t codeLen = std::min<size_t>(region.size() - codeOff, maxBytes + 16);
     auto insns = dis.disassemble(address,
         std::span<const uint8_t>(region.data() + codeOff, codeLen), 0, /*emitDataBytes=*/true);

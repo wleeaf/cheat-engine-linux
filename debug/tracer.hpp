@@ -7,6 +7,7 @@
 #include <vector>
 #include <string>
 #include <atomic>
+#include <mutex>
 
 namespace ce {
 
@@ -35,11 +36,17 @@ public:
     void cancel() { cancelled_.store(true); }
 
     float progress() const { return progress_.load(); }
+    /// True once every selected thread is armed and waiting for the start address.
+    bool ready() const { return ready_.load(); }
+    Error lastError() const { std::lock_guard lock(errorMutex_); return error_; }
 
 private:
+    std::mutex traceMutex_;
     std::atomic<bool> cancelled_{false};
     std::atomic<float> progress_{0};
-    Disassembler disasm_{Arch::X86_64};
+    std::atomic<bool> ready_{false};
+    mutable std::mutex errorMutex_;
+    Error error_;
 };
 
 } // namespace ce

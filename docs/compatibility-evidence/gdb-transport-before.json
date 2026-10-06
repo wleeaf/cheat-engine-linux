@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 1,
+  "createdUTC": "2026-10-05T15:39:21Z",
+  "sourceRevision": null,
+  "sourceState": "uncommitted worktree snapshot",
+  "driver": {
+    "path": "/home/taceddinsancak/Desktop/Projects/cheat-engine/build/.ci-tmp/gdb-before/probe",
+    "sha256": "964dd89eb5e85ffa1d53ad765ae2ba6fbe781044f81fb119001dbb396f3c2324"
+  },
+  "realGuestRequired": false,
+  "passed": false,
+  "cases": [
+    {
+      "name": "raw-hex",
+      "returnCode": 1,
+      "output": "FAILED: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=FAILED\n",
+      "seconds": 0.002,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": false
+    },
+    {
+      "name": "raw-escape",
+      "returnCode": 1,
+      "output": "FAILED: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=FAILED\n",
+      "seconds": 0.001,
+      "peerErrors": [
+        "ValueError(\"invalid literal for int() with base 16: b'}*'\")"
+      ],
+      "packets": 0,
+      "passed": false
+    },
+    {
+      "name": "raw-rle",
+      "returnCode": 0,
+      "output": "OK: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=PASSED\n",
+      "seconds": 0.001,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": true
+    },
+    {
+      "name": "raw-request-retry",
+      "returnCode": 1,
+      "output": "FAILED: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=FAILED\n",
+      "seconds": 0.001,
+      "peerErrors": [
+        "EOFError()"
+      ],
+      "packets": 1,
+      "passed": false
+    },
+    {
+      "name": "raw-response-retry",
+      "returnCode": 1,
+      "output": "FAILED: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=FAILED\n",
+      "seconds": 0.001,
+      "peerErrors": [
+        "EOFError()"
+      ],
+      "packets": 1,
+      "passed": false
+    },
+    {
+      "name": "raw-console",
+      "returnCode": 1,
+      "output": "FAILED: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=FAILED\n",
+      "seconds": 0.001,
+      "peerErrors": [
+        "BrokenPipeError(32, 'Broken pipe')"
+      ],
+      "packets": 1,
+      "passed": false
+    },
+    {
+      "name": "raw-bad-prefix",
+      "returnCode": 1,
+      "output": "FAILED: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=FAILED\n",
+      "seconds": 0.003,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": false
+    },
+    {
+      "name": "raw-bad-rle",
+      "returnCode": 1,
+      "output": "FAILED: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=FAILED\n",
+      "seconds": 0.001,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": false
+    },
+    {
+      "name": "raw-bad-escape",
+      "returnCode": 1,
+      "output": "FAILED: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=FAILED\n",
+      "seconds": 0.001,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": false
+    },
+    {
+      "name": "raw-timeout",
+      "returnCode": 1,
+      "output": "FAILED: framed replies, escapes and retransmissions preserve actual payloads\nFAILED: a stalled peer is bounded by one transaction deadline\nGDB_RAW_RESULT=FAILED\n",
+      "seconds": 0.203,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": false
+    },
+    {
+      "name": "raw-eof",
+      "returnCode": 1,
+      "output": "FAILED: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=FAILED\n",
+      "seconds": 0.002,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": false
+    },
+    {
+      "name": "raw-short",
+      "returnCode": 0,
+      "output": "OK: memory replies retain real short/error/oversized semantics\nGDB_RAW_RESULT=PASSED\n",
+      "seconds": 0.002,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": true
+    },
+    {
+      "name": "raw-error",
+      "returnCode": 0,
+      "output": "OK: memory replies retain real short/error/oversized semantics\nGDB_RAW_RESULT=PASSED\n",
+      "seconds": 0.002,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": true
+    },
+    {
+      "name": "raw-oversized",
+      "returnCode": 1,
+      "output": "FAILED: memory replies retain real short/error/oversized semantics\nGDB_RAW_RESULT=FAILED\n",
+      "seconds": 0.002,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": false
+    }
+  ],
+  "clientSourceRevision": "462975248038f5afcf1c245268fcbcbe8f006ddb",
+  "probeSourceState": "Current raw-test portion compiled with released GDB client sources"
+}

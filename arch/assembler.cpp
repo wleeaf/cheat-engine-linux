@@ -4,6 +4,7 @@
 #include <keystone/keystone.h>
 #include <stdexcept>
 #include <cctype>
+#include <algorithm>
 
 namespace {
 // Capstone emits Intel size specifiers with the "ptr" keyword ("qword ptr [..]",
@@ -42,6 +43,10 @@ Assembler::Assembler(AsmArch arch) : arch_(arch) {
         case AsmArch::X86_64: ka = KS_ARCH_X86;   km = KS_MODE_64; break;
         case AsmArch::ARM32:  ka = KS_ARCH_ARM;   km = KS_MODE_ARM; break;
         case AsmArch::ARM64:  ka = KS_ARCH_ARM64; km = KS_MODE_LITTLE_ENDIAN; break;
+        case AsmArch::ARMThumb: ka = KS_ARCH_ARM; km = KS_MODE_THUMB; break;
+        case AsmArch::ARM32_BE: ka = KS_ARCH_ARM; km = static_cast<ks_mode>(KS_MODE_ARM | KS_MODE_BIG_ENDIAN); break;
+        case AsmArch::ARMThumb_BE: ka = KS_ARCH_ARM; km = static_cast<ks_mode>(KS_MODE_THUMB | KS_MODE_BIG_ENDIAN); break;
+        default: throw std::invalid_argument("Unknown assembler architecture");
     }
 
     ks_engine* ks;
@@ -96,23 +101,54 @@ Assembler::assembleEx(const std::string& code, uintptr_t address, size_t& statem
         return std::vector<uint8_t>{0xe9, static_cast<uint8_t>(bits), static_cast<uint8_t>(bits >> 8),
                                    static_cast<uint8_t>(bits >> 16), static_cast<uint8_t>(bits >> 24)};
     }
-    std::optional<uintptr_t> relativeTarget;
-    // NASM's [rel address] denotes an absolute destination encoded relative to
-    // the end of this instruction. Keystone treats it as a literal displacement.
-    // Assemble the shape first, then fill the displacement using its actual size.
+    // Keystone's NASM parser inconsistently treats numeric memory destinations:
+    // MOV can encode the number as a RIP displacement while other instructions
+    // encode an absolute destination. Retain destinations and verify/fix each
+    // emitted instruction, including blocks with labels and multiple operands.
+    std::vector<std::optional<uintptr_t>> memoryTargets;
+    bool hasMemoryTarget = false;
     if (arch_ == AsmArch::X86_64) {
-        for (size_t pos = 0; (pos = normalized.find('[', pos)) != std::string::npos; ++pos) {
-            auto end = normalized.find(']', pos);
-            if (end == std::string::npos) break;
-            auto begin = normalized.find_first_not_of(" \t", pos + 1);
-            if (begin == std::string::npos || begin + 3 >= end) continue;
-            auto keyword = normalized.substr(begin, 3);
-            for (auto& c : keyword) c = std::tolower(static_cast<unsigned char>(c));
-            if (keyword != "rel" || !std::isspace(static_cast<unsigned char>(normalized[begin + 3]))) continue;
-            if (relativeTarget) return std::unexpected("Only one relative memory operand is supported");
-            relativeTarget = ExpressionParser().parse(normalized.substr(begin + 4, end - begin - 4));
-            if (!relativeTarget) return std::unexpected("Unresolved relative memory destination");
-            normalized.replace(pos + 1, end - pos - 1, "rip+0");
+        size_t statementStart = 0;
+        while (statementStart < normalized.size()) {
+            size_t statementEnd = normalized.find_first_of(";\n", statementStart);
+            if (statementEnd == std::string::npos) statementEnd = normalized.size();
+            auto statement = normalized.substr(statementStart, statementEnd - statementStart);
+            auto first = statement.find_first_not_of(" \t\r");
+            // A label does not consume an instruction in the decoded output.
+            while (first != std::string::npos) {
+                auto colon = statement.find(':', first);
+                auto space = statement.find_first_of(" \t[", first);
+                if (colon == std::string::npos || (space != std::string::npos && space < colon)) break;
+                first = statement.find_first_not_of(" \t\r", colon + 1);
+            }
+            if (first != std::string::npos) {
+                std::optional<uintptr_t> target;
+                auto open = statement.find('[', first), close = statement.find(']', open);
+                if (open != std::string::npos && close != std::string::npos) {
+                    auto expression = statement.substr(open + 1, close - open - 1);
+                    auto begin = expression.find_first_not_of(" \t");
+                    auto end = expression.find_last_not_of(" \t");
+                    expression = begin == std::string::npos ? "" : expression.substr(begin, end - begin + 1);
+                    auto keyword = expression.substr(0, 3);
+                    for (auto& c : keyword) c = std::tolower(static_cast<unsigned char>(c));
+                    bool relative = keyword == "rel" && expression.size() > 3 && std::isspace(static_cast<unsigned char>(expression[3]));
+                    bool absolute = keyword == "abs" && expression.size() > 3 && std::isspace(static_cast<unsigned char>(expression[3]));
+                    if (relative || absolute) expression = expression.substr(4);
+                    // Bare NASM decimal literals differ from CE expression numbers.
+                    bool decimal = !expression.empty() && std::all_of(expression.begin(), expression.end(),
+                        [](unsigned char c) { return std::isdigit(c); });
+                    if (relative || absolute || decimal || expression.starts_with("0x") || expression.starts_with("0X"))
+                        target = ExpressionParser().parse(decimal && !relative && !absolute ? "#" + expression : expression);
+                    if ((relative || absolute) && !target)
+                        return std::unexpected("Unresolved memory destination");
+                    if (relative) statement.replace(open + 1, close - open - 1, "rip+0");
+                }
+                hasMemoryTarget |= target.has_value();
+                memoryTargets.push_back(target);
+            }
+            normalized.replace(statementStart, statementEnd - statementStart, statement);
+            statementEnd = statementStart + statement.size();
+            statementStart = statementEnd + 1;
         }
     }
     int r = ks_asm(ks, normalized.c_str(), address, &encoded, &size, &count);
@@ -141,19 +177,34 @@ Assembler::assembleEx(const std::string& code, uintptr_t address, size_t& statem
     }
 
     std::vector<uint8_t> result(encoded, encoded + size);
-    if (relativeTarget) {
+    if (hasMemoryTarget) {
+        if (size > UINTPTR_MAX - address)
+            return std::unexpected("Assembly range exceeds the address space");
         Disassembler dis(Arch::X86_64);
-        auto inst = dis.disassembleOne(address, result);
-        if (!inst || inst->size != result.size() || !inst->memory.ripRelative ||
-            inst->dispSize != 4 || inst->dispOffset + 4 > result.size() || size > UINTPTR_MAX - address)
-            return std::unexpected("Cannot encode this relative memory operand");
-        uintptr_t next = address + size;
-        uint64_t distance = *relativeTarget >= next ? *relativeTarget - next : next - *relativeTarget;
-        if (distance > (*relativeTarget >= next ? uint64_t(INT32_MAX) : uint64_t(INT32_MAX) + 1))
-            return std::unexpected("Relative memory destination is outside the 2 GiB range");
-        int64_t displacement = *relativeTarget >= next ? int64_t(distance) : -int64_t(distance);
-        uint32_t bits = static_cast<uint32_t>(displacement);
-        for (size_t i = 0; i < 4; ++i) result[inst->dispOffset + i] = static_cast<uint8_t>(bits >> (8 * i));
+        auto instructions = dis.disassemble(address, result);
+        if (instructions.size() != memoryTargets.size() || instructions.empty() ||
+            instructions.back().address + instructions.back().size != address + size)
+            return std::unexpected("Cannot verify memory destinations in this assembly block");
+        for (size_t i = 0; i < instructions.size(); ++i) {
+            if (!memoryTargets[i]) continue;
+            const auto& inst = instructions[i];
+            uintptr_t target = *memoryTargets[i];
+            if (!inst.memory.ripRelative) {
+                if (!inst.memory.present || inst.memory.disp != static_cast<int64_t>(target))
+                    return std::unexpected("Absolute memory destination cannot be represented by this instruction");
+                continue;
+            }
+            if (inst.dispSize != 4 || size_t(inst.dispOffset) + 4 > inst.bytes.size())
+                return std::unexpected("Cannot encode this relative memory operand");
+            uintptr_t next = inst.address + inst.size;
+            uint64_t distance = target >= next ? target - next : next - target;
+            if (distance > (target >= next ? uint64_t(INT32_MAX) : uint64_t(INT32_MAX) + 1))
+                return std::unexpected("Relative memory destination is outside the 2 GiB range");
+            int64_t displacement = target >= next ? int64_t(distance) : -int64_t(distance);
+            uint32_t bits = static_cast<uint32_t>(displacement);
+            size_t offset = inst.address - address + inst.dispOffset;
+            for (size_t j = 0; j < 4; ++j) result[offset + j] = static_cast<uint8_t>(bits >> (8 * j));
+        }
     }
     statementsOut = count;
     return result;

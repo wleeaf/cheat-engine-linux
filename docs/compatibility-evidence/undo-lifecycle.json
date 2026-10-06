@@ -1,0 +1,290 @@
+{
+  "schemaVersion": 1,
+  "createdUTC": "2026-10-06T02:22:52.070427+00:00",
+  "sourceState": "uncommitted worktree snapshot",
+  "baseCommit": "462975248038f5afcf1c245268fcbcbe8f006ddb",
+  "passed": true,
+  "scope": "Saved native AutoAssembler and simple-hook byte undo bound to an original-mm descriptor; copied undo idempotence, allocation reuse/DEALLOC lifetime, registered symbol ownership, mutable executable-page data, exception rollback, replaced-code conflicts and retired native-call requests. Includes current host CI and ARM64 backend regression checks. Does not establish complete mapping identity, CLONE_VM exec affinity for numeric-PID syscalls, atomic live hooks, other ISA/remote adapters or all kernel policies.",
+  "sources": {
+    "platform/process_api.hpp": "4500320fc1425dd9d2f905f2be461251435b9e670cbfc9fd3d6a7c5b4d99a663",
+    "platform/process_api.cpp": "68cf8e1ac6633e6ab7fd0c273b3dcf460b5a019bf482324bd4e8f9d77ba75588",
+    "platform/linux/linux_process.cpp": "b594f81f0ce3e39fe17296321239c46410b2bdf43f49853d86d936152cc09a30",
+    "platform/linux/linux_process.hpp": "927b9aee6317d400fcd03eccab6c6cd136bf5d1caccd102aa7f88d1f9adfebf1",
+    "platform/linux/memory_image.cpp": "79340bc66027d7680927f5b026133ecd541fe73318147c1b80e8524c7ae2aec8",
+    "platform/linux/memory_image.hpp": "42279d8eeee7e6b3dffd0e7c3c45fe364517b2b2e2fd7dd2af7ee7f878d76a6a",
+    "platform/linux/target_syscall.cpp": "d7b577f1997a130bc53c22aa81bf34596637573c11bc28aaf2212144a2e36bdf",
+    "platform/linux/target_syscall.hpp": "2a89bc8248788d68d6789bd54508271e6361f3bad3226324143fd8eadea8e408",
+    "platform/linux/call_service.cpp": "f712708c8bc4b346467e2ca6188ecb855c08725c5d8dfd6730b144b5aac9a03c",
+    "platform/linux/call_service.hpp": "2f56a1ed2ab77b9c8ea3a6bce0bb35c4b869a641ea1ad88933b2ebca7c41ee63",
+    "platform/linux/injector.cpp": "1afa1e27c5c6d9c36c5efcefe7c29e6185f9a7d36967d9522c73023cf454d006",
+    "platform/linux/injector.hpp": "5efaabaf16def4bc734474806a78970c95da91a3c7a205dba1166fb4c500e10e",
+    "core/simple_hook.cpp": "e394fc5bfe4aa4078c5dc587d564704124e639ed8a4f30f51a5aab1200a3c38f",
+    "core/simple_hook.hpp": "ad1af224244a32a1f48c8d2df9239946d6cf7addd494616d952b90afccdd4392",
+    "platform/linux/code_write.cpp": "c83999a556bc98e5530fee231660e1ceda6b113c6268e098c7e785269124179d",
+    "platform/linux/code_write.hpp": "ba325443dfbb810da3075715b82a0efdf7064ad96fd3594f3462ad79586db639",
+    "platform/linux/syscall_service.cpp": "1a0401d50f7753f9d1ab4b433ac8b57240ae8cdb86bb7ae2fadcb3281f38d9c2",
+    "platform/linux/syscall_service.hpp": "7b04be118fe101039713cde929e42e8c8e2c6a79cfc0d95cd5751f92fb3cbfab",
+    "core/autoasm.cpp": "ce938612ff048288b7ba5001a660fbbc9fb04c193032a54f74467fd6079ebbe9",
+    "core/autoasm.hpp": "5e9ed86d657b26a20d08ddd4a07d5171b131d6ae32b96364fc263dcaf097fd9c",
+    "debug/patch.cpp": "ccb43f430ee1057b49514bb05b0e7ed47b336a3d9885fb0dac415cea3ba38189",
+    "debug/patch.hpp": "c34255707bfbb24855ba8953a85774939bee2c4e47c700796c1aa068692f5afe",
+    "gui/memorybrowser.cpp": "e20b3e8b575b322aea7ae91356b330e113b57fe3af38e03d3ed9a26461da82c7",
+    "gui/memorybrowser.hpp": "543b80f2dd8ee6b9e840e31931441ef6e02f000e931f9f152ce9177dc266446b",
+    "test/code_write_integration.cpp": "60e603c517f7304861491ffbe5fa01ac61914e6597839917ebfb745a229d7bf2",
+    "test/code_write_faults.cpp": "f773b7ff1958cafb2723971da669741c88a440d09b9e8993f5ff3bded12cdd76",
+    "test/code_write_faults.hpp": "d3d5969de046b86a9547c89d14f67977b8dd240b84f64c39456f4aac444370c0",
+    "test/code_write_checks.inc": "9ddf6335968d736e433488a8b9d609e62d4b4f0c8e3ee6e1f5291399e60d3d15",
+    "test/target_compatibility_test.cpp": "8847f068e28fa721ba133f472747c569b096c03a41b0af9d81cd40e62f0d5a35",
+    "test/code_write_gate.py": "0565b2560c81209b3cfd57883a41dd38bb8a74f0b89d01991be3af408bd22cd0",
+    "test/arm64_vm/CMakeLists.txt": "d0ab163965ebf46ae145e7202c104aefbc32dd00972bc08a3cac513a3b2bb69a",
+    "test/fullsystem_vm.py": "cb0d9a61465989c96cfbe322b8c51c9be1c90317313b96a0c8fdd1cb517b29e5",
+    "test/aarch64_relocation_gate.py": "48ea012849a78bdcd89e4a36dfa5452f0b7918a6c6597b081841f9f53ba20f61",
+    "CMakeLists.txt": "de0da7e7ef81f5a645b3d5fd2486a1687d3de9171d041a5eb90efd05c3ea9ef3",
+    "tools/ci-check.sh": "1accd9af9361bc2add992e72246af87a496c0dfd4f7f0bae1415e784f65ecff6",
+    "tools/check-arm64-vm.sh": "aa8e38caf2ee73673b2b831af5ecb0d8674277f8cf0c45161d88aa888643ee89",
+    ".github/workflows/build.yml": "e56c81473e96614a095491def306518f522c0fc5447d0543ff2e9e4edf6c15e5",
+    ".github/workflows/release.yml": "ec04f08fc78f715d95a07b8f7b5b66abd0896f227456d3412c78fb9f696b4827",
+    ".github/workflows/arm64-compatibility.yml": "32c11b137f8c17d626c56eb3dfbbe281329f26bf0148d3b9ee0a2357e232c34b"
+  },
+  "binaries": {
+    "build/libcecore.so": "2e8e9195329448572acaa0593dd837117be60ff2fb28991c59857b44c2c706a6",
+    "build/code_write_integration": "872c23cde7b2714b577d1bdcb643d2b66aa12bfb5ee150bc045463b9691dca58",
+    "build/cecore_compatibility_test": "da11752df6a67868591faabd7f30837d0172a1f4ab9e61b6af4eb30205871cf4",
+    "build/cescan": "d483099bdaf7be07a9cc5c5dd2b5edd242360a143b1bfe23d4dda05ae3347655",
+    "build/cheatengine": "73872b844da40481bc968396793cf798720d3f0f8a320603c036846896c88dc6",
+    "build-ci-asan/libcecore.so": "bc1e586ca39a6bbe27170f2cf31ce073ffcb709b4b635df28d8007521a6c7bbc",
+    "build-ci-asan/code_write_integration": "9595d669ee74429c52937f89a00ec46143ee86e3a6a227091019055e00e48b98",
+    "build-ci-asan/cecore_compatibility_test": "cd65a1eb69b6d379ab155e1cb6d19f5814d971215477d7b89ac22289af0e608d",
+    "build-ci-asan/cescan": "f09f0e3d440d6202c6435b23026a7840782e220a1bc27fb6f96295bae1b0a807",
+    "build/.ci-tmp/undo-lifecycle-arm/init": "1a841de5c61b3e3876eae3d4465412c92c02564288c67cbac240bb234e6f579e",
+    "build/.ci-tmp/undo-lifecycle-arm/code_write_init": "5cd53e2d8c8482a634201f726f579aa687ae98e34b899b566c87d99f3216f2e7",
+    "build/.ci-tmp/undo-lifecycle-arm/relocation_init": "b886d3287ae61f238c7da350f6cbd60f37a324e81c9d3aa12647c7c184b7f0d9"
+  },
+  "resources": {
+    "compilerJobs": 1,
+    "nice": 10,
+    "heavyJobs": "sequential",
+    "temporaryStorage": "build filesystem and cached container /var/tmp",
+    "codeWriteGuestCPUs": 1,
+    "codeWriteGuestMemoryMiB": 128,
+    "existingFullSuiteGuestCPUs": 2,
+    "existingFullSuiteGuestMemoryMiB": 512
+  },
+  "host": {
+    "native": {
+      "report": {
+        "path": "undo-lifecycle-native.json",
+        "sha256": "72eac4fc2508b3a23e99de851fbc39cbab80f68dbee05fe63aa63d1d05a428d9"
+      },
+      "output": {
+        "path": "undo-lifecycle-native.log",
+        "sha256": "81bb9c5d322f19f821fcf1306f059d70d222d45e067c1d43628dc46c82db0d22"
+      },
+      "backendChecks": 40,
+      "cliChecks": 5
+    },
+    "asan": {
+      "report": {
+        "path": "undo-lifecycle-asan.json",
+        "sha256": "088d796756b52612b8ee8bad8a06aee961baf5e46d284acee5eb950e5a23742a"
+      },
+      "output": {
+        "path": "undo-lifecycle-asan.log",
+        "sha256": "944bfab73bf09e73ce3fe0e9931e844aac9a03854ca46136709d5b91faf65a16"
+      },
+      "backendChecks": 40,
+      "cliChecks": 5
+    }
+  },
+  "kernels": {
+    "4096": {
+      "report": {
+        "path": "undo-lifecycle-kernel.json",
+        "sha256": "5c6f8010012fae980c1a5d57c0778e928106efdc8f2495ded88ee82c184bdd61"
+      },
+      "output": {
+        "path": "undo-lifecycle-kernel.log",
+        "sha256": "2f6083474d0961b7f7ba2014313e7b1abb8d6943b1dddefa80172a55d7f65f2b"
+      },
+      "kernel": "6.18.52-0-virt",
+      "kernelSha256": "06196d2cf51e9a2bac421564bb64c63a8b7146c9a22755dd22a713e337023013",
+      "pageSize": 4096,
+      "checks": 27,
+      "existingFullSuite": {
+        "path": "undo-lifecycle-full-kernel.json",
+        "sha256": "7968ded55f37ffd1e52353954c5ee3a61e639a75400b730375d6b415b91a59ea"
+      },
+      "fullSuiteOutput": {
+        "path": "undo-lifecycle-full-kernel.log",
+        "sha256": "478f81dc89ef470dc21d15ea7070936d41cfc85a150ae286bdb8da19503c6baa"
+      },
+      "fullSuiteChecks": 881,
+      "relocation": {
+        "path": "undo-lifecycle-relocation.json",
+        "sha256": "cbb562d46c8183e10e3b06c9f3c714b04ffd3d8a7e21db1a540a7ede8b37c29e"
+      },
+      "relocationOutput": {
+        "path": "undo-lifecycle-relocation.log",
+        "sha256": "75e5103e7a1197cbc39072d9d852a9f6d4febe1cb86eadc3a554dfa0d1bac59e"
+      },
+      "relocationChecks": 21,
+      "relocationExecutions": 1119
+    },
+    "65536": {
+      "report": {
+        "path": "undo-lifecycle-kernel-64k.json",
+        "sha256": "15efcd6bf4dae2800919ca223d863c9815a605cd934f9815f9a38da23addabf8"
+      },
+      "output": {
+        "path": "undo-lifecycle-kernel-64k.log",
+        "sha256": "56cb2efbec0829da2028b3a83b4689f306bb7b667ad9419a048538371298e600"
+      },
+      "kernel": "6.8.0-146-generic-64k",
+      "kernelSha256": "d5f5150b83c59404233bde3859817d4665301e0bfab20fa47ccdac4bfbeb1ae8",
+      "pageSize": 65536,
+      "checks": 27,
+      "existingFullSuite": {
+        "path": "undo-lifecycle-full-kernel-64k.json",
+        "sha256": "87f2b33ad84cc1b3e223d35594f1686870cbd7798d6a2589cd04c6ef57917dd5"
+      },
+      "fullSuiteOutput": {
+        "path": "undo-lifecycle-full-kernel-64k.log",
+        "sha256": "2e38d84e136d611b74dfec21a780e016dd023da229c52704189f1b3f6f6e2da9"
+      },
+      "fullSuiteChecks": 722,
+      "relocation": {
+        "path": "undo-lifecycle-relocation-64k.json",
+        "sha256": "7ad3d1856a7cb86afbd1acc51a007a800208c92effc32fd58e7972085f3f7367"
+      },
+      "relocationOutput": {
+        "path": "undo-lifecycle-relocation-64k.log",
+        "sha256": "9ac68eee2f3dba0631d08d400d81d1916eec4f10f51f98cd272ce6187d510ba7"
+      },
+      "relocationChecks": 21,
+      "relocationExecutions": 1119
+    }
+  },
+  "evidence": {
+    "hostCI": {
+      "path": "undo-lifecycle-hostCI.log",
+      "sha256": "c2c2cf8659ea47f9240d4849b2cb20fcc1eb42b3c3c8af9ee2762bae0fed3446"
+    },
+    "initialHostCI": {
+      "path": "undo-lifecycle-initial-hostCI.log",
+      "sha256": "b3fc6bd03398ea5864d7f67a98faee2e93cb92a155b3bdac543bfdaaed775068"
+    },
+    "nativeModel": {
+      "path": "undo-lifecycle-nativeModel.log",
+      "sha256": "0854e66da48f9422c5632809ded3bdce68cd7463d1bbd411dad5b4301fcb6ff2",
+      "checks": 205
+    },
+    "asanModel": {
+      "path": "undo-lifecycle-asanModel.log",
+      "sha256": "0854e66da48f9422c5632809ded3bdce68cd7463d1bbd411dad5b4301fcb6ff2",
+      "checks": 205
+    },
+    "finalAsanCore": {
+      "path": "undo-lifecycle-finalAsanCore.log",
+      "sha256": "841a50d4866e4bf7d1ab9975e9b10c7ad0ab6c16af744fe3d0b26101a38dd7e2"
+    },
+    "finalAsanDeep": {
+      "path": "undo-lifecycle-finalAsanDeep.log",
+      "sha256": "cfb53f1b419a9b07a3f868903f97b36b99013aae3b3bb70c708e79a5cd0bf13d"
+    },
+    "crossBuild": {
+      "path": "undo-lifecycle-crossBuild.log",
+      "sha256": "31d572eee88ee0c5ac6eca123b334bc7653a43408254d0c0795d250434e715b3"
+    },
+    "toolchain": {
+      "path": "undo-lifecycle-toolchain.log",
+      "sha256": "bb9607e3dc0b438c7d02ef27b1b5f1f59d8b043d4c7809ff6782f37c424dcc66"
+    },
+    "initialModel": {
+      "path": "undo-lifecycle-initialModel.log",
+      "sha256": "da58131fb192fa094978b14c6f3467c8956716805d3e69c020c090f9dd95b9c7"
+    }
+  },
+  "currentHostReports": {
+    "nativeGdb": {
+      "path": "undo-lifecycle-nativeGdb.json",
+      "sha256": "8ebbf5d11bf1e0c167563a0157aba500e1d11513669f34d72e0cd08c19449271"
+    },
+    "asanGdb": {
+      "path": "undo-lifecycle-asanGdb.json",
+      "sha256": "1ebcd94b6b161044d45d15ad5a9cf6e4085849ba2d29f74142940823e2787de3"
+    },
+    "gdbGui": {
+      "path": "undo-lifecycle-gdbGui.json",
+      "sha256": "a40af571b3b2b5fd5dbf98a87414f256884634bcb8fdda65450fe02b6128910f"
+    },
+    "wine": {
+      "path": "undo-lifecycle-wine.json",
+      "sha256": "c67339c140790aeace532aebd5337998c8d29456d6ff112e38de8712388ce390"
+    },
+    "nativeSyscalls": {
+      "path": "undo-lifecycle-nativeSyscalls.json",
+      "sha256": "461886060a9fbee2afb6b6b3257ba430c2daad3547cd3ec1beb4d80ccc2d496c"
+    },
+    "asanSyscalls": {
+      "path": "undo-lifecycle-asanSyscalls.json",
+      "sha256": "f0ac0e6874b4bc449f6e002aae2e2c29378a9d6af584baf8b02de6dd9eeefb8c"
+    },
+    "nativeCalls": {
+      "path": "undo-lifecycle-nativeCalls.json",
+      "sha256": "10d85848a128605cfd4ce479e9408224a4ad492e830f3388d9d28ba5fcbc8a4d"
+    },
+    "asanCalls": {
+      "path": "undo-lifecycle-asanCalls.json",
+      "sha256": "ccbe5539b0f76c4f63aff16cdf18e8cf800e31637f9ad6e3ad7ea2293333e07d"
+    },
+    "nativeFrontends": {
+      "path": "undo-lifecycle-nativeFrontends.json",
+      "sha256": "e382cc2f7baab9910990592965029840c756a7a3e6760832c3a200d5217edd11"
+    },
+    "leaderExitFrontends": {
+      "path": "undo-lifecycle-leaderExitFrontends.json",
+      "sha256": "b2467791aaf7bbb49e8f6b7fab66770ad5839e478b0a5fbef0ddae7bad76b2f0"
+    }
+  },
+  "releaseGate": {
+    "configured": true,
+    "requiredProfiles": [
+      4096,
+      65536
+    ],
+    "remoteExecution": "pending for this worktree",
+    "workflow": ".github/workflows/arm64-compatibility.yml",
+    "nativeArmFrontends": "New production AA/CLI/Lua code-write gate configured; not executed remotely for this worktree"
+  },
+  "initialHostCI": {
+    "exitCode": 1,
+    "note": "The new executable-byte conflict check initially treated typed mutable pointer storage inside executable caves as code. Existing pointer-capture deep regression failed. The check now distinguishes typed mutable data from instruction patches; a second new regression exposed global symbols shadowed by automatically declared local labels and was also fixed."
+  },
+  "reproduction": {
+    "source": {
+      "path": "undo-lifecycle-reproduction.cpp",
+      "sha256": "68443ba1dca9ae226e308c15d0791c5d1e8954d64ac8f85c1eb5645bd005aa2c"
+    },
+    "before": {
+      "exitCode": 1,
+      "replacementValue": 42,
+      "binarySha256": "3ae5472b75fec864bbb3dfa2ab78292e026382de86f7f0d5d700131de2df9dc8",
+      "coreSha256": "522e74001740b23208bd0139035a16e6e35fbe34be4ebaf5d6a6c16c3f33e8a2",
+      "coreMatchesPriorSnapshot": true,
+      "output": {
+        "path": "undo-lifecycle-before-probe.log",
+        "sha256": "969f554ca998723f4be2d3d2e1c3de8bbb26cd7f72fe3d23f92d4c1fe67ec811"
+      }
+    },
+    "after": {
+      "exitCode": 0,
+      "replacementValue": 55,
+      "binarySha256": "2855154248008929562362dab5f68b5703314c66c1efd7b5dd1d8e226f16416e",
+      "coreSha256": "2e8e9195329448572acaa0593dd837117be60ff2fb28991c59857b44c2c706a6",
+      "output": {
+        "path": "undo-lifecycle-after-probe.log",
+        "sha256": "e479e0636df090134017144015cf5863aa7224326a6cc3b2f85b9e82aed5bef9"
+      }
+    }
+  }
+}

@@ -9,6 +9,8 @@
 #include <filesystem>
 #include <memory>
 #include <vector>
+#include <optional>
+#include <string_view>
 
 namespace ce {
 
@@ -26,6 +28,13 @@ enum class ProtMatch { Any, Yes, No };
 
 /// Configuration for a memory scan.
 struct ScanConfig {
+    // Exact integer comparison boundary from a textual All-scan value. Keep
+    // decimal fractions and large integers independent of double rounding.
+    struct AllIntegerValue {
+        uint64_t magnitude = 0;
+        bool negative = false, fractional = false, outsideMagnitude = false, unordered = false;
+        int compare(int64_t current) const;
+    };
     struct GroupedTerm {
         ValueType valueType = ValueType::Int32;
         size_t offset = 0;
@@ -38,10 +47,14 @@ struct ScanConfig {
     };
 
     ValueType   valueType    = ValueType::Int32;
+    // Unknown/zero means detect the selected program's data format. Explicit
+    // values permit scanning a known data encoding independently of its code ISA.
+    ByteOrder   byteOrder   = ByteOrder::Unknown;
+    uint8_t     pointerWidth = 0;
     ScanCompare compareType  = ScanCompare::Exact;
     size_t      alignment    = 4;        // Scan alignment (1=unaligned, 2, 4, 8)
     uintptr_t   startAddress = 0;
-    uintptr_t   stopAddress  = 0x7FFFFFFFFFFF;
+    uintptr_t   stopAddress  = UINTPTR_MAX; // Inclusive last byte, as shown by the GUI To field.
     ProtMatch   writableMatch   = ProtMatch::Any;   // CE "Writable" tri-state box
     ProtMatch   executableMatch = ProtMatch::Any;   // CE "Executable" tri-state box
     bool        scanPrivate = true;
@@ -60,6 +73,7 @@ struct ScanConfig {
     int64_t     intValue2    = 0;  // For "between" comparisons
     double      floatValue   = 0;
     double      floatValue2  = 0;
+    std::optional<AllIntegerValue> allIntegerValue, allIntegerValue2;
     std::string stringValue;
     std::string stringEncoding;      // Empty/UTF-8 = raw UTF-8 bytes, otherwise iconv target encoding
     bool        caseSensitive = true; // String/Text scans: false = case-insensitive (ASCII fold)
@@ -86,6 +100,12 @@ struct ScanConfig {
 
     /// Parse grouped expressions like "i32:100@0;float:1.5@4;byte:7@8".
     bool parseGrouped(const std::string& expression, std::string* error = nullptr);
+
+    /// Strict shared All-number parsing. Between requires both bounds; compares
+    /// without a search value ignore these fields. Failure leaves values intact.
+    bool parseAllValues(std::string_view first, std::string_view second = {}, bool hex = false);
+    /// Floating inputs share strict syntax and exponent-adjusted decimal precision.
+    bool parseFloatingValues(std::string_view first, std::string_view second = {});
 
     /// Size in bytes of one grouped result block.
     size_t groupedValueSize() const;
@@ -114,6 +134,19 @@ public:
     /// True if backing files could not be opened, read or fully written, or their
     /// persisted layout is invalid. Consumers must treat the result as unreliable.
     bool hasWriteError() const { return writeError_; }
+    bool hasDataFormat() const { return hasDataFormat_; }
+    /// All-type candidates: bits 0..5 select Byte, Int16, Int32, Int64,
+    /// Float and Double. Each row retains only types surviving every scan.
+    bool hasAllTypeCandidates() const { return hasAllTypes_; }
+    void enableAllTypeCandidates();
+    uint8_t allTypeCandidates(size_t i) const;
+    size_t allTypeValueSize(size_t i) const;
+    void addAllTypeResult(uintptr_t addr,const void* value,uint8_t candidates);
+    void addAllTypeResult(uintptr_t addr,const void* value,const void* firstValue,uint8_t candidates);
+    ByteOrder byteOrder() const { return byteOrder_; }
+    uint8_t pointerWidth() const { return pointerWidth_; }
+    // Persist the sample format without changing their raw target byte layout.
+    void setDataFormat(ByteOrder order, uint8_t pointerWidth);
     /// Mark the result truncated/unreliable (used by the merge path when a
     /// concatenation write was short).
     void markWriteError() { writeError_ = true; }
@@ -166,6 +199,11 @@ private:
     std::filesystem::path dir_;
     size_t count_ = 0;
     size_t valueSize_ = 0;
+    bool hasDataFormat_ = false;
+    bool hasAllTypes_ = false;
+    ByteOrder byteOrder_ = ByteOrder::Unknown;
+    uint8_t pointerWidth_ = 0;
+    void loadDataFormat();
 
     bool writeError_ = false;   // a backing-file write was short/failed
     bool storeFirst_ = true;    // write a separate first_values stream
@@ -181,6 +219,8 @@ private:
     std::vector<uint32_t> offsetBuf_;
     std::vector<uint8_t> valueBuf_;
     std::vector<uint8_t> firstValueBuf_;
+    std::vector<uint8_t> allTypeBuf_;
+    int allTypeFd_ = -1;
     int offsetFd_ = -1;
     int valueFd_ = -1;
     int firstValueFd_ = -1;

@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "core/target_machine.hpp"
 
 namespace ce {
 
@@ -20,10 +21,10 @@ struct TargetProfile {
 
     // Host process architecture, from the main ELF (for a Wine target this is the
     // 64-bit host/loader arch; `wine` flags that it runs a Windows PE).
-    enum class Arch { Unknown, X86_64, X86_32, Arm64, Arm32, RiscV64, Other };
+    using Arch = CpuArchitecture;
     Arch arch = Arch::Unknown;
 
-    enum class Endian { Unknown, Little, Big };
+    using Endian = ByteOrder;
     Endian endianness = Endian::Unknown;   // from the ELF; big-endian matters for scans
 
     bool  wine = false;            // runs a Windows PE under Wine/Proton

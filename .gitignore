@@ -22,6 +22,7 @@ AppDir/
 
 # Local caches
 .cache/
+__pycache__/
 
 # Editor / tool / agent config (local, not project)
 .vscode/

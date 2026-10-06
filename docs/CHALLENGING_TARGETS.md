@@ -169,7 +169,7 @@ required, and it can be non-linear (paged MMU emulation).
    exact first/next scans, Unknown Scan, and Changed/Increased/Decreased/Unchanged
    narrowing, and adds results (as host addresses) to the cheat table -- reusing the
    same `guest_view` primitives as the CLI. Cheat-table entries are endianness-aware: an
-   entry can be flagged big-endian (right-click -> "Big-endian value"; guest-scan sets it
+   entry can use big-endian data (right-click -> "Data order" -> "Big-endian"; guest-scan sets it
    automatically), so display byte-swaps to host order and edits swap back -- a
    big-endian guest value now reads and edits correctly in the list. Remaining: more
    emulator base adapters; guest MMU translation; per-guest find-what-writes.

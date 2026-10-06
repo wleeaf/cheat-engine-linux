@@ -2,6 +2,7 @@
 
 #include <array>
 #include <chrono>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -93,7 +94,7 @@ void doInit() {
         setLogFile(path);
 }
 
-void ensureInit() { std::call_once(g_initOnce, doInit); }
+void ensureInit() { std::call_once(g_initOnce, [] { doInit(); }); }
 
 } // namespace
 

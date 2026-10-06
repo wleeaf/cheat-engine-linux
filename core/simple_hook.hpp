@@ -13,8 +13,11 @@
 #include <cstdint>
 #include <optional>
 #include <vector>
+#include <memory>
+#include <mutex>
 
 namespace ce {
+namespace os { class NativeMemoryImage; }
 
 struct SimpleHook {
     uintptr_t address = 0;              // hooked address
@@ -24,6 +27,10 @@ struct SimpleHook {
     size_t patchLen = 0;
     struct ProtectionRange { uintptr_t address; size_t size; MemProt protection; };
     std::vector<ProtectionRange> protections;
+    std::vector<uint8_t> installed;
+    std::shared_ptr<os::NativeMemoryImage> image;
+    struct Removal { std::mutex mutex; bool complete = false; };
+    std::shared_ptr<Removal> removal;
 };
 
 /// Install a detour at `address` -> `target`. Returns the hook (for removal) or

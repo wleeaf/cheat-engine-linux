@@ -1,0 +1,1520 @@
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+ROUND=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+ROUND=20
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+ROUND=40
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+ROUND=60
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+ROUND=80
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+ROUND=100
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+ROUND=120
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+ROUND=140
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+ROUND=160
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+PEEK_QUEUE phase=2 code=4 addr=0x400a5c
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+ROUND=180
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+ROUND=200
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+ROUND=220
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+PEEK_QUEUE phase=2 code=4 addr=0x400a5c
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+ROUND=240
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+PEEK_QUEUE phase=2 code=4 addr=0x400a5c
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+ROUND=260
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+PEEK_QUEUE phase=2 code=4 addr=0x400a5c
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+ROUND=280
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=0
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+DISABLE phase=1 tid=432374 DR6=ffff0ff0
+DISABLE phase=2 tid=432374 DR6=ffff0ff1
+DISABLE phase=2 tid=432374 DR6=ffff0ff0
+DETACH phase=2 tid=432374 sig=0 info=0 code=4 addr=0x400a5c pending=0
+DETACH phase=4 tid=432374 sig=0 info=0 code=32773 addr=0x3e8000698f6 pending=0
+TEARDOWN_RESULT=PASSED

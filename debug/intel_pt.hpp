@@ -12,12 +12,14 @@
 ///   - Linux kernel exposing /sys/bus/event_source/devices/intel_pt
 ///   - CAP_SYS_ADMIN or kernel.perf_event_paranoid <= 1
 ///
-/// available() returns false when any of the above is missing.
+/// available() detects the event source; start() also checks target permissions.
 
 #include <cstddef>
 #include <cstdint>
 #include <sys/types.h>
 #include <vector>
+#include <mutex>
+#include <string>
 
 namespace ce {
 
@@ -33,7 +35,7 @@ public:
     static bool available();
 
     /// Start sampling for `tid`. `dataPages` controls the perf data ring
-    /// (must be power of two); `auxPages` the PT AUX buffer (the trace
+    /// (positive counts round up to a power of two); `auxPages` the PT AUX buffer (the trace
     /// itself). Both default to sensible sizes.
     bool start(pid_t tid, int dataPages = 16, int auxPages = 64);
 
@@ -43,9 +45,14 @@ public:
 
     void stop();
 
-    bool isActive() const { return fd_ >= 0; }
+    bool isActive() const { std::lock_guard lock(mutex_);return fd_>=0; }
+    std::string lastError() const { std::lock_guard lock(mutex_);return error_; }
 
 private:
+    void stopLocked();
+    mutable std::mutex mutex_;
+    std::string error_;
+    size_t pageSize_=0;
     int    fd_       = -1;
     void*  dataBase_ = nullptr;
     size_t dataSize_ = 0;

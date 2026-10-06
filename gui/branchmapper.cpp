@@ -1,6 +1,8 @@
 /// Branch Mapper window — LBR sample collector + frequency view.
 
 #include "gui/branchmapper.hpp"
+#include <limits>
+#include "core/local_target.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -21,22 +23,27 @@ BranchMapper::BranchMapper(ProcessHandle* proc, QWidget* parent)
 
     auto* form = new QFormLayout;
     tidSpin_ = new QSpinBox;
-    tidSpin_->setRange(0, 1 << 24);
+    tidSpin_->setObjectName("branchMapperThread");
+    tidSpin_->setRange(1,std::numeric_limits<pid_t>::max());
     if (proc_) {
         auto threads = proc_->threads();
         if (!threads.empty()) tidSpin_->setValue(threads.front().tid);
+        else if (auto pid=ce::localTargetPid(proc_)) tidSpin_->setValue(*pid);
     }
     form->addRow("Thread ID:", tidSpin_);
 
     auto* btnRow = new QHBoxLayout;
     startBtn_ = new QPushButton("Start sampling");
+    startBtn_->setObjectName("branchMapperStart");
     stopBtn_  = new QPushButton("Stop");
     stopBtn_->setEnabled(false);
     clearBtn_ = new QPushButton("Clear");
-    statusLabel_ = new QLabel(
+    const bool local=ce::localTargetPid(proc_).has_value();
+    statusLabel_ = new QLabel(!local ? "Branch sampling requires a live local process target" :
         LbrTracer::available() ? "Idle" :
-        "perf_event_open(BRANCH_STACK) unavailable; needs CAP_SYS_ADMIN or "
-        "perf_event_paranoid <= 1 + hardware LBR support.");
+        "Branch-stack sampling unavailable; requires kernel perf permission and a supported CPU/PMU.");
+    statusLabel_->setObjectName("branchMapperStatus");statusLabel_->setWordWrap(true);
+    if (!local) {startBtn_->setEnabled(false);tidSpin_->setEnabled(false);}
     btnRow->addWidget(startBtn_);
     btnRow->addWidget(stopBtn_);
     btnRow->addWidget(clearBtn_);
@@ -70,16 +77,14 @@ BranchMapper::~BranchMapper() {
 }
 
 void BranchMapper::onStart() {
-    if (!LbrTracer::available()) {
-        QMessageBox::warning(this, "LBR unavailable",
-            "perf_event_open(BRANCH_STACK) failed. Need CAP_SYS_ADMIN or "
-            "sysctl kernel.perf_event_paranoid <= 1 (run as root, or set it).");
-        return;
+    if (!ce::localTargetPid(proc_)) {
+        statusLabel_->setText("Branch sampling requires a live local process target");
+        startBtn_->setEnabled(false);tidSpin_->setEnabled(false);return;
     }
     pid_t tid = (pid_t)tidSpin_->value();
     if (!tracer_.start(tid)) {
         QMessageBox::warning(this, "Start failed",
-            "Could not attach LBR sampling to that thread.");
+            QString::fromStdString(tracer_.lastError()));
         return;
     }
     // One-shot symbol load so the table can show fn names alongside addrs.
@@ -97,9 +102,10 @@ void BranchMapper::onStart() {
 void BranchMapper::onStop() {
     pollTimer_->stop();
     tracer_.stop();
-    startBtn_->setEnabled(true);
+    const bool local=ce::localTargetPid(proc_).has_value();
+    startBtn_->setEnabled(local);
     stopBtn_->setEnabled(false);
-    tidSpin_->setEnabled(true);
+    tidSpin_->setEnabled(local);
     statusLabel_->setText(QString("Stopped. %1 samples total.").arg(totalSamples_));
 }
 
@@ -107,7 +113,7 @@ void BranchMapper::onClear() {
     counts_.clear();
     totalSamples_ = 0;
     table_->setRowCount(0);
-    statusLabel_->setText("Cleared.");
+    statusLabel_->setText(ce::localTargetPid(proc_) ? "Cleared." : "Branch sampling requires a live local process target");
 }
 
 void BranchMapper::onPoll() {

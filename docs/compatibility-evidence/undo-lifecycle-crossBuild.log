@@ -1,0 +1,65 @@
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /var/tmp/cecompat-arm-relocation/build
+[  3%] Building CXX object CMakeFiles/vm_core.dir/src/platform/linux/injector.cpp.o
+[  6%] Building CXX object CMakeFiles/vm_core.dir/src/platform/linux/target_syscall.cpp.o
+/src/platform/linux/target_syscall.cpp: In function 'std::expected<int, std::error_code> ce::os::processMemoryTask(pid_t)':
+/src/platform/linux/target_syscall.cpp:94:44: warning: ignoring attributes on template argument 'int (*)(DIR*)' [-Wignored-attributes]
+   94 |     std::unique_ptr<DIR,decltype(&closedir)> owned(directory,&closedir);
+      |                                            ^
+[  9%] Building CXX object CMakeFiles/vm_core.dir/src/platform/linux/syscall_service.cpp.o
+[ 12%] Building CXX object CMakeFiles/vm_core.dir/src/platform/linux/code_write.cpp.o
+[ 15%] Building CXX object CMakeFiles/vm_core.dir/src/platform/linux/memory_image.cpp.o
+[ 18%] Building CXX object CMakeFiles/vm_core.dir/src/platform/linux/call_service.cpp.o
+/src/platform/linux/call_service.cpp: In member function 'ce::Result<ce::os::TargetProcessIdentity> ce::os::NativeCallOwner::Impl::workerIdentity(Call&, pid_t)':
+/src/platform/linux/call_service.cpp:116:48: warning: ignoring attributes on template argument 'int (*)(DIR*)' [-Wignored-attributes]
+  116 |         std::unique_ptr<DIR,decltype(&closedir)> owned(directory,&closedir);
+      |                                                ^
+[ 21%] Building CXX object CMakeFiles/vm_core.dir/src/platform/linux/linux_process.cpp.o
+[ 25%] Building CXX object CMakeFiles/vm_core.dir/src/platform/linux/ns_attach.cpp.o
+[ 28%] Building CXX object CMakeFiles/vm_core.dir/src/platform/linux/arm64_vector_return.cpp.o
+[ 31%] Building CXX object CMakeFiles/vm_core.dir/src/platform/linux/ptrace_wrapper.cpp.o
+[ 34%] Building CXX object CMakeFiles/vm_core.dir/src/debug/code_finder.cpp.o
+[ 37%] Building CXX object CMakeFiles/vm_core.dir/src/debug/thread_inspection.cpp.o
+[ 40%] Building CXX object CMakeFiles/vm_core.dir/src/symbols/elf_symbols.cpp.o
+[ 87%] Built target vm_core
+[ 90%] Building CXX object CMakeFiles/init.dir/src/test/target_syscall_integration.cpp.o
+/src/test/target_syscall_integration.cpp: In function 'void fullSession(const char*)':
+/src/test/target_syscall_integration.cpp:699:25: warning: ignoring return value of 'ssize_t write(int, const void*, size_t)' declared with attribute 'warn_unused_result' [-Wunused-result]
+  699 |     command='b'; ::write(fixture.input,&command,1); session.continueExecution();
+      |                  ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~
+/src/test/target_syscall_integration.cpp:720:29: warning: ignoring return value of 'ssize_t write(int, const void*, size_t)' declared with attribute 'warn_unused_result' [-Wunused-result]
+  720 |         command='b'; ::write(fixture.input,&command,1);
+      |                      ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~
+/src/test/target_syscall_integration.cpp:729:25: warning: ignoring return value of 'ssize_t write(int, const void*, size_t)' declared with attribute 'warn_unused_result' [-Wunused-result]
+  729 |     command='t'; ::write(fixture.input,&command,1);
+      |                  ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~
+/src/test/target_syscall_integration.cpp:747:25: warning: ignoring return value of 'ssize_t write(int, const void*, size_t)' declared with attribute 'warn_unused_result' [-Wunused-result]
+  747 |     command='c'; ::write(fixture.input,&command,1);
+      |                  ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~
+/src/test/target_syscall_integration.cpp:761:25: warning: ignoring return value of 'ssize_t write(int, const void*, size_t)' declared with attribute 'warn_unused_result' [-Wunused-result]
+  761 |     command='c'; ::write(fixture.input,&command,1);
+      |                  ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~
+/src/test/target_syscall_integration.cpp:774:25: warning: ignoring return value of 'ssize_t write(int, const void*, size_t)' declared with attribute 'warn_unused_result' [-Wunused-result]
+  774 |     command='c'; ::write(fixture.input,&command,1);
+      |                  ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~
+/src/test/target_syscall_integration.cpp:786:25: warning: ignoring return value of 'ssize_t write(int, const void*, size_t)' declared with attribute 'warn_unused_result' [-Wunused-result]
+  786 |     command='x'; ::write(fixture.input,&command,1);
+      |                  ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~
+/src/test/target_syscall_integration.cpp:794:25: warning: ignoring return value of 'ssize_t write(int, const void*, size_t)' declared with attribute 'warn_unused_result' [-Wunused-result]
+  794 |     command='b'; ::write(fixture.input,&command,1);
+      |                  ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~
+/src/test/target_syscall_integration.cpp:798:25: warning: ignoring return value of 'ssize_t write(int, const void*, size_t)' declared with attribute 'warn_unused_result' [-Wunused-result]
+  798 |     command='r'; ::write(fixture.input,&command,1);
+      |                  ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~
+[ 93%] Building CXX object CMakeFiles/init.dir/src/test/native_call_integration.cpp.o
+[ 96%] Linking CXX executable /var/tmp/cecompat-arm-relocation/init
+[100%] Built target init
+[ 90%] Built target vm_core
+[ 93%] Building CXX object CMakeFiles/code_write_init.dir/src/test/code_write_integration.cpp.o
+[ 96%] Linking CXX executable /var/tmp/cecompat-arm-relocation/code_write_init
+[100%] Built target code_write_init
+[100%] Built target relocation_init
+[100%] Built target fixture
+[100%] Built target native_call_fixture
+[100%] Built target native_call_library

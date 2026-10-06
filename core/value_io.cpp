@@ -1,4 +1,5 @@
 #include "core/value_io.hpp"
+#include <bit>
 #include "core/value_transform.hpp"
 #include "scanner/memory_scanner.hpp"
 
@@ -17,7 +18,7 @@ std::string trim(std::string_view value) {
     return std::string(value.substr(first, value.find_last_not_of(" \t\r\n") - first + 1));
 }
 int width(ValueType type, const ValueIoOptions& options) {
-    return type == ValueType::Pointer ? options.pointerWidth : scalarWidth(type);
+    return type == ValueType::Pointer ? options.pointerWidthOverride.value_or(options.pointerWidth) : scalarWidth(type);
 }
 bool integer(ValueType type) { return isIntegerScalar(type) || type == ValueType::Pointer; }
 }
@@ -42,14 +43,44 @@ std::optional<ValueType> parseValueType(std::string_view name) {
     return std::nullopt;
 }
 
+static bool bigEndianEncoding(const ValueIoOptions& options) {
+    return options.byteOrder ? *options.byteOrder == ByteOrder::Big : options.bigEndian;
+}
+static std::optional<std::string> resolveTargetOptions(ProcessHandle& process, uintptr_t address,
+                                                       ValueType type, ValueIoOptions& options) {
+    auto machine = process.machineAt(address);
+    options.pointerWidth = options.pointerWidthOverride.value_or(machine.pointerWidth);
+    if (options.pointerWidthOverride && options.pointerWidth != 4 && options.pointerWidth != 8)
+        return "Pointer width must be 4 or 8 bytes";
+    if (type == ValueType::Pointer && options.pointerWidth != 4 && options.pointerWidth != 8)
+        return "Target pointer width is unknown; select it explicitly";
+    if (type != ValueType::ByteArray && type != ValueType::String) {
+        if (!options.byteOrder) options.byteOrder = options.bigEndian ? ByteOrder::Big : machine.byteOrder;
+        if (*options.byteOrder != ByteOrder::Little && *options.byteOrder != ByteOrder::Big)
+            return "Target byte order is unknown or invalid; select it explicitly";
+    }
+    return std::nullopt;
+}
+
+std::expected<ValueIoOptions, std::string> valueOptionsForTarget(
+    ProcessHandle& process, uintptr_t address, ValueType type, ValueIoOptions options) {
+    if (auto error = resolveTargetOptions(process, address, type, options)) return std::unexpected(*error);
+    return options;
+}
+
 std::expected<std::vector<uint8_t>, std::string> encodeTypedValue(
     ValueType type, std::string_view value, const ValueIoOptions& options) {
+    if (type != ValueType::ByteArray && type != ValueType::String && options.byteOrder &&
+        *options.byteOrder != ByteOrder::Little && *options.byteOrder != ByteOrder::Big)
+        return std::unexpected("Invalid data byte order");
+    if (type == ValueType::Pointer && width(type,options) != 4 && width(type,options) != 8)
+        return std::unexpected("Pointer width must be 4 or 8 bytes");
     if (options.codec.active() && !integer(type))
         return std::unexpected("Value codecs require an integer or pointer type");
     if (type == ValueType::String || type == ValueType::UnicodeString) {
         try {
             auto encoding = type == ValueType::UnicodeString
-                ? (options.bigEndian ? "UTF-16BE" : "UTF-16LE") : options.encoding;
+                ? (bigEndianEncoding(options) ? "UTF-16BE" : "UTF-16LE") : options.encoding;
             std::string text(value);
             if (options.terminate) text.push_back('\0');
             // Convert text and terminator together so stateful encodings and BOMs
@@ -104,18 +135,18 @@ std::expected<std::vector<uint8_t>, std::string> encodeTypedValue(
         if (type == ValueType::Float) {
             if (std::isfinite(number) && std::abs(number) > std::numeric_limits<float>::max())
                 return std::unexpected("The value exceeds the float range; use double instead");
-            float converted = static_cast<float>(number); std::memcpy(&bits, &converted, 4);
-        } else std::memcpy(&bits, &number, 8);
+            float converted = static_cast<float>(number); bits = std::bit_cast<uint32_t>(converted);
+        } else bits = std::bit_cast<uint64_t>(number);
     }
     std::vector<uint8_t> bytes(count);
-    std::memcpy(bytes.data(), &bits, count);
-    if (options.bigEndian) std::reverse(bytes.begin(), bytes.end());
+    for (int i = 0; i < count; ++i)
+        bytes[bigEndianEncoding(options) ? count - 1 - i : i] = static_cast<uint8_t>(bits >> (8 * i));
     return bytes;
 }
 
 std::expected<std::string, std::string> readTypedValue(
     ProcessHandle& process, uintptr_t address, ValueType type, ValueIoOptions options) {
-    options.pointerWidth = process.is64bit() ? 8 : 4;
+    if (auto error = resolveTargetOptions(process, address, type, options)) return std::unexpected(*error);
     int scalar = width(type, options);
     bool string = type == ValueType::String || type == ValueType::UnicodeString;
     if (!scalar && !string && type != ValueType::ByteArray)
@@ -130,9 +161,28 @@ std::expected<std::string, std::string> readTypedValue(
     if (*result > count || (!string && *result != count) || *result == 0)
         return std::unexpected("Incomplete memory read");
     bytes.resize(*result);
+    return decodeTypedValue(type,bytes,options);
+}
+
+std::expected<std::string,std::string> decodeTypedValue(
+    ValueType type,std::span<const uint8_t> bytes,ValueIoOptions options) {
+    if (type != ValueType::ByteArray && type != ValueType::String && options.byteOrder &&
+        *options.byteOrder != ByteOrder::Little && *options.byteOrder != ByteOrder::Big)
+        return std::unexpected("Invalid captured data byte order");
+    const int scalar=width(type,options);
+    if (type==ValueType::Pointer && scalar!=4 && scalar!=8)
+        return std::unexpected("Captured pointer width must be 4 or 8 bytes");
+    const bool string=type==ValueType::String || type==ValueType::UnicodeString;
+    if (!scalar && !string && type!=ValueType::ByteArray)
+        return std::unexpected("This type describes a scan, not a single readable value");
+    if (options.codec.active() && !integer(type)) return std::unexpected("Value codecs require an integer or pointer type");
+    if (bytes.empty() || (scalar && bytes.size()!=static_cast<size_t>(scalar)))
+        return std::unexpected("Captured value has an incomplete or incorrect width");
+    if (options.byteOrder==ByteOrder::Unknown && (scalar>1 || type==ValueType::UnicodeString))
+        return std::unexpected("Captured value byte order is unknown");
     if (string) {
         auto encoding = type == ValueType::UnicodeString
-            ? (options.bigEndian ? "UTF-16BE" : "UTF-16LE") : options.encoding;
+            ? (bigEndianEncoding(options) ? "UTF-16BE" : "UTF-16LE") : options.encoding;
         try { (void)encodeStringBytes("", encoding); }
         catch (const std::invalid_argument& error) { return std::unexpected(error.what()); }
         auto text = decodeStringBytes(bytes.data(), bytes.size(), encoding);
@@ -148,18 +198,17 @@ std::expected<std::string, std::string> readTypedValue(
         }
         return text;
     }
-    if (options.bigEndian) std::reverse(bytes.begin(), bytes.end());
-    uint64_t bits = 0; std::memcpy(&bits, bytes.data(), bytes.size());
+    uint64_t bits = *decodeTargetUnsigned(bytes, bigEndianEncoding(options) ? ByteOrder::Big : ByteOrder::Little);
     if (options.codec.active()) bits = options.codec.decode(bits, scalar);
     if (integer(type)) return formatIntegerScalar(bits, scalar, options.isSigned && type != ValueType::Pointer,
                                                  options.hex || type == ValueType::Pointer);
-    if (type == ValueType::Float) { float number; std::memcpy(&number, &bits, 4); return formatFloatScalar(number, false); }
-    double number; std::memcpy(&number, &bits, 8); return formatFloatScalar(number, true);
+    if (type == ValueType::Float) return formatFloatScalar(std::bit_cast<float>(static_cast<uint32_t>(bits)), false);
+    return formatFloatScalar(std::bit_cast<double>(bits), true);
 }
 
 std::expected<int, std::string> compareTypedValue(
     ProcessHandle& process, uintptr_t address, ValueType type, std::string_view value, ValueIoOptions options) {
-    options.pointerWidth = process.is64bit() ? 8 : 4;
+    if (auto error = resolveTargetOptions(process, address, type, options)) return std::unexpected(*error);
     int count = width(type, options);
     if (count <= 0) return std::unexpected("Directional freeze requires a numeric type");
     auto desired = encodeTypedValue(type, value, options);
@@ -170,8 +219,7 @@ std::expected<int, std::string> compareTypedValue(
     if (!result) return std::unexpected(result.error().message());
     if (*result != current.size()) return std::unexpected("Incomplete memory read");
     auto decode = [&](std::vector<uint8_t>& bytes) {
-        if (options.bigEndian) std::reverse(bytes.begin(), bytes.end());
-        uint64_t bits = 0; std::memcpy(&bits, bytes.data(), count);
+        uint64_t bits = *decodeTargetUnsigned(bytes, bigEndianEncoding(options) ? ByteOrder::Big : ByteOrder::Little);
         return options.codec.active() ? options.codec.decode(bits, count) : bits;
     };
     auto left = decode(current), right = decode(*desired);
@@ -185,17 +233,18 @@ std::expected<int, std::string> compareTypedValue(
     }
     double leftNumber, rightNumber;
     if (type == ValueType::Float) {
-        float first, second; std::memcpy(&first, &left, 4); std::memcpy(&second, &right, 4);
+        float first = std::bit_cast<float>(static_cast<uint32_t>(left));
+        float second = std::bit_cast<float>(static_cast<uint32_t>(right));
         leftNumber = first; rightNumber = second;
     } else {
-        std::memcpy(&leftNumber, &left, 8); std::memcpy(&rightNumber, &right, 8);
+        leftNumber = std::bit_cast<double>(left); rightNumber = std::bit_cast<double>(right);
     }
     return leftNumber < rightNumber ? -1 : (leftNumber > rightNumber ? 1 : 0);
 }
 
 std::expected<size_t, std::string> writeTypedValue(
     ProcessHandle& process, uintptr_t address, ValueType type, std::string_view value, ValueIoOptions options) {
-    options.pointerWidth = process.is64bit() ? 8 : 4;
+    if (auto error = resolveTargetOptions(process, address, type, options)) return std::unexpected(*error);
     auto bytes = encodeTypedValue(type, value, options);
     if (!bytes) return std::unexpected(bytes.error());
     if (!bytes->empty() && bytes->size() - 1 > UINTPTR_MAX - address) return std::unexpected("The write range overflows the address space");

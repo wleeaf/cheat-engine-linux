@@ -1,0 +1,171 @@
+OK: executable injection fixture allocated
+OK: site-specific RIP-relative injection preserves executed behavior and restores bytes
+OK: template contains module offset, editable original code and byte assertion
+OK: module-relative hook and operands remain correct after rebasing
+OK: instruction range selection captures all selected instructions and restore bytes
+OK: AOB injection executes the selected site's original code
+OK: full injection executes with originalcode and exit labels
+OK: branches inside stolen code target relocated instructions
+OK: branch to the end of the overwritten instructions returns to the original site
+OK: external relative call preserves its original destination
+OK: unsupported position-independent CET instruction keeps its exact encoding
+OK: pointer injection captures the chosen register without changing executed behavior
+OK: pointer injection rejects registers of the wrong width
+OK: nearby caves retain a five-byte hook and the exact return boundary
+OK: changed code fails the site assertion without patching the hook
+OK: ambiguous AOBs fail instead of hooking another site
+OK: injection menu entries have no generic placeholder script
+OK: injection menu entries have no generic placeholder script
+OK: injection menu entries have no generic placeholder script
+OK: injection menu entries have no generic placeholder script
+OK: 32-bit pointer templates use a four-byte slot and target registers
+OK: quoted module expressions preserve spaces and arithmetic characters
+OK: unique AOB scanning detects duplicate prefixes across chunk boundaries
+OK: cyclic address defines fail safely
+OK: typed values retain full unsigned 64-bit precision
+OK: directional comparisons retain adjacent integer values above double precision
+OK: directional comparisons honor unsigned 64-bit order
+OK: typed signed minimum round trips
+OK: narrow values fail with a range error instead of truncating
+OK: malformed typed edits leave memory unchanged
+OK: invalid array bytes never produce a partial edit
+OK: typed values share codec and byte-order handling
+OK: pointer reads and writes honor a 32-bit target width
+OK: out-of-range pointers are rejected before touching memory
+OK: double text preserves every stored bit on write-back
+OK: float text round trips without losing its final digits
+OK: typed floats accept both decimal separators
+OK: float overflow points users to the double type
+OK: byte array pastes accept commas and line breaks
+OK: typed UTF-8 reads preserve non-ASCII text
+OK: UTF-16 big-endian text round trips with surrogate pairs
+OK: typed string access supports code pages
+OK: code-page reads find terminators after decoding multi-byte encodings
+OK: terminated UTF-16 encoding emits only the initial byte-order mark
+OK: unsupported read encodings return a clear error
+OK: unsupported write encodings return an actionable error
+OK: typed scalar reads reject incomplete transfers
+OK: typed writes report incomplete transfers
+OK: Lua typed access shares names, expressions, encodings, codecs and precise values
+OK: Lua typed access explains the missing target
+OK: AA condition follows Lua truthiness: true
+OK: AA condition follows Lua truthiness: 0
+OK: AA condition follows Lua truthiness: ''
+OK: AA condition follows Lua truthiness: {}
+OK: AA condition follows Lua truthiness: 'false'
+OK: AA condition follows Lua truthiness: 'nil'
+OK: AA condition follows Lua truthiness: '}'
+OK: AA condition follows Lua truthiness: {value={1}}
+OK: AA condition follows Lua truthiness: [=[}]=]
+OK: AA condition follows Lua truthiness: (true -- braces { } in a comment
+)
+OK: nested AA branches skip inactive conditions, Lua and C blocks
+OK: AA Lua blocks run in source order and accept spaced delimiters
+OK: AA rejects orphan and duplicate branch delimiters
+OK: partial scan value reads retain the persisted record stride
+OK: partial first-value reads retain the persisted record stride
+OK: out-of-range scan reads clear stale output
+OK: streamed partial scan values stay paired with their addresses
+OK: finalizing a loaded result preserves its address frames
+OK: missing address frames are detected instead of producing low addresses
+OK: negative shard counts are rejected
+OK: backing-file open failures mark scan output unreliable
+OK: mixed record widths cannot corrupt scan output
+OK: abandoned scan writers close their file descriptors
+OK: next scans reject incomplete persisted results
+OK: scan directories keep process memory private
+OK: valid PE exports and imports still parse
+OK: loading process symbols includes mapped PE modules
+OK: PE symbol relocation cannot wrap into a low address
+OK: empty export slots do not become named symbols
+OK: export names must terminate inside section raw bytes
+OK: export table elements cannot cross section raw bounds
+OK: truncated section data is rejected
+OK: PE data-directory count is respected
+OK: imports do not read descriptors outside the directory
+OK: 64-bit import RVAs cannot silently truncate to 32 bits
+OK: section bytes cannot masquerade as optional-header directories
+OK: forwarder strings must terminate inside the export directory
+OK: valid ELF IL2CPP registration still resolves
+OK: big-endian ELF images cannot be decoded as little-endian IL2CPP
+OK: unsupported ELF machine types are rejected
+OK: ELF program-header entries must cover their declared fields
+OK: truncated ELF program-header tables are rejected
+OK: ELF segment file extents cannot exceed the file
+OK: ELF segment file size cannot exceed its memory size
+OK: IL2CPP pointer reads cannot cross the segment raw boundary
+OK: IL2CPP method resolution works with fewer than eight assembly images
+OK: default read/write stream preserves existing contents
+OK: explicit rw stream preserves existing contents
+OK: default read/write stream still creates new files
+OK: stream save detects buffered write failures
+OK: string-list save detects buffered write failures
+OK: large string-list indices cannot wrap onto another entry
+OK: failed string-list loads preserve their contents and report failure
+OK: saving a stream onto itself preserves data and position
+OK: stream write reports I/O failure
+OK: closed streams reject reads
+OK: loading a shorter file removes stale stream suffixes
+OK: destroyed memory streams reject use and tolerate repeated collection
+OK: destroyed string lists reject use and tolerate repeated collection
+OK: guest scan alignment is consistent across chunk boundaries
+OK: guest address translation rejects host-address overflow
+OK: a debugger session can attach again after its previous target exits
+OK: debugger polling leaves unrelated child exit statuses available
+OK: running to the current breakpoint is a harmless no-op
+OK: step-over at a call breakpoint executes the whole call
+OK: an invalid run-to-cursor address leaves the target stopped
+OK: executing scripts discards their return values without growing the Lua stack
+OK: executing script files preserves the caller's stack
+OK: Lua evaluation preserves embedded NUL bytes
+OK: timers disabled by an earlier callback do not fire in the same batch
+OK: timer interval changes invalidate an already collected due event
+OK: Lua scalar reads reject incomplete transfers
+OK: Lua byte reads cannot pad short transfers with fabricated zero bytes
+OK: Lua writes report partial transfers as failures
+OK: Lua read counts cannot wrap through a narrower integer type
+OK: resolver setters immediately update native Lua callbacks
+OK: module-unique AOB searches reject ambiguous matches
+OK: switching address lists does not reuse old activation callbacks
+OK: stale Lua memory records cannot edit a replacement address list
+OK: failed hook removal keeps the original bytes available for retry
+OK: process switches restore old hooks and invalidate their registry entries
+OK: snapshot collection is idempotent and destroyed snapshots reject methods
+OK: scan collection is idempotent and destroyed scans reject methods
+OK: hotkey collection is idempotent and destroyed hotkeys reject methods
+OK: thread collection is idempotent and destroyed threads reject methods
+OK: collecting a thread in its callback does not invalidate its executing state
+OK: 32-bit stack traces read target-width frame links and return addresses
+OK: 32-bit hooks use a 32-bit branch gate instead of a RIP-relative 64-bit gate
+OK: installing and removing hooks preserve the original memory protection
+OK: failed partial NOP patches restore the original instruction
+OK: process watchers keep checking new processes until their final names match
+OK: watcher callbacks can stop their own watcher without joining themselves
+OK: changing a Lua target detaches the previous target's debugger
+OK: setting an owned process to itself does not destroy the handle
+OK: replacing a remote client releases its old process handle before the connection
+OK: local ptrace backends cannot attach local tasks using remote process IDs
+OK: code-finder monitors can restart after their target exits
+OK: traces waiting for an unreachable start address can be cancelled safely
+OK: trace cancellation disarms its start breakpoint and preserves unrelated child statuses
+OK: cancelling a trace inside a blocked call removes its temporary breakpoint and resumes safely
+OK: negative trace lengths return without allocating or attaching
+OK: breakpoint lookups return stable snapshots across later mutations
+OK: hardware breakpoint exhaustion is reported instead of silently skipping a breakpoint
+OK: reenabling breakpoints never reuses an occupied hardware register
+OK: valid ELF symbol tables still resolve
+OK: ELF symbol parsers reject unsupported byte order
+OK: ELF section headers cannot ignore their declared stride
+OK: absolute ELF symbols are not rebased in shared libraries
+OK: ELF symbol relocation rejects address overflow
+OK: unterminated ELF symbol names are rejected without inventing a terminator
+OK: valid ELF symbol tables still resolve
+OK: ELF symbol parsers reject unsupported byte order
+OK: ELF section headers cannot ignore their declared stride
+OK: absolute ELF symbols are not rebased in shared libraries
+OK: ELF symbol relocation rejects address overflow
+OK: unterminated ELF symbol names are rejected without inventing a terminator
+OK: renaming user symbols removes obsolete name lookups
+OK: reloading module symbols preserves consistent user-symbol lookups
+OK: ELF build-id notes reject wrapped name lengths before reading their contents
+0 failed checks

@@ -1,3 +1,4 @@
+#include "test_target.hpp"
 #include "core/simple_address_list.hpp"
 #include "core/simple_hook.hpp"
 #include "debug/breakpoint_manager.hpp"
@@ -62,6 +63,7 @@ public:
     MemProt protection = MemProt::All;
     pid_t pid() const override { return getpid(); }
     bool is64bit() const override { return wide; }
+    TargetDescription targetDescription() override { return ce::test::x86Target(is64bit(), runs32BitCode()); }
     Result<size_t> read(uintptr_t at, void* out, size_t n) override {
         if (at > bytes.size() || n > bytes.size() - at) return std::unexpected(std::make_error_code(std::errc::bad_address));
         size_t got = shortReads && n ? n - 1 : n;
@@ -245,9 +247,16 @@ void debuggerLifecycleTests() {
         std::this_thread::sleep_for(std::chrono::milliseconds(40));
         kill(child, SIGKILL);
         bool ended = waitUntil([&] { return !finder.running(); });
-        bool restarted = started && ended && finder.start(proc, debugger, reinterpret_cast<uintptr_t>(&failures), true);
+        bool rejectedDead = !finder.start(proc, debugger, reinterpret_cast<uintptr_t>(&failures), true);
         finder.stop();
         waitpid(child, nullptr, 0);
+        pid_t replacement = fork();
+        if (!replacement) { prctl(PR_SET_PDEATHSIG, SIGKILL); for (;;) pause(); }
+        if (replacement < 0) return false;
+        os::LinuxProcessHandle next(replacement);
+        bool restarted = started && ended && rejectedDead && finder.start(next, debugger, reinterpret_cast<uintptr_t>(&failures), true);
+        finder.stop();
+        kill(replacement, SIGKILL); waitpid(replacement, nullptr, 0);
         return restarted;
     }), "code-finder monitors can restart after their target exits");
     check(isolated([] {

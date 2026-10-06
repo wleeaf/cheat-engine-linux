@@ -1,3 +1,4 @@
+#include "test_target.hpp"
 #include "platform/linux/linux_process.hpp"
 #include "platform/linux/ptrace_wrapper.hpp"
 #include "platform/linux/ceserver_client.hpp"
@@ -83,6 +84,7 @@
 #include <sys/wait.h>
 #include <csignal>
 #include <sys/prctl.h>
+#include <sys/select.h>
 
 using namespace ce;
 using namespace ce::os;
@@ -129,6 +131,7 @@ public:
 
     pid_t pid() const override { return getpid(); }
     bool is64bit() const override { return is64bit_; }
+    TargetDescription targetDescription() override { return ce::test::x86Target(is64bit(), runs32BitCode()); }
 
     Result<size_t> read(uintptr_t address, void* buffer, size_t size) override {
         for (const auto& segment : segments_) {
@@ -403,15 +406,16 @@ static void test_ns_attach() {
                     && ce::resolveProcPath(self, "[stack]") == "[stack]";
     printf("  non-file paths passthrough: %s\n", passthrough ? "OK" : "FAILED");
 
-    // A path that exists on the host is returned as-is (the common, non-sandboxed
-    // case), not rewritten through /proc/<pid>/root.
+    // The identical backing file is returned as-is for a normal process.
     bool hostPath = ce::resolveProcPath(self, "/proc/self/status") == "/proc/self/status";
     printf("  existing host path unchanged: %s\n", hostPath ? "OK" : "FAILED");
 
-    // A path that exists nowhere is returned unchanged, so the caller fails exactly
-    // as it would have without resolution.
-    bool missing = ce::resolveProcPath(self, "/no/such/file/xyzzy") == "/no/such/file/xyzzy";
-    printf("  missing path unchanged: %s\n", missing ? "OK" : "FAILED");
+    // Missing target files remain scoped to the target, preventing host fallback.
+    bool missing = ce::resolveProcPath(self, "/no/such/file/xyzzy") ==
+        "/proc/"+std::to_string(self)+"/root/no/such/file/xyzzy";
+    printf("  missing path stays target-scoped: %s\n", missing ? "OK" : "FAILED");
+    bool inaccessible=ce::resolveProcPath(-1,"/proc/self/status")=="/proc/-1/root/proc/self/status";
+    printf("  inaccessible target never uses an existing host file: %s\n",inaccessible ? "OK" : "FAILED");
 
     // We are not sandboxed, so the inner-namespace pid is our own and we report as
     // not namespaced.
@@ -4359,8 +4363,8 @@ __attribute__((noinline)) static void bp_marker() {
     sink = sink + 1;
 }
 
-static void test_software_breakpoint() {
-    printf("\n── Test: Software breakpoints ──\n");
+static void test_software_breakpoint(uintptr_t marker = reinterpret_cast<uintptr_t>(&bp_marker)) {
+    printf("\n── Test: Software breakpoints at %lx ──\n", static_cast<unsigned long>(marker));
 
     int fds[2];
     if (pipe(fds) != 0) { printf("  soft breakpoint hit: FAILED\n"); return; }
@@ -4371,7 +4375,7 @@ static void test_software_breakpoint() {
         char token = 0;
         (void)read(fds[0], &token, 1);
         close(fds[0]);
-        for (int i = 0; i < 5; ++i) bp_marker();
+        for (int i = 0; i < 5; ++i) reinterpret_cast<void(*)()>(marker)();
         _exit(0);
     }
     close(fds[0]);
@@ -4381,7 +4385,6 @@ static void test_software_breakpoint() {
     DebugSession session;
     std::atomic<bool> hit{false};
     std::atomic<uintptr_t> hitAddr{0};
-    auto marker = reinterpret_cast<uintptr_t>(&bp_marker);
     session.setEventCallback([&](const DebugEvent& event) {
         if (event.type == DebugEventType::BreakpointHit) {
             hitAddr.store(event.address);
@@ -4404,6 +4407,17 @@ static void test_software_breakpoint() {
 
     bool ok = attached && bpId > 0 && hit.load() && hitAddr.load() == marker;
     printf("  soft breakpoint hit at marker: %s\n", ok ? "OK" : "FAILED");
+}
+
+static void test_software_breakpoint_page_end() {
+    const size_t pageSize=static_cast<size_t>(sysconf(_SC_PAGESIZE));
+    auto* page=static_cast<uint8_t*>(mmap(nullptr,pageSize*2,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0));
+    if (page==MAP_FAILED) { printf("  page-end breakpoint setup: FAILED\n"); return; }
+    page[pageSize-1]=0xc3; // A real RET at the final byte of an executable page.
+    bool prepared=munmap(page+pageSize,pageSize)==0 && mprotect(page,pageSize,PROT_READ|PROT_EXEC)==0;
+    if (prepared) test_software_breakpoint(reinterpret_cast<uintptr_t>(page+pageSize-1));
+    else printf("  page-end breakpoint setup: FAILED\n");
+    munmap(page,pageSize);
 }
 
 // A shared address written ONLY by non-main (sibling) threads of the child, so
@@ -7805,10 +7819,53 @@ static void test_autoassembler_assert(pid_t pid) {
     printf("  assert matches -> proceed, mismatch -> abort: %s\n", ok ? "OK" : "FAILED");
 }
 
-static void test_autoassembler_create_thread(pid_t pid) {
-    printf("\n── Test: AutoAssembler createthread ──\n");
+// Function execution needs an ordinary native user-mode thread. The general
+// memory tests keep their syscall-parked sleep fixture; call rejection and
+// unchanged parked-wait timing are covered by native_call_integration.
+class NativeCallRegressionFixture {
+public:
+    pid_t pid=-1;
+    int input=-1,output=-1;
+    NativeCallRegressionFixture() {
+#ifdef CE_NATIVE_CALL_FIXTURE
+        int in[2],out[2];
+        if (pipe(in)) return;
+        if (pipe(out)) { close(in[0]); close(in[1]); return; }
+        pid=fork();
+        if (!pid) {
+            dup2(in[0],0); dup2(out[1],1);
+            close(in[0]); close(in[1]); close(out[0]); close(out[1]);
+            execl(CE_NATIVE_CALL_FIXTURE,CE_NATIVE_CALL_FIXTURE,nullptr); _exit(127);
+        }
+        close(in[0]); close(out[1]); input=in[1]; output=out[0];
+        std::string ready;
+        for (unsigned i=0;i<4096;++i) {
+            fd_set descriptors; FD_ZERO(&descriptors); FD_SET(output,&descriptors);
+            timeval timeout{2,0};
+            if (select(output+1,&descriptors,nullptr,nullptr,&timeout)<=0) break;
+            char c;
+            if (read(output,&c,1)!=1) break;
+            if (c=='\n') break;
+            ready+=c;
+        }
+        if (!ready.starts_with("CE_NATIVE_CALL ")) {
+            if (pid>0) { kill(pid,SIGKILL); while (waitpid(pid,nullptr,0)<0 && errno==EINTR) {} }
+            pid=-1;
+        }
+#endif
+    }
+    ~NativeCallRegressionFixture() {
+        if (pid>0) { kill(pid,SIGKILL); while (waitpid(pid,nullptr,0)<0 && errno==EINTR) {} }
+        if (input>=0) close(input);
+        if (output>=0) close(output);
+    }
+};
 
-    LinuxProcessHandle proc(pid);
+static void test_autoassembler_create_thread() {
+    printf("\n── Test: AutoAssembler createthread ──\n");
+    NativeCallRegressionFixture fixture;
+    if (fixture.pid<=0) { printf("  native call fixture: FAILED\n"); return; }
+    LinuxProcessHandle proc(fixture.pid);
 
     AutoAssembler waitedAssembler;
     auto waited = waitedAssembler.execute(proc,
@@ -7849,13 +7906,15 @@ static void test_autoassembler_create_thread(pid_t pid) {
     auto asyncResultAddr = asyncAssembler.resolveSymbol("asyncresult");
     for (int i = 0; i < 100 && asyncResultAddr; ++i) {
         proc.read(asyncResultAddr, &asyncValue, sizeof(asyncValue));
-        if (asyncValue == 0x55667788)
+        if (asyncValue == 0x55667788 && proc.threads().size()==2)
             break;
         usleep(10000);
     }
 
     bool ok = waited.success && waitedValue == 0x11223344 &&
-        async.success && asyncValue == 0x55667788;
+        async.success && asyncValue == 0x55667788 && proc.threads().size()==2;
+    if (!waited.success) printf("  waited call error: %s\n",waited.error.c_str());
+    if (!async.success) printf("  async call error: %s\n",async.error.c_str());
 
     waitedAssembler.disable(proc, "", waited.disableInfo);
     asyncAssembler.disable(proc, "", async.disableInfo);
@@ -8033,7 +8092,7 @@ static void test_autoassembler_loadbinary(pid_t pid) {
     printf("  loadbinary: %s\n", ok ? "OK" : "FAILED");
 }
 
-static void test_autoassembler_loadlibrary(pid_t pid) {
+static void test_autoassembler_loadlibrary() {
     printf("\n── Test: AutoAssembler loadlibrary ──\n");
 
     auto exePath = std::filesystem::read_symlink("/proc/self/exe");
@@ -8049,7 +8108,9 @@ static void test_autoassembler_loadlibrary(pid_t pid) {
         "loadlibrary(\"%s\")\n",
         libraryPath.c_str());
 
-    LinuxProcessHandle proc(pid);
+    NativeCallRegressionFixture fixture;
+    if (fixture.pid<=0) { printf("  native call fixture: FAILED\n"); return; }
+    LinuxProcessHandle proc(fixture.pid);
     AutoAssembler aa;
     auto result = aa.execute(proc, script);
 
@@ -8888,9 +8949,11 @@ static void test_example_scripts() {
 // executeCode Lua binding: allocate a stub that writes a sentinel and returns,
 // then run it on a new thread in the target via executeCode and confirm the
 // sentinel landed (i.e. the target actually executed our code).
-static void test_lua_executecode(pid_t pid) {
+static void test_lua_executecode() {
     printf("\n── Test: Lua executeCode ──\n");
-    LinuxProcessHandle proc(pid);
+    NativeCallRegressionFixture fixture;
+    if (fixture.pid<=0) { printf("  native call fixture: FAILED\n"); return; }
+    LinuxProcessHandle proc(fixture.pid);
     AutoAssembler aa;
     auto res = aa.execute(proc,
         "[ENABLE]\n"
@@ -8914,7 +8977,7 @@ static void test_lua_executecode(pid_t pid) {
 
     LuaEngine lua;
     std::string script =
-        "assert(openProcess(" + std::to_string(pid) + "))\n"
+        "assert(openProcess(" + std::to_string(fixture.pid) + "))\n"
         "local ok, err = executeCode(" + std::to_string((uintptr_t)codeAddr) + ", 3000)\n"
         "return ok and 'ok' or ('bad:' .. tostring(err))\n";
     auto r = lua.evalToString(script);
@@ -10655,8 +10718,9 @@ struct Rng {
 // SIMD lane, a chunk-straddle miss/dup, a bad frame offset — can make the two
 // disagree).
 template<typename T>
-bool refFloatExact(const ScanConfig& c, T cur, T needle) {
-    if (!std::isfinite((double)cur)) return false;
+bool refFloatExact(const ScanConfig& c, T cur, double needle) {
+    if (std::isnan(cur) || std::isnan(needle)) return false;
+    if (!std::isfinite(cur) || !std::isfinite(needle)) return (double)cur == needle;
     switch (c.roundingType) {
         case 1: {
             double cc = (double)cur, s = (double)needle;
@@ -10675,7 +10739,7 @@ bool refFloatExact(const ScanConfig& c, T cur, T needle) {
                        : std::max(1e-6, std::fabs((double)needle) * 1e-6);
             return std::fabs((double)cur - (double)needle) <= tol;
         }
-        default: return cur == needle;
+        default: return std::fabs(needle) <= std::numeric_limits<T>::max() && cur == (T)needle;
     }
 }
 
@@ -10696,11 +10760,11 @@ bool refIntFirst(const ScanConfig& c, T cur) {
 template<typename T>
 bool refFloatFirst(const ScanConfig& c, T cur) {
     switch (c.compareType) {
-        case ScanCompare::Exact:   return refFloatExact<T>(c, cur, (T)c.floatValue);
-        case ScanCompare::Greater: return cur >  (T)c.floatValue;
-        case ScanCompare::Less:    return cur <  (T)c.floatValue;
+        case ScanCompare::Exact:   return refFloatExact<T>(c, cur, c.floatValue);
+        case ScanCompare::Greater: return (double)cur > c.floatValue;
+        case ScanCompare::Less:    return (double)cur < c.floatValue;
         case ScanCompare::Between: {
-            T v = (T)c.floatValue, v2 = (T)c.floatValue2;
+            double v = c.floatValue, v2 = c.floatValue2;
             return v <= v2 ? (cur >= v && cur <= v2) : (cur >= v2 && cur <= v);
         }
         default: return false;
@@ -10883,7 +10947,7 @@ void test_scanner_differential() {
                         long chunkKb) {
         ScanConfig cfg = c;
         cfg.startAddress = base;
-        cfg.stopAddress = base + n;
+        cfg.stopAddress = base + n - 1; // Inclusive last byte of the independent reference buffer.
         ScanResult r = scanner.firstScan(proc, cfg);
         auto got = harvest(r);
         auto exp = refFirstScan(buf, n, base, cfg);
@@ -11005,7 +11069,7 @@ void test_scanner_differential() {
                     size_t ts = typeSize(c.valueType);
 
                     ScanConfig fcfg = c;
-                    fcfg.startAddress = base; fcfg.stopAddress = base + n;
+                    fcfg.startAddress = base; fcfg.stopAddress = base + n - 1;
                     ScanResult prevResult = scanner.firstScan(proc, fcfg); // stores old==first
                     auto baseSet = refFirstScan(buf, n, base, fcfg);       // == planted bytes
                     std::vector<uint8_t> snap(buf, buf + n);               // pre-mutation values
@@ -11031,7 +11095,7 @@ void test_scanner_differential() {
                         ScanCompare::SameAsFirst};
                     ScanConfig ncfg = c;                    // keeps needle in intValue for Exact
                     ncfg.compareType = nexts[rng.range(10)];
-                    ncfg.startAddress = base; ncfg.stopAddress = base + n;
+                    ncfg.startAddress = base; ncfg.stopAddress = base + n - 1;
                     ncfg.roundingType = 0;
                     if (ncfg.compareType == ScanCompare::IncreasedBy ||
                         ncfg.compareType == ScanCompare::DecreasedBy)
@@ -11376,6 +11440,7 @@ int main(int argc, char* argv[]) {
     test_exception_breakpoint();   // deliberate bad-pointer fault trips UBSan (skip under ASan)
 #endif
     test_software_breakpoint();
+    test_software_breakpoint_page_end();
     test_multithread_watchpoint();
     test_multithread_software_breakpoint();
     test_debug_register_edit();
@@ -11442,13 +11507,13 @@ int main(int argc, char* argv[]) {
     test_autoassembler_module_offset();
     test_autoassembler_code_injection_template(targetPid);
     test_autoassembler_assert(targetPid);
-    test_autoassembler_create_thread(targetPid);
+    test_autoassembler_create_thread();
     test_autoassembler_ds(targetPid);
     test_autoassembler_custom_commands(targetPid);
     test_autoassembler_processing_hooks(targetPid);
     test_autoassembler_loadbinary(targetPid);
 #ifndef __SANITIZE_ADDRESS__
-    test_autoassembler_loadlibrary(targetPid);  // dlopen-injects a lib; conflicts with ASan
+    test_autoassembler_loadlibrary();  // dlopen-injects a lib; conflicts with ASan
 #endif
     test_autoassembler_struct_definitions(targetPid);
     test_autoassembler_aobscanmodule(targetPid);
@@ -11476,7 +11541,7 @@ int main(int argc, char* argv[]) {
     test_lua_address_list_bindings();
     test_lua_debug_bindings();
     test_lua_process_bindings(targetPid);
-    test_lua_executecode(targetPid);
+    test_lua_executecode();
     test_lua_code_analysis(targetPid);
     test_example_scripts();
     test_lua_memscan();

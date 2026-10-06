@@ -1,0 +1,41 @@
+name: ARM32 and Thumb kernel compatibility
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  arm32-registers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install cross compilers and full-system emulators
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            qemu-system-arm python3 curl cmake ninja-build
+      - name: Reuse small cross builds and pinned kernels
+        uses: actions/cache@v6
+        with:
+          path: build/arm32-vm
+          key: arm32-register-vm-v1-${{ runner.os }}-${{ hashFiles('test/arm32_vm/CMakeLists.txt', 'test/arm32_register_integration.cpp', 'test/arm32_register_fixture.c', 'test/arm32_extended_checks.inc', 'test/arm32_memory_checks.inc', 'test/thumb_return_boundary_checks.inc', 'test/arm32_register_gate.py', 'platform/linux/register_image.cpp', 'platform/linux/register_image.hpp', 'platform/linux/target_debug.cpp', 'platform/linux/target_debug.hpp', 'platform/linux/target_syscall.cpp', 'platform/linux/target_syscall.hpp', 'platform/linux/memory_image.cpp', 'platform/linux/memory_image.hpp', 'platform/linux/arm64_vector_return.cpp', 'platform/linux/arm64_vector_return.hpp', 'core/types.hpp', 'core/cpu_registers.cpp', 'core/target_machine.cpp', 'core/target_machine.hpp', 'core/log.cpp', 'core/log.hpp', 'core/cpu_registers.hpp', 'test/fullsystem_vm.py', 'tools/check-arm32-vm.sh') }}
+          restore-keys: arm32-register-vm-v1-${{ runner.os }}-
+      - name: Require ARM32 and Thumb registers, private memory syscalls, return boundaries, IT state and native ARM64 recovery
+        run: nice -n 10 bash tools/check-arm32-vm.sh
+      - name: Require the same actual operations with UBSan
+        run: CECORE_ARM32_UBSAN=1 nice -n 10 bash tools/check-arm32-vm.sh
+      - name: Save guest logs, hashes and toolchain evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arm32-register-evidence
+          path: |
+            build/arm32-vm/*.json
+            build/arm32-vm/*.log
+          if-no-files-found: error

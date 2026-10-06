@@ -1,8 +1,8 @@
 /* mono_agent.c — in-process Mono dissection agent (the Linux analog of CE's
  * MonoDataCollector). Loaded into a Mono/Unity target (LD_PRELOAD or the
  * loadlibrary() AA directive / injectLibrary), it resolves the Mono embedding
- * API from the already-loaded runtime via dlsym(RTLD_DEFAULT, …) — the mono_*
- * symbols live in the mono-sgen executable — and asks Mono itself for the
+ * API from the already-loaded executable or a private runtime library without
+ * changing symbol visibility or initializing a second runtime. It asks Mono for
  * ground truth the heuristic out-of-process scanner can't get: every loaded
  * image, its classes (namespace + name), and each field's REAL offset and type.
  *
@@ -10,27 +10,37 @@
  * load time; only the runtime knows them. Reading them out-of-process would mean
  * hard-coding version-specific MonoClass struct layouts. Asking mono_* is exact.
  *
- * Output: one line per record to /tmp/cecore_mono_<pid>.txt (host side parses it):
+ * Output: one line per record over a per-request Unix socket (host side parses it):
  *   IMG <image-name>
- *   CLS <token> <Namespace>.<Name>
+ *   CLS <Namespace>.<Name>
  *   FLD <offset> <S|-> <type-name> <field-name>      (S = static)
  * A leading "# ready" / "# error: …" line reports status.
  *
- * The agent runs on a detached thread that waits for the root domain to come up
- * (LD_PRELOAD's constructor fires before the runtime initializes), attaches
- * itself to the runtime, dumps once, and exits.
+ * A detached native listener serves fresh dumps and method lookups after the
+ * runtime initializes. Each request uses its own attached pthread and joins it
+ * before replying, so managed and GC thread state finishes its TLS teardown.
  *
  * Build target: libcecore_mono_agent.so
  */
 
 #define _GNU_SOURCE
 #include <dlfcn.h>
+#include <link.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <arpa/inet.h>
+#include <errno.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
+#include <time.h>
+#include <limits.h>
+#include "mono_protocol.h"
 
 /* Opaque Mono types — we only pass pointers around. */
 typedef void MonoDomain;
@@ -44,7 +54,10 @@ typedef void MonoType;
 
 /* Mono embedding API, resolved by name at runtime. */
 typedef MonoDomain* (*fn_get_root_domain)(void);
+typedef int (*fn_runtime_is_shutting_down)(void);
 typedef MonoThread* (*fn_thread_attach)(MonoDomain*);
+typedef void (*fn_thread_detach)(MonoThread*);
+typedef void (*fn_free)(void*);
 typedef void        (*fn_assembly_foreach)(void (*)(void*, void*), void*);
 typedef MonoImage*  (*fn_assembly_get_image)(MonoAssembly*);
 typedef const char* (*fn_image_get_name)(MonoImage*);
@@ -66,6 +79,8 @@ typedef void*       (*fn_compile_method)(void* /*MonoMethod*/);
 static struct {
     fn_get_root_domain     get_root_domain;
     fn_thread_attach       thread_attach;
+    fn_thread_detach       thread_detach;
+    fn_free                free_memory;
     fn_assembly_foreach    assembly_foreach;
     fn_assembly_get_image  assembly_get_image;
     fn_image_get_name      image_get_name;
@@ -91,20 +106,62 @@ static FILE* g_out;
 #define MONO_TOKEN_TYPE_DEF    0x02000000u
 #define FIELD_ATTRIBUTE_STATIC 0x0010
 
-/* Resolve a symbol via the global scope, then via the mono-sgen executable
- * handle directly. A library dlopen'd at runtime (injection) resolves
- * RTLD_DEFAULT against a narrower scope than an LD_PRELOAD'd one, so some mono_*
- * symbols that are present in the executable aren't visible via RTLD_DEFAULT;
- * dlopen(NULL) gives a handle whose scope does include them. */
+/* Each request borrows a reference to its actual runtime provider. Explicit
+ * handles also see RTLD_LOCAL embeddings; never promote them to global scope
+ * or load another runtime. Release the reference after the request thread exits. */
 static void* g_exe;   /* dlopen(NULL) handle for the main program */
+static void* g_runtime;
 static void* resolve_sym(const char* sym) {
+    if (g_runtime) return dlsym(g_runtime,sym);
     void* p = dlsym(RTLD_DEFAULT, sym);
     if (!p && g_exe) p = dlsym(g_exe, sym);
     return p;
 }
+static int find_runtime(struct dl_phdr_info* info,size_t size,void* data) {
+    (void)size;(void)data;
+    int main_program=!info->dlpi_name || !*info->dlpi_name;
+    void* candidate=main_program ? g_exe : dlopen(info->dlpi_name,RTLD_LAZY|RTLD_NOLOAD);
+    if (!candidate) return 0;
+    void* root=dlsym(candidate,"mono_get_root_domain");
+    if (root && dlsym(candidate,"mono_thread_attach") && dlsym(candidate,"mono_assembly_foreach")) {
+        Dl_info provider;
+        void* handle=NULL;
+        if (dladdr(root,&provider) && provider.dli_fname)
+            handle=dlopen(provider.dli_fname,RTLD_LAZY|RTLD_NOLOAD);
+        if (!handle && main_program) {
+            /* A statically linked mono-sgen executable cannot be dlopened by
+             * filename. Prove that this symbol belongs to its own load ranges. */
+            for (unsigned i=0;i<info->dlpi_phnum;++i) {
+                if (info->dlpi_phdr[i].p_type!=PT_LOAD) continue;
+                uintptr_t start=info->dlpi_addr+info->dlpi_phdr[i].p_vaddr;
+                uintptr_t end=start+info->dlpi_phdr[i].p_memsz;
+                if (end>=start && (uintptr_t)root>=start && (uintptr_t)root<end) {
+                    handle=g_exe;break;
+                }
+            }
+        }
+        if (handle) {
+            g_runtime=handle;
+            mono.get_root_domain=(fn_get_root_domain)dlsym(handle,"mono_get_root_domain");
+        }
+    }
+    if (!main_program) dlclose(candidate);
+    return g_runtime!=NULL;
+}
+static void acquire_runtime(void) {
+    /* Cached API pointers become invalid when an embedded owner dlcloses its
+     * runtime between requests. Discover and resolve them afresh each time. */
+    memset(&mono,0,sizeof(mono));
+    dl_iterate_phdr(find_runtime,NULL);
+}
+static void release_runtime(void) {
+    if (g_runtime && g_runtime!=g_exe) dlclose(g_runtime);
+    g_runtime=NULL;
+    memset(&mono,0,sizeof(mono));
+}
 
-/* Resolve everything except get_root_domain (the worker's poll loop handles that,
- * since it also gates on the runtime being up). Hard-fail only on the functions
+/* Resolve the remaining API inside the provider acquired for this request.
+ * Hard-fail only on the functions
  * without which enumeration is impossible; names are best-effort. Returns a
  * missing REQUIRED symbol, or NULL. */
 static const char* resolve_rest(void) {
@@ -115,6 +172,7 @@ static const char* resolve_rest(void) {
     #define OPTIONAL(field, sym) mono.field = (void*)resolve_sym(sym)
 
     REQUIRE(thread_attach,       "mono_thread_attach");
+    REQUIRE(thread_detach,       "mono_thread_detach");
     REQUIRE(assembly_foreach,    "mono_assembly_foreach");
     REQUIRE(assembly_get_image,  "mono_assembly_get_image");
     REQUIRE(image_get_table_info,"mono_image_get_table_info");
@@ -129,9 +187,11 @@ static const char* resolve_rest(void) {
     OPTIONAL(field_get_name,      "mono_field_get_name");
     OPTIONAL(field_get_flags,     "mono_field_get_flags");
     OPTIONAL(field_get_type,      "mono_field_get_type");
+    OPTIONAL(free_memory,         "mono_free");
     mono.type_get_name = (fn_type_get_name)resolve_sym("mono_type_get_name");
     if (!mono.type_get_name)
         mono.type_get_name = (fn_type_get_name)resolve_sym("mono_type_full_name");
+    if (!mono.free_memory) mono.type_get_name = NULL;
     // For findMonoFunction (targeted method resolution — no mass compilation).
     OPTIONAL(class_from_name,      "mono_class_from_name");
     OPTIONAL(get_method_from_name, "mono_class_get_method_from_name");
@@ -165,49 +225,15 @@ static void* resolve_method(const char* ns, const char* cls, const char* meth, i
     return mono.compile_method(m);
 }
 
-// Resident RPC loop: watch /tmp/cecore_mono_req_<pid>.txt ("ns|class|method|nparams"),
-// resolve, write the address (hex) to /tmp/cecore_mono_resp_<pid>.txt.
-static void serve_requests(void) {
-    char reqp[64], respp[64];
-    snprintf(reqp, sizeof(reqp), "/tmp/cecore_mono_req_%d.txt", (int)getpid());
-    snprintf(respp, sizeof(respp), "/tmp/cecore_mono_resp_%d.txt", (int)getpid());
-    for (;;) {
-        FILE* rq = fopen(reqp, "re");
-        if (rq) {
-            char line[1024] = {0};
-            if (!fgets(line, sizeof(line), rq)) line[0] = 0;
-            fclose(rq);
-            unlink(reqp);
-            // split "ns|class|method|nparams"
-            char ns[256] = {0}, cls[256] = {0}, meth[256] = {0};
-            int nparams = -1;
-            char* p = line; char* fields[4] = {ns, cls, meth, NULL};
-            int fi = 0; char* start = p;
-            for (; *p && fi < 3; ++p) {
-                if (*p == '|') { size_t len = (size_t)(p - start);
-                    if (len > 255) len = 255; memcpy(fields[fi], start, len); fields[fi][len] = 0;
-                    ++fi; start = p + 1; }
-            }
-            if (fi == 3) nparams = atoi(start);           // 4th field
-            else if (fi < 3) { size_t len = strlen(start);
-                if (len && len < 256 && fi < 3) { strncpy(fields[fi], start, 255); } }
-            void* addr = resolve_method(ns, cls, meth, nparams);
-            FILE* rp = fopen(respp, "we");
-            if (rp) { fprintf(rp, "%zx\n", (size_t)addr); fclose(rp); }
-        }
-        usleep(50000);
-    }
-}
-
 static void dump_class(MonoClass* klass) {
-    if (!klass) return;
+    if (!klass || ferror(g_out)) return;
     const char* ns   = mono.class_get_namespace ? mono.class_get_namespace(klass) : "";
     const char* name = mono.class_get_name ? mono.class_get_name(klass) : "?";
     fprintf(g_out, "CLS %s.%s\n", ns && *ns ? ns : "", name ? name : "?");
 
     void* iter = NULL;
     MonoClassField* f;
-    while ((f = mono.class_get_fields(klass, &iter))) {
+    while (!ferror(g_out) && (f = mono.class_get_fields(klass, &iter))) {
         const char* fname = mono.field_get_name ? mono.field_get_name(f) : "?";
         uint32_t off = mono.field_get_offset(f);
         int is_static = 0;
@@ -218,75 +244,188 @@ static void dump_class(MonoClass* klass) {
         if (ft && mono.type_get_name) tn = mono.type_get_name(ft);
         fprintf(g_out, "FLD 0x%x %c %s %s\n", off, is_static ? 'S' : '-',
                 tn ? tn : "?", fname ? fname : "?");
-        if (tn) free(tn);   /* mono_type_get_name returns a g_malloc'd string */
+        if (tn) mono.free_memory(tn);
     }
 }
 
 static void on_assembly(void* assembly, void* user_data) {
     (void)user_data;
+    if (ferror(g_out)) return;
     MonoImage* img = mono.assembly_get_image(assembly);
     if (!img) return;
-    const char* iname = mono.image_get_name(img);
+    const char* iname = mono.image_get_name ? mono.image_get_name(img) : NULL;
     fprintf(g_out, "IMG %s\n", iname ? iname : "?");
 
     MonoTableInfo* t = mono.image_get_table_info(img, MONO_TABLE_TYPEDEF);
     if (!t) return;
     int rows = mono.table_info_get_rows(t);
     /* Typedef tokens are 1-based; row 1 is the <Module> pseudo-class. */
-    for (int i = 1; i <= rows; ++i) {
+    for (int i = 1; i <= rows && !ferror(g_out); ++i) {
         MonoClass* klass = mono.class_get(img, MONO_TOKEN_TYPE_DEF | (uint32_t)i);
         dump_class(klass);
     }
 }
 
+static int64_t now_ms(void) {
+    struct timespec value;
+    clock_gettime(CLOCK_MONOTONIC,&value);
+    return (int64_t)value.tv_sec*1000+value.tv_nsec/1000000;
+}
+static int transfer(int fd, void* bytes, size_t size, int sending) {
+    size_t done=0;
+    int64_t deadline=now_ms()+3000;
+    while (done<size) {
+        int64_t remaining=deadline-now_ms();
+        if (remaining<=0) return 0;
+        struct pollfd poller={fd,sending ? POLLOUT : POLLIN,0};
+        int result=poll(&poller,1,(int)remaining);
+        if (result<0 && errno==EINTR) continue;
+        if (result<=0) return 0;
+        ssize_t count=sending ? send(fd,(char*)bytes+done,size-done,MSG_NOSIGNAL|MSG_DONTWAIT) :
+            recv(fd,(char*)bytes+done,size-done,MSG_DONTWAIT);
+        if (count<0 && (errno==EINTR || errno==EAGAIN)) continue;
+        if (count<=0) return 0;
+        done+=(size_t)count;
+    }
+    return 1;
+}
+static void respond(int fd, unsigned status, const char* payload, size_t length) {
+    if (length>CE_MONO_MAX_RESPONSE) {
+        payload="Mono metadata response exceeds the protocol memory bound";
+        length=strlen(payload);status=CE_MONO_ERROR;
+    }
+    uint32_t header[]={htonl(CE_MONO_MAGIC),htonl(status),htonl((uint32_t)length)};
+    if (transfer(fd,header,sizeof(header),1)) transfer(fd,(void*)payload,length,1);
+}
+struct RuntimeJob {
+    unsigned command;int32_t count;
+    char *ns,*cls,*method,*payload;
+    size_t payloadSize,capacity;
+    int limitReached;
+    unsigned status;
+    MonoDomain* domain;
+};
+/* Bound allocation during generation, rather than after open_memstream has
+ * already accumulated an arbitrarily large metadata dump in the application. */
+static ssize_t write_payload(void* data,const char* bytes,size_t size) {
+    struct RuntimeJob* job=data;
+    if (size>CE_MONO_MAX_RESPONSE-job->payloadSize) {
+        job->limitReached=1;errno=EFBIG;return -1;
+    }
+    size_t required=job->payloadSize+size+1;
+    if (required>job->capacity) {
+        size_t capacity=job->capacity ? job->capacity : 4096;
+        const size_t maximum=(size_t)CE_MONO_MAX_RESPONSE+1;
+        if (capacity>maximum) capacity=maximum;
+        while (capacity<required) capacity=capacity>maximum/2 ? maximum : capacity*2;
+        char* payload=realloc(job->payload,capacity);
+        if (!payload) return -1;
+        job->payload=payload;job->capacity=capacity;
+    }
+    memcpy(job->payload+job->payloadSize,bytes,size);
+    job->payloadSize+=size;job->payload[job->payloadSize]=0;
+    return (ssize_t)size;
+}
+static void* runtime_request(void* data) {
+    struct RuntimeJob* job=data;
+    MonoThread* thread=mono.thread_attach(job->domain);
+    if (!thread) return NULL;
+    cookie_io_functions_t output={.write=write_payload};
+    FILE* stream=fopencookie(job,"w",output);
+    if (stream) {
+        setvbuf(stream,NULL,_IONBF,0);
+        if (job->command==CE_MONO_DUMP) {
+            g_out=stream;
+            mono.assembly_foreach(on_assembly,NULL);
+            fprintf(stream,"# done\n");g_out=NULL;
+        } else {
+            void* address=resolve_method(job->ns,job->cls,job->method,job->count);
+            fprintf(stream,"%zx\n",(size_t)address);
+        }
+        int failed=ferror(stream);
+        if (fclose(stream)) failed=1;
+        job->status=failed ? CE_MONO_ERROR : CE_MONO_OK;
+    }
+    mono.thread_detach(thread);
+    /* Mono 6.x's public detach removes the managed thread but leaves its
+     * low-level GC thread record until pthread TLS teardown. End the pthread
+     * and join it before publishing a response or returning to socket I/O. */
+    return NULL;
+}
+static void serve_request(int fd) {
+    uint32_t header[6];
+    if (!transfer(fd,header,sizeof(header),0)) return;
+    for (unsigned i=0;i<6;++i) header[i]=ntohl(header[i]);
+    uint64_t length=(uint64_t)header[2]+header[3]+header[4];
+    if (header[0]!=CE_MONO_MAGIC || length>CE_MONO_MAX_REQUEST ||
+        (header[1]!=CE_MONO_DUMP && header[1]!=CE_MONO_METHOD) ||
+        (header[1]==CE_MONO_DUMP && length) ||
+        (header[1]==CE_MONO_METHOD && header[5]>INT32_MAX && header[5]!=UINT32_MAX)) {
+        respond(fd,CE_MONO_ERROR,"Invalid Mono request",20);return;
+    }
+    char* args=calloc((size_t)length+3,1);
+    if (!args) { respond(fd,CE_MONO_ERROR,"Mono request allocation failed",30);return; }
+    char* ns=args;
+    char* cls=ns+header[2]+1;
+    char* method=cls+header[3]+1;
+    if (!transfer(fd,ns,header[2],0) || !transfer(fd,cls,header[3],0) ||
+        !transfer(fd,method,header[4],0) || memchr(ns,0,header[2]) ||
+        memchr(cls,0,header[3]) || memchr(method,0,header[4])) { free(args);return; }
+    acquire_runtime();
+    fn_runtime_is_shutting_down shutting_down=mono.get_root_domain ?
+        (fn_runtime_is_shutting_down)resolve_sym("mono_runtime_is_shutting_down") : NULL;
+    if (shutting_down && shutting_down()) {
+        const char* message="Mono runtime is shutting down";
+        respond(fd,CE_MONO_ERROR,message,strlen(message));goto finished;
+    }
+    MonoDomain* domain=mono.get_root_domain ? mono.get_root_domain() : NULL;
+    if (!domain) {
+        respond(fd,CE_MONO_ERROR,"Mono root domain is unavailable",31);goto finished;
+    }
+    const char* missing=resolve_rest();
+    if (missing) { respond(fd,CE_MONO_ERROR,missing,strlen(missing));goto finished; }
+    struct RuntimeJob job={.command=header[1],.ns=ns,.cls=cls,.method=method,
+        .status=CE_MONO_ERROR,.domain=domain};
+    uint32_t bits=header[5];memcpy(&job.count,&bits,sizeof(bits));
+    pthread_t handler;
+    int launched=pthread_create(&handler,NULL,runtime_request,&job)==0;
+    if (launched) pthread_join(handler,NULL);
+    if (job.limitReached) {
+        const char* message="Mono metadata response exceeds the protocol memory bound";
+        respond(fd,CE_MONO_ERROR,message,strlen(message));
+    } else if (job.status==CE_MONO_OK && job.payload) respond(fd,job.status,job.payload,job.payloadSize);
+    else respond(fd,CE_MONO_ERROR,"Mono runtime request failed",27);
+    free(job.payload);
+finished:
+    release_runtime();
+    free(args);
+}
 static void* worker(void* arg) {
     (void)arg;
-    char path[64];
-    snprintf(path, sizeof(path), "/tmp/cecore_mono_%d.txt", (int)getpid());
-    g_out = fopen(path, "we");
-    if (!g_out) return NULL;
-
-    /* dlopen(NULL) handle for the main program — a runtime-injected library
-     * resolves RTLD_DEFAULT against a narrower scope than an LD_PRELOAD'd one, so
-     * some executable-exported mono_* symbols need this handle to be found. */
-    g_exe = dlopen(NULL, RTLD_LAZY | RTLD_NOLOAD);
-
-    /* Poll for the runtime. Symbol visibility can lag a fresh injection (the
-     * loader scope is still settling), so resolve get_root_domain INSIDE the loop
-     * and keep retrying — up to ~30s — until it resolves AND returns a domain. */
-    MonoDomain* domain = NULL;
-    for (int i = 0; i < 300; ++i) {
-        if (!mono.get_root_domain)
-            mono.get_root_domain = (fn_get_root_domain)resolve_sym("mono_get_root_domain");
-        if (mono.get_root_domain) {
-            domain = mono.get_root_domain();
-            if (domain) break;
-        }
-        usleep(100000);
+    char directory[64];struct sockaddr_un address={.sun_family=AF_UNIX};
+    snprintf(directory,sizeof(directory),"/tmp/cecore_mono_%d",(int)getpid());
+    if (mkdir(directory,0700)<0 && errno!=EEXIST) return NULL;
+    struct stat info;
+    if (lstat(directory,&info)<0 || !S_ISDIR(info.st_mode) || info.st_uid!=geteuid() ||
+        (info.st_mode&0777)!=0700) return NULL;
+    snprintf(address.sun_path,sizeof(address.sun_path),"%s/agent.sock",directory);
+    int listener=socket(AF_UNIX,SOCK_STREAM|SOCK_CLOEXEC,0);
+    if (listener<0) return NULL;
+    unlink(address.sun_path);
+    if (bind(listener,(struct sockaddr*)&address,sizeof(address))<0 || listen(listener,16)<0) {
+        close(listener);return NULL;
     }
-    if (!domain) {
-        fprintf(g_out, "# error: root domain never came up (mono_get_root_domain %s)\n",
-                mono.get_root_domain ? "returned null" : "unresolved");
-        fflush(g_out); fclose(g_out); return NULL;
+    g_exe=dlopen(NULL,RTLD_LAZY);
+    for (;;) {
+        int client=accept4(listener,NULL,NULL,SOCK_CLOEXEC);
+        if (client<0) { if (errno==EINTR) continue;break; }
+        struct ucred peer;socklen_t length=sizeof(peer);
+        if (getsockopt(client,SOL_SOCKET,SO_PEERCRED,&peer,&length)==0 &&
+            (peer.uid==geteuid() || peer.uid==0)) serve_request(client);
+        close(client);
     }
-
-    const char* missing = resolve_rest();
-    if (missing) {
-        fprintf(g_out, "# error: mono symbol not found: %s\n", missing);
-        fflush(g_out); fclose(g_out); return NULL;
-    }
-    mono.thread_attach(domain);
-    /* Give the app a moment to finish loading its own assemblies. */
-    usleep(300000);
-
-    fprintf(g_out, "# ready pid=%d\n", (int)getpid());
-    mono.assembly_foreach(on_assembly, NULL);
-    fprintf(g_out, "# done\n");
-    fflush(g_out);
-    fclose(g_out);
-
-    // Stay resident to serve findMonoFunction requests (targeted, on demand).
-    serve_requests();
+    close(listener);unlink(address.sun_path);
+    if (g_exe) dlclose(g_exe);
     return NULL;
 }
 

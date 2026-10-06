@@ -1,3 +1,5 @@
+#include "core/target_capabilities.hpp"
+#include "arch/target_arch.hpp"
 #include "core/injection_gen.hpp"
 #include "core/types.hpp"
 #include "arch/disassembler.hpp"
@@ -113,6 +115,9 @@ std::string generateInjectionScript(ProcessHandle& proc, uintptr_t address,
                                     InjectionKind kind, std::string& error,
                                     const std::string& pointerRegister, size_t minimumOverwrite) {
     error.clear();
+    if (auto reason = unsupportedTargetOperation(proc, TargetFeature::CodeInjection)) { error = *reason; return {}; }
+    auto machine = proc.machineAt(address);
+    if (!machine.isX86()) { error = "Injection templates require an x86 code address"; return {}; }
     if (kind == InjectionKind::None) { error = "Choose an injection template."; return {}; }
     minimumOverwrite = std::max<size_t>(5, minimumOverwrite);
     if (minimumOverwrite > 1024 * 1024) { error = "The selected injection range exceeds 1 MiB."; return {}; }
@@ -122,7 +127,7 @@ std::string generateInjectionScript(ProcessHandle& proc, uintptr_t address,
         error = "Could not read enough code at that address.";
         return {};
     }
-    bool is32 = proc.runs32BitCode();
+    bool is32 = machine.architecture == CpuArchitecture::X86_32;
     Disassembler dis(is32 ? Arch::X86_32 : Arch::X86_64);
     Assembler assembler(is32 ? AsmArch::X86_32 : AsmArch::X86_64);
     auto insns = dis.disassemble(address, {buf.data(), *r});

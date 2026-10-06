@@ -1,0 +1,152 @@
+
+[1m== sanitizers job (ASan, no-GUI): configure ==[0m
+Enabling CAPSTONE_ARM_SUPPORT
+Enabling CAPSTONE_ARM64_SUPPORT
+Enabling CAPSTONE_M68K_SUPPORT
+Enabling CAPSTONE_MIPS_SUPPORT
+Enabling CAPSTONE_PPC_SUPPORT
+Enabling CAPSTONE_SPARC_SUPPORT
+Enabling CAPSTONE_SYSZ_SUPPORT
+Enabling CAPSTONE_XCORE_SUPPORT
+Enabling CAPSTONE_X86_SUPPORT
+Enabling CAPSTONE_TMS320C64X_SUPPORT
+Enabling CAPSTONE_M680X_SUPPORT
+Enabling CAPSTONE_EVM_SUPPORT
+Enabling CAPSTONE_MOS65XX_SUPPORT
+Enabling CAPSTONE_WASM_SUPPORT
+Enabling CAPSTONE_BPF_SUPPORT
+Enabling CAPSTONE_RISCV_SUPPORT
+Enabling CAPSTONE_SH_SUPPORT
+Enabling CAPSTONE_TRICORE_SUPPORT
+CMake Deprecation Warning at build-ci-asan/_deps/keystone-src/CMakeLists.txt:4 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+CMake Deprecation Warning at build-ci-asan/_deps/keystone-src/llvm/CMakeLists.txt:3 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+CMake Warning (dev) at build-ci-asan/_deps/keystone-src/llvm/CMakeLists.txt:338 (include):
+  Policy CMP0148 is not set: The FindPythonInterp and FindPythonLibs modules
+  are removed.  Run "cmake --help-policy CMP0148" for policy details.  Use
+  the cmake_policy command to set the policy and suppress this warning.
+
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+[32m✓ configured (Qt disabled, as in CI)[0m
+
+[1m== sanitizers job: build test targets (instrumented) ==[0m
+[32m✓ built[0m
+
+[1m== sanitizers job: run suite under ASan + UBSan ==[0m
+Check asan-deep failed (exit 1). Full output: build/ci-logs/asan-deep.log
+OK: backing-file open failures mark scan output unreliable
+OK: mixed record widths cannot corrupt scan output
+OK: abandoned scan writers close their file descriptors
+OK: next scans reject incomplete persisted results
+OK: scan directories keep process memory private
+OK: valid PE exports and imports still parse
+OK: loading process symbols includes mapped PE modules
+OK: PE symbol relocation cannot wrap into a low address
+OK: empty export slots do not become named symbols
+OK: export names must terminate inside section raw bytes
+OK: export table elements cannot cross section raw bounds
+OK: truncated section data is rejected
+OK: PE data-directory count is respected
+OK: imports do not read descriptors outside the directory
+OK: 64-bit import RVAs cannot silently truncate to 32 bits
+OK: section bytes cannot masquerade as optional-header directories
+OK: forwarder strings must terminate inside the export directory
+OK: valid ELF IL2CPP registration still resolves
+OK: big-endian ELF images cannot be decoded as little-endian IL2CPP
+OK: unsupported ELF machine types are rejected
+OK: ELF program-header entries must cover their declared fields
+OK: truncated ELF program-header tables are rejected
+OK: ELF segment file extents cannot exceed the file
+OK: ELF segment file size cannot exceed its memory size
+OK: IL2CPP pointer reads cannot cross the segment raw boundary
+OK: IL2CPP method resolution works with fewer than eight assembly images
+OK: default read/write stream preserves existing contents
+OK: explicit rw stream preserves existing contents
+OK: default read/write stream still creates new files
+OK: stream save detects buffered write failures
+OK: string-list save detects buffered write failures
+OK: large string-list indices cannot wrap onto another entry
+OK: failed string-list loads preserve their contents and report failure
+OK: saving a stream onto itself preserves data and position
+OK: stream write reports I/O failure
+OK: closed streams reject reads
+OK: loading a shorter file removes stale stream suffixes
+OK: destroyed memory streams reject use and tolerate repeated collection
+OK: destroyed string lists reject use and tolerate repeated collection
+OK: guest scan alignment is consistent across chunk boundaries
+OK: guest address translation rejects host-address overflow
+OK: a debugger session can attach again after its previous target exits
+OK: debugger polling leaves unrelated child exit statuses available
+OK: running to the current breakpoint is a harmless no-op
+OK: step-over at a call breakpoint executes the whole call
+OK: an invalid run-to-cursor address leaves the target stopped
+OK: executing scripts discards their return values without growing the Lua stack
+OK: executing script files preserves the caller's stack
+OK: Lua evaluation preserves embedded NUL bytes
+OK: timers disabled by an earlier callback do not fire in the same batch
+OK: timer interval changes invalidate an already collected due event
+OK: Lua scalar reads reject incomplete transfers
+OK: Lua byte reads cannot pad short transfers with fabricated zero bytes
+OK: Lua writes report partial transfers as failures
+OK: Lua read counts cannot wrap through a narrower integer type
+OK: resolver setters immediately update native Lua callbacks
+OK: module-unique AOB searches reject ambiguous matches
+OK: switching address lists does not reuse old activation callbacks
+OK: stale Lua memory records cannot edit a replacement address list
+OK: failed hook removal keeps the original bytes available for retry
+OK: process switches restore old hooks and invalidate their registry entries
+OK: snapshot collection is idempotent and destroyed snapshots reject methods
+OK: scan collection is idempotent and destroyed scans reject methods
+OK: hotkey collection is idempotent and destroyed hotkeys reject methods
+OK: thread collection is idempotent and destroyed threads reject methods
+OK: collecting a thread in its callback does not invalidate its executing state
+OK: 32-bit stack traces read target-width frame links and return addresses
+OK: 32-bit hooks use a 32-bit branch gate instead of a RIP-relative 64-bit gate
+OK: installing and removing hooks preserve the original memory protection
+OK: failed partial NOP patches restore the original instruction
+OK: process watchers keep checking new processes until their final names match
+OK: watcher callbacks can stop their own watcher without joining themselves
+OK: changing a Lua target detaches the previous target's debugger
+OK: setting an owned process to itself does not destroy the handle
+OK: replacing a remote client releases its old process handle before the connection
+OK: local ptrace backends cannot attach local tasks using remote process IDs
+OK: code-finder monitors can restart after their target exits
+OK: traces waiting for an unreachable start address can be cancelled safely
+OK: trace cancellation disarms its start breakpoint and preserves unrelated child statuses
+OK: cancelling a trace inside a blocked call removes its temporary breakpoint and resumes safely
+OK: negative trace lengths return without allocating or attaching
+OK: breakpoint lookups return stable snapshots across later mutations
+OK: hardware breakpoint exhaustion is reported instead of silently skipping a breakpoint
+OK: reenabling breakpoints never reuses an occupied hardware register
+OK: valid ELF symbol tables still resolve
+OK: ELF symbol parsers reject unsupported byte order
+OK: ELF section headers cannot ignore their declared stride
+OK: absolute ELF symbols are not rebased in shared libraries
+OK: ELF symbol relocation rejects address overflow
+OK: unterminated ELF symbol names are rejected without inventing a terminator
+OK: valid ELF symbol tables still resolve
+OK: ELF symbol parsers reject unsupported byte order
+OK: ELF section headers cannot ignore their declared stride
+OK: absolute ELF symbols are not rebased in shared libraries
+OK: ELF symbol relocation rejects address overflow
+OK: unterminated ELF symbol names are rejected without inventing a terminator
+OK: renaming user symbols removes obsolete name lookups
+OK: reloading module symbols preserves consistent user-symbol lookups
+OK: ELF build-id notes reject wrapped name lengths before reading their contents
+1 failed checks

@@ -1,0 +1,26 @@
+OK: teardown race starts an independent native target
+OK: teardown fixture continuously executes a real watched store
+OK: teardown saves the real original hardware bank before CodeFinder takes ownership
+HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=333 applicationSignal=0
+OK: cleanup encounters a kernel queued hardware SIGTRAP behind an interrupt stop
+OK: teardown drains the owned trap and releases its actual ptrace owner
+FAILED: queued-trap cleanup restores the original hardware addresses, control and status
+FAILED: the original program continues its computation and console work without a leaked hardware trap
+OK: teardown race starts an independent native target
+OK: teardown fixture continuously executes a real watched store
+OK: teardown saves the real original hardware bank before CodeFinder takes ownership
+HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=543 applicationSignal=10
+OK: cleanup encounters a kernel queued hardware SIGTRAP behind an interrupt stop
+OK: teardown drains the owned trap and releases its actual ptrace owner
+FAILED: cleanup preserves the application SIGUSR1 instead of replacing it with its hardware SIGTRAP
+OK: teardown race starts an independent native target
+OK: teardown fixture continuously executes a real watched store
+OK: teardown saves the real original hardware bank before CodeFinder takes ownership
+HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=4014 applicationSignal=19
+OK: cleanup encounters a kernel queued hardware SIGTRAP behind an interrupt stop
+OK: teardown drains the owned trap and releases its actual ptrace owner
+FAILED: queued application SIGSTOP remains a genuine stopped target after watchpoint cleanup
+FAILED: the application's SIGCONT resumes its preserved stop
+FAILED: queued-trap cleanup restores the original hardware addresses, control and status
+FAILED: the original program continues its computation and console work without a leaked hardware trap
+CODEFINDER_TEARDOWN_RESULT=FAILED architecture=x86-32

@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "createdUTC": "2026-10-05T23:22:48.535703+00:00",
+  "sourceState": "uncommitted worktree snapshot",
+  "passed": true,
+  "scope": "Shared GDB whole-register fallback through GUI, CLI and Lua. Independent mixed-width sparse banks and failures; real ARM64 QEMU core g/G edits/execution/restoration through a framed proxy. Does not establish Linux guest-process/MMU support or whole-bank vector access in QEMU.",
+  "sources": {
+    "debug/gdb_remote.cpp": "5158bca173d499da06facb50516f4e44fc5c40a5fa9444ee53c85429efb3b57e",
+    "debug/gdb_remote.hpp": "d328db63ea82d92589daefc26688bb6a1f5665628aa311232c6c1b77897c0ba9",
+    "platform/gdb_process.cpp": "6c8e6680cdfaa96283a1d491defebc8236554b20f20c2ef8fbf0ec018b63d97a",
+    "platform/gdb_process.hpp": "a104eb443e980b35445f136ee93fd8796714e8f24c6114dcedaa706d64debe11",
+    "gui/registereditor.cpp": "1e5c6e979059cc6f08c26fba64c521486c161dbea0953fd1500c017ba9954a2f",
+    "test/gdb_transport_integration.cpp": "60f43b1c2003a024476944e5b53f60e4a7c323fe3f76e49f2b2bba73aa8866a2",
+    "test/gdb_register_bank_checks.inc": "0aaf63547c6dd094ff806648f721eecc6d32a89b583e7a0c6dcfa00d0d37b0db",
+    "test/gdb_register_bank_checks.lua": "60a312c121478427f9ac9ef82167109bd7986dddad7dbfb4f88e316257942beb",
+    "test/gdb_transport_gate.py": "0f35f46a1e7573a2d2e26c56509a2addaa40cf037edcb204fd6f3aad8b69f01b",
+    "test/gdb_register_proxy.py": "7db59f8c6bd7252d0ce3ec3bd87d81a67e7ac5979f0aaf12310ece11bc058a4f",
+    "test/gdb_gui_checks.inc": "2d43c14ef969bc7905018b69f35b0e02e59b4e292ce996de7b30b3dc2a59ecb1",
+    "test/gdb_gui_gate.py": "056a9a32a19c521e3d66102f378cfd5921386ca4af0d0983a2a3c5ff11144f77",
+    "test/gdb_lua_checks.lua": "c8edeedd82122e0b70087556297af480096ff377ce98a6e90685b6d7d3108a28"
+  },
+  "binaries": {
+    "build/libcecore.so": "1d292e35216ed6f82b46b66c45a7de810e8b02e54968b7d6b1eec88e45c74ad6",
+    "build/cescan": "25da0223c08346823c5485501ebca57c29973a64d498ff97f340cc46c5042b78",
+    "build/gdb_transport_integration": "8059751edf3f185732ec7930299ad32448422e4ecc31b37c33eac72e969ef7b3",
+    "build/cheatengine": "6823efe4b5688cf176fb2b66b30961b8ee30f667013ad6fe8db97eb847ebbf89",
+    "build/gui_lifecycle_smoke": "7973f12b1423928e5d6bb244aff443df8a8d37aad23bf51f9821ca26397b01d8",
+    "build-ci-asan/libcecore.so": "e8d6453c49e11e439cbd3dc8b6d728018f042ee233337a2ceef7c5368f60cb43",
+    "build-ci-asan/cescan": "a85cd2fb811666afc95e26d207cb1ef4c3f4d5b81730670f5c337c21c84d0854",
+    "build-ci-asan/gdb_transport_integration": "3459c42f97025ea094a621b053ad5cc76e39dcf00a9a09ff04e2c21234e508f3"
+  },
+  "evidence": {
+    "hostCI": {
+      "path": "gdb-register-bank-hostCI.log",
+      "sha256": "36a5784fe437ddc68e1d766d74295bdf8c56e36e8c4081c009452565bfdae285"
+    },
+    "nativeModel": {
+      "path": "gdb-register-bank-nativeModel.log",
+      "sha256": "c7f84fe69b77a7c38d6c8ed4c5b866842ee23f13161164e32ab5bf8b54e1bf72"
+    },
+    "asanModel": {
+      "path": "gdb-register-bank-asanModel.log",
+      "sha256": "c7f84fe69b77a7c38d6c8ed4c5b866842ee23f13161164e32ab5bf8b54e1bf72"
+    },
+    "nativeGdb": {
+      "path": "gdb-register-bank-nativeGdb.log",
+      "sha256": "e9d1be4a064c2d1eb1462b93ca83a070e0311a892c0e4d1319cd8550cf7cf4c7"
+    },
+    "asanGdb": {
+      "path": "gdb-register-bank-asanGdb.log",
+      "sha256": "905d8b27b0c061060a07135ab44d2989f4aeb3551f5d87fe7c5461c2942f9a1b"
+    },
+    "guiGdb": {
+      "path": "gdb-register-bank-guiGdb.log",
+      "sha256": "62db7e0870a97c551b4fdaa18f222a07c64978962f523449f7c11ee3f65d96b4"
+    },
+    "before": {
+      "path": "gdb-register-bank-before.json",
+      "sha256": "d46139e69cdf629be4fd13a0a5e55f9a74b60b2e5e8e1e1da441547c438de4f3"
+    },
+    "ciTestSnapshot": {
+      "path": "gdb-register-bank-ciTestSnapshot.json",
+      "sha256": "73d07030d2e77aec22b6bbb24ea2122980ac7dc3982ceb2fb1b429327d86a19c"
+    }
+  },
+  "reports": {
+    "native": {
+      "path": "gdb-register-bank-native.json",
+      "sha256": "105e8e9eb8d6b278fdb321a130ccabb00e623bdbe7fe80fb06c1407f7bbf4504"
+    },
+    "asan": {
+      "path": "gdb-register-bank-asan.json",
+      "sha256": "ec9e9b0f3befdf400b84c5550c8150d899e8074b7db7a32f79da7d07b188d674"
+    },
+    "gui": {
+      "path": "gdb-register-bank-gui.json",
+      "sha256": "6320a02e27b2294c16516c2e7b6c9d43c318b3a16ca893d937792efaff08f207"
+    },
+    "wine": {
+      "path": "gdb-register-bank-wine-local.json",
+      "sha256": "bcafab6f403abe47e2f4ae400f248d31991a933debde75fc48c21cf31bbdaf55"
+    },
+    "nativeFrontends": {
+      "path": "gdb-register-bank-native-frontends.json",
+      "sha256": "136249a2ef1d64b45a23247bfa91c8679def56ab786e7ab94aa73f3cf82566cb"
+    },
+    "leaderExitFrontends": {
+      "path": "gdb-register-bank-native-frontends-leader-exit.json",
+      "sha256": "3748a98695ef5f31483524bcc24d08e2690c383e3f0c5e42e2a239f0956e2d82"
+    }
+  },
+  "screenshotDirectory": "gdb-register-bank-gui",
+  "validation": {
+    "fullLocalMirror": "passed",
+    "nativeProtocolCases": 79,
+    "sanitizerProtocolCases": 75,
+    "independentBankCases": 15,
+    "guiCases": 7,
+    "guiScreenshots": 10,
+    "modelChecksPerBuild": 166,
+    "cliWorkflows": 22,
+    "wine": "Wine 11 PE32 and PE32+ live fixtures",
+    "afterFullCI": "Only evidence request counters changed. All native/ASan GDB protocol and required GUI/QEMU gates reran afterward; production sources and binaries were unchanged."
+  },
+  "resources": {
+    "buildJobs": 1,
+    "nice": 10,
+    "heavyChecks": "sequential",
+    "temporaryStorage": "workspace build filesystem"
+  },
+  "limitations": [
+    "The real QEMU g/G bank contains core registers; omitted vectors remain unavailable without individual packets. Independent peers test full vector banks; ordinary QEMU vector tests still use p/P.",
+    "Unknown unrelated bank bytes and indivisible oversized G packets cannot be edited safely through the fallback.",
+    "The bare-metal guest does not exercise logical guest processes, MMU translation or Linux kernel ptrace.",
+    "The six broad compatibility requirements remain incomplete; earlier snapshots retain their own hashes and scope."
+  ]
+}

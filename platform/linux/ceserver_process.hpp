@@ -22,7 +22,8 @@ public:
     ~RemoteProcessHandle() override;
 
     pid_t pid() const override { return pid_; }
-    bool is64bit() const override { return is64bit_; }
+    bool is64bit() const override { auto operation=client_->lockConnection();return is64bit_; }
+    TargetDescription targetDescription() override;
 
     Result<size_t> read(uintptr_t address, void* buffer, size_t size) override;
     Result<size_t> write(uintptr_t address, const void* buffer, size_t size) override;
@@ -40,13 +41,25 @@ public:
     int32_t serverHandle() const { return handle_; }
 
 private:
-    RemoteProcessHandle(CEServerClient& client, pid_t pid, int32_t handle, bool is64bit)
-        : client_(&client), pid_(pid), handle_(handle), is64bit_(is64bit) {}
+    RemoteProcessHandle(CEServerClient& client, pid_t pid, int32_t handle, TargetMachine machine)
+        : client_(&client), pid_(pid), handle_(handle), is64bit_(machine.pointerWidth == 8),
+          generation_(client.connectionGeneration()) {
+        // Legacy architecture responses do not describe the remote Unix loader
+        // or managed/Wine runtime. Keep those fields unknown.
+        description_.program = machine;
+        description_.transport = TargetTransport::CEServer;
+        description_.runtime = TargetRuntime::Unknown;
+    }
 
     CEServerClient* client_;
     pid_t pid_;
     int32_t handle_;
     bool is64bit_;
+    uint64_t generation_;
+    TargetDescription description_;
+    bool connectionValid() const {
+        return client_ && client_->isConnected() && client_->connectionGeneration()==generation_;
+    }
 };
 
 } // namespace ce::os

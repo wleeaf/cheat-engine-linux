@@ -83,4 +83,27 @@ inline std::optional<bool> conditionalJumpTaken(const std::string& mnemonic, uin
     return std::nullopt;
 }
 
+// ARM64 B.cond uses NZCV in PSTATE. Register-testing branches (CBZ/TBZ) need
+// operands and are deliberately left without a flags-only prediction.
+inline std::optional<bool> conditionalArm64JumpTaken(const std::string& mnemonic, uint64_t pstate) {
+    const bool n = pstate & (1ull << 31), z = pstate & (1ull << 30);
+    const bool c = pstate & (1ull << 29), v = pstate & (1ull << 28);
+    if (mnemonic == "b.eq") return z;
+    if (mnemonic == "b.ne") return !z;
+    if (mnemonic == "b.cs" || mnemonic == "b.hs") return c;
+    if (mnemonic == "b.cc" || mnemonic == "b.lo") return !c;
+    if (mnemonic == "b.mi") return n;
+    if (mnemonic == "b.pl") return !n;
+    if (mnemonic == "b.vs") return v;
+    if (mnemonic == "b.vc") return !v;
+    if (mnemonic == "b.hi") return c && !z;
+    if (mnemonic == "b.ls") return !c || z;
+    if (mnemonic == "b.ge") return n == v;
+    if (mnemonic == "b.lt") return n != v;
+    if (mnemonic == "b.gt") return !z && n == v;
+    if (mnemonic == "b.le") return z || n != v;
+    if (mnemonic == "b" || mnemonic == "b.al" || mnemonic == "b.nv") return true;
+    return std::nullopt;
+}
+
 } // namespace ce

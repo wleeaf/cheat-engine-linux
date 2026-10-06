@@ -1,0 +1,27 @@
+{
+  "suite": "arm64-core-gui-cli-cross-build",
+  "status": "built",
+  "runtimeVerified": false,
+  "utc": "2026-10-05T14:49:06.507902+00:00",
+  "sourceRevision": null,
+  "sourceRef": null,
+  "compiler": "aarch64-linux-gnu-g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "buildJobs": 1,
+  "targets": {
+    "core": {
+      "architecture": "AArch64",
+      "sha256": "a9ddeb049bd4f75cf4463bfb87e6fa7763c40389aab760da3760ade4ae2d9f1c",
+      "bytes": 4351800
+    },
+    "gui": {
+      "architecture": "AArch64",
+      "sha256": "7bd805319d79e5d3b51cc09c4212b866c21738f93e5943241b20bac993fe8458",
+      "bytes": 2303696
+    },
+    "cli": {
+      "architecture": "AArch64",
+      "sha256": "a238dd908830ac737241735d48b156497f678766b99ef184eb5894de9bf4f539",
+      "bytes": 241872
+    }
+  }
+}

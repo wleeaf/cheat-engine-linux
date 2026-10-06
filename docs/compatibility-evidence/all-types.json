@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "createdUTC": "2026-10-05T21:57:04.516092+00:00",
+  "sourceState": "uncommitted worktree snapshot",
+  "passed": true,
+  "scope": "All-type candidate persistence/narrowing, exact literal boundaries, numeric comparisons and concrete selection. Native and sanitizer model/Lua checks; actual GUI scans and guarded-page live display; live native CLI workflows; production CLI Lua through independent BE32 TCP and LE64 ARM64 bare-metal QEMU RAM with exact restoration. Full host CI, no added live foreign Linux kernel scan claim. Includes original-input floating rounding/tolerance/relational precision, typed and grouped scans, independent SIMD address expectations and Lua rounding options.",
+  "modelChecks": {
+    "native": 155,
+    "asan": 155
+  },
+  "sources": {
+    "CMakeLists.txt": "d065dc6e803d94c1641f5fb673f61f584a505403622cec7e8c2fa855d8f2d921",
+    "scanner/memory_scanner.cpp": "514252fa322d07a2181875c4ce7b283f8ef78a9c930d7a4a8a84a3926d27f666",
+    "scanner/memory_scanner.hpp": "084252c8ce1ce72a0ff8228cf361d4df212b3dc51ff21c8cba7649b88881963b",
+    "scanner/scan_number.cpp": "945ca8fe6ecace77a653e69d9955894445bd1a8680e3dd0d5b372ff721dff49f",
+    "gui/mainwindow.cpp": "536ec794d4d420030f9804120e6b938c09004292697355bfef789a916ea0e78a",
+    "cli/main.cpp": "8a09973417a2b14fe6e002bbcfd675d4a12811c38c6a217f1d4eab0d3c4b54f7",
+    "scripting/lua_bindings.cpp": "86f0e75f1fe8cb947e055cf95a7c9d00f916b275d8c3356063e65c9d1697ea18",
+    "test/all_type_scan_checks.inc": "a244023fda11c3139622becb580d99bca5926d2f466a7958311a8134b8a9fb94",
+    "test/all_type_number_checks.inc": "60759432b132b2421ada1a6ff9a2d9361bdda4360b9142fd98c907be60891514",
+    "test/target_compatibility_test.cpp": "61502f2d5188a02de7f3d88231ecc6200303618866386d1faee26897f931d135",
+    "test/gui_lifecycle_smoke.cpp": "e132cda93a7f618108c75b3948677233031f2b4587cd4f426a0b06bf02966411",
+    "test/gdb_lua_checks.lua": "8cb51863188340d94a5c20b90d9d1235ef2a1b368f7df82119de288e4ce44c2e",
+    "test/cli_usability_test.py": "22cdf7b4a78e91e733141aa803232795463a4b15f33b47dc291c3cda0a38326c",
+    "test/floating_rounding_checks.inc": "f586946ad659888714a77906a98e7f7e3d3fef29a34e94982ba20b172a7da6e8",
+    "test/main.cpp": "d30925ced0f32d5b27ebe536740d49045701ab339a41646f6e207673a6e120d9"
+  },
+  "binaries": {
+    "build/libcecore.so": "22720b65822ad60755170863d22b2988d13af22f7735ea7eab6a3dbf905dcac4",
+    "build/cescan": "17c67ff2f3e4d9aae0709f02c393dc1717afcafd3b85e74a7a3f592c597c65da",
+    "build/cheatengine": "a610e5ce2b06bc62c3a6071599e4caea3cba9eb9412fcb5ce68e94b8b537fe97",
+    "build/gui_lifecycle_smoke": "f1e3b5f1894f77eab521d88ba21d79b612caab2eb7d389d2f9ad80a551012d68",
+    "build/cecore_compatibility_test": "33105cd5e8208586d4593051d773e53d115f50d3d1ce3e0ddff523d3a42a94f7",
+    "build-ci-asan/libcecore.so": "2d4b356714fbf72aebd088e823beb9f6e83c6a6386f3f99f04f6d42bb0bd0637",
+    "build-ci-asan/cescan": "72af17f8d928dbc5d35e9e61ee3ffae22240d66a73abbacedb50efe63ec3119c",
+    "build-ci-asan/cecore_compatibility_test": "7286ab162d53727cdf1a855cb2c7d3afe283dc72b0ca5a3b874d7f1b78522d37"
+  },
+  "gui": {
+    "log": {
+      "path": "all-types-gui.log",
+      "sha256": "9fb600db04d7056867a922f761b1efdc73ca31942fb93d08c9d83429f59b36ec"
+    },
+    "screenshot": {
+      "path": "all-types-gui.png",
+      "sha256": "669a4a1d98b528643774ec39acd7193a0d334afae3061b680c2fb589b518bf06"
+    },
+    "checks": [
+      "distinct persisted row strides",
+      "readable Byte beside PROT_NONE page",
+      "unchanged padding",
+      "actual change highlighting",
+      "first and next floating Between upper bounds",
+      "GUI All-to-Float selection",
+      "invalid upper bound preserves captured rows",
+      "scientific rounding cannot create integer/float zero matches",
+      "typed floating scientific precision",
+      "rounded first and next boundary matches",
+      "malformed values and tolerances preserve rows",
+      "large and small GUI tolerance values",
+      "scan completion status after first and next scans"
+    ],
+    "scanControlsScreenshot": {
+      "path": "floating-rounding-gui.png",
+      "sha256": "36d8d35f3b113fc9a9f90aabfb08a60db6e10cc2a73687dc45c5069729d529b4"
+    }
+  },
+  "cli": {
+    "log": {
+      "path": "all-numbers-cli.log",
+      "sha256": "7d138201172ec8b047432ac20a6f7b1bdab80937ffcb2b85f2a23b2570e6125c"
+    },
+    "workflowChecks": 22
+  },
+  "hostCI": {
+    "path": "all-types-host-ci.log",
+    "sha256": "8301aa8c32ddb6263e6ec2477a560d90d3ba5002f147946b5f396409f54d829b"
+  },
+  "reports": {
+    "gdb-transport": {
+      "path": "gdb-transport.json",
+      "sha256": "83db4399330a485c66c7489a58723cc76798af82b3d6c15d1c96c8279c816d14"
+    },
+    "gdb-transport-sanitizers": {
+      "path": "gdb-transport-sanitizers.json",
+      "sha256": "dd9d374743b68cce1dd9807e6941f7623857a48e0a467c66f912f966c65eefd2"
+    },
+    "gdb-gui": {
+      "path": "gdb-gui.json",
+      "sha256": "438a733301ba2a7eedb860a56bf4ed685433dd6bd0ceb180f87a0f6a7294d88a"
+    },
+    "native-syscalls": {
+      "path": "all-types-host-native-syscalls.json",
+      "sha256": "dbbe61ebdba4f29d12d8e40feb80d75b043bc5c575496b3968a237ab26874e81"
+    },
+    "native-injector": {
+      "path": "all-types-host-native-injector.json",
+      "sha256": "08fd3847feec274ecf88fc92de66e2940d376fa537bc8d0ee1067d81b6c0ad62"
+    },
+    "native-frontends": {
+      "path": "all-types-host-native-frontends.json",
+      "sha256": "0dd2150a814171f4a889bbcc8418cc9b21e1d643d5fc42603a65d41ab7a0ee44"
+    },
+    "native-frontends-leader-exit": {
+      "path": "all-types-host-native-frontends-leader-exit.json",
+      "sha256": "32f54ca82e4599f000dc65b9c095442fb205a675843d34c482471d246c5683ae"
+    },
+    "wine-local": {
+      "path": "all-types-host-wine-local.json",
+      "sha256": "830d578e8620ae15d4a180ee63c5ffe5a089cacc0f7080bc3e1b26f9bd882872"
+    }
+  },
+  "resources": {
+    "jobs": 1,
+    "nice": 10,
+    "heavyChecks": "sequential"
+  },
+  "limitations": [
+    "Native host libc injection covers x86-64; dynamic i386 fixture unavailable on this host. Earlier real i386 container evidence remains a separate snapshot.",
+    "Full-system ARM64 kernel checks remain their separately hashed snapshots; this change does not add All scans through a live ARM64 Linux process.",
+    "Textual All numeric input is limited to 4096 characters and the parser double range. Hex uses the integer editor 64-bit two's-complement convention.",
+    "Broader compatibility requirements in docs/COMPATIBILITY.md remain incomplete."
+  ]
+}

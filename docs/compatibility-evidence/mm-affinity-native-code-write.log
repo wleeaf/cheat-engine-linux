@@ -1,0 +1,47 @@
+CODE_WRITE_KERNEL=7.1.8-200.fc44.x86_64 pageSize=4096
+OK: independent executable fixture warms its original code before remote edits
+OK: original code straddles two real RX pages with exact baseline bytes
+OK: remote code write changes actual execution across page boundaries without adding write permission
+OK: cross-page code transfer preserves both neighboring bytes
+OK: shared restoration restores actual execution and RX protection exactly
+OK: production NOP helper uses target instruction bytes and preserves the RX mapping
+OK: production NOP undo restores the complete original instruction and execution
+OK: actual debugger holds the fixture at an all-stop before a code edit
+OK: code edits work with a different debugger owner thread without borrowing registers or resuming the target
+OK: the debugger releases its original syscall wait and edited code executes normally
+OK: original execution survives debugger-owned code editing and restoration
+OK: actual AutoAssembler edits executable code through the cache-aware shared adapter
+OK: AutoAssembler disable restores real execution without a writable-page residue
+OK: production Lua NOP and undo use the same executable-code backend
+OK: saved AutoAssembler undo owns real code, permissions, allocation and registered symbol state
+OK: a saved native undo refuses another process before any byte, protection or allocation cleanup
+OK: saved undo discards retired ownership after same-file exec and preserves replacement code and RX pages
+OK: a native loader or pthread request carrying retired script ownership is rejected before executing replacement code
+OK: a copied retired undo cannot touch a newly enabled patch in the replacement address space
+OK: the replacement patch restores its own baseline independently of older undo copies
+OK: a new executable mapping at the same address rejects stale AutoAssembler undo without altering replacement execution
+OK: a real simple hook changes execution while preserving original RX permissions
+OK: a completed simple-hook removal copy cannot restore over a later native code edit
+OK: simple-hook removal retires its pinned address space after exec without restoring stale replacement bytes
+OK: a three-chunk executable transfer verifies every byte, both neighbors and unchanged original execution
+OK: a three-chunk executable transfer restores its complete original RX image
+OK: a later-chunk short or post-mutation failure restores the full completed prefix and ambiguous chunk
+OK: a later-chunk short or post-mutation failure restores the full completed prefix and ambiguous chunk
+OK: short, dropped or post-mutation code writes report failure and restore the actual original code
+OK: short, dropped or post-mutation code writes report failure and restore the actual original code
+OK: short, dropped or post-mutation code writes report failure and restore the actual original code
+OK: failed original-byte restoration retains native recovery ownership before returning an error
+OK: pending code restoration blocks protection changes instead of discarding its recovery storage
+OK: explicit recovery restores original code and releases the retained failure record
+OK: reentrant mutators cannot erase an in-progress native inspection's recovery reservation
+OK: a real same-file exec replaces the address space while original-code recovery is pending
+OK: pinned-mm recovery retires after exec without writing stale bytes into the replacement image
+OK: the independent fixture exits normally after all actual code and recovery operations
+OK: the same kernel-backed code path edits the frontend's own RX mapping without ptrace self-attachment
+OK: self-code restoration preserves execution and releases its owned mappings
+CODE_WRITE_RESULT=PASSED checks=40 failures=0
+CE_CODE_READY pid=399063 address=30000ffc value=42
+Executing script on PID 399063...
+SUCCESS: 1 patches, 0 allocations
+Executing script on PID 399063...
+SUCCESS: 1 patches, 0 allocations

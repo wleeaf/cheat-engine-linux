@@ -1,0 +1,51 @@
+{
+  "sourceState": "uncommitted worktree before register-bank fallback",
+  "binaries": {
+    "/home/taceddinsancak/Desktop/Projects/cheat-engine/build/libcecore.so": "00e7fdd9e3e622d791fa53fb1789d604be92ef7def9fbce5c0d71a59bc355a5b",
+    "/home/taceddinsancak/Desktop/Projects/cheat-engine/build/cescan": "221acf3b18705f98451258401dbe6b38a57fbfe64960cc013c70483972bd1bb1"
+  },
+  "cases": [
+    {
+      "name": "bank-only",
+      "returnCode": 1,
+      "output": "GDB register size does not match target XML\n",
+      "seconds": 0.099,
+      "peerErrors": [],
+      "packets": 11,
+      "registerPackets": {
+        "p": 1,
+        "P": 0,
+        "g": 0,
+        "G": 0
+      },
+      "finalRegisters": {
+        "0": "e012341234567890",
+        "4": "123401",
+        "14": "000102030405060708090a0b0c0d0e0f",
+        "20": "7856341200000040"
+      },
+      "passed": false
+    },
+    {
+      "name": "bank-only",
+      "returnCode": 1,
+      "output": "GDB register write was not confirmed\n",
+      "seconds": 0.093,
+      "peerErrors": [],
+      "packets": 11,
+      "registerPackets": {
+        "p": 0,
+        "P": 1,
+        "g": 0,
+        "G": 0
+      },
+      "finalRegisters": {
+        "0": "e012341234567890",
+        "4": "123401",
+        "14": "000102030405060708090a0b0c0d0e0f",
+        "20": "7856341200000040"
+      },
+      "passed": false
+    }
+  ]
+}

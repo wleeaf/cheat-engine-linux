@@ -1,0 +1,11 @@
+{
+  "scope": "Same standalone probe and script after compiling the shared REASSEMBLE size guard",
+  "sourceState": "uncommitted worktree snapshot",
+  "coreSha256": "60050f42768802f0e668434d27657f39c5dedc8ae878df4c5185dbb422da29a3",
+  "probeSourceSha256": "6bed1aa5b0e297dfe0f1da34bd685ef58d402b61812640eeed130da4b41da590",
+  "probeBinarySha256": "9ecbce794838b43ae6bb8a8dc8b12c2e0e6dee41614db7fc51b8cd35439315c5",
+  "returnedSuccess": false,
+  "originalBytesRestored": true,
+  "error": "REASSEMBLE output size changed after label sizing at 0x10000",
+  "outputSha256": "e996702bccfa37745288de15f207c484e222e43f604980cc5bddf882e9892c62"
+}

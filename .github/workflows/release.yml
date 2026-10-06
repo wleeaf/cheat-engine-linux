@@ -8,7 +8,20 @@ permissions:
   contents: write   # action-gh-release needs this to upload assets / create the release
 
 jobs:
+  arm32-compatibility:
+    uses: ./.github/workflows/arm32-compatibility.yml
+
+  arm64-compatibility:
+    uses: ./.github/workflows/arm64-compatibility.yml
+
+  wine-compatibility:
+    uses: ./.github/workflows/wine-compatibility.yml
+
+  x32-compatibility:
+    uses: ./.github/workflows/x32-compatibility.yml
+
   appimage:
+    needs: [wine-compatibility, arm64-compatibility, x32-compatibility, arm32-compatibility]
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -21,8 +34,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential \
+            gcc-multilib \
             cmake \
             ninja-build \
+            qemu-system-arm \
+            mono-runtime-sgen mono-mcs libmonosgen-2.0-1 \
             qt6-base-dev \
             libcapstone-dev \
             zlib1g-dev \
@@ -46,6 +62,7 @@ jobs:
           cmake -S . -B build \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCECORE_REQUIRE_NATIVE_CALL_I386=ON \
             -DCMAKE_INSTALL_PREFIX=/usr
           cmake --build build -j"$(nproc)"
 
@@ -54,16 +71,63 @@ jobs:
         run: |
           ./build/cecore_test
           ./build/cecore_deep_test
+          ./build/cecore_compatibility_test
+          ./build/table_persistence_integration
+          python3 test/table_json_gate.py build --report build/compatibility-evidence/table-json.json
+          python3 test/ceserver_compatibility_gate.py build --report build/compatibility-evidence/ceserver.json
+          python3 test/gdb_transport_gate.py build --require-qemu --report build/compatibility-evidence/gdb-transport.json
+          python3 test/gdb_gui_gate.py build --require-qemu --report build/compatibility-evidence/gdb-gui.json
+          python3 test/elf_debug_gate.py build --require-i386 --report build/compatibility-evidence/elf-debug.json
+          python3 test/autoasm_module_gate.py build --report build/compatibility-evidence/autoasm-modules.json
+          python3 test/native_syscall_gate.py build --report build/compatibility-evidence/native-syscalls.json
+          python3 test/code_write_gate.py build --output build/compatibility-evidence/code-write.log --report build/compatibility-evidence/code-write.json
+          python3 test/memory_image_gate.py build --output build/compatibility-evidence/memory-image.log --report build/compatibility-evidence/memory-image.json
+          python3 test/native_call_gate.py build --require-i386 --report build/compatibility-evidence/native-injector.json
+          python3 test/mono_compatibility_gate.py build --report build/compatibility-evidence/mono-runtime.json
+          python3 test/mono_compatibility_gate.py build --embedded --report build/compatibility-evidence/mono-embedded.json
+          python3 test/gui_runtime_gate.py build --report build/compatibility-evidence/native-frontends.json
           for test in gui_debugger_smoke gui_theme_smoke gui_guest_scan_smoke \
                       gui_structdissect_smoke gui_hexview_smoke gui_disasm_smoke \
                       gui_search_smoke gui_changeaddr_smoke gui_luaconsole_smoke \
                       gui_codefinder_smoke gui_lifecycle_smoke; do
             QT_QPA_PLATFORM=offscreen "./build/$test"
           done
+          python3 test/gui_injection_gate.py build --report build/compatibility-evidence/gui-injection.json
           python3 test/cli_usability_test.py build/cescan
 
       - name: Build .deb package
         run: (cd build && cpack -G DEB)
+
+      - name: Download required Wine compatibility evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wine-*-evidence
+          path: build/compatibility-evidence
+          merge-multiple: true
+
+      - name: Download required ARM64 syscall evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: arm64-syscall-evidence
+          path: build/compatibility-evidence
+
+      - name: Download required ARM32 register evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: arm32-register-evidence
+          path: build/compatibility-evidence/arm32
+
+      - name: Download required x32 kernel evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: x32-kernel-evidence
+          path: build/compatibility-evidence/x32
+
+      - name: Download required ARM64 frontend evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: arm64-frontend-evidence
+          path: build/compatibility-evidence
 
       - name: Build AppImage
         run: |
@@ -89,5 +153,10 @@ jobs:
             build/CheatEngine-*-x86_64.AppImage.sha256
             build/cheat-engine-linux_*_amd64.deb
             build/cheat-engine-linux_*_amd64.deb.sha256
+            build/compatibility-evidence/*.json
+            build/compatibility-evidence/x32/*.json
+            build/compatibility-evidence/x32/*.log
+            build/compatibility-evidence/arm32/*.json
+            build/compatibility-evidence/arm32/*.log
           fail_on_unmatched_files: true
           generate_release_notes: false

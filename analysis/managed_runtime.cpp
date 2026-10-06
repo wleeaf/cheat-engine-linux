@@ -142,7 +142,7 @@ std::vector<ManagedRuntimeInfo> detectManagedRuntimes(ProcessHandle& proc) {
 std::vector<ManagedObjectInfo> enumerateManagedObjects(
     ProcessHandle& proc,
     const ManagedObjectEnumerationConfig& config) {
-    auto pointerSize = config.pointerSize != 0 ? config.pointerSize : (proc.is64bit() ? 8 : 4);
+    auto pointerSize = config.pointerSize != 0 ? config.pointerSize : (proc.pointerWidth());
     if (pointerSize != 4 && pointerSize != 8)
         return {};
 
@@ -243,7 +243,7 @@ std::vector<ManagedTypeInfo> extractManagedTypes(
     ProcessHandle& proc,
     const std::vector<uintptr_t>& typeHandles,
     const ManagedTypeExtractionConfig& config) {
-    auto pointerSize = config.pointerSize != 0 ? config.pointerSize : (proc.is64bit() ? 8 : 4);
+    auto pointerSize = config.pointerSize != 0 ? config.pointerSize : (proc.pointerWidth());
     if (pointerSize != 4 && pointerSize != 8)
         return {};
 

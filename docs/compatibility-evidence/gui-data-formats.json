@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 1,
+  "createdUTC": "2026-10-05T22:55:35.254939+00:00",
+  "sourceState": "uncommitted worktree snapshot",
+  "passed": true,
+  "scope": "Explicit encoded scan and record formats. Shared pointer-width overrides, table persistence and invalid metadata checks; native GUI numeric/pointer scans, transfers, actual edits/freezing/saves; unknown-format independent GDB peer and BE32 records in real ARM64 QEMU RAM. Does not establish arbitrary guest-process/MMU or live big-endian Linux support.",
+  "newModelChecks": [
+    "Explicit pointer width and byte order support encoded reads/writes on unknown targets and preserve neighboring fields",
+    "Invalid encoded pointer widths and byte orders fail before target mutation",
+    "Automatic pointer I/O still uses target width while explicit data overrides leave CPU metadata unchanged",
+    "XML, JSON and protected cheat tables retain explicit data byte order and encoded pointer width",
+    "Malformed record format metadata is rejected on table load/save instead of silently using the target format"
+  ],
+  "modelChecksPerBuild": 166,
+  "guiChecks": [
+    "Little/Big numeric first and next scans with live/captured columns",
+    "Captured formats survive transfer to ordinary records",
+    "BE32 pointer reads/edits in a 64-bit native process preserve the adjacent field",
+    "Changing saved pointer stride fails without replacing results; retry succeeds",
+    "Encoded pointer freeze uses the actual four-byte field",
+    "GUI model JSON and actual File Save XML/JSON preserve formats",
+    "Unknown guest data order is resolved by explicit scan/record choices",
+    "BE32 pointer scans and edits work independently of a real ARM64 guest CPU data ABI",
+    "Guest edits preserve all neighboring bytes and restore every changed byte"
+  ],
+  "sources": {
+    "core/value_io.cpp": "fe927be019f5fb419bb3952d1fddbd4b207ef1ef31b1d7585b55d7e38695fb2b",
+    "core/value_io.hpp": "68cab119f10323296e7f834ceeaf6a13eded9e9c48f7ae39b0c83c538b9919f0",
+    "core/ct_file.cpp": "1491f7b16961cce86910075d008db5161b0ec485af070b3b8bd5f74d2d9726b7",
+    "core/ct_file.hpp": "a76fc06eb25615591f70d4b4cf709050633d1c2a83c67397aaa0fcd23102c6a0",
+    "gui/mainwindow.cpp": "f6cfa90dd58c460451f8d9d54d34fc5c8ef63b5058fa77eb3e9a93130f1a6454",
+    "gui/mainwindow.hpp": "985ecefdc1d236bf3ff92a783562aacbbe338b12016598f0820f761adcd590f3",
+    "test/gui_scan_format_checks.inc": "63da7528333355127b92d18d1d15d8294987b2621502828b2614db9222eb6fe7",
+    "test/gui_lifecycle_smoke.cpp": "980730c021c01af6b27320b905a89c68b15d77753c163378a7a16d59eb2666e0",
+    "test/gdb_gui_checks.inc": "7186a5dcc6df5a2c9f611436af11e11a723da9ab06904e0b3ba97a0b5972ff82",
+    "test/value_format_override_checks.inc": "85322cbdd740787235748409bf9fbf289dcab621ce17183e3223d06d5777d6a3",
+    "test/target_compatibility_test.cpp": "089dd41907476b9bf994b6730fccb2c2b25e0a3b591c1605b0bf8101599ee15d"
+  },
+  "binaries": {
+    "build/libcecore.so": "00e7fdd9e3e622d791fa53fb1789d604be92ef7def9fbce5c0d71a59bc355a5b",
+    "build/cecore_compatibility_test": "95d669ac92d74fa9c92e160278801cc47ad0f7dc68d78a6d5067641fae027cb4",
+    "build/cescan": "221acf3b18705f98451258401dbe6b38a57fbfe64960cc013c70483972bd1bb1",
+    "build-ci-asan/libcecore.so": "ef0f3c7a08cf57f9eddbf991a3c805ddd8d9518cdfa3061ad6d58d55834cdc30",
+    "build-ci-asan/cecore_compatibility_test": "eac10eaf6e0bf17d02dfbff73e1da1100b3ba04286939cad3f327d1fc51ba288",
+    "build-ci-asan/cescan": "b53f74137160a6419a4d870cee4d622c77eb77d9badec32a421dbf93ce9ba4c3",
+    "build/gui_lifecycle_smoke": "cfb2b1ebe449e70e64cf0081e6cb4e6eb293f698e6f3f78bc3915d4d60599850",
+    "build/cheatengine": "49dd6571e4c533bfd82b89be6c82e981f67b5df1f53d1d2b9bb03788a7b8dbd1"
+  },
+  "evidence": {
+    "hostCI": {
+      "path": "gui-data-formats-host-ci.log",
+      "sha256": "27870471d8386ccc1089a62cb75e19899b62c0792fbec53d05fdc2d99106e366"
+    },
+    "native": {
+      "path": "gui-data-formats-native.log",
+      "sha256": "c7f84fe69b77a7c38d6c8ed4c5b866842ee23f13161164e32ab5bf8b54e1bf72"
+    },
+    "asan": {
+      "path": "gui-data-formats-asan.log",
+      "sha256": "c7f84fe69b77a7c38d6c8ed4c5b866842ee23f13161164e32ab5bf8b54e1bf72"
+    },
+    "gui": {
+      "path": "gui-data-formats-gui.log",
+      "sha256": "8d5294af69979a4f1a6911bbf588e9b72951236063aaffc9256faa8301332b6e"
+    },
+    "lifecycle": {
+      "path": "gui-data-formats-lifecycle.log",
+      "sha256": "e547d97606a1ffc15aef9d92548edcaae5eb4ed4a0951bd22f7569a75a02f636"
+    },
+    "gdb": {
+      "path": "gui-data-formats-gdb.log",
+      "sha256": "eceadeda51b26657d47c0d5dd7a584995c6640f79892000c094b76c8cc6d8b8b"
+    },
+    "screenshot": {
+      "path": "gui-data-formats.png",
+      "sha256": "439335f4f971b1d3fee20c635a7ea75796b4cce15a205d8ec287f073001a2139"
+    },
+    "ciTestSnapshot": {
+      "path": "gui-data-formats-ci-test-snapshot.json",
+      "sha256": "4b3e1cfcaade9a7e54ed8ed1c31714b69c24842e062d3c6e7905cac91b70de65"
+    }
+  },
+  "reports": {
+    "native-gdb-transport": {
+      "path": "gui-data-formats-native-gdb-transport.json",
+      "sha256": "fd6e7ac497d2bfd9cbb0de0505b00364829015cbf09a717caf8f54303268adfc"
+    },
+    "native-native-syscalls": {
+      "path": "gui-data-formats-native-native-syscalls.json",
+      "sha256": "972762b0f61b22795104710123fe0c6dedbee49a6f00e1bd420ae2abcd61ff5f"
+    },
+    "native-native-injector": {
+      "path": "gui-data-formats-native-native-injector.json",
+      "sha256": "be44faf0b10210e5912ab1b616fbf4274fc9cb3c87e764d357187e08f793c852"
+    },
+    "native-elf-debug": {
+      "path": "gui-data-formats-native-elf-debug.json",
+      "sha256": "b7556a4b1ef272288271ec414220bcffe485c248e402cfa5ff24cd194ffe2958"
+    },
+    "asan-gdb-transport": {
+      "path": "gui-data-formats-asan-gdb-transport.json",
+      "sha256": "3d8d555e934bf1e7d8a763df3bff5d135c68c39b510d7df868cceb1739ed7bab"
+    },
+    "asan-native-syscalls": {
+      "path": "gui-data-formats-asan-native-syscalls.json",
+      "sha256": "13c7b99ef36be75369f0ced6885442ae414e2d8a6fb5e7981a10d4a933070fda"
+    },
+    "asan-native-injector": {
+      "path": "gui-data-formats-asan-native-injector.json",
+      "sha256": "098ea7d0bf6b26d03fb6004ab988ba8f30514cbe495f48d2c9759889ceb956c6"
+    },
+    "asan-elf-debug": {
+      "path": "gui-data-formats-asan-elf-debug.json",
+      "sha256": "02462556e5ba8966fd403c07e9719f7cec5049313634d67708ff84a3e847d0a3"
+    },
+    "gdb-gui": {
+      "path": "gui-data-formats-gdb-gui.json",
+      "sha256": "f5bf040802398a53b7442b74089a3af8dd9f481d4f616a748ee01867cd35f796"
+    },
+    "native-frontends": {
+      "path": "gui-data-formats-native-frontends.json",
+      "sha256": "809596631ba4d0eaea6778ba431e0f14e9729c0500d4564c1128c2c05bb6f01a"
+    },
+    "native-frontends-leader-exit": {
+      "path": "gui-data-formats-native-frontends-leader-exit.json",
+      "sha256": "a7a63e675e5fdcd405c7ac1962c59073b9a6833e83b09ddce2b3b8e9e47a7027"
+    },
+    "wine-local": {
+      "path": "gui-data-formats-wine-local.json",
+      "sha256": "0d548ad7f8e6651bd4cb1e3c46c9434b218e33a07a10c4369ea3aa06a1076dac"
+    }
+  },
+  "validation": {
+    "fullLocalMirror": "passed",
+    "gdbProtocolCases": 59,
+    "gdbSanitizerCases": 57,
+    "gdbGuiScenarios": 6,
+    "gdbGuiScreenshots": 9,
+    "cliWorkflows": 22,
+    "wine": "local Wine 11 PE32 and PE32+",
+    "afterFullCI": "Only GUI fixture edit-verification waits, documentation and evidence changed. Production sources remained unchanged. Focused GUI, full GUI lifecycle and required GDB/QEMU GUI gate were rebuilt/rerun afterward; their current driver hash and reports are recorded separately."
+  },
+  "resources": {
+    "buildJobs": 1,
+    "nice": 10,
+    "heavyChecks": "sequential",
+    "temporaryStorage": "workspace build filesystem"
+  },
+  "limitations": [
+    "Overrides describe value bytes, not CPU execution mode or guest MMU translation.",
+    "Pointer-chain address expressions still follow the selected target ABI.",
+    "Local dynamic libc injection covers x86-64; the host lacks its dynamic i386 fixture. Earlier real i386 evidence retains its separate snapshot.",
+    "No new full-system ARM64 Linux application build/runtime evidence in this snapshot.",
+    "Broader requirements in docs/COMPATIBILITY.md remain incomplete."
+  ]
+}

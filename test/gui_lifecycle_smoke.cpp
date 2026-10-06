@@ -19,12 +19,18 @@
 #include <QTextBlock>
 #include <QScrollBar>
 #include <QScrollArea>
+#include <QStatusBar>
 #include <cstring>
 #include <sys/prctl.h>
 #include <sys/wait.h>
+#include <sys/mman.h>
 #include <unistd.h>
 #include <signal.h>
 #include <cstdio>
+#include <fstream>
+#include <chrono>
+#include <array>
+#include <bit>
 
 alignas(8) static volatile int watched = 0;
 
@@ -37,11 +43,94 @@ static pid_t target() {
     return child;
 }
 
+static bool targetProgresses(pid_t pid) {
+    // Verify that teardown released ptrace ownership and that the original
+    // application continues making progress, in addition to checking exit status.
+    std::ifstream status("/proc/"+std::to_string(pid)+"/status");
+    std::string field;
+    bool detached=false;
+    while (status>>field) {
+        if (field=="TracerPid:") { int tracer=-1; status>>tracer; detached=tracer==0; break; }
+        std::string rest; std::getline(status,rest);
+    }
+    if (!detached) return false;
+    ce::os::LinuxProcessHandle process(pid);
+    int before=0,after=0;
+    auto read=process.read(reinterpret_cast<uintptr_t>(&watched),&before,sizeof(before));
+    if (!read || *read!=sizeof(before)) return false;
+    auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(1);
+    while (std::chrono::steady_clock::now()<deadline) {
+        usleep(1000);
+        read=process.read(reinterpret_cast<uintptr_t>(&watched),&after,sizeof(after));
+        if (!read || *read!=sizeof(after)) return false;
+        if (after!=before) return true;
+    }
+    return false;
+}
+
 static bool trigger(QObject& window, const QString& text) {
     for (auto* action : window.findChildren<QAction*>()) {
         if (action->text() == text) { action->trigger(); return true; }
     }
     return false;
+}
+
+#include "gdb_gui_checks.inc"
+#include "gui_injection_lifecycle_checks.inc"
+#include "gui_editor_injection_checks.inc"
+
+static bool allTypeModelChecks(const QString& screenshot = {}) {
+    QTemporaryDir directory;
+    const size_t page = static_cast<size_t>(sysconf(_SC_PAGESIZE));
+    auto* memory = static_cast<uint8_t*>(mmap(nullptr, page * 2, PROT_READ | PROT_WRITE,
+        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+    if (memory == MAP_FAILED) return false;
+    const bool guarded = mprotect(memory + page, page, PROT_NONE) == 0;
+    memory[page - 1] = 42;
+    std::array<uint8_t,8> byteSample{42}, floatSample{};
+    const float number = 2.5f;
+    std::memcpy(floatSample.data(), &number, sizeof(number));
+    ce::ScanResult result(directory.path().toStdString() + "/all");
+    result.enableAllTypeCandidates();
+    result.setDataFormat(std::endian::native == std::endian::big ? ce::ByteOrder::Big : ce::ByteOrder::Little, sizeof(uintptr_t));
+    result.addAllTypeResult(reinterpret_cast<uintptr_t>(memory + page - 1), byteSample.data(), 1);
+    result.addAllTypeResult(reinterpret_cast<uintptr_t>(floatSample.data()), floatSample.data(), 16);
+    result.finalize();
+    ce::os::LinuxProcessHandle process(getpid());
+    ce::gui::ScanResultsModel model;
+    model.setProcess(&process);
+    model.setResult(&result, ce::ValueType::All, 8);
+    ce::ValueIoOptions options;
+    const auto expected = ce::decodeTypedValue(ce::ValueType::ByteArray, {floatSample.data(), 4}, options);
+    bool saved = expected && model.displayValueAt(0, 2) == "2A" &&
+        model.displayValueAt(1, 2) == QString::fromStdString(*expected);
+    model.refreshRange(0, 1);
+    bool live = model.displayValueAt(0, 1) == "2A" &&
+        model.displayValueAt(1, 1) == model.displayValueAt(1, 2);
+    floatSample[7] = 0xff;
+    model.refreshRange(0, 1);
+    bool padding = !model.data(model.index(1, 1), Qt::ForegroundRole).isValid() &&
+        model.displayValueAt(1, 1) == model.displayValueAt(1, 2);
+    memory[page - 1] = 43;
+    model.refreshRange(0, 1);
+    bool changed = model.displayValueAt(0, 1) == "2B" && model.displayValueAt(0, 2) == "2A" &&
+        model.data(model.index(0, 1), Qt::ForegroundRole).isValid();
+    bool rendered = true;
+    if (!screenshot.isEmpty()) {
+        QTableView view;
+        view.setWindowTitle("All scan results");
+        view.setModel(&model);
+        view.resize(600, 220);
+        view.resizeColumnsToContents();
+        view.show();
+        QApplication::processEvents();
+        rendered = view.grab().save(screenshot);
+    }
+    munmap(memory, page * 2);
+    std::printf("GUI All-type model: %s (guard=%d saved=%d live=%d padding=%d changed=%d screenshot=%d)\n",
+        guarded && saved && live && padding && changed && rendered ? "OK" : "FAILED",
+        guarded, saved, live, padding, changed, rendered);
+    return guarded && saved && live && padding && changed && rendered;
 }
 
 static bool usabilityChecks() {
@@ -113,6 +202,86 @@ static bool usabilityChecks() {
         incremental, allValues, validation, unicode, cleared, arrayValidation);
     return incremental && allValues && validation && unicode && cleared && arrayValidation;
 }
+
+static bool allTypeGuiScanChecks(const QString& screenshot = {}) {
+    alignas(16) float number = 2.5f;
+    ce::gui::MainWindow main;
+    main.attachToPid(getpid(), "scan fixture");
+    auto* type = main.findChild<QComboBox*>("scanValueType");
+    auto* comparison = main.findChild<QComboBox*>("scanComparison");
+    auto* lower = main.findChild<QLineEdit*>("scanValue");
+    auto* upper = main.findChild<QLineEdit*>("scanValueUpper");
+    auto* from = main.findChild<QLineEdit*>("scanFrom");
+    auto* to = main.findChild<QLineEdit*>("scanTo");
+    auto* first = main.findChild<QPushButton*>("primaryButton");
+    auto* next = main.findChild<QPushButton*>("nextScanButton");
+    auto* results = main.findChild<ce::gui::ScanResultsModel*>();
+    auto* rounding = main.findChild<QComboBox*>("scanRounding");
+    auto* tolerance = main.findChild<QLineEdit*>("scanTolerance");
+    if (!type || !comparison || !lower || !upper || !from || !to || !first || !next || !results || !rounding || !tolerance) return false;
+    const uintptr_t address = reinterpret_cast<uintptr_t>(&number);
+    from->setText(QString("0x%1").arg(address, 0, 16));
+    to->setText(QString("0x%1").arg(address + sizeof(number) - 1, 0, 16));
+    type->setCurrentIndex(10);
+    comparison->setCurrentIndex(3);
+    lower->setText("2.0"); upper->setText("3.0");
+    ce::ValueIoOptions options;
+    auto expected = ce::decodeTypedValue(ce::ValueType::ByteArray,
+        {reinterpret_cast<const uint8_t*>(&number), sizeof(number)}, options);
+    first->click();
+    bool firstBetween = expected && results->rowCount() == 1 &&
+        results->displayValueAt(0, 2) == QString::fromStdString(*expected) && type->isEnabled();
+    lower->setText("2.4"); upper->setText("2.6"); next->click();
+    bool nextBetween = results->rowCount() == 1 &&
+        results->displayValueAt(0, 2) == QString::fromStdString(*expected);
+    int errors=0;
+    QTimer dismiss;
+    dismiss.setInterval(5);
+    QObject::connect(&dismiss, &QTimer::timeout, [&] {
+        if (auto* dialog=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+            ++errors; dialog->accept();
+        }
+    });
+    upper->setText("2.6oops"); dismiss.start(); next->click(); dismiss.stop();
+    bool malformed=errors==1 && results->rowCount()==1 && results->displayValueAt(0,2)==QString::fromStdString(*expected);
+    type->setCurrentIndex(4); comparison->setCurrentIndex(0); lower->setText("2.5"); next->click();
+    bool selection = results->rowCount() == 1 && results->displayValueAt(0, 2) == "2.5" && !type->isEnabled();
+    first->click(); // New Scan releases the old typed session.
+    type->setCurrentIndex(10); lower->setText("3e-2"); number=0.0f; first->click();
+    bool scientific=results->rowCount()==0;
+    first->click();type->setCurrentIndex(4);number=0.0f;first->click();
+    bool typedScientific=results->rowCount()==0;
+    first->click();number=0.05f;lower->setText("0.1");first->click();
+    bool rounded=results->rowCount()==1 && results->displayValueAt(0,2)=="0.05" &&
+        main.statusBar()->currentMessage().startsWith("First scan complete.");
+    lower->setText("1e-1");next->click();rounded=rounded && results->rowCount()==1 &&
+        main.statusBar()->currentMessage().startsWith("Next scan complete.");
+    lower->setText("0.1oops");dismiss.start();next->click();dismiss.stop();
+    bool typedMalformed=errors==2 && results->rowCount()==1 && results->displayValueAt(0,2)=="0.05";
+    lower->setText("0.1");rounding->setCurrentIndex(3);tolerance->setText("oops");
+    dismiss.start();next->click();dismiss.stop();
+    bool invalidTolerance=errors==3 && results->rowCount()==1;
+    tolerance->setText("0.05");next->click();bool extreme=results->rowCount()==1;
+    tolerance->setText("1e8");bool wideTolerance=tolerance->hasAcceptableInput();
+    tolerance->setText("0.000000000001");wideTolerance=wideTolerance && tolerance->hasAcceptableInput();
+    tolerance->setText("0.05");
+    bool rendered=true;
+    if(!screenshot.isEmpty()) {
+        main.resize(1200,800);main.show();QApplication::processEvents();
+        rendered=main.grab().save(screenshot);
+    }
+    bool ok=firstBetween && nextBetween && selection && malformed && scientific && typedScientific && rounded &&
+        typedMalformed && invalidTolerance && extreme && wideTolerance && rendered;
+    std::printf("GUI All scan controls: %s (first-between=%d next-between=%d selection=%d malformed=%d scientific=%d)\n",
+        firstBetween && nextBetween && selection && malformed && scientific ? "OK" : "FAILED",
+        firstBetween, nextBetween, selection, malformed, scientific);
+    std::printf("GUI floating scan controls: %s (scientific=%d rounded=%d malformed=%d tolerance=%d extreme=%d wide=%d screenshot=%d)\n",
+        ok ? "OK" : "FAILED",typedScientific,rounded,typedMalformed,invalidTolerance,extreme,wideTolerance,rendered);
+    return ok;
+}
+
+#include "gui_scan_format_checks.inc"
+#include "gui_table_save_checks.inc"
 
 static bool injectionTemplateChecks() {
     // This data has a valid x86 prologue and a distinct suffix for AOB uniqueness.
@@ -304,10 +473,49 @@ static bool visualInteractionChecks() {
 }
 
 int main(int argc, char** argv) {
+    // Keep the last completed stage visible if the deadline terminates a CI
+    // run while stdout is redirected to a file.
+    std::setvbuf(stdout,nullptr,_IOLBF,0);
     alarm(25);
     QTemporaryDir config;
     qputenv("XDG_CONFIG_HOME", config.path().toUtf8());
+    qputenv("XDG_CACHE_HOME", config.path().toUtf8());
     qputenv("QT_QPA_PLATFORM", "offscreen");
+    if (argc == 4 && QString::fromLocal8Bit(argv[1]) == "--editor-injection-only") {
+        alarm(45);
+        signal(SIGPIPE, SIG_IGN);
+        QApplication app(argc, argv);
+        app.setOrganizationName("cecore-test");
+        app.setApplicationName("gui-editor-injection");
+        return gui_editor_injection_test::run(argv[2], argv[3]) ? 0 : 1;
+    }
+    if (argc == 4 && QString::fromLocal8Bit(argv[1]) == "--injection-lifecycle-only") {
+        alarm(45);
+        signal(SIGPIPE, SIG_IGN);
+        QApplication app(argc, argv);
+        app.setOrganizationName("cecore-test");
+        app.setApplicationName("gui-injection");
+        return gui_injection_test::run(argv[2], argv[3]) ? 0 : 1;
+    }
+    if (argc>=2 && QString::fromLocal8Bit(argv[1])=="--table-save-only") {
+        QApplication app(argc,argv);
+        app.setOrganizationName("cecore-test");
+        app.setApplicationName("table-save");
+        return guiTableSaveChecks() ? 0:1;
+    }
+    if (argc >= 2 && QString::fromLocal8Bit(argv[1]) == "--scan-model-only") {
+        QApplication app(argc, argv);
+        app.setOrganizationName("cecore-test");
+        app.setApplicationName("scan-model");
+        const QString shot=argc==3 ? QString::fromLocal8Bit(argv[2]) : QString{};
+        return usabilityChecks() && allTypeModelChecks(shot) && allTypeGuiScanChecks(shot.isEmpty() ? QString{} : shot+".controls.png") && guiScanFormatChecks(shot.isEmpty() ? QString{} : shot+".format.png") ? 0 : 1;
+    }
+    if (argc==4 && (QString::fromLocal8Bit(argv[1]).startsWith("gdb-") || QString::fromLocal8Bit(argv[1])=="qemu-gui")) {
+        alarm(40);
+        QApplication app(argc,argv);
+        app.setOrganizationName("cecore-test");app.setApplicationName("gdb-gui");
+        return gdbGuiChecks(QString::fromLocal8Bit(argv[1]),QString::fromLocal8Bit(argv[2]),QString::fromLocal8Bit(argv[3]).toInt());
+    }
     pid_t first = target(), second = target();
     if (first < 0 || second < 0) return 1;
     QApplication app(argc, argv);
@@ -320,7 +528,7 @@ int main(int argc, char** argv) {
         waitpid(first, nullptr, 0); waitpid(second, nullptr, 0);
         return result;
     }
-    bool usability = usabilityChecks() && injectionTemplateChecks() && visualInteractionChecks();
+    bool usability = usabilityChecks() && allTypeModelChecks() && allTypeGuiScanChecks() && guiScanFormatChecks() && guiTableSaveChecks() && injectionTemplateChecks() && visualInteractionChecks();
     bool windowsReleased = false, traceReleased = false, debuggerReleased = false;
     {
         ce::gui::MainWindow main;
@@ -353,8 +561,15 @@ int main(int argc, char** argv) {
         debuggerReleased = main.findChild<ce::gui::DebuggerWindow*>() != nullptr;
     }
     app.processEvents();
-    int status = 0;
-    bool targetsRunning = waitpid(first, &status, WNOHANG) == 0 && waitpid(second, &status, WNOHANG) == 0;
+    int firstStatus=0,secondStatus=0;
+    auto firstWait=waitpid(first,&firstStatus,WNOHANG);
+    auto secondWait=waitpid(second,&secondStatus,WNOHANG);
+    if (firstWait!=0 || secondWait!=0)
+        std::printf("GUI target wait results: first=%ld status=0x%x second=%ld status=0x%x\n",
+                    static_cast<long>(firstWait),firstStatus,static_cast<long>(secondWait),secondStatus);
+    bool targetsRunning=firstWait>=0 && secondWait>=0 &&
+        (firstWait==0 || WIFSTOPPED(firstStatus)) && (secondWait==0 || WIFSTOPPED(secondStatus)) &&
+        targetProgresses(first) && targetProgresses(second);
     kill(first, SIGKILL); kill(second, SIGKILL);
     waitpid(first, nullptr, 0); waitpid(second, nullptr, 0);
     bool ok = usability && windowsReleased && traceReleased && debuggerReleased && targetsRunning;

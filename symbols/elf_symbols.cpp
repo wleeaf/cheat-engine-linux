@@ -1,6 +1,7 @@
 #include <cxxabi.h>
 #include <cstdlib>
 #include "symbols/elf_symbols.hpp"
+#include "platform/linux/target_syscall.hpp"
 #include "analysis/pe_exports.hpp"
 
 #include <fstream>
@@ -8,6 +9,7 @@
 #include <elf.h>
 #include <filesystem>
 #include <algorithm>
+#include <array>
 
 namespace ce {
 namespace {
@@ -25,12 +27,26 @@ void SymbolResolver::clear() {
 
 void SymbolResolver::loadProcess(ProcessHandle& proc) {
     clear();
+    const auto description = proc.targetDescription();
+    std::string root;
+    if (description.transport == TargetTransport::Local) {
+        if (!description.live || proc.pid() <= 0) return;
+        auto task=os::processMemoryTask(proc.pid());
+        if (!task) return;
+        root = "/proc/" + std::to_string(*task) + "/root";
+    }
     auto modules = proc.modules();
     for (auto& m : modules) {
         if (m.path.empty() || m.path[0] != '/') continue;
+        // The module inode may be shared with the host while its global debug
+        // directory is private to the target. Keep that filesystem context even
+        // when the ordinary module-file resolver can use the raw host pathname.
+        auto path = m.path;
+        if (!root.empty() && path != root && !path.starts_with(root + "/"))
+            path = root + path;
         std::error_code ec;
-        if (!std::filesystem::exists(m.path, ec)) continue;
-        loadModule(m.path, m.name, m.base);
+        if (!std::filesystem::exists(path, ec)) continue;
+        loadModule(path, m.name, m.base);
     }
 }
 
@@ -59,20 +75,15 @@ void SymbolResolver::parsePeExports(const std::string& path, const std::string& 
     }
 }
 
-// Locate a stripped binary's separate debug file: build-id first
-// (/usr/lib/debug/.build-id/<xx>/<rest>.debug), then .gnu_debuglink (next to the
-// binary, in a .debug/ subdir, or under /usr/lib/debug). Returns "" if none.
-static std::string findSeparateDebugFile(const std::vector<Elf64_Shdr>& shdrs,
-                                         const Elf64_Ehdr& ehdr, std::ifstream& f,
-                                         uintmax_t fileSize, const std::string& origPath) {
-    namespace fs = std::filesystem;
-    std::error_code ec;
-
-    // 1) build-id note (most reliable; keyed lookup under /usr/lib/debug/.build-id).
+// GNU notes have the same layout in ELF32 and ELF64. Bound every padded field
+// before reading it, including notes from the separate file being validated.
+template<class Section>
+static std::vector<uint8_t> readBuildId(const std::vector<Section>& shdrs,
+                                       std::ifstream& f, uintmax_t fileSize) {
     for (const auto& sh : shdrs) {
         if (sh.sh_type != SHT_NOTE) continue;
         if (sh.sh_offset > fileSize || sh.sh_size > fileSize - sh.sh_offset) continue;
-        if (sh.sh_size < sizeof(Elf64_Nhdr) || sh.sh_size > (1u << 20)) continue;
+        if ((sh.sh_size) < sizeof(Elf64_Nhdr) || sh.sh_size > (1u << 20)) continue;
         std::vector<char> buf(sh.sh_size);
         f.clear(); f.seekg(sh.sh_offset); f.read(buf.data(), sh.sh_size);
         if (!f) continue;
@@ -81,32 +92,124 @@ static std::string findSeparateDebugFile(const std::vector<Elf64_Shdr>& shdrs,
             Elf64_Nhdr nh;
             std::memcpy(&nh, buf.data() + off, sizeof(nh));
             size_t nameOff = off + sizeof(Elf64_Nhdr);
-            size_t namePad = (static_cast<size_t>(nh.n_namesz) + 3) & ~size_t{3};
-            size_t descPad = (static_cast<size_t>(nh.n_descsz) + 3) & ~size_t{3};
-            if (namePad > buf.size() - nameOff) break;
+            if (nh.n_namesz > buf.size() - nameOff) break;
+            size_t namePad = nh.n_namesz;
+            size_t padding = (4 - namePad % 4) % 4;
+            if (padding > buf.size() - nameOff - namePad) break;
+            namePad += padding;
             size_t descOff = nameOff + namePad;
-            if (descPad > buf.size() - descOff) break;
-            if (nh.n_type == NT_GNU_BUILD_ID && nh.n_namesz >= 3 && nh.n_descsz >= 2 &&
-                std::memcmp(buf.data() + nameOff, "GNU", 3) == 0) {
-                static const char* hx = "0123456789abcdef";
-                std::string id;
-                for (uint32_t i = 0; i < nh.n_descsz; ++i) {
-                    unsigned char b = static_cast<unsigned char>(buf[descOff + i]);
-                    id.push_back(hx[b >> 4]); id.push_back(hx[b & 0xf]);
-                }
-                std::string p = "/usr/lib/debug/.build-id/" + id.substr(0, 2) + "/" +
-                                id.substr(2) + ".debug";
-                if (fs::exists(p, ec)) return p;
-            }
+            if (nh.n_descsz > buf.size() - descOff) break;
+            size_t descPad = nh.n_descsz;
+            padding = (4 - descPad % 4) % 4;
+            if (padding > buf.size() - descOff - descPad) break;
+            descPad += padding;
+            if (nh.n_type == NT_GNU_BUILD_ID && nh.n_namesz == 4 && nh.n_descsz >= 2 &&
+                std::memcmp(buf.data() + nameOff, "GNU\0", 4) == 0)
+                return {reinterpret_cast<const uint8_t*>(buf.data() + descOff),
+                        reinterpret_cast<const uint8_t*>(buf.data() + descOff + nh.n_descsz)};
             size_t next = descOff + descPad;
             if (next <= off) break;   // never stall
             off = next;
         }
     }
+    return {};
+}
 
-    // 2) .gnu_debuglink section (filename + CRC; CRC not verified here).
+template<class Header>
+static bool matchingDebugHeader(std::ifstream& f, const Header& original, Header& candidate) {
+    f.read(reinterpret_cast<char*>(&candidate), sizeof(candidate));
+    return f && std::memcmp(candidate.e_ident, ELFMAG, SELFMAG) == 0 &&
+           candidate.e_ident[EI_CLASS] == original.e_ident[EI_CLASS] &&
+           candidate.e_ident[EI_DATA] == original.e_ident[EI_DATA] &&
+           candidate.e_ident[EI_VERSION] == EV_CURRENT && candidate.e_version == EV_CURRENT &&
+           candidate.e_machine == original.e_machine && candidate.e_type == original.e_type &&
+           candidate.e_ehsize == sizeof(Header);
+}
+
+template<class Header, class Section>
+static bool matchingDebugBuildId(const std::filesystem::path& path, const Header& original,
+                                 const std::vector<uint8_t>& expected) {
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec)) return false;
+    auto size = std::filesystem::file_size(path, ec);
+    if (ec) return false;
+    std::ifstream f(path, std::ios::binary);
+    Header header{};
+    if (!matchingDebugHeader(f, original, header) || header.e_shnum == 0 ||
+        header.e_shentsize != sizeof(Section) || header.e_shoff > size ||
+        header.e_shnum > (size - header.e_shoff) / sizeof(Section)) return false;
+    std::vector<Section> sections(header.e_shnum);
+    f.seekg(header.e_shoff);
+    f.read(reinterpret_cast<char*>(sections.data()), sections.size() * sizeof(Section));
+    return f && readBuildId(sections, f, size) == expected;
+}
+
+// The GNU debuglink checksum is standard CRC32 of the entire debug file.
+// Streaming it avoids allocating an additional copy of large debug packages.
+template<class Header>
+static bool matchingDebugCrc(const std::filesystem::path& path, const Header& original,
+                             uint32_t expected) {
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec)) return false;
+    std::ifstream f(path, std::ios::binary);
+    Header header{};
+    if (!matchingDebugHeader(f, original, header)) return false;
+    static constexpr auto table = [] {
+        std::array<uint32_t, 256> result{};
+        for (uint32_t i = 0; i < result.size(); ++i) {
+            uint32_t value = i;
+            for (int bit = 0; bit < 8; ++bit)
+                value = (value >> 1) ^ ((value & 1) ? 0xedb88320u : 0u);
+            result[i] = value;
+        }
+        return result;
+    }();
+    f.clear(); f.seekg(0);
+    uint32_t crc = 0xffffffffu;
+    std::array<char, 64 * 1024> bytes{};
+    while (f) {
+        f.read(bytes.data(), bytes.size());
+        for (std::streamsize i = 0; i < f.gcount(); ++i)
+            crc = table[(crc ^ static_cast<unsigned char>(bytes[i])) & 0xff] ^ (crc >> 8);
+    }
+    return !f.bad() && f.eof() && (crc ^ 0xffffffffu) == expected;
+}
+
+// Search the target's global debug directory before a host copy. Host copies
+// remain useful (for example host-installed debuginfo for a container), but must
+// independently match the module's build ID or full-file debuglink checksum.
+template<class Header, class Section>
+static std::string findSeparateDebugFile(const std::vector<Section>& shdrs,
+                                         const Header& ehdr, std::ifstream& f,
+                                         uintmax_t fileSize, const std::string& origPath) {
+    namespace fs = std::filesystem;
+    fs::path imagePath(origPath);
+    std::vector<fs::path> globalDirs;
+    if (origPath.starts_with("/proc/")) {
+        auto end = origPath.find('/', 6);
+        auto owner = origPath.substr(6, end == std::string::npos ? end : end - 6);
+        bool procOwner = owner == "self" || owner == "thread-self" ||
+            (!owner.empty() && owner.find_first_not_of("0123456789") == std::string::npos);
+        if (end != std::string::npos && procOwner && origPath.compare(end, 6, "/root/") == 0) {
+            globalDirs.emplace_back(fs::path(origPath.substr(0, end + 5)) / "usr/lib/debug");
+            imagePath = origPath.substr(end + 5);
+        }
+    }
+    globalDirs.emplace_back("/usr/lib/debug");
+    auto buildId = readBuildId(shdrs, f, fileSize);
+    if (!buildId.empty()) {
+        static const char* hx = "0123456789abcdef";
+        std::string id;
+        for (uint8_t byte : buildId) { id.push_back(hx[byte >> 4]); id.push_back(hx[byte & 0xf]); }
+        for (const auto& dir : globalDirs) {
+            auto candidate = dir / ".build-id" / id.substr(0, 2) / (id.substr(2) + ".debug");
+            if (matchingDebugBuildId<Header, Section>(candidate, ehdr, buildId)) return candidate.string();
+        }
+    }
+
+    // A debuglink carries a basename, aligned padding, and a mandatory CRC.
     if (ehdr.e_shstrndx < shdrs.size()) {
-        const Elf64_Shdr& shstr = shdrs[ehdr.e_shstrndx];
+        const auto& shstr = shdrs[ehdr.e_shstrndx];
         if (shstr.sh_offset <= fileSize && shstr.sh_size <= fileSize - shstr.sh_offset &&
             shstr.sh_size > 0 && shstr.sh_size < (1u << 20)) {
             std::vector<char> names(shstr.sh_size);
@@ -122,13 +225,19 @@ static std::string findSeparateDebugFile(const std::vector<Elf64_Shdr>& shdrs,
                     if (!f) break;
                     if (!terminated(dl, 0)) break;
                     std::string debugName = dl.data();
-                    if (debugName.empty()) break;
+                    if (debugName.empty() || debugName == "." || debugName == ".." ||
+                        fs::path(debugName).filename() != fs::path(debugName)) break;
+                    size_t crcOffset = (debugName.size() + 4) & ~size_t{3};
+                    if (crcOffset > dl.size() || dl.size() - crcOffset != 4) break;
+                    uint32_t crc = 0;
+                    for (size_t i = 0; i < 4; ++i)
+                        crc |= uint32_t(static_cast<unsigned char>(dl[crcOffset + i])) << (8 * i);
                     fs::path dir = fs::path(origPath).parent_path();
-                    for (const fs::path& cand : { dir / debugName,
-                                                  dir / ".debug" / debugName,
-                                                  fs::path("/usr/lib/debug") / dir.relative_path() / debugName }) {
-                        if (fs::exists(cand, ec)) return cand.string();
-                    }
+                    std::vector<fs::path> candidates{dir / debugName, dir / ".debug" / debugName};
+                    for (const auto& global : globalDirs)
+                        candidates.emplace_back(global / imagePath.parent_path().relative_path() / debugName);
+                    for (const auto& candidate : candidates)
+                        if (matchingDebugCrc(candidate, ehdr, crc)) return candidate.string();
                     break;
                 }
             }
@@ -161,7 +270,7 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
     // 32-bit (i386) ELFs go through the parallel Elf32 symbol path; the rest of
     // this function is Elf64-typed.
     if (ehdr.e_ident[EI_CLASS] == ELFCLASS32) {
-        parseElf32Symbols(path, moduleName, baseAddr);
+        parseElf32Symbols(path, moduleName, baseAddr, followDebugLink);
         return;
     }
     if (ehdr.e_ident[EI_CLASS] != ELFCLASS64 || ehdr.e_version != EV_CURRENT ||
@@ -413,7 +522,7 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
 }
 
 void SymbolResolver::parseElf32Symbols(const std::string& path, const std::string& moduleName,
-                                       uintptr_t baseAddr) {
+                                       uintptr_t baseAddr, bool followDebugLink) {
     std::ifstream f(path, std::ios::binary);
     if (!f) return;
 
@@ -495,11 +604,18 @@ void SymbolResolver::parseElf32Symbols(const std::string& path, const std::strin
         }
     };
 
+    bool hasSymtab = false;
     for (size_t i = 0; i < shdrs.size(); ++i) {
         if ((shdrs[i].sh_type == SHT_DYNSYM || shdrs[i].sh_type == SHT_SYMTAB) &&
             shdrs[i].sh_link < shdrs.size()) {
+            if (shdrs[i].sh_type == SHT_SYMTAB) hasSymtab = true;
             processSymtab(shdrs[i], shdrs[shdrs[i].sh_link]);
         }
+    }
+    if (!hasSymtab && followDebugLink) {
+        auto debug = findSeparateDebugFile(shdrs, ehdr, f, fileSize, path);
+        if (!debug.empty() && debug != path)
+            parseElf32Symbols(debug, moduleName, baseAddr, false);
     }
 }
 

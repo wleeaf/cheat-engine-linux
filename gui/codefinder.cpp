@@ -22,6 +22,12 @@ static QString hexQ(uint64_t v) { return QString("0x%1").arg(v, 0, 16); }
 // struct base to pointer-scan for a stable address. Empty when no register lines up.
 static QString pointerHint(const ce::CpuContext& c, uintptr_t target) {
     if (!target) return {};
+    if (c.architecture==ce::CpuArchitecture::Arm64) {
+        for (size_t i=0;i<c.x.size();++i) if (c.x[i]==target) return QString("x%1 (direct)").arg(i);
+        for (size_t i=0;i<c.x.size();++i) if (c.x[i]<target && target-c.x[i]<=0x1000)
+            return QString("[x%1+0x%2]").arg(i).arg(target-c.x[i],0,16);
+        return {};
+    }
     const struct { const char* n; uint64_t v; } gp[] = {   // rsp excluded (stack is not a pointer path)
         {"rax",c.rax},{"rbx",c.rbx},{"rcx",c.rcx},{"rdx",c.rdx},
         {"rsi",c.rsi},{"rdi",c.rdi},{"rbp",c.rbp},
@@ -37,6 +43,19 @@ static QString pointerHint(const ce::CpuContext& c, uintptr_t target) {
 
 static QString fullRegisterDump(const ce::CpuContext& ctx) {
     QString s;
+    if (ctx.architecture==ce::CpuArchitecture::Arm64) {
+        for (size_t i=0;i<ctx.x.size();++i) s+=QString("x%1 = %2\n").arg(i).arg(hexQ(ctx.x[i]));
+        s+=QString("sp = %1\npc = %2\npstate = %3\n").arg(hexQ(ctx.sp),hexQ(ctx.pc),hexQ(ctx.pstate));
+        return s;
+    }
+    if (ctx.architecture==ce::CpuArchitecture::X86_32) {
+        s+=QString("eax = %1   ebx = %2\necx = %3   edx = %4\n")
+            .arg(hexQ(ctx.rax),hexQ(ctx.rbx),hexQ(ctx.rcx),hexQ(ctx.rdx));
+        s+=QString("esi = %1   edi = %2\nebp = %3   esp = %4\n")
+            .arg(hexQ(ctx.rsi),hexQ(ctx.rdi),hexQ(ctx.rbp),hexQ(ctx.rsp));
+        s+=QString("eip = %1\neflags = %2\n").arg(hexQ(ctx.rip),hexQ(ctx.rflags));
+        return s;
+    }
     s += QString("rax = %1   rbx = %2\n").arg(hexQ(ctx.rax), hexQ(ctx.rbx));
     s += QString("rcx = %1   rdx = %2\n").arg(hexQ(ctx.rcx), hexQ(ctx.rdx));
     s += QString("rsi = %1   rdi = %2\n").arg(hexQ(ctx.rsi), hexQ(ctx.rdi));
@@ -150,6 +169,16 @@ void CodeFinderWindow::refresh() {
     statusLabel_->setText(finder_->running()
         ? QString("Monitoring... %1 unique instructions found (double-click a row for full register state)").arg(results.size())
         : QString("Stopped. %1 unique instructions found").arg(results.size()));
+    if (auto error=finder_->lastError()) statusLabel_->setText(QString("%1: %2")
+        .arg(finder_->hasPendingRecovery() ? "Recovering" : finder_->running() ? "Monitoring" : "Stopped")
+        .arg(QString::fromStdString(error.message())));
+
+    auto architecture=results.empty() ? ce::CpuArchitecture::Unknown : results.front().lastContext.architecture;
+    table_->setHorizontalHeaderLabels(architecture==ce::CpuArchitecture::Arm64 ?
+        QStringList{"Address","Instruction","Hits","Pointer path","X0","X1","X2","X3","PC"} :
+        architecture==ce::CpuArchitecture::X86_32 ?
+        QStringList{"Address","Instruction","Hits","Pointer path","EAX","EBX","ECX","EDX","EIP"} :
+        QStringList{"Address","Instruction","Hits","Pointer path","RAX","RBX","RCX","RDX","RIP"});
 
     table_->setRowCount(results.size());
     for (size_t i = 0; i < results.size(); ++i) {
@@ -164,9 +193,10 @@ void CodeFinderWindow::refresh() {
         // exact writer from the trap rip (software page-guard already stops on it).
         uintptr_t insAddr = r.instructionAddress;
         QString insText = QString::fromStdString(r.instructionText);
-        if (proc_ && !finder_->softwareWatch()) {
+        if (proc_ && !finder_->softwareWatch() &&
+            (r.firstContext.architecture==ce::CpuArchitecture::X86_64 || r.firstContext.architecture==ce::CpuArchitecture::X86_32)) {
             auto rec = ce::recoverStoreInstruction(*proc_, symbols_, r.firstContext.rip,
-                                                   proc_->is64bit());
+                                                   r.firstContext.architecture==ce::CpuArchitecture::X86_64);
             if (rec.ok) { insAddr = rec.address; insText = QString::fromStdString(rec.text); }
         }
         if (noppedOriginals_.count(insAddr)) insText = "[NOP] " + insText;   // patched to NOPs
@@ -174,11 +204,12 @@ void CodeFinderWindow::refresh() {
         table_->setItem(i, 1, new QTableWidgetItem(insText));
         table_->setItem(i, 2, new QTableWidgetItem(QString::number(r.hitCount)));
         table_->setItem(i, 3, ptrItem);
-        table_->setItem(i, 4, new QTableWidgetItem(hexQ(c.rax)));
-        table_->setItem(i, 5, new QTableWidgetItem(hexQ(c.rbx)));
-        table_->setItem(i, 6, new QTableWidgetItem(hexQ(c.rcx)));
-        table_->setItem(i, 7, new QTableWidgetItem(hexQ(c.rdx)));
-        table_->setItem(i, 8, new QTableWidgetItem(hexQ(c.rip)));
+        bool arm=c.architecture==ce::CpuArchitecture::Arm64;
+        table_->setItem(i, 4, new QTableWidgetItem(hexQ(arm ? c.x[0] : c.rax)));
+        table_->setItem(i, 5, new QTableWidgetItem(hexQ(arm ? c.x[1] : c.rbx)));
+        table_->setItem(i, 6, new QTableWidgetItem(hexQ(arm ? c.x[2] : c.rcx)));
+        table_->setItem(i, 7, new QTableWidgetItem(hexQ(arm ? c.x[3] : c.rdx)));
+        table_->setItem(i, 8, new QTableWidgetItem(hexQ(c.instructionPointer())));
     }
 }
 
@@ -226,10 +257,8 @@ void CodeFinderWindow::onExportToFile() {
                    .arg(r.instructionAddress, 0, 16)
                    .arg(r.hitCount)
                    .arg(QString::fromStdString(r.instructionText));
-        const auto& c = r.firstContext;
-        out << QString("    rax=%1 rbx=%2 rcx=%3 rdx=%4 rsi=%5 rdi=%6 rip=%7\n")
-                   .arg(c.rax,0,16).arg(c.rbx,0,16).arg(c.rcx,0,16).arg(c.rdx,0,16)
-                   .arg(c.rsi,0,16).arg(c.rdi,0,16).arg(c.rip,0,16);
+        out << "First hit:\n" << fullRegisterDump(r.firstContext)
+            << "Last hit:\n" << fullRegisterDump(r.lastContext) << '\n';
     }
     statusLabel_->setText(QString("Saved %1 instruction(s) to %2").arg(results.size()).arg(path));
 }

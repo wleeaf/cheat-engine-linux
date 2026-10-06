@@ -10,17 +10,45 @@
 #include <unordered_map>
 #include <functional>
 #include <expected>
+#include <map>
+#include <set>
+#include <memory>
+#include <mutex>
+#include <atomic>
+#include "arch/target_arch.hpp"
 
 namespace ce {
+namespace os {class NativeMemoryImage;}
 
 /// Tracks state needed to disable (undo) an auto-assembler script.
 struct DisableInfo {
-    struct AllocEntry { std::string name; uintptr_t address; size_t size; };
-    struct OriginalBytes { uintptr_t address; std::vector<uint8_t> bytes; };
+    struct Ownership {std::mutex mutex;bool complete=false;};
+    struct AllocEntry { std::string name; uintptr_t address; size_t size;
+        std::shared_ptr<std::atomic<bool>> released;
+        std::shared_ptr<Ownership> owner;
+        std::shared_ptr<os::NativeMemoryImage> image;
+    };
+    struct OriginalBytes {
+        uintptr_t address;
+        std::vector<uint8_t> bytes;
+        std::vector<uint8_t> written;
+        bool executable = false;
+        std::shared_ptr<std::atomic<bool>> allocationReleased;
+        bool verifyOwnership = false;
+    };
 
     std::vector<AllocEntry> allocs;
     std::vector<OriginalBytes> originals;
     std::unordered_map<std::string, uintptr_t> symbols;
+    struct Protection {
+        uintptr_t address;
+        size_t size;
+        MemProt protection;
+        std::shared_ptr<std::atomic<bool>> allocationReleased;
+    };
+    std::vector<Protection> protections;
+    std::shared_ptr<os::NativeMemoryImage> image;
+    std::shared_ptr<Ownership> ownership;
 };
 
 /// Result of auto-assembler execution.
@@ -51,9 +79,12 @@ public:
     /// Syntax check only (no memory modifications).
     AutoAsmResult check(const std::string& script);
 
-    /// Register a global symbol (accessible to scripts).
+    /// Register a global symbol (accessible to scripts). Explicit symbols take
+    /// precedence over module names until unregistered.
     void registerSymbol(const std::string& name, uintptr_t address);
     void unregisterSymbol(const std::string& name);
+    /// Resolve an explicit symbol or a module in the latest execute() snapshot.
+    /// check() has no process and clears that module snapshot.
     uintptr_t resolveSymbol(const std::string& name) const;
 
     /// Register a parser extension command. Command names are case-insensitive.
@@ -101,7 +132,7 @@ private:
     bool resolveForwardLabels(const std::vector<std::string>& asmLines,
         const std::vector<Alloc>& allocs, std::vector<Label>& labels,
         const std::vector<Define>& defines, ProcessHandle& proc,
-        std::string& error);
+        std::vector<size_t>& reassemblySizes, std::string& error);
     bool selectTryExceptBranches(const std::vector<std::string>& asmLines,
         std::vector<std::string>& selectedLines,
         const std::vector<Alloc>& allocs, const std::vector<Label>& labels,
@@ -121,19 +152,24 @@ private:
     // per-call instances). Guard these maps with a mutex before sharing an
     // instance across threads.
     std::unordered_map<std::string, uintptr_t> globalSymbols_;
+    std::unordered_map<std::string,std::weak_ptr<DisableInfo::Ownership>> symbolOwners_;
     std::unordered_map<std::string, DisableInfo::AllocEntry> knownAllocations_;
     std::unordered_map<std::string, CustomCommandHandler> customCommands_;
     std::vector<ScriptHook> preprocessorHooks_;
     std::vector<ScriptHook> postprocessorHooks_;
     LuaEvaluator luaEvaluator_;
-    Assembler asm64_{AsmArch::X86_64};
-    Assembler asm32_{AsmArch::X86_32};
-    // Set from the target's bitness at the start of execute(); selects which
-    // assembler/disassembler the cave code is built with so a 32-bit target gets
-    // 32-bit machine code (and vice versa).
-    bool targetIs32_ = false;
-    Assembler& targetAsm() { return targetIs32_ ? asm32_ : asm64_; }
-    Arch targetDisArch() const { return targetIs32_ ? Arch::X86_32 : Arch::X86_64; }
+    TargetMachine programMachine_ = nativeTargetMachine();
+    std::vector<ModuleInfo> targetModules_;
+    struct CodeAllocation { uintptr_t address; size_t size; TargetMachine machine; };
+    std::vector<CodeAllocation> codeAllocations_;
+    std::map<AsmArch, std::unique_ptr<Assembler>> targetAssemblers_;
+    std::set<std::pair<uintptr_t, size_t>> cleanedAllocations_;
+    TargetMachine machineForCode(uintptr_t address) const;
+    std::expected<std::vector<uint8_t>, std::string> assembleTarget(const std::string& code, uintptr_t address);
+    struct NopPlan {std::vector<uint8_t> encoding;size_t size;};
+    std::expected<NopPlan,std::string> planNops(uintptr_t address,size_t count);
+    std::expected<std::vector<uint8_t>, std::string> reassembleTarget(ProcessHandle& proc,uintptr_t source,uintptr_t destination);
+    AutoAsmResult cleanup(ProcessHandle& proc, const DisableInfo& info);
 
     /// Preprocess conditionals and embedded Lua/C in source order, then anonymous
     /// labels, preprocessor hooks, struct definitions and postprocessor hooks. Both

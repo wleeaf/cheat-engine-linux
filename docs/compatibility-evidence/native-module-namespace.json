@@ -1,0 +1,35 @@
+{
+  "suite": "host-owner-native-pthread-pid-namespace",
+  "status": "passed",
+  "utc": "2026-10-05T07:33:16.190859+00:00",
+  "container": "cecompat-foreign",
+  "sourceRevision": null,
+  "sourceRef": null,
+  "namespacePidChain": [
+    3244662,
+    22401
+  ],
+  "targetPid": 3244662,
+  "targetWidth": 4,
+  "fixtureSha256": "f0d5578c977ae8aff2687baf99c663cfa2b8e5ffa3eb12f9244ab4e20320a01c",
+  "driverSha256": "ac4030255a9720c1c1328e8f55c368412660bf84af56565a3f80cd1fa5d86a43",
+  "coreSha256": "2073460a48813caa05b3e325519ee30bcdd4f9d1229b7178b39e2521c57cdaa4",
+  "exitCode": 0,
+  "output": "NATIVE_THREAD_NAMESPACE_RESULT=PASSED pid=3244662 tid=3244666\n",
+  "stderr": "",
+  "collision": {
+    "path": "/home/taceddinsancak/Desktop/Projects/cheat-engine/build/libnamespace_symbol_library.so",
+    "hostSha256": "49a2a8a8fc498ed9d2f2216252b087016e3aa3dcedb237c5dc48ae0082666d16",
+    "targetSha256": "1d227c5f1af750d096ee3e00c3be132b7fd052e9d92906482bbda8ff0ae03857",
+    "exitCode": 0,
+    "output": "OK: colliding host and target module paths select different backing files\nOK: a resolved target-root module path can be reused without double-prefixing\nOK: a colliding host ELF does not change the target module ISA or ABI\nOK: symbols resolve to the actual target module and its initialized data\nOK: the target library entry executes using its own native calling convention\nNATIVE_MODULE_NAMESPACE_RESULT=PASSED pid=3244662\nNATIVE_NAMESPACE_MARKER=4159508480\n",
+    "stderr": ""
+  },
+  "deletedModule": {
+    "exitCode": 0,
+    "output": "OK: a deleted target module never selects a colliding host file\nOK: unavailable module backing files preserve unknown ISA metadata\nOK: unavailable target symbols do not fall back to another host binary\nOK: the target's mapped library data remains readable after its backing file is deleted\nDELETED_MODULE_NAMESPACE_RESULT=PASSED pid=3244662\n",
+    "stderr": ""
+  },
+  "fixtureCompletion": "CE_NATIVE_CALL_DONE",
+  "fixtureExitCode": 0
+}

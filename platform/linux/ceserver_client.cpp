@@ -3,6 +3,9 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <poll.h>
+#include <algorithm>
+#include <limits>
 
 #include <cerrno>
 #include <cstring>
@@ -51,73 +54,128 @@ CEServerClient::~CEServerClient() {
     close();
 }
 
-bool CEServerClient::connectTcp(const std::string& host, uint16_t port, std::string& error) {
-    close();
-
-    addrinfo hints{};
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-
-    auto portText = std::to_string(port);
-    addrinfo* results = nullptr;
-    int gai = getaddrinfo(host.c_str(), portText.c_str(), &hints, &results);
-    if (gai != 0) {
-        error = gai_strerror(gai);
-        return false;
+bool CEServerClient::isConnected() const {
+    std::lock_guard lock(stateMutex_);
+    return fd_>=0 && !closing_;
+}
+uint64_t CEServerClient::connectionGeneration() const {
+    std::lock_guard lock(stateMutex_);
+    return generation_;
+}
+bool CEServerClient::setTimeoutMs(int timeoutMs) {
+    auto operation=lockConnection();
+    if (timeoutMs<=0) return false;
+    timeoutMs_=timeoutMs;
+    return true;
+}
+void CEServerClient::beginRequest(int extraWaitMs) {
+    deadline_=std::chrono::steady_clock::now()+
+        std::chrono::milliseconds(int64_t(timeoutMs_)+std::max(extraWaitMs,0));
+}
+void CEServerClient::retireConnection() {
+    std::lock_guard lock(stateMutex_);
+    if (fd_>=0) ::close(fd_);
+    fd_=-1;closing_=false;++generation_;
+}
+void CEServerClient::close() {
+    uint64_t cancellation;
+    {
+        std::lock_guard lock(stateMutex_);
+        // Wake an in-flight recv/send without closing a descriptor still used
+        // by that transaction. A reconnect cannot reuse it until the lock ends.
+        closing_=true;cancellation=++generation_;
+        if (fd_>=0) ::shutdown(fd_,SHUT_RDWR);
     }
-
-    for (auto* addr = results; addr; addr = addr->ai_next) {
-        int candidate = ::socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
-        if (candidate < 0)
-            continue;
-
-        if (::connect(candidate, addr->ai_addr, addr->ai_addrlen) == 0) {
-            fd_ = candidate;
-            freeaddrinfo(results);
-            return true;
+    auto operation=lockConnection();
+    std::lock_guard lock(stateMutex_);
+    // A newer close or connection may have won the transaction lock first.
+    if (generation_!=cancellation) return;
+    if (fd_>=0) ::close(fd_);
+    fd_=-1;closing_=false;
+}
+bool CEServerClient::waitSocket(int fd,short events,std::string& error) {
+    for (;;) {
+        auto now=std::chrono::steady_clock::now();
+        if (now>=deadline_) { error="ceserver request timed out";return false; }
+        auto remaining=std::chrono::duration_cast<std::chrono::milliseconds>(deadline_-now).count();
+        pollfd p{fd,events,0};
+        int result=::poll(&p,1,static_cast<int>(std::clamp<int64_t>(remaining,1,INT32_MAX)));
+        if (result<0 && errno==EINTR) continue;
+        if (result<0) { error=errnoString("poll");return false; }
+        if (result>0) return true;
+    }
+}
+bool CEServerClient::connectTcp(const std::string& host,uint16_t port,std::string& error) {
+    // Cancel the old operation before waiting for its transaction lock.
+    close();
+    auto operation=lockConnection();
+    retireConnection();beginRequest();error.clear();
+    const auto generation=connectionGeneration();
+    addrinfo hints{};hints.ai_family=AF_UNSPEC;hints.ai_socktype=SOCK_STREAM;
+    auto portText=std::to_string(port);
+    addrinfo* results=nullptr;
+    int gai=getaddrinfo(host.c_str(),portText.c_str(),&hints,&results);
+    if (gai!=0) { error=gai_strerror(gai);return false; }
+    for (auto* addr=results;addr;addr=addr->ai_next) {
+        if (connectionGeneration()!=generation) { error="ceserver connection cancelled";break; }
+        if (std::chrono::steady_clock::now()>=deadline_) { error="ceserver connect timed out";break; }
+        int candidate=::socket(addr->ai_family,addr->ai_socktype|SOCK_NONBLOCK|SOCK_CLOEXEC,addr->ai_protocol);
+        if (candidate<0) { error=errnoString("socket");continue; }
+        bool connected=::connect(candidate,addr->ai_addr,addr->ai_addrlen)==0;
+        if (!connected && (errno==EINPROGRESS || errno==EINTR)) {
+            while (connectionGeneration()==generation && std::chrono::steady_clock::now()<deadline_) {
+                pollfd p{candidate,POLLOUT,0};
+                auto remaining=std::chrono::duration_cast<std::chrono::milliseconds>(deadline_-std::chrono::steady_clock::now()).count();
+                int ready=::poll(&p,1,static_cast<int>(std::clamp<int64_t>(remaining,1,50)));
+                if (ready<0 && errno==EINTR) continue;
+                if (ready<0) { error=errnoString("connect poll");break; }
+                if (!ready) continue;
+                int result=0;socklen_t size=sizeof(result);
+                if (getsockopt(candidate,SOL_SOCKET,SO_ERROR,&result,&size)<0)
+                    error=errnoString("connect status");
+                else if (!result) connected=true;
+                else { errno=result;error=errnoString("connect"); }
+                break;
+            }
+        } else if (!connected) error=errnoString("connect");
+        {
+            std::lock_guard lock(stateMutex_);
+            if (connected && generation_==generation && !closing_) {
+                fd_=candidate;++generation_;freeaddrinfo(results);return true;
+            }
         }
-
         ::close(candidate);
     }
-
-    error = errnoString("connect");
     freeaddrinfo(results);
+    if (connectionGeneration()!=generation) error="ceserver connection cancelled";
+    else if (std::chrono::steady_clock::now()>=deadline_) error="ceserver connect timed out";
+    else if (error.empty()) error="ceserver connection failed";
     return false;
 }
-
-void CEServerClient::close() {
-    if (fd_ >= 0) {
-        ::close(fd_);
-        fd_ = -1;
-    }
-}
-
-bool CEServerClient::sendAll(const void* data, size_t size, std::string& error) {
-    auto* bytes = static_cast<const uint8_t*>(data);
-    size_t sent = 0;
-    while (sent < size) {
-        ssize_t n = ::send(fd_, bytes + sent, size - sent, MSG_NOSIGNAL);
-        if (n < 0 && errno == EINTR) continue; // retry on signal interruption
-        if (n <= 0) {
-            error = errnoString("send");
-            return false;
-        }
-        sent += static_cast<size_t>(n);
+bool CEServerClient::sendAll(const void* data,size_t size,std::string& error) {
+    auto* bytes=static_cast<const uint8_t*>(data);
+    size_t sent=0;
+    while (sent<size) {
+        if (!waitSocket(fd_,POLLOUT,error)) { retireConnection();return false; }
+        ssize_t n=::send(fd_,bytes+sent,size-sent,MSG_NOSIGNAL|MSG_DONTWAIT);
+        if (n<0 && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK)) continue;
+        if (n<=0) { error=errnoString("send");retireConnection();return false; }
+        sent+=static_cast<size_t>(n);
     }
     return true;
 }
-
-bool CEServerClient::recvAll(void* data, size_t size, std::string& error) {
-    auto* bytes = static_cast<uint8_t*>(data);
-    size_t received = 0;
-    while (received < size) {
-        ssize_t n = ::recv(fd_, bytes + received, size - received, MSG_WAITALL);
-        if (n < 0 && errno == EINTR) continue; // retry on signal interruption
-        if (n <= 0) {
-            error = errnoString("recv");
-            return false;
+bool CEServerClient::recvAll(void* data,size_t size,std::string& error) {
+    auto* bytes=static_cast<uint8_t*>(data);
+    size_t received=0;
+    while (received<size) {
+        if (!waitSocket(fd_,POLLIN,error)) { retireConnection();return false; }
+        ssize_t n=::recv(fd_,bytes+received,size-received,MSG_DONTWAIT);
+        if (n<0 && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK)) continue;
+        if (n<=0) {
+            error=n==0 ? "ceserver connection closed" : errnoString("recv");
+            retireConnection();return false;
         }
-        received += static_cast<size_t>(n);
+        received+=static_cast<size_t>(n);
     }
     return true;
 }
@@ -127,6 +185,8 @@ bool CEServerClient::sendCmd(uint8_t cmd, std::string& error) {
 }
 
 std::expected<CEServerVersionInfo, std::string> CEServerClient::getVersion() {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0)
         return std::unexpected("not connected");
 
@@ -149,6 +209,8 @@ std::expected<CEServerVersionInfo, std::string> CEServerClient::getVersion() {
 }
 
 std::expected<int32_t, std::string> CEServerClient::openProcess(int32_t pid) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     if (!sendCmd(CMD_OPENPROCESS, error) ||
@@ -162,6 +224,8 @@ std::expected<int32_t, std::string> CEServerClient::openProcess(int32_t pid) {
 }
 
 std::expected<void, std::string> CEServerClient::closeHandle(int32_t handle) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     if (!sendCmd(CMD_CLOSEHANDLE, error) ||
@@ -171,11 +235,14 @@ std::expected<void, std::string> CEServerClient::closeHandle(int32_t handle) {
     int32_t result = 0;
     if (!recvAll(&result, sizeof(result), error))
         return std::unexpected(error);
+    if (!result) return std::unexpected("ceserver could not close the handle");
     return {};
 }
 
 std::expected<std::optional<CeRegion>, std::string>
 CEServerClient::virtualQueryEx(int32_t handle, uint64_t baseAddress) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     // Wire: { int32_t handle; uint64_t baseaddress }
@@ -201,6 +268,8 @@ CEServerClient::virtualQueryEx(int32_t handle, uint64_t baseAddress) {
 
 std::expected<std::vector<CeRegion>, std::string>
 CEServerClient::virtualQueryExFull(int32_t handle, uint8_t flags) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     if (!sendCmd(CMD_VIRTUALQUERYEXFULL, error) ||
@@ -211,8 +280,10 @@ CEServerClient::virtualQueryExFull(int32_t handle, uint8_t flags) {
     int32_t count = 0;
     if (!recvAll(&count, sizeof(count), error))
         return std::unexpected(error);
-    if (count < 0 || count > (1 << 20))
+    if (count < 0 || count > (1 << 20)) {
+        retireConnection();
         return std::unexpected("ceserver returned invalid region count");
+    }
 
     std::vector<CeRegion> regions;
     regions.reserve(static_cast<size_t>(count));
@@ -231,6 +302,8 @@ CEServerClient::virtualQueryExFull(int32_t handle, uint8_t flags) {
 
 std::expected<int32_t, std::string>
 CEServerClient::readProcessMemory(int32_t handle, uint64_t address, void* buffer, uint32_t size) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     uint32_t handleField = static_cast<uint32_t>(handle);
@@ -245,8 +318,10 @@ CEServerClient::readProcessMemory(int32_t handle, uint64_t address, void* buffer
     int32_t read = 0;
     if (!recvAll(&read, sizeof(read), error))
         return std::unexpected(error);
-    if (read < 0 || static_cast<uint32_t>(read) > size)
+    if (read < 0 || static_cast<uint32_t>(read) > size) {
+        retireConnection();
         return std::unexpected("ceserver returned invalid read length");
+    }
     if (read > 0 && !recvAll(buffer, static_cast<size_t>(read), error))
         return std::unexpected(error);
     return read;
@@ -254,6 +329,8 @@ CEServerClient::readProcessMemory(int32_t handle, uint64_t address, void* buffer
 
 std::expected<CeArchitecture, std::string>
 CEServerClient::getArchitecture(int32_t handle) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     if (!sendCmd(CMD_GETARCHITECTURE, error) ||
@@ -267,6 +344,8 @@ CEServerClient::getArchitecture(int32_t handle) {
 
 std::expected<std::vector<CeModuleInfo>, std::string>
 CEServerClient::enumModules(int32_t pid) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     uint32_t flags = TH32CS_SNAPMODULE;
@@ -295,8 +374,10 @@ CEServerClient::enumModules(int32_t pid) {
             !recvAll(&fileOff, sizeof(fileOff), error) ||
             !recvAll(&nameSize, sizeof(nameSize), error))
             return std::unexpected(error);
-        if (nameSize < 0 || nameSize > (1 << 20))
+        if (nameSize < 0 || nameSize > (1 << 20)) {
+            retireConnection();
             return std::unexpected("ceserver returned invalid module name size");
+        }
         std::string name(static_cast<size_t>(nameSize), '\0');
         if (nameSize > 0 && !recvAll(name.data(), nameSize, error))
             return std::unexpected(error);
@@ -304,14 +385,18 @@ CEServerClient::enumModules(int32_t pid) {
         modules.push_back(CeModuleInfo{static_cast<uint64_t>(base), modSize, part, fileOff, std::move(name)});
         // A malicious/buggy server that never sends the result==0 terminator
         // must not grow this vector without bound.
-        if (modules.size() > (1u << 20))
+        if (modules.size() > (1u << 20)) {
+            retireConnection();
             return std::unexpected("ceserver returned too many modules");
+        }
     }
     return modules;
 }
 
 std::expected<std::vector<int32_t>, std::string>
 CEServerClient::enumThreads(int32_t pid) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     uint32_t flags = TH32CS_SNAPTHREAD;
@@ -324,8 +409,10 @@ CEServerClient::enumThreads(int32_t pid) {
     int32_t count = 0;
     if (!recvAll(&count, sizeof(count), error))
         return std::unexpected(error);
-    if (count < 0 || count > (1 << 20))
+    if (count < 0 || count > (1 << 20)) {
+        retireConnection();
         return std::unexpected("ceserver returned invalid thread count");
+    }
     std::vector<int32_t> tids(static_cast<size_t>(count), 0);
     if (count > 0 && !recvAll(tids.data(), static_cast<size_t>(count) * sizeof(int32_t), error))
         return std::unexpected(error);
@@ -334,6 +421,8 @@ CEServerClient::enumThreads(int32_t pid) {
 
 std::expected<uint64_t, std::string>
 CEServerClient::allocateMemory(int32_t handle, uint64_t preferredBase, uint32_t size, uint32_t windowsProtection) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     if (!sendCmd(CMD_ALLOC, error) ||
@@ -350,6 +439,8 @@ CEServerClient::allocateMemory(int32_t handle, uint64_t preferredBase, uint32_t 
 
 std::expected<uint32_t, std::string>
 CEServerClient::freeMemory(int32_t handle, uint64_t address, uint32_t size) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     if (!sendCmd(CMD_FREE, error) ||
@@ -365,6 +456,8 @@ CEServerClient::freeMemory(int32_t handle, uint64_t address, uint32_t size) {
 
 std::expected<CEServerClient::ProtectionResult, std::string>
 CEServerClient::changeMemoryProtection(int32_t handle, uint64_t address, uint32_t size, uint32_t windowsProtection) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     if (!sendCmd(CMD_CHANGEMEMORYPROTECTION, error) ||
@@ -381,6 +474,8 @@ CEServerClient::changeMemoryProtection(int32_t handle, uint64_t address, uint32_
 }
 
 std::expected<int32_t, std::string> CEServerClient::startDebug(int32_t handle) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     if (!sendCmd(CMD_STARTDEBUG, error) || !sendAll(&handle, sizeof(handle), error))
@@ -391,6 +486,8 @@ std::expected<int32_t, std::string> CEServerClient::startDebug(int32_t handle) {
 }
 
 std::expected<int32_t, std::string> CEServerClient::stopDebug(int32_t handle) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     if (!sendCmd(CMD_STOPDEBUG, error) || !sendAll(&handle, sizeof(handle), error))
@@ -402,6 +499,8 @@ std::expected<int32_t, std::string> CEServerClient::stopDebug(int32_t handle) {
 
 std::expected<std::optional<CeDebugEvent>, std::string>
 CEServerClient::waitForDebugEvent(int32_t handle, int32_t timeoutMs) {
+    auto operation=lockConnection();
+    beginRequest(timeoutMs);
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     if (!sendCmd(CMD_WAITFORDEBUGEVENT, error) ||
@@ -425,6 +524,8 @@ CEServerClient::waitForDebugEvent(int32_t handle, int32_t timeoutMs) {
 
 std::expected<int32_t, std::string>
 CEServerClient::continueFromDebugEvent(int32_t handle, int32_t tid, int32_t signalToForward) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     if (!sendCmd(CMD_CONTINUEFROMDEBUGEVENT, error) ||
@@ -440,6 +541,8 @@ CEServerClient::continueFromDebugEvent(int32_t handle, int32_t tid, int32_t sign
 std::expected<int32_t, std::string>
 CEServerClient::setRemoteBreakpoint(int32_t handle, int32_t tid, int32_t debugReg,
                                     uint64_t address, int32_t bpType, int32_t bpSize) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     // CeSetBreapointInput layout: handle, tid, debugreg, address, bptype, bpsize.
@@ -458,6 +561,8 @@ CEServerClient::setRemoteBreakpoint(int32_t handle, int32_t tid, int32_t debugRe
 
 std::expected<int32_t, std::string>
 CEServerClient::removeRemoteBreakpoint(int32_t handle, uint32_t tid, uint32_t debugReg, uint32_t wasWatchpoint) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     if (!sendCmd(CMD_REMOVEBREAKPOINT, error) ||
@@ -472,6 +577,8 @@ CEServerClient::removeRemoteBreakpoint(int32_t handle, uint32_t tid, uint32_t de
 }
 
 std::expected<int32_t, std::string> CEServerClient::suspendThread(int32_t handle, int32_t tid) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     if (!sendCmd(CMD_SUSPENDTHREAD, error) ||
@@ -484,6 +591,8 @@ std::expected<int32_t, std::string> CEServerClient::suspendThread(int32_t handle
 }
 
 std::expected<int32_t, std::string> CEServerClient::resumeThread(int32_t handle, int32_t tid) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     if (!sendCmd(CMD_RESUMETHREAD, error) ||
@@ -497,6 +606,8 @@ std::expected<int32_t, std::string> CEServerClient::resumeThread(int32_t handle,
 
 std::expected<std::vector<uint8_t>, std::string>
 CEServerClient::getThreadContext(int32_t handle, uint32_t tid) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     if (!sendCmd(CMD_GETTHREADCONTEXT, error) ||
@@ -510,8 +621,10 @@ CEServerClient::getThreadContext(int32_t handle, uint32_t tid) {
 
     uint32_t structSize = 0;
     if (!recvAll(&structSize, sizeof(structSize), error)) return std::unexpected(error);
-    if (structSize == 0 || structSize > (1u << 20))
+    if (structSize == 0 || structSize > (1u << 20)) {
+        retireConnection();
         return std::unexpected("ceserver returned invalid context size");
+    }
     std::vector<uint8_t> blob(structSize);
     if (!recvAll(blob.data(), structSize, error)) return std::unexpected(error);
     return blob;
@@ -519,6 +632,8 @@ CEServerClient::getThreadContext(int32_t handle, uint32_t tid) {
 
 std::expected<uint32_t, std::string>
 CEServerClient::setThreadContext(int32_t handle, uint32_t tid, const void* contextBlob, uint32_t blobSize) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     if (blobSize == 0) return std::unexpected("setThreadContext requires a non-empty blob");
     std::string error;
@@ -535,6 +650,8 @@ CEServerClient::setThreadContext(int32_t handle, uint32_t tid, const void* conte
 
 std::expected<uint32_t, std::string>
 CEServerClient::speedhackSetSpeed(int32_t handle, float speed) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     if (!sendCmd(CMD_SPEEDHACK_SETSPEED, error) ||
@@ -548,6 +665,8 @@ CEServerClient::speedhackSetSpeed(int32_t handle, float speed) {
 
 std::expected<std::optional<std::vector<uint8_t>>, std::string>
 CEServerClient::getSymbolListFromFile(const std::string& symbolPath, uint32_t fileOffset) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     std::string error;
     uint32_t pathSize = static_cast<uint32_t>(symbolPath.size());
@@ -565,8 +684,10 @@ CEServerClient::getSymbolListFromFile(const std::string& symbolPath, uint32_t fi
     uint32_t totalSize = 0;
     std::memcpy(&totalSize, header + 4, 4);
     if (totalSize == 0) return std::optional<std::vector<uint8_t>>{};
-    if (totalSize < 8 || totalSize > (1u << 28))
+    if (totalSize < 8 || totalSize > (1u << 28)) {
+        retireConnection();
         return std::unexpected("ceserver returned implausible symbol payload size");
+    }
 
     std::vector<uint8_t> blob(totalSize);
     std::memcpy(blob.data(), header, 8);
@@ -578,6 +699,8 @@ CEServerClient::getSymbolListFromFile(const std::string& symbolPath, uint32_t fi
 
 std::expected<int32_t, std::string>
 CEServerClient::writeProcessMemory(int32_t handle, uint64_t address, const void* buffer, int32_t size) {
+    auto operation=lockConnection();
+    beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
     if (size < 0) return std::unexpected("negative write size");
     std::string error;
@@ -593,8 +716,10 @@ CEServerClient::writeProcessMemory(int32_t handle, uint64_t address, const void*
     int32_t written = 0;
     if (!recvAll(&written, sizeof(written), error))
         return std::unexpected(error);
-    if (written < 0 || written > size)
+    if (written < 0 || written > size) {
+        retireConnection();
         return std::unexpected("ceserver returned invalid write length");
+    }
     return written;
 }
 

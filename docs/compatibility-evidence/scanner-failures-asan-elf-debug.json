@@ -1,0 +1,63 @@
+{
+  "suite": "elf-separate-debug-symbols",
+  "status": "passed",
+  "utc": "2026-10-05T22:07:55.020292+00:00",
+  "sourceRevision": null,
+  "sourceRef": null,
+  "platform": "Linux-7.1.8-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "targets": [
+    {
+      "name": "native",
+      "status": "passed",
+      "checks": [
+        "matching debuglink resolves stripped static symbols at the correct base",
+        "mismatched full-file checksum rejects an otherwise readable symbol table",
+        "a wrong adjacent file does not hide the matching .debug fallback",
+        "the .debug sidecar works without an adjacent copy",
+        "a missing separate file keeps stripped symbols unavailable",
+        "a missing checksum is rejected",
+        "a truncated checksum is rejected",
+        "debuglink directory traversal is rejected even with a matching checksum",
+        "valid debuglink remains usable after malformed inputs",
+        "a checksummed sidecar for a different ISA is rejected",
+        "a matching sidecar larger than the checksum buffer resolves",
+        "checksum validation includes bytes after the last full buffer"
+      ],
+      "elfClass": 2,
+      "elfMachine": 62,
+      "referenceSymbolValue": 568,
+      "loadBase": 1048576,
+      "imageSha256": "779a8a0df0d3540790771d3790470de74390864d2ca57b94f54b8c4914349b8b",
+      "debugSha256": "60dece43f66ece61d96f8df8275454cf451561af8da3743737422d1286cda72b",
+      "debugCrc32": 2418311224
+    },
+    {
+      "name": "i386",
+      "status": "passed",
+      "checks": [
+        "matching debuglink resolves stripped static symbols at the correct base",
+        "mismatched full-file checksum rejects an otherwise readable symbol table",
+        "a wrong adjacent file does not hide the matching .debug fallback",
+        "the .debug sidecar works without an adjacent copy",
+        "a missing separate file keeps stripped symbols unavailable",
+        "a missing checksum is rejected",
+        "a truncated checksum is rejected",
+        "debuglink directory traversal is rejected even with a matching checksum",
+        "valid debuglink remains usable after malformed inputs",
+        "a checksummed sidecar for a different ISA is rejected",
+        "a matching sidecar larger than the checksum buffer resolves",
+        "checksum validation includes bytes after the last full buffer"
+      ],
+      "elfClass": 1,
+      "elfMachine": 3,
+      "referenceSymbolValue": 340,
+      "loadBase": 1048576,
+      "imageSha256": "ead2b7502fde52f14348e7df99380c5c23a102277bb26b4f9addff7e35a8a931",
+      "debugSha256": "e6aaaa0aed464211b3663ac25f539857139435075d43f9e9614d6c60031606ff",
+      "debugCrc32": 2587833297
+    }
+  ],
+  "coreSha256": "ff193a40a0b4c0be337365cb8523fec710766cd6599888101d6a1207f717a4a9",
+  "driverSha256": "87bf5297094982e23350fa52fce380764529372438fd3385d253be82de1c3cb3",
+  "gateSha256": "1f66affb7cf33ea7dd36b641eb63d605da722cd2c786d6731a2cda2645d3e3c9"
+}

@@ -1,6 +1,7 @@
 #include "gui/debuggerwindow.hpp"
 #include "arch/cpu_flags.hpp"
 #include "core/types.hpp"   // moduleOffsetString
+#include "core/cpu_registers.hpp"
 #include "gui/theme.hpp"
 #include "debug/breakpoint_manager.hpp"
 #include "debug/patch.hpp"
@@ -27,6 +28,8 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QTextCursor>
+#include <QSignalBlocker>
+#include <bit>
 #include <csignal>
 #include <algorithm>
 
@@ -129,23 +132,18 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     threadCombo_ = new QComboBox();
     threadRow->addWidget(threadCombo_, 1);
     rl->addLayout(threadRow);
-    regTable_ = new QTableWidget(34, 1);   // 18 GP/flags + 16 XMM
+    regTable_ = new QTableWidget(0, 1);
+    regTable_->setObjectName("debuggerRegisters");
     regTable_->setFont(mono);
     regTable_->horizontalHeader()->setVisible(false);
     regTable_->horizontalHeader()->setStretchLastSection(true);
     regTable_->verticalHeader()->setVisible(true);
-    static const char* rnames[] = {"RIP","RSP","RBP","RAX","RBX","RCX","RDX","RSI","RDI","RFLAGS",
-        "R8","R9","R10","R11","R12","R13","R14","R15",
-        "XMM0","XMM1","XMM2","XMM3","XMM4","XMM5","XMM6","XMM7",
-        "XMM8","XMM9","XMM10","XMM11","XMM12","XMM13","XMM14","XMM15"};
-    for (int i = 0; i < 34; ++i)
-        regTable_->setVerticalHeaderItem(i, new QTableWidgetItem(rnames[i]));
     rl->addWidget(regTable_, 3);
 
     // Decoded CPU flags under the register table (RFLAGS shows only the raw hex).
     flagsLabel_ = new QLabel(QStringLiteral("Flags:"));
     flagsLabel_->setFont(mono);
-    flagsLabel_->setToolTip("Status/control flags set in RFLAGS at the current stop");
+    flagsLabel_->setToolTip("Status flags of the currently stopped thread");
     rl->addWidget(flagsLabel_);
 
     auto* bpGroup = new QGroupBox("Breakpoints");
@@ -190,8 +188,14 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
             bps_[row].id = id;
             bps_[row].enabled = true;
         } else {
-            if (bps_[row].hardware) session_->removeHardwareBreakpoint(bps_[row].id);
-            else                    session_->removeSoftwareBreakpoint(bps_[row].id);
+            bool removed=bps_[row].hardware ? session_->removeHardwareBreakpoint(bps_[row].id) :
+                                             session_->removeSoftwareBreakpoint(bps_[row].id);
+            if (!removed) {
+                QSignalBlocker block(bpList_);
+                it->setCheckState(Qt::Checked);
+                statusLabel_->setText("Breakpoint cleanup pending: "+QString::fromStdString(session_->lastError().message()));
+                return;
+            }
             bps_[row].enabled = false;
         }
         if (session_->isStopped()) updateDisassembly(session_->getStopContext());
@@ -236,7 +240,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     });
 
     if (proc_ && session_->attach(proc_->pid(), proc_)) {
-        prevGp_.clear(); prevXmm_ = {};   // fresh session: don't flag the first stop's registers
+        prevGp_.clear(); prevVectors_ = {};   // fresh session: don't flag the first stop's registers
         refreshStopped();   // target is all-stopped right after attach
     } else {
         statusLabel_->setText("Attach failed (need ptrace permission?)");
@@ -256,6 +260,7 @@ void DebuggerWindow::setRunningUi(bool running, bool exited) {
     detachBtn_->setEnabled(!exited);
     threadCombo_->setEnabled(stopped && threadCombo_->count() > 0);
     bpInput_->setEnabled(stopped);
+    regTable_->setEnabled(stopped);
     if (!stopped) emit resumed();   // running or exited: drop the current-line marker
 }
 
@@ -327,14 +332,14 @@ void DebuggerWindow::addBreakpointAt(uintptr_t addr, const QString& condition) {
         refreshBpRow(static_cast<int>(i));
         return;
     }
-    // Capture the original byte BEFORE planting 0xCC, so the disassembly can un-mask it
-    // and show the real instruction while stopped here (not int3).
-    uint8_t orig = 0; bool hasOrig = false;
-    if (proc_) { uint8_t b = 0; auto rb = proc_->read(addr, &b, 1); if (rb && *rb == 1) { orig = b; hasOrig = true; } }
+    // ARM64 replaces a full instruction, while x86 replaces a single byte.
+    std::vector<uint8_t> original(session_->getStopContext().architecture == ce::CpuArchitecture::Arm64 ? 4 : 1);
+    auto read = proc_ ? proc_->read(addr, original.data(), original.size()) : ce::Result<size_t>{std::unexpected(std::make_error_code(std::errc::bad_address))};
+    if (!read || *read != original.size()) original.clear();
     int id = session_->setSoftwareBreakpoint(addr);
     if (id <= 0) { statusLabel_->setText("Failed to set breakpoint at " + hex(addr)); return; }
     Bp bp; bp.id = id; bp.addr = addr; bp.condition = condition.toStdString();
-    bp.origByte = orig; bp.hasOrig = hasOrig;
+    bp.original = std::move(original);
     bps_.push_back(bp);
     bpList_->addItem(new QListWidgetItem());
     refreshBpRow(static_cast<int>(bps_.size()) - 1);
@@ -367,9 +372,12 @@ void DebuggerWindow::setConditionalBreakpointAtCursor() {
     uintptr_t addr = currentCursorAddress();
     if (!addr) return;
     bool ok = false;
+    const auto architecture = session_->getStopContext().architecture;
+    const QString example = architecture == ce::CpuArchitecture::Arm64 ? "X0 == 5" :
+                            architecture == ce::CpuArchitecture::X86_32 ? "EAX == 5" : "RAX == 5";
     QString cond = QInputDialog::getText(this, "Conditional breakpoint",
         "Break only when this expression is true\n"
-        "(Lua; reads registers RAX/rax, RIP, ... and the ctx table, e.g. \"RAX == 5\"):",
+        "(Lua; register names accept either case, also available in ctx, e.g. \"" + example + "\"):",
         QLineEdit::Normal, QString(), &ok);
     if (!ok) return;
     addBreakpointAt(addr, cond.trimmed());
@@ -391,8 +399,14 @@ void DebuggerWindow::editBreakpointCondition() {
 void DebuggerWindow::onRemoveBreakpoint() {
     int row = bpList_->currentRow();
     if (row < 0 || row >= static_cast<int>(bps_.size())) return;
-    if (bps_[row].hardware) session_->removeHardwareBreakpoint(bps_[row].id);
-    else                    session_->removeSoftwareBreakpoint(bps_[row].id);
+    if (bps_[row].enabled) {
+        bool removed=bps_[row].hardware ? session_->removeHardwareBreakpoint(bps_[row].id) :
+                                         session_->removeSoftwareBreakpoint(bps_[row].id);
+        if (!removed) {
+            statusLabel_->setText("Breakpoint cleanup pending: "+QString::fromStdString(session_->lastError().message()));
+            return;
+        }
+    }
     bps_.erase(bps_.begin() + row);
     delete bpList_->takeItem(row);
     if (session_->isStopped()) updateDisassembly(session_->getStopContext());
@@ -440,6 +454,21 @@ void DebuggerWindow::onAddDataBreakpoint() {
 }
 
 void DebuggerWindow::onDebugEvent(int type) {
+    if (type == static_cast<int>(ce::DebugEventType::ThreadExiting)) {
+        refreshStopped();
+        statusLabel_->setText(QStringLiteral("Thread is exiting; stopped on tid %1")
+                                 .arg(static_cast<int>(session_->activeThread())));
+        return;
+    }
+    if (type == static_cast<int>(ce::DebugEventType::ProcessExecuted)) {
+        bps_.clear();
+        bpList_->clear();
+        pendingRtcId_=-1; pendingRtcAddr_=0;
+        prevGp_.clear(); prevVectors_={};
+        refreshStopped();
+        statusLabel_->setText("Process executed a new program; previous breakpoints cleared");
+        return;
+    }
     if (type == static_cast<int>(ce::DebugEventType::ProcessExited)) {
         statusLabel_->setText("Process exited");
         setRunningUi(false, true);
@@ -448,9 +477,12 @@ void DebuggerWindow::onDebugEvent(int type) {
     // Auto-clear a run-to-cursor temp breakpoint when its target is hit.
     if (type == static_cast<int>(ce::DebugEventType::BreakpointHit) &&
         pendingRtcId_ > 0 && lastEvtAddr_.load() == pendingRtcAddr_) {
-        session_->removeSoftwareBreakpoint(pendingRtcId_);
-        pendingRtcId_ = -1;
-        pendingRtcAddr_ = 0;
+        if (!session_->removeSoftwareBreakpoint(pendingRtcId_)) {
+            refreshStopped();
+            statusLabel_->setText("Run-to-cursor cleanup pending: "+QString::fromStdString(session_->lastError().message()));
+            return;
+        }
+        pendingRtcId_ = -1; pendingRtcAddr_ = 0;
     }
     // Conditional breakpoints: if the breakpoint that stopped us carries a
     // condition and it evaluates false for the current register state, resume
@@ -458,10 +490,10 @@ void DebuggerWindow::onDebugEvent(int type) {
     if (type == static_cast<int>(ce::DebugEventType::BreakpointHit)) {
         auto ctx = session_->getStopContext();
         for (size_t i = 0; i < bps_.size(); ++i) {
-            if (bps_[i].addr != ctx.rip) continue;
+            if (bps_[i].addr != ctx.instructionPointer()) continue;
             // False condition => resume silently, don't count it as a hit.
             if (!bps_[i].condition.empty() &&
-                !ce::evaluateBreakpointCondition(bps_[i].condition, ctx, ctx.rip)) {
+                !ce::evaluateBreakpointCondition(bps_[i].condition, ctx, ctx.instructionPointer())) {
                 setRunningUi(true);
                 session_->continueExecution();
                 return;
@@ -478,17 +510,17 @@ void DebuggerWindow::refreshStopped() {
     if (!session_->isAttached()) return;
     updateThreadList();
     auto ctx = session_->getStopContext();
-    lastStopRip_ = ctx.rip;
-    lastStopRflags_ = ctx.rflags;
+    lastStopRip_ = ctx.instructionPointer();
+    lastStopRflags_ = ctx.architecture == ce::CpuArchitecture::Arm64 ? ctx.pstate : ctx.rflags;
     lastStopContext_ = ctx;
     updateRegisters(ctx);
     updateDisassembly(ctx);
     updateStack(ctx);
     if (lastMemAddr_) updateMemoryView(lastMemAddr_);   // keep the hex pane current
     statusLabel_->setText(QStringLiteral("Stopped at %1 (tid %2)")
-                              .arg(hex(ctx.rip)).arg(static_cast<int>(session_->activeThread())));
+                              .arg(hex(ctx.instructionPointer())).arg(static_cast<int>(session_->activeThread())));
     setRunningUi(false);
-    emit stopped(ctx.rip);
+    emit stopped(ctx.instructionPointer());
 }
 
 void DebuggerWindow::updateThreadList() {
@@ -613,67 +645,99 @@ bool DebuggerWindow::memoryViewShowsForTest(uintptr_t addr) {
 }
 
 bool DebuggerWindow::xmm0ShowsForTest(uint64_t lo) {
-    if (!regTable_) return false;
-    auto* it = regTable_->item(18, 0);   // XMM0 row (after 18 GP/flags rows)
+    return vectorRegisterShowsForTest(0, lo);
+}
+
+bool DebuggerWindow::vectorRegisterShowsForTest(unsigned index, uint64_t lo) {
+    if (!regTable_ || !session_) return false;
+    auto vectors = session_->getVectorRegisters();
+    if (index >= vectors.count) return false;
+    auto* it = regTable_->item(static_cast<int>(ce::cpuRegisterValues(session_->getStopContext()).size() + index), 0);
     if (!it) return false;
     return it->text().contains(QString::asprintf("%016llx", static_cast<unsigned long long>(lo)));
 }
 
 void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
-    const uintptr_t vals[] = {c.rip, c.rsp, c.rbp, c.rax, c.rbx, c.rcx, c.rdx, c.rsi, c.rdi, c.rflags,
-                              c.r8, c.r9, c.r10, c.r11, c.r12, c.r13, c.r14, c.r15};
-    constexpr int kGp = 18;
+    auto registers = ce::cpuRegisterValues(c);
+    const int kGp = static_cast<int>(registers.size());
+    const bool arm = c.architecture == ce::CpuArchitecture::Arm64;
+    const int vectorCount = arm ? 32 : c.architecture == ce::CpuArchitecture::X86_64 ? 16
+                                   : c.architecture == ce::CpuArchitecture::X86_32 ? 8 : 0;
+    const int controls = arm ? 2 : vectorCount ? 1 : 0;
+    auto vectors = session_->getVectorRegisters();
     // Flag registers the last instruction changed, like CE: red when the value
     // differs from the previous stop, default colour otherwise. Skipped on the
     // first stop of a session (prevGp_ empty), so nothing lights up spuriously.
-    const bool hasPrev = prevGp_.size() == kGp;
+    const bool sameArchitecture = registerArchitecture_ == c.architecture;
+    const bool hasPrev = sameArchitecture && prevGp_.size() == registers.size();
     const QBrush changedFg(ce::gui::editorPalette().error);   // theme-aware red
     const QBrush normalFg = regTable_->palette().text();
     // Update items IN PLACE (never setItem here): this runs from within
     // onRegisterEdited (itemChanged), where replacing an item would delete the
     // one whose setText is still on the stack (use-after-free). Block signals so
     // these programmatic fills aren't re-interpreted as user edits.
-    regTable_->blockSignals(true);
-    for (int i = 0; i < kGp; ++i) {
-        auto* it = regTable_->item(i, 0);
-        if (!it) {
-            it = new QTableWidgetItem();
-            it->setFlags(it->flags() | Qt::ItemIsEditable);
-            regTable_->setItem(i, 0, it);
+    const QSignalBlocker blocker(regTable_);
+    if (!sameArchitecture || regTable_->rowCount() != kGp + vectorCount + controls) {
+        regTable_->setRowCount(kGp + vectorCount + controls);
+        for (int i = 0; i < kGp; ++i) {
+            QString name = QString::fromStdString(registers[i].name);
+            if (arm && name == "X29") name += " (FP)";
+            if (arm && name == "X30") name += " (LR)";
+            regTable_->setVerticalHeaderItem(i, new QTableWidgetItem(name));
         }
-        it->setText(hex(vals[i]));
-        it->setForeground(hasPrev && prevGp_[i] != vals[i] ? changedFg : normalFg);
+        for (int i = 0; i < vectorCount; ++i)
+            regTable_->setVerticalHeaderItem(kGp + i, new QTableWidgetItem(QString(arm ? "V%1" : "XMM%1").arg(i)));
+        if (controls) regTable_->setVerticalHeaderItem(kGp + vectorCount, new QTableWidgetItem(arm ? "FPCR" : "MXCSR"));
+        if (arm) regTable_->setVerticalHeaderItem(kGp + vectorCount + 1, new QTableWidgetItem("FPSR"));
     }
-    prevGp_.assign(vals, vals + kGp);
+    auto cell = [&](int row, bool editable) {
+        auto* item = regTable_->item(row, 0);
+        if (!item) { item = new QTableWidgetItem(); regTable_->setItem(row, 0, item); }
+        item->setFlags(editable ? item->flags() | Qt::ItemIsEditable : item->flags() & ~Qt::ItemIsEditable);
+        return item;
+    };
+    for (int i = 0; i < kGp; ++i) {
+        auto* it = cell(i, true);
+        it->setText(QStringLiteral("0x%1").arg(registers[i].value, registers[i].bits / 4, 16, QLatin1Char('0')));
+        it->setForeground(hasPrev && prevGp_[i] != registers[i].value ? changedFg : normalFg);
+    }
+    prevGp_.clear();
+    for (const auto& value : registers) prevGp_.push_back(value.value);
     if (flagsLabel_) {
         // Show every status flag's 0/1 state (CE-style), not just the set ones, so a
         // clear flag next to a conditional jump is still readable.
         flagsLabel_->setText(QStringLiteral("Flags: ") +
-                             QString::fromStdString(ce::describeEflagsVerbose(c.rflags)));
+                             (kGp ? QString::fromStdString(ce::describeCpuStatusFlags(c)) : QStringLiteral("Unavailable")));
     }
-    // XMM0-15, view-only, shown as the 128-bit value (most-significant byte first).
-    // Same change highlight as the GP regs (a movss/paddd etc. lights up its dest).
-    auto xmm = session_->getXmmRegisters();
-    for (int r = 0; r < 16; ++r) {
-        auto* it = regTable_->item(kGp + r, 0);
-        if (!it) {
-            it = new QTableWidgetItem();
-            it->setFlags(it->flags() & ~Qt::ItemIsEditable);
-            regTable_->setItem(kGp + r, 0, it);
-        }
+    // Show all architectural SIMD registers, preserving unavailable reads.
+    for (int r = 0; r < vectorCount; ++r) {
+        auto* it = cell(kGp + r, false);
         QString s;
-        for (int b = 15; b >= 0; --b) s += QString::asprintf("%02x", xmm[r][b]);
+        if (r < static_cast<int>(vectors.count)) {
+            for (int b = 0; b < 16; ++b) {
+                int byte = std::endian::native == std::endian::little ? 15 - b : b;
+                s += QString::asprintf("%02x", vectors.registers[r][byte]);
+            }
+        } else s = "Unavailable";
         it->setText(s);
-        it->setForeground(hasPrev && xmm[r] != prevXmm_[r] ? changedFg : normalFg);
+        it->setForeground(hasPrev && r < static_cast<int>(vectors.count) &&
+                          r < static_cast<int>(prevVectors_.count) && vectors.registers[r] != prevVectors_.registers[r] ? changedFg : normalFg);
     }
-    prevXmm_ = xmm;
-    regTable_->blockSignals(false);
+    for (int i = 0; i < controls; ++i) {
+        auto* it = cell(kGp + vectorCount + i, false);
+        uint32_t value = i ? vectors.status : vectors.control;
+        uint32_t previous = i ? prevVectors_.status : prevVectors_.control;
+        it->setText(vectors.count ? QStringLiteral("0x%1").arg(value, 8, 16, QLatin1Char('0')) : QStringLiteral("Unavailable"));
+        it->setForeground(hasPrev && vectors.count && prevVectors_.count && value != previous ? changedFg : normalFg);
+    }
+    prevVectors_ = vectors;
+    registerArchitecture_ = c.architecture;
 }
 
 bool DebuggerWindow::anyRegisterChangedHighlightForTest() const {
     if (!regTable_) return false;
     const QColor red = ce::gui::editorPalette().error;
-    for (int i = 0; i < 10; ++i)
+    for (int i = 0; i < static_cast<int>(prevGp_.size()); ++i)
         if (auto* it = regTable_->item(i, 0); it && it->foreground().color() == red)
             return true;
     return false;
@@ -696,42 +760,30 @@ void DebuggerWindow::onRegisterEdited(QTableWidgetItem* item) {
     const qulonglong v = t.toULongLong(&okParse, 16);
     if (okParse) {
         ce::CpuContext ctx = session_->getStopContext();
-        switch (item->row()) {
-            case 0: ctx.rip = v; break;
-            case 1: ctx.rsp = v; break;
-            case 2: ctx.rbp = v; break;
-            case 3: ctx.rax = v; break;
-            case 4: ctx.rbx = v; break;
-            case 5: ctx.rcx = v; break;
-            case 6: ctx.rdx = v; break;
-            case 7: ctx.rsi = v; break;
-            case 8: ctx.rdi = v; break;
-            case 9: ctx.rflags = v; break;
-            case 10: ctx.r8 = v; break;
-            case 11: ctx.r9 = v; break;
-            case 12: ctx.r10 = v; break;
-            case 13: ctx.r11 = v; break;
-            case 14: ctx.r12 = v; break;
-            case 15: ctx.r13 = v; break;
-            case 16: ctx.r14 = v; break;
-            case 17: ctx.r15 = v; break;
-            default: return;   // rows 18+ are the view-only XMM registers
+        auto registers = ce::cpuRegisterValues(ctx);
+        if (item->row() < 0 || item->row() >= static_cast<int>(registers.size())) return;
+        if (!ce::setCpuRegisterValue(ctx, item->row(), v)) {
+            statusLabel_->setText(QStringLiteral("%1 needs a %2-bit hexadecimal value")
+                                 .arg(QString::fromStdString(registers[item->row()].name)).arg(registers[item->row()].bits));
+        } else if (session_->setStopContext(ctx)) {
+            refreshStopped();
+            return;
+        } else {
+            statusLabel_->setText("Register edit failed: " + QString::fromStdString(session_->lastError().message()));
         }
-        session_->setStopContext(ctx);
-    }
+    } else statusLabel_->setText("Invalid hexadecimal register value");
     updateRegisters(session_->getStopContext());
 }
 
 bool DebuggerWindow::pokeRegisterForTest(int row, uint64_t value) {
     if (!regTable_ || !session_ || !session_->isStopped()) return false;
-    if (row < 0 || row >= 10) return false;
+    auto before = ce::cpuRegisterValues(session_->getStopContext());
+    if (row < 0 || row >= static_cast<int>(before.size())) return false;
     auto* it = regTable_->item(row, 0);
     if (!it) return false;
     it->setText(hex(value));   // fires itemChanged -> onRegisterEdited -> setStopContext
-    const ce::CpuContext c = session_->getStopContext();
-    const uint64_t got[] = {c.rip, c.rsp, c.rbp, c.rax, c.rbx,
-                            c.rcx, c.rdx, c.rsi, c.rdi, c.rflags};
-    return got[row] == value;
+    auto after = ce::cpuRegisterValues(session_->getStopContext());
+    return row < static_cast<int>(after.size()) && after[row].value == value;
 }
 
 void DebuggerWindow::setComments(std::map<uintptr_t, std::string> comments) {
@@ -749,33 +801,45 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
         blk >= 0 && blk < static_cast<int>(disasmLineAddrs_.size()))
         caretAddr = disasmLineAddrs_[blk];
     disasmLineAddrs_.clear();
+    const uintptr_t ip = c.instructionPointer();
+    if (c.architecture == ce::CpuArchitecture::Arm64) disasm_.setArch(ce::Arch::ARM64);
+    else if (c.architecture == ce::CpuArchitecture::X86_32) disasm_.setArch(ce::Arch::X86_32);
+    else if (c.architecture == ce::CpuArchitecture::X86_64) disasm_.setArch(ce::Arch::X86_64);
+    else {
+        disasmView_->setPlainText("  <instruction architecture unavailable>");
+        disasmView_->setExtraSelections({});
+        return;
+    }
     if (proc_ && !symbolsLoaded_) { resolver_.loadProcess(*proc_); symbolsLoaded_ = true; }
     if (modules_.empty() && proc_) modules_ = proc_->modules();   // for data-operand annotations
     uint8_t buf[128];
-    auto rr = proc_->read(c.rip, buf, sizeof(buf));
+    auto rr = proc_->read(ip, buf, sizeof(buf));
     QString out;
     int currentLineBlock = -1;   // text block index of the "=>" line, for the highlight
     if (rr && *rr > 0) {
-        // Un-mask any planted software breakpoints in this window so the paused code
-        // disassembles as its real instructions instead of int3 (0xCC) — otherwise the
-        // 0xCC replacing an instruction's first byte desyncs the whole disassembly.
+        // Restore the complete saved instruction bytes for x86 INT3 or ARM64 BRK.
         const size_t nread = *rr;
-        for (const auto& b : bps_)
-            if (!b.hardware && b.hasOrig && b.addr >= c.rip && b.addr < c.rip + nread)
-                buf[b.addr - c.rip] = b.origByte;
-        auto insns = disasm_.disassemble(c.rip, {buf, *rr}, 24);
+        for (const auto& b : bps_) {
+            if (b.hardware || b.addr < ip || b.addr - ip >= nread) continue;
+            const size_t offset = b.addr - ip;
+            std::copy_n(b.original.begin(), std::min(b.original.size(), nread - offset), buf + offset);
+        }
+        auto insns = disasm_.disassemble(ip, {buf, *rr}, 24);
         for (auto& in : insns) {
-            if (in.address == c.rip) currentLineBlock = static_cast<int>(disasmLineAddrs_.size());
+            if (in.address == ip) currentLineBlock = static_cast<int>(disasmLineAddrs_.size());
             bool isBp = false;
             for (auto& b : bps_) if (b.addr == in.address) isBp = true;
-            QString marker = (in.address == c.rip) ? "=> " : "   ";
+            QString marker = (in.address == ip) ? "=> " : "   ";
             QString bpMark = isBp ? "*" : " ";
             // Symbol annotation (CE-style), inline so it never shifts the line/address
             // mapping: a direct call/jmp shows its target's symbol; the current line
             // shows the function it is stopped in.
             std::string sym;
-            const bool branch = in.mnemonic == "call" || in.mnemonic == "jmp" ||
-                                (in.mnemonic.size() > 1 && in.mnemonic[0] == 'j');
+            const bool branch = in.isCall || in.mnemonic == "jmp" ||
+                                (in.mnemonic.size() > 1 && in.mnemonic[0] == 'j') ||
+                                in.mnemonic == "b" || in.mnemonic.starts_with("b.") ||
+                                in.mnemonic == "cbz" || in.mnemonic == "cbnz" ||
+                                in.mnemonic == "tbz" || in.mnemonic == "tbnz";
             if (branch && in.operands.find('[') == std::string::npos) {
                 if (auto pos = in.operands.find("0x"); pos != std::string::npos) {
                     try {
@@ -784,7 +848,7 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
                     } catch (...) {}
                 }
             }
-            if (sym.empty() && in.address == c.rip) sym = resolver_.resolve(in.address);
+            if (sym.empty() && in.address == ip) sym = resolver_.resolve(in.address);
             QString anno = sym.empty() ? QString() : QStringLiteral("   ; %1").arg(QString::fromStdString(sym));
             // Data reference: annotate a memory operand's effective address with the
             // symbol / module+offset it points at and the value there, so you can see
@@ -792,7 +856,7 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
             // ripTarget; for the current instruction a register-relative operand
             // ([rax+8], [rbx+rcx*4+10]) is resolved from the live registers.
             uintptr_t eff = in.ripTarget;
-            if (!eff && !branch && in.address == c.rip)
+            if (!eff && !branch && in.address == ip)
                 eff = ce::computeEffectiveAddress(in, c);
             if (anno.isEmpty() && !branch && eff) {
                 std::string es = resolver_.resolve(eff);
@@ -838,8 +902,11 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
             // For the paused instruction, show whether a conditional branch will be
             // taken given the live flags (CE-style), so the path is visible before you
             // step. Unconditional jmp needs no hint.
-            if (in.address == c.rip && in.mnemonic != "jmp") {
-                if (auto jt = ce::conditionalJumpTaken(in.mnemonic, c.rflags))
+            if (in.address == ip && in.mnemonic != "jmp" && in.mnemonic != "b") {
+                const auto jt = c.architecture == ce::CpuArchitecture::Arm64 ?
+                    ce::conditionalArm64JumpTaken(in.mnemonic, c.pstate) :
+                    ce::conditionalJumpTaken(in.mnemonic, c.rflags);
+                if (jt)
                     anno += *jt ? QStringLiteral("   (will jump)") : QStringLiteral("   (no jump)");
             }
             // User comment (set in the Memory Viewer): show it inline too, so annotated
@@ -853,7 +920,7 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
             disasmLineAddrs_.push_back(in.address);
         }
     } else {
-        out = "  <unable to read code at " + hex(c.rip) + ">";
+        out = "  <unable to read code at " + hex(ip) + ">";
     }
     disasmView_->setPlainText(out);
 
@@ -888,13 +955,25 @@ void DebuggerWindow::updateStack(const ce::CpuContext& c) {
     if (proc_ && !symbolsLoaded_) { resolver_.loadProcess(*proc_); symbolsLoaded_ = true; }
     if (modules_.empty() && proc_) modules_ = proc_->modules();
     QString out;
+    const size_t width = c.architecture == ce::CpuArchitecture::X86_32 ? 4 :
+                         c.architecture == ce::CpuArchitecture::X86_64 ||
+                         c.architecture == ce::CpuArchitecture::Arm64 ? 8 : 0;
+    const auto order = c.architecture == ce::CpuArchitecture::Arm64 ?
+        proc_->targetDescription().host.byteOrder : ce::ByteOrder::Little;
+    if (!width || order == ce::ByteOrder::Unknown) {
+        stackView_->setPlainText("  <stack register format unavailable>");
+        return;
+    }
     for (int i = 0; i < 16; ++i) {
-        uintptr_t slotAddr = c.rsp + static_cast<uintptr_t>(i) * 8;
-        uint64_t val = 0;
-        auto rr = proc_->read(slotAddr, &val, sizeof(val));
-        if (rr && *rr == sizeof(val)) {
-            std::string anno = resolver_.resolve(static_cast<uintptr_t>(val));
-            if (anno.empty()) anno = ce::moduleOffsetString(modules_, static_cast<uintptr_t>(val));
+        const uintptr_t offset = static_cast<uintptr_t>(i) * width;
+        if (c.stackPointer() > UINTPTR_MAX - offset) break;
+        uintptr_t slotAddr = c.stackPointer() + offset;
+        uint8_t bytes[8]{};
+        auto rr = proc_->read(slotAddr, bytes, width);
+        if (rr && *rr == width) {
+            const uint64_t val = *ce::decodeTargetUnsigned({bytes, width}, order);
+            std::string anno = val ? resolver_.resolve(static_cast<uintptr_t>(val)) : std::string();
+            if (val && anno.empty()) anno = ce::moduleOffsetString(modules_, static_cast<uintptr_t>(val));
             if (!anno.empty())
                 out += QStringLiteral("%1: %2  %3\n")
                            .arg(hex(slotAddr), hex(val), QString::fromStdString(anno));
@@ -937,11 +1016,8 @@ void DebuggerWindow::toggleBreakpointAtCursor() {
     // F5: if a breakpoint is already planted here, remove it; otherwise add one.
     for (size_t i = 0; i < bps_.size(); ++i) {
         if (bps_[i].addr == addr) {
-            if (bps_[i].hardware) session_->removeHardwareBreakpoint(bps_[i].id);
-            else                  session_->removeSoftwareBreakpoint(bps_[i].id);
-            bps_.erase(bps_.begin() + i);
-            delete bpList_->takeItem(static_cast<int>(i));
-            if (session_->isStopped()) updateDisassembly(session_->getStopContext());
+            bpList_->setCurrentRow(static_cast<int>(i));
+            onRemoveBreakpoint();
             return;
         }
     }

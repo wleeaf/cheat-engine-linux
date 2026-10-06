@@ -13,6 +13,488 @@ reimplementation of Cheat Engine).
 
 ---
 
+## Unreleased: target compatibility foundation
+
+- Add a detailed compatibility progress checkpoint with completed work, remaining
+  requirements and final local verification. Preserve the newly reproduced
+  mixed-ABI timed-restart failure and diagnostic restoration prototypes; product
+  integration and recovery tests for that issue remain pending.
+
+- Protect the preceding x86 syscall instruction when Linux restarts an interrupted
+  read from a saved PC on the following page. Reject destructive operations before
+  mutation while permitting unused-page release after real syscall completion or
+  from ordinary user code. Require 50 live assertions each for x86-64, i386 and
+  x32, with host ASan/UBSan coverage and strict release gates.
+
+- Protect both pages of a saved x86 or Thumb instruction before unmapping,
+  removing execute permission or replacing memory with MAP_FIXED. Decode the
+  saved instruction only when its next page is affected; retain support for short
+  instructions beside unmapped pages. Require actual instruction execution and
+  restoration checks for x86-64, i386, x32, native ARMv7 and ARM64 compat, including
+  aborting sanitizer runs. The expanded ARM gate requires 345 assertions per variant.
+
+- Execute private ARM32/Thumb mmap2, mprotect and munmap on native ARMv7 and
+  ARM64 compat controllers. Restore and verify GP, VFP and code, clear live Thumb
+  conditional state only during private execution, preserve application signals
+  and retain completed values with failed recovery. Verify sparse-file offsets
+  above four GiB. Protect original return-code pages when using separate scratch,
+  and verify private instruction writes before execution on all supported ISAs.
+  The private-syscall checkpoint passed 301 real-kernel assertions per normal/UBSan variant. Full ARM32
+  allocation/call/session and parked-syscall adapters remain pending.
+
+- Capture ARM32 VFP state using the actual stopped-task register ABI on native
+  ARMv7 and ARM64 compat kernels. Verify and restore D0-D31/FPSCR and exposed
+  compat TLS, retain recovery after failures, and reject failed required VFP
+  capture. Preserve legacy FPA read-only: its write path panics the pinned native
+  hardened-usercopy kernel. Add native ARM64 extension regressions and required
+  normal/UBSan gate assertions. General ARM32 syscall/call injection is still pending.
+
+- Read and edit actual ARM32 general registers on native ARMv7 and ARM64 compat
+  kernels. Preserve syscall-restart state, reject oversized and misaligned edits,
+  verify the complete bank and roll back failed writes. Add ARM/Thumb software
+  traps with exact PC and instruction restoration, native register views and Lua
+  condition aliases. The context checkpoint passed 181 kernel checks per normal/UBSan run before release
+  packaging; full ARM32 sessions, injection and BE8 execution remain pending.
+
+- Resolve Auto Assembler module names from the current target snapshot. Retire
+  removed modules across target changes, exec, syntax-only checking and failed
+  capture; preserve explicitly registered symbols and their cleanup ownership
+  when their names match modules. Require live x86-64/i386 module lifecycle
+  evidence before native release packaging.
+
+- Clean standalone Auto Assembler editor injections before close, disconnect,
+  process replacement and destruction. Keep failed cleanup available for retry
+  and prevent repeated Execute from replacing its saved undo. Coordinate shared
+  GUI assembler operations across editors and records, and unwind overlapping
+  patches in reverse activation order. Keep CodeFinder dependencies alive through
+  window destruction. Extend required native/release GUI gates to editor ownership.
+
+- Retain GUI script undo across active imports and paste. Restore patches and
+  release allocations before deleting/editing scripts, replacing tables,
+  disconnecting/switching processes or closing the window. Preserve records and
+  the original target when cleanup fails. Handle Lua callbacks that grow or
+  replace the address list. Recognize bare hexadecimal assembly targets beginning
+  with A–F. Require real x86-64/i386 GUI injection lifecycle checks in native CI
+  and release validation.
+
+- Preserve complete integer JSON addresses, sizes and offsets, escaped Unicode,
+  control characters and group flags. Reject malformed record data before
+  replacing the table. Load one captured JSON payload through both GUI parsers,
+  retaining exact common values and GUI codecs. Normalize imported record IDs
+  and allocate unused IDs safely after `INT_MAX`. Require an independent decimal
+  round-trip gate. Fix the GUI test's focused-filename automation stall.
+
+- Report flushed/closed table write failures; stage GUI XML/JSON saves so a
+  failed write preserves the previous file. Preserve stable IDs, imported table
+  metadata and JSON forms; read GUI JSON records through the core and retain
+  GUI JSON codecs. Handle uppercase `.CT`, group ID zero, failed-load titles and
+  consent for table Lua in either JSON schema. Require filesystem-failure and
+  persistence checks in native, sanitizer and release testing.
+
+- Serve independent CEServer connections concurrently with isolated process and
+  debug ownership. Serialize complete start/stop transitions, wake debug waiters
+  during shutdown, reap finished workers without another connection, and recover
+  from descriptor pressure without dropping existing clients. Require simultaneous
+  real x86-64/i386 target and lifecycle/resource recovery checks.
+
+- Serialize complete CEServer transactions, revalidate persistent owners after
+  acquiring connection ownership, and cancel active socket I/O before reconnect.
+  Add configurable whole-message deadlines and an optional Lua connection timeout;
+  validate port/PID/timeout without truncation. Require independent delayed,
+  concurrent and reconnect peer checks alongside actual 32/64-bit TCP fixtures.
+
+- Retain CEServer process identities and TCP connection ownership; refresh target
+  architecture across exec, translate region flags, honor allocation protection,
+  implement region/protection queries and propagate server operation failures.
+  Retire malformed/disconnected streams, remove real remote breakpoints and detach
+  disconnected debug sessions. Require real 32/64-bit TCP recovery gates.
+
+- Support Mono runtimes embedded with private loader visibility. Borrow the
+  loaded provider during each request, clear retired API pointers, and reject
+  requests after real runtime cleanup or library unload. Reject invalidated
+  process handles before Mono request dispatch. Require real embedding and
+  cleanup profiles in native, sanitizer and release gates; preserve the original
+  application's native loop and normal exit.
+
+- Distinguish native Mono assemblies from Wine by checking the Unix loader,
+  rather than treating every `.exe` argument as Windows execution. Replace Mono
+  agent temporary-file requests with separate framed socket connections, fresh
+  metadata dumps, exact long names and namespace-aware paths. End and join each
+  runtime request thread before responding so Mono GC and application exit keep
+  working. Use Mono's allocator for runtime names. Add required real Mono
+  C++/CLI/Lua and sanitizer gates, including pinned object edits, late assembly
+  loading, concurrent lookups and actual garbage collection. Bound metadata
+  buffers during generation and verify overflow/recovery with a small test cap.
+  Install and bundle the agent library, discover it beside the loaded engine
+  in custom layouts, and verify a staged CLI launch. AppImage builds default to
+  one compiler job, configurable with `CECORE_BUILD_JOBS`.
+
+- Enable Linux x32 native library/pthread calls with an ABI-specific worker,
+  four-byte control pointers and 64-bit stack/syscall layouts. Preserve 64-bit
+  integer call arguments and mmap file offsets instead of rejecting them because
+  pointers are four bytes. Add real x32 guest fixtures and a required release
+  gate using a prebuilt kernel, 128 MiB and sequential single-job builds.
+  Synchronize call fixtures after their output syscall before borrowing user
+  contexts.
+
+- Require 551 real x32 debugger/session, stepping, tracing, hardware/software
+  watchpoint and recovery checks under KVM and software emulation. Use genuine
+  x32 fixture syscall numbers and choose the instruction set independently of
+  pointer width. Verify older-kernel syscall dispatch allow/deny restoration
+  separately from configuration introspection. Let sibling-progress assertions
+  wait for a real counter change. The debugger race guest uses two CPUs; other
+  x32 guests keep one.
+
+- Keep independently released pthread leases while their cleanup owns a native
+  stop, recovery ticket, private frame or affinity cleanup. Share maintenance
+  across process/global recovery, report pending ownership after release, retain
+  failed-detach retries and preserve exec cancellation. Verify real target-side
+  detach, interrupted cleanup returns and replacement liveness in required gates.
+
+- Retire wrapped-worker startup when its pthread-handle cleanup callee executes
+  exec, including kernel TID replacement. Share bounded signal forwarding across
+  primary and cleanup calls. Let explicit resume reach retained function stops
+  in abandoned pthread leases. Extend required leader/nonleader regressions to
+  exec, retry failures and real signal-interrupted returning detachers.
+
+- Recover native callees that exec from a nonleader pthread. Follow the actual
+  group EXEC stop through Linux TID replacement, retain failed event-message
+  inspection for retry and pass the replacement task's TID and birth to borrowed
+  owners. Adopt that stop before native call cleanup detaches it. Extend required
+  callee-exec gates across leader/nonleader signal, detach and inspection recovery.
+
+- Retire native calls when their callee actually executes exec. Propagate the
+  kernel EXEC event and remember permanent image retirement independently of
+  completed recovery. Immediate calls, explicit signal resume, automatic signal
+  forwarding and failed detach stop replaying cleanup into a replacement whose
+  original mm remains alive through CLONE_VM. Expose retirement to borrowed
+  recovery callers and reject later image checks or function resume. Add required
+  native, sanitizer and ARM64 kernel callee-exec regressions.
+- Keep the original memory descriptor for retained native calls. Verify its
+  address-space affinity before worker-frame cleanup or abandoned pthread-handle
+  detachment; retire stale records after same-file exec even when a CLONE_VM
+  peer keeps old memory alive and replacement storage has identical bytes.
+  Repeat the check after failed proof recovery. Add required native and ARM64
+  kernel regression cases with real pthreads, cleanup failures and target
+  liveness checks. Avoid repeatedly writing control fields while a worker exits.
+- Drain owned hardware-watchpoint signals queued behind CodeFinder interrupt
+  stops before restoring debug registers and detaching. Prevent a residual
+  SIGTRAP from reaching the application; preserve genuine application signals
+  and stopped state. Require real-kernel queued-trap regression checks.
+- Verify saved-image syscall and native-call affinity under the selected thread's
+  ptrace stop using a fresh private mapping. Reject same-file replacements even
+  when CLONE_VM keeps the original image alive and replacement bytes match.
+  Reclaim proof storage before caller mutation; retain incomplete nested recovery
+  without reporting private probe allocations as caller completion. Add required
+  shared-memory regression gates for host, sanitizer and ARM64 kernel builds.
+  Verify 42 affinity checks per host/sanitizer/kernel profile, including distinct
+  private mappings with identical bytes, real nested signals, seccomp denial and
+  unreaped target exit. Retain the original intermittent GUI teardown failure
+  in the evidence; follow-up CodeFinder checks reproduce and fix a matching
+  queued hardware-trap cleanup failure.
+- Bind saved native Auto Assembler and simple-hook byte undo to the original
+  address space. Ordinary same-file exec discards retired undo without patching,
+  protecting or freeing replacement mappings. Share completion and allocation
+  release state across copies and scripts; prevent repeated cleanup, stale cave
+  restoration after DEALLOC and removal of newly owned symbols. Reject conflicting
+  instruction changes before undo while allowing mutable typed storage. Preserve
+  native simple-hook RX permissions and roll back adapter exceptions.
+- Resolve symbols registered by earlier scripts instead of shadowing them with
+  automatically declared labels. Carry script ownership into native loader and
+  pthread calls, rejecting retired requests before target execution.
+- Add a native executable-memory write adapter that pins the original address
+  space, verifies complete transfers and retains original bytes for failed
+  restoration. Writes preserve RX page permissions and do not borrow target
+  registers. Native ARM64 writes use kernel instruction-cache maintenance;
+  same-file exec recovery retires the old image without replaying its bytes.
+- Share architecture-specific NOP/undo and verified instruction edits across
+  Auto Assembler, Memory Viewer and Lua. ARM64 uses aligned four-byte NOPs;
+  unsupported code adapters fail explicitly. Fix the Auto Assembler NOP directive
+  emitting x86 bytes for ARM64; count and size whole target instructions, and
+  reject malformed counts/alignment before mutation. Route LOADBINARY through
+  the same code-aware patch path. Display backend failure and recovery
+  details in the GUI. Reject reentrant native mutators during thread inspection.
+- Require live code/recovery checks on the host (40 backend plus five CLI/Lua
+  checks) and both pinned ARM64 kernels (27 each), including short, dropped,
+  post-mutation and blocked-restoration writes. Native hook coordination, hardware
+  cache validation and other ISA adapters remain pending.
+
+- Add a shared byte-level ARM64 relocator for ADR/ADRP, literal loads and
+  branches/calls. Preserve live literal addresses, remap internal branches and
+  require explicit scratch-register and indirect-landing permissions for far
+  veneers. Auto Assembler REASSEMBLE uses exact expanded sizes and reports
+  source failures with rollback. Reject output-size changes after label sizing
+  on ARM64 and x86 before they corrupt following labels. Require 1,119 actual GNU-assembled code
+  executions per 4 KiB/64 KiB Linux profile before release packaging. Native
+  ARM64 hook coordination, hardware caches and other ISA adapters remain
+  pending.
+- Support GDB stubs that provide only whole-register packets through the shared
+  GUI/CLI/Lua client. Resolve sparse XML fields in numeric register order and
+  reread the bank before edits to preserve fresh unrelated values. Reject unsafe
+  writes involving unavailable neighbors or oversized packets; retain unavailable
+  trailing registers and ordinary packet errors instead of inventing values.
+- Add GUI scan data-order and pointer-size overrides for encoded data on native
+  and remote targets. Preserve captured formats when adding scan results to the
+  address list, including pointer-width-aware edits/freezing and XML/JSON/protected
+  table persistence. Add per-record Auto/Little/Big and pointer-size choices;
+  reject malformed format metadata and keep scan-only result types as raw bytes.
+  Shared typed I/O accepts explicit pointer widths independently of the CPU ABI.
+- Report scanner worker exceptions to the caller after joining every worker.
+  Fix first scans silently returning partial success and parallel next scans
+  terminating the application on allocation/backend exceptions. Keep previous
+  results available for retry, remove failed scans' partial files and avoid an
+  extra descriptor leak if result finalization cannot allocate its frame buffer.
+- Preserve the original floating search value in rounded, truncated, tolerance
+  and relational comparisons, including All/grouped scans and SIMD filtering.
+  Share strict floating parsing and exponent-aware precision across GUI, CLI
+  and Lua; reject malformed values, missing bounds and invalid rounding options.
+  Expose Lua rounding/tolerance options and upper bounds for ordinary numeric
+  Between scans. Remove the GUI tolerance's fixed magnitude/decimal limits,
+  explain rounding controls and refresh the status after successful scans.
+- Preserve matching numeric types in All scans through narrowing, reloads and
+  pruning. Compare floating candidates numerically, retain readable narrow fields
+  when wider reads fail, and allow selection of a surviving concrete type.
+  Fix GUI All-result record strides and exclude padding from GUI/CLI/Lua display.
+  Expose surviving candidate types and selected-value decoding in Lua.
+  Enable concrete numeric selection in the GUI and apply floating upper bounds,
+  rounding and tolerance controls to All scans.
+- Share strict All-number parsing across GUI, CLI and Lua. Preserve fractional
+  integer boundaries and exact 64-bit/scientific values; reject malformed tokens
+  without replacing results. Support decimal-comma and hexadecimal values,
+  exponent-aware GUI rounding and explicit Lua Between upper bounds. Compare
+  floating All bounds without narrowing them to the candidate width. Match
+  actual infinity while rejecting finite values that overflow the float width.
+  Keep percentage thresholds independent of ordinary All bounds and reject
+  malformed CLI percentage flags.
+- Remove the scanner's 47-bit address ceiling across GUI, CLI and Lua. Handle
+  inclusive ranges through the final representable byte without wraparound,
+  apply narrower ranges to next scans before memory reads, and reject reversed
+  ranges and overflowing memory maps.
+- Size hardware tracing rings with the actual kernel page size and metadata.
+  Preserve wrapped branch/AUX records and counters, validate record byte bounds,
+  remove the fixed 256-entry branch limit, release AUX notifications and serialize
+  tracer lifecycle calls. Reject thread ID zero and invalid Lua durations;
+  show the actual perf start failure rather than a guessed permission rule.
+- Require separate ARM64 full-system kernel checks for 4 KiB and 64 KiB pages,
+  sharing cached cross-builds and running guests sequentially. Verify actual page
+  sizes and explicitly record absent SME support on the additional kernel;
+  retain all positive SME/deferred-state requirements on the original kernel.
+- Exercise SVE deferred vector lengths, native calls, seccomp and alternate-stack
+  safety independently of SME support. A kernel lacking SME retains required SVE
+  checks and cannot silently skip them because a combined fixture needs SME.
+- Add a shared GDB process adapter and `cescan gdb` memory, register, disassembly
+  and byte-scan commands using the stub's XML CPU/register description. Preserve
+  guest byte order and pointer width without fabricating host PIDs or ABIs.
+  Bound socket/XML transfers, handle packet retransmissions and escaped data,
+  accept valid hexadecimal replies beginning with E, and reject oversized reads.
+  Preserve confirmed partial writes and close failed setup without resuming the
+  guest. Require a small real ARM64 QEMU CPU/RAM fixture before release packaging;
+  guest process/MMU integration remains pending.
+- Add a cancellable GUI GDB connection dialog and Lua endpoint/register APIs.
+  The ordinary Memory Viewer, byte scanner and shared Lua console operate on
+  the guest; the register editor uses XML names and complete scalar/vector widths.
+  Reject invalid edit sets before their first write and preserve unedited live
+  registers. Failed connections preserve the old target; disconnect freezes
+  old views and rejects stale accesses. Gate the actual GUI and CLI Lua flows
+  against independent stubs and real ARM64 QEMU RAM/registers, with exact
+  restoration and saved screenshots.
+- Read GUI pointers using the program's width and byte order, including narrow
+  pointers on ARM64 and valid zero addresses. Clear loaded symbol caches when
+  changing targets. Preserve ARM and Thumb instruction boundaries after invalid
+  encodings instead of decoding from the middle of an instruction word. Reject
+  numeric scans with unknown byte order instead of silently guessing;
+  raw byte scans remain available.
+- Scan integers, floats, Unicode and grouped values in the selected data byte
+  order, and use the program's four- or eight-byte pointer width. Retain raw
+  samples and persist their format through saved results, pruning and subsequent
+  scans; GUI and CLI displays decode that format. Include complete matches at
+  the To address and avoid signed overflow in integer delta comparisons.
+  Add native CLI range/format options and typed GDB scans, including subnormal
+  doubles. Lua scans accept explicit format options and expose original/current
+  captured values with `getValue`. Validate malformed values and preserve prior
+  results on failure; custom pointer formulas follow the chosen width. Show the
+  guest data format beside its CPU architecture in the GUI target label.
+- Guard host-only pause, process-directory and branch-sampling operations using
+  the target's transport and liveness. Remote identifiers, including a real
+  host-PID collision, cannot select host signals, `/proc` paths or perf sampling.
+  Disable the GUI Branch Mapper for remote targets with a clear explanation.
+- Recover a nonleader exec whose renamed process-TID notification was consumed
+  by another parent thread. Verify the kernel's EXEC siginfo and recorded former
+  TID before adopting the replacement image. Cover running and all-stop stepping,
+  retire old-image breakpoint records without code writes, and clear stale
+  register snapshots if replacement-context capture fails. Publish image retirement
+  with an explicitly unavailable context, then permit rereading the real bank on
+  the existing owner.
+- Handle irreversible thread exits during debugger stepping without waiting for
+  a leader's deferred final notification. Select a real surviving register bank,
+  publish final-process exit, and retain failed EXIT-stop detach for retry.
+  Drain sibling exit events during a nonleader exec and adopt the renamed task
+  without replaying old-image traps. Recognize native syscall-return step traps
+  in debugging and tracing while preserving genuine program breakpoint signals.
+  Exclude irreversibly exiting tasks from memory and frontend thread selection.
+  Recover an owned EXIT stop even when a launcher thread consumes its wait
+  notification, preventing debugger destruction from hanging.
+- Recover real signal, CLONE, EXEC and EXIT stops when a launcher thread consumes
+  their wait notifications. Retire running workers and final-process exits
+  automatically, retain failed detach on its actual owner for retry, and observe
+  target death while the debugger is paused. Probe one owned task per idle poll;
+  verify original signal delivery, replacement-image liveness and disabled GUI
+  register edits after actual process death.
+- Start the full debugger on a surviving stopped thread after the process leader
+  exits, while retaining the original process PID. Native single-thread hardware
+  monitoring also selects a live member; Wine retains its main-thread policy.
+  Verify real breakpoint stepping, instruction tracing and watchpoint cleanup,
+  plus frontend workflows against a pthread target with an exited leader.
+- Keep local memory reads, batched scanning, writes, mapping queries, module and
+  symbol loading, selected-thread inspection and native memory/call operations
+  usable after the main thread exits while siblings remain alive. Select a live
+  member while retaining the original process PID and birth for ownership.
+  Exclude exited tasks from thread selectors and verify actual glibc
+  `pthread_exit`, loader constructors and pthread execution in live fixtures.
+- Retain native cleanup ownership when executable metadata becomes temporarily
+  unavailable. Verify task lifetime independently, bind cleanup to the task
+  actually seized, and preserve completed-but-unreturned allocations for retry.
+  Query the shared owner before locking handle metadata to prevent concurrent
+  frontend inspection from deadlocking.
+- Read standalone register and stack windows through one selected-thread native
+  inspection stop. Support actual i386/x86-64/ARM64 register banks, base SIMD and
+  target-width stack words. Apply only changed registers to a fresh kernel
+  context, preserve unedited PC/SP, and retain failed cleanup on its owner across
+  frontend destruction. Refresh thread lists and snapshots on selection changes;
+  reject invalid edits and disable Apply when a snapshot is unavailable.
+  Verify this inspection path with real Wine PE32/PE32+ CPU loops as well.
+- Keep Wine test prefixes with the build instead of using RAM-backed `/tmp` by
+  default; provide `--work-dir` for an alternate scratch directory.
+
+- Display and edit the stopped thread's actual i386, x86-64 or ARM64 registers
+  in the interactive debugger. Show ARM64 PC/SP, X0-X30, NZCV, V0-V31 and FP
+  controls, refresh navigation after edits, and preserve complete BRK bytes in
+  instruction display and detach. Use native decoder defaults and code-address
+  ISA for disassembly export. Real Qt debugger, application startup, CLI and Lua
+  paths now pass under an ARM64 kernel; native ARM64 frontend checks gate releases.
+- Load verified separate debug symbols for ELF32 as well as ELF64. Validate
+  complete-file GNU debuglink checksums, matching build IDs and ELF architecture,
+  reject malformed links, and search container debug directories through the
+  target root, including when the module inode is shared with the host. A wrong
+  adjacent sidecar no longer hides a valid `.debug` copy.
+- Synchronize the timed-wait injection fixture after symbol loading, so slow
+  initialization cannot consume the interval being tested under emulation.
+  Allow time for rejected calls and final inspection before the fixture exits,
+  while keeping its real relative wait and completion deadline bounded.
+- Resolve mapped module files through the target's filesystem view when a host
+  pathname refers to a different inode. Preserve unknown metadata when target
+  backing files are unavailable, and make resolved target-root paths reusable.
+  Real host-to-container checks verify a 32-bit library shadowed by a 64-bit host
+  library, execution through its correct symbols, and deletion while mapped.
+- Track injected native pthreads by actual Linux thread exit using x86-64,
+  i386 and ARM64 entry wrappers. Retain worker storage across timeouts and
+  frontend destruction, handle self-detachment and `pthread_exit`, and cancel
+  abandoned late-created workers before entering user code. Auto-assembler
+  rollback and disable preserve allocations, original bytes and protection
+  records while a worker remains alive, allowing cleanup to be retried safely.
+- Add a shared native debug backend with explicit x86/i386 and ARM64 register
+  banks, SIMD reads, hardware/software breakpoint primitives and verified
+  recovery, exercised under real native and ARM64 full-system guest kernels.
+  Port the actual session event loop, stepping, software traps and data watchpoints
+  to these backends, including early child stops, ARM64 pre-access watchpoint
+  continuation, exec transitions and genuine signal delivery. Additional ARM64
+  panels, extended-vector UI and general unwinding remain incomplete.
+- Port instruction tracing to the shared native execution-breakpoint and register
+  backends, with target-ISA decoding and native call step-over. Verify clone,
+  exec, cancellation, genuine signals, overlapping requests, failed cleanup and
+  exit during recovery on native x86/i386 and a real ARM64 kernel. Require trace
+  success in architecture gates. Trace views and exports show native registers
+  and operation errors, and reject invalid addresses/ranges before attachment.
+- Port CodeFinder hardware and software monitoring to the shared native backend.
+  Preserve independently occupied slots, job-control stops and genuine signals;
+  retain failed restoration on its owner through cleanup. Software guards restore
+  permissions and release scratch mappings while the target remains stopped.
+  Verify actual stores, cloned writers, exec, interrupted syscalls and recovery on
+  native x86/i386 and ARM64. Require these checks in architecture gates. Native
+  register views and exports show operation/recovery errors.
+- Restore partially applied x86 kernel register writes on rejection, retain failed
+  session cleanup through caller destruction, and report/retry cleanup in GUI/Lua.
+  Retire old-image breakpoint lists on exec and reject stale Lua event register edits.
+- Fix native debugger software breakpoints at the final byte of a mapped page
+  by reading and patching the aligned containing word.
+- Decode stack frame records with target byte order and instruction-register
+  width, including ARM64 frame chains and x32 saved-register slots.
+- Require native-debug success markers in architecture release gates and retain
+  local CI suite output so failing checks include diagnostic evidence.
+- Distinguish the Unix loader and program ISA, pointer width, ABI, instruction
+  mode, and byte order, including real WoW64 and native exec transitions.
+- Use target formats for typed memory, pointer scans, Lua scalar operations, and
+  module-specific assembly/disassembly. Unknown formats produce explicit errors.
+- Preserve numeric x64 memory destinations in labeled assembly blocks. The CLI
+  assembler accepts an execution origin.
+- Verify auto-assembler restoration, retain failed cleanup state, restore
+  FULLACCESS permissions, and retry already-restored read-only pages safely.
+- Arm watchpoints before startup reports success and enforce Wine main-thread
+  monitoring in the backend. Reject unsafe native loader/thread helpers on Wine
+  until their dedicated backend is implemented.
+- Add native 32/64-bit and real Windows PE32/PE32+ operation fixtures, isolated Wine
+  tests, and required legacy Wine32/WoW64 release gates with JSON evidence.
+- Integrate an architecture-specific memory-syscall owner service into the native
+  process API, shared by GUI/CLI/Lua callers. Retain recovery across handle
+  destruction, clean completed-but-unreturned allocations, and drain pending
+  restoration before owner-thread shutdown. Preserve kernel errno, use the actual
+  page size, and reject overflowing requests and stale same-file exec cleanup.
+- Execute transient memory syscalls through existing non-writable Unix ELF
+  instructions, preserving shared program code while sibling threads run.
+  Exclude Wine's Windows syscall sites. Restore previously configured disabled
+  ARM64 watchpoint attributes, and consume queued step traps after a denied
+  synthetic syscall so the original target continues under its unchanged policy.
+  Verify concurrency and real seccomp trap denial in required architecture gates.
+- Migrate native library/pthread injection to a shared call owner on x86-64,
+  i386 and ARM64. Retain private frames and interrupted calls through frontend
+  destruction; clean orphan pthread handles. Verify real libc constructors,
+  symlink/cached library loading, joins, timeout detachment and application
+  liveness in required gates. Reject non-executable entries, embedded NUL paths
+  and overflowing Lua timeouts; report timeout without claiming thread completion.
+  The complete ARM64 core/Qt GUI cross-build now succeeds. Parked-thread adapters,
+  full ARM64 frontend/runtime validation and broader libc variants remain pending.
+- Support memory syscalls while real WoW64 targets execute busy Windows i386
+  code under a 64-bit Unix loader. Restore Windows registers and execution mode,
+  keep default allocations within the program pointer range, and retain the wider
+  range for allocations near a 64-bit loader module. Search the full 32-bit address
+  space when the kernel's preferred low-address window is exhausted; verify this
+  without allocating physical pages. Reject overflowing rounded
+  sizes before mutation. Require busy PE32/PE32+ operation markers in Wine gates.
+- Select native syscall-user-dispatch sites using the kernel's exact range and
+  selector state without changing either. Verify real exclusive dispatch on x86-64
+  and i386, unchanged configuration, blocked/invalid selectors, actual memory
+  operations, CPU progress and safe rejection when no native site exists.
+- Default local CI builds to one compiler job; CECORE_CI_JOBS can explicitly
+  enable parallel builds on machines with sufficient resources.
+- Reserve syscall recovery ownership before ptrace attachment. Retain failed
+  preflight detach and interrupt cleanup without replaying unfinished registers,
+  translate allocation failures safely, and preserve ownership through caller
+  destruction and target exit. Track initialization writes before attempting
+  them so errors after mutation still restore code, registers and syscall state.
+  Require live preflight recovery checks in native and ARM64 release gates.
+- Print CLI watchpoint hit counts at their full 64-bit width, avoiding truncation
+  or negative counts during long-running monitoring.
+- Preserve kernel-exposed extended register images during native memory syscalls.
+  Restore live ARM64 SVE/streaming SVE and ZA state, retain failed restoration
+  and its unreturned allocation, and verify exact register bytes and target
+  liveness in the required VM gate at default and maximum vector lengths.
+  Preserve deferred SVE/SME exec-time vector lengths with a guarded signal-return
+  backend, verified through real exec transitions in transient, private and
+  quiesced memory operations. Back up and verify borrowed stack bytes, retain
+  failed frame restoration for retry, and preserve signal masks and configured
+  alternate stacks. Reject live-vector operations under seccomp, active GCS or
+  nonstandard stacks before mutation; ARM64 memory capabilities remain partial.
+- Verify the real process API and executor on native
+  x86-64/i386 and an ARM64 full-system Linux guest, including real restoration
+  failures, recovery ownership, allocation cleanup, exit and signal delivery.
+  Require its ARM64 VM gate before release packaging and publish binary/kernel
+  hashes with operation evidence. Whole foreign-host builds and debugger/call
+  architecture backends remain in progress.
+
+This work remains in progress. See [the compatibility record](docs/COMPATIBILITY.md)
+for verified environments and incomplete backends; this is not a universal
+compatibility claim.
+
 ## v0.9.5: deeper correctness fixes, site-specific injection, and GUI improvements (2026-10-03)
 
 This release combines deeper audits of the shared backend with usability improvements

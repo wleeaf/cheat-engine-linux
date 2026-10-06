@@ -1,0 +1,96 @@
+name: ARM64 kernel compatibility
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  arm64-frontends:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install native ARM64 GUI dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build qt6-base-dev qt6-base-dev-tools \
+            libcapstone-dev libdw-dev zlib1g-dev python3 fonts-dejavu-core
+      - name: Reuse architecture-specific dependency builds
+        uses: actions/cache@v6
+        with:
+          path: build/_deps
+          key: cecore-frontend-deps-${{ runner.os }}-${{ runner.arch }}-keystone-0.9.2-${{ hashFiles('cmake/patch_keystone.cmake') }}
+      - name: Build native core, application, CLI and live register test serially
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          nice -n 10 cmake --build build --target gui_register_smoke cheatengine cescan code_write_integration memory_image_integration native_call_image_integration native_call_exec_integration -j1
+      - name: Require native ARM64 register editing and GUI, CLI and Lua runtime checks
+        run: |
+          python3 test/gui_runtime_gate.py build --report build/compatibility-evidence/arm64-frontends.json
+          python3 test/gui_runtime_gate.py build --leader-exit --report build/compatibility-evidence/arm64-frontends-leader-exit.json
+          python3 test/code_write_gate.py build --output build/compatibility-evidence/code-write.log --report build/compatibility-evidence/code-write.json
+          python3 test/memory_image_gate.py build --output build/compatibility-evidence/memory-image.log --report build/compatibility-evidence/memory-image.json
+          python3 test/native_call_image_gate.py build --output build/compatibility-evidence/native-call-image.log --report build/compatibility-evidence/native-call-image.json
+          python3 test/native_call_exec_gate.py build --output build/compatibility-evidence/native-call-exec.log --report build/compatibility-evidence/native-call-exec.json
+      - name: Save frontend logs, screenshots and operation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arm64-frontend-evidence
+          path: |
+            build/compatibility-evidence/arm64-frontends*
+            build/compatibility-evidence/code-write.*
+            build/compatibility-evidence/memory-image.*
+            build/compatibility-evidence/native-call-image.*
+            build/compatibility-evidence/native-call-exec.*
+          if-no-files-found: error
+
+  arm64-syscalls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install cross compiler and full-system emulator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu qemu-system-arm python3 curl cmake
+      - name: Require real ARM64 memory, register, breakpoint, trace, relocation and recovery operations
+        run: |
+          nice -n 10 bash tools/check-arm64-vm.sh
+          CECORE_VM_PAGE_SIZE=65536 nice -n 10 bash tools/check-arm64-vm.sh
+      - name: Save guest logs and operation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arm64-syscall-evidence
+          path: |
+            build/arm64-vm/guest.log
+            build/arm64-vm/arm64-syscalls.json
+            build/arm64-vm/guest-64k.log
+            build/arm64-vm/arm64-syscalls-64k.json
+            build/arm64-vm/relocation.log
+            build/arm64-vm/arm64-relocation.json
+            build/arm64-vm/relocation-64k.log
+            build/arm64-vm/arm64-relocation-64k.json
+            build/arm64-vm/code-write.log
+            build/arm64-vm/memory-image.log
+            build/arm64-vm/arm64-code-write.json
+            build/arm64-vm/arm64-memory-image.json
+            build/arm64-vm/code-write-64k.log
+            build/arm64-vm/memory-image-64k.log
+            build/arm64-vm/arm64-code-write-64k.json
+            build/arm64-vm/arm64-memory-image-64k.json
+            build/arm64-vm/native-call-image.log
+            build/arm64-vm/arm64-native-call-image.json
+            build/arm64-vm/native-call-image-64k.log
+            build/arm64-vm/arm64-native-call-image-64k.json
+            build/arm64-vm/native-call-exec.log
+            build/arm64-vm/arm64-native-call-exec.json
+            build/arm64-vm/native-call-exec-64k.log
+            build/arm64-vm/arm64-native-call-exec-64k.json
+          if-no-files-found: error

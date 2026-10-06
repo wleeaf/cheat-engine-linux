@@ -1,6 +1,7 @@
 #pragma once
 
 #include "platform/linux/linux_process.hpp"
+#include "platform/gdb_process.hpp"
 #include "platform/linux/ptrace_wrapper.hpp"
 #include "platform/linux/ceserver_client.hpp"
 #include "platform/linux/process_watcher.hpp"
@@ -53,6 +54,7 @@ public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow() override;
     void loadTableFromPath(const QString& path);  // load .ct/.json without a dialog
+    bool saveTableToPath(const QString& path);   // same save path used by File > Save
     /// Push `path` to the front of the persisted recent-tables list and rebuild
     /// the File > Load Recent submenu.
     void addRecentTable(const QString& path);
@@ -72,6 +74,7 @@ public:
     /// Attach to a running process by pid (no dialog). `name` is display-only.
     /// Used by the process picker and by `--pid <N>` on the command line.
     void attachToPid(pid_t pid, const QString& name);
+    bool attachToGdb(std::unique_ptr<ce::GdbProcessHandle> process,const QString& endpoint);
 
     /// Test hook: drive "find what writes" from the command line (`--find-writes`)
     /// so the exact GUI code path can be exercised headlessly against a repro
@@ -85,6 +88,8 @@ public:
 private slots:
     void onOpenProcess();
     void onConnectCeserver();
+    void onConnectGdb();
+    void onDisconnectProcess();
     void onFirstScan();
     void onNextScan();
     void onUndoScan();
@@ -107,17 +112,18 @@ protected:
 
 private:
     void setupUi();
-    void releaseTargetUsers();
+    bool releaseTargetUsers(bool force = false);
     void trackTargetWindow(QWidget* window) { targetWindows_.push_back(window); }
     std::vector<QPointer<QWidget>> targetWindows_;
     /// Move the cheat-table entry at `row` up (-1) or down (+1) and keep it selected.
     void moveSelectedEntry(int row, int delta);
     void setupMenus();
-    void loadAddressEntries(const QJsonArray& entries);
+    bool loadAddressEntries(const QJsonArray& entries);
     // Build the address list + table comment/annotations/Lua from a parsed table
     // (shared by the CE XML .CT and protected .CETRAINER load paths).
-    void loadCheatTableModel(const ce::CheatTable& table);
+    bool loadCheatTableModel(const ce::CheatTable& table,const QJsonArray* originalJson=nullptr);
     void updateScanButtons();
+    void applyScanDataFormat(ce::ScanConfig& config) const;
     void startCodeFinder(int row, bool writesOnly);
     // watchSize 1/2/4/8 sizes the hardware watchpoint (e.g. a Byte record watches 1
     // byte, a Qword 8). 0 (or an invalid value) falls back to the configured default.
@@ -167,6 +173,7 @@ private:
     void openHelpDoc(const QString& relPath, const QString& title, const QString& url);
     QString tableComment_;
     QString tableLuaScript_;     // table-level Lua (runs on load, saved with the table)
+    ce::CheatTable tableMetadata_; // Imported author/version/structures/forms survive re-save.
     // Populate a Memory Viewer's View/Tools/Debug menus with the tools that need
     // MainWindow's context (CE keeps these in the Memory Viewer, not the main menu).
     void populateBrowserMenus(MemoryBrowser* b);
@@ -249,6 +256,8 @@ private:
     QLineEdit* percentValue2Edit_;
     QLineEdit* floatToleranceEdit_;
     QComboBox* stringEncodingCombo_;
+    QComboBox* scanByteOrderCombo_ = nullptr;
+    QComboBox* scanPointerWidthCombo_ = nullptr;
 
     // Results
     QTableView* resultsView_;
@@ -326,6 +335,7 @@ struct AddressEntry {
     ce::FreezeMode freezeMode = ce::FreezeMode::Normal;
     QString autoAsmScript;    // Auto-assembler script to run on enable/disable
     ce::DisableInfo autoAsmDisableInfo;
+    uint64_t autoAsmOrder = 0;
     QString color;            // Hex color for display
     QString dropdownList;     // "value:label;value:label" choices
     QString hotkeyKeys;       // Portable key sequence string
@@ -347,6 +357,8 @@ struct AddressEntry {
                               // memory; display decodes, edit/freeze encode (default none)
     bool bigEndian = false;   // Value bytes are big-endian (emulated PS3/Wii/GameCube);
                               // display byte-swaps to host order, edit swaps back
+    ce::ByteOrder dataByteOrder = ce::ByteOrder::Unknown;
+    uint8_t pointerWidth = 0;
 };
 
 class AddressListModel : public QAbstractTableModel, public ce::IAddressList {
@@ -365,14 +377,14 @@ public:
     void addGroup(const QString& desc = "-- Group --");
     // Replace the auto-assembler script (and optionally description) of an
     // existing script entry, found by its stable id so it survives row reorder.
-    void updateScriptEntryById(int id, const QString& desc, const QString& script);
+    bool updateScriptEntryById(int id, const QString& desc, const QString& script);
     bool isScriptEntry(int row) const;
     // Edit individual fields of an entry (address/description) with proper
     // dataChanged notification, for inline editing and the copy/edit menu.
     void setEntryAddress(int row, uintptr_t addr, const QString& expr = {});
     void setEntryDescription(int row, const QString& desc);
-    void removeEntry(int row);
-    void removeEntries(QList<int> rows);
+    bool removeEntry(int row);
+    bool removeEntries(QList<int> rows);
     /// Swap the entry at `row` with its neighbour `delta` rows away (-1 up, +1
     /// down). Returns the entry's new row, or `row` if it couldn't move.
     int moveEntry(int row, int delta);
@@ -387,6 +399,7 @@ public:
     std::string entryCodecSpec(int row) const;   // "none" or e.g. "xor:0x1234"
     void setEntryBigEndian(int row, bool bigEndian);   // emulated big-endian value bytes
     bool entryBigEndian(int row) const;
+    void setEntryDataFormat(int row, ce::ByteOrder order, uint8_t pointerWidth = 0);
     void setAllActive(bool active);
     void setShowAsHex(int row, bool hex);
     void setEntryType(int row, ce::ValueType t);
@@ -398,7 +411,10 @@ public:
     void toggleActive(int row);   // flip active state (hotkey target)
     bool toggleGroupCollapse(int row);  // flip a group header's collapsed flag; true if it was a group
     void setEntryValueTo(int row, const QString& value);  // set-value hotkey target
-    void setProcess(ce::ProcessHandle* proc) { proc_ = proc; refreshModuleCache(); }
+    bool setProcess(ce::ProcessHandle* proc);
+    // Run before retiring the borrowed process/assembler. Failure keeps rows and
+    // remaining undo available for retry against their original address space.
+    bool deactivateAll();
     /// Shared symbol resolver used to resolve record address expressions, so a
     /// user-defined label set in the Memory Viewer works as a record address too
     /// (CE's userdefined symbols are global). Null keeps the previous behaviour.
@@ -423,7 +439,9 @@ public:
     void updateValues(ce::ProcessHandle* proc);
     void freezeWrite(ce::ProcessHandle* proc);
     QJsonArray toJson() const;
-    void fromJson(const QJsonArray& arr);
+    // Parse before replacement and deactivate previous owners before reset.
+    // Paste can retain matching existing records' undo and freeze anchors.
+    bool fromJson(const QJsonArray& arr, bool preserveExisting = false);
 
     int rowCount(const QModelIndex& = {}) const override;
     int columnCount(const QModelIndex& = {}) const override;
@@ -490,11 +508,13 @@ private:
     // valueReverted() if the value did not stick (a protected/reverted value).
     void scheduleEditVerify(uintptr_t addr, ce::ValueType type, const QString& wroteStr,
                             const ce::ValueCodec& codec = {}, bool bigEndian = false,
-                            bool isSigned = true);
+                            bool isSigned = true, ce::ByteOrder order = ce::ByteOrder::Unknown,
+                            uint8_t pointerWidth = 0);
     // Re-resolve a pointer/expression record's target from its address expression so a
     // read/write acts on the current target, not the cached (up to ~500ms stale) address.
     void reresolveAddress(AddressEntry& e);
-    int allocId() { return nextId_++; }
+    int allocId();
+    std::vector<int> cleanupOrder() const;
 
     std::vector<AddressEntry> entries_;
     std::vector<ce::ModuleInfo> moduleCache_;   // for module+offset address display
@@ -506,6 +526,10 @@ private:
     std::function<std::optional<uintptr_t>(const QString&)> addressResolver_;
     ce::IAddressList::ActivationCallback activationCb_;
     int nextId_ = 1;
+    bool idWrapped_ = false;
+    bool scriptBusy_ = false;
+    bool mutationBusy_ = false;
+    uint64_t targetRevision_ = 0;
 };
 
 } // namespace ce::gui

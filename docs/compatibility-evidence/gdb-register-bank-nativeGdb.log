@@ -1,0 +1,125 @@
+PASS raw-hex
+PASS raw-escape
+PASS raw-rle
+PASS raw-request-retry
+PASS raw-response-retry
+PASS raw-console
+PASS raw-bad-prefix
+PASS raw-bad-rle
+PASS raw-bad-escape
+PASS raw-timeout
+PASS raw-cancel
+PASS raw-eof
+PASS raw-short
+PASS raw-error
+PASS raw-oversized
+PASS bank-only
+PASS bank-read-only
+PASS bank-write-only
+PASS bank-unavailable
+PASS bank-truncated
+PASS bank-misaligned
+PASS bank-oversized
+PASS bank-invalid
+PASS bank-p-error
+PASS bank-p-malformed
+PASS bank-g-error
+PASS bank-G-error
+PASS bank-too-large
+PASS bank-disconnect
+PASS bank-stall
+PASS xml-cycle
+PASS xml-duplicate
+PASS xml-missing-bits
+PASS xml-missing-arch
+PASS xml
+PASS chunks
+PASS partial-write
+PASS adapter
+PASS xml-namespace
+PASS adapter-bad-stop
+PASS adapter-bad-map
+PASS xml-dtd-default
+PASS adapter-exited
+PASS adapter-width
+PASS adapter-endian-conflict
+PASS adapter-high
+PASS private-xml-linkage
+PASS cli-info
+PASS cli-read
+PASS cli-write
+PASS cli-reg
+PASS cli-edit-reg
+PASS cli-scan
+PASS cli-scan-be-i32
+PASS cli-scan-le-i32
+PASS cli-scan-pointer4
+PASS cli-scan-last-byte
+PASS cli-high-scan
+PASS cli-scan-subnormal
+PASS cli-lua
+PASS cli-bank-pc
+PASS cli-bank-x0
+PASS lua-register-bank
+PASS cli-exited
+PASS cli-high-lua
+PASS cli-invalid-read
+PASS cli-invalid-info-extra
+PASS cli-invalid-info---width-4---width-8
+PASS cli-invalid-info---le---be
+PASS cli-invalid-write-0x1000-abc
+PASS cli-invalid-scan-0x1000-10-qq
+PASS cli-invalid-scan-0x1000-4-oops---type-i32
+PASS cli-invalid-scan-0x1000-4-12abc---type-float
+PASS cli-invalid-scan-0x1000-4-10---type-unknown
+PASS cli-invalid-info---type-i32
+PASS qemu-arm64
+OK: guest CPU metadata never becomes an invented local PID or host ABI
+OK: guest ranges use the serialized remote adapter and retain exact boundaries
+OK: unsupported guest memory-management operations cannot use local ptrace
+OK: the actual QEMU guest RAM is readable through the shared adapter
+OK: actual core registers are readable while omitted whole-bank vectors remain unavailable
+OK: chunked guest writes and reads preserve every actual RAM byte
+OK: guest PC and vector edits reach the actual QEMU CPU
+OK: one actual guest instruction produces its native MOV result
+OK: the second guest instruction executes the native ADD on the same CPU
+OK: ordinary disassembly uses guest ARM64 instruction mode
+OK: an unmapped guest read returns an error while the actual CPU remains stopped and usable
+OK: original guest vector, scalar and PC state can be restored on the same transport
+OK: the ordinary scanner finds the real guest byte pattern without local-process access
+OK: every modified guest RAM byte and the entire actual core register bank is restored exactly
+OK: confirmed detach retires the transport and rejects stale reads
+GDB_ADAPTER_RESULT=PASSED mode=qemu
+ [] 
+PASS qemu-arm64-bank-only
+OK: guest CPU metadata never becomes an invented local PID or host ABI
+OK: guest ranges use the serialized remote adapter and retain exact boundaries
+OK: unsupported guest memory-management operations cannot use local ptrace
+OK: the actual QEMU guest RAM is readable through the shared adapter
+OK: actual core registers are readable while omitted whole-bank vectors remain unavailable
+OK: chunked guest writes and reads preserve every actual RAM byte
+OK: whole-register PC edits reach the actual QEMU CPU without changing other core fields
+OK: one actual guest instruction produces its native MOV result
+OK: the second guest instruction executes the native ADD on the same CPU
+OK: ordinary disassembly uses guest ARM64 instruction mode
+OK: an unmapped guest read returns an error while the actual CPU remains stopped and usable
+OK: original guest scalar and PC state can be restored through actual G packets
+OK: the ordinary scanner finds the real guest byte pattern without local-process access
+OK: every modified guest RAM byte and the entire actual core register bank is restored exactly
+OK: confirmed detach retires the transport and rejects stale reads
+GDB_ADAPTER_RESULT=PASSED mode=qemu-bank
+ [] 
+PASS qemu-lua-bank-only
+GDB_LUA_ALL_NUMBERS=PASSED strict input, decimal bounds, scientific and hexadecimal values
+GDB_LUA_FLOAT_ROUNDING=PASSED decimal/scientific boundaries, modes, upper values and invalid-option recovery
+GDB_LUA_ALL_SCANS=PASSED numeric candidates, short tails, first samples and concrete type selection
+GDB_LUA_SCANS=PASSED numeric, pointer, float, Unicode, snapshots and explicit data formats
+GDB_LUA_RESULT=PASSED actual RAM and XML register state restored
+ [] 
+PASS qemu-lua
+GDB_LUA_ALL_NUMBERS=PASSED strict input, decimal bounds, scientific and hexadecimal values
+GDB_LUA_FLOAT_ROUNDING=PASSED decimal/scientific boundaries, modes, upper values and invalid-option recovery
+GDB_LUA_ALL_SCANS=PASSED numeric candidates, short tails, first samples and concrete type selection
+GDB_LUA_SCANS=PASSED numeric, pointer, float, Unicode, snapshots and explicit data formats
+GDB_LUA_RESULT=PASSED actual RAM and XML register state restored
+ [] 

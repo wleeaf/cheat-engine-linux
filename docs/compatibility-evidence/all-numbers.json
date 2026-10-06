@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "createdUTC": "2026-10-05T21:57:04.516092+00:00",
+  "passed": true,
+  "sourceState": "uncommitted worktree snapshot",
+  "scope": "Shared All number parser and comparisons, GUI scientific rounding/error preservation, native CLI percentage and numeric flags, Lua explicit upper values and exact restoration through BE32 and real ARM64 QEMU RAM. Independent data-path checks, not broader Linux ISA debugging coverage.",
+  "newModelChecks": [
+    "All numeric literals preserve fractional and negative integer comparison boundaries in both byte orders",
+    "All numeric literals accept scientific/hex/comma forms and retain exponent-adjusted decimal precision",
+    "All numeric literals retain exact signed 64-bit boundaries independently of double rounding",
+    "All delta literals reject fractional integer changes and preserve the complete unsigned distance across signed endpoints",
+    "All infinity searches and unknown nonfinite candidates never invent integer zero matches",
+    "All floating relational bounds retain double input precision rather than rounding to the candidate's width",
+    "All percentage comparisons use their own thresholds without requiring unrelated numeric search values",
+    "Malformed All numeric literals and missing upper bounds fail atomically rather than scanning zero or a prefix",
+    "Decimal and scientific All boundaries agree with 51102 independent exact rational integer comparisons",
+    "Lua All scans use strict numeric boundaries, explicit Between upper values and preserve results on malformed input"
+  ],
+  "exactRationalComparisonsPerBuild": 51102,
+  "totalModelChecksPerBuild": 155,
+  "evidence": {
+    "allTypes": {
+      "path": "all-types.json",
+      "sha256": "ea0b87bfa22cc0015a319e75fa376ddf8631e095002dadd616bff8fb30a547e8"
+    },
+    "scannerFormats": {
+      "path": "scanner-formats.json",
+      "sha256": "9660041dbb510f8910af7616cc5dd0d1c1e130c4acb13747277c4bc2b9e9135b"
+    },
+    "cli": {
+      "path": "all-numbers-cli.log",
+      "sha256": "7d138201172ec8b047432ac20a6f7b1bdab80937ffcb2b85f2a23b2570e6125c"
+    },
+    "gui": {
+      "path": "all-types-gui.log",
+      "sha256": "9fb600db04d7056867a922f761b1efdc73ca31942fb93d08c9d83429f59b36ec"
+    },
+    "hostCI": {
+      "path": "all-types-host-ci.log",
+      "sha256": "8301aa8c32ddb6263e6ec2477a560d90d3ba5002f147946b5f396409f54d829b"
+    }
+  }
+}

@@ -1,5 +1,6 @@
 #include <charconv>
 #include "core/ct_file.hpp"
+#include "core/ct_file_stream.hpp"
 #include "core/log.hpp"
 #include <fstream>
 #include <sstream>
@@ -10,6 +11,10 @@
 #include <unordered_map>
 #include <functional>
 #include <vector>
+#include <limits>
+#include <stdexcept>
+#include <type_traits>
+#include <string_view>
 #include <unistd.h>
 
 // Simple XML writer/reader (no external dependency)
@@ -240,9 +245,35 @@ static ValueType strToType(const std::string& s) {
 
 // ── Save as CE-compatible XML ──
 
+static bool validRecordFormats(const std::vector<CheatEntry>& entries) {
+    for (const auto& entry : entries)
+        if ((entry.dataByteOrder != ByteOrder::Unknown && entry.dataByteOrder != ByteOrder::Little && entry.dataByteOrder != ByteOrder::Big) ||
+            (entry.pointerWidth != 0 && entry.pointerWidth != 4 && entry.pointerWidth != 8)) return false;
+    return true;
+}
+
 bool CheatTable::save(const std::string& path) const {
+    if (!validRecordFormats(entries)) return false;
     std::ofstream f(path);
     if (!f) return false;
+    bool success=writeTableXml(*this,f);
+    f.flush();
+    success=success && f.good();
+    f.close();
+    return success && !f.fail();
+}
+
+bool writeTableXml(const CheatTable& table,std::ostream& f) {
+    const auto& entries=table.entries;
+    const auto& gameName=table.gameName;
+    const auto& gameVersion=table.gameVersion;
+    const auto& author=table.author;
+    const auto& comment=table.comment;
+    const auto& luaScript=table.luaScript;
+    const auto& structures=table.structures;
+    const auto& disassemblerComments=table.disassemblerComments;
+    const auto& rawFormsXml=table.rawFormsXml;
+    if (!validRecordFormats(entries)) return false;
 
     f << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
     f << "<CheatTable>\n";
@@ -370,6 +401,10 @@ bool CheatTable::save(const std::string& path) const {
         // (CE reads <ShowAsSigned> and omits it at its default too).
         if (!e.showAsSigned)
             f << "      <ShowAsSigned>0</ShowAsSigned>\n";
+        if (e.dataByteOrder != ByteOrder::Unknown)
+            f << "      <LinuxDataByteOrder>" << (e.dataByteOrder == ByteOrder::Big ? "big" : "little") << "</LinuxDataByteOrder>\n";
+        if (e.pointerWidth)
+            f << "      <LinuxPointerWidth>" << static_cast<unsigned>(e.pointerWidth) << "</LinuxPointerWidth>\n";
         // Directional freeze (Allow Increase/Decrease etc.) — a custom tag CE
         // ignores but our loader restores, so it round-trips through CE XML too.
         if (e.freezeMode != FreezeMode::Normal)
@@ -433,7 +468,7 @@ bool CheatTable::save(const std::string& path) const {
     // guard so cycles or duplicate ids can never drop or double-write an entry.
     std::unordered_map<int, int> idToIndex;
     for (size_t i = 0; i < entries.size(); ++i)
-        if (entries[i].id != 0) idToIndex.emplace(entries[i].id, static_cast<int>(i));
+        idToIndex.emplace(entries[i].id, static_cast<int>(i));
     std::vector<std::vector<int>> children(entries.size());
     std::vector<char> isChild(entries.size(), 0);
     for (size_t i = 0; i < entries.size(); ++i) {
@@ -470,7 +505,7 @@ bool CheatTable::save(const std::string& path) const {
         f << "  <Forms>" << rawFormsXml << "</Forms>\n";
     f << "</CheatTable>\n";
 
-    return true;
+    return f.good();
 }
 
 // ── Simple XML tag parser ──
@@ -529,8 +564,20 @@ static size_t findMatchingClose(const std::string& xml, size_t openPos, const st
 
 // Parse the <CheatEntry> blocks directly inside `entriesXml`, appending them (and,
 // recursively, any nested children) to `entries` with parentId set for hierarchy.
+static bool parseRecordDataFormat(const std::string& order, const std::string& width, CheatEntry& entry) {
+    if (order.empty() || order == "auto") entry.dataByteOrder = ByteOrder::Unknown;
+    else if (order == "little") entry.dataByteOrder = ByteOrder::Little;
+    else if (order == "big") entry.dataByteOrder = ByteOrder::Big;
+    else return false;
+    if (width.empty() || width == "0") entry.pointerWidth = 0;
+    else if (width == "4") entry.pointerWidth = 4;
+    else if (width == "8") entry.pointerWidth = 8;
+    else return false;
+    return true;
+}
+
 static void parseCheatEntriesBlock(const std::string& entriesXml, int parentId,
-                                   std::vector<CheatEntry>& entries) {
+                                   std::vector<CheatEntry>& entries, bool& validFormat) {
     static const std::string CE_CLOSE = "</CheatEntry>";
     size_t pos = 0;
     while (true) {
@@ -588,6 +635,7 @@ static void parseCheatEntriesBlock(const std::string& entriesXml, int parentId,
         }
         e.active = (getTag(ownXml, "Activated") == "1");
         e.showAsHex = (getTag(ownXml, "ShowAsHex") == "1");
+        if (!parseRecordDataFormat(getTag(ownXml, "LinuxDataByteOrder"), getTag(ownXml, "LinuxPointerWidth"), e)) validFormat = false;
         e.showAsSigned = (getTag(ownXml, "ShowAsSigned") != "0");  // absent -> signed default
         if (auto fm = getTag(ownXml, "freezeMode"); !fm.empty()) {
             try { e.freezeMode = (FreezeMode)std::stoi(fm); } catch (...) {}
@@ -647,7 +695,7 @@ static void parseCheatEntriesBlock(const std::string& entriesXml, int parentId,
         int myId = e.id;
         entries.push_back(std::move(e));
         if (!childListXml.empty())
-            parseCheatEntriesBlock(childListXml, myId, entries);
+            parseCheatEntriesBlock(childListXml, myId, entries, validFormat);
     }
 }
 
@@ -677,7 +725,16 @@ static std::string jsonEscape(const std::string& s) {
             case '\n': out += "\\n"; break;
             case '\r': out += "\\r"; break;
             case '\t': out += "\\t"; break;
-            default:   out += c; break;
+            case '\b': out += "\\b"; break;
+            case '\f': out += "\\f"; break;
+            default:
+                if (static_cast<unsigned char>(c)<0x20) {
+                    constexpr char hex[]="0123456789abcdef";
+                    out += "\\u00";
+                    out += hex[static_cast<unsigned char>(c)>>4];
+                    out += hex[static_cast<unsigned char>(c)&15];
+                } else out += c;
+                break;
         }
     }
     return out;
@@ -688,7 +745,8 @@ struct JsonValue {
 
     Type type = Type::Null;
     bool boolValue = false;
-    double numberValue = 0.0;
+    // Keep number tokens exact: IEEE double cannot represent every 64-bit
+    // address or signed pointer offset, even when the JSON integer is valid.
     std::string stringValue;
     std::vector<JsonValue> arrayValue;
     std::unordered_map<std::string, JsonValue> objectValue;
@@ -696,7 +754,9 @@ struct JsonValue {
 
 class JsonParser {
 public:
-    explicit JsonParser(const std::string& input) : input_(input) {}
+    explicit JsonParser(const std::string& input) : input_(input) {
+        if (input_.compare(0,3,"\xef\xbb\xbf")==0) pos_=3;
+    }
 
     bool parse(JsonValue& out) {
         skipWs();
@@ -707,7 +767,7 @@ public:
 
 private:
     void skipWs() {
-        while (pos_ < input_.size() && std::isspace(static_cast<unsigned char>(input_[pos_])))
+        while (pos_<input_.size() && (input_[pos_]==' ' || input_[pos_]=='\t' || input_[pos_]=='\r' || input_[pos_]=='\n'))
             ++pos_;
     }
 
@@ -766,6 +826,7 @@ private:
                 return true;
             }
             if (c != '\\') {
+                if (static_cast<unsigned char>(c)<0x20) return false;
                 value += c;
                 continue;
             }
@@ -781,13 +842,38 @@ private:
                 case 'r': value += '\r'; break;
                 case 't': value += '\t'; break;
                 case 'u': {
-                    if (pos_ + 4 > input_.size()) return false;
-                    auto hex = input_.substr(pos_, 4);
-                    pos_ += 4;
-                    char* end = nullptr;
-                    auto code = std::strtoul(hex.c_str(), &end, 16);
-                    if (!end || *end != '\0') return false;
-                    value += (code <= 0x7f) ? static_cast<char>(code) : '?';
+                    auto unit=[&](uint32_t& code) {
+                        if (input_.size()-pos_<4) return false;
+                        code=0;
+                        for (int i=0;i<4;++i) {
+                            const char h=input_[pos_++];
+                            const int digit=h>='0' && h<='9' ? h-'0' : h>='a' && h<='f' ? h-'a'+10 : h>='A' && h<='F' ? h-'A'+10 : -1;
+                            if (digit<0) return false;
+                            code=(code<<4)|static_cast<unsigned>(digit);
+                        }
+                        return true;
+                    };
+                    uint32_t code=0;
+                    if (!unit(code)) return false;
+                    if (code>=0xd800 && code<=0xdbff) {
+                        if (input_.size()-pos_<2 || input_[pos_]!='\\' || input_[pos_+1]!='u') return false;
+                        pos_+=2;uint32_t low=0;
+                        if (!unit(low) || low<0xdc00 || low>0xdfff) return false;
+                        code=0x10000+((code-0xd800)<<10)+(low-0xdc00);
+                    } else if (code>=0xdc00 && code<=0xdfff) return false;
+                    if (code<=0x7f) value+=static_cast<char>(code);
+                    else {
+                        if (code<=0x7ff) value+=static_cast<char>(0xc0|(code>>6));
+                        else {
+                            if (code<=0xffff) value+=static_cast<char>(0xe0|(code>>12));
+                            else {
+                                value+=static_cast<char>(0xf0|(code>>18));
+                                value+=static_cast<char>(0x80|((code>>12)&63));
+                            }
+                            value+=static_cast<char>(0x80|((code>>6)&63));
+                        }
+                        value+=static_cast<char>(0x80|(code&63));
+                    }
                     break;
                 }
                 default:
@@ -798,16 +884,24 @@ private:
     }
 
     bool parseNumber(JsonValue& out) {
-        const char* start = input_.c_str() + pos_;
-        // JSON numbers are always '.'-decimal; std::strtod honours the C locale
-        // (comma under Qt) and would misparse "3.14" as 3, corrupting float values
-        // loaded from a .CT file. std::from_chars is locale-independent.
-        double value = 0;
-        auto [ptr, ec] = std::from_chars(start, input_.c_str() + input_.size(), value);
-        if (ec != std::errc() || ptr == start) return false;
-        pos_ += static_cast<size_t>(ptr - start);
+        const size_t start=pos_;
+        auto digit=[&] {return pos_<input_.size() && input_[pos_]>='0' && input_[pos_]<='9';};
+        if (input_[pos_]=='-') ++pos_;
+        if (!digit()) return false;
+        if (input_[pos_]=='0') {++pos_;if (digit()) return false;}
+        else while (digit()) ++pos_;
+        if (pos_<input_.size() && input_[pos_]=='.') {
+            ++pos_;if (!digit()) return false;
+            while (digit()) ++pos_;
+        }
+        if (pos_<input_.size() && (input_[pos_]=='e' || input_[pos_]=='E')) {
+            ++pos_;
+            if (pos_<input_.size() && (input_[pos_]=='+' || input_[pos_]=='-')) ++pos_;
+            if (!digit()) return false;
+            while (digit()) ++pos_;
+        }
         out.type = JsonValue::Type::Number;
-        out.numberValue = value;
+        out.stringValue=input_.substr(start,pos_-start);
         return true;
     }
 
@@ -847,7 +941,7 @@ private:
             if (!consume(':')) return false;
             JsonValue value;
             if (!parseValue(value)) return false;
-            out.objectValue.emplace(std::move(key.stringValue), std::move(value));
+            out.objectValue.insert_or_assign(std::move(key.stringValue), std::move(value));
             skipWs();
             if (pos_ < input_.size() && input_[pos_] == '}') {
                 ++pos_;
@@ -878,48 +972,114 @@ static bool jsonBoolField(const JsonValue& obj, const std::string& key) {
     auto* v = getField(obj, key);
     if (!v) return false;
     if (v->type == JsonValue::Type::Bool) return v->boolValue;
-    if (v->type == JsonValue::Type::Number) return v->numberValue != 0.0;
+    if (v->type == JsonValue::Type::Number) {
+        for (char c:v->stringValue) {
+            if (c=='e' || c=='E') break;
+            if (c>='1' && c<='9') return true;
+        }
+        return false;
+    }
     if (v->type == JsonValue::Type::String) return v->stringValue == "true" || v->stringValue == "1";
     return false;
 }
 
-static int jsonIntField(const JsonValue& obj, const std::string& key, int defaultValue = 0) {
-    auto* v = getField(obj, key);
-    if (!v) return defaultValue;
-    if (v->type == JsonValue::Type::Number) return static_cast<int>(v->numberValue);
-    if (v->type == JsonValue::Type::String) {
-        try { return std::stoi(v->stringValue, nullptr, 0); } catch (...) {}
+template<class T> static std::optional<T> jsonInteger(const JsonValue& value) {
+    static_assert(std::is_integral_v<T> && sizeof(T)<=sizeof(uint64_t));
+    if (value.type!=JsonValue::Type::Number && value.type!=JsonValue::Type::String) return {};
+    std::string_view token=value.stringValue;
+    const bool quoted=value.type==JsonValue::Type::String;
+    if (quoted) {
+        while (!token.empty() && std::isspace(static_cast<unsigned char>(token.front()))) token.remove_prefix(1);
+        while (!token.empty() && std::isspace(static_cast<unsigned char>(token.back()))) token.remove_suffix(1);
     }
-    return defaultValue;
+    if (token.empty()) return {};
+    const bool negative=token.front()=='-';
+    if (negative || (quoted && token.front()=='+')) token.remove_prefix(1);
+    if (token.empty()) return {};
+    uint64_t magnitude=0;
+    if (quoted) {
+        int base=10;
+        if (token.size()>1 && token.front()=='0') {
+            base=8;
+            if (token[1]=='x' || token[1]=='X') {base=16;token.remove_prefix(2);}
+        }
+        if (token.empty()) return {};
+        auto [end,error]=std::from_chars(token.data(),token.data()+token.size(),magnitude,base);
+        if (error!=std::errc{} || end!=token.data()+token.size()) return {};
+    } else {
+        // Normalize the exact decimal coefficient/scale, including integral
+        // exponent notation. This works when long double is only 64 bits too.
+        std::string digits;size_t fractional=0,pos=0;bool afterPoint=false;
+        for (;pos<token.size() && token[pos]!='e' && token[pos]!='E';++pos) {
+            if (token[pos]=='.') {afterPoint=true;continue;}
+            digits+=token[pos];if (afterPoint) ++fractional;
+        }
+        const auto first=digits.find_first_not_of('0');
+        if (first==std::string::npos) return T{};
+        digits.erase(0,first);
+        size_t exponent=0;bool negativeExponent=false;
+        if (pos<token.size()) {
+            ++pos;negativeExponent=token[pos]=='-';
+            if (token[pos]=='-' || token[pos]=='+') ++pos;
+            // Beyond this magnitude a nonzero coefficient either overflows
+            // every supported integer or has a nonzero fractional part.
+            if (token.size()>SIZE_MAX-20) return {};
+            const size_t bound=token.size()+20;
+            for (;pos<token.size();++pos) {
+                const unsigned digit=token[pos]-'0';
+                if (exponent>(bound-digit)/10) return {};
+                exponent=exponent*10+digit;
+            }
+        }
+        size_t remove=0,append=0;
+        if (negativeExponent) {
+            if (exponent>digits.size() || fractional>digits.size()-exponent) return {};
+            remove=fractional+exponent;
+        } else if (exponent>=fractional) append=exponent-fractional;
+        else remove=fractional-exponent;
+        if (remove>digits.size() || append>20) return {};
+        const size_t end=digits.size()-remove;
+        for (size_t i=end;i<digits.size();++i) if (digits[i]!='0') return {};
+        for (size_t i=0;i<end+append;++i) {
+            const unsigned digit=i<end ? digits[i]-'0' : 0;
+            if (magnitude>(UINT64_MAX-digit)/10) return {};
+            magnitude=magnitude*10+digit;
+        }
+    }
+    if constexpr (std::is_signed_v<T>) {
+        const uint64_t maximum=static_cast<uint64_t>(std::numeric_limits<T>::max());
+        if (magnitude>maximum+static_cast<unsigned>(negative)) return {};
+        if (negative && magnitude==maximum+1) return std::numeric_limits<T>::min();
+        const T result=static_cast<T>(magnitude);
+        return negative ? -result : result;
+    } else {
+        if ((negative && magnitude!=0) || magnitude>std::numeric_limits<T>::max()) return {};
+        return static_cast<T>(magnitude);
+    }
 }
 
-static size_t jsonSizeField(const JsonValue& obj, const std::string& key, size_t defaultValue = 0) {
-    auto* v = getField(obj, key);
-    if (!v) return defaultValue;
-    if (v->type == JsonValue::Type::Number) return static_cast<size_t>(v->numberValue);
-    if (v->type == JsonValue::Type::String) {
-        try { return static_cast<size_t>(std::stoull(v->stringValue, nullptr, 0)); } catch (...) {}
-    }
-    return defaultValue;
+template<class T> static T jsonIntegerField(const JsonValue& obj,const std::string& key,T defaultValue={}) {
+    const auto* field=getField(obj,key);
+    if (!field) return defaultValue;
+    auto parsed=jsonInteger<T>(*field);
+    if (!parsed) throw std::invalid_argument("Invalid table integer: "+key);
+    return *parsed;
 }
-
-static uintptr_t jsonAddressField(const JsonValue& obj, const std::string& key) {
-    auto* v = getField(obj, key);
-    if (!v) return 0;
-    if (v->type == JsonValue::Type::Number) return static_cast<uintptr_t>(v->numberValue);
-    if (v->type == JsonValue::Type::String) {
-        try { return static_cast<uintptr_t>(std::stoull(v->stringValue, nullptr, 0)); } catch (...) {}
-    }
-    return 0;
-}
+static int jsonIntField(const JsonValue& obj,const std::string& key,int fallback=0) {return jsonIntegerField<int>(obj,key,fallback);}
+static size_t jsonSizeField(const JsonValue& obj,const std::string& key,size_t fallback=0) {return jsonIntegerField<size_t>(obj,key,fallback);}
+static uintptr_t jsonAddressField(const JsonValue& obj,const std::string& key) {return jsonIntegerField<uintptr_t>(obj,key);}
 
 static ValueType jsonValueTypeField(const JsonValue& obj) {
     auto* v = getField(obj, "type");
     if (!v) return ValueType::Int32;
-    if (v->type == JsonValue::Type::Number)
-        return static_cast<ValueType>(static_cast<int>(v->numberValue));
-    if (v->type != JsonValue::Type::String)
-        return ValueType::Int32;
+    auto numericType=[&] {
+        const auto type=jsonInteger<int>(*v);
+        if (!type || *type<static_cast<int>(ValueType::Byte) || *type>static_cast<int>(ValueType::Pointer))
+            throw std::invalid_argument("Invalid table value type");
+        return static_cast<ValueType>(*type);
+    };
+    if (v->type==JsonValue::Type::Number) return numericType();
+    if (v->type!=JsonValue::Type::String) throw std::invalid_argument("Invalid table value type");
 
     auto s = v->stringValue;
     if (s == "byte")   return ValueType::Byte;
@@ -930,8 +1090,13 @@ static ValueType jsonValueTypeField(const JsonValue& obj) {
     if (s == "double") return ValueType::Double;
     if (s == "string") return ValueType::String;
     if (s == "aob")    return ValueType::ByteArray;
-    try { return static_cast<ValueType>(std::stoi(s, nullptr, 0)); } catch (...) {}
-    return ValueType::Int32;
+    if (s == "pointer") return ValueType::Pointer;
+    if (s == "unicode") return ValueType::UnicodeString;
+    if (s == "binary") return ValueType::Binary;
+    if (s == "grouped") return ValueType::Grouped;
+    if (s == "custom") return ValueType::Custom;
+    if (s == "all") return ValueType::All;
+    return numericType();
 }
 
 TableFormat detectTableFormat(const std::string& path) {
@@ -1081,7 +1246,9 @@ bool CheatTable::loadFromString(const std::string& xml) {
         auto topClose = findMatchingClose(xml, topOpen, "CheatEntries");
         if (topClose != std::string::npos) {
             size_t cs = topOpen + std::string("<CheatEntries>").size();
-            parseCheatEntriesBlock(xml.substr(cs, topClose - cs), -1, entries);
+            bool validFormat = true;
+            parseCheatEntriesBlock(xml.substr(cs, topClose - cs), -1, entries, validFormat);
+            if (!validFormat) return false;
         }
     }
 
@@ -1159,8 +1326,27 @@ std::optional<PointerExpr> parsePointerExpression(const std::string& expr) {
 // ── JSON format (our native format, simpler) ──
 
 bool CheatTable::saveJson(const std::string& path) const {
+    if (!validRecordFormats(entries)) return false;
     std::ofstream f(path);
     if (!f) return false;
+    bool success=writeTableJson(*this,f);
+    f.flush();
+    success=success && f.good();
+    f.close();
+    return success && !f.fail();
+}
+
+bool writeTableJson(const CheatTable& table,std::ostream& f) {
+    const auto& entries=table.entries;
+    const auto& gameName=table.gameName;
+    const auto& gameVersion=table.gameVersion;
+    const auto& author=table.author;
+    const auto& comment=table.comment;
+    const auto& luaScript=table.luaScript;
+    const auto& structures=table.structures;
+    const auto& disassemblerComments=table.disassemblerComments;
+    const auto& rawFormsXml=table.rawFormsXml;
+    if (!validRecordFormats(entries)) return false;
 
     f << "{\n";
     f << "  \"game\": \"" << jsonEscape(gameName) << "\",\n";
@@ -1168,6 +1354,7 @@ bool CheatTable::saveJson(const std::string& path) const {
     f << "  \"author\": \"" << jsonEscape(author) << "\",\n";
     f << "  \"comment\": \"" << jsonEscape(comment) << "\",\n";
     f << "  \"luaScript\": \"" << jsonEscape(luaScript) << "\",\n";
+    f << "  \"rawFormsXml\": \"" << jsonEscape(rawFormsXml) << "\",\n";
     f << "  \"structures\": [\n";
     for (size_t i = 0; i < structures.size(); ++i) {
         const auto& s = structures[i];
@@ -1226,6 +1413,8 @@ bool CheatTable::saveJson(const std::string& path) const {
         if (e.active) f << ",\"active\":true";
         if (e.showAsHex) f << ",\"showAsHex\":true";
         if (!e.showAsSigned) f << ",\"showAsSigned\":false";
+        if (e.dataByteOrder != ByteOrder::Unknown) f << ",\"dataByteOrder\":\"" << (e.dataByteOrder == ByteOrder::Big ? "big" : "little") << "\"";
+        if (e.pointerWidth) f << ",\"pointerWidth\":" << static_cast<unsigned>(e.pointerWidth);
         if (e.freezeMode != FreezeMode::Normal)
             f << ",\"freezeMode\":" << (int)e.freezeMode;
         if (e.isGroup) f << ",\"group\":true";
@@ -1233,6 +1422,8 @@ bool CheatTable::saveJson(const std::string& path) const {
         if (!e.autoAsmScript.empty()) f << ",\"asm\":\"" << jsonEscape(e.autoAsmScript) << "\"";
         if (!e.luaScript.empty()) f << ",\"lua\":\"" << jsonEscape(e.luaScript) << "\"";
         if (!e.optionsXml.empty()) f << ",\"options\":\"" << jsonEscape(e.optionsXml) << "\"";
+        if (!e.activateChildren) f << ",\"activateChildren\":false";
+        if (!e.deactivateChildren) f << ",\"deactivateChildren\":false";
         if (!e.color.empty()) f << ",\"color\":\"" << jsonEscape(e.color) << "\"";
         if (!e.dropdownList.empty()) f << ",\"dropdown\":\"" << jsonEscape(e.dropdownList) << "\"";
         if (!e.hotkeyKeys.empty()) f << ",\"hotkeys\":\"" << jsonEscape(e.hotkeyKeys) << "\"";
@@ -1247,38 +1438,42 @@ bool CheatTable::saveJson(const std::string& path) const {
         f << "\n";
     }
     f << "  ]\n}\n";
-    return true;
+    return f.good();
 }
 
-bool CheatTable::loadJson(const std::string& path) {
-    std::ifstream f(path);
-    if (!f) return false;
-
-    std::string json((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-    JsonValue root;
-    if (!JsonParser(json).parse(root) || root.type != JsonValue::Type::Object)
-        return false;
-
-    gameName = jsonStringField(root, "game");
+static bool readTableJson(const JsonValue& root,CheatTable& table) {
+    auto& gameName=table.gameName;
+    auto& gameVersion=table.gameVersion;
+    auto& author=table.author;
+    auto& comment=table.comment;
+    auto& luaScript=table.luaScript;
+    auto& rawFormsXml=table.rawFormsXml;
+    auto& structures=table.structures;
+    auto& disassemblerComments=table.disassemblerComments;
+    auto& entries=table.entries;
+    gameName = jsonStringField(root, getField(root,"game") ? "game" : "process");
     gameVersion = jsonStringField(root, "version");
     author = jsonStringField(root, "author");
     comment = jsonStringField(root, "comment");
     luaScript = jsonStringField(root, "luaScript");
+    rawFormsXml = jsonStringField(root, "rawFormsXml");
 
     structures.clear();
     auto* structuresValue = getField(root, "structures");
-    if (structuresValue && structuresValue->type == JsonValue::Type::Array) {
+    if (structuresValue) {
+        if (structuresValue->type!=JsonValue::Type::Array) return false;
         for (const auto& item : structuresValue->arrayValue) {
-            if (item.type != JsonValue::Type::Object) continue;
+            if (item.type != JsonValue::Type::Object) return false;
 
             StructureDefinition structure;
             structure.name = jsonStringField(item, "name");
             structure.size = jsonSizeField(item, "size");
 
             auto* fieldsValue = getField(item, "fields");
-            if (fieldsValue && fieldsValue->type == JsonValue::Type::Array) {
+            if (fieldsValue) {
+                if (fieldsValue->type!=JsonValue::Type::Array) return false;
                 for (const auto& fieldItem : fieldsValue->arrayValue) {
-                    if (fieldItem.type != JsonValue::Type::Object) continue;
+                    if (fieldItem.type != JsonValue::Type::Object) return false;
                     StructureField field;
                     field.name = jsonStringField(fieldItem, "name");
                     field.offset = jsonSizeField(fieldItem, "offset");
@@ -1296,9 +1491,10 @@ bool CheatTable::loadJson(const std::string& path) {
 
     disassemblerComments.clear();
     auto* dcValue = getField(root, "disassemblerComments");
-    if (dcValue && dcValue->type == JsonValue::Type::Array) {
+    if (dcValue) {
+        if (dcValue->type!=JsonValue::Type::Array) return false;
         for (const auto& item : dcValue->arrayValue) {
-            if (item.type != JsonValue::Type::Object) continue;
+            if (item.type != JsonValue::Type::Object) return false;
             DisassemblerComment c;
             c.address = jsonStringField(item, "address");
             c.comment = jsonStringField(item, "comment");
@@ -1309,42 +1505,50 @@ bool CheatTable::loadJson(const std::string& path) {
 
     entries.clear();
     auto* entriesValue = getField(root, "entries");
-    if (!entriesValue || entriesValue->type != JsonValue::Type::Array)
-        return true;
+    if (!entriesValue) return true;
+    if (entriesValue->type!=JsonValue::Type::Array) return false;
 
     for (const auto& item : entriesValue->arrayValue) {
-        if (item.type != JsonValue::Type::Object) continue;
+        if (item.type != JsonValue::Type::Object) return false;
 
         CheatEntry e;
         e.id = jsonIntField(item, "id");
-        e.description = jsonStringField(item, "desc");
-        e.address = jsonAddressField(item, "addr");
-        e.addressString = jsonStringField(item, "addrString");
+        e.description = jsonStringField(item, getField(item,"desc") ? "desc" : "description");
+        e.address = jsonAddressField(item, getField(item,"addr") ? "addr" : "address");
+        e.addressString = jsonStringField(item, getField(item,"addrString") ? "addrString" : "addressExpr");
         e.type = jsonValueTypeField(item);
         e.value = jsonStringField(item, "value");
-        if (auto* offs = getField(item, "offsets"); offs && offs->type == JsonValue::Type::Array) {
+        if (auto* offs = getField(item, "offsets")) {
+            if (offs->type!=JsonValue::Type::Array) return false;
             for (const auto& ov : offs->arrayValue) {
-                if (ov.type == JsonValue::Type::Number)
-                    e.offsets.push_back(static_cast<int64_t>(ov.numberValue));
-                else if (ov.type == JsonValue::Type::String) {
-                    try { e.offsets.push_back(std::stoll(ov.stringValue, nullptr, 0)); } catch (...) {}
-                }
+                const auto offset=jsonInteger<int64_t>(ov);
+                if (!offset) return false;
+                e.offsets.push_back(*offset);
             }
         }
-        e.length = jsonIntField(item, "length", 0);
+        e.length = jsonIntField(item, getField(item,"length") ? "length" : "byteCount", 0);
+        if (e.length<0) return false;
         e.active = jsonBoolField(item, "active");
         e.showAsHex = jsonBoolField(item, "showAsHex");
         e.showAsSigned = getField(item, "showAsSigned") ? jsonBoolField(item, "showAsSigned") : true;
-        e.freezeMode = (FreezeMode)jsonIntField(item, "freezeMode", 0);
+        if (auto* order = getField(item, "dataByteOrder"); order && order->type != JsonValue::Type::String) return false;
+        if (auto* width = getField(item,"pointerWidth"); width && width->type!=JsonValue::Type::Number) return false;
+        if (!parseRecordDataFormat(jsonStringField(item, "dataByteOrder"), std::to_string(jsonIntField(item, "pointerWidth", 0)), e)) return false;
+        if (!getField(item, "dataByteOrder") && jsonBoolField(item, "bigEndian")) e.dataByteOrder = ByteOrder::Big;
+        const int freezeMode=jsonIntField(item,"freezeMode",0);
+        if (freezeMode<static_cast<int>(FreezeMode::Normal) || freezeMode>static_cast<int>(FreezeMode::NeverDecrease)) return false;
+        e.freezeMode=static_cast<FreezeMode>(freezeMode);
         e.isGroup = jsonBoolField(item, "group");
         e.collapsed = jsonBoolField(item, "collapsed");
         e.autoAsmScript = jsonStringField(item, "asm");
         e.luaScript = jsonStringField(item, "lua");
-        e.optionsXml = jsonStringField(item, "options");
+        e.optionsXml = jsonStringField(item, getField(item,"options") ? "options" : "optionsXml");
         if (!e.optionsXml.empty()) {
             e.activateChildren   = e.optionsXml.find("moActivateChildrenAsWell=\"1\"")   != std::string::npos;
             e.deactivateChildren = e.optionsXml.find("moDeactivateChildrenAsWell=\"1\"") != std::string::npos;
         }
+        if (getField(item,"activateChildren")) e.activateChildren=jsonBoolField(item,"activateChildren");
+        if (getField(item,"deactivateChildren")) e.deactivateChildren=jsonBoolField(item,"deactivateChildren");
         e.color = jsonStringField(item, "color");
         e.dropdownList = jsonStringField(item, "dropdown");
         e.hotkeyKeys = jsonStringField(item, "hotkeys");
@@ -1354,9 +1558,32 @@ bool CheatTable::loadJson(const std::string& path) {
         e.decreaseHotkeyKeys = jsonStringField(item, "decreaseHotkey");
         e.hotkeyStep = jsonStringField(item, "hotkeyStep");
         e.parentId = jsonIntField(item, "parent", -1);
+        // GUI JSON stores parent rows; native JSON stores stable parent IDs.
+        if (getField(item,"description") && !getField(item,"desc") && e.parentId>=0 &&
+            static_cast<size_t>(e.parentId)<entriesValue->arrayValue.size())
+            e.parentId=jsonIntField(entriesValue->arrayValue[e.parentId],"id",e.parentId);
         entries.push_back(std::move(e));
     }
 
+    return true;
+}
+
+bool CheatTable::loadJson(const std::string& path) {
+    std::ifstream input(path);
+    if (!input) return false;
+    std::string json{std::istreambuf_iterator<char>(input),std::istreambuf_iterator<char>()};
+    if (input.bad()) return false;
+    return loadJsonFromString(json);
+}
+
+bool CheatTable::loadJsonFromString(const std::string& json) {
+    JsonValue root;
+    if (!JsonParser(json).parse(root) || root.type!=JsonValue::Type::Object) return false;
+    CheatTable pending;
+    try {
+        if (!readTableJson(root,pending)) return false;
+    } catch (const std::invalid_argument&) {return false;}
+    *this=std::move(pending);
     return true;
 }
 
@@ -1385,7 +1612,10 @@ bool CheatTable::saveProtected(const std::string& path, const std::string& passw
     out << "CETRAINER1\n";
     out << fnv1a(password) << "\n";
     out.write(reinterpret_cast<const char*>(encrypted.data()), static_cast<std::streamsize>(encrypted.size()));
-    return out.good();
+    out.flush();
+    bool success=out.good();
+    out.close();
+    return success && !out.fail();
 }
 
 bool CheatTable::loadProtected(const std::string& path, const std::string& password) {

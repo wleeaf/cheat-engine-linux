@@ -1,0 +1,402 @@
+{
+  "schemaVersion": 1,
+  "createdUTC": "2026-10-06T03:18:24.148252+00:00",
+  "sourceState": "uncommitted worktree snapshot",
+  "baseCommit": "462975248038f5afcf1c245268fcbcbe8f006ddb",
+  "passed": true,
+  "scope": "Saved-image mmap/mprotect/munmap and fresh native calls refuse shared-mm same-file replacements, including identical bytes; private proof-write faults, nested real signals, seccomp denial, unreaped target exit and retained cleanup. Current host CI and ARM64 kernel regression checks. Excludes universal concurrent exec/mapping identity, retained worker-image transitions, hardware, other ISA and remote ownership.",
+  "sources": {
+    "platform/process_api.hpp": "4500320fc1425dd9d2f905f2be461251435b9e670cbfc9fd3d6a7c5b4d99a663",
+    "platform/process_api.cpp": "68cf8e1ac6633e6ab7fd0c273b3dcf460b5a019bf482324bd4e8f9d77ba75588",
+    "platform/linux/linux_process.cpp": "b594f81f0ce3e39fe17296321239c46410b2bdf43f49853d86d936152cc09a30",
+    "platform/linux/linux_process.hpp": "927b9aee6317d400fcd03eccab6c6cd136bf5d1caccd102aa7f88d1f9adfebf1",
+    "platform/linux/memory_image.cpp": "906a8292838315563ac68ab304d1a5ab9d40a74c25bc00ffe3763a69b4096fc6",
+    "platform/linux/memory_image.hpp": "6749cccccd0c3a004def5bd7cda96d98392a48ab1eac7ce625ffb0a7cf7da4dc",
+    "platform/linux/target_syscall.cpp": "42e813aee9c1a2e69dcca949d6f65135dbc464391cd55abf026d2acef7706298",
+    "platform/linux/target_syscall.hpp": "2a89bc8248788d68d6789bd54508271e6361f3bad3226324143fd8eadea8e408",
+    "platform/linux/call_service.cpp": "604f825164a192258fb5eccc2f6585dca2fbed622a98b862ecb521747f8296fc",
+    "platform/linux/call_service.hpp": "2f56a1ed2ab77b9c8ea3a6bce0bb35c4b869a641ea1ad88933b2ebca7c41ee63",
+    "platform/linux/injector.cpp": "1afa1e27c5c6d9c36c5efcefe7c29e6185f9a7d36967d9522c73023cf454d006",
+    "platform/linux/injector.hpp": "5efaabaf16def4bc734474806a78970c95da91a3c7a205dba1166fb4c500e10e",
+    "core/simple_hook.cpp": "e394fc5bfe4aa4078c5dc587d564704124e639ed8a4f30f51a5aab1200a3c38f",
+    "core/simple_hook.hpp": "ad1af224244a32a1f48c8d2df9239946d6cf7addd494616d952b90afccdd4392",
+    "platform/linux/code_write.cpp": "c83999a556bc98e5530fee231660e1ceda6b113c6268e098c7e785269124179d",
+    "platform/linux/code_write.hpp": "ba325443dfbb810da3075715b82a0efdf7064ad96fd3594f3462ad79586db639",
+    "platform/linux/syscall_service.cpp": "1a0401d50f7753f9d1ab4b433ac8b57240ae8cdb86bb7ae2fadcb3281f38d9c2",
+    "platform/linux/syscall_service.hpp": "7b04be118fe101039713cde929e42e8c8e2c6a79cfc0d95cd5751f92fb3cbfab",
+    "core/autoasm.cpp": "ce938612ff048288b7ba5001a660fbbc9fb04c193032a54f74467fd6079ebbe9",
+    "core/autoasm.hpp": "5e9ed86d657b26a20d08ddd4a07d5171b131d6ae32b96364fc263dcaf097fd9c",
+    "debug/patch.cpp": "ccb43f430ee1057b49514bb05b0e7ed47b336a3d9885fb0dac415cea3ba38189",
+    "debug/patch.hpp": "c34255707bfbb24855ba8953a85774939bee2c4e47c700796c1aa068692f5afe",
+    "gui/memorybrowser.cpp": "e20b3e8b575b322aea7ae91356b330e113b57fe3af38e03d3ed9a26461da82c7",
+    "gui/memorybrowser.hpp": "543b80f2dd8ee6b9e840e31931441ef6e02f000e931f9f152ce9177dc266446b",
+    "test/code_write_integration.cpp": "60e603c517f7304861491ffbe5fa01ac61914e6597839917ebfb745a229d7bf2",
+    "test/code_write_faults.cpp": "f773b7ff1958cafb2723971da669741c88a440d09b9e8993f5ff3bded12cdd76",
+    "test/code_write_faults.hpp": "d3d5969de046b86a9547c89d14f67977b8dd240b84f64c39456f4aac444370c0",
+    "test/code_write_checks.inc": "9ddf6335968d736e433488a8b9d609e62d4b4f0c8e3ee6e1f5291399e60d3d15",
+    "test/target_compatibility_test.cpp": "8847f068e28fa721ba133f472747c569b096c03a41b0af9d81cd40e62f0d5a35",
+    "test/code_write_gate.py": "0565b2560c81209b3cfd57883a41dd38bb8a74f0b89d01991be3af408bd22cd0",
+    "test/arm64_vm/CMakeLists.txt": "e4bece6884af3524aef8a311ff26c05a1f3942c2d532601ab1dc6e9efdbe26b6",
+    "test/fullsystem_vm.py": "cb0d9a61465989c96cfbe322b8c51c9be1c90317313b96a0c8fdd1cb517b29e5",
+    "test/aarch64_relocation_gate.py": "48ea012849a78bdcd89e4a36dfa5452f0b7918a6c6597b081841f9f53ba20f61",
+    "CMakeLists.txt": "39fdaf9f5f5b61bfe23d9eccc7750bf63d9cfa058afa9746e1c3373da19998ce",
+    "tools/ci-check.sh": "ef1dec6f95b383b61d7009391863b793a539fe47a40ffa417a023c75af2c606c",
+    "tools/check-arm64-vm.sh": "22d7451e47a69c81c2b90d198775b5997f768cceec2feecedd32730b045d64cb",
+    ".github/workflows/build.yml": "5513d7d0ea2bc8b7d52d3597b5bebbadc36cdb4159d4a42d00eb7abb9fae15a5",
+    ".github/workflows/release.yml": "2c4094ec7bbf1b973eaa73eee9e09f9dcd985d231677e290ef7370f046eb1528",
+    ".github/workflows/arm64-compatibility.yml": "48008a097903d1e3db742f9e79fe12ad58a86f432ea74e6ddc73498891769ef1",
+    "test/shared_mm_fixture.c": "d3431afeee6e7727bd875801c5401c094ed2053135563ab10a49486412cf952a",
+    "test/memory_image_integration.cpp": "497fdc149a034dbf57d49755b9236236a76b226dac01c1f92e236267f9f1f110",
+    "test/memory_image_gate.py": "462cc4134021b8f35bfeaca826921f3519789ab65672c22c48eacd2a3ba6968f",
+    "test/target_syscall_integration.cpp": "328d98260d0f96ffd2b24a41ad399ef744df82f40f313045aa351618d2280bee",
+    "README.md": "ad229bc8cd30b70ccd909f60ad385fd4d6325fbc1638260d35374b30e15bee27",
+    "CHANGELOG.md": "7a4cc1e4c9f86d4473283e42dcc7f6e7af8d70e7a1cd8e4592013655bd3f81a8",
+    "docs/COMPATIBILITY.md": "b83b95d5d5d355ef6cc4afd99e3b7537a51e3e2e19a5d65c6ce1985c91b53326"
+  },
+  "binaries": {
+    "build/memory_image_integration": "0f1ac865ed6905783ac1d86a9889b452cceffb387737dd00c5b9c9eec3cb4b13",
+    "build/shared_mm_fixture": "ba8fb1fffe6b7363b2522452c1305497eda19bc226a845bda77e0ab893898f74",
+    "build/libcecore.so": "4766ad33b39d2a5b37161110f9fc7a5b1cdccc24b0e2f7004066baa2869f07b9",
+    "build/target_syscall_integration": "59600dcae949c8e4209bd149595e9fb2db77e965bef927fc5e720ee4b3494baf",
+    "build/code_write_integration": "a598f69c8e621e371e1bc92db0785d056da0c2b0b5dbee0ee9b82d38aa4c67a6",
+    "build/cescan": "d483099bdaf7be07a9cc5c5dd2b5edd242360a143b1bfe23d4dda05ae3347655",
+    "build/cecore_compatibility_test": "da11752df6a67868591faabd7f30837d0172a1f4ab9e61b6af4eb30205871cf4",
+    "build/native_call_integration": "f159e5bef75bce9ebda0b15684022bd2b4a60d5183e13731560aef763812a153",
+    "build-ci-asan/memory_image_integration": "389cf86e194be3d828a0f7786d990f98b17a2891435ab6bf1478f0ca01beba97",
+    "build-ci-asan/shared_mm_fixture": "bff02c90b0579f5c85a7e0a49dda8639a9374962fb0250dfaab9b16af905dd3d",
+    "build-ci-asan/libcecore.so": "691f168d91d6877fb5934a61fe4de8fea9c2549543b76e36349e8fe0d2b25ae6",
+    "build-ci-asan/target_syscall_integration": "d6b5ef0207f06601bb92ce7644d0881465052dbb49f2ba6c6ef4cce4f963f4e8",
+    "build-ci-asan/code_write_integration": "e7e5a935feed6cce8dedcb516ef1f28de627e6f4e598576176ce9c9530a825b4",
+    "build-ci-asan/cescan": "f09f0e3d440d6202c6435b23026a7840782e220a1bc27fb6f96295bae1b0a807",
+    "build-ci-asan/cecore_compatibility_test": "cd65a1eb69b6d379ab155e1cb6d19f5814d971215477d7b89ac22289af0e608d",
+    "build-ci-asan/native_call_integration": "f0368ad9a8c141254786b004f415b26365fb7f4a9a71f19a4f6761aef784c08a",
+    "build/.ci-tmp/mm-affinity-arm/init": "9082b56af36a4f7f7e80e1741aa0db168abb378d9f4e1b9eab39dc229db06de8",
+    "build/.ci-tmp/mm-affinity-arm/code_write_init": "1497b40add07a205141540da0e4e87a3e99874b69c92be1696dfc13f1f4f6d50",
+    "build/.ci-tmp/mm-affinity-arm/relocation_init": "b886d3287ae61f238c7da350f6cbd60f37a324e81c9d3aa12647c7c184b7f0d9",
+    "build/.ci-tmp/mm-affinity-arm/fixture": "ae471cd76bcc8cf09c81f50478285f7dc5a6a848aa51722f449eb15c9589d2bf",
+    "build/.ci-tmp/mm-affinity-arm/native_call_fixture": "d161ce286882a523acf46643144347c6ef0e8aa6594d99f8d517695aa8ca9b20",
+    "build/.ci-tmp/mm-affinity-arm/libnative_call_library.so": "8266ce790ed56459b422d1c25b6c9a2ae1eb4ac35075bc560ecfd4ca74ba154e",
+    "build/.ci-tmp/mm-affinity-arm/memory_image_init": "6ca2423494bb3d4e4b4dacc7109f2fb8e1d022ef2816670325d39256ad63805a",
+    "build/.ci-tmp/mm-affinity-arm/shared_mm_fixture": "5259398af447c0d2de8c38338bac089121fcc25d6d2e792243e9811b4190a0d9"
+  },
+  "host": {
+    "native-memory-image": {
+      "report": {
+        "path": "mm-affinity-native-memory-image.json",
+        "sha256": "2808d1264f1576f306dffa458c1a95a0a6c94af50b4eafbee1bdfd9077f03c9f"
+      },
+      "output": {
+        "path": "mm-affinity-native-memory-image.log",
+        "sha256": "da41427a0bbb3fefddac8e538e35f64b00689449d6c52f17baeee97b8be40ed0"
+      },
+      "checks": 42
+    },
+    "native-code-write": {
+      "report": {
+        "path": "mm-affinity-native-code-write.json",
+        "sha256": "de75fe254457386e6e7ee8ea38ed598107cf0bde7091620c8c9c670354d9fe66"
+      },
+      "output": {
+        "path": "mm-affinity-native-code-write.log",
+        "sha256": "6382d7db355819cf7e633d20a5501c8908ab52eaa380ea576c2e13eaf2ccc292"
+      },
+      "checks": 40
+    },
+    "sanitizer-memory-image": {
+      "report": {
+        "path": "mm-affinity-sanitizer-memory-image.json",
+        "sha256": "f8312cdc961a4f9fc9459c48bc56c63864fdc5e1e99164d8e3356fc4304f40d3"
+      },
+      "output": {
+        "path": "mm-affinity-sanitizer-memory-image.log",
+        "sha256": "da41427a0bbb3fefddac8e538e35f64b00689449d6c52f17baeee97b8be40ed0"
+      },
+      "checks": 42
+    },
+    "sanitizer-code-write": {
+      "report": {
+        "path": "mm-affinity-sanitizer-code-write.json",
+        "sha256": "6eb11efd01db84d1d97ca1e3dc949b0314ce687fd50050efa5b2ffc2fdd8d6e0"
+      },
+      "output": {
+        "path": "mm-affinity-sanitizer-code-write.log",
+        "sha256": "c089dcbaf390bce9b0115cb64838b4b5004a2a90888f40ce67780c2e29b3f593"
+      },
+      "checks": 40
+    }
+  },
+  "kernels": {
+    "4096": {
+      "affinity": {
+        "report": {
+          "path": "mm-affinity-4096-affinity.json",
+          "sha256": "350bb41ff748a015c9d312475ad774fb0f38ea09dc955809ac8009896e9eb6a2"
+        },
+        "output": {
+          "path": "mm-affinity-4096-affinity.log",
+          "sha256": "b03018c8ca8f4bfe6d3150b7b6b325c4ed3ef853554d7fd93298fd1bc3673689"
+        },
+        "checks": 42
+      },
+      "codeWrite": {
+        "report": {
+          "path": "mm-affinity-4096-codeWrite.json",
+          "sha256": "e4c9268c71797bc8f45a833c3e16f06975d7ef703d2b4f69a74e3e6336f58187"
+        },
+        "output": {
+          "path": "mm-affinity-4096-codeWrite.log",
+          "sha256": "eb4deb6af2a8cf31ff6c9207fc1cd92563a9952bfa51c89738fed04e2c3edb64"
+        },
+        "checks": 27
+      },
+      "full": {
+        "report": {
+          "path": "mm-affinity-4096-full.json",
+          "sha256": "dc3cf9ad13845f9c76fda5dce37141256fc827c3028da6975ad9b525a5412c52"
+        },
+        "output": {
+          "path": "mm-affinity-4096-full.log",
+          "sha256": "2bd598b220ba4d4c7dcf9e4696769993cbb82c729ef93f4062b819b9dd3c6cf4"
+        },
+        "checks": 884
+      },
+      "relocation": {
+        "report": {
+          "path": "mm-affinity-4096-relocation.json",
+          "sha256": "8fda175eacccd80e2804c1d79f2c814249e665b15b7210f57e76b0c2874a304a"
+        },
+        "output": {
+          "path": "mm-affinity-4096-relocation.log",
+          "sha256": "7ccd2a36a03c6246210ec277b47bcba2756df7d0f997ff56f755dd3764197e24"
+        },
+        "checks": 21
+      },
+      "pageSize": 4096
+    },
+    "65536": {
+      "affinity": {
+        "report": {
+          "path": "mm-affinity-65536-affinity.json",
+          "sha256": "f2dff479d9cd83e426a0d493616bb7475563ae8316d78024f494e17404973ba1"
+        },
+        "output": {
+          "path": "mm-affinity-65536-affinity.log",
+          "sha256": "9ba64744eddef79f1a514afe94a7974cb3ed4e8b000ead59edf6dfe3c94557ec"
+        },
+        "checks": 42
+      },
+      "codeWrite": {
+        "report": {
+          "path": "mm-affinity-65536-codeWrite.json",
+          "sha256": "760e3e73a97be58fb2db57233a0a663779a0a9a6474aa12c50094d6524763cfe"
+        },
+        "output": {
+          "path": "mm-affinity-65536-codeWrite.log",
+          "sha256": "f7144753871095b8a83cc0edd71c50f3718d0ccf2eec58b14149e78368b4ec86"
+        },
+        "checks": 27
+      },
+      "full": {
+        "report": {
+          "path": "mm-affinity-65536-full.json",
+          "sha256": "f33540264c134e8a97bc548ffe9e213eeb12e411bea294da9cedc2223492cd28"
+        },
+        "output": {
+          "path": "mm-affinity-65536-full.log",
+          "sha256": "c4ca3ec237e0289437fbe772189b15af2e8ebc66ec664322aff9000d2c70db4b"
+        },
+        "checks": 725
+      },
+      "relocation": {
+        "report": {
+          "path": "mm-affinity-65536-relocation.json",
+          "sha256": "a05a2d0998c566a6a931a2b65308f2fe3d1b3661122aba6f48295b6c8ac7060f"
+        },
+        "output": {
+          "path": "mm-affinity-65536-relocation.log",
+          "sha256": "f9a5fc4e6a0bbb93b493f98ec714e0b229b43d2b11b79b70df75033754354b93"
+        },
+        "checks": 21
+      },
+      "pageSize": 65536
+    }
+  },
+  "currentHostReports": {
+    "nativeGdb": {
+      "path": "mm-affinity-nativeGdb.json",
+      "sha256": "5af72c440ec62ef1b2bfb307271af90ad2ed1896a729aa2cfdc3aa9e3f2d4e0b"
+    },
+    "asanGdb": {
+      "path": "mm-affinity-asanGdb.json",
+      "sha256": "33b64c1d76e0eaef5d5843eff16eea79d868a3593d25806e4e1ff095a1a13609"
+    },
+    "gdbGui": {
+      "path": "mm-affinity-gdbGui.json",
+      "sha256": "c2684af769426e8ae2f5c3493f8ab9720c2190c80017125f8b7b9ab51a08a3ec"
+    },
+    "wine": {
+      "path": "mm-affinity-wine.json",
+      "sha256": "2d626c4e3223e93aa0bc5c86a7d86000c1949202435080d57c1278404909022a"
+    },
+    "nativeSyscalls": {
+      "path": "mm-affinity-nativeSyscalls.json",
+      "sha256": "e88902bbc5be0c71a20c6d236d0f703a1e9cccd6634125b0057e892f2641ecd4"
+    },
+    "asanSyscalls": {
+      "path": "mm-affinity-asanSyscalls.json",
+      "sha256": "28ebc717534be97b96a5f3f38dfd263afb3f29151a08c9969f9914159fa081af"
+    },
+    "nativeCalls": {
+      "path": "mm-affinity-nativeCalls.json",
+      "sha256": "36005c648ec19c8412e8819727b2bc65c1a1a4b80054d87aded2e377607e11a4"
+    },
+    "asanCalls": {
+      "path": "mm-affinity-asanCalls.json",
+      "sha256": "3fc568da9ee5ddd468d3ec164c3d98699034eb4479b8688bc75b99599a283b1d"
+    },
+    "nativeFrontends": {
+      "path": "mm-affinity-nativeFrontends.json",
+      "sha256": "c10312a9db7eeedad00ebf52d8c32cb5a85b3ef016c6e255946920417ffd3dfa"
+    },
+    "leaderExitFrontends": {
+      "path": "mm-affinity-leaderExitFrontends.json",
+      "sha256": "c1becc5324c8ff386fdf20dace02e5860a47fcc257594b226337a81495a101ad"
+    }
+  },
+  "hostCINote": "Full CI passed with the 38-check affinity driver; the unchanged production binaries subsequently passed the expanded 42-check host and sanitizer drivers. ARM64 runs use the final expanded driver.",
+  "evidence": {
+    "hostCI": {
+      "path": "mm-affinity-host-ci.log",
+      "sha256": "742abedb5e3d2d8011dc1b4157f9b0dcd35ee2392fe6565f05bfba926e575765"
+    },
+    "initialHostCI": {
+      "path": "mm-affinity-initial-host-ci.log",
+      "sha256": "8df4e1bc8ffb0e2ec278d91a06def84503a1c9d317d20f1b9e9e12c6827c9d74"
+    },
+    "native-core": {
+      "path": "mm-affinity-native-core.log",
+      "sha256": "359e29f6d3498f9b3028221d2c3ea96e7e2fd21f3894daa470f592705a32ba3d"
+    },
+    "native-deep": {
+      "path": "mm-affinity-native-deep.log",
+      "sha256": "cfb53f1b419a9b07a3f868903f97b36b99013aae3b3bb70c708e79a5cd0bf13d"
+    },
+    "native-compatibility": {
+      "path": "mm-affinity-native-compatibility.log",
+      "sha256": "0854e66da48f9422c5632809ded3bdce68cd7463d1bbd411dad5b4301fcb6ff2"
+    },
+    "asan-core": {
+      "path": "mm-affinity-asan-core.log",
+      "sha256": "a1a7b1e7313bfd6f04972a72539e206a2477aacf2fa4a130b730b0defa8e6fff"
+    },
+    "asan-deep": {
+      "path": "mm-affinity-asan-deep.log",
+      "sha256": "cfb53f1b419a9b07a3f868903f97b36b99013aae3b3bb70c708e79a5cd0bf13d"
+    },
+    "asan-compatibility": {
+      "path": "mm-affinity-asan-compatibility.log",
+      "sha256": "0854e66da48f9422c5632809ded3bdce68cd7463d1bbd411dad5b4301fcb6ff2"
+    }
+  },
+  "reproduction": {
+    "source": {
+      "path": "mm-affinity-reproduction.cpp",
+      "sha256": "bf8efad99273a497bbaf85af35c431690b131cd52324eab97c7de03145b9408e"
+    },
+    "fixtureSha256": "e3913d0f5d54c5e5940004c95cb778da6937e6d0f040962742440d35aba6f0e6",
+    "before": {
+      "exitCode": 1,
+      "coreSha256": "2e8e9195329448572acaa0593dd837117be60ff2fb28991c59857b44c2c706a6",
+      "coreMatchesLifecycleSnapshot": true,
+      "binarySha256": "243a5c88ff298efcfece6fe77bbb8e8b9704d26d4ffeb91c11a6bcc7a647017a",
+      "output": {
+        "path": "mm-affinity-before.log",
+        "sha256": "578ea50b35bfe74ff6c33134c8d6df64602e1d8c3c6cc36fac9ffa764cb47811"
+      }
+    },
+    "after": {
+      "exitCode": 0,
+      "coreSha256": "4766ad33b39d2a5b37161110f9fc7a5b1cdccc24b0e2f7004066baa2869f07b9",
+      "binarySha256": "48d85d5cc5f82e979bddbe7d4a741461cf81da0f0b7845542f8f1f6af28aaf16",
+      "output": {
+        "path": "mm-affinity-after.log",
+        "sha256": "5483de3edfa599b95facff1f8879aaba93eb6b45bac4ab93417e116241392cb4"
+      }
+    }
+  },
+  "additionalRegressions": {
+    "exit-before": {
+      "path": "mm-affinity-exit-before.log",
+      "sha256": "b192fd7839982f52baba3ade1e8670329b4d8afdb43ab7f13c36278fe1550d29"
+    },
+    "exit-after": {
+      "path": "mm-affinity-exit-after.log",
+      "sha256": "7196405e039d6c8772dc66bf3bf0b65aab439484c36465833b95711b9bb7381b"
+    },
+    "signal-before": {
+      "path": "mm-affinity-signal-before.log",
+      "sha256": "595505d533a30d6e7dfc1a50deeba0f0a691b321ef977b376fb29cfcbd69cd71"
+    },
+    "signal-after": {
+      "path": "mm-affinity-signal-after.log",
+      "sha256": "61340765df208b34911b067accb168e05ae88b3e3042f5c96e7107f26a3cb5ff"
+    }
+  },
+  "initialGuiFailure": {
+    "note": "Initial host CI exited at GUI lifecycle teardown: its first target died with SIGTRAP. Five current-library and five prior-library repetitions all passed. The final CI passes; the intermittent original failure remains unexplained and is not claimed fixed.",
+    "repetitions": {
+      "current": [
+        {
+          "path": "mm-affinity-gui-current-0.log",
+          "sha256": "e547d97606a1ffc15aef9d92548edcaae5eb4ed4a0951bd22f7569a75a02f636"
+        },
+        {
+          "path": "mm-affinity-gui-current-1.log",
+          "sha256": "e547d97606a1ffc15aef9d92548edcaae5eb4ed4a0951bd22f7569a75a02f636"
+        },
+        {
+          "path": "mm-affinity-gui-current-2.log",
+          "sha256": "e547d97606a1ffc15aef9d92548edcaae5eb4ed4a0951bd22f7569a75a02f636"
+        },
+        {
+          "path": "mm-affinity-gui-current-3.log",
+          "sha256": "e547d97606a1ffc15aef9d92548edcaae5eb4ed4a0951bd22f7569a75a02f636"
+        },
+        {
+          "path": "mm-affinity-gui-current-4.log",
+          "sha256": "e547d97606a1ffc15aef9d92548edcaae5eb4ed4a0951bd22f7569a75a02f636"
+        }
+      ],
+      "before": [
+        {
+          "path": "mm-affinity-gui-before-0.log",
+          "sha256": "e547d97606a1ffc15aef9d92548edcaae5eb4ed4a0951bd22f7569a75a02f636"
+        },
+        {
+          "path": "mm-affinity-gui-before-1.log",
+          "sha256": "e547d97606a1ffc15aef9d92548edcaae5eb4ed4a0951bd22f7569a75a02f636"
+        },
+        {
+          "path": "mm-affinity-gui-before-2.log",
+          "sha256": "e547d97606a1ffc15aef9d92548edcaae5eb4ed4a0951bd22f7569a75a02f636"
+        },
+        {
+          "path": "mm-affinity-gui-before-3.log",
+          "sha256": "e547d97606a1ffc15aef9d92548edcaae5eb4ed4a0951bd22f7569a75a02f636"
+        },
+        {
+          "path": "mm-affinity-gui-before-4.log",
+          "sha256": "e547d97606a1ffc15aef9d92548edcaae5eb4ed4a0951bd22f7569a75a02f636"
+        }
+      ]
+    }
+  },
+  "resourcePolicy": {
+    "buildJobs": 1,
+    "nice": 10,
+    "heavyJobs": "sequential",
+    "affinityGuestCpus": 1,
+    "affinityGuestMemoryMiB": 128,
+    "temporaryDirectory": "build filesystem; existing dependency and cross-build caches reused"
+  }
+}

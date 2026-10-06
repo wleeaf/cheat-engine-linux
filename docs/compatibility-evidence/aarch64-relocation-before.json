@@ -1,0 +1,12 @@
+{
+  "scope": "Existing runtime REASSEMBLE behavior when an earlier script write grows an ARM64 instruction after label sizing",
+  "sourceState": "uncommitted worktree, before the size-change guard was compiled",
+  "coreSha256": "a84c4ae84dba5450be0e89a7dbaf2273f1d5cb0f3e4c05daaea13e2b48336c65",
+  "probeSourceSha256": "6bed1aa5b0e297dfe0f1da34bd685ef58d402b61812640eeed130da4b41da590",
+  "probeBinarySha256": "9ecbce794838b43ae6bb8a8dc8b12c2e0e6dee41614db7fc51b8cd35439315c5",
+  "returnedSuccess": true,
+  "originalBytesRestored": false,
+  "forwardReference": "0x11008",
+  "actualLabel": "0x11014",
+  "outputSha256": "f18faa3a9dee732e07615f29f8c6e8dd4dbb1edcbd38295548057ecd11933e78"
+}

@@ -11,6 +11,8 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <mutex>
+#include <chrono>
 
 namespace ce::os {
 
@@ -82,14 +84,24 @@ public:
 
     bool connectTcp(const std::string& host, uint16_t port, std::string& error);
     void close();
-    bool isConnected() const { return fd_ >= 0; }
+    bool isConnected() const;
+    // Server handles belong to one TCP connection, including after reconnects
+    // to the same endpoint. Owners must retire their handles when this changes.
+    uint64_t connectionGeneration() const;
+    // Serializes a complete operation, including persistent-handle validation.
+    // Individual public protocol commands also acquire this recursive lock.
+    using ConnectionLock = std::unique_lock<std::recursive_mutex>;
+    ConnectionLock lockConnection() const { return ConnectionLock(transactionMutex_); }
+    // Positive transport budget for one complete command (default 5000 ms).
+    // Debug-event waits additionally allow their explicitly requested wait.
+    bool setTimeoutMs(int timeoutMs);
 
     std::expected<CEServerVersionInfo, std::string> getVersion();
 
     /// CMD_OPENPROCESS — returns ceserver-side handle (non-zero on success).
     std::expected<int32_t, std::string> openProcess(int32_t pid);
 
-    /// CMD_CLOSEHANDLE — succeeds whenever the server acks (always 1).
+    /// CMD_CLOSEHANDLE — succeeds when the server reports a nonzero result.
     std::expected<void, std::string> closeHandle(int32_t handle);
 
     /// CMD_VIRTUALQUERYEX — region containing baseAddress.
@@ -195,8 +207,17 @@ private:
     bool sendAll(const void* data, size_t size, std::string& error);
     bool recvAll(void* data, size_t size, std::string& error);
     bool sendCmd(uint8_t cmd, std::string& error);
+    void beginRequest(int extraWaitMs = 0);
+    void retireConnection(); // transaction lock held
+    bool waitSocket(int fd, short events, std::string& error);
 
+    mutable std::recursive_mutex transactionMutex_;
+    mutable std::mutex stateMutex_;
     int fd_ = -1;
+    uint64_t generation_ = 0;
+    bool closing_ = false;
+    int timeoutMs_ = 5000;
+    std::chrono::steady_clock::time_point deadline_;
 };
 
 } // namespace ce::os

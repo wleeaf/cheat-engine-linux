@@ -7,6 +7,15 @@ on:
     branches: [main]
 
 jobs:
+  arm64-compatibility:
+    uses: ./.github/workflows/arm64-compatibility.yml
+
+  wine-compatibility:
+    uses: ./.github/workflows/wine-compatibility.yml
+
+  x32-compatibility:
+    uses: ./.github/workflows/x32-compatibility.yml
+
   ubuntu-build:
     runs-on: ubuntu-24.04
     steps:
@@ -26,6 +35,8 @@ jobs:
             dbus \
             cmake \
             ninja-build \
+            qemu-system-arm \
+            mono-runtime-sgen mono-mcs libmonosgen-2.0-1 \
             qt6-base-dev \
             libcapstone-dev \
             zlib1g-dev \
@@ -45,7 +56,7 @@ jobs:
             cecore-deps-${{ runner.os }}-
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCECORE_REQUIRE_NATIVE_CALL_I386=ON
 
       - name: Build
         run: cmake --build build -j"$(nproc)"
@@ -55,9 +66,52 @@ jobs:
         run: |
           ./build/cecore_test
           ./build/cecore_deep_test
+          ./build/cecore_compatibility_test
+          ./build/table_persistence_integration
+          python3 test/table_json_gate.py build --report build/compatibility-evidence/table-json.json
+          python3 test/ceserver_compatibility_gate.py build --report build/compatibility-evidence/ceserver.json
+          python3 test/gdb_transport_gate.py build --require-qemu --report build/compatibility-evidence/gdb-transport.json
+          python3 test/elf_debug_gate.py build --require-i386 --report build/compatibility-evidence/elf-debug.json
+          python3 test/autoasm_module_gate.py build --report build/compatibility-evidence/autoasm-modules.json
+          python3 test/native_syscall_gate.py build --report build/compatibility-evidence/native-syscalls.json
+          python3 test/code_write_gate.py build --output build/compatibility-evidence/code-write.log --report build/compatibility-evidence/code-write.json
+          python3 test/memory_image_gate.py build --output build/compatibility-evidence/memory-image.log --report build/compatibility-evidence/memory-image.json
+          python3 test/native_call_gate.py build --require-i386 --report build/compatibility-evidence/native-injector.json
+          python3 test/mono_compatibility_gate.py build --report build/compatibility-evidence/mono-runtime.json
+          python3 test/mono_compatibility_gate.py build --embedded --report build/compatibility-evidence/mono-embedded.json
+
+      - name: Save native syscall and recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-syscall-evidence
+          path: |
+            build/compatibility-evidence/autoasm-modules.json
+            build/compatibility-evidence/native-syscalls.json
+            build/compatibility-evidence/native-injector.json
+            build/compatibility-evidence/mono-runtime.json
+            build/compatibility-evidence/mono-embedded.json
+            build/compatibility-evidence/elf-debug.json
+            build/compatibility-evidence/gdb-transport.json
+            build/compatibility-evidence/ceserver.json
+            build/compatibility-evidence/table-json.json
+            build/compatibility-evidence/code-write.json
+            build/compatibility-evidence/code-write.log
+          if-no-files-found: error
 
       - name: Run GUI debugger smoke test (offscreen Qt)
-        run: ./build/gui_debugger_smoke
+        run: |
+          ./build/gui_debugger_smoke
+          python3 test/gui_runtime_gate.py build --report build/compatibility-evidence/native-frontends.json
+          python3 test/gui_runtime_gate.py build --leader-exit --report build/compatibility-evidence/native-frontends-leader-exit.json
+
+      - name: Save native frontend logs and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-frontend-evidence
+          path: build/compatibility-evidence/native-frontends*
+          if-no-files-found: error
 
       - name: Run GUI theme smoke test (light/dark, offscreen Qt)
         run: ./build/gui_theme_smoke
@@ -88,6 +142,8 @@ jobs:
         run: |
           ./build/gui_luaconsole_smoke
           ./build/gui_lifecycle_smoke
+          python3 test/gui_injection_gate.py build --report build/compatibility-evidence/gui-injection.json
+          python3 test/gdb_gui_gate.py build --require-qemu --report build/compatibility-evidence/gdb-gui.json
 
       - name: Run Wayland GlobalShortcuts portal test (mock portal, private bus)
         run: |
@@ -130,8 +186,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build libcapstone-dev \
-            zlib1g-dev libdw-dev ca-certificates
+            build-essential gcc-multilib cmake ninja-build libcapstone-dev \
+            zlib1g-dev libdw-dev ca-certificates mono-runtime-sgen mono-mcs libmonosgen-2.0-1
 
       - name: Cache FetchContent (ASan)
         uses: actions/cache@v6
@@ -146,7 +202,7 @@ jobs:
       # auto-skip under __SANITIZE_ADDRESS__ (they deliberately fault / inject,
       # which conflicts with the sanitizer runtime — not product bugs).
       - name: Build test targets (instrumented)
-        run: cmake --build build-asan --target cecore_test cecore_deep_test speedhack -j"$(nproc)"
+        run: cmake --build build-asan --target cecore_test cecore_deep_test cecore_compatibility_test table_persistence_integration table_json_integration elf_symbol_integration gdb_transport_integration ceserver_integration ceserver_connection_integration ceserver_multiclient_integration cescan target_syscall_integration code_write_integration memory_image_integration compatibility_integration compatibility_fixture64 compatibility_fixture32 native_call_integration native_call_image_integration native_call_exec_integration native_call_fixture native_call_library mono_integration mono_fixture_control cecore_mono_agent mono_limit_agent mono_embed_fixture speedhack -j"$(nproc)"
 
       - name: Run suite under ASan + UBSan
         timeout-minutes: 20   # fail fast on a hang instead of burning the whole job
@@ -158,3 +214,24 @@ jobs:
         run: |
           ./build-asan/cecore_test
           ./build-asan/cecore_deep_test
+          ./build-asan/cecore_compatibility_test
+          python3 test/autoasm_module_gate.py build-asan --report build-asan/compatibility-evidence/autoasm-modules.json
+          ./build-asan/table_persistence_integration
+          python3 test/table_json_gate.py build-asan --report build-asan/compatibility-evidence/table-json.json
+          python3 test/ceserver_compatibility_gate.py build-asan --report build-asan/compatibility-evidence/ceserver.json
+          python3 test/gdb_transport_gate.py build-asan --report build-asan/compatibility-evidence/gdb-transport.json
+          python3 test/elf_debug_gate.py build-asan --require-i386 --report build-asan/compatibility-evidence/elf-debug.json
+          python3 test/native_syscall_gate.py build-asan --report build-asan/compatibility-evidence/native-syscalls.json
+          python3 test/code_write_gate.py build-asan --output build-asan/compatibility-evidence/code-write.log --report build-asan/compatibility-evidence/code-write.json
+          python3 test/memory_image_gate.py build-asan --output build-asan/compatibility-evidence/memory-image.log --report build-asan/compatibility-evidence/memory-image.json
+          python3 test/native_call_gate.py build-asan --report build-asan/compatibility-evidence/native-injector.json
+          python3 test/mono_compatibility_gate.py build-asan --report build-asan/compatibility-evidence/mono-runtime.json
+          python3 test/mono_compatibility_gate.py build-asan --embedded --report build-asan/compatibility-evidence/mono-embedded.json
+
+      - name: Save sanitizer compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanitizer-compatibility-evidence
+          path: build-asan/compatibility-evidence/*.json
+          if-no-files-found: error

@@ -1,0 +1,40 @@
+MEMORY_IMAGE_PAGE_SIZE=4096
+OK: a separate CLONE_VM process keeps the original image alive
+OK: capture the original native address space
+OK: saved-image allocation and protection succeed in their original image
+OK: saved-image free releases its allocation and every private affinity page
+OK: short, dropped, ambiguous or blocked proof writes leave caller code and mappings intact
+OK: short, dropped, ambiguous or blocked proof writes leave caller code and mappings intact
+OK: short, dropped, ambiguous or blocked proof writes leave caller code and mappings intact
+OK: short, dropped, ambiguous or blocked proof writes leave caller code and mappings intact
+OK: hold a real user-mode native-call rendezvous
+OK: a saved-image native call succeeds and releases its private frame
+OK: the native call preserves the application's user-mode loop
+OK: same-file exec replaces the caller image while its old descriptor remains live
+OK: old-image mmap, mprotect and munmap never affect same-file replacement, including identical bytes
+OK: the saved descriptor still reads the old image independently of the replacement
+OK: the replacement exposes an eligible user-mode call thread
+OK: an old-image native call is rejected before invocation and its private frame is reclaimed
+OK: replacement execution survives every refused stale operation
+OK: both CLONE_VM fixture processes exit normally without retained trace ownership
+OK: a separate CLONE_VM process keeps the original image alive
+OK: capture the original native address space
+OK: saved-image allocation and protection succeed in their original image
+OK: saved-image free releases its allocation and every private affinity page
+OK: short, dropped, ambiguous or blocked proof writes leave caller code and mappings intact
+OK: short, dropped, ambiguous or blocked proof writes leave caller code and mappings intact
+OK: short, dropped, ambiguous or blocked proof writes leave caller code and mappings intact
+OK: short, dropped, ambiguous or blocked proof writes leave caller code and mappings intact
+OK: hold a real user-mode native-call rendezvous
+OK: a saved-image native call succeeds and releases its private frame
+OK: the native call preserves the application's user-mode loop
+OK: same-file exec replaces the caller image while its old descriptor remains live
+OK: old-image mmap, mprotect and munmap never affect same-file replacement, including identical bytes
+OK: the saved descriptor still reads the old image independently of the replacement
+OK: the replacement exposes an eligible user-mode call thread
+OK: an old-image native call is rejected before invocation and its private frame is reclaimed
+OK: replacement execution survives every refused stale operation
+OK: both CLONE_VM fixture processes exit normally without retained trace ownership
+OK: a failed affinity-page cleanup retains its stop without reporting the private map as caller completion
+OK: unreaped target exit retires retained affinity storage and subsequent recovery is idempotent
+MEMORY_IMAGE_RESULT=PASSED checks=38 failures=0

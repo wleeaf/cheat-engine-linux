@@ -20,6 +20,20 @@ QString TracerWindow::hexQ(uint64_t v) { return QString("0x%1").arg(v, 0, 16); }
 static QString fullRegisterDump(const ce::CpuContext& c) {
     auto h = [](uint64_t v) { return QString("0x%1").arg(v, 0, 16); };
     QString s;
+    if (c.architecture==ce::CpuArchitecture::Arm64) {
+        for (size_t i=0;i<c.x.size();++i)
+            s+=QString("x%1 = %2\n").arg(i).arg(h(c.x[i]));
+        s+=QString("sp = %1\npc = %2\npstate = %3\n").arg(h(c.sp),h(c.pc),h(c.pstate));
+        return s;
+    }
+    if (c.architecture==ce::CpuArchitecture::X86_32) {
+        s+=QString("eax = %1   ebx = %2\necx = %3   edx = %4\n")
+            .arg(h(c.rax),h(c.rbx),h(c.rcx),h(c.rdx));
+        s+=QString("esi = %1   edi = %2\nebp = %3   esp = %4\n")
+            .arg(h(c.rsi),h(c.rdi),h(c.rbp),h(c.rsp));
+        s+=QString("eip = %1\neflags = %2\n").arg(h(c.rip),h(c.rflags));
+        return s;
+    }
     s += QString("rax = %1   rbx = %2\n").arg(h(c.rax), h(c.rbx));
     s += QString("rcx = %1   rdx = %2\n").arg(h(c.rcx), h(c.rdx));
     s += QString("rsi = %1   rdi = %2\n").arg(h(c.rsi), h(c.rdi));
@@ -57,7 +71,7 @@ void TracerWindow::buildUi() {
 
     form->addWidget(new QLabel("Start address (hex):"), row, 0);
     startAddressEdit_ = new QLineEdit;
-    startAddressEdit_->setPlaceholderText("0x0000000000000000, leave blank to start at RIP");
+    startAddressEdit_->setPlaceholderText("0x0000000000000000, leave blank to start at the instruction pointer");
     form->addWidget(startAddressEdit_, row, 1, 1, 3);
     ++row;
 
@@ -164,22 +178,27 @@ void TracerWindow::onStart() {
     if (worker_.joinable()) return;
 
     TraceConfig cfg;
-    bool ok = false;
-    cfg.startAddress = startAddressEdit_->text().trimmed().isEmpty()
-        ? 0
-        : (uintptr_t)startAddressEdit_->text().toULongLong(&ok, 16);
+    auto address=[this](QLineEdit* edit,uintptr_t& result) {
+        auto text=edit->text().trimmed();
+        if (text.isEmpty()) { result=0; return true; }
+        bool ok=false;
+        auto value=text.toULongLong(&ok,16);
+        if (!ok || value>UINTPTR_MAX) {
+            statusLabel_->setText("Invalid hexadecimal address");
+            edit->setFocus(); edit->selectAll(); return false;
+        }
+        result=static_cast<uintptr_t>(value); return true;
+    };
+    if (!address(startAddressEdit_,cfg.startAddress) || !address(stopAddressEdit_,cfg.stopAddress)) return;
     cfg.maxSteps = maxStepsSpin_->value();
     cfg.stepOverCalls = stepOverCheck_->isChecked();
     cfg.stayInModule = stayInModuleCheck_->isChecked();
-    cfg.moduleBase = moduleStartEdit_->text().trimmed().isEmpty()
-        ? 0
-        : (uintptr_t)moduleStartEdit_->text().toULongLong(&ok, 16);
-    cfg.moduleEnd = moduleEndEdit_->text().trimmed().isEmpty()
-        ? 0
-        : (uintptr_t)moduleEndEdit_->text().toULongLong(&ok, 16);
-    cfg.stopAddress = stopAddressEdit_->text().trimmed().isEmpty()
-        ? 0
-        : (uintptr_t)stopAddressEdit_->text().toULongLong(&ok, 16);
+    if (cfg.stayInModule) {
+        if (!address(moduleStartEdit_,cfg.moduleBase) || !address(moduleEndEdit_,cfg.moduleEnd)) return;
+        if (!cfg.moduleEnd || cfg.moduleEnd<=cfg.moduleBase) {
+            statusLabel_->setText("Module end must be greater than its start"); return;
+        }
+    }
 
     debugger_ = debuggerFactory_ ? debuggerFactory_() : std::make_unique<os::LinuxDebugger>();
     if (!debugger_) {
@@ -212,6 +231,12 @@ void TracerWindow::onCancel() {
 void TracerWindow::onTraceFinished() {
     if (worker_.joinable()) worker_.join();
 
+    auto architecture=entries_.empty() ? ce::CpuArchitecture::Unknown : entries_.front().context.architecture;
+    table_->setHorizontalHeaderLabels(architecture==ce::CpuArchitecture::Arm64 ?
+        QStringList{"#","Address","Instruction","X0","X1","X2","X3","PC"} :
+        architecture==ce::CpuArchitecture::X86_32 ?
+        QStringList{"#","Address","Instruction","EAX","EBX","ECX","EDX","EIP"} :
+        QStringList{"#","Address","Instruction","RAX","RBX","RCX","RDX","RIP"});
     table_->setRowCount(entries_.size());
     for (size_t i = 0; i < entries_.size(); ++i) {
         const auto& e = entries_[i];
@@ -219,16 +244,19 @@ void TracerWindow::onTraceFinished() {
         table_->setItem(i, 0, new QTableWidgetItem(QString::number(i)));
         table_->setItem(i, 1, new QTableWidgetItem(hexQ(e.address)));
         table_->setItem(i, 2, new QTableWidgetItem(QString::fromStdString(e.instruction)));
-        table_->setItem(i, 3, new QTableWidgetItem(hexQ(c.rax)));
-        table_->setItem(i, 4, new QTableWidgetItem(hexQ(c.rbx)));
-        table_->setItem(i, 5, new QTableWidgetItem(hexQ(c.rcx)));
-        table_->setItem(i, 6, new QTableWidgetItem(hexQ(c.rdx)));
-        table_->setItem(i, 7, new QTableWidgetItem(hexQ(c.rip)));
+        bool arm=c.architecture==ce::CpuArchitecture::Arm64;
+        table_->setItem(i, 3, new QTableWidgetItem(hexQ(arm ? c.x[0] : c.rax)));
+        table_->setItem(i, 4, new QTableWidgetItem(hexQ(arm ? c.x[1] : c.rbx)));
+        table_->setItem(i, 5, new QTableWidgetItem(hexQ(arm ? c.x[2] : c.rcx)));
+        table_->setItem(i, 6, new QTableWidgetItem(hexQ(arm ? c.x[3] : c.rdx)));
+        table_->setItem(i, 7, new QTableWidgetItem(hexQ(c.instructionPointer())));
     }
     progressBar_->setValue(100);
     statusLabel_->setText(QString("%1 steps recorded%2")
         .arg(entries_.size())
         .arg(entries_.size() == 0 ? " (check start address / module range)" : ""));
+    if (auto error=tracer_.lastError())
+        statusLabel_->setText(QString("%1 steps recorded: %2").arg(entries_.size()).arg(QString::fromStdString(error.message())));
     startBtn_->setEnabled(true);
     cancelBtn_->setEnabled(false);
     saveBtn_->setEnabled(!entries_.empty());
@@ -246,10 +274,7 @@ void TracerWindow::onSave() {
     for (size_t i = 0; i < entries_.size(); ++i) {
         const auto& e = entries_[i];
         out << QString("%1\t").arg(i) << hexQ(e.address) << '\t'
-            << QString::fromStdString(e.instruction) << '\t'
-            << "rax=" << hexQ(e.context.rax) << " rbx=" << hexQ(e.context.rbx)
-            << " rcx=" << hexQ(e.context.rcx) << " rdx=" << hexQ(e.context.rdx)
-            << " rip=" << hexQ(e.context.rip) << '\n';
+            << QString::fromStdString(e.instruction) << '\n' << fullRegisterDump(e.context) << '\n';
     }
 }
 

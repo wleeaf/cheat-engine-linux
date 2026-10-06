@@ -1,0 +1,247 @@
+[    0.000000] Booting Linux on physical CPU 0x0000000000 [0x000f0510]
+[    0.000000] Linux version 6.18.52-0-virt (buildozer@build-3-23-aarch64) (cc (Alpine 15.2.0) 15.2.0, GNU ld (GNU Binutils) 2.45.1) #1-Alpine SMP PREEMPT_DYNAMIC 2026-09-14 14:00:08
+[    0.000000] random: crng init done
+[    0.000000] Machine model: linux,dummy-virt
+[    0.000000] efi: UEFI not found.
+[    0.000000] OF: reserved mem: Reserved memory: No reserved-memory node in the DT
+[    0.000000] NUMA: Faking a node at [mem 0x0000000040000000-0x0000000047ffffff]
+[    0.000000] NODE_DATA(0) allocated [mem 0x47dbad40-0x47dbd1ff]
+[    0.000000] Zone ranges:
+[    0.000000]   DMA      [mem 0x0000000040000000-0x0000000047ffffff]
+[    0.000000]   DMA32    empty
+[    0.000000]   Normal   empty
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000040000000-0x0000000047ffffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000040000000-0x0000000047ffffff]
+[    0.000000] psci: probing for conduit method from DT.
+[    0.000000] psci: PSCIv1.1 detected in firmware.
+[    0.000000] psci: Using standard PSCI v0.2 function IDs
+[    0.000000] psci: Trusted OS migration not required
+[    0.000000] psci: SMC Calling Convention v1.0
+[    0.000000] percpu: Embedded 34 pages/cpu s99544 r8192 d31528 u139264
+[    0.000000] Detected PIPT I-cache on CPU0
+[    0.000000] CPU features: detected: Address authentication (architected QARMA5 algorithm)
+[    0.000000] CPU features: detected: HCRX_EL2 register
+[    0.000000] CPU features: detected: Spectre-v4
+[    0.000000] CPU features: detected: Spectre-BHB
+[    0.000000] alternatives: applying boot alternatives
+[    0.000000] Kernel command line: console=ttyAMA0 rdinit=/init panic=1
+[    0.000000] printk: log buffer data + meta data: 131072 + 458752 = 589824 bytes
+[    0.000000] Dentry cache hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 8192 (order: 4, 65536 bytes, linear)
+[    0.000000] software IO TLB: SWIOTLB bounce buffer size adjusted to 0MB
+[    0.000000] software IO TLB: area num 1.
+[    0.000000] software IO TLB: mapped [mem 0x0000000047d12000-0x0000000047d52000] (0MB)
+[    0.000000] Fallback order for Node 0: 0 
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 32768
+[    0.000000] Policy zone: DMA
+[    0.000000] mem auto-init: stack:all(zero), heap alloc:on, heap free:off
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+[    0.000000] Dynamic Preempt: none
+[    0.000000] rcu: Preemptible hierarchical RCU implementation.
+[    0.000000] rcu: 	RCU restricting CPUs from NR_CPUS=4096 to nr_cpu_ids=1.
+[    0.000000] 	Trampoline variant of Tasks RCU enabled.
+[    0.000000] 	Tracing variant of Tasks RCU enabled.
+[    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 100 jiffies.
+[    0.000000] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=1
+[    0.000000] RCU Tasks: Setting shift to 0 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=1.
+[    0.000000] RCU Tasks Trace: Setting shift to 0 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=1.
+[    0.000000] NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+[    0.000000] Root IRQ handler: gic_handle_irq
+[    0.000000] GICv2m: range[mem 0x08020000-0x08020fff], SPI[80:143]
+[    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.000000] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 1911260446275000 ns
+[    0.000000] arch_timer: cp15 timer running at 62.50MHz (virt).
+[    0.000000] clocksource: arch_sys_counter: mask: 0x1ffffffffffffff max_cycles: 0x1cd42e208c, max_idle_ns: 881590405314 ns
+[    0.000069] sched_clock: 57 bits at 63MHz, resolution 16ns, wraps every 4398046511096ns
+[    0.003911] kfence: initialized - using 2097152 bytes for 255 objects at 0x(____ptrval____)-0x(____ptrval____)
+[    0.022474] Console: colour dummy device 80x25
+[    0.029498] Calibrating delay loop (skipped), value calculated using timer frequency.. 125.00 BogoMIPS (lpj=62500)
+[    0.030595] pid_max: default: 32768 minimum: 301
+[    0.037419] LSM: initializing lsm=lockdown,capability,landlock,yama
+[    0.042102] landlock: Up and running.
+[    0.042176] Yama: becoming mindful.
+[    0.046434] Mount-cache hash table entries: 512 (order: 0, 4096 bytes, linear)
+[    0.046603] Mountpoint-cache hash table entries: 512 (order: 0, 4096 bytes, linear)
+[    0.132783] rcu: Hierarchical SRCU implementation.
+[    0.132886] rcu: 	Max phase no-delay instances is 400.
+[    0.149714] EFI services will not be available.
+[    0.152969] smp: Bringing up secondary CPUs ...
+[    0.155093] smp: Brought up 1 node, 1 CPU
+[    0.155223] SMP: Total of 1 processors activated.
+[    0.155324] CPU: All CPU(s) started at EL1
+[    0.155823] CPU features: detected: Branch Target Identification
+[    0.155904] CPU features: detected: 32-bit EL0 Support
+[    0.155951] CPU features: detected: 32-bit EL1 Support
+[    0.156119] CPU features: detected: ARMv8.4 Translation Table Level
+[    0.156191] CPU features: detected: Data cache clean to the PoU not required for I/D coherence
+[    0.156282] CPU features: detected: Common not Private translations
+[    0.156326] CPU features: detected: CRC32 instructions
+[    0.156367] CPU features: detected: Data independent timing control (DIT)
+[    0.156408] CPU features: detected: E0PD
+[    0.156459] CPU features: detected: Enhanced Privileged Access Never
+[    0.156500] CPU features: detected: Enhanced Virtualization Traps
+[    0.156546] CPU features: detected: Fine Grained Traps
+[    0.156699] CPU features: detected: Generic authentication (architected QARMA5 algorithm)
+[    0.157232] CPU features: detected: RCpc load-acquire (LDAPR)
+[    0.157336] CPU features: detected: 52-bit Virtual Addressing for KVM (LPA2)
+[    0.157380] CPU features: detected: LSE atomic instructions
+[    0.157422] CPU features: detected: Memory Copy and Memory Set instructions
+[    0.157465] CPU features: detected: Privileged Access Never
+[    0.157511] CPU features: detected: RAS Extension Support
+[    0.157616] CPU features: detected: RASv1p1 Extension Support
+[    0.157659] CPU features: detected: Random Number Generator
+[    0.157700] CPU features: detected: Speculation barrier (SB)
+[    0.157741] CPU features: detected: Stage-2 Force Write-Back
+[    0.157787] CPU features: detected: Trap EL0 IMPLEMENTATION DEFINED functionality
+[    0.157828] CPU features: detected: TLB range maintenance instructions
+[    0.157991] CPU features: detected: Scalable Matrix Extension
+[    0.158035] CPU features: detected: FA64
+[    0.158081] CPU features: detected: Speculative Store Bypassing Safe (SSBS)
+[    0.158122] CPU features: detected: Scalable Vector Extension
+[    0.175440] alternatives: applying system-wide alternatives
+[    0.191474] CPU features: detected: Hardware dirty bit management on CPU0
+[    0.192765] SVE: maximum available vector length 256 bytes per vector
+[    0.193013] SVE: default vector length 64 bytes per vector
+[    0.195111] SME: minimum available vector length 16 bytes per vector
+[    0.195166] SME: maximum available vector length 256 bytes per vector
+[    0.195212] SME: default vector length 32 bytes per vector
+[    0.213812] Memory: 85380K/131072K available (13312K kernel code, 1994K rwdata, 8420K rodata, 2048K init, 9282K bss, 43568K reserved, 0K cma-reserved)
+[    0.248152] devtmpfs: initialized
+[    0.330958] posixtimers hash table entries: 512 (order: 1, 8192 bytes, linear)
+[    0.331574] futex hash table entries: 256 (16384 bytes on 1 NUMA nodes, total 16 KiB, linear).
+[    0.333464] 23920 pages in range for non-PLT usage
+[    0.333572] 515440 pages in range for PLT usage
+[    0.339746] pinctrl core: initialized pinctrl subsystem
+[    0.347736] DMI not present or invalid.
+[    0.387328] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    0.399235] DMA: preallocated 128 KiB GFP_KERNEL pool for atomic allocations
+[    0.400044] DMA: preallocated 128 KiB GFP_KERNEL|GFP_DMA pool for atomic allocations
+[    0.400459] DMA: preallocated 128 KiB GFP_KERNEL|GFP_DMA32 pool for atomic allocations
+[    0.401354] audit: initializing netlink subsys (disabled)
+[    0.412924] thermal_sys: Registered thermal governor 'step_wise'
+[    0.415009] audit: type=2000 audit(0.316:1): state=initialized audit_enabled=0 res=1
+[    0.418491] cpuidle: using governor ladder
+[    0.419420] cpuidle: using governor menu
+[    0.423132] hw-breakpoint: found 6 breakpoint and 4 watchpoint registers.
+[    0.424594] ASID allocator initialised with 65536 entries
+[    0.431890] Serial: AMBA PL011 UART driver
+[    0.583307] 9000000.pl011: ttyAMA0 at MMIO 0x9000000 (irq = 13, base_baud = 0) is a PL011 rev1
+[    0.587933] printk: console [ttyAMA0] enabled
+[    0.722859] HugeTLB: registered 1.00 GiB page size, pre-allocated 0 pages
+[    0.723611] HugeTLB: 0 KiB vmemmap can be freed for a 1.00 GiB page
+[    0.723762] HugeTLB: registered 32.0 MiB page size, pre-allocated 0 pages
+[    0.723859] HugeTLB: 0 KiB vmemmap can be freed for a 32.0 MiB page
+[    0.723977] HugeTLB: registered 2.00 MiB page size, pre-allocated 0 pages
+[    0.724174] HugeTLB: 0 KiB vmemmap can be freed for a 2.00 MiB page
+[    0.724329] HugeTLB: registered 64.0 KiB page size, pre-allocated 0 pages
+[    0.724438] HugeTLB: 0 KiB vmemmap can be freed for a 64.0 KiB page
+[    0.792743] ACPI: Interpreter disabled.
+[    0.794071] iommu: Default domain type: Translated
+[    0.794214] iommu: DMA domain TLB invalidation policy: lazy mode
+[    0.877306] clocksource: Switched to clocksource arch_sys_counter
+[    0.997588] VFS: Disk quotas dquot_6.6.0
+[    0.998109] VFS: Dquot-cache hash table entries: 512 (order 0, 4096 bytes)
+[    1.005643] pnp: PnP ACPI: disabled
+[    1.129804] NET: Registered PF_INET protocol family
+[    1.131634] IP idents hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    1.528439] tcp_listen_portaddr_hash hash table entries: 256 (order: 0, 4096 bytes, linear)
+[    1.528883] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    1.529148] TCP established hash table entries: 1024 (order: 1, 8192 bytes, linear)
+[    1.529465] TCP bind hash table entries: 1024 (order: 3, 32768 bytes, linear)
+[    1.529849] TCP: Hash tables configured (established 1024 bind 1024)
+[    1.533084] MPTCP token hash table entries: 256 (order: 1, 6144 bytes, linear)
+[    1.533859] UDP hash table entries: 256 (order: 2, 16384 bytes, linear)
+[    1.534313] UDP-Lite hash table entries: 256 (order: 2, 16384 bytes, linear)
+[    1.537522] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    1.538405] NET: Registered PF_XDP protocol family
+[    1.539040] PCI: CLS 0 bytes, default 64
+[    1.559808] Unpacking initramfs...
+[    1.576080] kvm [1]: HYP mode not available
+[    1.591971] Initialise system trusted keyrings
+[    1.620855] workingset: timestamp_bits=44 max_order=15 bucket_order=0
+[    2.132659] Key type asymmetric registered
+[    2.133011] Asymmetric key parser 'x509' registered
+[    2.134027] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 248)
+[    2.344786] Freeing initrd memory: 1812K
+[    2.362049] io scheduler mq-deadline registered
+[    2.362308] io scheduler kyber registered
+[    2.363006] io scheduler bfq registered
+[    2.382385] pci-host-generic 4010000000.pcie: host bridge /pcie@10000000 ranges:
+[    2.383871] pci-host-generic 4010000000.pcie:       IO 0x003eff0000..0x003effffff -> 0x0000000000
+[    2.384777] pci-host-generic 4010000000.pcie:      MEM 0x0010000000..0x003efeffff -> 0x0010000000
+[    2.385075] pci-host-generic 4010000000.pcie:      MEM 0x8000000000..0xffffffffff -> 0x8000000000
+[    2.386081] pci-host-generic 4010000000.pcie: Memory resource size exceeds max for 32 bits
+[    2.402338] pci-host-generic 4010000000.pcie: ECAM at [mem 0x4010000000-0x401fffffff] for [bus 00-ff]
+[    2.407137] pci-host-generic 4010000000.pcie: PCI host bridge to bus 0000:00
+[    2.407624] pci_bus 0000:00: root bus resource [bus 00-ff]
+[    2.407972] pci_bus 0000:00: root bus resource [io  0x0000-0xffff]
+[    2.408169] pci_bus 0000:00: root bus resource [mem 0x10000000-0x3efeffff]
+[    2.408327] pci_bus 0000:00: root bus resource [mem 0x8000000000-0xffffffffff]
+[    2.410320] pci 0000:00:00.0: [1b36:0008] type 00 class 0x060000 conventional PCI endpoint
+[    2.424487] pci_bus 0000:00: resource 4 [io  0x0000-0xffff]
+[    2.424792] pci_bus 0000:00: resource 5 [mem 0x10000000-0x3efeffff]
+[    2.424945] pci_bus 0000:00: resource 6 [mem 0x8000000000-0xffffffffff]
+[    2.470929] Serial: 8250/16550 driver, 4 ports, IRQ sharing enabled
+[    2.559568] hv_vmbus: registering driver hyperv_keyboard
+[    2.582981] rtc-pl031 9010000.pl031: registered as rtc0
+[    2.583952] rtc-pl031 9010000.pl031: setting system clock to 2026-10-06T03:16:06 UTC (1791256566)
+[    2.594802] NET: Registered PF_INET6 protocol family
+[    2.625104] Segment Routing with IPv6
+[    2.625862] In-situ OAM (IOAM) with IPv6
+[    2.993190] registered taskstats version 1
+[    3.005881] Loading compiled-in X.509 certificates
+[    3.046418] Loaded X.509 cert 'alpinelinux.org: Alpine Linux kernel key: 87fa969a47f3e2a6aa35859eb932a17c95abcd82'
+[    3.293213] Demotion targets for Node 0: null
+[    3.298785] Key type .fscrypt registered
+[    3.298944] Key type fscrypt-provisioning registered
+[    3.347566] clk: Disabling unused clocks
+[    3.348202] PM: genpd: Disabling unused power domains
+[    3.687524] Freeing unused kernel memory: 2048K
+[    3.690585] Run /init as init process
+MEMORY_IMAGE_PAGE_SIZE=4096
+OK: a separate CLONE_VM process keeps the original image alive
+OK: capture the original native address space
+OK: saved-image allocation and protection succeed in their original image
+OK: saved-image free releases its allocation and every private affinity page
+OK: short, dropped, ambiguous or blocked proof writes leave caller code and mappings intact
+OK: short, dropped, ambiguous or blocked proof writes leave caller code and mappings intact
+OK: short, dropped, ambiguous or blocked proof writes leave caller code and mappings intact
+OK: short, dropped, ambiguous or blocked proof writes leave caller code and mappings intact
+OK: hold a real user-mode native-call rendezvous
+OK: a saved-image native call succeeds and releases its private frame
+OK: the native call preserves the application's user-mode loop
+OK: the old image retains a private zero-filled probe mapping at a known address
+OK: same-file exec replaces the caller image while its old descriptor remains live
+OK: identical private bytes at the same address in distinct images fail alias proof and both originals stay intact
+OK: old-image mmap, mprotect and munmap never affect same-file replacement, including identical bytes
+OK: the saved descriptor still reads the old image independently of the replacement
+OK: the replacement exposes an eligible user-mode call thread
+OK: an old-image native call is rejected before invocation and its private frame is reclaimed
+OK: replacement execution survives every refused stale operation
+OK: both CLONE_VM fixture processes exit normally without retained trace ownership
+OK: a separate CLONE_VM process keeps the original image alive
+OK: capture the original native address space
+OK: saved-image allocation and protection succeed in their original image
+OK: saved-image free releases its allocation and every private affinity page
+OK: short, dropped, ambiguous or blocked proof writes leave caller code and mappings intact
+OK: short, dropped, ambiguous or blocked proof writes leave caller code and mappings intact
+OK: short, dropped, ambiguous or blocked proof writes leave caller code and mappings intact
+OK: short, dropped, ambiguous or blocked proof writes leave caller code and mappings intact
+OK: hold a real user-mode native-call rendezvous
+OK: a saved-image native call succeeds and releases its private frame
+OK: the native call preserves the application's user-mode loop
+OK: the old image retains a private zero-filled probe mapping at a known address
+OK: same-file exec replaces the caller image while its old descriptor remains live
+OK: identical private bytes at the same address in distinct images fail alias proof and both originals stay intact
+OK: old-image mmap, mprotect and munmap never affect same-file replacement, including identical bytes
+OK: the saved descriptor still reads the old image independently of the replacement
+OK: the replacement exposes an eligible user-mode call thread
+OK: an old-image native call is rejected before invocation and its private frame is reclaimed
+OK: replacement execution survives every refused stale operation
+OK: both CLONE_VM fixture processes exit normally without retained trace ownership
+OK: a failed affinity-page cleanup retains its stop without reporting the private map as caller completion
+OK: unreaped target exit retires retained affinity storage and subsequent recovery is idempotent
+MEMORY_IMAGE_RESULT=PASSED checks=42 failures=0
+[    6.328897] reboot: Power down

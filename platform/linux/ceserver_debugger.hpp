@@ -79,6 +79,10 @@ private:
     CEServerClient* client_;
     int32_t handle_;
     bool attached_ = false;
+    uint64_t generation_;
+    bool connectionValid() const {
+        return client_->isConnected() && client_->connectionGeneration()==generation_;
+    }
 };
 
 } // namespace ce::os

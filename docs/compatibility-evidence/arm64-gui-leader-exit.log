@@ -1,0 +1,261 @@
+[    0.000000] Booting Linux on physical CPU 0x0000000000 [0x000f0510]
+[    0.000000] Linux version 6.18.52-0-virt (buildozer@build-3-23-aarch64) (cc (Alpine 15.2.0) 15.2.0, GNU ld (GNU Binutils) 2.45.1) #1-Alpine SMP PREEMPT_DYNAMIC 2026-09-14 14:00:08
+[    0.000000] random: crng init done
+[    0.000000] Machine model: linux,dummy-virt
+[    0.000000] efi: UEFI not found.
+[    0.000000] OF: reserved mem: Reserved memory: No reserved-memory node in the DT
+[    0.000000] NUMA: Faking a node at [mem 0x0000000040000000-0x000000005fffffff]
+[    0.000000] NODE_DATA(0) allocated [mem 0x5fcfad40-0x5fcfd1ff]
+[    0.000000] Zone ranges:
+[    0.000000]   DMA      [mem 0x0000000040000000-0x000000005fffffff]
+[    0.000000]   DMA32    empty
+[    0.000000]   Normal   empty
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000040000000-0x000000005fffffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000040000000-0x000000005fffffff]
+[    0.000000] psci: probing for conduit method from DT.
+[    0.000000] psci: PSCIv1.1 detected in firmware.
+[    0.000000] psci: Using standard PSCI v0.2 function IDs
+[    0.000000] psci: Trusted OS migration not required
+[    0.000000] psci: SMC Calling Convention v1.0
+[    0.000000] percpu: Embedded 34 pages/cpu s99544 r8192 d31528 u139264
+[    0.000000] Detected PIPT I-cache on CPU0
+[    0.000000] CPU features: detected: Address authentication (architected QARMA5 algorithm)
+[    0.000000] CPU features: detected: HCRX_EL2 register
+[    0.000000] CPU features: detected: Spectre-v4
+[    0.000000] CPU features: detected: Spectre-BHB
+[    0.000000] alternatives: applying boot alternatives
+[    0.000000] Kernel command line: console=ttyAMA0 rdinit=/init panic=1 CECORE_GUI_LEADER_EXIT=1
+[    0.000000] Unknown kernel command line parameters "CECORE_GUI_LEADER_EXIT=1", will be passed to user space.
+[    0.000000] printk: log buffer data + meta data: 131072 + 458752 = 589824 bytes
+[    0.000000] Dentry cache hash table entries: 65536 (order: 7, 524288 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 32768 (order: 6, 262144 bytes, linear)
+[    0.000000] software IO TLB: SWIOTLB bounce buffer size adjusted to 0MB
+[    0.000000] software IO TLB: area num 1.
+[    0.000000] software IO TLB: mapped [mem 0x000000005f380000-0x000000005f400000] (0MB)
+[    0.000000] Fallback order for Node 0: 0 
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 131072
+[    0.000000] Policy zone: DMA
+[    0.000000] mem auto-init: stack:all(zero), heap alloc:on, heap free:off
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+[    0.000000] Dynamic Preempt: none
+[    0.000000] rcu: Preemptible hierarchical RCU implementation.
+[    0.000000] rcu: 	RCU restricting CPUs from NR_CPUS=4096 to nr_cpu_ids=1.
+[    0.000000] 	Trampoline variant of Tasks RCU enabled.
+[    0.000000] 	Tracing variant of Tasks RCU enabled.
+[    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 100 jiffies.
+[    0.000000] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=1
+[    0.000000] RCU Tasks: Setting shift to 0 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=1.
+[    0.000000] RCU Tasks Trace: Setting shift to 0 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=1.
+[    0.000000] NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+[    0.000000] Root IRQ handler: gic_handle_irq
+[    0.000000] GICv2m: range[mem 0x08020000-0x08020fff], SPI[80:143]
+[    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.000000] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 1911260446275000 ns
+[    0.000000] arch_timer: cp15 timer running at 62.50MHz (virt).
+[    0.000000] clocksource: arch_sys_counter: mask: 0x1ffffffffffffff max_cycles: 0x1cd42e208c, max_idle_ns: 881590405314 ns
+[    0.000124] sched_clock: 57 bits at 63MHz, resolution 16ns, wraps every 4398046511096ns
+[    0.011287] kfence: initialized - using 2097152 bytes for 255 objects at 0x(____ptrval____)-0x(____ptrval____)
+[    0.053274] Console: colour dummy device 80x25
+[    0.070736] Calibrating delay loop (skipped), value calculated using timer frequency.. 125.00 BogoMIPS (lpj=62500)
+[    0.072910] pid_max: default: 32768 minimum: 301
+[    0.094342] LSM: initializing lsm=lockdown,capability,landlock,yama
+[    0.104058] landlock: Up and running.
+[    0.104233] Yama: becoming mindful.
+[    0.115171] Mount-cache hash table entries: 1024 (order: 1, 8192 bytes, linear)
+[    0.115520] Mountpoint-cache hash table entries: 1024 (order: 1, 8192 bytes, linear)
+[    0.407612] rcu: Hierarchical SRCU implementation.
+[    0.407969] rcu: 	Max phase no-delay instances is 400.
+[    0.459369] EFI services will not be available.
+[    0.468923] smp: Bringing up secondary CPUs ...
+[    0.473687] smp: Brought up 1 node, 1 CPU
+[    0.473897] SMP: Total of 1 processors activated.
+[    0.474061] CPU: All CPU(s) started at EL1
+[    0.475858] CPU features: detected: Branch Target Identification
+[    0.476053] CPU features: detected: 32-bit EL0 Support
+[    0.476162] CPU features: detected: 32-bit EL1 Support
+[    0.476269] CPU features: detected: ARMv8.4 Translation Table Level
+[    0.476410] CPU features: detected: Data cache clean to the PoU not required for I/D coherence
+[    0.476592] CPU features: detected: Common not Private translations
+[    0.477236] CPU features: detected: CRC32 instructions
+[    0.477348] CPU features: detected: Data independent timing control (DIT)
+[    0.477418] CPU features: detected: E0PD
+[    0.477500] CPU features: detected: Enhanced Privileged Access Never
+[    0.477572] CPU features: detected: Enhanced Virtualization Traps
+[    0.477654] CPU features: detected: Fine Grained Traps
+[    0.478026] CPU features: detected: Generic authentication (architected QARMA5 algorithm)
+[    0.478866] CPU features: detected: RCpc load-acquire (LDAPR)
+[    0.479035] CPU features: detected: 52-bit Virtual Addressing for KVM (LPA2)
+[    0.479127] CPU features: detected: LSE atomic instructions
+[    0.479207] CPU features: detected: Memory Copy and Memory Set instructions
+[    0.479298] CPU features: detected: Privileged Access Never
+[    0.479371] CPU features: detected: RAS Extension Support
+[    0.479930] CPU features: detected: RASv1p1 Extension Support
+[    0.480019] CPU features: detected: Random Number Generator
+[    0.480098] CPU features: detected: Speculation barrier (SB)
+[    0.480172] CPU features: detected: Stage-2 Force Write-Back
+[    0.480268] CPU features: detected: Trap EL0 IMPLEMENTATION DEFINED functionality
+[    0.480346] CPU features: detected: TLB range maintenance instructions
+[    0.480665] CPU features: detected: Scalable Matrix Extension
+[    0.481097] CPU features: detected: FA64
+[    0.481191] CPU features: detected: Speculative Store Bypassing Safe (SSBS)
+[    0.481271] CPU features: detected: Scalable Vector Extension
+[    0.519313] alternatives: applying system-wide alternatives
+[    0.553100] CPU features: detected: Hardware dirty bit management on CPU0
+[    0.555570] SVE: maximum available vector length 256 bytes per vector
+[    0.556446] SVE: default vector length 64 bytes per vector
+[    0.564044] SME: minimum available vector length 16 bytes per vector
+[    0.564220] SME: maximum available vector length 256 bytes per vector
+[    0.564321] SME: default vector length 32 bytes per vector
+[    0.607307] Memory: 438336K/524288K available (13312K kernel code, 1994K rwdata, 8420K rodata, 2048K init, 9282K bss, 83476K reserved, 0K cma-reserved)
+[    0.707376] devtmpfs: initialized
+[    0.934692] posixtimers hash table entries: 512 (order: 1, 8192 bytes, linear)
+[    0.936269] futex hash table entries: 256 (16384 bytes on 1 NUMA nodes, total 16 KiB, linear).
+[    0.940349] 23920 pages in range for non-PLT usage
+[    0.940579] 515440 pages in range for PLT usage
+[    0.954688] pinctrl core: initialized pinctrl subsystem
+[    0.974843] DMI not present or invalid.
+[    1.055099] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    1.085659] DMA: preallocated 128 KiB GFP_KERNEL pool for atomic allocations
+[    1.087300] DMA: preallocated 128 KiB GFP_KERNEL|GFP_DMA pool for atomic allocations
+[    1.088626] DMA: preallocated 128 KiB GFP_KERNEL|GFP_DMA32 pool for atomic allocations
+[    1.093296] audit: initializing netlink subsys (disabled)
+[    1.126171] thermal_sys: Registered thermal governor 'step_wise'
+[    1.130943] audit: type=2000 audit(0.705:1): state=initialized audit_enabled=0 res=1
+[    1.135884] cpuidle: using governor ladder
+[    1.137216] cpuidle: using governor menu
+[    1.142540] hw-breakpoint: found 6 breakpoint and 4 watchpoint registers.
+[    1.145035] ASID allocator initialised with 65536 entries
+[    1.156546] Serial: AMBA PL011 UART driver
+[    1.581340] 9000000.pl011: ttyAMA0 at MMIO 0x9000000 (irq = 13, base_baud = 0) is a PL011 rev1
+[    1.597001] printk: console [ttyAMA0] enabled
+[    1.997057] HugeTLB: registered 1.00 GiB page size, pre-allocated 0 pages
+[    1.999203] HugeTLB: 0 KiB vmemmap can be freed for a 1.00 GiB page
+[    1.999857] HugeTLB: registered 32.0 MiB page size, pre-allocated 0 pages
+[    2.000583] HugeTLB: 0 KiB vmemmap can be freed for a 32.0 MiB page
+[    2.000826] HugeTLB: registered 2.00 MiB page size, pre-allocated 0 pages
+[    2.000996] HugeTLB: 0 KiB vmemmap can be freed for a 2.00 MiB page
+[    2.001285] HugeTLB: registered 64.0 KiB page size, pre-allocated 0 pages
+[    2.001505] HugeTLB: 0 KiB vmemmap can be freed for a 64.0 KiB page
+[    2.183242] ACPI: Interpreter disabled.
+[    2.186913] iommu: Default domain type: Translated
+[    2.187204] iommu: DMA domain TLB invalidation policy: lazy mode
+[    2.454810] clocksource: Switched to clocksource arch_sys_counter
+[    2.627372] VFS: Disk quotas dquot_6.6.0
+[    2.627864] VFS: Dquot-cache hash table entries: 512 (order 0, 4096 bytes)
+[    2.639470] pnp: PnP ACPI: disabled
+[    2.832642] NET: Registered PF_INET protocol family
+[    2.837526] IP idents hash table entries: 8192 (order: 4, 65536 bytes, linear)
+[    3.344413] tcp_listen_portaddr_hash hash table entries: 256 (order: 0, 4096 bytes, linear)
+[    3.344743] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    3.345159] TCP established hash table entries: 4096 (order: 3, 32768 bytes, linear)
+[    3.345555] TCP bind hash table entries: 4096 (order: 5, 131072 bytes, linear)
+[    3.345958] TCP: Hash tables configured (established 4096 bind 4096)
+[    3.349708] MPTCP token hash table entries: 512 (order: 2, 12288 bytes, linear)
+[    3.350787] UDP hash table entries: 256 (order: 2, 16384 bytes, linear)
+[    3.351437] UDP-Lite hash table entries: 256 (order: 2, 16384 bytes, linear)
+[    3.355310] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    3.356368] NET: Registered PF_XDP protocol family
+[    3.356951] PCI: CLS 0 bytes, default 64
+[    3.382272] Unpacking initramfs...
+[    3.402441] kvm [1]: HYP mode not available
+[    3.420901] Initialise system trusted keyrings
+[    3.461160] workingset: timestamp_bits=44 max_order=17 bucket_order=0
+[    4.045888] Key type asymmetric registered
+[    4.046303] Asymmetric key parser 'x509' registered
+[    4.047425] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 248)
+[    4.648318] io scheduler mq-deadline registered
+[    4.648626] io scheduler kyber registered
+[    4.649506] io scheduler bfq registered
+[    4.673479] pci-host-generic 4010000000.pcie: host bridge /pcie@10000000 ranges:
+[    4.675132] pci-host-generic 4010000000.pcie:       IO 0x003eff0000..0x003effffff -> 0x0000000000
+[    4.676178] pci-host-generic 4010000000.pcie:      MEM 0x0010000000..0x003efeffff -> 0x0010000000
+[    4.676533] pci-host-generic 4010000000.pcie:      MEM 0x8000000000..0xffffffffff -> 0x8000000000
+[    4.677703] pci-host-generic 4010000000.pcie: Memory resource size exceeds max for 32 bits
+[    4.714636] pci-host-generic 4010000000.pcie: ECAM at [mem 0x4010000000-0x401fffffff] for [bus 00-ff]
+[    4.720338] pci-host-generic 4010000000.pcie: PCI host bridge to bus 0000:00
+[    4.720909] pci_bus 0000:00: root bus resource [bus 00-ff]
+[    4.721323] pci_bus 0000:00: root bus resource [io  0x0000-0xffff]
+[    4.721547] pci_bus 0000:00: root bus resource [mem 0x10000000-0x3efeffff]
+[    4.721716] pci_bus 0000:00: root bus resource [mem 0x8000000000-0xffffffffff]
+[    4.724300] pci 0000:00:00.0: [1b36:0008] type 00 class 0x060000 conventional PCI endpoint
+[    4.743836] pci_bus 0000:00: resource 4 [io  0x0000-0xffff]
+[    4.744183] pci_bus 0000:00: resource 5 [mem 0x10000000-0x3efeffff]
+[    4.744359] pci_bus 0000:00: resource 6 [mem 0x8000000000-0xffffffffff]
+[    4.843592] Serial: 8250/16550 driver, 4 ports, IRQ sharing enabled
+[    4.999818] hv_vmbus: registering driver hyperv_keyboard
+[    5.043689] rtc-pl031 9010000.pl031: registered as rtc0
+[    5.044888] rtc-pl031 9010000.pl031: setting system clock to 2026-10-05T14:52:25 UTC (1791211945)
+[    5.059660] NET: Registered PF_INET6 protocol family
+[    5.124234] Segment Routing with IPv6
+[    5.124956] In-situ OAM (IOAM) with IPv6
+[    5.761443] registered taskstats version 1
+[    5.778321] Loading compiled-in X.509 certificates
+[    9.629307] Freeing initrd memory: 33972K
+[    9.999600] Loaded X.509 cert 'alpinelinux.org: Alpine Linux kernel key: 87fa969a47f3e2a6aa35859eb932a17c95abcd82'
+[   10.350341] Demotion targets for Node 0: null
+[   10.356828] Key type .fscrypt registered
+[   10.357138] Key type fscrypt-provisioning registered
+[   10.413492] clk: Disabling unused clocks
+[   10.414288] PM: genpd: Disabling unused power domains
+[   10.821545] Freeing unused kernel memory: 2048K
+[   10.825693] Run /init as init process
+GUI_KERNEL release=6.18.52-0-virt machine=aarch64
+GUI_STAGE name=begin elapsedMs=0
+OK: the real GUI fixture leader exits while its pthread target continues running
+GUI_LEADER_EXIT_RESULT=PASSED
+QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '/tmp/runtime-'
+This plugin does not support propagateSizeHints()
+OK: GUI attaches and reads a real stopped thread
+OK: the full debugger thread selector omits the exited process leader
+OK: GUI follows the native program counter at a software breakpoint
+OK: register names and row count match the stopped thread ISA
+OK: highest architectural SIMD register displays actual kernel state
+OK: general register edit is read back from the real kernel and cached stop context
+OK: frame pointer edit and restoration reach the stopped thread
+OK: ARM64 link register edit and restoration reach the stopped thread
+OK: program counter edit refreshes navigation and current instruction highlighting
+OK: stack pointer edit refreshes the stack pane from the native register
+OK: status edit displays native NZCV or EFLAGS from kernel readback
+OK: disassembly restores the complete planted breakpoint instruction
+OK: instruction view masking preserves the real software trap in target memory
+OK: null stack values never acquire a misleading absolute symbol annotation
+OK: stack pane reads consecutive native-width values from the live target
+OK: debugger screenshot saved
+GUI_STAGE name=primary-screenshot elapsedMs=23032
+CE_GUI_SCREENSHOT_PNG=[saved as PNG artifact]
+OK: detached register cells cannot submit stale edits
+OK: GUI detach restores every original instruction byte
+GUI_STAGE name=standalone-begin elapsedMs=23581
+This plugin does not support propagateSizeHints()
+OK: the standalone editor selects the actual surviving pthread by default
+OK: standalone editor exposes the actual general and SIMD register banks
+OK: applying unchanged editor cells never replays a stale register snapshot
+OK: standalone editor applies changed general registers through the real kernel owner
+[   57.287324] hrtimer: interrupt took 604896 ns
+OK: standalone editor refreshes kernel state after applying and restoring an edit
+OK: invalid register text leaves the live target and editable snapshot intact
+OK: refresh replaces invalid editor text with a fresh kernel snapshot
+This plugin does not support propagateSizeHints()
+OK: standalone stack reads stopped-thread native SP and consecutive architectural words
+OK: standalone register and stack screenshots saved
+GUI_STAGE name=standalone-screenshots elapsedMs=81778
+CE_REGISTER_EDITOR_SCREENSHOT_PNG=[saved as PNG artifact]
+CE_STACK_SCREENSHOT_PNG=[saved as PNG artifact]
+GUI_STAGE name=cli-begin elapsedMs=82597
+OK: actual CLI inspects the running native target
+OK: actual CLI Lua runner resolves metadata and disassembles live native code
+GUI_STAGE name=application-begin elapsedMs=83757
+GUI_STAGE name=application-started elapsedMs=83776
+GUI_STAGE name=application-finished elapsedMs=162065
+OK: actual GUI application attaches, opens the memory viewer, renders and exits cleanly
+CE_APPLICATION_SCREENSHOT_PNG=[saved as PNG artifact]
+GUI_STAGE name=paused-exit-begin elapsedMs=163160
+This plugin does not support propagateSizeHints()
+OK: the GUI owns a real paused target before external process death
+OK: a paused target's actual death automatically retires the GUI session and disables stale register edits
+OK: the GUI releases its kernel owner so actual final process death can be reaped normally
+GUI_STAGE name=paused-exit-finished elapsedMs=178181
+GUI_REGISTER_RESULT=PASSED architecture=ARM64
+[  189.857511] reboot: Power down

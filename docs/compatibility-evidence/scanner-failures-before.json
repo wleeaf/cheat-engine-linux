@@ -1,0 +1,17 @@
+{
+  "coreSha256": "22720b65822ad60755170863d22b2988d13af22f7735ea7eab6a3dbf905dcac4",
+  "cases": [
+    {
+      "mode": "first",
+      "exitCode": 2,
+      "stdout": "FIRST_FALSE_SUCCESS count=0\n",
+      "stderr": ""
+    },
+    {
+      "mode": "next",
+      "exitCode": -6,
+      "stdout": "",
+      "stderr": "terminate called recursively\nterminate called after throwing an instance of 'std::bad_alloc'\n  what():  std::bad_alloc\n"
+    }
+  ]
+}

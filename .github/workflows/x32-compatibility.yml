@@ -1,0 +1,30 @@
+name: Linux x32 kernel compatibility
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  x32-native-calls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install LP64 compiler, x32 runtime and full-system emulator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential gcc-multilib libc6-dev-x32 libx32gcc-s1 \
+            cmake qemu-system-x86 python3 curl
+      - name: Verify actual x32 calls, debugger and recovery serially
+        run: nice -n 10 bash tools/check-x32-vm.sh
+      - name: Save required guest evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x32-kernel-evidence
+          path: build/x32-vm/evidence/
+          if-no-files-found: error

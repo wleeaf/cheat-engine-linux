@@ -16,6 +16,12 @@ class ScriptEditor : public QMainWindow {
     Q_OBJECT
 public:
     explicit ScriptEditor(ce::ProcessHandle* proc, ce::AutoAssembler* autoAsm, QWidget* parent = nullptr);
+    ~ScriptEditor() override;
+
+    // Dependencies are borrowed and must outlive this editor. MainWindow calls
+    // this before replacing them; failure preserves the editor's undo for retry.
+    bool cleanupInjection(bool report = true);
+    uint64_t injectionOrder() const { return enabled_ ? enableOrder_ : 0; }
 
     void setScript(const std::string& script);
     void setInjectionAddress(uintptr_t address, size_t size = 5) { injectionAddress_ = address; injectionSize_ = size; }
@@ -33,6 +39,9 @@ public:
     /// Called just before Execute/Disable so the owner can release debugger traces
     /// that would block the injection's ptrace attach.
     void setBeforeExecute(std::function<void()> fn) { beforeExecute_ = std::move(fn); }
+
+protected:
+    void closeEvent(QCloseEvent* event) override;
 
 private slots:
     void onExecute();
@@ -54,6 +63,10 @@ private:
     QAction* addTableBtn_ = nullptr;
     ce::DisableInfo lastDisableInfo_;
     bool enabled_ = false;
+    bool busy_ = false;
+    std::string enabledScript_;
+    uint64_t enableOrder_ = 0;
+    void updateExecutionActions();
     QString defaultDescription_ = "Auto Assembler script";
     std::function<void(const QString&, const QString&)> addToTable_;
     std::function<void()> beforeExecute_;

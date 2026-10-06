@@ -1,4 +1,7 @@
 #include "platform/linux/linux_process.hpp"
+#include "platform/linux/memory_image.hpp"
+#include "platform/linux/syscall_service.hpp"
+#include "platform/linux/runtime_probe.hpp"
 
 #include <fstream>
 #include <sstream>
@@ -14,7 +17,6 @@
 #define MAP_FIXED_NOREPLACE 0x100000
 #endif
 #include <sys/ptrace.h>
-#include <sys/user.h>
 #include <sys/wait.h>
 #include <sys/syscall.h>
 #include <dirent.h>
@@ -24,6 +26,10 @@
 #include <cstring>
 #include "core/log.hpp"
 #include "core/ns_attach.hpp"
+#include "core/target_capabilities.hpp"
+#include <sys/stat.h>
+#include <poll.h>
+#include <array>
 
 namespace ce::os {
 
@@ -31,76 +37,155 @@ namespace fs = std::filesystem;
 
 // ── LinuxProcessHandle ──
 
-LinuxProcessHandle::LinuxProcessHandle(pid_t pid)
-    : pid_(pid), is64bit_(detectIs64Bit()) {}
-
-LinuxProcessHandle::~LinuxProcessHandle() = default;
-
-bool LinuxProcessHandle::detectIs64Bit() const {
-    auto path = "/proc/" + std::to_string(pid_) + "/exe";
+namespace {
+uint64_t processStartTime(pid_t pid) {
+    std::ifstream f("/proc/" + std::to_string(pid) + "/stat");
+    std::string line;
+    if (!std::getline(f, line)) return 0;
+    auto close = line.rfind(')');
+    if (close == std::string::npos) return 0;
+    std::istringstream fields(line.substr(close + 1));
+    std::string field;
+    for (int i = 0; i <= 19; ++i) if (!(fields >> field)) return 0;
+    try { return std::stoull(field); } catch (...) { return 0; }
+}
+TargetMachine readElfMachine(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
-    if (!f) return true; // default to 64-bit
-    // Read and validate the 5-byte ELF identification prefix: magic 0x7f 'E'
-    // 'L' 'F' followed by EI_CLASS. Only trust EI_CLASS if the read fully
-    // succeeded and the magic matches; otherwise default to 64-bit rather than
-    // acting on a short/garbled read.
-    unsigned char ident[5] = {0};
-    f.read(reinterpret_cast<char*>(ident), sizeof(ident));
-    if (f.gcount() != static_cast<std::streamsize>(sizeof(ident)))
-        return true; // short/failed read — default to 64-bit
-    if (!(ident[0] == 0x7f && ident[1] == 'E' && ident[2] == 'L' && ident[3] == 'F'))
-        return true; // not an ELF header we recognise
-    return ident[4] != 1; // 1 = ELFCLASS32, 2 = ELFCLASS64
+    std::array<uint8_t, 64> bytes{};
+    f.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
+    auto machine = parseElfTarget({bytes.data(), static_cast<size_t>(f.gcount())});
+    return machine ? *machine : TargetMachine{};
+}
+std::string asciiLower(std::string s) {
+    for (auto& c : s) if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+    return s;
+}
+template<class Operation> ssize_t memoryTransfer(pid_t pid,Operation operation) {
+    auto result=operation(pid);
+    if (result<0 && errno==ESRCH) {
+        auto task=processMemoryTask(pid);
+        if (task && *task!=pid) result=operation(*task);
+        else if (!task) errno=task.error().value();
+    }
+    return result;
+}
+} // namespace
+
+LinuxProcessHandle::LinuxProcessHandle(pid_t pid) : pid_(pid) {
+    description_.transport = TargetTransport::Local;
+    startTime_ = processStartTime(pid_);
+#ifdef SYS_pidfd_open
+    if (pid_ > 0) pidfd_ = static_cast<int>(syscall(SYS_pidfd_open, pid_, 0));
+#endif
+    if (processStartTime(pid_) != startTime_) {
+        if (pidfd_ >= 0) close(pidfd_);
+        pidfd_ = -1; startTime_ = 0;
+    }
+    refreshMachine();
+}
+
+LinuxProcessHandle::~LinuxProcessHandle() { if (pidfd_ >= 0) close(pidfd_); }
+
+bool LinuxProcessHandle::sameProcess() const {
+    if (pid_ <= 0 || !startTime_) return false;
+    if (pidfd_ >= 0) {
+        pollfd fd{pidfd_, POLLIN, 0};
+        int rc;
+        do { rc = poll(&fd, 1, 0); } while (rc < 0 && errno == EINTR);
+        return rc == 0;
+    }
+    return processStartTime(pid_) == startTime_;
+}
+
+void LinuxProcessHandle::refreshMachine() {
+    std::lock_guard lock(metadataMutex_);
+    description_.live = sameProcess();
+    if (!description_.live) { description_.host = {}; description_.program = {}; return; }
+    auto task=processMemoryTask(pid_);
+    std::string path = "/proc/" + std::to_string(task ? *task : pid_) + "/exe";
+    int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
+    struct stat st{};
+    if (fd < 0 || fstat(fd, &st) != 0) {
+        if (fd >= 0) close(fd);
+        description_.host = {}; description_.program = {}; programKnown_ = false;
+        exeDevice_ = exeInode_ = 0;
+        return;
+    }
+    if (exeDevice_ == static_cast<uint64_t>(st.st_dev) && exeInode_ == static_cast<uint64_t>(st.st_ino)) {
+        close(fd); return;
+    }
+    std::array<uint8_t, 64> bytes{};
+    ssize_t n;
+    do { n = ::read(fd, bytes.data(), bytes.size()); } while (n < 0 && errno == EINTR);
+    close(fd);
+    auto machine = parseElfTarget({bytes.data(), n > 0 ? static_cast<size_t>(n) : 0});
+    description_.host = machine ? *machine : TargetMachine{};
+    description_.program = description_.host;
+    description_.mixedCode = false;
+    description_.runtime = TargetRuntime::Native;
+    exeDevice_ = st.st_dev; exeInode_ = st.st_ino;
+    programKnown_ = false;
+    is64bit_ = description_.host.pointerWidth != 4;
+    std::ifstream cmdline("/proc/" + std::to_string(task ? *task : pid_) + "/cmdline", std::ios::binary);
+    std::string cmd(16 * 1024, '\0');
+    cmdline.read(cmd.data(), cmd.size());
+    cmd.resize(cmdline.gcount()); cmd = asciiLower(std::move(cmd));
+    wineHint_ = hasWineLoader(task ? *task : pid_);
+    if (cmd.find("qemu-") != std::string::npos || cmd.find("box64") != std::string::npos ||
+        cmd.find("box86") != std::string::npos || cmd.find("fex-") != std::string::npos)
+        description_.runtime = TargetRuntime::Emulated;
+}
+
+TargetDescription LinuxProcessHandle::targetDescription() {
+    // An inspection callback on the owner can request this same metadata.
+    // Query the owner before taking the handle lock to avoid lock inversion.
+    const bool pending=hasPendingMemorySyscalls(pid_,startTime_);
+    std::lock_guard lock(metadataMutex_);
+    refreshMachine();
+    if (!description_.live) return description_;
+    if (wineHint_ && !programKnown_) {
+        auto mods = modules();
+        for (const auto& module : mods) {
+            if (!asciiLower(module.name).ends_with(".exe") || module.machine.abi < TargetAbi::WindowsI386) continue;
+            description_.program = module.machine;
+            description_.runtime = TargetRuntime::Wine;
+            description_.mixedCode = description_.host != description_.program;
+            programKnown_ = true;
+            break;
+        }
+    }
+    description_.tracerPid = 0;
+    description_.pendingRecovery = pending;
+    std::ifstream status("/proc/" + std::to_string(pid_) + "/status");
+    std::string line;
+    while (std::getline(status, line))
+        if (line.starts_with("TracerPid:")) {
+            std::istringstream value(line.substr(10)); value >> description_.tracerPid; break;
+        }
+    return description_;
+}
+
+TargetMachine LinuxProcessHandle::machineAt(uintptr_t address) {
+    auto description = targetDescription();
+    if (description.runtime != TargetRuntime::Wine || address == 0) return description.program;
+    auto mods = modules();
+    const ModuleInfo* best = nullptr;
+    for (const auto& m : mods)
+        if (m.machine.architecture != CpuArchitecture::Unknown && address >= m.base && address - m.base < m.size &&
+            (!best || m.size < best->size)) best = &m;
+    return best ? best->machine : description.program;
 }
 
 bool LinuxProcessHandle::runs32BitCode() {
-    if (runs32_ >= 0) return runs32_ == 1;
-    if (!is64bit_) { runs32_ = 1; return true; }   // native 32-bit ELF
-
-    // WoW64: a 64-bit ELF process, but the game's PE modules may be 32-bit. This
-    // is the reliable signal (read from the PE Machine field, no ptrace): if any
-    // loaded module is 32-bit (a .so here is always 64-bit), the code is 32-bit.
-    for (const auto& m : modules()) {
-        if (!m.is64bit) { runs32_ = 1; return true; }
-    }
-
-    // Fallback (older/PE-less WoW64): probe thread CPU mode (CS=0x23 = 32-bit).
-    // Sample a few threads read-only (attach + GETREGS + detach; no single-step,
-    // so this is a debugger-style brief stop, not code injection). If any thread
-    // is in compat mode, the process executes 32-bit code.
-    runs32_ = 0;
-    DIR* d = ::opendir(("/proc/" + std::to_string(pid_) + "/task").c_str());
-    if (!d) return false;
-    int probed = 0;
-    while (struct dirent* e = ::readdir(d)) {
-        if (probed >= 12) break;
-        pid_t tid = (pid_t)atoi(e->d_name);
-        if (tid <= 0) continue;
-        // SEIZE + INTERRUPT (not ATTACH's SIGSTOP): a clean read-only stop that
-        // doesn't disturb a syscall-parked Wine thread's restart state.
-        if (ptrace(PTRACE_SEIZE, tid, nullptr, nullptr) != 0) continue;
-        ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr);
-        int st;
-        if (waitpid(tid, &st, __WALL) == tid && WIFSTOPPED(st)) {
-            struct user_regs_struct r;
-            if (ptrace(PTRACE_GETREGS, tid, nullptr, &r) == 0 &&
-                (r.cs & 0xFFu) == 0x23u) {
-                runs32_ = 1;
-            }
-        }
-        ptrace(PTRACE_DETACH, tid, nullptr, nullptr);
-        ++probed;
-        if (runs32_ == 1) break;
-    }
-    ::closedir(d);
-    return runs32_ == 1;
+    return targetDescription().program.instructionMode == InstructionMode::X86_32;
 }
 
 Result<size_t> LinuxProcessHandle::read(uintptr_t address, void* buffer, size_t size) {
+    if (!sameProcess()) return std::unexpected(std::make_error_code(std::errc::no_such_process));
     struct iovec local  = { buffer,          size };
     struct iovec remote = { (void*)address,  size };
 
-    ssize_t n = process_vm_readv(pid_, &local, 1, &remote, 1, 0);
+    ssize_t n = memoryTransfer(pid_,[&](pid_t task){return process_vm_readv(task,&local,1,&remote,1,0);});
     if (n < 0) {
         // The usual cause of a blank memory/disassembly pane: EPERM from
         // ptrace_scope on a non-child same-user process. `CE_LOG=ptrace:debug`
@@ -115,7 +200,7 @@ Result<size_t> LinuxProcessHandle::read(uintptr_t address, void* buffer, size_t 
 
 void LinuxProcessHandle::readMany(const uintptr_t* addrs, size_t count, size_t size,
                                   uint8_t* out, uint8_t* ok) {
-    if (size == 0) { std::memset(ok, 0, count); return; }
+    if (size == 0 || !sameProcess()) { std::memset(ok, 0, count); return; }
     // process_vm_readv processes the iovec arrays in order and stops at the
     // first remote page fault, returning the bytes transferred so far. Batching
     // up to IOV_MAX addresses into one syscall turns a per-address scan (one
@@ -148,7 +233,7 @@ void LinuxProcessHandle::readMany(const uintptr_t* addrs, size_t count, size_t s
             if (scratch.size() < span) scratch.resize(span);
             struct iovec l{ scratch.data(), span };
             struct iovec r{ reinterpret_cast<void*>(addrs[0]), span };
-            ssize_t nr = process_vm_readv(pid_, &l, 1, &r, 1, 0);
+            ssize_t nr = memoryTransfer(pid_,[&](pid_t task){return process_vm_readv(task,&l,1,&r,1,0);});
             size_t got = nr < 0 ? 0 : static_cast<size_t>(nr);
             size_t k = 0;
             for (; k < count; ++k) {
@@ -193,8 +278,8 @@ void LinuxProcessHandle::readMany(const uintptr_t* addrs, size_t count, size_t s
         }
         size_t batch = end - i; // addresses covered by this syscall
 
-        ssize_t n = process_vm_readv(pid_, local.data(), local.size(),
-                                     remote.data(), remote.size(), 0);
+        ssize_t n = memoryTransfer(pid_,[&](pid_t task){return process_vm_readv(task,local.data(),local.size(),
+                                     remote.data(),remote.size(),0);});
         if (n < 0) {
             // The leading entry faulted before any transfer (or the process is
             // gone). Mark it unreadable and advance; the next iteration retries
@@ -219,17 +304,71 @@ void LinuxProcessHandle::readMany(const uintptr_t* addrs, size_t count, size_t s
 }
 
 Result<size_t> LinuxProcessHandle::write(uintptr_t address, const void* buffer, size_t size) {
+    if (!sameProcess()) return std::unexpected(std::make_error_code(std::errc::no_such_process));
+    if (size && buffer && size-1<=UINTPTR_MAX-address && nativeTargetMachine().architecture==CpuArchitecture::Arm64) {
+        const auto regions=queryRegions();
+        const uintptr_t last=address+size-1;
+        for (const auto& region:regions) {
+            if ((region.protection & MemProt::Exec) && region.size &&
+                (region.base<=address ? address-region.base<region.size : region.base<=last)) {
+                auto identity=processMemoryIdentity(pid_);
+                if (!identity) return std::unexpected(identity.error());
+                return memorySyscallService().writeCode(*identity,address,{static_cast<const uint8_t*>(buffer),size});
+            }
+        }
+    }
     struct iovec local  = { const_cast<void*>(buffer), size };
     struct iovec remote = { (void*)address,            size };
 
-    ssize_t n = process_vm_writev(pid_, &local, 1, &remote, 1, 0);
+    ssize_t n = memoryTransfer(pid_,[&](pid_t task){return process_vm_writev(task,&local,1,&remote,1,0);});
     if (n < 0) {
+        const int transferError=errno;
+        if (errno==EFAULT && size && buffer && size-1<=UINTPTR_MAX-address) {
+            const uintptr_t last=address+size-1;
+            for (const auto& region:queryRegions()) {
+                if ((region.protection & MemProt::Exec) && region.size &&
+                    (region.base<=address ? address-region.base<region.size : region.base<=last)) {
+                    auto identity=processMemoryIdentity(pid_);
+                    if (!identity) return std::unexpected(identity.error());
+                    return memorySyscallService().writeCode(*identity,address,{static_cast<const uint8_t*>(buffer),size});
+                }
+            }
+        }
+        errno=transferError;
         ce::log::debug(ce::log::Cat::Ptrace,
             "process_vm_writev pid={} @ {:#x} size={} failed: {}",
             pid_, address, size, std::strerror(errno));
         return std::unexpected(std::error_code(errno, std::system_category()));
     }
     return static_cast<size_t>(n);
+}
+
+Result<size_t> LinuxProcessHandle::writeCode(uintptr_t address,const void* buffer,size_t size) {
+    if (!sameProcess()) return std::unexpected(std::make_error_code(std::errc::no_such_process));
+    if (!size) return size_t(0);
+    if (!buffer || size-1>UINTPTR_MAX-address)
+        return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+    const auto description=targetDescription();
+    const auto native=nativeTargetMachine();
+    if (!native.isX86() && native.architecture!=CpuArchitecture::Arm64)
+        return std::unexpected(std::make_error_code(std::errc::operation_not_supported));
+    if (description.host.architecture!=native.architecture &&
+        !(native.architecture==CpuArchitecture::X86_64 && description.host.architecture==CpuArchitecture::X86_32))
+        return std::unexpected(std::make_error_code(std::errc::operation_not_supported));
+    if (native.architecture==CpuArchitecture::Arm64) {
+        uintptr_t at=address;size_t remaining=size;
+        while (remaining) {
+            auto region=queryRegion(at);
+            if (!region || !(region->protection & MemProt::Exec) || at<region->base || at-region->base>=region->size)
+                return std::unexpected(std::make_error_code(std::errc::operation_not_supported));
+            const size_t count=std::min(remaining,region->size-(at-region->base));
+            remaining-=count;
+            if (remaining) at+=count;
+        }
+    }
+    auto identity=processMemoryIdentity(pid_);
+    if (!identity) return std::unexpected(identity.error());
+    return memorySyscallService().writeCode(*identity,address,{static_cast<const uint8_t*>(buffer),size});
 }
 
 MemProt LinuxProcessHandle::parsePerms(const std::string& perms) const {
@@ -244,7 +383,10 @@ MemProt LinuxProcessHandle::parsePerms(const std::string& perms) const {
 
 std::vector<MemoryRegion> LinuxProcessHandle::queryRegions() {
     std::vector<MemoryRegion> regions;
-    std::ifstream maps("/proc/" + std::to_string(pid_) + "/maps");
+    if (!sameProcess()) return regions;
+    auto task=processMemoryTask(pid_);
+    if (!task) return regions;
+    std::ifstream maps("/proc/" + std::to_string(*task) + "/maps");
     if (!maps) return regions;
 
     std::string line;
@@ -323,7 +465,10 @@ LinuxProcessHandle::residentRanges(uintptr_t base, size_t size) {
     if (ps <= 0 || size == 0) return whole;
     size_t pageSize = static_cast<size_t>(ps);
 
-    std::string path = "/proc/" + std::to_string(pid_) + "/pagemap";
+    if (!sameProcess()) return whole;
+    auto task=processMemoryTask(pid_);
+    if (!task) return whole;
+    std::string path = "/proc/" + std::to_string(*task) + "/pagemap";
     int fd = ::open(path.c_str(), O_RDONLY);
     if (fd < 0) return whole;
 
@@ -372,204 +517,169 @@ LinuxProcessHandle::residentRanges(uintptr_t base, size_t size) {
     return runs; // may be empty when nothing in the range is resident
 }
 
-// Execute a syscall in the target process via ptrace
-static int64_t remoteSyscall(pid_t pid, uint64_t nr,
-    uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6)
-{
-    struct user_regs_struct oldRegs, regs;
-
-    // PTRACE_SEIZE + PTRACE_INTERRUPT (not PTRACE_ATTACH's SIGSTOP): this gives a
-    // clean ptrace-stop that preserves an interrupted syscall's restart state, so
-    // hijacking a thread parked in a syscall resumes it cleanly. On Wine/Proton the
-    // threads sit in esync/fsync/wineserver waits almost all the time, so the old
-    // ATTACH path hijacked a syscall-blocked thread and either failed or corrupted
-    // the wineserver RPC (freezing the game). SEIZE backs RIP up to the syscall
-    // instruction, so our save/inject/restore lands correctly and the original
-    // syscall restarts on detach.
-    if (ptrace(PTRACE_SEIZE, pid, nullptr, nullptr) < 0)
-        return -1;
-    if (ptrace(PTRACE_INTERRUPT, pid, nullptr, nullptr) < 0) {
-        ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
-        return -1;
-    }
-    int status;
-    if (waitpid(pid, &status, __WALL) != pid || !WIFSTOPPED(status)) {
-        ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
-        return -1;
-    }
-
-    if (ptrace(PTRACE_GETREGS, pid, nullptr, &oldRegs) < 0) {
-        ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
-        return -1;
-    }
-
-    // Use the ABI of the thread's CURRENT CPU mode, not the process's ELF class:
-    // a WoW64 target (64-bit Wine running a 32-bit Windows game) has threads in
-    // 32-bit compat mode (CS=0x23) while running game code, where the 64-bit
-    // `syscall` instruction faults. In compat mode, go through `int 0x80` with the
-    // i386 syscall number in eax and args in ebx/ecx/edx/esi/edi/ebp.
-    const bool mode32 = ((oldRegs.cs & 0xFFu) == 0x23u);
-    uint64_t instrWord;   // little-endian opcode bytes to poke at RIP
-    regs = oldRegs;
-    // If the thread was stopped inside a blocking syscall, the kernel would run
-    // its syscall-restart machinery on resume and clobber our injected call;
-    // orig_rax = -1 tells it there is nothing to restart.
-    regs.orig_rax = (unsigned long long)-1;
-    if (mode32) {
-        // Translate the x86_64 numbers the callers pass to their i386 equivalents.
-        uint32_t nr32 = (nr == 9) ? 192u   // mmap  -> mmap2 (pgoffset already 0 for anon)
-                       : (nr == 11) ? 91u   // munmap
-                       : (nr == 10) ? 125u  // mprotect
-                       : (uint32_t)nr;
-        regs.rax = nr32;
-        regs.rbx = a1; regs.rcx = a2; regs.rdx = a3;
-        regs.rsi = a4; regs.rdi = a5; regs.rbp = a6;
-        instrWord = 0x80CDull;  // int 0x80
-    } else {
-        regs.rax = nr;
-        regs.rdi = a1; regs.rsi = a2; regs.rdx = a3;
-        regs.r10 = a4; regs.r8 = a5; regs.r9 = a6;
-        instrWord = 0x050full;  // syscall
-    }
-
-    // Save and replace the instruction at RIP. Clear errno so a real 0xFFFF...
-    // code word is distinguishable from a PEEKTEXT failure; bail before any
-    // destructive POKETEXT if the read failed.
-    errno = 0;
-    uint64_t origInstr = ptrace(PTRACE_PEEKTEXT, pid, (void*)oldRegs.rip, nullptr);
-    if (origInstr == (uint64_t)-1 && errno != 0) {
-        ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
-        return -1;
-    }
-    if (ptrace(PTRACE_POKETEXT, pid, (void*)oldRegs.rip,
-               (void*)((origInstr & ~0xFFFFULL) | instrWord)) < 0) {
-        ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
-        return -1;
-    }
-
-    int64_t result = -1;
-    // The original instruction is now overwritten; always restore it below.
-    if (ptrace(PTRACE_SETREGS, pid, nullptr, &regs) == 0 &&
-        ptrace(PTRACE_SINGLESTEP, pid, nullptr, nullptr) == 0) {
-        if (waitpid(pid, &status, 0) == pid &&
-            WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP) {
-            if (ptrace(PTRACE_GETREGS, pid, nullptr, &regs) == 0) {
-                if (mode32) {
-                    // i386 result is 32-bit eax. Only [0xFFFFF001, 0xFFFFFFFF] is
-                    // -errno; sign-extend those so callers see a negative error.
-                    // ANY OTHER value is a valid return (an address can be > 2 GB,
-                    // e.g. mmap2 -> 0xEBDF9000) — zero-extend it, because sign-
-                    // extending a high address reads back negative and makes callers
-                    // like allocate() wrongly reject a successful mmap.
-                    uint32_t raw32 = (uint32_t)(regs.rax & 0xFFFFFFFFu);
-                    result = (raw32 >= 0xFFFFF001u) ? (int64_t)(int32_t)raw32
-                                                    : (int64_t)(uint32_t)raw32;
-                } else {
-                    result = (int64_t)regs.rax;
-                }
-            }
-        }
-    }
-
-    ptrace(PTRACE_POKETEXT, pid, (void*)oldRegs.rip, (void*)origInstr);
-    ptrace(PTRACE_SETREGS, pid, nullptr, &oldRegs);
-    ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
-    ce::log::debug(ce::log::Cat::Ptrace,
-        "remoteSyscall pid={} nr={} mode32={} rip={:#x} cs={:#x} -> {:#x}",
-        pid, nr, mode32, (uint64_t)oldRegs.rip, (uint64_t)(oldRegs.cs & 0xFF),
-        (uint64_t)result);
-    return result;
+namespace {
+Result<size_t> pageRoundedSize(size_t size) {
+    long page = sysconf(_SC_PAGESIZE);
+    if (!size || page <= 0) return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+    size_t alignment = static_cast<size_t>(page);
+    size_t remainder = size % alignment;
+    size_t extra = remainder ? alignment - remainder : 0;
+    if (size > SIZE_MAX - extra) return std::unexpected(std::make_error_code(std::errc::value_too_large));
+    return size + extra;
+}
+int nativeProtection(MemProt protection) {
+    int prot = 0;
+    if (protection & MemProt::Read) prot |= PROT_READ;
+    if (protection & MemProt::Write) prot |= PROT_WRITE;
+    if (protection & MemProt::Exec) prot |= PROT_EXEC;
+    return prot;
+}
 }
 
+Result<void> LinuxProcessHandle::retryPendingOperations() {
+    if (!sameProcess()) return std::unexpected(std::make_error_code(std::errc::no_such_process));
+    if (!hasPendingMemorySyscalls(pid_, startTime_)) return {};
+    auto identity = processMemoryIdentity(pid_);
+    if (!identity) return std::unexpected(identity.error());
+    return memorySyscallService().recover(*identity);
+}
+
+Result<void> LinuxProcessHandle::resumePendingCallSignal(bool deliverSignal) {
+    if (!sameProcess()) return std::unexpected(std::make_error_code(std::errc::no_such_process));
+    auto identity=processMemoryIdentity(pid_);
+    if (!identity) return std::unexpected(identity.error());
+    return memorySyscallService().resumeCall(*identity,deliverSignal);
+}
 
 Result<uintptr_t> LinuxProcessHandle::allocate(size_t size, MemProt protection, uintptr_t preferredBase) {
-    int prot = 0;
-    if (protection & MemProt::Read)  prot |= 1; // PROT_READ
-    if (protection & MemProt::Write) prot |= 2; // PROT_WRITE
-    if (protection & MemProt::Exec)  prot |= 4; // PROT_EXEC
-
-    int flags = 0x22; // MAP_PRIVATE | MAP_ANONYMOUS
-    size_t allocSize = (size + 4095) & ~4095ULL; // Page-align
-
-    // remoteSyscall picks the right ABI (syscall vs int 0x80) from the thread's
-    // CPU mode, and translates mmap(9) -> mmap2(192) in compat mode, so passing
-    // the x86_64 numbers works for native-64, native-32, and WoW64 targets alike.
-    auto mmapInTarget = [&](uintptr_t addr, size_t len, int p, int fl) -> int64_t {
-        return remoteSyscall(pid_, 9, addr, len, p, fl, (uint64_t)-1, 0);
+    return allocateInImage(size,protection,preferredBase,nullptr);
+}
+Result<uintptr_t> LinuxProcessHandle::allocateInImage(size_t size,MemProt protection,uintptr_t preferredBase,const NativeMemoryImage* image) {
+    if(image) {if(image->pid()!=pid_) return std::unexpected(std::make_error_code(std::errc::invalid_argument));auto live=image->check();if(!live) return std::unexpected(live.error());}
+    auto allocSize = pageRoundedSize(size);
+    if (!allocSize) return std::unexpected(allocSize.error());
+    auto recovered = retryPendingOperations();
+    if (!recovered) return std::unexpected(recovered.error());
+    if (unsupportedTargetOperation(*this, TargetFeature::Allocate))
+        return std::unexpected(std::make_error_code(std::errc::not_supported));
+    auto description = targetDescription();
+    auto allocationMachine = preferredBase ? machineAt(preferredBase) : description.program;
+    if (allocationMachine.pointerWidth == 4 && (*allocSize > UINT32_MAX || preferredBase > UINT32_MAX))
+        return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+    auto identity = image ? Result<TargetProcessIdentity>(image->identity()) : processMemoryIdentity(pid_);
+    if (!identity) return std::unexpected(identity.error());
+    const int prot = nativeProtection(protection);
+    constexpr int flags = MAP_PRIVATE | MAP_ANONYMOUS;
+    auto mmapInTarget = [&](uintptr_t address, int extraFlags) -> Result<uint64_t> {
+        return memorySyscallService().execute(*identity, description.host, MemorySyscall::Map,
+            {address, *allocSize, static_cast<uint64_t>(prot), static_cast<uint64_t>(flags | extraFlags), UINT64_MAX, 0},image);
     };
-
-    // Try near-allocation first (within ±2GB for RIP-relative addressing)
-    if (preferredBase) {
-        auto regions = queryRegions();
-        constexpr int64_t MAX_DIST = 0x7FFF0000LL; // ~2GB
-
-        // Search for gaps near preferredBase
+    // Search the intersection of each free gap and the preferred branch range.
+    // Unsigned bounds avoid signed subtraction/abs overflow at extreme addresses.
+    auto allocateInGaps = [&](uintptr_t minimum, uintptr_t maximum, uintptr_t preferred) -> Result<uintptr_t> {
         uintptr_t prevEnd = 0;
-        for (auto& r : regions) {
-            uintptr_t gapStart = prevEnd;
-            uintptr_t gapEnd = r.base;
-
-            if (gapEnd > gapStart && (gapEnd - gapStart) >= allocSize) {
-                // Check if this gap is within ±2GB of preferred
-                int64_t distStart = (int64_t)gapStart - (int64_t)preferredBase;
-                int64_t distEnd = (int64_t)(gapEnd - allocSize) - (int64_t)preferredBase;
-
-                if (std::abs(distStart) < MAX_DIST || std::abs(distEnd) < MAX_DIST) {
-                    // Pick the address in this gap closest to preferredBase so
-                    // the result is most likely within ±2GB (RIP-relative
-                    // range). Clamp preferredBase into the usable window
-                    // [gapStart, gapEnd - allocSize], then page-align. The
-                    // window is non-empty here because the gap is >= allocSize.
-                    uintptr_t windowEnd = gapEnd - allocSize; // safe: gap >= allocSize
-                    uintptr_t allocAddr = std::clamp(preferredBase, gapStart, windowEnd);
-                    allocAddr = (allocAddr + 4095) & ~4095ULL; // Page-align
-
-                    if (allocAddr + allocSize <= gapEnd) {
-                        // NOREPLACE (not plain MAP_FIXED=0x10): the walk relies on
-                        // mmap FAILING when this gap address is already taken (the
-                        // region snapshot can go stale before the target is stopped),
-                        // so it can try the next gap instead of unmapping live memory.
-                        int64_t result = mmapInTarget(allocAddr, allocSize, prot,
-                                                      flags | MAP_FIXED_NOREPLACE);
-                        if (result > 0 && result != -1)
-                            return (uintptr_t)result;
+        size_t page = static_cast<size_t>(sysconf(_SC_PAGESIZE));
+        for (const auto& region : queryRegions()) {
+            uintptr_t start = std::max(prevEnd, minimum);
+            if (region.base >= *allocSize) {
+                uintptr_t end = std::min(region.base - *allocSize, maximum);
+                if (start <= end) {
+                    uintptr_t address = std::clamp(preferred, start, end);
+                    address -= address % page;
+                    if (address < start) address = start;
+                    uintptr_t extra = (page - address % page) % page;
+                    if (extra <= end - address) {
+                        address += extra;
+                        auto result = mmapInTarget(address, MAP_FIXED_NOREPLACE);
+                        if (result) return static_cast<uintptr_t>(*result);
+                        // EPERM also rejects candidates below mmap_min_addr.
+                        // These are ordinary gap/address failures. Recovery and
+                        // identity failures must stop the entire allocation.
+                        auto error = result.error();
+                        if (error != std::errc::file_exists && error != std::errc::invalid_argument &&
+                            error != std::errc::not_enough_memory && error != std::errc::permission_denied &&
+                            error != std::errc::operation_not_permitted)
+                            return std::unexpected(error);
                     }
                 }
             }
-            prevEnd = r.base + r.size;
+            prevEnd = region.size > UINTPTR_MAX - region.base ? UINTPTR_MAX : region.base + region.size;
         }
-    }
-
-    // Fallback: allocate anywhere
-    int64_t result = mmapInTarget(0, allocSize, prot, flags);
-
-    if (result <= 0 || result == -1)
         return std::unexpected(std::make_error_code(std::errc::not_enough_memory));
-
-    return (uintptr_t)result;
+    };
+    if (preferredBase) {
+        constexpr uintptr_t maxDistance = 0x7fff0000;
+        uintptr_t minimum = preferredBase > maxDistance ? preferredBase - maxDistance : 0;
+        uintptr_t maximum = preferredBase > UINTPTR_MAX - maxDistance ? UINTPTR_MAX : preferredBase + maxDistance;
+        if (allocationMachine.pointerWidth == 4)
+            maximum = std::min<uintptr_t>(maximum, UINT32_MAX - *allocSize + 1);
+        auto nearby = allocateInGaps(minimum, maximum, preferredBase);
+        if (nearby || nearby.error() != std::errc::not_enough_memory) return nearby;
+    }
+    int lowAddressFlag = 0;
+#if defined(__x86_64__)
+    if (allocationMachine.pointerWidth == 4 && description.host.architecture == CpuArchitecture::X86_64)
+        lowAddressFlag = MAP_32BIT;
+#endif
+    auto result = mmapInTarget(0, lowAddressFlag);
+    if (!result && lowAddressFlag && result.error() == std::errc::not_enough_memory) {
+        // MAP_32BIT searches below 2 GiB, although a program's 32-bit pointers
+        // can represent the full 4 GiB. Search the remaining free address space
+        // without replacing any mapping when that preferred range is full.
+        uintptr_t minimum = static_cast<uintptr_t>(sysconf(_SC_PAGESIZE));
+        std::ifstream limit("/proc/sys/vm/mmap_min_addr");
+        uintptr_t configured = 0;
+        if (limit >> configured) minimum = std::max(minimum, configured);
+        return allocateInGaps(minimum, UINT32_MAX - *allocSize + 1, UINT64_C(0x80000000));
+    }
+    if (!result) return std::unexpected(result.error());
+    return static_cast<uintptr_t>(*result);
 }
 
 Result<void> LinuxProcessHandle::free(uintptr_t address, size_t size) {
-    size_t freeSize = (size + 4095) & ~4095ULL;
-    int64_t result = remoteSyscall(pid_, 11 /*__NR_munmap*/, address, freeSize, 0, 0, 0, 0);
-    if (result < 0)
-        return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+    return freeInImage(address,size,nullptr);
+}
+Result<void> LinuxProcessHandle::freeInImage(uintptr_t address,size_t size,const NativeMemoryImage* image) {
+    if(image) {if(image->pid()!=pid_) return std::unexpected(std::make_error_code(std::errc::invalid_argument));auto live=image->check();if(!live) return std::unexpected(live.error());}
+    auto freeSize = pageRoundedSize(size);
+    if (!freeSize) return std::unexpected(freeSize.error());
+    if (address > UINTPTR_MAX - *freeSize) return std::unexpected(std::make_error_code(std::errc::value_too_large));
+    auto recovered = retryPendingOperations();
+    if (!recovered) return recovered;
+    if (unsupportedTargetOperation(*this, TargetFeature::Allocate))
+        return std::unexpected(std::make_error_code(std::errc::not_supported));
+    auto description = targetDescription();
+    auto identity = image ? Result<TargetProcessIdentity>(image->identity()) : processMemoryIdentity(pid_);
+    if (!identity) return std::unexpected(identity.error());
+    auto result = memorySyscallService().execute(*identity, description.host, MemorySyscall::Unmap,
+        {address, *freeSize, 0, 0, 0, 0},image);
+    if (!result) return std::unexpected(result.error());
     return {};
 }
 
 Result<void> LinuxProcessHandle::protect(uintptr_t address, size_t size, MemProt newProtection) {
-    int prot = 0;
-    if (newProtection & MemProt::Read)  prot |= 1;
-    if (newProtection & MemProt::Write) prot |= 2;
-    if (newProtection & MemProt::Exec)  prot |= 4;
-
-    uintptr_t pageStart = address & ~uintptr_t(4095);
-    uintptr_t pageEnd = (address + size + 4095) & ~uintptr_t(4095);
-    size_t protSize = pageEnd - pageStart;
-
-    int64_t result = remoteSyscall(pid_, 10 /*__NR_mprotect*/, pageStart, protSize, prot, 0, 0, 0);
-    if (result < 0)
-        return std::unexpected(std::make_error_code(std::errc::permission_denied));
+    return protectInImage(address,size,newProtection,nullptr);
+}
+Result<void> LinuxProcessHandle::protectInImage(uintptr_t address,size_t size,MemProt newProtection,const NativeMemoryImage* image) {
+    if(image) {if(image->pid()!=pid_) return std::unexpected(std::make_error_code(std::errc::invalid_argument));auto live=image->check();if(!live) return std::unexpected(live.error());}
+    long page = sysconf(_SC_PAGESIZE);
+    if (page <= 0 || !size) return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+    uintptr_t pageStart = address - address % static_cast<uintptr_t>(page);
+    size_t prefix = address - pageStart;
+    if (size > SIZE_MAX - prefix || size > UINTPTR_MAX - address)
+        return std::unexpected(std::make_error_code(std::errc::value_too_large));
+    auto protSize = pageRoundedSize(size + prefix);
+    if (!protSize) return std::unexpected(protSize.error());
+    auto recovered = retryPendingOperations();
+    if (!recovered) return recovered;
+    if (unsupportedTargetOperation(*this, TargetFeature::Protect))
+        return std::unexpected(std::make_error_code(std::errc::not_supported));
+    auto description = targetDescription();
+    auto identity = image ? Result<TargetProcessIdentity>(image->identity()) : processMemoryIdentity(pid_);
+    if (!identity) return std::unexpected(identity.error());
+    auto result = memorySyscallService().execute(*identity, description.host, MemorySyscall::Protect,
+        {pageStart, *protSize, static_cast<uint64_t>(nativeProtection(newProtection)), 0, 0, 0},image);
+    if (!result) return std::unexpected(result.error());
     return {};
 }
 
@@ -593,21 +703,21 @@ void LinuxProcessHandle::enumeratePeModules(std::vector<ModuleInfo>& mods,
             if (region.base > m.base && region.base < m.base + m.size) { covered = true; break; }
         if (covered) continue;
 
-        uint16_t mz = 0;
-        if (!rd(region.base, &mz, 2) || mz != 0x5A4D) continue;         // "MZ"
-        uint32_t lfanew = 0;
-        if (!rd(region.base + 0x3C, &lfanew, 4)) continue;
-        if (lfanew < 0x40 || lfanew > 0x1000) continue;                // sane e_lfanew
-        uint32_t peSig = 0;
-        if (!rd(region.base + lfanew, &peSig, 4) || peSig != 0x00004550) continue;  // "PE\0\0"
-        uint16_t machine = 0;
-        if (!rd(region.base + lfanew + 4, &machine, 2)) continue;
-        if (machine != 0x14C && machine != 0x8664) continue;           // i386 / amd64 only
-        uint32_t sizeOfImage = 0;
-        // Optional header starts at lfanew+24; SizeOfImage is at its offset 56.
-        rd(region.base + lfanew + 24 + 56, &sizeOfImage, 4);
-        if (sizeOfImage < 0x1000 || sizeOfImage > 0x40000000u)         // 4KB..1GB sanity
-            sizeOfImage = (uint32_t)region.size;
+        std::array<uint8_t, 64> dos{};
+        if (!rd(region.base, dos.data(), dos.size()) || dos[0] != 'M' || dos[1] != 'Z') continue;
+        auto lfanew = *decodeTargetUnsigned(std::span(dos).subspan(0x3c, 4), ByteOrder::Little);
+        if (lfanew < 0x40 || lfanew > 0x1000 || lfanew + 24 > UINTPTR_MAX - region.base) continue;
+        std::array<uint8_t, 24> coff{};
+        if (!rd(region.base + lfanew, coff.data(), coff.size())) continue;
+        auto optionalSize = *decodeTargetUnsigned(std::span(coff).subspan(20, 2), ByteOrder::Little);
+        if (optionalSize < 60 || optionalSize > 4096 || lfanew + 24 + optionalSize > UINTPTR_MAX - region.base) continue;
+        std::vector<uint8_t> header(lfanew + 24 + optionalSize);
+        if (!rd(region.base, header.data(), header.size())) continue;
+        auto target = parsePeTarget(header);
+        if (!target) continue;
+        uint64_t sizeOfImage = *decodeTargetUnsigned(std::span(header).subspan(lfanew + 24 + 56, 4), ByteOrder::Little);
+        if (sizeOfImage < 0x1000 || sizeOfImage > 0x40000000u || sizeOfImage > UINTPTR_MAX - region.base)
+            continue;
 
         // Skip if this base is already listed (e.g. from the ELF pass).
         if (std::any_of(mods.begin(), mods.end(),
@@ -621,7 +731,8 @@ void LinuxProcessHandle::enumeratePeModules(std::vector<ModuleInfo>& mods,
         // Prefer the backing file's basename; PE images are usually file-backed.
         m.name = region.path.empty() ? ("pe_" + std::to_string(region.base))
                                      : fs::path(region.path).filename().string();
-        m.is64bit = (machine == 0x8664);
+        m.machine = *target;
+        m.is64bit = target->pointerWidth == 8;
         mods.push_back(std::move(m));
     }
 }
@@ -661,15 +772,22 @@ std::vector<ModuleInfo> LinuxProcessHandle::modules() {
     // Make backing-file paths host-openable for sandboxed targets (Flatpak/Snap/
     // container): a path like /app/bin/game exists only inside the target's mount
     // namespace, so redirect it through /proc/<pid>/root so symbol loading and
-    // module analysis work. No-op for normal processes (path already exists). The
+    // module analysis work. Host paths remain valid only for the same backing inode. The
     // display name (m.name, a basename) is untouched.
-    for (auto& m : mods)
-        if (!m.path.empty()) m.path = resolveProcPath(pid_, m.path);
+    auto task=processMemoryTask(pid_);
+    for (auto& m : mods) {
+        if (!m.path.empty()) m.path = resolveProcPath(task ? *task : pid_, m.path);
+        if (m.machine.architecture == CpuArchitecture::Unknown) {
+            m.machine = readElfMachine(m.path);
+            if (m.machine.hasPointers()) m.is64bit = m.machine.pointerWidth == 8;
+        }
+    }
     return mods;
 }
 
 std::vector<ThreadInfo> LinuxProcessHandle::threads() {
     std::vector<ThreadInfo> tids;
+    if (!sameProcess()) return tids;
     auto taskDir = "/proc/" + std::to_string(pid_) + "/task";
     try {
         for (auto& entry : fs::directory_iterator(taskDir)) {
@@ -677,6 +795,16 @@ std::vector<ThreadInfo> LinuxProcessHandle::threads() {
             try {
                 ThreadInfo t;
                 t.tid = std::stoi(name);
+                std::ifstream stat(entry.path()/"stat"); std::string line;
+                if (!std::getline(stat,line)) continue;
+                const auto close=line.rfind(')');
+                if (close==std::string::npos) continue;
+                std::istringstream fields(line.substr(close+1)); char state=0;
+                if (!(fields>>state) || state=='Z' || state=='X' || state=='x') continue;
+                std::string ignored;
+                for (unsigned field=4;field<9 && fields;++field) fields>>ignored;
+                uint64_t flags=0;
+                if (!(fields>>flags) || (flags&12)) continue; // PF_EXITING | PF_POSTCOREDUMP.
                 tids.push_back(t);
             } catch (...) {}
         }
@@ -778,7 +906,8 @@ std::vector<ProcessInfo> LinuxProcessEnumerator::list() {
                 p.path = flattenedCmdline;
             } else {
                 try {
-                    p.path = fs::read_symlink("/proc/" + name + "/exe").string();
+                    auto task=processMemoryTask(pid);
+                    p.path = fs::read_symlink("/proc/" + std::to_string(task ? *task : pid) + "/exe").string();
                 } catch (...) {}
                 if (p.path.empty() && !flattenedCmdline.empty())
                     p.path = flattenedCmdline;

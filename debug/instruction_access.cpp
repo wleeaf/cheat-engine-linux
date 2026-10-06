@@ -1,3 +1,5 @@
+#include "core/target_capabilities.hpp"
+#include "arch/target_arch.hpp"
 #include "debug/instruction_access.hpp"
 #include "debug/debug_session.hpp"
 #include "arch/disassembler.hpp"
@@ -13,6 +15,7 @@ namespace ce {
 std::vector<InstructionAccess> findInstructionAccesses(
     ProcessHandle& proc, uintptr_t instructionAddress, int maxHits, int timeoutMs) {
 
+    if (unsupportedTargetOperation(proc, TargetFeature::Debugger)) return {};
     DebugSession session;
     Disassembler dis(proc.runs32BitCode() ? Arch::X86_32 : Arch::X86_64);
 

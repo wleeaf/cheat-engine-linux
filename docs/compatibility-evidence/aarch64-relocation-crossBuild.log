@@ -1,0 +1,9 @@
+[ 12%] Building CXX object CMakeFiles/relocation_init.dir/src/test/arm64_relocation_integration.cpp.o
+[ 25%] Building ASM object CMakeFiles/relocation_init.dir/src/test/arm64_relocation_fixtures.S.o
+[ 37%] Building CXX object CMakeFiles/relocation_init.dir/src/arch/aarch64_relocator.cpp.o
+[ 50%] Building CXX object CMakeFiles/relocation_init.dir/src/arch/disassembler.cpp.o
+[ 62%] Building CXX object CMakeFiles/relocation_init.dir/src/arch/target_arch.cpp.o
+[ 75%] Building CXX object CMakeFiles/relocation_init.dir/src/core/target_machine.cpp.o
+[ 87%] Building CXX object CMakeFiles/relocation_init.dir/src/platform/process_api.cpp.o
+[100%] Linking CXX executable /var/tmp/cecompat-arm-relocation/relocation_init
+[100%] Built target relocation_init

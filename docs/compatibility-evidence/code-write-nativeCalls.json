@@ -1,0 +1,23 @@
+{
+  "suite": "native-libc-library-and-pthread-injection",
+  "status": "passed",
+  "utc": "2026-10-06T01:16:15.707511+00:00",
+  "platform": "Linux-7.1.8-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "requireI386": false,
+  "sourceRevision": null,
+  "sourceRef": null,
+  "targets": [
+    {
+      "status": "passed",
+      "width": 8,
+      "fixtureSha256": "05b87945f5c9a2c63b26ca916ce7f916f95c75cc8a398719050d90a409be6347",
+      "librarySha256": "47d6dd25b395672b368b54bac0864b99b8c3d81b27f35338c71cfac5c5dde17e",
+      "exitCode": 0,
+      "output": "OK: real dynamic libc/pthread fixture starts\nOK: live native call ABI matches the real process\nOK: library symlink with a different basename is created\nOK: dlopen through a symlink runs the real target constructor\nOK: an already loaded library returns its native handle without rerunning its constructor\nOK: embedded NUL library paths are rejected before target execution\nOK: non-executable thread entries are rejected before pthread_create\nOK: a real native pthread executes, returns, and exits before completion is reported\nOK: owned thread data is allocated for lifetime checks\nOK: a waiting pthread reaches the deadline and is detached without an unbounded join\nOK: the remote pthread has an actual Linux thread identity\nOK: destroying the creating frontend does not permit freeing or protecting live worker storage\nOK: the target's main loop keeps running while its new pthread waits\nOK: the timed-out detached pthread later returns normally using its still-mapped code and data\nOK: owned worker storage can be freed after actual kernel thread exit\nOK: a fire-and-forget pthread is detached and completes normally\nOK: Lua validates paths/timeouts, completes native calls, and reports an actual running-thread timeout\nOK: a worker that calls pthread_detach on itself still completes by kernel thread identity\nOK: pthread_exit without returning through the wrapper releases ownership after kernel exit\nOK: late pthread creation has a real target callback and owned storage\nOK: timed-out pthread creation retains ownership and storage before returning its handle\nOK: an abandoned late-created worker is cancelled before entering user code and releases its storage\nOK: engine process exit does not wait for a detached running target worker\nOK: a detached worker returns normally after its engine process has exited\nNATIVE_THREAD_LIFETIME_RESULT=PASSED width=8\nOK: timed-out AA execution retains its running code cave for retry\nOK: AA disable refuses to restore or unmap code while its detached worker is alive\nOK: retrying AA cleanup after actual worker exit frees the retained code cave\nOK: asynchronous AA execution retains its worker allocation\nOK: AA disable refuses to restore or unmap code while its detached worker is alive\nOK: retrying AA cleanup after actual worker exit frees the retained code cave\nOK: failure to create a second AA thread retains the first worker's code\nOK: AA disable refuses to restore or unmap code while its detached worker is alive\nOK: retrying AA cleanup after actual worker exit frees the retained code cave\nAUTOASM_THREAD_LIFETIME_RESULT=PASSED width=8\nOK: the original application and blocked-read sibling finish normally after injection\nOK: actual glibc pthread_exit retires main while console and CPU-loop siblings survive\nOK: a newly opened handle reads the real ABI and memory of a leaderless glibc process\nOK: leaderless process symbol loading follows live module and filesystem metadata\nOK: native library constructors execute in a real glibc process after main pthread_exit\nOK: native pthread creation and actual worker-exit ownership remain usable after leader exit\nOK: leaderless glibc memory operations preserve protection and release the actual mapping\nOK: surviving glibc siblings continue CPU work without residual native recovery\nOK: the last glibc siblings finish console work and retire the original process identity\nLEADER_NATIVE_CALL_RESULT=PASSED width=8\nOK: a real native process starts its relative timed kernel wait\nOK: wholly syscall-parked native targets reject calls without creating a thread or retaining ownership\nOK: rejected calls preserve the original timed kernel wait and normal process completion\nPARKED_NATIVE_CALL_RESULT=PASSED width=8\nNATIVE_INJECTOR_RESULT=PASSED width=8\n",
+      "stderr": "",
+      "checks": 45
+    }
+  ],
+  "driverSha256": "22e1a2e37d887ce8129507c1d0f13e4b67fe736c48d7c61ca39893b13c575184",
+  "coreSha256": "522e74001740b23208bd0139035a16e6e35fbe34be4ebaf5d6a6c16c3f33e8a2"
+}

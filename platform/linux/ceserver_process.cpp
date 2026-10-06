@@ -13,9 +13,12 @@ namespace {
 constexpr uint32_t PAGE_NOACCESS         = 0x01;
 constexpr uint32_t PAGE_READONLY         = 0x02;
 constexpr uint32_t PAGE_READWRITE        = 0x04;
+constexpr uint32_t PAGE_WRITECOPY        = 0x08;
 constexpr uint32_t PAGE_EXECUTE          = 0x10;
 constexpr uint32_t PAGE_EXECUTE_READ     = 0x20;
 constexpr uint32_t PAGE_EXECUTE_READWRITE = 0x40;
+constexpr uint32_t PAGE_EXECUTE_WRITECOPY = 0x80;
+constexpr uint32_t PAGE_GUARD             = 0x100;
 
 // CE memory type bits.
 constexpr uint32_t MEM_PRIVATE = 0x20000;
@@ -23,10 +26,11 @@ constexpr uint32_t MEM_MAPPED  = 0x40000;
 constexpr uint32_t MEM_IMAGE   = 0x1000000;
 
 MemProt toMemProt(uint32_t ceProtection) {
-    if (ceProtection & PAGE_EXECUTE_READWRITE) return MemProt::All;
+    if (ceProtection & PAGE_GUARD) return MemProt::None;
+    if (ceProtection & (PAGE_EXECUTE_READWRITE|PAGE_EXECUTE_WRITECOPY)) return MemProt::All;
     if (ceProtection & PAGE_EXECUTE_READ)      return MemProt::ReadExec;
     if (ceProtection & PAGE_EXECUTE)           return MemProt::Exec;
-    if (ceProtection & PAGE_READWRITE)         return MemProt::ReadWrite;
+    if (ceProtection & (PAGE_READWRITE|PAGE_WRITECOPY)) return MemProt::ReadWrite;
     if (ceProtection & PAGE_READONLY)          return MemProt::Read;
     return MemProt::None;
 }
@@ -59,6 +63,21 @@ MemoryRegion toMemoryRegion(const CeRegion& cr) {
     return r;
 }
 
+TargetMachine wireMachine(CeArchitecture architecture) {
+    switch (architecture) {
+        case CeArchitecture::X86:
+            return {CpuArchitecture::X86_32, ByteOrder::Little, TargetAbi::LinuxI386, InstructionMode::X86_32, 4};
+        case CeArchitecture::X86_64:
+            return {CpuArchitecture::X86_64, ByteOrder::Little, TargetAbi::LinuxX86_64, InstructionMode::X86_64, 8};
+        case CeArchitecture::ARM32:
+            // The legacy wire architecture does not encode ARM byte order.
+            return {CpuArchitecture::Arm32, ByteOrder::Unknown, TargetAbi::LinuxArmEabi, InstructionMode::Arm, 4};
+        case CeArchitecture::ARM64:
+            return {CpuArchitecture::Arm64, ByteOrder::Unknown, TargetAbi::LinuxAarch64, InstructionMode::Aarch64, 8};
+        default: return {};
+    }
+}
+
 Error remoteError() {
     return std::make_error_code(std::errc::io_error);
 }
@@ -66,21 +85,41 @@ Error remoteError() {
 } // namespace
 
 std::unique_ptr<RemoteProcessHandle> RemoteProcessHandle::open(CEServerClient& client, pid_t pid) {
+    auto operation=client.lockConnection();
     auto handle = client.openProcess(static_cast<int32_t>(pid));
-    if (!handle || *handle == 0) return nullptr;
+    if (!handle || *handle <= 0) return nullptr;
     auto arch = client.getArchitecture(*handle);
-    bool is64 = arch && (*arch == CeArchitecture::X86_64 || *arch == CeArchitecture::ARM64);
+    if (!arch) {
+        if (client.isConnected()) (void)client.closeHandle(*handle);
+        return nullptr;
+    }
+    TargetMachine machine=wireMachine(*arch);
     return std::unique_ptr<RemoteProcessHandle>(
-        new RemoteProcessHandle(client, pid, *handle, is64));
+        new RemoteProcessHandle(client, pid, *handle, machine));
+}
+
+TargetDescription RemoteProcessHandle::targetDescription() {
+    auto operation=client_->lockConnection();
+    description_.live=connectionValid();
+    if (description_.live) {
+        auto architecture=client_->getArchitecture(handle_);
+        description_.live=connectionValid();
+        description_.program=architecture ? wireMachine(*architecture) : TargetMachine{};
+        is64bit_=description_.program.pointerWidth==8;
+    }
+    return description_;
 }
 
 RemoteProcessHandle::~RemoteProcessHandle() {
-    if (client_ && handle_ != 0) {
-        client_->closeHandle(handle_);
+    auto operation=client_->lockConnection();
+    if (connectionValid() && handle_ != 0) {
+        (void)client_->closeHandle(handle_);
     }
 }
 
 Result<size_t> RemoteProcessHandle::read(uintptr_t address, void* buffer, size_t size) {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return std::unexpected(std::make_error_code(std::errc::not_connected));
     if (size == 0) return size_t{0};
     // The ceserver protocol carries a 32-bit length; reject oversized requests
     // instead of silently truncating and reporting a short read as success.
@@ -91,6 +130,8 @@ Result<size_t> RemoteProcessHandle::read(uintptr_t address, void* buffer, size_t
 }
 
 Result<size_t> RemoteProcessHandle::write(uintptr_t address, const void* buffer, size_t size) {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return std::unexpected(std::make_error_code(std::errc::not_connected));
     if (size == 0) return size_t{0};
     // writeProcessMemory carries a signed 32-bit length on the wire; reject
     // oversized requests rather than truncating to a (possibly negative) value.
@@ -101,6 +142,8 @@ Result<size_t> RemoteProcessHandle::write(uintptr_t address, const void* buffer,
 }
 
 std::vector<MemoryRegion> RemoteProcessHandle::queryRegions() {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return {};
     auto r = client_->virtualQueryExFull(handle_, 0);
     if (!r) return {};
     std::vector<MemoryRegion> out;
@@ -110,12 +153,16 @@ std::vector<MemoryRegion> RemoteProcessHandle::queryRegions() {
 }
 
 std::optional<MemoryRegion> RemoteProcessHandle::queryRegion(uintptr_t address) {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return std::nullopt;
     auto r = client_->virtualQueryEx(handle_, address);
     if (!r || !r->has_value()) return std::nullopt;
     return toMemoryRegion(**r);
 }
 
 Result<uintptr_t> RemoteProcessHandle::allocate(size_t size, MemProt protection, uintptr_t preferredBase) {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return std::unexpected(std::make_error_code(std::errc::not_connected));
     if (size > UINT32_MAX) return std::unexpected(std::make_error_code(std::errc::value_too_large));
     auto r = client_->allocateMemory(handle_, preferredBase, static_cast<uint32_t>(size), toCeProtection(protection));
     if (!r) return std::unexpected(remoteError());
@@ -124,21 +171,27 @@ Result<uintptr_t> RemoteProcessHandle::allocate(size_t size, MemProt protection,
 }
 
 Result<void> RemoteProcessHandle::free(uintptr_t address, size_t size) {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return std::unexpected(std::make_error_code(std::errc::not_connected));
     if (size > UINT32_MAX) return std::unexpected(std::make_error_code(std::errc::value_too_large));
     auto r = client_->freeMemory(handle_, address, static_cast<uint32_t>(size));
-    if (!r) return std::unexpected(remoteError());
+    if (!r || !*r) return std::unexpected(remoteError());
     return {};
 }
 
 Result<void> RemoteProcessHandle::protect(uintptr_t address, size_t size, MemProt newProtection) {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return std::unexpected(std::make_error_code(std::errc::not_connected));
     if (size > UINT32_MAX) return std::unexpected(std::make_error_code(std::errc::value_too_large));
     auto r = client_->changeMemoryProtection(handle_, address,
         static_cast<uint32_t>(size), toCeProtection(newProtection));
-    if (!r) return std::unexpected(remoteError());
+    if (!r || !r->result) return std::unexpected(remoteError());
     return {};
 }
 
 std::vector<ModuleInfo> RemoteProcessHandle::modules() {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return {};
     auto r = client_->enumModules(static_cast<int32_t>(pid_));
     if (!r) return {};
     std::vector<ModuleInfo> out;
@@ -158,6 +211,8 @@ std::vector<ModuleInfo> RemoteProcessHandle::modules() {
 }
 
 std::vector<ThreadInfo> RemoteProcessHandle::threads() {
+    auto operation=client_->lockConnection();
+    if (!connectionValid()) return {};
     auto r = client_->enumThreads(static_cast<int32_t>(pid_));
     if (!r) return {};
     std::vector<ThreadInfo> out;

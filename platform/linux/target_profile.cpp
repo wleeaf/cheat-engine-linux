@@ -1,4 +1,6 @@
 #include "core/target_profile.hpp"
+#include "platform/linux/target_syscall.hpp"
+#include "platform/linux/runtime_probe.hpp"
 
 #include <fstream>
 #include <sstream>
@@ -43,24 +45,9 @@ std::string basenameOf(const std::string& p) {
 }
 
 void elfIdent(pid_t pid, TargetProfile& p) {
-    std::string hdr = slurp("/proc/" + std::to_string(pid) + "/exe", 32);
-    if (hdr.size() < 20 || hdr[0] != 0x7f || hdr[1] != 'E' || hdr[2] != 'L' || hdr[3] != 'F')
-        return;
-    p.endianness = (static_cast<uint8_t>(hdr[5]) == 2)   // EI_DATA: 2 = big-endian
-        ? TargetProfile::Endian::Big : TargetProfile::Endian::Little;
-    // e_machine is at offset 18, read in the header's declared byte order.
-    const bool big = p.endianness == TargetProfile::Endian::Big;
-    const uint8_t b0 = static_cast<uint8_t>(hdr[18]), b1 = static_cast<uint8_t>(hdr[19]);
-    const uint16_t machine = big ? static_cast<uint16_t>((b0 << 8) | b1)
-                                 : static_cast<uint16_t>(b0 | (b1 << 8));
-    switch (machine) {
-        case 3:   p.arch = TargetProfile::Arch::X86_32;  break;  // EM_386
-        case 62:  p.arch = TargetProfile::Arch::X86_64;  break;  // EM_X86_64
-        case 40:  p.arch = TargetProfile::Arch::Arm32;   break;  // EM_ARM
-        case 183: p.arch = TargetProfile::Arch::Arm64;   break;  // EM_AARCH64
-        case 243: p.arch = TargetProfile::Arch::RiscV64; break;  // EM_RISCV
-        default:  p.arch = TargetProfile::Arch::Other;   break;
-    }
+    std::string hdr = slurp("/proc/" + std::to_string(pid) + "/exe", 64);
+    auto machine = parseElfTarget({reinterpret_cast<const uint8_t*>(hdr.data()), hdr.size()});
+    if (machine) { p.arch = machine->architecture; p.endianness = machine->byteOrder; }
 }
 
 // A Go binary carries a build-info blob whose header begins "\xff Go buildinf:".
@@ -310,15 +297,7 @@ void buildNotes(TargetProfile& p) {
 } // namespace
 
 std::string TargetProfile::archName() const {
-    switch (arch) {
-        case Arch::X86_64:  return "x86-64";
-        case Arch::X86_32:  return "x86-32";
-        case Arch::Arm64:   return "ARM64";
-        case Arch::Arm32:   return "ARM32";
-        case Arch::RiscV64: return "RISC-V 64";
-        case Arch::Other:   return "other";
-        default:            return "unknown";
-    }
+    return cpuArchitectureName(arch);
 }
 
 std::string TargetProfile::summary() const {
@@ -334,6 +313,9 @@ TargetProfile probeTarget(pid_t pid) {
     TargetProfile p;
     p.pid = pid;
     if (pid <= 0) return p;
+    auto task=os::processMemoryTask(pid);
+    if (!task) return p;
+    pid=*task;
 
     // Cheapest signal of a live, inspectable process.
     std::string status = slurp("/proc/" + std::to_string(pid) + "/status", 16 * 1024);
@@ -342,7 +324,7 @@ TargetProfile probeTarget(pid_t pid) {
 
     const std::string cmdline = cmdlineJoined(pid);
     elfIdent(pid, p);   // sets arch + endianness
-    p.wine = lower(cmdline).find(".exe") != std::string::npos;
+    p.wine = os::hasWineLoader(pid);
     p.emulator = detectEmulator(pid, cmdline);
     if (!p.emulator.empty()) p.guestCandidates = findGuestRam(pid);
     p.runtimes = detectRuntimes(pid);

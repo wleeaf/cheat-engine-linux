@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "createdUTC": "2026-10-06T01:15:16.630769+00:00",
+  "scope": "Actual executable RX-page writes, NOP/undo, debugger ownership, short/dropped/post-mutation writes, retained restoration, reentrant ownership, same-file exec and self-code edits. Guest excludes AutoAssembler and Lua; host additionally requires production CLI/Lua. Does not establish atomic live hooks, hardware caches, other ISAs or all kernel proc-mem policies.",
+  "resources": {
+    "cpus": 1,
+    "guestMemoryMiB": 128,
+    "nice": 10
+  },
+  "sourceState": "uncommitted worktree snapshot",
+  "driverSha256": "46458c56e77c123821c586bfdbdb335953d45759ea3500fe10ce00cfe1401e8f",
+  "cliSha256": "8c7f55ca213205aa67c518f83190da25659b22bee57f49ccbd5f1544a10c407b",
+  "coreSha256": "34c4fc69af5accd2ffcef94bd815e8984614a91316d095ca278a2c4f4c86bfc3",
+  "command": [
+    "build-ci-asan/code_write_integration"
+  ],
+  "exitCode": 0,
+  "passed": true,
+  "kernel": "7.1.8-200.fc44.x86_64",
+  "pageSize": 4096,
+  "checks": 30,
+  "cliChecks": 5,
+  "outputSha256": "6bc45dd69c747e76bd59127a69861ed3413a769deb43097bf64a9968ae94cbcf"
+}

@@ -1,0 +1,3 @@
+rounded type=4 current=0.05000000074505806 requested=0.10000000000000001 inside-declared-half-place=1 found=1
+rounded type=10 current=0.05000000074505806 requested=0.10000000000000001 inside-declared-half-place=1 found=1
+truncated current=16777216 requested=16777217 integral-values-differ=1 found=0

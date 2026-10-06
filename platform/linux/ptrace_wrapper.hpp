@@ -4,6 +4,7 @@
 #include "platform/process_api.hpp"
 
 #include <vector>
+#include <map>
 
 namespace ce::os {
 
@@ -37,6 +38,7 @@ public:
 private:
     pid_t pid_ = 0;
     bool attached_ = false;
+    std::map<std::pair<pid_t, int>, bool> breakpointExecution_;
 
     static Error errFromErrno();
 };

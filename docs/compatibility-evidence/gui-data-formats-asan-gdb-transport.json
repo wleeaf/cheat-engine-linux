@@ -1,0 +1,497 @@
+{
+  "schemaVersion": 1,
+  "createdUTC": "2026-10-05T22:30:49Z",
+  "sourceRevision": null,
+  "sourceState": "uncommitted worktree snapshot",
+  "driver": {
+    "path": "/home/taceddinsancak/Desktop/Projects/cheat-engine/build-ci-asan/gdb_transport_integration",
+    "sha256": "68fba1808b9e3bc42f8327edc7b3931201b37225a95edbf74d4c6413bb49e815"
+  },
+  "realGuestRequired": false,
+  "passed": true,
+  "cases": [
+    {
+      "name": "raw-hex",
+      "returnCode": 0,
+      "output": "OK: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=PASSED\n",
+      "seconds": 0.07,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": true
+    },
+    {
+      "name": "raw-escape",
+      "returnCode": 0,
+      "output": "OK: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=PASSED\n",
+      "seconds": 0.066,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": true
+    },
+    {
+      "name": "raw-rle",
+      "returnCode": 0,
+      "output": "OK: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=PASSED\n",
+      "seconds": 0.065,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": true
+    },
+    {
+      "name": "raw-request-retry",
+      "returnCode": 0,
+      "output": "OK: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=PASSED\n",
+      "seconds": 0.068,
+      "peerErrors": [],
+      "packets": 2,
+      "passed": true
+    },
+    {
+      "name": "raw-response-retry",
+      "returnCode": 0,
+      "output": "OK: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=PASSED\n",
+      "seconds": 0.065,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": true
+    },
+    {
+      "name": "raw-console",
+      "returnCode": 0,
+      "output": "OK: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=PASSED\n",
+      "seconds": 0.065,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": true
+    },
+    {
+      "name": "raw-bad-prefix",
+      "returnCode": 0,
+      "output": "OK: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=PASSED\n",
+      "seconds": 0.064,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": true
+    },
+    {
+      "name": "raw-bad-rle",
+      "returnCode": 0,
+      "output": "OK: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=PASSED\n",
+      "seconds": 0.064,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": true
+    },
+    {
+      "name": "raw-bad-escape",
+      "returnCode": 0,
+      "output": "OK: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=PASSED\n",
+      "seconds": 0.065,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": true
+    },
+    {
+      "name": "raw-timeout",
+      "returnCode": 0,
+      "output": "OK: framed replies, escapes and retransmissions preserve actual payloads\nOK: a stalled peer is bounded by one transaction deadline\nGDB_RAW_RESULT=PASSED\n",
+      "seconds": 0.163,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": true
+    },
+    {
+      "name": "raw-cancel",
+      "returnCode": 0,
+      "output": "OK: framed replies, escapes and retransmissions preserve actual payloads\nOK: cancellation interrupts stalled socket polling before its ordinary deadline\nGDB_RAW_RESULT=PASSED\n",
+      "seconds": 0.123,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": true
+    },
+    {
+      "name": "raw-eof",
+      "returnCode": 0,
+      "output": "OK: framed replies, escapes and retransmissions preserve actual payloads\nGDB_RAW_RESULT=PASSED\n",
+      "seconds": 0.086,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": true
+    },
+    {
+      "name": "raw-short",
+      "returnCode": 0,
+      "output": "OK: memory replies retain real short/error/oversized semantics\nGDB_RAW_RESULT=PASSED\n",
+      "seconds": 0.065,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": true
+    },
+    {
+      "name": "raw-error",
+      "returnCode": 0,
+      "output": "OK: memory replies retain real short/error/oversized semantics\nGDB_RAW_RESULT=PASSED\n",
+      "seconds": 0.067,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": true
+    },
+    {
+      "name": "raw-oversized",
+      "returnCode": 0,
+      "output": "OK: memory replies retain real short/error/oversized semantics\nGDB_RAW_RESULT=PASSED\n",
+      "seconds": 0.065,
+      "peerErrors": [],
+      "packets": 1,
+      "passed": true
+    },
+    {
+      "name": "xml-cycle",
+      "returnCode": 0,
+      "output": "OK: qSupported and no-ack negotiation complete\nOK: invalid or cyclic XML never creates a guessed target\nGDB_PROTOCOL_RESULT=PASSED\n",
+      "seconds": 0.185,
+      "peerErrors": [],
+      "packets": 11,
+      "passed": true
+    },
+    {
+      "name": "xml-duplicate",
+      "returnCode": 0,
+      "output": "OK: qSupported and no-ack negotiation complete\nOK: invalid or cyclic XML never creates a guessed target\nGDB_PROTOCOL_RESULT=PASSED\n",
+      "seconds": 0.187,
+      "peerErrors": [],
+      "packets": 11,
+      "passed": true
+    },
+    {
+      "name": "xml-missing-bits",
+      "returnCode": 0,
+      "output": "OK: qSupported and no-ack negotiation complete\nOK: invalid or cyclic XML never creates a guessed target\nGDB_PROTOCOL_RESULT=PASSED\n",
+      "seconds": 0.185,
+      "peerErrors": [],
+      "packets": 10,
+      "passed": true
+    },
+    {
+      "name": "xml-missing-arch",
+      "returnCode": 0,
+      "output": "OK: qSupported and no-ack negotiation complete\nOK: invalid or cyclic XML never creates a guessed target\nGDB_PROTOCOL_RESULT=PASSED\n",
+      "seconds": 0.182,
+      "peerErrors": [],
+      "packets": 4,
+      "passed": true
+    },
+    {
+      "name": "xml",
+      "returnCode": 0,
+      "output": "OK: qSupported and no-ack negotiation complete\nOK: included XML preserves guest architecture, ABI and sparse register numbers\nOK: register data beginning with E is decoded using the described width\nOK: wrong-width register edits never reach the stub\nGDB_PROTOCOL_RESULT=PASSED\n",
+      "seconds": 0.184,
+      "peerErrors": [],
+      "packets": 13,
+      "passed": true
+    },
+    {
+      "name": "chunks",
+      "returnCode": 0,
+      "output": "OK: qSupported and no-ack negotiation complete\nOK: only confirmed write chunks are reported as completed\nOK: memory reads respect the negotiated packet size\nGDB_PROTOCOL_RESULT=PASSED\n",
+      "seconds": 0.203,
+      "peerErrors": [],
+      "packets": 37,
+      "passed": true
+    },
+    {
+      "name": "partial-write",
+      "returnCode": 0,
+      "output": "OK: qSupported and no-ack negotiation complete\nOK: only confirmed write chunks are reported as completed\nGDB_PROTOCOL_RESULT=PASSED\n",
+      "seconds": 0.179,
+      "peerErrors": [],
+      "packets": 4,
+      "passed": true
+    },
+    {
+      "name": "adapter",
+      "returnCode": 0,
+      "output": "OK: guest CPU metadata never becomes an invented local PID or host ABI\nOK: guest ranges use the serialized remote adapter and retain exact boundaries\nOK: unsupported guest memory-management operations cannot use local ptrace\nOK: typed reads honor explicit guest big-endian data independently of instruction order\nOK: batched reads use the ordinary shared process API\nOK: an unavailable described register is never turned into zero\nOK: a short remote word read fails instead of inventing adjacent bytes\nOK: the ordinary numeric scanner finds the actual big-endian guest integer and retains its data format\nOK: ordinary byte scans remain available for a big-endian guest\nOK: confirmed detach retires the transport and rejects stale reads\nGDB_ADAPTER_RESULT=PASSED mode=adapter\n",
+      "seconds": 0.306,
+      "peerErrors": [],
+      "packets": 277,
+      "passed": true
+    },
+    {
+      "name": "xml-namespace",
+      "returnCode": 0,
+      "output": "OK: qSupported and no-ack negotiation complete\nOK: included XML preserves guest architecture, ABI and sparse register numbers\nOK: register data beginning with E is decoded using the described width\nOK: wrong-width register edits never reach the stub\nGDB_PROTOCOL_RESULT=PASSED\n",
+      "seconds": 0.177,
+      "peerErrors": [],
+      "packets": 13,
+      "passed": true
+    },
+    {
+      "name": "adapter-bad-stop",
+      "returnCode": 0,
+      "output": "OK: a malformed stop or guest map cannot produce a live adapter\n",
+      "seconds": 0.182,
+      "peerErrors": [],
+      "packets": 3,
+      "passed": true
+    },
+    {
+      "name": "adapter-bad-map",
+      "returnCode": 0,
+      "output": "OK: a malformed stop or guest map cannot produce a live adapter\n",
+      "seconds": 0.19,
+      "peerErrors": [],
+      "packets": 13,
+      "passed": true
+    },
+    {
+      "name": "xml-dtd-default",
+      "returnCode": 0,
+      "output": "OK: qSupported and no-ack negotiation complete\nOK: included XML preserves guest architecture, ABI and sparse register numbers\nOK: register data beginning with E is decoded using the described width\nOK: wrong-width register edits never reach the stub\nGDB_PROTOCOL_RESULT=PASSED\n",
+      "seconds": 0.186,
+      "peerErrors": [],
+      "packets": 13,
+      "passed": true
+    },
+    {
+      "name": "adapter-exited",
+      "returnCode": 0,
+      "output": "OK: a real exit reply retires memory and register access without sending a stale detach\n",
+      "seconds": 0.192,
+      "peerErrors": [],
+      "packets": 13,
+      "passed": true
+    },
+    {
+      "name": "adapter-width",
+      "returnCode": 0,
+      "output": "OK: a known narrower program pointer width can be selected explicitly\nOK: a pointer-width override preserves CPU mode without inventing a matching Linux program ABI\n",
+      "seconds": 0.199,
+      "peerErrors": [],
+      "packets": 18,
+      "passed": true
+    },
+    {
+      "name": "adapter-endian-conflict",
+      "returnCode": 0,
+      "output": "OK: an explicit byte order cannot contradict an x86 description\n",
+      "seconds": 0.195,
+      "peerErrors": [],
+      "packets": 13,
+      "passed": true
+    },
+    {
+      "name": "adapter-high",
+      "returnCode": 0,
+      "output": "OK: high-address guest transport connects\nOK: default shared scans include actual remote bytes beyond the old 47-bit ceiling\nOK: high-address remote samples narrow without local address truncation\nGDB_ADAPTER_RESULT=PASSED mode=adapter-high\n",
+      "seconds": 0.191,
+      "peerErrors": [],
+      "packets": 16,
+      "passed": true
+    },
+    {
+      "name": "private-xml-linkage",
+      "returnCode": 0,
+      "passed": true
+    },
+    {
+      "name": "cli-info",
+      "returnCode": 0,
+      "output": "transport=GDB architecture=aarch64 pointerWidth=8 byteOrder=big-endian abi=unknown registers=2\n",
+      "seconds": 0.176,
+      "peerErrors": [],
+      "packets": 14,
+      "passed": true
+    },
+    {
+      "name": "cli-read",
+      "returnCode": 0,
+      "output": "112233445566778899aabbcc\n",
+      "seconds": 0.2,
+      "peerErrors": [],
+      "packets": 14,
+      "passed": true
+    },
+    {
+      "name": "cli-write",
+      "returnCode": 0,
+      "output": "Wrote 5 bytes\n",
+      "seconds": 0.195,
+      "peerErrors": [],
+      "packets": 14,
+      "passed": true
+    },
+    {
+      "name": "cli-reg",
+      "returnCode": 0,
+      "output": "x0=e012341234567890\n",
+      "seconds": 0.19,
+      "peerErrors": [],
+      "packets": 14,
+      "passed": true
+    },
+    {
+      "name": "cli-edit-reg",
+      "returnCode": 0,
+      "output": "x0=1234567890abcdef\n",
+      "seconds": 0.187,
+      "peerErrors": [],
+      "packets": 15,
+      "passed": true
+    },
+    {
+      "name": "cli-scan",
+      "returnCode": 0,
+      "output": "Found 1 matches\n0x1000\n",
+      "seconds": 0.287,
+      "peerErrors": [],
+      "packets": 141,
+      "passed": true
+    },
+    {
+      "name": "cli-scan-be-i32",
+      "returnCode": 0,
+      "output": "Found 1 matches\n0x1000 = 287454020\n",
+      "seconds": 0.181,
+      "peerErrors": [],
+      "packets": 14,
+      "passed": true
+    },
+    {
+      "name": "cli-scan-le-i32",
+      "returnCode": 0,
+      "output": "Found 1 matches\n0x1000 = 1144201745\n",
+      "seconds": 0.189,
+      "peerErrors": [],
+      "packets": 14,
+      "passed": true
+    },
+    {
+      "name": "cli-scan-pointer4",
+      "returnCode": 0,
+      "output": "Found 1 matches\n0x1000 = 0x11223344\n",
+      "seconds": 0.192,
+      "peerErrors": [],
+      "packets": 14,
+      "passed": true
+    },
+    {
+      "name": "cli-scan-last-byte",
+      "returnCode": 0,
+      "output": "Found 1 matches\n0x1003\n",
+      "seconds": 0.193,
+      "peerErrors": [],
+      "packets": 14,
+      "passed": true
+    },
+    {
+      "name": "cli-high-scan",
+      "returnCode": 0,
+      "output": "Found 1 matches\n0x10000000000000 = 287454020\n",
+      "seconds": 0.187,
+      "peerErrors": [],
+      "packets": 14,
+      "passed": true
+    },
+    {
+      "name": "cli-scan-subnormal",
+      "returnCode": 0,
+      "output": "Found 1 matches\n0x1000 = 5e-324\n",
+      "seconds": 0.195,
+      "peerErrors": [],
+      "packets": 14,
+      "passed": true
+    },
+    {
+      "name": "cli-lua",
+      "returnCode": 0,
+      "output": "GDB_LUA_ALL_NUMBERS=PASSED strict input, decimal bounds, scientific and hexadecimal values\nGDB_LUA_FLOAT_ROUNDING=PASSED decimal/scientific boundaries, modes, upper values and invalid-option recovery\nGDB_LUA_ALL_SCANS=PASSED numeric candidates, short tails, first samples and concrete type selection\nGDB_LUA_SCANS=PASSED numeric, pointer, float, Unicode, snapshots and explicit data formats\nGDB_LUA_RESULT=PASSED actual RAM and XML register state restored\n",
+      "seconds": 0.401,
+      "peerErrors": [],
+      "packets": 725,
+      "passed": true
+    },
+    {
+      "name": "cli-exited",
+      "returnCode": 1,
+      "output": "GDB: GDB target is no longer stopped or has exited\n",
+      "seconds": 0.187,
+      "peerErrors": [],
+      "packets": 13,
+      "passed": true
+    },
+    {
+      "name": "cli-high-lua",
+      "returnCode": 0,
+      "output": "HIGH_GDB_LUA=PASSED\n",
+      "seconds": 0.188,
+      "peerErrors": [],
+      "packets": 17,
+      "passed": true
+    },
+    {
+      "name": "cli-invalid-read",
+      "returnCode": 1,
+      "output": "Invalid GDB arguments; use 'cescan gdb --help'\n",
+      "passed": true
+    },
+    {
+      "name": "cli-invalid-info-extra",
+      "returnCode": 1,
+      "output": "Invalid GDB arguments; use 'cescan gdb --help'\n",
+      "passed": true
+    },
+    {
+      "name": "cli-invalid-info---width-4---width-8",
+      "returnCode": 1,
+      "output": "Conflicting pointer widths\n",
+      "passed": true
+    },
+    {
+      "name": "cli-invalid-info---le---be",
+      "returnCode": 1,
+      "output": "Conflicting byte orders\n",
+      "passed": true
+    },
+    {
+      "name": "cli-invalid-write-0x1000-abc",
+      "returnCode": 1,
+      "output": "Expected hexadecimal byte pairs\n",
+      "passed": true
+    },
+    {
+      "name": "cli-invalid-scan-0x1000-10-qq",
+      "returnCode": 1,
+      "output": "Invalid guest scan pattern\n",
+      "passed": true
+    },
+    {
+      "name": "cli-invalid-scan-0x1000-4-oops---type-i32",
+      "returnCode": 1,
+      "output": "Invalid guest scan integer\n",
+      "passed": true
+    },
+    {
+      "name": "cli-invalid-scan-0x1000-4-12abc---type-float",
+      "returnCode": 1,
+      "output": "Invalid guest scan number\n",
+      "passed": true
+    },
+    {
+      "name": "cli-invalid-scan-0x1000-4-10---type-unknown",
+      "returnCode": 1,
+      "output": "Unknown scan type\n",
+      "passed": true
+    },
+    {
+      "name": "cli-invalid-info---type-i32",
+      "returnCode": 1,
+      "output": "Invalid GDB arguments; use 'cescan gdb --help'\n",
+      "passed": true
+    }
+  ],
+  "binaries": {
+    "libcecore.so": "ef0f3c7a08cf57f9eddbf991a3c805ddd8d9518cdfa3061ad6d58d55834cdc30",
+    "cescan": "b53f74137160a6419a4d870cee4d622c77eb77d9badec32a421dbf93ce9ba4c3"
+  }
+}

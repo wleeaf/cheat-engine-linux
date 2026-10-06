@@ -1,0 +1,17 @@
+{
+  "coreSha256": "9c96d1e3f2ff1915f50bfb0d4404a3076168d9f47ebe831760951a6f5fe52061",
+  "cases": [
+    {
+      "mode": "first",
+      "exitCode": 0,
+      "stdout": "BAD_ALLOC_PROPAGATED\n",
+      "stderr": ""
+    },
+    {
+      "mode": "next",
+      "exitCode": 0,
+      "stdout": "BAD_ALLOC_PROPAGATED\n",
+      "stderr": ""
+    }
+  ]
+}

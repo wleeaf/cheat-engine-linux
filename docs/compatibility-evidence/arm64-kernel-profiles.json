@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "createdUTC": "2026-10-05T19:11:24.220670+00:00",
+  "sourceState": "uncommitted worktree snapshot",
+  "passed": true,
+  "profiles": [
+    {
+      "report": "arm64-syscalls.json",
+      "reportSha256": "65c2043b3bd248b27af4ccd41cb0bfcdcc7462b838c2b71bd9d13ea5c74820d1",
+      "log": "arm64-syscalls.log",
+      "logSha256": "694dacbbd32600311717ef1fe825b3fc17287b80b29e22b0f001e20ab9df5576",
+      "checks": 881,
+      "pageSize": 4096,
+      "smeProfile": "required",
+      "excludedCases": []
+    },
+    {
+      "report": "arm64-syscalls-64k.json",
+      "reportSha256": "4b1d342f33fc56cf5d3b7583d97a9c7dd8a6f2653ba0d3f832b5f0b1c8e94265",
+      "log": "arm64-syscalls-64k.log",
+      "logSha256": "b07967b3784fac421b56cc9c5446f2dc32f391221a902cb2c4c9c397e0966613",
+      "checks": 722,
+      "pageSize": 65536,
+      "smeProfile": "unavailable",
+      "excludedCases": [
+        "SME_SYSCALL_RESULT",
+        "MAXIMUM_SME_SYSCALL_RESULT",
+        "SME_FUNCTION_RESULT",
+        "MAXIMUM_SME_FUNCTION_RESULT",
+        "DEFERRED_SME_CONTROL_RESULT",
+        "DEFERRED_SME_SYSCALL_RESULT",
+        "DEFERRED_SME_PRIVATE_RESULT",
+        "DEFERRED_SME_QUIESCED_RESULT",
+        "DEFERRED_SME_FUNCTION_RESULT",
+        "SME_SECCOMP_GUARD_RESULT",
+        "SME_ALTSTACK_GUARD_RESULT"
+      ]
+    }
+  ],
+  "scope": "Real Linux guest-kernel operations; no hardware perf sampling claim",
+  "kernel64kPackage": {
+    "name": "linux-image-6.8.0-146-generic-64k",
+    "version": "6.8.0-146.146",
+    "architecture": "arm64",
+    "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/l/linux-signed/linux-image-6.8.0-146-generic-64k_6.8.0-146.146_arm64.deb",
+    "sha256": "cdda8dffebebb6677292d17d9d9741f8c52663be680153d13f5289610ea2b9c8",
+    "extractedImageSha256": "d5f5150b83c59404233bde3859817d4665301e0bfab20fa47ccdac4bfbeb1ae8"
+  },
+  "execution": "Two guest CPUs and 512 MiB per guest; sequential low-priority guests, cached single-job cross/native builds",
+  "cachedEmulator": {
+    "launcherSha256": "ebb3557dae76f60d254dc8579cebac32a27c3d5ce20352d3efc9aa3e68d43b9c",
+    "binarySha256": "b511b60cc31479b71dfdd589e6c981ae37b20ef0e75adc5a57bb0d6737e9b30c",
+    "loaderSha256": "c20a2dc8917c755f02b94049356320fe1f62ac7d9f8994731f807d9df39302da",
+    "scope": "Read-only cached emulator used for the 4 KiB rerun; all generated output remains in the workspace"
+  }
+}

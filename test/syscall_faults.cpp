@@ -1,6 +1,7 @@
 // Link-time interposition is confined to the integration test executable.
 // All non-failing requests reach the real kernel; no product fault controls.
 #include "test/syscall_faults.hpp"
+#include "platform/linux/register_image.hpp"
 #include <cstdarg>
 #include <cstddef>
 #include <chrono>
@@ -28,6 +29,16 @@ namespace syscall_test {
 static std::atomic<Fault> current{Fault::None};
 static thread_local bool stepped;
 static thread_local bool contextReturnStarted;
+static thread_local bool restartEmulated, restartInterrupted, restartResumed;
+static thread_local bool restartMaskWritten, restartSignalQueued;
+#if defined(__x86_64__)
+static thread_local user_regs_struct restartGroupBank;
+static thread_local uint64_t restartGroupMask;
+#endif
+static thread_local bool restartGroupSeen;
+static thread_local unsigned restartProbeWrites;
+static thread_local pid_t restartContinueTid;
+static thread_local bool restartContinueSeen;
 static thread_local bool functionContinued;
 static thread_local uintptr_t functionWaitingPointer;
 static std::atomic<unsigned> failures{0};
@@ -43,13 +54,26 @@ static std::atomic<pid_t> watchedAllocator{0};
 static std::atomic<bool> observedAllocation{false};
 static std::atomic<pid_t> heldDetachTid{0};
 static std::atomic<bool> detachReached{false}, detachReleased{true};
+static std::atomic<pid_t> exitingDetachTid{0},survivorDetachTid{0},exitingOwner{0};
+static std::atomic<bool> exitedBeforeDetach{false},exitContextReady{false},survivorVerified{false};
+static std::atomic<uintptr_t> exitingFlag{0};
+static std::atomic<uint64_t> exitingAllocation{0};
+static std::atomic<bool> exitingAllocationPresent{false};
+#if defined(__x86_64__)
+static thread_local user_regs_struct survivorOriginal;
+static thread_local uint64_t survivorMask;
+static thread_local std::optional<ce::os::NativeExtendedContext> survivorBanks;
+static thread_local bool survivorCaptured=false,survivorCapturing=false;
+#endif
 static std::atomic<pid_t> hardwareRaceTid{0};
 static std::atomic<uintptr_t> hardwareRaceAddress{0};
 static std::atomic<int> hardwareRaceSignal{0};
 static std::atomic<bool> hardwareRaceSeen{false};
 void arm(Fault fault) { current=fault; stepped=false; contextReturnStarted=false; failures=0; hardwareWrites=0; textWrites=0;
-    steps=0; seizedPid=0; functionContinued=false; functionWaitingPointer=0; failAllocation=fault==Fault::AllocationBeforeSeize; }
-void clear() { current=Fault::None; stepped=false; failAllocation=false; hardwareRaceTid=0; }
+    steps=0; seizedPid=0; functionContinued=false; functionWaitingPointer=0; failAllocation=fault==Fault::AllocationBeforeSeize;
+    restartEmulated=false;restartInterrupted=false;restartResumed=false;restartMaskWritten=false;restartSignalQueued=false;restartGroupSeen=false;restartProbeWrites=0; }
+void clear() { current=Fault::None; stepped=false; failAllocation=false; hardwareRaceTid=0;
+    restartEmulated=false;restartInterrupted=false;restartResumed=false;restartMaskWritten=false;restartSignalQueued=false;restartContinueTid=0; }
 uintptr_t originalPc() { return savedPc; }
 unsigned triggered() { return failures; }
 unsigned singleSteps() { return steps; }
@@ -59,16 +83,57 @@ bool allocationObserved() { return observedAllocation; }
 void holdAfterDetach(pid_t tid) { detachReached=false; detachReleased=false; heldDetachTid=tid; }
 bool detachHeld() { return detachReached; }
 void releaseDetach() { detachReleased=true; }
+void exitBeforeDetach(pid_t selected,pid_t survivor,uintptr_t exitFlag) {
+    exitedBeforeDetach=false;exitContextReady=false;survivorVerified=false;exitingOwner=0;
+    exitingAllocation=0;exitingAllocationPresent=false;exitingFlag=exitFlag;
+    survivorDetachTid=survivor;exitingDetachTid=selected;
+}
+bool detachExitObserved() {return exitedBeforeDetach;}
+pid_t detachExitOwner() {return exitingOwner;}
+bool detachExitContextReady() {return exitContextReady;}
+uint64_t detachExitAllocation() {return exitingAllocation;}
+bool detachExitAllocationPresent() {return exitingAllocationPresent;}
+bool survivorContextVerified() {return survivorVerified;}
+void clearDetachExit() {exitingDetachTid=0;survivorDetachTid=0;}
 void queueHardwareRace(pid_t tid,uintptr_t address,int signal) {
     hardwareRaceSeen=false;hardwareRaceAddress=address;hardwareRaceSignal=signal;hardwareRaceTid=tid;
 }
 bool hardwareRaceObserved() {return hardwareRaceSeen;}
+void queueRestartContinueRace(pid_t tid) {restartContinueTid=tid;restartContinueSeen=false;}
+bool restartContinueRaceObserved() {return restartContinueSeen;}
+bool restartGroupStopMatches(const void* registers,size_t size,uint64_t mask) {
+#if defined(__x86_64__)
+    return restartGroupSeen && size==sizeof(restartGroupBank) && restartGroupMask==mask &&
+        !std::memcmp(registers,&restartGroupBank,size);
+#else
+    return false;
+#endif
+}
 }
 extern "C" long __real_ptrace(enum __ptrace_request, ...);
 extern "C" pid_t __real_waitpid(pid_t,int*,int);
 extern "C" pid_t __wrap_waitpid(pid_t pid,int* status,int options) {
     using namespace syscall_test;
     auto result=__real_waitpid(pid,status,options);
+#if defined(__x86_64__)
+    if (!result && pid>0 && pid==restartContinueTid && status && (options&WNOHANG)) {
+        restartContinueTid=0;
+        if (kill(pid,SIGCONT)==0) {
+            const auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(100);
+            do {
+                siginfo_t info{};
+                if (__real_ptrace(PTRACE_GETSIGINFO,pid,nullptr,&info)==0 &&
+                    (info.si_code>>8)==PTRACE_EVENT_STOP && info.si_signo==SIGTRAP) {
+                    restartContinueSeen=true;break;
+                }
+                usleep(1000);
+            } while (std::chrono::steady_clock::now()<deadline);
+        }
+        // Return the actual empty poll. SIGCONT and its real notification
+        // occurred afterwards; leave that new wait status for the owner.
+        return result;
+    }
+#endif
     if (pid<=0 || !status || !(options&WNOHANG) || hardwareRaceTid!=pid) return result;
     hardwareRaceTid=0;
 #if defined(__x86_64__)
@@ -162,6 +227,48 @@ extern "C" long __wrap_ptrace(enum __ptrace_request request, ...) {
     void* data=va_arg(args,void*);
     va_end(args);
     if (request==PTRACE_SEIZE) { stepped=false; resultSaved=false; contextReturnStarted=false; }
+#if defined(__x86_64__)
+    if (request==PTRACE_SEIZE && survivorDetachTid==pid) {survivorCaptured=false;survivorBanks.reset();}
+    if (request==PTRACE_DETACH && current==Fault::Detach && exitingDetachTid==pid) {
+        exitingDetachTid=0;exitingOwner=static_cast<pid_t>(syscall(SYS_gettid));
+        user_regs_struct actual{};siginfo_t stop{};
+        exitContextReady=__real_ptrace(PTRACE_GETREGS,pid,nullptr,&actual)==0 && actual.rip==savedPc &&
+            __real_ptrace(PTRACE_GETSIGINFO,pid,nullptr,&stop)==0 && stop.si_signo==SIGTRAP;
+        exitingAllocation=actual.cs==0x23 ? static_cast<uint32_t>(returnedValue.load()) : returnedValue.load();
+        uint8_t byte=1;unsigned flag=0;
+        iovec local{&byte,1},remote{reinterpret_cast<void*>(static_cast<uintptr_t>(exitingAllocation.load())),1};
+        exitingAllocationPresent=process_vm_readv(pid,&local,1,&remote,1,0)==1 && byte==0;
+        iovec flagLocal{&flag,sizeof(flag)},flagRemote{reinterpret_cast<void*>(exitingFlag.load()),sizeof(flag)};
+        const bool flagWritten=exitContextReady && process_vm_writev(pid,&flagLocal,1,&flagRemote,1,0)==sizeof(flag);
+        // The fixture's own loop now observes its exit flag. Do not manufacture
+        // an exit status or change its saved registers to simulate death.
+        if (flagWritten && __real_ptrace(PTRACE_CONT,pid,nullptr,nullptr)==0) {
+            const auto until=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+            while (std::chrono::steady_clock::now()<until) {
+                siginfo_t terminal{};
+                if (waitid(P_PID,pid,&terminal,__WALL|__WNOTHREAD|WEXITED|WNOHANG|WNOWAIT)==0 &&
+                    terminal.si_pid==pid && terminal.si_code==CLD_EXITED && terminal.si_status==0) {
+                    exitedBeforeDetach=true;break;
+                }
+                usleep(1000);
+            }
+        }
+        std::fprintf(stderr,"SERVICE_REAL_EXIT tid=%ld owner=%ld context=%d flag=%d allocation=%llx mapped=%d terminal=%d leftWait=1\n",
+            static_cast<long>(pid),static_cast<long>(exitingOwner.load()),exitContextReady.load(),flagWritten,
+            static_cast<unsigned long long>(exitingAllocation.load()),exitingAllocationPresent.load(),exitedBeforeDetach.load());
+        ++failures;errno=EIO;return -1;
+    }
+    if (request==PTRACE_DETACH && survivorDetachTid==pid && survivorCaptured) {
+        user_regs_struct actual{};uint64_t mask=0;
+        survivorCapturing=true;
+        auto banks=survivorBanks ? ce::os::verifyNativeExtendedContext(pid,*survivorBanks) :
+            std::expected<void,std::error_code>(std::unexpected(std::make_error_code(std::errc::io_error)));
+        survivorCapturing=false;
+        survivorVerified=banks && __real_ptrace(PTRACE_GETREGS,pid,nullptr,&actual)==0 &&
+            !std::memcmp(&actual,&survivorOriginal,sizeof(actual)) &&
+            __real_ptrace(PTRACE_GETSIGMASK,pid,reinterpret_cast<void*>(sizeof(mask)),&mask)==0 && mask==survivorMask;
+    }
+#endif
     bool preflightRegisters=false;
 #if defined(__x86_64__)
     preflightRegisters=request==PTRACE_GETREGS;
@@ -190,6 +297,99 @@ extern "C" long __wrap_ptrace(enum __ptrace_request request, ...) {
     registerWrite=request==PTRACE_SETREGSET && reinterpret_cast<uintptr_t>(address)==NT_PRSTATUS;
     hardwareWrite=request==PTRACE_SETREGSET &&
         (reinterpret_cast<uintptr_t>(address)==NT_ARM_HW_BREAK || reinterpret_cast<uintptr_t>(address)==NT_ARM_HW_WATCH);
+#endif
+#if defined(__x86_64__)
+    if (request==PTRACE_GETSIGMASK && stepped &&
+        (current==Fault::RestartMaskRead || (current==Fault::RestartMaskVerify && restartMaskWritten))) {
+        ++failures;errno=EIO;return -1;
+    }
+    if (request==PTRACE_SETSIGMASK && stepped) {
+        if (current==Fault::RestartMaskWriteBefore) {++failures;errno=EIO;return -1;}
+        const long applied=__real_ptrace(request,pid,address,data);
+        if (!applied) restartMaskWritten=true;
+        if (!applied && (current==Fault::RestartMaskWriteAfter ||
+            (current==Fault::RestartMaskRestoreAfter && restartResumed))) {
+            ++failures;errno=EIO;return -1;
+        }
+        return applied;
+    }
+    if ((current==Fault::RestartInfoAfterStep && stepped && static_cast<unsigned>(request)==0x420e) ||
+        (current==Fault::RestartEntryRead && restartEmulated && preflightRegisters) ||
+        (current==Fault::RestartVerification && restartResumed && static_cast<unsigned>(request)==0x420e)) {
+        ++failures;errno=EIO;return -1;
+    }
+    if (static_cast<unsigned>(request)==31) {
+        bool guardStop=false;user_regs_struct guardedEntry{};
+        if ((current==Fault::RestartQueuedSignal || current==Fault::RestartQueuedStop || current==Fault::RestartCanceledStop ||
+            current==Fault::RestartListenBefore || current==Fault::RestartListenAfter) && !restartSignalQueued) {
+            union sigval value{};value.sival_int=0x41534947;
+            if (sigqueue(pid,current==Fault::RestartQueuedSignal ? SIGWINCH : SIGSTOP,value)!=0) return -1;
+            restartSignalQueued=true;++failures;
+            if (current!=Fault::RestartQueuedSignal) {
+                // Queueing alone does not fix delivery before the emulated
+                // entry. Guard this requested pre-entry test with a real
+                // interrupt, and consume only that test-owned notification.
+                if (__real_ptrace(PTRACE_GETREGS,pid,nullptr,&guardedEntry)<0 ||
+                    __real_ptrace(PTRACE_INTERRUPT,pid,nullptr,nullptr)<0) return -1;
+                guardStop=true;
+            }
+        }
+        if (current==Fault::RestartEmulateBefore) {++failures;errno=EIO;return -1;}
+        long applied=__real_ptrace(request,pid,address,data);
+        if (!applied && guardStop) {
+            const auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(100);
+            bool delivered=false;
+            while (!delivered && std::chrono::steady_clock::now()<deadline) {
+                siginfo_t notification{};
+                if (waitid(P_PID,pid,&notification,__WALL|__WNOTHREAD|WSTOPPED|WNOHANG|WNOWAIT)<0) return -1;
+                if (!notification.si_pid) {usleep(1000);continue;}
+                siginfo_t info{};
+                if (__real_ptrace(PTRACE_GETSIGINFO,pid,nullptr,&info)<0) return -1;
+                if (notification.si_code==CLD_TRAPPED && notification.si_status==SIGSTOP &&
+                    info.si_signo==SIGSTOP && info.si_code==SI_QUEUE && info.si_pid==getpid() &&
+                    info.si_value.sival_int==0x41534947) {
+                    std::fprintf(stderr,"RESTART_PREENTRY_STOP actualStop=%d queuedCode=%d leftWait=1\n",notification.si_status,info.si_code);
+                    delivered=true;break;
+                }
+                user_regs_struct actual{};int observed=0;
+                if (notification.si_code!=CLD_TRAPPED || notification.si_status!=(SIGTRAP|(PTRACE_EVENT_STOP<<8)) ||
+                    __real_ptrace(PTRACE_GETREGS,pid,nullptr,&actual)<0 || std::memcmp(&actual,&guardedEntry,sizeof(actual)) ||
+                    __real_waitpid(pid,&observed,__WALL|__WNOTHREAD|WNOHANG)!=pid || !WIFSTOPPED(observed) ||
+                    WSTOPSIG(observed)!=SIGTRAP || (observed>>16)!=PTRACE_EVENT_STOP) {errno=EIO;return -1;}
+                applied=__real_ptrace(request,pid,address,data);
+                if (applied) return applied;
+            }
+            if (!delivered) {errno=ETIMEDOUT;return -1;}
+        }
+        if (!applied) restartEmulated=true;
+        if (!applied && current==Fault::RestartEmulateAfter) {++failures;errno=EIO;return -1;}
+        return applied;
+    }
+    if (request==PTRACE_LISTEN) {
+        siginfo_t info{};
+        restartGroupSeen=__real_ptrace(PTRACE_GETSIGINFO,pid,nullptr,&info)==0 &&
+            (info.si_code>>8)==PTRACE_EVENT_STOP && info.si_signo==SIGSTOP &&
+            __real_ptrace(PTRACE_GETREGS,pid,nullptr,&restartGroupBank)==0 &&
+            __real_ptrace(PTRACE_GETSIGMASK,pid,reinterpret_cast<void*>(sizeof(restartGroupMask)),&restartGroupMask)==0;
+        if (current==Fault::RestartListenBefore) {++failures;errno=EIO;return -1;}
+        const long applied=__real_ptrace(request,pid,address,data);
+        if (!applied && current==Fault::RestartListenAfter) {++failures;errno=EIO;return -1;}
+        return applied;
+    }
+    if (request==PTRACE_INTERRUPT && restartEmulated) {
+        if (current==Fault::RestartInterruptBefore) {++failures;errno=EIO;return -1;}
+        const long applied=__real_ptrace(request,pid,address,data);
+        if (!applied) restartInterrupted=true;
+        if (!applied && current==Fault::RestartInterruptAfter) {++failures;errno=EIO;return -1;}
+        return applied;
+    }
+    if (request==PTRACE_CONT && restartInterrupted) {
+        if (current==Fault::RestartResumeBefore) {++failures;errno=EIO;return -1;}
+        const long applied=__real_ptrace(request,pid,address,data);
+        if (!applied) restartResumed=true;
+        if (!applied && current==Fault::RestartResumeAfter) {++failures;errno=EIO;return -1;}
+        return applied;
+    }
 #endif
     bool initialMutation=current==Fault::InitialInstructionWrite && request==PTRACE_POKETEXT;
     if (!failures && functionContinued &&
@@ -295,6 +495,14 @@ extern "C" long __wrap_ptrace(enum __ptrace_request request, ...) {
     if (!result && !stepped) {
 #if defined(__x86_64__)
         if(request==PTRACE_GETREGS) savedPc=static_cast<user_regs_struct*>(data)->rip;
+        if(request==PTRACE_GETREGS && survivorDetachTid==pid && !survivorCaptured && !survivorCapturing) {
+            survivorCapturing=true;
+            survivorOriginal=*static_cast<user_regs_struct*>(data);
+            auto banks=ce::os::captureNativeExtendedContext(pid);
+            survivorCaptured=banks && __real_ptrace(PTRACE_GETSIGMASK,pid,reinterpret_cast<void*>(sizeof(survivorMask)),&survivorMask)==0;
+            if(banks) survivorBanks=std::move(*banks);
+            survivorCapturing=false;
+        }
 #elif defined(__aarch64__)
         if(request==PTRACE_GETREGSET && reinterpret_cast<uintptr_t>(address)==NT_PRSTATUS) {
             auto* io=static_cast<iovec*>(data);
@@ -328,6 +536,10 @@ extern "C" void* __wrap__Znwm(size_t size) {
 extern "C" ssize_t __real_pwrite(int,const void*,size_t,off_t);
 extern "C" ssize_t __wrap_pwrite(int fd,const void* bytes,size_t size,off_t offset) {
     using namespace syscall_test;
+    if ((current==Fault::RestartProbeRestoreBefore || current==Fault::RestartProbeRestoreAfter) && size==1 && ++restartProbeWrites>1) {
+        if (current==Fault::RestartProbeRestoreAfter) __real_pwrite(fd,bytes,size,offset);
+        ++failures;errno=EIO;return -1;
+    }
     if (current==Fault::FrameWriteFailure || (current==Fault::FrameRestoreFailure && contextReturnStarted)) {
         if (current==Fault::FrameWriteFailure && size)
             __real_pwrite(fd,bytes,size<8 ? size : 8,offset);

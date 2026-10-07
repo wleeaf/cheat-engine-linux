@@ -1,0 +1,456 @@
+{
+  "schemaVersion": 1,
+  "suite": "service-selected-thread-death-retained-allocation-handoff-and-shutdown-native-x64-and-i386",
+  "createdUtc": "2026-10-07T12:05:34.736009+00:00",
+  "baseRevision": "4e4cd6b7bb403cdbeb76349ad690f6425b168966",
+  "sourceState": "unpublished working-tree draft identified by source hashes",
+  "published": false,
+  "hostedCiVerifiedForThisDraft": false,
+  "fullCompatibilityComplete": false,
+  "platform": "Linux-7.1.8-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "sourceHashes": [
+    {
+      "path": "CMakeLists.txt",
+      "sha256": "5047a6b8c7b6dee84e987bf22003287f62da2f5fb4f9fb71216044b3f4712536"
+    },
+    {
+      "path": "platform/linux/syscall_service.cpp",
+      "sha256": "692c6617c86cd439b1ad124c52b1e929feae4dbd655cf43489ad1e43026a539b"
+    },
+    {
+      "path": "platform/linux/target_syscall.cpp",
+      "sha256": "4c8527b097ddced229dafbc01069a4c12d55ecd31ed1a7d7df037bb5f83def6d"
+    },
+    {
+      "path": "platform/linux/target_syscall.hpp",
+      "sha256": "10b8169672bfc15715afdcca054e29595bc0458141d9b3e4e78448555ea47297"
+    },
+    {
+      "path": "platform/linux/memory_image.cpp",
+      "sha256": "5107ece1a4a34c2455a8b86bc92914378914e8d595fc36bf9a9af66a13ff4576"
+    },
+    {
+      "path": "platform/linux/memory_image.hpp",
+      "sha256": "be841fe0894dbf86a43736d491fdcf3325882784bfa4ceedc7f075aea812d560"
+    },
+    {
+      "path": "test/compatibility_fixture.c",
+      "sha256": "658daa1b54646e42016a4c722dc7dd0e7ba9faa486d26c44c05cc43ea0d5c024"
+    },
+    {
+      "path": "test/target_syscall_integration.cpp",
+      "sha256": "8d7debf200bc55a19ed4a90511b360ba8f096de5c89eda60107e1e03ddaf6f8c"
+    },
+    {
+      "path": "test/syscall_faults.cpp",
+      "sha256": "118e644f2e852cc13107e8feea7078bfb1b70bf392666930f88d41e00e48eb43"
+    },
+    {
+      "path": "test/syscall_faults.hpp",
+      "sha256": "45f19324ef8ff84983c6041e10adc3bfe592254dd095793bfca31e7e357fdd96"
+    },
+    {
+      "path": "test/service_thread_death_checks.inc",
+      "sha256": "3331316824af61d16053d06fba6dccd670eda0a94ceee733add5b838f778dedc"
+    },
+    {
+      "path": "test/native_syscall_gate.py",
+      "sha256": "728c8ec454180cb9f7e4577d90a7e3151635e986d05d2c996ec5128b993ed3fb"
+    },
+    {
+      "path": "test/mixed_abi_restart_checks.inc",
+      "sha256": "4184e60f4f59859f11434064a4c6c93711eaeff9cd486a1c45d56dc086f1a2c3"
+    },
+    {
+      "path": "test/completed_image_guard_checks.inc",
+      "sha256": "106f045773df0c9b127ae5b5a200f867054523d72c9f3c13278ed7c3deb9a447"
+    }
+  ],
+  "baselineCheckpoint": {
+    "hashFile": {
+      "path": "build/.ci-tmp/mixed-abi-product/service-death-before-hashes.txt",
+      "sha256": "cec32253306f3a02e5b849f6e21db67693a9b404eeb56f28f4e2701966b5c645"
+    },
+    "sourceAndDriverHashes": [
+      "1a0401d50f7753f9d1ab4b433ac8b57240ae8cdb86bb7ae2fadcb3281f38d9c2  platform/linux/syscall_service.cpp",
+      "4c8527b097ddced229dafbc01069a4c12d55ecd31ed1a7d7df037bb5f83def6d  platform/linux/target_syscall.cpp",
+      "b20192249df6f4fb8b6bd9e6d927075b9fe86bc5a9f8c9eaf718e5ce85181c8a  build/target_syscall_integration"
+    ]
+  },
+  "baselines": [
+    {
+      "path": "build/.ci-tmp/mixed-abi-product/service-death-before64-final.log",
+      "sha256": "3eefadaed92e3bda3ee3494e77e1e6d9c4ba56e45438e41a90b2616294f98cde",
+      "results": [
+        "SERVICE_THREAD_DEATH_RESULT=FAILED architecture=x86-64 checks=41"
+      ],
+      "actualExits": [
+        "SERVICE_REAL_EXIT tid=1358254 owner=1358256 context=1 flag=1 allocation=7f74a117f000 mapped=1 terminal=1 leftWait=1",
+        "SERVICE_REAL_EXIT tid=1358259 owner=1358261 context=1 flag=1 allocation=7fa108189000 mapped=1 terminal=1 leftWait=1",
+        "SERVICE_REAL_EXIT tid=1358263 owner=1358265 context=1 flag=1 allocation=7fb9533b6000 mapped=1 terminal=1 leftWait=1"
+      ],
+      "actualCleanup": [
+        "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-64 phase=after-record allocation=7f74a117f000 absent=0 context=0",
+        "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-64 phase=before-record allocation=7fa108189000 absent=0 context=0",
+        "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-64 phase=shutdown allocation=7fb9533b6000 absent=0 context=0"
+      ],
+      "failedAssertions": [
+        "SERVICE_THREAD_DEATH_CHECK FAILED: recovery independently removes the unreturned allocation before the surviving original mm exits",
+        "SERVICE_THREAD_DEATH_CHECK FAILED: handoff through the real console sibling preserves every captured GP/extended register and signal-mask bit",
+        "SERVICE_THREAD_DEATH_CHECK FAILED: recovery independently removes the unreturned allocation before the surviving original mm exits",
+        "SERVICE_THREAD_DEATH_CHECK FAILED: handoff through the real console sibling preserves every captured GP/extended register and signal-mask bit",
+        "SERVICE_THREAD_DEATH_CHECK FAILED: recovery independently removes the unreturned allocation before the surviving original mm exits",
+        "SERVICE_THREAD_DEATH_CHECK FAILED: handoff through the real console sibling preserves every captured GP/extended register and signal-mask bit"
+      ],
+      "independentFailureCleanupAssertions": 3,
+      "observation": "Each of after-record recovery, before-record transient retry, and service shutdown left the actual original allocation readable while its console sibling stayed live. Independent cleanup reclaimed all three baseline leaks after the failed assertions."
+    },
+    {
+      "path": "build/.ci-tmp/mixed-abi-product/service-death-before32-final.log",
+      "sha256": "ce3d02d3975667349177df299bb6e7d1ad06d76013b7665fdff905c24e3e94c3",
+      "results": [
+        "SERVICE_THREAD_DEATH_RESULT=FAILED architecture=x86-32 checks=41"
+      ],
+      "actualExits": [
+        "SERVICE_REAL_EXIT tid=1358288 owner=1358290 context=1 flag=1 allocation=f7fca000 mapped=1 terminal=1 leftWait=1",
+        "SERVICE_REAL_EXIT tid=1358293 owner=1358295 context=1 flag=1 allocation=f7f76000 mapped=1 terminal=1 leftWait=1",
+        "SERVICE_REAL_EXIT tid=1358297 owner=1358299 context=1 flag=1 allocation=f7f50000 mapped=1 terminal=1 leftWait=1"
+      ],
+      "actualCleanup": [
+        "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-32 phase=after-record allocation=f7fca000 absent=0 context=0",
+        "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-32 phase=before-record allocation=f7f76000 absent=0 context=0",
+        "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-32 phase=shutdown allocation=f7f50000 absent=0 context=0"
+      ],
+      "failedAssertions": [
+        "SERVICE_THREAD_DEATH_CHECK FAILED: recovery independently removes the unreturned allocation before the surviving original mm exits",
+        "SERVICE_THREAD_DEATH_CHECK FAILED: handoff through the real console sibling preserves every captured GP/extended register and signal-mask bit",
+        "SERVICE_THREAD_DEATH_CHECK FAILED: recovery independently removes the unreturned allocation before the surviving original mm exits",
+        "SERVICE_THREAD_DEATH_CHECK FAILED: handoff through the real console sibling preserves every captured GP/extended register and signal-mask bit",
+        "SERVICE_THREAD_DEATH_CHECK FAILED: recovery independently removes the unreturned allocation before the surviving original mm exits",
+        "SERVICE_THREAD_DEATH_CHECK FAILED: handoff through the real console sibling preserves every captured GP/extended register and signal-mask bit"
+      ],
+      "independentFailureCleanupAssertions": 3,
+      "observation": "Each of after-record recovery, before-record transient retry, and service shutdown left the actual original allocation readable while its console sibling stayed live. Independent cleanup reclaimed all three baseline leaks after the failed assertions."
+    }
+  ],
+  "focusedResults": [
+    {
+      "path": "build/.ci-tmp/mixed-abi-product/service-death-after64.log",
+      "sha256": "15339b4485a00278e0d040ac99ce53ff56bdca1f6c50b3c873003bd9d4251e36",
+      "results": [
+        "SERVICE_THREAD_DEATH_RESULT=PASSED architecture=x86-64 checks=38"
+      ],
+      "actualExits": [
+        "SERVICE_REAL_EXIT tid=1358869 owner=1358871 context=1 flag=1 allocation=7fb992cd5000 mapped=1 terminal=1 leftWait=1",
+        "SERVICE_REAL_EXIT tid=1358873 owner=1358875 context=1 flag=1 allocation=7f025fc90000 mapped=1 terminal=1 leftWait=1",
+        "SERVICE_REAL_EXIT tid=1358877 owner=1358879 context=1 flag=1 allocation=7efd9683e000 mapped=1 terminal=1 leftWait=1"
+      ],
+      "actualCleanup": [
+        "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-64 phase=after-record allocation=7fb992cd5000 absent=1 context=1",
+        "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-64 phase=before-record allocation=7f025fc90000 absent=1 context=1",
+        "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-64 phase=shutdown allocation=7efd9683e000 absent=1 context=1"
+      ],
+      "failedAssertions": []
+    },
+    {
+      "path": "build/.ci-tmp/mixed-abi-product/service-death-after32.log",
+      "sha256": "31b5c4c531f82cd33048ae401189d0e6c5d495874d9ce81c9fc04d24820c5ef7",
+      "results": [
+        "SERVICE_THREAD_DEATH_RESULT=PASSED architecture=x86-32 checks=38"
+      ],
+      "actualExits": [
+        "SERVICE_REAL_EXIT tid=1358889 owner=1358891 context=1 flag=1 allocation=f7fb5000 mapped=1 terminal=1 leftWait=1",
+        "SERVICE_REAL_EXIT tid=1358893 owner=1358895 context=1 flag=1 allocation=f7f7c000 mapped=1 terminal=1 leftWait=1",
+        "SERVICE_REAL_EXIT tid=1358897 owner=1358899 context=1 flag=1 allocation=f7f66000 mapped=1 terminal=1 leftWait=1"
+      ],
+      "actualCleanup": [
+        "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-32 phase=after-record allocation=f7fb5000 absent=1 context=1",
+        "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-32 phase=before-record allocation=f7f7c000 absent=1 context=1",
+        "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-32 phase=shutdown allocation=f7f66000 absent=1 context=1"
+      ],
+      "failedAssertions": []
+    }
+  ],
+  "verification": {
+    "nativeGate": {
+      "path": "build/.ci-tmp/mixed-abi-product/service-death-native-final.json",
+      "sha256": "a920d116bdf3539c55cb5a86c94b2c7db2aa26a29e3e82d796179d8208894301",
+      "status": "passed",
+      "targets": [
+        {
+          "bits": 64,
+          "status": "passed",
+          "exitCode": 0,
+          "checks": 940,
+          "fixtureSha256": "e2eb6dfd223ee9aef8dfe793927dc11c77eafffdbb276828c47a43bccbc1466b",
+          "stdoutSha256": "e6bb5068e919f33bdc4d6d0c5af7d5a05b752d45a48406fa86100b1cc46a98b0",
+          "stderrSha256": "5931e2386339936929488920344b5703616a664e18a8668e90cde11afbfdbb82",
+          "serviceThreadDeath": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 38,
+            "results": [
+              "SERVICE_THREAD_DEATH_RESULT=PASSED architecture=x86-64 checks=38"
+            ],
+            "actualExits": [
+              "SERVICE_REAL_EXIT tid=1360353 owner=1360355 context=1 flag=1 allocation=7fa003866000 mapped=1 terminal=1 leftWait=1",
+              "SERVICE_REAL_EXIT tid=1360358 owner=1360360 context=1 flag=1 allocation=7fd04e691000 mapped=1 terminal=1 leftWait=1",
+              "SERVICE_REAL_EXIT tid=1360362 owner=1360364 context=1 flag=1 allocation=7fd3c67f1000 mapped=1 terminal=1 leftWait=1"
+            ],
+            "actualCleanup": [
+              "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-64 phase=after-record allocation=7fa003866000 absent=1 context=1",
+              "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-64 phase=before-record allocation=7fd04e691000 absent=1 context=1",
+              "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-64 phase=shutdown allocation=7fd3c67f1000 absent=1 context=1"
+            ]
+          },
+          "mixedAbiLifecycle": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 400,
+            "results": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=death checks=218",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=exec checks=182"
+            ]
+          },
+          "mixedAbiSharedExec": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 288,
+            "results": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-exec checks=252",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=identical-shared-exec checks=36"
+            ]
+          },
+          "mixedAbiSharedDeath": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 369,
+            "results": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-death checks=322",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-death-probe checks=47"
+            ]
+          },
+          "completedImageGuard": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 57,
+            "results": [
+              "COMPLETED_IMAGE_GUARD_RESULT=PASSED architecture=x86-64 checks=57"
+            ]
+          }
+        },
+        {
+          "bits": 32,
+          "status": "passed",
+          "exitCode": 0,
+          "checks": 667,
+          "fixtureSha256": "c68b0f8986d8aa2e15710f46630109bfce0a4426cc21799f5f2ed31d6c2ba598",
+          "stdoutSha256": "ee6b3bd42a78c627fbbf85498c718e6dd515973bbb7871d4e4ad8d4d8d0b6456",
+          "stderrSha256": "5436afae9c691d4e881ca8032e781b7a8104785c28ef956962a949ce9b98e964",
+          "serviceThreadDeath": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 38,
+            "results": [
+              "SERVICE_THREAD_DEATH_RESULT=PASSED architecture=x86-32 checks=38"
+            ],
+            "actualExits": [
+              "SERVICE_REAL_EXIT tid=1361356 owner=1361358 context=1 flag=1 allocation=f7f01000 mapped=1 terminal=1 leftWait=1",
+              "SERVICE_REAL_EXIT tid=1361360 owner=1361362 context=1 flag=1 allocation=f7fee000 mapped=1 terminal=1 leftWait=1",
+              "SERVICE_REAL_EXIT tid=1361364 owner=1361366 context=1 flag=1 allocation=f7f7d000 mapped=1 terminal=1 leftWait=1"
+            ],
+            "actualCleanup": [
+              "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-32 phase=after-record allocation=f7f01000 absent=1 context=1",
+              "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-32 phase=before-record allocation=f7fee000 absent=1 context=1",
+              "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-32 phase=shutdown allocation=f7f7d000 absent=1 context=1"
+            ]
+          }
+        }
+      ],
+      "binaries": [
+        {
+          "path": "build/target_syscall_integration",
+          "sha256": "f0cfa7568971d497e478c70e7721e37fa92a4dadaff951c19b725213f58b668d"
+        },
+        {
+          "path": "build/compatibility_fixture64",
+          "sha256": "e2eb6dfd223ee9aef8dfe793927dc11c77eafffdbb276828c47a43bccbc1466b"
+        },
+        {
+          "path": "build/compatibility_fixture32",
+          "sha256": "c68b0f8986d8aa2e15710f46630109bfce0a4426cc21799f5f2ed31d6c2ba598"
+        },
+        {
+          "path": "build/shared_mm_fixture",
+          "sha256": "bd57a7cdc5cb63ddf58337074365bb233507a3ea57294c2c19d1dcf414ff2291"
+        }
+      ]
+    },
+    "asanUbsanGate": {
+      "path": "build/.ci-tmp/mixed-abi-product/service-death-asan-final.json",
+      "sha256": "aac4a1bc13f8c60c9c1d51711a9f1cb600861f6c70b9366ad471eeee433b567d",
+      "status": "passed",
+      "targets": [
+        {
+          "bits": 64,
+          "status": "passed",
+          "exitCode": 0,
+          "checks": 940,
+          "fixtureSha256": "8912fcd4e87770373aad1a99181438b76d9b2cdae3456be2af57d3039f540050",
+          "stdoutSha256": "1d91b7e0da681980612b2c9fc7fedb67f1b00651e1678b8e6a717969c4d72436",
+          "stderrSha256": "5931e2386339936929488920344b5703616a664e18a8668e90cde11afbfdbb82",
+          "serviceThreadDeath": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 38,
+            "results": [
+              "SERVICE_THREAD_DEATH_RESULT=PASSED architecture=x86-64 checks=38"
+            ],
+            "actualExits": [
+              "SERVICE_REAL_EXIT tid=1362717 owner=1362719 context=1 flag=1 allocation=7fc471ca2000 mapped=1 terminal=1 leftWait=1",
+              "SERVICE_REAL_EXIT tid=1362721 owner=1362723 context=1 flag=1 allocation=7ff7160ad000 mapped=1 terminal=1 leftWait=1",
+              "SERVICE_REAL_EXIT tid=1362725 owner=1362727 context=1 flag=1 allocation=7f31867a7000 mapped=1 terminal=1 leftWait=1"
+            ],
+            "actualCleanup": [
+              "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-64 phase=after-record allocation=7fc471ca2000 absent=1 context=1",
+              "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-64 phase=before-record allocation=7ff7160ad000 absent=1 context=1",
+              "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-64 phase=shutdown allocation=7f31867a7000 absent=1 context=1"
+            ]
+          },
+          "mixedAbiLifecycle": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 400,
+            "results": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=death checks=218",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=exec checks=182"
+            ]
+          },
+          "mixedAbiSharedExec": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 288,
+            "results": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-exec checks=252",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=identical-shared-exec checks=36"
+            ]
+          },
+          "mixedAbiSharedDeath": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 369,
+            "results": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-death checks=322",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-death-probe checks=47"
+            ]
+          },
+          "completedImageGuard": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 57,
+            "results": [
+              "COMPLETED_IMAGE_GUARD_RESULT=PASSED architecture=x86-64 checks=57"
+            ]
+          }
+        },
+        {
+          "bits": 32,
+          "status": "passed",
+          "exitCode": 0,
+          "checks": 667,
+          "fixtureSha256": "b95d13ac09e645489e492683c43b82158f639d00d622a9966b5dbb60f38a25ff",
+          "stdoutSha256": "d74f427b00abc68acc84c5b3a9d03b958a7c4f835b316cbf14e293363b5ae618",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "serviceThreadDeath": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 38,
+            "results": [
+              "SERVICE_THREAD_DEATH_RESULT=PASSED architecture=x86-32 checks=38"
+            ],
+            "actualExits": [
+              "SERVICE_REAL_EXIT tid=1363652 owner=1363654 context=1 flag=1 allocation=f7f75000 mapped=1 terminal=1 leftWait=1",
+              "SERVICE_REAL_EXIT tid=1363656 owner=1363658 context=1 flag=1 allocation=f7f06000 mapped=1 terminal=1 leftWait=1",
+              "SERVICE_REAL_EXIT tid=1363660 owner=1363662 context=1 flag=1 allocation=f7f08000 mapped=1 terminal=1 leftWait=1"
+            ],
+            "actualCleanup": [
+              "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-32 phase=after-record allocation=f7f75000 absent=1 context=1",
+              "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-32 phase=before-record allocation=f7f06000 absent=1 context=1",
+              "SERVICE_THREAD_DEATH_OBSERVATION architecture=x86-32 phase=shutdown allocation=f7f08000 absent=1 context=1"
+            ]
+          }
+        }
+      ],
+      "binaries": [
+        {
+          "path": "build-ci-asan/target_syscall_integration",
+          "sha256": "f294b1d5fbf7f1376e7caaaa123104e526735a621fbe3bb43310c119c846d946"
+        },
+        {
+          "path": "build-ci-asan/compatibility_fixture64",
+          "sha256": "8912fcd4e87770373aad1a99181438b76d9b2cdae3456be2af57d3039f540050"
+        },
+        {
+          "path": "build-ci-asan/compatibility_fixture32",
+          "sha256": "b95d13ac09e645489e492683c43b82158f639d00d622a9966b5dbb60f38a25ff"
+        },
+        {
+          "path": "build-ci-asan/shared_mm_fixture",
+          "sha256": "5f4656f189805753ce6514697831623f59edb103bcc9156a540ab5561ed6c367"
+        }
+      ]
+    },
+    "sanitizerEnvironment": {
+      "ASAN_OPTIONS": "detect_leaks=1:abort_on_error=1",
+      "UBSAN_OPTIONS": "halt_on_error=1"
+    },
+    "arm64FixtureCrossLink": {
+      "status": "built",
+      "runtimeVerified": false,
+      "log": {
+        "path": "build/.ci-tmp/mixed-abi-product/service-death-arm64-fixture-build.log",
+        "sha256": "a9b9ae8aeef95a8540073ac9d857711c793f16fee3fc84a69aef28a2aa76740e"
+      },
+      "binary": {
+        "path": "build/.ci-tmp/mixed-abi-product/service-death-arm64-fixture",
+        "sha256": "e90c8e8578b5792ebd1feaa8454d1bf8412225fbeacb59a7e7033a75d48cb327"
+      },
+      "scope": "Only changed freestanding fixture assembly and atomic operations were cross-linked with a cached compiler; this is not ARM service/kernel runtime proof."
+    },
+    "sharedCoreBuild": {
+      "status": "built",
+      "log": {
+        "path": "build/.ci-tmp/mixed-abi-product/service-death-core-build.log",
+        "sha256": "16a7c7841e72b4bc593d74e51f589ff0cf35fdc6ea2a8bb77dee086d24febb6d"
+      },
+      "binary": {
+        "path": "build/libcecore.so",
+        "sha256": "af419b9effb4ab21208ffeaecd22dbf597b8054f444557348947523d87a47cb6"
+      },
+      "scope": "Current shared production core rebuilt serially; no new full GUI/CLI/Lua runtime proof claimed."
+    }
+  },
+  "proof": [
+    "The original leader actually exits; separate CPU-loop and console siblings use separate stacks. The service demonstrably selects the intended nonleader and retains a completed real mmap after a detach error.",
+    "Only test-linked hooks operate the fixture flag and resume the actual restored selected task. The application executes its own thread-only exit; WNOWAIT leaves its actual exit(0) notification for the service owner.",
+    "The completed original allocation is recorded before transient retry and remains owned after confirmed task death. The stale task-context query no longer rejects a live original mm before the guarded handoff.",
+    "Fresh private mapping alias proof authorizes the surviving member cleanup using the original pinned descriptor, never old GP replay or source numeric TID reopening.",
+    "Independent before/after kernel snapshots compare every survivor GP/extended register and mask bit. Independent pinned-mm reads and maps require allocation absence while the original mm still lives.",
+    "Recovery after recording, death during the first transient retry before caller return, and service destruction all reclaim their actual old allocation, preserve code/console liveness and reap the original process normally."
+  ],
+  "resourceUse": {
+    "cachedBuilds": true,
+    "buildJobs": 1,
+    "nice": 10,
+    "parallelBuildsOrTestSuites": false,
+    "additionalKernelGuests": false,
+    "hostConfigurationChanges": false
+  },
+  "proofLimits": [
+    "Both new live profiles are native x86-64 and i386 on the recorded host kernel, using borrowed Unix syscall sites and a restored-context detach failure.",
+    "No new claim for mixed entry ABI handoff, x32, ARM, Wine, other kernels or full GUI/CLI/Lua routing.",
+    "Automatic discovery/ownership of a separate old-mm process, concurrent/nonleader exec, earlier death phases, ambiguous ESRCH while running, cancellation and policy/read-only transports still need implementation/live proof.",
+    "New service failure cases do not provide dedicated failed current-proof cleanup/dual-guard or general native-call frame ownership proofs.",
+    "Historical artifacts retain their source checkpoints; the seven-job published green CI checkpoint has not run this local draft."
+  ]
+}

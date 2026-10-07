@@ -32,6 +32,11 @@ public:
     const TargetProcessIdentity& identity() const {return identity_;}
 private:
     friend class NativeCallOwner;
+    friend class TargetSyscallRecovery;
+    // Private scratch sites may end at a page boundary. Probe only bytes that
+    // the recovery owner actually owns, without extending its scratch contract.
+    std::expected<void,std::error_code> sharesPrivateBytes(
+        const NativeMemoryImage&,uintptr_t,size_t) const;
     // The native call owner has already opened this descriptor under its stop.
     // Duplicate its original mm without upgrading a read-only descriptor.
     static std::expected<std::shared_ptr<NativeMemoryImage>,std::error_code> retainStoppedFd(

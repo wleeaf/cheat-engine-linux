@@ -1,0 +1,313 @@
+{
+  "schemaVersion": 1,
+  "suite": "completed-recovery-ticket-operation-affinity-with-same-file-exec-and-surviving-clone-vm-peer",
+  "createdUtc": "2026-10-07T11:29:31.169395+00:00",
+  "baseRevision": "4e4cd6b7bb403cdbeb76349ad690f6425b168966",
+  "sourceState": "unpublished working-tree draft identified by source hashes",
+  "published": false,
+  "hostedCiVerifiedForThisDraft": false,
+  "fullCompatibilityComplete": false,
+  "platform": "Linux-7.1.8-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "sourceHashes": [
+    {
+      "path": "CMakeLists.txt",
+      "sha256": "5047a6b8c7b6dee84e987bf22003287f62da2f5fb4f9fb71216044b3f4712536"
+    },
+    {
+      "path": "platform/linux/target_syscall.cpp",
+      "sha256": "4c8527b097ddced229dafbc01069a4c12d55ecd31ed1a7d7df037bb5f83def6d"
+    },
+    {
+      "path": "platform/linux/target_syscall.hpp",
+      "sha256": "10b8169672bfc15715afdcca054e29595bc0458141d9b3e4e78448555ea47297"
+    },
+    {
+      "path": "platform/linux/memory_image.cpp",
+      "sha256": "5107ece1a4a34c2455a8b86bc92914378914e8d595fc36bf9a9af66a13ff4576"
+    },
+    {
+      "path": "platform/linux/memory_image.hpp",
+      "sha256": "be841fe0894dbf86a43736d491fdcf3325882784bfa4ceedc7f075aea812d560"
+    },
+    {
+      "path": "platform/linux/syscall_service.cpp",
+      "sha256": "1a0401d50f7753f9d1ab4b433ac8b57240ae8cdb86bb7ae2fadcb3281f38d9c2"
+    },
+    {
+      "path": "test/syscall_faults.cpp",
+      "sha256": "ec34ad913a96b778bb35fe8da5f8248586e00c40826fbc859a96d4a5d57b9ed9"
+    },
+    {
+      "path": "test/syscall_faults.hpp",
+      "sha256": "f060a0089375ef364f3599b8d4a35b14897e291719fe255d1ec60c108ebe51ad"
+    },
+    {
+      "path": "test/target_syscall_integration.cpp",
+      "sha256": "eef26892cc0159a269e4e76001051b265859ea9dccee4dc9a6fc6f33c62a6257"
+    },
+    {
+      "path": "test/mixed_abi_restart_checks.inc",
+      "sha256": "4184e60f4f59859f11434064a4c6c93711eaeff9cd486a1c45d56dc086f1a2c3"
+    },
+    {
+      "path": "test/completed_image_guard_checks.inc",
+      "sha256": "106f045773df0c9b127ae5b5a200f867054523d72c9f3c13278ed7c3deb9a447"
+    },
+    {
+      "path": "test/shared_mm_fixture.c",
+      "sha256": "0bbee329f7fc4e24de7f1cc8409b841536a86b04e9810c568060facd57005906"
+    },
+    {
+      "path": "test/native_syscall_gate.py",
+      "sha256": "0f5df24a7cfff8738513b1be07982e2d0a62dad4a8938cb3877faf2d691da29e"
+    }
+  ],
+  "baseline": {
+    "path": "build/.ci-tmp/mixed-abi-product/completed-image-before.log",
+    "sha256": "bde8f60c27ce7fc7b1faebe29eab8dd87f1aee5d089079743f19d872e1f92e2a",
+    "results": [
+      "COMPLETED_IMAGE_GUARD_RESULT=FAILED architecture=x86-64 checks=57"
+    ],
+    "actualOperations": [
+      "COMPLETED_IMAGE_GUARD_OBSERVATION variant=0 result=1 error=0 replacement=0 peer=0",
+      "COMPLETED_IMAGE_GUARD_OBSERVATION variant=1 result=1 error=0 replacement=1 peer=0",
+      "COMPLETED_IMAGE_GUARD_OBSERVATION variant=2 result=1 error=0 replacement=1 peer=0",
+      "COMPLETED_IMAGE_GUARD_OBSERVATION variant=3 result=1 error=0 replacement=0 peer=1"
+    ],
+    "failedAssertions": [
+      "COMPLETED_IMAGE_GUARD_CHECK FAILED: a completed ticket rejects unmapping the replacement's identical-address allocation",
+      "COMPLETED_IMAGE_GUARD_CHECK FAILED: guard rejection leaves the replacement mapping and bytes intact, releases its proof mapping and preserves old-mm bytes",
+      "COMPLETED_IMAGE_GUARD_CHECK FAILED: a completed ticket rejects unmapping the replacement's identical-address allocation",
+      "COMPLETED_IMAGE_GUARD_CHECK FAILED: guard rejection leaves the replacement mapping and bytes intact, releases its proof mapping and preserves old-mm bytes"
+    ],
+    "checkpoint": {
+      "path": "build/.ci-tmp/mixed-abi-product/completed-image-before-hashes.txt",
+      "sha256": "c3669c713033384d8dfaf2a9b44acfa2d348773b1c6706b0a2f5840fd5e9ed84"
+    },
+    "sourceAndDriverCheckpoint": [
+      "5b44adca4044b70873a840e9360b548bc0104d1716886f285a240ce721ff0399  platform/linux/target_syscall.cpp",
+      "930fcf47290d3abad2b96fda898baa2c7435cde62b40ecca766b6b58b5c3f2a0  build/target_syscall_integration"
+    ],
+    "observation": "Both same-file replacement allocations were actually unmapped (result=1 error=0), although their PID, birth, inode, address and bytes matched the completed original ticket. The old mm remained alive through a CLONE_VM peer. Every GP/extended/mask/code preservation and process cleanup assertion passed."
+  },
+  "focusedResult": {
+    "path": "build/.ci-tmp/mixed-abi-product/completed-image-after.log",
+    "sha256": "6d47a8a79881f1a5d2b3a92dab587eb2b2a24ae416e88092fdc92805131aeeb6",
+    "results": [
+      "COMPLETED_IMAGE_GUARD_RESULT=PASSED architecture=x86-64 checks=57"
+    ],
+    "actualOperations": [
+      "COMPLETED_IMAGE_GUARD_OBSERVATION variant=0 result=1 error=0 replacement=0 peer=0",
+      "COMPLETED_IMAGE_GUARD_OBSERVATION variant=1 result=0 error=125 replacement=1 peer=0",
+      "COMPLETED_IMAGE_GUARD_OBSERVATION variant=2 result=0 error=125 replacement=1 peer=0",
+      "COMPLETED_IMAGE_GUARD_OBSERVATION variant=3 result=1 error=0 replacement=0 peer=1"
+    ],
+    "failedAssertions": []
+  },
+  "verification": {
+    "nativeGate": {
+      "path": "build/.ci-tmp/mixed-abi-product/completed-image-native-final.json",
+      "sha256": "5eb22893df128e70a8ce19ba2f02df969b57419142f333fcf1a030c218cdf87a",
+      "status": "passed",
+      "targets": [
+        {
+          "bits": 64,
+          "status": "passed",
+          "exitCode": 0,
+          "checks": 940,
+          "fixtureSha256": "6f782979a5c32f244ad39586c6be8ac8c4d3aeb8ecf5522ea88a899d3c5c0652",
+          "stdoutSha256": "54cebc8ea814d0b63eeaf643b7a28f42d1d462f7ac11fc8927a1d745c70c216f",
+          "stderrSha256": "5931e2386339936929488920344b5703616a664e18a8668e90cde11afbfdbb82",
+          "mixedAbiLifecycle": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 400,
+            "results": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=death checks=218",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=exec checks=182"
+            ],
+            "actualPreentryStops": 3
+          },
+          "mixedAbiSharedExec": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 288,
+            "results": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-exec checks=252",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=identical-shared-exec checks=36"
+            ],
+            "actualPreentryStops": 0
+          },
+          "mixedAbiSharedDeath": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 369,
+            "results": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-death checks=322",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-death-probe checks=47"
+            ],
+            "actualPreentryStops": 3
+          },
+          "completedImageGuard": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 57,
+            "results": [
+              "COMPLETED_IMAGE_GUARD_RESULT=PASSED architecture=x86-64 checks=57"
+            ],
+            "actualPreentryStops": 0,
+            "actualOperations": [
+              "COMPLETED_IMAGE_GUARD_OBSERVATION variant=0 result=1 error=0 replacement=0 peer=0",
+              "COMPLETED_IMAGE_GUARD_OBSERVATION variant=1 result=0 error=125 replacement=1 peer=0",
+              "COMPLETED_IMAGE_GUARD_OBSERVATION variant=2 result=0 error=125 replacement=1 peer=0",
+              "COMPLETED_IMAGE_GUARD_OBSERVATION variant=3 result=1 error=0 replacement=0 peer=1"
+            ]
+          }
+        },
+        {
+          "bits": 32,
+          "status": "passed",
+          "exitCode": 0,
+          "checks": 667,
+          "fixtureSha256": "dbb41c9a02e359b66a48eb3320c1b03cc0812fed4bde6a9915d47a20d037ebe9",
+          "stdoutSha256": "8f0a39413815a417eae1219e9903a3ec0cf092416a1c146e501d3e9a3ecd6c64",
+          "stderrSha256": "5436afae9c691d4e881ca8032e781b7a8104785c28ef956962a949ce9b98e964"
+        }
+      ],
+      "binaries": [
+        {
+          "path": "build/target_syscall_integration",
+          "sha256": "af52b92dd9fc3c3f8d758394d12eef91761b65f850d56efece38d1517d723e81"
+        },
+        {
+          "path": "build/shared_mm_fixture",
+          "sha256": "bd57a7cdc5cb63ddf58337074365bb233507a3ea57294c2c19d1dcf414ff2291"
+        },
+        {
+          "path": "build/compatibility_fixture64",
+          "sha256": "6f782979a5c32f244ad39586c6be8ac8c4d3aeb8ecf5522ea88a899d3c5c0652"
+        },
+        {
+          "path": "build/compatibility_fixture32",
+          "sha256": "dbb41c9a02e359b66a48eb3320c1b03cc0812fed4bde6a9915d47a20d037ebe9"
+        }
+      ]
+    },
+    "asanUbsanGate": {
+      "path": "build/.ci-tmp/mixed-abi-product/completed-image-asan-final.json",
+      "sha256": "8f88d9f879bf4dd3bf7593b311a4d412f7f1cd6df33b6d112d64720ab854f05f",
+      "status": "passed",
+      "targets": [
+        {
+          "bits": 64,
+          "status": "passed",
+          "exitCode": 0,
+          "checks": 940,
+          "fixtureSha256": "6983703b8404486771194822711d896c5aa1b0d0e943a40e33fd894d41410c75",
+          "stdoutSha256": "04fef37bad2f3cacad830de3682f1c50d7bc2255f48704ba8e0198a5de949478",
+          "stderrSha256": "5931e2386339936929488920344b5703616a664e18a8668e90cde11afbfdbb82",
+          "mixedAbiLifecycle": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 400,
+            "results": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=death checks=218",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=exec checks=182"
+            ],
+            "actualPreentryStops": 3
+          },
+          "mixedAbiSharedExec": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 288,
+            "results": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-exec checks=252",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=identical-shared-exec checks=36"
+            ],
+            "actualPreentryStops": 0
+          },
+          "mixedAbiSharedDeath": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 369,
+            "results": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-death checks=322",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-death-probe checks=47"
+            ],
+            "actualPreentryStops": 3
+          },
+          "completedImageGuard": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 57,
+            "results": [
+              "COMPLETED_IMAGE_GUARD_RESULT=PASSED architecture=x86-64 checks=57"
+            ],
+            "actualPreentryStops": 0,
+            "actualOperations": [
+              "COMPLETED_IMAGE_GUARD_OBSERVATION variant=0 result=1 error=0 replacement=0 peer=0",
+              "COMPLETED_IMAGE_GUARD_OBSERVATION variant=1 result=0 error=125 replacement=1 peer=0",
+              "COMPLETED_IMAGE_GUARD_OBSERVATION variant=2 result=0 error=125 replacement=1 peer=0",
+              "COMPLETED_IMAGE_GUARD_OBSERVATION variant=3 result=1 error=0 replacement=0 peer=1"
+            ]
+          }
+        },
+        {
+          "bits": 32,
+          "status": "passed",
+          "exitCode": 0,
+          "checks": 667,
+          "fixtureSha256": "a70d8ca3b82d3cc4ac5605d7b1087331e377fa5939f1c914449252300b6b9f75",
+          "stdoutSha256": "1a3bed485c3b55e31916681db941e0fc9042ad6b49660dcdaf85b5abe93deafa",
+          "stderrSha256": "4c1face9079251cdedc6eda810e5d95c213d6e82836ef12de103c1117b2390f7"
+        }
+      ],
+      "binaries": [
+        {
+          "path": "build-ci-asan/target_syscall_integration",
+          "sha256": "94c5c475ed67c3e455a9fcc5926beb8e59dd5e2b72d525ade4853c161ff2e1ea"
+        },
+        {
+          "path": "build-ci-asan/shared_mm_fixture",
+          "sha256": "5f4656f189805753ce6514697831623f59edb103bcc9156a540ab5561ed6c367"
+        },
+        {
+          "path": "build-ci-asan/compatibility_fixture64",
+          "sha256": "6983703b8404486771194822711d896c5aa1b0d0e943a40e33fd894d41410c75"
+        },
+        {
+          "path": "build-ci-asan/compatibility_fixture32",
+          "sha256": "a70d8ca3b82d3cc4ac5605d7b1087331e377fa5939f1c914449252300b6b9f75"
+        }
+      ]
+    },
+    "sanitizerEnvironment": {
+      "ASAN_OPTIONS": "detect_leaks=1:abort_on_error=1",
+      "UBSAN_OPTIONS": "halt_on_error=1"
+    }
+  },
+  "resourceUse": {
+    "cachedBuilds": true,
+    "buildJobs": 1,
+    "nice": 10,
+    "parallelBuildsOrTestSuites": false,
+    "additionalKernelGuests": false,
+    "hostConfigurationChanges": false
+  },
+  "proof": [
+    "Read-only duplication of the original ticket descriptor preserves the old mm without reopening its numeric TID or upgrading descriptor access.",
+    "The actual stopped destination owns a fresh unpublished private mapping; its active alias proves actual image identity and is reclaimed before the requested operation.",
+    "Two same-file replacements recreate the original private allocation at the same address with identical bytes. One source scratch is freed before exec. Both guarded unmaps return operation_canceled without a completed value or leftover recovery.",
+    "Same-mm cleanup succeeds. Explicit stopped-peer cleanup after the original task SIGKILL removes the old allocation while the actual original mm remains alive.",
+    "Every selected GP/extended register, signal mask, program byte and ptrace owner is independently preserved. Replacement maps and bytes remain intact after rejection.",
+    "The replacement/peer processes are actually reaped and the controller restores its original process-local subreaper setting."
+  ],
+  "proofLimits": [
+    "Fresh completed-ticket cases use native ELF64; existing full gates retain native i386 coverage but do not prove these new transitions on i386, x32, ARM, Wine or other kernels.",
+    "Standalone checkImage is pinned-mm liveness/known-retirement, not fresh stopped-target affinity authorization.",
+    "Explicit peer selection/ptrace ownership is provided by the caller. Automatic separate-old-mm peer discovery, service selected-thread-death retained-allocation handoff and general native-frame ownership remain unfinished.",
+    "Fresh private proof requires a current-image mmap and writable current proc descriptor; restrictive syscall policies and read-only proof transports still need implementation.",
+    "Conflicting dual guards are both checked in code but lack a dedicated new fixture; incomplete/probe-cleanup failures and concurrent exec windows need further live evidence.",
+    "The mixed-ABI adapter and broader six-area compatibility goal remain unpublished/incomplete; historical evidence checkpoints have not been rewritten."
+  ]
+}

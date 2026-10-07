@@ -93,10 +93,9 @@ struct TargetSyscallService::Impl {
                 auto actual=processMemoryIdentity(record.identity.pid);
                 if (!actual) return std::unexpected(actual.error());
                 if (*actual!=record.identity) return std::unexpected(std::make_error_code(std::errc::operation_canceled));
-                if (record.image) {
-                    auto image=record.image->checkImage();
-                    if (!image) return image;
-                }
+                // A dead selected context does not retire the original mm.
+                // The guarded unmap below proves its affinity with the newly
+                // selected member before modifying that member's memory.
             }
             record.recovery.reset();
         }
@@ -183,18 +182,23 @@ struct TargetSyscallService::Impl {
         if (result) { records.erase(it); return *result; }
         auto& error = result.error();
         it->second.recovery = error.recovery;
-        if (error.completedValue && error.recovery) {
-            // A transient failure may be recoverable before reporting back.
-            auto recovered = error.recovery->retry();
-            if (recovered) { records.erase(it); return *error.completedValue; }
-            if (gone(recovered.error())) { records.erase(it); return std::unexpected(recovered.error()); }
-        }
-        if (error.completedValue && !error.recovery) { records.erase(it); return *error.completedValue; }
-        if (operation == MemorySyscall::Map && error.completedValue) {
+        if (operation == MemorySyscall::Map && error.completedValue && error.recovery) {
+            // Own the kernel-completed allocation before a transient retry can
+            // discover that its selected task died. Siblings may retain the mm.
             it->second.allocation = error.completedValue;
             it->second.image = error.recovery;
             it->second.allocationSize = arguments[1];
         }
+        if (error.completedValue && error.recovery) {
+            // A transient failure may be recoverable before reporting back.
+            auto recovered = error.recovery->retry();
+            if (recovered) { records.erase(it); return *error.completedValue; }
+            if (gone(recovered.error())) {
+                if (recovered.error()!=std::errc::no_such_process || !it->second.allocation) records.erase(it);
+                return std::unexpected(recovered.error());
+            }
+        }
+        if (error.completedValue && !error.recovery) { records.erase(it); return *error.completedValue; }
         if (!it->second.recovery && !it->second.allocation) records.erase(it);
         return std::unexpected(error.code);
     }

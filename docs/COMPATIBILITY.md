@@ -2,7 +2,7 @@
 
 This is the implementation and verification record for the compatibility work.
 The [progress checkpoint](PROGRESS.md) lists completed work and detailed remaining
-requirements, including the newly reproduced mixed-ABI restart defect.
+requirements, including the tested mixed-ABI recovery fixes and their limits.
 It covers all six requested areas. A passing row requires operation-level evidence;
 architecture detection or a successful build alone is insufficient.
 
@@ -18,8 +18,8 @@ debug transport. Backend availability and verified coverage are separate concept
 | 2. Explicit target descriptions | Host/program ISA, instruction mode, data/instruction byte order, ABI, pointer width, transport; mixed modules and exec transitions tested | Model implemented; native/Wine transitions and mixed-module cases tested; XML-negotiated GDB guest CPU descriptions added; guest process/MMU and broader remote coverage pending |
 | 3. Architecture-specific backends | Registers, breakpoints, watchpoints, syscall/call ABI, relocation, and instruction-cache handling for each supported architecture | Native x86/i386 and AArch64 session registers, breakpoints, stepping, trace, CodeFinder and memory/call recovery verified under real kernels; real native libc library/pthread calls tested on x86-64, i386, x32 and AArch64; complete ARM64 core/Qt GUI cross-build and real interactive debugger/CLI/Lua/startup checks pass; byte-level AArch64 relocation executes on both kernel page sizes; ARM32/Thumb GP registers, VFP context recovery, software traps and private stopped memory syscalls pass under native ARMv7 and ARM64 compat kernels; full ARM32 sessions, additional panels, general unwinding, native hook coordination/hardware caches, parked-call adapters and other ISAs remain pending |
 | 4. Real integration environments | Native 32/64-bit, multiple Wine/Proton versions, real WoW64, ARM64 hardware/full-system VMs, containers, managed runtimes, and emulators | Native ARMv7/Thumb register/trap/private-memory fixtures plus native x86 32/64-bit, real x32 and ARM64 full-system fixtures on 4/64 KiB pages exercise the actual DebugSession owner/event loop, exec, cloned writer threads, signal delivery and destruction recovery; Wine 9 legacy Wine32/x64 and Wine 11 x64/WoW64 have live memory/injection/main-thread watchpoint evidence; native Mono 6.8/SGen metadata/JIT/GC and shutdown pass on host, in a container and with sanitizers; Proton, additional foreign features and runtimes pending |
-| 5. Failure and recovery coverage | Exit/exec, thread changes, unmapped/partial memory, disconnects, interrupted injection, repeated attach/detach; target liveness and restoration verified | Exit/exec, failed and partial injection cleanup, FULLACCESS rollback, saved undo retirement/copy/reuse ownership, split return-instruction and interrupted-read restart-page protection, replaced-code conflicts, repeated Wine watchpoint attach/detach and scanner worker failure/join/cleanup/retry covered; newly reproduced mixed-ABI timed-restart defect, remaining concurrency, transport, and runtime cases pending |
-| 6. Required release gates | Required environments cannot skip; packaging waits for their checks and publishes an evidence report | Native/model gates added; required GDB/QEMU CPU/RAM, legacy Wine32, WoW64, x32, ARM32/Thumb kernel primitives, ARM64 kernel/frontend and real Mono runtime checks precede release packaging and save evidence; remote workflow execution and broader environments pending |
+| 5. Failure and recovery coverage | Exit/exec, thread changes, unmapped/partial memory, disconnects, interrupted injection, repeated attach/detach; target liveness and restoration verified | Exit/exec, failed and partial injection cleanup, FULLACCESS rollback, saved undo retirement/copy/reuse ownership, split return-instruction and interrupted-read restart-page protection, replaced-code conflicts, repeated Wine watchpoint attach/detach and scanner worker failure/join/cleanup/retry covered; local private-scratch mixed-ABI timer, shared-mm exec/death and completed-ticket operation guards tested; publication, policy, ownership, concurrency, transport and broader runtime cases pending |
+| 6. Required release gates | Required environments cannot skip; packaging waits for their checks and publishes an evidence report | Required native/model, GDB/QEMU CPU/RAM, legacy Wine32, WoW64, x32, ARM32/Thumb kernel primitive, ARM64 kernel/frontend and real Mono checks precede release packaging and save evidence; published seven-job checkpoint passed; the local mixed-ABI draft and broader environments still need hosted verification |
 
 Do not mark this work complete until every row has sufficient current evidence.
 Update this table as implementation and live validation progress.
@@ -2237,3 +2237,63 @@ Other restart error classes and hidden timed restart-block state, mixed syscall
 entry ABIs, ARM32/AArch64 restart-stop adapters, bounded memory-execution waits,
 additional ISAs and the broader frontend/runtime matrix still need live coverage.
 All six compatibility requirements remain active.
+
+## Mixed syscall-ABI recovery checkpoint
+
+The accumulated changes below are included in the current publication checkpoint.
+The linked evidence files preserve their original local, unpublished test states.
+Publication does not establish additional target coverage; see the current
+[progress checkpoint](PROGRESS.md#publication-checkpoint-7-october-2026) for
+remaining work and revision-specific hosted CI status.
+
+The [progress document](PROGRESS.md#local-shared-mm-exec-recovery-follow-up-7-october-2026)
+records unpublished follow-up work on an ELF64 task interrupted inside an i386
+INT80 restart-block timer. Its private-scratch adapter now preserves the actual
+kernel entry ABI and original timer deadline, defers asynchronous signals with
+exact mask restoration, handles tested SIGSTOP/LISTEN/SIGCONT transitions, and
+retires retained recovery after tested death/exec transitions. The shared-mm
+fixture also exposed replay of old context after same-file exec while a CLONE_VM
+peer retained the original mm; the draft now checks actual private-mapping alias
+identity before restoring that context.
+
+The subsequent [task-death follow-up](PROGRESS.md#local-shared-mm-task-death-recovery-follow-up-7-october-2026)
+separates confirmed task death from mm retirement when a CLONE_VM peer survives.
+It invalidates the dead context immediately and retains owner-only retries until
+old private probe/code bytes are independently restored. The added bounded gate
+requires 369 assertions. [Task-death evidence](compatibility-evidence/mixed-abi-shared-mm-death-recovery.json)
+records the failing baselines and tested fix. Automatic old-frame ownership
+and reclamation through a separate process remain unfinished.
+
+The [completed-ticket operation follow-up](PROGRESS.md#local-completed-ticket-operation-guard-follow-up-7-october-2026)
+then reproduced unmapping an identical-address replacement allocation through
+a completed ticket. Expected-ticket operations now prove actual mm alias
+identity using the same fresh private proof owner as saved-image operations.
+The stopped-owner overload also permits explicit cleanup through a selected
+surviving peer. Its new required child verifies 57 assertions, including all
+GP/extended/mask/code preservation and actual allocation/process cleanup.
+[Completed-ticket evidence](compatibility-evidence/completed-image-guard.json)
+distinguishes the unsafe baseline from the local fix. Automatic peer discovery,
+the service's selected-thread-death allocation handoff and standalone liveness
+queries still need separate ownership/affinity proofs.
+
+The subsequent [service handoff follow-up](PROGRESS.md#local-service-selected-thread-death-follow-up-7-october-2026)
+reproduces and fixes loss of an unreturned allocation after the selected member
+dies, including death before the first ownership record is completed. Native
+x86-64 and i386 now require 38 assertions each for explicit recovery, transient
+retry and service shutdown. Actual kernel terminal events, full survivor context
+preservation and old-map removal while its original mm remains alive are
+mandatory. [Service handoff evidence](compatibility-evidence/service-thread-death.json)
+records both failing ABI baselines and the local fix. Automatic ownership of
+a separate old-mm process, other death/exec windows, policies/transports and
+broader architecture/frontend coverage remain unfinished.
+
+[Shared-mm evidence](compatibility-evidence/mixed-abi-shared-mm-recovery.json)
+distinguishes the failing baseline from the tested fix. This partial adapter
+requires caller-owned private scratch and a writable pinned old mm. Borrowed
+and quiesced mixed-ABI sites reject the restart before context mutation until
+they have a safe private identity-proof owner. Read-only proof transport,
+standalone affinity queries, foreign synchronous signals, syscall policy,
+cancellation/shutdown, nonleader exec, more race windows, restart classes and
+kernels, x32 and full frontend ownership routing remain unfinished. The required
+hosted seven-job workflow is green at its published checkpoint; it has not run
+this local draft. These results do not establish universal process compatibility.

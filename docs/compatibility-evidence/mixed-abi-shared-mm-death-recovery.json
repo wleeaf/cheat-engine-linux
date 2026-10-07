@@ -1,0 +1,343 @@
+{
+  "schemaVersion": 1,
+  "suite": "mixed-abi-private-scratch-recovery-task-death-with-surviving-clone-vm-old-mm-peer",
+  "createdUtc": "2026-10-07T11:13:02.348712+00:00",
+  "baseRevision": "4e4cd6b7bb403cdbeb76349ad690f6425b168966",
+  "sourceState": "unpublished working-tree draft identified by source hashes",
+  "published": false,
+  "hostedCiVerifiedForThisDraft": false,
+  "fullCompatibilityComplete": false,
+  "platform": "Linux-7.1.8-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "sourceHashes": [
+    {
+      "path": "CMakeLists.txt",
+      "sha256": "5047a6b8c7b6dee84e987bf22003287f62da2f5fb4f9fb71216044b3f4712536"
+    },
+    {
+      "path": "platform/linux/target_syscall.cpp",
+      "sha256": "ac862548663f8e4a31164de7245d318469548a35b5ab7af5f56377f81d736073"
+    },
+    {
+      "path": "platform/linux/target_syscall.hpp",
+      "sha256": "73554b9dc4673ede0b07afeb9454160748ffca7f5b7e6cdedfe053c6f04ce4c5"
+    },
+    {
+      "path": "platform/linux/memory_image.cpp",
+      "sha256": "5107ece1a4a34c2455a8b86bc92914378914e8d595fc36bf9a9af66a13ff4576"
+    },
+    {
+      "path": "platform/linux/memory_image.hpp",
+      "sha256": "be841fe0894dbf86a43736d491fdcf3325882784bfa4ceedc7f075aea812d560"
+    },
+    {
+      "path": "test/syscall_faults.cpp",
+      "sha256": "ec34ad913a96b778bb35fe8da5f8248586e00c40826fbc859a96d4a5d57b9ed9"
+    },
+    {
+      "path": "test/syscall_faults.hpp",
+      "sha256": "f060a0089375ef364f3599b8d4a35b14897e291719fe255d1ec60c108ebe51ad"
+    },
+    {
+      "path": "test/target_syscall_integration.cpp",
+      "sha256": "f53fcb166a80b52173925f8cf4c57690bf0e15d01ba20429eedb13a10b3c268a"
+    },
+    {
+      "path": "test/mixed_abi_restart_checks.inc",
+      "sha256": "4184e60f4f59859f11434064a4c6c93711eaeff9cd486a1c45d56dc086f1a2c3"
+    },
+    {
+      "path": "test/shared_mm_fixture.c",
+      "sha256": "0bbee329f7fc4e24de7f1cc8409b841536a86b04e9810c568060facd57005906"
+    },
+    {
+      "path": "test/native_syscall_gate.py",
+      "sha256": "def165cfde62fcd2f045e627dcaf1a376201d4f0d574095ca16cf305ef41874c"
+    }
+  ],
+  "resourceUse": {
+    "cachedBuilds": true,
+    "buildJobs": 1,
+    "nice": 10,
+    "parallelBuildsOrTestSuites": false,
+    "additionalKernelGuests": false,
+    "hostConfigurationChanges": false
+  },
+  "baselines": [
+    {
+      "path": "build/.ci-tmp/mixed-abi-product/shared-death-before.log",
+      "sha256": "f3461eb8fb227ae3da9e537ef8c97a2540d86e3bdff4ba894fd5081756a511d3",
+      "results": [
+        "MIXED_ABI_LIFECYCLE_RESULT=FAILED architecture=x86-64 action=shared-death checks=305",
+        "MIXED_ABI_LIFECYCLE_RESULT=FAILED architecture=x86-64 action=shared-death-probe checks=44"
+      ],
+      "failedAssertions": 41,
+      "actualPreentryStops": 3,
+      "sourceAndDriverCheckpoint": [
+        "4933ba5adce4ebc4c33d0690b0d0d4fccceb232122276468d622270668856ba3  platform/linux/target_syscall.cpp",
+        "f3dc6694e0d6265401dc2840aa1ab9a6ed60e5de8e2377bc47de5b0f45aa9d9b  build/target_syscall_integration"
+      ],
+      "checkpointFile": {
+        "path": "build/.ci-tmp/mixed-abi-product/shared-death-before-hashes.txt",
+        "sha256": "1f50bba1ef37b920cecaf5b7e609dbdc673a4772b59c51f13861c3260b1b969f"
+      },
+      "observation": "The actual target died, but checkImage continued accepting its context while old mm remained alive. Pending old private probe restoration was abandoned."
+    },
+    {
+      "path": "build/.ci-tmp/mixed-abi-product/shared-death-bytes-before.log",
+      "sha256": "f7cec3f9855bfb3ffb431a78ab0b2e6d70fa1e5b642c443022da3e65b8ba5f82",
+      "results": [
+        "MIXED_ABI_LIFECYCLE_RESULT=FAILED architecture=x86-64 action=shared-death checks=322",
+        "MIXED_ABI_LIFECYCLE_RESULT=FAILED architecture=x86-64 action=shared-death-probe checks=47"
+      ],
+      "failedAssertions": 19,
+      "actualPreentryStops": 3,
+      "sourceAndDriverCheckpoint": [
+        "f4b1f1c66fa6261b8dc47aa8f40aef7fdb5b387e97600ac1b5b520f97ffec797  platform/linux/target_syscall.cpp",
+        "5fe8e2e4b598fbb0190fffc5410ce7f89beec3853e8a1479eefe7639edb69972  build/target_syscall_integration"
+      ],
+      "checkpointFile": {
+        "path": "build/.ci-tmp/mixed-abi-product/shared-death-bytes-before-hashes.txt",
+        "sha256": "9caadad8c936ee97dbe78687604923d31375c7e5c2c135851ed64873e2bdbab9"
+      },
+      "observation": "The first context/probe fix did not restore injected private code. Independent full scratch comparisons failed in 13 ordinary rows and both probe rows."
+    }
+  ],
+  "focusedResult": {
+    "path": "build/.ci-tmp/mixed-abi-product/shared-death-final.log",
+    "sha256": "bc0e6d4ec755879b6f4954836e494f529415784e662d556ee7bc7adc5f3d6219",
+    "results": [
+      "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-death checks=322",
+      "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-death-probe checks=47"
+    ],
+    "failedAssertions": 0,
+    "actualPreentryStops": 3
+  },
+  "verification": {
+    "nativeGate": {
+      "path": "build/.ci-tmp/mixed-abi-product/shared-death-native-final.json",
+      "sha256": "c9f13326862b997addf1e08e7b10f90334c21d07869c2ab8743d63662d3c03dd",
+      "status": "passed",
+      "driverSha256": "cbe49469d95a8a6bb057fa3e5417205a5787afe681f6a210cad8cb9b604c5aa2",
+      "targets": [
+        {
+          "bits": 64,
+          "status": "passed",
+          "exitCode": 0,
+          "checks": 940,
+          "fixtureSha256": "6f782979a5c32f244ad39586c6be8ac8c4d3aeb8ecf5522ea88a899d3c5c0652",
+          "stdoutSha256": "b870769efda3fd6442515f32f0539b94da1fc0bb971ccd85d2a62400b4cc2a70",
+          "stderrSha256": "5931e2386339936929488920344b5703616a664e18a8668e90cde11afbfdbb82",
+          "mixedAbiLifecycle": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 400,
+            "results": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=death checks=218",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=exec checks=182"
+            ],
+            "actualPreentryStops": 3
+          },
+          "mixedAbiSharedExec": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 288,
+            "results": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-exec checks=252",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=identical-shared-exec checks=36"
+            ],
+            "actualPreentryStops": 0,
+            "fixtureSha256": "bd57a7cdc5cb63ddf58337074365bb233507a3ea57294c2c19d1dcf414ff2291"
+          },
+          "mixedAbiSharedDeath": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 369,
+            "results": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-death checks=322",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-death-probe checks=47"
+            ],
+            "actualPreentryStops": 3
+          }
+        },
+        {
+          "bits": 32,
+          "status": "passed",
+          "exitCode": 0,
+          "checks": 667,
+          "fixtureSha256": "dbb41c9a02e359b66a48eb3320c1b03cc0812fed4bde6a9915d47a20d037ebe9",
+          "stdoutSha256": "e386d63b2b681f9fcaa805636a0471caf2e259d302847443fc215bfa0558fd61",
+          "stderrSha256": "5436afae9c691d4e881ca8032e781b7a8104785c28ef956962a949ce9b98e964"
+        }
+      ]
+    },
+    "asanUbsanGate": {
+      "path": "build/.ci-tmp/mixed-abi-product/shared-death-asan-final.json",
+      "sha256": "267a71e429d6ef16232bc806c2b70412ed73b796952e3347da11ce422c0524a1",
+      "status": "passed",
+      "driverSha256": "e741288369b8b960ae50990cf0558ae793fd8ec283639e5b781caa578a15a128",
+      "targets": [
+        {
+          "bits": 64,
+          "status": "passed",
+          "exitCode": 0,
+          "checks": 940,
+          "fixtureSha256": "6983703b8404486771194822711d896c5aa1b0d0e943a40e33fd894d41410c75",
+          "stdoutSha256": "2d6f6eb9a4f40fe680ae67e1d77b89ea09541b365561f6ca2e47385f60b7f69e",
+          "stderrSha256": "a71f00cbbf2ac0ea87b470d0753795bdb3ab426bc172496f559e68c076e482f7",
+          "mixedAbiLifecycle": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 400,
+            "results": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=death checks=218",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=exec checks=182"
+            ],
+            "actualPreentryStops": 3
+          },
+          "mixedAbiSharedExec": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 288,
+            "results": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-exec checks=252",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=identical-shared-exec checks=36"
+            ],
+            "actualPreentryStops": 0,
+            "fixtureSha256": "5f4656f189805753ce6514697831623f59edb103bcc9156a540ab5561ed6c367"
+          },
+          "mixedAbiSharedDeath": {
+            "status": "passed",
+            "exitCode": 0,
+            "checks": 369,
+            "results": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-death checks=322",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-death-probe checks=47"
+            ],
+            "actualPreentryStops": 3
+          }
+        },
+        {
+          "bits": 32,
+          "status": "passed",
+          "exitCode": 0,
+          "checks": 667,
+          "fixtureSha256": "a70d8ca3b82d3cc4ac5605d7b1087331e377fa5939f1c914449252300b6b9f75",
+          "stdoutSha256": "ca002f267fc6bfafbf206c08da4397caeab54751e532b210427a778eaad28c07",
+          "stderrSha256": "48f8e226f0bb66041aae90c1068f0249ff346a50495c02c65772f72f3a088f9b"
+        }
+      ]
+    },
+    "sanitizerEnvironment": {
+      "ASAN_OPTIONS": "detect_leaks=1:abort_on_error=1",
+      "UBSAN_OPTIONS": "halt_on_error=1"
+    },
+    "nativeCallOwnerRegressions": [
+      {
+        "build": "build",
+        "exitCode": 0,
+        "status": "passed",
+        "log": {
+          "path": "build/.ci-tmp/mixed-abi-product/shared-death-native-call.log",
+          "sha256": "171b76a7ee5880c10d832e3f1a05499863af7bb3966acfb09b62d6ff9da5dcef"
+        },
+        "tail": [
+          "LEADER_NATIVE_CALL_RESULT=PASSED width=8",
+          "OK: a real native process starts its relative timed kernel wait",
+          "OK: wholly syscall-parked native targets reject calls without creating a thread or retaining ownership",
+          "OK: rejected calls preserve the original timed kernel wait and normal process completion",
+          "PARKED_NATIVE_CALL_RESULT=PASSED width=8",
+          "NATIVE_INJECTOR_RESULT=PASSED width=8"
+        ],
+        "binaries": [
+          {
+            "path": "build/native_call_integration",
+            "sha256": "203857815ab7b3e98fcf6dc9daa8d259a4c123fc778efa4cbab436a8b0f2fa5c"
+          },
+          {
+            "path": "build/native_call_fixture",
+            "sha256": "05b87945f5c9a2c63b26ca916ce7f916f95c75cc8a398719050d90a409be6347"
+          },
+          {
+            "path": "build/libnative_call_library.so",
+            "sha256": "47d6dd25b395672b368b54bac0864b99b8c3d81b27f35338c71cfac5c5dde17e"
+          },
+          {
+            "path": "build/libcecore.so",
+            "sha256": "c1c3a6c143eec95583edcd030df4e362a293df453b8c58c411e8db901e955ad4"
+          }
+        ]
+      },
+      {
+        "build": "build-ci-asan",
+        "exitCode": 0,
+        "status": "passed",
+        "log": {
+          "path": "build/.ci-tmp/mixed-abi-product/shared-death-asan-native-call.log",
+          "sha256": "171b76a7ee5880c10d832e3f1a05499863af7bb3966acfb09b62d6ff9da5dcef"
+        },
+        "tail": [
+          "LEADER_NATIVE_CALL_RESULT=PASSED width=8",
+          "OK: a real native process starts its relative timed kernel wait",
+          "OK: wholly syscall-parked native targets reject calls without creating a thread or retaining ownership",
+          "OK: rejected calls preserve the original timed kernel wait and normal process completion",
+          "PARKED_NATIVE_CALL_RESULT=PASSED width=8",
+          "NATIVE_INJECTOR_RESULT=PASSED width=8"
+        ],
+        "binaries": [
+          {
+            "path": "build-ci-asan/native_call_integration",
+            "sha256": "23d3cb0fb1d9256918fdb1ab676b49001dd4bf3cad0405df60e0459a3a998d28"
+          },
+          {
+            "path": "build-ci-asan/native_call_fixture",
+            "sha256": "907d97ec43356147984785c2079beffe82a7689529f0760bad4574678ec5eb07"
+          },
+          {
+            "path": "build-ci-asan/libnative_call_library.so",
+            "sha256": "fe3476b74afbf0b523a2ec1232d3c5d880ec4bd587eb6f6c625ca5d059eb1b5c"
+          },
+          {
+            "path": "build-ci-asan/libcecore.so",
+            "sha256": "eacd4570fa549a517a0ad0f7da8e7e12cfb4aa4886db11362c5aef07e49b5763"
+          }
+        ]
+      }
+    ],
+    "controllerDeathFixture": {
+      "result": {
+        "status": "passed",
+        "controllerExit": -9,
+        "targetExit": -9,
+        "peerExit": 0,
+        "allProcessesReaped": true
+      },
+      "driver": {
+        "path": "build/.ci-tmp/mixed-abi-product/check-keepalive-controller.py",
+        "sha256": "0be808e340aad9bdc18472385d9d793d913af103c5468127f0b1603c7d7b1cfe"
+      },
+      "log": {
+        "path": "build/.ci-tmp/mixed-abi-product/shared-death-controller.log",
+        "sha256": "f436828aef3dfd266dc328a7451f6352df8796080121543715fa96bff41f3c5b"
+      },
+      "mandatoryHostedGate": false,
+      "actualEvents": "Separate single-thread controller SIGKILL; busy target SIGKILL via parent-death setting; CLONE_VM peer exits normally after pidfd notification. All three descendants reaped and original process-local subreaper restored."
+    }
+  },
+  "behavior": [
+    "Confirmed task death invalidates checkImage even when the pinned old mm is live; imageRetired remains false to preserve native-call cleanup through surviving siblings.",
+    "Owner-only retry restores pending marker and owned private code bytes via the pinned old descriptor, preserving unowned byte bits and independently checking kernel-applied writes.",
+    "Failed marker/code restoration remains retryable without reopening a dead/reused TID, mutating saved registers/masks, or tracing the CLONE_VM peer.",
+    "Terminal event ownership alternates between actual recovery wait and caller reaping; each row verifies original 32-byte scratch and actual peer death/mm retirement."
+  ],
+  "proofLimits": [
+    "ELF64 target interrupted in actual i386 INT80 nanosleep restart-block; private caller-owned scratch and writable pinned old memory required.",
+    "Fourteen ABI/mask failures plus three held SIGSTOP/LISTEN states and two probe failure rows; other task-death/reuse race windows remain open.",
+    "No independent allocator owner unmaps a retained old frame through a separate CLONE_VM peer; tests reclaim remaining allocations through actual peer exit.",
+    "Alive completed-ticket affinity, borrowed/quiesced and read-only transports, synchronous delivery, syscall policies, cancellation/shutdown, nonleader exec and other restart classes remain unfinished.",
+    "No fresh x32, ARM, Wine, alternate-kernel or full GUI/CLI/Lua routing proof for this local follow-up; the six-area compatibility goal remains active."
+  ],
+  "primaryReferences": [
+    "https://raw.githubusercontent.com/torvalds/linux/v6.18/fs/pidfs.c",
+    "https://raw.githubusercontent.com/torvalds/linux/v6.18/fs/proc/base.c"
+  ]
+}

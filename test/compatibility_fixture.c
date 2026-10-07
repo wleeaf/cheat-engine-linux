@@ -24,9 +24,12 @@ static volatile unsigned char dispatchSelector;
 static volatile unsigned callWaiting=1, callEntered;
 static volatile unsigned callDetached;
 static char threadStack[16384] __attribute__((aligned(16), used));
+static char ownerThreadStack[16384] __attribute__((aligned(16), used));
+static unsigned ownerConsoleStage,ownerConsoleReady;
 static const char* fixtureNext;
 extern void fixtureCaller(void), fixtureCallSite(void), fixtureAfterCall(void), fixtureReturnSite(void);
 extern iptr fixtureSpawnThread(void);
+extern iptr fixtureSpawnOnStack(void*);
 extern void fixtureExitSite(void);
 __attribute__((noreturn)) extern void fixtureExitThread(void);
 extern void fixtureUserTrap(void), fixtureUserTrapSite(void), fixtureExecSite(void), fixtureSyscallSite(void);
@@ -353,6 +356,21 @@ __attribute__((noreturn, used)) void fixtureMain(uptr* stack) {
         if (command == 'b') fixtureWriter();
         if (command == 'c') fixtureCaller();
         if (command == 't') fixtureSpawnThread();
+        if (command == 'O') {
+            siblingMode=4; spinning=1; heartbeat=0; siblingReady=0;
+            __atomic_store_n(&ownerConsoleStage,0,__ATOMIC_RELEASE);
+            __atomic_store_n(&ownerConsoleReady,0,__ATOMIC_RELEASE);
+            iptr selected=fixtureSpawnThread();
+            if (selected<=0) { output("CE_OWNER_FAILED\n",16); continue; }
+            while (!__atomic_load_n(&siblingReady,__ATOMIC_ACQUIRE)) __asm__ volatile("" ::: "memory");
+            __atomic_store_n(&ownerConsoleStage,1,__ATOMIC_RELEASE);
+            iptr console=fixtureSpawnOnStack(ownerThreadStack+sizeof(ownerThreadStack));
+            if (console<=0) { output("CE_OWNER_FAILED\n",16); continue; }
+            while (!__atomic_load_n(&ownerConsoleReady,__ATOMIC_ACQUIRE)) __asm__ volatile("" ::: "memory");
+            output("CE_OWNER_RECOVERY ",18);number((uptr)selected,10);output(" ",1);number((uptr)console,10);
+            output(" 0x",3);number((uptr)&spinning,16);output(" 0x",3);number((uptr)&heartbeat,16);output("\n",1);
+            fixtureExitThread();
+        }
         if (command == 'l') {
             siblingMode=2;
             iptr tid=fixtureSpawnThread();
@@ -373,6 +391,13 @@ __attribute__((noreturn, used)) void fixtureMain(uptr* stack) {
 }
 
 __attribute__((noreturn, used)) void fixtureThread(void) {
+    if (siblingMode==4) {
+        if (!__atomic_load_n(&ownerConsoleStage,__ATOMIC_ACQUIRE)) {
+            __atomic_store_n(&siblingReady,1,__ATOMIC_RELEASE);
+            fixtureBusyWait(&heartbeat);fixtureExitThread();
+        }
+        __atomic_store_n(&ownerConsoleReady,1,__ATOMIC_RELEASE);
+    }
     if (siblingMode==3) {
         while (!siblingReady) __asm__ volatile("" ::: "memory");
         const char* args[]={fixtureNext,(const char*)0};
@@ -380,7 +405,7 @@ __attribute__((noreturn, used)) void fixtureThread(void) {
         fixtureExecThread(fixtureNext,args,env);
         output("EXEC_FAILED\n",12); fixtureExitThread();
     }
-    if (siblingMode==2) {
+    if (siblingMode==2 || siblingMode==4) {
         siblingReady=1;
         char command;
         while (systemCall(NR_READ,0,(uptr)&command,1)==1) {
@@ -409,7 +434,8 @@ __asm__(".global fixtureCaller,fixtureCallSite,fixtureAfterCall,fixtureReturnSit
         ".global fixtureDispatchSite,fixtureDispatchPost\nfixtureDispatchSite:\nsyscall\nfixtureDispatchPost:\nret\n"
         "fixtureCaller:\nsub $8,%rsp\nfixtureCallSite:\ncall fixtureWriter\n"
         "fixtureAfterCall:\nadd $8,%rsp\nfixtureReturnSite:\nret\n"
-        "fixtureSpawnThread:\nmov $" FIXTURE_STRING(__NR_clone) ",%eax\nmov $0x50f00,%edi\nlea threadStack+16384(%rip),%rsi\n"
+        ".global fixtureSpawnOnStack\nfixtureSpawnThread:\nlea threadStack+16384(%rip),%rdi\n"
+        "fixtureSpawnOnStack:\nmov %rdi,%rsi\nmov $" FIXTURE_STRING(__NR_clone) ",%eax\nmov $0x50f00,%edi\n"
         "xor %edx,%edx\nxor %r10d,%r10d\nxor %r8d,%r8d\nsyscall\ntest %rax,%rax\njz 1f\nret\n"
         "1:\ncall fixtureThread\nud2\n");
 #elif defined(__i386__)
@@ -423,8 +449,9 @@ __asm__(".global fixtureCaller,fixtureCallSite,fixtureAfterCall,fixtureReturnSit
         ".global fixtureDispatchSite,fixtureDispatchPost\nfixtureDispatchSite:\nint $0x80\nfixtureDispatchPost:\nret\n"
         "fixtureCaller:\nsub $12,%esp\nfixtureCallSite:\ncall fixtureWriter\n"
         "fixtureAfterCall:\nadd $12,%esp\nfixtureReturnSite:\nret\n"
-        "fixtureSpawnThread:\npush %ebx\npush %esi\npush %edi\nmov $120,%eax\nmov $0x50f00,%ebx\n"
-        "mov $threadStack+16384,%ecx\nxor %edx,%edx\nxor %esi,%esi\nxor %edi,%edi\nint $0x80\n"
+        ".global fixtureSpawnOnStack\nfixtureSpawnThread:\nmov $threadStack+16384,%eax\njmp 2f\n"
+        "fixtureSpawnOnStack:\nmov 4(%esp),%eax\n2:\npush %ebx\npush %esi\npush %edi\nmov %eax,%ecx\nmov $120,%eax\nmov $0x50f00,%ebx\n"
+        "xor %edx,%edx\nxor %esi,%esi\nxor %edi,%edi\nint $0x80\n"
         "test %eax,%eax\njz 1f\npop %edi\npop %esi\npop %ebx\nret\n1:\ncall fixtureThread\nud2\n");
 #elif defined(__aarch64__)
 __asm__(".global fixtureCaller,fixtureCallSite,fixtureAfterCall,fixtureReturnSite,fixtureSpawnThread\n"
@@ -435,8 +462,8 @@ __asm__(".global fixtureCaller,fixtureCallSite,fixtureAfterCall,fixtureReturnSit
         "fixtureProbeSyscall:\nmov x8,#172\nfixtureSyscallSite:\nsvc #0\nret\n"
         "fixtureCaller:\nstp x29,x30,[sp,#-16]!\nmov x29,sp\nfixtureCallSite:\nbl fixtureWriter\n"
         "fixtureAfterCall:\nldp x29,x30,[sp],#16\nfixtureReturnSite:\nret\n"
-        "fixtureSpawnThread:\nmov x8,#220\nmov x0,#0xf00\nmovk x0,#5,lsl #16\n"
-        "adrp x1,threadStack\nadd x1,x1,:lo12:threadStack\nadd x1,x1,#4,lsl #12\n"
+        ".global fixtureSpawnOnStack\nfixtureSpawnThread:\nadrp x0,threadStack\nadd x0,x0,:lo12:threadStack\nadd x0,x0,#4,lsl #12\n"
+        "fixtureSpawnOnStack:\nmov x1,x0\nmov x8,#220\nmov x0,#0xf00\nmovk x0,#5,lsl #16\n"
         "mov x2,#0\nmov x3,#0\nmov x4,#0\nsvc #0\ncbz x0,1f\nret\n1:\nb fixtureThread\n");
 #endif
 

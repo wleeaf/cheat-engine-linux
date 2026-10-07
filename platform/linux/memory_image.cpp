@@ -73,31 +73,37 @@ std::expected<void, std::error_code> NativeMemoryImage::check() const {
 
 std::expected<void,std::error_code> NativeMemoryImage::sharesPrivateMapping(
     const NativeMemoryImage& owner,uintptr_t address) const {
+    return sharesPrivateBytes(owner,address,16);
+}
+
+std::expected<void,std::error_code> NativeMemoryImage::sharesPrivateBytes(
+    const NativeMemoryImage& owner,uintptr_t address,size_t count) const {
+    if (!count || count>16) return std::unexpected(std::make_error_code(std::errc::invalid_argument));
     std::array<uint8_t,16> candidate{},original{},marker{},actual{};
-    auto readCandidate=read(address,candidate.data(),candidate.size());
+    auto readCandidate=read(address,candidate.data(),count);
     if (!readCandidate) {
         if (readCandidate.error()==std::errc::io_error || readCandidate.error()==std::errc::bad_address)
             return std::unexpected(std::make_error_code(std::errc::operation_canceled));
         return std::unexpected(readCandidate.error());
     }
-    if (*readCandidate!=candidate.size()) return std::unexpected(std::make_error_code(std::errc::operation_canceled));
-    auto saved=owner.read(address,original.data(),original.size());
-    if (!saved || *saved!=original.size()) return std::unexpected(saved ? std::make_error_code(std::errc::io_error) : saved.error());
-    for (size_t i=0;i<marker.size();++i) marker[i]=candidate[i]^0xff;
+    if (*readCandidate!=count) return std::unexpected(std::make_error_code(std::errc::operation_canceled));
+    auto saved=owner.read(address,original.data(),count);
+    if (!saved || *saved!=count) return std::unexpected(saved ? std::make_error_code(std::errc::io_error) : saved.error());
+    for (size_t i=0;i<count;++i) marker[i]=candidate[i]^0xff;
     auto writeOwner=[&](const auto& bytes) -> Result<void> {
         ssize_t n;
-        do {n=pwrite(owner.fd_,bytes.data(),bytes.size(),static_cast<off_t>(address));} while(n<0 && errno==EINTR);
+        do {n=pwrite(owner.fd_,bytes.data(),count,static_cast<off_t>(address));} while(n<0 && errno==EINTR);
         if (n<0) return std::unexpected(error());
         if (!n) return std::unexpected(std::make_error_code(std::errc::operation_canceled));
-        if (static_cast<size_t>(n)!=bytes.size()) return std::unexpected(std::make_error_code(std::errc::io_error));
-        auto verified=owner.read(address,actual.data(),actual.size());
-        if (!verified || *verified!=actual.size() || actual!=bytes)
+        if (static_cast<size_t>(n)!=count) return std::unexpected(std::make_error_code(std::errc::io_error));
+        auto verified=owner.read(address,actual.data(),count);
+        if (!verified || *verified!=count || actual!=bytes)
             return std::unexpected(verified ? std::make_error_code(std::errc::io_error) : verified.error());
         return {};
     };
     auto written=writeOwner(marker);
-    auto observed=written ? read(address,actual.data(),actual.size()) : Result<size_t>(std::unexpected(written.error()));
-    const bool same=observed && *observed==actual.size() && actual==marker;
+    auto observed=written ? read(address,actual.data(),count) : Result<size_t>(std::unexpected(written.error()));
+    const bool same=observed && *observed==count && actual==marker;
     // Even ambiguous/short failures may have changed the private mapping.
     auto restored=writeOwner(original);
     if (!restored) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));

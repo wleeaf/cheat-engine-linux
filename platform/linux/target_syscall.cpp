@@ -312,6 +312,34 @@ bool equalRegisters(const Registers& a,const Registers& b) {
 
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__arm__)
 struct SavedWord { uintptr_t address; long original, replacement; unsigned long mask = 0; };
+#if defined(__x86_64__)
+constexpr uint32_t x86NativeSyscallArch=0xc000003e, x86CompatSyscallArch=0x40000003;
+struct X86SyscallInfo {
+    uint8_t operation=0,padding[3]{};
+    uint32_t architecture=0;
+    uint64_t instructionPointer=0,stackPointer=0;
+};
+Result<X86SyscallInfo> x86SyscallInfo(pid_t tid) {
+    X86SyscallInfo info;
+    const auto size=ptrace(static_cast<enum __ptrace_request>(0x420e),tid,
+        reinterpret_cast<void*>(sizeof(info)),&info);
+    if (size<0) return std::unexpected(currentError());
+    if (size<static_cast<long>(sizeof(info)) ||
+        (info.architecture!=x86NativeSyscallArch && info.architecture!=x86CompatSyscallArch)) return unsupported();
+    return info;
+}
+bool x86RestartError(int64_t value) { return value==-512 || value==-513 || value==-514 || value==-516; }
+Result<std::array<uint8_t,2>> x86EntryInstruction(pid_t tid,uintptr_t address) {
+    std::array<uint8_t,2> bytes{};
+    for (size_t i=0;i<bytes.size();++i) {
+        const auto at=address+i,aligned=at-at%sizeof(long);
+        errno=0;const long word=ptrace(PTRACE_PEEKTEXT,tid,reinterpret_cast<void*>(aligned),nullptr);
+        if (word==-1 && errno) return std::unexpected(currentError());
+        bytes[i]=reinterpret_cast<const uint8_t*>(&word)[at-aligned];
+    }
+    return bytes;
+}
+#endif
 // Return the last byte needed by the saved instruction only when it might cross
 // a page. Read aligned ptrace words and retain a partial x86 window if the next
 // page is already absent; a short valid instruction must remain usable there.
@@ -468,7 +496,7 @@ struct TargetSyscallRecovery::State {
     Registers original{};
     NativeExtendedContext extended;
     std::vector<SavedWord> words;
-    bool registersChanged = false, done = false, retired = false;
+    bool registersChanged = false, done = false, retired = false, deadTask = false;
     bool seized = false, stopped = false, prepared = false;
     bool detach = true;
     int pendingSignal = 0;
@@ -484,9 +512,30 @@ struct TargetSyscallRecovery::State {
     size_t affinitySize=0;
     std::shared_ptr<TargetSyscallRecovery> affinityRecovery;
     Result<void> cleanupAffinity();
+    Result<void> retireDeadTask();
+    Result<void> restoreContext();
     void rememberAffinitySignal(const TargetSyscallFailure&);
     bool maskSaved=false;
     uint64_t originalMask=0;
+#if defined(__x86_64__)
+    struct RestartAbi {
+        enum Phase { Begin, Masking, Prepared, Entering, Entered, Interrupt, Resume, Waiting, StopRestore, StopInterrupt, StopResume, StopWait, GroupStop, Listening, Done } phase=Begin;
+        uint32_t architecture=0;
+        std::array<uint8_t,2> instruction{};
+        std::optional<int> stopStatus;
+        std::optional<siginfo_t> preparedStopInfo,emulatedStopInfo;
+        bool entryResumeFailed=false;
+    };
+    std::shared_ptr<NativeMemoryImage> restartImage;
+    uintptr_t restartScratch=0;
+    std::optional<uint8_t> restartProbeOriginal;
+    Result<void> verifyRestartImage(bool requireStop=false);
+    Result<void> restoreRestartProbe();
+    Result<void> restoreDeadPrivateWords();
+    std::optional<RestartAbi> restartAbi;
+    unsigned restartEvent=0;
+    Result<void> progressRestartAbi(pid_t notified,int status);
+#endif
     struct Function {
         uintptr_t trap=0,stack=0;
         bool started=false,running=false,interruptRequested=false,returned=false,awaitingSignal=false,compat=false;
@@ -517,6 +566,395 @@ struct TargetSyscallRecovery::State {
 #endif
 #endif
 };
+
+#if defined(__x86_64__) || defined(__aarch64__) || defined(__arm__)
+Result<void> TargetSyscallRecovery::State::restoreContext() {
+#if defined(__x86_64__)
+    auto image=verifyRestartImage(true);if (!image) return image;
+#endif
+    bool restored = true;
+    for (auto it = words.rbegin(); it != words.rend(); ++it) {
+        errno = 0;
+        long actual = ptrace(PTRACE_PEEKTEXT, tid, reinterpret_cast<void*>(it->address), nullptr);
+        if (actual == -1 && errno) { restored = false; continue; }
+        if ((static_cast<unsigned long>(actual) & it->mask) != (static_cast<unsigned long>(it->original) & it->mask)) {
+            unsigned long wanted = (static_cast<unsigned long>(actual) & ~it->mask) |
+                                   (static_cast<unsigned long>(it->original) & it->mask);
+            ptrace(PTRACE_POKETEXT, tid, reinterpret_cast<void*>(it->address), reinterpret_cast<void*>(wanted));
+            errno = 0;
+            actual = ptrace(PTRACE_PEEKTEXT, tid, reinterpret_cast<void*>(it->address), nullptr);
+            if ((actual == -1 && errno) || (static_cast<unsigned long>(actual) & it->mask) != (wanted & it->mask)) restored = false;
+        }
+    }
+    if (registersChanged) {
+        setRegisters(tid, original);
+        auto actual = getRegisters(tid);
+        Registers expected = original;
+#if defined(__aarch64__)
+        // PSTATE.SS is kernel-owned while ptrace single-step is active.
+        expected.pstate &= ~(uint64_t{1} << 21);
+        if (actual) actual->pstate &= ~(uint64_t{1} << 21);
+#endif
+#if defined(__aarch64__) || defined(__arm__)
+        if (!actual || !equalRegisters(*actual,expected)) restored=false;
+#else
+        if (!actual || std::memcmp(&*actual,&expected,sizeof(expected))) restored=false;
+#endif
+    }
+#if defined(__aarch64__)
+    if (syscallChanged) {
+        iovec io{&oldSyscall, sizeof(oldSyscall)};
+        ptrace(PTRACE_SETREGSET, tid, reinterpret_cast<void*>(NT_ARM_SYSTEM_CALL), &io);
+        int actual = -1; io = {&actual, sizeof(actual)};
+        if (ptrace(PTRACE_GETREGSET, tid, reinterpret_cast<void*>(NT_ARM_SYSTEM_CALL), &io) < 0 || actual != oldSyscall) restored = false;
+    }
+#endif
+    auto extendedRestored =
+#if defined(__aarch64__)
+        vectorReturn ? vectorReturn->restore(tid,memoryFd,original,extended,
+            pendingSignal,pendingSignalInfo,pendingStepTrap,stepEnd) :
+#endif
+        restoreNativeExtendedContext(tid,extended);
+    if (!extendedRestored)
+        restored = false;
+    if (maskSaved) {
+        uint64_t actual=0;
+        if (ptrace(PTRACE_GETSIGMASK,tid,reinterpret_cast<void*>(sizeof(actual)),&actual)<0) restored=false;
+        else if (actual!=originalMask) {
+            if (ptrace(PTRACE_SETSIGMASK,tid,reinterpret_cast<void*>(sizeof(actual)),&originalMask)<0 ||
+                ptrace(PTRACE_GETSIGMASK,tid,reinterpret_cast<void*>(sizeof(actual)),&actual)<0 || actual!=originalMask) restored=false;
+        }
+    }
+    if (!restored) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+    return {};
+}
+#endif
+
+#if defined(__x86_64__) || defined(__aarch64__) || defined(__arm__)
+Result<void> TargetSyscallRecovery::State::retireDeadTask() {
+    // Task lifetime and mm lifetime differ when a CLONE_VM peer survives.
+    // Invalidate the context immediately, retaining any owned cleanup on the
+    // original descriptor until it is verified. Never reopen/replay that TID.
+    deadTask=true;
+#if defined(__x86_64__)
+    auto probe=restoreRestartProbe();if (!probe) return probe;
+    auto code=restoreDeadPrivateWords();if (!code) return code;
+#endif
+    done=true;
+    return std::unexpected(std::make_error_code(std::errc::no_such_process));
+}
+#endif
+
+#if defined(__x86_64__)
+Result<void> TargetSyscallRecovery::State::restoreDeadPrivateWords() {
+    if (!restartImage) return {};
+    // restartImage exists only for caller-owned private scratch. Restore its
+    // owned bytes in the pinned old mm, never through a dead/reused numeric TID
+    // and never by overwriting a whole word containing unowned bytes.
+    for (const auto& word:words) for (size_t i=0;i<sizeof(word.original);++i) {
+        const uint8_t mask=reinterpret_cast<const uint8_t*>(&word.mask)[i];
+        if (!mask) continue;
+        const uintptr_t address=word.address+i;
+        uint8_t actual=0;auto read=restartImage->read(address,&actual,1);
+        if (!read && read.error()==std::errc::operation_canceled) return {};
+        if (!read || *read!=1) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+        const uint8_t wanted=(actual&~mask)|(reinterpret_cast<const uint8_t*>(&word.original)[i]&mask);
+        if (actual==wanted) continue;
+        ssize_t written;
+        do {written=pwrite(restartImage->fd_,&wanted,1,static_cast<off_t>(address));} while (written<0 && errno==EINTR);
+        read=restartImage->read(address,&actual,1);
+        if (!read && read.error()==std::errc::operation_canceled) return {};
+        if (!read || *read!=1 || (actual&mask)!=(wanted&mask))
+            return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+    }
+    return {};
+}
+
+Result<void> TargetSyscallRecovery::State::restoreRestartProbe() {
+    if (!restartProbeOriginal) return {};
+    uint8_t actual=0;auto read=restartImage->read(restartScratch,&actual,1);
+    if (!read && read.error()==std::errc::operation_canceled) {restartProbeOriginal.reset();return {};}
+    if (!read || *read!=1) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+    if (actual!=*restartProbeOriginal) {
+        ssize_t written;
+        do {written=pwrite(restartImage->fd_,&*restartProbeOriginal,1,static_cast<off_t>(restartScratch));} while (written<0 && errno==EINTR);
+        read=restartImage->read(restartScratch,&actual,1);
+        if (!read && read.error()==std::errc::operation_canceled) {restartProbeOriginal.reset();return {};}
+        if (!read || *read!=1 || actual!=*restartProbeOriginal)
+            return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+    }
+    restartProbeOriginal.reset();
+    return {};
+}
+
+Result<void> TargetSyscallRecovery::State::verifyRestartImage(bool requireStop) {
+    if (!restartImage) return {};
+    siginfo_t info{};
+    if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)<0) {
+        // An applied CONT/LISTEN is not a stop. Its next actual wait event must
+        // be collected before inspecting or modifying that task's memory.
+        if (!requireStop && errno==ESRCH) return {};
+        return std::unexpected(currentError());
+    }
+    char path[64];std::snprintf(path,sizeof(path),"/proc/%ld/mem",static_cast<long>(tid));
+    const int fd=open(path,O_RDONLY|O_CLOEXEC);
+    if (fd<0) return std::unexpected(currentError());
+    auto current=NativeMemoryImage::retainStoppedFd(fd,restartImage->identity(),nativeTargetMachine());
+    close(fd);
+    if (!current) return std::unexpected(current.error());
+    auto restored=restoreRestartProbe();if (!restored) return restored;
+    uint8_t byte=0;auto read=restartImage->read(restartScratch,&byte,1);
+    if (!read || *read!=1) return std::unexpected(read ? std::make_error_code(std::errc::io_error) : read.error());
+    restartProbeOriginal=byte;
+    auto same=(*current)->sharesPrivateBytes(*restartImage,restartScratch,1);
+    if (same || same.error()!=std::errc::state_not_recoverable) restartProbeOriginal.reset();
+    if (!same && same.error()==std::errc::operation_canceled) {
+        // Exec can leave PID, birth, inode and even every byte unchanged while
+        // a separate CLONE_VM process retains the old mm. Never restore into
+        // the new mm, including when the caller consumed its EXEC event.
+        retired=true;
+        if (detach && ptrace(PTRACE_DETACH,tid,nullptr,nullptr)<0) return std::unexpected(currentError());
+        done=true;
+    }
+    return same;
+}
+
+Result<void> TargetSyscallRecovery::State::progressRestartAbi(pid_t notified,int status) {
+    if (!restartAbi || !registersChanged) return {};
+    auto& saved=*restartAbi;
+    if (notified==tid && WIFSTOPPED(status)) { saved.stopStatus=status; stopped=true; }
+    auto entry=original;
+    entry.rip-=2;entry.rax=original.orig_rax;entry.orig_rax=UINT64_MAX;
+    auto wait=[&]() -> Result<void> {
+        if (saved.stopStatus) return {};
+        const auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(100);
+        do {
+            int observed=0;const auto found=waitpid(tid,&observed,__WALL|__WNOTHREAD|WNOHANG);
+            if (found<0 && errno!=EINTR) return std::unexpected(currentError());
+            if (found==tid) {
+                if (!WIFSTOPPED(observed)) return retireDeadTask();
+                saved.stopStatus=observed;stopped=true;return verifyRestartImage(true);
+            }
+            usleep(1000);
+        } while (std::chrono::steady_clock::now()<deadline);
+        return std::unexpected(std::make_error_code(std::errc::timed_out));
+    };
+    auto unexpected=[&]() -> Result<void> {
+        const auto observed=*saved.stopStatus;
+        restartEvent=static_cast<unsigned>(observed>>16);
+        if (restartEvent==PTRACE_EVENT_EXEC) {
+            retired=true;
+            return std::unexpected(std::make_error_code(std::errc::operation_canceled));
+        }
+        if (!restartEvent && WSTOPSIG(observed)==SIGSTOP) {
+            // Consume this real stop through kernel job control. Do not later
+            // synthesize SIGSTOP: SIGCONT may already have canceled it.
+            saved.phase=RestartAbi::StopRestore;
+        } else if (!restartEvent) rememberStop(observed);
+        return std::unexpected(std::make_error_code(std::errc::interrupted));
+    };
+    if (saved.phase==RestartAbi::StopRestore) {
+        auto restored=restoreContext();if (!restored) return restored;
+        saved.phase=RestartAbi::StopInterrupt;
+    }
+    if (saved.phase==RestartAbi::StopInterrupt) {
+        // Guard the transition even if a concurrent SIGCONT cancels SIGSTOP.
+        // No application instruction may run with the borrowed kernel ABI.
+        if (ptrace(PTRACE_INTERRUPT,tid,nullptr,nullptr)<0) return std::unexpected(currentError());
+        saved.stopStatus.reset();saved.phase=RestartAbi::StopResume;
+    }
+    if (saved.phase==RestartAbi::StopResume) {
+        if (!saved.stopStatus) {
+            auto actual=getRegisters(tid);
+            if (!actual) return std::unexpected(actual.error());
+            if (std::memcmp(&*actual,&original,sizeof(original)))
+                return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+            saved.phase=RestartAbi::StopWait;stopped=false;
+            if (ptrace(PTRACE_CONT,tid,nullptr,reinterpret_cast<void*>(SIGSTOP))<0)
+                return std::unexpected(currentError());
+        } else saved.phase=RestartAbi::StopWait;
+    }
+    if (saved.phase==RestartAbi::StopWait) {
+        if (!saved.stopStatus) {
+            auto actual=getRegisters(tid);
+            // A before-application failure still owns the delivery stop.
+            siginfo_t info{};
+            if (actual && !std::memcmp(&*actual,&original,sizeof(original)) &&
+                ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)==0 && info.si_signo==SIGSTOP &&
+                (info.si_code>>8)!=PTRACE_EVENT_STOP) {
+                if (ptrace(PTRACE_CONT,tid,nullptr,reinterpret_cast<void*>(SIGSTOP))<0)
+                    return std::unexpected(currentError());
+                stopped=false;
+            }
+        }
+        auto observed=wait();if (!observed) return observed;
+        if ((*saved.stopStatus>>16)!=PTRACE_EVENT_STOP) return unexpected();
+        if (WSTOPSIG(*saved.stopStatus)==SIGSTOP) {
+            saved.phase=RestartAbi::GroupStop;restartEvent=PTRACE_EVENT_STOP;
+        }
+        else if (WSTOPSIG(*saved.stopStatus)==SIGTRAP) {
+            // The real SIGCONT canceled the stop while its delivery was held.
+            saved.phase=RestartAbi::Begin;restartEvent=0;
+        } else return unexpected();
+    }
+    if (saved.phase==RestartAbi::GroupStop) {
+        saved.phase=RestartAbi::Listening;saved.stopStatus.reset();stopped=false;
+        if (ptrace(PTRACE_LISTEN,tid,nullptr,nullptr)<0) return std::unexpected(currentError());
+    }
+    if (saved.phase==RestartAbi::Listening) {
+        if (!saved.stopStatus) {
+            siginfo_t info{};
+            if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)==0) {
+                // An error before LISTEN applied leaves the actual group stop
+                // owned. An applied LISTEN cannot be queried until notification.
+                if ((info.si_code>>8)==PTRACE_EVENT_STOP && info.si_signo==SIGSTOP &&
+                    ptrace(PTRACE_LISTEN,tid,nullptr,nullptr)<0) return std::unexpected(currentError());
+                // SIGCONT may already have produced the next real interrupt
+                // stop after the outer wait poll. Collect its wait notification.
+            } else if (errno!=ESRCH) return std::unexpected(currentError());
+        }
+        auto observed=wait();if (!observed) return observed;
+        if ((*saved.stopStatus>>16)!=PTRACE_EVENT_STOP || WSTOPSIG(*saved.stopStatus)!=SIGTRAP) return unexpected();
+        auto actual=getRegisters(tid);
+        if (!actual) return std::unexpected(actual.error());
+        if (std::memcmp(&*actual,&original,sizeof(original)))
+            return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+        saved.phase=RestartAbi::Begin;restartEvent=0;
+    }
+    if (saved.phase==RestartAbi::Begin) {
+        auto actual=x86SyscallInfo(tid);
+        if (!actual) return std::unexpected(actual.error());
+        if (actual->architecture==saved.architecture) { restartAbi.reset();return {}; }
+        auto instruction=x86EntryInstruction(tid,entry.rip);
+        if (!instruction) return std::unexpected(instruction.error());
+        if (*instruction!=saved.instruction) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+        saved.stopStatus.reset();saved.phase=RestartAbi::Masking;
+    }
+    if (saved.phase==RestartAbi::Masking) {
+        if (!maskSaved) {
+            if (ptrace(PTRACE_GETSIGMASK,tid,reinterpret_cast<void*>(sizeof(originalMask)),&originalMask)<0)
+                return std::unexpected(currentError());
+            // Record ownership before the first write, including an error
+            // reported after the kernel has applied the new mask.
+            maskSaved=true;
+        }
+        uint64_t deferred=UINT64_MAX;
+        // Forced synchronous faults must remain deliverable: blocking one can
+        // cause Linux to unblock it and reset the application's disposition.
+        // Job-control stops require their own recovery decision as well.
+        for (const int signal : {SIGKILL,SIGSTOP,SIGTRAP,SIGSYS,SIGILL,SIGFPE,SIGSEGV,SIGBUS})
+            deferred&=~(uint64_t{1}<<(signal-1));
+        const uint64_t wanted=originalMask|deferred;
+        uint64_t actual=0;
+        if (ptrace(PTRACE_GETSIGMASK,tid,reinterpret_cast<void*>(sizeof(actual)),&actual)<0)
+            return std::unexpected(currentError());
+        if (actual!=wanted && ptrace(PTRACE_SETSIGMASK,tid,reinterpret_cast<void*>(sizeof(wanted)),&wanted)<0)
+            return std::unexpected(currentError());
+        if (ptrace(PTRACE_GETSIGMASK,tid,reinterpret_cast<void*>(sizeof(actual)),&actual)<0)
+            return std::unexpected(currentError());
+        if (actual!=wanted) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+        saved.phase=RestartAbi::Prepared;
+    }
+    if (saved.phase==RestartAbi::Prepared) {
+        siginfo_t info{};
+        if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)<0) return std::unexpected(currentError());
+        saved.preparedStopInfo=info;
+        if (!setRegisters(tid,entry)) return std::unexpected(currentError());
+        auto actual=getRegisters(tid);
+        if (!actual) return std::unexpected(actual.error());
+        if (std::memcmp(&*actual,&entry,sizeof(entry))) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+        saved.phase=RestartAbi::Entering;
+        stopped=false;
+        // SYSEMU enters the original kernel ABI without executing the syscall
+        // or replacing its hidden restart_block with a fresh timer/read.
+        saved.entryResumeFailed=true;
+        if (ptrace(static_cast<enum __ptrace_request>(31),tid,nullptr,nullptr)<0) return std::unexpected(currentError());
+        saved.entryResumeFailed=false;
+    }
+    if (saved.phase==RestartAbi::Entering) {
+        if (!saved.stopStatus && saved.entryResumeFailed) {
+            // An applied resume can stop at a real signal before executing the
+            // emulated entry. Its GP bank still equals 'entry'. Replaying
+            // SYSEMU there would suppress that signal and lose its wait event.
+            // Retry only an ambiguous failed request at our actual original
+            // prepared stop, never merely because the registers match.
+            auto actual=getRegisters(tid);siginfo_t info{};
+            if (actual && !std::memcmp(&*actual,&entry,sizeof(entry)) && saved.preparedStopInfo &&
+                ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)==0 &&
+                info.si_signo==saved.preparedStopInfo->si_signo && info.si_code==saved.preparedStopInfo->si_code &&
+                info.si_pid==saved.preparedStopInfo->si_pid && info.si_uid==saved.preparedStopInfo->si_uid &&
+                info.si_addr==saved.preparedStopInfo->si_addr) {
+                stopped=false;
+                if (ptrace(static_cast<enum __ptrace_request>(31),tid,nullptr,nullptr)<0) return std::unexpected(currentError());
+                saved.entryResumeFailed=false;
+            }
+        }
+        auto observed=wait();if (!observed) return observed;
+        const int event=*saved.stopStatus;
+        if ((event>>16)!=0 || (WSTOPSIG(event)!=SIGTRAP && WSTOPSIG(event)!=(SIGTRAP|0x80))) return unexpected();
+        auto actual=getRegisters(tid);auto info=x86SyscallInfo(tid);
+        if (!actual) return std::unexpected(actual.error());
+        if (!info) return std::unexpected(info.error());
+        if (actual->rip!=original.rip || static_cast<uint32_t>(actual->orig_rax)!=static_cast<uint32_t>(original.orig_rax) ||
+            static_cast<int64_t>(actual->rax)!=-ENOSYS || info->architecture!=saved.architecture)
+            return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+        siginfo_t trap{};
+        if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&trap)<0) return std::unexpected(currentError());
+        if (trap.si_code!=SIGTRAP && trap.si_code!=(SIGTRAP|0x80)) return unexpected();
+        saved.emulatedStopInfo=trap;
+        saved.phase=RestartAbi::Entered;
+    }
+    if (saved.phase==RestartAbi::Entered) {
+        if (!setRegisters(tid,original)) return std::unexpected(currentError());
+        auto actual=getRegisters(tid);
+        if (!actual) return std::unexpected(actual.error());
+        if (std::memcmp(&*actual,&original,sizeof(original))) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+        saved.phase=RestartAbi::Interrupt;
+    }
+    if (saved.phase==RestartAbi::Interrupt) {
+        // The emulated entry alone does not arrange arch_do_signal_or_restart.
+        // Obtain an owned interrupt stop before handing the original bank back.
+        if (ptrace(PTRACE_INTERRUPT,tid,nullptr,nullptr)<0) return std::unexpected(currentError());
+        saved.stopStatus.reset();saved.phase=RestartAbi::Resume;
+    }
+    if (saved.phase==RestartAbi::Resume) {
+        if (!saved.stopStatus) {
+            auto actual=getRegisters(tid);
+            if (!actual) return std::unexpected(actual.error());
+            if (std::memcmp(&*actual,&original,sizeof(original))) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+            saved.phase=RestartAbi::Waiting;stopped=false;
+            if (ptrace(PTRACE_CONT,tid,nullptr,nullptr)<0) return std::unexpected(currentError());
+        }
+        saved.phase=RestartAbi::Waiting;
+    }
+    if (saved.phase==RestartAbi::Waiting) {
+        if (!saved.stopStatus) {
+            siginfo_t info{};
+            if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)==0 && saved.emulatedStopInfo &&
+                info.si_signo==saved.emulatedStopInfo->si_signo && info.si_code==saved.emulatedStopInfo->si_code &&
+                info.si_pid==saved.emulatedStopInfo->si_pid && info.si_uid==saved.emulatedStopInfo->si_uid) {
+                auto actual=getRegisters(tid);
+                if (!actual) return std::unexpected(actual.error());
+                if (std::memcmp(&*actual,&original,sizeof(original)))
+                    return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+                if (ptrace(PTRACE_CONT,tid,nullptr,nullptr)<0) return std::unexpected(currentError());
+                stopped=false;
+            }
+        }
+        auto observed=wait();if (!observed) return observed;
+        if ((*saved.stopStatus>>16)!=PTRACE_EVENT_STOP || WSTOPSIG(*saved.stopStatus)!=SIGTRAP) return unexpected();
+        auto actual=getRegisters(tid);
+        if (!actual) return std::unexpected(actual.error());
+        if (std::memcmp(&*actual,&original,sizeof(original))) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+        saved.phase=RestartAbi::Done;
+    }
+    auto info=x86SyscallInfo(tid);
+    if (!info) return std::unexpected(info.error());
+    if (info->architecture!=saved.architecture)
+        return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+    return {};
+}
+#endif
 
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__arm__)
 Result<int> TargetSyscallRecovery::State::seizeStopped(const TargetProcessIdentity& expected) {
@@ -563,10 +1001,7 @@ Result<void> TargetSyscallRecovery::State::progressFunction(pid_t notified,int s
     bool interruptDeadline=false;
     for (;;) {
         if (notified==tid) {
-            if (WIFEXITED(status) || WIFSIGNALED(status)) {
-                done=true;
-                return std::unexpected(std::make_error_code(std::errc::no_such_process));
-            }
+            if (WIFEXITED(status) || WIFSIGNALED(status)) return retireDeadTask();
             if (!WIFSTOPPED(status)) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
             call.stopStatus=status;
         }
@@ -787,7 +1222,7 @@ Result<void> TargetSyscallRecovery::resumeFunction(bool deliverSignal) {
 
 std::expected<void, std::error_code> TargetSyscallRecovery::checkImage() const {
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__arm__)
-    if (state_->retired || state_->groupExecStatus) return std::unexpected(std::make_error_code(std::errc::operation_canceled));
+    if (state_->deadTask || state_->retired || state_->groupExecStatus) return std::unexpected(std::make_error_code(std::errc::operation_canceled));
     uint8_t byte = 0;
     ssize_t read = pread(state_->memoryFd, &byte, 1, static_cast<off_t>(pc(state_->original)));
     if (read == 0) return std::unexpected(std::make_error_code(std::errc::operation_canceled));
@@ -797,6 +1232,18 @@ std::expected<void, std::error_code> TargetSyscallRecovery::checkImage() const {
     return {};
 #else
     return unsupported();
+#endif
+}
+
+std::expected<std::shared_ptr<NativeMemoryImage>,std::error_code> TargetSyscallRecovery::retainImage(const TargetMachine& host) const {
+#if defined(__x86_64__) || defined(__aarch64__) || defined(__arm__)
+    // Retain the original descriptor, including its original access mode.
+    // Context death/exec does not destroy an mm held by another CLONE_VM task;
+    // affinity must be proved against the actual destination of the operation.
+    return NativeMemoryImage::retainStoppedFd(state_->memoryFd,
+        {state_->tid,state_->startTime,state_->executableDevice,state_->executableInode},host);
+#else
+    (void)host;return unsupported();
 #endif
 }
 
@@ -831,8 +1278,7 @@ Result<void> TargetSyscallRecovery::State::cleanupAffinity() {
         (birth && ((startTime && *birth!=startTime) || exiting || status=='Z' || status=='X' || status=='x'))) {
         affinityAddress=0;
         affinityImage.reset();
-        done=true;
-        return std::unexpected(std::make_error_code(std::errc::no_such_process));
+        return retireDeadTask();
     }
     if (!birth) return std::unexpected(birth.error());
     auto identity=processMemoryIdentity(tid);
@@ -869,6 +1315,7 @@ std::expected<void, std::error_code> TargetSyscallRecovery::retry() {
     if (state.done) return {};
     if (syscall(SYS_gettid) != state.owner)
         return std::unexpected(std::make_error_code(std::errc::operation_not_permitted));
+    if (state.deadTask) return state.retireDeadTask();
     if (!state.retired) {
         auto affinity=state.cleanupAffinity();
         if (!affinity) return affinity;
@@ -882,24 +1329,17 @@ std::expected<void, std::error_code> TargetSyscallRecovery::retry() {
     } else {
         do { notified = waitpid(state.tid, &observed, __WALL | __WNOTHREAD | WNOHANG); } while (notified < 0 && errno == EINTR);
     }
-    if (notified == state.tid && (WIFEXITED(observed) || WIFSIGNALED(observed))) {
-        state.done = true;
-        return std::unexpected(std::make_error_code(std::errc::no_such_process));
-    }
+    if (notified == state.tid && (WIFEXITED(observed) || WIFSIGNALED(observed))) return state.retireDeadTask();
     auto birth=taskStartTime(state.tid);
     if (!birth) {
         if (birth.error()==std::errc::no_such_process || birth.error()==std::errc::no_such_file_or_directory) {
             if (state.function && state.function->running && state.groupLeader!=state.tid)
                 return state.progressFunction(notified,observed);
-            state.done=true;
-            return std::unexpected(std::make_error_code(std::errc::no_such_process));
+            return state.retireDeadTask();
         }
         return std::unexpected(birth.error());
     }
-    if (state.startTime && *birth!=state.startTime) {
-        state.done=true;
-        return std::unexpected(std::make_error_code(std::errc::no_such_process));
-    }
+    if (state.startTime && *birth!=state.startTime) return state.retireDeadTask();
     if (!state.startTime) state.startTime=*birth;
     if (state.retired) {
         // The actual EXEC stop belongs to the replacement. Failed detach must
@@ -961,6 +1401,9 @@ std::expected<void, std::error_code> TargetSyscallRecovery::retry() {
         state.done = true;
         return std::unexpected(std::make_error_code(std::errc::operation_canceled));
     }
+#if defined(__x86_64__)
+    auto image=state.verifyRestartImage();if (!image) return image;
+#endif
     if (state.function) {
         auto progressed=state.progressFunction(notified,observed);
         if (!progressed) return progressed;
@@ -1009,60 +1452,12 @@ std::expected<void, std::error_code> TargetSyscallRecovery::retry() {
             state.pendingSignalInfo=info;
         }
     }
-    bool restored = true;
-    for (auto it = state.words.rbegin(); it != state.words.rend(); ++it) {
-        errno = 0;
-        long actual = ptrace(PTRACE_PEEKTEXT, state.tid, reinterpret_cast<void*>(it->address), nullptr);
-        if (actual == -1 && errno) { restored = false; continue; }
-        if ((static_cast<unsigned long>(actual) & it->mask) != (static_cast<unsigned long>(it->original) & it->mask)) {
-            unsigned long wanted = (static_cast<unsigned long>(actual) & ~it->mask) |
-                                   (static_cast<unsigned long>(it->original) & it->mask);
-            ptrace(PTRACE_POKETEXT, state.tid, reinterpret_cast<void*>(it->address), reinterpret_cast<void*>(wanted));
-            errno = 0;
-            actual = ptrace(PTRACE_PEEKTEXT, state.tid, reinterpret_cast<void*>(it->address), nullptr);
-            if ((actual == -1 && errno) || (static_cast<unsigned long>(actual) & it->mask) != (wanted & it->mask)) restored = false;
-        }
-    }
-    if (state.registersChanged) {
-        setRegisters(state.tid, state.original);
-        auto actual = getRegisters(state.tid);
-        Registers expected = state.original;
-#if defined(__aarch64__)
-        // PSTATE.SS is kernel-owned while ptrace single-step is active.
-        expected.pstate &= ~(uint64_t{1} << 21);
-        if (actual) actual->pstate &= ~(uint64_t{1} << 21);
+#if defined(__x86_64__)
+    auto restart=state.progressRestartAbi(notified,observed);
+    if (!restart) return restart;
 #endif
-#if defined(__aarch64__) || defined(__arm__)
-        if (!actual || !equalRegisters(*actual,expected)) restored=false;
-#else
-        if (!actual || std::memcmp(&*actual,&expected,sizeof(expected))) restored=false;
-#endif
-    }
-#if defined(__aarch64__)
-    if (state.syscallChanged) {
-        iovec io{&state.oldSyscall, sizeof(state.oldSyscall)};
-        ptrace(PTRACE_SETREGSET, state.tid, reinterpret_cast<void*>(NT_ARM_SYSTEM_CALL), &io);
-        int actual = -1; io = {&actual, sizeof(actual)};
-        if (ptrace(PTRACE_GETREGSET, state.tid, reinterpret_cast<void*>(NT_ARM_SYSTEM_CALL), &io) < 0 || actual != state.oldSyscall) restored = false;
-    }
-#endif
-    auto extended =
-#if defined(__aarch64__)
-        state.vectorReturn ? state.vectorReturn->restore(state.tid,state.memoryFd,state.original,state.extended,
-            state.pendingSignal,state.pendingSignalInfo,state.pendingStepTrap,state.stepEnd) :
-#endif
-        restoreNativeExtendedContext(state.tid,state.extended);
-    if (!extended)
-        restored = false;
-    if (state.maskSaved) {
-        uint64_t actual=0;
-        if (ptrace(PTRACE_GETSIGMASK,state.tid,reinterpret_cast<void*>(sizeof(actual)),&actual)<0) restored=false;
-        else if (actual!=state.originalMask) {
-            if (ptrace(PTRACE_SETSIGMASK,state.tid,reinterpret_cast<void*>(sizeof(actual)),&state.originalMask)<0 ||
-                ptrace(PTRACE_GETSIGMASK,state.tid,reinterpret_cast<void*>(sizeof(actual)),&actual)<0 || actual!=state.originalMask) restored=false;
-        }
-    }
-    if (!restored) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+    auto context=state.restoreContext();
+    if (!context) return context;
     if (state.pendingSignalInfo && ptrace(PTRACE_SETSIGINFO,state.tid,nullptr,&*state.pendingSignalInfo)<0)
         return std::unexpected(currentError());
     if (state.detach && ptrace(PTRACE_DETACH, state.tid, nullptr, reinterpret_cast<void*>(static_cast<intptr_t>(state.pendingSignal))) < 0)
@@ -1116,12 +1511,16 @@ std::expected<uint64_t, TargetSyscallFailure> executeMemorySyscallInternal(
         if (!identity) return std::unexpected(identity.error());
         if (expectedIdentity && *identity != *expectedIdentity)
             return std::unexpected(std::make_error_code(std::errc::operation_canceled));
+        std::shared_ptr<NativeMemoryImage> ticketImage;
         if (expectedImage) {
-            auto checked = expectedImage->checkImage();
-            if (!checked) return std::unexpected(checked.error());
+            auto retained=expectedImage->retainImage(host);
+            if (!retained) return std::unexpected(retained.error());
+            ticketImage=std::move(*retained);
         }
-        if(savedImage) {auto checked=savedImage->check();if(!checked) return std::unexpected(checked.error());}
-        if (savedImage) {
+        const std::array<const NativeMemoryImage*,2> images{savedImage,ticketImage.get()};
+        for (const auto* image:images) {
+            if (!image) continue;
+            auto checked=image->check();if (!checked) return std::unexpected(checked.error());
             auto currentIdentity=processMemoryIdentity(tid);
             if (!currentIdentity) return std::unexpected(currentIdentity.error());
             auto current=NativeMemoryImage::capture(*currentIdentity,host);
@@ -1140,7 +1539,7 @@ std::expected<uint64_t, TargetSyscallFailure> executeMemorySyscallInternal(
                 return std::unexpected(mapped.error().code);
             }
             recoveryState->affinityAddress=*mapped;
-            auto same=savedImage->sharesPrivateMapping(*recoveryState->affinityImage,*mapped);
+            auto same=image->sharesPrivateMapping(*recoveryState->affinityImage,*mapped);
             if (!same) return std::unexpected(same.error());
             auto released=recoveryState->cleanupAffinity();
             if (!released) return std::unexpected(released.error());
@@ -1154,6 +1553,25 @@ std::expected<uint64_t, TargetSyscallFailure> executeMemorySyscallInternal(
         auto original = getRegisters(tid);
         if (!original) return std::unexpected(original.error());
         auto executionMode = mode(*original);
+#if defined(__x86_64__)
+        std::optional<X86SyscallInfo> originalEntry;
+        if (static_cast<int32_t>(original->orig_rax)!=-1 &&
+            (x86RestartError(static_cast<int64_t>(original->rax)) || x86RestartError(static_cast<int32_t>(original->rax)))) {
+            auto info=x86SyscallInfo(tid);
+            // A user-mode i386 stop can report the native audit architecture
+            // after TS_COMPAT was cleared on return to userspace. Its CS still
+            // selects the compat restart path; only a 64-bit code segment needs
+            // the hidden entry-ABI adapter for INT 80.
+            if (info) {if (executionMode!=InstructionMode::X86_32) originalEntry=*info;}
+            else if (info.error()!=std::errc::io_error && info.error()!=std::errc::invalid_argument && info.error()!=std::errc::function_not_supported)
+                return std::unexpected(info.error());
+            else if (executionMode==InstructionMode::X86_64 && pc(*original)>=2) {
+                auto instruction=x86EntryInstruction(tid,pc(*original)-2);
+                if (!instruction) return std::unexpected(instruction.error());
+                if (*instruction==std::array<uint8_t,2>{0xcd,0x80}) return unsupported();
+            }
+        }
+#endif
         const bool arm32=executionMode==InstructionMode::Arm || executionMode==InstructionMode::Thumb;
         if (arm32) {
             // Full borrowed-site and parked-syscall adapters remain separate.
@@ -1211,7 +1629,7 @@ std::expected<uint64_t, TargetSyscallFailure> executeMemorySyscallInternal(
             // The kernel rewinds it by two bytes when the saved error requests
             // restart. Protect that instruction even when it is on the previous
             // page, while allowing completed syscalls to release unused code.
-            const int64_t savedError=mode(*original)==InstructionMode::X86_32 ?
+            const int64_t savedError=(originalEntry && originalEntry->architecture==x86CompatSyscallArch) || mode(*original)==InstructionMode::X86_32 ?
                 static_cast<int32_t>(original->rax) : static_cast<int64_t>(original->rax);
             if (static_cast<int32_t>(original->orig_rax)!=-1 &&
                 (savedError==-512 || savedError==-513 || savedError==-514 || savedError==-516)) {
@@ -1270,6 +1688,29 @@ std::expected<uint64_t, TargetSyscallFailure> executeMemorySyscallInternal(
             if (!existing) return std::unexpected(existing.error());
             address=*existing;
         }
+#if defined(__x86_64__)
+        if (originalEntry && originalEntry->architecture!=(executionMode==InstructionMode::X86_32 ? x86CompatSyscallArch : x86NativeSyscallArch)) {
+            if (pc(*original)<2) return std::unexpected(invalid());
+            auto instruction=x86EntryInstruction(tid,pc(*original)-2);
+            if (!instruction) return std::unexpected(instruction.error());
+            const std::array<uint8_t,2> wanted=originalEntry->architecture==x86CompatSyscallArch ?
+                std::array<uint8_t,2>{0xcd,0x80} : std::array<uint8_t,2>{0x0f,0x05};
+            if (*instruction!=wanted) return unsupported();
+            // A fresh private site proves mm affinity without touching code
+            // another CLONE_VM process could execute. Borrowed/quiesced sites
+            // need their own private proof owner before this adapter is safe.
+            if (!alreadyStopped || !scratch || existingOnly) return unsupported();
+            auto memoryIdentity=processMemoryIdentity(tid);
+            if (!memoryIdentity) return std::unexpected(memoryIdentity.error());
+            auto image=NativeMemoryImage::capture(*memoryIdentity,host);
+            if (!image) return std::unexpected(image.error());
+            recoveryState->restartImage=std::move(*image);
+            recoveryState->restartScratch=address;
+            recoveryState->restartAbi.emplace();
+            recoveryState->restartAbi->architecture=originalEntry->architecture;
+            recoveryState->restartAbi->instruction=*instruction;
+        }
+#endif
         std::vector<SavedWord> words;
         for (size_t i = 0; alreadyStopped && !existingOnly && i < plan->instruction.size(); ++i) {
             uintptr_t at = address + i, aligned = at & ~uintptr_t(sizeof(long) - 1);
@@ -1433,6 +1874,9 @@ std::expected<uint64_t, TargetSyscallFailure> executeMemorySyscallInternal(
         if (!restored) {
             TargetSyscallFailure failure(restored.error());
             failure.pendingSignal=pendingSignal;
+#if defined(__x86_64__)
+            failure.pendingEvent=recoveryState->restartEvent;
+#endif
             if (!recoveryState->done) failure.recovery = recovery;
             if (haveResult && rawResult < UINT64_MAX - 4094 &&
                 (plan->resultWidth != 4 || static_cast<uint32_t>(rawResult) < 0xfffff001u))
@@ -1567,6 +2011,12 @@ std::expected<void,TargetSyscallFailure> verifyStoppedMemoryImage(
     auto verified=executeMemorySyscallInternal(tid,host,MemorySyscall::Map,{},nullptr,nullptr,true,0,true,&image,true);
     if (!verified) return std::unexpected(std::move(verified.error()));
     return {};
+}
+
+std::expected<uint64_t,TargetSyscallFailure> executeOwnedMemorySyscall(
+    pid_t tid,const TargetMachine& host,MemorySyscall operation,std::array<uint64_t,6> arguments,
+    const TargetSyscallRecovery& image) {
+    return executeMemorySyscallInternal(tid,host,operation,arguments,nullptr,&image,true,0,true,nullptr);
 }
 
 std::expected<void,std::error_code> checkStoppedFunctionAbi(pid_t tid,const TargetMachine& host) {

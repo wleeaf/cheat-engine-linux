@@ -62,7 +62,9 @@ public:
     // Retry on the thread that owns the ptrace relationship. Already completed
     // recovery is idempotent. Exited or exec-replaced targets are never replayed.
     std::expected<void, std::error_code> retry();
-    // /proc/pid/mem pins the original mm, including across same-file exec.
+    // Pinned-mm liveness and known context retirement only. A readable old mm
+    // can survive exec through CLONE_VM; operation guards additionally prove
+    // that the actually stopped destination shares this original image.
     std::expected<void, std::error_code> checkImage() const;
     // A kernel exec or a retired mm invalidates this saved context even when
     // another CLONE_VM task keeps its original memory descriptor readable.
@@ -76,6 +78,7 @@ public:
     std::expected<void,std::error_code> resumeFunction(bool deliverSignal);
     std::optional<uint64_t> functionResult() const;
 private:
+    std::expected<std::shared_ptr<NativeMemoryImage>,std::error_code> retainImage(const TargetMachine&) const;
     struct State;
     explicit TargetSyscallRecovery(std::shared_ptr<State> state) : state_(std::move(state)) {}
     std::shared_ptr<State> state_;
@@ -111,6 +114,9 @@ std::expected<uint64_t, TargetSyscallFailure> executeMemorySyscall(
 // page. Execute at scratch (+16 for i386 compat mode) without patching shared
 // program code or detaching. On failure, drain recovery on the same owner before
 // resuming; pendingSignal belongs to the caller's next resume/detach operation.
+// The mixed x86 syscall-ABI restart adapter additionally requires this
+// private site and a writable pinned old mm to prove affinity across same-file
+// exec with CLONE_VM peers. Borrowed/quiesced mixed-ABI adapters are unsupported.
 // ARM32 Linux EABI supports this private-scratch primitive in ARM and Thumb
 // modes on native ARM32 or an ARM64 compat controller. It runs SVC followed by
 // an owned UDF trap, clears ITSTATE only during private execution, and verifies
@@ -132,6 +138,11 @@ std::expected<uint64_t, TargetSyscallFailure> executeQuiescedMemorySyscall(
 // release a private call frame while sibling threads keep running.
 std::expected<uint64_t,TargetSyscallFailure> executeOwnedMemorySyscall(
     pid_t tid,const TargetMachine& host,MemorySyscall operation,std::array<uint64_t,6> arguments);
+// The caller owns the stop and has drained the saved recovery. Guard the
+// operation against that recovery's original memory image.
+std::expected<uint64_t,TargetSyscallFailure> executeOwnedMemorySyscall(
+    pid_t tid,const TargetMachine& host,MemorySyscall operation,std::array<uint64_t,6> arguments,
+    const TargetSyscallRecovery& image);
 
 // Verify an existing saved mm while the caller owns the actual stopped task.
 // Reclaim the fresh private proof mapping before returning; incomplete nested

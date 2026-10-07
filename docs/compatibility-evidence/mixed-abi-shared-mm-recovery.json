@@ -1,0 +1,305 @@
+{
+  "schemaVersion": 1,
+  "suite": "mixed-abi-private-scratch-recovery-same-file-exec-with-clone-vm-old-mm-peer",
+  "createdUtc": "2026-10-07T10:44:11.183004+00:00",
+  "baseRevision": "4e4cd6b7bb403cdbeb76349ad690f6425b168966",
+  "sourceState": "unpublished working-tree draft identified by source hashes",
+  "platform": "Linux-7.1.8-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "published": false,
+  "hostedCiVerifiedForThisDraft": false,
+  "fullCompatibilityComplete": false,
+  "sourceHashes": [
+    {
+      "path": "CMakeLists.txt",
+      "sha256": "5047a6b8c7b6dee84e987bf22003287f62da2f5fb4f9fb71216044b3f4712536"
+    },
+    {
+      "path": "platform/linux/target_syscall.cpp",
+      "sha256": "4933ba5adce4ebc4c33d0690b0d0d4fccceb232122276468d622270668856ba3"
+    },
+    {
+      "path": "platform/linux/target_syscall.hpp",
+      "sha256": "73554b9dc4673ede0b07afeb9454160748ffca7f5b7e6cdedfe053c6f04ce4c5"
+    },
+    {
+      "path": "platform/linux/memory_image.cpp",
+      "sha256": "5107ece1a4a34c2455a8b86bc92914378914e8d595fc36bf9a9af66a13ff4576"
+    },
+    {
+      "path": "platform/linux/memory_image.hpp",
+      "sha256": "be841fe0894dbf86a43736d491fdcf3325882784bfa4ceedc7f075aea812d560"
+    },
+    {
+      "path": "test/syscall_faults.cpp",
+      "sha256": "ec34ad913a96b778bb35fe8da5f8248586e00c40826fbc859a96d4a5d57b9ed9"
+    },
+    {
+      "path": "test/syscall_faults.hpp",
+      "sha256": "f060a0089375ef364f3599b8d4a35b14897e291719fe255d1ec60c108ebe51ad"
+    },
+    {
+      "path": "test/target_syscall_integration.cpp",
+      "sha256": "8e34a1fd19e65582674483677b810dce5b7e769c3491bec91aa69cf71be5a9fd"
+    },
+    {
+      "path": "test/mixed_abi_restart_checks.inc",
+      "sha256": "775dcfb2c6218d91a7c04e6fc57a52166fc37bb255b0ac3b296c191570a6234a"
+    },
+    {
+      "path": "test/native_syscall_gate.py",
+      "sha256": "ddbed39e476f2d081a9264443c0a29834ec19be70a13435dada9f5713fdb0f0b"
+    }
+  ],
+  "resourceUse": {
+    "cachedBuilds": true,
+    "buildJobs": 1,
+    "nice": 10,
+    "parallelBuildsOrTestSuites": false,
+    "additionalKernelGuests": false,
+    "hostConfigurationChanges": false
+  },
+  "signalReplayBaseline": {
+    "logPath": "build/.ci-tmp/mixed-abi-product/shared-exec-asan-core-diagnostic.log",
+    "logSha256": "d5ec417d5b32b2d32f06719e87da04cf4362af0e53c1bd362a2da43c6c2bf301",
+    "actualEvents": [
+      "RESTART_DIAG start phase=0 notified=0 status=0 saved=0",
+      "RESTART_GUARD actualStop=19 queuedCode=-1 leftWait=1",
+      "RESTART_DIAG wait status=857f",
+      "RESTART_DIAG wait status=80057f",
+      "MIXED_ABI_LIFECYCLE_FAILURE variant=19 mapped=1 error=0 completed=1 recovery=0 triggered=1 bank=1 pc=404eb000 rax=fffffdfc signal=1 signo=5 code=32773"
+    ],
+    "observation": "A verified real pre-entry SIGSTOP was left available, but the old Entering branch replayed SYSEMU, discarded it and collected an emulated syscall stop. The mmap returned success instead of retaining the intended real signal stop.",
+    "initialFailedSanitizerGateReportPath": "build/.ci-tmp/mixed-abi-product/shared-exec-asan-signal-order-failure.json",
+    "initialFailedSanitizerGateReportSha256": "d33ab6ed75d993300432ce24f3f5d37bb8663e6c6815950839772dc2d2858082",
+    "temporaryProductDiagnostics": true,
+    "fabricatedKernelData": false
+  },
+  "baseline": {
+    "result": "FAILED",
+    "assertions": 224,
+    "failedRetirementRows": 14,
+    "replacementProgramCountersChanged": 4,
+    "replacementSignalMasksChanged": 2,
+    "actualBanks": [
+      "MIXED_ABI_SHARED_EXEC_BANK variant=4 observed=1 freshPC=7fec98ba86c0 recoveredPC=7fec98ba86c0 freshMask=200 recoveredMask=200 retired=0",
+      "MIXED_ABI_SHARED_EXEC_BANK variant=5 observed=1 freshPC=7fcc6c5da6c0 recoveredPC=7fcc6c5da6c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=0",
+      "MIXED_ABI_SHARED_EXEC_BANK variant=6 observed=1 freshPC=7f47f6b9b6c0 recoveredPC=7f47f6b9b6c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=0",
+      "MIXED_ABI_SHARED_EXEC_BANK variant=7 observed=1 freshPC=7fe2e2f696c0 recoveredPC=7fe2e2f696c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=0",
+      "MIXED_ABI_SHARED_EXEC_BANK variant=8 observed=1 freshPC=7f85f4d9f6c0 recoveredPC=7f85f4d9f6c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=0",
+      "MIXED_ABI_SHARED_EXEC_BANK variant=9 observed=1 freshPC=7f5eaf54b6c0 recoveredPC=7f5eaf54b6c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=0",
+      "MIXED_ABI_SHARED_EXEC_BANK variant=10 observed=1 freshPC=7fb41664e6c0 recoveredPC=7fb41664e6c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=0",
+      "MIXED_ABI_SHARED_EXEC_BANK variant=11 observed=1 freshPC=7fc47719b6c0 recoveredPC=7fc47719b6c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=0",
+      "MIXED_ABI_SHARED_EXEC_BANK variant=12 observed=1 freshPC=7fb3adf0b6c0 recoveredPC=41d0effe freshMask=200 recoveredMask=ffffffffbffbfa27 retired=0",
+      "MIXED_ABI_SHARED_EXEC_BANK variant=13 observed=1 freshPC=7f3a35ae46c0 recoveredPC=41f70ffe freshMask=200 recoveredMask=ffffffffbffbfa27 retired=0",
+      "MIXED_ABI_SHARED_EXEC_BANK variant=14 observed=1 freshPC=7f9a704be6c0 recoveredPC=414c2ffe freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=0",
+      "MIXED_ABI_SHARED_EXEC_BANK variant=15 observed=1 freshPC=7f2b8eaa36c0 recoveredPC=41a64ffe freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=0",
+      "MIXED_ABI_SHARED_EXEC_BANK variant=16 observed=1 freshPC=7f41bba916c0 recoveredPC=7f41bba916c0 freshMask=200 recoveredMask=200 retired=0",
+      "MIXED_ABI_SHARED_EXEC_BANK variant=17 observed=1 freshPC=7f704cb026c0 recoveredPC=7f704cb026c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=0"
+    ],
+    "resultMarkers": [
+      "MIXED_ABI_LIFECYCLE_RESULT=FAILED architecture=x86-64 action=shared-exec checks=224"
+    ],
+    "logPath": "build/.ci-tmp/mixed-abi-product/shared-exec-before-banks.log",
+    "logSha256": "1b787d0eb9a0eff7cfb7bee899b246b917765be0060af8766d5eac0115ef67d2",
+    "priorAdapterSourceRecord": "docs/compatibility-evidence/mixed-abi-lifecycle-recovery.json",
+    "priorTargetSyscallSha256": "a39396bc59ec396fa860473018b9373ee45626a2161b0187e6885437af6ff8aa",
+    "baselineDriverHashRetained": false,
+    "cleanup": "The pre-fix test restores only an independently captured replacement context; actual console I/O and normal reaping of both processes are mandatory."
+  },
+  "changes": [
+    "Verify actual mm alias identity through one owned private scratch byte before restoring context and after collecting new recovery stops",
+    "Retire same-file replacement recovery even when PID, birth, inode and old mm readability are unchanged",
+    "Retain a failed probe restoration original byte across retries and restore it through its pinned old descriptor after exec",
+    "Support private syscall scratch ending at a page boundary without expanding the scratch contract",
+    "Reject borrowed/quiesced mixed-restart sites before mutation until a private identity-proof owner exists",
+    "Never replay a successful SYSEMU; retry an ambiguous failed request only at the exact prepared GP bank and prepared stop fingerprint",
+    "Deterministically establish real pre-entry SIGSTOP with a test-owned interrupt and unchanged actual GP bank; consume only the owned interrupt and leave the real queued notification for production",
+    "Require separate bounded shared-mm suite and automatically build its fixture"
+  ],
+  "proofScope": {
+    "retainedAbiMaskFailureRows": 14,
+    "probeRestorationBeforeKernelApplicationRows": 7,
+    "probeRestorationAfterKernelApplicationRows": 7,
+    "identicalReplacementPrivateAddressAndBytesRows": 2,
+    "normalPreEntryStopNotifications": 4,
+    "deathPreEntryStopNotifications": 3,
+    "sharedExecAssertionsPerBuild": 252,
+    "identicalSharedExecAssertionsPerBuild": 36,
+    "existingLifecycleAssertionsPerBuild": 400,
+    "normalX86_64AssertionsPerBuild": 940,
+    "normalI386AssertionsPerBuild": 667,
+    "individualGateChildDeadlineSeconds": 60,
+    "oldMmCleanupModel": "The actual fixture peer exits and both processes are reaped; independent old-mm allocation cleanup with a surviving peer is not proved.",
+    "model": "Caller-owned private scratch, actual interrupted INT80 timer in ELF64, deliberately redirected same-file exec and consumed actual EXEC event, separate CLONE_VM peer retaining the original mm. All replacement GP/extended state/mask and actual console work are preserved.",
+    "counting": "Assertions include repeated setup and verification. Suite/build totals are separate and do not count unique supported features."
+  },
+  "remaining": [
+    "Writable pinned old mm and caller-owned private scratch are required by this draft; read-only transport and borrowed/quiesced private proof ownership remain",
+    "Completed recovery records reused as expected-image guards require independent live task/image-affinity proof",
+    "Independent old-mm allocation cleanup while a separate CLONE_VM peer remains alive needs an ownership path",
+    "SIGSTOP in other recovery phases and repeated/concurrent job-control transitions",
+    "Unexpected foreign synchronous signal decisions and syscall-user-dispatch policy",
+    "Cancellation, broker/frontend shutdown, nonleader exec and asynchronous lifecycle race windows in every phase",
+    "Other restart classes, x32 and additional kernels",
+    "Full GUI/CLI/Lua ownership integration",
+    "Broader six-area compatibility objective"
+  ],
+  "designReferences": [
+    "https://raw.githubusercontent.com/torvalds/linux/v6.18/fs/proc/base.c"
+  ],
+  "runs": [
+    {
+      "name": "native",
+      "status": "passed",
+      "utc": "2026-10-07T10:41:16.256367+00:00",
+      "driverSha256": "c47c8680f7e51e8cf4eb49a5a53bba0496d8cdc344b7c2a4ef8895b726331d1e",
+      "completeReportPath": "build/.ci-tmp/mixed-abi-product/shared-exec-native-final.json",
+      "completeReportSha256": "91116d55a5416ca7e602461475e5dd4ddd88a84aa28387864fbbd7c461636cbd",
+      "environment": {},
+      "targets": [
+        {
+          "bits": 64,
+          "status": "passed",
+          "normalAssertions": 940,
+          "fixtureSha256": "6f782979a5c32f244ad39586c6be8ac8c4d3aeb8ecf5522ea88a899d3c5c0652",
+          "normalStdoutSha256": "f13823aa9e7412a377ed55fac45f033cb841788bf3abff22ae2c99455c0ae78a",
+          "mixedAbiLifecycle": {
+            "status": "passed",
+            "assertions": 400,
+            "exitCode": 0,
+            "stdoutSha256": "2fa961a633003f59fefa25525629dd6b804882ad9e11c420c7e857da2b7626be",
+            "stderr": "RESTART_PREENTRY_STOP actualStop=19 queuedCode=-1 leftWait=1\nRESTART_PREENTRY_STOP actualStop=19 queuedCode=-1 leftWait=1\nRESTART_PREENTRY_STOP actualStop=19 queuedCode=-1 leftWait=1\n",
+            "resultMarkers": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=death checks=218",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=exec checks=182"
+            ],
+            "actualBanks": []
+          },
+          "mixedAbiSharedExec": {
+            "status": "passed",
+            "assertions": 288,
+            "exitCode": 0,
+            "stdoutSha256": "867f7f6eef8748f509a1693a574daffe288a6552fe67b7c60725c5ba55a8f85a",
+            "stderr": "",
+            "resultMarkers": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-exec checks=252",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=identical-shared-exec checks=36"
+            ],
+            "actualBanks": [
+              "MIXED_ABI_SHARED_EXEC_BANK variant=4 observed=1 freshPC=7f0d7b2896c0 recoveredPC=7f0d7b2896c0 freshMask=200 recoveredMask=200 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=5 observed=1 freshPC=7f62a28346c0 recoveredPC=7f62a28346c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=6 observed=1 freshPC=7fb2e0c766c0 recoveredPC=7fb2e0c766c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=7 observed=1 freshPC=7fbaf91736c0 recoveredPC=7fbaf91736c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=8 observed=1 freshPC=7fd4e1a546c0 recoveredPC=7fd4e1a546c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=9 observed=1 freshPC=7fade13c66c0 recoveredPC=7fade13c66c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=10 observed=1 freshPC=7fdeb6e826c0 recoveredPC=7fdeb6e826c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=11 observed=1 freshPC=7f8eb04486c0 recoveredPC=7f8eb04486c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=12 observed=1 freshPC=7f41107c86c0 recoveredPC=7f41107c86c0 freshMask=200 recoveredMask=200 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=13 observed=1 freshPC=7f19a1f9b6c0 recoveredPC=7f19a1f9b6c0 freshMask=200 recoveredMask=200 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=14 observed=1 freshPC=7f51c3b026c0 recoveredPC=7f51c3b026c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=15 observed=1 freshPC=7fa2362e26c0 recoveredPC=7fa2362e26c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=16 observed=1 freshPC=7f0e75a3a6c0 recoveredPC=7f0e75a3a6c0 freshMask=200 recoveredMask=200 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=17 observed=1 freshPC=7f72265a86c0 recoveredPC=7f72265a86c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=12 observed=1 freshPC=401330 recoveredPC=401330 freshMask=200 recoveredMask=200 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=14 observed=1 freshPC=401330 recoveredPC=401330 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1"
+            ]
+          }
+        },
+        {
+          "bits": 32,
+          "status": "passed",
+          "normalAssertions": 667,
+          "fixtureSha256": "dbb41c9a02e359b66a48eb3320c1b03cc0812fed4bde6a9915d47a20d037ebe9",
+          "normalStdoutSha256": "18f6f7eb639c52fede585e25ac735c1fae162f9b8db0b9db2d6b260e10e05c61"
+        }
+      ]
+    },
+    {
+      "name": "asan",
+      "status": "passed",
+      "utc": "2026-10-07T10:34:20.738365+00:00",
+      "driverSha256": "c6af96e1890255f21bca70f1783c39414eacd5a0264d9f81c6f97d33cd8a687e",
+      "completeReportPath": "build/.ci-tmp/mixed-abi-product/shared-exec-asan-final.json",
+      "completeReportSha256": "388abafa5da893d230f777fb36dc9bf54f20b7ac2bf00528ba63b4a1a61b4251",
+      "environment": {
+        "ASAN_OPTIONS": "detect_leaks=1:abort_on_error=1",
+        "UBSAN_OPTIONS": "halt_on_error=1"
+      },
+      "targets": [
+        {
+          "bits": 64,
+          "status": "passed",
+          "normalAssertions": 940,
+          "fixtureSha256": "6983703b8404486771194822711d896c5aa1b0d0e943a40e33fd894d41410c75",
+          "normalStdoutSha256": "27dbe6f6877059959f1b8dc7901de30ef8a752513ee06c2cef8b9cc0baee8c07",
+          "mixedAbiLifecycle": {
+            "status": "passed",
+            "assertions": 400,
+            "exitCode": 0,
+            "stdoutSha256": "f6029fefebcd479e520e8e0e1a97d647c3dc562db92af872595e2e59b8e0ff8c",
+            "stderr": "RESTART_PREENTRY_STOP actualStop=19 queuedCode=-1 leftWait=1\nRESTART_PREENTRY_STOP actualStop=19 queuedCode=-1 leftWait=1\nRESTART_PREENTRY_STOP actualStop=19 queuedCode=-1 leftWait=1\n",
+            "resultMarkers": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=death checks=218",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=exec checks=182"
+            ],
+            "actualBanks": []
+          },
+          "mixedAbiSharedExec": {
+            "status": "passed",
+            "assertions": 288,
+            "exitCode": 0,
+            "stdoutSha256": "05fb2279ef29a2a0f3725ade7632365ca4a695d253eddee1094c68f3c6bb2289",
+            "stderr": "",
+            "resultMarkers": [
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=shared-exec checks=252",
+              "MIXED_ABI_LIFECYCLE_RESULT=PASSED architecture=x86-64 action=identical-shared-exec checks=36"
+            ],
+            "actualBanks": [
+              "MIXED_ABI_SHARED_EXEC_BANK variant=4 observed=1 freshPC=7fd65a6f16c0 recoveredPC=7fd65a6f16c0 freshMask=200 recoveredMask=200 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=5 observed=1 freshPC=7f85a5d6f6c0 recoveredPC=7f85a5d6f6c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=6 observed=1 freshPC=7fbf6d62f6c0 recoveredPC=7fbf6d62f6c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=7 observed=1 freshPC=7f6eb42ee6c0 recoveredPC=7f6eb42ee6c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=8 observed=1 freshPC=7fc09944b6c0 recoveredPC=7fc09944b6c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=9 observed=1 freshPC=7f92634206c0 recoveredPC=7f92634206c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=10 observed=1 freshPC=7ffb4d3e66c0 recoveredPC=7ffb4d3e66c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=11 observed=1 freshPC=7f1d2e0f36c0 recoveredPC=7f1d2e0f36c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=12 observed=1 freshPC=7f34c3b526c0 recoveredPC=7f34c3b526c0 freshMask=200 recoveredMask=200 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=13 observed=1 freshPC=7f2b447616c0 recoveredPC=7f2b447616c0 freshMask=200 recoveredMask=200 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=14 observed=1 freshPC=7f8f1714a6c0 recoveredPC=7f8f1714a6c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=15 observed=1 freshPC=7fa4f0db46c0 recoveredPC=7fa4f0db46c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=16 observed=1 freshPC=7ff36d64d6c0 recoveredPC=7ff36d64d6c0 freshMask=200 recoveredMask=200 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=17 observed=1 freshPC=7fb51e0af6c0 recoveredPC=7fb51e0af6c0 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=12 observed=1 freshPC=401723 recoveredPC=401723 freshMask=200 recoveredMask=200 retired=1",
+              "MIXED_ABI_SHARED_EXEC_BANK variant=14 observed=1 freshPC=401718 recoveredPC=401718 freshMask=ffffffffbffbfa27 recoveredMask=ffffffffbffbfa27 retired=1"
+            ]
+          }
+        },
+        {
+          "bits": 32,
+          "status": "passed",
+          "normalAssertions": 667,
+          "fixtureSha256": "a70d8ca3b82d3cc4ac5605d7b1087331e377fa5939f1c914449252300b6b9f75",
+          "normalStdoutSha256": "b9077b6f7ddb172aaace11abd2c0eca514306cba886762de693af6365bec56d8"
+        }
+      ]
+    }
+  ],
+  "pinnedImageRegression": [
+    {
+      "name": "native",
+      "result": "MEMORY_IMAGE_RESULT=PASSED checks=42 failures=0",
+      "logPath": "build/.ci-tmp/mixed-abi-product/shared-exec-image.log",
+      "logSha256": "da41427a0bbb3fefddac8e538e35f64b00689449d6c52f17baeee97b8be40ed0",
+      "driverSha256": "97c60b876ab883d7147a0d010acfb82d615a998e0af3135eb2ac293e91fc6dd1",
+      "scope": "42 existing pinned-image checks exercise the refactored 16-byte alias helper; mixed-ABI recovery is proved by the separate current native gate."
+    },
+    {
+      "name": "asan",
+      "result": "MEMORY_IMAGE_RESULT=PASSED checks=42 failures=0",
+      "logPath": "build/.ci-tmp/mixed-abi-product/shared-exec-image-asan.log",
+      "logSha256": "da41427a0bbb3fefddac8e538e35f64b00689449d6c52f17baeee97b8be40ed0",
+      "driverSha256": "bafc4b33353482787795db41ebd9ab8afc506ed075b6747e0feab107239ba687",
+      "scope": "42 existing pinned-image checks exercise the refactored 16-byte alias helper; mixed-ABI recovery is proved by the separate current native gate."
+    }
+  ]
+}

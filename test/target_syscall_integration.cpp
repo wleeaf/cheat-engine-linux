@@ -54,11 +54,12 @@ static void check(bool ok, const char* name) {
 class Fixture {
 public:
     pid_t pid = -1; int input = -1, output = -1;
-    explicit Fixture(const char* path) {
+    explicit Fixture(const char* path,const char* option=nullptr) {
         int in[2], out[2];
         if (pipe(in)) return;
         if (pipe(out)) { close(in[0]); close(in[1]); return; }
         const pid_t parent=getpid();
+        char controller[32];std::snprintf(controller,sizeof(controller),"%ld",static_cast<long>(parent));
         pid = fork();
         if (!pid) {
             // Bounded owner tests may terminate by alarm. Their fixtures must
@@ -66,7 +67,9 @@ public:
             if (prctl(PR_SET_PDEATHSIG,SIGKILL)<0 || getppid()!=parent) _exit(126);
             dup2(in[0],0); dup2(out[1],1);
             close(in[0]); close(in[1]); close(out[0]); close(out[1]);
-            execl(path,path,path,nullptr); _exit(127);
+            if (option) execl(path,path,option,controller,nullptr);
+            else execl(path,path,path,nullptr);
+            _exit(127);
         }
         close(in[0]); close(out[1]); input=in[1]; output=out[0];
     }
@@ -3173,6 +3176,9 @@ static void threadInspectionBackend(const char* path) {
 
 #include "test/return_boundary_checks.inc"
 #include "test/restart_boundary_checks.inc"
+#include "test/mixed_abi_restart_checks.inc"
+#include "test/completed_image_guard_checks.inc"
+#include "test/service_thread_death_checks.inc"
 
 int main(int argc,char** argv) {
     signal(SIGPIPE,SIG_IGN);
@@ -3210,6 +3216,31 @@ int main(int argc,char** argv) {
         return failures ? 1 : 0;
     }
 #if defined(__x86_64__)
+    if (!init && argc==3 && std::strcmp(argv[1],"--service-thread-death-only")==0) {
+        serviceThreadDeathBackend(argv[2]); return failures ? 1 : 0;
+    }
+    if (!init && argc==3 && std::strcmp(argv[1],"--completed-image-guard-only")==0) {
+        completedImageGuardBackend(argv[2]); return failures ? 1 : 0;
+    }
+    if (!init && argc==3 && std::strcmp(argv[1],"--mixed-abi-shared-death-only")==0) {
+        mixedAbiRestartBackend(argv[2],false,5);
+        mixedAbiRestartBackend(argv[2],false,6); return failures ? 1 : 0;
+    }
+    if (!init && argc==3 && std::strcmp(argv[1],"--mixed-abi-shared-exec-only")==0) {
+        mixedAbiRestartBackend(argv[2],false,3);
+        mixedAbiRestartBackend(argv[2],false,4); return failures ? 1 : 0;
+    }
+    if (!init && argc==3 && std::strcmp(argv[1],"--mixed-abi-lifecycle-only")==0) {
+        mixedAbiRestartBackend(argv[2],false,1);
+        mixedAbiRestartBackend(argv[2],false,2);
+        return failures ? 1 : 0;
+    }
+    if (!init && argc==3 && std::strcmp(argv[1],"--mixed-abi-group-stop-only")==0) {
+        mixedAbiRestartBackend(argv[2],true); return failures ? 1 : 0;
+    }
+    if (!init && argc==3 && std::strcmp(argv[1],"--mixed-abi-restart-only")==0) {
+        mixedAbiRestartBackend(argv[2]); return failures ? 1 : 0;
+    }
     if (!init && argc==3 && std::strcmp(argv[1],"--restart-boundary-only")==0) {
         restartBoundaryBackend(argv[2]); return failures ? 1 : 0;
     }
@@ -3218,6 +3249,7 @@ int main(int argc,char** argv) {
     }
     returnBoundaryBackend(init ? "/fixture" : argc==2 ? argv[1] : "");
     restartBoundaryBackend(init ? "/fixture" : argc==2 ? argv[1] : "");
+    mixedAbiRestartBackend(init ? "/fixture" : argc==2 ? argv[1] : "");
 #endif
     sessionThreadExitBackend(init ? "/fixture" : argc==2 ? argv[1] : "");
     plans();

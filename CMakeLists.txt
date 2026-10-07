@@ -678,6 +678,7 @@ if(CECORE_BUILD_TESTS)
             debug/debug_session.cpp debug/tracer.cpp debug/code_finder.cpp debug/stack_trace.cpp
             debug/thread_inspection.cpp core/cpu_registers.cpp arch/disassembler.cpp
             symbols/elf_symbols.cpp analysis/pe_exports.cpp)
+        add_dependencies(target_syscall_integration shared_mm_fixture)
         target_include_directories(target_syscall_integration PRIVATE ${CMAKE_SOURCE_DIR} ${CAPSTONE_INCLUDE})
         target_link_libraries(target_syscall_integration PRIVATE Threads::Threads ${CAPSTONE_LIB})
         target_link_options(target_syscall_integration PRIVATE -Wl,--wrap=ptrace -Wl,--wrap=pwrite -Wl,--wrap=_Znwm -Wl,--wrap=stat -Wl,--wrap=waitpid)

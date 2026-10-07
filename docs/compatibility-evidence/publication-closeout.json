@@ -1,0 +1,163 @@
+{
+  "schemaVersion": 1,
+  "suite": "compatibility-publication-closeout",
+  "createdUtc": "2026-10-07T12:12:03.505910+00:00",
+  "baseRevision": "4e4cd6b7bb403cdbeb76349ad690f6425b168966",
+  "sourceState": "tested working-tree checkpoint; published by the containing commit",
+  "fullCompatibilityComplete": false,
+  "sourceHashes": [
+    {
+      "path": "CMakeLists.txt",
+      "sha256": "5047a6b8c7b6dee84e987bf22003287f62da2f5fb4f9fb71216044b3f4712536"
+    },
+    {
+      "path": "platform/linux/syscall_service.cpp",
+      "sha256": "692c6617c86cd439b1ad124c52b1e929feae4dbd655cf43489ad1e43026a539b"
+    },
+    {
+      "path": "platform/linux/target_syscall.cpp",
+      "sha256": "4c8527b097ddced229dafbc01069a4c12d55ecd31ed1a7d7df037bb5f83def6d"
+    },
+    {
+      "path": "platform/linux/target_syscall.hpp",
+      "sha256": "10b8169672bfc15715afdcca054e29595bc0458141d9b3e4e78448555ea47297"
+    },
+    {
+      "path": "platform/linux/memory_image.cpp",
+      "sha256": "5107ece1a4a34c2455a8b86bc92914378914e8d595fc36bf9a9af66a13ff4576"
+    },
+    {
+      "path": "platform/linux/memory_image.hpp",
+      "sha256": "be841fe0894dbf86a43736d491fdcf3325882784bfa4ceedc7f075aea812d560"
+    },
+    {
+      "path": "test/compatibility_fixture.c",
+      "sha256": "658daa1b54646e42016a4c722dc7dd0e7ba9faa486d26c44c05cc43ea0d5c024"
+    },
+    {
+      "path": "test/target_syscall_integration.cpp",
+      "sha256": "8d7debf200bc55a19ed4a90511b360ba8f096de5c89eda60107e1e03ddaf6f8c"
+    },
+    {
+      "path": "test/syscall_faults.cpp",
+      "sha256": "118e644f2e852cc13107e8feea7078bfb1b70bf392666930f88d41e00e48eb43"
+    },
+    {
+      "path": "test/syscall_faults.hpp",
+      "sha256": "45f19324ef8ff84983c6041e10adc3bfe592254dd095793bfca31e7e357fdd96"
+    },
+    {
+      "path": "test/service_thread_death_checks.inc",
+      "sha256": "3331316824af61d16053d06fba6dccd670eda0a94ceee733add5b838f778dedc"
+    },
+    {
+      "path": "test/native_syscall_gate.py",
+      "sha256": "728c8ec454180cb9f7e4577d90a7e3151635e986d05d2c996ec5128b993ed3fb"
+    },
+    {
+      "path": "test/mixed_abi_restart_checks.inc",
+      "sha256": "4184e60f4f59859f11434064a4c6c93711eaeff9cd486a1c45d56dc086f1a2c3"
+    },
+    {
+      "path": "test/completed_image_guard_checks.inc",
+      "sha256": "106f045773df0c9b127ae5b5a200f867054523d72c9f3c13278ed7c3deb9a447"
+    }
+  ],
+  "verification": [
+    {
+      "suite": "service-death-native-final.json",
+      "report": {
+        "path": "build/.ci-tmp/mixed-abi-product/service-death-native-final.json",
+        "sha256": "a920d116bdf3539c55cb5a86c94b2c7db2aa26a29e3e82d796179d8208894301"
+      },
+      "status": "passed",
+      "targets": [
+        {
+          "bits": 64,
+          "checks": 940,
+          "serviceThreadDeath": 38
+        },
+        {
+          "bits": 32,
+          "checks": 667,
+          "serviceThreadDeath": 38
+        }
+      ]
+    },
+    {
+      "suite": "service-death-asan-final.json",
+      "report": {
+        "path": "build/.ci-tmp/mixed-abi-product/service-death-asan-final.json",
+        "sha256": "aac4a1bc13f8c60c9c1d51711a9f1cb600861f6c70b9366ad471eeee433b567d"
+      },
+      "status": "passed",
+      "targets": [
+        {
+          "bits": 64,
+          "checks": 940,
+          "serviceThreadDeath": 38
+        },
+        {
+          "bits": 32,
+          "checks": 667,
+          "serviceThreadDeath": 38
+        }
+      ]
+    },
+    {
+      "suite": "shared-mm-image-affinity",
+      "report": {
+        "path": "build/.ci-tmp/mixed-abi-product/closeout-memory-image.json",
+        "sha256": "8990d1e7b9bcf33d3aa722f70fe1b0f4639cdf3469506ef1c4b272bb2ebe2565"
+      },
+      "passed": true,
+      "checks": 42
+    },
+    {
+      "suite": "native-libc-library-pthread-image-and-exec",
+      "report": {
+        "path": "build/.ci-tmp/mixed-abi-product/closeout-native-call-cached32.json",
+        "sha256": "e5375704ff3f44d6ba27eaed06328149411ccd0fa9cf4f896208351324f3f4bb"
+      },
+      "status": "passed",
+      "coreSha256": "af419b9effb4ab21208ffeaecd22dbf597b8054f444557348947523d87a47cb6",
+      "targets": [
+        {
+          "width": 8,
+          "status": "passed",
+          "checks": 45,
+          "workerImageChecks": 83,
+          "calleeExecChecks": 475,
+          "fixtureSha256": "05b87945f5c9a2c63b26ca916ce7f916f95c75cc8a398719050d90a409be6347",
+          "librarySha256": "47d6dd25b395672b368b54bac0864b99b8c3d81b27f35338c71cfac5c5dde17e",
+          "imageFixtureSha256": "75e9261ec8b8b6b33ea47388bab2976d73d60a4f49f369c1e9e4c43a42b21642"
+        },
+        {
+          "width": 4,
+          "status": "passed",
+          "checks": 45,
+          "workerImageChecks": 83,
+          "calleeExecChecks": 475,
+          "fixtureSha256": "324f4b69262f50d7e7d54464986fd30d9cea8b67740da172da4a7f1006824249",
+          "librarySha256": "79e952e003fffbaf92cb634fe6e7450c50a6722532218f99593df69f821d2ede",
+          "imageFixtureSha256": "eef5af88933e6127dd1f5f8ca99fa5faa2b944c3bee68e6648fc6c8a1a8b446e"
+        }
+      ]
+    },
+    {
+      "suite": "cached-serial-regression-target-build",
+      "exitCode": 0,
+      "log": {
+        "path": "build/.ci-tmp/mixed-abi-product/closeout-build.log",
+        "sha256": "980b6d26cbe15e9796094f0b9ce6c159edf2bb54133b440d8d0c0552bf4b1743"
+      }
+    }
+  ],
+  "limits": [
+    "Only local native x86-64/i386 runtime checks are fresh for this checkpoint. AArch64 fixture cross-link is compile-only.",
+    "Historical evidence records preserve their own source hashes and unpublished state at the time of testing.",
+    "All seven hosted jobs must be observed for the containing pushed revision.",
+    "The host CMake configuration lacks dynamic i386 fixtures; the native-call gate uses explicitly selected cached fixtures and private cached i386 runtimes. No host packages were installed.",
+    "Remaining compatibility, policy, ownership, architecture and frontend work is detailed in docs/PROGRESS.md."
+  ]
+}

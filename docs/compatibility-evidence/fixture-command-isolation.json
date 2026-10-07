@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "suite": "fixture-command-isolation-native-and-real-arm64",
+  "createdUtc": "2026-10-07T12:22:19.084385+00:00",
+  "baseRevision": "7e3697084ed7012878885cbb9d57cf66021934a5",
+  "sourceState": "tested follow-up working tree; published by containing commit",
+  "fullCompatibilityComplete": false,
+  "sourceHashes": [
+    {
+      "path": "CMakeLists.txt",
+      "sha256": "5047a6b8c7b6dee84e987bf22003287f62da2f5fb4f9fb71216044b3f4712536"
+    },
+    {
+      "path": "platform/linux/syscall_service.cpp",
+      "sha256": "692c6617c86cd439b1ad124c52b1e929feae4dbd655cf43489ad1e43026a539b"
+    },
+    {
+      "path": "platform/linux/target_syscall.cpp",
+      "sha256": "4c8527b097ddced229dafbc01069a4c12d55ecd31ed1a7d7df037bb5f83def6d"
+    },
+    {
+      "path": "platform/linux/target_syscall.hpp",
+      "sha256": "10b8169672bfc15715afdcca054e29595bc0458141d9b3e4e78448555ea47297"
+    },
+    {
+      "path": "platform/linux/memory_image.cpp",
+      "sha256": "5107ece1a4a34c2455a8b86bc92914378914e8d595fc36bf9a9af66a13ff4576"
+    },
+    {
+      "path": "platform/linux/memory_image.hpp",
+      "sha256": "be841fe0894dbf86a43736d491fdcf3325882784bfa4ceedc7f075aea812d560"
+    },
+    {
+      "path": "test/compatibility_fixture.c",
+      "sha256": "1ba2394e40c0ade842e1810bc69e10344c0d43891f57fdb61f85c830466023d9"
+    },
+    {
+      "path": "test/target_syscall_integration.cpp",
+      "sha256": "8d7debf200bc55a19ed4a90511b360ba8f096de5c89eda60107e1e03ddaf6f8c"
+    },
+    {
+      "path": "test/syscall_faults.cpp",
+      "sha256": "118e644f2e852cc13107e8feea7078bfb1b70bf392666930f88d41e00e48eb43"
+    },
+    {
+      "path": "test/syscall_faults.hpp",
+      "sha256": "45f19324ef8ff84983c6041e10adc3bfe592254dd095793bfca31e7e357fdd96"
+    },
+    {
+      "path": "test/service_thread_death_checks.inc",
+      "sha256": "f4ffd9fcfff6bc0924706ea7b1a22d330d25700c7577bfc99aa5203f3b5409bb"
+    },
+    {
+      "path": "test/native_syscall_gate.py",
+      "sha256": "728c8ec454180cb9f7e4577d90a7e3151635e986d05d2c996ec5128b993ed3fb"
+    },
+    {
+      "path": "test/mixed_abi_restart_checks.inc",
+      "sha256": "4184e60f4f59859f11434064a4c6c93711eaeff9cd486a1c45d56dc086f1a2c3"
+    },
+    {
+      "path": "test/completed_image_guard_checks.inc",
+      "sha256": "106f045773df0c9b127ae5b5a200f867054523d72c9f3c13278ed7c3deb9a447"
+    }
+  ],
+  "hostedFailure": {
+    "run": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37619340206",
+    "jobId": 112785365935,
+    "log": {
+      "path": "build/.ci-tmp/mixed-abi-product/closeout-hosted-arm64.log",
+      "sha256": "dfba95b79ca907e10d6c990193d9392ba6f78ab1cb5268441ebef3902946fbc9"
+    },
+    "failedTargetChecks": 20,
+    "cause": "The new owner-recovery command O also executed the existing ARM64 alternate-stack O handler, then exited the original leader. Subsequent policy/vector commands reached the unintended console sibling."
+  },
+  "fix": "Use previously unused lowercase o for owner-recovery; preserve ARM64 uppercase O and all assertions.",
+  "verification": {
+    "nativeServiceThreadDeath": [
+      {
+        "bits": 64,
+        "checks": 38,
+        "passed": true,
+        "log": {
+          "path": "build/.ci-tmp/mixed-abi-product/fixture-command-fix-native64.log",
+          "sha256": "5609c71b863ed08ce754b8dc07ab52ca0f94e2ce7979fb327a167f2a22d4d399"
+        }
+      },
+      {
+        "bits": 32,
+        "checks": 38,
+        "passed": true,
+        "log": {
+          "path": "build/.ci-tmp/mixed-abi-product/fixture-command-fix-native32.log",
+          "sha256": "eaf01365f1ac1c736f9382aff5be984b83a06aabb51e9ec4a6434361d466d7ac"
+        }
+      }
+    ],
+    "arm64": {
+      "report": {
+        "path": "build/.ci-tmp/mixed-abi-product/fixture-command-fix-arm64.json",
+        "sha256": "52344a06bcbbcb2cdc2039b9c5b6e3e96368f54724bc28e8a13a899670559f2b"
+      },
+      "result": {
+        "suite": "arm64-memory-syscalls-debugger-trace-codefinder-and-recovery",
+        "platform": "Linux-7.1.8-200.fc44.x86_64-x86_64-with-glibc2.39",
+        "sourceRevision": null,
+        "sourceRef": null,
+        "utc": "2026-10-07T12:21:29.718989+00:00",
+        "status": "passed",
+        "expectedPageSize": 4096,
+        "smeProfile": "required",
+        "guestCpus": 2,
+        "guestRamMiB": 128,
+        "kernelSha256": "06196d2cf51e9a2bac421564bb64c63a8b7146c9a22755dd22a713e337023013",
+        "initSha256": "cd3a18c617c04cc3a4f6efffff7ea73a1c566cab00bc202d95836a0f1f3b5b26",
+        "fixtureSha256": "f2dfb17ff28c5c96f6bc649fa0e7d2ce62d9b2ea2d9b0bc179501607942e1750",
+        "nativeCallFiles": {
+          "native_call_fixture": "d161ce286882a523acf46643144347c6ef0e8aa6594d99f8d517695aa8ca9b20",
+          "libnative_call_library.so": "8266ce790ed56459b422d1c25b6c9a2ae1eb4ac35075bc560ecfd4ca74ba154e",
+          "lib/ld-linux-aarch64.so.1": "142f02374792bf5f62293efc3500d472dbbe280dc658cc60480eff73ad46f33c",
+          "lib/libc.so.6": "101106b8ae66601234e0b61f6ba21bcf0fed952ed8ceaa22fb2ada993c25ec3c",
+          "lib/libgcc_s.so.1": "031767c85871740fd715f983419092515f7107ab26db0c3048522fab78b60730"
+        },
+        "qemu": "QEMU emulator version 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.18)",
+        "exitCode": 0,
+        "guestKernel": "6.18.52-0-virt",
+        "guestMachine": "aarch64",
+        "guestPageSize": 4096,
+        "excludedCases": [],
+        "checks": 906
+      }
+    }
+  },
+  "limits": [
+    "The earlier service evidence retains its original pre-rename source hashes. Production source hashes are unchanged by this correction.",
+    "The real ARM64 follow-up uses a cached full-system kernel, 128 MiB RAM and two CPUs for the existing concurrency matrix; no build/suite overlap or host package changes.",
+    "The new pushed revision still requires its own hosted CI result."
+  ]
+}

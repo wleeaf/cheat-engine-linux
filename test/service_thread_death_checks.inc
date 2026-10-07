@@ -13,7 +13,7 @@ static void serviceThreadDeathBackend(const char* path) {
             "the actual fixture publishes its ABI, data and code before creating its owner-exit threads");if(!hello) return;
         LinuxProcessHandle process(fixture.pid);auto host=process.targetDescription().host;architecture=host.architecture;
         auto identity=processMemoryIdentity(fixture.pid);
-        const char command='O';std::istringstream ready(::write(fixture.input,&command,1)==1 ? fixture.line() : "");
+        const char command='o';std::istringstream ready(::write(fixture.input,&command,1)==1 ? fixture.line() : "");
         pid_t selected=0,survivor=0;uintptr_t exitFlag=0,heartbeat=0;
         ready>>marker>>selected>>survivor>>std::hex>>exitFlag>>heartbeat;
         auto stable=awaitState([&] {auto task=processMemoryTask(fixture.pid);return task && *task==selected;});

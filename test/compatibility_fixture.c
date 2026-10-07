@@ -356,7 +356,7 @@ __attribute__((noreturn, used)) void fixtureMain(uptr* stack) {
         if (command == 'b') fixtureWriter();
         if (command == 'c') fixtureCaller();
         if (command == 't') fixtureSpawnThread();
-        if (command == 'O') {
+        if (command == 'o') {
             siblingMode=4; spinning=1; heartbeat=0; siblingReady=0;
             __atomic_store_n(&ownerConsoleStage,0,__ATOMIC_RELEASE);
             __atomic_store_n(&ownerConsoleReady,0,__ATOMIC_RELEASE);

@@ -38,7 +38,7 @@ Completed in this part:
 - Require bounded native gate children with exact assertion counts, genuine
   kernel events, independent readback, allocation cleanup and process reaping.
 
-The exact current product/test sources match the recorded source hashes in
+The pre-publication product/test sources match the recorded source hashes in
 [service handoff evidence](compatibility-evidence/service-thread-death.json).
 Both normal and ASan/UBSan native gates pass 940 x86-64 and 667 i386 checks,
 38 service-handoff assertions per ABI, plus 400 lifecycle, 288 shared-exec,
@@ -74,6 +74,29 @@ Remaining in this part:
 
 The detailed six-area backlog below remains active. These fixes establish the
 tested cases and do not establish compatibility with every Linux process.
+
+### Publication CI follow-up: fixture command collision
+
+The [run for `7e36970`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37619340206)
+exposed a runtime fixture regression that the earlier AArch64 cross-link could
+not detect. The new selected-thread-death protocol reused uppercase `O`, already
+used by ARM64 to configure its autodisarmed alternate signal stack. Both handlers
+ran: stack configuration succeeded, then the new owner-recovery handler exited
+the leader and redirected later policy/vector commands to its console sibling.
+The ARM64 kernel gate reported 20 failed assertions. The hosted sanitizer, x32
+and both Wine profiles passed; the other jobs were still running when this
+follow-up was prepared.
+
+The owner-recovery protocol now uses the previously unused lowercase `o`.
+The existing ARM64 uppercase `O`, policy setup, vector state, alternate-stack
+and real-exec assertions are preserved. Both native service children pass all
+38 assertions after the rename. A cached serial ARM rebuild and full real-kernel
+gate pass all **906 assertions**, including the failing SVE/SME policy and
+alternate-stack cases, with 128 MiB RAM and the existing two-CPU concurrency
+matrix. No builds or suites overlapped. Product sources are unchanged by this
+fixture correction. [Command-isolation evidence](compatibility-evidence/fixture-command-isolation.json)
+records the hosted failure, current source hashes and actual kernel follow-up.
+The corrected pushed revision still requires its own seven-job hosted result.
 
 ## Hosted CI closeout: 7 October 2026
 

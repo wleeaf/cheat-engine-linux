@@ -13,6 +13,22 @@ its own local checks. Older evidence snapshots describe the source and
 binaries tested at their own checkpoint; their counts must not be added together
 as a count of unique tests or presented as fresh checks of every environment.
 
+## Latest hosted verification: 7 October 2026
+
+The [completed run for `64a62bc`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37623927661)
+passed **all seven required jobs**: normal native build/runtime/GUI/CLI checks,
+ASan/UBSan, x32, legacy Wine32/Wine64, WoW64, ARM64 kernels and ARM64 frontends.
+This is the published code checkpoint containing the accumulated recovery fixes
+and the fixture corrections described below. The
+[hosted evidence](compatibility-evidence/publication-hosted-ci.json) records its
+exact revision, current product/test hashes, job links, steps and conclusions.
+
+This closes the current red-check investigation. Older failed runs remain
+historical evidence. The documentation closeout changes no product or test
+sources; its own workflow is a separate run. No new release is created. All six
+broader compatibility requirements remain active, with the specific remaining
+work listed in this checkpoint and the six-area backlog below.
+
 ## Publication checkpoint: 7 October 2026
 
 This checkpoint publishes the accumulated mixed-ABI and ownership fixes below.
@@ -69,8 +85,9 @@ Remaining in this part:
   and independent GUI/CLI/Lua ownership workflows. Mixed-ABI recovery currently
   requires caller-owned private scratch and a writable pinned old mm; unsupported
   borrowed/quiesced mixed sites reject before context mutation.
-- Verify the pushed revision in all seven hosted jobs. The earlier green runs
-  below apply to their recorded revisions, not to this new source checkpoint.
+- Keep all seven hosted jobs required for subsequent code changes. The current
+  published code revision is green, as recorded in the latest verification above;
+  future revisions require their own results.
 
 The detailed six-area backlog below remains active. These fixes establish the
 tested cases and do not establish compatibility with every Linux process.
@@ -160,9 +177,12 @@ of the complete suite is still required. Serial cached builds and repeated live
 the authoritative before-injection regset diagnostics and their scope limits.
 Eight corrected normal runs and eight corrected ASan/UBSan runs also pass all
 31 assertions each, with actual shutdown durations between 1 and 3 ms. The new
-pushed revision still requires a full hosted result.
+pushed revision subsequently passes all seven jobs, including the complete
+sanitizer profile, as recorded in the latest verification above. The old CEServer
+combined failure's exact reply/timing component remains unrecorded; the current
+protocol assertion and diagnostic gates remain enabled.
 
-## Hosted CI closeout: 7 October 2026
+## Earlier hosted CI closeout: 7 October 2026
 
 The [full workflow for `6834260`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37596245380)
 completed successfully with **all seven required jobs passing**:
@@ -186,8 +206,8 @@ Wine fixture privileges, replacement-image setup, portable program traps and
 register/race/worker-startup assumptions in the integration fixtures.
 
 The broader six-area objective below remains unfinished. In particular, the
-mixed-ABI restart adapter is still an unpublished draft requiring further
-signal, policy, cancellation, exit/exec and recovery proofs. Other remaining
+mixed-ABI restart adapter was an unpublished draft at that checkpoint; its
+subsequent publication, additional proofs and remaining limits are recorded above. Other remaining
 targets and feature combinations retain their documented limits. Passing this
 workflow establishes the required tested profiles, not compatibility with every
 Linux process, and does not create a new release.

@@ -114,10 +114,14 @@ extern "C" pid_t __wrap_waitpid(pid_t pid,int* status,int options) {
         // Run only between real kernel stops. No siginfo or wait status is
         // fabricated; the test returns only after observing the actual race.
         if (__real_ptrace(PTRACE_CONT,pid,nullptr,nullptr)<0) return result;
-        if (attempt%3==0) sched_yield(); else usleep(attempt%3);
+        // Cover immediate interrupts as well as delayed ones. Always yielding
+        // first can let a fast target reach its delivery stop before INTERRUPT.
+        if (attempt%4==1) sched_yield();
+        else if (attempt%4>=2) usleep(attempt%4-1);
         if (__real_ptrace(PTRACE_INTERRUPT,pid,nullptr,nullptr)<0) return result;
         result=__real_waitpid(pid,status,__WALL|__WNOTHREAD);
     }
+    if (!hardwareRaceSeen) std::printf("HARDWARE_TEARDOWN_RACE_MISSING tid=%d result=%d status=%x errno=%d\n",pid,result,*status,errno);
     return result;
 }
 extern "C" long __wrap_ptrace(enum __ptrace_request request, ...) {

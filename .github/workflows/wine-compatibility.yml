@@ -25,7 +25,9 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_DISABLE_FIND_PACKAGE_Qt6=ON
           cmake --build build --target cescan wine_integration -j"$(nproc)"
       - name: Require real PE32 and PE32+ operations
-        run: xvfb-run -a python3 test/wine_compatibility_test.py build --require-legacy-wine32 --report compatibility-evidence/wine-legacy.json
+        # Wine's server can create targets outside the driver's child tree.
+        # Give this isolated test the same ptrace access as the WoW64 container.
+        run: sudo env GITHUB_SHA="$GITHUB_SHA" GITHUB_REF="$GITHUB_REF" xvfb-run -a python3 test/wine_compatibility_test.py build --require-legacy-wine32 --report compatibility-evidence/wine-legacy.json
       - name: Save operation evidence
         if: always()
         uses: actions/upload-artifact@v4

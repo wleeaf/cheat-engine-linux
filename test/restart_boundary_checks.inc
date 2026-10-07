@@ -43,7 +43,7 @@ static void restartBoundaryBackend(const char* path) {
             ptrace(PTRACE_GETREGS,fixture.pid,nullptr,&original)==0;
         auto extended=owned ? captureNativeExtendedContext(fixture.pid) :
             std::expected<NativeExtendedContext,std::error_code>(std::unexpected(std::make_error_code(std::errc::io_error)));
-        std::array<uint8_t,32> savedScratch{},scratchAfter{};
+        std::array<uint8_t,32> savedScratch{};
         require(owned && extended && readMemory(fixture.pid,*scratch,savedScratch.data(),savedScratch.size())==savedScratch.size(),
             "the original stop supplies independently captured full GP, extended state and private instructions");
         if (!owned || !extended) return;
@@ -85,6 +85,8 @@ static void restartBoundaryBackend(const char* path) {
         if (variant==1) arguments[2]=PROT_READ;
         if (variant==2) arguments={*storage,page,PROT_READ|PROT_WRITE,MAP_FIXED|MAP_PRIVATE|MAP_ANONYMOUS,UINT64_MAX,0};
         const auto permissions=boundaryPermissions(fixture.pid,*storage);
+        extended=captureNativeExtendedContext(fixture.pid);
+        if (!extended) return;
         auto result=executeStoppedMemorySyscall(fixture.pid,host,operation,arguments,*scratch);
         require(completed || userCode ? result && *result==0 && boundaryPermissions(fixture.pid,*storage).empty() :
             !result && result.error().code==std::errc::operation_not_permitted && !result.error().completedValue,
@@ -94,8 +96,7 @@ static void restartBoundaryBackend(const char* path) {
         const bool bytes=completed || userCode ? readMemory(fixture.pid,after,&trap,1)==1 && trap==0xcc :
             readMemory(fixture.pid,edge,observedCode.data(),observedCode.size())==observedCode.size() && observedCode==code &&
             boundaryPermissions(fixture.pid,*storage)==permissions;
-        require(bytes && ptrace(PTRACE_GETREGS,fixture.pid,nullptr,&observed)==0 && !std::memcmp(&parked,&observed,sizeof(parked)) &&
-            verifyNativeExtendedContext(fixture.pid,*extended) && readMemory(fixture.pid,*scratch,scratchAfter.data(),scratchAfter.size())==scratchAfter.size() && scratchAfter==savedScratch,
+        require(boundaryContextExact(fixture.pid,parked,*extended,*scratch,savedScratch,bytes,variant,"RESTART_BOUNDARY"),
             "the operation returns exact GP, syscall restart metadata, extended state and original private instructions");
         const char value='z';
         bool resumed=(completed || userCode || ::write(fixture.input,&value,1)==1) &&

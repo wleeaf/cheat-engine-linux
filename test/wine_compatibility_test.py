@@ -46,6 +46,7 @@ def main():
         "sourceRef": os.environ.get("GITHUB_REF"),
         "utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "status": "failed",
+        "effectiveUid": os.geteuid(),
         "stage": "fixture-build",
         "driverSha256": hashlib.sha256((build / "wine_integration").read_bytes()).hexdigest(),
         "assemblerSha256": hashlib.sha256((build / "cescan").read_bytes()).hexdigest(),

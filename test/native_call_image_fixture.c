@@ -31,7 +31,10 @@ __attribute__((noinline)) static uintptr_t exec_callee(unsigned notify) {
     if(fd<0) _exit(20);
     char id[32],address[32],descriptor[32];
     snprintf(id,sizeof(id),"%ld",(long)memory_peer);
-    snprintf(address,sizeof(address),"%lx",(unsigned long)frame);
+    // A callee exec starts a fresh application; the old mm remains available
+    // through its peer and descriptor. Frame-address reuse belongs to the
+    // explicit 'X' image-affinity scenario below, not this exec notification.
+    snprintf(address,sizeof(address),"%x",0);
     snprintf(descriptor,sizeof(descriptor),"%d",fd);
     execl("/proc/self/exe","call-image-fixture",id,address,descriptor,"replacement",NULL);
     _exit(21);

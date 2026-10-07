@@ -7,6 +7,35 @@ static std::string boundaryPermissions(pid_t tid,uintptr_t address) {
     }
     return {};
 }
+static bool boundaryContextExact(pid_t tid,const user_regs_struct& expected,NativeExtendedContext& extended,
+    uintptr_t scratch,const std::array<uint8_t,32>& expectedScratch,bool code,unsigned variant,const char* suite) {
+    user_regs_struct actual{};std::array<uint8_t,32> actualScratch{};
+    const bool gp=ptrace(PTRACE_GETREGS,tid,nullptr,&actual)==0 && !std::memcmp(&expected,&actual,sizeof(actual));
+    const bool fp=verifyNativeExtendedContext(tid,extended).has_value();
+    const bool bytes=readMemory(tid,scratch,actualScratch.data(),actualScratch.size())==actualScratch.size() && actualScratch==expectedScratch;
+    if (!(code && gp && fp && bytes)) {
+        std::printf("%s_CONTEXT variant=%u code=%d gp=%d extended=%d scratch=%d\n",suite,variant,code,gp,fp,bytes);
+        if (!gp) {
+            for (size_t offset=0;offset<sizeof(actual);offset+=sizeof(uint64_t)) {
+                uint64_t old=0,now=0;std::memcpy(&old,reinterpret_cast<const uint8_t*>(&expected)+offset,sizeof(old));
+                std::memcpy(&now,reinterpret_cast<const uint8_t*>(&actual)+offset,sizeof(now));
+                if (old!=now) std::printf("%s_GP offset=%zu expected=%llx actual=%llx\n",suite,offset,
+                    static_cast<unsigned long long>(old),static_cast<unsigned long long>(now));
+            }
+        }
+        if (!fp) for (auto& bank:extended.regsets) {
+            iovec io{bank.verification.data(),bank.verification.size()};
+            if (ptrace(PTRACE_GETREGSET,tid,reinterpret_cast<void*>(uintptr_t(bank.note)),&io)<0 || io.iov_len!=bank.bytes.size()) {
+                std::printf("%s_EXTENDED_READ note=%x errno=%d length=%zu\n",suite,bank.note,errno,io.iov_len);continue;
+            }
+            for (size_t offset=0;offset<bank.bytes.size();++offset) if (bank.bytes[offset]!=bank.verification[offset]) {
+                std::printf("%s_EXTENDED note=%x offset=%zu expected=%x actual=%x\n",suite,bank.note,offset,bank.bytes[offset],bank.verification[offset]);break;
+            }
+        }
+        fflush(stdout);
+    }
+    return code && gp && fp && bytes;
+}
 static void returnBoundaryBackend(const char* path) {
     const int initial=failures;unsigned count=0;
     const auto require=[&](bool ok,const char* name) {
@@ -27,7 +56,7 @@ static void returnBoundaryBackend(const char* path) {
     user_regs_struct original{};
     require(stopped && ptrace(PTRACE_GETREGS,fixture.pid,nullptr,&original)==0,"the original application supplies a full real register bank under its ptrace owner");
     if (!stopped) return;
-    auto extended=captureNativeExtendedContext(fixture.pid);std::array<uint8_t,32> savedScratch{},scratchAfter{};
+    auto extended=captureNativeExtendedContext(fixture.pid);std::array<uint8_t,32> savedScratch{};
     require(extended && readMemory(fixture.pid,*scratch,savedScratch.data(),savedScratch.size())==savedScratch.size(),
         "the boundary owner independently snapshots the original extended state and private code");
     if (!extended) return;
@@ -44,13 +73,16 @@ static void returnBoundaryBackend(const char* path) {
         auto prepared=original;prepared.rip=edge;prepared.rax=0;prepared.orig_rax=UINT64_MAX;
         if (shortInstruction) prepared.rsp=stack;
         const auto permissions=boundaryPermissions(fixture.pid,base+page);
-        require(written && ptrace(PTRACE_SETREGS,fixture.pid,nullptr,&prepared)==0,
+        require(written && ptrace(PTRACE_SETREGS,fixture.pid,nullptr,&prepared)==0 &&
+            ptrace(PTRACE_GETREGS,fixture.pid,nullptr,&prepared)==0,
             shortInstruction ? "a real one-byte RET fits at the page end and owns a stack return to mapped code" :
             "a real five-byte MOV begins at the last page byte and requires the following page");
         const auto operation=variant==1 ? MemorySyscall::Protect : variant==2 ? MemorySyscall::Map : MemorySyscall::Unmap;
         std::array<uint64_t,6> args{base+page,page,0,0,0,0};
         if (variant==1) args[2]=PROT_READ;
         if (variant==2) args={base+page,page,PROT_READ|PROT_WRITE,MAP_FIXED|MAP_PRIVATE|MAP_ANONYMOUS,UINT64_MAX,0};
+        extended=captureNativeExtendedContext(fixture.pid);
+        if (!extended) return;
         auto result=executeStoppedMemorySyscall(fixture.pid,host,operation,args,*scratch);
         require(shortInstruction ? result && *result==0 && boundaryPermissions(fixture.pid,base+page).empty() :
             !result && result.error().code==std::errc::operation_not_permitted && !result.error().completedValue,
@@ -63,8 +95,7 @@ static void returnBoundaryBackend(const char* path) {
         user_regs_struct observed{};std::array<uint8_t,6> code{};uint8_t afterRet=0;
         const bool bytes=shortInstruction ? readMemory(fixture.pid,edge,&afterRet,1)==1 && afterRet==ret :
             readMemory(fixture.pid,edge,code.data(),code.size())==code.size() && code==program && boundaryPermissions(fixture.pid,base+page)==permissions;
-        require(bytes && ptrace(PTRACE_GETREGS,fixture.pid,nullptr,&observed)==0 && !std::memcmp(&prepared,&observed,sizeof(prepared)) &&
-            verifyNativeExtendedContext(fixture.pid,*extended) && readMemory(fixture.pid,*scratch,scratchAfter.data(),scratchAfter.size())==scratchAfter.size() && scratchAfter==savedScratch,
+        require(boundaryContextExact(fixture.pid,prepared,*extended,*scratch,savedScratch,bytes,variant,"RETURN_BOUNDARY"),
             "the page-boundary operation preserves exact code, GP, extended state and private instructions");
         const bool resumed=ptrace(PTRACE_CONT,fixture.pid,nullptr,nullptr)==0 && waitpid(fixture.pid,&status,__WALL)==fixture.pid && WIFSTOPPED(status);
         const bool bank=resumed && ptrace(PTRACE_GETREGS,fixture.pid,nullptr,&observed)==0;

@@ -13,6 +13,40 @@ local checks for this commit. Older evidence snapshots describe the source and
 binaries tested at their own checkpoint; their counts must not be added together
 as a count of unique tests or presented as fresh checks of every environment.
 
+## Hosted CI investigation: 7 October 2026
+
+GitHub completed the [checkpoint workflow](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37518824607)
+for `1f5a198` with four failed jobs. Compilation passed. Native and sanitizer
+jobs failed the return/restart context and queued-hardware-trap tests. Legacy
+Wine64 failed process access (`Permission denied`); PE32 passed. The x32 exec
+fixture failed replacement mapping with `EEXIST`. ARM64 kernel, ARM64 frontend
+and Wine WoW64 jobs passed. The red check therefore represents actual failing
+required tests and is not a release badge or a compilation failure.
+
+This follow-up updates the boundary tests to capture the actual bank immediately
+before each operation, with per-field diagnostics while retaining exact GP,
+extended-state, code and scratch comparisons. The hardware race fixture now
+includes immediate interrupts as well as scheduler yields and sleeps; it still
+requires an actual kernel interrupt stop with a queued hardware trap. Callee-exec
+notification fixtures start a clean replacement while explicit image-affinity
+scenarios retain identical-address frame copying. The isolated legacy Wine CI
+step receives explicit ptrace privileges, like the existing WoW64 container;
+its report records the effective UID. Host kernel settings are unchanged.
+
+Local verification used a separately compiled driver from the selected CI
+source, with baseline product code and cached objects. Both complete native
+x86-64/i386 profiles passed. The native exec gate and a real 128 MiB x32 kernel
+exec gate each passed all 475 required assertions. Builds were serial at reduced
+priority. [Investigation evidence](compatibility-evidence/hosted-ci-investigation.json)
+records the hosted failures, local results, source hashes and their limits.
+
+**Still required:** observe the replacement hosted run, use the new diagnostics
+to resolve any remaining register or hardware-race failure, and confirm legacy
+Wine privileges on Ubuntu. Local passes do not establish a green hosted check.
+The separate mixed-ABI restart adapter remains work in progress and is excluded
+from this CI commit; additional recovery, policy, signal and exit/exec proofs
+are still required before publication.
+
 ## 1. Feature-by-target compatibility matrix
 
 ### Completed work
@@ -201,8 +235,8 @@ as a count of unique tests or presented as fresh checks of every environment.
 
 ### Remaining work
 
-- Observe the hosted workflows for the pushed source revision and resolve any
-  environment-specific failures. Local reports do not prove hosted CI completed.
+- Resolve the four observed hosted failures described above and verify the
+  replacement workflow. Local reports do not prove hosted CI completed.
 - Add mandatory gates for the additional supported environments/features as
   those adapters and real fixtures become available.
 - Run a new release against the required gates when a release is requested.

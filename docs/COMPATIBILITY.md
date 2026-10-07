@@ -21,6 +21,15 @@ debug transport. Backend availability and verified coverage are separate concept
 | 5. Failure and recovery coverage | Exit/exec, thread changes, unmapped/partial memory, disconnects, interrupted injection, repeated attach/detach; target liveness and restoration verified | Exit/exec, failed and partial injection cleanup, FULLACCESS rollback, saved undo retirement/copy/reuse ownership, split return-instruction and interrupted-read restart-page protection, replaced-code conflicts, repeated Wine watchpoint attach/detach and scanner worker failure/join/cleanup/retry covered; published private-scratch mixed-ABI timer, shared-mm exec/death, completed-ticket operation guards and selected-thread allocation handoff tested; policy, ownership, concurrency, transport and broader runtime cases pending |
 | 6. Required release gates | Required environments cannot skip; packaging waits for their checks and publishes an evidence report | Required native/model, GDB/QEMU CPU/RAM, legacy Wine32, WoW64, x32, ARM32/Thumb kernel primitive, ARM64 kernel/frontend and real Mono checks precede release packaging and save evidence; published mixed-ABI/ownership checkpoint passes all seven required jobs; broader environments and feature combinations still need implementation and live evidence |
 
+The subsequent [applied-detach recovery checks](PROGRESS.md#applied-detach-and-live-task-esrch-recovery-7-october-2026)
+verify live x86-64/i386 memory-service recovery when a real detach is followed
+by a reported error. Confirmed release drains without replaying old context;
+unreturned allocations are reclaimed and service shutdown completes while the
+original application remains alive. The check requires actual kernel ESRCH,
+independent full-context verification and zero post-release write attempts.
+Still-owned running ESRCH, concurrent re-attachment, exit before confirmation
+and the same fault scenarios on other backends remain unverified.
+
 Do not mark this work complete until every row has sufficient current evidence.
 Update this table as implementation and live validation progress.
 

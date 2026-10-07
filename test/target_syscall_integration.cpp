@@ -3179,6 +3179,7 @@ static void threadInspectionBackend(const char* path) {
 #include "test/mixed_abi_restart_checks.inc"
 #include "test/completed_image_guard_checks.inc"
 #include "test/service_thread_death_checks.inc"
+#include "test/service_detach_release_checks.inc"
 
 int main(int argc,char** argv) {
     signal(SIGPIPE,SIG_IGN);
@@ -3216,6 +3217,9 @@ int main(int argc,char** argv) {
         return failures ? 1 : 0;
     }
 #if defined(__x86_64__)
+    if (!init && argc==3 && std::strcmp(argv[1],"--service-detach-release-only")==0) {
+        serviceDetachReleaseBackend(argv[2]); return failures ? 1 : 0;
+    }
     if (!init && argc==3 && std::strcmp(argv[1],"--service-thread-death-only")==0) {
         serviceThreadDeathBackend(argv[2]); return failures ? 1 : 0;
     }

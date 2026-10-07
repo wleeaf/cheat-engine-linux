@@ -39,6 +39,18 @@ uint64_t detachExitAllocation();
 bool detachExitAllocationPresent();
 bool survivorContextVerified();
 void clearDetachExit();
+struct DetachReleaseObservation {
+    bool released=false,context=false,mapped=false,kernelNoSuch=false;
+    pid_t owner=0;
+    uint64_t allocation=0;
+    unsigned replayAttempts=0;
+};
+// Independently capture the original stopped bank, then report an error only
+// after a real DETACH has released it. Observe real ESRCH on the live task.
+void watchDetachRelease(pid_t tid);
+void releaseBeforeDetachError(pid_t tid);
+DetachReleaseObservation detachReleaseObservation();
+void clearDetachRelease();
 // Arrange a real INTERRUPT stop with an owned hardware trap still queued.
 void queueHardwareRace(pid_t tid,uintptr_t address,int signal=0);
 bool hardwareRaceObserved();

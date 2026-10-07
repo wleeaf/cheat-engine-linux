@@ -1,0 +1,439 @@
+{
+  "schemaVersion": 1,
+  "suite": "actual-applied-detach-live-task-esrch-recovery",
+  "createdUtc": "2026-10-07T13:36:11.394885+00:00",
+  "baseRevision": "50c2bc640a5e5c5e3efaa82e160309f193eefa63",
+  "sourceState": "tested working tree; published by containing commit",
+  "fullCompatibilityComplete": false,
+  "sourceHashes": [
+    {
+      "path": "CMakeLists.txt",
+      "sha256": "b2799435afecebe0f8ceb1a1a9be95c7bc904b4696b117bb5cb5d0ecdf22b6d7"
+    },
+    {
+      "path": "platform/linux/target_syscall.cpp",
+      "sha256": "20367c9c84b4329a0d0bb378a94fa932a436a028c607115469544dba9d0fe465"
+    },
+    {
+      "path": "platform/linux/target_syscall.hpp",
+      "sha256": "10b8169672bfc15715afdcca054e29595bc0458141d9b3e4e78448555ea47297"
+    },
+    {
+      "path": "platform/linux/syscall_service.cpp",
+      "sha256": "692c6617c86cd439b1ad124c52b1e929feae4dbd655cf43489ad1e43026a539b"
+    },
+    {
+      "path": "platform/linux/memory_image.cpp",
+      "sha256": "5107ece1a4a34c2455a8b86bc92914378914e8d595fc36bf9a9af66a13ff4576"
+    },
+    {
+      "path": "platform/linux/register_image.cpp",
+      "sha256": "f04871192905e518f82af03b49f4ed9c8381205c98262dda8abc738e32ccb03a"
+    },
+    {
+      "path": "test/target_syscall_integration.cpp",
+      "sha256": "bd9349091a589c07292a20f966b890c151d9ac7745fcfea8e68961dc7dc3aadb"
+    },
+    {
+      "path": "test/syscall_faults.cpp",
+      "sha256": "04cd9ca234bc37f70b77b97882850d27268f71d5ad34be4f3c539ce4b6d296ff"
+    },
+    {
+      "path": "test/syscall_faults.hpp",
+      "sha256": "0db6d502443d42fd99c454fa83d6169130a5eded9390f239aa707aac3d7785b2"
+    },
+    {
+      "path": "test/service_detach_release_checks.inc",
+      "sha256": "9d06da96522c76001f6f7b29d574dbb809b692c8fd41159813b2d64f4581d2a6"
+    },
+    {
+      "path": "test/service_thread_death_checks.inc",
+      "sha256": "f4ffd9fcfff6bc0924706ea7b1a22d330d25700c7577bfc99aa5203f3b5409bb"
+    },
+    {
+      "path": "test/compatibility_fixture.c",
+      "sha256": "1ba2394e40c0ade842e1810bc69e10344c0d43891f57fdb61f85c830466023d9"
+    },
+    {
+      "path": "test/native_syscall_gate.py",
+      "sha256": "ff28adc59ecad98f5110eedf67b3bb204f9a155da1e696a8ca3e64d135eafa7e"
+    },
+    {
+      "path": "test/mixed_abi_restart_checks.inc",
+      "sha256": "32aa3055c3b1c6aee801976c3ba9af2ec10c55943c6c833e7895c68eb8c0049a"
+    },
+    {
+      "path": "test/completed_image_guard_checks.inc",
+      "sha256": "106f045773df0c9b127ae5b5a200f867054523d72c9f3c13278ed7c3deb9a447"
+    }
+  ],
+  "baseline": {
+    "productionSha256": "4c8527b097ddced229dafbc01069a4c12d55ecd31ed1a7d7df037bb5f83def6d",
+    "recordedSourceAndDriverHashes": {
+      "path": "build/.ci-tmp/mixed-abi-product/detach-release-before-final-hashes.txt",
+      "sha256": "6990c5afe1684e389b80387b790a78ab353c2ca7eca564329cf3613aaa49e9fb"
+    },
+    "profiles": [
+      {
+        "bits": 64,
+        "exitCode": 1,
+        "checks": 26,
+        "failedChecks": [
+          "an already applied detach reports its completed mmap without retaining obsolete context",
+          "recovery completes without trying to restore an already released running context",
+          "recovery makes no register, instruction or signal-state write attempt after releasing its original ownership",
+          "recovery completes without trying to restore an already released running context",
+          "recovery makes no register, instruction or signal-state write attempt after releasing its original ownership",
+          "service destruction completes and joins after the real detach without waiting for application exit",
+          "recovery makes no register, instruction or signal-state write attempt after releasing its original ownership",
+          "the same original application and mm stay alive and make actual CPU progress after recovery"
+        ],
+        "log": {
+          "path": "build/.ci-tmp/mixed-abi-product/detach-release-before64-final.log",
+          "sha256": "de354bfb177d169c843c6eb79acbf295eb5019b26dc2fa8130e3c2d0b101431e"
+        },
+        "actualKernelEvents": [
+          "SERVICE_REAL_DETACH tid=1426680 owner=1426681 context=1 allocation=7f82da2d2000 mapped=1 alive=1 esrch=1",
+          "SERVICE_REAL_DETACH tid=1426682 owner=1426683 context=1 allocation=7fbbae799000 mapped=1 alive=1 esrch=1",
+          "SERVICE_REAL_DETACH tid=1426684 owner=1426685 context=1 allocation=7fe0337b5000 mapped=1 alive=1 esrch=1"
+        ],
+        "observations": [
+          "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-64 phase=before-record drained=0 replays=10",
+          "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-64 phase=after-record drained=0 replays=4",
+          "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-64 phase=shutdown drained=0 replays=38"
+        ]
+      },
+      {
+        "bits": 32,
+        "exitCode": 1,
+        "checks": 26,
+        "failedChecks": [
+          "an already applied detach reports its completed mmap without retaining obsolete context",
+          "recovery completes without trying to restore an already released running context",
+          "recovery makes no register, instruction or signal-state write attempt after releasing its original ownership",
+          "recovery completes without trying to restore an already released running context",
+          "recovery makes no register, instruction or signal-state write attempt after releasing its original ownership",
+          "service destruction completes and joins after the real detach without waiting for application exit",
+          "recovery makes no register, instruction or signal-state write attempt after releasing its original ownership",
+          "the same original application and mm stay alive and make actual CPU progress after recovery"
+        ],
+        "log": {
+          "path": "build/.ci-tmp/mixed-abi-product/detach-release-before32-final.log",
+          "sha256": "d3102c7a085fc534573a8377f9c3f8792dd6443990c1a9ccb22a844926cb37fb"
+        },
+        "actualKernelEvents": [
+          "SERVICE_REAL_DETACH tid=1426701 owner=1426702 context=1 allocation=f7f14000 mapped=1 alive=1 esrch=1",
+          "SERVICE_REAL_DETACH tid=1426703 owner=1426704 context=1 allocation=f7f4d000 mapped=1 alive=1 esrch=1",
+          "SERVICE_REAL_DETACH tid=1426705 owner=1426706 context=1 allocation=f7fb9000 mapped=1 alive=1 esrch=1"
+        ],
+        "observations": [
+          "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-32 phase=before-record drained=0 replays=10",
+          "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-32 phase=after-record drained=0 replays=4",
+          "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-32 phase=shutdown drained=0 replays=38"
+        ]
+      }
+    ],
+    "failureCleanup": "Shutdown exceeds its two-second bound; the test kills and reaps its own fixture before joining the stuck service. Its ensuing liveness failure is induced by that bounded failure cleanup.",
+    "excludedDiagnostic": "An earlier diagnostic timed out because failure cleanup did not reap before joining. It is not either definitive before-fix run."
+  },
+  "method": "Independently capture and verify real stopped GP, extended state and signal mask; apply the actual DETACH with its original signal argument; only after real success report EIO. Actual GETREGS then returns ESRCH while kill(pid,0) confirms a live task. No replacement register values, fake wait events or manufactured proc status.",
+  "fix": "Require a detach attempt following verified restoration or pre-mutation/image-retirement recovery, original task birth, real kernel stop probe and actual TracerPid zero before acknowledging release. Unavailable ownership proof remains retryable. Do not replay old context after confirmed release. Retired images retain cancellation across failed detach.",
+  "verification": {
+    "focused": [
+      {
+        "bits": 64,
+        "exitCode": 0,
+        "checks": 36,
+        "log": {
+          "path": "build/.ci-tmp/mixed-abi-product/detach-release-after64.log",
+          "sha256": "e239be9551cc42d1d0fdc338cca53b5f982f666b40dbc5976ee1dab465b3956a"
+        },
+        "actualKernelEvents": [
+          "SERVICE_REAL_DETACH tid=1432171 owner=1432172 context=1 allocation=7f0cc78f7000 mapped=1 alive=1 esrch=1",
+          "SERVICE_REAL_DETACH tid=1432173 owner=1432174 context=1 allocation=7fbb81366000 mapped=1 alive=1 esrch=1",
+          "SERVICE_REAL_DETACH tid=1432175 owner=1432176 context=1 allocation=7f2495039000 mapped=1 alive=1 esrch=1"
+        ],
+        "observations": [
+          "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-64 phase=before-record drained=1 replays=0",
+          "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-64 phase=after-record drained=1 replays=0",
+          "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-64 phase=shutdown drained=1 replays=0"
+        ]
+      },
+      {
+        "bits": 32,
+        "exitCode": 0,
+        "checks": 36,
+        "log": {
+          "path": "build/.ci-tmp/mixed-abi-product/detach-release-after32.log",
+          "sha256": "c6cd5480a3af15af26e1e874f3f81966412643fd49fbedf0cc3e7be8600d5982"
+        },
+        "actualKernelEvents": [
+          "SERVICE_REAL_DETACH tid=1432297 owner=1432298 context=1 allocation=f7f8d000 mapped=1 alive=1 esrch=1",
+          "SERVICE_REAL_DETACH tid=1432299 owner=1432300 context=1 allocation=f7f7e000 mapped=1 alive=1 esrch=1",
+          "SERVICE_REAL_DETACH tid=1432301 owner=1432302 context=1 allocation=f7fb8000 mapped=1 alive=1 esrch=1"
+        ],
+        "observations": [
+          "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-32 phase=before-record drained=1 replays=0",
+          "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-32 phase=after-record drained=1 replays=0",
+          "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-32 phase=shutdown drained=1 replays=0"
+        ]
+      }
+    ],
+    "normalNativeGate": {
+      "status": "passed",
+      "report": {
+        "path": "build/.ci-tmp/mixed-abi-product/detach-release-native-gate.json",
+        "sha256": "be0917021bd4098db4713c4874e4dd9c0261a74763887ac8eb71166cfc7b77d1"
+      },
+      "driverSha256": "510f74f6de2e054022aaf163440a7dd37e34206639ea3a9f2fd173f54c24d529",
+      "targets": [
+        {
+          "bits": 64,
+          "status": "passed",
+          "checks": 940,
+          "fixtureSha256": "d0e8c2664aca2bf48f2af7a54a1a46398ec8cf91ddacb4b7b6049974aaabeba6",
+          "serviceThreadDeath": {
+            "checks": 38,
+            "status": "passed"
+          },
+          "serviceDetachRelease": {
+            "checks": 36,
+            "status": "passed"
+          },
+          "mixedAbiLifecycle": {
+            "checks": 400,
+            "status": "passed"
+          },
+          "mixedAbiSharedExec": {
+            "checks": 288,
+            "status": "passed"
+          },
+          "mixedAbiSharedDeath": {
+            "checks": 369,
+            "status": "passed"
+          },
+          "completedImageGuard": {
+            "checks": 57,
+            "status": "passed"
+          }
+        },
+        {
+          "bits": 32,
+          "status": "passed",
+          "checks": 667,
+          "fixtureSha256": "1001ac5bda24c7ae73690e16413f179cff58c59a098f4fa0ff9c0a133a134a3e",
+          "serviceThreadDeath": {
+            "checks": 38,
+            "status": "passed"
+          },
+          "serviceDetachRelease": {
+            "checks": 36,
+            "status": "passed"
+          }
+        }
+      ]
+    },
+    "asanNativeGate": {
+      "status": "passed",
+      "report": {
+        "path": "build/.ci-tmp/mixed-abi-product/detach-release-asan-fresh-gate.json",
+        "sha256": "2ee5cd8f8475fd0c73998d39d70665809004e8ef007566ffe2aac62ddb8b3f48"
+      },
+      "driverSha256": "f7b23ba293e97e316022b4deda9e4d49388a2893c2856d31b8a87c17d9c14c6a",
+      "targets": [
+        {
+          "bits": 64,
+          "status": "passed",
+          "checks": 940,
+          "fixtureSha256": "07566cd0d1e2ff691769fae5abd1a4569368f0d184ba5662a281d89b02f91482",
+          "serviceThreadDeath": {
+            "checks": 38,
+            "status": "passed"
+          },
+          "serviceDetachRelease": {
+            "checks": 36,
+            "status": "passed"
+          },
+          "mixedAbiLifecycle": {
+            "checks": 400,
+            "status": "passed"
+          },
+          "mixedAbiSharedExec": {
+            "checks": 288,
+            "status": "passed"
+          },
+          "mixedAbiSharedDeath": {
+            "checks": 369,
+            "status": "passed"
+          },
+          "completedImageGuard": {
+            "checks": 57,
+            "status": "passed"
+          }
+        },
+        {
+          "bits": 32,
+          "status": "passed",
+          "checks": 667,
+          "fixtureSha256": "68e6acaa872bcd25e225e5ebd1fad683874e14db76d7f8abe024082b285be790",
+          "serviceThreadDeath": {
+            "checks": 38,
+            "status": "passed"
+          },
+          "serviceDetachRelease": {
+            "checks": 36,
+            "status": "passed"
+          }
+        }
+      ]
+    },
+    "asanOptions": "detect_leaks=1:abort_on_error=1",
+    "ubsanOptions": "halt_on_error=1:print_stacktrace=1",
+    "nativeCalls": [
+      {
+        "configuration": "normal",
+        "status": "passed",
+        "report": {
+          "path": "build/.ci-tmp/mixed-abi-product/detach-release-normal-call-gate.json",
+          "sha256": "3875f7650054a2492d50b48446388264702fc6c00e377d6e8a01747c168c7e6c"
+        },
+        "coreSha256": "6d8daa2fbc2ad6a27d000dcee33fb14ad06f676a550d9fa90fa918994e35e2c8",
+        "targets": [
+          {
+            "width": 8,
+            "status": "passed",
+            "injectionChecks": 45,
+            "workerImageChecks": 83,
+            "calleeExecChecks": 475
+          },
+          {
+            "width": 4,
+            "status": "passed",
+            "injectionChecks": 45,
+            "workerImageChecks": 83,
+            "calleeExecChecks": 475
+          }
+        ]
+      },
+      {
+        "configuration": "asan",
+        "status": "passed",
+        "report": {
+          "path": "build/.ci-tmp/mixed-abi-product/detach-release-asan-call-gate.json",
+          "sha256": "713aaef11b05f4bfc6357ebdabaca9ea84df2bf1192ad11f79fe03508098b652"
+        },
+        "coreSha256": "9e9cb8466f01cb85026081df7f2582c4f11488ee2b68837a5adaa6b50da3f3f2",
+        "targets": [
+          {
+            "width": 8,
+            "status": "passed",
+            "injectionChecks": 45,
+            "workerImageChecks": 83,
+            "calleeExecChecks": 475
+          },
+          {
+            "width": 4,
+            "status": "passed",
+            "injectionChecks": 45,
+            "workerImageChecks": 83,
+            "calleeExecChecks": 475
+          }
+        ]
+      }
+    ],
+    "sharedMemoryImage": [
+      {
+        "configuration": "normal",
+        "passed": true,
+        "report": {
+          "path": "build/.ci-tmp/mixed-abi-product/detach-release-normal-image-gate.json",
+          "sha256": "cfbc468ab85338b0780d4eaa99a0804d643bf3cdbfcf17e1e16d0412e9dae1ad"
+        },
+        "checks": 42,
+        "coreSha256": "6d8daa2fbc2ad6a27d000dcee33fb14ad06f676a550d9fa90fa918994e35e2c8"
+      },
+      {
+        "configuration": "asan",
+        "passed": true,
+        "report": {
+          "path": "build/.ci-tmp/mixed-abi-product/detach-release-asan-image-gate.json",
+          "sha256": "7378469e3f2443d718999d68bc564fff5e118b5b6ed8212616f1ac4aab40427d"
+        },
+        "checks": 42,
+        "coreSha256": "9e9cb8466f01cb85026081df7f2582c4f11488ee2b68837a5adaa6b50da3f3f2"
+      }
+    ],
+    "arm64Regression": {
+      "status": "passed",
+      "report": {
+        "path": "build/.ci-tmp/mixed-abi-product/detach-release-arm64.json",
+        "sha256": "ac8990f67ccfd3bc6586ccb426552581e490c17f2ba4ce751d202b43322ae0f5"
+      },
+      "assertions": 906,
+      "ramMiB": 128,
+      "cpus": 2,
+      "pageSize": 4096,
+      "scope": "Existing real-kernel syscall/debugger/call regressions; new applied-detach fault hook is x86-controller-only."
+    }
+  },
+  "intermediateStaleFixture": {
+    "report": {
+      "path": "build/.ci-tmp/mixed-abi-product/detach-release-asan-gate.json",
+      "sha256": "2c7bdf2d6522dca50b2d92a597ea2838af6664cdd2aac078bb46ebd84ebbafee"
+    },
+    "status": "failed",
+    "priorFixtureSha256": "8912fcd4e87770373aad1a99181438b76d9b2cdae3456be2af57d3039f540050",
+    "observation": "The sanitizer driver passed its full 940-check x64 profile, then its thread-death child failed the startup command assertion against a cached fixture predating lowercase o. Rebuild both fixtures and add target dependencies; retain this attempt separately from fresh sanitizer results."
+  },
+  "priorHostedRun": {
+    "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37625438177",
+    "headSha": "50c2bc640a5e5c5e3efaa82e160309f193eefa63",
+    "status": "completed",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "sanitizers",
+        "conclusion": "success",
+        "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37625438177/job/112805878330"
+      },
+      {
+        "name": "arm64-compatibility / arm64-frontends",
+        "conclusion": "success",
+        "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37625438177/job/112805878677"
+      },
+      {
+        "name": "x32-compatibility / x32-native-calls",
+        "conclusion": "success",
+        "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37625438177/job/112805878740"
+      },
+      {
+        "name": "ubuntu-build",
+        "conclusion": "success",
+        "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37625438177/job/112805878786"
+      },
+      {
+        "name": "arm64-compatibility / arm64-syscalls",
+        "conclusion": "success",
+        "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37625438177/job/112805878849"
+      },
+      {
+        "name": "wine-compatibility / legacy-wine",
+        "conclusion": "success",
+        "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37625438177/job/112805878984"
+      },
+      {
+        "name": "wine-compatibility / wow64-wine",
+        "conclusion": "success",
+        "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37625438177/job/112805879049"
+      }
+    ],
+    "scope": "Earlier documentation closeout; not hosted proof of this new product change."
+  },
+  "resourcePolicy": "Cached builds, nice -n10, one compiler job, serial suites and a single 128 MiB ARM guest. No host package or kernel changes.",
+  "limits": [
+    "Applied-detach fault scenarios directly cover native x64 and i386 memory-service maps in three phases.",
+    "Still-owned running ESRCH, exit before ownership confirmation including unreaped tasks, concurrent re-attachment, namespace visibility and transient proc ownership failures remain.",
+    "Existing ARM regression is distinct from direct applied-detach evidence; x32, ARM, Wine, remote, native-call owners and independent GUI/CLI/Lua need their own scenarios.",
+    "The six-area compatibility objective remains active; no new release is created."
+  ]
+}

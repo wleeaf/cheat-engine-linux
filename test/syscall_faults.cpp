@@ -59,7 +59,12 @@ static std::atomic<bool> exitedBeforeDetach{false},exitContextReady{false},survi
 static std::atomic<uintptr_t> exitingFlag{0};
 static std::atomic<uint64_t> exitingAllocation{0};
 static std::atomic<bool> exitingAllocationPresent{false};
+static std::atomic<pid_t> releasingDetachTid{0},releasedOwner{0};
+static std::atomic<bool> releasedDetach{false},releasedContext{false},releasedMapped{false},releasedNoSuch{false};
+static std::atomic<uint64_t> releasedAllocation{0};
+static std::atomic<unsigned> releasedReplayAttempts{0};
 #if defined(__x86_64__)
+static thread_local bool releasedRunning=false;
 static thread_local user_regs_struct survivorOriginal;
 static thread_local uint64_t survivorMask;
 static thread_local std::optional<ce::os::NativeExtendedContext> survivorBanks;
@@ -95,6 +100,17 @@ uint64_t detachExitAllocation() {return exitingAllocation;}
 bool detachExitAllocationPresent() {return exitingAllocationPresent;}
 bool survivorContextVerified() {return survivorVerified;}
 void clearDetachExit() {exitingDetachTid=0;survivorDetachTid=0;}
+void watchDetachRelease(pid_t tid) {
+    releasingDetachTid=0;releasedDetach=false;releasedContext=false;releasedMapped=false;
+    releasedNoSuch=false;releasedOwner=0;releasedAllocation=0;
+    releasedReplayAttempts=0;
+    survivorVerified=false;survivorDetachTid=tid;
+}
+void releaseBeforeDetachError(pid_t tid) {releasingDetachTid=tid;}
+DetachReleaseObservation detachReleaseObservation() {
+    return {releasedDetach.load(),releasedContext.load(),releasedMapped.load(),releasedNoSuch.load(),releasedOwner.load(),releasedAllocation.load(),releasedReplayAttempts.load()};
+}
+void clearDetachRelease() {releasingDetachTid=0;survivorDetachTid=0;}
 void queueHardwareRace(pid_t tid,uintptr_t address,int signal) {
     hardwareRaceSeen=false;hardwareRaceAddress=address;hardwareRaceSignal=signal;hardwareRaceTid=tid;
 }
@@ -228,6 +244,8 @@ extern "C" long __wrap_ptrace(enum __ptrace_request request, ...) {
     va_end(args);
     if (request==PTRACE_SEIZE) { stepped=false; resultSaved=false; contextReturnStarted=false; }
 #if defined(__x86_64__)
+    if (releasedRunning && (request==PTRACE_SETREGS || request==PTRACE_SETREGSET || request==PTRACE_POKETEXT ||
+        request==PTRACE_SETSIGMASK || request==PTRACE_SETSIGINFO)) ++releasedReplayAttempts;
     if (request==PTRACE_SEIZE && survivorDetachTid==pid) {survivorCaptured=false;survivorBanks.reset();}
     if (request==PTRACE_DETACH && current==Fault::Detach && exitingDetachTid==pid) {
         exitingDetachTid=0;exitingOwner=static_cast<pid_t>(syscall(SYS_gettid));
@@ -267,6 +285,25 @@ extern "C" long __wrap_ptrace(enum __ptrace_request request, ...) {
         survivorVerified=banks && __real_ptrace(PTRACE_GETREGS,pid,nullptr,&actual)==0 &&
             !std::memcmp(&actual,&survivorOriginal,sizeof(actual)) &&
             __real_ptrace(PTRACE_GETSIGMASK,pid,reinterpret_cast<void*>(sizeof(mask)),&mask)==0 && mask==survivorMask;
+    }
+    if (request==PTRACE_DETACH && releasingDetachTid==pid) {
+        releasingDetachTid=0;releasedOwner=static_cast<pid_t>(syscall(SYS_gettid));
+        releasedContext=survivorVerified.load();
+        user_regs_struct before{};
+        if (__real_ptrace(PTRACE_GETREGS,pid,nullptr,&before)==0)
+            releasedAllocation=before.cs==0x23 ? static_cast<uint32_t>(returnedValue.load()) : returnedValue.load();
+        uint8_t byte=1;iovec local{&byte,1},remote{reinterpret_cast<void*>(static_cast<uintptr_t>(releasedAllocation.load())),1};
+        releasedMapped=process_vm_readv(pid,&local,1,&remote,1,0)==1 && byte==0;
+        const long applied=__real_ptrace(request,pid,address,data);
+        if (applied<0) return applied;
+        user_regs_struct running{};errno=0;
+        releasedNoSuch=__real_ptrace(PTRACE_GETREGS,pid,nullptr,&running)<0 && errno==ESRCH && kill(pid,0)==0;
+        releasedDetach=true;
+        releasedRunning=true;
+        std::fprintf(stderr,"SERVICE_REAL_DETACH tid=%ld owner=%ld context=%d allocation=%llx mapped=%d alive=1 esrch=%d\n",
+            static_cast<long>(pid),static_cast<long>(releasedOwner.load()),releasedContext.load(),
+            static_cast<unsigned long long>(releasedAllocation.load()),releasedMapped.load(),releasedNoSuch.load());
+        ++failures;errno=EIO;return -1;
     }
 #endif
     bool preflightRegisters=false;
@@ -490,6 +527,11 @@ extern "C" long __wrap_ptrace(enum __ptrace_request request, ...) {
             auto* io=static_cast<iovec*>(data);
             if(io->iov_len==sizeof(user_pt_regs)) { returnedValue=static_cast<user_pt_regs*>(io->iov_base)->regs[0]; resultSaved=true; }
         }
+#endif
+    }
+    if (!result && request==PTRACE_SEIZE) {
+#if defined(__x86_64__)
+        releasedRunning=false;
 #endif
     }
     if (!result && !stepped) {

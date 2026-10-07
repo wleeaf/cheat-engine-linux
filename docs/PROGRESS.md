@@ -23,11 +23,89 @@ and the fixture corrections described below. The
 [hosted evidence](compatibility-evidence/publication-hosted-ci.json) records its
 exact revision, current product/test hashes, job links, steps and conclusions.
 
-This closes the current red-check investigation. Older failed runs remain
-historical evidence. The documentation closeout changes no product or test
-sources; its own workflow is a separate run. No new release is created. All six
+The [documentation closeout run for `50c2bc6`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37625438177)
+also completed with all seven jobs passing. This closes the reported red-check
+investigation. Older failed runs remain historical evidence. The subsequent
+applied-detach changes below are verified separately and must pass the required
+hosted gates for their own revision. No new release is created. All six
 broader compatibility requirements remain active, with the specific remaining
 work listed in this checkpoint and the six-area backlog below.
+
+## Applied detach and live-task ESRCH recovery: 7 October 2026
+
+An actual detach can release a restored task even when its caller reports an
+error afterward. The retained recovery previously attempted to replay its saved context
+against that now-running, untraced task. The kernel correctly rejected those
+writes, but recovery could not drain and service destruction waited for the
+application to exit.
+
+The new recovery path records that restoration was independently verified and
+that detach was attempted. After checking the original task birth, it uses an
+actual kernel siginfo request and `/proc` tracer ownership to distinguish
+release from a running, still-traced task. ESRCH alone cannot complete recovery.
+Unavailable ownership metadata and a nonzero tracer retain a retryable owner.
+Confirmed release finishes without writing old registers, instructions or
+signal state. Confirmed image retirement remains cancellation and cannot replay
+old context into its replacement, including after a failed detach.
+
+The new x86-64 and i386 checks cover three distinct handoffs:
+
+- Release before the service records an error: the completed mmap is returned
+  and remains caller-owned until the caller independently frees it.
+- Release after the service retains its recovery record: explicit recovery
+  reclaims the unreturned allocation while its original mm remains alive.
+- Release during service destruction: the owner drains and joins within two
+  seconds, reclaims the unreturned map and leaves the same application running.
+
+The fault hook first verifies all saved GP, extended-register and signal-mask
+bytes, executes the real DETACH, then reports EIO. A subsequent real GETREGS
+returns ESRCH while the task is alive. No registers, wait events, process status
+or target identity are fabricated. Independent checks require tracer zero,
+the original pinned mm, CPU heartbeat progress, exact allocation ownership,
+unchanged console work, normal exit and actual reaping. A failed detach before
+kernel application must still retain the real ptrace stop.
+
+Both definitive before-fix runs fail eight assertions, with ten, four and
+38 post-release write attempts across the three phases. Shutdown needs bounded
+fixture termination; its final liveness failure follows that failure cleanup.
+After the fix both focused profiles pass all 36 assertions with zero replay
+attempts. The native gate requires these cases as separate bounded children;
+all earlier counts and deadlines remain mandatory.
+
+The first sanitizer pass exposed an old fixture binary: its command table
+predated the already-published lowercase `o` correction, while the rebuilt
+driver used the current command. Rebuilding both tiny native fixtures resolves
+that input mismatch. The driver target now depends on both fixture targets, so
+building only that integration target also refreshes its required test inputs.
+This intermediate failure is retained separately from product before/after
+evidence and from the fresh full sanitizer gate.
+
+Both complete normal and ASan/UBSan native gates pass: 940 x86-64 and 667
+i386 main checks, 38 thread-death and 36 applied-detach assertions per ABI,
+plus 400 lifecycle, 288 shared-exec, 369 shared-death and 57 completed-ticket
+assertions in each configuration. These are repeated configurations and
+scenarios, not a count of unique supported programs. The shared production core
+also rebuilds successfully with the fix.
+
+Related normal and sanitizer checks pass all 42 shared-mm affinity assertions
+and, for each native ABI, 45 library/thread injection, 83 retained-image and
+475 callee-exec assertions. A fresh ARM64 cross-build and real 4 KiB kernel
+guest pass the existing 906-assertion regression with two CPUs and 128 MiB RAM.
+Its first compile attempt exhausted the temporary-directory quota; retrying
+with scratch files on the cached build's disk succeeds. This is ARM regression
+evidence, not an ARM reproduction of the new x86-only detach fault scenario.
+
+[Applied-detach evidence](compatibility-evidence/applied-detach-recovery.json)
+records source/binary hashes, actual before/after observations and full
+regression results. Checks and builds use cached dependencies, one compiler job,
+reduced priority and serial execution. No host packages or kernels are changed.
+
+Remaining in this part: prove additional still-owned running/ESRCH transitions,
+exit before ownership confirmation (including unreaped tasks), concurrent
+re-attachment, namespace visibility and transient ownership-metadata failures.
+This adds live native x86 memory-service evidence; it does not establish the
+same applied-detach scenarios for ARM, x32, Wine, remote transports, native-call
+owners or independent GUI/CLI/Lua workflows. The six-area backlog remains open.
 
 ## Publication checkpoint: 7 October 2026
 
@@ -962,6 +1040,10 @@ work and is excluded from this publication.
 - Retained recovery ownership after partial instruction/register/vector writes,
   failed cleanup/detach, interrupted injection and completed calls whose cleanup
   is still pending. Recovery is tied to the original process image and owner.
+- Completed recovery after a genuinely applied detach reported as an error,
+  with live-task ESRCH, zero obsolete context-write attempts, correct returned
+  versus unreturned allocation ownership and bounded service shutdown on x86-64
+  and i386. Still-owned running ESRCH and the additional windows above remain.
 - Verified leader/nonleader exit and exec, thread-group changes, cloned writer
   threads, queued traps, application signal delivery and repeated attach/detach.
 - Protected saved operation undo against exec, replaced code, copied/completed

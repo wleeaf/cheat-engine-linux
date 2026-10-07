@@ -12,6 +12,10 @@ The GUI, CLI, and Lua share a Qt-free backend, with regression suites, ASan/UBSa
 
 Process compatibility is tracked [per target and feature](docs/COMPATIBILITY.md).
 Architecture detection alone does not imply complete debugger or injection support.
+Native x86-64/i386 memory-service recovery now verifies actual ptrace ownership
+after an applied detach reports an error, preserving allocation ownership and
+allowing shutdown while the application keeps running. [Recovery evidence and
+remaining cases](docs/PROGRESS.md#applied-detach-and-live-task-esrch-recovery-7-october-2026).
 Real Linux x32 fixtures now verify memory operations, 64-bit integer calls and
 file offsets, library/pthread injection and exec recovery, using a normal LP64
 engine. Debugger sessions, tracing and hardware/software watchpoints also pass

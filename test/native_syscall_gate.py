@@ -98,6 +98,29 @@ def main():
                     len(events) != 3 or phases != ['after-record', 'before-record', 'shutdown']):
                 raise RuntimeError(f"required native {bits}-bit service thread-death integration failed")
             thread_death["status"] = "passed"
+            detach_release = {"status": "failed"}
+            target["serviceDetachRelease"] = detach_release
+            try:
+                observed = subprocess.run([str(driver), "--service-detach-release-only", str(fixture)],
+                                          capture_output=True, text=True, timeout=60)
+            except subprocess.TimeoutExpired as error:
+                detach_release["output"] = (error.stdout or b"").decode(errors="replace")
+                detach_release["stderr"] = (error.stderr or b"").decode(errors="replace")
+                raise RuntimeError(f"required native {bits}-bit applied-detach recovery timed out") from error
+            detach_release.update(exitCode=observed.returncode, output=observed.stdout, stderr=observed.stderr)
+            print(observed.stdout, end="", flush=True)
+            if observed.stderr:
+                print(observed.stderr, end="", flush=True)
+            results = re.findall(r'^SERVICE_DETACH_RELEASE_RESULT=.*$', observed.stdout, re.M)
+            assertions = re.findall(r'^SERVICE_DETACH_RELEASE_CHECK (OK|FAILED):', observed.stdout, re.M)
+            events = re.findall(r'^SERVICE_REAL_DETACH tid=\d+ owner=\d+ context=1 allocation=[0-9a-f]+ mapped=1 alive=1 esrch=1$', observed.stderr, re.M)
+            phases = re.findall(rf'^SERVICE_DETACH_RELEASE_OBSERVATION architecture={architecture} phase=(\S+) drained=1 replays=0$', observed.stdout, re.M)
+            detach_release["checks"] = len(assertions)
+            if (observed.returncode or results != [f'SERVICE_DETACH_RELEASE_RESULT=PASSED architecture={architecture} checks=36'] or
+                    len(assertions) != 36 or any(value != 'OK' for value in assertions) or 'FAILED:' in observed.stdout or
+                    len(events) != 3 or phases != ['before-record', 'after-record', 'shutdown']):
+                raise RuntimeError(f"required native {bits}-bit applied-detach recovery failed")
+            detach_release["status"] = "passed"
             if bits == 64:
                 lifecycle = {"status": "failed"}
                 target["mixedAbiLifecycle"] = lifecycle

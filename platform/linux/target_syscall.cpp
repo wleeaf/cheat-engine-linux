@@ -85,6 +85,36 @@ std::expected<uint64_t,std::error_code> taskStartTime(pid_t pid,char* state=null
     std::snprintf(path,sizeof(path),"/proc/%ld/stat",static_cast<long>(pid));
     return readTaskBirth(path,state,exiting);
 }
+// ESRCH alone also describes a seized task that is running. Confirm release
+// using kernel-exported ownership, without allocating during recovery.
+Result<pid_t> taskTracer(pid_t tid) {
+    char path[64],contents[4096];
+    std::snprintf(path,sizeof(path),"/proc/%ld/status",static_cast<long>(tid));
+    const int fd=open(path,O_RDONLY|O_CLOEXEC);
+    const auto unavailable=std::make_error_code(std::errc::resource_unavailable_try_again);
+    if (fd<0) return std::unexpected(unavailable);
+    size_t used=0;
+    while (used<sizeof(contents)-1) {
+        ssize_t count;
+        do { count=::read(fd,contents+used,sizeof(contents)-1-used); } while (count<0 && errno==EINTR);
+        if (count<=0) break;
+        used+=static_cast<size_t>(count);contents[used]='\0';
+        const char* field=std::strstr(contents,"\nTracerPid:");
+        if (!field) continue;
+        field+=11;
+        if (!std::strchr(field,'\n')) continue;
+        while (*field==' ' || *field=='\t') ++field;
+        char* end=nullptr;errno=0;
+        const long tracer=std::strtol(field,&end,10);
+        const bool valid=!errno && end!=field && *end=='\n' && tracer>=0 &&
+            tracer<=std::numeric_limits<pid_t>::max();
+        close(fd);
+        if (valid) return static_cast<pid_t>(tracer);
+        return std::unexpected(unavailable);
+    }
+    close(fd);
+    return std::unexpected(unavailable);
+}
 } // namespace
 
 std::expected<pid_t,std::error_code> processMemoryTask(pid_t pid) {
@@ -499,6 +529,14 @@ struct TargetSyscallRecovery::State {
     bool registersChanged = false, done = false, retired = false, deadTask = false;
     bool seized = false, stopped = false, prepared = false;
     bool detach = true;
+    bool contextRestored = false, detachAttempted = false;
+    Result<void> detachStop(int signal=0) {
+        if (!detach) return {};
+        detachAttempted=true;
+        if (ptrace(PTRACE_DETACH,tid,nullptr,reinterpret_cast<void*>(static_cast<intptr_t>(signal)))<0)
+            return std::unexpected(currentError());
+        return {};
+    }
     int pendingSignal = 0;
     std::optional<siginfo_t> pendingSignalInfo;
     bool pendingStepTrap=false;
@@ -713,7 +751,7 @@ Result<void> TargetSyscallRecovery::State::verifyRestartImage(bool requireStop) 
         // a separate CLONE_VM process retains the old mm. Never restore into
         // the new mm, including when the caller consumed its EXEC event.
         retired=true;
-        if (detach && ptrace(PTRACE_DETACH,tid,nullptr,nullptr)<0) return std::unexpected(currentError());
+        auto released=detachStop();if (!released) return released;
         done=true;
     }
     return same;
@@ -1341,11 +1379,25 @@ std::expected<void, std::error_code> TargetSyscallRecovery::retry() {
     }
     if (state.startTime && *birth!=state.startTime) return state.retireDeadTask();
     if (!state.startTime) state.startTime=*birth;
+    if (state.detachAttempted && (!state.prepared || state.contextRestored || state.retired)) {
+        siginfo_t info{};
+        if (ptrace(PTRACE_GETSIGINFO,state.tid,nullptr,&info)<0) {
+            const auto error=currentError();
+            if (error!=std::errc::no_such_process) return std::unexpected(error);
+            auto tracer=taskTracer(state.tid);
+            if (!tracer) return std::unexpected(tracer.error());
+            if (*tracer) return std::unexpected(std::make_error_code(std::errc::resource_unavailable_try_again));
+            // Restoration was independently verified before our detach attempt.
+            // A live untraced task has resumed ownership of its own context.
+            state.seized=false;state.stopped=false;state.done=true;
+            if (state.retired) return std::unexpected(std::make_error_code(std::errc::operation_canceled));
+            return {};
+        }
+    }
     if (state.retired) {
         // The actual EXEC stop belongs to the replacement. Failed detach must
         // remain retryable without replaying any context from the old image.
-        if (state.detach && ptrace(PTRACE_DETACH,state.tid,nullptr,nullptr)<0)
-            return std::unexpected(currentError());
+        auto released=state.detachStop();if (!released) return released;
         state.done=true;
         return std::unexpected(std::make_error_code(std::errc::operation_canceled));
     }
@@ -1369,8 +1421,7 @@ std::expected<void, std::error_code> TargetSyscallRecovery::retry() {
         }
         if (state.pendingSignal && state.pendingSignalInfo &&
             ptrace(PTRACE_SETSIGINFO,state.tid,nullptr,&*state.pendingSignalInfo)<0) return std::unexpected(currentError());
-        if (state.detach && ptrace(PTRACE_DETACH,state.tid,nullptr,
-            reinterpret_cast<void*>(static_cast<intptr_t>(state.pendingSignal)))<0) return std::unexpected(currentError());
+        auto released=state.detachStop(state.pendingSignal);if (!released) return released;
         state.done=true;
         return {};
     }
@@ -1378,7 +1429,7 @@ std::expected<void, std::error_code> TargetSyscallRecovery::retry() {
         state.retired=true;
         state.stopped=true;
         if (state.function) state.function->event=PTRACE_EVENT_EXEC;
-        if (state.detach && ptrace(PTRACE_DETACH, state.tid, nullptr, nullptr) < 0) return std::unexpected(currentError());
+        auto released=state.detachStop();if (!released) return released;
         state.done = true;
         return std::unexpected(std::make_error_code(std::errc::operation_canceled));
     }
@@ -1396,8 +1447,8 @@ std::expected<void, std::error_code> TargetSyscallRecovery::retry() {
     uint8_t originalByte = 0;
     ssize_t originalImage = pread(state.memoryFd, &originalByte, 1, static_cast<off_t>(pc(state.original)));
     if (executable.st_dev != state.executableDevice || executable.st_ino != state.executableInode || originalImage == 0) {
-        if (state.detach && ptrace(PTRACE_DETACH, state.tid, nullptr, nullptr) < 0) return std::unexpected(currentError());
         state.retired=true;
+        auto released=state.detachStop();if (!released) return released;
         state.done = true;
         return std::unexpected(std::make_error_code(std::errc::operation_canceled));
     }
@@ -1439,7 +1490,7 @@ std::expected<void, std::error_code> TargetSyscallRecovery::retry() {
         if ((status>>16)==PTRACE_EVENT_EXEC) {
             state.retired=true;
             state.stopped=true;
-            if (state.detach && ptrace(PTRACE_DETACH,state.tid,nullptr,nullptr)<0) return std::unexpected(currentError());
+            auto released=state.detachStop();if (!released) return released;
             state.done=true;
             return std::unexpected(std::make_error_code(std::errc::operation_canceled));
         }
@@ -1460,8 +1511,8 @@ std::expected<void, std::error_code> TargetSyscallRecovery::retry() {
     if (!context) return context;
     if (state.pendingSignalInfo && ptrace(PTRACE_SETSIGINFO,state.tid,nullptr,&*state.pendingSignalInfo)<0)
         return std::unexpected(currentError());
-    if (state.detach && ptrace(PTRACE_DETACH, state.tid, nullptr, reinterpret_cast<void*>(static_cast<intptr_t>(state.pendingSignal))) < 0)
-        return std::unexpected(currentError());
+    state.contextRestored=true;
+    auto released=state.detachStop(state.pendingSignal);if (!released) return released;
     state.done = true;
     return {};
 #else

@@ -25,11 +25,60 @@ exact revision, current product/test hashes, job links, steps and conclusions.
 
 The [documentation closeout run for `50c2bc6`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37625438177)
 also completed with all seven jobs passing. This closes the reported red-check
-investigation. Older failed runs remain historical evidence. The subsequent
-applied-detach changes below are verified separately and must pass the required
-hosted gates for their own revision. No new release is created. All six
+investigation at that checkpoint. The subsequent
+[run for `2a843aa`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37629935823)
+passed six jobs but exposed the native watchpoint-race setup issue described
+below. Subsequent changes must pass the required hosted gates for their own
+revision. No new release is created. All six
 broader compatibility requirements remain active, with the specific remaining
 work listed in this checkpoint and the six-area backlog below.
+
+## Hosted watchpoint race setup: 7 October 2026
+
+The native job for `2a843aa` completed its build but failed two assertions in
+the existing CodeFinder teardown fixture, before reaching the new applied-detach
+children. Its first two real hardware races occurred after 51,753 and 27,289
+attempts. The SIGSTOP variant exhausted the unchanged five-second race-setup
+budget without producing the required interrupt stop with a queued hardware
+trap. Because the fixture sends its application signal only after observing
+that race, it did not send SIGSTOP; the subsequent stopped-application assertion
+failed too. The later screenshot upload had no screenshots because the failed
+regression step prevented the frontend smoke steps from running.
+
+The x86 controller hook now sweeps short CPU pause delays between actual CONT
+and INTERRUPT requests as well as retaining immediate interrupts and scheduler
+yields. This varies the overlap with the target's real watched store across
+scheduler and virtual-CPU latency. It does not replace any wait result or
+siginfo, inject a fabricated hardware signal, skip a case, or extend a deadline.
+The queued kernel hardware trap, original hardware bank/affinity restoration,
+genuine application SIGUSR1/SIGSTOP and original console work remain mandatory.
+The ARM timing branch and production debugger implementation are unchanged.
+
+With both controller and target restricted to two available CPUs, twelve local
+before-change x86-64 profiles all passed but needed a median 24,113 and maximum
+810,428 attempts across their 36 actual kernel races. This local sample does
+not reproduce the hosted negative result. After the sweep, twelve x86-64 and
+twelve i386 profiles pass all 22 assertions per profile and produce all 72 real
+races, with a median 2,464.5 and maximum 21,711 attempts. The same 24 profiles
+also pass under ASan/UBSan. These timing samples demonstrate improved overlap
+coverage; they do not establish every kernel or scheduler configuration.
+
+Both complete native gates pass again after this change: 940 x86-64 and 667
+i386 main assertions, 38 thread-death and 36 applied-detach checks per ABI,
+plus 400 lifecycle, 288 shared-exec, 369 shared-death and 57 completed-ticket
+checks in each normal and sanitizer configuration. Builds and suites remain
+serial, cached and at reduced priority.
+
+[Watchpoint setup evidence](compatibility-evidence/watchpoint-timing.json)
+records the hosted failure, repeated local observations, source/binary hashes
+and complete follow-up gate results. All earlier native gate assertion counts
+and deadlines remain required, including the 36 applied-detach checks per ABI.
+The earlier applied-detach evidence retains the exact hashes from its own
+checkpoint rather than being rewritten to describe this follow-up.
+
+Remaining: broader scheduler/CPU/hypervisor stress, additional instruction-level
+teardown windows and the full six-area backlog. This corrects test race setup;
+the hosted failure does not demonstrate lost application SIGSTOP in production.
 
 ## Applied detach and live-task ESRCH recovery: 7 October 2026
 

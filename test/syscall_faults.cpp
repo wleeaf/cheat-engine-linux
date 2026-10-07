@@ -225,6 +225,14 @@ extern "C" pid_t __wrap_waitpid(pid_t pid,int* status,int options) {
         // ARM watchpoints stop before their access. Let the emulated target
         // reach that access instead of repeatedly interrupting its wakeup.
         if (attempt%3==0) sched_yield(); else usleep(attempt%3);
+#elif defined(__x86_64__)
+        // Kernel wakeup and hardware-trap delivery latency differ across
+        // CPUs and hypervisors. Sweep short delays as well as immediate
+        // interrupts so we can hit the real overlap instead of repeatedly
+        // interrupting before the target gets to execute its watched store.
+        // Keep the same five-second bound and inspect only real kernel events.
+        for (unsigned pause=0;pause<((attempt/64)%32);++pause) __asm__ volatile("pause" ::: "memory");
+        if (attempt%64==63) sched_yield();
 #else
         if (attempt%64==63) sched_yield();
 #endif

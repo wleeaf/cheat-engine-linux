@@ -1,0 +1,257 @@
+{
+  "utc": "2026-10-07T08:13:30.505810+00:00",
+  "observedHostedRun": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37590115311",
+  "observedRevision": "c0669be0edc122f2516782fec0c154556cd2c4b7",
+  "observedJobs": [
+    {
+      "name": "sanitizers",
+      "conclusion": "success",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37590115311/job/112689310901"
+    },
+    {
+      "name": "ubuntu-build",
+      "conclusion": "failure",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37590115311/job/112689310930"
+    },
+    {
+      "name": "x32-compatibility / x32-native-calls",
+      "conclusion": "success",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37590115311/job/112689310967"
+    },
+    {
+      "name": "wine-compatibility / wow64-wine",
+      "conclusion": "success",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37590115311/job/112689310994"
+    },
+    {
+      "name": "arm64-compatibility / arm64-syscalls",
+      "conclusion": "failure",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37590115311/job/112689311015"
+    },
+    {
+      "name": "arm64-compatibility / arm64-frontends",
+      "conclusion": "success",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37590115311/job/112689311134"
+    },
+    {
+      "name": "wine-compatibility / legacy-wine",
+      "conclusion": "success",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37590115311/job/112689311240"
+    }
+  ],
+  "changes": [
+    "Retain five-second ARM race deadline and real queued-trap assertions, restoring ARM yield/sleep scheduling and limiting separate-CPU affinity to x86.",
+    "GUI fixture restores the original primary general register before detach.",
+    "Hold standalone target in an acknowledged architecture-specific register-preserving loop for independent live kernel readback; restore edit and release before CLI/Lua/application checks."
+  ],
+  "armTargetedKernelVerification": [
+    {
+      "kernel": "4k",
+      "kernelSha256": "06196d2cf51e9a2bac421564bb64c63a8b7146c9a22755dd22a713e337023013",
+      "passed": true,
+      "exitCode": 0,
+      "ramMiB": 128,
+      "guestCpus": 2,
+      "outputSha256": "55b160bdb8b7caf5944b28a18f337b61f03f4ce8509beb77a21580ca711072b8",
+      "requiredCheckLines": [
+        "OK: teardown race starts an independent native target",
+        "OK: teardown fixture continuously executes a real watched store",
+        "OK: teardown saves the real original hardware bank before CodeFinder takes ownership",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=3 applicationSignal=0",
+        "OK: cleanup encounters a kernel queued hardware SIGTRAP behind an interrupt stop",
+        "OK: teardown drains the owned trap and releases its actual ptrace owner",
+        "OK: queued-trap cleanup restores original hardware addresses, control, status and test CPU affinity",
+        "OK: the original program continues its computation and console work without a leaked hardware trap",
+        "OK: teardown race starts an independent native target",
+        "OK: teardown fixture continuously executes a real watched store",
+        "OK: teardown saves the real original hardware bank before CodeFinder takes ownership",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=3 applicationSignal=10",
+        "OK: cleanup encounters a kernel queued hardware SIGTRAP behind an interrupt stop",
+        "OK: teardown drains the owned trap and releases its actual ptrace owner",
+        "OK: cleanup preserves the application SIGUSR1 instead of replacing it with its hardware SIGTRAP",
+        "OK: teardown race starts an independent native target",
+        "OK: teardown fixture continuously executes a real watched store",
+        "OK: teardown saves the real original hardware bank before CodeFinder takes ownership",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=3 applicationSignal=19",
+        "OK: cleanup encounters a kernel queued hardware SIGTRAP behind an interrupt stop",
+        "OK: teardown drains the owned trap and releases its actual ptrace owner",
+        "OK: queued application SIGSTOP remains a genuine stopped target after watchpoint cleanup",
+        "OK: the application's SIGCONT resumes its preserved stop",
+        "OK: queued-trap cleanup restores original hardware addresses, control, status and test CPU affinity",
+        "OK: the original program continues its computation and console work without a leaked hardware trap",
+        "CODEFINDER_TEARDOWN_RESULT=PASSED architecture=ARM64",
+        "ARM_RACE_RESULT=PASSED status=0"
+      ],
+      "bootOutOfMemory": false
+    },
+    {
+      "kernel": "64k",
+      "kernelSha256": "d5f5150b83c59404233bde3859817d4665301e0bfab20fa47ccdac4bfbeb1ae8",
+      "passed": false,
+      "exitCode": 0,
+      "ramMiB": 128,
+      "guestCpus": 2,
+      "outputSha256": "9afb3df279ac1eebc9f7662dd8df9de96b28bae8545f449c81088828c97ebb0c",
+      "requiredCheckLines": [],
+      "bootOutOfMemory": true
+    },
+    {
+      "kernel": "64k",
+      "kernelSha256": "d5f5150b83c59404233bde3859817d4665301e0bfab20fa47ccdac4bfbeb1ae8",
+      "ramMiB": 256,
+      "guestCpus": 2,
+      "passed": true,
+      "exitCode": 0,
+      "outputSha256": "ba8cf66aa3c5789e12c895e76ea03ed266eab5fb224ba97cf3715e622e335548",
+      "requiredCheckLines": [
+        "OK: teardown race starts an independent native target",
+        "OK: teardown fixture continuously executes a real watched store",
+        "OK: teardown saves the real original hardware bank before CodeFinder takes ownership",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=1 applicationSignal=0",
+        "OK: cleanup encounters a kernel queued hardware SIGTRAP behind an interrupt stop",
+        "OK: teardown drains the owned trap and releases its actual ptrace owner",
+        "OK: queued-trap cleanup restores original hardware addresses, control, status and test CPU affinity",
+        "OK: the original program continues its computation and console work without a leaked hardware trap",
+        "OK: teardown race starts an independent native target",
+        "OK: teardown fixture continuously executes a real watched store",
+        "OK: teardown saves the real original hardware bank before CodeFinder takes ownership",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=12 applicationSignal=10",
+        "OK: cleanup encounters a kernel queued hardware SIGTRAP behind an interrupt stop",
+        "OK: teardown drains the owned trap and releases its actual ptrace owner",
+        "OK: cleanup preserves the application SIGUSR1 instead of replacing it with its hardware SIGTRAP",
+        "OK: teardown race starts an independent native target",
+        "OK: teardown fixture continuously executes a real watched store",
+        "OK: teardown saves the real original hardware bank before CodeFinder takes ownership",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=3 applicationSignal=19",
+        "OK: cleanup encounters a kernel queued hardware SIGTRAP behind an interrupt stop",
+        "OK: teardown drains the owned trap and releases its actual ptrace owner",
+        "OK: queued application SIGSTOP remains a genuine stopped target after watchpoint cleanup",
+        "OK: the application's SIGCONT resumes its preserved stop",
+        "OK: queued-trap cleanup restores original hardware addresses, control, status and test CPU affinity",
+        "OK: the original program continues its computation and console work without a leaked hardware trap",
+        "CODEFINDER_TEARDOWN_RESULT=PASSED architecture=ARM64",
+        "ARM_RACE_RESULT=PASSED status=0"
+      ],
+      "bootOutOfMemory": false
+    }
+  ],
+  "localGuiVerification": [
+    {
+      "suite": "native-live-qt-debugger-cli-lua",
+      "status": "passed",
+      "utc": "2026-10-07T08:12:48.908182+00:00",
+      "platform": "Linux-7.1.8-200.fc44.x86_64-x86_64-with-glibc2.43",
+      "sourceRevision": null,
+      "sourceRef": null,
+      "leaderExit": false,
+      "binarySha256": {
+        "gui_register_smoke": "571bcbacf7720f85bb99353bad4e54357be3c3efae1e319e2eec6d1b753109e4",
+        "cheatengine": "8cf4a94b04f21d3840723f796665431aa32397ca7ed56b255dca39bade741123",
+        "cescan": "c8cca81cca04e6d2ce527b84b13d5a4fc7e664fc6eaae5638f99a9d3c720a0f7",
+        "libcecore.so": "70070844cdbc495f1e7695f699164cde4bad90f2fc83cefc6f84e5e6d44e83c6"
+      },
+      "exitCode": 0,
+      "checks": [
+        "OK: GUI attaches and reads a real stopped thread",
+        "OK: GUI follows the native program counter at a software breakpoint",
+        "OK: register names and row count match the stopped thread ISA",
+        "OK: highest architectural SIMD register displays actual kernel state",
+        "OK: general register edit is read back from the real kernel and cached stop context",
+        "OK: frame pointer edit and restoration reach the stopped thread",
+        "OK: program counter edit refreshes navigation and current instruction highlighting",
+        "OK: stack pointer edit refreshes the stack pane from the native register",
+        "OK: status edit displays native NZCV or EFLAGS from kernel readback",
+        "OK: disassembly restores the complete planted breakpoint instruction",
+        "OK: instruction view masking preserves the real software trap in target memory",
+        "OK: null stack values never acquire a misleading absolute symbol annotation",
+        "OK: stack pane reads consecutive native-width values from the live target",
+        "OK: debugger screenshot saved",
+        "OK: the fixture restores its original general register before resuming target execution",
+        "OK: detached register cells cannot submit stale edits",
+        "OK: GUI detach restores every original instruction byte",
+        "OK: the real target acknowledges its register-preserving loop before standalone edits",
+        "OK: standalone editor exposes the actual general and SIMD register banks",
+        "OK: applying unchanged editor cells never replays a stale register snapshot",
+        "OK: standalone editor applies changed general registers through the real kernel owner",
+        "OK: standalone editor refreshes kernel state after applying and restoring an edit",
+        "OK: invalid register text leaves the live target and editable snapshot intact",
+        "OK: refresh replaces invalid editor text with a fresh kernel snapshot",
+        "OK: standalone stack reads stopped-thread native SP and consecutive architectural words",
+        "OK: standalone register and stack screenshots saved",
+        "OK: the standalone fixture resumes target execution before CLI and application checks",
+        "OK: actual CLI inspects the running native target",
+        "OK: actual CLI Lua runner resolves metadata and disassembles live native code",
+        "OK: actual GUI application attaches, opens the memory viewer, renders and exits cleanly",
+        "OK: the GUI owns a real paused target before external process death",
+        "OK: a paused target's actual death automatically retires the GUI session and disables stale register edits",
+        "OK: the GUI releases its kernel owner so actual final process death can be reaped normally"
+      ]
+    },
+    {
+      "suite": "native-live-qt-debugger-cli-lua",
+      "status": "passed",
+      "utc": "2026-10-07T08:12:51.063600+00:00",
+      "platform": "Linux-7.1.8-200.fc44.x86_64-x86_64-with-glibc2.43",
+      "sourceRevision": null,
+      "sourceRef": null,
+      "leaderExit": true,
+      "binarySha256": {
+        "gui_register_smoke": "571bcbacf7720f85bb99353bad4e54357be3c3efae1e319e2eec6d1b753109e4",
+        "cheatengine": "8cf4a94b04f21d3840723f796665431aa32397ca7ed56b255dca39bade741123",
+        "cescan": "c8cca81cca04e6d2ce527b84b13d5a4fc7e664fc6eaae5638f99a9d3c720a0f7",
+        "libcecore.so": "70070844cdbc495f1e7695f699164cde4bad90f2fc83cefc6f84e5e6d44e83c6"
+      },
+      "exitCode": 0,
+      "checks": [
+        "OK: the real GUI fixture leader exits while its pthread target continues running",
+        "OK: GUI attaches and reads a real stopped thread",
+        "OK: the full debugger thread selector omits the exited process leader",
+        "OK: GUI follows the native program counter at a software breakpoint",
+        "OK: register names and row count match the stopped thread ISA",
+        "OK: highest architectural SIMD register displays actual kernel state",
+        "OK: general register edit is read back from the real kernel and cached stop context",
+        "OK: frame pointer edit and restoration reach the stopped thread",
+        "OK: program counter edit refreshes navigation and current instruction highlighting",
+        "OK: stack pointer edit refreshes the stack pane from the native register",
+        "OK: status edit displays native NZCV or EFLAGS from kernel readback",
+        "OK: disassembly restores the complete planted breakpoint instruction",
+        "OK: instruction view masking preserves the real software trap in target memory",
+        "OK: null stack values never acquire a misleading absolute symbol annotation",
+        "OK: stack pane reads consecutive native-width values from the live target",
+        "OK: debugger screenshot saved",
+        "OK: the fixture restores its original general register before resuming target execution",
+        "OK: detached register cells cannot submit stale edits",
+        "OK: GUI detach restores every original instruction byte",
+        "OK: the real target acknowledges its register-preserving loop before standalone edits",
+        "OK: the standalone editor selects the actual surviving pthread by default",
+        "OK: standalone editor exposes the actual general and SIMD register banks",
+        "OK: applying unchanged editor cells never replays a stale register snapshot",
+        "OK: standalone editor applies changed general registers through the real kernel owner",
+        "OK: standalone editor refreshes kernel state after applying and restoring an edit",
+        "OK: invalid register text leaves the live target and editable snapshot intact",
+        "OK: refresh replaces invalid editor text with a fresh kernel snapshot",
+        "OK: standalone stack reads stopped-thread native SP and consecutive architectural words",
+        "OK: standalone register and stack screenshots saved",
+        "OK: the standalone fixture resumes target execution before CLI and application checks",
+        "OK: actual CLI inspects the running native target",
+        "OK: actual CLI Lua runner resolves metadata and disassembles live native code",
+        "OK: actual GUI application attaches, opens the memory viewer, renders and exits cleanly",
+        "OK: the GUI owns a real paused target before external process death",
+        "OK: a paused target's actual death automatically retires the GUI session and disables stale register edits",
+        "OK: the GUI releases its kernel owner so actual final process death can be reaped normally"
+      ]
+    }
+  ],
+  "sourceSha256": {
+    "test/gui_register_smoke.cpp": "31140343cef74be2a9bbc87ad3ac0e85192c32c92ec7600da762a0595ce782bc",
+    "test/syscall_faults.cpp": "3c0f0aafd1d5741825e35c7e03d9452e7089947196c130c1089f3f42d56aa8e9"
+  },
+  "limits": [
+    "Targeted ARM guests run the three actual hardware teardown scenarios; these are not full ARM compatibility matrices.",
+    "One 128 MiB 64K kernel control failed to boot from memory exhaustion, before test execution; the single 256 MiB replacement completed.",
+    "GUI local gates use cached working-tree core binaries, including the separate unpublished mixed-ABI prototype; hosted CI will rebuild only the selected published source.",
+    "All original register readback, queued-kernel-trap, signal, stop, bank and target continuation assertions remain required.",
+    "A job-control pause was tried locally but the existing inspection interface returns interrupted for that stop; no group-stop support is claimed by the chosen cooperative-loop fixture.",
+    "Replacement seven-job hosted run has not completed yet."
+  ]
+}

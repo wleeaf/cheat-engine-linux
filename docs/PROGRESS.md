@@ -107,6 +107,41 @@ retains the failing pre-cap-removal control, successful runs and source hashes.
 These changes retain all signal, stop, bank and original-console requirements;
 no synthetic kernel status is used. Hosted confirmation is still required.
 
+### ARM scheduling and independent GUI register readback
+
+The [run for `c0669be`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37590115311)
+passed five of seven jobs: sanitizers, x32, both Wine profiles and ARM64
+frontends. The normal job passed its syscall, injection and Mono checks before
+failing standalone GUI register readback. The ARM64 kernel job failed to
+generate two queued-watchpoint races on its 64 KiB kernel.
+
+ARM watchpoints stop before their access. Repeated immediate interrupts can
+prevent an emulated target from reaching that access. The generator now keeps
+the earlier ARM yield/sleep pattern and limits separate-CPU affinity to x86.
+The five-second deadline and every actual queued-trap, signal, bank and target
+continuation requirement remain. Targeted real-kernel teardown suites passed
+all three scenarios on both 4 KiB and 64 KiB guests. The 4 KiB guest used
+128 MiB; the Ubuntu 64 KiB kernel exhausted memory during boot at 128 MiB and
+completed at 256 MiB. Only one guest ran at a time.
+
+The standalone register editor releases its ptrace stop after each transaction.
+The fixture's later independent read raced running target code, which can
+restore R15 from its stack. It now holds the target in an acknowledged loop
+whose instructions preserve the edited R15 or X28, while retaining independent
+real kernel readback. It restores the original primary register before detach,
+restores the standalone edit and releases the loop before CLI, Lua and full
+application checks. Normal and leader-exit frontend gates passed 33 and 36
+checks respectively with all four screenshots. A trial using a job-control stop
+was rejected by the current inspection interface; this fixture does not claim
+new group-stop editing support.
+
+[ARM and GUI evidence](compatibility-evidence/hosted-ci-arm-gui.json) records the
+observed hosted results, actual guest scenarios, out-of-memory control and local
+frontend checks. Local GUI checks used cached working-tree core binaries, which
+also contain the separate unpublished mixed-ABI prototype. The next hosted run
+must verify all seven jobs from the selected published source. The broader
+mixed-ABI recovery work remains unfinished and is excluded from this CI fix.
+
 ## 1. Feature-by-target compatibility matrix
 
 ### Completed work

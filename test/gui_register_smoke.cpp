@@ -22,6 +22,7 @@
 #include <cstring>
 #include <signal.h>
 #include <sys/mount.h>
+#include <sys/mman.h>
 #include <sys/reboot.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -40,6 +41,8 @@ asm(".text\n.global register_gui_hot\n.type register_gui_hot,@function\n"
 #error This live GUI fixture requires an implemented native debugger ISA
 #endif
 
+static volatile uint32_t* fixtureHold;
+
 static void targetLoop() {
     prctl(PR_SET_PDEATHSIG, SIGKILL);
     prctl(PR_SET_PTRACER, getppid()); // Permit frontend children under Yama scope 1.
@@ -51,6 +54,19 @@ static void targetLoop() {
         asm volatile("movq %0,%%xmm0\n movq %0,%%xmm15" :: "r"(value) : "xmm0", "xmm15");
 #endif
         register_gui_hot();
+        // Cooperatively hold the real target in instructions that leave the
+        // edited callee-saved register untouched between inspection stops.
+        // The acknowledgement is emitted inside that same loop.
+        if (fixtureHold[0]) {
+#if defined(__aarch64__)
+            asm volatile("mov x9,%0\n add x10,x9,#4\n mov w11,#1\n stlr w11,[x10]\n"
+                         "1: yield\n ldar w11,[x9]\n cbnz w11,1b\n stlr wzr,[x10]"
+                         :: "r"(fixtureHold) : "x9", "x10", "x11", "memory");
+#else
+            asm volatile("movl $1,4(%%rax)\n 1: pause\n cmpl $0,(%%rax)\n jne 1b\n movl $0,4(%%rax)"
+                         :: "a"(fixtureHold) : "cc", "memory");
+#endif
+        }
         usleep(1000);
     }
 }
@@ -83,6 +99,9 @@ int main(int argc, char** argv) {
         std::printf("%s: %s\n", ok ? "OK" : "FAILED", message); failures += !ok;
     };
     const bool leaderExit=getenv("CECORE_GUI_LEADER_EXIT") && std::strcmp(getenv("CECORE_GUI_LEADER_EXIT"),"1")==0;
+    auto* shared=mmap(nullptr,4096,PROT_READ|PROT_WRITE,MAP_SHARED|MAP_ANONYMOUS,-1,0);
+    if (shared==MAP_FAILED) { std::perror("mmap"); return 1; }
+    fixtureHold=static_cast<volatile uint32_t*>(shared);
     pid_t child = fork();
     if (!child) {
         if (leaderExit) {
@@ -189,6 +208,8 @@ int main(int argc, char** argv) {
             if (png.open(QIODevice::ReadOnly))
                 std::printf("CE_GUI_SCREENSHOT_PNG=%s\n", png.readAll().toBase64().constData());
         }
+        check(edit(arm ? 4 : 17, ce::cpuRegisterValues(context)[arm ? 4 : 17].value),
+              "the fixture restores its original general register before resuming target execution");
         QMetaObject::invokeMethod(&window, "onDetach");
         check(!window.debugAttached() && table && !table->isEnabled(),
               "detached register cells cannot submit stale edits");
@@ -199,6 +220,13 @@ int main(int argc, char** argv) {
                      restored[0] == 0x90 && restored[1] == 0x90),
               "GUI detach restores every original instruction byte");
         stage("standalone-begin");
+        // These editors release their ptrace stop after each transaction. Hold
+        // target execution so later independent kernel reads cannot
+        // race target code restoring a callee-saved register from its stack.
+        fixtureHold[0]=1;
+        const auto stopDeadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+        while (!fixtureHold[1] && std::chrono::steady_clock::now()<stopDeadline) usleep(1000);
+        check(fixtureHold[1],"the real target acknowledges its register-preserving loop before standalone edits");
         {
             ce::gui::RegisterEditorWindow editor(&process);
             editor.show(); pump();
@@ -226,7 +254,7 @@ int main(int argc, char** argv) {
                 general->item(row,1)->setText(QString::number(original^1,16));
                 if (apply) apply->click();
                 auto actual=ce::inspectThread(process,selectedTid);
-                check(parsed && status && status->text().startsWith("Applied changes") && actual &&
+                check(parsed && status && status->text().startsWith("Applied changes") && actual && fixtureHold[1] &&
                       ce::cpuRegisterValues(actual->context)[row].value==(original^1),
                       "standalone editor applies changed general registers through the real kernel owner");
                 general->item(row,1)->setText(QString::number(original,16));
@@ -269,6 +297,10 @@ int main(int argc, char** argv) {
                     std::printf("CE_%s_SCREENSHOT_PNG=%s\n", entry.first, png.readAll().toBase64().constData());
             }
         }
+        fixtureHold[0]=0;
+        const auto continueDeadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+        while (fixtureHold[1] && std::chrono::steady_clock::now()<continueDeadline) usleep(1000);
+        check(!fixtureHold[1],"the standalone fixture resumes target execution before CLI and application checks");
         stage("cli-begin");
         if (const char* cli = getenv("CECORE_GUI_CLI")) {
             QProcess command;
@@ -335,6 +367,7 @@ int main(int argc, char** argv) {
               "the GUI releases its kernel owner so actual final process death can be reaped normally");
         stage("paused-exit-finished");
     }
+    munmap(shared,4096);
     std::printf("GUI_REGISTER_RESULT=%s architecture=%s\n", failures ? "FAILED" : "PASSED",
                 ce::cpuArchitectureName(ce::nativeTargetMachine().architecture));
     if (init) { sync(); reboot(RB_POWER_OFF); for (;;) pause(); }

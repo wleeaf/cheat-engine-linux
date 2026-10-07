@@ -71,6 +71,7 @@ extern "C" pid_t __wrap_waitpid(pid_t pid,int* status,int options) {
     auto result=__real_waitpid(pid,status,options);
     if (pid<=0 || !status || !(options&WNOHANG) || hardwareRaceTid!=pid) return result;
     hardwareRaceTid=0;
+#if defined(__x86_64__)
     struct RaceAffinity {
         pid_t target;cpu_set_t ownerMask{},targetMask{};bool ownerChanged=false,targetChanged=false;
         explicit RaceAffinity(pid_t tid):target(tid) {
@@ -91,6 +92,7 @@ extern "C" pid_t __wrap_waitpid(pid_t pid,int* status,int options) {
             if (ownerChanged) sched_setaffinity(0,sizeof(ownerMask),&ownerMask);
         }
     } affinity(pid);
+#endif
     // The interrupt must race actual execution on another CPU. Scheduler
     // migration otherwise makes many attempts unable to produce this stop.
     if (!result) {
@@ -138,7 +140,13 @@ extern "C" pid_t __wrap_waitpid(pid_t pid,int* status,int options) {
         if (__real_ptrace(PTRACE_CONT,pid,nullptr,nullptr)<0) return result;
         // Interrupt immediately on the other CPU. Sleeping first lets the
         // target enter its delivery stop before the interrupt can race it.
+#if defined(__aarch64__)
+        // ARM watchpoints stop before their access. Let the emulated target
+        // reach that access instead of repeatedly interrupting its wakeup.
+        if (attempt%3==0) sched_yield(); else usleep(attempt%3);
+#else
         if (attempt%64==63) sched_yield();
+#endif
         if (__real_ptrace(PTRACE_INTERRUPT,pid,nullptr,nullptr)<0) return result;
         result=__real_waitpid(pid,status,__WALL|__WNOTHREAD);
     }

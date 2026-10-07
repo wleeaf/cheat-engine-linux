@@ -23,6 +23,19 @@ def sha(path):
         return hashlib.file_digest(source, "sha256").hexdigest()
 
 
+def stage_installed_file(source, target):
+    # CMake's library name is a symlink. Linking that symlink itself creates a
+    # dangling installed entry, which exists() misses on the next invocation.
+    source = source.resolve(strict=True)
+    target.unlink(missing_ok=True)
+    try:
+        os.link(source, target)
+    except OSError as error:
+        if error.errno != errno.EXDEV:
+            raise
+        shutil.copy2(source, target)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("build", type=Path)
@@ -89,14 +102,7 @@ def main():
         for source, target in ((build / "cescan", installed_bin / "cescan"),
                                (build / "libcecore.so", installed_lib / "libcecore.so.0"),
                                (build / "libcecore_mono_agent.so", installed_lib / "libcecore_mono_agent.so")):
-            if target.exists():
-                target.unlink()
-            try:
-                os.link(source, target)
-            except OSError as error:
-                if error.errno != errno.EXDEV:
-                    raise
-                shutil.copy2(source, target)
+            stage_installed_file(source, target)
         report["mono"] = subprocess.check_output([args.mono, "--version"], text=True, timeout=10).strip()
         report["monoSha256"] = sha(Path(args.mono))
         compiler = [args.mono, args.compiler] if args.compiler.endswith(".exe") else [args.compiler]

@@ -2603,8 +2603,9 @@ static void sessionThreadExitBackend(const char* path) {
                   "the debugger callback establishes the requested running or paused state before the launcher competes for notifications");
             int status=0;
             bool triggered=held;
+            std::string initialOutput;
             if (kernelWork) {
-                const auto initialOutput=launched.line();
+                initialOutput=launched.line();
                 const char next=reaperMode==4 ? 'B' : reaperMode==5 ? 't' : 'x';
                 triggered=triggered && initialOutput==std::to_string(launched.pid) && ::write(launched.input,&next,1)==1;
             } else if (!workerExit) triggered=triggered && kill(launched.pid,SIGKILL)==0;
@@ -2612,7 +2613,10 @@ static void sessionThreadExitBackend(const char* path) {
             pid_t waited=-1;
             if (triggered && reaperMode!=7) do { waited=waitpid(departing,&status,__WALL); } while (waited<0 && errno==EINTR);
             const unsigned event=reaperMode==4 ? 0 : reaperMode==5 ? PTRACE_EVENT_CLONE : reaperMode==6 ? PTRACE_EVENT_EXEC : PTRACE_EVENT_EXIT;
-            check(triggered && (reaperMode==7 || (waited==departing && WIFSTOPPED(status) && (status>>8)==(SIGTRAP|(event<<8)))),
+            const bool expectedStop=triggered && (reaperMode==7 || (waited==departing && WIFSTOPPED(status) && (status>>8)==(SIGTRAP|(event<<8))));
+            if (!expectedStop) std::printf("LAUNCHER_STOP_DIAGNOSTIC mode=%u triggered=%d tid=%d waited=%d status=%x expectedEvent=%u errno=%d initial=%s\n",
+                reaperMode,triggered,departing,waited,status,event,errno,initialOutput.c_str());
+            check(expectedStop,
                   reaperMode==7 ? "the paused target is killed while its EXIT wait notification remains available to the debugger" :
                                   "the launcher consumes the actual requested stop notification while the debugger retains ownership");
             if (reaperMode==3) syscall_test::arm(syscall_test::Fault::PreflightDetach);

@@ -47,6 +47,32 @@ The separate mixed-ABI restart adapter remains work in progress and is excluded
 from this CI commit; additional recovery, policy, signal and exit/exec proofs
 are still required before publication.
 
+### First hosted follow-up
+
+The [run for `23c97b6`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37586986110)
+passed both complete native syscall profiles in normal and sanitizer jobs,
+including the formerly failing exact context and hardware-race checks. Legacy
+Wine and WoW64 passed. The x32 call, image-affinity and 475-case exec suites
+passed, as did the ARM64 kernel job.
+
+Later required checks exposed three further failures: a repeat Mono gate found
+an already existing installed library symlink; the i386 native injection helper
+failed a check using a two-second whole-process budget; and the x32 debugger program-trap
+notification case failed without reporting its actual wait status. Mono staging
+now resolves the source symlink and removes dangling destinations before making
+a hard link. Its broken-link, repeated-run and cross-filesystem copy controls
+pass. The shutdown helper budget now includes startup, symbol discovery and a
+native call whose own timeout is two seconds, while still enforcing bounded
+shutdown and a genuinely running detached target worker. Failures now log the
+actual exit status and worker state. The debugger check retains all assertions
+and logs requested versus actual wait notifications. It passed four local full
+x32 debugger guest runs; its hosted failure remains unrooted until reproduced
+or diagnosed.
+
+[Follow-up evidence](compatibility-evidence/hosted-ci-followup.json) preserves
+these observed results and limits. Another hosted run must verify the further
+fixes; a local pass alone is insufficient.
+
 ## 1. Feature-by-target compatibility matrix
 
 ### Completed work

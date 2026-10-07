@@ -203,13 +203,16 @@ int nativeCallIntegration(int argc,char** argv) {
         printf("NATIVE_NAMESPACE_MARKER=%llu\n",static_cast<unsigned long long>(marker));
         return failures ? 1 : 0;
     }
-    if (argc==4 && (std::string_view(argv[1])=="--shutdown-probe" ||
-                    std::string_view(argv[1])=="--namespace-probe")) {
+    if ((argc==5 && std::string_view(argv[1])=="--shutdown-probe") ||
+        (argc==4 && std::string_view(argv[1])=="--namespace-probe")) {
         bool namespaceProbe=std::string_view(argv[1])=="--namespace-probe";
         os::LinuxProcessHandle process(static_cast<pid_t>(std::stol(argv[2])));
         SymbolResolver resolver; resolver.loadProcess(process);
         auto thread=os::createRemoteThread(process,resolver,std::stoull(argv[3]),namespaceProbe,2000);
         bool passed=thread && thread->tid>0 && thread->completed==namespaceProbe;
+        // A detached pthread may start after createRemoteThread returns. Enter
+        // engine shutdown only once the real worker has reached its busy loop.
+        if (!namespaceProbe) passed=passed && waitValue(process,std::stoull(argv[4]),1);
         if (namespaceProbe) {
             if (!thread) printf("namespace thread error: %s\n",thread.error().c_str());
             printf("NATIVE_THREAD_NAMESPACE_RESULT=%s pid=%ld tid=%ld\n",passed ? "PASSED" : "FAILED",
@@ -387,13 +390,15 @@ int nativeCallIntegration(int argc,char** argv) {
 #ifndef CECORE_NATIVE_CALL_EMBEDDED
     wrote=process.write(release,&zero,sizeof(zero));
     count=value(process,completed);
-    auto pidText=std::to_string(process.pid()),entryText=std::to_string(entry);
+    auto pidText=std::to_string(process.pid()),entryText=std::to_string(entry),runningText=std::to_string(running);
     auto probe=fork();
     if (!probe) {
-        execl("/proc/self/exe","native_call_integration","--shutdown-probe",pidText.c_str(),entryText.c_str(),nullptr);
+        execl("/proc/self/exe","native_call_integration","--shutdown-probe",pidText.c_str(),entryText.c_str(),runningText.c_str(),nullptr);
         _exit(127);
     }
-    auto shutdownDeadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+    // This includes process startup, symbol discovery and a native call whose
+    // own timeout is two seconds, in addition to the shutdown being checked.
+    auto shutdownDeadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
     int status=0;
     pid_t waited=0;
     while (probe>0 && std::chrono::steady_clock::now()<shutdownDeadline) {
@@ -403,6 +408,8 @@ int nativeCallIntegration(int argc,char** argv) {
     }
     bool shutdownSucceeded=wrote && waited==probe && WIFEXITED(status) && WEXITSTATUS(status)==0 &&
                            value(process,running)==1;
+    if (!shutdownSucceeded) printf("SHUTDOWN_PROBE_DIAGNOSTIC pid=%d waited=%d status=%x wrote=%d running=%u\n",
+        probe,waited,status,bool(wrote),value(process,running));
     if (probe>0 && waited!=probe) { kill(probe,SIGKILL); while(waitpid(probe,nullptr,0)<0 && errno==EINTR) {} }
     check(shutdownSucceeded,"engine process exit does not wait for a detached running target worker");
     wrote=process.write(release,&one,sizeof(one));

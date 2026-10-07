@@ -1,0 +1,148 @@
+{
+  "utc": "2026-10-07",
+  "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37586986110",
+  "sourceRevision": "23c97b6df2dcf0123c51db22ba0313fe19a108ac",
+  "observedJobs": [
+    {
+      "name": "ubuntu-build",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "name": "arm64-compatibility / arm64-syscalls",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "sanitizers",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "name": "x32-compatibility / x32-native-calls",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "name": "wine-compatibility / legacy-wine",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "wine-compatibility / wow64-wine",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "arm64-compatibility / arm64-frontends",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "confirmedFixes": [
+    "Native and sanitizer full syscall gates pass for both x86-64 and i386, including all exact boundary and real queued hardware-trap checks.",
+    "Legacy Wine64 and PE32 pass; WoW64 passes.",
+    "x32 call, image-affinity and all 475 exec cases pass.",
+    "ARM64 kernel profile passes."
+  ],
+  "newFailures": [
+    "Sanitizer gate reaches Mono, then fails repeat invocation because an installed core symlink already exists.",
+    "Native i386 injection fails the helper shutdown check, which used a two-second whole-process deadline.",
+    "x32 debugger launcher program-trap notification case fails; exact wait status was not logged."
+  ],
+  "changes": [
+    "Resolve library symlinks before linking installed files, and unlink dangling destination entries too.",
+    "Budget five seconds for helper startup, symbol discovery, a native call with its own two-second timeout, and bounded shutdown; wait for the asynchronous worker to enter its actual loop before starting shutdown, and log failures precisely.",
+    "Log requested versus actual launcher wait status without changing required debugger assertions."
+  ],
+  "localProof": {
+    "monoStaging": [
+      "dangling destination replaced",
+      "two successive invocations",
+      "EXDEV copy fallback"
+    ],
+    "x32Debug": {
+      "suite": "linux-x32-native-calls-image-recovery-and-debugger",
+      "passed": true,
+      "utc": "2026-10-07T07:30:13.738690+00:00",
+      "sourceRevision": null,
+      "sourceRef": null,
+      "guestRamMiB": 128,
+      "profiles": [
+        {
+          "suite": "debug",
+          "passed": true,
+          "guestCpus": 2,
+          "guestRamMiB": 128,
+          "inputsSha256": {
+            "init": "265bcf93aac0e88b47a839b4587d9f424f969f68dec72292427a798f52b3ebec",
+            "fixture": "aadfb594765159ae74115e41dc1cc4713a054583f064849722d40a425b127a5d",
+            "libx32/ld-linux-x32.so.2": "23ff8fc2df6ed46bf1ae7da227cc3c298a25c0abb2b1d8ec7aa7d0175aef2a7d",
+            "libx32/libc.so.6": "f1205b77f0d3e5fdd0821f17f20d766e64f4e2c92f73d0b48b96e83373070dfb",
+            "libx32/libgcc_s.so.1": "c125a021ef71ba675dd34acb7eac47ef6f29d29f6a10544cb5be15ef5e3dacc5"
+          },
+          "command": [
+            "qemu-system-x86_64",
+            "-machine",
+            "pc",
+            "-accel",
+            "tcg",
+            "-cpu",
+            "max",
+            "-smp",
+            "2",
+            "-m",
+            "128M",
+            "-nographic",
+            "-nic",
+            "none",
+            "-monitor",
+            "none",
+            "-no-reboot",
+            "-kernel",
+            "/home/taceddinsancak/Desktop/Projects/cheat-engine/build/.ci-tmp/x32-vm/vmlinuz-6.1.0-50-amd64",
+            "-initrd",
+            "/home/taceddinsancak/Desktop/Projects/cheat-engine/build/.ci-tmp/mixed-abi-product/ci-index/x32-debug/x32-debug.initramfs.gz",
+            "-append",
+            "console=ttyS0 rdinit=/init panic=1 syscall.x32=y ce_vm_dispatch=legacy"
+          ],
+          "exitCode": 0,
+          "outputSha256": "8ed69e4db646706c3a54fa6077c422218a8733efbb0fc3ee1af12e0ab0891d40",
+          "checks": 627,
+          "guestKernel": "6.1.0-50-amd64",
+          "returnBoundaryChecks": 26,
+          "restartBoundaryChecks": 50
+        }
+      ],
+      "kernelSha256": "d8808aa4ca188560da1e6d749dcb930c87a5fd8b11ebff1f3fa6d728af35203d",
+      "runtimeSha256": {
+        "libx32/ld-linux-x32.so.2": "23ff8fc2df6ed46bf1ae7da227cc3c298a25c0abb2b1d8ec7aa7d0175aef2a7d",
+        "libx32/libc.so.6": "f1205b77f0d3e5fdd0821f17f20d766e64f4e2c92f73d0b48b96e83373070dfb",
+        "libx32/libgcc_s.so.1": "c125a021ef71ba675dd34acb7eac47ef6f29d29f6a10544cb5be15ef5e3dacc5"
+      },
+      "qemu": "QEMU emulator version 10.2.2 (qemu-10.2.2-1.fc44)"
+    },
+    "x32Repeats": [
+      {
+        "repeat": 0,
+        "exitCode": 0,
+        "passed": true
+      },
+      {
+        "repeat": 1,
+        "exitCode": 0,
+        "passed": true
+      },
+      {
+        "repeat": 2,
+        "exitCode": 0,
+        "passed": true
+      }
+    ]
+  },
+  "limitations": [
+    "Hosted rerun is required to verify these further changes.",
+    "The x32 notification failure has not reproduced locally; diagnostics do not establish its root cause.",
+    "Separate mixed-ABI adapter remains unpublished."
+  ]
+}

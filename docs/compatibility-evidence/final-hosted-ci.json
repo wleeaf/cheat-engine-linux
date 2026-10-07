@@ -1,0 +1,870 @@
+{
+  "schemaVersion": 1,
+  "suite": "final-hosted-compatibility-closeout",
+  "createdUtc": "2026-10-07T14:09:33.450504+00:00",
+  "sourceRevision": "d4172a233eae07e63614112459f370692766faa1",
+  "sourceState": "Verified published product/test revision; containing documentation closeout preserves these source hashes.",
+  "fullCompatibilityComplete": false,
+  "runUrl": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37632710873",
+  "status": "completed",
+  "conclusion": "success",
+  "requiredJobs": 7,
+  "sourceHashes": [
+    {
+      "path": "CMakeLists.txt",
+      "sha256": "b2799435afecebe0f8ceb1a1a9be95c7bc904b4696b117bb5cb5d0ecdf22b6d7"
+    },
+    {
+      "path": "debug/code_finder.cpp",
+      "sha256": "8f3f3939b8c41d05f3c4a3f4b07d8b66c08a15c1de3bd50127acba575441b891"
+    },
+    {
+      "path": "platform/linux/memory_image.cpp",
+      "sha256": "5107ece1a4a34c2455a8b86bc92914378914e8d595fc36bf9a9af66a13ff4576"
+    },
+    {
+      "path": "platform/linux/register_image.cpp",
+      "sha256": "f04871192905e518f82af03b49f4ed9c8381205c98262dda8abc738e32ccb03a"
+    },
+    {
+      "path": "platform/linux/syscall_service.cpp",
+      "sha256": "692c6617c86cd439b1ad124c52b1e929feae4dbd655cf43489ad1e43026a539b"
+    },
+    {
+      "path": "platform/linux/target_debug.cpp",
+      "sha256": "6cc31954085bdd1d410d3022de0e0ac721c6ed3cde4182fa893e89c5a315581e"
+    },
+    {
+      "path": "platform/linux/target_syscall.cpp",
+      "sha256": "20367c9c84b4329a0d0bb378a94fa932a436a028c607115469544dba9d0fe465"
+    },
+    {
+      "path": "platform/linux/target_syscall.hpp",
+      "sha256": "10b8169672bfc15715afdcca054e29595bc0458141d9b3e4e78448555ea47297"
+    },
+    {
+      "path": "test/compatibility_fixture.c",
+      "sha256": "1ba2394e40c0ade842e1810bc69e10344c0d43891f57fdb61f85c830466023d9"
+    },
+    {
+      "path": "test/completed_image_guard_checks.inc",
+      "sha256": "106f045773df0c9b127ae5b5a200f867054523d72c9f3c13278ed7c3deb9a447"
+    },
+    {
+      "path": "test/mixed_abi_restart_checks.inc",
+      "sha256": "32aa3055c3b1c6aee801976c3ba9af2ec10c55943c6c833e7895c68eb8c0049a"
+    },
+    {
+      "path": "test/native_syscall_gate.py",
+      "sha256": "ff28adc59ecad98f5110eedf67b3bb204f9a155da1e696a8ca3e64d135eafa7e"
+    },
+    {
+      "path": "test/service_detach_release_checks.inc",
+      "sha256": "9d06da96522c76001f6f7b29d574dbb809b692c8fd41159813b2d64f4581d2a6"
+    },
+    {
+      "path": "test/service_thread_death_checks.inc",
+      "sha256": "f4ffd9fcfff6bc0924706ea7b1a22d330d25700c7577bfc99aa5203f3b5409bb"
+    },
+    {
+      "path": "test/syscall_faults.cpp",
+      "sha256": "4984d525ff349f79e89de1c22154ea12a93c20ca54f50676c44b86966468621c"
+    },
+    {
+      "path": "test/syscall_faults.hpp",
+      "sha256": "0db6d502443d42fd99c454fa83d6169130a5eded9390f239aa707aac3d7785b2"
+    },
+    {
+      "path": "test/target_syscall_integration.cpp",
+      "sha256": "bd9349091a589c07292a20f966b890c151d9ac7745fcfea8e68961dc7dc3aadb"
+    }
+  ],
+  "jobs": [
+    {
+      "completedAt": "2026-10-07T14:07:09Z",
+      "conclusion": "success",
+      "databaseId": 112830845319,
+      "name": "sanitizers",
+      "startedAt": "2026-10-07T13:57:43Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-07T13:57:44Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-07T13:57:44Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:57:47Z",
+          "conclusion": "success",
+          "name": "Checkout",
+          "number": 2,
+          "startedAt": "2026-10-07T13:57:44Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:58:07Z",
+          "conclusion": "success",
+          "name": "Install apt dependencies",
+          "number": 3,
+          "startedAt": "2026-10-07T13:57:47Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:58:09Z",
+          "conclusion": "success",
+          "name": "Cache FetchContent (ASan)",
+          "number": 4,
+          "startedAt": "2026-10-07T13:58:07Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:58:21Z",
+          "conclusion": "success",
+          "name": "Configure (ASan + UBSan)",
+          "number": 5,
+          "startedAt": "2026-10-07T13:58:09Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:01:27Z",
+          "conclusion": "success",
+          "name": "Build test targets (instrumented)",
+          "number": 6,
+          "startedAt": "2026-10-07T13:58:21Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:07:04Z",
+          "conclusion": "success",
+          "name": "Run suite under ASan + UBSan",
+          "number": 7,
+          "startedAt": "2026-10-07T14:01:27Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:07:07Z",
+          "conclusion": "success",
+          "name": "Save sanitizer compatibility evidence",
+          "number": 8,
+          "startedAt": "2026-10-07T14:07:04Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:07:07Z",
+          "conclusion": "success",
+          "name": "Post Cache FetchContent (ASan)",
+          "number": 15,
+          "startedAt": "2026-10-07T14:07:07Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:07:07Z",
+          "conclusion": "success",
+          "name": "Post Checkout",
+          "number": 16,
+          "startedAt": "2026-10-07T14:07:07Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:07:07Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 17,
+          "startedAt": "2026-10-07T14:07:07Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37632710873/job/112830845319"
+    },
+    {
+      "completedAt": "2026-10-07T14:05:24Z",
+      "conclusion": "success",
+      "databaseId": 112830845778,
+      "name": "ubuntu-build",
+      "startedAt": "2026-10-07T13:57:43Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-07T13:57:44Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-07T13:57:43Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:57:46Z",
+          "conclusion": "success",
+          "name": "Checkout",
+          "number": 2,
+          "startedAt": "2026-10-07T13:57:44Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:58:16Z",
+          "conclusion": "success",
+          "name": "Install apt dependencies",
+          "number": 3,
+          "startedAt": "2026-10-07T13:57:46Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:58:17Z",
+          "conclusion": "success",
+          "name": "Cache FetchContent + build directory",
+          "number": 4,
+          "startedAt": "2026-10-07T13:58:16Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:58:23Z",
+          "conclusion": "success",
+          "name": "Configure",
+          "number": 5,
+          "startedAt": "2026-10-07T13:58:17Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:01:45Z",
+          "conclusion": "success",
+          "name": "Build",
+          "number": 6,
+          "startedAt": "2026-10-07T13:58:23Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:04:57Z",
+          "conclusion": "success",
+          "name": "Run regression suite",
+          "number": 7,
+          "startedAt": "2026-10-07T14:01:45Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:04:58Z",
+          "conclusion": "success",
+          "name": "Save native syscall and recovery evidence",
+          "number": 8,
+          "startedAt": "2026-10-07T14:04:57Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:05:02Z",
+          "conclusion": "success",
+          "name": "Run GUI debugger smoke test (offscreen Qt)",
+          "number": 9,
+          "startedAt": "2026-10-07T14:04:58Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:05:03Z",
+          "conclusion": "success",
+          "name": "Save native frontend logs and screenshots",
+          "number": 10,
+          "startedAt": "2026-10-07T14:05:02Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:05:03Z",
+          "conclusion": "success",
+          "name": "Run GUI theme smoke test (light/dark, offscreen Qt)",
+          "number": 11,
+          "startedAt": "2026-10-07T14:05:03Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:05:04Z",
+          "conclusion": "success",
+          "name": "Run GUI guest-scan and code-finder smoke tests",
+          "number": 12,
+          "startedAt": "2026-10-07T14:05:03Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:05:04Z",
+          "conclusion": "success",
+          "name": "Run GUI structure-dissector smoke test (compare mode, offscreen Qt)",
+          "number": 13,
+          "startedAt": "2026-10-07T14:05:04Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:05:04Z",
+          "conclusion": "success",
+          "name": "Run GUI hex-view smoke test (changed-byte highlight, offscreen Qt)",
+          "number": 14,
+          "startedAt": "2026-10-07T14:05:04Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:05:04Z",
+          "conclusion": "success",
+          "name": "Run GUI disassembler smoke test (range selection, offscreen Qt)",
+          "number": 15,
+          "startedAt": "2026-10-07T14:05:04Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:05:04Z",
+          "conclusion": "success",
+          "name": "Run GUI memory-search smoke test (wildcard AOB, offscreen Qt)",
+          "number": 16,
+          "startedAt": "2026-10-07T14:05:04Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:05:04Z",
+          "conclusion": "success",
+          "name": "Run GUI change-address dialog smoke test (Unicode/length, offscreen Qt)",
+          "number": 17,
+          "startedAt": "2026-10-07T14:05:04Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:05:15Z",
+          "conclusion": "success",
+          "name": "Run GUI ownership and target lifecycle regression tests",
+          "number": 18,
+          "startedAt": "2026-10-07T14:05:04Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:05:15Z",
+          "conclusion": "success",
+          "name": "Run Wayland GlobalShortcuts portal test (mock portal, private bus)",
+          "number": 19,
+          "startedAt": "2026-10-07T14:05:15Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:05:15Z",
+          "conclusion": "success",
+          "name": "Run cross-process scan test (root)",
+          "number": 20,
+          "startedAt": "2026-10-07T14:05:15Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:05:15Z",
+          "conclusion": "success",
+          "name": "Verify cescan launches",
+          "number": 21,
+          "startedAt": "2026-10-07T14:05:15Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:05:15Z",
+          "conclusion": "success",
+          "name": "Run CLI usability workflows",
+          "number": 22,
+          "startedAt": "2026-10-07T14:05:15Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:05:21Z",
+          "conclusion": "success",
+          "name": "Build kernel module (out-of-tree)",
+          "number": 23,
+          "startedAt": "2026-10-07T14:05:15Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:05:21Z",
+          "conclusion": "success",
+          "name": "Post Cache FetchContent + build directory",
+          "number": 45,
+          "startedAt": "2026-10-07T14:05:21Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:05:22Z",
+          "conclusion": "success",
+          "name": "Post Checkout",
+          "number": 46,
+          "startedAt": "2026-10-07T14:05:21Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:05:22Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 47,
+          "startedAt": "2026-10-07T14:05:22Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37632710873/job/112830845778"
+    },
+    {
+      "completedAt": "2026-10-07T14:03:05Z",
+      "conclusion": "success",
+      "databaseId": 112830845849,
+      "name": "arm64-compatibility / arm64-syscalls",
+      "startedAt": "2026-10-07T13:57:43Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-07T13:57:45Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-07T13:57:44Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:57:47Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v7",
+          "number": 2,
+          "startedAt": "2026-10-07T13:57:45Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:58:09Z",
+          "conclusion": "success",
+          "name": "Install cross compiler and full-system emulator",
+          "number": 3,
+          "startedAt": "2026-10-07T13:57:47Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:03:01Z",
+          "conclusion": "success",
+          "name": "Require real ARM64 memory, register, breakpoint, trace, relocation and recovery operations",
+          "number": 4,
+          "startedAt": "2026-10-07T13:58:09Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:03:02Z",
+          "conclusion": "success",
+          "name": "Save guest logs and operation evidence",
+          "number": 5,
+          "startedAt": "2026-10-07T14:03:01Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:03:02Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v7",
+          "number": 10,
+          "startedAt": "2026-10-07T14:03:02Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:03:02Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 11,
+          "startedAt": "2026-10-07T14:03:02Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37632710873/job/112830845849"
+    },
+    {
+      "completedAt": "2026-10-07T14:00:57Z",
+      "conclusion": "success",
+      "databaseId": 112830845928,
+      "name": "x32-compatibility / x32-native-calls",
+      "startedAt": "2026-10-07T13:57:43Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-07T13:57:45Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-07T13:57:43Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:57:47Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v7",
+          "number": 2,
+          "startedAt": "2026-10-07T13:57:45Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:58:16Z",
+          "conclusion": "success",
+          "name": "Install LP64 compiler, x32 runtime and full-system emulator",
+          "number": 3,
+          "startedAt": "2026-10-07T13:57:47Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:00:41Z",
+          "conclusion": "success",
+          "name": "Verify actual x32 calls, debugger and recovery serially",
+          "number": 4,
+          "startedAt": "2026-10-07T13:58:16Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:00:55Z",
+          "conclusion": "success",
+          "name": "Save required guest evidence",
+          "number": 5,
+          "startedAt": "2026-10-07T14:00:41Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:00:55Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v7",
+          "number": 10,
+          "startedAt": "2026-10-07T14:00:55Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:00:55Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 11,
+          "startedAt": "2026-10-07T14:00:55Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37632710873/job/112830845928"
+    },
+    {
+      "completedAt": "2026-10-07T14:00:12Z",
+      "conclusion": "success",
+      "databaseId": 112830846121,
+      "name": "wine-compatibility / legacy-wine",
+      "startedAt": "2026-10-07T13:57:43Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-07T13:57:45Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-07T13:57:44Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:57:47Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v7",
+          "number": 2,
+          "startedAt": "2026-10-07T13:57:45Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:58:29Z",
+          "conclusion": "success",
+          "name": "Install native and Wine32 dependencies",
+          "number": 3,
+          "startedAt": "2026-10-07T13:57:47Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:59:49Z",
+          "conclusion": "success",
+          "name": "Build compatibility tools without Qt",
+          "number": 4,
+          "startedAt": "2026-10-07T13:58:29Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:00:09Z",
+          "conclusion": "success",
+          "name": "Require real PE32 and PE32+ operations",
+          "number": 5,
+          "startedAt": "2026-10-07T13:59:49Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:00:10Z",
+          "conclusion": "success",
+          "name": "Save operation evidence",
+          "number": 6,
+          "startedAt": "2026-10-07T14:00:09Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:00:10Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v7",
+          "number": 12,
+          "startedAt": "2026-10-07T14:00:10Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:00:10Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 13,
+          "startedAt": "2026-10-07T14:00:10Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37632710873/job/112830846121"
+    },
+    {
+      "completedAt": "2026-10-07T14:02:12Z",
+      "conclusion": "success",
+      "databaseId": 112830846145,
+      "name": "wine-compatibility / wow64-wine",
+      "startedAt": "2026-10-07T13:57:43Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-07T13:57:45Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-07T13:57:44Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:57:52Z",
+          "conclusion": "success",
+          "name": "Initialize containers",
+          "number": 2,
+          "startedAt": "2026-10-07T13:57:45Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:59:06Z",
+          "conclusion": "success",
+          "name": "Install dependencies",
+          "number": 3,
+          "startedAt": "2026-10-07T13:57:52Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:59:09Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v7",
+          "number": 4,
+          "startedAt": "2026-10-07T13:59:06Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:01:34Z",
+          "conclusion": "success",
+          "name": "Build compatibility tools without Qt",
+          "number": 5,
+          "startedAt": "2026-10-07T13:59:09Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:02:05Z",
+          "conclusion": "success",
+          "name": "Require actual 64-bit-loader WoW64 operations",
+          "number": 6,
+          "startedAt": "2026-10-07T14:01:34Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:02:06Z",
+          "conclusion": "success",
+          "name": "Save operation evidence",
+          "number": 7,
+          "startedAt": "2026-10-07T14:02:05Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:02:06Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v7",
+          "number": 13,
+          "startedAt": "2026-10-07T14:02:06Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:02:09Z",
+          "conclusion": "success",
+          "name": "Stop containers",
+          "number": 14,
+          "startedAt": "2026-10-07T14:02:06Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:02:09Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 15,
+          "startedAt": "2026-10-07T14:02:09Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37632710873/job/112830846145"
+    },
+    {
+      "completedAt": "2026-10-07T14:07:09Z",
+      "conclusion": "success",
+      "databaseId": 112830846351,
+      "name": "arm64-compatibility / arm64-frontends",
+      "startedAt": "2026-10-07T13:57:47Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-07T13:57:48Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-07T13:57:47Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:57:50Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v7",
+          "number": 2,
+          "startedAt": "2026-10-07T13:57:48Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:58:15Z",
+          "conclusion": "success",
+          "name": "Install native ARM64 GUI dependencies",
+          "number": 3,
+          "startedAt": "2026-10-07T13:57:50Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T13:58:16Z",
+          "conclusion": "success",
+          "name": "Reuse architecture-specific dependency builds",
+          "number": 4,
+          "startedAt": "2026-10-07T13:58:15Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:06:55Z",
+          "conclusion": "success",
+          "name": "Build native core, application, CLI and live register test serially",
+          "number": 5,
+          "startedAt": "2026-10-07T13:58:16Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:07:02Z",
+          "conclusion": "success",
+          "name": "Require native ARM64 register editing and GUI, CLI and Lua runtime checks",
+          "number": 6,
+          "startedAt": "2026-10-07T14:06:55Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:07:07Z",
+          "conclusion": "success",
+          "name": "Save frontend logs, screenshots and operation evidence",
+          "number": 7,
+          "startedAt": "2026-10-07T14:07:02Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:07:07Z",
+          "conclusion": "success",
+          "name": "Post Reuse architecture-specific dependency builds",
+          "number": 13,
+          "startedAt": "2026-10-07T14:07:07Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:07:07Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v7",
+          "number": 14,
+          "startedAt": "2026-10-07T14:07:07Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-07T14:07:07Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 15,
+          "startedAt": "2026-10-07T14:07:07Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37632710873/job/112830846351"
+    }
+  ],
+  "nativeObservations": [
+    {
+      "configuration": "native",
+      "log": {
+        "path": "build/.ci-tmp/mixed-abi-product/watchpoint-timing-hosted-native-green.log",
+        "sha256": "21bbcc750b48bc331a9e9843668a97f614b0d6d6a10c87a558ec2fee112f7029"
+      },
+      "hardwareRaces": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=1570 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=665 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=457 applicationSignal=19",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=510 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=844 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=1373 applicationSignal=19"
+      ],
+      "appliedDetaches": [
+        "SERVICE_REAL_DETACH tid=10154 owner=10155 context=1 allocation=7f3504ce6000 mapped=1 alive=1 esrch=1",
+        "SERVICE_REAL_DETACH tid=10156 owner=10157 context=1 allocation=7f5270dc1000 mapped=1 alive=1 esrch=1",
+        "SERVICE_REAL_DETACH tid=10158 owner=10159 context=1 allocation=7fc752ec2000 mapped=1 alive=1 esrch=1",
+        "SERVICE_REAL_DETACH tid=10654 owner=10655 context=1 allocation=ee340000 mapped=1 alive=1 esrch=1",
+        "SERVICE_REAL_DETACH tid=10656 owner=10657 context=1 allocation=e93db000 mapped=1 alive=1 esrch=1",
+        "SERVICE_REAL_DETACH tid=10658 owner=10659 context=1 allocation=f1301000 mapped=1 alive=1 esrch=1"
+      ],
+      "detachResults": [
+        "SERVICE_DETACH_RELEASE_RESULT=PASSED architecture=x86-64 checks=36",
+        "SERVICE_DETACH_RELEASE_RESULT=PASSED architecture=x86-32 checks=36"
+      ],
+      "detachPhases": [
+        "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-64 phase=before-record drained=1 replays=0",
+        "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-64 phase=after-record drained=1 replays=0",
+        "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-64 phase=shutdown drained=1 replays=0",
+        "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-32 phase=before-record drained=1 replays=0",
+        "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-32 phase=after-record drained=1 replays=0",
+        "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-32 phase=shutdown drained=1 replays=0"
+      ]
+    },
+    {
+      "configuration": "asan",
+      "log": {
+        "path": "build/.ci-tmp/mixed-abi-product/watchpoint-timing-hosted-asan-green.log",
+        "sha256": "ca16e42cd041d2c7ec26818a2f7911d56d7dcd3beb25cdcaa39a05183f321a81"
+      },
+      "hardwareRaces": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=323 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=11009 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=1 applicationSignal=19",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=216 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=1734 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=472 applicationSignal=19"
+      ],
+      "appliedDetaches": [
+        "SERVICE_REAL_DETACH tid=7815 owner=7816 context=1 allocation=7f1ab8075000 mapped=1 alive=1 esrch=1",
+        "SERVICE_REAL_DETACH tid=7817 owner=7818 context=1 allocation=7f674f297000 mapped=1 alive=1 esrch=1",
+        "SERVICE_REAL_DETACH tid=7819 owner=7820 context=1 allocation=7f51ba98a000 mapped=1 alive=1 esrch=1",
+        "SERVICE_REAL_DETACH tid=8321 owner=8322 context=1 allocation=e929d000 mapped=1 alive=1 esrch=1",
+        "SERVICE_REAL_DETACH tid=8323 owner=8324 context=1 allocation=f4611000 mapped=1 alive=1 esrch=1",
+        "SERVICE_REAL_DETACH tid=8325 owner=8326 context=1 allocation=f1f39000 mapped=1 alive=1 esrch=1"
+      ],
+      "detachResults": [
+        "SERVICE_DETACH_RELEASE_RESULT=PASSED architecture=x86-64 checks=36",
+        "SERVICE_DETACH_RELEASE_RESULT=PASSED architecture=x86-32 checks=36"
+      ],
+      "detachPhases": [
+        "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-64 phase=before-record drained=1 replays=0",
+        "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-64 phase=after-record drained=1 replays=0",
+        "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-64 phase=shutdown drained=1 replays=0",
+        "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-32 phase=before-record drained=1 replays=0",
+        "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-32 phase=after-record drained=1 replays=0",
+        "SERVICE_DETACH_RELEASE_OBSERVATION architecture=x86-32 phase=shutdown drained=1 replays=0"
+      ]
+    }
+  ],
+  "limits": [
+    "Every required job passed for this exact source revision; older failures remain historical evidence.",
+    "The six-area compatibility requirements and specific remaining cases in PROGRESS.md remain active.",
+    "Documentation closeout creates no release and adds no new product or test changes."
+  ]
+}

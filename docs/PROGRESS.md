@@ -15,21 +15,29 @@ as a count of unique tests or presented as fresh checks of every environment.
 
 ## Latest hosted verification: 7 October 2026
 
-The [completed run for `64a62bc`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37623927661)
+The [completed run for `d4172a2`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37632710873)
 passed **all seven required jobs**: normal native build/runtime/GUI/CLI checks,
 ASan/UBSan, x32, legacy Wine32/Wine64, WoW64, ARM64 kernels and ARM64 frontends.
-This is the published code checkpoint containing the accumulated recovery fixes
-and the fixture corrections described below. The
-[hosted evidence](compatibility-evidence/publication-hosted-ci.json) records its
-exact revision, current product/test hashes, job links, steps and conclusions.
+This published checkpoint includes the applied-detach recovery fix, required
+36-check children for each native ABI and the watchpoint race timing correction.
+The [final hosted evidence](compatibility-evidence/final-hosted-ci.json) records
+its exact revision, current product/test hashes, all job links/steps and actual
+kernel observations. Both hosted native and sanitizer logs contain six genuine
+hardware races and six applied detach events; every detach phase drains with
+zero obsolete context-write attempts.
 
-The [documentation closeout run for `50c2bc6`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37625438177)
-also completed with all seven jobs passing. This closes the reported red-check
-investigation at that checkpoint. The subsequent
+The earlier [run for `64a62bc`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37623927661)
+and [documentation run for `50c2bc6`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37625438177)
+also passed all seven jobs; their original
+[publication evidence](compatibility-evidence/publication-hosted-ci.json) is retained.
+The intervening
 [run for `2a843aa`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37629935823)
 passed six jobs but exposed the native watchpoint-race setup issue described
-below. Subsequent changes must pass the required hosted gates for their own
-revision. No new release is created. All six
+below. Older red runs remain historical evidence. This closes the reported
+red-check investigation for the current product/test checkpoint. The final
+documentation closeout preserves those exact source hashes. Subsequent code
+changes must pass the required gates for their own revision. No new release is
+created. All six
 broader compatibility requirements remain active, with the specific remaining
 work listed in this checkpoint and the six-area backlog below.
 

@@ -30,6 +30,14 @@ independent full-context verification and zero post-release write attempts.
 Still-owned running ESRCH, concurrent re-attachment, exit before confirmation
 and the same fault scenarios on other backends remain unverified.
 
+[Unreaped task recovery](PROGRESS.md#unreaped-task-recovery-7-october-2026)
+also checks retained mmap and completed-function contexts on native x86-64 and
+i386. A separate tracer consumes the real terminal notification, while the
+original parent independently verifies the zombie and keeps it unreaped.
+Recovery must retire the dead context before numeric PID disappearance.
+Service broker shutdown in that exact shared-waiter window, live EXIT stops
+and broader foreign-backend cases still need separate evidence.
+
 Do not mark this work complete until every row has sufficient current evidence.
 Update this table as implementation and live validation progress.
 

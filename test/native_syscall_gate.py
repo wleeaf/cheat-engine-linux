@@ -121,6 +121,28 @@ def main():
                     len(events) != 3 or phases != ['before-record', 'after-record', 'shutdown']):
                 raise RuntimeError(f"required native {bits}-bit applied-detach recovery failed")
             detach_release["status"] = "passed"
+            unreaped = {"status": "failed"}
+            target["unreapedRecovery"] = unreaped
+            try:
+                observed = subprocess.run([str(driver), "--unreaped-recovery-only", str(fixture)],
+                                          capture_output=True, text=True, timeout=60)
+            except subprocess.TimeoutExpired as error:
+                unreaped["output"] = (error.stdout or b"").decode(errors="replace")
+                unreaped["stderr"] = (error.stderr or b"").decode(errors="replace")
+                raise RuntimeError(f"required native {bits}-bit unreaped recovery timed out") from error
+            unreaped.update(exitCode=observed.returncode, output=observed.stdout, stderr=observed.stderr)
+            print(observed.stdout, end="", flush=True)
+            if observed.stderr:
+                print(observed.stderr, end="", flush=True)
+            results = re.findall(r'^UNREAPED_RECOVERY_RESULT=.*$', observed.stdout, re.M)
+            assertions = re.findall(r'^UNREAPED_RECOVERY_CHECK (OK|FAILED):', observed.stdout, re.M)
+            phases = re.findall(rf'^UNREAPED_RECOVERY_OBSERVATION architecture={architecture} phase=(\S+) state=Z birth=[1-9]\d* recoveryError=3 complete=1 terminal=1$', observed.stdout, re.M)
+            unreaped["checks"] = len(assertions)
+            if (observed.returncode or results != [f'UNREAPED_RECOVERY_RESULT=PASSED architecture={architecture} checks=25'] or
+                    len(assertions) != 25 or any(value != 'OK' for value in assertions) or 'FAILED:' in observed.stdout or
+                    phases != ['memory', 'function']):
+                raise RuntimeError(f"required native {bits}-bit unreaped recovery failed")
+            unreaped["status"] = "passed"
             if bits == 64:
                 lifecycle = {"status": "failed"}
                 target["mixedAbiLifecycle"] = lifecycle

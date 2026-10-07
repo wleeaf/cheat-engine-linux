@@ -1,0 +1,542 @@
+{
+  "schemaVersion": 1,
+  "suite": "confirmed-unreaped-task-memory-and-function-recovery",
+  "createdUtc": "2026-10-07T14:38:42.748104+00:00",
+  "baseRevision": "c622bb24fa2ad2ca8d959c764614279c8ac80829",
+  "sourceState": "Tested working tree; published by containing commit. Hosted verification must match this source snapshot.",
+  "fullCompatibilityComplete": false,
+  "platform": "Linux-7.1.8-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "before": {
+    "sourceAndDriverHashes": [
+      {
+        "path": "platform/linux/target_syscall.cpp",
+        "sha256": "20367c9c84b4329a0d0bb378a94fa932a436a028c607115469544dba9d0fe465"
+      },
+      {
+        "path": "test/unreaped_recovery_checks.inc",
+        "sha256": "d42ce2f54f9b9cf4e19fafe724a15ac6fe9fcb004c3363963f8624679c77bba9"
+      },
+      {
+        "path": "test/target_syscall_integration.cpp",
+        "sha256": "a45470763168b30ed531b7002ba354fd6442e5af9d445e835bd753771e085d9e"
+      },
+      {
+        "path": "test/syscall_faults.cpp",
+        "sha256": "4984d525ff349f79e89de1c22154ea12a93c20ca54f50676c44b86966468621c"
+      },
+      {
+        "path": "build/target_syscall_integration",
+        "sha256": "d99457c0826c2f0c4a14468cd8a5e9b4552993e29cb6befd160b798f690223e3"
+      }
+    ],
+    "targets": [
+      {
+        "bits": 64,
+        "result": "failed",
+        "checks": 25,
+        "failedChecks": 5,
+        "log": {
+          "path": "build/.ci-tmp/mixed-abi-product/unreaped-functions-before64.log",
+          "sha256": "b9d29913cc36ea78dba5ef38da6efcb2f16f880278c8ecdcd88a0df9ae10c772"
+        },
+        "output": "UNREAPED_RECOVERY_CHECK OK: the original parent launches an actual live native fixture and records its original birth\nUNREAPED_RECOVERY_CHECK OK: the actual ptrace owner is a separate process from the real parent\nUNREAPED_RECOVERY_CHECK OK: a real completed mmap retains failed original-register restoration on the separate ptrace owner\nUNREAPED_RECOVERY_CHECK OK: the real parent kills its own stopped child through the kernel\nUNREAPED_RECOVERY_CHECK OK: the actual tracer consumes its real terminal ptrace notification without reaping the parent's child\nUNREAPED_RECOVERY_CHECK OK: the real parent independently observes an unreaped kernel zombie with its unchanged original birth and zero tracer\nUNREAPED_RECOVERY_CHECK OK: the pinned original mm is retired while the original PID remains unreaped\nUNREAPED_RECOVERY_CHECK FAILED: owner recovery retires a confirmed dead context before the parent reaps its original PID\nUNREAPED_RECOVERY_CHECK FAILED: confirmed task death completes recovery idempotently instead of retaining unavailable executable metadata\nUNREAPED_RECOVERY_CHECK OK: the recovery result is observed before actual parent reaping rather than after disappearance of the numeric PID\nUNREAPED_RECOVERY_CHECK OK: the real parent finally reaps its original child's authentic SIGKILL exit\nUNREAPED_RECOVERY_CHECK OK: the separate owner finishes its retained recovery and the parent reaps it normally\nUNREAPED_RECOVERY_OBSERVATION architecture=x86-64 phase=memory state=Z birth=71976428 recoveryError=11 complete=0 terminal=1\nUNREAPED_RECOVERY_CHECK OK: the original parent launches an actual live native fixture and records its original birth\nUNREAPED_RECOVERY_CHECK OK: the real fixture publishes its callable function and enters its nonempty-vector CPU loop\nUNREAPED_RECOVERY_CHECK OK: the actual ptrace owner is a separate process from the real parent\nUNREAPED_RECOVERY_CHECK OK: a real completed function retains its exact result and original-context restoration on the separate ptrace owner\nUNREAPED_RECOVERY_CHECK OK: the real parent kills its own stopped child through the kernel\nUNREAPED_RECOVERY_CHECK OK: the actual tracer consumes its real terminal ptrace notification without reaping the parent's child\nUNREAPED_RECOVERY_CHECK OK: the real parent independently observes an unreaped kernel zombie with its unchanged original birth and zero tracer\nUNREAPED_RECOVERY_CHECK OK: the pinned original mm is retired while the original PID remains unreaped\nUNREAPED_RECOVERY_CHECK FAILED: owner recovery retires a confirmed dead context before the parent reaps its original PID\nUNREAPED_RECOVERY_CHECK FAILED: confirmed task death completes recovery idempotently instead of retaining unavailable executable metadata\nUNREAPED_RECOVERY_CHECK OK: the recovery result is observed before actual parent reaping rather than after disappearance of the numeric PID\nUNREAPED_RECOVERY_CHECK OK: the real parent finally reaps its original child's authentic SIGKILL exit\nUNREAPED_RECOVERY_CHECK FAILED: the separate owner finishes its retained recovery and the parent reaps it normally\nUNREAPED_RECOVERY_OBSERVATION architecture=x86-64 phase=function state=Z birth=71976429 recoveryError=10 complete=0 terminal=1\nUNREAPED_RECOVERY_RESULT=FAILED architecture=x86-64 checks=25\n"
+      },
+      {
+        "bits": 32,
+        "result": "failed",
+        "checks": 25,
+        "failedChecks": 5,
+        "log": {
+          "path": "build/.ci-tmp/mixed-abi-product/unreaped-functions-before32.log",
+          "sha256": "2af4f84ebdc27f1532a2d114deb43ae2000958934133c9e191e91a1656cc38f7"
+        },
+        "output": "UNREAPED_RECOVERY_CHECK OK: the original parent launches an actual live native fixture and records its original birth\nUNREAPED_RECOVERY_CHECK OK: the actual ptrace owner is a separate process from the real parent\nUNREAPED_RECOVERY_CHECK OK: a real completed mmap retains failed original-register restoration on the separate ptrace owner\nUNREAPED_RECOVERY_CHECK OK: the real parent kills its own stopped child through the kernel\nUNREAPED_RECOVERY_CHECK OK: the actual tracer consumes its real terminal ptrace notification without reaping the parent's child\nUNREAPED_RECOVERY_CHECK OK: the real parent independently observes an unreaped kernel zombie with its unchanged original birth and zero tracer\nUNREAPED_RECOVERY_CHECK OK: the pinned original mm is retired while the original PID remains unreaped\nUNREAPED_RECOVERY_CHECK FAILED: owner recovery retires a confirmed dead context before the parent reaps its original PID\nUNREAPED_RECOVERY_CHECK FAILED: confirmed task death completes recovery idempotently instead of retaining unavailable executable metadata\nUNREAPED_RECOVERY_CHECK OK: the recovery result is observed before actual parent reaping rather than after disappearance of the numeric PID\nUNREAPED_RECOVERY_CHECK OK: the real parent finally reaps its original child's authentic SIGKILL exit\nUNREAPED_RECOVERY_CHECK OK: the separate owner finishes its retained recovery and the parent reaps it normally\nUNREAPED_RECOVERY_OBSERVATION architecture=x86-32 phase=memory state=Z birth=71977888 recoveryError=11 complete=0 terminal=1\nUNREAPED_RECOVERY_CHECK OK: the original parent launches an actual live native fixture and records its original birth\nUNREAPED_RECOVERY_CHECK OK: the real fixture publishes its callable function and enters its nonempty-vector CPU loop\nUNREAPED_RECOVERY_CHECK OK: the actual ptrace owner is a separate process from the real parent\nUNREAPED_RECOVERY_CHECK OK: a real completed function retains its exact result and original-context restoration on the separate ptrace owner\nUNREAPED_RECOVERY_CHECK OK: the real parent kills its own stopped child through the kernel\nUNREAPED_RECOVERY_CHECK OK: the actual tracer consumes its real terminal ptrace notification without reaping the parent's child\nUNREAPED_RECOVERY_CHECK OK: the real parent independently observes an unreaped kernel zombie with its unchanged original birth and zero tracer\nUNREAPED_RECOVERY_CHECK OK: the pinned original mm is retired while the original PID remains unreaped\nUNREAPED_RECOVERY_CHECK FAILED: owner recovery retires a confirmed dead context before the parent reaps its original PID\nUNREAPED_RECOVERY_CHECK FAILED: confirmed task death completes recovery idempotently instead of retaining unavailable executable metadata\nUNREAPED_RECOVERY_CHECK OK: the recovery result is observed before actual parent reaping rather than after disappearance of the numeric PID\nUNREAPED_RECOVERY_CHECK OK: the real parent finally reaps its original child's authentic SIGKILL exit\nUNREAPED_RECOVERY_CHECK FAILED: the separate owner finishes its retained recovery and the parent reaps it normally\nUNREAPED_RECOVERY_OBSERVATION architecture=x86-32 phase=function state=Z birth=71977889 recoveryError=10 complete=0 terminal=1\nUNREAPED_RECOVERY_RESULT=FAILED architecture=x86-32 checks=25\n"
+      }
+    ]
+  },
+  "mechanism": "A separate real tracer consumes SIGKILL terminal notification. The original parent observes WNOWAIT and independently verifies state Z, unchanged birth, zero tracer and retired pinned mm. Recovery is retried before actual parent reaping. Real completed function returns 87654321 before controlled original-register restoration failure.",
+  "scope": [
+    "Native x86-64 mmap recovery with unconsumed original-context restoration",
+    "Native i386 mmap recovery with unconsumed original-context restoration",
+    "Native x86-64 and i386 completed-function recovery after ECHILD with independently confirmed task death"
+  ],
+  "remaining": [
+    "Service broker explicit recovery and destruction with another waiter consuming the real terminal notification while the parent retains a zombie",
+    "Live PTRACE_EVENT_EXIT stops and other PF_EXITING windows",
+    "Nonleader whole-group death with an unreaped leader, preserving real EXEC adoption",
+    "Safe ownership and discovery of a surviving old-mm peer after nonleader death",
+    "Broader foreign-backend exit/waiter cases and concurrency/scheduler stress",
+    "All six compatibility requirements remain incomplete"
+  ],
+  "sourceHashes": [
+    {
+      "path": "CMakeLists.txt",
+      "sha256": "b2799435afecebe0f8ceb1a1a9be95c7bc904b4696b117bb5cb5d0ecdf22b6d7"
+    },
+    {
+      "path": "platform/linux/target_syscall.cpp",
+      "sha256": "fee1e17b194ed2be6528d9acff181e164851630a8d4fed7ffabd8a7bb3ee0a49"
+    },
+    {
+      "path": "platform/linux/target_syscall.hpp",
+      "sha256": "10b8169672bfc15715afdcca054e29595bc0458141d9b3e4e78448555ea47297"
+    },
+    {
+      "path": "platform/linux/syscall_service.cpp",
+      "sha256": "692c6617c86cd439b1ad124c52b1e929feae4dbd655cf43489ad1e43026a539b"
+    },
+    {
+      "path": "platform/linux/syscall_service.hpp",
+      "sha256": "7b04be118fe101039713cde929e42e8c8e2c6a79cfc0d95cd5751f92fb3cbfab"
+    },
+    {
+      "path": "platform/linux/memory_image.cpp",
+      "sha256": "5107ece1a4a34c2455a8b86bc92914378914e8d595fc36bf9a9af66a13ff4576"
+    },
+    {
+      "path": "platform/linux/memory_image.hpp",
+      "sha256": "be841fe0894dbf86a43736d491fdcf3325882784bfa4ceedc7f075aea812d560"
+    },
+    {
+      "path": "test/target_syscall_integration.cpp",
+      "sha256": "a45470763168b30ed531b7002ba354fd6442e5af9d445e835bd753771e085d9e"
+    },
+    {
+      "path": "test/unreaped_recovery_checks.inc",
+      "sha256": "d42ce2f54f9b9cf4e19fafe724a15ac6fe9fcb004c3363963f8624679c77bba9"
+    },
+    {
+      "path": "test/native_syscall_gate.py",
+      "sha256": "88d6d45c49424304abd03e3752312f73c582b3464a09cb5de9a867de4242348d"
+    },
+    {
+      "path": "test/syscall_faults.cpp",
+      "sha256": "4984d525ff349f79e89de1c22154ea12a93c20ca54f50676c44b86966468621c"
+    },
+    {
+      "path": "test/syscall_faults.hpp",
+      "sha256": "0db6d502443d42fd99c454fa83d6169130a5eded9390f239aa707aac3d7785b2"
+    },
+    {
+      "path": "test/compatibility_fixture.c",
+      "sha256": "1ba2394e40c0ade842e1810bc69e10344c0d43891f57fdb61f85c830466023d9"
+    },
+    {
+      "path": "test/native_call_gate.py",
+      "sha256": "9ea928456df1aadfebedace43983d6014d005f29e25ce87c61a48116df665d54"
+    },
+    {
+      "path": "test/native_call_exec_integration.cpp",
+      "sha256": "8f3416afc95a1082e9267b37e74a7d63e957a57fa53baffd94a33acceb7a0662"
+    }
+  ],
+  "nativeGates": [
+    {
+      "configuration": "normal",
+      "report": {
+        "path": "build/.ci-tmp/mixed-abi-product/unreaped-native-gate.json",
+        "sha256": "80c2cff0e7b89073bd51cfc7d13d3f11cf8e94fb81a5c67e5bc8f3a7303ee3c1"
+      },
+      "log": {
+        "path": "build/.ci-tmp/mixed-abi-product/unreaped-native-gate.log",
+        "sha256": "38130e8b8ad1ca34dbe506f6230e001dbf804df96a7addd79d2deb58df724256"
+      },
+      "driverSha256": "f87b381a0c95000eaf3bab0aa35a0ba8dfd052f7f0e498dfff045d3f426ce971",
+      "targets": [
+        {
+          "bits": 64,
+          "status": "passed",
+          "fixtureSha256": "d0e8c2664aca2bf48f2af7a54a1a46398ec8cf91ddacb4b7b6049974aaabeba6",
+          "exitCode": 0,
+          "checks": 940,
+          "suites": {
+            "serviceThreadDeath": {
+              "status": "passed",
+              "exitCode": 0,
+              "checks": 38
+            },
+            "serviceDetachRelease": {
+              "status": "passed",
+              "exitCode": 0,
+              "checks": 36
+            },
+            "unreapedRecovery": {
+              "status": "passed",
+              "exitCode": 0,
+              "checks": 25
+            },
+            "mixedAbiLifecycle": {
+              "status": "passed",
+              "exitCode": 0,
+              "checks": 400
+            },
+            "mixedAbiSharedExec": {
+              "status": "passed",
+              "fixtureSha256": "bd57a7cdc5cb63ddf58337074365bb233507a3ea57294c2c19d1dcf414ff2291",
+              "exitCode": 0,
+              "checks": 288
+            },
+            "mixedAbiSharedDeath": {
+              "status": "passed",
+              "exitCode": 0,
+              "checks": 369
+            },
+            "completedImageGuard": {
+              "status": "passed",
+              "exitCode": 0,
+              "checks": 57
+            }
+          },
+          "unreapedRecoveryProof": {
+            "status": "passed",
+            "exitCode": 0,
+            "output": "UNREAPED_RECOVERY_CHECK OK: the original parent launches an actual live native fixture and records its original birth\nUNREAPED_RECOVERY_CHECK OK: the actual ptrace owner is a separate process from the real parent\nUNREAPED_RECOVERY_CHECK OK: a real completed mmap retains failed original-register restoration on the separate ptrace owner\nUNREAPED_RECOVERY_CHECK OK: the real parent kills its own stopped child through the kernel\nUNREAPED_RECOVERY_CHECK OK: the actual tracer consumes its real terminal ptrace notification without reaping the parent's child\nUNREAPED_RECOVERY_CHECK OK: the real parent independently observes an unreaped kernel zombie with its unchanged original birth and zero tracer\nUNREAPED_RECOVERY_CHECK OK: the pinned original mm is retired while the original PID remains unreaped\nUNREAPED_RECOVERY_CHECK OK: owner recovery retires a confirmed dead context before the parent reaps its original PID\nUNREAPED_RECOVERY_CHECK OK: confirmed task death completes recovery idempotently instead of retaining unavailable executable metadata\nUNREAPED_RECOVERY_CHECK OK: the recovery result is observed before actual parent reaping rather than after disappearance of the numeric PID\nUNREAPED_RECOVERY_CHECK OK: the real parent finally reaps its original child's authentic SIGKILL exit\nUNREAPED_RECOVERY_CHECK OK: the separate owner finishes its retained recovery and the parent reaps it normally\nUNREAPED_RECOVERY_OBSERVATION architecture=x86-64 phase=memory state=Z birth=72011286 recoveryError=3 complete=1 terminal=1\nUNREAPED_RECOVERY_CHECK OK: the original parent launches an actual live native fixture and records its original birth\nUNREAPED_RECOVERY_CHECK OK: the real fixture publishes its callable function and enters its nonempty-vector CPU loop\nUNREAPED_RECOVERY_CHECK OK: the actual ptrace owner is a separate process from the real parent\nUNREAPED_RECOVERY_CHECK OK: a real completed function retains its exact result and original-context restoration on the separate ptrace owner\nUNREAPED_RECOVERY_CHECK OK: the real parent kills its own stopped child through the kernel\nUNREAPED_RECOVERY_CHECK OK: the actual tracer consumes its real terminal ptrace notification without reaping the parent's child\nUNREAPED_RECOVERY_CHECK OK: the real parent independently observes an unreaped kernel zombie with its unchanged original birth and zero tracer\nUNREAPED_RECOVERY_CHECK OK: the pinned original mm is retired while the original PID remains unreaped\nUNREAPED_RECOVERY_CHECK OK: owner recovery retires a confirmed dead context before the parent reaps its original PID\nUNREAPED_RECOVERY_CHECK OK: confirmed task death completes recovery idempotently instead of retaining unavailable executable metadata\nUNREAPED_RECOVERY_CHECK OK: the recovery result is observed before actual parent reaping rather than after disappearance of the numeric PID\nUNREAPED_RECOVERY_CHECK OK: the real parent finally reaps its original child's authentic SIGKILL exit\nUNREAPED_RECOVERY_CHECK OK: the separate owner finishes its retained recovery and the parent reaps it normally\nUNREAPED_RECOVERY_OBSERVATION architecture=x86-64 phase=function state=Z birth=72011286 recoveryError=3 complete=1 terminal=1\nUNREAPED_RECOVERY_RESULT=PASSED architecture=x86-64 checks=25\n",
+            "stderr": "",
+            "checks": 25
+          }
+        },
+        {
+          "bits": 32,
+          "status": "passed",
+          "fixtureSha256": "1001ac5bda24c7ae73690e16413f179cff58c59a098f4fa0ff9c0a133a134a3e",
+          "exitCode": 0,
+          "checks": 667,
+          "suites": {
+            "serviceThreadDeath": {
+              "status": "passed",
+              "exitCode": 0,
+              "checks": 38
+            },
+            "serviceDetachRelease": {
+              "status": "passed",
+              "exitCode": 0,
+              "checks": 36
+            },
+            "unreapedRecovery": {
+              "status": "passed",
+              "exitCode": 0,
+              "checks": 25
+            }
+          },
+          "unreapedRecoveryProof": {
+            "status": "passed",
+            "exitCode": 0,
+            "output": "UNREAPED_RECOVERY_CHECK OK: the original parent launches an actual live native fixture and records its original birth\nUNREAPED_RECOVERY_CHECK OK: the actual ptrace owner is a separate process from the real parent\nUNREAPED_RECOVERY_CHECK OK: a real completed mmap retains failed original-register restoration on the separate ptrace owner\nUNREAPED_RECOVERY_CHECK OK: the real parent kills its own stopped child through the kernel\nUNREAPED_RECOVERY_CHECK OK: the actual tracer consumes its real terminal ptrace notification without reaping the parent's child\nUNREAPED_RECOVERY_CHECK OK: the real parent independently observes an unreaped kernel zombie with its unchanged original birth and zero tracer\nUNREAPED_RECOVERY_CHECK OK: the pinned original mm is retired while the original PID remains unreaped\nUNREAPED_RECOVERY_CHECK OK: owner recovery retires a confirmed dead context before the parent reaps its original PID\nUNREAPED_RECOVERY_CHECK OK: confirmed task death completes recovery idempotently instead of retaining unavailable executable metadata\nUNREAPED_RECOVERY_CHECK OK: the recovery result is observed before actual parent reaping rather than after disappearance of the numeric PID\nUNREAPED_RECOVERY_CHECK OK: the real parent finally reaps its original child's authentic SIGKILL exit\nUNREAPED_RECOVERY_CHECK OK: the separate owner finishes its retained recovery and the parent reaps it normally\nUNREAPED_RECOVERY_OBSERVATION architecture=x86-32 phase=memory state=Z birth=72018831 recoveryError=3 complete=1 terminal=1\nUNREAPED_RECOVERY_CHECK OK: the original parent launches an actual live native fixture and records its original birth\nUNREAPED_RECOVERY_CHECK OK: the real fixture publishes its callable function and enters its nonempty-vector CPU loop\nUNREAPED_RECOVERY_CHECK OK: the actual ptrace owner is a separate process from the real parent\nUNREAPED_RECOVERY_CHECK OK: a real completed function retains its exact result and original-context restoration on the separate ptrace owner\nUNREAPED_RECOVERY_CHECK OK: the real parent kills its own stopped child through the kernel\nUNREAPED_RECOVERY_CHECK OK: the actual tracer consumes its real terminal ptrace notification without reaping the parent's child\nUNREAPED_RECOVERY_CHECK OK: the real parent independently observes an unreaped kernel zombie with its unchanged original birth and zero tracer\nUNREAPED_RECOVERY_CHECK OK: the pinned original mm is retired while the original PID remains unreaped\nUNREAPED_RECOVERY_CHECK OK: owner recovery retires a confirmed dead context before the parent reaps its original PID\nUNREAPED_RECOVERY_CHECK OK: confirmed task death completes recovery idempotently instead of retaining unavailable executable metadata\nUNREAPED_RECOVERY_CHECK OK: the recovery result is observed before actual parent reaping rather than after disappearance of the numeric PID\nUNREAPED_RECOVERY_CHECK OK: the real parent finally reaps its original child's authentic SIGKILL exit\nUNREAPED_RECOVERY_CHECK OK: the separate owner finishes its retained recovery and the parent reaps it normally\nUNREAPED_RECOVERY_OBSERVATION architecture=x86-32 phase=function state=Z birth=72018831 recoveryError=3 complete=1 terminal=1\nUNREAPED_RECOVERY_RESULT=PASSED architecture=x86-32 checks=25\n",
+            "stderr": "",
+            "checks": 25
+          }
+        }
+      ]
+    },
+    {
+      "configuration": "asan-ubsan",
+      "report": {
+        "path": "build/.ci-tmp/mixed-abi-product/unreaped-asan-gate.json",
+        "sha256": "036f5552d99d8261ec5904fde6bd4a6fd5f1a89d098e6c50bd89405b11abb3a7"
+      },
+      "log": {
+        "path": "build/.ci-tmp/mixed-abi-product/unreaped-asan-gate.log",
+        "sha256": "df3f040eeccf944ce243c7fedd01e6e45ee3588951b04012c9046705145cf54d"
+      },
+      "driverSha256": "ad8d73fff1ce71c561ea47b8e78019eddd5a13c41452b86eaf08c9d8d9471e51",
+      "targets": [
+        {
+          "bits": 64,
+          "status": "passed",
+          "fixtureSha256": "07566cd0d1e2ff691769fae5abd1a4569368f0d184ba5662a281d89b02f91482",
+          "exitCode": 0,
+          "checks": 940,
+          "suites": {
+            "serviceThreadDeath": {
+              "status": "passed",
+              "exitCode": 0,
+              "checks": 38
+            },
+            "serviceDetachRelease": {
+              "status": "passed",
+              "exitCode": 0,
+              "checks": 36
+            },
+            "unreapedRecovery": {
+              "status": "passed",
+              "exitCode": 0,
+              "checks": 25
+            },
+            "mixedAbiLifecycle": {
+              "status": "passed",
+              "exitCode": 0,
+              "checks": 400
+            },
+            "mixedAbiSharedExec": {
+              "status": "passed",
+              "fixtureSha256": "5f4656f189805753ce6514697831623f59edb103bcc9156a540ab5561ed6c367",
+              "exitCode": 0,
+              "checks": 288
+            },
+            "mixedAbiSharedDeath": {
+              "status": "passed",
+              "exitCode": 0,
+              "checks": 369
+            },
+            "completedImageGuard": {
+              "status": "passed",
+              "exitCode": 0,
+              "checks": 57
+            }
+          },
+          "unreapedRecoveryProof": {
+            "status": "passed",
+            "exitCode": 0,
+            "output": "UNREAPED_RECOVERY_CHECK OK: the original parent launches an actual live native fixture and records its original birth\nUNREAPED_RECOVERY_CHECK OK: the actual ptrace owner is a separate process from the real parent\nUNREAPED_RECOVERY_CHECK OK: a real completed mmap retains failed original-register restoration on the separate ptrace owner\nUNREAPED_RECOVERY_CHECK OK: the real parent kills its own stopped child through the kernel\nUNREAPED_RECOVERY_CHECK OK: the actual tracer consumes its real terminal ptrace notification without reaping the parent's child\nUNREAPED_RECOVERY_CHECK OK: the real parent independently observes an unreaped kernel zombie with its unchanged original birth and zero tracer\nUNREAPED_RECOVERY_CHECK OK: the pinned original mm is retired while the original PID remains unreaped\nUNREAPED_RECOVERY_CHECK OK: owner recovery retires a confirmed dead context before the parent reaps its original PID\nUNREAPED_RECOVERY_CHECK OK: confirmed task death completes recovery idempotently instead of retaining unavailable executable metadata\nUNREAPED_RECOVERY_CHECK OK: the recovery result is observed before actual parent reaping rather than after disappearance of the numeric PID\nUNREAPED_RECOVERY_CHECK OK: the real parent finally reaps its original child's authentic SIGKILL exit\nUNREAPED_RECOVERY_CHECK OK: the separate owner finishes its retained recovery and the parent reaps it normally\nUNREAPED_RECOVERY_OBSERVATION architecture=x86-64 phase=memory state=Z birth=72027606 recoveryError=3 complete=1 terminal=1\nUNREAPED_RECOVERY_CHECK OK: the original parent launches an actual live native fixture and records its original birth\nUNREAPED_RECOVERY_CHECK OK: the real fixture publishes its callable function and enters its nonempty-vector CPU loop\nUNREAPED_RECOVERY_CHECK OK: the actual ptrace owner is a separate process from the real parent\nUNREAPED_RECOVERY_CHECK OK: a real completed function retains its exact result and original-context restoration on the separate ptrace owner\nUNREAPED_RECOVERY_CHECK OK: the real parent kills its own stopped child through the kernel\nUNREAPED_RECOVERY_CHECK OK: the actual tracer consumes its real terminal ptrace notification without reaping the parent's child\nUNREAPED_RECOVERY_CHECK OK: the real parent independently observes an unreaped kernel zombie with its unchanged original birth and zero tracer\nUNREAPED_RECOVERY_CHECK OK: the pinned original mm is retired while the original PID remains unreaped\nUNREAPED_RECOVERY_CHECK OK: owner recovery retires a confirmed dead context before the parent reaps its original PID\nUNREAPED_RECOVERY_CHECK OK: confirmed task death completes recovery idempotently instead of retaining unavailable executable metadata\nUNREAPED_RECOVERY_CHECK OK: the recovery result is observed before actual parent reaping rather than after disappearance of the numeric PID\nUNREAPED_RECOVERY_CHECK OK: the real parent finally reaps its original child's authentic SIGKILL exit\nUNREAPED_RECOVERY_CHECK OK: the separate owner finishes its retained recovery and the parent reaps it normally\nUNREAPED_RECOVERY_OBSERVATION architecture=x86-64 phase=function state=Z birth=72027607 recoveryError=3 complete=1 terminal=1\nUNREAPED_RECOVERY_RESULT=PASSED architecture=x86-64 checks=25\n",
+            "stderr": "",
+            "checks": 25
+          }
+        },
+        {
+          "bits": 32,
+          "status": "passed",
+          "fixtureSha256": "68e6acaa872bcd25e225e5ebd1fad683874e14db76d7f8abe024082b285be790",
+          "exitCode": 0,
+          "checks": 667,
+          "suites": {
+            "serviceThreadDeath": {
+              "status": "passed",
+              "exitCode": 0,
+              "checks": 38
+            },
+            "serviceDetachRelease": {
+              "status": "passed",
+              "exitCode": 0,
+              "checks": 36
+            },
+            "unreapedRecovery": {
+              "status": "passed",
+              "exitCode": 0,
+              "checks": 25
+            }
+          },
+          "unreapedRecoveryProof": {
+            "status": "passed",
+            "exitCode": 0,
+            "output": "UNREAPED_RECOVERY_CHECK OK: the original parent launches an actual live native fixture and records its original birth\nUNREAPED_RECOVERY_CHECK OK: the actual ptrace owner is a separate process from the real parent\nUNREAPED_RECOVERY_CHECK OK: a real completed mmap retains failed original-register restoration on the separate ptrace owner\nUNREAPED_RECOVERY_CHECK OK: the real parent kills its own stopped child through the kernel\nUNREAPED_RECOVERY_CHECK OK: the actual tracer consumes its real terminal ptrace notification without reaping the parent's child\nUNREAPED_RECOVERY_CHECK OK: the real parent independently observes an unreaped kernel zombie with its unchanged original birth and zero tracer\nUNREAPED_RECOVERY_CHECK OK: the pinned original mm is retired while the original PID remains unreaped\nUNREAPED_RECOVERY_CHECK OK: owner recovery retires a confirmed dead context before the parent reaps its original PID\nUNREAPED_RECOVERY_CHECK OK: confirmed task death completes recovery idempotently instead of retaining unavailable executable metadata\nUNREAPED_RECOVERY_CHECK OK: the recovery result is observed before actual parent reaping rather than after disappearance of the numeric PID\nUNREAPED_RECOVERY_CHECK OK: the real parent finally reaps its original child's authentic SIGKILL exit\nUNREAPED_RECOVERY_CHECK OK: the separate owner finishes its retained recovery and the parent reaps it normally\nUNREAPED_RECOVERY_OBSERVATION architecture=x86-32 phase=memory state=Z birth=72035162 recoveryError=3 complete=1 terminal=1\nUNREAPED_RECOVERY_CHECK OK: the original parent launches an actual live native fixture and records its original birth\nUNREAPED_RECOVERY_CHECK OK: the real fixture publishes its callable function and enters its nonempty-vector CPU loop\nUNREAPED_RECOVERY_CHECK OK: the actual ptrace owner is a separate process from the real parent\nUNREAPED_RECOVERY_CHECK OK: a real completed function retains its exact result and original-context restoration on the separate ptrace owner\nUNREAPED_RECOVERY_CHECK OK: the real parent kills its own stopped child through the kernel\nUNREAPED_RECOVERY_CHECK OK: the actual tracer consumes its real terminal ptrace notification without reaping the parent's child\nUNREAPED_RECOVERY_CHECK OK: the real parent independently observes an unreaped kernel zombie with its unchanged original birth and zero tracer\nUNREAPED_RECOVERY_CHECK OK: the pinned original mm is retired while the original PID remains unreaped\nUNREAPED_RECOVERY_CHECK OK: owner recovery retires a confirmed dead context before the parent reaps its original PID\nUNREAPED_RECOVERY_CHECK OK: confirmed task death completes recovery idempotently instead of retaining unavailable executable metadata\nUNREAPED_RECOVERY_CHECK OK: the recovery result is observed before actual parent reaping rather than after disappearance of the numeric PID\nUNREAPED_RECOVERY_CHECK OK: the real parent finally reaps its original child's authentic SIGKILL exit\nUNREAPED_RECOVERY_CHECK OK: the separate owner finishes its retained recovery and the parent reaps it normally\nUNREAPED_RECOVERY_OBSERVATION architecture=x86-32 phase=function state=Z birth=72035162 recoveryError=3 complete=1 terminal=1\nUNREAPED_RECOVERY_RESULT=PASSED architecture=x86-32 checks=25\n",
+            "stderr": "",
+            "checks": 25
+          }
+        }
+      ]
+    }
+  ],
+  "nativeCallGates": [
+    {
+      "suite": "native-libc-library-and-pthread-injection",
+      "status": "passed",
+      "utc": "2026-10-07T14:40:53.474856+00:00",
+      "platform": "Linux-7.1.8-200.fc44.x86_64-x86_64-with-glibc2.43",
+      "requireI386": true,
+      "sourceRevision": null,
+      "sourceRef": null,
+      "driverSha256": "203857815ab7b3e98fcf6dc9daa8d259a4c123fc778efa4cbab436a8b0f2fa5c",
+      "coreSha256": "2079af22138c77f2b541555a3fad8a0463c2f437711ab48997b27b6006a7b0d0",
+      "imageDriverSha256": "2a96f3096076ae44641fd37fa020c9db479a9c7c90cce8042a49ea074788b314",
+      "execDriverSha256": "13759335b17dad6fd5a491245a71c67f57d815357518e450f91576ef29346ebd",
+      "configuration": "normal",
+      "report": {
+        "path": "build/.ci-tmp/mixed-abi-product/unreaped-normal-call-gate.json",
+        "sha256": "3883020b87e412b6ffdc1e0d282a79ab07311b63ed0677d4870a4a60c1d83760"
+      },
+      "log": {
+        "path": "build/.ci-tmp/mixed-abi-product/unreaped-normal-call-gate.log",
+        "sha256": "2972c40cf07ebe7656fb82b519280dfced8fd7704dfef6033f75fee76b14c3dc"
+      },
+      "targets": [
+        {
+          "status": "passed",
+          "width": 8,
+          "fixtureSha256": "05b87945f5c9a2c63b26ca916ce7f916f95c75cc8a398719050d90a409be6347",
+          "librarySha256": "47d6dd25b395672b368b54bac0864b99b8c3d81b27f35338c71cfac5c5dde17e",
+          "exitCode": 0,
+          "checks": 45,
+          "workerImage": {
+            "fixtureSha256": "75e9261ec8b8b6b33ea47388bab2976d73d60a4f49f369c1e9e4c43a42b21642",
+            "exitCode": 0,
+            "checks": 83
+          },
+          "calleeExec": {
+            "exitCode": 0,
+            "checks": 475
+          }
+        },
+        {
+          "status": "passed",
+          "width": 4,
+          "fixtureSha256": "324f4b69262f50d7e7d54464986fd30d9cea8b67740da172da4a7f1006824249",
+          "librarySha256": "79e952e003fffbaf92cb634fe6e7450c50a6722532218f99593df69f821d2ede",
+          "exitCode": 0,
+          "checks": 45,
+          "workerImage": {
+            "fixtureSha256": "eef5af88933e6127dd1f5f8ca99fa5faa2b944c3bee68e6648fc6c8a1a8b446e",
+            "exitCode": 0,
+            "checks": 83
+          },
+          "calleeExec": {
+            "exitCode": 0,
+            "checks": 475
+          }
+        }
+      ]
+    },
+    {
+      "suite": "native-libc-library-and-pthread-injection",
+      "status": "passed",
+      "utc": "2026-10-07T14:41:36.449903+00:00",
+      "platform": "Linux-7.1.8-200.fc44.x86_64-x86_64-with-glibc2.43",
+      "requireI386": true,
+      "sourceRevision": null,
+      "sourceRef": null,
+      "driverSha256": "23d3cb0fb1d9256918fdb1ab676b49001dd4bf3cad0405df60e0459a3a998d28",
+      "coreSha256": "eef1db6c7da305194700c9ea269276b8ddebae22f816a928c2a1458dd483ffa0",
+      "imageDriverSha256": "c00990e4ab3f19daa800c8445c13085285935a813044ad870a225883ac279c8e",
+      "execDriverSha256": "0f9853bcad1c6835cd032f62a0ec2bfc727bd4fdad38eb4dba62b85c443c0d2b",
+      "configuration": "asan-ubsan",
+      "report": {
+        "path": "build/.ci-tmp/mixed-abi-product/unreaped-asan-call-gate.json",
+        "sha256": "79d2ad7cd986f35bf290e8648f174eac1822498d757b098d0ede5b7c07eb75e1"
+      },
+      "log": {
+        "path": "build/.ci-tmp/mixed-abi-product/unreaped-asan-call-gate.log",
+        "sha256": "2972c40cf07ebe7656fb82b519280dfced8fd7704dfef6033f75fee76b14c3dc"
+      },
+      "targets": [
+        {
+          "status": "passed",
+          "width": 8,
+          "fixtureSha256": "907d97ec43356147984785c2079beffe82a7689529f0760bad4574678ec5eb07",
+          "librarySha256": "fe3476b74afbf0b523a2ec1232d3c5d880ec4bd587eb6f6c625ca5d059eb1b5c",
+          "exitCode": 0,
+          "checks": 45,
+          "workerImage": {
+            "fixtureSha256": "63579988e3ef2e2083a9e8d071410af9325a339112fe8850f40f935b0fec98c3",
+            "exitCode": 0,
+            "checks": 83
+          },
+          "calleeExec": {
+            "exitCode": 0,
+            "checks": 475
+          }
+        },
+        {
+          "status": "passed",
+          "width": 4,
+          "fixtureSha256": "324f4b69262f50d7e7d54464986fd30d9cea8b67740da172da4a7f1006824249",
+          "librarySha256": "79e952e003fffbaf92cb634fe6e7450c50a6722532218f99593df69f821d2ede",
+          "exitCode": 0,
+          "checks": 45,
+          "workerImage": {
+            "fixtureSha256": "eef5af88933e6127dd1f5f8ca99fa5faa2b944c3bee68e6648fc6c8a1a8b446e",
+            "exitCode": 0,
+            "checks": 83
+          },
+          "calleeExec": {
+            "exitCode": 0,
+            "checks": 475
+          }
+        }
+      ]
+    }
+  ],
+  "memoryImageGates": [
+    {
+      "configuration": "normal",
+      "passed": true,
+      "checks": 42,
+      "report": {
+        "path": "build/.ci-tmp/mixed-abi-product/unreaped-normal-image-gate.json",
+        "sha256": "51e6b71072a8b238e3c37a538a7c89f869a7bbb33f4c71a776b6eb9ba97e9567"
+      },
+      "log": {
+        "path": "build/.ci-tmp/mixed-abi-product/unreaped-normal-image-gate.log",
+        "sha256": "da41427a0bbb3fefddac8e538e35f64b00689449d6c52f17baeee97b8be40ed0"
+      },
+      "core": {
+        "path": "build/libcecore.so",
+        "sha256": "2079af22138c77f2b541555a3fad8a0463c2f437711ab48997b27b6006a7b0d0"
+      }
+    },
+    {
+      "configuration": "asan-ubsan",
+      "passed": true,
+      "checks": 42,
+      "report": {
+        "path": "build/.ci-tmp/mixed-abi-product/unreaped-asan-image-gate.json",
+        "sha256": "56c679c3bf4a5bb7f1b6a8a72b44725f552c7c647f6e7053b769288a4eea8a80"
+      },
+      "log": {
+        "path": "build/.ci-tmp/mixed-abi-product/unreaped-asan-image-gate.log",
+        "sha256": "da41427a0bbb3fefddac8e538e35f64b00689449d6c52f17baeee97b8be40ed0"
+      },
+      "core": {
+        "path": "build-ci-asan/libcecore.so",
+        "sha256": "eef1db6c7da305194700c9ea269276b8ddebae22f816a928c2a1458dd483ffa0"
+      }
+    }
+  ],
+  "arm64Regression": {
+    "suite": "arm64-memory-syscalls-debugger-trace-codefinder-and-recovery",
+    "platform": "Linux-7.1.8-200.fc44.x86_64-x86_64-with-glibc2.39",
+    "sourceRevision": null,
+    "sourceRef": null,
+    "utc": "2026-10-07T14:42:42.548595+00:00",
+    "status": "passed",
+    "expectedPageSize": 4096,
+    "smeProfile": "required",
+    "guestCpus": 2,
+    "guestRamMiB": 128,
+    "kernelSha256": "06196d2cf51e9a2bac421564bb64c63a8b7146c9a22755dd22a713e337023013",
+    "initSha256": "8500cb1cf6eae6aa41accaa16e96700836daa1e47a39730489c9c04476ed7430",
+    "fixtureSha256": "f2dfb17ff28c5c96f6bc649fa0e7d2ce62d9b2ea2d9b0bc179501607942e1750",
+    "nativeCallFiles": {
+      "native_call_fixture": "d161ce286882a523acf46643144347c6ef0e8aa6594d99f8d517695aa8ca9b20",
+      "libnative_call_library.so": "8266ce790ed56459b422d1c25b6c9a2ae1eb4ac35075bc560ecfd4ca74ba154e",
+      "lib/ld-linux-aarch64.so.1": "142f02374792bf5f62293efc3500d472dbbe280dc658cc60480eff73ad46f33c",
+      "lib/libc.so.6": "101106b8ae66601234e0b61f6ba21bcf0fed952ed8ceaa22fb2ada993c25ec3c",
+      "lib/libgcc_s.so.1": "031767c85871740fd715f983419092515f7107ab26db0c3048522fab78b60730"
+    },
+    "qemu": "QEMU emulator version 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.18)",
+    "exitCode": 0,
+    "guestKernel": "6.18.52-0-virt",
+    "guestMachine": "aarch64",
+    "guestPageSize": 4096,
+    "excludedCases": [],
+    "checks": 906,
+    "report": {
+      "path": "build/.ci-tmp/mixed-abi-product/unreaped-arm64.json",
+      "sha256": "e5d48a2ac7dc92bf17636948107830920c966cb885da8e64e1c01dd60e353d88"
+    },
+    "log": {
+      "path": "build/.ci-tmp/mixed-abi-product/unreaped-arm64.log",
+      "sha256": "c778ffaa981e6f9ba8ba1440b42f3aa54802906648dc1a3de677ec9ba4eec290"
+    },
+    "note": "Existing 4 KiB full-system regression; the new separate-tracer zombie fixture is native x86-only."
+  },
+  "builds": [
+    {
+      "path": "build/.ci-tmp/mixed-abi-product/unreaped-after-build.log",
+      "sha256": "b467b83e11817204699c328653e844e1a04fc1974d2112c27f1904ee5d56dd77"
+    },
+    {
+      "path": "build/.ci-tmp/mixed-abi-product/unreaped-asan-build.log",
+      "sha256": "4f7e0c7198f75d696ba1506dc847a4f9907058c9a717ae0be20ee607b87462c1"
+    },
+    {
+      "path": "build/.ci-tmp/mixed-abi-product/unreaped-core-build.log",
+      "sha256": "f95ab16ca65b71b2447b13c5052c15338c17b53c32458c0ae31854fcf4996ee3"
+    },
+    {
+      "path": "build/.ci-tmp/mixed-abi-product/unreaped-arm64-build.log",
+      "sha256": "93fb244aa1c2e7b0afca95e2789bd783fccbc29a78585cd2734d5ed4cec64808"
+    }
+  ],
+  "asanOptions": "detect_leaks=1:abort_on_error=1",
+  "ubsanOptions": "halt_on_error=1:print_stacktrace=1",
+  "resourceLimits": "Cached serial -j1 builds and sequential nice -n10 suites; disk-backed build scratch; ARM64 two guest CPUs and 128 MiB; no host policy or package changes."
+}

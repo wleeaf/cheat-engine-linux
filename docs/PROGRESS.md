@@ -13,7 +13,7 @@ its own local checks. Older evidence snapshots describe the source and
 binaries tested at their own checkpoint; their counts must not be added together
 as a count of unique tests or presented as fresh checks of every environment.
 
-## Latest hosted verification: 7 October 2026
+## Hosted verification before the unreaped-task follow-up: 7 October 2026
 
 The [completed run for `d4172a2`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37632710873)
 passed **all seven required jobs**: normal native build/runtime/GUI/CLI checks,
@@ -40,6 +40,71 @@ changes must pass the required gates for their own revision. No new release is
 created. All six
 broader compatibility requirements remain active, with the specific remaining
 work listed in this checkpoint and the six-area backlog below.
+
+## Unreaped task recovery: 7 October 2026
+
+Two additional recovery failures were reproduced on both native x86-64 and
+i386. After a real completed mmap failed original-register restoration, a
+separate tracer consumed the target's terminal notification. The real parent's
+child remained a zombie with its original PID and birth. Recovery kept returning
+`EAGAIN` because executable metadata had disappeared although `/proc/PID/stat`
+still existed. Completed-function recovery instead returned `ECHILD` before
+checking the task's lifetime, and stayed stuck even after the parent reaped it.
+Both before-fix runs failed five of the same 25 assertions, including normal
+controller cleanup for the completed-function case.
+
+Recovery now checks the original task's actual state as well as its birth.
+Confirmed `Z`, `X` or `x` states retire the dead context through the existing
+original-mm cleanup path. A function poll's `ECHILD` permits that lifetime check;
+it does not establish death on its own. Live tasks still retain errors and
+ownership. The existing nonleader EXEC adoption path remains available when
+the original group can still supply its notification. Completed recovery stays
+idempotent, and the initial retirement reports `no_such_process`.
+
+The new mandatory gate runs separate bounded children for x86-64 and i386,
+requiring exactly 25 successful assertions and both memory/function phase
+observations. A separate controller process owns the real ptrace stop. The
+fixture's original parent sends SIGKILL, independently observes the authentic
+terminal event with `WNOWAIT`, verifies zombie state, unchanged birth and zero
+tracer, and checks recovery **before** reaping. The pinned original mm must
+already be retired. The completed function must have returned its actual
+`87654321` result before the controlled restoration failure. These tests do not
+fabricate wait statuses, register values, task identity or death.
+
+[Unreaped recovery evidence](compatibility-evidence/unreaped-recovery.json)
+records the before/after observations, exact source and binary hashes, and
+the completed verification for this checkpoint. Existing historical evidence
+keeps the hashes from its own tested revision. All builds and suites use cached
+resources serially at reduced priority.
+
+The complete normal and ASan/UBSan native gates pass all existing **940 x86-64
+and 667 i386 main assertions**, **38 service thread-death and 36 applied-detach
+assertions per ABI**, and the **400 lifecycle, 288 shared-exec, 369 shared-death
+and 57 completed-ticket assertions**. Each configuration additionally passes
+the new **25 unreaped recovery assertions per ABI**. These counts are separate
+suites, not a claim about unique feature combinations. The containing revision
+also requires its own [hosted build workflow](https://github.com/wleeaf/cheat-engine-linux/actions/workflows/build.yml);
+the earlier seven-job green evidence above belongs to its recorded revision.
+
+Both normal and sanitizer library/pthread call gates also pass **45 injection,
+83 retained-image and 475 callee-EXEC assertions per ABI**, exercising the
+existing nonleader identity adoption and released-cleanup paths after the
+common recovery change. Both memory-image gates pass **42 assertions**. A
+fresh cached ARM64 cross-build and the real full-system 4 KiB kernel gate pass
+**906 assertions with no excluded cases**, using two guest CPUs and 128 MiB.
+That ARM64 run is a regression check of existing behavior, not a claim that
+the new x86 zombie fixture has been ported to ARM64.
+
+**Remaining:** separately prove the service broker's explicit recovery and
+shutdown when another thread consumes its terminal event while the parent keeps
+a zombie. Also cover live `PTRACE_EVENT_EXIT` stops and other exiting-task
+windows; `PF_EXITING` alone is deliberately not treated as terminal death by
+this change. A dead nonleader whose separate old-mm peer survives still needs
+safe peer discovery and ownership. Nonleader whole-group death with an unreaped
+leader also needs its own proof without breaking EXEC notification adoption.
+Longer concurrency/scheduler stress and
+the six-area backlog below remain open. This narrow fix does not establish
+universal Linux process compatibility.
 
 ## Hosted watchpoint race setup: 7 October 2026
 

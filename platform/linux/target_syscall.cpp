@@ -1360,18 +1360,25 @@ std::expected<void, std::error_code> TargetSyscallRecovery::retry() {
     }
     int observed = 0;
     pid_t notified;
+    std::error_code pollError;
     if (state.function) {
         auto polled=state.pollFunction(observed);
-        if (!polled) return std::unexpected(polled.error());
-        notified=*polled;
+        if (!polled) {
+            // Another waiter can consume a real terminal report while the
+            // parent's unreaped child still has its original /proc birth.
+            // ECHILD alone cannot prove death: inspect that actual lifetime.
+            if (polled.error()!=std::errc::no_child_process) return std::unexpected(polled.error());
+            pollError=polled.error();notified=0;
+        } else notified=*polled;
     } else {
         do { notified = waitpid(state.tid, &observed, __WALL | __WNOTHREAD | WNOHANG); } while (notified < 0 && errno == EINTR);
     }
     if (notified == state.tid && (WIFEXITED(observed) || WIFSIGNALED(observed))) return state.retireDeadTask();
-    auto birth=taskStartTime(state.tid);
+    char taskState=0;
+    auto birth=taskStartTime(state.tid,&taskState);
     if (!birth) {
         if (birth.error()==std::errc::no_such_process || birth.error()==std::errc::no_such_file_or_directory) {
-            if (state.function && state.function->running && state.groupLeader!=state.tid)
+            if (!pollError && state.function && state.function->running && state.groupLeader!=state.tid)
                 return state.progressFunction(notified,observed);
             return state.retireDeadTask();
         }
@@ -1379,6 +1386,15 @@ std::expected<void, std::error_code> TargetSyscallRecovery::retry() {
     }
     if (state.startTime && *birth!=state.startTime) return state.retireDeadTask();
     if (!state.startTime) state.startTime=*birth;
+    if (taskState=='Z' || taskState=='X' || taskState=='x') {
+        // Numeric task lifetime outlasts executable context for unreaped exit.
+        // Preserve the existing nonleader EXEC adoption path when its original
+        // group still has a possible notification; never replay dead registers.
+        if (!pollError && state.function && state.function->running && state.groupLeader!=state.tid)
+            return state.progressFunction(notified,observed);
+        return state.retireDeadTask();
+    }
+    if (pollError) return std::unexpected(pollError);
     if (state.detachAttempted && (!state.prepared || state.contextRestored || state.retired)) {
         siginfo_t info{};
         if (ptrace(PTRACE_GETSIGINFO,state.tid,nullptr,&info)<0) {

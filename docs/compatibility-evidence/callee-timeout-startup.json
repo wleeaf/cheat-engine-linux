@@ -1,0 +1,128 @@
+{
+  "utc": "2026-10-07T08:48:25.880428+00:00",
+  "observedHostedRun": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37594542807",
+  "observedRevision": "5d4ec36c0b02283ee85b0edbd40c986d8554e506",
+  "observedJobs": [
+    {
+      "name": "sanitizers",
+      "conclusion": "success",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37594542807/job/112703853130"
+    },
+    {
+      "name": "arm64-compatibility / arm64-syscalls",
+      "conclusion": "failure",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37594542807/job/112703853405"
+    },
+    {
+      "name": "ubuntu-build",
+      "conclusion": "success",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37594542807/job/112703853425"
+    },
+    {
+      "name": "arm64-compatibility / arm64-frontends",
+      "conclusion": "success",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37594542807/job/112703853549"
+    },
+    {
+      "name": "x32-compatibility / x32-native-calls",
+      "conclusion": "success",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37594542807/job/112703853795"
+    },
+    {
+      "name": "wine-compatibility / legacy-wine",
+      "conclusion": "success",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37594542807/job/112703853834"
+    },
+    {
+      "name": "wine-compatibility / wow64-wine",
+      "conclusion": "success",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37594542807/job/112703853954"
+    }
+  ],
+  "observedFailure": "The first ARM64 kernel profile failed the unfinished-callee timeout assertion for one SME profile; hardware teardown races all passed. The assertion did not log its individual failed condition.",
+  "changes": [
+    "Check actual writes of busy-loop control and entered marker.",
+    "Keep owned timed-out recovery while allowing the same callee to reach its real startup marker, bounded by a one-second startup budget and the existing two-second whole-check bound.",
+    "Use a true zero-timeout SIGWINCH case alongside the ten-millisecond SIGTRAP case, exercising timeout before entry and subsequent owned continuation.",
+    "Retain all no-result, owner, signal-decision, register, vector, signal-mask, stack and target-continuation assertions; add per-condition timeout diagnostics.",
+    "Add --stopped-function-only to the integration test executable for small architecture-native diagnostics."
+  ],
+  "nativeVerification": {
+    "status": "passed",
+    "driverSha256": "96a1ac72491b44f3e84a135bd4d9fa56cd4f2f1c4cc2314ef74c12850ce16f9e",
+    "targets": [
+      {
+        "bits": 64,
+        "status": "passed",
+        "checks": 642,
+        "fixtureSha256": "6f782979a5c32f244ad39586c6be8ac8c4d3aeb8ecf5522ea88a899d3c5c0652",
+        "startupDiagnostics": [
+          "FUNCTION_TIMEOUT_DIAGNOSTIC loop=S signal=28 requestedMs=0 controls=1 error=110 recovery=1 completed=0 elapsedMs=102 markerRead=1 marker=1 startupRetries=1 startupOwned=1"
+        ]
+      },
+      {
+        "bits": 32,
+        "status": "passed",
+        "checks": 643,
+        "fixtureSha256": "dbb41c9a02e359b66a48eb3320c1b03cc0812fed4bde6a9915d47a20d037ebe9",
+        "startupDiagnostics": [
+          "FUNCTION_TIMEOUT_DIAGNOSTIC loop=S signal=28 requestedMs=0 controls=1 error=110 recovery=1 completed=0 elapsedMs=102 markerRead=1 marker=1 startupRetries=1 startupOwned=1"
+        ]
+      }
+    ]
+  },
+  "armTargetedKernelVerification": [
+    {
+      "profile": "4k",
+      "kernelSha256": "06196d2cf51e9a2bac421564bb64c63a8b7146c9a22755dd22a713e337023013",
+      "guestRamMiB": 128,
+      "guestCpus": 2,
+      "passed": true,
+      "checks": 162,
+      "results": [
+        "FUNCTION_TIMEOUT_DIAGNOSTIC loop=S signal=28 requestedMs=0 controls=1 error=110 recovery=1 completed=0 elapsedMs=121 markerRead=1 marker=1 startupRetries=1 startupOwned=1",
+        "STOPPED_FUNCTION_RESULT=PASSED architecture=ARM64",
+        "FUNCTION_TIMEOUT_DIAGNOSTIC loop=E signal=28 requestedMs=0 controls=1 error=110 recovery=1 completed=0 elapsedMs=120 markerRead=1 marker=1 startupRetries=1 startupOwned=1",
+        "SVE_FUNCTION_RESULT=PASSED architecture=ARM64",
+        "FUNCTION_TIMEOUT_DIAGNOSTIC loop=F signal=28 requestedMs=0 controls=1 error=110 recovery=1 completed=0 elapsedMs=126 markerRead=1 marker=1 startupRetries=1 startupOwned=1",
+        "MAXIMUM_SVE_FUNCTION_RESULT=PASSED architecture=ARM64",
+        "FUNCTION_TIMEOUT_DIAGNOSTIC loop=M signal=28 requestedMs=0 controls=1 error=110 recovery=1 completed=0 elapsedMs=122 markerRead=1 marker=1 startupRetries=1 startupOwned=1",
+        "SME_FUNCTION_RESULT=PASSED architecture=ARM64",
+        "FUNCTION_TIMEOUT_DIAGNOSTIC loop=N signal=28 requestedMs=0 controls=1 error=110 recovery=1 completed=0 elapsedMs=135 markerRead=1 marker=1 startupRetries=1 startupOwned=1",
+        "MAXIMUM_SME_FUNCTION_RESULT=PASSED architecture=ARM64",
+        "ARM_FUNCTION_RESULT=PASSED status=0"
+      ],
+      "outputSha256": "54a6c296e2e48cf12006edb788dd3dbb358065c2085d217c93a5d3ba391736df",
+      "driverSha256": "3656c0a8974ede7bcd5cd66c4e3d2fb315ddbddc4a6fd283be0f2d2dac84c64e"
+    },
+    {
+      "profile": "64k",
+      "kernelSha256": "d5f5150b83c59404233bde3859817d4665301e0bfab20fa47ccdac4bfbeb1ae8",
+      "guestRamMiB": 256,
+      "guestCpus": 2,
+      "passed": true,
+      "checks": 98,
+      "results": [
+        "FUNCTION_TIMEOUT_DIAGNOSTIC loop=S signal=28 requestedMs=0 controls=1 error=110 recovery=1 completed=0 elapsedMs=118 markerRead=1 marker=1 startupRetries=1 startupOwned=1",
+        "STOPPED_FUNCTION_RESULT=PASSED architecture=ARM64",
+        "FUNCTION_TIMEOUT_DIAGNOSTIC loop=E signal=28 requestedMs=0 controls=1 error=110 recovery=1 completed=0 elapsedMs=122 markerRead=1 marker=1 startupRetries=1 startupOwned=1",
+        "SVE_FUNCTION_RESULT=PASSED architecture=ARM64",
+        "FUNCTION_TIMEOUT_DIAGNOSTIC loop=F signal=28 requestedMs=0 controls=1 error=110 recovery=1 completed=0 elapsedMs=123 markerRead=1 marker=1 startupRetries=1 startupOwned=1",
+        "MAXIMUM_SVE_FUNCTION_RESULT=PASSED architecture=ARM64",
+        "ARM_FUNCTION_RESULT=PASSED status=0"
+      ],
+      "outputSha256": "a18dd66ee251954ea1c2f78a6b56d816a17140c083f899b653f32056d3ba7b12",
+      "driverSha256": "3656c0a8974ede7bcd5cd66c4e3d2fb315ddbddc4a6fd283be0f2d2dac84c64e"
+    }
+  ],
+  "sourceSha256": {
+    "test/target_syscall_integration.cpp": "0cb43d842f66833e094938a614e12d72aa5ae7d4fc219b3994aaf389829e50ed"
+  },
+  "limits": [
+    "The original hosted assertion lacked per-condition diagnostics, so its precise failed predicate cannot be proved from that log alone.",
+    "Real zero-budget cases independently confirm that a valid timeout can precede the first callee instruction; the retained owner starts the same callee rather than launching another invocation.",
+    "Focused guests exercise the stopped-function profiles, not the full ARM compatibility matrices.",
+    "Local native driver uses selected CI source with baseline product code and cached objects; the mixed-ABI prototype is excluded.",
+    "A new complete hosted workflow must validate the published source."
+  ]
+}

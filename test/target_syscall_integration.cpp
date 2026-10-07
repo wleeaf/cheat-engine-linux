@@ -1291,14 +1291,36 @@ static void stoppedFunctionBackend(const char* path,char loopCommand='S') {
     if (!recoveryHeld) return;
     for (auto signal : {SIGWINCH,SIGTRAP}) {
         uint32_t one=1,zero=0;
-        writeMemory(fixture.pid,waiting,&one,4); writeMemory(fixture.pid,entered,&zero,4);
+        const bool controlsReady=writeMemory(fixture.pid,waiting,&one,4)==4 && writeMemory(fixture.pid,entered,&zero,4)==4;
         auto start=std::chrono::steady_clock::now();
-        auto pending=executeStoppedFunction(fixture.pid,host,wait,{},*frame,*frame+17*page,10);
-        auto elapsed=std::chrono::steady_clock::now()-start;
+        const int requestedTimeout=signal==SIGWINCH ? 0 : 10;
+        auto pending=executeStoppedFunction(fixture.pid,host,wait,{},*frame,*frame+17*page,requestedTimeout);
         uint32_t started=0;
-        bool retained=!pending && pending.error().recovery && pending.error().code==std::errc::timed_out &&
-            !pending.error().completedValue && elapsed<std::chrono::seconds(2) &&
-            readMemory(fixture.pid,entered,&started,4)==4 && started==1;
+        bool startedRead=readMemory(fixture.pid,entered,&started,4)==4;
+        bool timeoutHeld=!pending && pending.error().recovery && pending.error().code==std::errc::timed_out &&
+            !pending.error().completedValue;
+        bool startupOwned=true;
+        unsigned startupRetries=0;
+        // A valid timeout can precede the first callee instruction under TCG
+        // or host scheduling pressure. Resume only this already-owned call
+        // until its real busy-loop marker appears; never invoke a second call.
+        const auto startupDeadline=start+std::chrono::seconds(1);
+        while (controlsReady && timeoutHeld && startedRead && !started &&
+               std::chrono::steady_clock::now()<startupDeadline) {
+            ++startupRetries;
+            auto retried=pending.error().recovery->retry();
+            startupOwned=!retried && retried.error()==std::errc::timed_out && !pending.error().recovery->functionResult();
+            if (!startupOwned) break;
+            startedRead=readMemory(fixture.pid,entered,&started,4)==4;
+        }
+        auto elapsed=std::chrono::steady_clock::now()-start;
+        bool retained=controlsReady && timeoutHeld && startupOwned && elapsed<std::chrono::seconds(2) && startedRead && started==1;
+        if (!retained || startupRetries)
+            fprintf(stderr,"FUNCTION_TIMEOUT_DIAGNOSTIC loop=%c signal=%d requestedMs=%d controls=%d error=%d recovery=%d completed=%d elapsedMs=%lld markerRead=%d marker=%u startupRetries=%u startupOwned=%d\n",
+                loopCommand,signal,requestedTimeout,controlsReady,pending ? 0 : pending.error().code.value(),
+                !pending && bool(pending.error().recovery),pending || (!pending && pending.error().completedValue.has_value()),
+                static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count()),
+                startedRead,started,startupRetries,startupOwned);
         check(retained,"a real unfinished callee is bounded by its timeout and retains ownership without inventing a return value");
         if (!retained) return;
         auto ticket=pending.error().recovery;
@@ -3178,6 +3200,14 @@ int main(int argc,char** argv) {
     }
     if (!init && argc==3 && std::strcmp(argv[1],"--finder-teardown-only")==0) {
         codeFinderTeardownBackend(argv[2]); return failures ? 1 : 0;
+    }
+    if (!init && argc==3 && std::strcmp(argv[1],"--stopped-function-only")==0) {
+        stoppedFunctionBackend(argv[2]);
+#if defined(__aarch64__)
+        for (char command : {'E','F','M','N'})
+            if ((getauxval(AT_HWCAP2)&HWCAP2_SME) || command=='E' || command=='F') stoppedFunctionBackend(argv[2],command);
+#endif
+        return failures ? 1 : 0;
     }
 #if defined(__x86_64__)
     if (!init && argc==3 && std::strcmp(argv[1],"--restart-boundary-only")==0) {

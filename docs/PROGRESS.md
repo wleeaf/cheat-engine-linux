@@ -174,6 +174,40 @@ checks. The small Qt probe tests the shared file-device mechanism rather than
 Cheat Engine serialization. The next full hosted run must confirm the product
 on the runner's Qt version. Separate mixed-ABI recovery work remains pending.
 
+### Callee startup after a valid timeout
+
+The [run for `5d4ec36`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37594542807)
+passed the complete native and sanitizer jobs, both Wine jobs, x32 and ARM64
+frontends. The real GUI rollback regression now passes on the runner's Qt.
+The ARM64 kernel job passed its hardware teardown races but one SME native-call
+profile failed its unfinished-callee timeout assertion. That assertion previously
+assumed the callee must enter its busy loop before a ten-millisecond timeout and
+did not report which condition failed.
+
+The fixture now verifies its control writes and permits an already-owned,
+timed-out call to reach the actual startup marker through bounded recovery of
+that same invocation. Startup receives at most one second, while the existing
+two-second whole-check bound remains. A zero-timeout case deliberately exercises
+the legitimate before-entry stop alongside the ten-millisecond case. Actual
+timed-out ownership, no fabricated result, foreign-thread rejection, independent
+signal decisions and exact GP/vector/mask/stack restoration remain mandatory.
+New diagnostics report every condition, requested timeout and startup retries.
+
+Both complete native profiles passed again with selected CI source and baseline
+product code: 642 x86-64 and 643 i386 assertions. Small focused ARM64 guests
+passed normal, SVE, maximum SVE, SME and maximum SME stopped-function profiles
+on the 4 KiB kernel, and all three available profiles on the 64 KiB non-SME
+kernel. Their true zero-budget calls reached the marker only after an owned
+retry and then passed all signal and context checks. Guests ran one at a time
+with 128 MiB and 256 MiB respectively; only the changed driver was compiled.
+
+[Callee-startup evidence](compatibility-evidence/callee-timeout-startup.json)
+records these real stops, diagnostics, full native results and source/kernel
+hashes. The original hosted log cannot identify its precise failed predicate;
+the new diagnostics preserve that distinction. The next full hosted run must
+confirm all required profiles. Mixed-ABI recovery remains separate unfinished
+work and is excluded from this publication.
+
 ## 1. Feature-by-target compatibility matrix
 
 ### Completed work

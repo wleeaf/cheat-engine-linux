@@ -88,7 +88,7 @@ static void mixedAbiRestartBackend(const char* path,bool groupOnly=false,unsigne
             (mask&(uint64_t{1}<<(SIGUSR1-1)));
         auto extended=owned ? captureNativeExtendedContext(fixture.pid) :
             std::expected<NativeExtendedContext,std::error_code>(std::unexpected(std::make_error_code(std::errc::io_error)));
-        std::array<uint8_t,32> savedScratch{},scratchAfter{};
+        std::array<uint8_t,32> savedScratch{};
         require(configured && extended && readMemory(fixture.pid,*scratch,savedScratch.data(),savedScratch.size())==savedScratch.size(),
             "caller captures complete original GP, extended state, signal mask and scratch bytes");
         if (!configured || !extended) return;
@@ -131,10 +131,16 @@ static void mixedAbiRestartBackend(const char* path,bool groupOnly=false,unsigne
         if (!blocked || parked.rip!=after) return;
         struct Info {uint8_t operation,pad[3];uint32_t architecture;uint64_t pc,sp;} before{},observedInfo{};
         if (edited) parked.rax=static_cast<uint32_t>(parked.rax);
-        require((!edited || ptrace(PTRACE_SETREGS,fixture.pid,nullptr,&parked)==0) &&
+        const bool editedBank=!edited || ptrace(PTRACE_SETREGS,fixture.pid,nullptr,&parked)==0;
+        // The timer has actually run since setup. Preserve the complete bank
+        // at the operation's owned stop, just as the production executor does.
+        boundaryContextExact(fixture.pid,parked,*extended,*scratch,savedScratch,true,variant,"MIXED_ABI_BEFORE");
+        extended=captureNativeExtendedContext(fixture.pid);
+        require(editedBank &&
             ptrace(static_cast<enum __ptrace_request>(0x420e),fixture.pid,reinterpret_cast<void*>(sizeof(before)),&before)>=sizeof(before) &&
-            before.architecture==(compat ? 0x40000003u : 0xc000003eu) && (!mixed || parked.cs==0x33),
+            before.architecture==(compat ? 0x40000003u : 0xc000003eu) && (!mixed || parked.cs==0x33) && extended,
             "actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit");
+        if (!extended) return;
         auto guard=executeStoppedMemorySyscall(fixture.pid,host,MemorySyscall::Unmap,{*storage,page,0,0,0,0},scratchSite);
         user_regs_struct observed{};
         require(!guard && guard.error().code==std::errc::operation_not_permitted && !guard.error().completedValue &&
@@ -453,10 +459,12 @@ static void mixedAbiRestartBackend(const char* path,bool groupOnly=false,unsigne
             observedInfo.architecture==before.architecture,
             "normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI");
         uint64_t actualMask=0;std::array<uint8_t,3> actualCode{};
-        require(verifyNativeExtendedContext(fixture.pid,*extended) &&
-            readMemory(fixture.pid,*scratch,scratchAfter.data(),scratchAfter.size())==scratchAfter.size() && scratchAfter==savedScratch &&
-            readMemory(fixture.pid,edge,actualCode.data(),actualCode.size())==actualCode.size() && actualCode==code &&
-            ptrace(PTRACE_GETSIGMASK,fixture.pid,reinterpret_cast<void*>(sizeof(actualMask)),&actualMask)==0 && actualMask==mask,
+        const bool codeExact=readMemory(fixture.pid,edge,actualCode.data(),actualCode.size())==actualCode.size() && actualCode==code;
+        const bool contextExact=boundaryContextExact(fixture.pid,parked,*extended,*scratch,savedScratch,codeExact,variant,"MIXED_ABI_AFTER");
+        const bool maskExact=ptrace(PTRACE_GETSIGMASK,fixture.pid,reinterpret_cast<void*>(sizeof(actualMask)),&actualMask)==0 && actualMask==mask;
+        if (!maskExact) std::printf("MIXED_ABI_MASK variant=%u expected=%llx actual=%llx\n",variant,
+            static_cast<unsigned long long>(mask),static_cast<unsigned long long>(actualMask));
+        require(contextExact && maskExact,
             "recovery preserves extended state, both original instructions, private scratch and the application signal mask");
         usleep(500000);
         bool continued=ptrace(PTRACE_CONT,fixture.pid,nullptr,nullptr)==0 && restartBoundaryStop(fixture.pid,status);

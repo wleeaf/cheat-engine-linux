@@ -98,6 +98,37 @@ fixture correction. [Command-isolation evidence](compatibility-evidence/fixture-
 records the hosted failure, current source hashes and actual kernel follow-up.
 The corrected pushed revision still requires its own seven-job hosted result.
 
+### Hosted mixed-ABI context follow-up
+
+The [run for `c95356a`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37620541399)
+passed all six other jobs, including the corrected ARM64 kernel job and the
+complete sanitizer profile. Its normal native job failed the combined extended
+state/instruction/scratch/mask assertion in variants 9, 14 and 17. Those variants
+passed exact GP restoration, actual syscall ABI, original timer completion and
+allocation/process cleanup. The old assertion did not identify the differing
+field, so this is not yet an established production-restoration defect or a
+diagnosed fixture-only failure.
+
+The fixture now captures the complete actual extended bank at the owned timer
+stop immediately before injection, matching the executor's restoration contract.
+Its old snapshot preceded actual timer execution. The test retains a comparison
+with that earlier bank and reports per-regset byte differences, GP fields,
+scratch/instruction checks and exact signal masks before and after injection.
+All preservation assertions, counts and deadlines remain required. Production
+code is unchanged by this follow-up. A stale setup snapshot is a possible
+contributor; the hosted diagnostics must determine whether it explains any
+recurrent failure.
+
+Focused native runs pass all 298 x86-64 and 24 i386 assertions with the owned-stop
+baseline. A diagnostic run before that baseline correction also passes all 298
+cases under the cached real Linux 6.1.0-50 x86 kernel with one CPU and 128 MiB;
+neither that guest nor the host reproduced a before/after mismatch. Builds and
+suites ran serially with cached tools and reduced priority. No host packages or
+kernel settings changed. [Context evidence](compatibility-evidence/mixed-abi-context-diagnostics.json)
+records the failure, local controls and the unresolved proof limits. Another
+hosted run is required to verify the corrected fixture and diagnose any remaining
+failure before declaring CI closeout.
+
 ## Hosted CI closeout: 7 October 2026
 
 The [full workflow for `6834260`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37596245380)

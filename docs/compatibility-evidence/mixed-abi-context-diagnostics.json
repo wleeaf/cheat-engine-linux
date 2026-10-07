@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "suite": "mixed-abi-owned-stop-snapshots-and-field-diagnostics",
+  "createdUtc": "2026-10-07T12:38:37.861173+00:00",
+  "baseRevision": "c95356adb355d1b1fddf64060ab9a89985fc2e34",
+  "sourceState": "tested test-only working-tree follow-up published by containing commit",
+  "fullCompatibilityComplete": false,
+  "hostedFailure": {
+    "run": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37620541399",
+    "jobId": 112789390036,
+    "log": {
+      "path": "build/.ci-tmp/mixed-abi-product/fixture-command-fix-hosted-native.log",
+      "sha256": "94b09437ea8ea99df58399ea24e5e33a3eb1f17d7645f4c9c41f474db7d02da7"
+    },
+    "failedAssertions": 3,
+    "variants": [
+      9,
+      14,
+      17
+    ],
+    "assertion": "extended state, instructions, private scratch and signal-mask preservation",
+    "otherRequirements": "GP bank, actual syscall ABI, original timer completion and cleanup passed for these cases. All six other hosted jobs passed.",
+    "fieldCause": "Not established by the old combined assertion."
+  },
+  "change": "Capture the entire actual extended bank at the owned timer stop before injection; retain early-setup comparison diagnostics and exact post-injection GP/extended/scratch/code/mask checks. Do not change production code, assertion counts or deadlines.",
+  "sourceHashes": [
+    {
+      "path": "test/mixed_abi_restart_checks.inc",
+      "sha256": "32aa3055c3b1c6aee801976c3ba9af2ec10c55943c6c833e7895c68eb8c0049a"
+    }
+  ],
+  "verification": [
+    {
+      "profile": "native-64-owned-stop-snapshot",
+      "passed": true,
+      "checks": 298,
+      "log": {
+        "path": "build/.ci-tmp/mixed-abi-product/mixed-context-stop-snapshot64.log",
+        "sha256": "1a6dbf4dbda052de32b10cfee2b535508daac2acfa042df8450e8b4e35f6a9d4"
+      },
+      "beforeAfterMismatches": 0
+    },
+    {
+      "profile": "native-32-owned-stop-snapshot",
+      "passed": true,
+      "checks": 24,
+      "log": {
+        "path": "build/.ci-tmp/mixed-abi-product/mixed-context-stop-snapshot32.log",
+        "sha256": "1e5f0b3956a9a4be71a6ac5134e25db3dd5e160d1dcc8a8d1aeb13cfbeb0111e"
+      },
+      "beforeAfterMismatches": 0
+    },
+    {
+      "profile": "diagnostic-before-snapshot-correction-linux-6.1-guest",
+      "passed": true,
+      "checks": 298,
+      "log": {
+        "path": "build/.ci-tmp/mixed-abi-product/mixed-context-guest.log",
+        "sha256": "82f64a773dd3d8fdd45fe2b315fae7ff30094b9321b11364929760ce42d1d5e5"
+      },
+      "kernel": {
+        "path": "build/.ci-tmp/x32-vm/vmlinuz-6.1.0-50-amd64",
+        "sha256": "d8808aa4ca188560da1e6d749dcb930c87a5fd8b11ebff1f3fa6d728af35203d"
+      },
+      "driver": {
+        "path": "build/.ci-tmp/mixed-abi-product/mixed-context-driver",
+        "sha256": "481ff5d452d18e9ba20769420fd4c90d10ee1007ac3f9df160bb5039dd2b636c"
+      },
+      "cpus": 1,
+      "ramMiB": 128,
+      "beforeAfterMismatches": 0
+    }
+  ],
+  "limits": [
+    "The earlier setup bank could be stale after actual timer entry; this is a suspected contributor, not an established cause of the hosted failures.",
+    "Native host and older-kernel diagnostic runs did not reproduce a mismatch. Hosted before/after diagnostics remain necessary if failures recur.",
+    "These are focused test-fixture checks; the pushed revision requires its own complete seven-job hosted result."
+  ]
+}

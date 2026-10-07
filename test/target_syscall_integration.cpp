@@ -23,6 +23,7 @@
 #include <fstream>
 #include <poll.h>
 #include <signal.h>
+#include <sched.h>
 #include <sstream>
 #include <sys/mount.h>
 #include <sys/mman.h>
@@ -1077,6 +1078,8 @@ static void codeFinderTeardownBackend(const char* path) {
             return ptrace(PTRACE_SEIZE,pid,nullptr,nullptr)==0 && ptrace(PTRACE_INTERRUPT,pid,nullptr,nullptr)==0 &&
                 waitpid(pid,&status,__WALL)==pid && WIFSTOPPED(status);
         };
+        cpu_set_t originalAffinity{},restoredAffinity{};
+        const bool affinitySaved=sched_getaffinity(pid,sizeof(originalAffinity),&originalAffinity)==0;
         bool stopped=stopForBank();
         auto original=readNativeHardwareBank(pid,false);
         bool released=ptrace(PTRACE_DETACH,pid,nullptr,nullptr)==0;
@@ -1116,12 +1119,14 @@ static void codeFinderTeardownBackend(const char* path) {
         auto restored=readNativeHardwareBank(pid,false);
         released=ptrace(PTRACE_DETACH,pid,nullptr,nullptr)==0;
         const bool arm64=architecture==CpuArchitecture::Arm64;
-        check(stopped && restored && released && original->count==restored->count &&
+        check(stopped && restored && released && affinitySaved &&
+              sched_getaffinity(pid,sizeof(restoredAffinity),&restoredAffinity)==0 && CPU_EQUAL(&originalAffinity,&restoredAffinity) &&
+              original->count==restored->count &&
               original->control==restored->control && original->status==restored->status &&
               std::equal(original->entries.begin(),original->entries.end(),restored->entries.begin(),
                   [arm64](const auto& a,const auto& b) {
                       return a.address==b.address && (arm64 && !a.control ? !(b.control&1u) : a.control==b.control);
-                  }),"queued-trap cleanup restores the original hardware addresses, control and status");
+                  }),"queued-trap cleanup restores original hardware addresses, control, status and test CPU affinity");
         unsigned zero=0;
         bool resumed=writeMemory(pid,flag,&zero,sizeof(zero))==sizeof(zero);
         check(resumed && fixture.line()=="CE_CALL_DONE" && fixture.value(),

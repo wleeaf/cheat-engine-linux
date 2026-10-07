@@ -71,6 +71,28 @@ extern "C" pid_t __wrap_waitpid(pid_t pid,int* status,int options) {
     auto result=__real_waitpid(pid,status,options);
     if (pid<=0 || !status || !(options&WNOHANG) || hardwareRaceTid!=pid) return result;
     hardwareRaceTid=0;
+    struct RaceAffinity {
+        pid_t target;cpu_set_t ownerMask{},targetMask{};bool ownerChanged=false,targetChanged=false;
+        explicit RaceAffinity(pid_t tid):target(tid) {
+            if (sched_getaffinity(0,sizeof(ownerMask),&ownerMask) || sched_getaffinity(target,sizeof(targetMask),&targetMask)) return;
+            int targetCpu=-1,ownerCpu=-1;
+            for (int cpu=0;cpu<CPU_SETSIZE;++cpu) {
+                if (targetCpu<0 && CPU_ISSET(cpu,&targetMask) && CPU_ISSET(cpu,&ownerMask)) targetCpu=cpu;
+                else if (targetCpu>=0 && CPU_ISSET(cpu,&ownerMask)) {ownerCpu=cpu;break;}
+            }
+            if (ownerCpu<0) return;
+            cpu_set_t targetOne{},ownerOne{};CPU_SET(targetCpu,&targetOne);CPU_SET(ownerCpu,&ownerOne);
+            targetChanged=sched_setaffinity(target,sizeof(targetOne),&targetOne)==0;
+            if (targetChanged) ownerChanged=sched_setaffinity(0,sizeof(ownerOne),&ownerOne)==0;
+            if (ownerChanged) std::printf("HARDWARE_RACE_CPUS target=%d owner=%d\n",targetCpu,ownerCpu);
+        }
+        ~RaceAffinity() {
+            if (targetChanged) sched_setaffinity(target,sizeof(targetMask),&targetMask);
+            if (ownerChanged) sched_setaffinity(0,sizeof(ownerMask),&ownerMask);
+        }
+    } affinity(pid);
+    // The interrupt must race actual execution on another CPU. Scheduler
+    // migration otherwise makes many attempts unable to produce this stop.
     if (!result) {
         // Cleanup may already have consumed a hardware delivery stop. An
         // INTERRUPT of that stopped task produces no new wait event until it
@@ -85,7 +107,7 @@ extern "C" pid_t __wrap_waitpid(pid_t pid,int* status,int options) {
         result=__real_waitpid(pid,status,__WALL|__WNOTHREAD);
     }
     const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
-    for (unsigned attempt=0;result==pid && WIFSTOPPED(*status) && attempt<131072 &&
+    for (unsigned attempt=0;result==pid && WIFSTOPPED(*status) &&
          std::chrono::steady_clock::now()<deadline;++attempt) {
         const auto event=*status>>16;
         siginfo_t current{};
@@ -114,10 +136,9 @@ extern "C" pid_t __wrap_waitpid(pid_t pid,int* status,int options) {
         // Run only between real kernel stops. No siginfo or wait status is
         // fabricated; the test returns only after observing the actual race.
         if (__real_ptrace(PTRACE_CONT,pid,nullptr,nullptr)<0) return result;
-        // Cover immediate interrupts as well as delayed ones. Always yielding
-        // first can let a fast target reach its delivery stop before INTERRUPT.
-        if (attempt%4==1) sched_yield();
-        else if (attempt%4>=2) usleep(attempt%4-1);
+        // Interrupt immediately on the other CPU. Sleeping first lets the
+        // target enter its delivery stop before the interrupt can race it.
+        if (attempt%64==63) sched_yield();
         if (__real_ptrace(PTRACE_INTERRUPT,pid,nullptr,nullptr)<0) return result;
         result=__real_waitpid(pid,status,__WALL|__WNOTHREAD);
     }

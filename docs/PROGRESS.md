@@ -87,6 +87,26 @@ exit and notification suites passed. [Trap evidence](compatibility-evidence/host
 records the actual hosted status, emulator version, inference and local proof.
 The replacement hosted run must confirm the fixture on QEMU 8.2.2.
 
+### Hardware-race fixture stability
+
+The hosted x32 job now passes with INT3, alongside both Wine profiles and the
+ARM64 kernel/frontend jobs. Normal and sanitizer jobs still intermittently miss
+the real queued-hardware-trap precondition. The generator used sleeps that often
+allowed a delivery stop to win, and a 131,072-iteration cap could end its search
+before the existing five-second deadline. A local diagnostic reproduced this
+premature-cap failure.
+
+The fixture now runs its tracee and tracer on distinct available CPUs during
+race generation, uses immediate interrupts with periodic yields, and relies on
+the existing real deadline rather than the arbitrary iteration cap. It restores
+both original CPU affinity masks and verifies the target affinity together with
+its exact original debug-register bank. Twenty local teardown runs passed for
+x86-64 and i386, observing 60 genuine queued hardware traps across normal,
+SIGUSR1 and SIGSTOP cases. [Race-fixture evidence](compatibility-evidence/hardware-race-fixture.json)
+retains the failing pre-cap-removal control, successful runs and source hashes.
+These changes retain all signal, stop, bank and original-console requirements;
+no synthetic kernel status is used. Hosted confirmation is still required.
+
 ## 1. Feature-by-target compatibility matrix
 
 ### Completed work

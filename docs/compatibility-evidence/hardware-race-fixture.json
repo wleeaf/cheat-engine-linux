@@ -1,0 +1,354 @@
+{
+  "utc": "2026-10-07",
+  "observedHostedFailures": [
+    {
+      "run": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37588282496",
+      "native": "Hardware race not observed in normal job.",
+      "sanitizer": "Hardware race not observed for SIGUSR1; dependent signal check fails because the generator never queued the signal."
+    }
+  ],
+  "changes": [
+    "Use separate available CPUs for tracer and tracee during race generation and restore both original affinity masks.",
+    "Prefer immediate interrupts with periodic yields, so the interrupt can actually race the synchronous trap.",
+    "Remove the premature 131072-iteration cap; keep the existing five-second real deadline.",
+    "Assert that the target CPU affinity is restored alongside the exact original hardware bank."
+  ],
+  "localBeforeCapRemoval": {
+    "passed": false,
+    "scope": "diagnostic control with separate CPUs, immediate interrupts and the old 131072 cap",
+    "output": "OK: teardown race starts an independent native target\nOK: teardown fixture continuously executes a real watched store\nOK: teardown saves the real original hardware bank before CodeFinder takes ownership\nHARDWARE_RACE_CPUS target=0 owner=1\nHARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=30800 applicationSignal=0\nOK: cleanup encounters a kernel queued hardware SIGTRAP behind an interrupt stop\nOK: teardown drains the owned trap and releases its actual ptrace owner\nOK: queued-trap cleanup restores original hardware addresses, control, status and test CPU affinity\nOK: the original program continues its computation and console work without a leaked hardware trap\nOK: teardown race starts an independent native target\nOK: teardown fixture continuously executes a real watched store\nOK: teardown saves the real original hardware bank before CodeFinder takes ownership\nHARDWARE_RACE_CPUS target=0 owner=1\nHARDWARE_TEARDOWN_RACE_MISSING tid=1184271 result=1184271 status=80057f errno=0\nFAILED: cleanup encounters a kernel queued hardware SIGTRAP behind an interrupt stop\nOK: teardown drains the owned trap and releases its actual ptrace owner\nFAILED: cleanup preserves the application SIGUSR1 instead of replacing it with its hardware SIGTRAP\nOK: teardown race starts an independent native target\nOK: teardown fixture continuously executes a real watched store\nOK: teardown saves the real original hardware bank before CodeFinder takes ownership\nHARDWARE_RACE_CPUS target=0 owner=1\nHARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=3613 applicationSignal=19\nOK: cleanup encounters a kernel queued hardware SIGTRAP behind an interrupt stop\nOK: teardown drains the owned trap and releases its actual ptrace owner\nOK: queued application SIGSTOP remains a genuine stopped target after watchpoint cleanup\nOK: the application's SIGCONT resumes its preserved stop\nOK: queued-trap cleanup restores original hardware addresses, control, status and test CPU affinity\nOK: the original program continues its computation and console work without a leaked hardware trap\nCODEFINDER_TEARDOWN_RESULT=FAILED architecture=x86-64\n"
+  },
+  "localVerification": [
+    {
+      "bits": 64,
+      "iteration": 0,
+      "exitCode": 0,
+      "seconds": 5.722431375004817,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=461530 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=599711 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=91084 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    },
+    {
+      "bits": 64,
+      "iteration": 1,
+      "exitCode": 0,
+      "seconds": 7.9268791799549945,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=4006 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=885085 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=712304 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    },
+    {
+      "bits": 64,
+      "iteration": 2,
+      "exitCode": 0,
+      "seconds": 1.0009844570304267,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=12865 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=23180 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=156755 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    },
+    {
+      "bits": 64,
+      "iteration": 3,
+      "exitCode": 0,
+      "seconds": 2.473016358970199,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=226357 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=113368 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=149480 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    },
+    {
+      "bits": 64,
+      "iteration": 4,
+      "exitCode": 0,
+      "seconds": 2.0863808339927346,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=29953 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=335937 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=45147 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    },
+    {
+      "bits": 64,
+      "iteration": 5,
+      "exitCode": 0,
+      "seconds": 1.6924414530512877,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=211 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=123703 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=207267 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    },
+    {
+      "bits": 64,
+      "iteration": 6,
+      "exitCode": 0,
+      "seconds": 0.04204094497254118,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=147 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=383 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=1414 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    },
+    {
+      "bits": 64,
+      "iteration": 7,
+      "exitCode": 0,
+      "seconds": 0.7292203310062177,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=9082 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=107624 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=25333 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    },
+    {
+      "bits": 64,
+      "iteration": 8,
+      "exitCode": 0,
+      "seconds": 1.6963493180228397,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=47700 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=113956 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=175765 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    },
+    {
+      "bits": 64,
+      "iteration": 9,
+      "exitCode": 0,
+      "seconds": 3.626394086983055,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=243372 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=21048 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=456934 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    },
+    {
+      "bits": 32,
+      "iteration": 0,
+      "exitCode": 0,
+      "seconds": 1.7269397880299948,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=41606 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=204865 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=93393 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    },
+    {
+      "bits": 32,
+      "iteration": 1,
+      "exitCode": 0,
+      "seconds": 1.2419433639734052,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=1409 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=194002 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=44434 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    },
+    {
+      "bits": 32,
+      "iteration": 2,
+      "exitCode": 0,
+      "seconds": 0.0920126480050385,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=1468 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=5342 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=4062 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    },
+    {
+      "bits": 32,
+      "iteration": 3,
+      "exitCode": 0,
+      "seconds": 3.1683632109779865,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=246720 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=16269 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=365121 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    },
+    {
+      "bits": 32,
+      "iteration": 4,
+      "exitCode": 0,
+      "seconds": 2.237679297977593,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=9793 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=344542 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=88751 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    },
+    {
+      "bits": 32,
+      "iteration": 5,
+      "exitCode": 0,
+      "seconds": 1.5049602650105953,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=201522 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=23566 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=70879 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    },
+    {
+      "bits": 32,
+      "iteration": 6,
+      "exitCode": 0,
+      "seconds": 0.60931274399627,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=35203 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=51210 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=29403 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    },
+    {
+      "bits": 32,
+      "iteration": 7,
+      "exitCode": 0,
+      "seconds": 1.6305861629662104,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=1113 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=169781 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=148335 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    },
+    {
+      "bits": 32,
+      "iteration": 8,
+      "exitCode": 0,
+      "seconds": 6.1509416900225915,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=43393 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=795602 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=389182 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    },
+    {
+      "bits": 32,
+      "iteration": 9,
+      "exitCode": 0,
+      "seconds": 2.447737807990052,
+      "races": [
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=18617 applicationSignal=0",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=150038 applicationSignal=10",
+        "HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=317282 applicationSignal=19"
+      ],
+      "cpus": [
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1",
+        "HARDWARE_RACE_CPUS target=0 owner=1"
+      ]
+    }
+  ],
+  "realKernelRaces": 60,
+  "sourcesSha256": {
+    "test/syscall_faults.cpp": "4accebd1550be1e7840fc6bcc8d96c9e06ecbd42b85ec8c714a21e939409a103",
+    "test/target_syscall_integration.cpp": "94680e1c379fe40e27d286f1b62db1fe23ba649ee735d5cca09e857ed5ddd368"
+  },
+  "limitations": [
+    "Actual kernel race generation remains bounded by five seconds; no kernel signal or wait status is fabricated.",
+    "Hosted native and sanitizer confirmation remains required.",
+    "Single-CPU execution cannot force concurrent execution; supplied full debugger guests use two CPUs.",
+    "Unpublished mixed-ABI work is excluded from the selected CI source hashes."
+  ]
+}

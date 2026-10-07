@@ -129,6 +129,39 @@ records the failure, local controls and the unresolved proof limits. Another
 hosted run is required to verify the corrected fixture and diagnose any remaining
 failure before declaring CI closeout.
 
+### Hosted baseline diagnosis and CEServer terminal replies
+
+The [run for `b0245f7`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37622481616)
+passed the complete normal job and five other jobs. Its actual native diagnostics
+establish the stale-baseline problem: regset `0x202`, byte 512, changed from `2`
+to `0` **before injection** in multiple timer variants. GP, code and scratch were
+unchanged at that point. The complete bank at the operation's owned stop was
+then restored exactly. All 298 x86-64 mixed-restart assertions and the complete
+native recovery/lifecycle gates passed. This confirms a fixture snapshot error;
+the preservation check still compares every byte of the actual saved bank.
+
+The sanitizer job instead failed earlier in the CEServer multi-client suite,
+at its combined shutdown assertion. That assertion required an error from a
+debug-event waiter. The API returns `expected<optional<event>, error>` and also
+supports a successful empty reply. A shutdown/no-event reply can therefore end
+the wait without an error. The corrected assertion permits error or empty,
+rejects a returned event, and retains the **800 ms** deadline, stopped listener,
+zero port, released real ptrace ownership and live-target requirements. It logs
+the actual elapsed time and reply category, so any recurrent latency or event
+failure is directly diagnosable. Production server behavior is unchanged.
+
+Eight baseline normal runs and eight baseline ASan/UBSan runs passed locally,
+all with error replies. They did not reproduce the hosted failure, so the old
+combined result alone does not establish which shutdown component failed there.
+The reply correction follows the existing protocol contract; hosted confirmation
+of the complete suite is still required. Serial cached builds and repeated live
+32/64-bit multi-client checks are recorded in the
+[follow-up evidence](compatibility-evidence/hosted-context-and-shutdown.json), alongside
+the authoritative before-injection regset diagnostics and their scope limits.
+Eight corrected normal runs and eight corrected ASan/UBSan runs also pass all
+31 assertions each, with actual shutdown durations between 1 and 3 ms. The new
+pushed revision still requires a full hosted result.
+
 ## Hosted CI closeout: 7 October 2026
 
 The [full workflow for `6834260`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37596245380)

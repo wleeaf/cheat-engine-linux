@@ -189,7 +189,13 @@ static void live(const char* native,const char* compat) {
     int partial=connectRaw(port);if(partial>=0){uint8_t op=3;transfer(partial,&op,1,true);}
     begin=Clock::now();server.stop();
     auto waited=waiter.get();
-    check(Clock::now()-begin<800ms && !waited && !server.running() && !server.port(),
+    const auto elapsed=Clock::now()-begin;
+    std::printf("CESERVER_SHUTDOWN elapsed=%lld response=%s running=%d port=%u\n",
+        static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count()),
+        !waited ? "error" : !*waited ? "empty" : "event",server.running(),static_cast<unsigned>(server.port()));
+    // A waiter can receive the protocol's empty reply as running_ becomes
+    // false, before its socket is shut down. Both that and EOF mean no event.
+    check(elapsed<800ms && (!waited || !*waited) && !server.running() && !server.port(),
         "server shutdown wakes debug-event waiters, idle clients and partial commands together");
     check(!lb.targetDescription().tracerPid && lb.targetDescription().live,
         "multi-client shutdown releases the remaining real debug target without killing it");

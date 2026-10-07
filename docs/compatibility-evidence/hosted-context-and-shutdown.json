@@ -1,0 +1,450 @@
+{
+  "schemaVersion": 1,
+  "suite": "hosted-mixed-context-diagnosis-and-ceserver-terminal-reply-followup",
+  "createdUtc": "2026-10-07T12:50:26.166651+00:00",
+  "baseRevision": "b0245f70e60270b6b29c4fe898918158cfd41acb",
+  "sourceState": "tested test-only follow-up published by containing commit",
+  "fullCompatibilityComplete": false,
+  "sourceHashes": [
+    {
+      "path": "test/ceserver_multiclient_integration.cpp",
+      "sha256": "82d665118b13ab3808b862e15a6fb63d7dd467c7a3fd964036469aec77f41d94"
+    },
+    {
+      "path": "test/mixed_abi_restart_checks.inc",
+      "sha256": "32aa3055c3b1c6aee801976c3ba9af2ec10c55943c6c833e7895c68eb8c0049a"
+    }
+  ],
+  "hosted": {
+    "run": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37622481616",
+    "normalJobPassed": true,
+    "sixJobsPassed": true,
+    "nativeLog": {
+      "path": "build/.ci-tmp/mixed-abi-product/mixed-context-hosted-native.log",
+      "sha256": "5999047d33c873ac2e565400323bbdfdef1d02785553c7948d8f7c555773acc1"
+    },
+    "beforeInjectionDifferences": [
+      "2026-10-07T12:45:19.4989978Z MIXED_ABI_BEFORE_CONTEXT variant=3 code=1 gp=1 extended=0 scratch=1",
+      "2026-10-07T12:45:19.4990368Z MIXED_ABI_BEFORE_EXTENDED note=202 offset=512 expected=2 actual=0",
+      "2026-10-07T12:45:19.5010122Z MIXED_ABI_BEFORE_CONTEXT variant=5 code=1 gp=1 extended=0 scratch=1",
+      "2026-10-07T12:45:19.5010381Z MIXED_ABI_BEFORE_EXTENDED note=202 offset=512 expected=2 actual=0",
+      "2026-10-07T12:45:19.5028480Z MIXED_ABI_BEFORE_CONTEXT variant=8 code=1 gp=1 extended=0 scratch=1",
+      "2026-10-07T12:45:19.5028730Z MIXED_ABI_BEFORE_EXTENDED note=202 offset=512 expected=2 actual=0",
+      "2026-10-07T12:45:19.5058372Z MIXED_ABI_BEFORE_CONTEXT variant=13 code=1 gp=1 extended=0 scratch=1",
+      "2026-10-07T12:45:19.5058616Z MIXED_ABI_BEFORE_EXTENDED note=202 offset=512 expected=2 actual=0",
+      "2026-10-07T12:45:51.7803865Z MIXED_ABI_BEFORE_CONTEXT variant=6 code=1 gp=1 extended=0 scratch=1",
+      "2026-10-07T12:45:51.7804113Z MIXED_ABI_BEFORE_EXTENDED note=202 offset=512 expected=2 actual=0",
+      "2026-10-07T12:45:51.7861234Z MIXED_ABI_BEFORE_CONTEXT variant=16 code=1 gp=1 extended=0 scratch=1",
+      "2026-10-07T12:45:51.7861479Z MIXED_ABI_BEFORE_EXTENDED note=202 offset=512 expected=2 actual=0",
+      "2026-10-07T12:45:51.7891887Z MIXED_ABI_BEFORE_CONTEXT variant=4 code=1 gp=1 extended=0 scratch=1",
+      "2026-10-07T12:45:51.7892131Z MIXED_ABI_BEFORE_EXTENDED note=202 offset=512 expected=2 actual=0",
+      "2026-10-07T12:45:51.7942547Z MIXED_ABI_BEFORE_CONTEXT variant=11 code=1 gp=1 extended=0 scratch=1",
+      "2026-10-07T12:45:51.7942882Z MIXED_ABI_BEFORE_EXTENDED note=202 offset=512 expected=2 actual=0"
+    ],
+    "normalMixedRestartResults": [
+      "2026-10-07T12:45:19.5124717Z MIXED_ABI_RESTART_RESULT=PASSED architecture=x86-64 checks=298",
+      "2026-10-07T12:46:34.9327726Z MIXED_ABI_RESTART_RESULT=PASSED architecture=x86-32 checks=24"
+    ],
+    "sanitizerFailureLog": {
+      "path": "build/.ci-tmp/mixed-abi-product/mixed-context-hosted-asan.log",
+      "sha256": "5408cd93a54444ab52f289acbe1924f8a25b691f5b3b12d05b98f4a034d73a36"
+    },
+    "sanitizerFailure": "One combined CEServer multi-client shutdown assertion failed, before the syscall gate."
+  },
+  "correction": {
+    "acceptedWaitOutcomes": [
+      "transport error",
+      "successful empty optional"
+    ],
+    "rejectedWaitOutcome": "any event",
+    "shutdownDeadlineMs": 800,
+    "requiredChecksPerRun": 31,
+    "productionServerChanged": false,
+    "diagnostics": [
+      "actual shutdown elapsed milliseconds",
+      "error/empty/event category",
+      "listener running state",
+      "listener port"
+    ]
+  },
+  "verification": [
+    {
+      "profile": "ceserver-shutdown-before",
+      "runs": [
+        {
+          "run": 0,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-before-0.log",
+            "sha256": "18602988f51a6c4a6b1247f1326846d49ee0d6bd2c84a77a709154fe028d11b0"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 2,
+          "response": "error"
+        },
+        {
+          "run": 1,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-before-1.log",
+            "sha256": "5b6f581cbbda32d3fe445f3841caa3902f10b107910b0f701e820aa279b5fbb6"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 1,
+          "response": "error"
+        },
+        {
+          "run": 2,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-before-2.log",
+            "sha256": "18602988f51a6c4a6b1247f1326846d49ee0d6bd2c84a77a709154fe028d11b0"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 2,
+          "response": "error"
+        },
+        {
+          "run": 3,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-before-3.log",
+            "sha256": "5b6f581cbbda32d3fe445f3841caa3902f10b107910b0f701e820aa279b5fbb6"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 1,
+          "response": "error"
+        },
+        {
+          "run": 4,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-before-4.log",
+            "sha256": "65e7f91140be0f9243e73522c1ebe8bbe3790c2ef718f65119616fa1918af888"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 3,
+          "response": "error"
+        },
+        {
+          "run": 5,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-before-5.log",
+            "sha256": "5b6f581cbbda32d3fe445f3841caa3902f10b107910b0f701e820aa279b5fbb6"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 1,
+          "response": "error"
+        },
+        {
+          "run": 6,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-before-6.log",
+            "sha256": "18602988f51a6c4a6b1247f1326846d49ee0d6bd2c84a77a709154fe028d11b0"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 2,
+          "response": "error"
+        },
+        {
+          "run": 7,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-before-7.log",
+            "sha256": "18602988f51a6c4a6b1247f1326846d49ee0d6bd2c84a77a709154fe028d11b0"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 2,
+          "response": "error"
+        }
+      ]
+    },
+    {
+      "profile": "ceserver-shutdown-asan-before",
+      "runs": [
+        {
+          "run": 0,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-asan-before-0.log",
+            "sha256": "1e066d836f53c2a130800dce8c9445d1c01b2cfdaa4f33420d8c4b2c50b6f026"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 4,
+          "response": "error"
+        },
+        {
+          "run": 1,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-asan-before-1.log",
+            "sha256": "65e7f91140be0f9243e73522c1ebe8bbe3790c2ef718f65119616fa1918af888"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 3,
+          "response": "error"
+        },
+        {
+          "run": 2,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-asan-before-2.log",
+            "sha256": "1e066d836f53c2a130800dce8c9445d1c01b2cfdaa4f33420d8c4b2c50b6f026"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 4,
+          "response": "error"
+        },
+        {
+          "run": 3,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-asan-before-3.log",
+            "sha256": "65e7f91140be0f9243e73522c1ebe8bbe3790c2ef718f65119616fa1918af888"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 3,
+          "response": "error"
+        },
+        {
+          "run": 4,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-asan-before-4.log",
+            "sha256": "8b0cf05bb4d9d9be9a8f2daede8602fce7359219bdad5b321e294cf8dcc4f6e2"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 5,
+          "response": "error"
+        },
+        {
+          "run": 5,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-asan-before-5.log",
+            "sha256": "1e066d836f53c2a130800dce8c9445d1c01b2cfdaa4f33420d8c4b2c50b6f026"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 4,
+          "response": "error"
+        },
+        {
+          "run": 6,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-asan-before-6.log",
+            "sha256": "65e7f91140be0f9243e73522c1ebe8bbe3790c2ef718f65119616fa1918af888"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 3,
+          "response": "error"
+        },
+        {
+          "run": 7,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-asan-before-7.log",
+            "sha256": "65e7f91140be0f9243e73522c1ebe8bbe3790c2ef718f65119616fa1918af888"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 3,
+          "response": "error"
+        }
+      ]
+    },
+    {
+      "profile": "ceserver-shutdown-after",
+      "runs": [
+        {
+          "run": 0,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-after-0.log",
+            "sha256": "18602988f51a6c4a6b1247f1326846d49ee0d6bd2c84a77a709154fe028d11b0"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 2,
+          "response": "error"
+        },
+        {
+          "run": 1,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-after-1.log",
+            "sha256": "65e7f91140be0f9243e73522c1ebe8bbe3790c2ef718f65119616fa1918af888"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 3,
+          "response": "error"
+        },
+        {
+          "run": 2,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-after-2.log",
+            "sha256": "65e7f91140be0f9243e73522c1ebe8bbe3790c2ef718f65119616fa1918af888"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 3,
+          "response": "error"
+        },
+        {
+          "run": 3,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-after-3.log",
+            "sha256": "65e7f91140be0f9243e73522c1ebe8bbe3790c2ef718f65119616fa1918af888"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 3,
+          "response": "error"
+        },
+        {
+          "run": 4,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-after-4.log",
+            "sha256": "18602988f51a6c4a6b1247f1326846d49ee0d6bd2c84a77a709154fe028d11b0"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 2,
+          "response": "error"
+        },
+        {
+          "run": 5,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-after-5.log",
+            "sha256": "65e7f91140be0f9243e73522c1ebe8bbe3790c2ef718f65119616fa1918af888"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 3,
+          "response": "error"
+        },
+        {
+          "run": 6,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-after-6.log",
+            "sha256": "5b6f581cbbda32d3fe445f3841caa3902f10b107910b0f701e820aa279b5fbb6"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 1,
+          "response": "error"
+        },
+        {
+          "run": 7,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-after-7.log",
+            "sha256": "65e7f91140be0f9243e73522c1ebe8bbe3790c2ef718f65119616fa1918af888"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 3,
+          "response": "error"
+        }
+      ]
+    },
+    {
+      "profile": "ceserver-shutdown-asan-after",
+      "runs": [
+        {
+          "run": 0,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-asan-after-0.log",
+            "sha256": "18602988f51a6c4a6b1247f1326846d49ee0d6bd2c84a77a709154fe028d11b0"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 2,
+          "response": "error"
+        },
+        {
+          "run": 1,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-asan-after-1.log",
+            "sha256": "65e7f91140be0f9243e73522c1ebe8bbe3790c2ef718f65119616fa1918af888"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 3,
+          "response": "error"
+        },
+        {
+          "run": 2,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-asan-after-2.log",
+            "sha256": "18602988f51a6c4a6b1247f1326846d49ee0d6bd2c84a77a709154fe028d11b0"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 2,
+          "response": "error"
+        },
+        {
+          "run": 3,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-asan-after-3.log",
+            "sha256": "65e7f91140be0f9243e73522c1ebe8bbe3790c2ef718f65119616fa1918af888"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 3,
+          "response": "error"
+        },
+        {
+          "run": 4,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-asan-after-4.log",
+            "sha256": "65e7f91140be0f9243e73522c1ebe8bbe3790c2ef718f65119616fa1918af888"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 3,
+          "response": "error"
+        },
+        {
+          "run": 5,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-asan-after-5.log",
+            "sha256": "18602988f51a6c4a6b1247f1326846d49ee0d6bd2c84a77a709154fe028d11b0"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 2,
+          "response": "error"
+        },
+        {
+          "run": 6,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-asan-after-6.log",
+            "sha256": "65e7f91140be0f9243e73522c1ebe8bbe3790c2ef718f65119616fa1918af888"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 3,
+          "response": "error"
+        },
+        {
+          "run": 7,
+          "log": {
+            "path": "build/.ci-tmp/mixed-abi-product/ceserver-shutdown-asan-after-7.log",
+            "sha256": "18602988f51a6c4a6b1247f1326846d49ee0d6bd2c84a77a709154fe028d11b0"
+          },
+          "passed": true,
+          "checks": 31,
+          "elapsedMs": 2,
+          "response": "error"
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "The old combined CEServer assertion did not record elapsed time or reply type, so its hosted failure component remains unestablished.",
+    "All local before and after runs below returned an actual transport error; no successful empty shutdown reply was observed in these local runs. The correction follows the existing API/protocol contract.",
+    "Local repetition does not substitute for a complete green hosted run of this corrected revision.",
+    "The mixed-ABI before-injection bank differences are actual hosted observations; the entire owned-stop bank remains exactly verified after recovery."
+  ]
+}

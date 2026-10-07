@@ -2494,7 +2494,7 @@ static void sessionThreadExitBackend(const char* path) {
                 const bool unpatched=steps==1 && session.removeSoftwareBreakpoint(bp);
                 session.step(StepMode::Into);
                 check(unpatched && signals==1 && steps==1 && session.isStopped(),
-                      "stepping a genuine program INT1 or BRK preserves its signal instead of inventing syscall completion");
+                      "stepping a genuine program INT3 or BRK preserves its signal instead of inventing syscall completion");
                 session.continueExecution();
                 const bool terminated=awaitState([&] {return exits.load()>0;});
                 check(terminated && exits==1 && !session.isAttached(),

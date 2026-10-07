@@ -73,6 +73,20 @@ or diagnosed.
 these observed results and limits. Another hosted run must verify the further
 fixes; a local pass alone is insufficient.
 
+### Diagnosed x32 trap mismatch
+
+The [next hosted run](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37588282496)
+logged a real `SIGILL` stop (`status=0x047f`) for the INT1 program-trap fixture,
+rather than `SIGTRAP`. Its QEMU version is 8.2.2; the same scenarios passed on
+local QEMU 10.2.2. This points to the older emulator's INT1 implementation.
+The x86 fixture now uses a genuine INT3 instruction. All program-trap stepping,
+exact signal delivery and competing-launcher ownership assertions remain;
+AArch64 continues using BRK. A full local x32 debugger guest passed all 627
+required checks with the changed fixture, and both native x86-64/i386 session
+exit and notification suites passed. [Trap evidence](compatibility-evidence/hosted-ci-int3.json)
+records the actual hosted status, emulator version, inference and local proof.
+The replacement hosted run must confirm the fixture on QEMU 8.2.2.
+
 ## 1. Feature-by-target compatibility matrix
 
 ### Completed work

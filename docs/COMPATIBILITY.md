@@ -123,7 +123,7 @@ task flags. The [kernel exit path](https://github.com/torvalds/linux/blob/v6.18/
 sets these before releasing the address space and before zombie state, so an
 owned EXIT stop and its running cleanup cannot supply a usable application thread.
 Native syscall-return stepping recognizes the real x86 `TRAP_BRKPT` notification
-using its syscall register state and exact return PC. A genuine program INT1
+using its syscall register state and exact return PC. A genuine program INT3
 trap remains a signal; ARM64's syscall pseudo-step remains separate from BRK.
 
 Module backing paths use the target's filesystem view. A host pathname is retained

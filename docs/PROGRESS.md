@@ -13,6 +13,36 @@ local checks for this commit. Older evidence snapshots describe the source and
 binaries tested at their own checkpoint; their counts must not be added together
 as a count of unique tests or presented as fresh checks of every environment.
 
+## Hosted CI closeout: 7 October 2026
+
+The [full workflow for `6834260`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37596245380)
+completed successfully with **all seven required jobs passing**:
+
+| Job | Hosted result |
+|---|---|
+| Ubuntu native build, runtime, GUI, CLI and transport checks | Passed |
+| ASan/UBSan native and runtime checks | Passed |
+| x32 native calls, debugger, image-affinity and exec checks | Passed |
+| Legacy Wine32 and Wine64 compatibility | Passed |
+| Wine WoW64 compatibility | Passed |
+| ARM64 kernel compatibility, including 4 KiB and 64 KiB profiles | Passed |
+| ARM64 application, GUI, CLI and runtime frontends | Passed |
+
+The [completed-run record](compatibility-evidence/hosted-ci-green.json) preserves
+the tested revision, branch, job links, steps and authoritative conclusions.
+This resolves the red-check investigation described in the historical entries
+below. Required tests and their failure gates remain enabled. The published
+fixes cover real Qt buffered-save data loss, repeat Mono installation staging,
+Wine fixture privileges, replacement-image setup, portable program traps and
+register/race/worker-startup assumptions in the integration fixtures.
+
+The broader six-area objective below remains unfinished. In particular, the
+mixed-ABI restart adapter is still an unpublished draft requiring further
+signal, policy, cancellation, exit/exec and recovery proofs. Other remaining
+targets and feature combinations retain their documented limits. Passing this
+workflow establishes the required tested profiles, not compatibility with every
+Linux process, and does not create a new release.
+
 ## Hosted CI investigation: 7 October 2026
 
 GitHub completed the [checkpoint workflow](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37518824607)
@@ -396,8 +426,8 @@ work and is excluded from this publication.
 
 ### Remaining work
 
-- Resolve the four observed hosted failures described above and verify the
-  replacement workflow. Local reports do not prove hosted CI completed.
+- Keep the now-passing hosted workflow required for subsequent changes. All
+  seven jobs passed for `6834260`; future revisions need their own hosted result.
 - Add mandatory gates for the additional supported environments/features as
   those adapters and real fixtures become available.
 - Run a new release against the required gates when a release is requested.

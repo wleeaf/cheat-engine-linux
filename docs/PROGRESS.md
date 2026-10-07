@@ -142,6 +142,38 @@ also contain the separate unpublished mixed-ABI prototype. The next hosted run
 must verify all seven jobs from the selected published source. The broader
 mixed-ABI recovery work remains unfinished and is excluded from this CI fix.
 
+### Older Qt buffered-save data loss
+
+The [run for `2db0de4`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37592370883)
+passed six of seven jobs, including both complete native register frontend
+profiles, ARM64 kernel/frontends, sanitizers, x32 and both Wine profiles. The
+normal job then failed the required GUI table-save rollback check. Its earlier
+native syscall, injection, Mono and other GUI checks passed.
+
+A real Qt 6.4.2 kernel guest reproduced the underlying data-loss mechanism:
+with a 64-byte file-size limit, `QSaveFile::write` accepted buffered data and
+`commit` reported success while replacing each original 3,000-byte file with
+64 bytes. The recent-file history also changed, and no error dialog appeared.
+Flushing settings beforehand did not repair this behavior. An explicit checked
+device flush before commit rejected both writes, displayed both errors and
+preserved the complete independently read original bytes and recent history.
+
+Table saves, scan-result exports and script saves now check `QSaveFile::flush`
+before committing. Table failures explicitly cancel staged output before the
+error dialog. The existing rollback regression retains every original-file,
+history, dialog, cleanup and restored-limit assertion; it also isolates pending
+settings writes and reports each condition if rollback fails. The focused
+table-save and full GUI lifecycle suites pass locally on Qt 6.11.2. The small
+older-Qt mechanism probe ran in one 256 MiB, one-CPU guest; builds stayed cached,
+serial and at reduced priority.
+
+[Buffered-save evidence](compatibility-evidence/qt-buffered-save.json) includes
+the hosted failure, older-Qt control and corrected probe sources, binary and
+kernel hashes, exact independently compared file results and local product
+checks. The small Qt probe tests the shared file-device mechanism rather than
+Cheat Engine serialization. The next full hosted run must confirm the product
+on the runner's Qt version. Separate mixed-ABI recovery work remains pending.
+
 ## 1. Feature-by-target compatibility matrix
 
 ### Completed work

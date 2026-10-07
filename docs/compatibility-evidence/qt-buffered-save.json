@@ -1,0 +1,95 @@
+{
+  "utc": "2026-10-07T08:33:19.364735+00:00",
+  "observedHostedRun": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37592370883",
+  "observedRevision": "2db0de44c8481625e34c2aa1335d784aa69dd892",
+  "observedJobs": [
+    {
+      "name": "ubuntu-build",
+      "conclusion": "failure",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37592370883/job/112696688763"
+    },
+    {
+      "name": "wine-compatibility / legacy-wine",
+      "conclusion": "success",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37592370883/job/112696688997"
+    },
+    {
+      "name": "wine-compatibility / wow64-wine",
+      "conclusion": "success",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37592370883/job/112696689024"
+    },
+    {
+      "name": "arm64-compatibility / arm64-frontends",
+      "conclusion": "success",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37592370883/job/112696689047"
+    },
+    {
+      "name": "sanitizers",
+      "conclusion": "success",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37592370883/job/112696689048"
+    },
+    {
+      "name": "arm64-compatibility / arm64-syscalls",
+      "conclusion": "success",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37592370883/job/112696689096"
+    },
+    {
+      "name": "x32-compatibility / x32-native-calls",
+      "conclusion": "success",
+      "url": "https://github.com/wleeaf/cheat-engine-linux/actions/runs/37592370883/job/112696689154"
+    }
+  ],
+  "observedFailure": "GUI table save: FAILED (load=1 metadata=1 codec=1 write-failure=0 cleanup=1 reject=1 consent=1 stable-IDs=1 exact-address=1)",
+  "productChanges": [
+    "Check QSaveFile.flush before committing table saves, scan result exports and script saves. Cancel table staging on a flush failure.",
+    "Retain independent existing-byte, error-dialog, recent-table-history, temporary-file cleanup and restored-limit assertions; flush unrelated settings before limiting file size and print individual rollback diagnostics on failure."
+  ],
+  "olderQtMechanismVerification": {
+    "qtVersion": "6.4.2",
+    "kernelSha256": "06196d2cf51e9a2bac421564bb64c63a8b7146c9a22755dd22a713e337023013",
+    "ramMiB": 256,
+    "guestCpus": 1,
+    "output": [
+      "QT_SAVE_REPRO sync=1 qt=6.4.2 rejectedXml=0 rejectedJson=0 errors=0 recentUnchanged=0 xmlSize=64 jsonSize=64 xmlUnchanged=0 jsonUnchanged=0",
+      "QT_SAVE_REPRO_EXIT sync=0 status=0",
+      "QT_SAVE_REPRO sync=1 qt=6.4.2 rejectedXml=1 rejectedJson=1 errors=2 recentUnchanged=1 xmlSize=3000 jsonSize=3000 xmlUnchanged=1 jsonUnchanged=1",
+      "QT_SAVE_REPRO_EXIT sync=1 status=0"
+    ],
+    "outputSha256": "30684298e2d2b3af108be65672e1a3f708ee68ed896fc86b240bfc1f861a51fc",
+    "probeSource": "#include <QApplication>\n#include <QSettings>\n#include <QSaveFile>\n#include <QTemporaryDir>\n#include <QTimer>\n#include <QMessageBox>\n#include <QFile>\n#include <cstdio>\n#include <sys/resource.h>\n#include <signal.h>\nint main(int argc,char**argv) {\n QTemporaryDir config,dir;qputenv(\"QT_QPA_PLATFORM\",\"offscreen\");qputenv(\"XDG_CONFIG_HOME\",config.path().toUtf8());\n QApplication app(argc,argv);app.setOrganizationName(\"cecore-test\");app.setApplicationName(\"save-repro\");\n int errors=0;QTimer dismiss;dismiss.setInterval(5);QObject::connect(&dismiss,&QTimer::timeout,[&]{if(auto*b=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){++errors;b->accept();}});\n auto save=[&](QString path){QSaveFile f(path);f.setDirectWriteFallback(false);if(!f.open(QIODevice::WriteOnly))return false;QByteArray bytes(3000,'x');bool ok=f.write(bytes)==bytes.size() && f.commit();if(!ok){f.cancelWriting();QMessageBox::critical(nullptr,\"Save Cheat Table\",\"Write failure\");return false;}QSettings s;s.setValue(\"recentTables\",QStringList{path,s.value(\"recentTables\").toStringList().join('|')});return true;};\n auto xml=dir.filePath(\"saved.ct\"),json=dir.filePath(\"saved.json\");save(xml);save(json);QSettings settings;if(argc>1)settings.sync();auto recent=settings.value(\"recentTables\");\n rlimit previous{};getrlimit(RLIMIT_FSIZE,&previous);rlimit cap=previous;cap.rlim_cur=64;signal(SIGXFSZ,SIG_IGN);setrlimit(RLIMIT_FSIZE,&cap);dismiss.start();bool rejectedXml=!save(xml),rejectedJson=!save(json);dismiss.stop();setrlimit(RLIMIT_FSIZE,&previous);\n QFile x(xml),j(json);x.open(QIODevice::ReadOnly);j.open(QIODevice::ReadOnly);bool same=QSettings().value(\"recentTables\")==recent;\n printf(\"QT_SAVE_REPRO sync=%d qt=%s rejectedXml=%d rejectedJson=%d errors=%d recentUnchanged=%d xmlSize=%lld jsonSize=%lld xmlUnchanged=%d jsonUnchanged=%d\\n\",argc>1,qVersion(),rejectedXml,rejectedJson,errors,same,(long long)x.size(),(long long)j.size(),x.readAll()==QByteArray(3000,'x'),j.readAll()==QByteArray(3000,'x'));return 0;\n}\n",
+    "checkedProbeSource": "#include <QApplication>\n#include <QSettings>\n#include <QSaveFile>\n#include <QTemporaryDir>\n#include <QTimer>\n#include <QMessageBox>\n#include <QFile>\n#include <cstdio>\n#include <sys/resource.h>\n#include <signal.h>\nint main(int argc,char**argv) {\n QTemporaryDir config,dir;qputenv(\"QT_QPA_PLATFORM\",\"offscreen\");qputenv(\"XDG_CONFIG_HOME\",config.path().toUtf8());\n QApplication app(argc,argv);app.setOrganizationName(\"cecore-test\");app.setApplicationName(\"save-repro\");\n int errors=0;QTimer dismiss;dismiss.setInterval(5);QObject::connect(&dismiss,&QTimer::timeout,[&]{if(auto*b=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){++errors;b->accept();}});\n auto save=[&](QString path){QSaveFile f(path);f.setDirectWriteFallback(false);if(!f.open(QIODevice::WriteOnly))return false;QByteArray bytes(3000,'x');bool ok=f.write(bytes)==bytes.size() && f.flush() && f.commit();if(!ok){f.cancelWriting();QMessageBox::critical(nullptr,\"Save Cheat Table\",\"Write failure\");return false;}QSettings s;s.setValue(\"recentTables\",QStringList{path,s.value(\"recentTables\").toStringList().join('|')});return true;};\n auto xml=dir.filePath(\"saved.ct\"),json=dir.filePath(\"saved.json\");save(xml);save(json);QSettings settings;if(argc>1)settings.sync();auto recent=settings.value(\"recentTables\");\n rlimit previous{};getrlimit(RLIMIT_FSIZE,&previous);rlimit cap=previous;cap.rlim_cur=64;signal(SIGXFSZ,SIG_IGN);setrlimit(RLIMIT_FSIZE,&cap);dismiss.start();bool rejectedXml=!save(xml),rejectedJson=!save(json);dismiss.stop();setrlimit(RLIMIT_FSIZE,&previous);\n QFile x(xml),j(json);x.open(QIODevice::ReadOnly);j.open(QIODevice::ReadOnly);bool same=QSettings().value(\"recentTables\")==recent;\n printf(\"QT_SAVE_REPRO sync=%d qt=%s rejectedXml=%d rejectedJson=%d errors=%d recentUnchanged=%d xmlSize=%lld jsonSize=%lld xmlUnchanged=%d jsonUnchanged=%d\\n\",argc>1,qVersion(),rejectedXml,rejectedJson,errors,same,(long long)x.size(),(long long)j.size(),x.readAll()==QByteArray(3000,'x'),j.readAll()==QByteArray(3000,'x'));return 0;\n}\n",
+    "probeSha256": "b7d276ebe12b95163a042c25d9068cb639fa2915ede4c576d6e6a5a444565e4b",
+    "checkedProbeSha256": "524aedee8f4f109c8d47e315704e93612d108e796e6b975d2241f48730d3b069",
+    "scope": "Real Qt file-device buffered writes, actual RLIMIT_FSIZE, modal dialogs, independent original-file reads and recent-table settings under a real ARM64 guest kernel. Labels XML/JSON designate separate files; this probe does not exercise Cheat Engine serialization or claim full application coverage.",
+    "result": "Unchecked commit accepts partial 64-byte replacements and changes history; checked flush rejects both writes, displays two errors, preserves both original 3000-byte contents and history. Both variants preflush settings, ruling out settings synchronization as the repair."
+  },
+  "localProductVerification": [
+    {
+      "name": "gui-save-flush-table",
+      "passed": true,
+      "checks": [
+        "GUI table save: OK (load=1 metadata=1 codec=1 write-failure=1 cleanup=1 reject=1 consent=1 stable-IDs=1 exact-address=1)"
+      ],
+      "outputSha256": "4f888b7471779282dac30646e8e32b0c2a53f6ed81c5fdbc17655c68672ff8d7"
+    },
+    {
+      "name": "gui-save-flush-lifecycle",
+      "passed": true,
+      "checks": [
+        "GUI table save: OK (load=1 metadata=1 codec=1 write-failure=1 cleanup=1 reject=1 consent=1 stable-IDs=1 exact-address=1)",
+        "gui lifecycle smoke: OK (windows=1 trace=1 debugger=1 targets=1)"
+      ],
+      "outputSha256": "204cec59cc283da7bb42a3b5075422a47aba6c10a87849a536b50ce6483b38dc"
+    }
+  ],
+  "sourceSha256": {
+    "gui/mainwindow.cpp": "0c1d93b265dade32d84e8a8d618445637633eb5c88636a79347f5858548b74f9",
+    "gui/scripteditor.cpp": "98b7f7c557172e41fab3dd8573f2d3d4383276b2f4c6c2ad2a813b20c2e74eef",
+    "test/gui_table_save_checks.inc": "0d165ac4a17fb3abb4c4848f16efd177bafd91b13dc59ccaa0b46d0c6454596b"
+  },
+  "limits": [
+    "Local GUI product checks use cached working-tree core binaries which also contain the unpublished mixed-ABI prototype.",
+    "The complete older-Qt application regression will be checked by the replacement hosted workflow.",
+    "No unsupported scenario was skipped and required job settings remain unchanged."
+  ]
+}

@@ -175,7 +175,7 @@ ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget*
         if (!self || path.isEmpty()) return;
         QSaveFile file(path);
         const QByteArray bytes = editor_->toPlainText().toUtf8();
-        if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit())
+        if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.flush() || !file.commit())
             QMessageBox::warning(this, "Save failed", file.errorString());
     });
 

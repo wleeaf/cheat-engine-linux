@@ -63,7 +63,12 @@ static bool guiTableSaveChecks() {
     QFile originalXml(xml),originalJson(json);
     if(!originalXml.open(QIODevice::ReadOnly) || !originalJson.open(QIODevice::ReadOnly))return false;
     auto xmlBytes=originalXml.readAll(),jsonBytes=originalJson.readAll();originalXml.close();originalJson.close();
-    const auto recent=QSettings().value("recentTables");
+    QSettings settings;
+    // Flush successful-save settings before imposing a process-wide file-size
+    // limit: nested error-dialog event loops must not flush unrelated writes.
+    settings.sync();
+    const bool settingsReady=settings.status()==QSettings::NoError;
+    const auto recent=settings.value("recentTables");
     rlimit previous{};struct sigaction ignored{},oldAction{};ignored.sa_handler=SIG_IGN;sigemptyset(&ignored.sa_mask);
     const bool haveLimit=getrlimit(RLIMIT_FSIZE,&previous)==0;
     const bool haveSignal=sigaction(SIGXFSZ,&ignored,&oldAction)==0;
@@ -75,8 +80,14 @@ static bool guiTableSaveChecks() {
     if(haveSignal)sigaction(SIGXFSZ,&oldAction,nullptr);
     clearerr(stdout);clearerr(stderr);
     if(!originalXml.open(QIODevice::ReadOnly) || !originalJson.open(QIODevice::ReadOnly))return false;
-    bool rollback=failedXml && failedJson && errors.size()==errorsBefore+2 && originalXml.readAll()==xmlBytes && originalJson.readAll()==jsonBytes &&
-        QSettings().value("recentTables")==recent && restored;
+    const bool xmlUnchanged=originalXml.readAll()==xmlBytes,jsonUnchanged=originalJson.readAll()==jsonBytes;
+    const bool recentUnchanged=QSettings().value("recentTables")==recent;
+    bool rollback=settingsReady && failedXml && failedJson && errors.size()==errorsBefore+2 && xmlUnchanged && jsonUnchanged &&
+        recentUnchanged && restored;
+    if (!rollback)
+        printf("GUI_TABLE_SAVE_DIAGNOSTIC limited=%d settings=%d xmlRejected=%d jsonRejected=%d errors=%lld expectedErrors=2 xmlUnchanged=%d jsonUnchanged=%d recentUnchanged=%d restored=%d\n",
+            limited,settingsReady,failedXml,failedJson,static_cast<long long>(errors.size()-errorsBefore),
+            xmlUnchanged,jsonUnchanged,recentUnchanged,restored);
     bool tempClean=QDir(directory.path()).entryList(QDir::Files|QDir::Hidden).size()==3;
     auto title=reloaded.windowTitle();auto rowCount=other ? other->rowCount():0;
     QFile bad(directory.filePath("invalid.json"));

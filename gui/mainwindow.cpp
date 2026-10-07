@@ -3597,7 +3597,7 @@ void MainWindow::onSaveScanResults() {
                << field(resultsModel_->displayValueAt(row, 1)) << '\n';
     }
     output.flush();
-    if (output.status() != QTextStream::Ok || !file.commit()) {
+    if (output.status() != QTextStream::Ok || !file.flush() || !file.commit()) {
         statusBar()->showMessage("Could not save scan results: " + file.errorString(), 6000); return;
     }
     statusBar()->showMessage(QString("Saved %1 results to %2").arg(qulonglong(rows)).arg(QFileInfo(path).fileName()), 6000);
@@ -3655,6 +3655,9 @@ bool MainWindow::saveTableToPath(const QString& path) {
             const auto bytes=QJsonDocument(root).toJson();
             if (file.write(bytes)!=bytes.size()) {const auto error=file.errorString();file.cancelWriting();return fail(error);}
         }
+        // Older Qt can commit a partial buffered write without reporting its
+        // flush error. Check the device flush before replacing the old table.
+        if (!file.flush()) {const auto error=file.errorString();file.cancelWriting();return fail(error);}
         if (!file.commit()) return fail(file.errorString());
         addRecentTable(path);
         statusBar()->showMessage(QString("Saved table to %1").arg(QFileInfo(path).fileName()),4000);

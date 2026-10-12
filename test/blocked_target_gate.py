@@ -51,6 +51,15 @@ def readable_address(pid):
     raise RuntimeError("no writable mapping in the blocked target")
 
 
+def reads_permitted():
+    """cescan is not the target's ancestor, so Yama scope 1+ forbids even reads."""
+    try:
+        scope = int(pathlib.Path("/proc/sys/kernel/yama/ptrace_scope").read_text())
+    except (OSError, ValueError):
+        scope = 0
+    return scope == 0 or os.geteuid() == 0
+
+
 def main():
     cescan = (pathlib.Path(sys.argv[1]) / "cescan").resolve()
     tracer, target = start_blocked_target()
@@ -86,8 +95,9 @@ refused('breakAndTrace', breakAndTrace({address}, 4))
 local id, reason = debug_setBreakpoint({address})
 print('debug_setBreakpoint', id, tostring(reason))
 assert(type(id) == 'number' and reason and reason:find('{REASON}', 1, true), 'debug_setBreakpoint')
-local readBack = readInteger({address})
-assert(readBack ~= nil, 'plain reads keep working on the blocked target')
+if {str(reads_permitted()).lower()} then
+  assert(readInteger({address}) ~= nil, 'plain reads keep working on the blocked target')
+end
 print('LUA_BLOCKED_OK')
 """
         lua = subprocess.run([str(cescan), "lua", "-e", script], capture_output=True, text=True, timeout=60)

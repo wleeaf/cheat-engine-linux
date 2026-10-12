@@ -290,6 +290,12 @@ registered symbols take precedence over module names and retain their cleanup
 ownership; unregistering them exposes the current module again. Syntax-only
 checking has no process snapshot and preserves explicit symbols.
 
+`generateCodeInjectionScript(address)`, `generateAOBInjectionScript(address)`
+and `generateFullInjectionScript(address)` return CE's injection templates for
+an address or expression (stolen instructions relocated into a code cave,
+original bytes captured for `[DISABLE]`); CE appends them to a `TStrings`,
+here they are returned as text.
+
 From Lua, `autoAssemble(script)` returns `true` plus a disable-info object
 (or `false, error`), and `autoAssemble(script, disableInfo)` undoes that
 activation, as in Cheat Engine.

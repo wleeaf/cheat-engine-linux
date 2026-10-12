@@ -132,6 +132,22 @@ def main():
             run("write", pid, hex(value), 777, "--type", "i32")
             check("a typed write reaches the managed program", runtime.command("r") == 777)
 
+            # The runtime keeps the off-heap address in a heap object: a
+            # non-static pointer scan finds such a path and it resolves.
+            pointers = subprocess.run([cescan, "lua", "-e", f"""
+assert(openProcess({pid}))
+local found = 0
+for _, path in ipairs(pointerScan({value}, 1, 256, {{staticOnly=false}}) or {{}}) do
+  local address = path.moduleBase + path.baseOffset
+  for _, offset in ipairs(path.offsets) do address = readPointer(address) + offset end
+  if address == {value} then found = found + 1 end
+end
+assert(found > 0, 'no resolving pointer path')
+print('POINTER_PATHS ' .. found)
+"""], capture_output=True, text=True, timeout=300)
+            check("a non-static pointer scan finds a heap path to the off-heap value",
+                  pointers.returncode == 0 and "POINTER_PATHS" in pointers.stdout, pointers.stdout + pointers.stderr)
+
             disasm = run("disasm", pid, hex(writers[-1]), 4) if writers else ""
             check("disassembly of generated code is annotated with its JIT name", "ceJitWriter" in disasm, disasm)
 
@@ -145,6 +161,36 @@ def main():
             writer = re.search(r"^\s*\d+ x\s+(0x[0-9a-f]+)\s.*;\s*\[jit\]!(.+)$", output, re.M)
             check("find-what-writes names the JIT-compiled code that writes",
                   written == 778 and writer is not None and (name != "node" or "ceJitWriter" in writer.group(2)), output)
+            expected = 778
+            if writer:
+                # A CE code-injection template at the writing instruction: the
+                # stolen instructions run from a code cave, so the JIT code keeps
+                # computing correctly while hooked; disable restores its bytes.
+                site = writer.group(1)
+                before = run("read", pid, site, 5, "--type", "aob").split(":", 1)[-1].strip()
+                hook = subprocess.Popen([cescan, "lua", "-e", f"""
+assert(openProcess({pid}))
+local script = assert(generateCodeInjectionScript({int(site, 16)}))
+local ok, disable = autoAssemble(script)
+assert(ok, tostring(disable))
+print('INJECTED'); io.flush()
+io.read('l')
+assert(autoAssemble(script, disable))
+print('RESTORED'); io.flush()
+"""], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+                injected = select.select([hook.stdout], [], [], 120)[0] and hook.stdout.readline().strip() == "INJECTED"
+                during = run("read", pid, site, 5, "--type", "aob").split(":", 1)[-1].strip() if injected else ""
+                hooked_value = runtime.command("b") if injected else None
+                if injected:
+                    hook.stdin.write("go\n")
+                    hook.stdin.flush()
+                output = hook.communicate(timeout=60)[0]
+                after = run("read", pid, site, 5, "--type", "aob").split(":", 1)[-1].strip()
+                expected += 2
+                check("a code-injection template hooks the JIT writer and the program still computes through the cave",
+                      injected and during.upper().startswith("E9") and hooked_value == 779, output + during)
+                check("disabling the injection restores the JIT code and its behavior",
+                      "RESTORED" in output and after == before and runtime.command("b") == expected, output)
             # Break on the writing instruction find-what-writes reported: the
             # code that actually runs, whichever compiled version that is.
             targets = [int(writer.group(1), 16)] if writer else writers
@@ -164,7 +210,7 @@ def main():
             output, error = debugger.communicate(timeout=60)
             hit = re.search(r"SESSION_HIT (\d+)", output)
             check("a Lua breakpoint stops in the JIT code that actually runs and the call completes",
-                  ready and hit and int(hit.group(1)) in targets and int(runtime.line()) == 779, output + error)
+                  ready and hit and int(hit.group(1)) in targets and int(runtime.line()) == expected + 1, output + error)
             if args.gui and hit:
                 run("write", pid, hex(value), 24681357, "--type", "i32")
                 smoke = subprocess.Popen([str((args.build / "gui_lifecycle_smoke").resolve()), "--target", str(pid),

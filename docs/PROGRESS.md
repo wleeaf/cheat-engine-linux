@@ -16,6 +16,18 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Pointer paths and code caves in JIT code: 12 October 2026
+
+Lua gained CE's injection-template functions (`generateCodeInjectionScript`,
+`generateAOBInjectionScript`, `generateFullInjectionScript`), which return the
+same templates the GUI generates. The runtime gate now also requires, for
+Node/V8 and HotSpot, a non-static pointer scan whose path resolves to the
+off-heap value (the runtimes keep its address in a heap object), and a code
+injection at the JIT instruction that find-what-writes reported: the program
+keeps computing correctly through the code cave, and undoing the script
+restores the JIT code's bytes and behavior. Matrix: C4 and C6 at `B` for the
+V8 and JVM rows. Coverage is now 177/268 (66.0%).
+
 ## Go programs: 12 October 2026
 
 Item 4.2 of the [coverage plan](COVERAGE_PLAN.md). `test/runtimes/go_fixture.go`

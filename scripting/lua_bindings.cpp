@@ -1858,6 +1858,27 @@ static int l_autoAssemble(lua_State* L) {
     return 2;
 }
 
+// generateCodeInjectionScript(address) / generateAOBInjectionScript(address) /
+// generateFullInjectionScript(address) -> script text, or nil plus error.
+// The address may be a number or an expression ("game+1234", a symbol). CE
+// appends to a TStrings; here the generated script is returned as a string.
+static int injectionScript(lua_State* L, InjectionKind kind) {
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); lua_pushstring(L, "no process attached"); return 2; }
+    uintptr_t address = 0;
+    if (lua_isinteger(L, 1)) address = static_cast<uintptr_t>(lua_tointeger(L, 1));
+    else if (auto parsed = ExpressionParser(p, getResolver(L)).parse(luaL_checkstring(L, 1))) address = *parsed;
+    if (!address) { lua_pushnil(L); lua_pushstring(L, "cannot resolve the injection address"); return 2; }
+    std::string error;
+    auto script = generateInjectionScript(*p, address, kind, error);
+    if (script.empty()) { lua_pushnil(L); lua_pushstring(L, error.empty() ? "injection script generation failed" : error.c_str()); return 2; }
+    lua_pushstring(L, script.c_str());
+    return 1;
+}
+static int l_generateCodeInjectionScript(lua_State* L) { return injectionScript(L, InjectionKind::Code); }
+static int l_generateAOBInjectionScript(lua_State* L) { return injectionScript(L, InjectionKind::Aob); }
+static int l_generateFullInjectionScript(lua_State* L) { return injectionScript(L, InjectionKind::Full); }
+
 static int l_autoAssembleCheck(lua_State* L) {
     const char* script = luaL_checkstring(L, 1);
 
@@ -5814,6 +5835,9 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "assemble", l_assemble);
     lua_register(L, "autoAssemble", l_autoAssemble);
     lua_register(L, "autoAssembleCheck", l_autoAssembleCheck);
+    lua_register(L, "generateCodeInjectionScript", l_generateCodeInjectionScript);
+    lua_register(L, "generateAOBInjectionScript", l_generateAOBInjectionScript);
+    lua_register(L, "generateFullInjectionScript", l_generateFullInjectionScript);
 
     // Utility
     lua_register(L, "showMessage", l_showMessage);

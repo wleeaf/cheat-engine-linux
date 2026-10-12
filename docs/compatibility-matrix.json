@@ -955,16 +955,16 @@
      "evidence": "runtime_target_gate (OpenJDK 21, jcmd Compiler.perfmap): first scan for a marker, next scan after a real change isolates the value"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate: Lua pointerScan with staticOnly=false finds heap paths that resolve to the off-heap value"
     },
     "C5": {
      "state": "B",
      "evidence": "runtime_target_gate (OpenJDK 21, jcmd Compiler.perfmap): disassembly of generated code annotated with its JIT name"
     },
     "C6": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate: generateCodeInjectionScript at the reported JIT writing instruction; the program computes through the cave; autoAssemble(script, disableInfo) restores the bytes"
     },
     "C7": {
      "state": "-",
@@ -1096,16 +1096,16 @@
      "evidence": "runtime_target_gate (Node 22 locally, Node 18 in CI, --perf-basic-prof): first scan for a marker, next scan after a real change isolates the value"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate: Lua pointerScan with staticOnly=false finds heap paths that resolve to the off-heap value"
     },
     "C5": {
      "state": "B",
      "evidence": "runtime_target_gate (Node 22 locally, Node 18 in CI, --perf-basic-prof): disassembly of generated code annotated with its JIT name"
     },
     "C6": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate: generateCodeInjectionScript at the reported JIT writing instruction; the program computes through the cave; autoAssemble(script, disableInfo) restores the bytes"
     },
     "C7": {
      "state": "-",

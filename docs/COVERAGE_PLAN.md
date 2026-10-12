@@ -273,3 +273,5 @@ first. Detailed write-ups continue in PROGRESS.md.
   Coverage 232/268 (86.6%).
 - 2026-10-12, **5.3** time-boxed: live mGBA identified on CI (C1); generated
   ROM did not start, guest-RAM checks open. Coverage 234/268 (87.3%).
+- 2026-10-12, W^X JIT code patches fixed (write through the shared mapping's
+  backing file; core-suite regression check).

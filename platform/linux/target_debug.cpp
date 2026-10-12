@@ -4,6 +4,14 @@
 #include <cerrno>
 #include <cstring>
 #include <elf.h>
+#include <dirent.h>
+#include <fcntl.h>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
+#include <unistd.h>
 #include <sys/ptrace.h>
 #include <sys/uio.h>
 #if defined(__x86_64__)
@@ -453,6 +461,52 @@ Result<long> readCodeWord(pid_t tid,uintptr_t address) {
     if (word==-1 && errno) return std::unexpected(kernelError());
     return word;
 }
+}  // namespace
+
+Result<void> writeSharedMappingBacking(pid_t pid,uintptr_t address,std::span<const uint8_t> bytes) {
+    if (bytes.empty() || bytes.size()-1>UINTPTR_MAX-address) return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+    std::ifstream maps("/proc/"+std::to_string(pid)+"/maps");
+    for (std::string line; std::getline(maps,line);) {
+        // start-end perms offset major:minor inode [path]
+        std::istringstream fields(line);
+        std::string range,perms,offsetText,device;unsigned long long inode=0;
+        if (!(fields>>range>>perms>>offsetText>>device>>inode) || perms.size()<4) continue;
+        const auto dash=range.find('-'),colon=device.find(':');
+        if (dash==std::string::npos || colon==std::string::npos) continue;
+        const uintptr_t start=std::stoull(range.substr(0,dash),nullptr,16),end=std::stoull(range.substr(dash+1),nullptr,16);
+        if (address<start || address>=end) continue;
+        if (address+bytes.size()>end || perms[3]!='s' || perms[1]=='w' || !inode)
+            return std::unexpected(std::make_error_code(std::errc::operation_not_supported));
+        const dev_t dev=makedev(std::stoul(device.substr(0,colon),nullptr,16),std::stoul(device.substr(colon+1),nullptr,16));
+        const off_t fileOffset=static_cast<off_t>(std::stoull(offsetText,nullptr,16)+(address-start));
+        const std::string fds="/proc/"+std::to_string(pid)+"/fd";
+        DIR* directory=opendir(fds.c_str());
+        if (!directory) return std::unexpected(std::error_code(errno,std::system_category()));
+        int writable=-1;
+        while (auto* entry=readdir(directory)) {
+            if (entry->d_name[0]=='.') continue;
+            const std::string path=fds+"/"+entry->d_name;
+            struct stat info{};
+            if (stat(path.c_str(),&info)<0 || info.st_dev!=dev || info.st_ino!=inode) continue;
+            writable=open(path.c_str(),O_WRONLY|O_CLOEXEC);
+            if (writable>=0) break;
+        }
+        closedir(directory);
+        if (writable<0) return std::unexpected(std::make_error_code(std::errc::operation_not_supported));
+        size_t done=0;
+        while (done<bytes.size()) {
+            const auto n=pwrite(writable,bytes.data()+done,bytes.size()-done,fileOffset+static_cast<off_t>(done));
+            if (n<0 && errno==EINTR) continue;
+            if (n<=0) {const int error=n<0 ? errno : EIO;close(writable);return std::unexpected(std::error_code(error,std::system_category()));}
+            done+=static_cast<size_t>(n);
+        }
+        close(writable);
+        return {};
+    }
+    return std::unexpected(std::make_error_code(std::errc::bad_address));
+}
+
+namespace {
 Result<void> patchCodeBytes(pid_t tid,const NativeSoftwareBreakpoint& breakpoint,bool restoring) {
     uintptr_t base=breakpoint.address-breakpoint.address%sizeof(long);
     auto word=readCodeWord(tid,base);
@@ -461,8 +515,12 @@ Result<void> patchCodeBytes(pid_t tid,const NativeSoftwareBreakpoint& breakpoint
     std::memcpy(reinterpret_cast<uint8_t*>(&*word)+(breakpoint.address-base),bytes.data(),breakpoint.size);
     // POKETEXT writes through the kernel's architecture-aware remote-memory
     // access, including ARM64 instruction-cache synchronization.
-    if (ptrace(PTRACE_POKETEXT,tid,reinterpret_cast<void*>(base),reinterpret_cast<void*>(*word))<0)
-        return std::unexpected(kernelError());
+    if (ptrace(PTRACE_POKETEXT,tid,reinterpret_cast<void*>(base),reinterpret_cast<void*>(*word))<0) {
+        const auto refused=kernelError();
+        // A W^X JIT's read-only shared code view refuses forced writes; write
+        // through the file both views share instead.
+        if (!writeSharedMappingBacking(tid,breakpoint.address,{bytes.data(),breakpoint.size})) return std::unexpected(refused);
+    }
     auto verify=readCodeWord(tid,base);
     if (!verify) return std::unexpected(verify.error());
     if (std::memcmp(reinterpret_cast<const uint8_t*>(&*verify)+(breakpoint.address-base),bytes.data(),breakpoint.size))

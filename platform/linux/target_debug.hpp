@@ -1,5 +1,6 @@
 #pragma once
 
+#include <span>
 #include "platform/process_api.hpp"
 #include <array>
 #include <signal.h>
@@ -48,6 +49,16 @@ struct NativeBreakpointFailure {
 std::expected<NativeSoftwareBreakpoint, NativeBreakpointFailure> installNativeSoftwareBreakpoint(
     pid_t tid, uintptr_t address, InstructionMode mode);
 Result<void> removeNativeSoftwareBreakpoint(pid_t tid, NativeSoftwareBreakpoint& breakpoint);
+
+/// Write `bytes` at `address` through the file behind a shared mapping that
+/// the target maps without write permission. W^X JITs (CoreCLR) map code as
+/// an executable read-only view of a shared memfd, which the kernel's forced
+/// remote writes (POKETEXT, /proc/pid/mem) refuse. The target keeps the
+/// backing file open, so its descriptor is reopened through /proc/PID/fd
+/// (same ptrace access check) and written at the mapping's file offset; both
+/// views share the page. Fails if the range is not such a mapping or no open
+/// descriptor of that file exists.
+Result<void> writeSharedMappingBacking(pid_t pid, uintptr_t address, std::span<const uint8_t> bytes);
 uintptr_t nativeSoftwareBreakpointAddress(const CpuContext& context);
 
 // A failed update restores and verifies the previous slot before returning the

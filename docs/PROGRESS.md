@@ -16,6 +16,23 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Code patches in W^X double-mapped JIT code: 12 October 2026
+
+.NET 7+ (and other W^X JITs) map generated code as an executable read-only
+view of a shared memfd, writing it through a separate, short-lived writable
+view. The kernel refuses forced remote writes (`PTRACE_POKETEXT`,
+`/proc/PID/mem`) to shared read-only mappings, so software breakpoints,
+Auto Assembler hooks and code writes at such addresses failed. cecore now
+falls back to `writeSharedMappingBacking`: it finds the mapping's file
+(device and inode), reopens the target's own open descriptor for it through
+`/proc/PID/fd` (the same ptrace access check), and writes at the mapping's
+file offset; both views share the page. Breakpoint planting and
+`LinuxProcessHandle::write`/`writeCode` use it. A new core-suite check
+reproduces the layout (a memfd page mapped writable, written, unmapped, and
+executed through a read-only view) and requires both a write and a debugger
+breakpoint to land there. The hosted CoreCLR runtime checks still run with
+W^X off until their intermittent failure is understood.
+
 ## Console emulators: first live evidence: 12 October 2026
 
 Item 5.3 of the [coverage plan](COVERAGE_PLAN.md), time-boxed.

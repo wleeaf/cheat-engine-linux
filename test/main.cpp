@@ -1046,6 +1046,71 @@ static void test_cheat_table_json() {
 // same target the scan found.
 // Perf maps are written by the target (untrusted): malformed, oversized and
 // unnamed lines are skipped, and a recompiled function's latest entry wins.
+// W^X JIT layout (CoreCLR): one memfd page mapped twice, a writable view that
+// is dropped after writing code and a read-only executable view that runs it.
+// Forced remote writes refuse shared read-only mappings; writes and software
+// breakpoints must land through the file behind both views.
+static void test_wx_double_mapped_code() {
+    printf("\n── Test: W^X double-mapped JIT code ──\n");
+    int commands[2], replies[2];
+    if (pipe(commands) || pipe(replies)) { printf("  W^X code: FAILED (pipes)\n"); return; }
+    pid_t child = fork();
+    if (child == 0) {
+        close(commands[1]); close(replies[0]);
+        int fd = memfd_create("ce-wx-code", 0);
+        if (fd < 0 || ftruncate(fd, 4096) < 0) _exit(1);
+        auto* rw = static_cast<uint8_t*>(mmap(nullptr, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0));
+        void* rx = mmap(nullptr, 4096, PROT_READ | PROT_EXEC, MAP_SHARED, fd, 0);
+        if (rw == MAP_FAILED || rx == MAP_FAILED) _exit(2);
+        const uint8_t code[] = {0xb8, 42, 0, 0, 0, 0xc3};   // mov eax, 42; ret
+        std::memcpy(rw, code, sizeof(code));
+        munmap(rw, 4096);   // only the read-only executable view remains
+        uintptr_t address = reinterpret_cast<uintptr_t>(rx);
+        if (::write(replies[1], &address, sizeof(address)) != sizeof(address)) _exit(3);
+        for (char command; ::read(commands[0], &command, 1) == 1;) {
+            int result = reinterpret_cast<int (*)()>(rx)();
+            if (::write(replies[1], &result, sizeof(result)) != sizeof(result)) _exit(4);
+        }
+        _exit(0);
+    }
+    close(commands[0]); close(replies[1]);
+    uintptr_t rx = 0;
+    bool started = ::read(replies[0], &rx, sizeof(rx)) == sizeof(rx);
+    auto call = [&]() {
+        int result = -1;
+        char command = 'c';
+        if (::write(commands[1], &command, 1) != 1 || ::read(replies[0], &result, sizeof(result)) != sizeof(result)) return -1;
+        return result;
+    };
+    ce::os::LinuxProcessHandle proc(child);
+    const uint8_t seven[] = {7, 0, 0, 0};
+    auto written = started ? proc.write(rx + 1, seven, sizeof(seven)) : ce::Result<size_t>(std::unexpected(std::error_code()));
+    bool writeOk = written && *written == sizeof(seven) && call() == 7;
+    printf("  a write to the read-only shared code view lands through its backing file: %s\n", writeOk ? "OK" : "FAILED");
+
+    std::atomic<uintptr_t> hit{0};
+    ce::DebugSession session;
+    session.setEventCallback([&](const ce::DebugEvent& event) {
+        if (event.type == ce::DebugEventType::BreakpointHit) hit = event.address;
+    });
+    bool attached = started && session.attach(child, &proc);
+    int id = attached ? session.setSoftwareBreakpoint(rx) : -1;
+    if (attached) session.continueExecution();
+    char command = 'c';
+    bool sent = id >= 0 && ::write(commands[1], &command, 1) == 1;
+    for (int i = 0; i < 500 && sent && !hit; ++i) usleep(10000);
+    bool stopped = hit == rx;
+    if (attached) { if (id >= 0) session.removeSoftwareBreakpoint(id); session.continueExecution(); }
+    int result = -1;
+    bool completed = sent && ::read(replies[0], &result, sizeof(result)) == sizeof(result) && result == 7;
+    if (attached) session.detach();
+    printf("  a software breakpoint in the read-only shared code view stops and the call completes: %s\n",
+           stopped && completed ? "OK" : "FAILED");
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
+    close(commands[1]); close(replies[0]);
+}
+
 static void test_perf_map_symbols() {
     printf("\n── Test: JIT perf-map symbols ──\n");
     char path[] = "/tmp/ce-perfmap-XXXXXX";
@@ -11432,6 +11497,7 @@ int main(int argc, char* argv[]) {
     test_ce_table_import();
     test_pointer_path_expression();
     test_perf_map_symbols();
+    test_wx_double_mapped_code();
     test_ct_load_from_string();
     test_ct_format_detection();
     test_ct_forms_roundtrip();

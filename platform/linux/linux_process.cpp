@@ -1,5 +1,6 @@
 #include "platform/linux/linux_process.hpp"
 #include "platform/linux/memory_image.hpp"
+#include "platform/linux/target_debug.hpp"
 #include "platform/linux/syscall_service.hpp"
 #include "platform/linux/runtime_probe.hpp"
 
@@ -323,6 +324,10 @@ Result<size_t> LinuxProcessHandle::write(uintptr_t address, const void* buffer, 
     ssize_t n = memoryTransfer(pid_,[&](pid_t task){return process_vm_writev(task,&local,1,&remote,1,0);});
     if (n < 0) {
         const int transferError=errno;
+        // A W^X JIT's read-only shared code view: write through its backing file.
+        if (errno==EFAULT && size && buffer &&
+            writeSharedMappingBacking(pid_,address,{static_cast<const uint8_t*>(buffer),size}))
+            return size;
         if (errno==EFAULT && size && buffer && size-1<=UINTPTR_MAX-address) {
             const uintptr_t last=address+size-1;
             for (const auto& region:queryRegions()) {
@@ -368,7 +373,10 @@ Result<size_t> LinuxProcessHandle::writeCode(uintptr_t address,const void* buffe
     }
     auto identity=processMemoryIdentity(pid_);
     if (!identity) return std::unexpected(identity.error());
-    return memorySyscallService().writeCode(*identity,address,{static_cast<const uint8_t*>(buffer),size});
+    auto written=memorySyscallService().writeCode(*identity,address,{static_cast<const uint8_t*>(buffer),size});
+    // A W^X JIT's read-only shared code view: write through its backing file.
+    if (!written && writeSharedMappingBacking(pid_,address,{static_cast<const uint8_t*>(buffer),size})) return size;
+    return written;
 }
 
 MemProt LinuxProcessHandle::parsePerms(const std::string& perms) const {

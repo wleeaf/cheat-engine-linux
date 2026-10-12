@@ -16,6 +16,17 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Console emulators: first live evidence: 12 October 2026
+
+Item 5.3 of the [coverage plan](COVERAGE_PLAN.md), time-boxed.
+`test/emulator_target_gate.py` generates a minimal homebrew GBA ROM (a dozen
+ARM7 instructions, no game data) and runs the real mGBA (`mgba-sdl`) under
+Xvfb on the hosted runner. `cescan info` identifies the live mGBA process
+(console emulators C1 at `B`). The ROM's marker was not found in the
+emulator's memory, so the ROM most likely did not start executing (header or
+boot path); that part, guest-RAM writes and scans, remains open, and the CI
+step stays non-blocking. Coverage is now 234/268 (87.3%).
+
 ## Snap confinement, and a CoreCLR open item: 12 October 2026
 
 Hosted runners have `snapd`, and `snap run --shell <snap> -c <command>` runs a

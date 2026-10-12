@@ -271,3 +271,5 @@ first. Detailed write-ups continue in PROGRESS.md.
 - 2026-10-12, **1.7 Snap** done: a strictly confined snap passes 15 checks on
   hosted CI. CoreCLR C6/C9/C10 withdrawn as intermittent (open item).
   Coverage 232/268 (86.6%).
+- 2026-10-12, **5.3** time-boxed: live mGBA identified on CI (C1); generated
+  ROM did not start, guest-RAM checks open. Coverage 234/268 (87.3%).

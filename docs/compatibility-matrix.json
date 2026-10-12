@@ -1225,8 +1225,8 @@
    "name": "Console emulators",
    "cells": {
     "C1": {
-     "state": "-",
-     "evidence": "adapters tested only on forked processes posing as Dolphin/Yuzu/RPCS3"
+     "state": "B",
+     "evidence": "emulator_target_gate on hosted CI: cescan info identifies a live mGBA process (exploratory probe; the generated ROM's guest RAM was not found yet)"
     },
     "C2": {
      "state": "-",

@@ -430,12 +430,18 @@ assert(resolved, 'pointer scan over ceserver missed the static path')
 print('REMOTE_POINTERS'); io.flush()
 local hook = [[{hook}]]
 local ok, disable = autoAssemble(hook)
-assert(ok, tostring(disable))
-print('REMOTE_HOOKED'); io.flush()
-io.read('l')
-local undone, err = autoAssemble(hook, disable)
-assert(undone, tostring(err))
-print('REMOTE_UNHOOKED'); io.flush()
+if {'true' if fixture.arm64 else 'false'} then
+  -- Remote ARM code writes have no backend yet: refused explicitly.
+  assert(not ok and tostring(disable):find('not supported', 1, true), tostring(disable))
+  print('REMOTE_HOOK_REFUSED'); io.flush()
+else
+  assert(ok, tostring(disable))
+  print('REMOTE_HOOKED'); io.flush()
+  io.read('l')
+  local undone, err = autoAssemble(hook, disable)
+  assert(undone, tostring(err))
+  print('REMOTE_UNHOOKED'); io.flush()
+end
 local r, e = executeCode({fixture.writer})
 assert(r == nil and e, 'remote native call was not refused')
 print('REMOTE_CALL_REFUSED ' .. tostring(e)); io.flush()
@@ -457,9 +463,13 @@ print('REMOTE_CALL_REFUSED ' .. tostring(e)); io.flush()
                           "REMOTE_WRITTEN" in output, output)
                     check("first and next scans run over the ceserver transport", "REMOTE_SCANNED" in output, output)
                     check("a pointer scan over ceserver finds the static path", "REMOTE_POINTERS" in output, output)
-                    check("an Auto Assembler hook applied over ceserver changes the program", hooked == 1000, output)
-                    check("autoAssemble(script, disableInfo) undoes it over ceserver",
-                          "REMOTE_UNHOOKED" in output and fixture.command("b") == 1001, output)
+                    if fixture.arm64:
+                        check("remote ARM code patches are refused with an explicit reason",
+                              "REMOTE_HOOK_REFUSED" in output and fixture.command("b") == 4244, output)
+                    else:
+                        check("an Auto Assembler hook applied over ceserver changes the program", hooked == 1000, output)
+                        check("autoAssemble(script, disableInfo) undoes it over ceserver",
+                              "REMOTE_UNHOOKED" in output and fixture.command("b") == 1001, output)
                     check("native calls over ceserver are refused with a reason", "REMOTE_CALL_REFUSED" in output, output)
                     if args.gui and port:
                         run("write", pid, hex(fixture.value), 24681357, "--type", "i32")

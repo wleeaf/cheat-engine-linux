@@ -349,9 +349,11 @@ def main():
                           code == 0 and "LOADED" in output and str(library) in open(f"/proc/{pid}/maps").read(), output)
                 elif "ld-musl" not in maps and not libc:
                     code, output = lua("local h, e = injectLibrary('/nonexistent/ce-probe.so')\n"
-                                       "assert(h == nil and tostring(e):find('dlopen not found', 1, true), tostring(e))\n"
+                                       # musl static has no dlopen; glibc static has one but
+                                       # this idle program has no thread to host the call.
+                                       "assert(h == nil and tostring(e):find('dlopen', 1, true), tostring(e))\n"
                                        "print('NO_LOADER')\n")
-                    check("a static program without a dynamic loader refuses library injection explicitly",
+                    check("a static program refuses library injection with an explicit reason",
                           code == 0 and "NO_LOADER" in output, output)
             check("the program keeps running after every frontend detached", fixture.command("r") == expected)
             if args.gui:

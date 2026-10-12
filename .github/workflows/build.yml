@@ -206,6 +206,17 @@ jobs:
             --launcher "podman run --rm -i -v {dir}:{dir}:ro docker.io/library/alpine:3.22" \
             --gui --report build/compatibility-evidence/libc-podman.json
 
+      - name: Probe a strictly confined Snap program (exploratory)
+        # snap run --shell applies the snap's real AppArmor profile, seccomp
+        # filter and mount namespace; its user-data directory is visible inside.
+        continue-on-error: true
+        run: |
+          sudo snap install hello-world
+          data="$HOME/snap/hello-world/current"
+          mkdir -p "$data" && cp build/static_fixture_musl "$data/"
+          python3 test/frontend_target_gate.py build "$data/static_fixture_musl" \
+            --launcher "snap run --shell hello-world -c" --report build/compatibility-evidence/libc-snap.json
+
       - name: Run JIT runtime workflows (Node/V8, HotSpot, Mono, CoreCLR)
         # Stock runtimes cannot opt in with PR_SET_PTRACER, so Yama scope 1
         # needs root to attach to them from a separately started tool.

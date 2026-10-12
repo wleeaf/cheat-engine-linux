@@ -23,7 +23,8 @@ from fullsystem_vm import write_initramfs  # noqa: E402
 MACHINES = {"qemu-system-riscv64": ("virt", "ttyS0"),
             "qemu-system-s390x": ("s390-ccw-virtio", "ttysclp0"),
             "qemu-system-ppc64": ("pseries", "hvc0"),
-            "qemu-system-arm": ("virt", "ttyAMA0")}
+            "qemu-system-arm": ("virt", "ttyAMA0"),
+            "qemu-system-x86_64": ("pc", "ttyS0")}
 # Extra arguments: pseries otherwise wants a VGA BIOS the headless run lacks.
 EXTRA = {"qemu-system-ppc64": ["-vga", "none"]}
 
@@ -35,6 +36,7 @@ def main():
     parser.add_argument("fixture", type=pathlib.Path)
     parser.add_argument("--qemu", required=True)
     parser.add_argument("--expect-architecture", required=True)
+    parser.add_argument("--kernel-args", default="", help="extra kernel parameters (x32: syscall.x32=y)")
     parser.add_argument("--output", type=pathlib.Path, required=True)
     parser.add_argument("--report", type=pathlib.Path, required=True)
     args = parser.parse_args()
@@ -48,7 +50,8 @@ def main():
         machine, console = MACHINES[pathlib.Path(args.qemu).name]
         command = [args.qemu, "-machine", machine, "-smp", "1", "-m", "512M", "-nographic", "-nic", "none",
                    "-monitor", "none", "-no-reboot", "-kernel", str(args.kernel), "-initrd", str(ramfs),
-                   "-append", f"console={console} rdinit=/init panic=1", *EXTRA.get(pathlib.Path(args.qemu).name, [])]
+                   "-append", f"console={console} rdinit=/init panic=1 {args.kernel_args}".strip(),
+                   *EXTRA.get(pathlib.Path(args.qemu).name, [])]
         # Emulated full-system boots are slow on hosted runners; bound generously.
         result = subprocess.run(command, capture_output=True, timeout=900)
         output = (result.stdout + result.stderr).decode(errors="replace").replace("\r", "")

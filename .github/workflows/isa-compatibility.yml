@@ -23,6 +23,8 @@ jobs:
             packages: g++-powerpc64le-linux-gnu qemu-system-ppc
           - isa: armhf     # Thumb-2 userland
             packages: g++-arm-linux-gnueabihf qemu-system-arm
+          - isa: x32       # ILP32 program, LP64 engine
+            packages: build-essential gcc-multilib libc6-dev-x32 qemu-system-x86
     name: ${{ matrix.isa }}-guest
     steps:
       - uses: actions/checkout@v7

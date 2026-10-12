@@ -76,8 +76,12 @@ static int run() {
     std::printf("ISA_VM_TARGET architecture=%s abi=%s width=%u\n", cpuArchitectureName(description.program.architecture),
                 targetAbiName(description.program.abi), description.program.pointerWidth);
     const auto modules = process.modules();
+    // The program's ABI can differ from the engine's on the same ISA (x32).
+    unsigned char ident[5]{};
+    if (FILE* elf = std::fopen("/fixture", "rb")) { std::fread(ident, 1, sizeof(ident), elf); std::fclose(elf); }
+    const unsigned width = ident[4] == 1 ? 4 : 8;
     check(description.live && description.program.architecture == native.architecture &&
-          description.program.pointerWidth == sizeof(void*) &&
+          description.program.pointerWidth == width &&
           std::any_of(modules.begin(), modules.end(), [](const ModuleInfo& m) { return m.name == "fixture"; }),
           "the target description and module list identify the native program");
     SymbolResolver symbols;

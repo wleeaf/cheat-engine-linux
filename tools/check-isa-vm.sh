@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Architecture-generic process checks under a full Linux guest of another ISA.
-# usage: tools/check-isa-vm.sh [riscv64|s390x|ppc64el|armhf] [BUILD_DIR] [--build-only]
+# usage: tools/check-isa-vm.sh [riscv64|s390x|ppc64el|armhf|x32] [BUILD_DIR] [--build-only]
 # Needs the ISA's cross g++, cmake, ninja, curl, python3, dpkg-deb and (unless
 # --build-only) the matching qemu-system binary with its firmware.
 set -euo pipefail
@@ -12,7 +12,9 @@ build_only=0
 mkdir -p "$vm_build"
 jobs="${CECORE_CI_JOBS:-1}"
 
-# Pinned Ubuntu 24.04 generic kernels, each directly bootable by QEMU.
+# Pinned generic kernels, each directly bootable by QEMU.
+mirror=http://ports.ubuntu.com/ubuntu-ports/pool/main/l
+fixture_flags="" kernel_args=""
 case "$isa" in
     riscv64)
         triplet=riscv64-linux-gnu processor=riscv64 capstone_arch=RISCV qemu=qemu-system-riscv64
@@ -34,13 +36,19 @@ case "$isa" in
         expected=ARM32 package=linux/linux-image-6.8.0-146-generic_6.8.0-146.146_armhf.deb
         package_sha256=bb175b37cccaac0d7aa154ab148e18a1ef11c9364a93e50d793c92cb0404532c
         kernel=boot/vmlinuz-6.8.0-146-generic ;;
+    x32)     # LP64 engine, ILP32 program on an x32-enabled Debian kernel
+        triplet=x86_64-linux-gnu processor=x86_64 capstone_arch=X86 qemu=qemu-system-x86_64
+        expected=x86-64 mirror=https://deb.debian.org/debian/pool/main/l
+        package=linux-signed-amd64/linux-image-6.1.0-50-amd64_6.1.176-1_amd64.deb
+        package_sha256=7b5597492a0a65aee61985a492e6bcc3f2cde830072a0e3b3d8c7e1b90279bd3
+        kernel=boot/vmlinuz-6.1.0-50-amd64 fixture_flags=-mx32 kernel_args=syscall.x32=y ;;
     *) printf 'Unsupported ISA guest: %s\n' "$isa" >&2; exit 1 ;;
 esac
 kernel_package="$vm_build/$(basename "$package")"
 kernel_path="$vm_build/kernel/$kernel"
 if [ ! -f "$kernel_path" ]; then
     if [ ! -f "$kernel_package" ]; then
-        curl --fail --location --retry 3 --output "$kernel_package.tmp" "http://ports.ubuntu.com/ubuntu-ports/pool/main/l/$package"
+        curl --fail --location --retry 3 --output "$kernel_package.tmp" "$mirror/$package"
         mv "$kernel_package.tmp" "$kernel_package"
     fi
     printf '%s  %s\n' "$package_sha256" "$kernel_package" | sha256sum --check
@@ -67,11 +75,11 @@ cmake --build "$vm_build/capstone-build" -j"$jobs"
 cmake -S test/isa_vm -B "$vm_build/driver-build" -G Ninja \
     -DCMAKE_C_COMPILER="$triplet-gcc" -DCMAKE_CXX_COMPILER="$triplet-g++" \
     -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR="$processor" -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_RUNTIME_OUTPUT_DIRECTORY="$vm_build" \
+    -DCMAKE_RUNTIME_OUTPUT_DIRECTORY="$vm_build" -DCECORE_ISA_FIXTURE_FLAGS="$fixture_flags" \
     -DCECORE_VM_CAPSTONE_INCLUDE="$vm_build/capstone-source/include" \
     -DCECORE_VM_CAPSTONE_LIBRARY="$vm_build/capstone-build/libcapstone.a" >/dev/null
 cmake --build "$vm_build/driver-build" --target init fixture -j"$jobs"
 [ "$build_only" = 1 ] && exit 0
 python3 test/isa_vm_gate.py "$kernel_path" "$vm_build/init" "$vm_build/fixture" \
-    --qemu "$qemu" --expect-architecture "$expected" \
+    --qemu "$qemu" --expect-architecture "$expected" --kernel-args "$kernel_args" \
     --output "$vm_build/$isa-guest.log" --report "$vm_build/$isa-guest.json"

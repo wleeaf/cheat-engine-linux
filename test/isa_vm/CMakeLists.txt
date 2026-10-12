@@ -41,7 +41,8 @@ target_compile_options(init PRIVATE -O2)
 target_link_libraries(init PRIVATE isa_core)
 target_link_options(init PRIVATE -static)
 
+# CECORE_ISA_FIXTURE_FLAGS selects another program ABI on the same ISA (-mx32).
+separate_arguments(ISA_FIXTURE_FLAGS UNIX_COMMAND "${CECORE_ISA_FIXTURE_FLAGS}")
 add_executable(fixture ../static_fixture.c)
-target_compile_options(fixture PRIVATE -O1)
-target_link_libraries(fixture PRIVATE Threads::Threads)
-target_link_options(fixture PRIVATE -static)
+target_compile_options(fixture PRIVATE -O1 ${ISA_FIXTURE_FLAGS})
+target_link_options(fixture PRIVATE -static -pthread ${ISA_FIXTURE_FLAGS})

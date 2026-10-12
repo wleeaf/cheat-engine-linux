@@ -1,5 +1,6 @@
 #include "gui/codefinder.hpp"
 #include "gui/theme.hpp"
+#include <QDialogButtonBox>
 #include "debug/patch.hpp"
 #include <QVBoxLayout>
 #include <QHeaderView>
@@ -133,9 +134,9 @@ CodeFinderWindow::CodeFinderWindow(CodeFinder* finder, const QString& title,
         lastDump->setFont(monospaceFont(-1));
         dlgLayout->addWidget(lastDump);
 
-        auto* btn = new QPushButton("Close");
-        connect(btn, &QPushButton::clicked, dlg, &QDialog::accept);
-        dlgLayout->addWidget(btn);
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close);
+        connect(buttons, &QDialogButtonBox::rejected, dlg, &QDialog::accept);
+        dlgLayout->addWidget(buttons);
         dlg->exec();
         dlg->deleteLater();
     });

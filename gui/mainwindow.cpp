@@ -477,21 +477,31 @@ void MainWindow::setupMenus() {
     tools->addAction("Save Memory Region...", this, [this]() {
         if (!process_) { QMessageBox::warning(this, "Save Memory Region", "Open a process first."); return; }
         auto* dlg = new QDialog(this);
-        dlg->setWindowTitle("Save memoryregion");
+        dlg->setWindowTitle("Save Memory Region");
         auto* v = new QVBoxLayout(dlg);
-        v->addWidget(new QLabel("Add the region of memory you want to save"));
+        auto* intro = new QLabel("Save a range of the target's memory to a file (up to 64 MiB). "
+                                 "Addresses are hexadecimal; To is exclusive.");
+        intro->setWordWrap(true);
+        intro->setProperty("secondary", true);
+        v->addWidget(intro);
         auto* form = new QFormLayout;
-        auto* fromEdit = new QLineEdit("0");
-        auto* toEdit = new QLineEdit("0");
-        form->addRow("From", fromEdit);
-        form->addRow("To", toEdit);
+        auto* fromEdit = new QLineEdit;
+        auto* toEdit = new QLineEdit;
+        for (auto* edit : {fromEdit, toEdit}) {
+            edit->setFont(monospaceFont());
+            edit->setMinimumWidth(240);
+        }
+        fromEdit->setPlaceholderText("e.g. 7f3a00000000");
+        toEdit->setPlaceholderText("e.g. 7f3a00001000");
+        form->addRow("From:", fromEdit);
+        form->addRow("To:", toEdit);
         v->addLayout(form);
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
         v->addWidget(buttons);
         connect(buttons, &QDialogButtonBox::rejected, dlg, &QDialog::reject);
         connect(buttons, &QDialogButtonBox::accepted, this, [this, dlg, fromEdit, toEdit]() {
-            uintptr_t from = fromEdit->text().toULongLong(nullptr, 16);
-            uintptr_t to = toEdit->text().toULongLong(nullptr, 16);
+            uintptr_t from = fromEdit->text().trimmed().toULongLong(nullptr, 16);
+            uintptr_t to = toEdit->text().trimmed().toULongLong(nullptr, 16);
             if (to <= from) { QMessageBox::warning(dlg, "Save", "\"To\" must be greater than \"From\"."); return; }
             // Cap like the Save Disassembly path: an unbounded range would throw
             // std::bad_alloc out of a Qt slot (terminate) and OOM.
@@ -507,7 +517,8 @@ void MainWindow::setupMenus() {
             if (!r || *r == 0) { QMessageBox::warning(dlg, "Save", "Could not read that region."); return; }
             std::ofstream f(path.toStdString(), std::ios::binary);
             f.write(reinterpret_cast<const char*>(buf.data()), (std::streamsize)*r);
-            QMessageBox::information(dlg, "Saved", QString("Wrote %1 bytes to %2.").arg(*r).arg(path));
+            if (!f) { QMessageBox::warning(dlg, "Save", QString("Could not write %1.").arg(path)); return; }
+            QMessageBox::information(dlg, "Saved", QString("Wrote %1 to %2.").arg(formatByteSize(*r), path));
             dlg->accept();
         });
         dlg->setAttribute(Qt::WA_DeleteOnClose);
@@ -761,16 +772,16 @@ void MainWindow::setupMenus() {
             text += QString("\n(%1 more not shown; use Save to dump full list.)").arg(diffs.size() - shown);
 
         auto* dlg = new QDialog(this);
-        dlg->setWindowTitle("Snapshot diff");
+        dlg->setWindowTitle("Snapshot Diff");
         dlg->resize(640, 480);
         auto* l = new QVBoxLayout(dlg);
         auto* edit = new QPlainTextEdit(text);
         edit->setReadOnly(true);
         edit->setFont(monospaceFont(-1));
         l->addWidget(edit);
-        auto* btn = new QPushButton("Close");
-        connect(btn, &QPushButton::clicked, dlg, &QDialog::accept);
-        l->addWidget(btn);
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close);
+        connect(buttons, &QDialogButtonBox::rejected, dlg, &QDialog::accept);
+        l->addWidget(buttons);
         dlg->exec();
         dlg->deleteLater();
     });

@@ -238,7 +238,7 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
                      {"Wait for process...", "wait-process"}, {"Generate Trainer (executable)...", "trainer"},
                      {"Breakpoint list", "breakpoint-list"}, {"Lua Engine", "lua-engine"},
                      {"Create form", "create-form"}, {"Cheat Engine Help", "help"},
-                     {"Settings...", "settings-from-menu"}})
+                     {"Settings...", "settings-from-menu"}, {"Save Memory Region...", "save-region"}})
                 captureNew(openAction(action), prefix + "dialog-" + name);
             captureNew(openAction("Overlay..."), prefix + "dialog-overlay");
             // The Memory Viewer as the app opens it: its View/Debug menus are filled

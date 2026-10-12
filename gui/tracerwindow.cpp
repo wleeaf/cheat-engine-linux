@@ -2,6 +2,7 @@
 
 #include "gui/tracerwindow.hpp"
 #include "gui/theme.hpp"
+#include <QDialogButtonBox>
 #include "core/target_capabilities.hpp"
 
 #include <QVBoxLayout>
@@ -150,9 +151,9 @@ void TracerWindow::buildUi() {
         dump->setReadOnly(true);
         dump->setFont(monospaceFont(-1));
         dl->addWidget(dump);
-        auto* close = new QPushButton("Close");
-        connect(close, &QPushButton::clicked, dlg, &QDialog::accept);
-        dl->addWidget(close);
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close);
+        connect(buttons, &QDialogButtonBox::rejected, dlg, &QDialog::accept);
+        dl->addWidget(buttons);
         dlg->exec();
         dlg->deleteLater();
     });

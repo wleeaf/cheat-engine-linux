@@ -2,6 +2,7 @@
 #include "platform/linux/target_syscall.hpp"
 #include "platform/linux/runtime_probe.hpp"
 
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <algorithm>
@@ -113,6 +114,13 @@ std::vector<std::string> detectRuntimes(pid_t pid) {
             l.find("libv8") != std::string::npos)
             found.insert("V8 / Node");
     }
+    // Official Node, Deno and Electron builds link V8 into the executable
+    // itself, so no runtime library appears in the maps.
+    std::error_code error;
+    const auto executable = lower(std::filesystem::read_symlink("/proc/" + std::to_string(pid) + "/exe", error).filename().string());
+    if (!error && (executable == "node" || executable == "nodejs" || executable == "deno" ||
+                   executable.find("electron") != std::string::npos))
+        found.insert("V8 / Node");
     return {found.begin(), found.end()};
 }
 

@@ -48,7 +48,14 @@ jobs:
           cross=()
           if [ -n "${{ matrix.triplet }}" ]; then
             t=${{ matrix.triplet }}
-            cross=(-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.processor }}
+            # cecore links zlib (CEServer compression): a static, position-independent target build.
+            zlib="$PWD/build/zlib-$t"
+            curl -fsSL --retry 3 -o build/zlib.tar.gz https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz
+            echo "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23  build/zlib.tar.gz" | sha256sum -c -
+            tar -xzf build/zlib.tar.gz -C build
+            (cd build/zlib-1.3.1 && CC=$t-gcc CFLAGS="-O2 -fPIC" ./configure --static --prefix="$zlib" && make -j"$(nproc)" && make install)
+            cross=(-DCMAKE_CXX_FLAGS=-I$zlib/include -DCMAKE_SHARED_LINKER_FLAGS=-L$zlib/lib -DCMAKE_EXE_LINKER_FLAGS=-L$zlib/lib
+                   -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.processor }}
                    -DCMAKE_C_COMPILER=$t-gcc -DCMAKE_CXX_COMPILER=$t-g++ -DCMAKE_FIND_ROOT_PATH=/usr/$t
                    -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY
                    -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY

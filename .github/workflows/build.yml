@@ -36,6 +36,7 @@ jobs:
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
             build-essential \
             musl-tools \
+            mgba-sdl xvfb xauth \
             nodejs \
             golang-go \
             openjdk-21-jdk-headless \
@@ -215,6 +216,10 @@ jobs:
           mkdir -p "$data" && cp build/static_fixture_musl "$data/"
           python3 test/frontend_target_gate.py build "$data/static_fixture_musl" \
             --launcher "snap run --shell hello-world -c" --gui --report build/compatibility-evidence/libc-snap.json
+
+      - name: Probe a real console emulator (mGBA, generated homebrew ROM; exploratory)
+        continue-on-error: true
+        run: xvfb-run -a python3 test/emulator_target_gate.py build --report build/compatibility-evidence/emulator-mgba.json
 
       - name: Run JIT runtime workflows (Node/V8, HotSpot, Mono, CoreCLR)
         # Stock runtimes cannot opt in with PR_SET_PTRACER, so Yama scope 1

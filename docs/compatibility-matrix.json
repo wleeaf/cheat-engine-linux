@@ -967,8 +967,8 @@
      "evidence": "runtime_target_gate: generateCodeInjectionScript at the reported JIT writing instruction; the program computes through the cave; autoAssemble(script, disableInfo) restores the bytes"
     },
     "C7": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate: with a busy runtime thread, Lua executeCode runs sched_yield on a new thread and injectLibrary loads libm into the runtime process"
     },
     "C8": {
      "state": "B",
@@ -1108,8 +1108,8 @@
      "evidence": "runtime_target_gate: generateCodeInjectionScript at the reported JIT writing instruction; the program computes through the cave; autoAssemble(script, disableInfo) restores the bytes"
     },
     "C7": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate: with a busy runtime thread, Lua executeCode runs sched_yield on a new thread and injectLibrary loads libm into the runtime process"
     },
     "C8": {
      "state": "B",

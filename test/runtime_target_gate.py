@@ -191,6 +191,24 @@ print('RESTORED'); io.flush()
                       injected and during.upper().startswith("E9") and hooked_value == 779, output + during)
                 check("disabling the injection restores the JIT code and its behavior",
                       "RESTORED" in output and after == before and runtime.command("b") == expected, output)
+            if name in ("node", "jvm"):
+                # Native calls borrow a thread that is executing user code.
+                maps = open(f"/proc/{pid}/maps").read()
+                libc = re.search(r"(/\S*/libc\.so\.6)$", maps, re.M)
+                library = pathlib.Path(libc.group(1)).with_name("libm.so.6") if libc else None
+                spinning = runtime.command("s") == 1
+                calls = subprocess.run([cescan, "lua", "-e", f"""
+assert(openProcess({pid}))
+assert(executeCode(getAddress('sched_yield')))
+local handle, err = injectLibrary('{library}')
+assert(handle, tostring(err))
+print('NATIVE_CALLS_OK')
+"""], capture_output=True, text=True, timeout=120)
+                stopped = runtime.command("x") == 0
+                check("executeCode and injectLibrary run inside the managed runtime's process",
+                      spinning and stopped and library is not None and calls.returncode == 0 and
+                      "NATIVE_CALLS_OK" in calls.stdout and str(library) in open(f"/proc/{pid}/maps").read(),
+                      calls.stdout + calls.stderr)
             # Break on the writing instruction find-what-writes reported: the
             # code that actually runs, whichever compiled version that is.
             targets = [int(writer.group(1), 16)] if writer else writers

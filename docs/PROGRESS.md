@@ -25,8 +25,11 @@ Node/V8 and HotSpot, a non-static pointer scan whose path resolves to the
 off-heap value (the runtimes keep its address in a heap object), and a code
 injection at the JIT instruction that find-what-writes reported: the program
 keeps computing correctly through the code cave, and undoing the script
-restores the JIT code's bytes and behavior. Matrix: C4 and C6 at `B` for the
-V8 and JVM rows. Coverage is now 177/268 (66.0%).
+restores the JIT code's bytes and behavior. With a busy runtime thread
+(the fixtures' new `s`/`x` commands start a Java thread or a Node worker),
+Lua `executeCode` and `injectLibrary` also run inside both runtimes'
+processes. Matrix: C4, C6 and C7 at `B` for the V8 and JVM rows. Coverage is
+now 179/268 (66.8%).
 
 ## Go programs: 12 October 2026
 

@@ -34,8 +34,10 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     app.setApplicationName("Cheat Engine");
     app.setOrganizationName("cecore");
-    // Honor the Settings dialog's "Dark theme" toggle. Default to LIGHT so the app
-    // looks like Cheat Engine (which uses a light/native theme) out of the box.
+    // Wayland app id: the compositor finds the icon and name in cheatengine.desktop.
+    app.setDesktopFileName("cheatengine");
+    // Honor the Settings dialog's Theme choice; with none saved yet, follow the
+    // desktop's light or dark preference.
     // The same helper is used by the Settings dialog so a toggle applies live.
     ce::gui::applyStoredTheme();
 

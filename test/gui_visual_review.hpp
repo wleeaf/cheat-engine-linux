@@ -38,6 +38,8 @@
 #include <QJsonObject>
 #include <QFile>
 #include <QMenuBar>
+#include <QMenu>
+#include <QElapsedTimer>
 #include <QProgressBar>
 #include <QComboBox>
 #include <QTimer>
@@ -92,6 +94,35 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
         QElapsedTimer waited; waited.start();
         while (!done && waited.elapsed() < 2000) pump(1);
         take();
+        pump();
+    };
+    // Open a context menu, pick one of its items, and capture the dialog it opens.
+    auto captureMenuAction = [&](const std::function<void()>& openMenu, const QString& actionText, const QString& name) {
+        std::set<QWidget*> before;
+        for (auto* w : QApplication::topLevelWidgets()) if (w->isVisible()) before.insert(w);
+        bool done = false;
+        QTimer::singleShot(250, [&]() {
+            auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+            QAction* chosen = nullptr;
+            if (menu) for (auto* a : menu->actions()) if (a->text() == actionText) chosen = a;
+            if (menu) menu->close();
+            if (!chosen) { std::printf("visual review: no menu item %s\n", qPrintable(actionText)); done = true; return; }
+            QTimer::singleShot(actionText.startsWith("Find") ? 1500 : 300, [&]() {
+                QWidget* found = nullptr;
+                for (auto* w : QApplication::topLevelWidgets())
+                    if (w->isVisible() && !before.count(w) && !qobject_cast<QMenu*>(w)) found = w;
+                if (found) {
+                    pump();
+                    grabTo(found, name);
+                    if (auto* dialog = qobject_cast<QDialog*>(found)) dialog->reject(); else found->close();
+                } else std::printf("visual review: %s opened nothing\n", qPrintable(actionText));
+                done = true;
+            });
+            chosen->trigger();
+        });
+        openMenu();
+        QElapsedTimer waited; waited.start();
+        while (!done && waited.elapsed() < 3000) pump(1);
         pump();
     };
     auto captureMenus = [&](QMainWindow& window, const QString& stem) {
@@ -166,6 +197,25 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
             table->selectRow(0);
             captureNew([&] { emit table->customContextMenuRequested(table->visualRect(model->index(0, 1)).center()); },
                        prefix + "menu-address-entry");
+            auto entryMenu = [&] { emit table->customContextMenuRequested(table->visualRect(model->index(0, 1)).center()); };
+            for (const auto& [action, name] : std::vector<std::pair<QString, QString>>{
+                     {"Change address...", "entry-change-address"}, {"Set value...", "entry-set-value"},
+                     {"Configure Hotkey...", "entry-hotkey"}, {"Configure Value Hotkeys...", "entry-value-hotkeys"},
+                     {"Set value codec...", "entry-codec"}, {"Set/Change dropdown selection options...", "entry-dropdown"},
+                     {"Add to new group...", "entry-group"}, {"Change Color...", "entry-color"},
+                     {"Find what writes to this address", "entry-find-writes"},
+                     {"Pointer scan for this address", "entry-pointer-scan"}})
+                captureMenuAction(entryMenu, action, prefix + "dialog-" + name);
+            // A real First Scan, so the results list and its menu show live data.
+            main.findChild<QComboBox*>("scanValueType")->setCurrentText("4 Bytes");
+            main.findChild<QComboBox*>("scanComparison")->setCurrentText("Exact Value");
+            main.findChild<QLineEdit*>("scanValue")->setText("0");
+            for (auto* button : main.findChildren<QPushButton*>())
+                if (button->text() == "First Scan") button->click();
+            pump(40);
+            capture(main, prefix + "main-after-scan", {1000, 780});
+            main.show();
+            pump();
             for (auto* view : main.findChildren<QTableView*>())
                 if (qobject_cast<ScanResultsModel*>(view->model())) {
                     view->selectRow(1);

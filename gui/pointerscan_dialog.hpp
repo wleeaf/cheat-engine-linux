@@ -14,6 +14,10 @@ class PointerScanDialog : public QDialog {
     Q_OBJECT
 public:
     explicit PointerScanDialog(ce::ProcessHandle* proc, QWidget* parent = nullptr);
+    /// Pre-fill the address to find pointer paths to (e.g. a cheat table entry's).
+    void setTargetAddress(uintptr_t address) {
+        targetEdit_->setText(QString("0x%1").arg(static_cast<qulonglong>(address), 0, 16));
+    }
 
 signals:
     void addressSelected(uintptr_t addr, const QString& description);

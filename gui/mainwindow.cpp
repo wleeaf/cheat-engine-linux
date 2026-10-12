@@ -966,6 +966,7 @@ void MainWindow::openHelpDoc(const QString& relPath, const QString& title, const
     auto* view = new QTextBrowser;
     view->setOpenExternalLinks(true);
     view->setMarkdown(QString::fromUtf8(f.readAll()));   // render the Markdown
+    view->document()->setDocumentMargin(12);
     v->addWidget(view);
     auto* row = new QHBoxLayout;
     auto* online = new QPushButton("Open on GitHub");
@@ -1272,14 +1273,16 @@ void MainWindow::setupUi() {
         QMenu menu(this);
         // CE foundlistpopup order.
         auto* addAct = menu.addAction(sel.size() > 1
-            ? QString("Add %1 selected addresses to the addresslist").arg(sel.size())
-            : QString("Add selected addresses to the addresslist"));
+            ? QString("Add %1 selected addresses to the address list").arg(sel.size())
+            : QString("Add selected address to the address list"));
         auto* browseAct = menu.addAction("Browse this memory region");
         auto* disasmAct = menu.addAction("Disassemble this memory region");
-        auto* copyAct = menu.addAction("Copy selected addresses");
+        auto* copyAct = menu.addAction(sel.size() > 1 ? QString("Copy %1 addresses").arg(sel.size())
+                                                      : QString("Copy address"));
+        copyAct->setShortcut(QKeySequence::Copy);
         auto* removeAct = menu.addAction(sel.size() > 1
-            ? QString("Remove %1 selected addresses from the list").arg(sel.size())
-            : QString("Remove selected address from the list"));
+            ? QString("Remove %1 selected addresses from the results").arg(sel.size())
+            : QString("Remove selected address from the results"));
         menu.addSeparator();
         auto* accAct = menu.addAction("Find out what accesses this address");
         auto* wrAct  = menu.addAction("Find out what writes to this address");
@@ -2024,9 +2027,9 @@ void MainWindow::setupUi() {
                     addressListModel_->entryCodecSpec(selected.first().row()));
                 bool ok = false;
                 QString spec = QInputDialog::getText(this, "Value codec",
-                    "Obfuscation codec for the stored value:\n"
-                    "  none | xor:0xKEY | add:N | rol:N | ror:N\n"
-                    "(stored as encode(logical); display decodes, edit/freeze encode)",
+                    "How the game obfuscates this value in memory:\n"
+                    "none, xor:0xKEY, add:N, rol:N or ror:N (e.g. xor:0x5A).\n\n"
+                    "The list shows the decoded value; edits and freezes are encoded back.",
                     QLineEdit::Normal, cur, &ok);
                 if (!ok) return;
                 spec = spec.trimmed();
@@ -2150,15 +2153,21 @@ void MainWindow::setupUi() {
                 && !ents0[firstRow].isGroup && ents0[firstRow].autoAsmScript.isEmpty()) {
                 menu.addAction("Pointer scan for this address", [this, selected]() {
                     if (!process_ || selected.isEmpty()) return;
+                    const int row = selected.first().row();
+                    const auto& entries = addressListModel_->entries();
+                    if (row < 0 || row >= (int)entries.size()) return;
+                    const auto type = entries[row].type;
                     auto* dlg = new PointerScanDialog(process_.get(), this);
                     trackTargetWindow(dlg);
                     dlg->setAttribute(Qt::WA_DeleteOnClose);
+                    dlg->setTargetAddress(entries[row].address);
                     connect(dlg, &PointerScanDialog::addressSelected, this,
-                            [this](uintptr_t addr, const QString& expr) {
+                            [this, type](uintptr_t addr, const QString& expr) {
                                 // The path string is a resolvable pointer expression; store it
                                 // AS the address so the record re-resolves each refresh and
                                 // survives the module rebasing on restart (the point of a scan).
-                                addressListModel_->addEntry(addr, ce::ValueType::Int32, expr, expr);
+                                // The record keeps the scanned entry's value type.
+                                addressListModel_->addEntry(addr, type, expr, expr);
                             });
                     dlg->show();
                 });
@@ -2201,6 +2210,7 @@ void MainWindow::setupUi() {
                     dialog.setWindowTitle("Configure Hotkey");
                     auto* layout = new QVBoxLayout(&dialog);
                     auto* label = new QLabel(entries[row].description, &dialog);
+                    label->setObjectName("pageTitle");
                     auto* editor = new QKeySequenceEdit(QKeySequence(entries[row].hotkeyKeys), &dialog);
                     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
                     auto* clearButton = buttons->addButton("Clear", QDialogButtonBox::ResetRole);
@@ -2226,6 +2236,7 @@ void MainWindow::setupUi() {
                     dialog.setWindowTitle("Configure Value Hotkeys");
                     auto* layout = new QGridLayout(&dialog);
                     auto* label = new QLabel(entries[row].description, &dialog);
+                    label->setObjectName("pageTitle");
                     auto* increaseEditor = new QKeySequenceEdit(QKeySequence(entries[row].increaseHotkeyKeys), &dialog);
                     auto* decreaseEditor = new QKeySequenceEdit(QKeySequence(entries[row].decreaseHotkeyKeys), &dialog);
                     // A record without value hotkeys yet starts from the Settings > Hotkeys step.
@@ -2236,6 +2247,8 @@ void MainWindow::setupUi() {
                     auto* setEditor = new QKeySequenceEdit(QKeySequence(entries[row].setValueHotkeyKeys), &dialog);
                     auto* setValueEdit = new QLineEdit(entries[row].setValueHotkeyValue, &dialog);
                     setValueEdit->setPlaceholderText("value to set");
+                    for (QWidget* field : std::initializer_list<QWidget*>{increaseEditor, decreaseEditor, stepEdit, setEditor, setValueEdit})
+                        field->setMinimumWidth(220);
                     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
 
                     layout->addWidget(label, 0, 0, 1, 2);

@@ -310,6 +310,9 @@ void applyTheme(bool dark) {
     palette.setColor(QPalette::ToolTipBase, dark ? QColor("#313244") : QColor("#ffffff"));
     palette.setColor(QPalette::ToolTipText, text);
     palette.setColor(QPalette::PlaceholderText, dark ? QColor("#a6adc8") : QColor("#6b7280"));
+    // Links in rich text (help viewer, About) in the theme's accent, not Qt's #0000ff.
+    palette.setColor(QPalette::Link, dark ? QColor("#89b4fa") : QColor("#2f6fed"));
+    palette.setColor(QPalette::LinkVisited, dark ? QColor("#cba6f7") : QColor("#7c3aed"));
     for (auto role : {QPalette::WindowText, QPalette::Text, QPalette::ButtonText})
         palette.setColor(QPalette::Disabled, role, dark ? QColor("#9399b2") : QColor("#737985"));
     app->setStyleSheet(qss);

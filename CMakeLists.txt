@@ -444,6 +444,7 @@ if(Qt6_FOUND)
         qt_add_executable(gui_guest_scan_smoke
             test/gui_guest_scan_smoke.cpp
             gui/guest_scan_dialog.cpp
+            gui/theme.cpp   # shared table style and empty-state hints
         )
         target_include_directories(gui_guest_scan_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
         target_link_libraries(gui_guest_scan_smoke PRIVATE cecore Qt6::Widgets)
@@ -495,6 +496,7 @@ if(Qt6_FOUND)
         qt_add_executable(gui_codefinder_smoke
             test/gui_codefinder_smoke.cpp
             gui/codefinder.cpp
+            gui/theme.cpp   # shared table style and empty-state hints
         )
         target_include_directories(gui_codefinder_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
         target_link_libraries(gui_codefinder_smoke PRIVATE cecore Qt6::Widgets)
@@ -513,6 +515,7 @@ if(Qt6_FOUND)
         qt_add_executable(gui_changeaddr_smoke
             test/gui_changeaddr_smoke.cpp
             gui/changeaddressdialog.cpp
+            gui/theme.cpp   # shared table style and empty-state hints
         )
         target_include_directories(gui_changeaddr_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
         target_link_libraries(gui_changeaddr_smoke PRIVATE cecore Qt6::Widgets)

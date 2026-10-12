@@ -138,8 +138,12 @@ def main():
 assert(openProcess({pid}))
 local found = 0
 for _, path in ipairs(pointerScan({value}, 1, 256, {{staticOnly=false}}) or {{}}) do
+  -- Heap paths can move with the GC between the scan and this check.
   local address = path.moduleBase + path.baseOffset
-  for _, offset in ipairs(path.offsets) do address = readPointer(address) + offset end
+  for _, offset in ipairs(path.offsets) do
+    local next = address and readPointer(address)
+    address = next and next + offset
+  end
   if address == {value} then found = found + 1 end
 end
 assert(found > 0, 'no resolving pointer path')

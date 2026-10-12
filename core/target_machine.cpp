@@ -219,4 +219,35 @@ std::expected<TargetMachine, std::string> parsePeTarget(std::span<const uint8_t>
     return m;
 }
 
+std::optional<std::pair<uint32_t, uint32_t>> peLoadConfigDirectory(std::span<const uint8_t> h) {
+    if (h.size() < 0x40) return std::nullopt;
+    size_t pe = *decodeTargetUnsigned(h.subspan(0x3c, 4), ByteOrder::Little);
+    if (pe < 0x40 || pe > h.size() || h.size() - pe < 24 + 200) return std::nullopt;
+    auto optionalSize = *decodeTargetUnsigned(h.subspan(pe + 20, 2), ByteOrder::Little);
+    if (*decodeTargetUnsigned(h.subspan(pe + 24, 2), ByteOrder::Little) != 0x20b || optionalSize < 200)
+        return std::nullopt;
+    // PE32+ data directories start at optional-header offset 112; load config is entry 10.
+    auto entry = h.subspan(pe + 24 + 112 + 10 * 8, 8);
+    auto rva = static_cast<uint32_t>(*decodeTargetUnsigned(entry.first(4), ByteOrder::Little));
+    auto size = static_cast<uint32_t>(*decodeTargetUnsigned(entry.subspan(4, 4), ByteOrder::Little));
+    if (!rva || !size) return std::nullopt;
+    return std::pair{rva, size};
+}
+
+TargetMachine withPeHybridMetadata(TargetMachine machine, std::span<const uint8_t> loadConfig) {
+    // IMAGE_LOAD_CONFIG_DIRECTORY64: Size at 0, CHPEMetadataPointer at 200.
+    constexpr size_t chpe = 200;
+    if (machine.pointerWidth != 8 || loadConfig.size() < chpe + 8) return machine;
+    auto declared = *decodeTargetUnsigned(loadConfig.first(4), ByteOrder::Little);
+    if (declared < chpe + 8 || !*decodeTargetUnsigned(loadConfig.subspan(chpe, 8), ByteOrder::Little)) return machine;
+    if (machine.architecture == CpuArchitecture::X86_64) {
+        machine.architecture = CpuArchitecture::Arm64EC; machine.abi = TargetAbi::WindowsArm64EC;
+        machine.instructionMode = InstructionMode::Unknown;
+    } else if (machine.architecture == CpuArchitecture::Arm64) {
+        machine.architecture = CpuArchitecture::Arm64X; machine.abi = TargetAbi::WindowsArm64X;
+        machine.instructionMode = InstructionMode::Unknown;
+    }
+    return machine;
+}
+
 } // namespace ce

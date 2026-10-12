@@ -722,6 +722,12 @@ void LinuxProcessHandle::enumeratePeModules(std::vector<ModuleInfo>& mods,
         std::vector<uint8_t> header(lfanew + 24 + optionalSize);
         if (!rd(region.base, header.data(), header.size())) continue;
         auto target = parsePeTarget(header);
+        if (auto loadConfig = target ? peLoadConfigDirectory(header) : std::nullopt;
+            loadConfig && loadConfig->first < 0x40000000u) {
+            std::vector<uint8_t> config(std::min<uint32_t>(loadConfig->second, 0x200));
+            if (rd(region.base + loadConfig->first, config.data(), config.size()))
+                target = withPeHybridMetadata(*target, config);
+        }
         if (!target) continue;
         uint64_t sizeOfImage = *decodeTargetUnsigned(std::span(header).subspan(lfanew + 24 + 56, 4), ByteOrder::Little);
         if (sizeOfImage < 0x1000 || sizeOfImage > 0x40000000u || sizeOfImage > UINTPTR_MAX - region.base)

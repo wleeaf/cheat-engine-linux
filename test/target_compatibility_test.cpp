@@ -166,6 +166,37 @@ static void machineTests() {
     check(readyToRun && readyToRun->architecture == CpuArchitecture::X86_64 &&
           readyToRun->abi == TargetAbi::LinuxX86_64 && disassemblerArchFor(*readyToRun) == Arch::X86_64,
           ".NET ReadyToRun images for Linux decode their OS-specific PE machine");
+    auto ec = pe(0x8664, true);
+    ec[0x98 + 112 + 80] = 0x00; ec[0x98 + 112 + 81] = 0x10;   // load config at RVA 0x1000
+    ec[0x98 + 112 + 84] = 0x40; ec[0x98 + 112 + 85] = 0x01;   // size 0x140
+    auto directory = peLoadConfigDirectory(ec);
+    std::vector<uint8_t> config(0x140);
+    config[0] = 0x40; config[1] = 0x01;
+    auto plainX64 = withPeHybridMetadata(*parsePeTarget(ec), config);
+    config[200] = 0x10; config[203] = 0x40;                       // CHPEMetadataPointer
+    auto arm64ec = withPeHybridMetadata(*parsePeTarget(ec), config);
+    auto arm64x = withPeHybridMetadata(*parsePeTarget(pe(0xaa64, true)), config);
+    check(directory && directory->first == 0x1000 && directory->second == 0x140 &&
+          plainX64.architecture == CpuArchitecture::X86_64 &&
+          arm64ec.architecture == CpuArchitecture::Arm64EC && arm64ec.abi == TargetAbi::WindowsArm64EC &&
+          arm64x.architecture == CpuArchitecture::Arm64X && !peLoadConfigDirectory(pe(0x14c, false)),
+          "CHPE metadata in the load config marks x64-declared ARM64EC and ARM64X images");
+    TargetDescription ecTarget;
+    ecTarget.transport = TargetTransport::Local; ecTarget.live = true; ecTarget.runtime = TargetRuntime::Wine;
+    ecTarget.host = *parseElfTarget(elf(EM_AARCH64, true)); ecTarget.program = arm64ec;
+    bool memory = true, refused = true;
+    for (const auto& capability : targetCapabilities(ecTarget)) {
+        bool ok = capability.state == CapabilityState::Available || capability.state == CapabilityState::Partial;
+        switch (capability.feature) {
+            case TargetFeature::ReadMemory: case TargetFeature::WriteMemory:
+            case TargetFeature::NumericScan: case TargetFeature::PointerScan: memory = memory && ok; break;
+            case TargetFeature::Disassemble: case TargetFeature::CodeInjection: case TargetFeature::LibraryInjection:
+            case TargetFeature::RemoteThread: case TargetFeature::Debugger: case TargetFeature::HardwareWatchpoint:
+                refused = refused && !ok && !capability.reason.empty(); break;
+            default: break;
+        }
+    }
+    check(memory && refused, "an ARM64EC program keeps memory, scan and pointer features and refuses code features explicitly");
     check(hybrid && hybrid->architecture == CpuArchitecture::Arm64X && !disassemblerArchFor(*hybrid),
           "hybrid ARM64X modules require an explicit code-mode adapter");
     auto truncatedPe = pe(0x8664, true);

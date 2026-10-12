@@ -40,6 +40,29 @@ jobs:
           gcc -O1 -pthread -o build/dynamic_fixture_glibc test/static_fixture.c
           python3 test/frontend_target_gate.py build build/dynamic_fixture_glibc --ceserver \
             --report build/compatibility-evidence/arm64-frontends-targets.json
+      - name: Probe a live ARM64EC program under Wine (Hangover; exploratory)
+        continue-on-error: true
+        timeout-minutes: 25
+        run: |
+          set -e
+          mkdir -p build/arm64ec/debs
+          cd build/arm64ec
+          curl -fsSL --retry 3 -o hangover.tar \
+            https://github.com/AndreRH/hangover/releases/download/hangover-11.16/hangover_11.16_ubuntu2404_noble_arm64.tar
+          echo "94611dad2b23978d35825a018c81b3947caaec174aa04c052849d37bc6a39e72  hangover.tar" | sha256sum -c -
+          tar -xf hangover.tar -C debs && rm hangover.tar
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
+            $(find "$PWD/debs" -name '*.deb')
+          curl -fsSL --retry 3 -o llvm-mingw.tar.xz \
+            https://github.com/mstorsjo/llvm-mingw/releases/download/20260908/llvm-mingw-20260908-ucrt-ubuntu-22.04-aarch64.tar.xz
+          echo "c907dd2302a292b663add18752a55ce9d544ca0fd19cf33c086ca242d5994ea6  llvm-mingw.tar.xz" | sha256sum -c -
+          tar -xf llvm-mingw.tar.xz && rm llvm-mingw.tar.xz
+          llvm-mingw-20260908-ucrt-ubuntu-22.04-aarch64/bin/arm64ec-w64-mingw32-clang -O1 \
+            -o arm64ec_fixture.exe ../../test/arm64ec_fixture.c
+          cd ../..
+          # Yama scope 1: like the other Wine gates, run the program and the tool as root.
+          sudo python3 test/arm64ec_target_gate.py build build/arm64ec/arm64ec_fixture.exe \
+            --report build/compatibility-evidence/arm64ec.json
       - name: Save frontend logs, screenshots and operation evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -47,6 +70,7 @@ jobs:
           name: arm64-frontend-evidence
           path: |
             build/compatibility-evidence/arm64-frontends*
+            build/compatibility-evidence/arm64ec.json
             build/compatibility-evidence/code-write.*
             build/compatibility-evidence/memory-image.*
             build/compatibility-evidence/native-call-image.*

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <optional>
 #include <span>
 #include <string>
 
@@ -55,6 +56,11 @@ const char* targetAbiName(TargetAbi abi);
 TargetMachine nativeTargetMachine();
 std::expected<TargetMachine, std::string> parseElfTarget(std::span<const uint8_t> header);
 std::expected<TargetMachine, std::string> parsePeTarget(std::span<const uint8_t> header);
+// RVA and size of a PE32+ image's load-config directory, when it has one.
+std::optional<std::pair<uint32_t, uint32_t>> peLoadConfigDirectory(std::span<const uint8_t> header);
+// Hybrid images declare a plain machine in the PE header; CHPE metadata in the
+// load config marks them: an x64-declared image is ARM64EC, an ARM64 one ARM64X.
+TargetMachine withPeHybridMetadata(TargetMachine machine, std::span<const uint8_t> loadConfig);
 std::expected<uint64_t, std::string> decodeTargetUnsigned(std::span<const uint8_t> bytes, ByteOrder order);
 
 } // namespace ce

@@ -30,6 +30,11 @@ std::expected<Arch, std::string> disassemblerArchFor(const TargetMachine& m) {
             if (m.instructionMode == InstructionMode::Arm) return big ? Arch::ARM32_BE : Arch::ARM32;
             return std::unexpected("ARM instruction mode is unknown");
         }
+        case CpuArchitecture::Arm64EC:
+        case CpuArchitecture::Arm64X:
+            return std::unexpected(std::string(cpuArchitectureName(m.architecture)) + " code mixes ARM64 and x64 "
+                "instructions; choosing the decoder per address needs the image's CHPE code-range map, which is not "
+                "implemented");
         default: return std::unexpected("No instruction backend for " + std::string(cpuArchitectureName(m.architecture)));
     }
 }

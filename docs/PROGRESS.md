@@ -39,7 +39,7 @@ mappings, so breakpoints and hooks at JIT addresses never land. The CoreCLR
 checks run with `DOTNET_EnableWriteXorExecute=0`; writing through the
 writable alias is an open item. With that, Mono and CoreCLR pass every
 runtime check on hosted CI, including native calls and the Qt windows.
-Coverage is now 217/268 (81.0%).
+Coverage is now 216/268 (80.6%).
 
 ## s390x and PowerPC64 guests: 12 October 2026
 

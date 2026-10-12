@@ -16,6 +16,27 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## cecore inside a real RISC-V64 guest: 12 October 2026
+
+Item 3.2 of the [coverage plan](COVERAGE_PLAN.md), at the `B` level. The new
+`test/isa_vm/` project cross-builds a static driver from cecore's
+architecture-generic parts (process handle, memory-syscall service, memory and
+pointer scanners, ELF symbol loader, Capstone disassembler) plus the static
+libc fixture. Every source compiled for RISC-V64 unchanged. `tools/check-isa-vm.sh`
+pins an Ubuntu 24.04 RISC-V kernel package (its `vmlinuz` is a raw boot Image)
+and the same Capstone commit as the ARM64 guest, built with RISC-V only;
+`test/isa_vm_gate.py` boots the driver as `/init` in `qemu-system-riscv64`
+(virt, OpenSBI) and requires its checks.
+
+In the guest, all **9 checks** pass: the fixture runs, the target description
+reports RISC-V64 / Linux RISC-V with the right module list, the ELF symbol
+table names the writer and value, a process write reaches the program, first
+and next scans find the value, a pointer scan finds and dereferences the
+static path, and the writer's instructions decode as RISC-V. A new
+`isa-compatibility` hosted workflow runs this on every build and gates
+releases. Debugging, injection and native calls on RISC-V still need
+architecture-specific backends. Coverage is now 186/268 (69.4%).
+
 ## Native ARM64 programs, RISC-V decoding and ARM over CEServer: 12 October 2026
 
 The frontend gate is now architecture-aware (ELF machine, ARM64 hook scripts

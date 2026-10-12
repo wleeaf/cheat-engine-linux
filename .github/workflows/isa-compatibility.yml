@@ -1,0 +1,31 @@
+name: ISA compatibility
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  riscv64-guest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the RISC-V cross compiler and full-system emulator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++-riscv64-linux-gnu cmake ninja-build curl python3 qemu-system-misc opensbi
+      - name: Require process, scan, pointer, symbol and disassembly checks in a real RISC-V64 guest
+        run: CECORE_CI_JOBS="$(nproc)" tools/check-isa-vm.sh build/isa-vm
+      - name: Save guest log and operation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: riscv64-guest-evidence
+          path: |
+            build/isa-vm/riscv64-guest.json
+            build/isa-vm/riscv64-guest.log
+          if-no-files-found: error

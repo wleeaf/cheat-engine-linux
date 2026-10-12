@@ -13,6 +13,9 @@ jobs:
   wine-compatibility:
     uses: ./.github/workflows/wine-compatibility.yml
 
+  isa-compatibility:
+    uses: ./.github/workflows/isa-compatibility.yml
+
   x32-compatibility:
     uses: ./.github/workflows/x32-compatibility.yml
 

@@ -253,3 +253,6 @@ first. Detailed write-ups continue in PROGRESS.md.
   not yet verified live). Coverage 163/268 (60.8%).
 - 2026-10-12, **4.2** done: a Go program passes every frontend check
   (pclntab-only stripped binaries still pending). Coverage 173/268 (64.6%).
+- 2026-10-12, **3.2** (B level): cecore runs inside a real RISC-V64 guest:
+  identification, symbols, writes, scans, pointer scan and disassembly pass;
+  new `isa-compatibility` workflow. Coverage 186/268 (69.4%).

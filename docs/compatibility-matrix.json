@@ -332,24 +332,24 @@
    "name": "RISC-V64",
    "cells": {
     "C1": {
-     "state": "-",
-     "evidence": "ELF parse unit only (target_compatibility_test)"
+     "state": "B",
+     "evidence": "isa_vm_gate: static cecore driver as /init in a real RISC-V64 Linux 6.8 guest (QEMU virt; local container and CI): target description RISC-V64 / Linux RISC-V, module list, ELF symbols"
     },
     "C2": {
-     "state": "-",
-     "evidence": "no live target"
+     "state": "B",
+     "evidence": "isa_vm_gate: static cecore driver as /init in a real RISC-V64 Linux 6.8 guest (QEMU virt; local container and CI): process write observed by the static libc program"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no live target"
+     "state": "B",
+     "evidence": "isa_vm_gate: static cecore driver as /init in a real RISC-V64 Linux 6.8 guest (QEMU virt; local container and CI): whole-process first and next scans"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live target"
+     "state": "B",
+     "evidence": "isa_vm_gate: static cecore driver as /init in a real RISC-V64 Linux 6.8 guest (QEMU virt; local container and CI): static pointer path found and dereferenced"
     },
     "C5": {
-     "state": "-",
-     "evidence": "no backend"
+     "state": "B",
+     "evidence": "isa_vm_gate: static cecore driver as /init in a real RISC-V64 Linux 6.8 guest (QEMU virt; local container and CI): Capstone RISC-V decodes the writer (decode only; Keystone has no RISC-V assembler, reported explicitly)"
     },
     "C6": {
      "state": "-",

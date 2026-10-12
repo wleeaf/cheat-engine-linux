@@ -20,8 +20,11 @@ jobs:
   x32-compatibility:
     uses: ./.github/workflows/x32-compatibility.yml
 
+  isa-compatibility:
+    uses: ./.github/workflows/isa-compatibility.yml
+
   appimage:
-    needs: [wine-compatibility, arm64-compatibility, x32-compatibility, arm32-compatibility]
+    needs: [wine-compatibility, arm64-compatibility, x32-compatibility, arm32-compatibility, isa-compatibility]
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout

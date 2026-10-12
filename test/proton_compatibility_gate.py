@@ -84,14 +84,16 @@ def run_proton(build, proton, work, fixtures, report, client, in_runtime, runtim
             # through). Forward the driver's command pipe through a FIFO on the
             # shared home path and reopen it inside the container.
             prefix = "".join(f'"{part}" ' for part in wrapper)
-            # A background job in a non-interactive shell reads /dev/null unless
-            # stdin is redirected explicitly, hence `<&0`. The FIFO path is part
-            # of the inner command string, independent of argument forwarding.
+            # POSIX gives a background job /dev/null as stdin before explicit
+            # redirections, so even `cat <&0 &` reads nothing in dash/ash; keep
+            # the pipe on fd 3 first. The FIFO path is part of the inner command
+            # string, independent of argument forwarding.
             launcher.write_text(
                 "#!/bin/sh\n"
                 f'fifo=$(mktemp -u "{directory}/stdin.XXXXXX") && mkfifo "$fifo" || exit 125\n'
-                'cat <&0 > "$fifo" &\n'
-                f'exec {prefix}sh -c "exec \\"\\$@\\" < \'$fifo\'" sh "{proton / "proton"}" runinprefix "$@"\n')
+                'exec 3<&0\n'
+                'cat <&3 > "$fifo" &\n'
+                f'exec {prefix}sh -c "exec \\"\\$@\\" < \'$fifo\'" sh "{proton / "proton"}" runinprefix "$@" 3<&-\n')
         else:
             launcher.write_text(f'#!/bin/sh\nexec "{proton / "proton"}" runinprefix "$@"\n')
         launcher.chmod(0o755)

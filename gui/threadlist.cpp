@@ -1,5 +1,6 @@
 #include "gui/threadlist.hpp"
 #include "gui/theme.hpp"
+#include "core/local_target.hpp"
 #include <QVBoxLayout>
 #include <QHeaderView>
 #include <QFont>
@@ -38,11 +39,7 @@ void ThreadListWindow::populate() {
         auto& t = threads[i];
         table_->setItem(i, 0, new QTableWidgetItem(QString::number(t.tid)));
 
-        // Read thread name from /proc/pid/task/tid/comm
-        std::string name;
-        std::ifstream comm("/proc/" + std::to_string(proc_->pid()) + "/task/" + std::to_string(t.tid) + "/comm");
-        if (comm) std::getline(comm, name);
-        table_->setItem(i, 1, new QTableWidgetItem(QString::fromStdString(name)));
+        table_->setItem(i, 1, new QTableWidgetItem(threadName(ce::localTargetPid(proc_).value_or(0), t.tid)));
 
         // Read state from /proc/pid/task/tid/status
         std::string state = "?";

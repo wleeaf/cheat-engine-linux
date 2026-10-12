@@ -8,6 +8,7 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QTextDocument>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -465,11 +466,21 @@ QLineEdit* makeTableFilter(QTableWidget* table, const QString& placeholder) {
     return filter;
 }
 
-QString threadLabel(int pid, int tid) {
-    if (pid <= 0) return QString::number(tid);
+QString threadName(int pid, int tid) {
+    if (pid <= 0) return {};
     QFile comm(QString("/proc/%1/task/%2/comm").arg(pid).arg(tid));
     QString name;
     if (comm.open(QIODevice::ReadOnly)) name = QString::fromUtf8(comm.readAll()).trimmed();
+    if (tid == pid && name.size() == 15) {
+        const QString exe = QFileInfo(QFile::symLinkTarget(QString("/proc/%1/exe").arg(pid))).fileName();
+        if (exe.size() > name.size() && exe.startsWith(name)) name = exe;
+    }
+    return name;
+}
+
+QString threadLabel(int pid, int tid) {
+    if (pid <= 0) return QString::number(tid);
+    const QString name = threadName(pid, tid);
     if (tid == pid) return name.isEmpty() ? QString("%1  (main)").arg(tid) : QString("%1  %2 (main)").arg(tid).arg(name);
     return name.isEmpty() ? QString::number(tid) : QString("%1  %2").arg(tid).arg(name);
 }

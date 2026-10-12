@@ -60,6 +60,10 @@ QLineEdit* makeTableFilter(QTableWidget* table, const QString& placeholder);
 /// pickers. `pid` is the local process (0 for a remote target: id only).
 QString threadLabel(int pid, int tid);
 
+/// A thread's /proc name. The kernel cuts names to 15 characters; for the main
+/// thread the untruncated name is the executable's, which is used when it fits.
+QString threadName(int pid, int tid);
+
 /// A centred, dimmed message over `view` while its model has no rows, e.g.
 /// "Pick a module and click Analyze." Follows the model and the view's size.
 void setEmptyHint(QAbstractItemView* view, const QString& text);

@@ -129,6 +129,22 @@ static void exercise(const char* wine, const char* path, unsigned width, bool re
     check(ready && magic == "CE_WINE" && actualWidth == width, width == 4 ? "real PE32 console fixture runs" : "real PE32+ console fixture runs");
     if (!ready || magic != "CE_WINE" || actualWidth != width) return;
     pid_t pid = findTarget(fixture.pid, path);
+    // A container launcher can print through a relay before its process tree
+    // settles; allow a short bounded search, then report what was seen.
+    for (int attempt = 0; pid <= 0 && attempt < 60; ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        pid = findTarget(fixture.pid, path);
+    }
+    if (pid <= 0) {
+        auto name = std::filesystem::path(path).filename().string();
+        for (const auto& entry : std::filesystem::directory_iterator("/proc")) {
+            std::ifstream maps(entry.path() / "maps");
+            std::string mapLine;
+            while (std::getline(maps, mapLine))
+                if (mapLine.find(name) != std::string::npos) { printf("candidate %s maps %s\n", entry.path().filename().c_str(), name.c_str()); break; }
+        }
+        printf("launcher pid=%d WINEPREFIX=%s\n", fixture.pid, std::getenv("WINEPREFIX") ? std::getenv("WINEPREFIX") : "(unset)");
+    }
     check(pid > 0, "Windows fixture has an identified descendant Linux process");
     if (pid <= 0) return;
     os::LinuxProcessHandle process(pid);

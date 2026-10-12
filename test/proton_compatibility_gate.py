@@ -23,6 +23,7 @@ import json
 import os
 import pathlib
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -38,14 +39,35 @@ def installed_protons():
     return sorted(p for p in common.glob("Proton*") if (p / "proton").is_file()) if common.is_dir() else []
 
 
-def run_proton(build, proton, work, fixtures, report, client):
+def steam_runtime(proton):
+    """The Steam Linux Runtime container this Proton declares, as Steam selects it."""
+    manifest = (proton / "toolmanifest.vdf").read_text()
+    appid = re.search(r'"require_tool_appid"\s+"(\d+)"', manifest)
+    if not appid:
+        raise RuntimeError(f"{proton.name} declares no Steam Runtime")
+    app = STEAM / f"steamapps/appmanifest_{appid.group(1)}.acf"
+    installdir = re.search(r'"installdir"\s+"([^"]+)"', app.read_text()) if app.is_file() else None
+    runtime = STEAM / "steamapps/common" / installdir.group(1) if installdir else None
+    if not runtime or not (runtime / "_v2-entry-point").is_file():
+        raise RuntimeError(f"{proton.name} needs Steam Runtime app {appid.group(1)}, which is not installed")
+    return runtime
+
+
+def run_proton(build, proton, work, fixtures, report, client, in_runtime, runtime_override=None):
     version = (proton / "version").read_text().split()[-1] if (proton / "version").is_file() else proton.name
     # Proton ships a 32-bit Unix loader (i386-unix) unless it is a pure new-WoW64 build.
     legacy = (proton / "files/lib/wine/i386-unix").is_dir()
     entry = {"proton": proton.name, "version": version, "loader": "legacy-wine32" if legacy else "wow64",
              "status": "failed"}
+    # Inside the container (pressure-vessel) Proton runs on the runtime's own
+    # /usr in a separate mount namespace, as when Steam launches a game.
+    wrapper = []
+    if in_runtime:
+        runtime = runtime_override or steam_runtime(proton)
+        wrapper = [str(runtime / "_v2-entry-point"), "--verb=run", "--"]
+        entry["runtime"] = runtime.name
     report["builds"].append(entry)
-    print(f"== {proton.name} ({version}, {entry['loader']})", flush=True)
+    print(f"== {proton.name} ({version}, {entry['loader']}{', in ' + entry['runtime'] if in_runtime else ''})", flush=True)
     with tempfile.TemporaryDirectory(prefix="ce-proton-", dir=work) as temporary:
         directory = pathlib.Path(temporary)
         compat = directory / "compatdata"
@@ -57,7 +79,21 @@ def run_proton(build, proton, work, fixtures, report, client):
         # Wine's server socket directory must not follow a relocated TMPDIR.
         env.pop("TMPDIR", None)
         launcher = directory / "proton-run"
-        launcher.write_text(f'#!/bin/sh\nexec "{proton / "proton"}" runinprefix "$@"\n')
+        if wrapper:
+            # The runtime connects the game's stdin to /dev/null (stdout passes
+            # through). Forward the driver's command pipe through a FIFO on the
+            # shared home path and reopen it inside the container.
+            prefix = "".join(f'"{part}" ' for part in wrapper)
+            # A background job in a non-interactive shell reads /dev/null unless
+            # stdin is redirected explicitly, hence `<&0`. The FIFO path is part
+            # of the inner command string, independent of argument forwarding.
+            launcher.write_text(
+                "#!/bin/sh\n"
+                f'fifo=$(mktemp -u "{directory}/stdin.XXXXXX") && mkfifo "$fifo" || exit 125\n'
+                'cat <&0 > "$fifo" &\n'
+                f'exec {prefix}sh -c "exec \\"\\$@\\" < \'$fifo\'" sh "{proton / "proton"}" runinprefix "$@"\n')
+        else:
+            launcher.write_text(f'#!/bin/sh\nexec "{proton / "proton"}" runinprefix "$@"\n')
         launcher.chmod(0o755)
         server = proton / "files/bin/wineserver"
         prefix_env = dict(env, WINEPREFIX=str(compat / "pfx"))
@@ -65,7 +101,7 @@ def run_proton(build, proton, work, fixtures, report, client):
             entry["stage"] = "prefix-initialization"
             # The steam.exe wrapper itself fails without a Steam client; the
             # prefix it set up first is what this step requires.
-            boot = subprocess.run([str(proton / "proton"), "run", "cmd.exe", "/c", "exit"], env=env,
+            boot = subprocess.run([*wrapper, str(proton / "proton"), "run", "cmd.exe", "/c", "exit"], env=env,
                                   capture_output=True, text=True, timeout=300)
             if not (compat / "pfx/system.reg").is_file():
                 raise RuntimeError(f"Proton prefix initialization failed: {boot.stdout}\n{boot.stderr}")
@@ -105,13 +141,17 @@ def main():
                         help="Proton install directory (default: every Proton in the Steam library)")
     parser.add_argument("--client-install", type=pathlib.Path,
                         help="Steam client directory (default: the local Steam install, else an empty directory)")
+    parser.add_argument("--in-steam-runtime", action="store_true",
+                        help="run each Proton inside the Steam Linux Runtime container it declares")
+    parser.add_argument("--runtime", type=pathlib.Path,
+                        help="Steam Linux Runtime directory to use instead of the declared one (implies --in-steam-runtime)")
     parser.add_argument("--report", type=pathlib.Path)
     args = parser.parse_args()
     build = args.build.resolve()
     protons = [p.resolve() for p in args.proton] if args.proton else installed_protons()
     if not protons:
         parser.error("no Proton install found; pass --proton DIR")
-    report = {"platform": platform.platform(), "utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    report = {"platform": platform.platform(), "inSteamRuntime": args.in_steam_runtime or bool(args.runtime), "utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
               "sourceRevision": os.environ.get("GITHUB_SHA"), "status": "failed", "builds": [],
               "driverSha256": hashlib.sha256((build / "wine_integration").read_bytes()).hexdigest()}
     try:
@@ -129,7 +169,8 @@ def main():
             report["clientInstall"] = str(client)
             # One Proton at a time: each starts its own wineserver and prefix.
             for proton in protons:
-                run_proton(build, proton, work, fixtures, report, client)
+                run_proton(build, proton, work, fixtures, report, client,
+                           args.in_steam_runtime or bool(args.runtime), args.runtime.resolve() if args.runtime else None)
         report["status"] = "passed"
     except BaseException as error:
         report["error"] = str(error)

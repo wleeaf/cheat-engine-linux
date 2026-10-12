@@ -221,3 +221,7 @@ first. Detailed write-ups continue in PROGRESS.md.
   GE-Proton11-7 in a new hosted job) passes the full Wine driver, which now
   also scans and pointer-scans. Proton C1 to C6 and C8 to `B`; C3/C4 to `B` on
   all Wine rows. Coverage 79/268 (29.5%).
+- 2026-10-12, **1.2** done: Proton 9 (sniper) and Experimental 11 (SLR 4)
+  pass the full driver inside the real Steam Runtime container; the hosted
+  job adds pinned SLR 4 with GE-Proton11-7. Steam Runtime row C1 to C6 and C8
+  to `B`.

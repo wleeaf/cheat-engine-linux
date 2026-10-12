@@ -16,6 +16,33 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Proton inside the Steam Runtime container: 12 October 2026
+
+Item 1.2 of the [coverage plan](COVERAGE_PLAN.md). Steam does not run Proton
+on the host: it wraps it in the Steam Linux Runtime container that the Proton
+build declares (`require_tool_appid`), using pressure-vessel and bwrap with a
+separate mount namespace and the runtime's own `/usr`. The Proton gate's new
+`--in-steam-runtime` mode resolves that runtime from the Steam library exactly
+as Steam does, and `--runtime DIR` names one explicitly.
+
+Locally, Proton 9 inside SteamLinuxRuntime_sniper and Proton Experimental 11
+inside SteamLinuxRuntime_4 each pass all **92 checks** while cheat-engine
+operates from the host on the containerized process: identification, typed
+writes, value and pointer scans, Auto Assembler injection with exact undo,
+main-thread hardware find-what-writes and busy-loop memory operations with
+exact register preservation. The hosted Proton job now also downloads a
+pinned, checksum-verified Steam Linux Runtime 4 (`4.0.20260805.254769`) and
+runs GE-Proton11-7 inside it.
+
+The container connects the game's stdin to `/dev/null` (stdout passes
+through), so the fixture's command channel is relayed through a FIFO on the
+shared home path. Two shell details mattered: a background job in a
+non-interactive shell reads `/dev/null` unless stdin is redirected explicitly,
+and the FIFO path is embedded in the inner command rather than forwarded as an
+argument. The Wine driver now also retries target identification briefly and
+prints its candidates on failure. Matrix: Steam Runtime row C1 to C6 and C8
+at `B`.
+
 ## Proton and Windows scans: 12 October 2026
 
 Item 1.1 of the [coverage plan](COVERAGE_PLAN.md). The new

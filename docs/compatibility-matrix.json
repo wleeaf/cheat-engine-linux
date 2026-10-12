@@ -614,36 +614,36 @@
    "name": "Proton in Steam Runtime",
    "cells": {
     "C1": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "proton_compatibility_gate --in-steam-runtime (Proton 9 in sniper, Experimental 11 in SLR 4 locally; GE-Proton11-7 in SLR 4 in CI): target in the runtime's mount namespace, Wine/PE ABI identified from the host"
     },
     "C2": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "proton_compatibility_gate --in-steam-runtime (Proton 9 in sniper, Experimental 11 in SLR 4 locally; GE-Proton11-7 in SLR 4 in CI): typed and program-width pointer writes observed by the PE fixture"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "proton_compatibility_gate --in-steam-runtime (Proton 9 in sniper, Experimental 11 in SLR 4 locally; GE-Proton11-7 in SLR 4 in CI): first/next Int32 scans of the containerized process"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "proton_compatibility_gate --in-steam-runtime (Proton 9 in sniper, Experimental 11 in SLR 4 locally; GE-Proton11-7 in SLR 4 in CI): static PE pointer path found and resolved"
     },
     "C5": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "proton_compatibility_gate --in-steam-runtime (Proton 9 in sniper, Experimental 11 in SLR 4 locally; GE-Proton11-7 in SLR 4 in CI): Auto Assembler template at the real PE function"
     },
     "C6": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "proton_compatibility_gate --in-steam-runtime (Proton 9 in sniper, Experimental 11 in SLR 4 locally; GE-Proton11-7 in SLR 4 in CI): injection with exact undo; busy-loop alloc/protect/free with exact registers"
     },
     "C7": {
      "state": "-",
      "evidence": "no live test"
     },
     "C8": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "proton_compatibility_gate --in-steam-runtime (Proton 9 in sniper, Experimental 11 in SLR 4 locally; GE-Proton11-7 in SLR 4 in CI): main-thread hardware find-what-writes, 3 cycles"
     },
     "C9": {
      "state": "-",

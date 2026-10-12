@@ -5,6 +5,11 @@
 // scanner, symbol loader and disassembler. Nothing is emulated or faked: the
 // guest kernel provides ptrace, /proc and process_vm_readv/writev.
 #include "arch/disassembler.hpp"
+#include "core/target_capabilities.hpp"
+#include "debug/code_finder.hpp"
+#include "debug/debug_session.hpp"
+#include "platform/linux/injector.hpp"
+#include "platform/linux/ptrace_wrapper.hpp"
 #include "arch/target_arch.hpp"
 #include "platform/linux/linux_process.hpp"
 #include "scanner/memory_scanner.hpp"
@@ -140,6 +145,33 @@ static int run() {
         std::printf("ISA_VM_DISASM unavailable: %s\n", architecture.error().c_str());
     }
     check(decoded, "the writer's instructions decode with the native instruction set");
+    if (!native.isX86() && native.architecture != CpuArchitecture::Arm64) {
+        // No allocation, native-call, watchpoint or debugger backend exists for
+        // this instruction set: each real API must refuse with its reason.
+        auto explained = [&](TargetFeature feature, std::error_code error, const char* what) {
+            auto reason = targetOperationError(process, feature, error);
+            std::printf("ISA_VM_REFUSAL %s: %s\n", what, reason.c_str());
+            return reason.find("backend") != std::string::npos;
+        };
+        auto allocated = process.allocate(4096, MemProt::ReadWrite);
+        check(!allocated && explained(TargetFeature::Allocate, allocated.error(), "allocate"),
+              "allocation is refused with an explicit reason");
+        auto thread = os::createRemoteThread(process, symbols, writer, true, 1000);
+        if (!thread) std::printf("ISA_VM_REFUSAL remote thread: %s\n", thread.error().c_str());
+        check(!thread && thread.error().find("backend") != std::string::npos,
+              "native calls (remote threads) are refused with an explicit reason");
+        os::LinuxDebugger debugger;
+        CodeFinder finder;
+        bool watching = finder.start(process, debugger, value, true, 4);
+        if (watching) finder.stop();
+        check(!watching && explained(TargetFeature::HardwareWatchpoint, finder.lastError(), "watchpoint"),
+              "find-what-writes is refused with an explicit reason");
+        DebugSession session;
+        bool attached = session.attach(fixture.pid, &process);
+        if (attached) session.detach();
+        check(!attached && explained(TargetFeature::Debugger, session.lastError(), "debugger"),
+              "the debugger is refused with an explicit reason");
+    }
     check(fixture.command('b') == 7654323, "the program keeps running after every check");
 
     kill(fixture.pid, SIGKILL);

@@ -29,7 +29,14 @@ add_library(isa_core STATIC
     ${ROOT}/arch/target_arch.cpp ${ROOT}/arch/disassembler.cpp
     ${ROOT}/symbols/elf_symbols.cpp ${ROOT}/analysis/pe_exports.cpp
     ${ROOT}/scanner/memory_scanner.cpp ${ROOT}/scanner/scan_number.cpp ${ROOT}/scanner/pointer_scanner.cpp
-    ${ROOT}/scanner/snapshot.cpp ${ROOT}/scanner/cuda_search_stub.cpp)
+    ${ROOT}/scanner/snapshot.cpp ${ROOT}/scanner/cuda_search_stub.cpp
+    # The operations that must refuse explicitly on instruction sets without
+    # their backends (allocation, native calls, watchpoints, debugger).
+    ${ROOT}/platform/linux/injector.cpp ${ROOT}/platform/linux/ptrace_wrapper.cpp
+    ${ROOT}/platform/linux/arm64_vector_return.cpp
+    ${ROOT}/debug/debug_session.cpp ${ROOT}/debug/tracer.cpp ${ROOT}/debug/code_finder.cpp
+    ${ROOT}/debug/stack_trace.cpp ${ROOT}/debug/thread_inspection.cpp ${ROOT}/core/cpu_registers.cpp
+    ${ROOT}/debug/patch.cpp)
 set_target_properties(isa_core PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON)
 target_include_directories(isa_core PUBLIC "${ROOT}" "${CECORE_VM_CAPSTONE_INCLUDE}")
 target_compile_options(isa_core PRIVATE -O2)

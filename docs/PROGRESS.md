@@ -16,6 +16,21 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Snap confinement, and a CoreCLR open item: 12 October 2026
+
+Hosted runners have `snapd`, and `snap run --shell <snap> -c <command>` runs a
+command under the snap's real AppArmor profile, seccomp filter and mount
+namespace. The static fixture, placed in the snap's user-data directory,
+passes all **15 frontend checks** from the host under strict confinement
+(native calls refused as for any static program). The step is now required
+in the hosted build job, with the GUI stage. Matrix: the Snap row reaches `B`
+in eight capabilities and `X` for native calls.
+
+CoreCLR's breakpoint and code-cave checks at the correct optimized writer
+passed in two hosted runs and failed in the next, so they are not claimed:
+C6, C9 and C10 for CoreCLR return to `-` as an open item, and the gate skips
+them with a printed note. Coverage is now 232/268 (86.6%).
+
 ## Explicit refusals inside RISC-V, s390x, PowerPC64 and ARM32 guests: 12 October 2026
 
 On instruction sets without allocation, native-call, watchpoint or debugger

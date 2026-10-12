@@ -755,40 +755,40 @@
    "name": "Snap",
    "cells": {
     "C1": {
-     "state": "-",
-     "evidence": "snapd is not installed on the development machine or hosted runners; no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate in a strictly confined snap (snap run --shell hello-world: AppArmor profile, seccomp, mount namespace; hosted CI): identification, symbols, module"
     },
     "C2": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate in a strictly confined snap (snap run --shell hello-world: AppArmor profile, seccomp, mount namespace; hosted CI): typed write/read observed by the confined program"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate in a strictly confined snap (snap run --shell hello-world: AppArmor profile, seccomp, mount namespace; hosted CI): first and next scans"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate in a strictly confined snap (snap run --shell hello-world: AppArmor profile, seccomp, mount namespace; hosted CI): static pointer path"
     },
     "C5": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate in a strictly confined snap (snap run --shell hello-world: AppArmor profile, seccomp, mount namespace; hosted CI): Auto Assembler hook script with process symbols"
     },
     "C6": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate in a strictly confined snap (snap run --shell hello-world: AppArmor profile, seccomp, mount namespace; hosted CI): code-cave hook changes behavior, disable restores bytes"
     },
     "C7": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "X",
+     "evidence": "frontend_target_gate in a strictly confined snap (snap run --shell hello-world: AppArmor profile, seccomp, mount namespace; hosted CI): static program refuses native calls and library injection with explicit reasons"
     },
     "C8": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate in a strictly confined snap (snap run --shell hello-world: AppArmor profile, seccomp, mount namespace; hosted CI): cescan watch names the writer"
     },
     "C9": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate in a strictly confined snap (snap run --shell hello-world: AppArmor profile, seccomp, mount namespace; hosted CI): Lua breakpoint at the writer, call completes"
     },
     "C10": {
      "state": "-",
@@ -1010,8 +1010,8 @@
      "evidence": "runtime_target_gate on hosted CI (.NET 8 SDK on the runner, DOTNET_PerfMapEnabled=1): disassembly of JIT code annotated with its perf-map name"
     },
     "C6": {
-     "state": "B",
-     "evidence": "runtime_target_gate on hosted CI (.NET 8, DOTNET_EnableWriteXorExecute=0; W^X double-mapped JIT code still needs writes through its writable alias): code-injection template at the JIT writer, program computes through the cave, undo restores it"
+     "state": "-",
+     "evidence": "open: breakpoints/code caves at the correct CoreCLR JIT writer land only intermittently on hosted runners (W^X off); under investigation"
     },
     "C7": {
      "state": "B",
@@ -1022,12 +1022,12 @@
      "evidence": "runtime_target_gate on hosted CI (.NET 8 SDK on the runner, DOTNET_PerfMapEnabled=1): find-what-writes names the JIT-compiled writer"
     },
     "C9": {
-     "state": "B",
-     "evidence": "runtime_target_gate on hosted CI (.NET 8, DOTNET_EnableWriteXorExecute=0; W^X double-mapped JIT code still needs writes through its writable alias): Lua breakpoint at the JIT writer stops the running code"
+     "state": "-",
+     "evidence": "open: breakpoints/code caves at the correct CoreCLR JIT writer land only intermittently on hosted runners (W^X off); under investigation"
     },
     "C10": {
-     "state": "B",
-     "evidence": "runtime_target_gate on hosted CI (.NET 8, DOTNET_EnableWriteXorExecute=0; W^X double-mapped JIT code still needs writes through its writable alias) --gui: CLI, Lua and the Qt main/debugger windows against a live .NET program"
+     "state": "-",
+     "evidence": "open: breakpoints/code caves at the correct CoreCLR JIT writer land only intermittently on hosted runners (W^X off); under investigation"
     }
    }
   },

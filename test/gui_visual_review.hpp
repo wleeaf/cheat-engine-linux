@@ -125,6 +125,20 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
         while (!done && waited.elapsed() < 3000) pump(1);
         pump();
     };
+    auto clickText = [](QWidget& w, const QString& text) {
+        for (auto* b : w.findChildren<QPushButton*>()) if (b->text() == text && b->isEnabled()) { b->click(); return true; }
+        return false;
+    };
+    // Wait (pumping events) until `done` holds or the timeout passes.
+    auto waitFor = [&](const std::function<bool()>& done, int ms) {
+        QElapsedTimer t; t.start();
+        while (!done() && t.elapsed() < ms) pump(2);
+    };
+    auto firstTableRows = [](QWidget& w) {
+        int rows = 0;
+        for (auto* t : w.findChildren<QTableWidget*>()) if (t->isVisible()) rows = std::max(rows, t->rowCount());
+        return rows;
+    };
     auto captureMenus = [&](QMainWindow& window, const QString& stem) {
         for (auto* action : window.menuBar()->actions()) {
             auto* menu = action->menu();
@@ -291,6 +305,8 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
             LuaConsole console(&engine);
             console.runForTest("print('Player health:', 100)");
             console.runForTest("error('Example diagnostic')");
+            console.runForTest("local t = {health = 100, ammo = 30}; for k, v in pairs(t) do print(k, v) end");
+            console.runForTest("print(string.format('%08X', readInteger(0) or 0))");
             capture(console, prefix + "lua", {760, 440});
         }
         {
@@ -300,6 +316,12 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
         {
             PointerScanDialog pointers(&process);
             capture(pointers, prefix + "pointers", {820, 500});
+            pointers.setTargetAddress(valueAddress);
+            pointers.findChildren<QSpinBox*>()[0]->setValue(2);
+            pointers.resize(820, 500); pointers.show(); pump();
+            clickText(pointers, "Scan");
+            waitFor([&] { return firstTableRows(pointers) > 0; }, 20000);
+            capture(pointers, prefix + "pointers-results", {820, 500});
         }
         {
             ChangeAddressDialog address("[game.bin+0x120]+0x20", ce::ValueType::Int32, false, 1, nullptr, true, &process);
@@ -322,10 +344,36 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
         }
         { AdvancedOptionsWindow window(&process); capture(window, prefix + "advanced"); }
         { BranchMapper window(&process); capture(window, prefix + "branches"); }
-        { CodeReferencesWindow window(&process); capture(window, prefix + "references"); }
-        { ElfInspector window(QCoreApplication::applicationFilePath()); capture(window, prefix + "elf"); }
+        {
+            CodeReferencesWindow window(&process);
+            capture(window, prefix + "references");
+            window.resize(900, 560); window.show(); pump();
+            clickText(window, "Analyze");
+            waitFor([&] { return firstTableRows(window) > 0; }, 30000);
+            if (auto* tabs = window.findChild<QTabWidget*>())
+                for (int i = 0; i < tabs->count(); ++i) {
+                    tabs->setCurrentIndex(i);
+                    capture(window, prefix + "references-" + QString::number(i), {900, 560});
+                }
+        }
+        {
+            ElfInspector window(QCoreApplication::applicationFilePath());
+            capture(window, prefix + "elf");
+            if (auto* tabs = window.findChild<QTabWidget*>())
+                for (int i = 1; i < tabs->count(); ++i) {
+                    tabs->setCurrentIndex(i);
+                    capture(window, prefix + "elf-" + QString::number(i), {900, 640});
+                }
+        }
         { FilePatcher window; capture(window, prefix + "file-patcher"); }
-        { FindStaticsWindow window(&process); capture(window, prefix + "find-statics"); }
+        {
+            FindStaticsWindow window(&process);
+            capture(window, prefix + "find-statics");
+            window.resize(720, 540); window.show(); pump();
+            clickText(window, "Scan");
+            waitFor([&] { return firstTableRows(window) > 0; }, 30000);
+            capture(window, prefix + "find-statics-results", {720, 540});
+        }
         {
             FormDesigner window;
             capture(window, prefix + "form-designer");

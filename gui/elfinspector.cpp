@@ -39,6 +39,7 @@ ElfInspector::ElfInspector(const QString& initialPath, QWidget* parent) : QDialo
         auto* edit = new QPlainTextEdit;
         edit->setReadOnly(true);
         edit->setFont(monospaceFont(-1));
+        edit->setLineWrapMode(QPlainTextEdit::NoWrap);   // keep readelf's columns intact
         tabs_->addTab(edit, title);
         return edit;
     };

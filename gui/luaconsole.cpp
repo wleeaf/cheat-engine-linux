@@ -28,8 +28,11 @@ LuaConsole::LuaConsole(LuaEngine* engine, QWidget* parent)
     output_ = new QPlainTextEdit;
     output_->setReadOnly(true);
     output_->setFont(monospaceFont());
-    output_->appendPlainText("-- Cheat Engine Lua Console --");
-    output_->appendPlainText("-- Functions: readInteger(addr), writeInteger(addr, val), getModuleBase(name), ...");
+    output_->document()->setDocumentMargin(6);
+    // The banner reads as a comment (dim), like the echoed commands.
+    appendColored(output_, "-- Cheat Engine Lua Console --", editorPalette().dim);
+    appendColored(output_, "-- Functions: readInteger(addr), writeInteger(addr, val), getModuleBase(name), ...",
+                  editorPalette().dim);
     layout->addWidget(output_);
 
     // Input row: the code field plus explicit Run / Clear buttons, so the actions
@@ -43,6 +46,7 @@ LuaConsole::LuaConsole(LuaEngine* engine, QWidget* parent)
     inputRow->addWidget(input_, 1);
 
     auto* runBtn = new QPushButton("Run");
+    runBtn->setProperty("primary", true);
     runBtn->setToolTip("Execute the Lua code (Enter)");
     connect(runBtn, &QPushButton::clicked, this, &LuaConsole::onExecute);
     inputRow->addWidget(runBtn);
@@ -51,7 +55,7 @@ LuaConsole::LuaConsole(LuaEngine* engine, QWidget* parent)
     clearBtn->setToolTip("Clear the console output");
     connect(clearBtn, &QPushButton::clicked, this, [this]() {
         output_->clear();
-        output_->appendPlainText("-- Cheat Engine Lua Console --");
+        appendColored(output_, "-- Cheat Engine Lua Console --", editorPalette().dim);
     });
     inputRow->addWidget(clearBtn);
     layout->addLayout(inputRow);

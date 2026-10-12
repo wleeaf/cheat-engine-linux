@@ -1256,6 +1256,10 @@ void MainWindow::setupUi() {
     auto updateResultsHint = [this]() {
         if (!resultsEmptyHint_) return;
         const bool empty = resultsModel_->rowCount() == 0;
+        // Only point at Open Process while there is no process to scan.
+        resultsEmptyHint_->setText(process_
+            ? tr("No results yet.\n\nEnter a value and press First Scan.")
+            : tr("No results yet.\n\nOpen a process with Ctrl+O,\nthen enter a value and press First Scan."));
         resultsEmptyHint_->setGeometry(resultsView_->viewport()->rect());
         resultsEmptyHint_->setVisible(empty);
     };

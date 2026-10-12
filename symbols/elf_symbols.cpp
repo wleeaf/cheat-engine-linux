@@ -137,6 +137,23 @@ void SymbolResolver::parsePeExports(const std::string& path, const std::string& 
     }
 }
 
+// Demangle an Itanium C++ name ("_ZN3Foo3barEv" -> "Foo::bar()"). A symbol
+// version suffix ("@Qt_6", "@@GLIBC_2.34") is not part of the mangling, so it
+// is demangled without it and appended again. Returns the input on failure.
+static std::string demangleSymbol(const char* name) {
+    if (name[0] != '_' || name[1] != 'Z') return name;
+    std::string mangled = name, suffix;
+    if (auto at = mangled.find('@'); at != std::string::npos) {
+        suffix = mangled.substr(at);
+        mangled.resize(at);
+    }
+    int status = 0;
+    char* dem = abi::__cxa_demangle(mangled.c_str(), nullptr, nullptr, &status);
+    std::string result = (status == 0 && dem) ? std::string(dem) + suffix : std::string(name);
+    std::free(dem);
+    return result;
+}
+
 // GNU notes have the same layout in ELF32 and ELF64. Bound every padded field
 // before reading it, including notes from the separate file being validated.
 template<class Section>
@@ -400,15 +417,9 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
             }
 
             Symbol s;
-            s.name = name;
             // Demangle Itanium C++ names ("_Z...") for readability, like CE shows
             // "Foo::bar()" rather than "_ZN3Foo3barEv". Keep the raw name on failure.
-            if (name[0] == '_' && name[1] == 'Z') {
-                int status = 0;
-                char* dem = abi::__cxa_demangle(name, nullptr, nullptr, &status);
-                if (status == 0 && dem) s.name = dem;
-                std::free(dem);
-            }
+            s.name = demangleSymbol(name);
             s.address = addr;
             s.size = sym.st_size;
             s.module = moduleName;
@@ -486,13 +497,7 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
             const char* name = strtab.data() + sym.st_name;
             if (name[0] == '\0') continue;
 
-            std::string base = name;
-            if (name[0] == '_' && name[1] == 'Z') {
-                int status = 0;
-                char* dem = abi::__cxa_demangle(name, nullptr, nullptr, &status);
-                if (status == 0 && dem) base = dem;
-                std::free(dem);
-            }
+            std::string base = demangleSymbol(name);
             gotSlotName[rel.r_offset] = base;   // for PLT-stub matching (file vaddr key)
 
             uintptr_t slot = rel.r_offset;
@@ -647,13 +652,7 @@ void SymbolResolver::parseElf32Symbols(const std::string& path, const std::strin
             }
 
             Symbol s;
-            s.name = name;
-            if (name[0] == '_' && name[1] == 'Z') {
-                int status = 0;
-                char* dem = abi::__cxa_demangle(name, nullptr, nullptr, &status);
-                if (status == 0 && dem) s.name = dem;
-                std::free(dem);
-            }
+            s.name = demangleSymbol(name);
             s.address = addr;
             s.size = sym.st_size;
             s.module = moduleName;

@@ -245,7 +245,10 @@ extern "C" pid_t __wrap_waitpid(pid_t pid,int* status,int options) {
         // interrupts so we can hit the real overlap instead of repeatedly
         // interrupting before the target gets to execute its watched store.
         // Keep the same five-second bound and inspect only real kernel events.
-        for (unsigned pause=0;pause<((attempt/64)%32);++pause) __asm__ volatile("pause" ::: "memory");
+        // The sweep is exponential (0 and 1..1024 pauses, about 40 us at the
+        // top): hosted VMs can need far longer windows than bare metal.
+        const unsigned step=(attempt/64)%12;
+        for (unsigned pause=0,pauses=step ? 1u<<(step-1) : 0;pause<pauses;++pause) __asm__ volatile("pause" ::: "memory");
         if (attempt%64==63) sched_yield();
 #else
         if (attempt%64==63) sched_yield();

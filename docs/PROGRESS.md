@@ -16,6 +16,25 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## ARM32 and x32 guests, GDB CLI on real QEMU: 12 October 2026
+
+The ISA guest matrix gained **armhf** (Ubuntu 6.8 armhf kernel on QEMU virt;
+the static program is Thumb-2, so the driver follows the EABI interworking
+bit to decode Thumb) and **x32** (the LP64 static driver against a `-mx32`
+static program under the pinned x32-enabled Debian kernel; the expected
+pointer width now comes from the program's ELF class). Both pass all checks
+on hosted CI, as do RISC-V64, s390x and ppc64el. The GDB gate now also runs
+one CLI command (`cescan gdb ... reg pc`) against the real stopped QEMU CPU,
+and its Lua run requires a non-static pointer path over guest RAM.
+
+Hosted CI also surfaced: remote code patches on ARM64 over CEServer are
+refused ("Code write failed: Operation not supported"); the gate now requires
+that explicit refusal on ARM rather than a hook. CoreCLR's tiered compilation
+keeps replacing hot methods, so an instruction found by find-what-writes can
+stop running; the runtime checks use one compiled version
+(`DOTNET_TieredCompilation=0`) and this stays a known limitation for tiered
+.NET code. Coverage is now 212/268 (79.1%).
+
 ## s390x and PowerPC64 guests: 12 October 2026
 
 Item 3.3 of the [coverage plan](COVERAGE_PLAN.md). The disassembler gained

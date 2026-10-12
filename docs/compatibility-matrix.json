@@ -152,12 +152,12 @@
      "evidence": "x32_vm_gate debug/calls memory ops incl. four-byte pthread/loader handles"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no live scan in x32 guest"
+     "state": "B",
+     "evidence": "isa_vm_gate x32 guest (LP64 static driver, -mx32 static libc program, Debian 6.1 kernel with syscall.x32=y; CI): whole-process first and next scans of a 4-byte-pointer program"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live pointer scan"
+     "state": "B",
+     "evidence": "isa_vm_gate x32 guest (LP64 static driver, -mx32 static libc program, Debian 6.1 kernel with syscall.x32=y; CI): static 4-byte pointer path found and dereferenced"
     },
     "C5": {
      "state": "B",
@@ -289,20 +289,20 @@
      "evidence": "arm32_register_gate arm32_memory_checks TargetMachine Arm32/LinuxArmEabi; no modules/symbols"
     },
     "C2": {
-     "state": "-",
-     "evidence": "only test-helper transfers; process API data path pending per COMPATIBILITY.md"
+     "state": "B",
+     "evidence": "isa_vm_gate armhf guest (static cecore driver as /init, Ubuntu 6.8 armhf kernel on QEMU virt, Thumb-2 program; CI): process write observed by the static libc program through the generic process API"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no live scan"
+     "state": "B",
+     "evidence": "isa_vm_gate armhf guest (static cecore driver as /init, Ubuntu 6.8 armhf kernel on QEMU virt, Thumb-2 program; CI): whole-process first and next scans"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live pointer scan"
+     "state": "B",
+     "evidence": "isa_vm_gate armhf guest (static cecore driver as /init, Ubuntu 6.8 armhf kernel on QEMU virt, Thumb-2 program; CI): static pointer path found and dereferenced"
     },
     "C5": {
-     "state": "-",
-     "evidence": "only fixed-byte unit decoding"
+     "state": "B",
+     "evidence": "isa_vm_gate armhf guest (static cecore driver as /init, Ubuntu 6.8 armhf kernel on QEMU virt, Thumb-2 program; CI): Thumb decoding of the writer (EABI interworking bit); ARM/Thumb assembly via Keystone covered by unit checks"
     },
     "C6": {
      "state": "B",
@@ -1190,8 +1190,8 @@
      "evidence": "gdb_transport_integration qemu byte scan; gdb_lua_checks MemScan first/next on QEMU"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no pointer scan"
+     "state": "B",
+     "evidence": "gdb_lua_checks on real QEMU: Lua pointerScan with staticOnly=false finds the absolute guest-RAM path (module-less bases)"
     },
     "C5": {
      "state": "B",
@@ -1214,8 +1214,8 @@
      "evidence": "gdb_transport_integration qemu register edit + 2 real single steps; GUI register editor"
     },
     "C10": {
-     "state": "-",
-     "evidence": "GUI (gdb_gui_gate qemu-gui) + Lua (qemu-lua); CLI commands only vs synthetic RSP peers"
+     "state": "B",
+     "evidence": "gdb_transport_gate: CLI cescan gdb reg pc on the real QEMU CPU, Lua gdb_lua_checks on QEMU, GUI gdb_gui_gate on QEMU"
     }
    }
   },

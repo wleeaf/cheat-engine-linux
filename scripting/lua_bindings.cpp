@@ -2632,6 +2632,19 @@ static int l_debug_pumpEvents(lua_State* L) {
 #define X(name, field) lua_pushinteger(L, (lua_Integer)hit.context.field); lua_setglobal(L, name);
         CE_GP_REGS(X)
 #undef X
+        if (hit.context.hasArmRegisters()) {
+            // ARM stops publish their own register names (read-only here; the
+            // write-back below covers the x86 names).
+            const bool arm64 = hit.context.architecture == ce::CpuArchitecture::Arm64;
+            for (int index = 0; index < (arm64 ? 31 : 13); ++index) {
+                char name[8];
+                std::snprintf(name, sizeof(name), arm64 ? "X%d" : "R%d", index);
+                lua_pushinteger(L, (lua_Integer)hit.context.x[index]); lua_setglobal(L, name);
+            }
+            lua_pushinteger(L, (lua_Integer)hit.context.sp); lua_setglobal(L, "SP");
+            lua_pushinteger(L, (lua_Integer)hit.context.pc); lua_setglobal(L, "PC");
+            lua_pushinteger(L, (lua_Integer)hit.context.pstate); lua_setglobal(L, "PSTATE");
+        }
         lua_pushinteger(L, (lua_Integer)hit.address);     lua_setglobal(L, "BPAddress");
         lua_pushinteger(L,hit.signal); lua_setglobal(L,"DebugSignal");
         lua_pushinteger(L,hit.exitingTid); lua_setglobal(L,"DebugExitingThread");

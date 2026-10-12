@@ -140,7 +140,9 @@ class LibcFixture(Fixture):
         self.pid = host_pid(self.process.pid, matches) if launcher else self.process.pid
         self.namespaced = self.pid != namespaced
         with open(path, "rb") as elf:
-            self.bits = 32 if elf.read(5)[4] == 1 else 64
+            header_bytes = elf.read(20)
+        self.bits = 32 if header_bytes[4] == 1 else 64
+        self.arm64 = int.from_bytes(header_bytes[18:20], "little") == 0xB7   # EM_AARCH64
         self.value, self.pointer, self.writer = (int(field, 16) for field in header[2:5])
         self.hook = header[5] if len(header) == 6 else "ce_writer"   # a process symbol names the hook point
 
@@ -157,6 +159,7 @@ class WineFixture(Fixture):
         if len(header) != 5 or header[0] != "CE_WINE":
             raise RuntimeError(f"unexpected fixture header {header}")
         self.bits = int(header[1]) * 8
+        self.arm64 = False
         self.value, self.pointer, self.writer = (int(field, 16) for field in header[2:])
         prefix = os.environ.get("WINEPREFIX", "")
 
@@ -172,6 +175,24 @@ class WineFixture(Fixture):
 
     def reply(self):
         return struct.unpack("<I", self.receive(4))[0]
+
+
+def hook_script(fixture, site, original, define=True):
+    """A code cave that stores 1000 into the value and returns 1000."""
+    hook = "hook" if define else site
+    if fixture.arm64:
+        value = fixture.value
+        body = (f"movz x1, #{value & 0xffff:#x}\n" +
+                "".join(f"movk x1, #{(value >> shift) & 0xffff:#x}, lsl #{shift}\n" for shift in (16, 32, 48)) +
+                "mov w0, #1000\nstr w0, [x1]\nret\n")
+        jump = "b newmem"
+    else:
+        reg = "ecx" if fixture.bits == 32 else "rcx"
+        body = f"mov {reg},{fixture.value:#x}\nmov eax,#1000\nmov [{reg}],eax\nret\n"
+        jump = "jmp newmem"
+    return ((f"[ENABLE]\ndefine(hook,{site})\n" if define else "[ENABLE]\n") +
+            f"alloc(newmem,256,{site})\nnewmem:\n{body}{hook}:\n{jump}\n"
+            f"[DISABLE]\n{hook}:\ndb {original}\ndealloc(newmem)\n")
 
 
 def main():
@@ -224,13 +245,13 @@ def main():
 
         try:
             pid = fixture.pid
-            reg = "ecx" if fixture.bits == 32 else "rcx"
             info = run("info", pid)
             if fixture.windows:
                 abi = "Windows i386" if fixture.bits == 32 else "Windows x64"
                 check(f"info identifies a Wine-hosted {abi} program", abi in info and "wine:     yes" in info, info)
             else:
-                arch, abi = ("x86-32", "Linux i386") if fixture.bits == 32 else ("x86-64", "Linux x86-64")
+                arch, abi = (("ARM64", "Linux AArch64") if fixture.arm64 else
+                             ("x86-32", "Linux i386") if fixture.bits == 32 else ("x86-64", "Linux x86-64"))
                 check(f"info identifies an {arch} Linux program", arch in info and abi in info, info)
                 symbols = run("symbols", pid, "e_writer") + run("symbols", pid, "eValue") + run("symbols", pid, "ce_value")
                 check("the symbol table names the writer", "ce_writer" in symbols and ("ce_value" in symbols or "ceValue" in symbols),
@@ -256,11 +277,7 @@ def main():
             original = aob(pid, fixture.hook)
             with tempfile.TemporaryDirectory() as directory:
                 script = pathlib.Path(directory) / "hook.aa"
-                script.write_text(
-                    f"[ENABLE]\ndefine(hook,{fixture.hook})\nalloc(newmem,256,{fixture.hook})\nnewmem:\n"
-                    f"mov {reg},{fixture.value:#x}\nmov eax,#1000\nmov [{reg}],eax\nret\n"
-                    "hook:\njmp newmem\n"
-                    f"[DISABLE]\nhook:\ndb {original}\ndealloc(newmem)\n")
+                script.write_text(hook_script(fixture, fixture.hook, original))
                 hook = subprocess.Popen([cescan, "autoasm", str(pid), str(script), "--disable-after", "4"],
                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
                 time.sleep(2)
@@ -281,7 +298,7 @@ def main():
 
             script = (f"assert(openProcess({pid}))\n"
                       "local hit = nil\n"
-                      "function debugger_onBreakpoint() hit = RIP or EIP; return 1 end\n"
+                      "function debugger_onBreakpoint() hit = BPAddress; return 1 end\n"
                       f"assert(debug_setBreakpoint({fixture.writer}))\n"
                       "print('SESSION_READY'); io.flush()\n"
                       "for i = 1, 100 do debug_pumpEvents(100); if hit then break end end\n"
@@ -389,9 +406,7 @@ def main():
                     port = re.search(r"127\.0\.0\.1:(\d+)", listening or "")
                     check("cescan ceserver listens on loopback", port is not None, listening or "")
                     original = aob(pid, hex(fixture.writer))
-                    hook = (f"[ENABLE]\nalloc(newmem,256,{fixture.writer:#x})\nnewmem:\n"
-                            f"mov {reg},{fixture.value:#x}\nmov eax,#1000\nmov [{reg}],eax\nret\n"
-                            f"{fixture.writer:#x}:\njmp newmem\n[DISABLE]\n{fixture.writer:#x}:\ndb {original}\ndealloc(newmem)\n")
+                    hook = hook_script(fixture, f"{fixture.writer:#x}", original, define=False)
                     remote = subprocess.Popen([cescan, "lua", "-e", f"""
 assert(connectToCeserver('127.0.0.1', {port.group(1) if port else 1}, {pid}))
 local info = getTargetInfo()

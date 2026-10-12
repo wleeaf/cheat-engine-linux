@@ -207,7 +207,9 @@ recovery), the call reports that capability reason instead of failing silently:
 `allocateMemory`, `fullAccess`, `createSimpleHook`, `findWhatWrites`,
 `findWhatAccesses` and `breakAndTrace` return `nil, reason`, and
 `debug_setBreakpoint` returns its bookkeeping id plus the reason as a second
-value. CE scripts that ignore extra results keep working unchanged.
+value. At an ARM stop, `debugger_onBreakpoint` also sees `X0`..`X30` (ARM64) or
+`R0`..`R12` (ARM32), `SP`, `PC` and `PSTATE` (read-only); `BPAddress` is the
+portable breakpoint address. CE scripts that ignore extra results keep working unchanged.
 
 Symbols of the attached process resolve as soon as `openProcess` returns
 (`getAddress('UpdateHealth')`, `injectLibrary`); `reinitializeSymbolhandler()`

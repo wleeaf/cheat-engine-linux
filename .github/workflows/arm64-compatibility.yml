@@ -36,6 +36,10 @@ jobs:
           python3 test/memory_image_gate.py build --output build/compatibility-evidence/memory-image.log --report build/compatibility-evidence/memory-image.json
           python3 test/native_call_image_gate.py build --output build/compatibility-evidence/native-call-image.log --report build/compatibility-evidence/native-call-image.json
           python3 test/native_call_exec_gate.py build --output build/compatibility-evidence/native-call-exec.log --report build/compatibility-evidence/native-call-exec.json
+          # An ordinary ARM64 glibc program through the CLI, Lua and ceserver.
+          gcc -O1 -pthread -o build/dynamic_fixture_glibc test/static_fixture.c
+          python3 test/frontend_target_gate.py build build/dynamic_fixture_glibc --ceserver \
+            --report build/compatibility-evidence/arm64-frontends-targets.json
       - name: Save frontend logs, screenshots and operation evidence
         if: always()
         uses: actions/upload-artifact@v4

@@ -92,12 +92,19 @@ def main():
         first = run("scan", pid, "--type", "i32", "--value", MARKER)
         snapshot = re.search(r"^Results: (.+)$", first, re.M)
         candidates = [int(a, 16) for a in re.findall(r"^\s*(0x[0-9a-f]+) = ", first, re.M)]
-        # Rewind/savestate buffers hold stale copies of guest RAM: the live one
-        # is the copy whose counter at +4 keeps advancing.
+        # mGBA's rewind buffer holds many snapshots of guest RAM, refreshed as the
+        # game runs. The live copy is the one the guest program itself copies
+        # from: a host write at +0 shows up at +8 only there.
         copies = [a for a in candidates if read_i32(pid, a + 8) == MARKER]
-        counters = {a: read_i32(pid, a + 4) for a in copies}
-        time.sleep(0.5)
-        ewram = next((a for a in copies if read_i32(pid, a + 4) != counters[a]), None)
+        ewram = None
+        for index, address in enumerate(copies):
+            probe = MARKER + 1 + index
+            run("write", pid, hex(address), probe, "--type", "i32")
+            time.sleep(0.3)
+            if read_i32(pid, address + 8) == probe:
+                ewram = address
+                break
+            run("write", pid, hex(address), MARKER, "--type", "i32")
         check("a host value scan finds the guest's marker in emulated work RAM", ewram is not None, first[-2000:])
         if ewram is None:
             # Tell "ROM not loaded" from "loaded but not running" from "RAM not scanned".

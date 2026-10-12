@@ -174,6 +174,14 @@ std::expected<TargetMachine, std::string> parsePeTarget(std::span<const uint8_t>
         h[pe] != 'P' || h[pe + 1] != 'E' || h[pe + 2] || h[pe + 3])
         return std::unexpected("Truncated or invalid PE header");
     auto machine = *decodeTargetUnsigned(h.subspan(pe + 4, 2), ByteOrder::Little);
+    // .NET ReadyToRun images for a non-Windows OS store the machine XORed with
+    // an OS constant (Linux, Apple, FreeBSD, NetBSD, SunOS); decode it so their
+    // code is not mistaken for an unknown architecture.
+    bool readyToRunOverride = false;
+    for (uint64_t os : {0x7B79u, 0x4644u, 0xADC4u, 0x1993u, 0x1992u})
+        if (auto native = machine ^ os; native == 0x14c || native == 0x8664 || native == 0x1c4 || native == 0xaa64) {
+            machine = native; readyToRunOverride = true; break;
+        }
     auto optionalSize = *decodeTargetUnsigned(h.subspan(pe + 20, 2), ByteOrder::Little);
     if (optionalSize < 60 || optionalSize > h.size() - pe - 24)
         return std::unexpected("Truncated PE optional header");
@@ -196,6 +204,12 @@ std::expected<TargetMachine, std::string> parsePeTarget(std::span<const uint8_t>
         case 0xa641: m.architecture = CpuArchitecture::Arm64EC; m.abi = TargetAbi::WindowsArm64EC; break;
         case 0xa64e: m.architecture = CpuArchitecture::Arm64X; m.abi = TargetAbi::WindowsArm64X; break;
         default: m.architecture = CpuArchitecture::Other; break;
+    }
+    if (readyToRunOverride) {   // a managed image loaded by a native runtime, not a Windows module
+        if (m.architecture == CpuArchitecture::X86_32) m.abi = TargetAbi::LinuxI386;
+        else if (m.architecture == CpuArchitecture::X86_64) m.abi = TargetAbi::LinuxX86_64;
+        else if (m.architecture == CpuArchitecture::Arm32) m.abi = TargetAbi::LinuxArmEabi;
+        else m.abi = TargetAbi::LinuxAarch64;
     }
     bool requires32 = m.architecture == CpuArchitecture::X86_32 || m.architecture == CpuArchitecture::Arm32;
     bool requires64 = m.architecture == CpuArchitecture::X86_64 || m.architecture == CpuArchitecture::Arm64 ||

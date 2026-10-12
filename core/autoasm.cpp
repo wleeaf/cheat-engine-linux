@@ -1586,7 +1586,8 @@ TargetMachine AutoAssembler::machineForCode(uintptr_t address) const {
     const ModuleInfo* best = nullptr;
     for (const auto& m : targetModules_)
         if (address >= m.base && address - m.base < m.size && (!best || m.size < best->size)) best = &m;
-    return best && best->machine.architecture != CpuArchitecture::Unknown ? best->machine : programMachine_;
+    return best && best->machine.architecture != CpuArchitecture::Unknown &&
+           best->machine.architecture != CpuArchitecture::Other ? best->machine : programMachine_;
 }
 
 std::expected<std::vector<uint8_t>, std::string> AutoAssembler::assembleTarget(const std::string& code, uintptr_t address) {

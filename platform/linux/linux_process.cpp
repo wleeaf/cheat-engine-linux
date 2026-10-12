@@ -761,6 +761,10 @@ std::vector<ModuleInfo> LinuxProcessHandle::modules() {
             [&](const ModuleInfo& m) { return m.path == r.path; });
 
         if (it != mods.end()) {
+            // A PE image's extent is its SizeOfImage; other views of the same file
+            // (a runtime's flat metadata mapping) must not stretch it over
+            // unrelated memory such as a JIT code heap.
+            if (it->machine.architecture != CpuArchitecture::Unknown) continue;
             // Extend existing module
             auto end = r.base + r.size;
             auto modEnd = it->base + it->size;

@@ -162,6 +162,10 @@ static void machineTests() {
     check(p32 && p64 && p32->pointerWidth == 4 && p64->pointerWidth == 8 &&
           p32->abi == TargetAbi::WindowsI386 && p64->abi == TargetAbi::WindowsX64,
           "PE optional-header width and machine describe the Windows program ABI");
+    auto readyToRun = parsePeTarget(pe(0x8664 ^ 0x7B79, true));
+    check(readyToRun && readyToRun->architecture == CpuArchitecture::X86_64 &&
+          readyToRun->abi == TargetAbi::LinuxX86_64 && disassemblerArchFor(*readyToRun) == Arch::X86_64,
+          ".NET ReadyToRun images for Linux decode their OS-specific PE machine");
     check(hybrid && hybrid->architecture == CpuArchitecture::Arm64X && !disassemblerArchFor(*hybrid),
           "hybrid ARM64X modules require an explicit code-mode adapter");
     auto truncatedPe = pe(0x8664, true);

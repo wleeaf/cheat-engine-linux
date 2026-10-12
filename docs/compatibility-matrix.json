@@ -458,8 +458,8 @@
      "evidence": "wine_integration main-thread HW watchpoint CodeFinder"
     },
     "C9": {
-     "state": "-",
-     "evidence": "only register snapshot (inspectThread); no bp/step/trace"
+     "state": "B",
+     "evidence": "wine_integration all-stop DebugSession: software breakpoint at the real PE writer, hit in the program's register mode, single step, removal, detach; break-and-trace from the writer on PE32 with the 32-bit loader (Proton 9/11; CI Wine 9 job)"
     },
     "C10": {
      "state": "-",
@@ -505,8 +505,8 @@
      "evidence": "wine_integration main-thread HW watchpoint"
     },
     "C9": {
-     "state": "-",
-     "evidence": "register snapshot only"
+     "state": "B",
+     "evidence": "wine_integration all-stop DebugSession: software breakpoint at the real PE writer, hit in the program's register mode, single step, removal, detach; break-and-trace from the writer (local Wine 11; CI Wine 9/11 jobs)"
     },
     "C10": {
      "state": "-",
@@ -552,8 +552,8 @@
      "evidence": "wine_integration main-thread HW watchpoint"
     },
     "C9": {
-     "state": "-",
-     "evidence": "register snapshot only"
+     "state": "B",
+     "evidence": "wine_integration all-stop DebugSession: software breakpoint at the real PE writer, hit in the program's register mode, single step, removal, detach; break-and-trace from the writer on PE32 with the 64-bit loader (local Wine 11; CI wow64 job)"
     },
     "C10": {
      "state": "-",
@@ -599,8 +599,8 @@
      "evidence": "proton_compatibility_gate (Valve Proton 9 + Experimental 11 locally, GE-Proton11-7 in CI): main-thread hardware find-what-writes names the exact writer, 3 cycles"
     },
     "C9": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "proton_compatibility_gate: all-stop DebugSession: software breakpoint at the real PE writer, hit in the program's register mode, single step, removal, detach; break-and-trace from the writer (Valve 9, Experimental 11; GE-Proton11-7 in CI)"
     },
     "C10": {
      "state": "-",
@@ -646,8 +646,8 @@
      "evidence": "proton_compatibility_gate --in-steam-runtime (Proton 9 in sniper, Experimental 11 in SLR 4 locally; GE-Proton11-7 in SLR 4 in CI): main-thread hardware find-what-writes, 3 cycles"
     },
     "C9": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "proton_compatibility_gate --in-steam-runtime: all-stop DebugSession: software breakpoint at the real PE writer, hit in the program's register mode, single step, removal, detach; break-and-trace from the writer inside sniper / SLR 4"
     },
     "C10": {
      "state": "-",

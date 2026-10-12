@@ -11,6 +11,12 @@
 #include "core/cpu_registers.hpp"
 #include "scanner/memory_scanner.hpp"
 #include "scanner/pointer_scanner.hpp"
+#include "debug/debug_session.hpp"
+#include "debug/tracer.hpp"
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <optional>
 #include <array>
 #include <algorithm>
 #include <chrono>
@@ -72,6 +78,13 @@ public:
             text += c;
         }
         return {};
+    }
+    // The four-byte result of a command already sent.
+    std::optional<uint64_t> reply() {
+        std::array<uint8_t, 4> bytes{};
+        if (!receive(bytes.data(), bytes.size())) return std::nullopt;
+        auto value = decodeTargetUnsigned(bytes, ByteOrder::Little);
+        return value ? std::optional<uint64_t>(*value) : std::nullopt;
     }
     bool value(char command, uint32_t expected) {
         std::array<uint8_t, 4> bytes{};
@@ -234,6 +247,76 @@ static void exercise(const char* wine, const char* path, unsigned width, bool re
               }), "Wine hardware watchpoint identifies the exact Windows writer instruction");
         check(fixture.value('r', 31415929 + cycle), "Wine target stays live after watchpoint detach");
     }
+    // Full debugger: an all-stop session (stopping the whole Wine process is
+    // its purpose) with a software breakpoint at the real PE writer.
+    {
+        DebugSession session;
+        std::mutex eventMutex;
+        std::condition_variable eventReady;
+        std::deque<DebugEvent> events;
+        session.setEventCallback([&](const DebugEvent& event) {
+            std::lock_guard lock(eventMutex);
+            events.push_back(event);
+            eventReady.notify_all();
+        });
+        auto waitFor = [&](DebugEventType type) -> std::optional<DebugEvent> {
+            std::unique_lock lock(eventMutex);
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            for (;;) {
+                for (auto it = events.begin(); it != events.end(); ++it)
+                    if (it->type == type) { auto event = *it; events.erase(events.begin(), it + 1); return event; }
+                if (eventReady.wait_until(lock, deadline) == std::cv_status::timeout) return std::nullopt;
+            }
+        };
+        const auto mode = width == 4 ? CpuArchitecture::X86_32 : CpuArchitecture::X86_64;
+        bool attached = session.attach(pid, &process);
+        check(attached && session.isStopped(), "the full debugger attaches to the Wine process with all threads stopped");
+        int breakpoint = attached ? session.setSoftwareBreakpoint(code) : -1;
+        check(breakpoint >= 0, "a software breakpoint is planted at the real PE writer");
+        if (breakpoint >= 0) {
+            session.continueExecution();
+            char run = 'b';
+            bool sent = ::write(fixture.input, &run, 1) == 1;
+            auto hit = sent ? waitFor(DebugEventType::BreakpointHit) : std::nullopt;
+            check(hit && hit->address == code && hit->context.architecture == mode &&
+                  hit->context.instructionPointer() == code,
+                  "the Windows writer stops at the breakpoint in its actual register mode");
+            uintptr_t afterStep = 0;
+            if (hit) {
+                session.step(StepMode::Into);
+                auto stepped = waitFor(DebugEventType::SingleStep);
+                afterStep = stepped ? stepped->context.instructionPointer() : 0;
+            }
+            check(afterStep > code && afterStep <= code + 15, "single-stepping advances exactly one Windows instruction");
+            check(session.removeSoftwareBreakpoint(breakpoint), "the breakpoint is removed with its original byte restored");
+            session.continueExecution();
+            auto result = fixture.reply();
+            check(result && *result == 31415932, "the Windows program completes the interrupted call with the right result");
+        }
+        session.detach();
+        check(!session.isAttached() && fixture.value('r', 31415932), "the Wine target keeps running normally after the debugger detaches");
+    }
+    {
+        // Break-and-trace from the writer: the trace arms its start address
+        // and waits; the fixture's next command runs straight into it.
+        os::LinuxDebugger debugger;
+        Tracer tracer;
+        TraceConfig config;
+        config.startAddress = code;
+        config.maxSteps = 6;
+        std::vector<TraceEntry> entries;
+        std::thread tracing([&] { entries = tracer.trace(process, debugger, config); });
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        char run = 'b';
+        bool sent = ::write(fixture.input, &run, 1) == 1;
+        tracing.join();
+        const auto mode = width == 4 ? CpuArchitecture::X86_32 : CpuArchitecture::X86_64;
+        check(sent && !entries.empty() && entries.front().address == code && entries.front().context.architecture == mode &&
+              !entries.front().instruction.empty(),
+              "break-and-trace records the Windows writer's instructions from its start address");
+        auto result = fixture.reply();
+        check(result && *result == 31415933 && fixture.value('r', 31415933), "the traced Windows call completes and the program stays live");
+    }
     int busyFailuresBefore=failures;
     uintptr_t busyFlag=value+0x48,heartbeat=value+0x4c;
     char command='s';
@@ -359,7 +442,7 @@ static void exercise(const char* wine, const char* path, unsigned width, bool re
           "all Windows general registers, segments and execution mode survive native memory operations exactly");
     uint32_t zero=0;
     auto cleared=process.write(busyFlag,&zero,sizeof(zero));
-    check(cleared && *cleared==sizeof(zero) && fixture.value('r',31415931),
+    check(cleared && *cleared==sizeof(zero) && fixture.value('r',31415933),
           "the Windows program exits its loop and resumes normal console work with its original register state");
     printf("WINE_BUSY_RESULT=%s programWidth=%u\n",failures==busyFailuresBefore ? "PASSED" : "FAILED",width);
 }

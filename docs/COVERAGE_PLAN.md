@@ -225,3 +225,6 @@ first. Detailed write-ups continue in PROGRESS.md.
   pass the full driver inside the real Steam Runtime container; the hosted
   job adds pinned SLR 4 with GE-Proton11-7. Steam Runtime row C1 to C6 and C8
   to `B`.
+- 2026-10-12, **1.3** done: all-stop debugger (breakpoint, mode-correct
+  context, single step, removal, detach) and break-and-trace on Wine 11 and
+  both Proton builds, host and Steam Runtime. C9 to `B` on five Windows rows.

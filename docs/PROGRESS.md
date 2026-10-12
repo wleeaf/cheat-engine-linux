@@ -16,6 +16,26 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Full debugger on Wine and Proton: 12 October 2026
+
+Item 1.3 of the [coverage plan](COVERAGE_PLAN.md). The shared Wine driver now
+runs the full debugger against the live PE fixtures: an all-stop
+`DebugSession` attach, a software breakpoint at the real PE writer, the hit
+reported in the program's own register mode (x86-32 for PE32, also on the
+64-bit WoW64 loader), one single step that advances exactly one Windows
+instruction, breakpoint removal with the original byte restored, and the
+interrupted call completing with the correct result. After detach the program
+keeps answering. Break-and-trace then arms the same function, records its
+instructions in the right mode, and the traced call completes.
+
+Stopping the whole Wine process is this feature's purpose (see CLAUDE.md's
+Wine rules); transient operations elsewhere still never stop the whole group.
+The checks pass on local Wine 11 (new WoW64) and through both Proton builds on
+the host and inside their Steam Runtime containers, **110 checks per build**
+in each mode. The hosted Wine 9, Wine 11 and GE-Proton jobs run the same
+driver. Matrix: C9 at `B` for the three Wine rows, Proton and the Steam
+Runtime row.
+
 ## Proton inside the Steam Runtime container: 12 October 2026
 
 Item 1.2 of the [coverage plan](COVERAGE_PLAN.md). Steam does not run Proton

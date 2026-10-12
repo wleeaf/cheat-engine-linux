@@ -32,8 +32,14 @@ refused ("Code write failed: Operation not supported"); the gate now requires
 that explicit refusal on ARM rather than a hook. CoreCLR's tiered compilation
 keeps replacing hot methods, so an instruction found by find-what-writes can
 stop running; the runtime checks use one compiled version
-(`DOTNET_TieredCompilation=0`) and this stays a known limitation for tiered
-.NET code. Coverage is now 212/268 (79.1%).
+(`DOTNET_TieredCompilation=0`). The diagnostics then showed the real cause:
+.NET 7+ maps JIT code W^X, an executable read-only view of a shared memfd plus
+a separate writable view, and forced writes are refused on shared read-only
+mappings, so breakpoints and hooks at JIT addresses never land. The CoreCLR
+checks run with `DOTNET_EnableWriteXorExecute=0`; writing through the
+writable alias is an open item. With that, Mono and CoreCLR pass every
+runtime check on hosted CI, including native calls and the Qt windows.
+Coverage is now 217/268 (81.0%).
 
 ## s390x and PowerPC64 guests: 12 October 2026
 

@@ -874,7 +874,7 @@
     },
     "C7": {
      "state": "B",
-     "evidence": "mono_integration agent injection, resident refresh, library unload"
+     "evidence": "runtime_target_gate on hosted CI: executeCode and injectLibrary run inside the Mono process with a busy thread"
     },
     "C8": {
      "state": "B",
@@ -1010,24 +1010,24 @@
      "evidence": "runtime_target_gate on hosted CI (.NET 8 SDK on the runner, DOTNET_PerfMapEnabled=1): disassembly of JIT code annotated with its perf-map name"
     },
     "C6": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI (.NET 8, DOTNET_EnableWriteXorExecute=0; W^X double-mapped JIT code still needs writes through its writable alias): code-injection template at the JIT writer, program computes through the cave, undo restores it"
     },
     "C7": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI: executeCode and injectLibrary run inside the .NET process with a busy thread"
     },
     "C8": {
      "state": "B",
      "evidence": "runtime_target_gate on hosted CI (.NET 8 SDK on the runner, DOTNET_PerfMapEnabled=1): find-what-writes names the JIT-compiled writer"
     },
     "C9": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI (.NET 8, DOTNET_EnableWriteXorExecute=0; W^X double-mapped JIT code still needs writes through its writable alias): Lua breakpoint at the JIT writer stops the running code"
     },
     "C10": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI (.NET 8, DOTNET_EnableWriteXorExecute=0; W^X double-mapped JIT code still needs writes through its writable alias) --gui: CLI, Lua and the Qt main/debugger windows against a live .NET program"
     }
    }
   },

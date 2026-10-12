@@ -184,6 +184,8 @@ def main():
                            help="Wine or Proton command that runs the PE fixtures")
     parser.add_argument("--gui", action="store_true",
                         help="also drive the Qt main and debugger windows (gui_lifecycle_smoke --target)")
+    parser.add_argument("--ceserver", action="store_true",
+                        help="also drive the program remotely: cescan ceserver plus a Lua ceserver client")
     parser.add_argument("--report", type=pathlib.Path)
     args = parser.parse_args()
     cescan = str((args.build / "cescan").resolve())
@@ -375,6 +377,74 @@ def main():
                 check("the GUI scans, edits and debugs the target (6 window checks)",
                       smoke.returncode == 0 and "GUI_TARGET_RESULT=PASSED checks=6" in output, output)
                 check("the program's GUI-interrupted call completes after detach", called == 13580, output)
+            if args.ceserver and not fixture.windows:
+                server = subprocess.Popen([cescan, "ceserver", "--port", "0"], stdout=subprocess.PIPE,
+                                          stderr=subprocess.STDOUT, text=True, bufsize=1)
+                try:
+                    listening = select.select([server.stdout], [], [], 10)[0] and server.stdout.readline()
+                    port = re.search(r"127\.0\.0\.1:(\d+)", listening or "")
+                    check("cescan ceserver listens on loopback", port is not None, listening or "")
+                    original = aob(pid, hex(fixture.writer))
+                    hook = (f"[ENABLE]\nalloc(newmem,256,{fixture.writer:#x})\nnewmem:\n"
+                            f"mov {reg},{fixture.value:#x}\nmov eax,#1000\nmov [{reg}],eax\nret\n"
+                            f"{fixture.writer:#x}:\njmp newmem\n[DISABLE]\n{fixture.writer:#x}:\ndb {original}\ndealloc(newmem)\n")
+                    remote = subprocess.Popen([cescan, "lua", "-e", f"""
+assert(connectToCeserver('127.0.0.1', {port.group(1) if port else 1}, {pid}))
+local info = getTargetInfo()
+assert(info.transport == 'ceserver', 'transport ' .. tostring(info.transport))
+assert(writeInteger({fixture.value}, 4242))
+print('REMOTE_WRITTEN'); io.flush()
+local scan = createMemScan()
+assert(scan:firstScan(0, 2, '4242', 0, 0x7fffffffffff, 4))
+local function has(s) for i = 0, s:getFoundCount() - 1 do if s:getAddress(i) == {fixture.value} then return true end end end
+assert(has(scan), 'first scan over ceserver missed the value')
+assert(writeInteger({fixture.value}, 4243))
+assert(scan:nextScan(0, 2, '4243', 0, 0x7fffffffffff, 4))
+assert(has(scan), 'next scan over ceserver missed the value')
+print('REMOTE_SCANNED'); io.flush()
+local resolved = false
+for _, path in ipairs(pointerScan({fixture.value}, 1, 64) or {{}}) do
+  if path.moduleBase + path.baseOffset == {fixture.pointer} then resolved = true end
+end
+assert(resolved, 'pointer scan over ceserver missed the static path')
+print('REMOTE_POINTERS'); io.flush()
+local hook = [[{hook}]]
+local ok, disable = autoAssemble(hook)
+assert(ok, tostring(disable))
+print('REMOTE_HOOKED'); io.flush()
+io.read('l')
+local undone, err = autoAssemble(hook, disable)
+assert(undone, tostring(err))
+print('REMOTE_UNHOOKED'); io.flush()
+local r, e = executeCode({fixture.writer})
+assert(r == nil and e, 'remote native call was not refused')
+print('REMOTE_CALL_REFUSED ' .. tostring(e)); io.flush()
+"""], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+                    seen, hooked = [], None
+                    deadline = time.monotonic() + 120
+                    while time.monotonic() < deadline and select.select([remote.stdout], [], [], 1):
+                        line = remote.stdout.readline()
+                        if not line:
+                            break
+                        seen.append(line)
+                        if line.startswith("REMOTE_HOOKED"):
+                            hooked = fixture.command("b")
+                            remote.stdin.write("go\n")
+                            remote.stdin.flush()
+                    remote.wait(timeout=30)
+                    output = "".join(seen)
+                    check("a Lua client writes the program through cescan ceserver",
+                          "REMOTE_WRITTEN" in output, output)
+                    check("first and next scans run over the ceserver transport", "REMOTE_SCANNED" in output, output)
+                    check("a pointer scan over ceserver finds the static path", "REMOTE_POINTERS" in output, output)
+                    check("an Auto Assembler hook applied over ceserver changes the program", hooked == 1000, output)
+                    check("autoAssemble(script, disableInfo) undoes it over ceserver",
+                          "REMOTE_UNHOOKED" in output and fixture.command("b") == 1001, output)
+                    check("native calls over ceserver are refused with a reason", "REMOTE_CALL_REFUSED" in output, output)
+                    expected = 1001
+                finally:
+                    server.terminate()
+                    server.wait(timeout=10)
         except Exception as error:  # report and continue with the next fixture
             check("the workflow completes", False, repr(error))
         finally:

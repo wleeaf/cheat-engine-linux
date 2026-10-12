@@ -6,6 +6,7 @@
 #include "platform/linux/linux_process.hpp"
 #include "platform/gdb_process.hpp"
 #include "platform/linux/ptrace_wrapper.hpp"
+#include "platform/linux/ceserver_server.hpp"
 #include "scanner/memory_scanner.hpp"
 #include "arch/disassembler.hpp"
 #include "arch/assembler.hpp"
@@ -97,6 +98,8 @@ static void usage() {
         "  autoasm <pid> <script.aa> [--disable-after <seconds>]  Execute Auto Assembler\n"
         "                                script, optionally restore it after a delay or Ctrl-C\n"
         "  modules <pid>                 List loaded modules\n"
+        "  ceserver [--port <n>]         Serve local processes over the ceserver\n"
+        "                                protocol on 127.0.0.1 (default port 52736)\n"
         "  symbols <pid> [name] [--all]  List symbols (ELF tables, debug files);\n"
         "                                a name substring lists every match\n"
         "  regions <pid>                 List memory regions\n"
@@ -1723,6 +1726,28 @@ int main(int argc, char** argv) {
     }
 
     if (!strcmp(cmd, "gdb")) return cmd_gdb(argc,argv);
+    if (!strcmp(cmd, "ceserver")) {
+        // Serve local processes to Cheat Engine (or another cecore) over the
+        // ceserver protocol. Loopback only: the protocol grants full memory
+        // access, so reach it remotely through an SSH tunnel.
+        unsigned port = 52736;
+        for (int i = 2; i < argc; ++i) {
+            if (!strcmp(argv[i], "--port") && i + 1 < argc) port = static_cast<unsigned>(parseUInt(argv[++i], "port", 65535));
+            else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
+        }
+        ce::os::CeserverServer server;
+        const auto bound = server.start(static_cast<uint16_t>(port));
+        if (!bound) { fprintf(stderr, "ceserver: could not listen on 127.0.0.1:%u\n", port); return 1; }
+        printf("ceserver listening on 127.0.0.1:%u (Ctrl-C to stop)\n", bound);
+        fflush(stdout);
+        g_freezeStop = 0;
+        signal(SIGINT, onFreezeSignal);
+        signal(SIGTERM, onFreezeSignal);
+        const struct timespec tick{0, 200 * 1000000L};
+        while (!g_freezeStop && server.running()) nanosleep(&tick, nullptr);
+        server.stop();
+        return 0;
+    }
 
     if (!strcmp(cmd, "list")) {
         return cmd_list();

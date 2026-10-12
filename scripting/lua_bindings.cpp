@@ -1809,10 +1809,30 @@ static int l_assemble(lua_State* L) {
     return 1;
 }
 
+// CE parity: autoAssemble(script) -> true, disableInfo | false, error, and
+// autoAssemble(script, disableInfo) undoes that activation (the [DISABLE]
+// semantics: original bytes, protections and allocations are restored).
+static const char* kAADisableInfo = "ce.AADisableInfo";
+static int l_aaDisableInfoGc(lua_State* L) {
+    static_cast<DisableInfo*>(luaL_checkudata(L, 1, kAADisableInfo))->~DisableInfo();
+    return 0;
+}
 static int l_autoAssemble(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushboolean(L, 0); lua_pushstring(L, "no process"); return 2; }
     const char* script = luaL_checkstring(L, 1);
+    if (auto* info = static_cast<DisableInfo*>(luaL_testudata(L, 2, kAADisableInfo))) {
+        AutoAssembler aa;
+        auto result = aa.disable(*p, script, *info);
+        lua_pushboolean(L, result.success);
+        if (result.success) { *info = {}; lua_pushnil(L); }   // a second disable is a no-op
+        else lua_pushstring(L, result.error.c_str());
+        return 2;
+    }
+    if (lua_toboolean(L, 2) && !lua_isuserdata(L, 2)) {
+        lua_pushboolean(L, 0); lua_pushstring(L, "assembling into Cheat Engine itself (targetself) is not supported");
+        return 2;
+    }
 
     AutoAssembler aa;
     auto result = aa.execute(*p, script);
@@ -1824,10 +1844,17 @@ static int l_autoAssemble(lua_State* L) {
                 r->addUserSymbol(addr, name);
     }
     lua_pushboolean(L, result.success);
-    if (!result.success)
+    if (!result.success) {
         lua_pushstring(L, result.error.c_str());
-    else
-        lua_pushnil(L);
+        return 2;
+    }
+    auto* info = static_cast<DisableInfo*>(lua_newuserdata(L, sizeof(DisableInfo)));
+    new (info) DisableInfo(std::move(result.disableInfo));
+    if (luaL_newmetatable(L, kAADisableInfo)) {
+        lua_pushcfunction(L, l_aaDisableInfoGc);
+        lua_setfield(L, -2, "__gc");
+    }
+    lua_setmetatable(L, -2);
     return 2;
 }
 

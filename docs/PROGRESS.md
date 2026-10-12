@@ -16,6 +16,27 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## A usable CEServer and Lua script undo: 12 October 2026
+
+Wave 2 of the [coverage plan](COVERAGE_PLAN.md) for the CEServer row. The
+ceserver-protocol server (`CeserverServer`) existed and was tested, but no
+frontend could start it. `cescan ceserver [--port N]` now serves local
+processes to Cheat Engine or another cecore on 127.0.0.1 (default port
+52736, CE's own); remote use goes through an SSH tunnel, because the protocol
+grants full memory access.
+
+Lua `autoAssemble` now follows CE: on success it returns `true` and a
+disable-info object, and `autoAssemble(script, disableInfo)` undoes that
+activation (original bytes, protections and allocations). Before, Lua could
+enable a script but never disable it.
+
+`frontend_target_gate.py --ceserver` drives a live glibc program through
+`cescan ceserver` with a Lua client: typed writes, whole-address-space first
+and next scans, a pointer scan, an Auto Assembler hook that changes the
+program and is undone through the disable info, and a native call that is
+refused with its reason. The hosted build job runs it. Matrix: CEServer C3 to
+C6 at `B`, C7 `X`. Coverage is now 146/268 (54.5%).
+
 ## Native calls, Lua symbols and the symbols listing: 12 October 2026
 
 Wave 2 of the [coverage plan](COVERAGE_PLAN.md), capability C7. Driving

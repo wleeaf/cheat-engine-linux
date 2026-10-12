@@ -290,6 +290,10 @@ registered symbols take precedence over module names and retain their cleanup
 ownership; unregistering them exposes the current module again. Syntax-only
 checking has no process snapshot and preserves explicit symbols.
 
+From Lua, `autoAssemble(script)` returns `true` plus a disable-info object
+(or `false, error`), and `autoAssemble(script, disableInfo)` undoes that
+activation, as in Cheat Engine.
+
 Function and variable names from the target's symbol tables (ELF `.symtab`,
 `.dynsym`, separate debug files) also resolve in name references:
 `alloc(newmem,256,UpdateHealth)` places the cave near the function,

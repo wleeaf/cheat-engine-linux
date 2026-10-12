@@ -177,7 +177,7 @@ jobs:
           gcc -O1 -pthread -o build/dynamic_fixture_glibc test/static_fixture.c
           gcc -m32 -O1 -pthread -o build/dynamic_fixture_glibc32 test/static_fixture.c
           python3 test/frontend_target_gate.py build build/static_fixture_glibc build/static_fixture_musl \
-            build/dynamic_fixture_glibc build/dynamic_fixture_glibc32 --gui --report build/compatibility-evidence/libc-targets.json
+            build/dynamic_fixture_glibc build/dynamic_fixture_glibc32 --gui --ceserver --report build/compatibility-evidence/libc-targets.json
 
       - name: Run the same workflows on sandboxed programs (bubblewrap, Podman)
         # Ubuntu's AppArmor blocks unprivileged user namespaces for bwrap, so

@@ -245,3 +245,6 @@ first. Detailed write-ups continue in PROGRESS.md.
 - 2026-10-12, **C7 on libc rows**: Lua symbols load on first use; explicit
   parked and static-program refusals; `executeCode` and `injectLibrary`
   verified on live programs. Coverage 142/268 (53.0%).
+- 2026-10-12, **CEServer row**: `cescan ceserver` exposes the server; Lua
+  `autoAssemble` returns disable info and can undo; scans, pointer scan and
+  hooks verified over the transport. Coverage 146/268 (54.5%).

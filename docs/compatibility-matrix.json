@@ -1139,24 +1139,24 @@
      "evidence": "ceserver_integration typed/pointer writes, partial transfers, stale-handle failures"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no scan over CEServer"
+     "state": "B",
+     "evidence": "frontend_target_gate --ceserver: Lua client through cescan ceserver against a live glibc program: whole-address-space first and next scans"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no pointer scan"
+     "state": "B",
+     "evidence": "frontend_target_gate --ceserver: Lua client through cescan ceserver against a live glibc program: pointer scan finds the static path"
     },
     "C5": {
-     "state": "-",
-     "evidence": "no test"
+     "state": "B",
+     "evidence": "frontend_target_gate --ceserver: Lua client through cescan ceserver against a live glibc program: Auto Assembler hook script assembles for the remote target"
     },
     "C6": {
      "state": "B",
-     "evidence": "ceserver_integration remote alloc/protect/free + failure results; no code cave"
+     "evidence": "ceserver_integration remote alloc/protect/free; frontend_target_gate --ceserver: Lua client through cescan ceserver against a live glibc program: code-cave hook changes behavior, autoAssemble(script, disableInfo) restores it"
     },
     "C7": {
-     "state": "-",
-     "evidence": "no test"
+     "state": "X",
+     "evidence": "frontend_target_gate --ceserver: Lua client through cescan ceserver against a live glibc program: executeCode is refused with the capability reason (no remote native-call backend)"
     },
     "C8": {
      "state": "B",

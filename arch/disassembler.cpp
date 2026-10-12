@@ -51,6 +51,15 @@ void Disassembler::setArch(Arch arch) {
         case Arch::RISCV32: case Arch::RISCV64:
             throw std::runtime_error("This Capstone build has no RISC-V decoder (Capstone 5 or newer is required)");
 #endif
+        case Arch::PPC64: cs_a = CS_ARCH_PPC; cs_m = static_cast<cs_mode>(CS_MODE_64 | CS_MODE_LITTLE_ENDIAN); break;
+        case Arch::PPC64_BE: cs_a = CS_ARCH_PPC; cs_m = static_cast<cs_mode>(CS_MODE_64 | CS_MODE_BIG_ENDIAN); break;
+#if CS_API_MAJOR >= 6
+        case Arch::S390X: cs_a = CS_ARCH_SYSTEMZ; cs_m = CS_MODE_BIG_ENDIAN; break;
+#else
+        case Arch::S390X: cs_a = CS_ARCH_SYSZ; cs_m = CS_MODE_BIG_ENDIAN; break;
+#endif
+        case Arch::MIPS64: cs_a = CS_ARCH_MIPS; cs_m = static_cast<cs_mode>(CS_MODE_MIPS64 | CS_MODE_LITTLE_ENDIAN); break;
+        case Arch::MIPS64_BE: cs_a = CS_ARCH_MIPS; cs_m = static_cast<cs_mode>(CS_MODE_MIPS64 | CS_MODE_BIG_ENDIAN); break;
         default: throw std::invalid_argument("Unknown disassembler architecture");
     }
     csh h;
@@ -172,6 +181,8 @@ std::vector<Instruction> Disassembler::disassemble(uintptr_t address, std::span<
         size_t unit=1;
         if (arch_==Arch::ARM32 || arch_==Arch::ARM32_BE || arch_==Arch::ARM64) unit=4;
         else if (arch_==Arch::RISCV32 || arch_==Arch::RISCV64) unit=(code[offset]&3)==3 ? 4 : 2;   // C extension
+        else if (arch_==Arch::PPC64 || arch_==Arch::PPC64_BE || arch_==Arch::MIPS64 || arch_==Arch::MIPS64_BE) unit=4;
+        else if (arch_==Arch::S390X) unit=(code[offset]>>6)==0 ? 2 : (code[offset]>>6)==3 ? 6 : 4;   // length in the opcode
         else if (arch_==Arch::ARMThumb || arch_==Arch::ARMThumb_BE) {
             unit=2;
             if (code.size()-offset>=2) {
@@ -209,6 +220,9 @@ bool Disassembler::supports(Arch arch) {
 
 uintptr_t Disassembler::previousInstruction(uintptr_t addr,
     const std::function<bool(uintptr_t, uint8_t*, size_t)>& read) {
+    if (arch_ == Arch::PPC64 || arch_ == Arch::PPC64_BE || arch_ == Arch::MIPS64 || arch_ == Arch::MIPS64_BE)
+        return addr >= 4 ? addr - 4 : 0;
+    if (arch_ == Arch::S390X) return addr >= 2 ? addr - 2 : 0;   // variable length; the caller resynchronizes
     if (arch_ == Arch::RISCV32 || arch_ == Arch::RISCV64) {
         // A full-width instruction ends here when the word four bytes back
         // starts with the 32-bit length bits; otherwise assume a compressed one.

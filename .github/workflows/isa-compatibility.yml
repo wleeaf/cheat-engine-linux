@@ -8,24 +8,34 @@ permissions:
   contents: read
 
 jobs:
-  riscv64-guest:
+  isa-guest:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - isa: riscv64
+            packages: g++-riscv64-linux-gnu qemu-system-misc opensbi
+          - isa: s390x     # big-endian
+            packages: g++-s390x-linux-gnu qemu-system-s390x
+          - isa: ppc64el
+            packages: g++-powerpc64le-linux-gnu qemu-system-ppc
+    name: ${{ matrix.isa }}-guest
     steps:
       - uses: actions/checkout@v7
-      - name: Install the RISC-V cross compiler and full-system emulator
+      - name: Install the cross compiler and full-system emulator
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            g++-riscv64-linux-gnu cmake ninja-build curl python3 qemu-system-misc opensbi
-      - name: Require process, scan, pointer, symbol and disassembly checks in a real RISC-V64 guest
-        run: CECORE_CI_JOBS="$(nproc)" tools/check-isa-vm.sh build/isa-vm
+          sudo apt-get install -y --no-install-recommends ${{ matrix.packages }} cmake ninja-build curl python3
+      - name: Require process, scan, pointer, symbol and disassembly checks in a real guest
+        run: CECORE_CI_JOBS="$(nproc)" tools/check-isa-vm.sh ${{ matrix.isa }} build/isa-vm/${{ matrix.isa }}
       - name: Save guest log and operation evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: riscv64-guest-evidence
+          name: ${{ matrix.isa }}-guest-evidence
           path: |
-            build/isa-vm/riscv64-guest.json
-            build/isa-vm/riscv64-guest.log
+            build/isa-vm/${{ matrix.isa }}/${{ matrix.isa }}-guest.json
+            build/isa-vm/${{ matrix.isa }}/${{ matrix.isa }}-guest.log
           if-no-files-found: error

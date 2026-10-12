@@ -379,24 +379,24 @@
    "name": "MIPS / PPC64LE / s390x",
    "cells": {
     "C1": {
-     "state": "-",
-     "evidence": "ELF classification unit only"
+     "state": "B",
+     "evidence": "isa_vm_gate: static cecore driver as /init in real s390x (big-endian) and ppc64el Linux 6.8 guests (local container and CI); MIPS not yet covered: target description (s390x / PowerPC64), module list, ELF symbols (host-order ELF)"
     },
     "C2": {
-     "state": "-",
-     "evidence": "byte-order data paths unit only"
+     "state": "B",
+     "evidence": "isa_vm_gate: static cecore driver as /init in real s390x (big-endian) and ppc64el Linux 6.8 guests (local container and CI); MIPS not yet covered: process write observed by the static libc program"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no live target"
+     "state": "B",
+     "evidence": "isa_vm_gate: static cecore driver as /init in real s390x (big-endian) and ppc64el Linux 6.8 guests (local container and CI); MIPS not yet covered: whole-process first and next scans, including big-endian data"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live target"
+     "state": "B",
+     "evidence": "isa_vm_gate: static cecore driver as /init in real s390x (big-endian) and ppc64el Linux 6.8 guests (local container and CI); MIPS not yet covered: static pointer path found and dereferenced on both"
     },
     "C5": {
-     "state": "-",
-     "evidence": "no backend"
+     "state": "B",
+     "evidence": "isa_vm_gate: static cecore driver as /init in real s390x (big-endian) and ppc64el Linux 6.8 guests (local container and CI); MIPS not yet covered: Capstone SystemZ and PowerPC decode the writer (decode only; no assembler backend, reported explicitly)"
     },
     "C6": {
      "state": "-",

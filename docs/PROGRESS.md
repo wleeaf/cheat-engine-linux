@@ -16,6 +16,24 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## s390x and PowerPC64 guests: 12 October 2026
+
+Item 3.3 of the [coverage plan](COVERAGE_PLAN.md). The disassembler gained
+PowerPC64 (both byte orders), s390x and MIPS64 through Capstone (decoding
+only; this build's Keystone has no such targets, which is reported), the
+native-machine detection learned s390x, PowerPC64 and MIPS hosts, and
+`tools/check-isa-vm.sh` takes the ISA as a parameter with pinned Ubuntu 24.04
+kernels. In real guests, **s390x (big-endian) and ppc64el pass all 9 checks**:
+identification, ELF symbols, writes, first/next scans, pointer path and
+decoding (`larl`, `l`, `ahi`, `st` on s390x).
+
+s390x exposed one real limitation: the ELF symbol loader accepted only
+little-endian files, even on a big-endian host reading its own programs. It
+reads ELF structures in host order, so it now accepts files in the host's
+byte order (cross-endian files are still refused rather than misread). The
+`isa-compatibility` workflow runs RISC-V64, s390x and ppc64el as a matrix.
+MIPS has decoding support but no guest yet. Coverage is now 191/268 (71.3%).
+
 ## cecore inside a real RISC-V64 guest: 12 October 2026
 
 Item 3.2 of the [coverage plan](COVERAGE_PLAN.md), at the `B` level. The new

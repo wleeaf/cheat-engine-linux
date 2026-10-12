@@ -554,7 +554,9 @@ static const char* archName(Arch a) {
                  case Arch::ARMThumb: return "thumb";
                  case Arch::ARM32_BE: return "arm32-be";
                  case Arch::ARMThumb_BE: return "thumb-be";
-                 case Arch::RISCV32: return "riscv32"; case Arch::RISCV64: return "riscv64"; }
+                 case Arch::RISCV32: return "riscv32"; case Arch::RISCV64: return "riscv64";
+                 case Arch::PPC64: return "ppc64le"; case Arch::PPC64_BE: return "ppc64";
+                 case Arch::S390X: return "s390x"; case Arch::MIPS64: return "mips64el"; case Arch::MIPS64_BE: return "mips64"; }
     return "?";
 }
 
@@ -568,6 +570,11 @@ static std::optional<Arch> parseArch(const std::string& s) {
     if (s == "thumb-be") return Arch::ARMThumb_BE;
     if (s == "riscv32" || s == "rv32") return Arch::RISCV32;
     if (s == "riscv64" || s == "rv64") return Arch::RISCV64;
+    if (s == "ppc64le") return Arch::PPC64;
+    if (s == "ppc64") return Arch::PPC64_BE;
+    if (s == "s390x") return Arch::S390X;
+    if (s == "mips64el") return Arch::MIPS64;
+    if (s == "mips64") return Arch::MIPS64_BE;
     return std::nullopt;
 }
 

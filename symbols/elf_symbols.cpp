@@ -27,6 +27,14 @@ void SymbolResolver::clear() {
     nameIndex_.clear();
 }
 
+// ELF structures are read in host byte order, so a symbol file must use it:
+// little-endian on x86/ARM/RISC-V hosts, big-endian on s390x (no swapping).
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+static constexpr unsigned char kHostElfData = ELFDATA2MSB;
+#else
+static constexpr unsigned char kHostElfData = ELFDATA2LSB;
+#endif
+
 void SymbolResolver::loadProcess(ProcessHandle& proc) {
     clear();
     const auto description = proc.targetDescription();
@@ -319,7 +327,7 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
 
     // Verify ELF magic
     if (memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0 ||
-        ehdr.e_ident[EI_DATA] != ELFDATA2LSB || ehdr.e_ident[EI_VERSION] != EV_CURRENT) return;
+        ehdr.e_ident[EI_DATA] != kHostElfData || ehdr.e_ident[EI_VERSION] != EV_CURRENT) return;
 
     // 32-bit (i386) ELFs go through the parallel Elf32 symbol path; the rest of
     // this function is Elf64-typed.
@@ -588,7 +596,7 @@ void SymbolResolver::parseElf32Symbols(const std::string& path, const std::strin
     f.read(reinterpret_cast<char*>(&ehdr), sizeof(ehdr));
     if (!f) return;
     if (memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0 ||
-        ehdr.e_ident[EI_DATA] != ELFDATA2LSB || ehdr.e_ident[EI_VERSION] != EV_CURRENT) return;
+        ehdr.e_ident[EI_DATA] != kHostElfData || ehdr.e_ident[EI_VERSION] != EV_CURRENT) return;
     if (ehdr.e_ident[EI_CLASS] != ELFCLASS32 || ehdr.e_version != EV_CURRENT ||
         ehdr.e_ehsize != sizeof(Elf32_Ehdr) || ehdr.e_shentsize != sizeof(Elf32_Shdr)) return;
     if (ehdr.e_shoff == 0 || ehdr.e_shnum == 0) return;

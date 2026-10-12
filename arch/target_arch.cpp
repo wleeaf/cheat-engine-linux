@@ -15,6 +15,13 @@ std::expected<Arch, std::string> disassemblerArchFor(const TargetMachine& m) {
                 return std::unexpected("No RISC-V decoder in this Capstone build (Capstone 5 or newer is required)");
             return arch;
         }
+        case CpuArchitecture::PowerPC64:
+            if (m.instructionByteOrder == ByteOrder::Unknown) return std::unexpected("PowerPC instruction byte order is unknown");
+            return m.instructionByteOrder == ByteOrder::Big ? Arch::PPC64_BE : Arch::PPC64;
+        case CpuArchitecture::S390X: return Arch::S390X;
+        case CpuArchitecture::Mips64:
+            if (m.instructionByteOrder == ByteOrder::Unknown) return std::unexpected("MIPS instruction byte order is unknown");
+            return m.instructionByteOrder == ByteOrder::Big ? Arch::MIPS64_BE : Arch::MIPS64;
         case CpuArchitecture::Arm32: {
             if (m.instructionByteOrder == ByteOrder::Unknown)
                 return std::unexpected("ARM instruction byte order is unknown");
@@ -42,6 +49,8 @@ std::expected<AsmArch, std::string> assemblerArchFor(Arch arch) {
         case Arch::ARMThumb_BE: return AsmArch::ARMThumb_BE;
         case Arch::RISCV32: case Arch::RISCV64:
             return std::unexpected("No assembler backend for RISC-V (Keystone has none); disassembly is available");
+        case Arch::PPC64: case Arch::PPC64_BE: case Arch::S390X: case Arch::MIPS64: case Arch::MIPS64_BE:
+            return std::unexpected("No assembler backend for this instruction set in this build; disassembly is available");
     }
     return std::unexpected("Unknown instruction architecture");
 }

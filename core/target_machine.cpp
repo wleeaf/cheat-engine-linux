@@ -82,6 +82,18 @@ TargetMachine nativeTargetMachine() {
     machine.architecture = __riscv_xlen == 64 ? CpuArchitecture::RiscV64 : CpuArchitecture::RiscV32;
     machine.instructionMode = InstructionMode::Other;
     machine.abi = TargetAbi::LinuxRiscV;
+#elif defined(__s390x__)
+    machine.architecture = CpuArchitecture::S390X;
+    machine.instructionMode = InstructionMode::Other;
+    machine.abi = TargetAbi::LinuxOther;
+#elif defined(__powerpc64__)
+    machine.architecture = CpuArchitecture::PowerPC64;
+    machine.instructionMode = InstructionMode::Other;
+    machine.abi = TargetAbi::LinuxOther;
+#elif defined(__mips__)
+    machine.architecture = sizeof(void*) == 8 ? CpuArchitecture::Mips64 : CpuArchitecture::Mips32;
+    machine.instructionMode = InstructionMode::Other;
+    machine.abi = TargetAbi::LinuxOther;
 #else
     machine.architecture = CpuArchitecture::Other;
     machine.instructionMode = InstructionMode::Other;

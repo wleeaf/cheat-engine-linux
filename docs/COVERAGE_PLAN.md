@@ -256,3 +256,6 @@ first. Detailed write-ups continue in PROGRESS.md.
 - 2026-10-12, **3.2** (B level): cecore runs inside a real RISC-V64 guest:
   identification, symbols, writes, scans, pointer scan and disassembly pass;
   new `isa-compatibility` workflow. Coverage 186/268 (69.4%).
+- 2026-10-12, **3.3** (B level for s390x and ppc64el): real guests pass all
+  checks; big-endian ELF symbols on big-endian hosts fixed. Coverage 191/268
+  (71.3%).

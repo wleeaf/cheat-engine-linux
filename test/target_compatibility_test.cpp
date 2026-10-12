@@ -318,6 +318,28 @@ static void instructionTests() {
                   "a Capstone build without RISC-V reports the missing decoder");
         }
     }
+    {
+        // Independent encodings: li r3,1 (PPC64 LE and BE), lgr %r1,%r2 and
+        // br %r14 (s390x, 4 and 2 bytes), daddiu $a0,$a0,1 and jr $ra (MIPS64 LE).
+        auto first = [](Arch arch, std::vector<uint8_t> bytes) {
+            auto decoded = Disassembler(arch).disassemble(0x1000, bytes);
+            std::string text;
+            for (const auto& insn : decoded) text += insn.mnemonic + "/" + std::to_string(insn.size) + " ";
+            return text;
+        };
+        auto ppc = first(Arch::PPC64, {0x01, 0x00, 0x60, 0x38});
+        auto ppcBe = first(Arch::PPC64_BE, {0x38, 0x60, 0x00, 0x01});
+        auto systemz = first(Arch::S390X, {0xb9, 0x04, 0x00, 0x12, 0x07, 0xfe});
+        auto mips = first(Arch::MIPS64, {0x01, 0x00, 0x84, 0x64, 0x08, 0x00, 0xe0, 0x03});
+        TargetMachine s390;
+        s390.architecture = CpuArchitecture::S390X;
+        s390.byteOrder = s390.instructionByteOrder = ByteOrder::Big;
+        check(ppc == "li/4 " && ppcBe == "li/4 " && systemz == "lgr/4 br/2 " && mips.starts_with("daddiu/4 jr/4") &&
+              disassemblerArchFor(s390) == Arch::S390X && !assemblerArchFor(Arch::S390X),
+              "PowerPC64, s390x and MIPS64 decode independent encodings in their byte orders");
+        if (ppc != "li/4 " || systemz != "lgr/4 br/2 " || !mips.starts_with("daddiu/4 jr/4"))
+            std::printf("decoded: ppc=%s ppcbe=%s s390x=%s mips=%s\n", ppc.c_str(), ppcBe.c_str(), systemz.c_str(), mips.c_str());
+    }
     auto decimal = x64.assemble("mov rcx,qword [4202496]", 0x401000);
     auto decimalInstruction = decimal ? decoder.disassembleOne(0x401000, *decimal) : std::nullopt;
     check(decimalInstruction && decimalInstruction->ripTarget == 4202496,

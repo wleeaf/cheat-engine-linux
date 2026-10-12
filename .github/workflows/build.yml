@@ -33,6 +33,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential \
             musl-tools \
+            nodejs \
+            openjdk-21-jdk-headless \
             bubblewrap \
             gcc-multilib \
             g++-multilib \
@@ -178,6 +180,11 @@ jobs:
           gcc -m32 -O1 -pthread -o build/dynamic_fixture_glibc32 test/static_fixture.c
           python3 test/frontend_target_gate.py build build/static_fixture_glibc build/static_fixture_musl \
             build/dynamic_fixture_glibc build/dynamic_fixture_glibc32 --gui --ceserver --report build/compatibility-evidence/libc-targets.json
+
+      - name: Run JIT runtime workflows (Node/V8, HotSpot)
+        # Stock runtimes cannot opt in with PR_SET_PTRACER, so Yama scope 1
+        # needs root to attach to them from a separately started tool.
+        run: sudo python3 test/runtime_target_gate.py build --gui --report build/compatibility-evidence/runtimes.json
 
       - name: Run the same workflows on sandboxed programs (bubblewrap, Podman)
         # Ubuntu's AppArmor blocks unprivileged user namespaces for bwrap, so

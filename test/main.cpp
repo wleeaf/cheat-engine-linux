@@ -1044,6 +1044,34 @@ static void test_cheat_table_json() {
 // expression, not the resolved numeric address, so it survives a restart. Verify
 // PointerPath::toString() produces an expression ExpressionParser resolves back to the
 // same target the scan found.
+// Perf maps are written by the target (untrusted): malformed, oversized and
+// unnamed lines are skipped, and a recompiled function's latest entry wins.
+static void test_perf_map_symbols() {
+    printf("\n── Test: JIT perf-map symbols ──\n");
+    char path[] = "/tmp/ce-perfmap-XXXXXX";
+    int fd = mkstemp(path);
+    if (fd < 0) { printf("  perf map: FAILED (temp file)\n"); return; }
+    std::string text =
+        "7f0000001000 40 JS:*hotLoop game.js:3:1\n"
+        "0x7f0000002000 0x20 Interpreter::ceJitWriter (I)I\n"
+        "not-a-number 10 bogus\n"
+        "7f0000003000 10\n"
+        "7f0000004000 zz broken size\n"
+        "7f0000001000 40 JS:*hotLoopRecompiled game.js:3:1\r\n" +
+        std::string(5000, 'x') + "\n";
+    bool written = write(fd, text.data(), text.size()) == static_cast<ssize_t>(text.size());
+    close(fd);
+    ce::SymbolResolver resolver;
+    resolver.loadPerfMap(path);
+    unlink(path);
+    bool ok = written && resolver.count() == 2 &&
+        resolver.lookup("JS:*hotLoopRecompiled game.js:3:1") == 0x7f0000001000 &&
+        resolver.lookup("Interpreter::ceJitWriter (I)I") == 0x7f0000002000 &&
+        resolver.resolve(0x7f0000001010) == "[jit]!JS:*hotLoopRecompiled game.js:3:1+0x10" &&
+        resolver.lookup("bogus") == 0;
+    printf("  perf map entries, recompiled names and malformed lines: %s\n", ok ? "OK" : "FAILED");
+}
+
 static void test_pointer_path_expression() {
     printf("\n── Test: PointerPath toString resolves via ExpressionParser ──\n");
     const uintptr_t moduleBase = 0x400000;
@@ -11403,6 +11431,7 @@ int main(int argc, char* argv[]) {
     test_logging();
     test_ce_table_import();
     test_pointer_path_expression();
+    test_perf_map_symbols();
     test_ct_load_from_string();
     test_ct_format_detection();
     test_ct_forms_roundtrip();

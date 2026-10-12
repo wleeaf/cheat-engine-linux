@@ -26,6 +26,11 @@ public:
     /// Load symbols from a single ELF file mapped at baseAddr.
     void loadModule(const std::string& path, const std::string& moduleName, uintptr_t baseAddr);
 
+    /// Add JIT code names from a perf map ("START SIZE name" per line), as
+    /// written by HotSpot, CoreCLR, V8/Node and LuaJIT. loadProcess() reads
+    /// the target's /tmp/perf-<pid>.map automatically.
+    void loadPerfMap(const std::string& path);
+
     /// Clear all loaded symbols.
     void clear();
 

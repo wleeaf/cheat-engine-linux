@@ -248,3 +248,6 @@ first. Detailed write-ups continue in PROGRESS.md.
 - 2026-10-12, **CEServer row**: `cescan ceserver` exposes the server; Lua
   `autoAssemble` returns disable info and can undo; scans, pointer scan and
   hooks verified over the transport. Coverage 146/268 (54.5%).
+- 2026-10-12, **4.1** done for V8 and HotSpot: perf-map JIT symbols, and
+  Node/JVM pass 9 frontend checks each (CoreCLR/LuaJIT use the same loader,
+  not yet verified live). Coverage 163/268 (60.8%).

@@ -16,6 +16,30 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## JIT runtimes: perf-map symbols for Node/V8 and HotSpot: 12 October 2026
+
+Item 4.1 of the [coverage plan](COVERAGE_PLAN.md). `SymbolResolver` now reads
+the target's `/tmp/perf-<pid>.map` (through the target's root and with its
+namespaced PID, so containers work) and names JIT-generated code. HotSpot
+(`jcmd <pid> Compiler.perfmap`), CoreCLR (`DOTNET_PerfMapEnabled=1`), V8/Node
+(`--perf-basic-prof`) and LuaJIT all write this format. The file comes from
+the target, so it is treated as untrusted: capped at 1 M entries and 64 MB,
+lines over 4 KB and malformed lines skipped, and a recompiled function's latest
+entry wins. JIT names then appear wherever symbols do: `cescan symbols`,
+disassembly annotations, find-what-writes output and Lua `getAddress`.
+
+`test/runtime_target_gate.py` drives Node and the JVM as a user would.
+Fixtures (`test/runtimes/`) keep a value in off-heap memory (a
+`SharedArrayBuffer`, a direct `ByteBuffer`) that a JIT-compiled function
+updates. The gate finds the value with a marker scan and a next scan after a
+real change, writes it, disassembles the named JIT code, runs find-what-writes
+(on HotSpot it correctly names `DirectByteBuffer.putInt`, the compiled code
+that really writes), breaks on that exact instruction from Lua, and drives the
+Qt main and debugger windows. Locally, Node 22 and OpenJDK 21 pass all **9
+checks each**; the hosted build job installs Node and OpenJDK 21 and runs the
+gate. Matrix: V8 and JVM rows C1 to C3, C5 and C8 to C10 at `B`. Coverage is
+now 163/268 (60.8%).
+
 ## Non-static pointer paths and GDB guest refusals: 12 October 2026
 
 `PointerScanConfig::staticOnly` existed (and Lua accepted it), but the scanner

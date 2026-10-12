@@ -943,24 +943,24 @@
    "name": "JVM",
    "cells": {
     "C1": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate (OpenJDK 21, jcmd Compiler.perfmap): cescan info names the runtime; the perf map names JIT code in cescan symbols and Lua"
     },
     "C2": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate (OpenJDK 21, jcmd Compiler.perfmap): typed write to an off-heap value observed by the managed program"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate (OpenJDK 21, jcmd Compiler.perfmap): first scan for a marker, next scan after a real change isolates the value"
     },
     "C4": {
      "state": "-",
      "evidence": "no live test"
     },
     "C5": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate (OpenJDK 21, jcmd Compiler.perfmap): disassembly of generated code annotated with its JIT name"
     },
     "C6": {
      "state": "-",
@@ -971,16 +971,16 @@
      "evidence": "no live test"
     },
     "C8": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate (OpenJDK 21, jcmd Compiler.perfmap): find-what-writes names the JIT-compiled writer through the perf map"
     },
     "C9": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate (OpenJDK 21, jcmd Compiler.perfmap): Lua breakpoint on the reported JIT instruction stops the running code; the call completes"
     },
     "C10": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate (OpenJDK 21, jcmd Compiler.perfmap) --gui: CLI info/symbols/scan/write/disasm/watch, Lua breakpoint, GUI scan/edit/debugger window"
     }
    }
   },
@@ -1084,24 +1084,24 @@
    "name": "V8 (Node / Electron)",
    "cells": {
     "C1": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate (Node 22 locally, Node 18 in CI, --perf-basic-prof): cescan info names the runtime; the perf map names JIT code in cescan symbols and Lua"
     },
     "C2": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate (Node 22 locally, Node 18 in CI, --perf-basic-prof): typed write to an off-heap value observed by the managed program"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate (Node 22 locally, Node 18 in CI, --perf-basic-prof): first scan for a marker, next scan after a real change isolates the value"
     },
     "C4": {
      "state": "-",
      "evidence": "no live test"
     },
     "C5": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate (Node 22 locally, Node 18 in CI, --perf-basic-prof): disassembly of generated code annotated with its JIT name"
     },
     "C6": {
      "state": "-",
@@ -1112,16 +1112,16 @@
      "evidence": "no live test"
     },
     "C8": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate (Node 22 locally, Node 18 in CI, --perf-basic-prof): find-what-writes names the JIT-compiled writer through the perf map"
     },
     "C9": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate (Node 22 locally, Node 18 in CI, --perf-basic-prof): Lua breakpoint on the reported JIT instruction stops the running code; the call completes"
     },
     "C10": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate (Node 22 locally, Node 18 in CI, --perf-basic-prof) --gui: CLI info/symbols/scan/write/disasm/watch, Lua breakpoint, GUI scan/edit/debugger window"
     }
    }
   },

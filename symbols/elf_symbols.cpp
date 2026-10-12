@@ -4,7 +4,9 @@
 #include "platform/linux/target_syscall.hpp"
 #include "analysis/pe_exports.hpp"
 
+#include <cerrno>
 #include <fstream>
+#include <sstream>
 #include <cstring>
 #include <elf.h>
 #include <filesystem>
@@ -47,6 +49,58 @@ void SymbolResolver::loadProcess(ProcessHandle& proc) {
         std::error_code ec;
         if (!std::filesystem::exists(path, ec)) continue;
         loadModule(path, m.name, m.base);
+    }
+    if (!root.empty()) {
+        // The runtime names its map with the PID it sees, which differs from
+        // the host PID inside a container's PID namespace.
+        std::string pid = std::to_string(proc.pid());
+        std::ifstream status("/proc/" + std::to_string(proc.pid()) + "/status");
+        for (std::string line; std::getline(status, line);)
+            if (line.starts_with("NSpid:")) {
+                std::istringstream ids(line.substr(6));
+                for (std::string id; ids >> id;) pid = id;
+                break;
+            }
+        loadPerfMap(root + "/tmp/perf-" + pid + ".map");
+    }
+}
+
+// JIT runtimes describe generated code in /tmp/perf-<pid>.map, one
+// "START SIZE name" line (hex) per function: HotSpot (`jcmd <pid>
+// Compiler.perfmap`), CoreCLR (DOTNET_PerfMapEnabled=1), V8/Node
+// (--perf-basic-prof) and LuaJIT. The file is written by the target, so it is
+// untrusted: bounded in size, entry count and line length. Code is recompiled
+// over time, so a later entry for the same address or name wins.
+void SymbolResolver::loadPerfMap(const std::string& path) {
+    std::ifstream file(path);
+    if (!file) return;
+    constexpr size_t kMaxEntries = size_t(1) << 20;
+    constexpr uintmax_t kMaxBytes = uintmax_t(64) << 20;
+    uintmax_t consumed = 0;
+    size_t added = 0;
+    for (std::string line; added < kMaxEntries && consumed < kMaxBytes && std::getline(file, line);) {
+        consumed += line.size() + 1;
+        if (line.size() > 4096) continue;
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        const char* text = line.c_str();
+        char* end = nullptr;
+        errno = 0;
+        unsigned long long start = std::strtoull(text, &end, 16);
+        if (errno || end == text || *end != ' ') continue;
+        const char* sizeText = end + 1;
+        unsigned long long size = std::strtoull(sizeText, &end, 16);
+        if (errno || end == sizeText || *end != ' ' || !start || start > UINTPTR_MAX || size > (1ull << 30)) continue;
+        std::string name(end + 1);
+        if (name.empty()) continue;
+        const auto address = static_cast<uintptr_t>(start);
+        if (auto existing = addrIndex_.find(address); existing != addrIndex_.end()) {
+            symbols_[existing->second] = Symbol{name, address, static_cast<size_t>(size), "[jit]"};
+        } else {
+            addrIndex_[address] = symbols_.size();
+            symbols_.push_back(Symbol{name, address, static_cast<size_t>(size), "[jit]"});
+            ++added;
+        }
+        nameIndex_[name] = address;
     }
 }
 

@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 #include <sys/mount.h>
 #include <sys/reboot.h>
 #include <sys/utsname.h>
@@ -34,6 +35,31 @@ static void check(bool ok, const char* name) {
     failures += !ok;
     std::printf("ISA_VM_CHECK %s: %s\n", ok ? "OK" : "FAILED", name);
     std::fflush(stdout);
+}
+
+// Runs the real CLI (/cescan, present when the gate adds the frontends) and
+// returns its combined output.
+static std::string cescan(std::vector<std::string> args) {
+    int out[2];
+    if (pipe(out)) return {};
+    pid_t child = fork();
+    if (child == 0) {
+        dup2(out[1], 1); dup2(out[1], 2);
+        close(out[0]); close(out[1]);
+        std::vector<char*> argv{const_cast<char*>("/cescan")};
+        for (auto& arg : args) argv.push_back(arg.data());
+        argv.push_back(nullptr);
+        execv("/cescan", argv.data());
+        _exit(127);
+    }
+    close(out[1]);
+    std::string text;
+    char buffer[4096];
+    ssize_t n;
+    while ((n = ::read(out[0], buffer, sizeof(buffer))) > 0) text.append(buffer, static_cast<size_t>(n));
+    close(out[0]);
+    waitpid(child, nullptr, 0);
+    return text;
 }
 
 struct Fixture {
@@ -173,6 +199,34 @@ static int run() {
               "the debugger is refused with an explicit reason");
     }
     check(fixture.command('b') == 7654323, "the program keeps running after every check");
+
+    if (access("/cescan", X_OK) == 0) {
+        // The same target through the user-facing CLI and Lua frontends.
+        const std::string pid = std::to_string(fixture.pid);
+        char address[32];
+        std::snprintf(address, sizeof(address), "%#lx", value);
+        auto shown = [](const char* what, const std::string& output) {
+            std::printf("ISA_VM_FRONTEND %s:\n%s\n", what, output.substr(output.size() > 1500 ? output.size() - 1500 : 0).c_str());
+        };
+        auto info = cescan({"info", pid});
+        bool identified = info.find(std::string("program:  ") + cpuArchitectureName(description.program.architecture)) != std::string::npos &&
+                          info.find(targetAbiName(description.program.abi)) != std::string::npos;
+        if (!identified) shown("info", info);
+        check(identified, "cescan info identifies the program and its ABI");
+        auto written = cescan({"write", pid, address, "2468", "--type", "i32"});
+        bool reached = fixture.command('r') == 2468;
+        if (!reached) shown("write", written);
+        check(reached, "cescan write reaches the program");
+        auto scanned = cescan({"scan", pid, "--type", "i32", "--value", "2468"});
+        bool found = scanned.find(address) != std::string::npos;
+        if (!found) shown("scan", scanned);
+        check(found, "cescan scan finds the value");
+        auto script = cescan({"lua", "-e", "assert(openProcess(" + pid + "))\nassert(readInteger(" + address +
+                              ") == 2468)\nassert(writeInteger(" + address + ", 1357))\nprint('LUA_FRONTEND_OK')"});
+        bool scripted = script.find("LUA_FRONTEND_OK") != std::string::npos && fixture.command('r') == 1357;
+        if (!scripted) shown("lua", script);
+        check(scripted, "a cescan lua script reads and writes the program");
+    }
 
     kill(fixture.pid, SIGKILL);
     waitpid(fixture.pid, nullptr, 0);

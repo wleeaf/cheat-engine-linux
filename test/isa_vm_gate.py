@@ -2,10 +2,13 @@
 """Boot the ISA guest driver (test/isa_vm_integration.cpp) and require its checks.
 
 usage: isa_vm_gate.py KERNEL INIT FIXTURE --qemu QEMU --expect-architecture NAME
-           --output LOG --report JSON
+           [--frontend CESCAN [--frontend-sysroot DIR]] --output LOG --report JSON
 
 The guest is a real full-system Linux kernel of the target instruction set;
 the static driver runs as /init with the static libc fixture next to it.
+With --frontend, a dynamically linked `cescan` for the guest and the shared
+libraries it needs (found under the sysroot, `/` by default) are added, and
+the driver also drives the fixture through the CLI and Lua frontends.
 """
 import argparse
 import datetime
@@ -29,6 +32,45 @@ MACHINES = {"qemu-system-riscv64": ("virt", "ttyS0"),
 EXTRA = {"qemu-system-ppc64": ["-vga", "none"]}
 
 
+def shared_libraries(binary, sysroot):
+    """The ELF interpreter and every DT_NEEDED library, resolved under sysroot
+    (or the binary's RUNPATH, kept at the same absolute path in the guest)."""
+    def readelf(*options, path):
+        return subprocess.check_output(["readelf", "-W", *options, str(path)], text=True, timeout=30)
+
+    def kind(path):
+        header = readelf("-h", path=path)
+        return re.findall(r"^\s*(?:Class|Data|Machine):\s*(.+)$", header, re.M)
+
+    wanted = kind(binary)
+    interpreter = re.search(r"Requesting program interpreter: (\S+)\]", readelf("-l", path=binary))
+    found, pending = {}, [binary.resolve()]
+    if interpreter:
+        found[interpreter.group(1)] = (sysroot / interpreter.group(1).lstrip("/")).resolve()
+    system = sorted({"/lib", "/usr/lib", "/lib64", "/usr/lib64"} |
+                    {"/" + str(d.relative_to(sysroot)) for pattern in
+                     ("lib/*-linux-gnu*", "usr/lib/*-linux-gnu*", "libx32", "usr/libx32") for d in sysroot.glob(pattern)})
+    while pending:
+        current = pending.pop()
+        dynamic = readelf("-d", path=current)
+        runpath = [entry.replace("$ORIGIN", str(current.parent)) for match in
+                   re.findall(r"\((?:RUNPATH|RPATH)\)\s+Library r(?:un)?path: \[(.+?)\]", dynamic)
+                   for entry in match.split(":")]
+        for name in re.findall(r"\(NEEDED\)\s+Shared library: \[(.+?)\]", dynamic):
+            if any(pathlib.PurePosixPath(guest).name == name for guest in found):
+                continue
+            candidates = [(f"{d}/{name}", pathlib.Path(d) / name) for d in runpath] + \
+                         [(f"{d}/{name}", sysroot / d.lstrip("/") / name) for d in system]
+            for guest, candidate in candidates:
+                if candidate.exists() and kind(candidate.resolve()) == wanted:
+                    found[guest] = candidate.resolve()
+                    pending.append(candidate.resolve())
+                    break
+            else:
+                raise RuntimeError(f"shared library {name} for {current} not found under {sysroot}")
+    return [(guest.lstrip("/"), path) for guest, path in found.items()]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("kernel", type=pathlib.Path)
@@ -37,6 +79,8 @@ def main():
     parser.add_argument("--qemu", required=True)
     parser.add_argument("--expect-architecture", required=True)
     parser.add_argument("--kernel-args", default="", help="extra kernel parameters (x32: syscall.x32=y)")
+    parser.add_argument("--frontend", type=pathlib.Path, help="a dynamically linked cescan for the guest")
+    parser.add_argument("--frontend-sysroot", type=pathlib.Path, default=pathlib.Path("/"))
     parser.add_argument("--output", type=pathlib.Path, required=True)
     parser.add_argument("--report", type=pathlib.Path, required=True)
     args = parser.parse_args()
@@ -46,7 +90,11 @@ def main():
     try:
         report["qemu"] = subprocess.check_output([args.qemu, "--version"], text=True, timeout=15).splitlines()[0]
         ramfs = args.output.with_suffix(".initramfs.gz")
-        write_initramfs(ramfs, (("init", args.init), ("fixture", args.fixture)))
+        files = [("init", args.init), ("fixture", args.fixture)]
+        if args.frontend:
+            files += [("cescan", args.frontend), *shared_libraries(args.frontend, args.frontend_sysroot)]
+            report["frontendFiles"] = [name for name, _ in files[2:]]
+        write_initramfs(ramfs, files)
         machine, console = MACHINES[pathlib.Path(args.qemu).name]
         command = [args.qemu, "-machine", machine, "-smp", "1", "-m", "512M", "-nographic", "-nic", "none",
                    "-monitor", "none", "-no-reboot", "-kernel", str(args.kernel), "-initrd", str(ramfs),

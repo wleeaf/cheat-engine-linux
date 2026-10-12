@@ -3,6 +3,8 @@
 # usage: tools/check-isa-vm.sh [riscv64|s390x|ppc64el|armhf|x32] [BUILD_DIR] [--build-only]
 # Needs the ISA's cross g++, cmake, ninja, curl, python3, dpkg-deb and (unless
 # --build-only) the matching qemu-system binary with its firmware.
+# CECORE_ISA_FRONTEND=/path/to/cescan (a build for the guest's ISA) adds the CLI
+# and Lua frontend checks; CECORE_ISA_FRONTEND_SYSROOT holds its libraries.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 isa="${1:-riscv64}"
@@ -80,6 +82,8 @@ cmake -S test/isa_vm -B "$vm_build/driver-build" -G Ninja \
     -DCECORE_VM_CAPSTONE_LIBRARY="$vm_build/capstone-build/libcapstone.a" >/dev/null
 cmake --build "$vm_build/driver-build" --target init fixture -j"$jobs"
 [ "$build_only" = 1 ] && exit 0
+frontend=()
+[ -n "${CECORE_ISA_FRONTEND:-}" ] && frontend=(--frontend "$CECORE_ISA_FRONTEND" --frontend-sysroot "${CECORE_ISA_FRONTEND_SYSROOT:-/}")
 python3 test/isa_vm_gate.py "$kernel_path" "$vm_build/init" "$vm_build/fixture" \
-    --qemu "$qemu" --expect-architecture "$expected" --kernel-args "$kernel_args" \
+    --qemu "$qemu" --expect-architecture "$expected" --kernel-args "$kernel_args" "${frontend[@]}" \
     --output "$vm_build/$isa-guest.log" --report "$vm_build/$isa-guest.json"

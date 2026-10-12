@@ -92,10 +92,12 @@ def main():
         result = subprocess.run([cescan, "lua", "-e", code], capture_output=True, text=True, timeout=timeout)
         return result.returncode, result.stdout + result.stderr
 
-    def outcome(capability, worked, output):
-        # Either a working operation or an explicit refusal; never a silent failure.
-        message = output.strip().splitlines()[-1] if output.strip() else ""
-        state = "worked" if worked else ("refused" if message else "silent")
+    def outcome(capability, worked, output, refusal):
+        # Either a working operation or an explicit refusal (a line matching the
+        # frontend's refusal format); anything else is a silent failure.
+        reason = re.search(refusal, output, re.M)
+        message = reason.group(0) if reason else output.strip()[-300:]
+        state = "worked" if worked else ("refused" if reason else "silent")
         report["capabilities"][capability] = {"state": state, "message": message[:300]}
         print(f"ARM64EC_CAPABILITY {capability} {state}: {message[:300]}", flush=True)
         return state != "silent"
@@ -139,7 +141,8 @@ print('POINTER_PATHS ' .. found)
         # Code features: each works or refuses explicitly.
         code, listing = run("disasm", pid, hex(program.writer), 3)
         check("disassembly works or refuses explicitly",
-              outcome("C5", code == 0 and "instructions" in listing and "ARM64EC" not in listing, listing))
+              outcome("C5", code == 0 and "instructions" in listing and "ARM64EC" not in listing, listing,
+                      r"^.*ARM64EC code mixes .*$"))
 
         code, inject = lua(f"""
 assert(openProcess({pid}))
@@ -150,7 +153,8 @@ if not ok then error(tostring(info)) end
 assert(autoAssemble(script, info))
 print('INJECTED_AND_RESTORED')
 """)
-        check("code injection works or refuses explicitly", outcome("C6", code == 0 and "INJECTED_AND_RESTORED" in inject, inject))
+        check("code injection works or refuses explicitly",
+              outcome("C6", code == 0 and "INJECTED_AND_RESTORED" in inject, inject, r"^lua: .*injection template / hook: .+$"))
 
         code, calls = lua(f"""
 assert(openProcess({pid}))
@@ -158,7 +162,8 @@ local result, err = executeCode({program.writer})
 if not result then error(tostring(err)) end
 print('NATIVE_CALL ' .. tostring(result))
 """)
-        check("a native call works or refuses explicitly", outcome("C7", code == 0 and "NATIVE_CALL" in calls, calls))
+        check("a native call works or refuses explicitly",
+              outcome("C7", code == 0 and "NATIVE_CALL" in calls, calls, r"^lua: .*create remote thread: .+$"))
 
         watch = subprocess.Popen([cescan, "watch", str(pid), hex(program.value), "--duration", "4"],
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -166,15 +171,17 @@ print('NATIVE_CALL ' .. tostring(result))
         program.command("b")
         output = watch.communicate(timeout=60)[0]
         writers = re.findall(r"^\s*\d+ x\s+(0x[0-9a-f]+)", output, re.M)
-        check("find what writes works or refuses explicitly", outcome("C8", bool(writers), output))
+        check("find what writes works or refuses explicitly",
+              outcome("C8", bool(writers), output, r"^watch: could not arm the watchpoint: .+$"))
 
         # The breakpoint session needs the program to call the writer while armed.
         debugger = subprocess.Popen([cescan, "lua", "-e", f"""
 assert(openProcess({pid}))
 local hit = nil
 function debugger_onBreakpoint() hit = true; return 1 end
-local ok, err = debug_setBreakpoint({program.writer})
-if not ok then error(tostring(err)) end
+-- The second result explains why no real breakpoint could be planted.
+local id, err = debug_setBreakpoint({program.writer})
+if err then error('breakpoint refused: ' .. tostring(err)) end
 print('SESSION_READY'); io.flush()
 for i = 1, 50 do debug_pumpEvents(100); if hit then break end end
 debug_removeBreakpoint({program.writer})
@@ -188,7 +195,8 @@ print('SESSION_HIT')
         output = first + debugger.communicate(timeout=60)[0]
         if first.startswith("SESSION_READY"):
             program.line()
-        check("the debugger works or refuses explicitly", outcome("C9", "SESSION_HIT" in output, output))
+        check("the debugger works or refuses explicitly",
+              outcome("C9", "SESSION_HIT" in output, output, r"^lua: .*breakpoint refused: .+$"))
 
         before = program.command("r")
         check("the program keeps running after every frontend detached", program.command("b") == before + 1)

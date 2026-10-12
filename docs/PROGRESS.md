@@ -16,6 +16,31 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Windows programs through every frontend: 12 October 2026
+
+Wave 2 of the [coverage plan](COVERAGE_PLAN.md) for the Windows rows. The
+frontend gate (renamed from `libc_target_gate.py` to
+`test/frontend_target_gate.py`) gained `--wine-launcher`, which runs the PE32 and PE32+
+fixtures under `wine` or a Proton launcher. Both kinds of program share one
+check flow: CLI identification, modules, typed write/read, first/next scans,
+pointer scan, an Auto Assembler hook and disable (hex addresses, since the PE
+fixtures carry no symbols), find-what-writes, a Lua breakpoint session, and
+with `--gui` the Qt main and debugger windows.
+
+Windows targets add one more check. Native calls into a Wine process need
+Wine-safe loader and thread backends that do not exist yet, so Lua
+`injectLibrary` and `executeCode` must refuse with that explicit reason
+instead of attempting the call. This turns C7 into a verified `X` for the
+Windows rows.
+
+`wine_compatibility_test.py` and `proton_compatibility_gate.py` now run this
+stage after the driver, with the GUI part whenever the build has Qt. Locally
+it passes **14 checks per PE width** under Wine 11 and under Proton 9 and
+Experimental 11, both on the host and inside the Steam Runtime containers.
+The hosted Wine and Proton jobs build without Qt, so they cover CLI and Lua.
+Matrix: C10 at `B` and C7 at `X` for the three Wine rows, Proton and the Steam
+Runtime row. Coverage is now 139/268 (51.9%).
+
 ## GUI on any live target: 12 October 2026
 
 Start of Wave 2 (frontend breadth) in the [coverage plan](COVERAGE_PLAN.md).
@@ -24,7 +49,7 @@ and debugger window against an arbitrary live process: a GUI first scan over
 the whole target, a next scan after a real change, an address-list value edit
 that must reach the target, and a debugger-window breakpoint at the writer
 that the program itself hits, followed by detach. Reusing the existing smoke
-binary avoids compiling the whole GUI a second time. `libc_target_gate.py
+binary avoids compiling the whole GUI a second time. `frontend_target_gate.py
 --gui` runs it after the CLI and Lua stages and requires the interrupted call
 to complete after detach.
 
@@ -36,7 +61,7 @@ Coverage is now 129/268 (48.1%).
 
 ## Sandboxed programs: Flatpak, bubblewrap and Podman: 12 October 2026
 
-Item 1.7 of the [coverage plan](COVERAGE_PLAN.md). `libc_target_gate.py`
+Item 1.7 of the [coverage plan](COVERAGE_PLAN.md). `frontend_target_gate.py`
 gained `--launcher`, which starts each real libc fixture inside a sandbox.
 The program then reports its namespaced PID (2 inside Flatpak), and the gate
 operates on the host PID of that process, found through `NSpid`, exactly as
@@ -66,7 +91,7 @@ C3 to C6, C8 and C9. Coverage is now 125/268 (46.6%).
 Item 1.6 of the [coverage plan](COVERAGE_PLAN.md). The new
 `test/static_fixture.c` is an ordinary C program (a static value, a static
 pointer to it and a non-inlined writer), built as static musl, static glibc,
-dynamic glibc and i386. `test/libc_target_gate.py` drives it only through the
+dynamic glibc and i386. `test/frontend_target_gate.py` drives it only through the
 user-facing frontends: `cescan info/symbols/modules`, typed write and read,
 first/next scans, `pointerscan`, an `autoasm` hook with a code cave and
 `--disable-after`, `watch`, and a `cescan lua` debugger breakpoint session.

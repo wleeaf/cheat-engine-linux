@@ -128,6 +128,22 @@ def run_proton(build, proton, work, fixtures, report, client, in_runtime, runtim
                     any(f"WINE_BUSY_RESULT=PASSED programWidth={width}\n" not in stdout for width in (8, 4))):
                 raise RuntimeError(f"{proton.name} compatibility checks failed")
             entry["checks"] = sum(line.startswith("OK: ") for line in stdout.splitlines())
+            # The same programs through the user-facing CLI, Lua and (when
+            # built with Qt) GUI frontends.
+            entry["stage"] = "frontends"
+            frontends = [sys.executable, str(pathlib.Path(__file__).with_name("frontend_target_gate.py")), str(build),
+                         *map(str, fixtures), "--wine-launcher", str(launcher)]
+            if (build / "gui_lifecycle_smoke").is_file():
+                frontends.append("--gui")
+            with open(directory / "frontends.txt", "w+") as out:
+                code = subprocess.run(frontends, env=env, stdout=out, stderr=subprocess.STDOUT, timeout=900).returncode
+                out.seek(0)
+                frontend_output = out.read()
+            entry["frontendOutput"] = frontend_output
+            print(frontend_output, end="", flush=True)
+            if code or "FRONTEND_TARGET_RESULT=PASSED" not in frontend_output:
+                raise RuntimeError(f"{proton.name} frontend checks failed")
+            entry["frontendChecks"] = frontend_output.count("FRONTEND_TARGET_CHECK OK")
             entry["status"] = "passed"
         finally:
             # Only this test's private prefix: Steam's games are never touched.

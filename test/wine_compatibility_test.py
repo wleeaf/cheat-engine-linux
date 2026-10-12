@@ -96,6 +96,18 @@ def main():
                 if (any(f"WINE_BUSY_RESULT=PASSED programWidth={width}\n" not in result.stdout for width in (8, 4)) or
                         "FAILED:" in result.stdout or "0 failed Wine integration checks\n" not in result.stdout):
                     raise RuntimeError("Required busy Windows memory-operation checks did not complete for both program ABIs")
+                # The same programs through the user-facing CLI, Lua and (when
+                # built with Qt) GUI frontends.
+                report["stage"] = "frontends"
+                frontends = [sys.executable, str(pathlib.Path(__file__).with_name("frontend_target_gate.py")), str(build),
+                             *map(str, paths), "--wine-launcher", str(wine)]
+                if (build / "gui_lifecycle_smoke").is_file():
+                    frontends.append("--gui")
+                result = subprocess.run(frontends, env=env, capture_output=True, text=True, timeout=600)
+                report["frontendOutput"] = result.stdout + result.stderr
+                print(result.stdout, end="", flush=True)
+                if result.returncode or "FRONTEND_TARGET_RESULT=PASSED" not in result.stdout:
+                    raise RuntimeError("Windows program frontend checks failed")
             finally:
                 # This affects only this test's prefix, never the user's Wine apps.
                 # The server can already be gone after the final client exits.

@@ -63,7 +63,7 @@
     },
     "C4": {
      "state": "B",
-     "evidence": "libc_target_gate: cescan pointerscan on a live dynamic glibc program finds and resolves the static path; GUI dialog untested"
+     "evidence": "frontend_target_gate: cescan pointerscan on a live dynamic glibc program finds and resolves the static path; GUI dialog untested"
     },
     "C5": {
      "state": "V",
@@ -106,11 +106,11 @@
     },
     "C3": {
      "state": "B",
-     "evidence": "libc_target_gate: whole-process first/next scans on i386 (static musl locally, dynamic glibc -m32 in CI)"
+     "evidence": "frontend_target_gate: whole-process first/next scans on i386 (static musl locally, dynamic glibc -m32 in CI)"
     },
     "C4": {
      "state": "B",
-     "evidence": "libc_target_gate: cescan pointerscan on i386 finds the 4-byte static pointer path"
+     "evidence": "frontend_target_gate: cescan pointerscan on i386 finds the 4-byte static pointer path"
     },
     "C5": {
      "state": "B",
@@ -134,7 +134,7 @@
     },
     "C10": {
      "state": "B",
-     "evidence": "GUI gui_injection_gate width=4; CLI libc_target_gate (info/read/write/scan/pointerscan/autoasm/watch); Lua cli_usability + libc_target_gate"
+     "evidence": "GUI gui_injection_gate width=4; CLI frontend_target_gate (info/read/write/scan/pointerscan/autoasm/watch); Lua cli_usability + frontend_target_gate"
     }
    }
   },
@@ -192,27 +192,27 @@
    "cells": {
     "C1": {
      "state": "B",
-     "evidence": "libc_target_gate (static musl locally; static glibc, static musl in CI): cescan info ABI, static symtab names, executable as module"
+     "evidence": "frontend_target_gate (static musl locally; static glibc, static musl in CI): cescan info ABI, static symtab names, executable as module"
     },
     "C2": {
      "state": "B",
-     "evidence": "libc_target_gate (static musl locally; static glibc, static musl in CI): cescan write/read typed i32 observed by the program"
+     "evidence": "frontend_target_gate (static musl locally; static glibc, static musl in CI): cescan write/read typed i32 observed by the program"
     },
     "C3": {
      "state": "B",
-     "evidence": "libc_target_gate (static musl locally; static glibc, static musl in CI): whole-process first and next scans"
+     "evidence": "frontend_target_gate (static musl locally; static glibc, static musl in CI): whole-process first and next scans"
     },
     "C4": {
      "state": "B",
-     "evidence": "libc_target_gate (static musl locally; static glibc, static musl in CI): cescan pointerscan finds the static pointer path"
+     "evidence": "frontend_target_gate (static musl locally; static glibc, static musl in CI): cescan pointerscan finds the static pointer path"
     },
     "C5": {
      "state": "B",
-     "evidence": "libc_target_gate (static musl locally; static glibc, static musl in CI): Auto Assembler hook script with process-symbol names assembles"
+     "evidence": "frontend_target_gate (static musl locally; static glibc, static musl in CI): Auto Assembler hook script with process-symbol names assembles"
     },
     "C6": {
      "state": "B",
-     "evidence": "libc_target_gate (static musl locally; static glibc, static musl in CI): code cave near the symbol, hook changes behavior, disable restores bytes"
+     "evidence": "frontend_target_gate (static musl locally; static glibc, static musl in CI): code cave near the symbol, hook changes behavior, disable restores bytes"
     },
     "C7": {
      "state": "-",
@@ -220,15 +220,15 @@
     },
     "C8": {
      "state": "B",
-     "evidence": "libc_target_gate (static musl locally; static glibc, static musl in CI): cescan watch names ce_writer as the writer"
+     "evidence": "frontend_target_gate (static musl locally; static glibc, static musl in CI): cescan watch names ce_writer as the writer"
     },
     "C9": {
      "state": "B",
-     "evidence": "libc_target_gate (static musl locally; static glibc, static musl in CI): Lua debug_setBreakpoint stops at the writer, call completes"
+     "evidence": "frontend_target_gate (static musl locally; static glibc, static musl in CI): Lua debug_setBreakpoint stops at the writer, call completes"
     },
     "C10": {
      "state": "B",
-     "evidence": "libc_target_gate --gui (static musl and glibc): GUI scan/next scan/address-list edit/debugger-window breakpoint; CLI info/read/write/scan/pointerscan/autoasm/watch; Lua breakpoint"
+     "evidence": "frontend_target_gate --gui (static musl and glibc): GUI scan/next scan/address-list edit/debugger-window breakpoint; CLI info/read/write/scan/pointerscan/autoasm/watch; Lua breakpoint"
     }
    }
   },
@@ -450,8 +450,8 @@
      "evidence": "wine_integration inject/disable exact restore + busy alloc/free; no frontends"
     },
     "C7": {
-     "state": "-",
-     "evidence": "Wine native call/library injection not tested"
+     "state": "X",
+     "evidence": "frontend_target_gate --wine-launcher: Lua injectLibrary and executeCode on the live PE program return nil plus the capability reason (Wine-safe loader calls and Windows thread initialization need a dedicated backend)"
     },
     "C8": {
      "state": "B",
@@ -462,8 +462,8 @@
      "evidence": "wine_integration all-stop DebugSession: software breakpoint at the real PE writer, hit in the program's register mode, single step, removal, detach; break-and-trace from the writer on PE32 with the 32-bit loader (Proton 9/11; CI Wine 9 job)"
     },
     "C10": {
-     "state": "-",
-     "evidence": "no GUI/CLI/Lua against Wine target"
+     "state": "B",
+     "evidence": "frontend_target_gate --wine-launcher --gui: CLI info/modules/read/write/scan/pointerscan/autoasm/watch, Lua breakpoint, GUI scan/edit/debugger window on PE32 with the 32-bit loader (local Proton 9/11; CI Wine 9 CLI and Lua)"
     }
    }
   },
@@ -497,8 +497,8 @@
      "evidence": "wine_integration inject/disable restore + busy alloc/free"
     },
     "C7": {
-     "state": "-",
-     "evidence": "not tested"
+     "state": "X",
+     "evidence": "frontend_target_gate --wine-launcher: Lua injectLibrary and executeCode on the live PE program return nil plus the capability reason (Wine-safe loader calls and Windows thread initialization need a dedicated backend)"
     },
     "C8": {
      "state": "B",
@@ -509,8 +509,8 @@
      "evidence": "wine_integration all-stop DebugSession: software breakpoint at the real PE writer, hit in the program's register mode, single step, removal, detach; break-and-trace from the writer (local Wine 11; CI Wine 9/11 jobs)"
     },
     "C10": {
-     "state": "-",
-     "evidence": "no frontends"
+     "state": "B",
+     "evidence": "frontend_target_gate --wine-launcher --gui: CLI info/modules/read/write/scan/pointerscan/autoasm/watch, Lua breakpoint, GUI scan/edit/debugger window (local Wine 11; CI CLI and Lua)"
     }
    }
   },
@@ -544,8 +544,8 @@
      "evidence": "wine_integration inject/restore + low-window alloc pressure"
     },
     "C7": {
-     "state": "-",
-     "evidence": "not tested"
+     "state": "X",
+     "evidence": "frontend_target_gate --wine-launcher: Lua injectLibrary and executeCode on the live PE program return nil plus the capability reason (Wine-safe loader calls and Windows thread initialization need a dedicated backend)"
     },
     "C8": {
      "state": "B",
@@ -556,8 +556,8 @@
      "evidence": "wine_integration all-stop DebugSession: software breakpoint at the real PE writer, hit in the program's register mode, single step, removal, detach; break-and-trace from the writer on PE32 with the 64-bit loader (local Wine 11; CI wow64 job)"
     },
     "C10": {
-     "state": "-",
-     "evidence": "no frontends"
+     "state": "B",
+     "evidence": "frontend_target_gate --wine-launcher --gui: CLI info/modules/read/write/scan/pointerscan/autoasm/watch, Lua breakpoint, GUI scan/edit/debugger window on PE32 with the 64-bit loader (local Wine 11; CI CLI and Lua)"
     }
    }
   },
@@ -591,8 +591,8 @@
      "evidence": "proton_compatibility_gate (Valve Proton 9 + Experimental 11 locally, GE-Proton11-7 in CI): injection with exact byte/permission undo; busy-loop alloc/protect/free with register preservation"
     },
     "C7": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "X",
+     "evidence": "frontend_target_gate --wine-launcher: Lua injectLibrary and executeCode on the live PE program return nil plus the capability reason (Wine-safe loader calls and Windows thread initialization need a dedicated backend)"
     },
     "C8": {
      "state": "B",
@@ -603,8 +603,8 @@
      "evidence": "proton_compatibility_gate: all-stop DebugSession: software breakpoint at the real PE writer, hit in the program's register mode, single step, removal, detach; break-and-trace from the writer (Valve 9, Experimental 11; GE-Proton11-7 in CI)"
     },
     "C10": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate --wine-launcher --gui: CLI info/modules/read/write/scan/pointerscan/autoasm/watch, Lua breakpoint, GUI scan/edit/debugger window through Proton 9 and Experimental 11 (CI GE-Proton CLI and Lua)"
     }
    }
   },
@@ -638,8 +638,8 @@
      "evidence": "proton_compatibility_gate --in-steam-runtime (Proton 9 in sniper, Experimental 11 in SLR 4 locally; GE-Proton11-7 in SLR 4 in CI): injection with exact undo; busy-loop alloc/protect/free with exact registers"
     },
     "C7": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "X",
+     "evidence": "frontend_target_gate --wine-launcher: Lua injectLibrary and executeCode on the live PE program return nil plus the capability reason (Wine-safe loader calls and Windows thread initialization need a dedicated backend)"
     },
     "C8": {
      "state": "B",
@@ -650,8 +650,8 @@
      "evidence": "proton_compatibility_gate --in-steam-runtime: all-stop DebugSession: software breakpoint at the real PE writer, hit in the program's register mode, single step, removal, detach; break-and-trace from the writer inside sniper / SLR 4"
     },
     "C10": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate --wine-launcher --gui: CLI info/modules/read/write/scan/pointerscan/autoasm/watch, Lua breakpoint, GUI scan/edit/debugger window inside sniper / SLR 4"
     }
    }
   },
@@ -662,27 +662,27 @@
    "cells": {
     "C1": {
      "state": "B",
-     "evidence": "libc_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): host PID resolved from NSpid; info ABI, symbols, module"
+     "evidence": "frontend_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): host PID resolved from NSpid; info ABI, symbols, module"
     },
     "C2": {
      "state": "B",
-     "evidence": "libc_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): typed write/read observed by the sandboxed program"
+     "evidence": "frontend_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): typed write/read observed by the sandboxed program"
     },
     "C3": {
      "state": "B",
-     "evidence": "libc_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): whole-process first and next scans"
+     "evidence": "frontend_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): whole-process first and next scans"
     },
     "C4": {
      "state": "B",
-     "evidence": "libc_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): pointer scan finds the static path"
+     "evidence": "frontend_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): pointer scan finds the static path"
     },
     "C5": {
      "state": "B",
-     "evidence": "libc_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): Auto Assembler hook script with process symbols"
+     "evidence": "frontend_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): Auto Assembler hook script with process symbols"
     },
     "C6": {
      "state": "B",
-     "evidence": "libc_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): code cave hook changes behavior, disable restores bytes"
+     "evidence": "frontend_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): code cave hook changes behavior, disable restores bytes"
     },
     "C7": {
      "state": "B",
@@ -690,15 +690,15 @@
     },
     "C8": {
      "state": "B",
-     "evidence": "libc_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): cescan watch names the writer"
+     "evidence": "frontend_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): cescan watch names the writer"
     },
     "C9": {
      "state": "B",
-     "evidence": "libc_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): Lua breakpoint at the writer, call completes"
+     "evidence": "frontend_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): Lua breakpoint at the writer, call completes"
     },
     "C10": {
      "state": "B",
-     "evidence": "libc_target_gate --gui (dynamic musl in Alpine Podman): GUI scan/next scan/address-list edit/debugger-window breakpoint; CLI info/read/write/scan/pointerscan/autoasm/watch; Lua breakpoint"
+     "evidence": "frontend_target_gate --gui (dynamic musl in Alpine Podman): GUI scan/next scan/address-list edit/debugger-window breakpoint; CLI info/read/write/scan/pointerscan/autoasm/watch; Lua breakpoint"
     }
    }
   },
@@ -709,27 +709,27 @@
    "cells": {
     "C1": {
      "state": "B",
-     "evidence": "libc_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): host PID resolved from NSpid; info ABI, symbols, module"
+     "evidence": "frontend_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): host PID resolved from NSpid; info ABI, symbols, module"
     },
     "C2": {
      "state": "B",
-     "evidence": "libc_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): typed write/read observed by the sandboxed program"
+     "evidence": "frontend_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): typed write/read observed by the sandboxed program"
     },
     "C3": {
      "state": "B",
-     "evidence": "libc_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): whole-process first and next scans"
+     "evidence": "frontend_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): whole-process first and next scans"
     },
     "C4": {
      "state": "B",
-     "evidence": "libc_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): pointer scan finds the static path"
+     "evidence": "frontend_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): pointer scan finds the static path"
     },
     "C5": {
      "state": "B",
-     "evidence": "libc_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): Auto Assembler hook script with process symbols"
+     "evidence": "frontend_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): Auto Assembler hook script with process symbols"
     },
     "C6": {
      "state": "B",
-     "evidence": "libc_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): code cave hook changes behavior, disable restores bytes"
+     "evidence": "frontend_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): code cave hook changes behavior, disable restores bytes"
     },
     "C7": {
      "state": "-",
@@ -737,15 +737,15 @@
     },
     "C8": {
      "state": "B",
-     "evidence": "libc_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): cescan watch names the writer"
+     "evidence": "frontend_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): cescan watch names the writer"
     },
     "C9": {
      "state": "B",
-     "evidence": "libc_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): Lua breakpoint at the writer, call completes"
+     "evidence": "frontend_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): Lua breakpoint at the writer, call completes"
     },
     "C10": {
      "state": "B",
-     "evidence": "libc_target_gate --gui (inside flatpak run (local)): GUI scan/next scan/address-list edit/debugger-window breakpoint; CLI info/read/write/scan/pointerscan/autoasm/watch; Lua breakpoint"
+     "evidence": "frontend_target_gate --gui (inside flatpak run (local)): GUI scan/next scan/address-list edit/debugger-window breakpoint; CLI info/read/write/scan/pointerscan/autoasm/watch; Lua breakpoint"
     }
    }
   },
@@ -803,27 +803,27 @@
    "cells": {
     "C1": {
      "state": "B",
-     "evidence": "libc_target_gate under bwrap --unshare-all (local; CI as root): host PID resolved from NSpid; info ABI, symbols, module"
+     "evidence": "frontend_target_gate under bwrap --unshare-all (local; CI as root): host PID resolved from NSpid; info ABI, symbols, module"
     },
     "C2": {
      "state": "B",
-     "evidence": "libc_target_gate under bwrap --unshare-all (local; CI as root): typed write/read observed by the sandboxed program"
+     "evidence": "frontend_target_gate under bwrap --unshare-all (local; CI as root): typed write/read observed by the sandboxed program"
     },
     "C3": {
      "state": "B",
-     "evidence": "libc_target_gate under bwrap --unshare-all (local; CI as root): whole-process first and next scans"
+     "evidence": "frontend_target_gate under bwrap --unshare-all (local; CI as root): whole-process first and next scans"
     },
     "C4": {
      "state": "B",
-     "evidence": "libc_target_gate under bwrap --unshare-all (local; CI as root): pointer scan finds the static path"
+     "evidence": "frontend_target_gate under bwrap --unshare-all (local; CI as root): pointer scan finds the static path"
     },
     "C5": {
      "state": "B",
-     "evidence": "libc_target_gate under bwrap --unshare-all (local; CI as root): Auto Assembler hook script with process symbols"
+     "evidence": "frontend_target_gate under bwrap --unshare-all (local; CI as root): Auto Assembler hook script with process symbols"
     },
     "C6": {
      "state": "B",
-     "evidence": "libc_target_gate under bwrap --unshare-all (local; CI as root): code cave hook changes behavior, disable restores bytes"
+     "evidence": "frontend_target_gate under bwrap --unshare-all (local; CI as root): code cave hook changes behavior, disable restores bytes"
     },
     "C7": {
      "state": "-",
@@ -831,15 +831,15 @@
     },
     "C8": {
      "state": "B",
-     "evidence": "libc_target_gate under bwrap --unshare-all (local; CI as root): cescan watch names the writer"
+     "evidence": "frontend_target_gate under bwrap --unshare-all (local; CI as root): cescan watch names the writer"
     },
     "C9": {
      "state": "B",
-     "evidence": "libc_target_gate under bwrap --unshare-all (local; CI as root): Lua breakpoint at the writer, call completes"
+     "evidence": "frontend_target_gate under bwrap --unshare-all (local; CI as root): Lua breakpoint at the writer, call completes"
     },
     "C10": {
      "state": "B",
-     "evidence": "libc_target_gate --gui (inside bwrap --unshare-all): GUI scan/next scan/address-list edit/debugger-window breakpoint; CLI info/read/write/scan/pointerscan/autoasm/watch; Lua breakpoint"
+     "evidence": "frontend_target_gate --gui (inside bwrap --unshare-all): GUI scan/next scan/address-list edit/debugger-window breakpoint; CLI info/read/write/scan/pointerscan/autoasm/watch; Lua breakpoint"
     }
    }
   },

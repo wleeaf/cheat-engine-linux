@@ -238,3 +238,7 @@ first. Detailed write-ups continue in PROGRESS.md.
 - 2026-10-12, **2.1** started: a generic GUI target mode covers the static
   libc, Flatpak, bubblewrap and Podman rows (C10 to `B`). Coverage 129/268
   (48.1%).
+- 2026-10-12, **2.1** Windows rows: Wine 11 and Proton 9/11 (host and Steam
+  Runtime) pass CLI, Lua and GUI frontend checks; native calls are refused
+  with the explicit Wine reason. C10 to `B`, C7 to `X` on five rows. Coverage
+  139/268 (51.9%).

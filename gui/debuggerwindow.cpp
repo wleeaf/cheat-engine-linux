@@ -1,4 +1,5 @@
 #include "gui/debuggerwindow.hpp"
+#include "core/target_capabilities.hpp"
 #include "arch/cpu_flags.hpp"
 #include "core/types.hpp"   // moduleOffsetString
 #include "core/cpu_registers.hpp"
@@ -243,10 +244,13 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
         prevGp_.clear(); prevVectors_ = {};   // fresh session: don't flag the first stop's registers
         refreshStopped();   // target is all-stopped right after attach
     } else {
-        statusLabel_->setText("Attach failed (need ptrace permission?)");
+        statusLabel_->setText(proc_ ? "Attach failed: " + QString::fromStdString(
+            ce::targetOperationError(*proc_, ce::TargetFeature::Debugger, session_->lastError())) : "No process attached");
         setRunningUi(false, true);
     }
 }
+
+QString DebuggerWindow::statusTextForTest() const { return statusLabel_->text(); }
 
 DebuggerWindow::~DebuggerWindow() {
     if (session_ && session_->isAttached())

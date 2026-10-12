@@ -84,6 +84,7 @@ public:
     bool anyRegisterChangedHighlightForTest() const;
     // The decoded-flags line shown under the register table (e.g. "Flags: PF ZF IF").
     QString flagsTextForTest() const;
+    QString statusTextForTest() const;
     // The stack pane's current text (address: value [ module+offset ] per slot).
     QString stackTextForTest() const;
     // The disassembly pane's current text (with inline symbol annotations).

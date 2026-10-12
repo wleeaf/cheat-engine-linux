@@ -105,10 +105,12 @@ Each item lists the cells it fills and its completion test.
   COMPATIBILITY.md table and prints both scores; `ci-check.sh --config` fails if
   the table is out of sync. Seed it from the current hand-written matrix.
   Done when: the scores are printed and the table is generated.
-- **0.3 Explicit unsupported errors.** For every `-`/`X` cell, the capability
-  API returns a clear error through GUI, CLI and Lua instead of attempting the
-  operation. Done when: a test walks the matrix's unsupported cells and asserts
-  the error on each frontend.
+- **0.3 Explicit unsupported errors.** A refused operation reports the
+  capability reason through GUI, CLI and Lua (one cecore helper,
+  `targetOperationError`) instead of a silent nil, an empty result or a
+  generic permission guess. Done when: a live blocked target is refused with
+  its reason on every frontend. Each later `X` cell must add its own live
+  refusal check.
 
 ### Wave 1: games (highest user impact)
 
@@ -205,3 +207,13 @@ first. Detailed write-ups continue in PROGRESS.md.
 - 2026-10-12, **0.1** done: unreaped-service recovery and shutdown verified on
   x86-64 and i386 (24 assertions per ABI, normal and sanitizer builds). No
   matrix cells change; this closes the planned area-5 work before Wave 7.
+- 2026-10-12, **0.2** done: `docs/compatibility-matrix.json` seeded from the
+  existing gates (conservatively: partial evidence counts as `B`, unit-only
+  as `-`), `tools/coverage_matrix.py` renders COMPATIBILITY.md and is checked
+  by `ci-check.sh --config` and CI. Baseline: coverage 66/268 (25%), depth
+  7/268 (3%). Notable gap: pointer scan has no live test on any target.
+- 2026-10-12, **0.3** done: refused ptrace, allocation, protection, hook,
+  watchpoint and trace operations name their capability reason in the GUI
+  (debugger, code finder, tracer), CLI (`watch`) and Lua. Verified on a real
+  target held by another debugger (`blocked_target_gate.py`,
+  `gui_debugger_smoke blocked=1`).

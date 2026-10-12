@@ -22,6 +22,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Check coverage matrix is in sync
+        run: python3 tools/coverage_matrix.py --check
+
       # Lua 5.3 is vendored under third_party/lua and built by CMake, so no
       # upstream checkout is needed — the repo is self-contained.
       - name: Install apt dependencies
@@ -161,6 +164,9 @@ jobs:
 
       - name: Run CLI usability workflows
         run: python3 test/cli_usability_test.py build/cescan
+
+      - name: Run blocked-target refusal checks (CLI and Lua)
+        run: python3 test/blocked_target_gate.py build
 
       - name: Build kernel module (out-of-tree)
         run: |

@@ -1,6 +1,7 @@
 /// Break-and-trace window — runs a Tracer on a worker thread, displays decoded steps.
 
 #include "gui/tracerwindow.hpp"
+#include "core/target_capabilities.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -256,7 +257,8 @@ void TracerWindow::onTraceFinished() {
         .arg(entries_.size())
         .arg(entries_.size() == 0 ? " (check start address / module range)" : ""));
     if (auto error=tracer_.lastError())
-        statusLabel_->setText(QString("%1 steps recorded: %2").arg(entries_.size()).arg(QString::fromStdString(error.message())));
+        statusLabel_->setText(QString("%1 steps recorded: %2").arg(entries_.size()).arg(QString::fromStdString(
+            proc_ ? ce::targetOperationError(*proc_, ce::TargetFeature::Trace, error) : error.message())));
     startBtn_->setEnabled(true);
     cancelBtn_->setEnabled(false);
     saveBtn_->setEnabled(!entries_.empty());

@@ -52,6 +52,10 @@ run_check() {
     fi
 }
 
+step "coverage matrix (docs/compatibility-matrix.json) in sync"
+python3 tools/coverage_matrix.py --check
+ok "coverage table current"
+
 # ── Job 1: sanitizers (ASan+UBSan, NO Qt) — the one that catches portability gaps ──
 step "sanitizers job (ASan, no-GUI): configure"
 # Reconfigure the existing tree so repeated checks can reuse compiled dependencies.
@@ -207,6 +211,7 @@ if [ "$MODE" != "--config" ]; then
     ./build/cescan list >/dev/null
     ok "cescan launches"
     python3 test/cli_usability_test.py build/cescan
+    python3 test/blocked_target_gate.py build
     ok "CLI usability workflows"
     if command -v wine >/dev/null || command -v wine64 >/dev/null; then
         python3 test/wine_compatibility_test.py build --report build/compatibility-evidence/wine-local.json

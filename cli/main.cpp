@@ -477,8 +477,12 @@ static int cmd_watch(pid_t pid, uintptr_t addr, bool writesOnly, int watchSize,
            addr, writesOnly ? "writes" : "accesses", backend, watchSize, durationSec);
 
     if (!finder.start(proc, dbg, addr, writesOnly, watchSize, software, singleThread)) {
-        fprintf(stderr, "watch: could not arm the watchpoint (need cap_sys_ptrace, and the "
-                        "target must not already be traced)\n");
+        auto error = finder.lastError();
+        fprintf(stderr, "watch: could not arm the watchpoint: %s\n",
+                ce::targetOperationError(proc, software ? ce::TargetFeature::SoftwareWatchpoint
+                                                        : ce::TargetFeature::HardwareWatchpoint, error).c_str());
+        if (error == std::errc::operation_not_permitted)
+            fprintf(stderr, "watch: ptrace needs cap_sys_ptrace or a permissive kernel.yama.ptrace_scope\n");
         return 1;
     }
 

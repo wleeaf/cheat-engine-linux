@@ -201,6 +201,14 @@ print(features["hardware watchpoint"].state, features["hardware watchpoint"].rea
 Capability states describe backend availability. Permissions and changing memory
 mappings are checked when an operation runs. See the [compatibility matrix](COMPATIBILITY.md).
 
+When the backend refuses an operation for the attached target (unsupported
+architecture or transport, another debugger already tracing it, pending
+recovery), the call reports that capability reason instead of failing silently:
+`allocateMemory`, `fullAccess`, `createSimpleHook`, `findWhatWrites`,
+`findWhatAccesses` and `breakAndTrace` return `nil, reason`, and
+`debug_setBreakpoint` returns its bookkeeping id plus the reason as a second
+value. CE scripts that ignore extra results keep working unchanged.
+
 `getTargetInfo().pendingRecovery` reports pending native syscall/call restoration,
 private-frame cleanup or active Lua debugger-session recovery.
 `retryPendingOperations()` retries those owners and returns `true` after recovery, or

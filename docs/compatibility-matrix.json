@@ -1,0 +1,1317 @@
+{
+ "schema": 1,
+ "note": "Source of truth for the coverage matrix; render with tools/coverage_matrix.py --write. Seeded 2026-10-12 from existing gates.",
+ "capabilities": [
+  {
+   "id": "C1",
+   "name": "Attach and identify"
+  },
+  {
+   "id": "C2",
+   "name": "Read/write typed values, freeze"
+  },
+  {
+   "id": "C3",
+   "name": "Value scan"
+  },
+  {
+   "id": "C4",
+   "name": "Pointer scan and rescan"
+  },
+  {
+   "id": "C5",
+   "name": "Disassemble and assemble"
+  },
+  {
+   "id": "C6",
+   "name": "Allocate, inject, undo"
+  },
+  {
+   "id": "C7",
+   "name": "Native call"
+  },
+  {
+   "id": "C8",
+   "name": "Find what writes/accesses"
+  },
+  {
+   "id": "C9",
+   "name": "Debugger"
+  },
+  {
+   "id": "C10",
+   "name": "GUI, CLI and Lua frontends"
+  }
+ ],
+ "targets": [
+  {
+   "id": "native-x86-64",
+   "group": "Native Linux",
+   "name": "x86-64 glibc",
+   "cells": {
+    "C1": {
+     "state": "V",
+     "evidence": "native_syscall_gate SYSCALL_TARGET; elf_debug_gate debuglink symbols; gui_runtime_gate app+cescan info+Lua getTargetInfo"
+    },
+    "C2": {
+     "state": "V",
+     "evidence": "cecore_test test_write_memory; cli_usability read/write/freeze+bad-write unchanged; gui_lifecycle freeze; Lua writeValue"
+    },
+    "C3": {
+     "state": "V",
+     "evidence": "scan_test(root); cecore_test scans on forked child; cli_usability scan first/next+bad opts; gui_lifecycle allTypeGuiScan; Lua memscan"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "PointerScanner only tested on FakeProcessHandle (main.cpp); CLI pointerscan and GUI dialog untested live"
+    },
+    "C5": {
+     "state": "V",
+     "evidence": "cecore_test test_autoassembler_*(pid); cli_usability asm/autoasm; gui_injection_gate editor; gui_register_smoke Lua disassemble"
+    },
+    "C6": {
+     "state": "V",
+     "evidence": "autoasm_module_gate compatibility_integration inject/disable; gui_injection_gate conflict/repair; cli autoasm --disable-after"
+    },
+    "C7": {
+     "state": "B",
+     "evidence": "native_call_gate NATIVE_INJECTOR/PARKED width=8; cecore_test test_lua_executecode; no GUI/CLI call"
+    },
+    "C8": {
+     "state": "B",
+     "evidence": "cecore_test test_multithread_watchpoint, test_lua_hw_breakpoint; CODEFINDER_BACKEND; GUI find-writes lifecycle only"
+    },
+    "C9": {
+     "state": "V",
+     "evidence": "native_syscall_gate DEBUG_SESSION/TRACE/DEBUG_RECOVERY; gui_debugger_smoke, gui_register_smoke; cescan lua debug_setBreakpoint"
+    },
+    "C10": {
+     "state": "V",
+     "evidence": "GUI gui_runtime_gate/gui_lifecycle/gui_injection; CLI cli_usability_test; Lua cescan lua + gui_luaconsole"
+    }
+   }
+  },
+  {
+   "id": "native-i386",
+   "group": "Native Linux",
+   "name": "i386",
+   "cells": {
+    "C1": {
+     "state": "B",
+     "evidence": "native_syscall_gate SYSCALL_TARGET abi=Linux i386; compatibility_integration desc; elf_debug_gate --require-i386"
+    },
+    "C2": {
+     "state": "B",
+     "evidence": "compatibility_integration typed write on compatibility_fixture32; gui_injection_gate width=4 valueIs"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no live scan against an i386 process"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live pointer scan"
+    },
+    "C5": {
+     "state": "B",
+     "evidence": "autoasm_module_gate compatibility_integration AA template (width 4); gui_injection_gate editor width=4"
+    },
+    "C6": {
+     "state": "B",
+     "evidence": "compatibility_integration alloc/protect/free+inject/restore; gui_injection_gate width=4 failure/repair; no CLI"
+    },
+    "C7": {
+     "state": "B",
+     "evidence": "native_call_gate --require-i386 NATIVE_INJECTOR/PARKED_NATIVE_CALL width=4"
+    },
+    "C8": {
+     "state": "B",
+     "evidence": "native_syscall_gate CODEFINDER_BACKEND architecture=x86-32"
+    },
+    "C9": {
+     "state": "B",
+     "evidence": "native_syscall_gate DEBUG_SESSION x86-32; cli_usability cescan lua breakpoint across exec on fixture32"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "GUI (gui_injection_gate) + Lua (cli_usability fixture32) only; no non-Lua CLI command on i386"
+    }
+   }
+  },
+  {
+   "id": "native-x32",
+   "group": "Native Linux",
+   "name": "x32",
+   "cells": {
+    "C1": {
+     "state": "B",
+     "evidence": "x32_vm_gate debug suite SYSCALL_TARGET abi=Linux x32 width=4 (Linux 6.1 guest)"
+    },
+    "C2": {
+     "state": "B",
+     "evidence": "x32_vm_gate debug/calls memory ops incl. four-byte pthread/loader handles"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no live scan in x32 guest"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live pointer scan"
+    },
+    "C5": {
+     "state": "B",
+     "evidence": "x32_vm_gate CODEFINDER/TRACE decode live x86-64 code; decode only, no AA"
+    },
+    "C6": {
+     "state": "B",
+     "evidence": "x32_vm_gate image/exec suites alloc/protect + recovery; no AA code cave"
+    },
+    "C7": {
+     "state": "B",
+     "evidence": "x32_vm_gate calls NATIVE_INJECTOR/X32_WIDE_CALL; exec suite 475 checks incl. recovery"
+    },
+    "C8": {
+     "state": "B",
+     "evidence": "x32_vm_gate CODEFINDER_BACKEND, SOFTWARE_CODEFINDER"
+    },
+    "C9": {
+     "state": "B",
+     "evidence": "x32_vm_gate DEBUG_SESSION, TRACE_BACKEND, DEBUG_RECOVERY"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no GUI/CLI/Lua in x32 guest"
+    }
+   }
+  },
+  {
+   "id": "native-static-musl",
+   "group": "Native Linux",
+   "name": "x86-64 static libc / musl",
+   "cells": {
+    "C1": {
+     "state": "-",
+     "evidence": "only the freestanding -nostdlib fixture; no glibc-static or musl target (plan item 1.6)"
+    },
+    "C2": {
+     "state": "-",
+     "evidence": "no static libc or musl target"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no static libc or musl target"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no static libc or musl target"
+    },
+    "C5": {
+     "state": "-",
+     "evidence": "no static libc or musl target"
+    },
+    "C6": {
+     "state": "-",
+     "evidence": "no static libc or musl target"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "no static libc or musl target"
+    },
+    "C8": {
+     "state": "-",
+     "evidence": "no static libc or musl target"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "no static libc or musl target"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no static libc or musl target"
+    }
+   }
+  },
+  {
+   "id": "native-aarch64",
+   "group": "Native Linux",
+   "name": "AArch64",
+   "cells": {
+    "C1": {
+     "state": "B",
+     "evidence": "fullsystem_vm SYSCALL markers; gui_runtime_gate ARM64 runner cescan info + Lua getTargetInfo; symbols unverified"
+    },
+    "C2": {
+     "state": "B",
+     "evidence": "fullsystem_vm target_syscall_integration memory ops; gui_register_smoke memory write"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no live scan on ARM64 (cecore_test/scan_test not run on ARM)"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live pointer scan"
+    },
+    "C5": {
+     "state": "B",
+     "evidence": "gui_register_smoke GUI disasm + Lua disassemble live; aarch64_relocation_gate executes relocated code"
+    },
+    "C6": {
+     "state": "B",
+     "evidence": "code_write_gate + memory_image_gate (runner+4K/64K VMs) code patch + recovery; no AA cave"
+    },
+    "C7": {
+     "state": "B",
+     "evidence": "fullsystem_vm NATIVE_INJECTOR/PARKED w=8; native_call_image_gate, native_call_exec_gate"
+    },
+    "C8": {
+     "state": "B",
+     "evidence": "fullsystem_vm CODEFINDER_BACKEND/SOFTWARE_CODEFINDER architecture=ARM64"
+    },
+    "C9": {
+     "state": "B",
+     "evidence": "fullsystem_vm DEBUG_SESSION/TRACE; gui_runtime_gate GUI bp/register edit/death retire; no Lua/CLI debug"
+    },
+    "C10": {
+     "state": "B",
+     "evidence": "arm64-compatibility.yml gui_runtime_gate: GUI debugger+app, CLI info, Lua disassemble"
+    }
+   }
+  },
+  {
+   "id": "native-arm32",
+   "group": "Native Linux",
+   "name": "ARM32 / Thumb",
+   "cells": {
+    "C1": {
+     "state": "B",
+     "evidence": "arm32_register_gate arm32_memory_checks TargetMachine Arm32/LinuxArmEabi; no modules/symbols"
+    },
+    "C2": {
+     "state": "-",
+     "evidence": "only test-helper transfers; process API data path pending per COMPATIBILITY.md"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no live scan"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live pointer scan"
+    },
+    "C5": {
+     "state": "-",
+     "evidence": "only fixed-byte unit decoding"
+    },
+    "C6": {
+     "state": "B",
+     "evidence": "arm32_register_gate ARM32_MEM: product mmap2/protect/unmap ARM+Thumb; no code cave"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "general call adapters pending"
+    },
+    "C8": {
+     "state": "-",
+     "evidence": "hardware watchpoints pending"
+    },
+    "C9": {
+     "state": "B",
+     "evidence": "arm32_register_gate ARM32_REG: GP edit/rollback, SW breakpoint trap ARM/Thumb (ARMv7 + arm64-compat)"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no frontends"
+    }
+   }
+  },
+  {
+   "id": "native-riscv64",
+   "group": "Native Linux",
+   "name": "RISC-V64",
+   "cells": {
+    "C1": {
+     "state": "-",
+     "evidence": "ELF parse unit only (target_compatibility_test)"
+    },
+    "C2": {
+     "state": "-",
+     "evidence": "no live target"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no live target"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live target"
+    },
+    "C5": {
+     "state": "-",
+     "evidence": "no backend"
+    },
+    "C6": {
+     "state": "-",
+     "evidence": "no live target"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "no live target"
+    },
+    "C8": {
+     "state": "-",
+     "evidence": "no live target"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "no live target"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no live target"
+    }
+   }
+  },
+  {
+   "id": "native-other-isa",
+   "group": "Native Linux",
+   "name": "MIPS / PPC64LE / s390x",
+   "cells": {
+    "C1": {
+     "state": "-",
+     "evidence": "ELF classification unit only"
+    },
+    "C2": {
+     "state": "-",
+     "evidence": "byte-order data paths unit only"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no live target"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live target"
+    },
+    "C5": {
+     "state": "-",
+     "evidence": "no backend"
+    },
+    "C6": {
+     "state": "-",
+     "evidence": "no live target"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "no live target"
+    },
+    "C8": {
+     "state": "-",
+     "evidence": "no live target"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "no live target"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no live target"
+    }
+   }
+  },
+  {
+   "id": "wine32-legacy",
+   "group": "Windows on Linux",
+   "name": "Wine legacy Wine32",
+   "cells": {
+    "C1": {
+     "state": "B",
+     "evidence": "wine_compatibility_test --require-legacy-wine32 (Wine 9): Wine runtime, WindowsI386, LinuxI386 loader"
+    },
+    "C2": {
+     "state": "B",
+     "evidence": "wine_integration typed pointer/int writes observed by PE32 fixture"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no scan in wine_integration"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live pointer scan"
+    },
+    "C5": {
+     "state": "B",
+     "evidence": "wine_integration AA injection at real PE32 function + arch selection"
+    },
+    "C6": {
+     "state": "B",
+     "evidence": "wine_integration inject/disable exact restore + busy alloc/free; no frontends"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "Wine native call/library injection not tested"
+    },
+    "C8": {
+     "state": "B",
+     "evidence": "wine_integration main-thread HW watchpoint CodeFinder"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "only register snapshot (inspectThread); no bp/step/trace"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no GUI/CLI/Lua against Wine target"
+    }
+   }
+  },
+  {
+   "id": "wine64",
+   "group": "Windows on Linux",
+   "name": "Wine64",
+   "cells": {
+    "C1": {
+     "state": "B",
+     "evidence": "wine_compatibility_test PE32+ in Wine 9 (legacy job) and Wine 11 (wow64 job): WindowsX64"
+    },
+    "C2": {
+     "state": "B",
+     "evidence": "wine_integration width=8 typed writes"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no scan in wine_integration"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live pointer scan"
+    },
+    "C5": {
+     "state": "B",
+     "evidence": "wine_integration AA injection PE32+"
+    },
+    "C6": {
+     "state": "B",
+     "evidence": "wine_integration inject/disable restore + busy alloc/free"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "not tested"
+    },
+    "C8": {
+     "state": "B",
+     "evidence": "wine_integration main-thread HW watchpoint"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "register snapshot only"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no frontends"
+    }
+   }
+  },
+  {
+   "id": "wine-wow64",
+   "group": "Windows on Linux",
+   "name": "Wine new WoW64",
+   "cells": {
+    "C1": {
+     "state": "B",
+     "evidence": "wine_compatibility_test --require-wow64 (Wine 11 Fedora): PE32 with LinuxX86_64 loader"
+    },
+    "C2": {
+     "state": "B",
+     "evidence": "wine_integration width=4 typed writes"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no scan"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live pointer scan"
+    },
+    "C5": {
+     "state": "B",
+     "evidence": "wine_integration AA injection PE32 under WoW64"
+    },
+    "C6": {
+     "state": "B",
+     "evidence": "wine_integration inject/restore + low-window alloc pressure"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "not tested"
+    },
+    "C8": {
+     "state": "B",
+     "evidence": "wine_integration main-thread HW watchpoint"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "register snapshot only"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no frontends"
+    }
+   }
+  },
+  {
+   "id": "proton",
+   "group": "Windows on Linux",
+   "name": "Proton",
+   "cells": {
+    "C1": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C2": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C5": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C6": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C8": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no live test"
+    }
+   }
+  },
+  {
+   "id": "proton-pressure-vessel",
+   "group": "Windows on Linux",
+   "name": "Proton in Steam Runtime",
+   "cells": {
+    "C1": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C2": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C5": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C6": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C8": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no live test"
+    }
+   }
+  },
+  {
+   "id": "container-podman",
+   "group": "Sandboxes",
+   "name": "Podman / Docker",
+   "cells": {
+    "C1": {
+     "state": "B",
+     "evidence": "native_namespace_gate NATIVE_MODULE_NAMESPACE (manual; compatibility-evidence/native-module-namespace.json)"
+    },
+    "C2": {
+     "state": "B",
+     "evidence": "mono_compatibility_gate --container field read/write (manual, mono-runtime.json)"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no scan across namespace"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no pointer scan"
+    },
+    "C5": {
+     "state": "-",
+     "evidence": "no test"
+    },
+    "C6": {
+     "state": "-",
+     "evidence": "no test"
+    },
+    "C7": {
+     "state": "B",
+     "evidence": "native_namespace_gate NATIVE_THREAD_NAMESPACE host pthread call; mono agent in ns (manual)"
+    },
+    "C8": {
+     "state": "-",
+     "evidence": "no test"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "no test"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no frontends from host to container"
+    }
+   }
+  },
+  {
+   "id": "flatpak",
+   "group": "Sandboxes",
+   "name": "Flatpak",
+   "cells": {
+    "C1": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C2": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C5": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C6": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C8": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no live test"
+    }
+   }
+  },
+  {
+   "id": "snap",
+   "group": "Sandboxes",
+   "name": "Snap",
+   "cells": {
+    "C1": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C2": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C5": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C6": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C8": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no live test"
+    }
+   }
+  },
+  {
+   "id": "bubblewrap",
+   "group": "Sandboxes",
+   "name": "bubblewrap",
+   "cells": {
+    "C1": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C2": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C5": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C6": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C8": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no live test"
+    }
+   }
+  },
+  {
+   "id": "mono-unity",
+   "group": "Managed runtimes",
+   "name": "Mono / Unity",
+   "cells": {
+    "C1": {
+     "state": "B",
+     "evidence": "mono_compatibility_gate (+--embedded) runtime detect, dissect, findMonoFunction JIT; plain Mono, not Unity"
+    },
+    "C2": {
+     "state": "B",
+     "evidence": "mono_integration pinned-object field read/write/restore across GC"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no scan test"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no test"
+    },
+    "C5": {
+     "state": "-",
+     "evidence": "JIT address lookup only; no disassembly test"
+    },
+    "C6": {
+     "state": "-",
+     "evidence": "no code cave test"
+    },
+    "C7": {
+     "state": "B",
+     "evidence": "mono_integration agent injection, resident refresh, library unload"
+    },
+    "C8": {
+     "state": "-",
+     "evidence": "no test"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "managed debugging pending"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "CLI-Lua only (cescan lua monoDissect); GUI not live-tested"
+    }
+   }
+  },
+  {
+   "id": "il2cpp",
+   "group": "Managed runtimes",
+   "name": "IL2CPP",
+   "cells": {
+    "C1": {
+     "state": "-",
+     "evidence": "metadata parser on byte arrays/optional file only; no live process"
+    },
+    "C2": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C5": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C6": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C8": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no live test"
+    }
+   }
+  },
+  {
+   "id": "jvm",
+   "group": "Managed runtimes",
+   "name": "JVM",
+   "cells": {
+    "C1": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C2": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C5": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C6": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C8": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no live test"
+    }
+   }
+  },
+  {
+   "id": "coreclr",
+   "group": "Managed runtimes",
+   "name": "CoreCLR (.NET)",
+   "cells": {
+    "C1": {
+     "state": "-",
+     "evidence": "detection/enumeration on FakeProcessHandle only (test/main.cpp)"
+    },
+    "C2": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C5": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C6": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C8": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no live test"
+    }
+   }
+  },
+  {
+   "id": "go",
+   "group": "Managed runtimes",
+   "name": "Go",
+   "cells": {
+    "C1": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C2": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C5": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C6": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C8": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no live test"
+    }
+   }
+  },
+  {
+   "id": "v8",
+   "group": "Managed runtimes",
+   "name": "V8 (Node / Electron)",
+   "cells": {
+    "C1": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C2": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C5": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C6": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C8": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no live test"
+    }
+   }
+  },
+  {
+   "id": "ceserver",
+   "group": "Remote and emulated",
+   "name": "CEServer",
+   "cells": {
+    "C1": {
+     "state": "B",
+     "evidence": "ceserver_compatibility_gate ceserver_integration: description, modules, threads, x86-64 to i386 exec"
+    },
+    "C2": {
+     "state": "B",
+     "evidence": "ceserver_integration typed/pointer writes, partial transfers, stale-handle failures"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no scan over CEServer"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no pointer scan"
+    },
+    "C5": {
+     "state": "-",
+     "evidence": "no test"
+    },
+    "C6": {
+     "state": "B",
+     "evidence": "ceserver_integration remote alloc/protect/free + failure results; no code cave"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "no test"
+    },
+    "C8": {
+     "state": "B",
+     "evidence": "ceserver_integration remote HW watchpoint reports write"
+    },
+    "C9": {
+     "state": "B",
+     "evidence": "ceserver_integration SW breakpoint/event/removal/restore; multiclient per-connection bps"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "Lua connectToCeserver only vs stub/failing peers; no GUI/CLI"
+    }
+   }
+  },
+  {
+   "id": "gdb-qemu-guest",
+   "group": "Remote and emulated",
+   "name": "GDB / QEMU system guest",
+   "cells": {
+    "C1": {
+     "state": "B",
+     "evidence": "gdb_transport_gate --require-qemu: XML desc on real ARM64 QEMU; Lua getTargetInfo; GUI label"
+    },
+    "C2": {
+     "state": "B",
+     "evidence": "gdb_transport_integration qemu RAM write/exact restore; gdb_gui_gate hex edit; gdb_lua_checks"
+    },
+    "C3": {
+     "state": "B",
+     "evidence": "gdb_transport_integration qemu byte scan; gdb_lua_checks MemScan first/next on QEMU"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no pointer scan"
+    },
+    "C5": {
+     "state": "B",
+     "evidence": "gdb_transport_integration qemu arch selection + decode; no assemble"
+    },
+    "C6": {
+     "state": "X",
+     "evidence": "gdb_transport_integration: allocate/protect/free rejected on real QEMU with an explicit unsupported error"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "no explicit native-call error test"
+    },
+    "C8": {
+     "state": "-",
+     "evidence": "backend watchpoints pending"
+    },
+    "C9": {
+     "state": "B",
+     "evidence": "gdb_transport_integration qemu register edit + 2 real single steps; GUI register editor"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "GUI (gdb_gui_gate qemu-gui) + Lua (qemu-lua); CLI commands only vs synthetic RSP peers"
+    }
+   }
+  },
+  {
+   "id": "console-emulators",
+   "group": "Remote and emulated",
+   "name": "Console emulators",
+   "cells": {
+    "C1": {
+     "state": "-",
+     "evidence": "adapters tested only on forked processes posing as Dolphin/Yuzu/RPCS3"
+    },
+    "C2": {
+     "state": "-",
+     "evidence": "no real emulator"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "gui_guest_scan_smoke uses fake Dolphin child"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no real emulator"
+    },
+    "C5": {
+     "state": "-",
+     "evidence": "guest ISA adapters pending"
+    },
+    "C6": {
+     "state": "n/a",
+     "evidence": "code caves in emulated guest RAM are not a meaningful operation"
+    },
+    "C7": {
+     "state": "n/a",
+     "evidence": "no native call into an emulated guest CPU"
+    },
+    "C8": {
+     "state": "-",
+     "evidence": "guest writer attribution pending"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "no real emulator"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no real emulator"
+    }
+   }
+  },
+  {
+   "id": "arm64ec",
+   "group": "Hybrid PE",
+   "name": "ARM64EC / ARM64X",
+   "cells": {
+    "C1": {
+     "state": "-",
+     "evidence": "PE classification unit only"
+    },
+    "C2": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C3": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C4": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C5": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C6": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C7": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C8": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C9": {
+     "state": "-",
+     "evidence": "no live test"
+    },
+    "C10": {
+     "state": "-",
+     "evidence": "no live test"
+    }
+   }
+  }
+ ]
+}

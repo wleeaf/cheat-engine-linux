@@ -4074,9 +4074,8 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly, int 
         watchSize = QSettings().value("codefinder/watchSize", "4").toInt();
     if (watchSize != 1 && watchSize != 2 && watchSize != 4 && watchSize != 8) watchSize = 4;
     if (!finder->start(*process_, *debugger, addr, writesOnly, watchSize, software, singleThread)) {
-        QMessageBox::warning(this, "Code finder unavailable",
-            software ? "Could not start software watchpoint monitoring for this address."
-                     : "Could not start hardware watchpoint monitoring for this address.");
+        QMessageBox::warning(this, "Code finder unavailable", QString::fromStdString(ce::targetOperationError(*process_,
+            software ? ce::TargetFeature::SoftwareWatchpoint : ce::TargetFeature::HardwareWatchpoint, finder->lastError())));
         return;
     }
 

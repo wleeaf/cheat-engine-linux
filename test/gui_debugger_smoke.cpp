@@ -17,6 +17,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <sys/ptrace.h>
 
 static volatile long g_smoke_counter = 0;
 // External linkage so the disassembly's current-line annotation can resolve RIP to
@@ -228,8 +229,40 @@ int main(int argc, char** argv) {
     kill(child, SIGKILL);
     waitpid(child, nullptr, 0);
 
-    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && memHl && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno && disasmSym && disasmData && disasmHl && disasmComment && disasmUnmasked && bpToggle && memViewStep && memViewRtc;
-    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d memhl=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d stackanno=%d disasmsym=%d disasmdata=%d disasmhl=%d disasmcomment=%d unmasked=%d bptoggle=%d memviewstep=%d memviewrtc=%d)\n",
-           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, memHl, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk, stackAnno, disasmSym, disasmData, disasmHl, disasmComment, disasmUnmasked, bpToggle, memViewStep, memViewRtc);
+    // Blocked target: a process already traced by another debugger must be
+    // refused with the capability reason, not a generic permission guess. The
+    // tracer is the target's parent so Yama ptrace_scope=1 permits its SEIZE.
+    bool blockedReason = false;
+    QString blockedText;
+    int ready[2];
+    if (pipe(ready) == 0) {
+        pid_t tracer = fork();
+        if (tracer == 0) {
+            close(ready[0]);
+            pid_t target = fork();
+            if (target == 0) { for (;;) pause(); }
+            long seized = ptrace(PTRACE_SEIZE, target, nullptr, nullptr);
+            pid_t report[2] = {target, seized == 0 ? 1 : 0};
+            ssize_t wr = write(ready[1], report, sizeof(report)); (void)wr;
+            for (;;) pause();
+        }
+        close(ready[1]);
+        pid_t report[2] = {0, 0};
+        if (tracer > 0 && read(ready[0], report, sizeof(report)) == sizeof(report) && report[1]) {
+            ce::os::LinuxProcessHandle blocked(report[0]);
+            ce::gui::DebuggerWindow refused(&blocked);
+            for (int i = 0; i < 10; ++i) { app.processEvents(); usleep(2000); }
+            blockedText = refused.statusTextForTest();
+            blockedReason = !refused.debugAttached() && blockedText.contains("traced by another debugger");
+            kill(report[0], SIGKILL);
+        }
+        close(ready[0]);
+        if (tracer > 0) { kill(tracer, SIGKILL); waitpid(tracer, nullptr, 0); }
+    }
+    if (!blockedReason) printf("blocked target status: %s\n", qPrintable(blockedText));
+
+    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && memHl && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno && disasmSym && disasmData && disasmHl && disasmComment && disasmUnmasked && bpToggle && memViewStep && memViewRtc && blockedReason;
+    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d memhl=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d stackanno=%d disasmsym=%d disasmdata=%d disasmhl=%d disasmcomment=%d unmasked=%d bptoggle=%d memviewstep=%d memviewrtc=%d blocked=%d)\n",
+           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, memHl, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk, stackAnno, disasmSym, disasmData, disasmHl, disasmComment, disasmUnmasked, bpToggle, memViewStep, memViewRtc, blockedReason);
     return ok ? 0 : 1;
 }

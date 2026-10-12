@@ -1441,8 +1441,12 @@ static int l_allocateMemory(lua_State* L) {
     size_t size = (size_t)luaL_checkinteger(L, 1);
     uintptr_t base = lua_isnoneornil(L, 2) ? 0 : (uintptr_t)luaL_checkinteger(L, 2);
     auto r = p->allocate(size, MemProt::All, base);
-    if (r) lua_pushinteger(L, (lua_Integer)*r);
-    else   lua_pushnil(L);
+    if (!r) {
+        lua_pushnil(L);
+        lua_pushstring(L, ce::targetOperationError(*p, ce::TargetFeature::Allocate, r.error()).c_str());
+        return 2;
+    }
+    lua_pushinteger(L, (lua_Integer)*r);
     return 1;
 }
 static int l_deAlloc(lua_State* L) {
@@ -2476,11 +2480,14 @@ static int l_debug_setBreakpoint(lua_State* L) {
     // type 0 = execute (software int3); non-zero = hardware DATA watchpoint
     // (1=write, else access), size bytes wide.
     int realId = -1;
+    std::string failure;
     if (auto* eng = ce::LuaEngine::instanceFromState(L)) {
         if (auto* sess = eng->debugSession()) {
             realId = (type == 0) ? sess->setSoftwareBreakpoint(address)
                                  : sess->setHardwareBreakpoint(address, type, size);
             sess->continueExecution();
+        } else if (auto* p = getProc(L)) {
+            failure = ce::targetOperationError(*p, ce::TargetFeature::Debugger);
         }
     }
 
@@ -2499,6 +2506,8 @@ static int l_debug_setBreakpoint(lua_State* L) {
     lua_pop(L, 1);
 
     lua_pushinteger(L, id);
+    // CE scripts ignore extra results; ours can read why no real breakpoint exists.
+    if (!failure.empty()) { lua_pushstring(L, failure.c_str()); return 2; }
     return 1;
 }
 
@@ -3232,7 +3241,11 @@ static int l_createSimpleHook(lua_State* L) {
     uintptr_t addr   = (uintptr_t)luaL_checkinteger(L, 1);
     uintptr_t target = (uintptr_t)luaL_checkinteger(L, 2);
     auto h = ce::installSimpleHook(*p, addr, target);
-    if (!h) { lua_pushnil(L); return 1; }
+    if (!h) {
+        lua_pushnil(L);
+        lua_pushstring(L, ce::targetOperationError(*p, ce::TargetFeature::CodeInjection).c_str());
+        return 2;
+    }
     int id = eng->addHook(*h);
     lua_newtable(L);
     lua_pushinteger(L, id);                        lua_setfield(L, -2, "id");
@@ -3944,7 +3957,7 @@ static int codeFinderImpl(lua_State* L, bool writesOnly) {
     ce::CodeFinder finder;
     if (!finder.start(*p, dbg, addr, writesOnly, watchSize)) {
         lua_pushnil(L);
-        lua_pushstring(L, "code finder failed to attach (need exclusive ptrace / privileges)");
+        lua_pushstring(L, ce::targetOperationError(*p, ce::TargetFeature::HardwareWatchpoint, finder.lastError()).c_str());
         return 2;
     }
     sleepSeconds(seconds);
@@ -3983,6 +3996,11 @@ static int l_breakAndTrace(lua_State* L) {
     ce::os::LinuxDebugger dbg;
     ce::Tracer tracer;
     auto entries = tracer.trace(*p, dbg, cfg);
+    if (entries.empty() && tracer.lastError()) {
+        lua_pushnil(L);
+        lua_pushstring(L, ce::targetOperationError(*p, ce::TargetFeature::Trace, tracer.lastError()).c_str());
+        return 2;
+    }
     lua_newtable(L);
     for (size_t i = 0; i < entries.size(); ++i) {
         const auto& e = entries[i];
@@ -4925,11 +4943,16 @@ static int l_AOBScanModuleUnique(lua_State* L) {
 
 static int l_fullAccess(lua_State* L) {
     auto* p = getProc(L);
-    if (!p) return 0;
+    if (!p) { lua_pushnil(L); lua_pushstring(L, "no process attached"); return 2; }
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
     size_t size = (size_t)luaL_checkinteger(L, 2);
-    p->protect(addr, size, MemProt::All);
-    return 0;
+    if (auto r = p->protect(addr, size, MemProt::All); !r) {
+        lua_pushnil(L);
+        lua_pushstring(L, ce::targetOperationError(*p, ce::TargetFeature::Protect, r.error()).c_str());
+        return 2;
+    }
+    lua_pushboolean(L, 1);
+    return 1;
 }
 
 // ── Hotkeys ──

@@ -133,4 +133,14 @@ std::optional<std::string> unsupportedTargetOperation(ProcessHandle& process, Ta
     return std::nullopt;
 }
 
+std::string targetOperationError(ProcessHandle& process, TargetFeature feature, std::error_code error) {
+    if (auto reason = unsupportedTargetOperation(process, feature)) return *reason;
+    const auto transport = process.targetDescription().transport;
+    if (transport != TargetTransport::Local && (feature == TargetFeature::Debugger || feature == TargetFeature::Trace ||
+            feature == TargetFeature::HardwareWatchpoint || feature == TargetFeature::SoftwareWatchpoint))
+        return std::string(targetFeatureName(feature)) + ": local ptrace operations are unavailable over this transport";
+    if (error) return std::string(targetFeatureName(feature)) + ": " + error.message();
+    return std::string(targetFeatureName(feature)) + " failed";
+}
+
 } // namespace ce

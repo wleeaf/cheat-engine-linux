@@ -2,6 +2,8 @@
 
 #include "platform/process_api.hpp"
 #include <optional>
+#include <string>
+#include <system_error>
 #include <vector>
 
 namespace ce {
@@ -25,5 +27,9 @@ const char* capabilityStateName(CapabilityState state);
 std::vector<TargetCapability> targetCapabilities(const TargetDescription& description);
 std::vector<TargetCapability> targetCapabilities(ProcessHandle& process);
 std::optional<std::string> unsupportedTargetOperation(ProcessHandle& process, TargetFeature feature);
+// User-facing reason for a failed operation: the capability reason when the
+// backend refuses this target, otherwise the operation's own error. Frontends
+// use this so an unsupported target never fails silently or with a bare errno.
+std::string targetOperationError(ProcessHandle& process, TargetFeature feature, std::error_code error = {});
 
 } // namespace ce

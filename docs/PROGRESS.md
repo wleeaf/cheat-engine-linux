@@ -16,6 +16,34 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Coverage matrix and explicit refusals: 12 October 2026
+
+Items 0.2 and 0.3 of the [coverage plan](COVERAGE_PLAN.md).
+
+**Matrix.** `docs/compatibility-matrix.json` now holds one state per target
+and capability (27 targets by 10 capabilities) with an evidence pointer or
+reason for every cell. It was seeded by reading the existing gates, not by
+new runs: a cell is `B` only when a live test on a real target of that kind
+exists, `V` when it also has a failure/restore case and GUI, CLI and Lua
+coverage. `tools/coverage_matrix.py --write` renders the table in
+COMPATIBILITY.md; `--check` runs in `tools/ci-check.sh --config` and the
+hosted build job. The honest baseline is **coverage 66/268 (25%) and depth
+7/268 (3%)**. Visible gaps: no live pointer scan on any target, no scans on
+i386/x32/ARM/Wine, no Proton, sandbox, JVM/CoreCLR/Go/V8 or RISC-V coverage.
+
+**Refusals.** A new cecore helper, `targetOperationError`, turns a capability
+refusal into the user-visible reason. Previously Lua `allocateMemory`,
+`createSimpleHook` and `fullAccess` returned a bare nil or nothing,
+`breakAndTrace` returned an empty table, `findWhatWrites` and the CLI `watch`
+blamed missing privileges, and the GUI debugger said "need ptrace
+permission?" even when the real cause was, for example, another debugger
+already tracing the target. Now all of these name the actual reason; Lua
+returns `nil, reason` (CE-compatible, extra results are ignored by CE
+scripts). The new `blocked_target_gate.py` (CLI and Lua) and a new
+`gui_debugger_smoke` case hold a real target under a separate tracer (its
+parent, so Yama scope 1 permits it) and require the "traced by another
+debugger" reason on every frontend while plain reads keep working.
+
 ## Unreaped service recovery: 12 October 2026
 
 This closes the first remaining item of the unreaped-task entry below and is

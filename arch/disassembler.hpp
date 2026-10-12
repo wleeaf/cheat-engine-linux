@@ -54,7 +54,7 @@ struct Instruction {
 /// compute base + index*scale + disp from the 64-bit registers.
 uintptr_t computeEffectiveAddress(const Instruction& inst, const CpuContext& ctx);
 
-enum class Arch { X86_32, X86_64, ARM32, ARM64, ARMThumb, ARM32_BE, ARMThumb_BE };
+enum class Arch { X86_32, X86_64, ARM32, ARM64, ARMThumb, ARM32_BE, ARMThumb_BE, RISCV32, RISCV64 };
 
 class Disassembler {
 public:

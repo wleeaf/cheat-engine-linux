@@ -8,6 +8,8 @@ std::expected<Arch, std::string> disassemblerArchFor(const TargetMachine& m) {
         case CpuArchitecture::X86_32: return Arch::X86_32;
         case CpuArchitecture::X86_64: return Arch::X86_64;
         case CpuArchitecture::Arm64: return Arch::ARM64;
+        case CpuArchitecture::RiscV32: return Arch::RISCV32;
+        case CpuArchitecture::RiscV64: return Arch::RISCV64;
         case CpuArchitecture::Arm32: {
             if (m.instructionByteOrder == ByteOrder::Unknown)
                 return std::unexpected("ARM instruction byte order is unknown");
@@ -24,7 +26,7 @@ std::expected<Arch, std::string> disassemblerArchFor(ProcessHandle& process, uin
     return disassemblerArchFor(address ? process.machineAt(address) : process.targetDescription().program);
 }
 
-AsmArch assemblerArchFor(Arch arch) {
+std::expected<AsmArch, std::string> assemblerArchFor(Arch arch) {
     switch (arch) {
         case Arch::X86_32: return AsmArch::X86_32;
         case Arch::X86_64: return AsmArch::X86_64;
@@ -33,8 +35,10 @@ AsmArch assemblerArchFor(Arch arch) {
         case Arch::ARMThumb: return AsmArch::ARMThumb;
         case Arch::ARM32_BE: return AsmArch::ARM32_BE;
         case Arch::ARMThumb_BE: return AsmArch::ARMThumb_BE;
+        case Arch::RISCV32: case Arch::RISCV64:
+            return std::unexpected("No assembler backend for RISC-V (Keystone has none); disassembly is available");
     }
-    throw std::invalid_argument("Unknown instruction architecture");
+    return std::unexpected("Unknown instruction architecture");
 }
 
 } // namespace ce

@@ -1793,7 +1793,9 @@ static int l_assemble(lua_State* L) {
     auto* p = getProc(L);   // match the attached target's bitness when one is open
     auto architecture = p ? disassemblerArchFor(*p, addr) : std::expected<Arch, std::string>(Arch::X86_64);
     if (!architecture) { lua_pushnil(L); lua_pushstring(L, architecture.error().c_str()); return 2; }
-    Assembler asm64(assemblerArchFor(*architecture));
+    auto assemblerArch = assemblerArchFor(*architecture);
+    if (!assemblerArch) { lua_pushnil(L); lua_pushstring(L, assemblerArch.error().c_str()); return 2; }
+    Assembler asm64(*assemblerArch);
     auto result = asm64.assemble(code, addr);
     if (!result) {
         lua_pushnil(L);

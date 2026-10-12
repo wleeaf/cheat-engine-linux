@@ -1593,9 +1593,10 @@ std::expected<std::vector<uint8_t>, std::string> AutoAssembler::assembleTarget(c
     auto architecture = disassemblerArchFor(machineForCode(address));
     if (!architecture) return std::unexpected(architecture.error());
     auto arch = assemblerArchFor(*architecture);
+    if (!arch) return std::unexpected(arch.error());
     try {
-        auto& assembler = targetAssemblers_[arch];
-        if (!assembler) assembler = std::make_unique<Assembler>(arch);
+        auto& assembler = targetAssemblers_[*arch];
+        if (!assembler) assembler = std::make_unique<Assembler>(*arch);
         return assembler->assemble(code, address);
     } catch (const std::exception& error) { return std::unexpected(error.what()); }
 }

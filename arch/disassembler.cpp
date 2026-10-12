@@ -43,6 +43,9 @@ void Disassembler::setArch(Arch arch) {
         case Arch::ARMThumb: cs_a = CS_ARCH_ARM; cs_m = CS_MODE_THUMB; break;
         case Arch::ARM32_BE: cs_a = CS_ARCH_ARM; cs_m = static_cast<cs_mode>(CS_MODE_ARM | CS_MODE_BIG_ENDIAN); break;
         case Arch::ARMThumb_BE: cs_a = CS_ARCH_ARM; cs_m = static_cast<cs_mode>(CS_MODE_THUMB | CS_MODE_BIG_ENDIAN); break;
+        // RISC-V with the compressed (C) extension, which Linux distributions require.
+        case Arch::RISCV32: cs_a = CS_ARCH_RISCV; cs_m = static_cast<cs_mode>(CS_MODE_RISCV32 | CS_MODE_RISCVC); break;
+        case Arch::RISCV64: cs_a = CS_ARCH_RISCV; cs_m = static_cast<cs_mode>(CS_MODE_RISCV64 | CS_MODE_RISCVC); break;
         default: throw std::invalid_argument("Unknown disassembler architecture");
     }
     csh h;
@@ -163,6 +166,7 @@ std::vector<Instruction> Disassembler::disassemble(uintptr_t address, std::span<
         dbi.address = address + offset;
         size_t unit=1;
         if (arch_==Arch::ARM32 || arch_==Arch::ARM32_BE || arch_==Arch::ARM64) unit=4;
+        else if (arch_==Arch::RISCV32 || arch_==Arch::RISCV64) unit=(code[offset]&3)==3 ? 4 : 2;   // C extension
         else if (arch_==Arch::ARMThumb || arch_==Arch::ARMThumb_BE) {
             unit=2;
             if (code.size()-offset>=2) {
@@ -191,6 +195,13 @@ std::vector<Instruction> Disassembler::disassemble(uintptr_t address, std::span<
 
 uintptr_t Disassembler::previousInstruction(uintptr_t addr,
     const std::function<bool(uintptr_t, uint8_t*, size_t)>& read) {
+    if (arch_ == Arch::RISCV32 || arch_ == Arch::RISCV64) {
+        // A full-width instruction ends here when the word four bytes back
+        // starts with the 32-bit length bits; otherwise assume a compressed one.
+        uint8_t first = 0;
+        if (addr >= 4 && read(addr - 4, &first, 1) && (first & 3) == 3) return addr - 4;
+        return addr >= 2 ? addr - 2 : 0;
+    }
     if (arch_ != Arch::X86_32 && arch_ != Arch::X86_64) {
         bool thumb = arch_ == Arch::ARMThumb || arch_ == Arch::ARMThumb_BE;
         if (!thumb) return addr >= 4 ? addr - 4 : 0;

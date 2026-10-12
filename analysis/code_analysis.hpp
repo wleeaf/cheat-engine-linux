@@ -7,6 +7,7 @@
 #include "arch/target_arch.hpp"
 #include <stdexcept>
 #include "symbols/elf_symbols.hpp"
+#include <memory>
 #include <vector>
 #include <string>
 
@@ -51,8 +52,11 @@ public:
     // Default is x86-64; pass Arch::X86_32 for a 32-bit target so the disassembly and
     // assembly are decoded/encoded correctly (see analyzerArchFor()).
     explicit CodeAnalyzer(Arch arch = Arch::X86_64)
-        : disasm_(arch),
-          assembler_(assemblerArchFor(arch)) {}
+        : disasm_(arch) {
+        // Instruction sets without an assembler (RISC-V) still analyze code;
+        // only assembly-pattern searches need one.
+        if (auto assemblerArch = assemblerArchFor(arch)) assembler_ = std::make_unique<Assembler>(*assemblerArch);
+    }
 
     /// Dissect a module — find all calls, jumps, string references.
     std::vector<CodeRef> dissectModule(ProcessHandle& proc, const ModuleInfo& module);
@@ -97,7 +101,7 @@ public:
 
 private:
     Disassembler disasm_;
-    Assembler assembler_;
+    std::unique_ptr<Assembler> assembler_;
 };
 
 /// The analysis arch for a target: WoW64-aware, so a 32-bit game running under a 64-bit

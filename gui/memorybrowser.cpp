@@ -2413,7 +2413,12 @@ void MemoryBrowser::assembleAt(uintptr_t addr, int origSize, const QString& curr
         QMessageBox::warning(this, "Assemble failed", QString::fromStdString(architecture.error()));
         return;
     }
-    ce::Assembler asmr(ce::assemblerArchFor(*architecture));
+    auto assemblerArch = ce::assemblerArchFor(*architecture);
+    if (!assemblerArch) {
+        QMessageBox::warning(this, "Assemble failed", QString::fromStdString(assemblerArch.error()));
+        return;
+    }
+    ce::Assembler asmr(*assemblerArch);
     auto res = asmr.assemble(text.toStdString(), addr);
     if (!res) {
         QMessageBox::warning(this, "Assemble failed",

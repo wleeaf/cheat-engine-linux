@@ -236,7 +236,8 @@ std::vector<CodeRef> CodeAnalyzer::findRipRelativeInstructions(ProcessHandle& pr
 
 std::vector<CodeRef> CodeAnalyzer::findAssemblyPattern(ProcessHandle& proc, const ModuleInfo& module,
                                                        const std::string& assembly) {
-    auto assembled = assembler_.assemble(assembly, module.base);
+    if (!assembler_) return {};
+    auto assembled = assembler_->assemble(assembly, module.base);
     if (!assembled || assembled->empty()) return {};
 
     std::vector<CodeRef> matches;

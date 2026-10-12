@@ -68,10 +68,14 @@ std::vector<TargetCapability> targetCapabilities(const TargetDescription& d) {
     add(F::PointerScan, d.program.hasPointers() && d.program.byteOrder != ByteOrder::Unknown ? S::Available : S::Unknown,
         !d.program.hasPointers() ? "Target pointer width is unknown" :
         d.program.byteOrder == ByteOrder::Unknown ? "Target byte order is unknown" : "Uses the program's pointer width and byte order");
-    for (auto f : {F::Disassemble, F::Assemble})
-        add(f, instructionBackend ? S::Available : S::Unsupported,
+    for (auto f : {F::Disassemble, F::Assemble}) {
+        auto instructions = disassemblerArchFor(d.program);
+        auto assembler = instructions ? assemblerArchFor(*instructions) : std::expected<AsmArch, std::string>(std::unexpected(instructions.error()));
+        if (f == F::Assemble && instructions && !assembler) add(f, S::Unsupported, assembler.error());
+        else add(f, instructionBackend ? S::Available : S::Unsupported,
             instructionBackend ? "Select the module's instruction mode for mixed-code targets" :
                                  "No instruction backend for " + std::string(cpuArchitectureName(d.program.architecture)));
+    }
     for (auto f : {F::Allocate, F::Protect}) {
         if (d.pendingRecovery) add(f, S::Blocked, "Pending syscall recovery; retry before another operation");
         else if (tracedElsewhere && local) add(f, S::Blocked, "Target is traced by another debugger");

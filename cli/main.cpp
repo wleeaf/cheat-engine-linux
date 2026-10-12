@@ -553,7 +553,8 @@ static const char* archName(Arch a) {
                  case Arch::ARM32: return "arm32"; case Arch::ARM64: return "arm64";
                  case Arch::ARMThumb: return "thumb";
                  case Arch::ARM32_BE: return "arm32-be";
-                 case Arch::ARMThumb_BE: return "thumb-be"; }
+                 case Arch::ARMThumb_BE: return "thumb-be";
+                 case Arch::RISCV32: return "riscv32"; case Arch::RISCV64: return "riscv64"; }
     return "?";
 }
 
@@ -565,6 +566,8 @@ static std::optional<Arch> parseArch(const std::string& s) {
     if (s == "thumb") return Arch::ARMThumb;
     if (s == "arm32-be") return Arch::ARM32_BE;
     if (s == "thumb-be") return Arch::ARMThumb_BE;
+    if (s == "riscv32" || s == "rv32") return Arch::RISCV32;
+    if (s == "riscv64" || s == "rv64") return Arch::RISCV64;
     return std::nullopt;
 }
 
@@ -625,9 +628,10 @@ static int cmd_disasm(pid_t pid, uintptr_t addr, size_t count, Arch arch) {
 // bytes, for any supported arch. No target needed -- useful for crafting AA patches /
 // signatures.
 static int cmd_asm(const char* code, Arch arch, uintptr_t origin) {
-    const AsmArch aa = ce::assemblerArchFor(arch);
+    const auto aa = ce::assemblerArchFor(arch);
+    if (!aa) { fprintf(stderr, "asm (%s): %s\n", archName(arch), aa.error().c_str()); return 1; }
     try {
-        Assembler as(aa);   // throws if this Keystone build lacks the arch
+        Assembler as(*aa);   // throws if this Keystone build lacks the arch
         auto r = as.assemble(code, origin);
         if (!r) { fprintf(stderr, "asm (%s): %s\n", archName(arch), r.error().c_str()); return 1; }
         for (size_t i = 0; i < r->size(); ++i) printf("%02x%s", (*r)[i], i + 1 < r->size() ? " " : "");

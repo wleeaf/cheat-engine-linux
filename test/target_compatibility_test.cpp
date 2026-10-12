@@ -298,6 +298,19 @@ static void instructionTests() {
     auto decoded = block ? decoder.disassemble(0x401000, *block) : std::vector<Instruction>{};
     check(decoded.size() == 4 && decoded[0].ripTarget == 0x402038 && decoded[1].ripTarget == 0x402030 && decoded[2].ripTarget == 0x402024,
           "x64 absolute and relative memory operands retain their destinations in labeled assembly blocks");
+    {
+        // RISC-V64 with the C extension: addi a0,a0,1 (4 bytes), c.addi a0,1 and
+        // c.jr ra (2 bytes each). Keystone has no RISC-V, so assembling refuses.
+        Disassembler rv(Arch::RISCV64);
+        auto decoded = rv.disassemble(0x1000, std::vector<uint8_t>{0x13, 0x05, 0x15, 0x00, 0x05, 0x05, 0x82, 0x80});
+        TargetMachine riscv;
+        riscv.architecture = CpuArchitecture::RiscV64;
+        riscv.abi = TargetAbi::LinuxRiscV;
+        check(decoded.size() == 3 && decoded[0].mnemonic == "addi" && decoded[0].size == 4 &&
+              decoded[1].address == 0x1004 && decoded[1].size == 2 && decoded[2].address == 0x1006 && decoded[2].size == 2 &&
+              disassemblerArchFor(riscv) == Arch::RISCV64 && !assemblerArchFor(Arch::RISCV64),
+              "RISC-V64 decodes full-width and compressed instructions; assembling reports no backend");
+    }
     auto decimal = x64.assemble("mov rcx,qword [4202496]", 0x401000);
     auto decimalInstruction = decimal ? decoder.disassembleOne(0x401000, *decimal) : std::nullopt;
     check(decimalInstruction && decimalInstruction->ripTarget == 4202496,
@@ -329,7 +342,7 @@ static void instructionTests() {
             auto insn = dis.disassembleOne(0x1000, pair.second);
             check(insn && insn->mnemonic == "nop" && insn->size == pair.second.size(),
                   "ARM/Thumb instruction decoding matches independent fixed bytes");
-            Assembler assembler(assemblerArchFor(pair.first));
+            Assembler assembler(*assemblerArchFor(pair.first));
             auto encoded = assembler.assemble("nop", 0x1000);
             check(encoded && *encoded == pair.second, "ARM/Thumb assembly uses the selected instruction encoding");
         } catch (const std::exception& e) {

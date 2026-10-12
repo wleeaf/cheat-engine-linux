@@ -107,11 +107,12 @@ def main():
                 if detail:
                     print(detail[-3000:], flush=True)
 
-        # CoreCLR's tiered compilation (with dynamic PGO) keeps replacing hot
-        # methods, so the instruction find-what-writes reports can stop running;
-        # these checks use one stable compiled version (tiering off).
+        # CoreCLR (.NET 7+) maps JIT code W^X: an executable read-only view of a
+        # shared memfd plus a separate writable view. Code patches at the
+        # executable address need that writable alias, which cecore does not
+        # use yet, so these checks run with W^X off and one compiled version.
         runtime = Runtime(command, env=dict(os.environ, DOTNET_PerfMapEnabled="1", DOTNET_CLI_TELEMETRY_OPTOUT="1",
-                                            DOTNET_TieredCompilation="0"))
+                                            DOTNET_TieredCompilation="0", DOTNET_EnableWriteXorExecute="0"))
         try:
             pid = runtime.pid
             if jcmd:

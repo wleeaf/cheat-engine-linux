@@ -262,3 +262,6 @@ first. Detailed write-ups continue in PROGRESS.md.
 - 2026-10-12, **3.1 / Wave 2**: armhf and x32 guests pass (ARM32 C2 to C5,
   x32 C3/C4); GDB CLI on real QEMU and guest pointer paths (GDB C4, C10).
   Coverage 212/268 (79.1%).
+- 2026-10-12, open depth item found: CoreCLR's W^X double mapping makes code
+  patches (breakpoints, hooks) at JIT addresses fail; writing through the
+  writable alias of the shared mapping is needed. CI runs CoreCLR with W^X off.

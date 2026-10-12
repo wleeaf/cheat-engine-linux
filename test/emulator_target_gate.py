@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drive a real console emulator (mGBA) running a generated homebrew ROM.
 
-usage: emulator_target_gate.py BUILD [--mgba MGBA] [--report JSON]
+usage: emulator_target_gate.py BUILD [--mgba MGBA] [--gui] [--report JSON]
 
 The ROM is assembled here from a dozen ARM7 instructions (no game data): it
 stores a marker word at the start of emulated work RAM (EWRAM, 0x02000000),
@@ -9,7 +9,10 @@ runs a counter at +4, and keeps copying the word at +0 to +8. From the host,
 as a user would, the gate identifies the emulator, finds EWRAM through a value
 scan for the marker, writes a new value and requires the guest program's copy
 at +8 to follow it, repeats the scan as a next scan, and finds a pointer path
-to the EWRAM buffer. Run under a display (xvfb-run) with dummy audio.
+to the EWRAM buffer. It then disassembles the guest's ARM code where the
+emulator holds the ROM, finds the host instruction that stores the guest's
+counter, stops there with a breakpoint and, with --gui, drives the Qt windows.
+Run under a display (xvfb-run) with dummy audio, as root under Yama scope 1.
 """
 import argparse
 import json
@@ -44,6 +47,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("build", type=pathlib.Path)
     parser.add_argument("--mgba", default=shutil.which("mgba") or shutil.which("mgba-sdl") or "/usr/games/mgba")
+    parser.add_argument("--gui", action="store_true", help="also drive the Qt main and debugger windows")
     parser.add_argument("--report", type=pathlib.Path)
     args = parser.parse_args()
     cescan = str((args.build / "cescan").resolve())
@@ -88,7 +92,12 @@ def main():
         first = run("scan", pid, "--type", "i32", "--value", MARKER)
         snapshot = re.search(r"^Results: (.+)$", first, re.M)
         candidates = [int(a, 16) for a in re.findall(r"^\s*(0x[0-9a-f]+) = ", first, re.M)]
-        ewram = next((a for a in candidates if read_i32(pid, a + 8) == MARKER), None)
+        # Rewind/savestate buffers hold stale copies of guest RAM: the live one
+        # is the copy whose counter at +4 keeps advancing.
+        copies = [a for a in candidates if read_i32(pid, a + 8) == MARKER]
+        counters = {a: read_i32(pid, a + 4) for a in copies}
+        time.sleep(0.5)
+        ewram = next((a for a in copies if read_i32(pid, a + 4) != counters[a]), None)
         check("a host value scan finds the guest's marker in emulated work RAM", ewram is not None, first[-2000:])
         if ewram is None:
             # Tell "ROM not loaded" from "loaded but not running" from "RAM not scanned".
@@ -103,7 +112,7 @@ def main():
                     threads.append(f"{task.name} {comm} {state} {wchan}")
                 except (OSError, ValueError):
                     pass
-            print(f"marker candidates: {[hex(a) for a in candidates]}\nROM title scan:\n{title[-1500:]}\n"
+            print(f"marker candidates: {[hex(a) for a in candidates]} copies: {[hex(a) for a in copies]}\nROM title scan:\n{title[-1500:]}\n"
                   f"info:\n{info[-1500:]}\nthreads:\n" + "\n".join(threads), flush=True)
             raise RuntimeError("EWRAM not found")
         print(f"EWRAM backing at {ewram:#x}", flush=True)
@@ -135,6 +144,52 @@ print('POINTER_PATHS ' .. found)
 """], capture_output=True, text=True, timeout=300)
         check("a pointer scan finds a host path to the guest RAM buffer",
               pointers.returncode == 0 and "POINTER_PATHS" in pointers.stdout, pointers.stdout + pointers.stderr)
+
+        # Guest code: the ROM image is host memory; disassemble it as the guest ISA.
+        pattern = " ".join(f"{b:02x}" for b in CODE[:12])
+        code = run("scan", pid, "--type", "aob", "--value", pattern, "--align", 1)
+        sites = [int(a, 16) for a in re.findall(r"^\s*(0x[0-9a-f]+)", code, re.M)]
+        listing = run("disasm", pid, hex(sites[0]), 3, "--arch", "arm32") if sites else code
+        assembled = run("asm", "mov r0, #0x2000000", "--arch", "arm32")
+        check("the guest's ARM code disassembles from the emulator's ROM image and reassembles",
+              bool(sites) and re.search(r"mov\s+r0, #0x2000000", listing) is not None and "02 04 a0 e3" in assembled,
+              code[-1000:] + listing + assembled)
+
+        # The guest's counter store runs through the emulator's own store code:
+        # find what writes reports that host instruction.
+        watch = run("watch", pid, hex(ewram + 4), "--duration", 3, "--mode", "hw", timeout=60)
+        writer = re.search(r"^\s*\d+ x\s+(0x[0-9a-f]+)\s", watch, re.M)
+        check("find what writes reports the emulator's host store for a guest write", writer is not None, watch)
+        writer = int(writer.group(1), 16) if writer else None
+
+        if writer:
+            script = (f"assert(openProcess({pid}))\nlocal hit = nil\n"
+                      "function debugger_onBreakpoint() hit = RIP; return 1 end\n"
+                      f"assert(debug_setBreakpoint({writer}))\n"
+                      "for i = 1, 100 do debug_pumpEvents(100); if hit then break end end\n"
+                      f"debug_removeBreakpoint({writer})\n"
+                      "assert(hit, 'the store was not hit')\nprint('SESSION_HIT ' .. hit)\n")
+            session = subprocess.run([cescan, "lua", "-e", script], capture_output=True, text=True, timeout=120)
+            hit = re.search(r"SESSION_HIT (\d+)", session.stdout)
+            counter = read_i32(pid, ewram + 4)
+            time.sleep(0.5)
+            check("a Lua breakpoint stops at that store and the emulator keeps running after detach",
+                  hit is not None and int(hit.group(1)) == writer and read_i32(pid, ewram + 4) != counter,
+                  session.stdout + session.stderr)
+
+        if args.gui and writer:
+            # The guest only reads +0, so the GUI scan/edit stages own that word;
+            # the store breakpoint is hit by the running guest on its own.
+            run("write", pid, hex(ewram), 24681357, "--type", "i32")
+            smoke = subprocess.Popen([str((args.build / "gui_lifecycle_smoke").resolve()), "--target", str(pid),
+                                      hex(ewram), hex(writer)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     text=True, env=dict(os.environ, QT_QPA_PLATFORM="offscreen"))
+            output = smoke.communicate(timeout=120)[0]
+            counter = read_i32(pid, ewram + 4)
+            time.sleep(0.5)
+            check("the GUI scans, edits and debugs the emulator (6 window checks)",
+                  smoke.returncode == 0 and "GUI_TARGET_RESULT=PASSED checks=6" in output, output)
+            check("the emulator keeps running after the GUI detached", read_i32(pid, ewram + 4) != counter)
     except Exception as error:
         log.seek(0)
         check("the workflow completes", False, repr(error) + "\nmGBA log tail:\n" + log.read()[-2000:])

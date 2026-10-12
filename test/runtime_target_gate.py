@@ -206,15 +206,17 @@ io.read('l')
 assert(autoAssemble(script, disable))
 print('RESTORED'); io.flush()
 """], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-                injected = select.select([hook.stdout], [], [], 120)[0] and hook.stdout.readline().strip() == "INJECTED"
+                first = hook.stdout.readline() if select.select([hook.stdout], [], [], 120)[0] else ""
+                injected = first.strip() == "INJECTED"
                 during = run("read", pid, site, 5, "--type", "aob").split(":", 1)[-1].strip() if injected else ""
                 hooked_value = runtime.command("b") if injected else None
                 if injected:
                     hook.stdin.write("go\n")
                     hook.stdin.flush()
-                output = hook.communicate(timeout=60)[0]
+                output = first + hook.communicate(timeout=60)[0]
                 after = run("read", pid, site, 5, "--type", "aob").split(":", 1)[-1].strip()
-                expected += 2
+                # Count only the calls that ran, so a failed hook does not also fail later checks.
+                expected += 2 if injected else 1
                 check("a code-injection template hooks the JIT writer and the program still computes through the cave",
                       injected and during.upper().startswith("E9") and hooked_value == 779, output + during)
                 check("disabling the injection restores the JIT code and its behavior",

@@ -220,7 +220,7 @@ jobs:
       - name: Probe a real console emulator (mGBA, generated homebrew ROM; exploratory)
         continue-on-error: true
         # Yama scope 1: only root may read an emulator that cescan did not start.
-        run: sudo xvfb-run -a python3 test/emulator_target_gate.py build --report build/compatibility-evidence/emulator-mgba.json
+        run: sudo xvfb-run -a python3 test/emulator_target_gate.py build --gui --report build/compatibility-evidence/emulator-mgba.json
 
       - name: Run JIT runtime workflows (Node/V8, HotSpot, Mono, CoreCLR)
         # Stock runtimes cannot opt in with PR_SET_PTRACER, so Yama scope 1

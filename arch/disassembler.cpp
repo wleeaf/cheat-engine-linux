@@ -43,9 +43,14 @@ void Disassembler::setArch(Arch arch) {
         case Arch::ARMThumb: cs_a = CS_ARCH_ARM; cs_m = CS_MODE_THUMB; break;
         case Arch::ARM32_BE: cs_a = CS_ARCH_ARM; cs_m = static_cast<cs_mode>(CS_MODE_ARM | CS_MODE_BIG_ENDIAN); break;
         case Arch::ARMThumb_BE: cs_a = CS_ARCH_ARM; cs_m = static_cast<cs_mode>(CS_MODE_THUMB | CS_MODE_BIG_ENDIAN); break;
+#if CS_API_MAJOR >= 5
         // RISC-V with the compressed (C) extension, which Linux distributions require.
         case Arch::RISCV32: cs_a = CS_ARCH_RISCV; cs_m = static_cast<cs_mode>(CS_MODE_RISCV32 | CS_MODE_RISCVC); break;
         case Arch::RISCV64: cs_a = CS_ARCH_RISCV; cs_m = static_cast<cs_mode>(CS_MODE_RISCV64 | CS_MODE_RISCVC); break;
+#else
+        case Arch::RISCV32: case Arch::RISCV64:
+            throw std::runtime_error("This Capstone build has no RISC-V decoder (Capstone 5 or newer is required)");
+#endif
         default: throw std::invalid_argument("Unknown disassembler architecture");
     }
     csh h;
@@ -191,6 +196,15 @@ std::vector<Instruction> Disassembler::disassemble(uintptr_t address, std::span<
     }
 
     return result;
+}
+
+bool Disassembler::supports(Arch arch) {
+#if CS_API_MAJOR >= 5
+    (void)arch;
+    return true;
+#else
+    return arch != Arch::RISCV32 && arch != Arch::RISCV64;
+#endif
 }
 
 uintptr_t Disassembler::previousInstruction(uintptr_t addr,

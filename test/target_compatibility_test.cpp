@@ -301,15 +301,22 @@ static void instructionTests() {
     {
         // RISC-V64 with the C extension: addi a0,a0,1 (4 bytes), c.addi a0,1 and
         // c.jr ra (2 bytes each). Keystone has no RISC-V, so assembling refuses.
-        Disassembler rv(Arch::RISCV64);
-        auto decoded = rv.disassemble(0x1000, std::vector<uint8_t>{0x13, 0x05, 0x15, 0x00, 0x05, 0x05, 0x82, 0x80});
         TargetMachine riscv;
         riscv.architecture = CpuArchitecture::RiscV64;
         riscv.abi = TargetAbi::LinuxRiscV;
-        check(decoded.size() == 3 && decoded[0].mnemonic == "addi" && decoded[0].size == 4 &&
-              decoded[1].address == 0x1004 && decoded[1].size == 2 && decoded[2].address == 0x1006 && decoded[2].size == 2 &&
-              disassemblerArchFor(riscv) == Arch::RISCV64 && !assemblerArchFor(Arch::RISCV64),
-              "RISC-V64 decodes full-width and compressed instructions; assembling reports no backend");
+        if (Disassembler::supports(Arch::RISCV64)) {
+            Disassembler rv(Arch::RISCV64);
+            auto decoded = rv.disassemble(0x1000, std::vector<uint8_t>{0x13, 0x05, 0x15, 0x00, 0x05, 0x05, 0x82, 0x80});
+            check(decoded.size() == 3 && decoded[0].mnemonic == "addi" && decoded[0].size == 4 &&
+                  decoded[1].address == 0x1004 && decoded[1].size == 2 && decoded[2].address == 0x1006 && decoded[2].size == 2 &&
+                  disassemblerArchFor(riscv) == Arch::RISCV64 && !assemblerArchFor(Arch::RISCV64),
+                  "RISC-V64 decodes full-width and compressed instructions; assembling reports no backend");
+        } else {
+            // Capstone 4 (Ubuntu 24.04) has no RISC-V: report it, never throw.
+            auto missing = disassemblerArchFor(riscv);
+            check(!missing && missing.error().find("Capstone 5") != std::string::npos,
+                  "a Capstone build without RISC-V reports the missing decoder");
+        }
     }
     auto decimal = x64.assemble("mov rcx,qword [4202496]", 0x401000);
     auto decimalInstruction = decimal ? decoder.disassembleOne(0x401000, *decimal) : std::nullopt;

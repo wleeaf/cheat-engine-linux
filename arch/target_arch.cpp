@@ -8,8 +8,13 @@ std::expected<Arch, std::string> disassemblerArchFor(const TargetMachine& m) {
         case CpuArchitecture::X86_32: return Arch::X86_32;
         case CpuArchitecture::X86_64: return Arch::X86_64;
         case CpuArchitecture::Arm64: return Arch::ARM64;
-        case CpuArchitecture::RiscV32: return Arch::RISCV32;
-        case CpuArchitecture::RiscV64: return Arch::RISCV64;
+        case CpuArchitecture::RiscV32:
+        case CpuArchitecture::RiscV64: {
+            const auto arch = m.architecture == CpuArchitecture::RiscV32 ? Arch::RISCV32 : Arch::RISCV64;
+            if (!Disassembler::supports(arch))
+                return std::unexpected("No RISC-V decoder in this Capstone build (Capstone 5 or newer is required)");
+            return arch;
+        }
         case CpuArchitecture::Arm32: {
             if (m.instructionByteOrder == ByteOrder::Unknown)
                 return std::unexpected("ARM instruction byte order is unknown");

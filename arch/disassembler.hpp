@@ -58,6 +58,8 @@ enum class Arch { X86_32, X86_64, ARM32, ARM64, ARMThumb, ARM32_BE, ARMThumb_BE,
 
 class Disassembler {
 public:
+    /// Whether this build's Capstone decodes `arch` (RISC-V needs Capstone 5).
+    static bool supports(Arch arch);
     // Unattached views start with the engine's native ISA; target views must
     // subsequently select their actual code ISA, including mixed-mode threads.
     Disassembler();

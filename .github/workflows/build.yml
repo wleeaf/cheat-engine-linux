@@ -34,6 +34,7 @@ jobs:
             build-essential \
             musl-tools \
             nodejs \
+            golang-go \
             openjdk-21-jdk-headless \
             bubblewrap \
             gcc-multilib \
@@ -180,6 +181,12 @@ jobs:
           gcc -m32 -O1 -pthread -o build/dynamic_fixture_glibc32 test/static_fixture.c
           python3 test/frontend_target_gate.py build build/static_fixture_glibc build/static_fixture_musl \
             build/dynamic_fixture_glibc build/dynamic_fixture_glibc32 --gui --ceserver --report build/compatibility-evidence/libc-targets.json
+
+      - name: Run a Go program through every frontend
+        run: |
+          (cd test/runtimes && CGO_ENABLED=0 go build -o ../../build/go_fixture go_fixture.go)
+          python3 test/frontend_target_gate.py build build/go_fixture --gui --ceserver \
+            --report build/compatibility-evidence/go-target.json
 
       - name: Run JIT runtime workflows (Node/V8, HotSpot)
         # Stock runtimes cannot opt in with PR_SET_PTRACER, so Yama scope 1

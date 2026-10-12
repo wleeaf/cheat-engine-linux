@@ -251,3 +251,5 @@ first. Detailed write-ups continue in PROGRESS.md.
 - 2026-10-12, **4.1** done for V8 and HotSpot: perf-map JIT symbols, and
   Node/JVM pass 9 frontend checks each (CoreCLR/LuaJIT use the same loader,
   not yet verified live). Coverage 163/268 (60.8%).
+- 2026-10-12, **4.2** done: a Go program passes every frontend check
+  (pclntab-only stripped binaries still pending). Coverage 173/268 (64.6%).

@@ -16,6 +16,21 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Go programs: 12 October 2026
+
+Item 4.2 of the [coverage plan](COVERAGE_PLAN.md). `test/runtimes/go_fixture.go`
+speaks the same stdin protocol as the C fixture, with one extra header field
+naming its writer's Go symbol (`main.ce_writer`), so the whole frontend gate
+applies: identification and the Go symbol table, typed writes, scans, pointer
+scan, an Auto Assembler hook named by the Go symbol, find-what-writes, a Lua
+breakpoint, the Qt windows and the ceserver transport. A CGO-free Go binary
+has no `pthread_detach` or `dlopen`, so native calls are refused with those
+reasons. A Go 1.24 build (made in Alpine locally) passes all **25 checks**;
+the hosted build job builds the fixture with Ubuntu's Go and runs the gate.
+Goroutine migration between threads is not an issue for these checks, which
+watch the shared value. Matrix: the Go row reaches `B` in nine capabilities
+and `X` for native calls. Coverage is now 173/268 (64.6%).
+
 ## JIT runtimes: perf-map symbols for Node/V8 and HotSpot: 12 October 2026
 
 Item 4.1 of the [coverage plan](COVERAGE_PLAN.md). `SymbolResolver` now reads

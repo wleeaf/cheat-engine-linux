@@ -127,7 +127,8 @@ class LibcFixture(Fixture):
     def __init__(self, path, launcher):
         super().__init__([*launcher, str(path)])
         header = self.line().split()
-        if len(header) != 5 or header[0] != "CE_STATIC" or (not launcher and int(header[1]) != self.process.pid):
+        # An optional sixth field names the writer's symbol (Go: main.ce_writer).
+        if len(header) not in (5, 6) or header[0] != "CE_STATIC" or (not launcher and int(header[1]) != self.process.pid):
             raise RuntimeError(f"unexpected fixture header {header}")
         namespaced = int(header[1])
 
@@ -140,8 +141,8 @@ class LibcFixture(Fixture):
         self.namespaced = self.pid != namespaced
         with open(path, "rb") as elf:
             self.bits = 32 if elf.read(5)[4] == 1 else 64
-        self.value, self.pointer, self.writer = (int(field, 16) for field in header[2:])
-        self.hook = "ce_writer"   # a process symbol names the hook point
+        self.value, self.pointer, self.writer = (int(field, 16) for field in header[2:5])
+        self.hook = header[5] if len(header) == 6 else "ce_writer"   # a process symbol names the hook point
 
     def reply(self):
         return int(self.line(timeout=15))
@@ -231,8 +232,9 @@ def main():
             else:
                 arch, abi = ("x86-32", "Linux i386") if fixture.bits == 32 else ("x86-64", "Linux x86-64")
                 check(f"info identifies an {arch} Linux program", arch in info and abi in info, info)
-                symbols = run("symbols", pid, "ce_")
-                check("the symbol table names the writer", "ce_writer" in symbols and "ce_value" in symbols, symbols[:2000])
+                symbols = run("symbols", pid, "e_writer") + run("symbols", pid, "eValue") + run("symbols", pid, "ce_value")
+                check("the symbol table names the writer", "ce_writer" in symbols and ("ce_value" in symbols or "ceValue" in symbols),
+                      symbols[:2000])
             modules = run("modules", pid)
             check("the executable is its own module", path.name in modules, modules)
 
@@ -313,7 +315,7 @@ def main():
                                             capture_output=True, text=True, timeout=60)
                     return result.returncode, result.stdout + result.stderr
                 # Symbols resolve as soon as the process is open, as in CE.
-                code, output = lua(f"assert(getAddress('ce_writer') == {fixture.writer}, tostring(getAddress('ce_writer')))\n"
+                code, output = lua(f"assert(getAddress('{fixture.hook}') == {fixture.writer}, tostring(getAddress('{fixture.hook}')))\n"
                                    "print('SYMBOL_OK')\n")
                 check("Lua resolves the program's own symbol right after openProcess", code == 0 and "SYMBOL_OK" in output, output)
                 maps = open(f"/proc/{pid}/maps").read()

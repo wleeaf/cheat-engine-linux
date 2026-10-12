@@ -1037,44 +1037,44 @@
    "name": "Go",
    "cells": {
     "C1": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate on a CGO-free Go 1.24 program (static, full symtab; built in Alpine locally): info ABI, Go symbol table (main.ce_writer), executable module; Lua getAddress by Go name"
     },
     "C2": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate on a CGO-free Go 1.24 program (static, full symtab; built in Alpine locally): typed write/read observed by the Go program"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate on a CGO-free Go 1.24 program (static, full symtab; built in Alpine locally): whole-process first and next scans"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate on a CGO-free Go 1.24 program (static, full symtab; built in Alpine locally): pointer scan finds the package-level pointer path"
     },
     "C5": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate on a CGO-free Go 1.24 program (static, full symtab; built in Alpine locally): Auto Assembler hook script naming main.ce_writer"
     },
     "C6": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate on a CGO-free Go 1.24 program (static, full symtab; built in Alpine locally): code-cave hook changes the Go function's result, disable restores bytes"
     },
     "C7": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "X",
+     "evidence": "frontend_target_gate on a CGO-free Go 1.24 program (static, full symtab; built in Alpine locally): native calls refused explicitly (no pthread_detach or dlopen in a CGO-free static binary)"
     },
     "C8": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate on a CGO-free Go 1.24 program (static, full symtab; built in Alpine locally): cescan watch names main.ce_writer"
     },
     "C9": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate on a CGO-free Go 1.24 program (static, full symtab; built in Alpine locally): Lua breakpoint at main.ce_writer, call completes"
     },
     "C10": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate on a CGO-free Go 1.24 program (static, full symtab; built in Alpine locally) --gui --ceserver: CLI, Lua, GUI windows and the ceserver transport"
     }
    }
   },

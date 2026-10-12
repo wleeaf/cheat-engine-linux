@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Drive real libc programs through the CLI and Lua frontends.
 
-usage: libc_target_gate.py BUILD FIXTURE [FIXTURE...] [--report JSON]
+usage: libc_target_gate.py BUILD FIXTURE [FIXTURE...] [--launcher CMD] [--report JSON]
 
 Each FIXTURE is test/static_fixture.c built as an ordinary C program: glibc or
 musl, static or dynamic, x86-64 or i386. Unlike the freestanding fixtures,
-these carry a real C library (inside the executable when static). Every check
+these carry a real C library (inside the executable when static).
+
+--launcher runs each fixture inside a sandbox (bubblewrap, `flatpak run`):
+the program then reports its namespaced PID, and the gate operates on the
+host PID of that process, exactly as a user picking it from the host's
+process list would. Every check
 goes through `cescan` exactly as a user would: info/symbols, typed write and
 read, first/next scans, pointer scan, an Auto Assembler hook with disable,
 find-what-writes, and a Lua debugger breakpoint session.
@@ -15,6 +20,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import select
 import subprocess
 import sys
@@ -22,14 +28,61 @@ import tempfile
 import time
 
 
+def start_time(pid):
+    stat = open(f"/proc/{pid}/stat").read()
+    return int(stat[stat.rfind(")") + 2:].split()[19])
+
+
+def host_pid(launcher_pid, namespaced_pid, name):
+    """The launcher's descendant whose innermost PID is the reported one.
+
+    Container engines (Podman's conmon) reparent the workload away from the
+    launcher; then accept the single matching process started after it.
+    """
+    launched = start_time(launcher_pid)
+    for _ in range(100):
+        later = []
+        for entry in os.listdir("/proc"):
+            if not entry.isdigit():
+                continue
+            try:
+                status = open(f"/proc/{entry}/status").read()
+                comm = open(f"/proc/{entry}/comm").read().strip()
+            except OSError:
+                continue
+            nspid = re.search(r"^NSpid:\s+(.*)$", status, re.M)
+            if not nspid or int(nspid.group(1).split()[-1]) != namespaced_pid or not name.startswith(comm):
+                continue
+            try:
+                if start_time(entry) >= launched:
+                    later.append(int(entry))
+            except OSError:
+                continue
+            ancestor = int(entry)
+            for _ in range(64):
+                if ancestor == launcher_pid:
+                    return int(entry)
+                try:
+                    ancestor = int(re.search(r"^PPid:\s+(\d+)", open(f"/proc/{ancestor}/status").read(), re.M).group(1))
+                except (OSError, AttributeError):
+                    break
+                if ancestor <= 1:
+                    break
+        if len(later) == 1:
+            return later[0]
+        time.sleep(0.05)
+    raise RuntimeError(f"no host process for namespaced PID {namespaced_pid}")
+
+
 class Fixture:
-    def __init__(self, path):
-        self.process = subprocess.Popen([str(path)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+    def __init__(self, path, launcher=()):
+        self.process = subprocess.Popen([*launcher, str(path)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         text=True, bufsize=1)
-        header = self.line().split()
-        if len(header) != 5 or header[0] != "CE_STATIC" or int(header[1]) != self.process.pid:
+        header = self.line(timeout=60).split()
+        if len(header) != 5 or header[0] != "CE_STATIC" or (not launcher and int(header[1]) != self.process.pid):
             raise RuntimeError(f"unexpected fixture header {header}")
-        self.pid = self.process.pid
+        self.pid = host_pid(self.process.pid, int(header[1]), path.name) if launcher else self.process.pid
+        self.namespaced = launcher and int(header[1]) != self.pid
         with open(path, "rb") as elf:
             self.bits = 32 if elf.read(5)[4] == 1 else 64
         self.value, self.pointer, self.writer = (int(field, 16) for field in header[2:])
@@ -53,6 +106,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("build", type=pathlib.Path)
     parser.add_argument("fixtures", type=pathlib.Path, nargs="+")
+    parser.add_argument("--launcher", default="",
+                        help="sandbox command to prefix; {dir} expands to the fixture's directory")
     parser.add_argument("--report", type=pathlib.Path)
     args = parser.parse_args()
     cescan = str((args.build / "cescan").resolve())
@@ -67,9 +122,12 @@ def main():
 
     for path in args.fixtures:
         path = path.resolve()
-        entry = {"fixture": path.name, "checks": {}}
+        launcher = [part.replace("{dir}", str(path.parent)) for part in shlex.split(args.launcher)]
+        entry = {"fixture": path.name, "launcher": launcher, "checks": {}}
         report["targets"].append(entry)
-        fixture = Fixture(path)
+        fixture = Fixture(path, launcher)
+        if launcher:
+            print(f"sandboxed {path.name}: host PID {fixture.pid}, namespaced: {bool(fixture.namespaced)}", flush=True)
 
         def check(name, ok, detail=""):
             nonlocal failures

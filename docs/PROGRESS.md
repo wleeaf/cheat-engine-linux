@@ -16,6 +16,33 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Sandboxed programs: Flatpak, bubblewrap and Podman: 12 October 2026
+
+Item 1.7 of the [coverage plan](COVERAGE_PLAN.md). `libc_target_gate.py`
+gained `--launcher`, which starts each real libc fixture inside a sandbox.
+The program then reports its namespaced PID (2 inside Flatpak), and the gate
+operates on the host PID of that process, found through `NSpid`, exactly as
+a user picking it from the host's process list would. Container engines
+reparent the workload (Podman's conmon), so the gate also accepts the single
+matching process started after the launcher.
+
+All **12 frontend checks** (CLI and Lua: identification, symbols, typed
+writes, scans, pointer scan, Auto Assembler hook and undo, find-what-writes,
+Lua breakpoint) pass for:
+
+- a static musl program under `flatpak run org.freedesktop.Platform//25.08`;
+- static musl and dynamic glibc programs under `bwrap --unshare-all`
+  (user, PID, network, IPC, UTS and cgroup namespaces);
+- a dynamic musl program in its own rootless Alpine Podman container, with
+  the target's musl loader and root filesystem.
+
+The hosted build job now runs the bubblewrap case (as root, because Ubuntu's
+AppArmor blocks unprivileged user namespaces for bwrap) and the Podman case.
+Flatpak stays local: a hosted runner would need a large runtime download.
+Snap is not installed here or on hosted runners, so its row has no evidence.
+Matrix: Flatpak and bubblewrap rows C1 to C6, C8 and C9 at `B`; Podman gains
+C3 to C6, C8 and C9. Coverage is now 125/268 (46.6%).
+
 ## Real libc programs and two Auto Assembler fixes: 12 October 2026
 
 Item 1.6 of the [coverage plan](COVERAGE_PLAN.md). The new

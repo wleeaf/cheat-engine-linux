@@ -33,6 +33,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential \
             musl-tools \
+            bubblewrap \
             gcc-multilib \
             g++-multilib \
             libvulkan-dev \
@@ -177,6 +178,20 @@ jobs:
           gcc -m32 -O1 -o build/dynamic_fixture_glibc32 test/static_fixture.c
           python3 test/libc_target_gate.py build build/static_fixture_glibc build/static_fixture_musl \
             build/dynamic_fixture_glibc build/dynamic_fixture_glibc32 --report build/compatibility-evidence/libc-targets.json
+
+      - name: Run the same workflows on sandboxed programs (bubblewrap, Podman)
+        # Ubuntu's AppArmor blocks unprivileged user namespaces for bwrap, so
+        # that sandbox runs as root; the Podman workload is rootless and is a
+        # dynamic musl program in its own Alpine root filesystem.
+        run: |
+          sudo python3 test/libc_target_gate.py build build/static_fixture_musl build/dynamic_fixture_glibc \
+            --launcher "bwrap --unshare-all --die-with-parent --ro-bind / / --dev /dev --proc /proc --tmpfs /tmp" \
+            --report build/compatibility-evidence/libc-bubblewrap.json
+          musl-gcc -O1 -o build/dynamic_fixture_musl test/static_fixture.c
+          podman pull -q docker.io/library/alpine:3.22
+          python3 test/libc_target_gate.py build build/dynamic_fixture_musl \
+            --launcher "podman run --rm -i -v {dir}:{dir}:ro docker.io/library/alpine:3.22" \
+            --report build/compatibility-evidence/libc-podman.json
 
       - name: Build kernel module (out-of-tree)
         run: |

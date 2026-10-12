@@ -662,43 +662,43 @@
    "cells": {
     "C1": {
      "state": "B",
-     "evidence": "native_namespace_gate NATIVE_MODULE_NAMESPACE (manual; compatibility-evidence/native-module-namespace.json)"
+     "evidence": "libc_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): host PID resolved from NSpid; info ABI, symbols, module"
     },
     "C2": {
      "state": "B",
-     "evidence": "mono_compatibility_gate --container field read/write (manual, mono-runtime.json)"
+     "evidence": "libc_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): typed write/read observed by the sandboxed program"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no scan across namespace"
+     "state": "B",
+     "evidence": "libc_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): whole-process first and next scans"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no pointer scan"
+     "state": "B",
+     "evidence": "libc_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): pointer scan finds the static path"
     },
     "C5": {
-     "state": "-",
-     "evidence": "no test"
+     "state": "B",
+     "evidence": "libc_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): Auto Assembler hook script with process symbols"
     },
     "C6": {
-     "state": "-",
-     "evidence": "no test"
+     "state": "B",
+     "evidence": "libc_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): code cave hook changes behavior, disable restores bytes"
     },
     "C7": {
      "state": "B",
      "evidence": "native_namespace_gate NATIVE_THREAD_NAMESPACE host pthread call; mono agent in ns (manual)"
     },
     "C8": {
-     "state": "-",
-     "evidence": "no test"
+     "state": "B",
+     "evidence": "libc_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): cescan watch names the writer"
     },
     "C9": {
-     "state": "-",
-     "evidence": "no test"
+     "state": "B",
+     "evidence": "libc_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): Lua breakpoint at the writer, call completes"
     },
     "C10": {
      "state": "-",
-     "evidence": "no frontends from host to container"
+     "evidence": "CLI and Lua via libc_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI); no GUI check yet"
     }
    }
   },
@@ -708,44 +708,44 @@
    "name": "Flatpak",
    "cells": {
     "C1": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "libc_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): host PID resolved from NSpid; info ABI, symbols, module"
     },
     "C2": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "libc_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): typed write/read observed by the sandboxed program"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "libc_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): whole-process first and next scans"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "libc_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): pointer scan finds the static path"
     },
     "C5": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "libc_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): Auto Assembler hook script with process symbols"
     },
     "C6": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "libc_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): code cave hook changes behavior, disable restores bytes"
     },
     "C7": {
      "state": "-",
      "evidence": "no live test"
     },
     "C8": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "libc_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): cescan watch names the writer"
     },
     "C9": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "libc_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): Lua breakpoint at the writer, call completes"
     },
     "C10": {
      "state": "-",
-     "evidence": "no live test"
+     "evidence": "CLI and Lua via libc_target_gate under flatpak run org.freedesktop.Platform//25.08 (local); no GUI check yet"
     }
    }
   },
@@ -756,7 +756,7 @@
    "cells": {
     "C1": {
      "state": "-",
-     "evidence": "no live test"
+     "evidence": "snapd is not installed on the development machine or hosted runners; no live test"
     },
     "C2": {
      "state": "-",
@@ -802,44 +802,44 @@
    "name": "bubblewrap",
    "cells": {
     "C1": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "libc_target_gate under bwrap --unshare-all (local; CI as root): host PID resolved from NSpid; info ABI, symbols, module"
     },
     "C2": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "libc_target_gate under bwrap --unshare-all (local; CI as root): typed write/read observed by the sandboxed program"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "libc_target_gate under bwrap --unshare-all (local; CI as root): whole-process first and next scans"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "libc_target_gate under bwrap --unshare-all (local; CI as root): pointer scan finds the static path"
     },
     "C5": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "libc_target_gate under bwrap --unshare-all (local; CI as root): Auto Assembler hook script with process symbols"
     },
     "C6": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "libc_target_gate under bwrap --unshare-all (local; CI as root): code cave hook changes behavior, disable restores bytes"
     },
     "C7": {
      "state": "-",
      "evidence": "no live test"
     },
     "C8": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "libc_target_gate under bwrap --unshare-all (local; CI as root): cescan watch names the writer"
     },
     "C9": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "libc_target_gate under bwrap --unshare-all (local; CI as root): Lua breakpoint at the writer, call completes"
     },
     "C10": {
      "state": "-",
-     "evidence": "no live test"
+     "evidence": "CLI and Lua via libc_target_gate under bwrap --unshare-all (local; CI as root); no GUI check yet"
     }
    }
   },

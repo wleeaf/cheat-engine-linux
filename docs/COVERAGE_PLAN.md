@@ -232,3 +232,6 @@ first. Detailed write-ups continue in PROGRESS.md.
   glibc, i386) pass 12 frontend checks each; fixed CE `#`/`$`/letter-hex
   operands and process-symbol names in the Auto Assembler. Coverage 103/268
   (38.4%).
+- 2026-10-12, **1.7** done (Snap untestable here): Flatpak, bubblewrap and
+  Podman sandboxes pass the 12 frontend checks with host-PID resolution;
+  bubblewrap and Podman also in CI. Coverage 125/268 (46.6%).

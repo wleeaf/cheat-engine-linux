@@ -16,6 +16,31 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Native ARM64 programs, RISC-V decoding and ARM over CEServer: 12 October 2026
+
+The frontend gate is now architecture-aware (ELF machine, ARM64 hook scripts
+with `movz`/`movk`/`str` and a `b` into the cave, the portable `BPAddress` at
+breakpoints) and runs on GitHub's native ARM64 runner against an ordinary
+ARM64 glibc program. Every CLI and Lua check passed there: identification,
+typed writes, first/next scans, pointer scan, the hook and its undo,
+find-what-writes, the Lua breakpoint and native calls (AArch64 C3 and C4 at
+`B`). Lua breakpoints on ARM now also publish `X0`..`X30`/`R0`..`R12`, `SP`,
+`PC` and `PSTATE`.
+
+Its CEServer stage exposed a client limitation: ARM targets over CEServer kept
+an unknown data byte order (the wire architecture code has none), so every
+typed access was refused. The protocol frames all integers in the server's
+host order, so a working connection implies a little-endian server, and Linux
+ARM userland byte order is system-wide; ARM targets over CEServer are now
+little-endian.
+
+The disassembler gained RISC-V32/64 (with the compressed extension) through
+Capstone; the target model already classified RISC-V. Keystone has no RISC-V,
+so `assemblerArchFor` now reports that instead of throwing, the capability
+report shows assembling as unsupported for RISC-V, and the CLI, Lua, GUI and
+code analyzer show the reason. A unit check decodes full-width and compressed
+instructions. Coverage is now 181/268 (67.5%).
+
 ## Pointer paths and code caves in JIT code: 12 October 2026
 
 Lua gained CE's injection-template functions (`generateCodeInjectionScript`,

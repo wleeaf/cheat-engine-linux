@@ -69,11 +69,13 @@ TargetMachine wireMachine(CeArchitecture architecture) {
             return {CpuArchitecture::X86_32, ByteOrder::Little, TargetAbi::LinuxI386, InstructionMode::X86_32, 4};
         case CeArchitecture::X86_64:
             return {CpuArchitecture::X86_64, ByteOrder::Little, TargetAbi::LinuxX86_64, InstructionMode::X86_64, 8};
+        // The wire architecture carries no byte order, but the protocol frames
+        // every integer in the server's host order. Talking to it at all means
+        // a little-endian host, and Linux ARM userland byte order is system-wide.
         case CeArchitecture::ARM32:
-            // The legacy wire architecture does not encode ARM byte order.
-            return {CpuArchitecture::Arm32, ByteOrder::Unknown, TargetAbi::LinuxArmEabi, InstructionMode::Arm, 4};
+            return {CpuArchitecture::Arm32, ByteOrder::Little, TargetAbi::LinuxArmEabi, InstructionMode::Arm, 4};
         case CeArchitecture::ARM64:
-            return {CpuArchitecture::Arm64, ByteOrder::Unknown, TargetAbi::LinuxAarch64, InstructionMode::Aarch64, 8};
+            return {CpuArchitecture::Arm64, ByteOrder::Little, TargetAbi::LinuxAarch64, InstructionMode::Aarch64, 8};
         default: return {};
     }
 }

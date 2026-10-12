@@ -246,12 +246,12 @@
      "evidence": "fullsystem_vm target_syscall_integration memory ops; gui_register_smoke memory write"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no live scan on ARM64 (cecore_test/scan_test not run on ARM)"
+     "state": "B",
+     "evidence": "frontend_target_gate on GitHub's native ARM64 runner: whole-process first and next scans of an ARM64 glibc program"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live pointer scan"
+     "state": "B",
+     "evidence": "frontend_target_gate on native ARM64: cescan pointerscan finds the static pointer path"
     },
     "C5": {
      "state": "B",

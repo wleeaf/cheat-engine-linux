@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import selectors
 import shutil
@@ -434,6 +435,9 @@ def qemu_case(driver, container, temp_dir, mode="qemu", bank_only=False):
         try:
             client_mode = "qemu-bank" if mode == "qemu" and bank_only else mode
             client = [str(driver), client_mode, "127.0.0.1", str(port)]
+            if mode == "qemu-cli":
+                # The CLI against the real stopped CPU: one connection, one command.
+                client = [str(driver), "gdb", "127.0.0.1", str(port), "reg", "pc"]
             if mode == "qemu-lua":
                 code = Path(__file__).with_name("gdb_lua_checks.lua").read_text()
                 client = [str(driver), "lua", "-e", lua_prefix(port, True) + ("CE_GDB_BANK_ONLY=true;\n" if bank_only else "") + code]
@@ -611,6 +615,11 @@ assert(disconnectProcess()); print('HIGH_GDB_LUA=PASSED')"""
                 records.append(record)
                 print(("PASS " if record["passed"] else "FAIL ") + record["name"], flush=True)
                 print(record["output"], record["peerErrors"], record.get("guestLog", ""), flush=True)
+            record = qemu_case(build / "cescan", args.qemu_container, temp_dir, "qemu-cli")
+            record["passed"] = record["passed"] and re.search(r"\bpc=[0-9a-f]{16}\b", record["output"]) is not None
+            records.append(record)
+            print(("PASS " if record["passed"] else "FAIL ") + record["name"], flush=True)
+            print(record["output"], record["peerErrors"], record.get("guestLog", ""), flush=True)
             record = qemu_case(build / "cescan", args.qemu_container, temp_dir, "qemu-lua")
             record["passed"] = (record["passed"] and "GDB_LUA_RESULT=PASSED" in record["output"] and
                                 "GDB_LUA_POINTERS=PASSED" in record["output"] and "GDB_LUA_REFUSALS=PASSED" in record["output"])

@@ -1167,8 +1167,8 @@
      "evidence": "ceserver_integration SW breakpoint/event/removal/restore; multiclient per-connection bps"
     },
     "C10": {
-     "state": "-",
-     "evidence": "Lua connectToCeserver only vs stub/failing peers; no GUI/CLI"
+     "state": "B",
+     "evidence": "frontend_target_gate --ceserver --gui: CLI serves the target (cescan ceserver), Lua client writes/scans/pointer-scans/assembles, GUI main window attachToCeserver scans and edits"
     }
    }
   },

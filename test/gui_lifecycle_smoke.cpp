@@ -483,6 +483,14 @@ int main(int argc, char** argv) {
     qputenv("XDG_CONFIG_HOME", config.path().toUtf8());
     qputenv("XDG_CACHE_HOME", config.path().toUtf8());
     qputenv("QT_QPA_PLATFORM", "offscreen");
+    if (argc == 5 && QString::fromLocal8Bit(argv[1]) == "--ceserver-target") {
+        alarm(90);
+        QApplication app(argc, argv);
+        app.setOrganizationName("cecore-test");
+        app.setApplicationName("gui-ceserver-target");
+        return gui_target_test::runCeserver(static_cast<uint16_t>(std::strtoul(argv[2], nullptr, 10)),
+            static_cast<pid_t>(std::strtol(argv[3], nullptr, 10)), std::strtoull(argv[4], nullptr, 0)) ? 0 : 1;
+    }
     if (argc == 5 && QString::fromLocal8Bit(argv[1]) == "--target") {
         alarm(60);
         QApplication app(argc, argv);

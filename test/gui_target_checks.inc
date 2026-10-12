@@ -69,4 +69,42 @@ static bool run(pid_t pid, uintptr_t value, uintptr_t writer) {
     std::printf("GUI_TARGET_RESULT=%s checks=6\n", failures ? "FAILED" : "PASSED");
     return failures == 0;
 }
+// `--ceserver-target PORT PID VALUE`: the same main-window scan and edit,
+// with the target opened through a local ceserver (`cescan ceserver`).
+static bool runCeserver(uint16_t port, pid_t pid, uintptr_t value) {
+    ce::gui::MainWindow main;
+    QString error;
+    check(main.attachToCeserver("127.0.0.1", port, pid, &error), "the main window opens the target through ceserver");
+    if (!error.isEmpty()) std::printf("ceserver attach error: %s\n", qPrintable(error));
+    auto* type = main.findChild<QComboBox*>("scanValueType");
+    auto* scanValue = main.findChild<QLineEdit*>("scanValue");
+    auto* first = main.findChild<QPushButton*>("primaryButton");
+    auto* next = main.findChild<QPushButton*>("nextScanButton");
+    auto* results = main.findChild<ce::gui::ScanResultsModel*>();
+    auto* records = main.findChild<ce::gui::AddressListModel*>();
+    if (!type || !scanValue || !first || !next || !results || !records) return false;
+    ce::os::LinuxProcessHandle local(pid);   // independent verification
+    auto found = [&] {
+        for (int row = 0; row < results->rowCount(); ++row)
+            if (results->addressAt(row) == value) return true;
+        return false;
+    };
+    type->setCurrentIndex(2);
+    scanValue->setText("24681357");
+    first->click();
+    check(found(), "a GUI first scan over ceserver finds the field");
+    int32_t changed = 24681358;
+    auto wrote = local.write(value, &changed, sizeof(changed));
+    scanValue->setText("24681358");
+    next->click();
+    check(wrote && found(), "a GUI next scan over ceserver keeps the field");
+    int id = records->addEntry(value, ce::ValueType::Int32, "remote value");
+    int row = records->rowOfId(id);
+    bool edited = row >= 0 && records->setData(records->index(row, 4), "13579", Qt::EditRole);
+    int32_t observed = 0;
+    auto read = local.read(value, &observed, sizeof(observed));
+    check(edited && read && observed == 13579, "an address-list edit over ceserver writes the target");
+    std::printf("GUI_CESERVER_RESULT=%s checks=4\n", failures ? "FAILED" : "PASSED");
+    return failures == 0;
+}
 } // namespace gui_target_test

@@ -34,8 +34,11 @@ enable a script but never disable it.
 `cescan ceserver` with a Lua client: typed writes, whole-address-space first
 and next scans, a pointer scan, an Auto Assembler hook that changes the
 program and is undone through the disable info, and a native call that is
-refused with its reason. The hosted build job runs it. Matrix: CEServer C3 to
-C6 at `B`, C7 `X`. Coverage is now 146/268 (54.5%).
+refused with its reason. The hosted build job runs it. The GUI's connect
+logic moved out of its dialog into `MainWindow::attachToCeserver`, and
+`gui_lifecycle_smoke --ceserver-target` drives a whole-target scan, a next
+scan and an address-list edit through that connection. Matrix: CEServer C3 to
+C6 and C10 at `B`, C7 `X`. Coverage is now 147/268 (54.9%).
 
 ## Native calls, Lua symbols and the symbols listing: 12 October 2026
 

@@ -441,6 +441,15 @@ print('REMOTE_CALL_REFUSED ' .. tostring(e)); io.flush()
                     check("autoAssemble(script, disableInfo) undoes it over ceserver",
                           "REMOTE_UNHOOKED" in output and fixture.command("b") == 1001, output)
                     check("native calls over ceserver are refused with a reason", "REMOTE_CALL_REFUSED" in output, output)
+                    if args.gui and port:
+                        run("write", pid, hex(fixture.value), 24681357, "--type", "i32")
+                        gui = subprocess.run([str((args.build / "gui_lifecycle_smoke").resolve()), "--ceserver-target",
+                                              port.group(1), str(pid), hex(fixture.value)], capture_output=True, text=True,
+                                             timeout=120, env=dict(os.environ, QT_QPA_PLATFORM="offscreen"))
+                        check("the GUI scans and edits the program through ceserver (4 window checks)",
+                              gui.returncode == 0 and "GUI_CESERVER_RESULT=PASSED checks=4" in gui.stdout,
+                              gui.stdout + gui.stderr)
+                        expected = 13579
                     expected = 1001
                 finally:
                     server.terminate()

@@ -75,6 +75,9 @@ public:
     /// Used by the process picker and by `--pid <N>` on the command line.
     void attachToPid(pid_t pid, const QString& name);
     bool attachToGdb(std::unique_ptr<ce::GdbProcessHandle> process,const QString& endpoint);
+    /// Open `pid` on a ceserver at host:port (the Connect to ceserver dialog's
+    /// work). On failure, `error` receives the message for the user.
+    bool attachToCeserver(const QString& host, uint16_t port, pid_t pid, QString* error = nullptr);
 
     /// Test hook: drive "find what writes" from the command line (`--find-writes`)
     /// so the exact GUI code path can be exercised headlessly against a repro

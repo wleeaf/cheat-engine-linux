@@ -2590,6 +2590,39 @@ void MainWindow::onDisconnectProcess() {
     processLabel_->setText("No process selected");processLabel_->setToolTip({});setWindowTitle("Cheat Engine");updateScanButtons();
 }
 
+bool MainWindow::attachToCeserver(const QString& host, uint16_t port, pid_t pid, QString* error) {
+    auto fail = [&](const QString& message) { if (error) *error = message; return false; };
+    auto client = std::make_unique<ce::os::CEServerClient>();
+    std::string err;
+    if (!client->connectTcp(host.toStdString(), port, err))
+        return fail(QString("Connect failed: %1").arg(QString::fromStdString(err)));
+    auto version = client->getVersion();
+    if (!version)
+        return fail(QString("Handshake failed: %1").arg(QString::fromStdString(version.error())));
+    auto handle = ce::os::RemoteProcessHandle::open(*client, pid);
+    if (!handle) return fail(QString("Server refused PID %1").arg((int)pid));
+    if (!releaseTargetUsers()) return fail({});
+    process_.reset();
+    ceserverClient_ = std::move(client);
+    process_ = std::move(handle);
+    luaEngine_.setProcess(process_.get());
+    currentPid_ = pid;
+    processLabel_->setText(QString("REMOTE PID: %1 @ %2:%3 (%4)")
+        .arg((int)pid).arg(host).arg(port).arg(QString::fromStdString(version->versionString)));
+    addressListModel_->setProcess(process_.get());
+    resultsModel_->setProcess(process_.get());
+    firstScanBtn_->setEnabled(true);
+    resultsModel_->clear();
+    lastResult_.reset();
+    undoResult_.reset();
+    lastResultType_ = ValueType::Int32;
+    undoResultType_ = ValueType::Int32;
+    lastResultValueSize_ = 0;
+    undoResultValueSize_ = 0;
+    updateScanButtons();
+    return true;
+}
+
 void MainWindow::onConnectCeserver() {
     QSettings settings;
     auto* dlg = new QDialog(this);
@@ -2628,44 +2661,11 @@ void MainWindow::onConnectCeserver() {
             statusLabel->setText("Enter a valid remote PID.");
             return;
         }
-        auto client = std::make_unique<ce::os::CEServerClient>();
-        std::string err;
-        if (!client->connectTcp(hostEdit->text().toStdString(),
-                                static_cast<uint16_t>(portSpin->value()), err)) {
-            statusLabel->setText(QString("Connect failed: %1").arg(QString::fromStdString(err)));
+        QString error;
+        if (!attachToCeserver(hostEdit->text(), static_cast<uint16_t>(portSpin->value()), pid, &error)) {
+            if (!error.isEmpty()) statusLabel->setText(error);
             return;
         }
-        auto version = client->getVersion();
-        if (!version) {
-            statusLabel->setText(QString("Handshake failed: %1").arg(QString::fromStdString(version.error())));
-            return;
-        }
-        auto handle = ce::os::RemoteProcessHandle::open(*client, pid);
-        if (!handle) {
-            statusLabel->setText(QString("Server refused PID %1").arg((int)pid));
-            return;
-        }
-
-        if (!releaseTargetUsers()) return;
-        process_.reset();
-        ceserverClient_ = std::move(client);
-        process_ = std::move(handle);
-        luaEngine_.setProcess(process_.get());
-        currentPid_ = pid;
-        processLabel_->setText(QString("REMOTE PID: %1 @ %2:%3 (%4)")
-            .arg((int)pid).arg(hostEdit->text()).arg(portSpin->value())
-            .arg(QString::fromStdString(version->versionString)));
-        addressListModel_->setProcess(process_.get());
-                    resultsModel_->setProcess(process_.get());
-        firstScanBtn_->setEnabled(true);
-        resultsModel_->clear();
-        lastResult_.reset();
-        undoResult_.reset();
-        lastResultType_ = ValueType::Int32;
-        undoResultType_ = ValueType::Int32;
-        lastResultValueSize_ = 0;
-        undoResultValueSize_ = 0;
-        updateScanButtons();
 
         settings.setValue("network/ceserverHost", hostEdit->text());
         settings.setValue("network/ceserverPort", portSpin->value());

@@ -1010,8 +1010,8 @@
      "evidence": "runtime_target_gate on hosted CI (.NET 8 SDK on the runner, DOTNET_PerfMapEnabled=1): disassembly of JIT code annotated with its perf-map name"
     },
     "C6": {
-     "state": "-",
-     "evidence": "open: breakpoints/code caves at the correct CoreCLR JIT writer land only intermittently on hosted runners (W^X off); under investigation"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI (.NET 8, default W^X, plus 3 repeat rounds): CE code-injection template at the JIT writer runs through the cave and disabling restores the bytes (patches go through the double mapping's backing file)"
     },
     "C7": {
      "state": "B",
@@ -1022,12 +1022,12 @@
      "evidence": "runtime_target_gate on hosted CI (.NET 8 SDK on the runner, DOTNET_PerfMapEnabled=1): find-what-writes names the JIT-compiled writer"
     },
     "C9": {
-     "state": "-",
-     "evidence": "open: breakpoints/code caves at the correct CoreCLR JIT writer land only intermittently on hosted runners (W^X off); under investigation"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI (.NET 8, default W^X, plus 3 repeat rounds): a Lua breakpoint at the find-what-writes writer stops in the JIT code that runs; the call completes"
     },
     "C10": {
-     "state": "-",
-     "evidence": "open: breakpoints/code caves at the correct CoreCLR JIT writer land only intermittently on hosted runners (W^X off); under investigation"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI (.NET 8, default W^X, plus 3 repeat rounds): GUI main and debugger windows scan, edit and break in the JIT runtime (6 window checks), plus cescan and Lua"
     }
    }
   },
@@ -1226,23 +1226,23 @@
    "cells": {
     "C1": {
      "state": "B",
-     "evidence": "emulator_target_gate on hosted CI: cescan info identifies a live mGBA process (exploratory probe; the generated ROM's guest RAM was not found yet)"
+     "evidence": "emulator_target_gate on hosted CI (real mGBA running a generated GBA ROM): cescan info identifies mGBA and lists guest-RAM candidates"
     },
     "C2": {
-     "state": "-",
-     "evidence": "no real emulator"
+     "state": "B",
+     "evidence": "emulator_target_gate on hosted CI (real mGBA running a generated GBA ROM): a typed host write to live guest RAM is copied by the guest program"
     },
     "C3": {
-     "state": "-",
-     "evidence": "gui_guest_scan_smoke uses fake Dolphin child"
+     "state": "B",
+     "evidence": "emulator_target_gate on hosted CI (real mGBA running a generated GBA ROM): a value scan finds the guest's marker (live copy told apart from rewind snapshots) and a next scan follows a change"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no real emulator"
+     "state": "B",
+     "evidence": "emulator_target_gate on hosted CI (real mGBA running a generated GBA ROM): a non-static pointer scan resolves a host path to the guest RAM buffer"
     },
     "C5": {
-     "state": "-",
-     "evidence": "guest ISA adapters pending"
+     "state": "B",
+     "evidence": "emulator_target_gate on hosted CI (real mGBA running a generated GBA ROM): the guest's ARM code disassembles from the emulator's ROM image and reassembles (host view, no guest MMU adapter)"
     },
     "C6": {
      "state": "n/a",
@@ -1253,16 +1253,16 @@
      "evidence": "no native call into an emulated guest CPU"
     },
     "C8": {
-     "state": "-",
-     "evidence": "guest writer attribution pending"
+     "state": "B",
+     "evidence": "emulator_target_gate on hosted CI (real mGBA running a generated GBA ROM): find what writes reports mGBA's host store for a guest write (host instruction, not the guest's)"
     },
     "C9": {
-     "state": "-",
-     "evidence": "no real emulator"
+     "state": "B",
+     "evidence": "emulator_target_gate on hosted CI (real mGBA running a generated GBA ROM): a Lua breakpoint stops at that host store and the emulator keeps running after detach"
     },
     "C10": {
-     "state": "-",
-     "evidence": "no real emulator"
+     "state": "B",
+     "evidence": "emulator_target_gate on hosted CI (real mGBA running a generated GBA ROM): GUI main and debugger windows scan, edit and break in the emulator (6 window checks), plus cescan and Lua"
     }
    }
   },

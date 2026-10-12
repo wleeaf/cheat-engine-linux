@@ -15,6 +15,13 @@ reimplementation of Cheat Engine).
 
 ## Unreleased: target compatibility foundation
 
+- Stop a scan with the reason (and a `ptrace_scope` hint) when the target's
+  memory cannot be read, instead of reporting zero results (`cescan scan`,
+  `guest-scan`, GUI First Scan). Decode .NET ReadyToRun PE machines and keep PE
+  modules to their image extent, which fixes code caves and hooks in CoreCLR
+  JIT code that failed depending on address layout. CI now drives a real mGBA
+  running a generated ROM through every frontend.
+
 - Add a detailed compatibility progress checkpoint with completed work, remaining
   requirements and final local verification. Preserve the newly reproduced
   mixed-ABI timed-restart failure and diagnostic restoration prototypes; product

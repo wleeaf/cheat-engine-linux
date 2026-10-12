@@ -217,8 +217,7 @@ jobs:
           python3 test/frontend_target_gate.py build "$data/static_fixture_musl" \
             --launcher "snap run --shell hello-world -c" --gui --report build/compatibility-evidence/libc-snap.json
 
-      - name: Probe a real console emulator (mGBA, generated homebrew ROM; exploratory)
-        continue-on-error: true
+      - name: Drive a real console emulator (mGBA, generated homebrew ROM)
         # Yama scope 1: only root may read an emulator that cescan did not start.
         run: sudo xvfb-run -a python3 test/emulator_target_gate.py build --gui --report build/compatibility-evidence/emulator-mgba.json
 
@@ -234,10 +233,10 @@ jobs:
           sudo python3 test/runtime_target_gate.py build --gui --mono-exe build/jit_fixture_mono.exe \
             --dotnet-dll build/jit-fixture-dotnet/out/jit-fixture-dotnet.dll --report build/compatibility-evidence/runtimes.json
 
-      - name: Repeat the CoreCLR code-patch checks (measures the open intermittency; exploratory)
-        continue-on-error: true
+      - name: Repeat the CoreCLR code-patch checks (JIT code placement varies run to run)
         run: |
-          for round in 1 2 3 4 5; do
+          set -o pipefail
+          for round in 1 2 3; do
             sudo python3 test/runtime_target_gate.py build --only coreclr \
               --dotnet-dll build/jit-fixture-dotnet/out/jit-fixture-dotnet.dll 2>&1 | sed "s/^/round $round: /"
           done

@@ -102,17 +102,8 @@ def main():
         entry = {"runtime": name, "checks": {}}
         report["runtimes"].append(entry)
 
-        informational = {"on": False}
-
         def check(title, ok, detail=""):
             nonlocal failures
-            if informational["on"]:
-                # Unclaimed checks still run and report, without failing the gate.
-                entry.setdefault("informational", {})[title] = bool(ok)
-                print(f"RUNTIME_TARGET_INFO {'OK' if ok else 'FAILED'}: {name}: {title}", flush=True)
-                if not ok and detail:
-                    print(detail[-3000:], flush=True)
-                return
             entry["checks"][title] = bool(ok)
             print(f"RUNTIME_TARGET_CHECK {'OK' if ok else 'FAILED'}: {name}: {title}", flush=True)
             if not ok:
@@ -182,11 +173,6 @@ print('POINTER_PATHS ' .. found)
             check("find-what-writes names the JIT-compiled code that writes",
                   written == 778 and writer is not None and (name != "node" or "ceJitWriter" in writer.group(2)), output)
             expected = 778
-            # Open item: on CoreCLR, breakpoints and code caves at the correct
-            # JIT writer landed only intermittently on hosted runners. Until that
-            # is understood, they run as informational checks there.
-            claimed = name != "coreclr"
-            informational["on"] = not claimed
             if writer:
                 # Diagnostics: the reported writer and the code around it.
                 print(f"WRITER {name}: {writer.group(0).strip()}", flush=True)
@@ -221,7 +207,6 @@ print('RESTORED'); io.flush()
                       injected and during.upper().startswith("E9") and hooked_value == 779, output + during)
                 check("disabling the injection restores the JIT code and its behavior",
                       "RESTORED" in output and after == before and runtime.command("b") == expected, output)
-            informational["on"] = False
             if name in ("node", "jvm", "mono", "coreclr"):
                 # Native calls borrow a thread that is executing user code.
                 maps = open(f"/proc/{pid}/maps").read()
@@ -240,7 +225,6 @@ print('NATIVE_CALLS_OK')
                       spinning and stopped and library is not None and calls.returncode == 0 and
                       "NATIVE_CALLS_OK" in calls.stdout and str(library) in open(f"/proc/{pid}/maps").read(),
                       calls.stdout + calls.stderr)
-            informational["on"] = not claimed
             # Break on the writing instruction find-what-writes reported: the
             # code that actually runs, whichever compiled version that is.
             targets = ([int(writer.group(1), 16)] if writer else []) + [w for w in writers if not writer or w != int(writer.group(1), 16)]

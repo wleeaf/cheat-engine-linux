@@ -16,6 +16,45 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Unreadable targets, .NET ReadyToRun modules, and a live mGBA: 12 October 2026
+
+Three product defects surfaced while finishing items 5.3 and the CoreCLR open
+item of the [coverage plan](COVERAGE_PLAN.md):
+
+- **Silent empty scans.** Under Yama `ptrace_scope` 1 every read of a process
+  that is not a descendant fails with `EPERM`, and `cescan scan`, `guest-scan`
+  and the GUI First Scan reported that as zero results. The new cecore
+  `memoryAccessProblem()` probes a few readable regions first; when none can
+  be read, all three stop with the reason and a `ptrace_scope` hint
+  (core-suite check with a fake `EPERM` target). This is why the mGBA probe
+  found nothing on CI; it now runs as root, like the JIT runtime gate.
+- **ReadyToRun PE machines.** .NET ReadyToRun assemblies (System.Private.CoreLib
+  and friends) store the PE machine XORed with an OS constant (Linux, Apple,
+  FreeBSD, NetBSD, SunOS), so cecore classified them as an unknown
+  architecture. `modules()` also stretched each PE module across every mapping
+  of its file. When CoreCLR placed JIT code inside that span, the Auto
+  Assembler built the code cave for "other" and failed: the CoreCLR
+  intermittency, which depended only on address layout. `parsePeTarget`
+  decodes the override, a PE module keeps its SizeOfImage extent, and the
+  Auto Assembler never takes an unusable architecture from a module.
+- The CoreCLR checks now run with .NET's default W^X double mapping, so code
+  patches go through the backing-file path added earlier today.
+
+With these, the CoreCLR injection, breakpoint and GUI checks pass in the main
+run and in three required repeat rounds (five of five in the measuring run),
+and CoreCLR C6, C9 and C10 return at `B`.
+
+The mGBA gate now passes **11 checks** on a real emulator running the
+generated ROM: identification, a value scan that tells live guest RAM from
+mGBA's rewind snapshots (a host write at +0 must be copied by the guest
+program to +8), typed writes the guest observes, a next scan, a non-static
+pointer path to the guest RAM buffer, disassembly of the guest's ARM code
+from the emulator's ROM image, find-what-writes reporting mGBA's host store,
+a Lua breakpoint there, and the GUI main and debugger windows. Writer and
+breakpoint results are host instructions, not guest ones, as the matrix
+evidence states. The step is required. Console emulators reach `B` in every
+applicable capability. Coverage is now 244/268 (91.0%).
+
 ## Code patches in W^X double-mapped JIT code: 12 October 2026
 
 .NET 7+ (and other W^X JITs) map generated code as an executable read-only

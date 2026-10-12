@@ -275,3 +275,9 @@ first. Detailed write-ups continue in PROGRESS.md.
   ROM did not start, guest-RAM checks open. Coverage 234/268 (87.3%).
 - 2026-10-12, W^X JIT code patches fixed (write through the shared mapping's
   backing file; core-suite regression check).
+- 2026-10-12, **5.3** done and the CoreCLR open item closed: unreadable
+  targets now fail explicitly instead of scanning empty (Yama scope 1), .NET
+  ReadyToRun PE machines decode, PE modules keep their image extent. mGBA 11
+  checks and CoreCLR code patches (with W^X on, 3 repeat rounds) required on
+  hosted CI. Console emulators C1-C5, C8-C10 and CoreCLR C6/C9/C10 at `B`.
+  Coverage 244/268 (91.0%).

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Architecture-generic process checks under a full Linux guest of another ISA.
-# usage: tools/check-isa-vm.sh [riscv64|s390x|ppc64el] [BUILD_DIR] [--build-only]
+# usage: tools/check-isa-vm.sh [riscv64|s390x|ppc64el|armhf] [BUILD_DIR] [--build-only]
 # Needs the ISA's cross g++, cmake, ninja, curl, python3, dpkg-deb and (unless
 # --build-only) the matching qemu-system binary with its firmware.
 set -euo pipefail
@@ -29,6 +29,11 @@ case "$isa" in
         expected=PowerPC64 package=linux/linux-image-6.8.0-146-generic_6.8.0-146.146_ppc64el.deb
         package_sha256=4fc21cd0eff980bb20ade53998217bac656b464d83fc453298ba62fbbe74827d
         kernel=boot/vmlinux-6.8.0-146-generic ;;
+    armhf)   # Thumb-2 code by default
+        triplet=arm-linux-gnueabihf processor=arm capstone_arch=ARM qemu=qemu-system-arm
+        expected=ARM32 package=linux/linux-image-6.8.0-146-generic_6.8.0-146.146_armhf.deb
+        package_sha256=bb175b37cccaac0d7aa154ab148e18a1ef11c9364a93e50d793c92cb0404532c
+        kernel=boot/vmlinuz-6.8.0-146-generic ;;
     *) printf 'Unsupported ISA guest: %s\n' "$isa" >&2; exit 1 ;;
 esac
 kernel_package="$vm_build/$(basename "$package")"

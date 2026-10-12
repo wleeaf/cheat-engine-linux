@@ -117,13 +117,18 @@ static int run() {
           }), "a pointer scan finds the static pointer path and it resolves");
 
     auto architecture = disassemblerArchFor(process, writer);
+    uintptr_t codeAddress = writer;
+#if defined(__arm__)
+    // ARM EABI interworking: a function pointer with its low bit set is Thumb code.
+    if (architecture && (writer & 1)) { architecture = Arch::ARMThumb; codeAddress = writer & ~uintptr_t(1); }
+#endif
     uint8_t code[32]{};
-    auto read = process.read(writer, code, sizeof(code));
+    auto read = process.read(codeAddress, code, sizeof(code));
     bool decoded = false;
     if (architecture && read) {
         Disassembler disassembler(*architecture);
-        auto instructions = disassembler.disassemble(writer, std::span<const uint8_t>(code, *read));
-        decoded = !instructions.empty() && instructions.front().address == writer && instructions.front().mnemonic != "db";
+        auto instructions = disassembler.disassemble(codeAddress, std::span<const uint8_t>(code, *read));
+        decoded = !instructions.empty() && instructions.front().address == codeAddress && instructions.front().mnemonic != "db";
         for (size_t i = 0; i < std::min<size_t>(instructions.size(), 4); ++i)
             std::printf("ISA_VM_DISASM %lx %s %s\n", (unsigned long)instructions[i].address,
                         instructions[i].mnemonic.c_str(), instructions[i].operands.c_str());

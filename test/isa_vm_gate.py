@@ -22,7 +22,8 @@ from fullsystem_vm import write_initramfs  # noqa: E402
 # Machine type and kernel console for each full-system emulator.
 MACHINES = {"qemu-system-riscv64": ("virt", "ttyS0"),
             "qemu-system-s390x": ("s390-ccw-virtio", "ttysclp0"),
-            "qemu-system-ppc64": ("pseries", "hvc0")}
+            "qemu-system-ppc64": ("pseries", "hvc0"),
+            "qemu-system-arm": ("virt", "ttyAMA0")}
 # Extra arguments: pseries otherwise wants a VGA BIOS the headless run lacks.
 EXTRA = {"qemu-system-ppc64": ["-vga", "none"]}
 

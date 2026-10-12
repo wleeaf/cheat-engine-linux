@@ -21,6 +21,8 @@ jobs:
             packages: g++-s390x-linux-gnu qemu-system-s390x
           - isa: ppc64el
             packages: g++-powerpc64le-linux-gnu qemu-system-ppc
+          - isa: armhf     # Thumb-2 userland
+            packages: g++-arm-linux-gnueabihf qemu-system-arm
     name: ${{ matrix.isa }}-guest
     steps:
       - uses: actions/checkout@v7

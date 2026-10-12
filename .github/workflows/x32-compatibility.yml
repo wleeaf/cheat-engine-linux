@@ -15,8 +15,8 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install LP64 compiler, x32 runtime and full-system emulator
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
             build-essential gcc-multilib libc6-dev-x32 libx32gcc-s1 \
             cmake qemu-system-x86 python3 curl
       - name: Verify actual x32 calls, debugger and recovery serially

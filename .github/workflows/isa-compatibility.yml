@@ -30,8 +30,8 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install the cross compiler and full-system emulator
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ${{ matrix.packages }} cmake ninja-build curl python3
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends ${{ matrix.packages }} cmake ninja-build curl python3
       - name: Require process, scan, pointer, symbol and disassembly checks in a real guest
         run: CECORE_CI_JOBS="$(nproc)" tools/check-isa-vm.sh ${{ matrix.isa }} build/isa-vm/${{ matrix.isa }}
       - name: Save guest log and operation evidence

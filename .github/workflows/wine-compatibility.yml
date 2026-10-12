@@ -16,8 +16,8 @@ jobs:
       - name: Install native and Wine32 dependencies
         run: |
           sudo dpkg --add-architecture i386
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
             build-essential git pkg-config cmake ninja-build libcapstone-dev zlib1g-dev \
             libdw-dev ca-certificates python3 wine wine64 wine32:i386 xvfb xauth
       - name: Build compatibility tools without Qt
@@ -79,8 +79,8 @@ jobs:
         # Steam Runtime; wine32 pulls in exactly that set.
         run: |
           sudo dpkg --add-architecture i386
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
             build-essential git pkg-config cmake ninja-build libcapstone-dev zlib1g-dev \
             libdw-dev ca-certificates curl python3 wine32:i386 xvfb xauth
       - name: Download and verify Proton

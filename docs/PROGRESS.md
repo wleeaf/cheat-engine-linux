@@ -16,6 +16,41 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Real libc programs and two Auto Assembler fixes: 12 October 2026
+
+Item 1.6 of the [coverage plan](COVERAGE_PLAN.md). The new
+`test/static_fixture.c` is an ordinary C program (a static value, a static
+pointer to it and a non-inlined writer), built as static musl, static glibc,
+dynamic glibc and i386. `test/libc_target_gate.py` drives it only through the
+user-facing frontends: `cescan info/symbols/modules`, typed write and read,
+first/next scans, `pointerscan`, an `autoasm` hook with a code cave and
+`--disable-after`, `watch`, and a `cescan lua` debugger breakpoint session.
+Locally, static musl x86-64 and i386 (built in pinned Alpine containers) and
+dynamic glibc x86-64 pass all **12 checks each**; the hosted build job builds
+static glibc, static musl, dynamic glibc and `-m32` glibc and runs all four.
+This is also the first live pointer-scan evidence for x86-64 and i386.
+
+Writing the hook exposed two Auto Assembler gaps that affect real cheat tables:
+
+- **CE operand numbers.** Bare numbers were already hex, as in Cheat Engine,
+  but `#decimal` (`mov eax,#1000`), `$hex` and hex that starts with a letter
+  or mixes digits and letters (`[rsi+1C]`, `mov [rax+C8],ecx`, `mov al,FF`)
+  failed to assemble. x86 operands are now normalized before Keystone;
+  mnemonics, quoted text and labels defined in the same block are untouched,
+  and all-decimal-digit tokens keep their existing meaning. Unit checks cover
+  each form on x86-64 and x86-32 plus a hex-looking label.
+- **Process symbols.** Name references in scripts (`alloc(newmem,256,Func)`,
+  `define(hook,Func)`, `[Func+5]`, `Func+0:`) did not consult the target's
+  symbol table, so a named cave location silently fell back to "anywhere"
+  and a define resolved to nothing. The resolver now loads the process
+  symbol table lazily during `execute()`. An undeclared plain `name:` line
+  deliberately stays a local label: auto-declared labels such as `exit:`
+  must never turn into libc functions.
+
+Matrix: the static libc / musl row gains C1 to C6, C8 and C9; x86-64 and
+i386 pointer scans and i386 scans reach `B`; i386 frontends reach `B`.
+Coverage is now 103/268 (38.4%).
+
 ## Full debugger on Wine and Proton: 12 October 2026
 
 Item 1.3 of the [coverage plan](COVERAGE_PLAN.md). The shared Wine driver now

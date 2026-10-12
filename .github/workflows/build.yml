@@ -32,6 +32,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential \
+            musl-tools \
             gcc-multilib \
             g++-multilib \
             libvulkan-dev \
@@ -167,6 +168,15 @@ jobs:
 
       - name: Run blocked-target refusal checks (CLI and Lua)
         run: python3 test/blocked_target_gate.py build
+
+      - name: Run static/dynamic glibc, musl and i386 program workflows (CLI and Lua)
+        run: |
+          gcc -O1 -static -o build/static_fixture_glibc test/static_fixture.c
+          musl-gcc -O1 -static -o build/static_fixture_musl test/static_fixture.c
+          gcc -O1 -o build/dynamic_fixture_glibc test/static_fixture.c
+          gcc -m32 -O1 -o build/dynamic_fixture_glibc32 test/static_fixture.c
+          python3 test/libc_target_gate.py build build/static_fixture_glibc build/static_fixture_musl \
+            build/dynamic_fixture_glibc build/dynamic_fixture_glibc32 --report build/compatibility-evidence/libc-targets.json
 
       - name: Build kernel module (out-of-tree)
         run: |

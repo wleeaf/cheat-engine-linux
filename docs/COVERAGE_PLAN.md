@@ -228,3 +228,7 @@ first. Detailed write-ups continue in PROGRESS.md.
 - 2026-10-12, **1.3** done: all-stop debugger (breakpoint, mode-correct
   context, single step, removal, detach) and break-and-trace on Wine 11 and
   both Proton builds, host and Steam Runtime. C9 to `B` on five Windows rows.
+- 2026-10-12, **1.6** done: real libc programs (static musl/glibc, dynamic
+  glibc, i386) pass 12 frontend checks each; fixed CE `#`/`$`/letter-hex
+  operands and process-symbol names in the Auto Assembler. Coverage 103/268
+  (38.4%).

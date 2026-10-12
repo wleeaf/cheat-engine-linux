@@ -62,8 +62,8 @@
      "evidence": "scan_test(root); cecore_test scans on forked child; cli_usability scan first/next+bad opts; gui_lifecycle allTypeGuiScan; Lua memscan"
     },
     "C4": {
-     "state": "-",
-     "evidence": "PointerScanner only tested on FakeProcessHandle (main.cpp); CLI pointerscan and GUI dialog untested live"
+     "state": "B",
+     "evidence": "libc_target_gate: cescan pointerscan on a live dynamic glibc program finds and resolves the static path; GUI dialog untested"
     },
     "C5": {
      "state": "V",
@@ -105,12 +105,12 @@
      "evidence": "compatibility_integration typed write on compatibility_fixture32; gui_injection_gate width=4 valueIs"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no live scan against an i386 process"
+     "state": "B",
+     "evidence": "libc_target_gate: whole-process first/next scans on i386 (static musl locally, dynamic glibc -m32 in CI)"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live pointer scan"
+     "state": "B",
+     "evidence": "libc_target_gate: cescan pointerscan on i386 finds the 4-byte static pointer path"
     },
     "C5": {
      "state": "B",
@@ -133,8 +133,8 @@
      "evidence": "native_syscall_gate DEBUG_SESSION x86-32; cli_usability cescan lua breakpoint across exec on fixture32"
     },
     "C10": {
-     "state": "-",
-     "evidence": "GUI (gui_injection_gate) + Lua (cli_usability fixture32) only; no non-Lua CLI command on i386"
+     "state": "B",
+     "evidence": "GUI gui_injection_gate width=4; CLI libc_target_gate (info/read/write/scan/pointerscan/autoasm/watch); Lua cli_usability + libc_target_gate"
     }
    }
   },
@@ -191,44 +191,44 @@
    "name": "x86-64 static libc / musl",
    "cells": {
     "C1": {
-     "state": "-",
-     "evidence": "only the freestanding -nostdlib fixture; no glibc-static or musl target (plan item 1.6)"
+     "state": "B",
+     "evidence": "libc_target_gate (static musl locally; static glibc, static musl in CI): cescan info ABI, static symtab names, executable as module"
     },
     "C2": {
-     "state": "-",
-     "evidence": "no static libc or musl target"
+     "state": "B",
+     "evidence": "libc_target_gate (static musl locally; static glibc, static musl in CI): cescan write/read typed i32 observed by the program"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no static libc or musl target"
+     "state": "B",
+     "evidence": "libc_target_gate (static musl locally; static glibc, static musl in CI): whole-process first and next scans"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no static libc or musl target"
+     "state": "B",
+     "evidence": "libc_target_gate (static musl locally; static glibc, static musl in CI): cescan pointerscan finds the static pointer path"
     },
     "C5": {
-     "state": "-",
-     "evidence": "no static libc or musl target"
+     "state": "B",
+     "evidence": "libc_target_gate (static musl locally; static glibc, static musl in CI): Auto Assembler hook script with process-symbol names assembles"
     },
     "C6": {
-     "state": "-",
-     "evidence": "no static libc or musl target"
+     "state": "B",
+     "evidence": "libc_target_gate (static musl locally; static glibc, static musl in CI): code cave near the symbol, hook changes behavior, disable restores bytes"
     },
     "C7": {
      "state": "-",
      "evidence": "no static libc or musl target"
     },
     "C8": {
-     "state": "-",
-     "evidence": "no static libc or musl target"
+     "state": "B",
+     "evidence": "libc_target_gate (static musl locally; static glibc, static musl in CI): cescan watch names ce_writer as the writer"
     },
     "C9": {
-     "state": "-",
-     "evidence": "no static libc or musl target"
+     "state": "B",
+     "evidence": "libc_target_gate (static musl locally; static glibc, static musl in CI): Lua debug_setBreakpoint stops at the writer, call completes"
     },
     "C10": {
      "state": "-",
-     "evidence": "no static libc or musl target"
+     "evidence": "CLI and Lua via libc_target_gate; no GUI check yet"
     }
    }
   },

@@ -19,6 +19,7 @@
 
 namespace ce {
 namespace os {class NativeMemoryImage;}
+class SymbolResolver;
 
 /// Tracks state needed to disable (undo) an auto-assembler script.
 struct DisableInfo {
@@ -152,6 +153,12 @@ private:
     // per-call instances). Guard these maps with a mutex before sharing an
     // instance across threads.
     std::unordered_map<std::string, uintptr_t> globalSymbols_;
+    // The execute() target's own symbol table, loaded on first use: scripts
+    // name functions directly ("alloc(newmem,256,UpdateHealth)",
+    // "define(hook,UpdateHealth)"). Valid only during execute().
+    ProcessHandle* symbolProcess_ = nullptr;
+    mutable std::shared_ptr<SymbolResolver> processSymbols_;
+    uintptr_t processSymbol(const std::string& name) const;
     std::unordered_map<std::string,std::weak_ptr<DisableInfo::Ownership>> symbolOwners_;
     std::unordered_map<std::string, DisableInfo::AllocEntry> knownAllocations_;
     std::unordered_map<std::string, CustomCommandHandler> customCommands_;

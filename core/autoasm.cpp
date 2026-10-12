@@ -1039,6 +1039,7 @@ uintptr_t AutoAssembler::resolveAddress(const std::string& expr,
         if (it != globalSymbols_.end()) return it->second;
         for (auto module = targetModules_.rbegin(); module != targetModules_.rend(); ++module)
             if (!module->name.empty() && module->name == stripOptionalQuotes(name)) return module->base;
+        if (auto symbol = processSymbol(stripOptionalQuotes(name))) return symbol;
         // Quoted module names can contain '+' and '-'; split arithmetic only
         // outside quotes, from the right, to preserve left-to-right evaluation.
         char quote = 0;
@@ -1491,6 +1492,20 @@ void AutoAssembler::unregisterSymbol(const std::string& name) {
     symbolOwners_.erase(name);
 }
 
+uintptr_t AutoAssembler::processSymbol(const std::string& name) const {
+    // Only identifier-like names: numbers and arithmetic never need the
+    // (lazily loaded, potentially large) process symbol table.
+    if (!symbolProcess_ || name.empty() || !(std::isalpha(static_cast<unsigned char>(name[0])) || name[0] == '_') ||
+        name.find_first_of("+-*[] ") != std::string::npos)
+        return 0;
+    if (!processSymbols_) {
+        auto resolver = std::make_shared<SymbolResolver>();
+        resolver->loadProcess(*symbolProcess_);
+        processSymbols_ = std::move(resolver);
+    }
+    return processSymbols_->lookup(name);
+}
+
 uintptr_t AutoAssembler::resolveSymbol(const std::string& name) const {
     auto it = globalSymbols_.find(name);
     if (it != globalSymbols_.end()) return it->second;
@@ -1813,6 +1828,13 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
     programMachine_ = proc.targetDescription().program;
     targetModules_ = proc.modules();
     codeAllocations_.clear();
+    // Process symbols resolve only while this target is being assembled.
+    struct SymbolScope {
+        AutoAssembler& owner;
+        ~SymbolScope() { owner.symbolProcess_ = nullptr; owner.processSymbols_.reset(); }
+    } symbolScope{*this};
+    symbolProcess_ = &proc;
+    processSymbols_.reset();
 
     // CE tables address memory as "module+offset". Resolve modules from this
     // target snapshot, separate from explicitly registered symbols. Seeding the

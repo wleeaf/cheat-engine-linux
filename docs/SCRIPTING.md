@@ -282,6 +282,18 @@ registered symbols take precedence over module names and retain their cleanup
 ownership; unregistering them exposes the current module again. Syntax-only
 checking has no process snapshot and preserves explicit symbols.
 
+Function and variable names from the target's symbol tables (ELF `.symtab`,
+`.dynsym`, separate debug files) also resolve in name references:
+`alloc(newmem,256,UpdateHealth)` places the cave near the function,
+`define(hook,UpdateHealth)` then `hook:` patches it, and `[UpdateHealth+5]` or
+`UpdateHealth+0:` work as expressions. A plain undeclared `UpdateHealth:` line
+stays a local label (labels are auto-declared), so it never patches a library
+function by accident.
+
+Instruction operands follow Cheat Engine's number rules: hex by default,
+including letter-first hex (`mov al,FF`, `[rax+C8]`), `#` for decimal
+(`mov eax,#1000`) and `$` as an explicit hex prefix.
+
 The Auto Assembler's injection templates use the live disassembler selection.
 Code, AOB, Full, and Pointer injection prompt with its module offset already
 filled in. Addresses, quoted module offsets, and symbol expressions are accepted.

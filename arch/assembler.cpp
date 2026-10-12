@@ -5,6 +5,8 @@
 #include <stdexcept>
 #include <cctype>
 #include <algorithm>
+#include <cstdio>
+#include <vector>
 
 namespace {
 // Capstone emits Intel size specifiers with the "ptr" keyword ("qword ptr [..]",
@@ -28,6 +30,90 @@ std::string stripPtrKeyword(const std::string& in) {
             continue;                                 // leaves "qword [" (single space)
         }
         out += in[i++];
+    }
+    return out;
+}
+
+// Cheat Engine operand numbers are hex, with `#` marking decimal and `$` an
+// explicit hex prefix; tables write `[rsi+1C]`, `mov [rax+C8],ecx`,
+// `mov al,FF` and `mov eax,#1000`. Keystone only accepts hex that starts with
+// a digit, and neither prefix, so rewrite those operand tokens to 0x form.
+// Mnemonics, quoted text and labels defined in the same block are left alone,
+// as are all-decimal-digit tokens (their existing Keystone meaning is kept).
+std::string normalizeCeNumbers(const std::string& in) {
+    auto isIdent = [](unsigned char c) { return std::isalnum(c) || c == '_' || c == '.' || c == '@' || c == '?'; };
+    auto lower = [](std::string s) { for (auto& c : s) c = std::tolower(static_cast<unsigned char>(c)); return s; };
+    auto allHex = [](const std::string& s) {
+        return !s.empty() && std::all_of(s.begin(), s.end(), [](unsigned char c) { return std::isxdigit(c); });
+    };
+    // Labels defined anywhere in the block may be referenced before definition.
+    std::vector<std::string> labels;
+    for (size_t pos = 0; pos < in.size();) {
+        size_t end = in.find_first_of(";\n", pos);
+        if (end == std::string::npos) end = in.size();
+        size_t i = pos;
+        for (;;) {
+            while (i < end && std::isspace(static_cast<unsigned char>(in[i]))) ++i;
+            size_t start = i;
+            while (i < end && isIdent(static_cast<unsigned char>(in[i]))) ++i;
+            if (i == start || i >= end || in[i] != ':') break;
+            labels.push_back(lower(in.substr(start, i - start)));
+            ++i;
+        }
+        pos = end + 1;
+    }
+    static const char* prefixes[] = {"lock", "rep", "repe", "repz", "repne", "repnz", "bnd", "notrack", "xacquire", "xrelease"};
+    std::string out;
+    out.reserve(in.size() + 16);
+    for (size_t pos = 0; pos <= in.size();) {
+        size_t end = in.find_first_of(";\n", pos);
+        if (end == std::string::npos) end = in.size();
+        std::string statement = in.substr(pos, end - pos);
+        size_t i = 0;
+        // Skip label definitions, prefixes and the mnemonic itself.
+        for (bool mnemonic = false; !mnemonic;) {
+            while (i < statement.size() && std::isspace(static_cast<unsigned char>(statement[i]))) ++i;
+            size_t start = i;
+            while (i < statement.size() && isIdent(static_cast<unsigned char>(statement[i]))) ++i;
+            if (i == start) break;
+            if (i < statement.size() && statement[i] == ':') { ++i; continue; }
+            auto word = lower(statement.substr(start, i - start));
+            mnemonic = std::none_of(std::begin(prefixes), std::end(prefixes), [&](const char* p) { return word == p; });
+        }
+        std::string rewritten = statement.substr(0, i);
+        while (i < statement.size()) {
+            unsigned char c = statement[i];
+            if (c == '"' || c == '\'') {
+                size_t close = statement.find(static_cast<char>(c), i + 1);
+                close = close == std::string::npos ? statement.size() : close + 1;
+                rewritten += statement.substr(i, close - i);
+                i = close;
+                continue;
+            }
+            bool boundary = i == 0 || !isIdent(static_cast<unsigned char>(statement[i - 1]));
+            if (!boundary || !(isIdent(c) || c == '#' || c == '$')) { rewritten += static_cast<char>(c); ++i; continue; }
+            size_t start = i++;
+            while (i < statement.size() && isIdent(static_cast<unsigned char>(statement[i]))) ++i;
+            std::string token = statement.substr(start, i - start);
+            if (token.size() > 1 && token[0] == '#' &&
+                std::all_of(token.begin() + 1, token.end(), [](unsigned char d) { return std::isdigit(d); })) {
+                try {
+                    char hex[24];
+                    snprintf(hex, sizeof(hex), "0x%llx", std::stoull(token.substr(1), nullptr, 10));
+                    token = hex;
+                } catch (...) {}   // out of range: leave it for Keystone to reject
+            } else if (token.size() > 1 && token[0] == '$' && allHex(token.substr(1))) {
+                token = "0x" + token.substr(1);
+            } else if (allHex(token) && std::any_of(token.begin(), token.end(), [](unsigned char d) { return std::isalpha(d); }) &&
+                       std::find(labels.begin(), labels.end(), lower(token)) == labels.end()) {
+                token = "0x" + token;
+            }
+            rewritten += token;
+        }
+        out += rewritten;
+        if (end < in.size()) out += in[end];
+        pos = end + 1;
+        if (end >= in.size()) break;
     }
     return out;
 }
@@ -79,6 +165,7 @@ Assembler::assembleEx(const std::string& code, uintptr_t address, size_t& statem
     size_t count = 0;
 
     std::string normalized = stripPtrKeyword(code);
+    if (arch_ == AsmArch::X86_32 || arch_ == AsmArch::X86_64) normalized = normalizeCeNumbers(normalized);
     auto prefix = normalized.substr(0, 9);
     for (auto& c : prefix) c = std::tolower(static_cast<unsigned char>(c));
     if ((arch_ == AsmArch::X86_32 || arch_ == AsmArch::X86_64) && prefix == "jmp near ") {

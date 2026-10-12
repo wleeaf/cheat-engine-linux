@@ -302,6 +302,25 @@ static void instructionTests() {
     auto decimalInstruction = decimal ? decoder.disassembleOne(0x401000, *decimal) : std::nullopt;
     check(decimalInstruction && decimalInstruction->ripTarget == 4202496,
           "bare numeric assembly operands preserve NASM decimal semantics");
+    {
+        // Cheat Engine operand numbers: hex by default (also letter-first),
+        // `#` decimal and `$` hex, as written in real cheat tables.
+        auto bytes = [&](const char* code) { auto r = x64.assemble(code, 0x401000); return r ? *r : std::vector<uint8_t>{}; };
+        check(bytes("mov eax,#1000") == std::vector<uint8_t>{0xb8, 0xe8, 0x03, 0x00, 0x00} &&
+              bytes("mov eax,$1C") == std::vector<uint8_t>{0xb8, 0x1c, 0x00, 0x00, 0x00} &&
+              bytes("mov eax,[rsi+1C]") == std::vector<uint8_t>{0x8b, 0x46, 0x1c} &&
+              bytes("mov [rax+C8],ecx") == std::vector<uint8_t>{0x89, 0x88, 0xc8, 0x00, 0x00, 0x00} &&
+              bytes("mov al,FF") == std::vector<uint8_t>{0xb0, 0xff} &&
+              bytes("mov eax,10") == std::vector<uint8_t>{0xb8, 0x10, 0x00, 0x00, 0x00},
+              "CE operand numbers: #decimal, $hex and letter-initial hex assemble like Cheat Engine");
+        auto labelled = x64.assemble("cafe:\nadd eax,1\njmp cafe", 0x401000);
+        check(labelled && labelled->size() == 5 && (*labelled)[3] == 0xeb && (*labelled)[4] == 0xfb,
+              "a block label spelled like hex stays a label, not a number");
+        Assembler x86(AsmArch::X86_32);
+        auto narrow = x86.assemble("mov dword [esi+1C],#100", 0x401000);
+        check(narrow && *narrow == std::vector<uint8_t>{0xc7, 0x46, 0x1c, 0x64, 0x00, 0x00, 0x00},
+              "x86-32 CE operand numbers use the same rules");
+    }
     for (const auto& pair : std::array<std::pair<Arch, std::vector<uint8_t>>, 4>{
         {{Arch::ARM32, {0x00, 0xf0, 0x20, 0xe3}}, {Arch::ARM32_BE, {0xe3, 0x20, 0xf0, 0x00}},
          {Arch::ARMThumb, {0x00, 0xbf}}, {Arch::ARM64, {0x1f, 0x20, 0x03, 0xd5}}}}) {

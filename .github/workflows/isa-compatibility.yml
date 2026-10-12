@@ -17,15 +17,22 @@ jobs:
         include:
           - isa: riscv64
             packages: g++-riscv64-linux-gnu qemu-system-misc opensbi
+            triplet: riscv64-linux-gnu
+            processor: riscv64
           - isa: s390x     # big-endian
             packages: g++-s390x-linux-gnu qemu-system-s390x
+            triplet: s390x-linux-gnu
+            processor: s390x
           - isa: ppc64el
             packages: g++-powerpc64le-linux-gnu qemu-system-ppc
+            triplet: powerpc64le-linux-gnu
+            processor: ppc64le
           - isa: armhf     # Thumb-2 userland
             packages: g++-arm-linux-gnueabihf qemu-system-arm
-          - isa: x32       # ILP32 program, LP64 engine (and the host-built CLI)
+            triplet: arm-linux-gnueabihf
+            processor: arm
+          - isa: x32       # ILP32 program, LP64 engine (and the host's own CLI)
             packages: build-essential gcc-multilib libc6-dev-x32 qemu-system-x86 libcapstone-dev libdw-dev zlib1g-dev
-            frontend: true
     name: ${{ matrix.isa }}-guest
     steps:
       - uses: actions/checkout@v7
@@ -33,14 +40,33 @@ jobs:
         run: |
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends ${{ matrix.packages }} cmake ninja-build curl python3
-      - name: Build the CLI that runs inside the guest
-        if: matrix.frontend
+      - name: Build the CLI for the guest (cross-compiled unless x32)
+        id: cli
+        # The host-built CLI for x32 is required; cross builds are still exploratory.
+        continue-on-error: ${{ matrix.triplet != '' }}
         run: |
-          cmake -S . -B build/cli -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_DISABLE_FIND_PACKAGE_Qt6=ON
+          cross=()
+          if [ -n "${{ matrix.triplet }}" ]; then
+            t=${{ matrix.triplet }}
+            cross=(-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.processor }}
+                   -DCMAKE_C_COMPILER=$t-gcc -DCMAKE_CXX_COMPILER=$t-g++ -DCMAKE_FIND_ROOT_PATH=/usr/$t
+                   -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY
+                   -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY
+                   -DCECORE_FORCE_FETCHCONTENT=ON)
+          fi
+          cmake -S . -B build/cli -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_DISABLE_FIND_PACKAGE_Qt6=ON "${cross[@]}"
           cmake --build build/cli --target cescan -j"$(nproc)"
       - name: Require process, scan, pointer, symbol and disassembly checks in a real guest
         env:
-          CECORE_ISA_FRONTEND: ${{ matrix.frontend && format('{0}/build/cli/cescan', github.workspace) || '' }}
+          # x32 runs the engine's own frontends in the same boot.
+          CECORE_ISA_FRONTEND: ${{ matrix.triplet == '' && format('{0}/build/cli/cescan', github.workspace) || '' }}
+        run: CECORE_CI_JOBS="$(nproc)" tools/check-isa-vm.sh ${{ matrix.isa }} build/isa-vm/${{ matrix.isa }}
+      - name: Drive the guest program through the CLI and Lua frontends (cross-built; exploratory)
+        if: matrix.triplet != '' && steps.cli.outcome == 'success'
+        continue-on-error: true
+        env:
+          CECORE_ISA_FRONTEND: ${{ github.workspace }}/build/cli/cescan
+          CECORE_ISA_FRONTEND_SYSROOT: ${{ matrix.triplet && format('/usr/{0}', matrix.triplet) || '/' }}
         run: CECORE_CI_JOBS="$(nproc)" tools/check-isa-vm.sh ${{ matrix.isa }} build/isa-vm/${{ matrix.isa }}
       - name: Save guest log and operation evidence
         if: always()
@@ -48,6 +74,6 @@ jobs:
         with:
           name: ${{ matrix.isa }}-guest-evidence
           path: |
-            build/isa-vm/${{ matrix.isa }}/${{ matrix.isa }}-guest.json
-            build/isa-vm/${{ matrix.isa }}/${{ matrix.isa }}-guest.log
+            build/isa-vm/${{ matrix.isa }}/${{ matrix.isa }}-guest*.json
+            build/isa-vm/${{ matrix.isa }}/${{ matrix.isa }}-guest*.log
           if-no-files-found: error

@@ -40,8 +40,7 @@ jobs:
           gcc -O1 -pthread -o build/dynamic_fixture_glibc test/static_fixture.c
           python3 test/frontend_target_gate.py build build/dynamic_fixture_glibc --ceserver \
             --report build/compatibility-evidence/arm64-frontends-targets.json
-      - name: Probe a live ARM64EC program under Wine (Hangover; exploratory)
-        continue-on-error: true
+      - name: Drive a live ARM64EC program under Wine (Hangover)
         timeout-minutes: 25
         run: |
           set -e

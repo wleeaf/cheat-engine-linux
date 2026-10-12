@@ -16,6 +16,33 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## A live ARM64EC program, and frontends inside the x32 guest: 12 October 2026
+
+Item 3.4 of the [coverage plan](COVERAGE_PLAN.md) went further than planned.
+ARM64EC executables declare the x64 machine in their PE header, so cecore took
+them for plain x86-64 Windows code and would have decoded ARM64 instructions
+as x86. A PE32+ image whose load config carries a CHPE metadata pointer is now
+classified ARM64EC (x64-declared) or ARM64X (ARM64-declared), and disassembly
+refuses it with the reason: choosing ARM64 or x64 per address needs the
+image's CHPE code-range map, which is not implemented.
+
+The hosted ARM64 runner now builds an ARM64EC console fixture with llvm-mingw
+(20260908) and runs it under Hangover 11.16's Wine (both pinned by SHA-256).
+`test/arm64ec_target_gate.py` passes 10 checks: the CLI and Lua frontends
+identify the Wine-hosted ARM64EC program, write and read its value, scan and
+rescan it, and resolve a static pointer path through its module (C1 to C4 at
+`B`). Disassembly, injection, native calls, find-what-writes and the debugger
+each refuse with an explicit reason, which the gate requires verbatim (C5 to
+C9 at `X`), and the program keeps running afterwards. The step is required.
+
+`isa_vm_gate.py --frontend` copies a `cescan` and the shared libraries it
+needs (interpreter, `DT_NEEDED` and `RUNPATH`, resolved with `readelf`) into
+the guest's initramfs, and the guest driver then drives the fixture through
+`cescan info`, `write`, `scan` and a `cescan lua` script. The x32 guest runs
+the host-built CLI against the x32 program that way (x32 C10 at `B`). Cross
+builds of the CLI for the RISC-V, s390x, PowerPC64 and ARM32 guests run as an
+exploratory step. Coverage is now 265/268 (98.9%).
+
 ## IL2CPP: blocked for live checks: 12 October 2026
 
 Item 1.5 of the [coverage plan](COVERAGE_PLAN.md). No legally redistributable

@@ -154,7 +154,8 @@ Each item lists the cells it fills and its completion test.
   and a software breakpoint in QEMU guests. s390x doubles as the big-endian
   data-path check.
 - **3.4 ARM64EC/ARM64X.** Classification and explicit errors only (`X`): there
-  is no way to execute hybrid PE modules on this host.
+  is no way to execute hybrid PE modules on this host. (Superseded: the hosted
+  ARM64 runner executes them under Hangover's Wine; see the progress log.)
 
 ### Wave 4: managed runtimes
 
@@ -194,7 +195,7 @@ bounded syscall waits). Prioritize any that a Wave 1 to 6 item exposed.
 ## Out of reach (stay `X`, keep the explicit error)
 
 - Physical ARM hardware checks (guests and compat kernels only).
-- Executing ARM64EC/ARM64X modules.
+- Executing ARM64EC/ARM64X modules locally (the hosted ARM64 runner can).
 - GPU memory and live Vulkan overlay checks without a GPU in CI.
 - Kernel-enforced denials: Yama `ptrace_scope` 3, seccomp, LSM policies.
 - Anti-cheat protected games: out of scope by project policy.
@@ -284,3 +285,7 @@ first. Detailed write-ups continue in PROGRESS.md.
 - 2026-10-12, **1.5** closed as blocked: no redistributable IL2CPP Linux
   build; parser tests kept, the ten live IL2CPP cells `X` with that reason.
   Coverage 254/268 (94.8%).
+- 2026-10-12, **3.4** done live: ARM64EC classified by CHPE metadata; a real
+  ARM64EC program under Hangover's Wine on the ARM64 runner (C1 to C4 `B`, C5
+  to C9 explicit `X`, C10 `B`). **2.1** for x32: the CLI and Lua frontends run
+  inside the x32 guest (C10 `B`). Coverage 265/268 (98.9%).

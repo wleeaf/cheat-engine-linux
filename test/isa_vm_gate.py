@@ -46,7 +46,11 @@ def shared_libraries(binary, sysroot):
     interpreter = re.search(r"Requesting program interpreter: (\S+)\]", readelf("-l", path=binary))
     found, pending = {}, [binary.resolve()]
     if interpreter:
-        found[interpreter.group(1)] = (sysroot / interpreter.group(1).lstrip("/")).resolve()
+        # Cross sysroots (/usr/<triplet>) keep every loader in lib/.
+        loader = sysroot / interpreter.group(1).lstrip("/")
+        if not loader.exists():
+            loader = sysroot / "lib" / pathlib.PurePosixPath(interpreter.group(1)).name
+        found[interpreter.group(1)] = loader.resolve()
     system = sorted({"/lib", "/usr/lib", "/lib64", "/usr/lib64"} |
                     {"/" + str(d.relative_to(sysroot)) for pattern in
                      ("lib/*-linux-gnu*", "usr/lib/*-linux-gnu*", "libx32", "usr/libx32") for d in sysroot.glob(pattern)})

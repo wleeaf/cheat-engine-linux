@@ -82,8 +82,11 @@ cmake -S test/isa_vm -B "$vm_build/driver-build" -G Ninja \
     -DCECORE_VM_CAPSTONE_LIBRARY="$vm_build/capstone-build/libcapstone.a" >/dev/null
 cmake --build "$vm_build/driver-build" --target init fixture -j"$jobs"
 [ "$build_only" = 1 ] && exit 0
-frontend=()
-[ -n "${CECORE_ISA_FRONTEND:-}" ] && frontend=(--frontend "$CECORE_ISA_FRONTEND" --frontend-sysroot "${CECORE_ISA_FRONTEND_SYSROOT:-/}")
+frontend=() name="$isa-guest"
+if [ -n "${CECORE_ISA_FRONTEND:-}" ]; then
+    frontend=(--frontend "$CECORE_ISA_FRONTEND" --frontend-sysroot "${CECORE_ISA_FRONTEND_SYSROOT:-/}")
+    name="$isa-guest-frontends"
+fi
 python3 test/isa_vm_gate.py "$kernel_path" "$vm_build/init" "$vm_build/fixture" \
     --qemu "$qemu" --expect-architecture "$expected" --kernel-args "$kernel_args" "${frontend[@]}" \
-    --output "$vm_build/$isa-guest.log" --report "$vm_build/$isa-guest.json"
+    --output "$vm_build/$name.log" --report "$vm_build/$name.json"

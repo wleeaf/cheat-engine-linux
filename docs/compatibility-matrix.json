@@ -180,8 +180,8 @@
      "evidence": "x32_vm_gate DEBUG_SESSION, TRACE_BACKEND, DEBUG_RECOVERY"
     },
     "C10": {
-     "state": "-",
-     "evidence": "no GUI/CLI/Lua in x32 guest"
+     "state": "B",
+     "evidence": "x32-guest on hosted CI: the host-built cescan runs inside the x32-enabled guest; cescan info (ABI), write, scan and a cescan lua script drive the x32 fixture (GUI not run)"
     }
    }
   },
@@ -1272,44 +1272,44 @@
    "name": "ARM64EC / ARM64X",
    "cells": {
     "C1": {
-     "state": "-",
-     "evidence": "PE classification unit only"
+     "state": "B",
+     "evidence": "arm64ec_target_gate on the hosted ARM64 runner (llvm-mingw ARM64EC fixture under Hangover 11.16 Wine): cescan info identifies a Wine-hosted ARM64EC program (PE load-config CHPE metadata)"
     },
     "C2": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "arm64ec_target_gate on the hosted ARM64 runner (llvm-mingw ARM64EC fixture under Hangover 11.16 Wine): typed cescan write reaches the program and reads back"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "arm64ec_target_gate on the hosted ARM64 runner (llvm-mingw ARM64EC fixture under Hangover 11.16 Wine): first scan and a next scan after the program's own change isolate the value"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "arm64ec_target_gate on the hosted ARM64 runner (llvm-mingw ARM64EC fixture under Hangover 11.16 Wine): Lua static pointer scan resolves through the ARM64EC module"
     },
     "C5": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "X",
+     "evidence": "arm64ec_target_gate on the hosted ARM64 runner (llvm-mingw ARM64EC fixture under Hangover 11.16 Wine): cescan disasm refuses: ARM64EC mixes ARM64 and x64 code; the per-address CHPE code-range map is not implemented"
     },
     "C6": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "X",
+     "evidence": "arm64ec_target_gate on the hosted ARM64 runner (llvm-mingw ARM64EC fixture under Hangover 11.16 Wine): Lua injection template refuses: injection templates and hooks currently require x86"
     },
     "C7": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "X",
+     "evidence": "arm64ec_target_gate on the hosted ARM64 runner (llvm-mingw ARM64EC fixture under Hangover 11.16 Wine): Lua executeCode refuses: create remote thread has no complete backend for this target"
     },
     "C8": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "X",
+     "evidence": "arm64ec_target_gate on the hosted ARM64 runner (llvm-mingw ARM64EC fixture under Hangover 11.16 Wine): cescan watch refuses: hardware watchpoint has no complete backend for this target"
     },
     "C9": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "X",
+     "evidence": "arm64ec_target_gate on the hosted ARM64 runner (llvm-mingw ARM64EC fixture under Hangover 11.16 Wine): Lua debug_setBreakpoint returns the refusal: debugger has no complete backend for this target"
     },
     "C10": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "arm64ec_target_gate on the hosted ARM64 runner (llvm-mingw ARM64EC fixture under Hangover 11.16 Wine): every check above goes through cescan and cescan lua; the program keeps running after all frontends detach (GUI not run)"
     }
    }
   }

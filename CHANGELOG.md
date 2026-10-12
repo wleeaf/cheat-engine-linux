@@ -15,6 +15,11 @@ reimplementation of Cheat Engine).
 
 ## Unreleased: target compatibility foundation
 
+- Classify ARM64EC and ARM64X images by their load-config CHPE metadata instead
+  of taking ARM64EC programs for x86-64, and refuse their disassembly with the
+  reason. CI drives a real ARM64EC program under Wine on ARM64, and the CLI and
+  Lua frontends inside an x32 guest.
+
 - Stop a scan with the reason (and a `ptrace_scope` hint) when the target's
   memory cannot be read, instead of reporting zero results (`cescan scan`,
   `guest-scan`, GUI First Scan). Decode .NET ReadyToRun PE machines and keep PE

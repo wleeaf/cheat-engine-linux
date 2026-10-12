@@ -143,6 +143,29 @@ def main():
                     phases != ['memory', 'function']):
                 raise RuntimeError(f"required native {bits}-bit unreaped recovery failed")
             unreaped["status"] = "passed"
+            unreaped_service = {"status": "failed"}
+            target["unreapedService"] = unreaped_service
+            try:
+                observed = subprocess.run([str(driver), "--unreaped-service-only", str(fixture)],
+                                          capture_output=True, text=True, timeout=60)
+            except subprocess.TimeoutExpired as error:
+                unreaped_service["output"] = (error.stdout or b"").decode(errors="replace")
+                unreaped_service["stderr"] = (error.stderr or b"").decode(errors="replace")
+                raise RuntimeError(f"required native {bits}-bit unreaped service recovery timed out") from error
+            unreaped_service.update(exitCode=observed.returncode, output=observed.stdout, stderr=observed.stderr)
+            print(observed.stdout, end="", flush=True)
+            if observed.stderr:
+                print(observed.stderr, end="", flush=True)
+            results = re.findall(r'^UNREAPED_SERVICE_RESULT=.*$', observed.stdout, re.M)
+            assertions = re.findall(r'^UNREAPED_SERVICE_CHECK (OK|FAILED):', observed.stdout, re.M)
+            phases = re.findall(rf'^UNREAPED_SERVICE_OBSERVATION architecture={architecture} phase=(\S+) state=Z birth=[1-9]\d* reply=1 recoveryError=0 drained=1 terminal=1 retired=1$', observed.stdout, re.M)
+            ready = re.findall(r'^UNREAPED_SERVICE_READY owner=[1-9]\d* allocation=[1-9a-f][0-9a-f]* held=1 mmapError=131 mapped=1$', observed.stderr, re.M)
+            unreaped_service["checks"] = len(assertions)
+            if (observed.returncode or results != [f'UNREAPED_SERVICE_RESULT=PASSED architecture={architecture} checks=24'] or
+                    len(assertions) != 24 or any(value != 'OK' for value in assertions) or 'FAILED:' in observed.stdout or
+                    phases != ['recover', 'shutdown'] or len(ready) != 2):
+                raise RuntimeError(f"required native {bits}-bit unreaped service recovery failed")
+            unreaped_service["status"] = "passed"
             if bits == 64:
                 lifecycle = {"status": "failed"}
                 target["mixedAbiLifecycle"] = lifecycle

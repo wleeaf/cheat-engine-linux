@@ -13,6 +13,34 @@ its own local checks. Older evidence snapshots describe the source and
 binaries tested at their own checkpoint; their counts must not be added together
 as a count of unique tests or presented as fresh checks of every environment.
 
+The ordered, breadth-first execution plan for the remaining work is
+[COVERAGE_PLAN.md](COVERAGE_PLAN.md).
+
+## Unreaped service recovery: 12 October 2026
+
+This closes the first remaining item of the unreaped-task entry below and is
+item 0.1 of the [coverage plan](COVERAGE_PLAN.md). The new
+`--unreaped-service-only` mode of `target_syscall_integration` runs the real
+`TargetSyscallService` broker in a separate controller process. A completed
+mmap fails original-register restoration, so the broker retains the real
+unreturned allocation. The service owner thread is then paused right after a
+genuine empty `WNOHANG` poll (the fault hook does not alter its result) while
+the controller's main thread consumes the owner's actual SIGKILL terminal
+report. The fixture's original parent keeps the zombie unreaped and verifies
+its unchanged birth and released tracer.
+
+Two phases run per ABI: explicit `recover()` and service destruction. Both
+must finish within their bounds, drain the retained allocation and context,
+leave no pending record, and complete **before** the parent reaps the zombie.
+The existing product code already handles this window (the recovery change
+from `62a3067`); no product change was needed. The required native gate passes
+**24 assertions per ABI** for x86-64 and i386 in the normal build, alongside
+every existing native gate count.
+
+Per the coverage plan, further recovery corner cases (live `PTRACE_EVENT_EXIT`
+stops, surviving old-mm peers, nonleader group death) move to its Wave 7
+unless a normal workflow reproduces one.
+
 ## Hosted verification before the unreaped-task follow-up: 7 October 2026
 
 The [completed run for `d4172a2`](https://github.com/wleeaf/cheat-engine-linux/actions/runs/37632710873)

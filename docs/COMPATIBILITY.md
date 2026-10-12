@@ -35,8 +35,10 @@ also checks retained mmap and completed-function contexts on native x86-64 and
 i386. A separate tracer consumes the real terminal notification, while the
 original parent independently verifies the zombie and keeps it unreaped.
 Recovery must retire the dead context before numeric PID disappearance.
-Service broker shutdown in that exact shared-waiter window, live EXIT stops
-and broader foreign-backend cases still need separate evidence.
+The service broker's explicit recovery and its shutdown are now also verified
+in that exact window: the real service owner is paused after a genuine empty
+poll while another controller thread consumes its terminal notification.
+Live EXIT stops and broader foreign-backend cases still need separate evidence.
 
 Do not mark this work complete until every row has sufficient current evidence.
 Update this table as implementation and live validation progress.

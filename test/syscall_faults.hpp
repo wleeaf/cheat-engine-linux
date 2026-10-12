@@ -29,6 +29,12 @@ bool allocationObserved();
 void holdAfterDetach(pid_t tid);
 bool detachHeld();
 void releaseDetach();
+// Pause only after an actual empty WNOHANG poll, leaving its result unchanged.
+// Another thread in the tracer's group can consume a later terminal event.
+void holdEmptyRecoveryPoll(pid_t tid);
+bool emptyRecoveryPollHeld();
+pid_t emptyRecoveryPollOwner();
+void releaseEmptyRecoveryPoll();
 // Resume the restored application at a controlled failed DETACH so it exits
 // its own selected thread. Leave the actual terminal event for production.
 void exitBeforeDetach(pid_t selected,pid_t survivor,uintptr_t exitFlag);

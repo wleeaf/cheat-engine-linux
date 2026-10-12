@@ -54,6 +54,8 @@ static std::atomic<pid_t> watchedAllocator{0};
 static std::atomic<bool> observedAllocation{false};
 static std::atomic<pid_t> heldDetachTid{0};
 static std::atomic<bool> detachReached{false}, detachReleased{true};
+static std::atomic<pid_t> emptyPollTid{0},emptyPollOwner{0};
+static std::atomic<bool> emptyPollReached{false},emptyPollReleased{true};
 static std::atomic<pid_t> exitingDetachTid{0},survivorDetachTid{0},exitingOwner{0};
 static std::atomic<bool> exitedBeforeDetach{false},exitContextReady{false},survivorVerified{false};
 static std::atomic<uintptr_t> exitingFlag{0};
@@ -88,6 +90,10 @@ bool allocationObserved() { return observedAllocation; }
 void holdAfterDetach(pid_t tid) { detachReached=false; detachReleased=false; heldDetachTid=tid; }
 bool detachHeld() { return detachReached; }
 void releaseDetach() { detachReleased=true; }
+void holdEmptyRecoveryPoll(pid_t tid) {emptyPollReached=false;emptyPollReleased=false;emptyPollOwner=0;emptyPollTid=tid;}
+bool emptyRecoveryPollHeld() {return emptyPollReached;}
+pid_t emptyRecoveryPollOwner() {return emptyPollOwner;}
+void releaseEmptyRecoveryPoll() {emptyPollReleased=true;emptyPollTid=0;}
 void exitBeforeDetach(pid_t selected,pid_t survivor,uintptr_t exitFlag) {
     exitedBeforeDetach=false;exitContextReady=false;survivorVerified=false;exitingOwner=0;
     exitingAllocation=0;exitingAllocationPresent=false;exitingFlag=exitFlag;
@@ -131,6 +137,14 @@ extern "C" pid_t __real_waitpid(pid_t,int*,int);
 extern "C" pid_t __wrap_waitpid(pid_t pid,int* status,int options) {
     using namespace syscall_test;
     auto result=__real_waitpid(pid,status,options);
+    if (!result && pid>0 && status && (options&WNOHANG) && emptyPollTid==pid) {
+        const int savedErrno=errno;emptyPollTid=0;
+        emptyPollOwner=static_cast<pid_t>(syscall(SYS_gettid));emptyPollReached=true;
+        const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+        while(!emptyPollReleased && std::chrono::steady_clock::now()<deadline) usleep(1000);
+        errno=savedErrno;
+        return result;
+    }
 #if defined(__x86_64__)
     if (!result && pid>0 && pid==restartContinueTid && status && (options&WNOHANG)) {
         restartContinueTid=0;

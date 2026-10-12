@@ -19,6 +19,7 @@ remaining cases](docs/PROGRESS.md#applied-detach-and-live-task-esrch-recovery-7-
 Retained memory-syscall and completed-function recovery also finish after confirmed
 task death while the original PID remains an unreaped zombie. [Unreaped recovery
 checks and remaining work](docs/PROGRESS.md#unreaped-task-recovery-7-october-2026).
+The memory-syscall service broker also recovers and shuts down in that window.
 Real Linux x32 fixtures now verify memory operations, 64-bit integer calls and
 file offsets, library/pthread injection and exec recovery, using a normal LP64
 engine. Debugger sessions, tracing and hardware/software watchpoints also pass

@@ -31,5 +31,9 @@ std::optional<std::string> unsupportedTargetOperation(ProcessHandle& process, Ta
 // backend refuses this target, otherwise the operation's own error. Frontends
 // use this so an unsupported target never fails silently or with a bare errno.
 std::string targetOperationError(ProcessHandle& process, TargetFeature feature, std::error_code error = {});
+// Probes a few readable regions. When none can be read (typically EPERM from
+// Yama ptrace_scope on a process that is not a descendant), returns the reason,
+// so a scan of an unreadable target fails explicitly instead of finding nothing.
+std::optional<std::string> memoryAccessProblem(ProcessHandle& process);
 
 } // namespace ce

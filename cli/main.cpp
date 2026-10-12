@@ -806,6 +806,10 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
     }
 
     LinuxProcessHandle proc(pid);
+    if (auto problem = ce::memoryAccessProblem(proc)) {
+        fprintf(stderr, "scan: %s\n", problem->c_str());
+        return 1;
+    }
     if (codec.active()) {
         // Obfuscated values: search for the ENCODED needle so the user scans by the
         // logical value the game displays. Only exact integer scans make sense (a
@@ -911,6 +915,10 @@ static std::string guestSnapPath(pid_t pid) { return guestResultPath(pid) + ".sn
 static int cmd_guest_scan(pid_t pid, const char* valStr, ValueType vt, bool be, size_t align,
                           GsOp op, ce::GuestCompare cmpOp) {
     LinuxProcessHandle proc(pid);
+    if (auto problem = ce::memoryAccessProblem(proc)) {
+        fprintf(stderr, "guest-scan: %s\n", problem->c_str());
+        return 1;
+    }
     ce::TargetProfile::GuestRegion region;
     std::vector<std::pair<uint64_t, uint64_t>> prev;   // (guest addr, value bits)
     std::vector<uint8_t> snapOld;

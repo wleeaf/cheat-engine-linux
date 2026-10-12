@@ -110,6 +110,8 @@ def main():
                 # Unclaimed checks still run and report, without failing the gate.
                 entry.setdefault("informational", {})[title] = bool(ok)
                 print(f"RUNTIME_TARGET_INFO {'OK' if ok else 'FAILED'}: {name}: {title}", flush=True)
+                if not ok and detail:
+                    print(detail[-3000:], flush=True)
                 return
             entry["checks"][title] = bool(ok)
             print(f"RUNTIME_TARGET_CHECK {'OK' if ok else 'FAILED'}: {name}: {title}", flush=True)

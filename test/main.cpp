@@ -18,6 +18,7 @@
 #endif
 #include "scanner/pointer_scanner.hpp"
 #include "scanner/snapshot.hpp"
+#include "core/target_capabilities.hpp"
 #include "core/autoasm.hpp"
 #include "core/aa_templates.hpp"
 #include "core/injection_gen.hpp"
@@ -182,6 +183,31 @@ private:
     std::vector<ModuleInfo> modules_;
     bool is64bit_;
 };
+
+static void test_memory_access_problem() {
+    printf("\n── Test: Unreadable target is reported, not scanned as empty ──\n");
+    // Yama ptrace_scope >= 1 makes every read of a non-descendant fail with EPERM;
+    // a scan must then say so instead of reporting zero results.
+    struct DeniedProcessHandle : FakeProcessHandle {
+        using FakeProcessHandle::FakeProcessHandle;
+        Result<size_t> read(uintptr_t, void*, size_t) override {
+            return std::unexpected(std::error_code(EPERM, std::system_category()));
+        }
+    };
+    std::vector<uint8_t> data(64, 0x5a);
+    FakeProcessHandle::Segment segment{{0x500000, data.size(), MemProt::ReadWrite, MemType::Private,
+                                        MemState::Committed, ""}, data};
+    FakeProcessHandle readable({segment}, {});
+    DeniedProcessHandle denied({segment}, {});
+    FakeProcessHandle empty({}, {});
+    auto ok = ce::memoryAccessProblem(readable);
+    auto problem = ce::memoryAccessProblem(denied);
+    printf("  readable target -> no problem: %s\n", !ok ? "OK" : "FAILED");
+    printf("  EPERM target -> explicit read error: %s (%s)\n",
+           problem && problem->starts_with("read memory: ") ? "OK" : "FAILED",
+           problem ? problem->c_str() : "none");
+    printf("  no readable regions -> nothing to report: %s\n", !ce::memoryAccessProblem(empty) ? "OK" : "FAILED");
+}
 
 static void test_recover_store() {
     printf("\n── Test: Exact store recovery (find-what-writes) ──\n");
@@ -11487,6 +11513,7 @@ int main(int argc, char* argv[]) {
     test_value_codec();
     test_value_transform();
     test_recover_store();
+    test_memory_access_problem();
     test_cheat_table_json();
     test_mono_dissector_parse();
     test_breakpoint_condition();

@@ -1,5 +1,7 @@
 #include "core/target_capabilities.hpp"
 #include <unistd.h>
+#include <cerrno>
+#include <fstream>
 #include "arch/target_arch.hpp"
 
 namespace ce {
@@ -143,8 +145,32 @@ std::string targetOperationError(ProcessHandle& process, TargetFeature feature, 
     if (transport != TargetTransport::Local && (feature == TargetFeature::Debugger || feature == TargetFeature::Trace ||
             feature == TargetFeature::HardwareWatchpoint || feature == TargetFeature::SoftwareWatchpoint))
         return std::string(targetFeatureName(feature)) + ": local ptrace operations are unavailable over this transport";
+    if (error && error.category() == std::system_category() && error.value() == EPERM && transport == TargetTransport::Local) {
+        std::string reason = std::string(targetFeatureName(feature)) + ": " + error.message();
+        int scope = -1;
+        std::ifstream("/proc/sys/kernel/yama/ptrace_scope") >> scope;
+        if (scope >= 1)
+            reason += " (kernel.yama.ptrace_scope=" + std::to_string(scope) + " only lets a process read its own "
+                "descendants: start the target from this tool, run as root or with cap_sys_ptrace, or set ptrace_scope to 0)";
+        return reason;
+    }
     if (error) return std::string(targetFeatureName(feature)) + ": " + error.message();
     return std::string(targetFeatureName(feature)) + " failed";
+}
+
+std::optional<std::string> memoryAccessProblem(ProcessHandle& process) {
+    std::error_code last;
+    int probed = 0;
+    for (const auto& region : process.queryRegions()) {
+        if (!(region.protection & MemProt::Read) || region.size == 0) continue;
+        uint8_t byte = 0;
+        auto read = process.read(region.base, &byte, 1);
+        if (read && *read == 1) return std::nullopt;
+        if (!read) last = read.error();
+        if (++probed == 4) break;
+    }
+    if (!probed || !last) return std::nullopt;   // nothing readable to probe, or short reads only
+    return targetOperationError(process, TargetFeature::ReadMemory, last);
 }
 
 } // namespace ce

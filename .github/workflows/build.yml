@@ -219,7 +219,8 @@ jobs:
 
       - name: Probe a real console emulator (mGBA, generated homebrew ROM; exploratory)
         continue-on-error: true
-        run: xvfb-run -a python3 test/emulator_target_gate.py build --report build/compatibility-evidence/emulator-mgba.json
+        # Yama scope 1: only root may read an emulator that cescan did not start.
+        run: sudo xvfb-run -a python3 test/emulator_target_gate.py build --report build/compatibility-evidence/emulator-mgba.json
 
       - name: Run JIT runtime workflows (Node/V8, HotSpot, Mono, CoreCLR)
         # Stock runtimes cannot opt in with PR_SET_PTRACER, so Yama scope 1
@@ -238,7 +239,7 @@ jobs:
         run: |
           for round in 1 2 3 4 5; do
             sudo python3 test/runtime_target_gate.py build --only coreclr \
-              --dotnet-dll build/jit-fixture-dotnet/out/jit-fixture-dotnet.dll | grep -E 'RUNTIME_TARGET_(INFO|RESULT)' | sed "s/^/round $round: /"
+              --dotnet-dll build/jit-fixture-dotnet/out/jit-fixture-dotnet.dll 2>&1 | sed "s/^/round $round: /"
           done
 
       - name: Build kernel module (out-of-tree)

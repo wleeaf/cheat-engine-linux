@@ -2864,6 +2864,10 @@ void MainWindow::onFirstScan() {
         statusBar()->showMessage("No process attached; open one first (Ctrl+O) to scan.", 4000);
         return;
     }
+    if (auto problem = ce::memoryAccessProblem(*process_)) {
+        QMessageBox::warning(this, "Cannot read the process", QString::fromStdString(*problem));
+        return;
+    }
 
     ScanConfig config;
     applyScanDataFormat(config);

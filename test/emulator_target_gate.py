@@ -70,12 +70,15 @@ def main():
     directory = pathlib.Path(tempfile.mkdtemp(prefix="ce-emulator-"))
     rom = directory / "coverage.gba"
     build_rom(rom)
-    emulator = subprocess.Popen([args.mgba, str(rom)], cwd=directory, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+    # mGBA logs heavily; an undrained pipe would block it before the ROM runs.
+    log = open(directory / "mgba.log", "w+")
+    emulator = subprocess.Popen([args.mgba, str(rom)], cwd=directory, stdout=log, stderr=subprocess.STDOUT,
                                 env=dict(os.environ, SDL_AUDIODRIVER="dummy"))
     try:
         time.sleep(4)   # let the emulator boot the ROM
         if emulator.poll() is not None:
-            raise RuntimeError(f"mGBA exited: {emulator.stderr.read().decode(errors='replace')}")
+            log.seek(0)
+            raise RuntimeError(f"mGBA exited: {log.read()[-2000:]}")
         pid = emulator.pid
         info = run("info", pid)
         check("info identifies the mGBA emulator", re.search(r"^emulator:\s*mGBA", info, re.M) is not None, info)
@@ -117,10 +120,12 @@ print('POINTER_PATHS ' .. found)
         check("a pointer scan finds a host path to the guest RAM buffer",
               pointers.returncode == 0 and "POINTER_PATHS" in pointers.stdout, pointers.stdout + pointers.stderr)
     except Exception as error:
-        check("the workflow completes", False, repr(error))
+        log.seek(0)
+        check("the workflow completes", False, repr(error) + "\nmGBA log tail:\n" + log.read()[-2000:])
     finally:
         emulator.kill()
         emulator.wait()
+        log.close()
         shutil.rmtree(directory, ignore_errors=True)
     report["status"] = "failed" if failures else "passed"
     if args.report:

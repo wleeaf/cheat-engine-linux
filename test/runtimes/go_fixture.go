@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"runtime"
 	"sync/atomic"
+	"syscall"
 )
 
 var ceValue int32 = 1234567
@@ -24,6 +25,9 @@ func ce_writer() int32 {
 }
 
 func main() {
+	// PR_SET_PTRACER_ANY: let a separately started tool attach under Yama
+	// ptrace_scope=1, as with the C fixture.
+	syscall.RawSyscall(syscall.SYS_PRCTL, 0x59616d61, ^uintptr(0), 0)
 	writer := reflect.ValueOf(ce_writer).Pointer()
 	fmt.Printf("CE_STATIC %d %p %p %#x %s\n", os.Getpid(), &ceValue, &cePointer, writer, runtime.FuncForPC(writer).Name())
 	input := bufio.NewReader(os.Stdin)

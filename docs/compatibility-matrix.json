@@ -896,44 +896,44 @@
    "name": "IL2CPP",
    "cells": {
     "C1": {
-     "state": "-",
-     "evidence": "offline only: real Disco Elysium v27 global-metadata.dat (16187 types) parses and resolves field offsets from GameAssembly.dll; no live IL2CPP process tested"
+     "state": "X",
+     "evidence": "blocked (plan item 1.5): no legally redistributable IL2CPP Linux build exists for CI (Unity builds need a licensed editor); offline: a real Disco Elysium v27 global-metadata.dat (16187 types) parses and resolves field offsets from GameAssembly.dll (test_il2cpp_real_file, local only)"
     },
     "C2": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "X",
+     "evidence": "blocked (plan item 1.5): no legally redistributable IL2CPP Linux build exists for CI (Unity builds need a licensed editor); an IL2CPP game is a native process, so the native rows' generic evidence applies but is not claimed here"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "X",
+     "evidence": "blocked (plan item 1.5): no legally redistributable IL2CPP Linux build exists for CI (Unity builds need a licensed editor); an IL2CPP game is a native process, so the native rows' generic evidence applies but is not claimed here"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "X",
+     "evidence": "blocked (plan item 1.5): no legally redistributable IL2CPP Linux build exists for CI (Unity builds need a licensed editor); an IL2CPP game is a native process, so the native rows' generic evidence applies but is not claimed here"
     },
     "C5": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "X",
+     "evidence": "blocked (plan item 1.5): no legally redistributable IL2CPP Linux build exists for CI (Unity builds need a licensed editor); an IL2CPP game is a native process, so the native rows' generic evidence applies but is not claimed here"
     },
     "C6": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "X",
+     "evidence": "blocked (plan item 1.5): no legally redistributable IL2CPP Linux build exists for CI (Unity builds need a licensed editor); an IL2CPP game is a native process, so the native rows' generic evidence applies but is not claimed here"
     },
     "C7": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "X",
+     "evidence": "blocked (plan item 1.5): no legally redistributable IL2CPP Linux build exists for CI (Unity builds need a licensed editor); an IL2CPP game is a native process, so the native rows' generic evidence applies but is not claimed here"
     },
     "C8": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "X",
+     "evidence": "blocked (plan item 1.5): no legally redistributable IL2CPP Linux build exists for CI (Unity builds need a licensed editor); an IL2CPP game is a native process, so the native rows' generic evidence applies but is not claimed here"
     },
     "C9": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "X",
+     "evidence": "blocked (plan item 1.5): no legally redistributable IL2CPP Linux build exists for CI (Unity builds need a licensed editor); an IL2CPP game is a native process, so the native rows' generic evidence applies but is not claimed here"
     },
     "C10": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "X",
+     "evidence": "blocked (plan item 1.5): no legally redistributable IL2CPP Linux build exists for CI (Unity builds need a licensed editor); cescan il2cpp, the GUI dissector and Lua getIl2CppClasses are covered offline by test_il2cpp_locate and test_il2cpp_metadata"
     }
    }
   },

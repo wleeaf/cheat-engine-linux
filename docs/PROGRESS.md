@@ -16,6 +16,18 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## IL2CPP: blocked for live checks: 12 October 2026
+
+Item 1.5 of the [coverage plan](COVERAGE_PLAN.md). No legally redistributable
+IL2CPP Linux build exists for CI: IL2CPP output needs a licensed Unity editor,
+and no open-source Unity project publishes an IL2CPP Linux release. Following
+the plan, the parser tests stay (including a real Disco Elysium v27
+`global-metadata.dat` with 16187 types, checked locally) and the ten live
+IL2CPP cells are `X` with that reason. This is an environment block, not a
+refusal by the tool: an IL2CPP game is a native process, and attaching to one
+locally (for example a game the user owns) would upgrade the row. Coverage is
+now 254/268 (94.8%).
+
 ## Unreadable targets, .NET ReadyToRun modules, and a live mGBA: 12 October 2026
 
 Three product defects surfaced while finishing items 5.3 and the CoreCLR open

@@ -281,3 +281,6 @@ first. Detailed write-ups continue in PROGRESS.md.
   checks and CoreCLR code patches (with W^X on, 3 repeat rounds) required on
   hosted CI. Console emulators C1-C5, C8-C10 and CoreCLR C6/C9/C10 at `B`.
   Coverage 244/268 (91.0%).
+- 2026-10-12, **1.5** closed as blocked: no redistributable IL2CPP Linux
+  build; parser tests kept, the ten live IL2CPP cells `X` with that reason.
+  Coverage 254/268 (94.8%).

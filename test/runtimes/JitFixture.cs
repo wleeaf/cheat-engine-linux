@@ -21,7 +21,12 @@ public static class JitFixture {
     public static void Main() {
         view = Marshal.AllocHGlobal(16);
         Marshal.WriteInt32(view, 0);
-        for (int i = 0; i < 200000; i++) ceJitWriter(view);   // tier up the writer
+        // Reach the steady state a long-running game has: CoreCLR promotes hot
+        // methods to optimized code in the background after a quiet period.
+        for (int round = 0; round < 3; round++) {
+            for (int i = 0; i < 200000; i++) ceJitWriter(view);
+            System.Threading.Thread.Sleep(400);
+        }
         Marshal.WriteInt32(view, 1515852340);                 // 0x5a5a1234 marker
         Console.WriteLine("CE_RUNTIME " + System.Diagnostics.Process.GetCurrentProcess().Id);
         Console.Out.Flush();

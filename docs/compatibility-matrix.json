@@ -857,36 +857,36 @@
      "evidence": "mono_integration pinned-object field read/write/restore across GC"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no scan test"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI (Mono 6.8 with --jitmap, C# fixture): marker scan and next scan isolate the off-heap value"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no test"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI (Mono 6.8 with --jitmap, C# fixture): non-static pointer scan path resolves to the off-heap value"
     },
     "C5": {
-     "state": "-",
-     "evidence": "JIT address lookup only; no disassembly test"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI (Mono 6.8 with --jitmap, C# fixture): disassembly of JIT code annotated with its --jitmap name"
     },
     "C6": {
-     "state": "-",
-     "evidence": "no code cave test"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI (Mono 6.8 with --jitmap, C# fixture): code-injection template at the JIT writer; the program computes through the cave; undo restores it"
     },
     "C7": {
      "state": "B",
      "evidence": "mono_integration agent injection, resident refresh, library unload"
     },
     "C8": {
-     "state": "-",
-     "evidence": "no test"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI (Mono 6.8 with --jitmap, C# fixture): find-what-writes names the JIT-compiled writer"
     },
     "C9": {
-     "state": "-",
-     "evidence": "managed debugging pending"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI (Mono 6.8 with --jitmap, C# fixture): Lua breakpoint on the reported JIT instruction stops the running code"
     },
     "C10": {
-     "state": "-",
-     "evidence": "CLI-Lua only (cescan lua monoDissect); GUI not live-tested"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI (Mono 6.8 with --jitmap, C# fixture) --gui: CLI, Lua and the Qt main/debugger windows against a live Mono program"
     }
    }
   },
@@ -990,24 +990,24 @@
    "name": "CoreCLR (.NET)",
    "cells": {
     "C1": {
-     "state": "-",
-     "evidence": "detection/enumeration on FakeProcessHandle only (test/main.cpp)"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI (.NET 8 SDK on the runner, DOTNET_PerfMapEnabled=1): cescan info names CoreCLR; the perf map names the JIT writer"
     },
     "C2": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI (.NET 8 SDK on the runner, DOTNET_PerfMapEnabled=1): typed write to Marshal.AllocHGlobal memory observed by the program"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI (.NET 8 SDK on the runner, DOTNET_PerfMapEnabled=1): marker scan and next scan isolate the off-heap value"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI (.NET 8 SDK on the runner, DOTNET_PerfMapEnabled=1): non-static pointer scan path resolves to the value"
     },
     "C5": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI (.NET 8 SDK on the runner, DOTNET_PerfMapEnabled=1): disassembly of JIT code annotated with its perf-map name"
     },
     "C6": {
      "state": "-",
@@ -1018,8 +1018,8 @@
      "evidence": "no live test"
     },
     "C8": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "runtime_target_gate on hosted CI (.NET 8 SDK on the runner, DOTNET_PerfMapEnabled=1): find-what-writes names the JIT-compiled writer"
     },
     "C9": {
      "state": "-",

@@ -413,12 +413,13 @@ local info = getTargetInfo()
 assert(info.transport == 'ceserver', 'transport ' .. tostring(info.transport))
 assert(writeInteger({fixture.value}, 4242))
 print('REMOTE_WRITTEN'); io.flush()
+-- 48-bit user space: ARM64 PIE programs load near 0xaaaaaaaa0000.
 local scan = createMemScan()
-assert(scan:firstScan(0, 2, '4242', 0, 0x7fffffffffff, 4))
+assert(scan:firstScan(0, 2, '4242', 0, 0xffffffffffff, 4))
 local function has(s) for i = 0, s:getFoundCount() - 1 do if s:getAddress(i) == {fixture.value} then return true end end end
 assert(has(scan), 'first scan over ceserver missed the value')
 assert(writeInteger({fixture.value}, 4243))
-assert(scan:nextScan(0, 2, '4243', 0, 0x7fffffffffff, 4))
+assert(scan:nextScan(0, 2, '4243', 0, 0xffffffffffff, 4))
 assert(has(scan), 'next scan over ceserver missed the value')
 print('REMOTE_SCANNED'); io.flush()
 local resolved = false

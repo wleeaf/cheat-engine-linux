@@ -191,7 +191,7 @@ print('RESTORED'); io.flush()
                       injected and during.upper().startswith("E9") and hooked_value == 779, output + during)
                 check("disabling the injection restores the JIT code and its behavior",
                       "RESTORED" in output and after == before and runtime.command("b") == expected, output)
-            if name in ("node", "jvm"):
+            if name in ("node", "jvm", "mono", "coreclr"):
                 # Native calls borrow a thread that is executing user code.
                 maps = open(f"/proc/{pid}/maps").read()
                 libc = re.search(r"(/\S*/libc\.so\.6)$", maps, re.M)

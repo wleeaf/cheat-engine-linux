@@ -551,7 +551,8 @@ def main():
             if not record["passed"]:
                 print(record["output"], record["peerErrors"], flush=True)
         record = run_peer_case(build / "cescan", "cli-lua", lua_code=Path(__file__).with_name("gdb_lua_checks.lua").read_text())
-        record["passed"] = record["passed"] and "GDB_LUA_RESULT=PASSED" in record["output"]
+        record["passed"] = (record["passed"] and "GDB_LUA_RESULT=PASSED" in record["output"] and
+                            "GDB_LUA_REFUSALS=PASSED" in record["output"])
         records.append(record)
         print(("PASS " if record["passed"] else "FAIL ") + record["name"], flush=True)
         if not record["passed"]:
@@ -611,7 +612,8 @@ assert(disconnectProcess()); print('HIGH_GDB_LUA=PASSED')"""
                 print(("PASS " if record["passed"] else "FAIL ") + record["name"], flush=True)
                 print(record["output"], record["peerErrors"], record.get("guestLog", ""), flush=True)
             record = qemu_case(build / "cescan", args.qemu_container, temp_dir, "qemu-lua")
-            record["passed"] = record["passed"] and "GDB_LUA_RESULT=PASSED" in record["output"]
+            record["passed"] = (record["passed"] and "GDB_LUA_RESULT=PASSED" in record["output"] and
+                                "GDB_LUA_POINTERS=PASSED" in record["output"] and "GDB_LUA_REFUSALS=PASSED" in record["output"])
             records.append(record)
             print(("PASS " if record["passed"] else "FAIL ") + record["name"], flush=True)
             print(record["output"], record["peerErrors"], record.get("guestLog", ""), flush=True)

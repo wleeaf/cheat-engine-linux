@@ -20,7 +20,8 @@ std::string PointerPath::toString() const {
         result += "[";
 
     char buf[64];
-    snprintf(buf, sizeof(buf), "+%lx", baseOffset);
+    // Module-less (absolute) bases print as the bare address.
+    snprintf(buf, sizeof(buf), module.empty() ? "%lx" : "+%lx", baseOffset);
     result += module + buf;
 
     for (auto off : offsets) {
@@ -366,6 +367,16 @@ std::vector<PointerPath> PointerScanner::scanWithMap(const PointerMap& map,
                     // Cap results
                     if (results.size() >= 10000) goto done;
                 }
+            } else if (!config.staticOnly &&
+                       (config.shardCount <= 1 || ((it->locatedAt >> 12) % config.shardCount) == config.shardIndex)) {
+                // Heap, JIT or guest-RAM base (no module): an absolute base,
+                // valid until that memory moves. Shards split these by page.
+                PointerPath path;
+                path.moduleBase = 0;
+                path.baseOffset = it->locatedAt;
+                path.offsets = newOffsets;
+                results.push_back(std::move(path));
+                if (results.size() >= 10000) goto done;
             }
 
             // Go deeper if not at max depth and not static-only
@@ -394,10 +405,12 @@ done:
 uintptr_t PointerScanner::dereference(ProcessHandle& proc, const std::vector<ModuleInfo>& modules,
                                       const PointerPath& path) {
     uintptr_t base = 0;
-    for (auto& m : modules) {
-        if (m.name == path.module) { base = m.base; break; }
+    if (!path.module.empty()) {
+        for (auto& m : modules) {
+            if (m.name == path.module) { base = m.base; break; }
+        }
+        if (base == 0) return 0;
     }
-    if (base == 0) return 0;
 
     uintptr_t addr = base + path.baseOffset;
     if (path.baseOffset > UINTPTR_MAX - base) return 0;

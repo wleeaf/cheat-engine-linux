@@ -43,6 +43,21 @@ assert(writeInteger(base+128, 0x12345678) and readInteger(base+128) == 0x1234567
 local bytes = assert(readBytes(base+128,4,true))
 assert(bytes[1] == (CE_GDB_QEMU and 0x78 or 0x12) and bytes[4] == (CE_GDB_QEMU and 0x12 or 0x78))
 assert(writePointer(base+144, base+256) and readPointer(base+144) == base+256)
+if CE_GDB_QEMU then
+  -- Guest RAM has no modules: a non-static pointer scan finds the absolute base.
+  local found = false
+  for _, path in ipairs(pointerScan(base+256, 1, 64, {staticOnly=false}) or {}) do
+    if path.module == '' and path.baseOffset == base+144 then found = true end
+  end
+  assert(found, 'guest pointer scan missed the absolute base')
+  print('GDB_LUA_POINTERS=PASSED non-static pointer path over guest RAM')
+end
+-- Native calls and watchpoints have no guest backend: refused with the reason.
+local called, callError = executeCode(base)
+assert(called == nil and tostring(callError):find('backend', 1, true), 'guest native call: '..tostring(callError))
+local watched, watchError = findWhatWrites(base+128, 0.1)
+assert(watched == nil and tostring(watchError):find('backend', 1, true), 'guest watchpoint: '..tostring(watchError))
+print('GDB_LUA_REFUSALS=PASSED native calls and watchpoints refused with their reason')
 if not CE_GDB_QEMU then assert(readInteger(base+4094) == nil, 'short word invented bytes') end
 -- Production MemScan reads the program data format and exposes captured values.
 local scan = createMemScan()

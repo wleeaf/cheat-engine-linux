@@ -1202,12 +1202,12 @@
      "evidence": "gdb_transport_integration: allocate/protect/free rejected on real QEMU with an explicit unsupported error"
     },
     "C7": {
-     "state": "-",
-     "evidence": "no explicit native-call error test"
+     "state": "X",
+     "evidence": "gdb_lua_checks (stub and real QEMU): executeCode refused with the capability reason (no guest native-call backend)"
     },
     "C8": {
-     "state": "-",
-     "evidence": "backend watchpoints pending"
+     "state": "X",
+     "evidence": "gdb_lua_checks (stub and real QEMU): findWhatWrites refused with the capability reason (guest watchpoint backend pending)"
     },
     "C9": {
      "state": "B",

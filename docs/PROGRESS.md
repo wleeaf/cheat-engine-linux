@@ -16,6 +16,20 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Non-static pointer paths and GDB guest refusals: 12 October 2026
+
+`PointerScanConfig::staticOnly` existed (and Lua accepted it), but the scanner
+never read it: paths were recorded only when their base lay inside a module,
+so a pointer scan of guest RAM, JIT code or heap-only data found nothing even
+with "static only" turned off. With `staticOnly=false` the scanner now also
+records module-less bases as absolute addresses (printed as the bare
+address, dereferenced without a module, sharded by page). A unit check
+covers resolution and shard merging.
+
+The GDB guest checks now require a non-static pointer scan over real QEMU
+guest RAM, and refusals with their capability reason for native calls and
+find-what-writes, in both the stub and QEMU runs (C7 and C8 `X`).
+
 ## A usable CEServer and Lua script undo: 12 October 2026
 
 Wave 2 of the [coverage plan](COVERAGE_PLAN.md) for the CEServer row. The

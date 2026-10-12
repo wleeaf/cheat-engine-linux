@@ -3327,6 +3327,27 @@ static void test_distributed_pointer_scan() {
                 full[i].baseOffset == full[j].baseOffset &&
                 full[i].offsets == full[j].offsets) { noDupes = false; break; }
     printf("  pointer scan yields no duplicate paths: %s\n", noDupes ? "OK" : "FAILED");
+
+    // staticOnly=false also records module-less (heap) bases as absolute
+    // addresses; they dereference without a module and shard by page.
+    PointerScanConfig loose = config;
+    loose.staticOnly = false;
+    PointerScanner looseScanner;
+    auto all = looseScanner.scan(proc, loose);
+    auto heapPath = std::find_if(all.begin(), all.end(), [&](const PointerPath& path) {
+        return path.module.empty() && path.baseOffset == heapBase + 0x20 && path.offsets == std::vector<int32_t>({0x20});
+    });
+    std::vector<PointerPath> looseMerged;
+    for (auto shardConfig : makePointerScanShards(loose, 2)) {
+        PointerScanner shardScanner;
+        auto shard = shardScanner.scan(proc, shardConfig);
+        looseMerged.insert(looseMerged.end(), shard.begin(), shard.end());
+    }
+    bool nonStatic = heapPath != all.end() && PointerScanner::dereference(proc, *heapPath) == target &&
+        heapPath->toString().find("700020") != std::string::npos && hasExpectedPath(all) &&
+        std::none_of(full.begin(), full.end(), [](const PointerPath& path) { return path.module.empty(); }) &&
+        looseMerged.size() == all.size();
+    printf("  staticOnly=false adds absolute heap bases that resolve and shard: %s\n", nonStatic ? "OK" : "FAILED");
 }
 
 static void test_pointer_scan_shard_through_static() {

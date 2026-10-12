@@ -171,6 +171,9 @@ print('POINTER_PATHS ' .. found)
                   written == 778 and writer is not None and (name != "node" or "ceJitWriter" in writer.group(2)), output)
             expected = 778
             if writer:
+                # Diagnostics: the reported writer and the code around it.
+                print(f"WRITER {name}: {writer.group(0).strip()}", flush=True)
+                print(run("disasm", pid, writer.group(1), 4), flush=True)
                 # A CE code-injection template at the writing instruction: the
                 # stolen instructions run from a code cave, so the JIT code keeps
                 # computing correctly while hooked; disable restores its bytes.
@@ -219,7 +222,7 @@ print('NATIVE_CALLS_OK')
                       calls.stdout + calls.stderr)
             # Break on the writing instruction find-what-writes reported: the
             # code that actually runs, whichever compiled version that is.
-            targets = [int(writer.group(1), 16)] if writer else writers
+            targets = ([int(writer.group(1), 16)] if writer else []) + [w for w in writers if not writer or w != int(writer.group(1), 16)]
             plant = "".join(f"assert(debug_setBreakpoint({address}))\n" for address in targets)
             script = (f"assert(openProcess({pid}))\nlocal hit = nil\n"
                       "function debugger_onBreakpoint() hit = RIP; return 1 end\n" + plant +

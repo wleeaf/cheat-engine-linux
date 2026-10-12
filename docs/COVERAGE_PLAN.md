@@ -265,3 +265,6 @@ first. Detailed write-ups continue in PROGRESS.md.
 - 2026-10-12, open depth item found: CoreCLR's W^X double mapping makes code
   patches (breakpoints, hooks) at JIT addresses fail; writing through the
   writable alias of the shared mapping is needed. CI runs CoreCLR with W^X off.
+- 2026-10-12, verified `X` cells: allocation, native calls, watchpoints and
+  the debugger refuse explicitly inside RISC-V, s390x, PowerPC64 (and ARM32
+  native calls/watchpoints). Full hosted matrix green. Coverage 226/268 (84.3%).

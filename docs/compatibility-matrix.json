@@ -309,12 +309,12 @@
      "evidence": "arm32_register_gate ARM32_MEM: product mmap2/protect/unmap ARM+Thumb; no code cave"
     },
     "C7": {
-     "state": "-",
-     "evidence": "general call adapters pending"
+     "state": "X",
+     "evidence": "isa_vm_gate in a real guest (hosted CI): the real API refuses with its capability reason (armhf): os::createRemoteThread refused; ARM32 call adapters pending"
     },
     "C8": {
-     "state": "-",
-     "evidence": "hardware watchpoints pending"
+     "state": "X",
+     "evidence": "isa_vm_gate in a real guest (hosted CI): the real API refuses with its capability reason (armhf): CodeFinder::start refused; ARM32 hardware watchpoints pending"
     },
     "C9": {
      "state": "B",
@@ -352,20 +352,20 @@
      "evidence": "isa_vm_gate: static cecore driver as /init in a real RISC-V64 Linux 6.8 guest (QEMU virt; local container and CI): Capstone RISC-V decodes the writer (decode only; Keystone has no RISC-V assembler, reported explicitly)"
     },
     "C6": {
-     "state": "-",
-     "evidence": "no live target"
+     "state": "X",
+     "evidence": "isa_vm_gate in a real guest (hosted CI): the real API refuses with its capability reason: LinuxProcessHandle::allocate -> 'Target syscall ABI has no backend yet'"
     },
     "C7": {
-     "state": "-",
-     "evidence": "no live target"
+     "state": "X",
+     "evidence": "isa_vm_gate in a real guest (hosted CI): the real API refuses with its capability reason: os::createRemoteThread -> 'No complete backend for this target/transport'"
     },
     "C8": {
-     "state": "-",
-     "evidence": "no live target"
+     "state": "X",
+     "evidence": "isa_vm_gate in a real guest (hosted CI): the real API refuses with its capability reason: CodeFinder::start -> hardware watchpoint 'No complete backend'"
     },
     "C9": {
-     "state": "-",
-     "evidence": "no live target"
+     "state": "X",
+     "evidence": "isa_vm_gate in a real guest (hosted CI): the real API refuses with its capability reason: DebugSession::attach -> debugger 'No complete backend'"
     },
     "C10": {
      "state": "-",
@@ -399,20 +399,20 @@
      "evidence": "isa_vm_gate: static cecore driver as /init in real s390x (big-endian) and ppc64el Linux 6.8 guests (local container and CI); MIPS not yet covered: Capstone SystemZ and PowerPC decode the writer (decode only; no assembler backend, reported explicitly)"
     },
     "C6": {
-     "state": "-",
-     "evidence": "no live target"
+     "state": "X",
+     "evidence": "isa_vm_gate in a real guest (hosted CI): the real API refuses with its capability reason: LinuxProcessHandle::allocate -> 'Target syscall ABI has no backend yet'"
     },
     "C7": {
-     "state": "-",
-     "evidence": "no live target"
+     "state": "X",
+     "evidence": "isa_vm_gate in a real guest (hosted CI): the real API refuses with its capability reason: os::createRemoteThread -> 'No complete backend for this target/transport'"
     },
     "C8": {
-     "state": "-",
-     "evidence": "no live target"
+     "state": "X",
+     "evidence": "isa_vm_gate in a real guest (hosted CI): the real API refuses with its capability reason: CodeFinder::start -> hardware watchpoint 'No complete backend'"
     },
     "C9": {
-     "state": "-",
-     "evidence": "no live target"
+     "state": "X",
+     "evidence": "isa_vm_gate in a real guest (hosted CI): the real API refuses with its capability reason: DebugSession::attach -> debugger 'No complete backend'"
     },
     "C10": {
      "state": "-",

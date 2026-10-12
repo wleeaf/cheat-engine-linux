@@ -16,6 +16,17 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Explicit refusals inside RISC-V, s390x, PowerPC64 and ARM32 guests: 12 October 2026
+
+On instruction sets without allocation, native-call, watchpoint or debugger
+backends, the guest driver now calls the real APIs (`allocate`,
+`createRemoteThread`, `CodeFinder::start`, `DebugSession::attach`) and
+requires each to refuse with its capability reason ("Target syscall ABI has no
+backend yet", "No complete backend for this target/transport"). All four
+guests pass 13 checks on hosted CI, so these cells are verified `X`: the tool
+says what it cannot do instead of failing silently. The whole hosted matrix
+(14 jobs) is green. Coverage is now 226/268 (84.3%).
+
 ## ARM32 and x32 guests, GDB CLI on real QEMU: 12 October 2026
 
 The ISA guest matrix gained **armhf** (Ubuntu 6.8 armhf kernel on QEMU virt;

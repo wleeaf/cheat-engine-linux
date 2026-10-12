@@ -791,8 +791,8 @@
      "evidence": "frontend_target_gate in a strictly confined snap (snap run --shell hello-world: AppArmor profile, seccomp, mount namespace; hosted CI): Lua breakpoint at the writer, call completes"
     },
     "C10": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate --gui in a strictly confined snap on hosted CI: CLI, Lua and the Qt main/debugger windows (17 checks)"
     }
    }
   },

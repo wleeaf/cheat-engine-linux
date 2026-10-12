@@ -217,3 +217,7 @@ first. Detailed write-ups continue in PROGRESS.md.
   (debugger, code finder, tracer), CLI (`watch`) and Lua. Verified on a real
   target held by another debugger (`blocked_target_gate.py`,
   `gui_debugger_smoke blocked=1`).
+- 2026-10-12, **1.1** done: real Proton (Valve 9, Experimental 11 locally;
+  GE-Proton11-7 in a new hosted job) passes the full Wine driver, which now
+  also scans and pointer-scans. Proton C1 to C6 and C8 to `B`; C3/C4 to `B` on
+  all Wine rows. Coverage 79/268 (29.5%).

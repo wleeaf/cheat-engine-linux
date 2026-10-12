@@ -16,6 +16,39 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Proton and Windows scans: 12 October 2026
+
+Item 1.1 of the [coverage plan](COVERAGE_PLAN.md). The new
+`test/proton_compatibility_gate.py` runs the existing PE32 and PE32+ console
+fixtures through real Proton builds: Valve Proton 9.0 and Proton Experimental
+11 locally, and a pinned, checksum-verified GE-Proton11-7 in a new hosted job
+(`wine-compatibility.yml`, `proton`). Proton's `run` verb creates the private
+prefix exactly as Steam does; the fixtures start with `runinprefix`, which
+uses the same Proton Wine and environment (esync/fsync and, on Experimental,
+`ntsync`) but skips the `steam.exe` wrapper. That wrapper exits without a
+running Steam client and does not pass console handles. The gate works without
+any Steam client directory, as on a hosted runner.
+
+Two facts found on the way: both Valve builds run PE32 programs on a 32-bit
+Unix loader (`i386-unix`), not new WoW64, so the gate detects the loader per
+build; and Proton sets `WINEPREFIX` with a trailing slash, which the gate now
+matches so the driver identifies its fixture by prefix.
+
+The shared Wine driver also gained value and pointer scans: a whole-process
+first scan and a next scan after a real change, and a depth-1 pointer scan
+that must find the static PE data path and resolve it to the field. These run
+in every Wine job too. Locally, each Proton build passes **92 checks** (both
+widths): attach and ABI identification, typed writes, scans, pointer scan,
+Auto Assembler injection with exact undo, three main-thread hardware
+find-what-writes cycles, and allocation/protection during a busy Windows loop
+with exact register preservation. Local Wine 11 (new WoW64) passes the same
+driver. Matrix: Proton C1 to C6 and C8 at `B`; scans and pointer scans at `B`
+for all three Wine rows. Coverage is now 79/268 (29.5%).
+
+Remaining for Proton: the Steam Runtime container (plan item 1.2), the
+`steam.exe` launch path with a running client, native calls, the full
+debugger (item 1.3) and frontend checks (Wave 2).
+
 ## Coverage matrix and explicit refusals: 12 October 2026
 
 Items 0.2 and 0.3 of the [coverage plan](COVERAGE_PLAN.md).

@@ -434,12 +434,12 @@
      "evidence": "wine_integration typed pointer/int writes observed by PE32 fixture"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no scan in wine_integration"
+     "state": "B",
+     "evidence": "wine_integration first/next Int32 scans; PE32 on the 32-bit Unix loader under Proton 9/11 and the CI Wine 9 job"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live pointer scan"
+     "state": "B",
+     "evidence": "wine_integration pointer scan of the static PE path; 32-bit Unix loader under Proton 9/11 and CI Wine 9"
     },
     "C5": {
      "state": "B",
@@ -481,12 +481,12 @@
      "evidence": "wine_integration width=8 typed writes"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no scan in wine_integration"
+     "state": "B",
+     "evidence": "wine_integration first/next Int32 scans on the live PE fixture (local Wine 11 new WoW64; CI wow64 job)"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live pointer scan"
+     "state": "B",
+     "evidence": "wine_integration pointer scan finds the static PE pointer path (local Wine 11; CI wow64 job)"
     },
     "C5": {
      "state": "B",
@@ -528,12 +528,12 @@
      "evidence": "wine_integration width=4 typed writes"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no scan"
+     "state": "B",
+     "evidence": "wine_integration first/next Int32 scans on the live PE fixture (local Wine 11 new WoW64; CI wow64 job)"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live pointer scan"
+     "state": "B",
+     "evidence": "wine_integration pointer scan finds the static PE pointer path (local Wine 11; CI wow64 job)"
     },
     "C5": {
      "state": "B",
@@ -567,36 +567,36 @@
    "name": "Proton",
    "cells": {
     "C1": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "proton_compatibility_gate (Valve Proton 9 + Experimental 11 locally, GE-Proton11-7 in CI): Wine runtime, PE program ABI, Unix loader ABI"
     },
     "C2": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "proton_compatibility_gate (Valve Proton 9 + Experimental 11 locally, GE-Proton11-7 in CI): program-width pointer and typed writes observed by the PE fixture"
     },
     "C3": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "proton_compatibility_gate (Valve Proton 9 + Experimental 11 locally, GE-Proton11-7 in CI): first and next Int32 scans over the whole live process"
     },
     "C4": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "proton_compatibility_gate (Valve Proton 9 + Experimental 11 locally, GE-Proton11-7 in CI): depth-1 pointer scan finds the static PE path and resolves it"
     },
     "C5": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "proton_compatibility_gate (Valve Proton 9 + Experimental 11 locally, GE-Proton11-7 in CI): Auto Assembler template at the real PE function, PE code-mode selection"
     },
     "C6": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "proton_compatibility_gate (Valve Proton 9 + Experimental 11 locally, GE-Proton11-7 in CI): injection with exact byte/permission undo; busy-loop alloc/protect/free with register preservation"
     },
     "C7": {
      "state": "-",
      "evidence": "no live test"
     },
     "C8": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "proton_compatibility_gate (Valve Proton 9 + Experimental 11 locally, GE-Proton11-7 in CI): main-thread hardware find-what-writes names the exact writer, 3 cycles"
     },
     "C9": {
      "state": "-",

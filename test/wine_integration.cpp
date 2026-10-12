@@ -9,6 +9,8 @@
 #include "debug/code_finder.hpp"
 #include "debug/thread_inspection.hpp"
 #include "core/cpu_registers.hpp"
+#include "scanner/memory_scanner.hpp"
+#include "scanner/pointer_scanner.hpp"
 #include <array>
 #include <algorithm>
 #include <chrono>
@@ -151,6 +153,37 @@ static void exercise(const char* wine, const char* path, unsigned width, bool re
           "program-width pointer writes preserve the neighboring Windows field");
     check(writeTypedValue(process, value, ValueType::Int32, "31415926").has_value() && fixture.value('r', 31415926),
           "Windows program observes the cross-process typed write");
+    // Value scans over the whole live Windows process (one worker thread keeps
+    // the gate cheap), then a next scan after the value really changes.
+    MemoryScanner scanner(1);
+    ScanConfig scan;
+    scan.valueType = ValueType::Int32;
+    scan.intValue = 31415926;
+    auto first = scanner.firstScan(process, scan);
+    auto contains = [&](const ScanResult& result) {
+        for (size_t i = 0; i < result.count(); ++i) if (result.address(i) == value) return true;
+        return false;
+    };
+    check(contains(first), "a first value scan finds the Windows program's field");
+    scan.intValue = 27182818;
+    bool changed = writeTypedValue(process, value, ValueType::Int32, "27182818").has_value();
+    auto next = scanner.nextScan(process, scan, first);
+    check(changed && contains(next) && next.count() <= first.count(), "a next scan keeps the field after its value changes");
+    check(writeTypedValue(process, value, ValueType::Int32, "31415926").has_value() && fixture.value('r', 31415926),
+          "the scanned field is restored for the program");
+    // The program-width pointer written above is a static PE data field, so a
+    // pointer scan must find the module-relative path to the value.
+    PointerScanner pointers;
+    PointerScanConfig pointerScan;
+    pointerScan.targetAddress = value;
+    pointerScan.maxDepth = 1;
+    pointerScan.maxOffset = 0x100;
+    auto paths = pointers.scan(process, pointerScan);
+    auto executable = std::filesystem::path(path).filename().string();
+    check(std::any_of(paths.begin(), paths.end(), [&](const PointerPath& found) {
+              return found.module == executable && found.moduleBase + found.baseOffset == pointer &&
+                     PointerScanner::dereference(process, found) == value;
+          }), "a pointer scan finds the static PE pointer path and it resolves to the field");
     auto architecture = disassemblerArchFor(process, code);
     check(architecture && *architecture == (width == 4 ? Arch::X86_32 : Arch::X86_64),
           "instruction selection follows the PE code module");

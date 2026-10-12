@@ -61,3 +61,41 @@ jobs:
           name: wine-wow64-evidence
           path: compatibility-evidence/*.json
           if-no-files-found: error
+
+  proton:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      # Pinned, redistributable Proton build; Valve's Proton needs a Steam login.
+      GE_PROTON: GE-Proton11-7
+      GE_PROTON_SHA256: c5448b76a230384e2d7bc6beb5ccb97bafb7e2c3b6c527cb03a1a546bbcb00a0
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install native and 32-bit loader dependencies
+        # Proton's i386 Unix loader uses the host's 32-bit libraries outside the
+        # Steam Runtime; wine32 pulls in exactly that set.
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git pkg-config cmake ninja-build libcapstone-dev zlib1g-dev \
+            libdw-dev ca-certificates curl python3 wine32:i386 xvfb xauth
+      - name: Download and verify Proton
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/proton.tar.gz" \
+            "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/$GE_PROTON/$GE_PROTON-x86_64.tar.gz"
+          echo "$GE_PROTON_SHA256  $RUNNER_TEMP/proton.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/proton.tar.gz" -C "$RUNNER_TEMP"
+      - name: Build compatibility tools without Qt
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_DISABLE_FIND_PACKAGE_Qt6=ON
+          cmake --build build --target cescan wine_integration -j"$(nproc)"
+      - name: Require real Proton PE32 and PE32+ operations
+        run: sudo env GITHUB_SHA="$GITHUB_SHA" xvfb-run -a python3 test/proton_compatibility_gate.py build --proton "$RUNNER_TEMP/$GE_PROTON" --report compatibility-evidence/proton.json
+      - name: Save operation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proton-evidence
+          path: compatibility-evidence/*.json
+          if-no-files-found: error

@@ -233,6 +233,14 @@ jobs:
           sudo python3 test/runtime_target_gate.py build --gui --mono-exe build/jit_fixture_mono.exe \
             --dotnet-dll build/jit-fixture-dotnet/out/jit-fixture-dotnet.dll --report build/compatibility-evidence/runtimes.json
 
+      - name: Repeat the CoreCLR code-patch checks (measures the open intermittency; exploratory)
+        continue-on-error: true
+        run: |
+          for round in 1 2 3 4 5; do
+            sudo python3 test/runtime_target_gate.py build --only coreclr \
+              --dotnet-dll build/jit-fixture-dotnet/out/jit-fixture-dotnet.dll | grep -E 'RUNTIME_TARGET_(INFO|RESULT)' | sed "s/^/round $round: /"
+          done
+
       - name: Build kernel module (out-of-tree)
         run: |
           set -e

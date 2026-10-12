@@ -72,7 +72,9 @@ def main():
     build_rom(rom)
     # mGBA logs heavily; an undrained pipe would block it before the ROM runs.
     log = open(directory / "mgba.log", "w+")
-    emulator = subprocess.Popen([args.mgba, str(rom)], cwd=directory, stdout=log, stderr=subprocess.STDOUT,
+    # stdbuf keeps mGBA's stdio line-buffered so the log tail is current on failure.
+    stdbuf = ["stdbuf", "-oL", "-eL"] if shutil.which("stdbuf") else []
+    emulator = subprocess.Popen([*stdbuf, args.mgba, str(rom)], cwd=directory, stdout=log, stderr=subprocess.STDOUT,
                                 env=dict(os.environ, SDL_AUDIODRIVER="dummy"))
     try:
         time.sleep(4)   # let the emulator boot the ROM
@@ -89,6 +91,20 @@ def main():
         ewram = next((a for a in candidates if read_i32(pid, a + 8) == MARKER), None)
         check("a host value scan finds the guest's marker in emulated work RAM", ewram is not None, first[-2000:])
         if ewram is None:
+            # Tell "ROM not loaded" from "loaded but not running" from "RAM not scanned".
+            title = run("scan", pid, "--type", "string", "--value", "CECOVERAGE", "--align", 1)
+            threads = []
+            for task in sorted(pathlib.Path(f"/proc/{pid}/task").iterdir()):
+                try:
+                    stat = (task / "stat").read_text()
+                    comm = stat[stat.index("(") + 1:stat.rindex(")")]
+                    state = stat[stat.rindex(")") + 2]
+                    wchan = (task / "wchan").read_text().strip()
+                    threads.append(f"{task.name} {comm} {state} {wchan}")
+                except (OSError, ValueError):
+                    pass
+            print(f"marker candidates: {[hex(a) for a in candidates]}\nROM title scan:\n{title[-1500:]}\n"
+                  f"info:\n{info[-1500:]}\nthreads:\n" + "\n".join(threads), flush=True)
             raise RuntimeError("EWRAM not found")
         print(f"EWRAM backing at {ewram:#x}", flush=True)
 

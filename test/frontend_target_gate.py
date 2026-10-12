@@ -229,7 +229,7 @@ def main():
             else:
                 arch, abi = ("x86-32", "Linux i386") if fixture.bits == 32 else ("x86-64", "Linux x86-64")
                 check(f"info identifies an {arch} Linux program", arch in info and abi in info, info)
-                symbols = run("symbols", pid)
+                symbols = run("symbols", pid, "ce_")
                 check("the symbol table names the writer", "ce_writer" in symbols and "ce_value" in symbols, symbols[:2000])
             modules = run("modules", pid)
             check("the executable is its own module", path.name in modules, modules)
@@ -304,7 +304,54 @@ def main():
                     "print('REFUSED_OK')\n"], capture_output=True, text=True, timeout=60)
                 check("Lua native calls are refused with the explicit Wine reason",
                       refusal.returncode == 0 and "REFUSED_OK" in refusal.stdout, refusal.stdout + refusal.stderr)
-            check("the program keeps running after every frontend detached", fixture.command("r") == 1003)
+            expected = 1003
+            if not fixture.windows:
+                def lua(script):
+                    result = subprocess.run([cescan, "lua", "-e", f"assert(openProcess({pid}))\n" + script],
+                                            capture_output=True, text=True, timeout=60)
+                    return result.returncode, result.stdout + result.stderr
+                # Symbols resolve as soon as the process is open, as in CE.
+                code, output = lua(f"assert(getAddress('ce_writer') == {fixture.writer}, tostring(getAddress('ce_writer')))\n"
+                                   "print('SYMBOL_OK')\n")
+                check("Lua resolves the program's own symbol right after openProcess", code == 0 and "SYMBOL_OK" in output, output)
+                maps = open(f"/proc/{pid}/maps").read()
+                dynamic = re.search(r"/(ld-linux[^/\s]*|ld-musl[^/\s]*|libc\.so\.6)$", maps, re.M) is not None
+                if dynamic:
+                    # Every thread blocked in a system call: refused with the reason.
+                    code, output = lua(f"local r, e = executeCode({fixture.writer})\n"
+                                       "assert(r == nil and tostring(e):find('blocked in a system call', 1, true), tostring(e))\n"
+                                       "print('PARKED_REFUSED')\n")
+                    check("a native call into a wholly syscall-parked program is refused with its reason",
+                          code == 0 and "PARKED_REFUSED" in output, output)
+                    # A thread executing user code (like a game loop) hosts the call.
+                    spinning = fixture.command("s") == 1
+                    code, output = lua(f"assert(executeCode({fixture.writer}))\nprint('CALLED')\n")
+                    stopped = fixture.command("x") == 0
+                    expected += 1
+                    check("executeCode runs the program's own function on a new thread",
+                          spinning and stopped and code == 0 and "CALLED" in output and fixture.command("r") == expected, output)
+                else:
+                    # Static programs carry only the thread functions they use.
+                    code, output = lua(f"local r, e = executeCode({fixture.writer})\n"
+                                       "assert(r == nil and tostring(e):find('static program', 1, true), tostring(e))\n"
+                                       "print('STATIC_REFUSED')\n")
+                    check("a static program without pthread_detach refuses native calls with that reason",
+                          code == 0 and "STATIC_REFUSED" in output, output)
+                libc = re.search(r"(/\S*/libc\.so\.6)$", maps, re.M)
+                library = libc and pathlib.Path(libc.group(1)).with_name("libm.so.6")
+                if not launcher and library and library.is_file():
+                    fixture.command("s")
+                    code, output = lua(f"local h, e = injectLibrary('{library}')\nassert(h, tostring(e))\nprint('LOADED')\n")
+                    fixture.command("x")
+                    check("injectLibrary loads a real shared library into the program",
+                          code == 0 and "LOADED" in output and str(library) in open(f"/proc/{pid}/maps").read(), output)
+                elif "ld-musl" not in maps and not libc:
+                    code, output = lua("local h, e = injectLibrary('/nonexistent/ce-probe.so')\n"
+                                       "assert(h == nil and tostring(e):find('dlopen not found', 1, true), tostring(e))\n"
+                                       "print('NO_LOADER')\n")
+                    check("a static program without a dynamic loader refuses library injection explicitly",
+                          code == 0 and "NO_LOADER" in output, output)
+            check("the program keeps running after every frontend detached", fixture.command("r") == expected)
             if args.gui:
                 run("write", pid, hex(fixture.value), 24681357, "--type", "i32")
                 smoke = subprocess.Popen([str((args.build / "gui_lifecycle_smoke").resolve()), "--target", str(pid),

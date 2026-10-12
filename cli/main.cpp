@@ -97,6 +97,8 @@ static void usage() {
         "  autoasm <pid> <script.aa> [--disable-after <seconds>]  Execute Auto Assembler\n"
         "                                script, optionally restore it after a delay or Ctrl-C\n"
         "  modules <pid>                 List loaded modules\n"
+        "  symbols <pid> [name] [--all]  List symbols (ELF tables, debug files);\n"
+        "                                a name substring lists every match\n"
         "  regions <pid>                 List memory regions\n"
         "  info <pid>                    Probe the target: arch, Wine/emulator/runtime,\n"
         "                                sandbox, already-traced, and what that limits\n"
@@ -1125,18 +1127,25 @@ static int cmd_info(pid_t pid) {
     return 0;
 }
 
-static int cmd_symbols(pid_t pid) {
+// A name filter (substring) lists every match; otherwise the first 200, or
+// all of them with --all.
+static int cmd_symbols(pid_t pid, const std::string& filter, bool all) {
     LinuxProcessHandle proc(pid);
     SymbolResolver resolver;
     resolver.loadProcess(proc);
     printf("%-18s  %-8s  %-30s  %s\n", "ADDRESS", "SIZE", "NAME", "MODULE");
-    int shown = 0;
+    size_t shown = 0, matched = 0;
+    const bool capped = filter.empty() && !all;
     for (auto& s : resolver.symbols()) {
-        if (s.address == 0) continue;
+        if (s.address == 0 || (!filter.empty() && s.name.find(filter) == std::string::npos)) continue;
+        ++matched;
+        if (capped && shown >= 200) continue;
         printf("%018lx  %8zu  %-30s  %s\n", s.address, s.size, s.name.c_str(), s.module.c_str());
-        if (++shown >= 200) { printf("... and %zu more\n", resolver.count() - 200); break; }
+        ++shown;
     }
-    printf("\n%zu symbols loaded\n", resolver.count());
+    if (shown < matched) printf("... and %zu more (filter by name or pass --all)\n", matched - shown);
+    if (!filter.empty()) printf("\n%zu of %zu symbols match \"%s\"\n", matched, resolver.count(), filter.c_str());
+    else printf("\n%zu symbols loaded\n", resolver.count());
     return 0;
 }
 
@@ -1725,7 +1734,14 @@ int main(int argc, char** argv) {
         return cmd_modules(parsePid(argv[2]));
     }
     else if (!strcmp(cmd, "symbols") && argc >= 3) {
-        return cmd_symbols(parsePid(argv[2]));
+        std::string filter;
+        bool all = false;
+        for (int i = 3; i < argc; ++i) {
+            if (!strcmp(argv[i], "--all")) all = true;
+            else if (filter.empty() && argv[i][0] != '-') filter = argv[i];
+            else { fprintf(stderr, "Unknown or repeated option: %s\n", argv[i]); return 1; }
+        }
+        return cmd_symbols(parsePid(argv[2]), filter, all);
     }
     else if (!strcmp(cmd, "info") && argc >= 3) {
         return cmd_info(parsePid(argv[2]));

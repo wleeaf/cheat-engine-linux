@@ -75,7 +75,7 @@
     },
     "C7": {
      "state": "B",
-     "evidence": "native_call_gate NATIVE_INJECTOR/PARKED width=8; cecore_test test_lua_executecode; no GUI/CLI call"
+     "evidence": "native_call_gate injector/parked; frontend_target_gate: Lua executeCode and injectLibrary (real libm) on a live glibc program, parked-thread refusal with its reason; no GUI native-call check"
     },
     "C8": {
      "state": "B",
@@ -215,8 +215,8 @@
      "evidence": "frontend_target_gate (static musl locally; static glibc, static musl in CI): code cave near the symbol, hook changes behavior, disable restores bytes"
     },
     "C7": {
-     "state": "-",
-     "evidence": "no static libc or musl target"
+     "state": "X",
+     "evidence": "frontend_target_gate: executeCode on a static program without pthread_detach and injectLibrary without a dynamic loader return explicit reasons"
     },
     "C8": {
      "state": "B",
@@ -686,7 +686,7 @@
     },
     "C7": {
      "state": "B",
-     "evidence": "native_namespace_gate NATIVE_THREAD_NAMESPACE host pthread call; mono agent in ns (manual)"
+     "evidence": "frontend_target_gate: executeCode in the Alpine musl container runs the program's function; native_namespace_gate host pthread call (manual)"
     },
     "C8": {
      "state": "B",
@@ -732,8 +732,8 @@
      "evidence": "frontend_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): code cave hook changes behavior, disable restores bytes"
     },
     "C7": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "X",
+     "evidence": "frontend_target_gate in flatpak run: static program; native calls refused with the explicit static-program and no-dlopen reasons"
     },
     "C8": {
      "state": "B",
@@ -826,8 +826,8 @@
      "evidence": "frontend_target_gate under bwrap --unshare-all (local; CI as root): code cave hook changes behavior, disable restores bytes"
     },
     "C7": {
-     "state": "-",
-     "evidence": "no live test"
+     "state": "B",
+     "evidence": "frontend_target_gate in bwrap --unshare-all: executeCode runs the dynamic glibc program's function on a new thread (via a thread in user code); parked-only programs refused with the reason"
     },
     "C8": {
      "state": "B",

@@ -61,6 +61,9 @@ void LuaEngine::resetTarget() {
     hooks_.clear();
     if (resolver_) resolver_->clear();
     if (L_) {
+        // The new target's symbols load on first use (see getResolver).
+        lua_pushboolean(L_, 0);
+        lua_setfield(L_, LUA_REGISTRYINDEX, "ce_resolver_loaded");
         lua_pushnil(L_);
         lua_setfield(L_, LUA_REGISTRYINDEX, "ce_lua_breakpoints");
         lua_pushboolean(L_, 0);
@@ -266,9 +269,7 @@ static int l_readBytes(lua_State* L) {
 }
 
 static int l_getAddress(lua_State* L) {
-    lua_getfield(L, LUA_REGISTRYINDEX, "ce_resolver");
-    auto* resolver = (SymbolResolver*)lua_touserdata(L, -1);
-    lua_pop(L, 1);
+    auto* resolver = luaSymbolResolver(L);
     lua_getfield(L, LUA_REGISTRYINDEX, "ce_proc");
     auto* proc = (ProcessHandle*)lua_touserdata(L, -1);
     lua_pop(L, 1);

@@ -209,6 +209,14 @@ recovery), the call reports that capability reason instead of failing silently:
 `debug_setBreakpoint` returns its bookkeeping id plus the reason as a second
 value. CE scripts that ignore extra results keep working unchanged.
 
+Symbols of the attached process resolve as soon as `openProcess` returns
+(`getAddress('UpdateHealth')`, `injectLibrary`); `reinitializeSymbolhandler()`
+is only needed after the target loads new modules. `executeCode` and
+`injectLibrary` borrow a thread that is running user code: when every thread
+of the program is blocked in a system call they return `nil` and say so, and
+a static program that lacks `pthread_detach` or a dynamic loader is refused
+with that reason.
+
 `getTargetInfo().pendingRecovery` reports pending native syscall/call restoration,
 private-frame cleanup or active Lua debugger-session recovery.
 `retryPendingOperations()` retries those owners and returns `true` after recovery, or

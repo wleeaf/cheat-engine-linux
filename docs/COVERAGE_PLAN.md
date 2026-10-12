@@ -242,3 +242,6 @@ first. Detailed write-ups continue in PROGRESS.md.
   Runtime) pass CLI, Lua and GUI frontend checks; native calls are refused
   with the explicit Wine reason. C10 to `B`, C7 to `X` on five rows. Coverage
   139/268 (51.9%).
+- 2026-10-12, **C7 on libc rows**: Lua symbols load on first use; explicit
+  parked and static-program refusals; `executeCode` and `injectLibrary`
+  verified on live programs. Coverage 142/268 (53.0%).

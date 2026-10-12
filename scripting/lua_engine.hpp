@@ -25,6 +25,10 @@ class DebugSession;
 enum class DebugEventType;
 namespace os { class CEServerClient; }
 
+/// The Lua state's symbol resolver for the attached process, loaded on first
+/// use (CE's symbol handler is ready as soon as a process is open).
+SymbolResolver* luaSymbolResolver(lua_State* L);
+
 class LuaEngine {
 public:
     LuaEngine();

@@ -102,12 +102,31 @@ static ProcessHandle* getProc(lua_State* L) {
     return p;
 }
 
-static SymbolResolver* getResolver(lua_State* L) {
+SymbolResolver* luaSymbolResolver(lua_State* L) {
     lua_getfield(L, LUA_REGISTRYINDEX, "ce_resolver");
     auto* r = (SymbolResolver*)lua_touserdata(L, -1);
     lua_pop(L, 1);
+    // Like CE's symbol handler, symbols are available as soon as a process is
+    // open: load the attached process on first use (a host such as the GUI
+    // may already have filled it).
+    if (r && r->count() == 0) {
+        lua_getfield(L, LUA_REGISTRYINDEX, "ce_resolver_loaded");
+        bool loaded = lua_toboolean(L, -1);
+        lua_pop(L, 1);
+        if (!loaded) {
+            lua_getfield(L, LUA_REGISTRYINDEX, "ce_proc");
+            auto* p = (ProcessHandle*)lua_touserdata(L, -1);
+            lua_pop(L, 1);
+            if (p) {
+                r->loadProcess(*p);
+                lua_pushboolean(L, 1);
+                lua_setfield(L, LUA_REGISTRYINDEX, "ce_resolver_loaded");
+            }
+        }
+    }
     return r;
 }
+static SymbolResolver* getResolver(lua_State* L) { return luaSymbolResolver(L); }
 
 // Typed values use strings so 64-bit unsigned values remain exact in Lua.
 static std::expected<ValueIoOptions, std::string> typedOptions(lua_State* L, int index, bool isSigned) {
@@ -1599,9 +1618,7 @@ static int l_injectLibrary(lua_State* L) {
     if (!p) { lua_pushnil(L); lua_pushstring(L, "no process attached"); return 2; }
     size_t pathLength=0;
     const char* path = luaL_checklstring(L, 1, &pathLength);
-    lua_getfield(L, LUA_REGISTRYINDEX, "ce_resolver");
-    auto* resolver = static_cast<ce::SymbolResolver*>(lua_touserdata(L, -1));
-    lua_pop(L, 1);
+    auto* resolver = getResolver(L);
     ce::SymbolResolver localResolver;
     if (!resolver) {
         localResolver.loadProcess(*p);

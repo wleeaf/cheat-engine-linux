@@ -15,6 +15,11 @@ std::expected<NativeCallResult,std::string> invoke(ProcessHandle& process,Native
     auto result=memorySyscallService().invoke(*identity,process.targetDescription().host,std::move(request));
     if (!result) {
         std::string message=result.error().message();
+        // The call service only borrows a thread that is executing user code;
+        // restarting a syscall-parked thread's wait could change its timing.
+        if (result.error()==std::errc::resource_unavailable_try_again)
+            message="no thread is running user code to host the call (every thread is blocked in a system call); "
+                    "retry while the program is active";
         if (hasPendingMemorySyscalls(identity->pid,identity->startTime))
             message+="; native call and private frame retained for recovery";
         return std::unexpected(std::move(message));
@@ -65,7 +70,9 @@ std::expected<RemoteThreadInfo,std::string> createRemoteThread(
     uintptr_t create=resolver.lookup("pthread_create");
     if (!create) create=resolver.lookup("__pthread_create");
     uintptr_t detach=resolver.lookup("pthread_detach");
-    if (!create || !detach) return std::unexpected("pthread_create/pthread_detach not found in target process symbols");
+    if (!create || !detach)
+        return std::unexpected(std::string(create ? "pthread_detach" : "pthread_create") +
+            " not found in target process symbols (a static program carries only the thread functions it uses)");
     NativeCallRequest request;
     request.image=std::move(image);
     request.function=create; request.workerEntry=entry;

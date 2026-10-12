@@ -16,6 +16,38 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Native calls, Lua symbols and the symbols listing: 12 October 2026
+
+Wave 2 of the [coverage plan](COVERAGE_PLAN.md), capability C7. Driving
+native calls through the frontends on ordinary programs exposed three gaps:
+
+- **Lua symbols after `openProcess`.** The Lua engine's shared symbol
+  resolver was cleared on every target change and never reloaded, so
+  `getAddress('function')` returned nil and `injectLibrary` reported that
+  `dlopen` was missing (it lives in `libc.so.6` since glibc 2.34) until a
+  script called `reinitializeSymbolhandler()`. It now loads the attached
+  process on first use, as CE's symbol handler does.
+- **Parked programs.** Native calls borrow a thread that is executing user
+  code; a program whose every thread is blocked in a system call is refused
+  by design (restarting its waits could change their timing). The refusal
+  used to read "Resource temporarily unavailable"; it now says that no thread
+  is running user code. A program with an active thread (a game loop) works:
+  the fixture's new `s`/`x` commands start and stop such a thread.
+- **Static programs** carry only the thread functions they use. Without
+  `pthread_detach`, native calls are refused, and the message now says so.
+
+`cescan symbols` also gained a name filter (every match, no 200-entry cap)
+and `--all`, and is now listed in `cescan help`.
+
+The frontend gate checks all of this on live programs: the Lua symbol lookup,
+the parked refusal, `executeCode` running the program's own function, and
+`injectLibrary` loading the real `libm.so.6` into an unsandboxed glibc
+program; static programs must refuse with their reasons. It passes for
+dynamic glibc, static musl (x86-64 and i386), Flatpak, bubblewrap and the
+Podman container, with the GUI stage. Matrix: C7 at `B` for bubblewrap and
+Podman, `X` (explicit refusal) for the static and Flatpak rows. Coverage is
+now 142/268 (53.0%).
+
 ## Windows programs through every frontend: 12 October 2026
 
 Wave 2 of the [coverage plan](COVERAGE_PLAN.md) for the Windows rows. The

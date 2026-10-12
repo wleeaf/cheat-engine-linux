@@ -22,6 +22,7 @@ import pathlib
 import re
 import select
 import shutil
+import tempfile
 import subprocess
 import sys
 import time
@@ -81,6 +82,8 @@ def main():
 
     runtimes = []
     if args.node:
+        # --perf-basic-prof also writes isolate-*-v8.log into the working
+        # directory; the runtimes start in a temporary directory instead.
         runtimes.append(("node", "V8 / Node", [args.node, "--perf-basic-prof", str(HERE / "runtimes/jit_fixture.js")], None))
     if args.java:
         jcmd = pathlib.Path(args.java).resolve().with_name("jcmd")
@@ -94,6 +97,7 @@ def main():
     if not runtimes:
         parser.error("no runtime is available")
 
+    scratch = tempfile.mkdtemp(prefix="ce-runtime-gate-")
     for name, label, command, jcmd in runtimes:
         entry = {"runtime": name, "checks": {}}
         report["runtimes"].append(entry)
@@ -111,7 +115,7 @@ def main():
         # shared memfd plus a separate writable view. Code patches at the
         # executable address need that writable alias, which cecore does not
         # use yet, so these checks run with W^X off and one compiled version.
-        runtime = Runtime(command, env=dict(os.environ, DOTNET_PerfMapEnabled="1", DOTNET_CLI_TELEMETRY_OPTOUT="1",
+        runtime = Runtime(command, cwd=scratch, env=dict(os.environ, DOTNET_PerfMapEnabled="1", DOTNET_CLI_TELEMETRY_OPTOUT="1",
                                             DOTNET_TieredCompilation="0", DOTNET_EnableWriteXorExecute="0"))
         try:
             pid = runtime.pid
@@ -276,6 +280,7 @@ print('NATIVE_CALLS_OK')
             check("the workflow completes", False, repr(error))
         finally:
             runtime.close()
+    shutil.rmtree(scratch, ignore_errors=True)
     report["status"] = "failed" if failures else "passed"
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)

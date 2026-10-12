@@ -289,3 +289,6 @@ first. Detailed write-ups continue in PROGRESS.md.
   ARM64EC program under Hangover's Wine on the ARM64 runner (C1 to C4 `B`, C5
   to C9 explicit `X`, C10 `B`). **2.1** for x32: the CLI and Lua frontends run
   inside the x32 guest (C10 `B`). Coverage 265/268 (98.9%).
+- 2026-10-12, **2.1** done: cross-built CLIs run inside the RISC-V64, s390x,
+  PowerPC64LE and ARM32 guests (17 checks each, required). ARM32, RISC-V and
+  other-ISA C10 at `B`. Coverage **268/268 (100%)**; depth 7/268 is next.

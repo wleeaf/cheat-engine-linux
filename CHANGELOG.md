@@ -15,6 +15,10 @@ reimplementation of Cheat Engine).
 
 ## Unreleased: target compatibility foundation
 
+- CI cross-builds the CLI for RISC-V64, s390x, PowerPC64LE and ARM32 and runs
+  it inside each full-system guest, so every target row now has live
+  frontend evidence.
+
 - Classify ARM64EC and ARM64X images by their load-config CHPE metadata instead
   of taking ARM64EC programs for x86-64, and refuse their disassembly with the
   reason. CI drives a real ARM64EC program under Wine on ARM64, and the CLI and

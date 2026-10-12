@@ -16,6 +16,24 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Frontends inside every ISA guest; coverage complete: 12 October 2026
+
+Item 2.1 of the [coverage plan](COVERAGE_PLAN.md) for the remaining guests.
+cecore compiles unchanged for RISC-V64, s390x, PowerPC64LE and ARM32: each
+ISA job now cross-builds a Qt-free `cescan` (Capstone and Keystone from
+source, plus a static position-independent zlib 1.3.1 pinned by SHA-256,
+since cecore links zlib for CEServer compression). The guest driver runs it
+against the fixture in the same boot: `cescan info` names the program and its
+ABI, `cescan write` reaches the program, `cescan scan` finds the value and a
+`cescan lua` script reads and writes it. All four guests pass 17 checks,
+s390x included (big-endian). The gate now requires the four frontend checks
+whenever it adds a frontend, and the steps are required. ARM32, RISC-V and
+the other-ISA row reach C10 at `B` (GUI not run in guests).
+
+Every applicable cell of the matrix now has live evidence or an explicit,
+documented block: coverage is **268/268 (100%)**. Depth (`V` cells) is 7/268;
+per the plan, depth comes next, then Waves 6 and 7.
+
 ## A live ARM64EC program, and frontends inside the x32 guest: 12 October 2026
 
 Item 3.4 of the [coverage plan](COVERAGE_PLAN.md) went further than planned.

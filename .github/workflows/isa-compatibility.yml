@@ -41,9 +41,6 @@ jobs:
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends ${{ matrix.packages }} cmake ninja-build curl python3
       - name: Build the CLI for the guest (cross-compiled unless x32)
-        id: cli
-        # The host-built CLI for x32 is required; cross builds are still exploratory.
-        continue-on-error: ${{ matrix.triplet != '' }}
         run: |
           cross=()
           if [ -n "${{ matrix.triplet }}" ]; then
@@ -64,14 +61,7 @@ jobs:
           fi
           cmake -S . -B build/cli -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_DISABLE_FIND_PACKAGE_Qt6=ON "${cross[@]}"
           cmake --build build/cli --target cescan -j"$(nproc)"
-      - name: Require process, scan, pointer, symbol and disassembly checks in a real guest
-        env:
-          # x32 runs the engine's own frontends in the same boot.
-          CECORE_ISA_FRONTEND: ${{ matrix.triplet == '' && format('{0}/build/cli/cescan', github.workspace) || '' }}
-        run: CECORE_CI_JOBS="$(nproc)" tools/check-isa-vm.sh ${{ matrix.isa }} build/isa-vm/${{ matrix.isa }}
-      - name: Drive the guest program through the CLI and Lua frontends (cross-built; exploratory)
-        if: matrix.triplet != '' && steps.cli.outcome == 'success'
-        continue-on-error: true
+      - name: Require process, scan, pointer, symbol, disassembly and frontend checks in a real guest
         env:
           CECORE_ISA_FRONTEND: ${{ github.workspace }}/build/cli/cescan
           CECORE_ISA_FRONTEND_SYSROOT: ${{ matrix.triplet && format('/usr/{0}', matrix.triplet) || '/' }}

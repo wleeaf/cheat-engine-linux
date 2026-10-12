@@ -115,6 +115,9 @@ def main():
         report["checks"] = re.findall(r"^ISA_VM_CHECK (OK|FAILED): (.+)$", output, re.M)
         print("\n".join(line for line in output.splitlines() if line.startswith("ISA_VM")), flush=True)
         expected = f"ISA_VM_RESULT=PASSED architecture={args.expect_architecture} checks={len(report['checks'])}"
+        frontends = sum(1 for _, name in report["checks"] if "cescan" in name)
+        if args.frontend and frontends < 4:
+            raise RuntimeError("the guest did not run the CLI and Lua frontend checks")
         if expected not in output or "ISA_VM_CHECK FAILED" in output or len(report["checks"]) < 9:
             raise RuntimeError(f"required {args.expect_architecture} guest checks failed")
         report["status"] = "passed"

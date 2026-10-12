@@ -321,8 +321,8 @@
      "evidence": "arm32_register_gate ARM32_REG: GP edit/rollback, SW breakpoint trap ARM/Thumb (ARMv7 + arm64-compat)"
     },
     "C10": {
-     "state": "-",
-     "evidence": "no frontends"
+     "state": "B",
+     "evidence": "armhf-guest on hosted CI: a cross-built cescan (Qt-free, static target zlib) runs inside the full-system guest; cescan info (ABI), write, scan and a cescan lua script drive the static fixture (GUI not run)"
     }
    }
   },
@@ -368,8 +368,8 @@
      "evidence": "isa_vm_gate in a real guest (hosted CI): the real API refuses with its capability reason: DebugSession::attach -> debugger 'No complete backend'"
     },
     "C10": {
-     "state": "-",
-     "evidence": "no live target"
+     "state": "B",
+     "evidence": "riscv64-guest on hosted CI: a cross-built cescan (Qt-free, static target zlib) runs inside the full-system guest; cescan info (ABI), write, scan and a cescan lua script drive the static fixture (GUI not run)"
     }
    }
   },
@@ -415,8 +415,8 @@
      "evidence": "isa_vm_gate in a real guest (hosted CI): the real API refuses with its capability reason: DebugSession::attach -> debugger 'No complete backend'"
     },
     "C10": {
-     "state": "-",
-     "evidence": "no live target"
+     "state": "B",
+     "evidence": "s390x-guest (big-endian) and ppc64el-guest on hosted CI: a cross-built cescan (Qt-free, static target zlib) runs inside the full-system guest; cescan info (ABI), write, scan and a cescan lua script drive the static fixture (GUI not run)"
     }
    }
   },

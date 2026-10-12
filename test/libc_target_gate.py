@@ -108,6 +108,8 @@ def main():
     parser.add_argument("fixtures", type=pathlib.Path, nargs="+")
     parser.add_argument("--launcher", default="",
                         help="sandbox command to prefix; {dir} expands to the fixture's directory")
+    parser.add_argument("--gui", action="store_true",
+                        help="also drive the Qt main and debugger windows (gui_lifecycle_smoke --target)")
     parser.add_argument("--report", type=pathlib.Path)
     args = parser.parse_args()
     cescan = str((args.build / "cescan").resolve())
@@ -214,6 +216,30 @@ def main():
                   ready and debugger.returncode == 0 and "SESSION_HIT" in output and int(fixture.line()) == 1003,
                   output + error)
             check("the program keeps running after every frontend detached", fixture.command("r") == 1003)
+            if args.gui:
+                run("write", pid, hex(fixture.value), 24681357, "--type", "i32")
+                smoke = subprocess.Popen([str((args.build / "gui_lifecycle_smoke").resolve()), "--target", str(pid),
+                                          hex(fixture.value), hex(fixture.writer)],
+                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+                                         env=dict(os.environ, QT_QPA_PLATFORM="offscreen"))
+                lines = []
+                deadline = time.monotonic() + 60
+                while time.monotonic() < deadline:
+                    if not select.select([smoke.stdout], [], [], 1)[0]:
+                        continue
+                    line = smoke.stdout.readline()
+                    if not line:
+                        break
+                    lines.append(line)
+                    if line.startswith("GUI_TARGET_ARMED"):
+                        fixture.process.stdin.write("b")
+                        fixture.process.stdin.flush()
+                rest = smoke.communicate(timeout=30)[0]
+                output = "".join(lines) + rest
+                called = int(fixture.line()) if "GUI_TARGET_ARMED" in output else None
+                check("the GUI scans, edits and debugs the target (6 window checks)",
+                      smoke.returncode == 0 and "GUI_TARGET_RESULT=PASSED checks=6" in output, output)
+                check("the program's GUI-interrupted call completes after detach", called == 13580, output)
         except Exception as error:  # report and continue with the next fixture
             check("the workflow completes", False, repr(error))
         finally:

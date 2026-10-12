@@ -235,3 +235,6 @@ first. Detailed write-ups continue in PROGRESS.md.
 - 2026-10-12, **1.7** done (Snap untestable here): Flatpak, bubblewrap and
   Podman sandboxes pass the 12 frontend checks with host-PID resolution;
   bubblewrap and Podman also in CI. Coverage 125/268 (46.6%).
+- 2026-10-12, **2.1** started: a generic GUI target mode covers the static
+  libc, Flatpak, bubblewrap and Podman rows (C10 to `B`). Coverage 129/268
+  (48.1%).

@@ -227,8 +227,8 @@
      "evidence": "libc_target_gate (static musl locally; static glibc, static musl in CI): Lua debug_setBreakpoint stops at the writer, call completes"
     },
     "C10": {
-     "state": "-",
-     "evidence": "CLI and Lua via libc_target_gate; no GUI check yet"
+     "state": "B",
+     "evidence": "libc_target_gate --gui (static musl and glibc): GUI scan/next scan/address-list edit/debugger-window breakpoint; CLI info/read/write/scan/pointerscan/autoasm/watch; Lua breakpoint"
     }
    }
   },
@@ -697,8 +697,8 @@
      "evidence": "libc_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI): Lua breakpoint at the writer, call completes"
     },
     "C10": {
-     "state": "-",
-     "evidence": "CLI and Lua via libc_target_gate with dynamic musl in a rootless Alpine Podman container (local and CI); no GUI check yet"
+     "state": "B",
+     "evidence": "libc_target_gate --gui (dynamic musl in Alpine Podman): GUI scan/next scan/address-list edit/debugger-window breakpoint; CLI info/read/write/scan/pointerscan/autoasm/watch; Lua breakpoint"
     }
    }
   },
@@ -744,8 +744,8 @@
      "evidence": "libc_target_gate under flatpak run org.freedesktop.Platform//25.08 (local): Lua breakpoint at the writer, call completes"
     },
     "C10": {
-     "state": "-",
-     "evidence": "CLI and Lua via libc_target_gate under flatpak run org.freedesktop.Platform//25.08 (local); no GUI check yet"
+     "state": "B",
+     "evidence": "libc_target_gate --gui (inside flatpak run (local)): GUI scan/next scan/address-list edit/debugger-window breakpoint; CLI info/read/write/scan/pointerscan/autoasm/watch; Lua breakpoint"
     }
    }
   },
@@ -838,8 +838,8 @@
      "evidence": "libc_target_gate under bwrap --unshare-all (local; CI as root): Lua breakpoint at the writer, call completes"
     },
     "C10": {
-     "state": "-",
-     "evidence": "CLI and Lua via libc_target_gate under bwrap --unshare-all (local; CI as root); no GUI check yet"
+     "state": "B",
+     "evidence": "libc_target_gate --gui (inside bwrap --unshare-all): GUI scan/next scan/address-list edit/debugger-window breakpoint; CLI info/read/write/scan/pointerscan/autoasm/watch; Lua breakpoint"
     }
    }
   },
@@ -897,7 +897,7 @@
    "cells": {
     "C1": {
      "state": "-",
-     "evidence": "metadata parser on byte arrays/optional file only; no live process"
+     "evidence": "offline only: real Disco Elysium v27 global-metadata.dat (16187 types) parses and resolves field offsets from GameAssembly.dll; no live IL2CPP process tested"
     },
     "C2": {
      "state": "-",

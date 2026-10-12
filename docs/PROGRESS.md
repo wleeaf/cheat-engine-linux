@@ -16,6 +16,24 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## GUI on any live target: 12 October 2026
+
+Start of Wave 2 (frontend breadth) in the [coverage plan](COVERAGE_PLAN.md).
+`gui_lifecycle_smoke --target PID VALUE WRITER` drives the real Qt main window
+and debugger window against an arbitrary live process: a GUI first scan over
+the whole target, a next scan after a real change, an address-list value edit
+that must reach the target, and a debugger-window breakpoint at the writer
+that the program itself hits, followed by detach. Reusing the existing smoke
+binary avoids compiling the whole GUI a second time. `libc_target_gate.py
+--gui` runs it after the CLI and Lua stages and requires the interrupted call
+to complete after detach.
+
+The GUI stage passes for dynamic glibc, i386 static musl, Flatpak, bubblewrap
+(static musl and dynamic glibc) and the Podman Alpine container; the hosted
+build job runs it for every configuration except Flatpak. C10 (GUI, CLI and
+Lua) reaches `B` for the static libc, Flatpak, bubblewrap and Podman rows.
+Coverage is now 129/268 (48.1%).
+
 ## Sandboxed programs: Flatpak, bubblewrap and Podman: 12 October 2026
 
 Item 1.7 of the [coverage plan](COVERAGE_PLAN.md). `libc_target_gate.py`

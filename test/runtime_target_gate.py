@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Drive JIT runtimes (V8/Node, HotSpot) through the CLI, Lua and GUI frontends.
 
-usage: runtime_target_gate.py BUILD [--node NODE] [--java JAVA] [--gui] [--report JSON]
+usage: runtime_target_gate.py BUILD [--node NODE] [--java JAVA] [--mono-exe EXE]
+           [--dotnet-dll DLL] [--gui] [--report JSON]
 
 The fixtures (test/runtimes/) keep a value in off-heap memory that the garbage
 collector does not move, and update it from a JIT-compiled function. As a
 user would, the gate finds the value by scanning for a marker and narrowing
 with a next scan after a real change, and names the generated code through
 the runtime's perf map (/tmp/perf-<pid>.map: V8 --perf-basic-prof, HotSpot
-`jcmd <pid> Compiler.perfmap`). It then checks writes, disassembly and
+`jcmd <pid> Compiler.perfmap`, Mono --jitmap, CoreCLR DOTNET_PerfMapEnabled=1).
+--mono-exe and --dotnet-dll take test/runtimes/JitFixture.cs built by mcs
+and by the .NET SDK. It then checks writes, disassembly and
 find-what-writes naming the JIT function, a Lua breakpoint in the code that
 actually runs, and with --gui the Qt main and debugger windows.
 """
@@ -28,9 +31,9 @@ HERE = pathlib.Path(__file__).resolve().parent
 
 
 class Runtime:
-    def __init__(self, command, cwd=None):
+    def __init__(self, command, cwd=None, env=None):
         self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                        text=True, bufsize=1, cwd=cwd)
+                                        text=True, bufsize=1, cwd=cwd, env=env)
         header = self.line(timeout=120).split()
         if len(header) != 2 or header[0] != "CE_RUNTIME":
             raise RuntimeError(f"unexpected runtime header {header}")
@@ -59,6 +62,10 @@ def main():
     parser.add_argument("build", type=pathlib.Path)
     parser.add_argument("--node", default=shutil.which("node"))
     parser.add_argument("--java", default=shutil.which("java"))
+    parser.add_argument("--only", choices=("node", "jvm", "mono", "coreclr"), action="append",
+                        help="run only these runtimes")
+    parser.add_argument("--mono-exe", type=pathlib.Path, help="JitFixture.cs compiled by mcs")
+    parser.add_argument("--dotnet-dll", type=pathlib.Path, help="JitFixture.cs built by the .NET SDK")
     parser.add_argument("--gui", action="store_true")
     parser.add_argument("--report", type=pathlib.Path)
     args = parser.parse_args()
@@ -78,8 +85,14 @@ def main():
     if args.java:
         jcmd = pathlib.Path(args.java).resolve().with_name("jcmd")
         runtimes.append(("jvm", "Java", [args.java, "-Xss1m", str(HERE / "runtimes/JitFixture.java")], jcmd))
+    if args.mono_exe:
+        runtimes.append(("mono", "Mono", [shutil.which("mono") or "mono", "--jitmap", str(args.mono_exe.resolve())], None))
+    if args.dotnet_dll:
+        runtimes.append(("coreclr", "CoreCLR (.NET)", [shutil.which("dotnet") or "dotnet", str(args.dotnet_dll.resolve())], None))
+    if args.only:
+        runtimes = [entry for entry in runtimes if entry[0] in args.only]
     if not runtimes:
-        parser.error("neither node nor java is available")
+        parser.error("no runtime is available")
 
     for name, label, command, jcmd in runtimes:
         entry = {"runtime": name, "checks": {}}
@@ -94,7 +107,7 @@ def main():
                 if detail:
                     print(detail[-3000:], flush=True)
 
-        runtime = Runtime(command)
+        runtime = Runtime(command, env=dict(os.environ, DOTNET_PerfMapEnabled="1", DOTNET_CLI_TELEMETRY_OPTOUT="1"))
         try:
             pid = runtime.pid
             if jcmd:

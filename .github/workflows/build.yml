@@ -188,10 +188,17 @@ jobs:
           python3 test/frontend_target_gate.py build build/go_fixture --gui --ceserver \
             --report build/compatibility-evidence/go-target.json
 
-      - name: Run JIT runtime workflows (Node/V8, HotSpot)
+      - name: Run JIT runtime workflows (Node/V8, HotSpot, Mono, CoreCLR)
         # Stock runtimes cannot opt in with PR_SET_PTRACER, so Yama scope 1
         # needs root to attach to them from a separately started tool.
-        run: sudo python3 test/runtime_target_gate.py build --gui --report build/compatibility-evidence/runtimes.json
+        run: |
+          # The C# fixture runs on Mono (--jitmap) and on the runner's .NET SDK.
+          mcs -unsafe -r:System.dll -out:build/jit_fixture_mono.exe test/runtimes/JitFixture.cs
+          dotnet new console -o build/jit-fixture-dotnet --force
+          cp test/runtimes/JitFixture.cs build/jit-fixture-dotnet/Program.cs
+          dotnet build build/jit-fixture-dotnet -c Release -p:AllowUnsafeBlocks=true -o build/jit-fixture-dotnet/out
+          sudo python3 test/runtime_target_gate.py build --gui --mono-exe build/jit_fixture_mono.exe \
+            --dotnet-dll build/jit-fixture-dotnet/out/jit-fixture-dotnet.dll --report build/compatibility-evidence/runtimes.json
 
       - name: Run the same workflows on sandboxed programs (bubblewrap, Podman)
         # Ubuntu's AppArmor blocks unprivileged user namespaces for bwrap, so

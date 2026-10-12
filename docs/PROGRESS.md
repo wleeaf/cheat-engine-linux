@@ -16,6 +16,23 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## GUI polish from a full screenshot review: 13 October 2026
+
+`gui_lifecycle_smoke --screenshots DIR` now renders about 180 PNGs: every
+window and dialog in both themes, the menu bar and Memory Viewer menus, the
+address list and results context menus, the dialogs those menus open, and the
+main window before and after a real scan. Each was inspected and the problems
+fixed: Settings options that were saved but never read are wired up or
+removed (with the placeholder pages), stub menu items are gone, tables share
+one style with readable sizes, filters and empty-state hints, the process
+picker shows untruncated names, Save writes in place, and several dialogs are
+redesigned. One root cause worth knowing: a font set with `setFont()` on an
+item view is dropped when Qt's stylesheet engine re-polishes the reparented
+widget, so data tables now take the monospace font from the theme sheet
+(`monospace` property). The full lifecycle, debugger, register, search,
+hex-view, disassembler, Lua console, guest-scan, code-finder, change-address,
+structure and theme smokes pass locally, and CI is green.
+
 ## Frontends inside every ISA guest; coverage complete: 12 October 2026
 
 Item 2.1 of the [coverage plan](COVERAGE_PLAN.md) for the remaining guests.

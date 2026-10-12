@@ -900,6 +900,16 @@ std::vector<ProcessInfo> LinuxProcessEnumerator::list() {
                 }
                 if (!lastExeBasename.empty()) p.name = lastExeBasename;
             }
+            // The kernel cuts comm to 15 characters ("at-spi-bus-laun"). When it
+            // is that long, the untruncated name is the argv[0] or executable
+            // basename it is a prefix of.
+            if (p.name == comm && comm.size() == 15) {
+                std::string argv0 = basenameOfBackslashOrSlash(cmdline.substr(0, cmdline.find('\0')));
+                std::string exe;
+                try { exe = fs::read_symlink("/proc/" + name + "/exe").filename().string(); } catch (...) {}
+                for (const auto& full : {argv0, exe})
+                    if (full.size() > comm.size() && full.compare(0, comm.size(), comm) == 0) { p.name = full; break; }
+            }
             (void)isWineLikeComm;  // kept for future PortProton/Lutris annotation
 
             // Read exe symlink for path. For Wine targets this resolves to

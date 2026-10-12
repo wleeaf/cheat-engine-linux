@@ -1,6 +1,7 @@
 /// Break-and-trace window — runs a Tracer on a worker thread, displays decoded steps.
 
 #include "gui/tracerwindow.hpp"
+#include "gui/theme.hpp"
 #include "core/target_capabilities.hpp"
 
 #include <QVBoxLayout>
@@ -133,8 +134,9 @@ void TracerWindow::buildUi() {
         table_->horizontalHeader()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
     table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table_->setFont(QFont("Monospace", 9));
-    table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table_->setProperty("monospace", true);   // font from the theme sheet
+    styleDataTable(table_);
+    setEmptyHint(table_, "Traced instructions appear here.");
     connect(table_, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem* item) {
         if (!item || item->row() < 0 || item->row() >= (int)entries_.size()) return;
         const auto& e = entries_[item->row()];
@@ -146,7 +148,7 @@ void TracerWindow::buildUi() {
         dl->addWidget(hdr);
         auto* dump = new QPlainTextEdit(fullRegisterDump(e.context));
         dump->setReadOnly(true);
-        dump->setFont(QFont("Monospace", 9));
+        dump->setFont(monospaceFont(-1));
         dl->addWidget(dump);
         auto* close = new QPushButton("Close");
         connect(close, &QPushButton::clicked, dlg, &QDialog::accept);

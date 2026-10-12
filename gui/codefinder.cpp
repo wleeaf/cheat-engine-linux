@@ -1,4 +1,5 @@
 #include "gui/codefinder.hpp"
+#include "gui/theme.hpp"
 #include "debug/patch.hpp"
 #include <QVBoxLayout>
 #include <QHeaderView>
@@ -100,8 +101,9 @@ CodeFinderWindow::CodeFinderWindow(CodeFinder* finder, const QString& title,
         table_->horizontalHeader()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
     table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table_->setFont(QFont("Monospace", 9));
-    table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table_->setProperty("monospace", true);   // font from the theme sheet
+    styleDataTable(table_);
+    setEmptyHint(table_, "Waiting for an instruction to touch the address. Let the game run.");
     connect(table_, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem* item) {
         if (!item) return;
         int row = item->row();
@@ -121,14 +123,14 @@ CodeFinderWindow::CodeFinderWindow(CodeFinder* finder, const QString& title,
         dlgLayout->addWidget(firstLabel);
         auto* firstDump = new QPlainTextEdit(fullRegisterDump(results[row].firstContext));
         firstDump->setReadOnly(true);
-        firstDump->setFont(QFont("Monospace", 9));
+        firstDump->setFont(monospaceFont(-1));
         dlgLayout->addWidget(firstDump);
 
         auto* lastLabel = new QLabel("<b>Last hit:</b>");
         dlgLayout->addWidget(lastLabel);
         auto* lastDump = new QPlainTextEdit(fullRegisterDump(results[row].lastContext));
         lastDump->setReadOnly(true);
-        lastDump->setFont(QFont("Monospace", 9));
+        lastDump->setFont(monospaceFont(-1));
         dlgLayout->addWidget(lastDump);
 
         auto* btn = new QPushButton("Close");

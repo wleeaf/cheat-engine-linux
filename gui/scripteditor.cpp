@@ -1,4 +1,5 @@
 #include "gui/scripteditor.hpp"
+#include "gui/code_editor.hpp"
 #include "gui/autoasmoperation.hpp"
 #include "gui/theme.hpp"
 #include "core/aa_templates.hpp"
@@ -52,6 +53,7 @@ public:
         QTextCharFormat keyword   = fmt(pal.keyword, true);
         QTextCharFormat reg       = fmt(pal.reg);
         QTextCharFormat number    = fmt(pal.number);
+        numberFmt_ = number;
         QTextCharFormat label     = fmt(pal.label);
         QTextCharFormat str       = fmt(pal.string);
         stringFmt_ = str;
@@ -85,6 +87,18 @@ protected:
             while (it.hasNext()) {
                 auto m = it.next();
                 setFormat(m.capturedStart(), m.capturedLength(), rule.fmt);
+            }
+        }
+        // Data lines ("db 8B 05 3A") list bare hex bytes the number rule can't
+        // tell from words, so colour every hex token after the db/dw/dd/dq.
+        static const QRegularExpression dataLine(R"(^\s*(?:[A-Za-z_][\w.@+]*:\s*)?d[bwdq]\s)",
+                                                 QRegularExpression::CaseInsensitiveOption);
+        static const QRegularExpression hexToken(R"(\b[0-9A-Fa-f]+\b)");
+        if (auto data = dataLine.match(text); data.hasMatch()) {
+            auto it = hexToken.globalMatch(text, data.capturedEnd());
+            while (it.hasNext()) {
+                auto m = it.next();
+                setFormat(m.capturedStart(), m.capturedLength(), numberFmt_);
             }
         }
         setCurrentBlockState(0);
@@ -126,7 +140,7 @@ private:
     struct Rule { QRegularExpression re; QTextCharFormat fmt; };
     std::vector<Rule> rules_;
     QTextCharFormat commentFmt_;
-    QTextCharFormat stringFmt_, directiveFmt_;
+    QTextCharFormat stringFmt_, directiveFmt_, numberFmt_;
 };
 
 ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget* parent)
@@ -137,6 +151,7 @@ ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget*
 
     // Toolbar
     auto* toolbar = new QToolBar;
+    toolbar->setMovable(false);
     executeBtn_ = new QAction("Execute", this);
     executeBtn_->setEnabled(proc_ && autoAsm_);
     executeBtn_->setObjectName("primaryButton");
@@ -244,9 +259,7 @@ ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget*
     // Main content: editor (top) + output (bottom)
     auto* splitter = new QSplitter(Qt::Vertical);
 
-    editor_ = new QPlainTextEdit;
-    editor_->setFont(QFont("Monospace", 10));
-    editor_->setLineWrapMode(QPlainTextEdit::NoWrap);
+    editor_ = new CodeEditor;
     editor_->setTabStopDistance(QFontMetricsF(editor_->font()).horizontalAdvance(' ') * 4);
     new AaHighlighter(editor_->document());   // syntax coloring
     editor_->setPlaceholderText("Choose Templates to generate an injection at the selected instruction,\n"
@@ -255,7 +268,9 @@ ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget*
 
     output_ = new QTextEdit;
     output_->setReadOnly(true);
-    output_->setFont(QFont("Monospace", 9));
+    output_->setFont(monospaceFont(-1));
+    output_->document()->setDocumentMargin(6);
+    output_->setPlaceholderText("Messages from Execute and Syntax Check appear here.");
     output_->setMaximumHeight(150);
     // The console paints its own line colors, so it can't inherit the app
     // stylesheet; give it the theme's editor background/text (was hardcoded dark,

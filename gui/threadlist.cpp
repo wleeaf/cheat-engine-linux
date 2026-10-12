@@ -1,4 +1,5 @@
 #include "gui/threadlist.hpp"
+#include "gui/theme.hpp"
 #include <QVBoxLayout>
 #include <QHeaderView>
 #include <QFont>
@@ -9,7 +10,7 @@ namespace ce::gui {
 ThreadListWindow::ThreadListWindow(ProcessHandle* proc, QWidget* parent)
     : QMainWindow(parent), proc_(proc) {
     setWindowTitle("Thread List");
-    resize(400, 300);
+    resize(520, 360);
 
     auto* central = new QWidget;
     auto* layout = new QVBoxLayout(central);
@@ -23,9 +24,7 @@ ThreadListWindow::ThreadListWindow(ProcessHandle* proc, QWidget* parent)
     hh->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     hh->setSectionResizeMode(1, QHeaderView::Stretch);
     hh->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    table_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table_->setFont(QFont("Monospace", 9));
-    table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    styleDataTable(table_);
     layout->addWidget(table_);
     setCentralWidget(central);
     populate();
@@ -61,6 +60,7 @@ void ThreadListWindow::populate() {
         }
         table_->setItem(i, 2, new QTableWidgetItem(QString::fromStdString(state)));
     }
+    setWindowTitle(QString("Thread List: %1 threads").arg(threads.size()));
 }
 
 } // namespace ce::gui

@@ -1,4 +1,5 @@
 #include "gui/memoryfill.hpp"
+#include "gui/theme.hpp"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
@@ -22,14 +23,14 @@ MemoryFillDialog::MemoryFillDialog(ProcessHandle* proc, uintptr_t startAddr, QWi
     auto* form = new QFormLayout;
     form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     addrEdit_ = new QLineEdit(QString("0x%1").arg(startAddr, 0, 16));
-    addrEdit_->setFont(QFont("Monospace", 10));
+    addrEdit_->setFont(monospaceFont());
     form->addRow("Start address:", addrEdit_);
 
     sizeEdit_ = new QLineEdit("256");
     form->addRow("Size (bytes):", sizeEdit_);
 
     valueEdit_ = new QLineEdit("00");
-    valueEdit_->setFont(QFont("Monospace", 10));
+    valueEdit_->setFont(monospaceFont());
     form->addRow("Fill byte (hex):", valueEdit_);
     layout->addLayout(form);
 

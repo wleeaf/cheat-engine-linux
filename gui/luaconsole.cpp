@@ -27,7 +27,7 @@ LuaConsole::LuaConsole(LuaEngine* engine, QWidget* parent)
 
     output_ = new QPlainTextEdit;
     output_->setReadOnly(true);
-    output_->setFont(QFont("Monospace", 10));
+    output_->setFont(monospaceFont());
     output_->appendPlainText("-- Cheat Engine Lua Console --");
     output_->appendPlainText("-- Functions: readInteger(addr), writeInteger(addr, val), getModuleBase(name), ...");
     layout->addWidget(output_);
@@ -36,7 +36,7 @@ LuaConsole::LuaConsole(LuaEngine* engine, QWidget* parent)
     // are visible instead of relying on the user guessing to press Enter.
     auto* inputRow = new QHBoxLayout;
     input_ = new QLineEdit;
-    input_->setFont(QFont("Monospace", 10));
+    input_->setFont(monospaceFont());
     input_->setPlaceholderText("Enter Lua code, then press Run or Enter…");
     connect(input_, &QLineEdit::returnPressed, this, &LuaConsole::onExecute);
     input_->installEventFilter(this);   // Up/Down recall previous commands (REPL history)

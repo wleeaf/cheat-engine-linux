@@ -51,6 +51,7 @@ public:
     QString previewTextForTest() const;
 
 private:
+    int labelWidth_ = 0;     // shared by the form labels and the pointer rows
     void syncFlagState();    // enable Unicode only for String; length only for String/Array
     void updatePreview();    // resolve the pointer chain live and show the target address
     QString previewValueAt(unsigned long long addr);   // formatted value at a resolved address

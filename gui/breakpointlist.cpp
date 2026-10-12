@@ -1,4 +1,5 @@
 #include "gui/breakpointlist.hpp"
+#include "gui/theme.hpp"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -19,8 +20,9 @@ BreakpointListWindow::BreakpointListWindow(BreakpointManager* mgr, QWidget* pare
     table_->setHorizontalHeaderLabels({"ID", "Address", "Type", "Action", "Hits", "Enabled"});
     table_->horizontalHeader()->setStretchLastSection(true);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table_->setFont(QFont("Monospace", 9));
-    table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table_->setProperty("monospace", true);   // font from the theme sheet
+    styleDataTable(table_);
+    setEmptyHint(table_, "No breakpoints. Set one in the Memory Viewer (F5) or the Debugger.");
     layout->addWidget(table_);
 
     auto* btnRow = new QHBoxLayout;

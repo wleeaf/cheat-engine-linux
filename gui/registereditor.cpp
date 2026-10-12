@@ -1,4 +1,7 @@
 #include "gui/registereditor.hpp"
+#include "gui/theme.hpp"
+#include "core/local_target.hpp"
+#include <QLabel>
 
 #include "core/cpu_registers.hpp"
 #include "platform/gdb_process.hpp"
@@ -37,16 +40,20 @@ RegisterEditorWindow::RegisterEditorWindow(ProcessHandle* proc, QWidget* parent)
     auto* central = new QWidget;
     auto* layout = new QVBoxLayout(central);
 
+    // Thread picker and the two actions on one row.
+    auto* buttons = new QHBoxLayout;
+    buttons->addWidget(new QLabel("Thread:"));
     threadCombo_ = new QComboBox;
     threadCombo_->setObjectName("registerEditorThreads");
-    layout->addWidget(threadCombo_);
-
-    auto* buttons = new QHBoxLayout;
+    threadCombo_->setMinimumWidth(220);
+    buttons->addWidget(threadCombo_, 1);
     auto* refreshButton = new QPushButton("Refresh");
     refreshButton->setObjectName("registerEditorRefresh");
     applyButton_ = new QPushButton("Apply changes");
     applyButton_->setObjectName("registerEditorApply");
     applyButton_->setToolTip("Apply only edited values to the thread’s current register state");
+    applyButton_->setProperty("primary", true);
+    buttons->addSpacing(8);
     buttons->addWidget(refreshButton);
     buttons->addWidget(applyButton_);
     layout->addLayout(buttons);
@@ -62,7 +69,11 @@ RegisterEditorWindow::RegisterEditorWindow(ProcessHandle* proc, QWidget* parent)
     table_->setColumnCount(2);
     table_->setHorizontalHeaderLabels({"Register", "Value"});
     table_->horizontalHeader()->setStretchLastSection(true);
-    table_->setFont(QFont("Monospace", 9));
+    styleDataTable(table_);
+    // Values are edited in place; Apply writes the edited ones back.
+    table_->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed |
+                            QAbstractItemView::AnyKeyPressed);
+    table_->setToolTip("Double-click a value to edit it, then press Apply changes");
     table_->setObjectName("registerEditorGeneral");
     table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     layout->addWidget(table_);
@@ -78,9 +89,8 @@ RegisterEditorWindow::RegisterEditorWindow(ProcessHandle* proc, QWidget* parent)
     fpTable_->horizontalHeader()->setStretchLastSection(false);
     fpTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     fpTable_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    fpTable_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    fpTable_->setFont(QFont("Monospace", 9));
-    fpTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    fpTable_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    styleDataTable(fpTable_);
     fpTable_->setObjectName("registerEditorVectors");
     layout->addWidget(fpTable_);
 
@@ -117,7 +127,8 @@ void RegisterEditorWindow::populateThreads() {
     if (!proc_) return;
 
     for (const auto& thread : proc_->threads())
-        threadCombo_->addItem(QString::number(thread.tid), QVariant::fromValue((qlonglong)thread.tid));
+        threadCombo_->addItem(threadLabel(ce::localTargetPid(proc_).value_or(0), thread.tid),
+                              QVariant::fromValue((qlonglong)thread.tid));
     const auto previous = threadCombo_->findData(selected);
     if (previous >= 0) threadCombo_->setCurrentIndex(previous);
 }

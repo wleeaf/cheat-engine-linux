@@ -48,6 +48,12 @@ static bool guiTableSaveChecks() {
     model->setEntryCodec(1,*fixtureCodec);
     auto xml=directory.filePath("saved.CT"),json=directory.filePath("saved.json");
     bool written=main.saveTableToPath(xml) && main.saveTableToPath(json);
+    // File > Save writes back to the file the table came from, without asking,
+    // and the title names that file.
+    written=written && QFile::remove(json);
+    QMetaObject::invokeMethod(&main,"onSaveTable",Qt::DirectConnection);
+    written=written && QFile::exists(json) && main.windowTitle().endsWith("saved.json");
+    if(!written) printf("GUI_TABLE_SAVE_DIAGNOSTIC save-in-place failed (title=%s)\n",main.windowTitle().toUtf8().constData());
     ce::CheatTable savedXml,savedJson;
     auto metadata=[&](const ce::CheatTable& table) {
         return table.gameName==source.gameName && table.gameVersion==source.gameVersion && table.author==source.author &&

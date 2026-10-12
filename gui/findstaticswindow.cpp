@@ -2,6 +2,7 @@
 /// sorted by reference count.
 
 #include "gui/findstaticswindow.hpp"
+#include "gui/theme.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -46,8 +47,9 @@ FindStaticsWindow::FindStaticsWindow(ProcessHandle* proc, QWidget* parent)
     hh->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     hh->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table_->setFont(QFont("Monospace", 9));
+    styleDataTable(table_);
+    setEmptyHint(table_, "Static addresses in the module's data, and the code that references them, appear here.");
+    table_->setProperty("monospace", true);   // font from the theme sheet
     layout->addWidget(table_, 1);
 
     setCentralWidget(central);

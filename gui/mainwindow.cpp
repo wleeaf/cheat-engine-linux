@@ -3,6 +3,7 @@
 #include "arch/target_arch.hpp"
 #include <csignal>
 #include "gui/mainwindow.hpp"
+#include "gui/code_editor.hpp"
 #include "core/local_target.hpp"
 #include "gui/gdbconnectiondialog.hpp"
 #include "gui/theme.hpp"
@@ -63,6 +64,7 @@
 #include <QScrollArea>
 #include <QFontMetrics>
 #include <thread>
+#include <sys/utsname.h>
 #include <atomic>
 #include <QCoreApplication>
 #include <QTextBrowser>
@@ -106,6 +108,7 @@
 #include <QStatusBar>
 #include <QColor>
 #include <QDoubleValidator>
+#include <QIntValidator>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -152,6 +155,8 @@ static void warnIfMemoryUnreadable(QWidget* parent, ce::ProcessHandle* p,
 // ═══════════════════════════════════════════════════════════════
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
+    scannerThreads_ = QSettings().value("scan/threads", 0).toInt();
+    scanner_ = std::make_unique<MemoryScanner>(scannerThreads_);
     setupUi();
     setupMenus();
     updateScanButtons();
@@ -208,7 +213,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             if (!releaseTargetUsers()) return;
             process_.reset();
             currentPid_ = 0;
-            setWindowTitle("Cheat Engine");
+            updateWindowTitle();
             addressListModel_->setProcess(nullptr);
             resultsModel_->setProcess(nullptr);
             updateScanButtons();
@@ -271,39 +276,27 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 }
 
 void MainWindow::setupMenus() {
-    // Menu bar reproduces Cheat Engine's MainUnit.MainMenu1 verbatim (captions,
-    // item order, separators, shortcuts, and .lfm Visible flags). CE items we have
-    // no backend for yet are present but disabled (see `stub`); Windows-only menus
-    // (D3D/.Net) are present but inert on Linux. Our tools stay under Tools, which
-    // CE leaves empty in the form and fills at runtime.
-    auto stub = [](QMenu* m, const QString& text) {
-        auto* a = m->addAction(text);
-        a->setEnabled(false);
-        a->setToolTip("Not yet implemented");
-        return a;
-    };
+    // Menu bar follows Cheat Engine's MainUnit.MainMenu1 (captions, item order,
+    // separators, shortcuts). CE items with no Linux backend are left out instead of
+    // shown disabled, and Windows-only menus (D3D) are dropped. Our tools stay under
+    // Tools, which CE leaves empty in the form and fills at runtime.
 
     // ── File ──
     auto* file = menuBar()->addMenu("&File");
-    stub(file, "Add scan tab")->setShortcut(QKeySequence("Ctrl+T"));
     file->addAction("Clear list", this, [this]() {
         resultsModel_->clear(); lastResult_.reset(); undoResult_.reset(); updateScanButtons();
     });
     file->addAction("Open Process", this, &MainWindow::onOpenProcess, QKeySequence("Ctrl+O"));
-    stub(file, "Open File")->setShortcut(QKeySequence("Ctrl+Shift+O"));
-    { auto* a = stub(file, "Save File"); a->setShortcut(QKeySequence("Ctrl+Shift+S")); a->setVisible(false); }
     file->addSeparator();
     file->addAction("Save", this, &MainWindow::onSaveTable, QKeySequence("Ctrl+S"));
-    file->addAction("Save As...", this, &MainWindow::onSaveTable);
+    file->addAction("Save As...", this, &MainWindow::onSaveTableAs, QKeySequence("Ctrl+Shift+S"));
     file->addAction("Load", this, &MainWindow::onLoadTable, QKeySequence("Ctrl+L"));
     recentMenu_ = file->addMenu("Load Recent"); // populated from QSettings below
     recentMenu_->setToolTipsVisible(true);      // show the full path on hover
     rebuildRecentMenu();
-    stub(file, "Sign table");
     file->addSeparator();
     file->addAction("Save current scanresults", this, &MainWindow::onSaveScanResults,
                     QKeySequence("Alt+Shift+S"));
-    stub(file, "Delete scanresult");
     file->addSeparator();
     file->addAction("Generate generic trainer lua script from table", this, &MainWindow::onCreateTrainer);
     file->addSeparator();
@@ -326,10 +319,9 @@ void MainWindow::setupMenus() {
     auto* dotnet = menuBar()->addMenu(".Net");
     // CE's .Net/Mono menu: dissect a Mono/IL2CPP runtime's classes and fields.
     dotnet->addAction("Mono dissector...", this, &MainWindow::openMonoDissector);
-    auto* network = menuBar()->addMenu("Network");
-    // CE also has Plugins and Languages menus, but this build has no plugin loader
-    // and ships English-only, so they are dropped rather than shown as empty dropdowns
-    // (same call the D3D menu got above).
+    // CE also has Network, Plugins and Languages menus. Their ceserver transfer
+    // options, plugin loader and translations don't exist here, so the menus are
+    // left out rather than shown full of disabled items (same call as D3D above).
 
     // ── Table (CE: Lua script + forms) ──
     table->addAction("Show Cheat Table Lua Script", this, &MainWindow::showTableLuaScript,
@@ -338,23 +330,10 @@ void MainWindow::setupMenus() {
     table->addAction("Create form", this, [this]() {
         auto* fd = new FormDesigner(this); fd->setAttribute(Qt::WA_DeleteOnClose); fd->show();
     });
-    stub(table, "Resynchronize forms with Lua");
-    table->addSeparator();
-    stub(table, "Add file");
 
     // (D3D menu intentionally omitted on Linux — see note at the menu creation above.)
 
-    // ── .Net (Windows-only) ──
-    stub(dotnet, "Get object list");
 
-    // ── Network (ceserver client options) ──
-    stub(network, "Compression");
-    stub(network, "Scan changed regions only");
-    stub(network, "Scan paged (physical) memory only");
-    auto* netRead = network->addMenu("Memory read method");
-    stub(netRead, "0: /proc/pid/mem"); stub(netRead, "1: ptrace peek"); stub(netRead, "2: process_vm_readv");
-    auto* netWrite = network->addMenu("Memory write method");
-    stub(netWrite, "0: /proc/pid/mem"); stub(netWrite, "1: ptrace poke"); stub(netWrite, "2: process_vm_writev");
     // The Memory Viewer is the entry point; the memory/debug windows (Memory
     // Regions, Heap list, Module list, Referenced strings, Thread list, Stacktrace,
     // Registers, Breakpoint list, Debugger, Branch mapper, Break-and-trace, …) live
@@ -364,6 +343,10 @@ void MainWindow::setupMenus() {
     // Analysis panels (also in the Memory Viewer's Tools menu) — surfaced here so
     // they're findable from the main window without opening the viewer first.
     addAnalysisToolsMenu(tools);
+    // Table > Auto Assemble... is the fuller version (it picks up the viewer's
+    // selected instruction), so the Tools copy would only duplicate it.
+    for (QAction* action : tools->actions())
+        if (action->text() == "Auto Assemble") tools->removeAction(action);
     tools->addSeparator();
     edit->addAction("Settings...", this, [this]() { openSettingsDialog(); });
 
@@ -389,24 +372,64 @@ void MainWindow::setupMenus() {
         attachToPid(pid, QFileInfo(path).fileName());
     });
     process->addAction("Process/System Info", this, [this]() {
-        if (!process_) { QMessageBox::information(this, "Process Info", "No process opened."); return; }
-        auto mods = process_->modules();
-        auto threads = process_->threads();
-        QString path = mods.empty() ? QString() : QString::fromStdString(mods.front().path);
-        QString info = QString(
-            "PID:\t%1\n"
-            "Name:\t%2\n"
-            "Path:\t%3\n"
-            "Architecture:\t%4\n"
-            "Modules:\t%5\n"
-            "Threads:\t%6")
-            .arg(currentPid_)
-            .arg(processLabel_->text())
-            .arg(path.isEmpty() ? "(unknown)" : path)
-            .arg(process_->is64bit() ? "64-bit" : "32-bit")
-            .arg(mods.size())
-            .arg(threads.size());
-        QMessageBox::information(this, "Process/System Info", info);
+        QDialog dialog(this);
+        dialog.setWindowTitle("Process and System Info");
+        auto* layout = new QVBoxLayout(&dialog);
+        // One form for both sections so their label columns line up.
+        auto* form = new QFormLayout;
+        form->setHorizontalSpacing(16);
+        form->setLabelAlignment(Qt::AlignLeft);
+        layout->addLayout(form);
+        auto section = [&](const QString& title) {
+            auto* heading = new QLabel(title);
+            heading->setObjectName("pageTitle");
+            if (form->rowCount() > 0) heading->setContentsMargins(0, 10, 0, 0);
+            form->addRow(heading);
+            return form;
+        };
+        auto value = [](const QString& text) {
+            auto* label = new QLabel(text);
+            label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+            label->setWordWrap(true);
+            return label;
+        };
+        auto* target = section("Process");
+        if (!process_) {
+            target->addRow(value("No process is open. Use File > Open Process."));
+        } else {
+            const auto modules = process_->modules();
+            const auto description = process_->targetDescription();
+            target->addRow("Name:", value(currentProcessName_));
+            target->addRow("PID:", value(QString::number(currentPid_)));
+            target->addRow("Executable:", value(modules.empty() ? QString("(unknown)") : QString::fromStdString(modules.front().path)));
+            if (currentPid_ > 0)
+                target->addRow("Kind:", value(QString::fromStdString(ce::probeTarget(currentPid_).summary())));
+            target->addRow("Program:", value(QString("%1, %2-byte pointers, %3")
+                .arg(ce::cpuArchitectureName(description.program.architecture)).arg(description.program.pointerWidth)
+                .arg(ce::byteOrderName(description.program.byteOrder))));
+            target->addRow("Modules:", value(QString::number(modules.size())));
+            target->addRow("Threads:", value(QString::number(process_->threads().size())));
+        }
+        auto* system = section("System");
+        struct utsname uts{};
+        if (::uname(&uts) == 0) system->addRow("Kernel:", value(QString("%1 %2 (%3)").arg(uts.sysname, uts.release, uts.machine)));
+        system->addRow("CPUs:", value(QString::number(std::thread::hardware_concurrency())));
+        QString scope = "not present (Yama disabled)";
+        if (QFile f("/proc/sys/kernel/yama/ptrace_scope"); f.open(QIODevice::ReadOnly)) {
+            const QString level = QString::fromUtf8(f.readAll()).trimmed();
+            static const char* meaning[] = {"any process of the same user", "only child processes",
+                                            "administrators only", "no attaching"};
+            const int n = level.toInt();
+            scope = n >= 0 && n <= 3 ? QString("%1: %2").arg(level, meaning[n]) : level;
+        }
+        system->addRow("ptrace scope:", value(scope));
+        system->addRow("Qt:", value(qVersion()));
+        layout->addStretch();
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close);
+        connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+        layout->addWidget(buttons);
+        dialog.resize(520, dialog.sizeHint().height());
+        dialog.exec();
     });
     // "Pause the process" toggle (CE's pause-the-game) — SIGSTOP/SIGCONT the target.
     auto* pauseAct = process->addAction("Pause the process");
@@ -496,13 +519,20 @@ void MainWindow::setupMenus() {
         auto* dlg = new QDialog(this);
         dlg->setWindowTitle("Memory Allocations");
         trackTargetWindow(dlg);
-        dlg->resize(360, 300);
+        dlg->resize(420, 320);
         auto* v = new QVBoxLayout(dlg);
+        auto* intro = new QLabel("Memory reserved in the target from here (readable, writable and "
+                                 "executable). Double-click a block to browse it.");
+        intro->setWordWrap(true);
+        intro->setProperty("secondary", true);
+        v->addWidget(intro);
         auto* list = new QListWidget;
+        list->setProperty("monospace", true);   // font from the theme sheet
+        setEmptyHint(list, "No blocks allocated yet. Click Allocate to reserve memory in the target.");
         auto refill = [this, list]() {
             list->clear();
             for (const auto& a : allocations_)
-                list->addItem(QString("0x%1  (%2 bytes)").arg(a.first, 0, 16).arg(a.second));
+                list->addItem(QString("0x%1   %2").arg(a.first, 0, 16).arg(formatByteSize(a.second)));
         };
         refill();
         v->addWidget(list);
@@ -518,16 +548,28 @@ void MainWindow::setupMenus() {
             int size = QInputDialog::getInt(dlg, "Allocate", "Size (bytes):", 4096, 1, 1 << 30, 1, &ok);
             if (!ok) return;
             auto r = process_->allocate(size, ce::MemProt::All, 0);
-            if (!r) { QMessageBox::warning(dlg, "Allocate", "Allocation failed."); return; }
+            if (!r) {
+                QMessageBox::warning(dlg, "Allocate", QString("Could not allocate %1 in the target: %2")
+                    .arg(formatByteSize(size), QString::fromStdString(r.error().message())));
+                return;
+            }
             allocations_.push_back({(qulonglong)*r, (qulonglong)size});
             refill();
         });
-        connect(freeBtn, &QPushButton::clicked, this, [this, list, refill]() {
+        connect(freeBtn, &QPushButton::clicked, this, [this, dlg, list, refill]() {
             int i = list->currentRow();
             if (i < 0 || i >= (int)allocations_.size()) return;
-            process_->free(allocations_[i].first, allocations_[i].second);
+            if (auto freed = process_->free(allocations_[i].first, allocations_[i].second); !freed) {
+                QMessageBox::warning(dlg, "Free", QString("Could not free the block: %1")
+                    .arg(QString::fromStdString(freed.error().message())));
+                return;
+            }
             allocations_.erase(allocations_.begin() + i);
             refill();
+        });
+        connect(list, &QListWidget::itemDoubleClicked, this, [this, list](QListWidgetItem*) {
+            int i = list->currentRow();
+            if (i >= 0 && i < (int)allocations_.size()) openMemoryView(allocations_[i].first);
         });
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         dlg->show();
@@ -724,7 +766,7 @@ void MainWindow::setupMenus() {
         auto* l = new QVBoxLayout(dlg);
         auto* edit = new QPlainTextEdit(text);
         edit->setReadOnly(true);
-        edit->setFont(QFont("Monospace", 9));
+        edit->setFont(monospaceFont(-1));
         l->addWidget(edit);
         auto* btn = new QPushButton("Close");
         connect(btn, &QPushButton::clicked, dlg, &QDialog::accept);
@@ -774,21 +816,41 @@ void MainWindow::setupMenus() {
                 .arg(snapshot_->regionCount()).arg(snapshot_->byteCount()));
     });
     tools->addSeparator();
-    tools->addSeparator();
+    tools->addAction("Overlay...", this, &MainWindow::showOverlayDialog);
     tools->addAction("Speedhack...", this, [this]() {
         auto* dlg = new QDialog(this);
         dlg->setWindowTitle("Speedhack");
-        dlg->resize(300, 120);
         auto* layout = new QVBoxLayout(dlg);
-        auto* label = new QLabel("Speed: 1.0x");
+        layout->setSpacing(10);
+        auto* intro = new QLabel("Scales the time the game sees. Apply loads the speedhack "
+                                 "library into the process the first time.");
+        intro->setWordWrap(true);
+        intro->setProperty("secondary", true);
+        auto* speedRow = new QHBoxLayout;
+        speedRow->addWidget(new QLabel("Speed"));
+        speedRow->addStretch();
+        auto* speedValue = new QLabel("1.0×");
+        speedValue->setStyleSheet("font-size: 15pt; font-weight: 600;");
+        speedRow->addWidget(speedValue);
         auto* slider = new QSlider(Qt::Horizontal);
         slider->setRange(1, 100);  // 0.1x to 10.0x
         slider->setValue(10);      // 1.0x default
-        connect(slider, &QSlider::valueChanged, [label](int v) {
-            double speed = v / 10.0;
-            label->setText(QString("Speed: %1x").arg(speed, 0, 'f', 1));
+        connect(slider, &QSlider::valueChanged, [speedValue](int v) {
+            speedValue->setText(QString("%1×").arg(v / 10.0, 0, 'f', 1));
         });
-        auto* applyBtn = new QPushButton("Apply (inject speedhack + set speed)");
+        auto* presets = new QHBoxLayout;
+        for (double preset : {0.5, 1.0, 2.0, 5.0}) {
+            auto* b = new QPushButton(QString("%1×").arg(preset, 0, 'g', 2));
+            connect(b, &QPushButton::clicked, slider, [slider, preset]() { slider->setValue(int(preset * 10)); });
+            presets->addWidget(b);
+        }
+        // Status of the last Apply: injection errors or the speed now in effect.
+        auto* label = new QLabel(process_ ? "Not applied yet." : "Open a process first.");
+        label->setProperty("secondary", true);
+        label->setWordWrap(true);
+        auto* applyBtn = new QPushButton("Apply");
+        applyBtn->setProperty("primary", true);
+        applyBtn->setEnabled(process_ != nullptr);
         connect(applyBtn, &QPushButton::clicked, [this, slider, label]() {
             double speed = slider->value() / 10.0;
             // Inject the speedhack library into the running target the first time,
@@ -813,7 +875,7 @@ void MainWindow::setupMenus() {
                         return;  // don't set a speed the plugin can't read
                     }
                 }
-                label->setText(QString("Active, Speed: %1x").arg(speed, 0, 'f', 1));
+                label->setText(QString("Active: the game runs at %1×.").arg(speed, 0, 'f', 1));
             }
             // Match the plugin side (plugins/speedhack.c): O_NOFOLLOW refuses a
             // symlink-swapped /dev/shm entry and mode 0600 keeps the channel
@@ -833,9 +895,15 @@ void MainWindow::setupMenus() {
                 ::close(shmfd);
             }
         });
-        layout->addWidget(label);
+        layout->addWidget(intro);
+        layout->addLayout(speedRow);
         layout->addWidget(slider);
-        layout->addWidget(applyBtn);
+        layout->addLayout(presets);
+        auto* applyRow = new QHBoxLayout;
+        applyRow->addWidget(label, 1);
+        applyRow->addWidget(applyBtn);
+        layout->addLayout(applyRow);
+        dlg->resize(380, dlg->sizeHint().height());
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         dlg->show();
     });
@@ -850,20 +918,18 @@ void MainWindow::setupMenus() {
         openHelpDoc("docs/SCRIPTING.md", "Lua / Scripting documentation",
                     "https://github.com/wleeaf/cheat-engine-linux/blob/main/docs/SCRIPTING.md");
     });
-    stub(help, "Cheat Engine Tutorial");
-    stub(help, "Cheat Engine Tutorial (x86_64)");
-    { auto* a = stub(help, "Cheat Engine Tutorial (AArch64)"); a->setVisible(false); }
-    stub(help, "Cheat Engine Tutorial Games");
-    { auto* a = stub(help, "Generate errorlogs"); a->setVisible(false); }
-    { auto* a = stub(help, "Test access violation"); a->setVisible(false); }
-    { auto* a = stub(help, "Test access violation in thread"); a->setVisible(false); }
     help->addSeparator();
     help->addAction("About", this, [this]() {
-        QMessageBox::about(this, "Cheat Engine for Linux",
-            "<h2>Cheat Engine for Linux</h2>"
-            "<p>Memory scanner, debugger, and code injection tool</p>"
-            "<p>C++23 / Qt6 / Capstone / Keystone / Lua 5.3</p>"
-            "<p><a href='https://github.com/wleeaf/cheat-engine-linux'>GitHub</a></p>");
+        QMessageBox::about(this, "About Cheat Engine for Linux",
+            QString("<h2 style='margin-bottom:2px'>Cheat Engine for Linux</h2>"
+                    "<p style='margin-top:0'>Version %1</p>"
+                    "<p>A memory scanner, debugger and code injection tool for native Linux, "
+                    "Wine and Proton programs.</p>"
+                    "<p>Built with Qt %2, Capstone, Keystone and Lua 5.3.<br>"
+                    "Free and open source under the MIT license.</p>"
+                    "<p><a href='https://github.com/wleeaf/cheat-engine-linux'>"
+                    "github.com/wleeaf/cheat-engine-linux</a></p>")
+                .arg(CECORE_VERSION, qVersion()));
     });
 }
 
@@ -917,14 +983,15 @@ void MainWindow::openHelpDoc(const QString& relPath, const QString& title, const
 // persisted via buildCheatTable()/onLoadTable().
 void MainWindow::showComments() {
     auto* dlg = new QDialog(this);
-    dlg->setWindowTitle("Comments");
-    dlg->resize(500, 400);
+    dlg->setWindowTitle("Table Comments");
+    dlg->resize(520, 400);
     auto* v = new QVBoxLayout(dlg);
-    auto* tabs = new QTabWidget;                       // CE PageControl1
     auto* memo = new QPlainTextEdit;                   // CE Memo1
     memo->setPlainText(tableComment_);
-    tabs->addTab(memo, "Comments");                    // CE tsComment
-    v->addWidget(tabs);
+    memo->setPlaceholderText("Notes about this cheat table: how to use it, what each entry does, "
+                             "which game version it was made for. They are saved with the table.");
+    memo->document()->setDocumentMargin(6);
+    v->addWidget(memo);
     auto* row = new QHBoxLayout;                        // CE Panel1
     row->addStretch();
     auto* closeBtn = new QPushButton("Close");         // CE Button1
@@ -945,16 +1012,18 @@ void MainWindow::showTableLuaScript() {
     dlg->setWindowTitle("Cheat Table Lua Script");
     dlg->resize(640, 460);
     auto* v = new QVBoxLayout(dlg);
-    auto* memo = new QPlainTextEdit;
-    memo->setFont(settingsMonospaceFont());
+    auto* memo = new CodeEditor;
     memo->setPlainText(tableLuaScript_);
     memo->setPlaceholderText("-- Lua that runs when this table is opened; saved with the table.");
     v->addWidget(memo);
 
     auto* row = new QHBoxLayout;
     auto* execBtn = new QPushButton("Execute script");
+    execBtn->setProperty("primary", true);
     row->addWidget(execBtn);
-    row->addStretch();
+    auto* result = new QLabel;
+    result->setWordWrap(true);
+    row->addWidget(result, 1);
     auto* closeBtn = new QPushButton("Close");
     row->addWidget(closeBtn);
     v->addLayout(row);
@@ -964,14 +1033,14 @@ void MainWindow::showTableLuaScript() {
             [this, memo]() { tableLuaScript_ = memo->toPlainText(); });
     // Run it now, through the same engine and against the current process/list as
     // the load-time run. No extra trust prompt: the user typed/edited this here.
-    connect(execBtn, &QPushButton::clicked, this, [this, memo]() {
+    connect(execBtn, &QPushButton::clicked, this, [this, memo, result]() {
         luaEngine_.setProcess(process_.get());
         luaEngine_.setAddressList(addressListModel_);
         auto res = luaEngine_.evalToString(memo->toPlainText().toStdString());
-        statusBar()->showMessage(
-            res.has_value() ? "Table Lua executed."
-                            : QString("Table Lua error: %1").arg(QString::fromStdString(res.error())),
-            8000);
+        const auto pal = editorPalette();
+        result->setStyleSheet(QString("color: %1;").arg((res.has_value() ? pal.success : pal.error).name()));
+        result->setText(res.has_value() ? "Script executed."
+                                        : QString("Error: %1").arg(QString::fromStdString(res.error())));
     });
     connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::accept);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
@@ -997,9 +1066,16 @@ void MainWindow::showOverlayDialog() {
     QDialog dialog(this);
     dialog.setWindowTitle("Overlay");
     auto* layout = new QVBoxLayout(&dialog);
-    auto* osdCheck = new QCheckBox("OSD text");
-    auto* crosshairCheck = new QCheckBox("Crosshair");
+    layout->setSpacing(10);
+    auto* intro = new QLabel("A transparent, click-through layer drawn over the whole screen, "
+                             "for use with a game in borderless or windowed mode.");
+    intro->setWordWrap(true);
+    intro->setProperty("secondary", true);
+    layout->addWidget(intro);
+    auto* osdCheck = new QCheckBox("Status text (process, active cheats, frame rate)");
+    auto* crosshairCheck = new QCheckBox("Crosshair in the centre of the screen");
     auto* showButton = new QPushButton("Show Overlay");
+    showButton->setProperty("primary", true);
     auto* hideButton = new QPushButton("Hide Overlay");
     auto* closeButton = new QPushButton("Close");
 
@@ -1008,9 +1084,14 @@ void MainWindow::showOverlayDialog() {
 
     layout->addWidget(osdCheck);
     layout->addWidget(crosshairCheck);
-    layout->addWidget(showButton);
-    layout->addWidget(hideButton);
-    layout->addWidget(closeButton);
+    layout->addSpacing(4);
+    auto* buttons = new QHBoxLayout;
+    buttons->addWidget(showButton);
+    buttons->addWidget(hideButton);
+    buttons->addStretch();
+    buttons->addWidget(closeButton);
+    layout->addLayout(buttons);
+    dialog.resize(440, dialog.sizeHint().height());
 
     auto ensureOverlay = [this]() {
         if (overlayWindow_)
@@ -1140,6 +1221,10 @@ void MainWindow::setupUi() {
     resultsView_->setFont(settingsMonospaceFont());
     resultsView_->verticalHeader()->setVisible(false);
     resultsView_->horizontalHeader()->setStretchLastSection(true);
+    // Headers align with their (left-aligned) cells, as in every other table.
+    resultsView_->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    resultsView_->horizontalHeader()->setHighlightSections(false);
+    resultsView_->setShowGrid(false);
     // Address sized to its content; Value and Previous share the rest evenly.
     resultsView_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     resultsView_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
@@ -1343,7 +1428,14 @@ void MainWindow::setupUi() {
                           cmp == ScanCompare::IncreasedBy || cmp == ScanCompare::DecreasedBy;
         scanValueEdit_->setEnabled(takesValue);
         scanValue2Edit_->setEnabled(takesValue);
-        hexCheck_->setEnabled(takesValue);
+        // Hex input only means something for integer-like values.
+        bool hexApplies = true;
+        if (valueTypeCombo_) {
+            const auto vt = mapValueType(valueTypeCombo_->currentIndex());
+            hexApplies = vt != ValueType::Float && vt != ValueType::Double && vt != ValueType::String &&
+                         vt != ValueType::UnicodeString && vt != ValueType::ByteArray && vt != ValueType::Binary;
+        }
+        hexCheck_->setEnabled(takesValue && hexApplies);
     };
     connect(scanTypeCombo_, &QComboBox::currentIndexChanged, this,
         [updateBetweenUi](int) { updateBetweenUi(); });
@@ -1370,6 +1462,8 @@ void MainWindow::setupUi() {
     floatToleranceEdit_->setToolTip("Absolute difference allowed in Extreme mode. Leave blank or use 0 for automatic tolerance.");
     floatToleranceEdit_->setPlaceholderText("Tolerance");
     floatToleranceEdit_->setValidator(new QDoubleValidator(0.0, std::numeric_limits<double>::max(), 4096, floatToleranceEdit_));
+    if (double tolerance = QSettings().value("scan/floatTolerance", 0.0).toDouble(); tolerance > 0)
+        floatToleranceEdit_->setText(QString::number(tolerance, 'g', 12));
     floatLayout->addWidget(floatRoundingCombo_);
     floatLayout->addWidget(floatToleranceEdit_);
     rightLayout->addLayout(floatLayout);
@@ -1396,7 +1490,7 @@ void MainWindow::setupUi() {
         scanValueEdit_->setPlaceholderText(ph);
     };
     connect(valueTypeCombo_, &QComboBox::currentIndexChanged, this,
-        [updateFloatOptions](int) { updateFloatOptions(); });
+        [updateFloatOptions, updateBetweenUi](int) { updateFloatOptions(); updateBetweenUi(); });
     connect(floatRoundingCombo_, &QComboBox::currentIndexChanged, this,
         [updateFloatOptions](int) { updateFloatOptions(); });
     updateFloatOptions();
@@ -1433,12 +1527,12 @@ void MainWindow::setupUi() {
     optLayout->addWidget(new QLabel("From:"), 0, 0);
     fromAddressEdit_ = new QLineEdit("0000000000");
     fromAddressEdit_->setObjectName("scanFrom");
-    fromAddressEdit_->setFont(QFont("Monospace", 9));
+    fromAddressEdit_->setFont(monospaceFont(-1));
     optLayout->addWidget(fromAddressEdit_, 0, 1);
     optLayout->addWidget(new QLabel("To:"), 1, 0);
     toAddressEdit_ = new QLineEdit(QString::number(UINTPTR_MAX,16));
     toAddressEdit_->setObjectName("scanTo");
-    toAddressEdit_->setFont(QFont("Monospace", 9));
+    toAddressEdit_->setFont(monospaceFont(-1));
     optLayout->addWidget(toAddressEdit_, 1, 1);
     // Tri-state like CE: checked = must have the protection, unchecked = must NOT,
     // partial (grey) = don't care. Writable defaults to "must" (values live in
@@ -1680,6 +1774,9 @@ void MainWindow::setupUi() {
     addressListView_->setFont(settingsMonospaceFont());
     addressListView_->verticalHeader()->setVisible(false);
     auto* addressHeader = addressListView_->horizontalHeader();
+    addressHeader->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    addressHeader->setHighlightSections(false);
+    addressListView_->setShowGrid(false);
     addressHeader->setMinimumSectionSize(48);
     addressHeader->setSectionResizeMode(0, QHeaderView::Fixed);
     addressHeader->resizeSection(0, 62);
@@ -2131,7 +2228,10 @@ void MainWindow::setupUi() {
                     auto* label = new QLabel(entries[row].description, &dialog);
                     auto* increaseEditor = new QKeySequenceEdit(QKeySequence(entries[row].increaseHotkeyKeys), &dialog);
                     auto* decreaseEditor = new QKeySequenceEdit(QKeySequence(entries[row].decreaseHotkeyKeys), &dialog);
-                    auto* stepEdit = new QLineEdit(entries[row].hotkeyStep, &dialog);
+                    // A record without value hotkeys yet starts from the Settings > Hotkeys step.
+                    const QString defaultStep = QSettings().value("hotkeys/valueStep", "1").toString();
+                    const bool configured = !entries[row].increaseHotkeyKeys.isEmpty() || !entries[row].decreaseHotkeyKeys.isEmpty();
+                    auto* stepEdit = new QLineEdit(configured && !entries[row].hotkeyStep.isEmpty() ? entries[row].hotkeyStep : defaultStep, &dialog);
                     stepEdit->setValidator(new QDoubleValidator(stepEdit));
                     auto* setEditor = new QKeySequenceEdit(QKeySequence(entries[row].setValueHotkeyKeys), &dialog);
                     auto* setValueEdit = new QLineEdit(entries[row].setValueHotkeyValue, &dialog);
@@ -2157,7 +2257,7 @@ void MainWindow::setupUi() {
                         addressListModel_->setValueHotkeys(row,
                             increaseEditor->keySequence().toString(QKeySequence::PortableText),
                             decreaseEditor->keySequence().toString(QKeySequence::PortableText),
-                            stepEdit->text().isEmpty() ? "1" : stepEdit->text(),
+                            stepEdit->text().isEmpty() ? defaultStep : stepEdit->text(),
                             setEditor->keySequence().toString(QKeySequence::PortableText),
                             setValueEdit->text());
                         rebuildValueHotkeys();
@@ -2257,17 +2357,18 @@ void MainWindow::setupUi() {
     procRow->addWidget(progressBar_);
     sv->addLayout(procRow);
 
-    // "Found: N" count row.
+    // Main row: found-results list on the left (stretches with the window), and
+    // the scan controls in a fixed-width block on the right (Cheat Engine's shape).
+    // The "Found: N" count and the results' Hex toggle head the results column, so
+    // that Hex box sits on the list it formats rather than above the scan buttons
+    // (where it read as a second copy of the scan value's Hex box).
+    auto* mainRow = new QHBoxLayout;
+    auto* foundBlock = new QVBoxLayout;
     auto* foundRow2 = new QHBoxLayout;
     foundRow2->addWidget(foundLabel_);
     foundRow2->addStretch();
     foundRow2->addWidget(resHexCheck);
-    sv->addLayout(foundRow2);
-
-    // Main row: found-results list on the left (stretches with the window), and
-    // the scan controls in a fixed-width block on the right (Cheat Engine's shape).
-    auto* mainRow = new QHBoxLayout;
-    auto* foundBlock = new QVBoxLayout;
+    foundBlock->addLayout(foundRow2);
     foundBlock->addWidget(resultsView_, 1);
     auto* foundBtns = new QHBoxLayout;
     foundBtns->addWidget(memViewBtn);
@@ -2312,7 +2413,16 @@ void MainWindow::setupUi() {
     floatRow2->addWidget(floatRoundingCombo_);
     floatRow2->addWidget(floatToleranceEdit_);
     floatRow2->addStretch();
+    auto* roundingLabel = new QLabel("Rounding");
+    roundingLabel->setBuddy(floatRoundingCombo_);
+    scanForm->addWidget(roundingLabel, 3, 0, Qt::AlignRight | Qt::AlignVCenter);
     scanForm->addLayout(floatRow2, 3, 1);
+    auto updateRoundingLabel = [this, roundingLabel]() {
+        const auto vt = mapValueType(valueTypeCombo_->currentIndex());
+        roundingLabel->setVisible(vt == ValueType::Float || vt == ValueType::Double || vt == ValueType::All);
+    };
+    connect(valueTypeCombo_, &QComboBox::currentIndexChanged, this, [updateRoundingLabel](int) { updateRoundingLabel(); });
+    updateRoundingLabel();
     cv->addLayout(scanForm);
 
     // Memory Scan Options group (From/To, Writable/Executable, Fast Scan, etc.).
@@ -2489,7 +2599,8 @@ void MainWindow::attachToPid(pid_t pid, const QString& name) {
         if (label.isEmpty()) label = QString::number(pid);
     }
     processLabel_->setText(QString("PID: %1 - %2").arg(pid).arg(label));
-    setWindowTitle(QString("Cheat Engine - %1 (%2)").arg(label).arg(pid));
+    currentProcessName_ = label;
+    updateWindowTitle();
     warnIfMemoryUnreadable(this, process_.get(), pid, label);
     addressListModel_->setProcess(process_.get());
     resultsModel_->setProcess(process_.get());
@@ -2565,7 +2676,7 @@ bool MainWindow::attachToGdb(std::unique_ptr<ce::GdbProcessHandle> process,const
     for (const auto& capability:ce::targetCapabilities(description))
         if (capability.state!=ce::CapabilityState::Available)
             tip+=QString("\n%1: %2. %3").arg(ce::targetFeatureName(capability.feature),ce::capabilityStateName(capability.state),QString::fromStdString(capability.reason));
-    processLabel_->setToolTip(tip);setWindowTitle(QString("Cheat Engine - GDB %1").arg(endpoint));
+    processLabel_->setToolTip(tip);currentProcessName_="GDB "+endpoint;updateWindowTitle();
     const auto regions=process_->queryRegions();
     if (!regions.empty()) {
         fromAddressEdit_->setText(QString("0x%1").arg(regions.front().base,0,16));
@@ -2587,7 +2698,7 @@ void MainWindow::onDisconnectProcess() {
     addressListModel_->setProcess(nullptr);resultsModel_->setProcess(nullptr);resultsModel_->clear();
     lastResult_.reset();undoResult_.reset();lastResultType_=undoResultType_=ValueType::Int32;
     lastResultValueSize_=undoResultValueSize_=0;foundLabel_->setText("Found: 0");
-    processLabel_->setText("No process selected");processLabel_->setToolTip({});setWindowTitle("Cheat Engine");updateScanButtons();
+    processLabel_->setText("No process selected");processLabel_->setToolTip({});currentProcessName_.clear();updateWindowTitle();updateScanButtons();
 }
 
 bool MainWindow::attachToCeserver(const QString& host, uint16_t port, pid_t pid, QString* error) {
@@ -2609,6 +2720,8 @@ bool MainWindow::attachToCeserver(const QString& host, uint16_t port, pid_t pid,
     currentPid_ = pid;
     processLabel_->setText(QString("REMOTE PID: %1 @ %2:%3 (%4)")
         .arg((int)pid).arg(host).arg(port).arg(QString::fromStdString(version->versionString)));
+    currentProcessName_ = QString("ceserver %1:%2").arg(host).arg(port);
+    updateWindowTitle();
     addressListModel_->setProcess(process_.get());
     resultsModel_->setProcess(process_.get());
     firstScanBtn_->setEnabled(true);
@@ -2628,6 +2741,11 @@ void MainWindow::onConnectCeserver() {
     auto* dlg = new QDialog(this);
     dlg->setWindowTitle("Connect to ceserver");
     auto* form = new QFormLayout(dlg);
+    auto* intro = new QLabel("Attach to a process on another machine (or in a container) "
+                             "through a running ceserver.");
+    intro->setWordWrap(true);
+    intro->setProperty("secondary", true);
+    form->addRow(intro);
 
     auto* hostEdit = new QLineEdit(settings.value("network/ceserverHost", "127.0.0.1").toString());
     form->addRow("Host:", hostEdit);
@@ -2638,7 +2756,10 @@ void MainWindow::onConnectCeserver() {
     form->addRow("Port:", portSpin);
 
     auto* pidEdit = new QLineEdit;
-    pidEdit->setPlaceholderText("Remote PID");
+    pidEdit->setPlaceholderText("process ID on the remote machine");
+    pidEdit->setValidator(new QIntValidator(1, std::numeric_limits<int>::max(), pidEdit));
+    portSpin->setGroupSeparatorShown(false);
+    hostEdit->setMinimumWidth(240);
     form->addRow("PID:", pidEdit);
 
     auto* statusLabel = new QLabel;
@@ -2647,6 +2768,8 @@ void MainWindow::onConnectCeserver() {
 
     auto* btnRow = new QHBoxLayout;
     auto* connectBtn = new QPushButton("Connect");
+    connectBtn->setProperty("primary", true);
+    connectBtn->setDefault(true);
     auto* cancelBtn = new QPushButton("Cancel");
     btnRow->addStretch();
     btnRow->addWidget(connectBtn);
@@ -2822,7 +2945,7 @@ std::unique_ptr<ScanResult> MainWindow::runScanWithProgress(
     // Drive the bar on the UI thread. ExcludeUserInputEvents keeps paints flowing
     // (so the bar animates) while blocking clicks (no re-entrant scan).
     while (!done.load(std::memory_order_acquire)) {
-        progressBar_->setValue((int)(scanner_.progress() * 100.0f));
+        progressBar_->setValue((int)(scanner_->progress() * 100.0f));
         QApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 25);
         std::this_thread::sleep_for(std::chrono::milliseconds(16));
     }
@@ -2905,7 +3028,7 @@ void MainWindow::onFirstScan() {
     if (memMappedCheck_)  config.scanMapped  = memMappedCheck_->isChecked();
 
     auto text = scanValueEdit_->text();
-    int intBase = (hexCheck_ && hexCheck_->isChecked()) ? 16 : 10;
+    int intBase = (hexCheck_ && hexCheck_->isEnabled() && hexCheck_->isChecked()) ? 16 : 10;
     if (config.valueType == ValueType::String || config.valueType == ValueType::UnicodeString) {
         config.stringValue = text.toStdString();
         if (config.valueType == ValueType::String)
@@ -2971,7 +3094,7 @@ void MainWindow::onFirstScan() {
     // Scan on a worker thread with a live progress bar (keeps the UI responsive).
     std::unique_ptr<ScanResult> result;
     try {
-        result = runScanWithProgress([&] { return scanner_.firstScan(*process_, config); });
+        result = runScanWithProgress([&] { return scanner_->firstScan(*process_, config); });
     } catch (const std::exception& e) {
         // A huge target (e.g. an emulator mapping many GB of guest RAM) can
         // exhaust memory during the scan/merge. Report it instead of letting
@@ -3023,7 +3146,7 @@ void MainWindow::onNextScan() {
     config.alignment = alignEdit_->text().toInt();
 
     auto text = scanValueEdit_->text();
-    int intBase = (hexCheck_ && hexCheck_->isChecked()) ? 16 : 10;
+    int intBase = (hexCheck_ && hexCheck_->isEnabled() && hexCheck_->isChecked()) ? 16 : 10;
     if (config.valueType == ValueType::String || config.valueType == ValueType::UnicodeString) {
         config.stringValue = text.toStdString();
         if (config.valueType == ValueType::String)
@@ -3099,7 +3222,7 @@ void MainWindow::onNextScan() {
     std::unique_ptr<ScanResult> result;
     try {
         result = runScanWithProgress(
-            [&] { return scanner_.nextScan(*process_, config, *lastResult_); });
+            [&] { return scanner_->nextScan(*process_, config, *lastResult_); });
     } catch (const std::exception& e) {
         // Guard the same way as onFirstScan: a bad_alloc (or a rejected
         // next-scan, e.g. a changed value-size stride) must not terminate.
@@ -3626,7 +3749,13 @@ public:
 }
 
 void MainWindow::onSaveTable() {
-    auto path=QFileDialog::getSaveFileName(this,"Save Cheat Table","",
+    // A deleted file is simply written again; saveTableToPath reports real errors.
+    if (!currentTablePath_.isEmpty()) saveTableToPath(currentTablePath_);
+    else onSaveTableAs();
+}
+
+void MainWindow::onSaveTableAs() {
+    auto path=QFileDialog::getSaveFileName(this,"Save Cheat Table",currentTablePath_,
         "Cheat Tables (*.ct);;JSON Tables (*.json);;All Files (*)");
     if (!path.isEmpty()) saveTableToPath(path);
 }
@@ -3794,6 +3923,20 @@ void MainWindow::addRecentTable(const QString& path) {
     while (recent.size() > 10) recent.removeLast();
     s.setValue("recentTables", recent);
     rebuildRecentMenu();
+    // Every successful load and save lands here: that file is now the table's own,
+    // so File > Save writes back to it and the title names it.
+    currentTablePath_ = abs;
+    updateWindowTitle();
+}
+
+// "Cheat Engine - Game (1234) - table.ct": the process, then the table's file.
+void MainWindow::updateWindowTitle() {
+    QString title = "Cheat Engine";
+    if (process_ && !currentProcessName_.isEmpty())
+        title += currentPid_ > 0 ? QString(" - %1 (%2)").arg(currentProcessName_).arg(currentPid_)
+                                 : " - " + currentProcessName_;
+    if (!currentTablePath_.isEmpty()) title += " - " + QFileInfo(currentTablePath_).fileName();
+    setWindowTitle(title);
 }
 
 void MainWindow::rebuildRecentMenu() {
@@ -3840,7 +3983,6 @@ void MainWindow::loadTableFromPath(const QString& path) {
         }
         if (!loadCheatTableModel(table)) return;
         addRecentTable(path);
-        setWindowTitle(QString("Cheat Engine - %1").arg(QFileInfo(path).fileName()));
         return;
     }
     if (fmt != ce::TableFormat::Json) {
@@ -3869,7 +4011,6 @@ void MainWindow::loadTableFromPath(const QString& path) {
         if (!loadCheatTableModel(parsed,&original)) return;
         addRecentTable(path);
     }
-    setWindowTitle(QString("Cheat Engine - %1").arg(QFileInfo(path).fileName()));
   } catch (const std::exception& ex) {
     // A parse/load path (e.g. ct_file) may throw; never let it escape the slot
     // into std::terminate.
@@ -4232,6 +4373,11 @@ QDialog* MainWindow::openSettingsDialog(const QString& page) {
     auto* dlg = new SettingsDialog(this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     connect(dlg, &SettingsDialog::settingsApplied, this, [this]() {
+        // A scan blocks user input, so Apply can't land mid-scan; the scanner is idle.
+        if (int threads = QSettings().value("scan/threads", 0).toInt(); threads != scannerThreads_) {
+            scannerThreads_ = threads;
+            scanner_ = std::make_unique<MemoryScanner>(threads);
+        }
         if (valueRefreshTimer_)
             valueRefreshTimer_->start(QSettings().value("memview/refreshMs", 500).toInt());
         const QFont font = settingsMonospaceFont();
@@ -4424,8 +4570,13 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
         });
     }
 
-    // Analysis tools (shared with the main window Tools menu).
+    // Analysis tools (shared with the main window Tools menu). The viewer already
+    // has address-aware Auto Assemble and Dissect entries, so drop the generic copies.
+    tools->addSeparator();
     addAnalysisToolsMenu(tools);
+    for (QAction* action : tools->actions())
+        if (action->text() == "Auto Assemble" || action->text() == "Dissect data/structures")
+            tools->removeAction(action);
     (void)needProc;
 }
 

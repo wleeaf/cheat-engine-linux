@@ -111,7 +111,7 @@ static bool guiScanFormatChecks(const QString& screenshot = {}) {
                 box->accept();
             }
         });
-        choose.start();QMetaObject::invokeMethod(&main,"onSaveTable",Qt::DirectConnection);choose.stop();
+        choose.start();QMetaObject::invokeMethod(&main,"onSaveTableAs",Qt::DirectConnection);choose.stop();
         std::printf("GUI scan-format stage: save %s action returned\n",extension);
         ce::CheatTable table;bool read=table.loadAuto(path.toStdString());
         std::printf("GUI scan-format stage: load saved %s returned\n",extension);

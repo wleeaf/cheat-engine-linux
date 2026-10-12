@@ -1,5 +1,5 @@
-/// Tabbed settings dialog. All values persist via QSettings — runtime consumers
-/// read them lazily; absence of a key falls back to the same defaults seen here.
+/// Settings dialog. All values persist via QSettings; runtime consumers read them
+/// lazily, and an absent key falls back to the same defaults seen here.
 
 #include "gui/settingsdialog.hpp"
 #include "gui/theme.hpp"
@@ -8,13 +8,16 @@
 #include <QFormLayout>
 #include <QLabel>
 #include <QPushButton>
-#include <QTabWidget>
 #include <QListWidget>
 #include <QStackedWidget>
 #include <QSettings>
-#include <QHeaderView>
 #include <QScrollArea>
 #include <QFontMetrics>
+#include <QDoubleValidator>
+#include <QStandardPaths>
+#include <QDesktopServices>
+#include <QDir>
+#include <QUrl>
 
 namespace ce::gui {
 
@@ -31,379 +34,332 @@ constexpr const char* DISP_HEX_UPPER_KEY    = "display/hexUpper";
 constexpr const char* DISP_FONT_SIZE_KEY    = "display/fontSize";
 constexpr const char* DISP_FONT_FAMILY_KEY  = "display/fontFamily";
 constexpr const char* DISP_ADDR_WIDTH_KEY   = "display/addressWidth";
-constexpr const char* DISP_DARK_KEY         = "display/dark";
-
-constexpr const char* DBG_BP_TYPE_KEY       = "debug/bpType";
-constexpr const char* DBG_BP_SIZE_KEY       = "debug/bpSize";
-constexpr const char* DBG_ATTACH_DELAY_KEY  = "debug/attachDelayMs";
-constexpr const char* DBG_COND_TIMEOUT_KEY  = "debug/conditionTimeoutMs";
-constexpr const char* DBG_BREAK_SIGNALS_KEY = "debug/breakOnSignals";
 
 constexpr const char* MV_BYTES_PER_ROW_KEY  = "memview/bytesPerRow";
 constexpr const char* MV_REFRESH_MS_KEY     = "memview/refreshMs";
 constexpr const char* MV_AUTO_REFRESH_KEY   = "memview/autoRefresh";
-constexpr const char* MV_DEFAULT_ARCH_KEY   = "memview/defaultArch";
+
+constexpr const char* DBG_BP_SIZE_KEY       = "debug/bpSize";
+constexpr const char* CF_WATCH_SIZE_KEY     = "codefinder/watchSize";
 
 constexpr const char* HK_VALUE_STEP_KEY     = "hotkeys/valueStep";
 
 constexpr const char* NET_CESERVER_HOST_KEY = "network/ceserverHost";
 constexpr const char* NET_CESERVER_PORT_KEY = "network/ceserverPort";
-constexpr const char* NET_COMPRESSION_KEY   = "network/compressionLevel";
-constexpr const char* NET_GDB_PORT_KEY      = "network/gdbDefaultPort";
+
+// Fields sized for their content instead of stretching across the page.
+constexpr int kFieldWidth = 260;
+
+// A page: bold title, one-line explanation, a hairline, then a form.
+QFormLayout* makePage(QWidget* page, const QString& title, const QString& subtitle) {
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(4, 2, 8, 8);
+    layout->setSpacing(4);
+    auto* heading = new QLabel(title);
+    heading->setObjectName("pageTitle");
+    layout->addWidget(heading);
+    auto* note = new QLabel(subtitle);
+    note->setProperty("secondary", true);
+    note->setWordWrap(true);
+    layout->addWidget(note);
+    auto* line = new QFrame;
+    line->setObjectName("hairline");
+    layout->addSpacing(6);
+    layout->addWidget(line);
+    layout->addSpacing(8);
+    auto* form = new QFormLayout;
+    form->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    form->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
+    form->setHorizontalSpacing(16);
+    form->setVerticalSpacing(10);
+    layout->addLayout(form);
+    layout->addStretch(1);
+    return form;
 }
+
+template <typename W> W* sized(W* widget) {
+    widget->setMinimumWidth(kFieldWidth);
+    widget->setMaximumWidth(kFieldWidth);
+    return widget;
+}
+
+QLabel* hint(const QString& text) {
+    auto* label = new QLabel(text);
+    label->setProperty("secondary", true);
+    label->setWordWrap(true);
+    // A wrapped label's size hint is narrow; give it the field width and more.
+    label->setMinimumWidth(kFieldWidth + 60);
+    return label;
+}
+
+QComboBox* sizeCombo(const QString& current) {
+    auto* combo = new QComboBox;
+    for (const char* size : {"1", "2", "4", "8"})
+        combo->addItem(QString("%1 %2").arg(size).arg(QString(size) == "1" ? "byte" : "bytes"), QString(size));
+    combo->setCurrentIndex(std::max(0, combo->findData(current)));
+    return sized(combo);
+}
+} // namespace
 
 SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     setWindowTitle("Settings");
-    resize(720, 520);
+    resize(760, 520);
 
     auto* root = new QVBoxLayout(this);
+    root->setSpacing(12);
 
-    // Vertical category sidebar instead of an overflowing horizontal tab bar: every
-    // page name is visible at once, with normal (unrotated) horizontal text.
+    // Vertical category sidebar: every page name is visible at once.
     auto* nav = new QListWidget;
     nav->setObjectName("settingsNav");
-    nav->setFixedWidth(std::max(150, QFontMetrics(nav->font()).horizontalAdvance("Unrandomizer") + 30));
+    nav->setFixedWidth(std::max(160, QFontMetrics(nav->font()).horizontalAdvance("Memory View") + 48));
     nav->setUniformItemSizes(true);
     nav->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    nav->setFrameShape(QFrame::NoFrame);
-    nav->setStyleSheet("QListWidget::item { padding: 5px 8px; }");
+    nav->setStyleSheet("QListWidget#settingsNav { padding: 4px; }"
+                       "QListWidget#settingsNav::item { padding: 6px 10px; border-radius: 4px; }");
     auto* pages = new QStackedWidget;
     auto addPage = [&](QWidget* w, const QString& name) {
-        if (auto* form = qobject_cast<QFormLayout*>(w->layout())) {
-            form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
-            form->setRowWrapPolicy(QFormLayout::WrapLongRows);
-        }
         auto* scroll = new QScrollArea;
         scroll->setWidgetResizable(true);
         scroll->setFrameShape(QFrame::NoFrame);
+        scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         scroll->setWidget(w);
         nav->addItem(name);
         pages->addWidget(scroll);
     };
-    addPage(buildScanTab(),       "Scan");
-    addPage(buildDisplayTab(),    "Display");
-    addPage(buildDebuggerTab(),   "Debugger");
-    addPage(buildMemoryViewTab(), "Memory View");
-    addPage(buildHotkeysTab(),    "Hotkeys");
-    addPage(buildNetworkTab(),    "Network");
-
-    // Additional CE setting tabs stage edits until Apply or OK is selected.
-    {
-        QSettings st;
-        auto* sym = new QWidget; auto* sf = new QFormLayout(sym);
-        auto* demangle = new QCheckBox("Demangle C++ symbol names");
-        demangle->setChecked(st.value("symbols/demangle", true).toBool());
-        connect(demangle, &QCheckBox::toggled, this, [this](bool v){ pendingSettings_["symbols/demangle"] = v; });
-        sf->addRow("", demangle);
-        auto* dwarf = new QCheckBox("Load DWARF debug info when available");
-        dwarf->setChecked(st.value("symbols/dwarf", true).toBool());
-        connect(dwarf, &QCheckBox::toggled, this, [this](bool v){ pendingSettings_["symbols/dwarf"] = v; });
-        sf->addRow("", dwarf);
-        addPage(sym, "Symbols");
-
-        auto* cf = new QWidget; auto* cff = new QFormLayout(cf);
-        auto* watch = new QComboBox; watch->addItems({"1", "2", "4", "8"});
-        watch->setCurrentText(st.value("codefinder/watchSize", "4").toString());
-        connect(watch, &QComboBox::currentTextChanged, this, [this](const QString& v){ pendingSettings_["codefinder/watchSize"] = v; });
-        cff->addRow("Default watch size (bytes):", watch);
-        addPage(cf, "CodeFinder");
-
-        auto* lua = new QWidget; auto* lf = new QFormLayout(lua);
-        auto* luaWarn = new QLabel(
-            "Unsafe Lua functions (shellExecute, write*Local) are disabled unless "
-            "the environment variable CECORE_LUA_ALLOW_UNSAFE=1 is set out-of-band, "
-            "so a loaded cheat table's Lua cannot enable them itself.");
-        luaWarn->setWordWrap(true);
-        lf->addRow(luaWarn);
-        addPage(lua, "Lua");
-
-        // Remaining CE tabs (formsettingsunit) — tab-structure parity. A couple carry
-        // real controls; the platform-gated ones (Unrandomizer/Signing are Windows
-        // crypto/ASLR) carry an explanatory note.
-        auto noteTab = [&](const QString& name, const QString& text) {
-            auto* w = new QWidget; auto* f = new QFormLayout(w);
-            auto* l = new QLabel(text); l->setWordWrap(true); f->addRow(l);
-            addPage(w, name);
-        };
-        noteTab("Unrandomizer", "ASLR unrandomizer (Windows-only in CE). On Linux, "
-                                "disable ASLR per-launch with: setarch $(uname -m) -R <program>.");
-        {
-            auto* pl = new QWidget; auto* pf = new QFormLayout(pl);
-            auto* pnote = new QLabel("Native plugins (.so) load from the app directory. "
-                                     "The Lua plugin API is available from the Lua console.");
-            pnote->setWordWrap(true); pf->addRow(pnote);
-            addPage(pl, "Plugins");
-        }
-        {
-            auto* lg = new QWidget; auto* lgf = new QFormLayout(lg);
-            auto* langCombo = new QComboBox; langCombo->addItems({"System default", "English"});
-            langCombo->setCurrentText(st.value("ui/language", "System default").toString());
-            connect(langCombo, &QComboBox::currentTextChanged, this,
-                    [this](const QString& v){ pendingSettings_["ui/language"] = v; });
-            lgf->addRow("Language:", langCombo);
-            auto* note = new QLabel("Translations ship as translations/cheatengine_<locale>.qm; "
-                                    "restart to apply.");
-            note->setWordWrap(true); lgf->addRow(note);
-            addPage(lg, "Languages");
-        }
-        noteTab("Extra", "Miscellaneous options.");
-        noteTab("Tools", "External tool integration (disassembler/hex editor paths).");
-        noteTab("Signing", "Cheat-table signing (Windows crypto in CE). Not applicable on Linux.");
-    }
+    addPage(buildScanPage(),       "Scan");
+    addPage(buildDisplayPage(),    "Display");
+    addPage(buildMemoryViewPage(), "Memory View");
+    addPage(buildDebuggerPage(),   "Debugger");
+    addPage(buildHotkeysPage(),    "Hotkeys");
+    addPage(buildNetworkPage(),    "Network");
+    addPage(buildLuaPage(),        "Lua");
 
     connect(nav, &QListWidget::currentRowChanged, pages, &QStackedWidget::setCurrentIndex);
     nav->setCurrentRow(0);
 
     auto* body = new QHBoxLayout;
-    body->setSpacing(12);
+    body->setSpacing(16);
     body->addWidget(nav);
     body->addWidget(pages, 1);
-    root->addLayout(body);
+    root->addLayout(body, 1);
 
     auto* btnRow = new QHBoxLayout;
     btnRow->addStretch();
-    auto* applyBtn = new QPushButton("Apply");
-    connect(applyBtn, &QPushButton::clicked, this, &SettingsDialog::onApply);
     auto* okBtn = new QPushButton("OK");
+    okBtn->setObjectName("primaryButton");
     okBtn->setDefault(true);
     connect(okBtn, &QPushButton::clicked, this, [this]() { onApply(); accept(); });
     auto* cancelBtn = new QPushButton("Cancel");
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
-    btnRow->addWidget(applyBtn);
-    btnRow->addWidget(okBtn);
-    btnRow->addWidget(cancelBtn);
+    auto* applyBtn = new QPushButton("Apply");
+    connect(applyBtn, &QPushButton::clicked, this, &SettingsDialog::onApply);
+    for (auto* button : {okBtn, cancelBtn, applyBtn}) {
+        button->setMinimumWidth(84);
+        btnRow->addWidget(button);
+    }
     root->addLayout(btnRow);
 }
 
-QWidget* SettingsDialog::buildScanTab() {
+QWidget* SettingsDialog::buildScanPage() {
     auto* w = new QWidget;
-    auto* form = new QFormLayout(w);
-
+    auto* form = makePage(w, "Scan", "Defaults for a new scan. The main window's scan options start from these.");
     QSettings s;
-    alignSpin_ = new QSpinBox;
-    alignSpin_->setRange(1, 16);
-    alignSpin_->setValue(s.value(SCAN_ALIGN_KEY, 4).toInt());
-    form->addRow("Default alignment:", alignSpin_);
 
-    writableCheck_ = new QCheckBox("Scan writable memory only by default");
-    writableCheck_->setChecked(s.value(SCAN_WRITABLE_KEY, true).toBool());
-    form->addRow("", writableCheck_);
-
-    executableCheck_ = new QCheckBox("Scan executable memory only by default");
-    executableCheck_->setChecked(s.value(SCAN_EXEC_KEY, false).toBool());
-    form->addRow("", executableCheck_);
-
-    fastScanCheck_ = new QCheckBox("Fast scan (alignment-aware)");
-    fastScanCheck_->setChecked(s.value(SCAN_FAST_KEY, true).toBool());
-    form->addRow("", fastScanCheck_);
-
-    threadsSpin_ = new QSpinBox;
-    threadsSpin_->setRange(1, 256);
-    threadsSpin_->setValue(s.value(SCAN_THREADS_KEY, 0).toInt());
-    threadsSpin_->setSpecialValueText("auto");
-    form->addRow("Worker threads:", threadsSpin_);
-
-    defaultValueTypeCombo_ = new QComboBox;
+    defaultValueTypeCombo_ = sized(new QComboBox);
     defaultValueTypeCombo_->addItems({"Byte", "2 Bytes", "4 Bytes", "8 Bytes",
                                       "Float", "Double", "String", "Array of byte", "Pointer"});
     defaultValueTypeCombo_->setCurrentIndex(s.value(SCAN_DEFAULT_VT_KEY, 2).toInt());
-    form->addRow("Default value type:", defaultValueTypeCombo_);
+    form->addRow("Value type:", defaultValueTypeCombo_);
 
-    defaultFloatToleranceSpin_ = new QDoubleSpinBox;
+    alignSpin_ = sized(new QSpinBox);
+    alignSpin_->setRange(1, 16);
+    alignSpin_->setSuffix(" bytes");
+    alignSpin_->setValue(s.value(SCAN_ALIGN_KEY, 4).toInt());
+    form->addRow("Fast scan alignment:", alignSpin_);
+
+    fastScanCheck_ = new QCheckBox("Fast scan (only aligned addresses)");
+    fastScanCheck_->setChecked(s.value(SCAN_FAST_KEY, true).toBool());
+    form->addRow("", fastScanCheck_);
+    writableCheck_ = new QCheckBox("Only writable memory");
+    writableCheck_->setChecked(s.value(SCAN_WRITABLE_KEY, true).toBool());
+    form->addRow("", writableCheck_);
+    executableCheck_ = new QCheckBox("Only executable memory");
+    executableCheck_->setChecked(s.value(SCAN_EXEC_KEY, false).toBool());
+    form->addRow("", executableCheck_);
+
+    threadsSpin_ = sized(new QSpinBox);
+    threadsSpin_->setRange(0, 256);
+    threadsSpin_->setSpecialValueText("Automatic (one per CPU)");
+    threadsSpin_->setValue(s.value(SCAN_THREADS_KEY, 0).toInt());
+    form->addRow("Worker threads:", threadsSpin_);
+
+    defaultFloatToleranceSpin_ = sized(new QDoubleSpinBox);
     defaultFloatToleranceSpin_->setRange(0.0, 1e9);
     defaultFloatToleranceSpin_->setDecimals(6);
+    defaultFloatToleranceSpin_->setSpecialValueText("Automatic");
     defaultFloatToleranceSpin_->setValue(s.value(SCAN_FLOAT_TOL_KEY, 0.0).toDouble());
-    form->addRow("Default float tolerance:", defaultFloatToleranceSpin_);
-
+    form->addRow("Float tolerance:", defaultFloatToleranceSpin_);
+    form->addRow("", hint("Used by the \"Extreme\" float rounding mode."));
     return w;
 }
 
-QWidget* SettingsDialog::buildDisplayTab() {
+QWidget* SettingsDialog::buildDisplayPage() {
     auto* w = new QWidget;
-    auto* form = new QFormLayout(w);
-
+    auto* form = makePage(w, "Display", "Theme and the font used by tables, the disassembler and hex views.");
     QSettings s;
-    hexUpperCheck_ = new QCheckBox("Uppercase hex");
-    hexUpperCheck_->setChecked(s.value(DISP_HEX_UPPER_KEY, false).toBool());
-    form->addRow("", hexUpperCheck_);
 
-    fontFamilyCombo_ = new QFontComboBox;
+    themeCombo_ = sized(new QComboBox);
+    themeCombo_->setObjectName("displayTheme");
+    themeCombo_->addItems({"Light", "Dark"});
+    themeCombo_->setCurrentIndex(isDarkTheme() ? 1 : 0);
+    form->addRow("Theme:", themeCombo_);
+
+    fontFamilyCombo_ = sized(new QFontComboBox);
     fontFamilyCombo_->setFontFilters(QFontComboBox::MonospacedFonts);
     fontFamilyCombo_->setCurrentFont(QFont(s.value(DISP_FONT_FAMILY_KEY, "Monospace").toString()));
     form->addRow("Monospace font:", fontFamilyCombo_);
 
-    fontSizeSpin_ = new QSpinBox;
+    fontSizeSpin_ = sized(new QSpinBox);
     fontSizeSpin_->setObjectName("displayFontSize");
     fontSizeSpin_->setRange(7, 24);
+    fontSizeSpin_->setSuffix(" pt");
     fontSizeSpin_->setValue(s.value(DISP_FONT_SIZE_KEY, 10).toInt());
     form->addRow("Font size:", fontSizeSpin_);
 
-    addressWidthCombo_ = new QComboBox;
-    addressWidthCombo_->addItems({"32-bit (8 hex chars)", "64-bit (16 hex chars)"});
+    addressWidthCombo_ = sized(new QComboBox);
+    addressWidthCombo_->addItems({"32-bit (8 hex digits)", "64-bit (16 hex digits)"});
     addressWidthCombo_->setCurrentIndex(s.value(DISP_ADDR_WIDTH_KEY, 1).toInt());
     form->addRow("Address width:", addressWidthCombo_);
 
-    darkThemeCheck_ = new QCheckBox("Dark theme (Catppuccin)");
-    // Default LIGHT (false) to match main.cpp / applyStoredTheme, so the checkbox
-    // reflects the theme actually in effect on first run.
-    darkThemeCheck_->setChecked(s.value(DISP_DARK_KEY, false).toBool());
-    form->addRow("", darkThemeCheck_);
-
+    hexUpperCheck_ = new QCheckBox("Uppercase hexadecimal (0x7F3A, not 0x7f3a)");
+    hexUpperCheck_->setChecked(s.value(DISP_HEX_UPPER_KEY, false).toBool());
+    form->addRow("", hexUpperCheck_);
     return w;
 }
 
-QWidget* SettingsDialog::buildDebuggerTab() {
+QWidget* SettingsDialog::buildMemoryViewPage() {
     auto* w = new QWidget;
-    auto* form = new QFormLayout(w);
-
+    auto* form = makePage(w, "Memory View", "Layout and refresh of the hex dump in the Memory Viewer.");
     QSettings s;
-    bpTypeCombo_ = new QComboBox;
-    bpTypeCombo_->addItems({"Hardware (DR0-3)", "Software (int3)"});
-    bpTypeCombo_->setCurrentIndex(s.value(DBG_BP_TYPE_KEY, 0).toInt());
-    form->addRow("Default breakpoint type:", bpTypeCombo_);
 
-    bpSizeSpin_ = new QSpinBox;
-    bpSizeSpin_->setRange(1, 8);
-    bpSizeSpin_->setValue(s.value(DBG_BP_SIZE_KEY, 4).toInt());
-    form->addRow("Default data BP size (bytes):", bpSizeSpin_);
-
-    attachDelaySpin_ = new QSpinBox;
-    attachDelaySpin_->setRange(0, 5000);
-    attachDelaySpin_->setValue(s.value(DBG_ATTACH_DELAY_KEY, 100).toInt());
-    attachDelaySpin_->setSuffix(" ms");
-    form->addRow("ptrace attach settle delay:", attachDelaySpin_);
-
-    conditionTimeoutSpin_ = new QSpinBox;
-    conditionTimeoutSpin_->setRange(1, 60'000);
-    conditionTimeoutSpin_->setValue(s.value(DBG_COND_TIMEOUT_KEY, 1000).toInt());
-    conditionTimeoutSpin_->setSuffix(" ms");
-    form->addRow("Lua condition eval timeout:", conditionTimeoutSpin_);
-
-    breakOnSignalsCheck_ = new QCheckBox("Break on SIGSEGV / SIGFPE / SIGILL");
-    breakOnSignalsCheck_->setChecked(s.value(DBG_BREAK_SIGNALS_KEY, true).toBool());
-    form->addRow("", breakOnSignalsCheck_);
-
-    return w;
-}
-
-QWidget* SettingsDialog::buildMemoryViewTab() {
-    auto* w = new QWidget;
-    auto* form = new QFormLayout(w);
-
-    QSettings s;
-    bytesPerRowSpin_ = new QSpinBox;
+    bytesPerRowSpin_ = sized(new QSpinBox);
     bytesPerRowSpin_->setRange(4, 64);
     bytesPerRowSpin_->setSingleStep(4);
     bytesPerRowSpin_->setValue(s.value(MV_BYTES_PER_ROW_KEY, 16).toInt());
-    form->addRow("Hex bytes per row:", bytesPerRowSpin_);
+    form->addRow("Bytes per row:", bytesPerRowSpin_);
 
-    refreshIntervalSpin_ = new QSpinBox;
-    refreshIntervalSpin_->setRange(100, 30'000);
-    refreshIntervalSpin_->setSingleStep(100);
-    refreshIntervalSpin_->setValue(s.value(MV_REFRESH_MS_KEY, 500).toInt());
-    refreshIntervalSpin_->setSuffix(" ms");
-    form->addRow("Auto-refresh interval:", refreshIntervalSpin_);
-
-    autoRefreshCheck_ = new QCheckBox("Auto-refresh memory view");
+    autoRefreshCheck_ = new QCheckBox("Refresh values while the view is open");
     autoRefreshCheck_->setChecked(s.value(MV_AUTO_REFRESH_KEY, true).toBool());
     form->addRow("", autoRefreshCheck_);
 
-    defaultArchCombo_ = new QComboBox;
-    defaultArchCombo_->addItems({"x86-64", "x86-32", "ARM64", "ARM32", "Auto-detect"});
-    defaultArchCombo_->setCurrentIndex(s.value(MV_DEFAULT_ARCH_KEY, 0).toInt());
-    form->addRow("Default architecture:", defaultArchCombo_);
-
+    refreshIntervalSpin_ = sized(new QSpinBox);
+    refreshIntervalSpin_->setRange(100, 30'000);
+    refreshIntervalSpin_->setSingleStep(100);
+    refreshIntervalSpin_->setSuffix(" ms");
+    refreshIntervalSpin_->setValue(s.value(MV_REFRESH_MS_KEY, 500).toInt());
+    refreshIntervalSpin_->setEnabled(autoRefreshCheck_->isChecked());
+    connect(autoRefreshCheck_, &QCheckBox::toggled, refreshIntervalSpin_, &QWidget::setEnabled);
+    form->addRow("Refresh interval:", refreshIntervalSpin_);
+    form->addRow("", hint("The address list's live values use the same interval."));
     return w;
 }
 
-QWidget* SettingsDialog::buildHotkeysTab() {
+QWidget* SettingsDialog::buildDebuggerPage() {
     auto* w = new QWidget;
-    auto* layout = new QVBoxLayout(w);
-
-    layout->addWidget(new QLabel(
-        "Per-table hotkeys are configured from the Address List right-click menu.\n"
-        "These are global default values used when adding new entries."));
-
+    auto* form = makePage(w, "Debugger", "Defaults for hardware watchpoints.");
     QSettings s;
-    hotkeyTable_ = new QTableWidget;
-    hotkeyTable_->setColumnCount(2);
-    hotkeyTable_->setHorizontalHeaderLabels({"Setting", "Value"});
-    hotkeyTable_->horizontalHeader()->setStretchLastSection(true);
-    hotkeyTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    hotkeyTable_->setRowCount(1);
-    hotkeyTable_->setItem(0, 0, new QTableWidgetItem("Default value step"));
-    hotkeyTable_->setItem(0, 1, new QTableWidgetItem(s.value(HK_VALUE_STEP_KEY, "1").toString()));
-    layout->addWidget(hotkeyTable_, /*stretch=*/1);
 
+    dataBpSizeCombo_ = sizeCombo(s.value(DBG_BP_SIZE_KEY, "4").toString());
+    form->addRow("Data breakpoint size:", dataBpSizeCombo_);
+    watchSizeCombo_ = sizeCombo(s.value(CF_WATCH_SIZE_KEY, "4").toString());
+    form->addRow("Find-what-writes size:", watchSizeCombo_);
+    form->addRow("", hint("How many bytes from the address a watchpoint covers. "
+                          "x86 watchpoints must be aligned to their size."));
     return w;
 }
 
-QWidget* SettingsDialog::buildNetworkTab() {
+QWidget* SettingsDialog::buildHotkeysPage() {
     auto* w = new QWidget;
-    auto* form = new QFormLayout(w);
-
+    auto* form = makePage(w, "Hotkeys", "Hotkeys belong to cheat table entries: right-click an entry and "
+                                        "choose Configure Hotkey or Configure Value Hotkeys.");
     QSettings s;
-    ceserverHostEdit_ = new QLineEdit;
-    ceserverHostEdit_->setText(s.value(NET_CESERVER_HOST_KEY, "127.0.0.1").toString());
+    valueStepEdit_ = sized(new QLineEdit(s.value(HK_VALUE_STEP_KEY, "1").toString()));
+    valueStepEdit_->setValidator(new QDoubleValidator(valueStepEdit_));
+    form->addRow("Default value step:", valueStepEdit_);
+    form->addRow("", hint("How much an increase or decrease hotkey changes a value, "
+                          "until the entry sets its own step."));
+    return w;
+}
+
+QWidget* SettingsDialog::buildNetworkPage() {
+    auto* w = new QWidget;
+    auto* form = makePage(w, "Network", "The ceserver that File > Connect to ceserver offers by default.");
+    QSettings s;
+    ceserverHostEdit_ = sized(new QLineEdit(s.value(NET_CESERVER_HOST_KEY, "127.0.0.1").toString()));
+    ceserverHostEdit_->setPlaceholderText("host name or IP address");
     form->addRow("ceserver host:", ceserverHostEdit_);
-
-    ceserverPortSpin_ = new QSpinBox;
+    ceserverPortSpin_ = sized(new QSpinBox);
     ceserverPortSpin_->setRange(1, 65535);
+    ceserverPortSpin_->setGroupSeparatorShown(false);
     ceserverPortSpin_->setValue(s.value(NET_CESERVER_PORT_KEY, 52736).toInt());
     form->addRow("ceserver port:", ceserverPortSpin_);
+    return w;
+}
 
-    compressionLevelSpin_ = new QSpinBox;
-    compressionLevelSpin_->setRange(0, 9);
-    compressionLevelSpin_->setValue(s.value(NET_COMPRESSION_KEY, 6).toInt());
-    form->addRow("zlib compression level:", compressionLevelSpin_);
-
-    gdbDefaultPortSpin_ = new QSpinBox;
-    gdbDefaultPortSpin_->setRange(1, 65535);
-    gdbDefaultPortSpin_->setValue(s.value(NET_GDB_PORT_KEY, 1234).toInt());
-    form->addRow("Default GDB stub port:", gdbDefaultPortSpin_);
-
+QWidget* SettingsDialog::buildLuaPage() {
+    auto* w = new QWidget;
+    auto* form = makePage(w, "Lua", "Scripts in the autorun folder run once at startup, like Cheat Engine's autorun.");
+    const QString folder = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation) + "/autorun";
+    auto* path = new QLineEdit(QDir::toNativeSeparators(folder));
+    path->setReadOnly(true);
+    path->setMinimumWidth(kFieldWidth);
+    auto* open = new QPushButton("Open folder");
+    connect(open, &QPushButton::clicked, this, [folder]() {
+        QDir().mkpath(folder);
+        QDesktopServices::openUrl(QUrl::fromLocalFile(folder));
+    });
+    auto* row = new QHBoxLayout;
+    row->addWidget(path, 1);
+    row->addWidget(open);
+    form->addRow("Autorun folder:", row);
+    form->addRow("", hint("Lua cannot run shell commands or write local files unless Cheat Engine "
+                          "was started with CECORE_LUA_ALLOW_UNSAFE=1 in its environment. A cheat "
+                          "table cannot turn this on by itself."));
+    form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     return w;
 }
 
 void SettingsDialog::onApply() {
-    for (auto it = pendingSettings_.cbegin(); it != pendingSettings_.cend(); ++it)
-        QSettings().setValue(it.key(), it.value());
-    pendingSettings_.clear();
     QSettings s;
+    s.setValue(SCAN_DEFAULT_VT_KEY,   defaultValueTypeCombo_->currentIndex());
     s.setValue(SCAN_ALIGN_KEY,        alignSpin_->value());
+    s.setValue(SCAN_FAST_KEY,         fastScanCheck_->isChecked());
     s.setValue(SCAN_WRITABLE_KEY,     writableCheck_->isChecked());
     s.setValue(SCAN_EXEC_KEY,         executableCheck_->isChecked());
-    s.setValue(SCAN_FAST_KEY,         fastScanCheck_->isChecked());
     s.setValue(SCAN_THREADS_KEY,      threadsSpin_->value());
-    s.setValue(SCAN_DEFAULT_VT_KEY,   defaultValueTypeCombo_->currentIndex());
     s.setValue(SCAN_FLOAT_TOL_KEY,    defaultFloatToleranceSpin_->value());
 
-    s.setValue(DISP_HEX_UPPER_KEY,    hexUpperCheck_->isChecked());
-    s.setValue(DISP_FONT_SIZE_KEY,    fontSizeSpin_->value());
     s.setValue(DISP_FONT_FAMILY_KEY,  fontFamilyCombo_->currentFont().family());
+    s.setValue(DISP_FONT_SIZE_KEY,    fontSizeSpin_->value());
     s.setValue(DISP_ADDR_WIDTH_KEY,   addressWidthCombo_->currentIndex());
-    s.setValue(DISP_DARK_KEY,         darkThemeCheck_->isChecked());
-    // Apply the theme live so toggling it takes effect immediately (no restart).
-    applyTheme(darkThemeCheck_->isChecked());
-
-    s.setValue(DBG_BP_TYPE_KEY,       bpTypeCombo_->currentIndex());
-    s.setValue(DBG_BP_SIZE_KEY,       bpSizeSpin_->value());
-    s.setValue(DBG_ATTACH_DELAY_KEY,  attachDelaySpin_->value());
-    s.setValue(DBG_COND_TIMEOUT_KEY,  conditionTimeoutSpin_->value());
-    s.setValue(DBG_BREAK_SIGNALS_KEY, breakOnSignalsCheck_->isChecked());
+    s.setValue(DISP_HEX_UPPER_KEY,    hexUpperCheck_->isChecked());
+    const bool dark = themeCombo_->currentIndex() == 1;
+    s.setValue(kDarkThemeKey, dark);
+    // Re-apply the theme live: a theme change takes effect immediately, and the
+    // sheet also carries the data tables' monospace font.
+    applyTheme(dark);
 
     s.setValue(MV_BYTES_PER_ROW_KEY,  bytesPerRowSpin_->value());
-    s.setValue(MV_REFRESH_MS_KEY,     refreshIntervalSpin_->value());
     s.setValue(MV_AUTO_REFRESH_KEY,   autoRefreshCheck_->isChecked());
-    s.setValue(MV_DEFAULT_ARCH_KEY,   defaultArchCombo_->currentIndex());
+    s.setValue(MV_REFRESH_MS_KEY,     refreshIntervalSpin_->value());
 
-    if (auto* item = hotkeyTable_->item(0, 1))
-        s.setValue(HK_VALUE_STEP_KEY, item->text());
+    s.setValue(DBG_BP_SIZE_KEY,       dataBpSizeCombo_->currentData().toString());
+    s.setValue(CF_WATCH_SIZE_KEY,     watchSizeCombo_->currentData().toString());
 
-    s.setValue(NET_CESERVER_HOST_KEY, ceserverHostEdit_->text());
+    s.setValue(HK_VALUE_STEP_KEY,     valueStepEdit_->text().trimmed().isEmpty() ? "1" : valueStepEdit_->text().trimmed());
+
+    s.setValue(NET_CESERVER_HOST_KEY, ceserverHostEdit_->text().trimmed());
     s.setValue(NET_CESERVER_PORT_KEY, ceserverPortSpin_->value());
-    s.setValue(NET_COMPRESSION_KEY,   compressionLevelSpin_->value());
-    s.setValue(NET_GDB_PORT_KEY,      gdbDefaultPortSpin_->value());
     emit settingsApplied();
 }
 

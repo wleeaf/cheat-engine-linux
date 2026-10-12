@@ -1,4 +1,6 @@
 #include "gui/modulelist.hpp"
+#include "gui/theme.hpp"
+#include <QLineEdit>
 
 #include <QFont>
 #include <QHeaderView>
@@ -23,15 +25,15 @@ ModuleListWindow::ModuleListWindow(ProcessHandle* proc, QWidget* parent)
     hh->setStretchLastSection(true);
     for (int c = 0; c < 3; ++c)
         hh->setSectionResizeMode(c, QHeaderView::ResizeToContents);
-    table_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table_->setFont(QFont("Monospace", 9));
+    styleDataTable(table_);
+    table_->setToolTip("Double-click a module to browse its base address");
     connect(table_, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
         bool ok = false;
         auto addr = table_->item(row, 0)->text().toULongLong(&ok, 16);
         if (ok) emit navigateTo(addr);
     });
 
+    layout->addWidget(makeTableFilter(table_, "Filter by name or path"));
     layout->addWidget(table_);
     setCentralWidget(central);
     populate();
@@ -45,12 +47,14 @@ void ModuleListWindow::populate() {
     for (int i = 0; i < (int)modules.size(); ++i) {
         const auto& module = modules[i];
         table_->setItem(i, 0, new QTableWidgetItem(QString("%1").arg(module.base, 16, 16, QChar('0'))));
-        table_->setItem(i, 1, new QTableWidgetItem(QString::number(module.size)));
+        table_->setItem(i, 1, new QTableWidgetItem(formatByteSize(module.size)));
+        table_->item(i, 1)->setToolTip(QString("%1 bytes (0x%2)").arg(module.size).arg(module.size, 0, 16));
+        table_->item(i, 1)->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         table_->setItem(i, 2, new QTableWidgetItem(QString::fromStdString(module.name)));
         table_->setItem(i, 3, new QTableWidgetItem(QString::fromStdString(module.path)));
         for (int column : {2, 3}) table_->item(i, column)->setToolTip(table_->item(i, column)->text());
     }
-    setWindowTitle(QString("Module List - %1 modules").arg(modules.size()));
+    setWindowTitle(QString("Module List: %1 modules").arg(modules.size()));
 }
 
 } // namespace ce::gui

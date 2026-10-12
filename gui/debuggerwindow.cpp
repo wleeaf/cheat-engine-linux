@@ -1,4 +1,8 @@
 #include "gui/debuggerwindow.hpp"
+#include "core/local_target.hpp"
+#include <QSettings>
+#include <QDialogButtonBox>
+#include <QFormLayout>
 #include "core/target_capabilities.hpp"
 #include "arch/cpu_flags.hpp"
 #include "core/types.hpp"   // moduleOffsetString
@@ -28,6 +32,7 @@
 #include <QSplitter>
 #include <QFont>
 #include <QFontDatabase>
+#include <QFontMetrics>
 #include <QTextCursor>
 #include <QSignalBlocker>
 #include <bit>
@@ -60,7 +65,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     // Break on exceptions (CE's exception breakpoints): a checkable menu of the
     // common CPU-trap signals. Toggling one arms/disarms addExceptionBreakpoint.
     auto* excBtn = new QToolButton();
-    excBtn->setText("Break on exceptions ▾");
+    excBtn->setText("Break on exceptions");
     excBtn->setPopupMode(QToolButton::InstantPopup);
     auto* excMenu = new QMenu(excBtn);
     struct SigEntry { const char* name; int sig; };
@@ -88,7 +93,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     statusLabel_ = new QLabel("Not attached");
     root->addWidget(statusLabel_);
 
-    QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    const QFont mono = monospaceFont();
 
     // ── main split: [disasm / stack] | [registers / breakpoints] ──
     auto* split = new QSplitter(Qt::Horizontal);
@@ -98,6 +103,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     disasmView_->setReadOnly(true);
     disasmView_->setFont(mono);
     disasmView_->setLineWrapMode(QPlainTextEdit::NoWrap);
+    disasmView_->setPlaceholderText("The disassembly around the stopped thread's instruction pointer appears here.");
     disasmView_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(disasmView_, &QPlainTextEdit::customContextMenuRequested,
             this, &DebuggerWindow::onDisasmContextMenu);
@@ -106,6 +112,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     stackView_->setReadOnly(true);
     stackView_->setFont(mono);
     stackView_->setLineWrapMode(QPlainTextEdit::NoWrap);
+    stackView_->setPlaceholderText("Stack of the stopped thread");
     leftSplit->addWidget(stackView_);
 
     auto* memWidget = new QWidget();
@@ -118,6 +125,10 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     memView_->setReadOnly(true);
     memView_->setFont(mono);
     memView_->setLineWrapMode(QTextEdit::NoWrap);
+    // A read-only QTextEdit does not paint its placeholder, so start with a dim hint
+    // that the first dump replaces.
+    memView_->setHtml(QString("<span style=\"color:%1\">Type an address above and press Enter "
+                              "to dump memory here.</span>").arg(ce::gui::editorPalette().dim.name()));
     memLayout->addWidget(memView_);
     leftSplit->addWidget(memWidget);
 
@@ -135,10 +146,14 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     rl->addLayout(threadRow);
     regTable_ = new QTableWidget(0, 1);
     regTable_->setObjectName("debuggerRegisters");
-    regTable_->setFont(mono);
+    regTable_->setProperty("monospace", true);   // font from the theme sheet
     regTable_->horizontalHeader()->setVisible(false);
     regTable_->horizontalHeader()->setStretchLastSection(true);
-    regTable_->verticalHeader()->setVisible(true);
+    regTable_->verticalHeader()->setVisible(true);   // register names
+    regTable_->verticalHeader()->setDefaultSectionSize(QFontMetrics(mono).height() + 8);
+    regTable_->setShowGrid(false);
+    regTable_->setAlternatingRowColors(true);
+    regTable_->setToolTip("Double-click a value to edit the register while the thread is stopped");
     rl->addWidget(regTable_, 3);
 
     // Decoded CPU flags under the register table (RFLAGS shows only the raw hex).
@@ -201,9 +216,16 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
         }
         if (session_->isStopped()) updateDisassembly(session_->getStopContext());
     });
+    setEmptyHint(bpList_, "No breakpoints. Add an address above, or press F5 on a disassembly line.");
     bl->addWidget(bpList_);
-    auto* rmBtn = new QPushButton("Remove selected");
-    bl->addWidget(rmBtn);
+    auto* rmRow = new QHBoxLayout();
+    rmRow->addStretch();
+    auto* rmBtn = new QPushButton("Remove");
+    rmBtn->setToolTip("Remove the selected breakpoint");
+    rmBtn->setEnabled(false);
+    connect(bpList_, &QListWidget::currentRowChanged, rmBtn, [rmBtn](int row) { rmBtn->setEnabled(row >= 0); });
+    rmRow->addWidget(rmBtn);
+    bl->addLayout(rmRow);
     rl->addWidget(bpGroup, 2);
     split->addWidget(right);
     split->setStretchFactor(0, 3);
@@ -425,25 +447,37 @@ void DebuggerWindow::onAddDataBreakpoint() {
         statusLabel_->setText("Stop the target before setting a breakpoint");
         return;
     }
+    // One dialog for the whole watchpoint: address, trigger and size.
+    QDialog dialog(this);
+    dialog.setWindowTitle("Data breakpoint");
+    auto* form = new QFormLayout(&dialog);
+    auto* addrEdit = new QLineEdit(bpInput_->text().trimmed(), &dialog);
+    addrEdit->setPlaceholderText("address (hex)");
+    addrEdit->setMinimumWidth(220);
+    auto* typeCombo = new QComboBox(&dialog);
+    typeCombo->addItem("Writes", 1);
+    typeCombo->addItem("Reads or writes", 3);
+    auto* sizeCombo = new QComboBox(&dialog);
+    for (int size : {1, 2, 4, 8}) sizeCombo->addItem(QString("%1 %2").arg(size).arg(size == 1 ? "byte" : "bytes"), size);
+    sizeCombo->setCurrentIndex(std::max(0, sizeCombo->findData(QSettings().value("debug/bpSize", "4").toInt())));
+    form->addRow("Address:", addrEdit);
+    form->addRow("Break on:", typeCombo);
+    form->addRow("Size:", sizeCombo);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText("Set");
+    form->addRow(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (dialog.exec() != QDialog::Accepted) return;
+
     bool ok = false;
-    QString addrStr = QInputDialog::getText(this, "Data breakpoint",
-        "Address to watch (hex):", QLineEdit::Normal,
-        bpInput_->text().isEmpty() ? QString() : bpInput_->text(), &ok);
-    if (!ok) return;
-    uintptr_t addr = addrStr.trimmed().startsWith("0x")
-        ? addrStr.trimmed().mid(2).toULongLong(&ok, 16)
-        : addrStr.trimmed().toULongLong(&ok, 16);
+    const QString addrStr = addrEdit->text().trimmed();
+    uintptr_t addr = addrStr.startsWith("0x", Qt::CaseInsensitive)
+        ? addrStr.mid(2).toULongLong(&ok, 16)
+        : addrStr.toULongLong(&ok, 16);
     if (!ok || !addr) { statusLabel_->setText("Invalid address"); return; }
-
-    QStringList types = {"On write", "On read/write (access)"};
-    QString typeSel = QInputDialog::getItem(this, "Data breakpoint", "Break:", types, 0, false, &ok);
-    if (!ok) return;
-    int type = (types.indexOf(typeSel) == 1) ? 3 : 1;   // 1=write, 3=access
-
-    QStringList sizes = {"1", "2", "4", "8"};
-    QString sizeSel = QInputDialog::getItem(this, "Data breakpoint", "Size (bytes):", sizes, 2, false, &ok);
-    if (!ok) return;
-    int size = sizeSel.toInt();
+    const int type = typeCombo->currentData().toInt();   // 1=write, 3=access
+    const int size = sizeCombo->currentData().toInt();
 
     for (auto& b : bps_) if (b.hardware && b.addr == addr) return;   // already watched
     int id = session_->setHardwareBreakpoint(addr, type, size);
@@ -539,7 +573,7 @@ void DebuggerWindow::updateThreadList() {
     threadCombo_->clear();
     int sel = 0;
     for (size_t i = 0; i < tids.size(); ++i) {
-        threadCombo_->addItem(QStringLiteral("tid %1").arg(static_cast<int>(tids[i])),
+        threadCombo_->addItem(threadLabel(ce::localTargetPid(proc_).value_or(0), static_cast<int>(tids[i])),
                               static_cast<int>(tids[i]));
         if (tids[i] == active) sel = static_cast<int>(i);
     }

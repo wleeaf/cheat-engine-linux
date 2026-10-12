@@ -37,6 +37,12 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QFile>
+#include <QMenuBar>
+#include <QProgressBar>
+#include <QComboBox>
+#include <QTimer>
+#include <functional>
+#include <set>
 
 __attribute__((noinline)) static int visualReviewCode(int x) { volatile int n = x; return n * 3 + 7; }
 
@@ -49,10 +55,54 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
         if (size.isValid()) w.resize(size);
         w.show();
         for (int i = 0; i < 12; ++i) { QApplication::processEvents(); QThread::msleep(5); }
+        // Item views lay their rows out lazily; settle them before grabbing.
+        for (auto* view : w.findChildren<QAbstractItemView*>()) view->doItemsLayout();
         QString file = name + ".png";
         saved = w.grab().save(directory + "/" + file) && saved;
         files.append(QJsonObject{{"file", file}, {"width", w.width()}, {"height", w.height()}});
         w.hide();
+    };
+    auto pump = [](int rounds = 12) { for (int i = 0; i < rounds; ++i) { QApplication::processEvents(); QThread::msleep(5); } };
+    auto grabTo = [&](QWidget* w, const QString& name) {
+        QString file = name + ".png";
+        saved = w->grab().save(directory + "/" + file) && saved;
+        files.append(QJsonObject{{"file", file}, {"width", w->width()}, {"height", w->height()}});
+    };
+    // Open something (a modal dialog, a window, a context menu), then capture and
+    // close whatever new top-level widget appeared. Works for exec() and show().
+    auto captureNew = [&](const std::function<void()>& open, const QString& name, QSize size = {}) {
+        std::set<QWidget*> before;
+        for (auto* w : QApplication::topLevelWidgets()) if (w->isVisible()) before.insert(w);
+        bool done = false;
+        auto take = [&]() {
+            if (done) return;
+            done = true;
+            QWidget* found = nullptr;
+            for (auto* w : QApplication::topLevelWidgets())
+                if (w->isVisible() && !before.count(w)) found = w;
+            if (!found) { std::printf("visual review: nothing opened for %s\n", qPrintable(name)); return; }
+            if (size.isValid()) found->resize(size);
+            pump();
+            grabTo(found, name);
+            if (auto* dialog = qobject_cast<QDialog*>(found)) dialog->reject();
+            else found->close();
+        };
+        QTimer::singleShot(250, take);
+        open();
+        QElapsedTimer waited; waited.start();
+        while (!done && waited.elapsed() < 2000) pump(1);
+        take();
+        pump();
+    };
+    auto captureMenus = [&](QMainWindow& window, const QString& stem) {
+        for (auto* action : window.menuBar()->actions()) {
+            auto* menu = action->menu();
+            if (!menu) continue;
+            menu->popup(window.mapToGlobal(QPoint(0, 0)));
+            pump();
+            grabTo(menu, stem + "-" + action->text().remove('&').remove('.').toLower());
+            menu->hide();
+        }
     };
     ce::os::LinuxProcessHandle process(pid);
     QTemporaryDir resultsDir;
@@ -83,6 +133,78 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
             settings->close();
             capture(main, prefix + "main-large-font", {1000, 820});
             QSettings().setValue("display/fontSize", 10);
+            settings = qobject_cast<SettingsDialog*>(main.openSettingsDialog("Display"));
+            settings->findChild<QSpinBox*>("displayFontSize")->setValue(10);
+            QMetaObject::invokeMethod(settings, "onApply", Qt::DirectConnection);
+            settings->close();
+
+            main.resize(1000, 780);
+            main.show();
+            pump();
+            captureMenus(main, prefix + "menu");
+            // Scan-option states: float rounding + tolerance, a range scan, text.
+            auto* valueType = main.findChild<QComboBox*>("scanValueType");
+            auto* comparison = main.findChild<QComboBox*>("scanComparison");
+            valueType->setCurrentText("Float");
+            main.findChild<QComboBox*>("scanRounding")->setCurrentText("Extreme");
+            comparison->setCurrentText("Value between...");
+            capture(main, prefix + "main-float-between", {1000, 780});
+            valueType->setCurrentText("String");
+            comparison->setCurrentText("Exact Value");
+            capture(main, prefix + "main-string", {1000, 780});
+            valueType->setCurrentText("4 Bytes");
+            auto* progress = main.findChild<QProgressBar*>();
+            progress->setValue(42); progress->setVisible(true);
+            capture(main, prefix + "main-scanning", {1000, 780});
+            progress->setVisible(false);
+            model->toggleActive(0);
+            main.show();
+            pump();
+            auto* table = main.findChild<QTableView*>();
+            for (auto* view : main.findChildren<QTableView*>())
+                if (qobject_cast<AddressListModel*>(view->model())) table = view;
+            table->selectRow(0);
+            captureNew([&] { emit table->customContextMenuRequested(table->visualRect(model->index(0, 1)).center()); },
+                       prefix + "menu-address-entry");
+            for (auto* view : main.findChildren<QTableView*>())
+                if (qobject_cast<ScanResultsModel*>(view->model())) {
+                    view->selectRow(1);
+                    captureNew([&] { emit view->customContextMenuRequested(view->visualRect(view->model()->index(1, 0)).center()); },
+                               prefix + "menu-result");
+                }
+            auto openAction = [&](const QString& text) {
+                return [&main, text] {
+                    for (auto* action : main.findChildren<QAction*>())
+                        if (action->text() == text) { action->trigger(); return; }
+                    std::printf("visual review: no action %s\n", qPrintable(text));
+                };
+            };
+            for (const auto& [action, name] : std::vector<std::pair<QString, QString>>{
+                     {"About", "about"}, {"Process/System Info", "process-info"},
+                     {"Speedhack...", "speedhack"}, {"Show Cheat Table Lua Script", "table-lua"},
+                     {"Auto Assemble...", "auto-assemble"}, {"Connect to ceserver...", "ceserver"},
+                     {"Connect to GDB / QEMU...", "gdb"}, {"Memory Allocations...", "allocations"},
+                     {"Structure Spider...", "structure-spider"}, {"Group Scan Generator...", "group-scan"},
+                     {"Wait for process...", "wait-process"}, {"Generate Trainer (executable)...", "trainer"},
+                     {"Breakpoint list", "breakpoint-list"}, {"Lua Engine", "lua-engine"},
+                     {"Create form", "create-form"}, {"Cheat Engine Help", "help"},
+                     {"Settings...", "settings-from-menu"}})
+                captureNew(openAction(action), prefix + "dialog-" + name);
+            captureNew(openAction("Overlay..."), prefix + "dialog-overlay");
+            // The Memory Viewer as the app opens it: its View/Debug menus are filled
+            // by the main window.
+            if (auto* viewer = main.openMemoryView(reinterpret_cast<uintptr_t>(&visualReviewCode))) {
+                viewer->resize(1000, 720);
+                pump();
+                captureMenus(*viewer, prefix + "memory-menu");
+                viewer->close();
+                pump();
+            }
+            for (auto* button : main.findChildren<QPushButton*>()) {
+                if (button->text() == "Add Address") captureNew([button] { button->click(); }, prefix + "dialog-add-address");
+                if (button->text() == "Table Extras") captureNew([button] { button->click(); }, prefix + "dialog-comments");
+                if (button->text() == "Advanced Options") captureNew([button] { button->click(); }, prefix + "dialog-advanced-options");
+            }
         }
         {
             ProcessListDialog picker;
@@ -102,6 +224,7 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
             MemoryBrowser browser(&process);
             browser.gotoAddress(reinterpret_cast<uintptr_t>(&visualReviewCode));
             capture(browser, prefix + "memory", {1000, 720});
+
         }
         {
             ce::AutoAssembler assembler;
@@ -141,6 +264,11 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
             capture(threads, prefix + "threads", {700, 420});
             DebuggerWindow debugger(&process);
             capture(debugger, prefix + "debugger", {1000, 720});
+            debugger.show();
+            pump();
+            captureNew([&] { QMetaObject::invokeMethod(&debugger, "onAddDataBreakpoint", Qt::DirectConnection); },
+                       prefix + "dialog-data-breakpoint");
+            debugger.hide();
         }
         { AdvancedOptionsWindow window(&process); capture(window, prefix + "advanced"); }
         { BranchMapper window(&process); capture(window, prefix + "branches"); }

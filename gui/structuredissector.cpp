@@ -44,7 +44,7 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
     auto* addrRow = new QHBoxLayout;
     addrRow->addWidget(new QLabel("Base Address:"));
     addressEdit_ = new QLineEdit(QString("0x%1").arg(baseAddr, 0, 16));
-    addressEdit_->setFont(QFont("Monospace", 10));
+    addressEdit_->setFont(monospaceFont());
     addressEdit_->setMinimumWidth(150);
     connect(addressEdit_, &QLineEdit::returnPressed, this, &StructureDissector::onGotoAddress);
     addrRow->addWidget(addressEdit_);
@@ -69,7 +69,7 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
     // surfacing the fields that discriminate between instances (e.g. team id).
     addrRow->addWidget(new QLabel("Compare:"));
     compareEdit_ = new QLineEdit;
-    compareEdit_->setFont(QFont("Monospace", 10));
+    compareEdit_->setFont(monospaceFont());
     compareEdit_->setMinimumWidth(180);
     compareEdit_->setPlaceholderText("0x…, 0x… (optional, comma/space separated)");
     compareEdit_->setToolTip(
@@ -121,14 +121,19 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
     table_ = new QTableWidget;
     table_->setColumnCount(7);
     table_->setHorizontalHeaderLabels({"Offset", "Name", "Hex", "Int8", "Int32", "Float", "Pointer?"});
-    // Fit the numeric/offset columns to content and let the field Name take the
-    // slack, so every value column stays readable instead of all-but-last squeezing.
+    // Fit the numeric/offset columns to content, give field names a fixed,
+    // resizable column, and let the pointer column (often a long symbol) take
+    // the slack, so an unnamed structure doesn't open as a wide empty column.
     auto* hh = table_->horizontalHeader();
-    hh->setStretchLastSection(false);
-    for (int c = 0; c < 7; ++c)
+    hh->setStretchLastSection(true);
+    for (int c = 0; c < 6; ++c)
         hh->setSectionResizeMode(c, QHeaderView::ResizeToContents);
-    hh->setSectionResizeMode(1, QHeaderView::Stretch);  // Name
-    table_->setFont(QFont("Monospace", 9));
+    hh->setSectionResizeMode(1, QHeaderView::Interactive);  // Name
+    hh->resizeSection(1, 180);
+    hh->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    table_->setProperty("monospace", true);   // font from the theme sheet
+    table_->setShowGrid(false);
+    table_->setWordWrap(false);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->verticalHeader()->setVisible(false);
     table_->setAlternatingRowColors(true);

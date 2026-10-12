@@ -101,7 +101,8 @@ private slots:
     void onDeleteAddresses();
     void onCopyAddresses();
     void onPasteAddresses();
-    void onSaveTable();
+    void onSaveTable();     // to the table's current file, or ask like Save As
+    void onSaveTableAs();
     void onLoadTable();
     void onSaveScanResults();   // export the current found-address list to txt/csv
     void onCreateTrainer();
@@ -199,7 +200,12 @@ private:
     bool pauseWhileScanning_ = false;   // SIGSTOP the target during each scan
 
     // Scanner + AutoAssembler + Lua + Debug
-    MemoryScanner scanner_;
+    // Rebuilt when Settings changes the worker thread count (scan/threads).
+    std::unique_ptr<MemoryScanner> scanner_;
+    QString currentTablePath_;   // file the open table was loaded from or saved to
+    QString currentProcessName_; // the attached process's display name
+    void updateWindowTitle();
+    int scannerThreads_ = 0;
     AutoAssembler autoAsm_;
     LuaEngine luaEngine_;
     ce::SymbolResolver luaResolver_;   // symbols for Lua name/expression resolution
@@ -231,7 +237,7 @@ private:
     QLineEdit* scanValue2Edit_;   // upper bound for "Value between..."
     QLabel* betweenAndLabel_;
     QComboBox* scanTypeCombo_;
-    QComboBox* valueTypeCombo_;
+    QComboBox* valueTypeCombo_ = nullptr;
     QComboBox* floatRoundingCombo_;
     QPushButton* firstScanBtn_;
     QPushButton* nextScanBtn_;

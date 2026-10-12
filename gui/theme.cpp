@@ -11,7 +11,15 @@
 #include <QTextDocument>
 #include <QTextBlock>
 #include <QTextCursor>
+#include <QTableView>
+#include <QHeaderView>
+#include <QLineEdit>
+#include <QLabel>
+#include <QEvent>
+#include <QPointer>
+#include <QTableWidget>
 #include <vector>
+#include <algorithm>
 
 // A small chevron (up/down) drawn in `color`, cached to a PNG file whose path the
 // QSS references. (Qt's QSS url() loads via QPixmap, which can't read data: URIs,
@@ -75,10 +83,10 @@ static const char* kDarkStyleSheet = R"(
     QPushButton:focus, QToolButton:focus { border-color: #89b4fa; }
     QPushButton:pressed, QToolButton:pressed { background-color: #585b70; }
     QPushButton:disabled, QToolButton:disabled { color: #585b70; border-color: #313244; }
-    QPushButton#primaryButton, QToolButton#primaryButton { background-color: #89b4fa; color: #1e1e2e; border: 1px solid #89b4fa; font-weight: 600; }
-    QPushButton#primaryButton:hover, QToolButton#primaryButton:hover { background-color: #a6c8ff; border-color: #a6c8ff; }
-    QPushButton#primaryButton:pressed, QToolButton#primaryButton:pressed { background-color: #74a0e8; }
-    QPushButton#primaryButton:disabled, QToolButton#primaryButton:disabled { background-color: #45475a; border-color: #45475a; color: #b4bacd; }
+    QPushButton#primaryButton, QToolButton#primaryButton, QPushButton[primary="true"] { background-color: #89b4fa; color: #1e1e2e; border: 1px solid #89b4fa; font-weight: 600; }
+    QPushButton#primaryButton:hover, QToolButton#primaryButton:hover, QPushButton[primary="true"]:hover { background-color: #a6c8ff; border-color: #a6c8ff; }
+    QPushButton#primaryButton:pressed, QToolButton#primaryButton:pressed, QPushButton[primary="true"]:pressed { background-color: #74a0e8; }
+    QPushButton#primaryButton:disabled, QToolButton#primaryButton:disabled, QPushButton[primary="true"]:disabled { background-color: #45475a; border-color: #45475a; color: #b4bacd; }
     QLineEdit, QSpinBox, QDoubleSpinBox { background-color: #313244; color: #cdd6f4; border: 1px solid #45475a;
                           padding: 4px 6px; border-radius: 5px; selection-background-color: #585b70; }
     QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus { border-color: #89b4fa; }
@@ -126,7 +134,6 @@ static const char* kDarkStyleSheet = R"(
     QScrollBar::handle:horizontal:hover { background: #585b70; }
     QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
     QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
-    QToolButton::menu-indicator { subcontrol-position: bottom right; width: 9px; height: 6px; }
     QToolTip { padding: 5px 8px; border: 1px solid %TOOLTIP_BORDER%; background: %TOOLTIP_BG%; color: %TOOLTIP_TEXT%; }
     QLabel[secondary="true"] { color: %SECONDARY%; background: transparent; }
     QWidget:disabled { color: %DISABLED%; }
@@ -154,10 +161,10 @@ static const char* kLightStyleSheet = R"(
     QPushButton:focus, QToolButton:focus { border-color: #2f6fed; }
     QPushButton:pressed, QToolButton:pressed { background-color: #dfeafc; }
     QPushButton:disabled, QToolButton:disabled { color: #a8adb6; background-color: #f4f5f7; border-color: #e0e2e7; }
-    QPushButton#primaryButton, QToolButton#primaryButton { background-color: #2f6fed; color: #ffffff; border: 1px solid #2f6fed; font-weight: 600; }
-    QPushButton#primaryButton:hover, QToolButton#primaryButton:hover { background-color: #4a7fe0; border-color: #4a7fe0; }
-    QPushButton#primaryButton:pressed, QToolButton#primaryButton:pressed { background-color: #2258c9; }
-    QPushButton#primaryButton:disabled, QToolButton#primaryButton:disabled { background-color: #c3d3f5; border-color: #c3d3f5; color: #606777; }
+    QPushButton#primaryButton, QToolButton#primaryButton, QPushButton[primary="true"] { background-color: #2f6fed; color: #ffffff; border: 1px solid #2f6fed; font-weight: 600; }
+    QPushButton#primaryButton:hover, QToolButton#primaryButton:hover, QPushButton[primary="true"]:hover { background-color: #4a7fe0; border-color: #4a7fe0; }
+    QPushButton#primaryButton:pressed, QToolButton#primaryButton:pressed, QPushButton[primary="true"]:pressed { background-color: #2258c9; }
+    QPushButton#primaryButton:disabled, QToolButton#primaryButton:disabled, QPushButton[primary="true"]:disabled { background-color: #c3d3f5; border-color: #c3d3f5; color: #606777; }
     QLineEdit, QSpinBox, QDoubleSpinBox { background-color: #ffffff; color: #1b1f24; border: 1px solid #cdd1d9;
                           padding: 4px 6px; border-radius: 5px; selection-background-color: #cfe0fb; }
     QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus { border-color: #2f6fed; }
@@ -204,7 +211,6 @@ static const char* kLightStyleSheet = R"(
     QScrollBar::handle:horizontal:hover { background: #a6abb5; }
     QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
     QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
-    QToolButton::menu-indicator { subcontrol-position: bottom right; width: 9px; height: 6px; }
     QToolTip { padding: 5px 8px; border: 1px solid %TOOLTIP_BORDER%; background: %TOOLTIP_BG%; color: %TOOLTIP_TEXT%; }
     QLabel[secondary="true"] { color: %SECONDARY%; background: transparent; }
     QWidget:disabled { color: %DISABLED%; }
@@ -260,6 +266,35 @@ void applyTheme(bool dark) {
             checkFile(dark ? QColor("#1e1e2e") : QColor("#ffffff"), false),
             checkFile(dark ? QColor("#1e1e2e") : QColor("#ffffff"), true),
             dark ? "#585b70" : "#b5bac4");
+    // Rules shared by both themes. Item views show the current row through the
+    // selection colour, so the style's dotted focus frame around one cell is noise.
+    // A drop-down tool button gets the same chevron as a combo box, drawn inside
+    // padding reserved for it (the default indicator overlapped the frame).
+    qss += QString(R"(
+        QAbstractItemView { outline: 0; }
+        QTableView::item { padding: 0px 5px; }
+        QListView::item { padding: 3px 6px; }
+        QListView::item:selected { background: palette(highlight); color: palette(highlighted-text); }
+        QListView::item:hover:!selected { background: palette(alternate-base); }
+        QAbstractScrollArea::corner { background: transparent; border: none; }
+        QHeaderView::section:vertical { padding: 0 6px; }
+        QToolBar { padding: 4px; spacing: 6px; }
+        QToolBar::separator { background: %2; width: 1px; margin: 4px 4px; }
+        QToolButton[popupMode="2"] { padding-right: 24px; }
+        QToolButton::menu-indicator { image: url("%1"); subcontrol-origin: padding;
+            subcontrol-position: center right; right: 8px; width: 10px; height: 7px; }
+        QToolButton::menu-indicator:pressed, QToolButton::menu-indicator:open { top: 0; left: 0; }
+        QLabel#pageTitle { font-size: 13pt; font-weight: 600; background: transparent; }
+        QFrame#hairline { background: %2; border: none; max-height: 1px; min-height: 1px; }
+    )").arg(arrowFile(arrow, /*up=*/false), dark ? "#313244" : "#e0e2e7");
+    // Data tables take the Settings > Display monospace font through the sheet:
+    // a font set with setFont() is dropped when Qt's stylesheet engine re-polishes
+    // a reparented widget, a stylesheet font is not.
+    {
+        const QFont mono = monospaceFont(-1);
+        qss += QString("\n        QAbstractItemView[monospace=\"true\"] { font-family: \"%1\"; font-size: %2pt; }\n")
+                   .arg(mono.family()).arg(mono.pointSize());
+    }
     app->setProperty("ceDarkTheme", dark);
     QPalette palette;
     const QColor text = dark ? QColor("#cdd6f4") : QColor("#1b1f24");
@@ -343,6 +378,109 @@ void recolorConsole(QTextDocument* document, const EditorPalette& previous, cons
         format.setForeground(span.color);
         cursor.mergeCharFormat(format);
     }
+}
+
+QFont monospaceFont(int delta) {
+    QSettings s;
+    QFont font(s.value("display/fontFamily", "Monospace").toString());
+    font.setStyleHint(QFont::Monospace);
+    font.setPointSize(std::max(6, s.value("display/fontSize", 10).toInt() + delta));
+    return font;
+}
+
+void styleDataTable(QTableView* table, bool monospace) {
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setAlternatingRowColors(true);
+    table->setTextElideMode(Qt::ElideMiddle);
+    table->setWordWrap(false);
+    table->setShowGrid(false);
+    table->verticalHeader()->setVisible(false);
+    table->horizontalHeader()->setHighlightSections(false);
+    table->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    // The font itself comes from the application sheet (see applyTheme).
+    table->setProperty("monospace", monospace);
+    // Rows sized to the font rather than the style's roomy default.
+    table->verticalHeader()->setDefaultSectionSize(
+        QFontMetrics(monospace ? monospaceFont(-1) : table->font()).height() + 8);
+}
+
+namespace {
+// Keeps the hint label covering the viewport and visible only while empty.
+class EmptyHintFilter : public QObject {
+public:
+    EmptyHintFilter(QAbstractItemView* view, QLabel* label) : QObject(view), view_(view), label_(label) {}
+    void update() {
+        if (!view_ || !label_) return;
+        auto* model = view_->model();
+        label_->setGeometry(view_->viewport()->rect().adjusted(16, 16, -16, -16));
+        label_->setVisible(!model || model->rowCount() == 0);
+    }
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override {
+        if (event->type() == QEvent::Resize || event->type() == QEvent::Show) update();
+        return QObject::eventFilter(watched, event);
+    }
+private:
+    QPointer<QAbstractItemView> view_;
+    QPointer<QLabel> label_;
+};
+} // namespace
+
+void setEmptyHint(QAbstractItemView* view, const QString& text) {
+    auto* label = new QLabel(text, view->viewport());
+    label->setAlignment(Qt::AlignCenter);
+    label->setWordWrap(true);
+    label->setProperty("secondary", true);
+    label->setAttribute(Qt::WA_TransparentForMouseEvents);
+    auto* filter = new EmptyHintFilter(view, label);
+    view->viewport()->installEventFilter(filter);
+    if (auto* model = view->model()) {
+        auto refresh = [filter]() { filter->update(); };
+        QObject::connect(model, &QAbstractItemModel::rowsInserted, filter, refresh);
+        QObject::connect(model, &QAbstractItemModel::rowsRemoved, filter, refresh);
+        QObject::connect(model, &QAbstractItemModel::modelReset, filter, refresh);
+        QObject::connect(model, &QAbstractItemModel::layoutChanged, filter, refresh);
+    }
+    filter->update();
+}
+
+QLineEdit* makeTableFilter(QTableWidget* table, const QString& placeholder) {
+    auto* filter = new QLineEdit;
+    filter->setPlaceholderText(placeholder);
+    filter->setClearButtonEnabled(true);
+    QObject::connect(filter, &QLineEdit::textChanged, table, [table](const QString& text) {
+        const QString needle = text.trimmed();
+        for (int row = 0; row < table->rowCount(); ++row) {
+            bool match = needle.isEmpty();
+            for (int column = 0; !match && column < table->columnCount(); ++column)
+                if (auto* item = table->item(row, column))
+                    match = item->text().contains(needle, Qt::CaseInsensitive);
+            table->setRowHidden(row, !match);
+        }
+    });
+    return filter;
+}
+
+QString threadLabel(int pid, int tid) {
+    if (pid <= 0) return QString::number(tid);
+    QFile comm(QString("/proc/%1/task/%2/comm").arg(pid).arg(tid));
+    QString name;
+    if (comm.open(QIODevice::ReadOnly)) name = QString::fromUtf8(comm.readAll()).trimmed();
+    if (tid == pid) return name.isEmpty() ? QString("%1  (main)").arg(tid) : QString("%1  %2 (main)").arg(tid).arg(name);
+    return name.isEmpty() ? QString::number(tid) : QString("%1  %2").arg(tid).arg(name);
+}
+
+QString formatByteSize(unsigned long long bytes) {
+    static const char* units[] = {"B", "KiB", "MiB", "GiB", "TiB"};
+    double value = static_cast<double>(bytes);
+    int unit = 0;
+    while (value >= 1024.0 && unit < 4) { value /= 1024.0; ++unit; }
+    if (unit == 0) return QString("%1 B").arg(bytes);
+    // Whole numbers read cleaner ("4 KiB", not "4.0 KiB").
+    if (value == static_cast<double>(static_cast<unsigned long long>(value)))
+        return QString("%1 %2").arg(static_cast<unsigned long long>(value)).arg(units[unit]);
+    return QString("%1 %2").arg(value, 0, 'f', value < 10 ? 1 : 0).arg(units[unit]);
 }
 
 } // namespace ce::gui

@@ -1,10 +1,10 @@
 #pragma once
 
 #include <QDialog>
-#include <QListWidget>
+#include <QTreeWidget>
 #include <QLineEdit>
-#include <QTabWidget>
 #include <QPushButton>
+#include <QCheckBox>
 #include <QLabel>
 
 namespace ce::gui {
@@ -23,9 +23,9 @@ private slots:
     void onFilter(const QString& text);
 
 private:
-    QTabWidget* tabs_;
-    QListWidget* processList_;
+    QTreeWidget* processList_;
     QLineEdit* filterEdit_;
+    QCheckBox* mineOnly_;
     QPushButton* openBtn_;
     QLabel* statusLabel_;
     pid_t selectedPid_ = 0;

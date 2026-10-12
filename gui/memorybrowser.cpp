@@ -1779,6 +1779,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
 
     // Toolbar
     auto* toolbar = new QToolBar;
+    toolbar->setMovable(false);
     backAct_ = toolbar->addAction("◀");
     backAct_->setToolTip("Back (Alt+Left)");
     backAct_->setEnabled(false);
@@ -1790,7 +1791,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     toolbar->addSeparator();
     toolbar->addWidget(new QLabel(" Address: "));
     addressEdit_ = new QLineEdit;
-    addressEdit_->setFont(QFont("Monospace", 10));
+    addressEdit_->setFont(monospaceFont());
     addressEdit_->setMinimumWidth(220);
     addressEdit_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     addressEdit_->setPlaceholderText("0x0000000000000000");
@@ -1812,7 +1813,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     connect(bmToggleBtn, &QPushButton::clicked, this, &MemoryBrowser::toggleBookmark);
     toolbar->addWidget(bmToggleBtn);
     auto* bmBtn = new QToolButton;
-    bmBtn->setText("Bookmarks ▾");
+    bmBtn->setText("Bookmarks");
     bmBtn->setPopupMode(QToolButton::InstantPopup);
     bookmarksMenu_ = new QMenu(bmBtn);
     bmBtn->setMenu(bookmarksMenu_);
@@ -1827,6 +1828,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     // until the target is paused, and the "Debugger" button opens/raises that window.
     addToolBarBreak();
     auto* dbgBar = new QToolBar("Debug");
+    dbgBar->setMovable(false);
     auto* bpAct = dbgBar->addAction("Toggle BP");
     bpAct->setToolTip("Toggle breakpoint at the selected instruction (F5)");
     bpAct->setShortcut(QKeySequence("F5"));
@@ -1924,7 +1926,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     registerPanel_->verticalHeader()->setVisible(false);
     registerPanel_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     registerPanel_->setSelectionMode(QAbstractItemView::NoSelection);
-    registerPanel_->setFont(QFont("Monospace", 9));
+    registerPanel_->setProperty("monospace", true);   // font from the theme sheet
     const bool is32 = proc && proc->runs32BitCode();
     const QStringList regs = is32
         ? QStringList{"EAX","EBX","ECX","EDX","ESI","EDI","EBP","ESP","EIP","EFLAGS"}
@@ -1959,7 +1961,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     stacktracePanel_->verticalHeader()->setVisible(false);
     stacktracePanel_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     stacktracePanel_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    stacktracePanel_->setFont(QFont("Monospace", 9));
+    stacktracePanel_->setProperty("monospace", true);   // font from the theme sheet
     stacktracePanel_->horizontalHeader()->setStretchLastSection(true);
     stacktracePanel_->setToolTip("Call stack (populated at a debug breakpoint)");
     // Double-clicking a stack entry follows its return address in the disassembler.
@@ -2602,7 +2604,7 @@ void MemoryBrowser::showXrefs(uintptr_t addr) {
         table->setItem(i, 1, new QTableWidgetItem(typeName(r.type)));
         table->setItem(i, 2, new QTableWidgetItem(QString::fromStdString(r.text)));
     }
-    table->setFont(QFont("Monospace", 9));
+    table->setProperty("monospace", true);   // font from the theme sheet
     lay->addWidget(table);
     // Double-click a reference to navigate the disassembler there.
     connect(table, &QTableWidget::cellDoubleClicked, this, [this, table, dlg](int row, int) {

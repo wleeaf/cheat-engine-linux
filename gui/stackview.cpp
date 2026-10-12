@@ -1,4 +1,8 @@
 #include "gui/stackview.hpp"
+#include "gui/theme.hpp"
+#include "core/local_target.hpp"
+#include <QHBoxLayout>
+#include <QLabel>
 
 #include "debug/stack_trace.hpp"
 #include "debug/thread_inspection.hpp"
@@ -20,13 +24,17 @@ StackViewWindow::StackViewWindow(ProcessHandle* proc, QWidget* parent)
     auto* central = new QWidget;
     auto* layout = new QVBoxLayout(central);
 
+    auto* threadRow = new QHBoxLayout;
+    threadRow->addWidget(new QLabel("Thread:"));
     threadCombo_ = new QComboBox;
     threadCombo_->setObjectName("stackViewThreads");
-    layout->addWidget(threadCombo_);
-
+    threadCombo_->setMinimumWidth(220);
+    threadRow->addWidget(threadCombo_, 1);
     auto* refreshButton = new QPushButton("Refresh");
     connect(refreshButton, &QPushButton::clicked, this, &StackViewWindow::refreshStack);
-    layout->addWidget(refreshButton);
+    threadRow->addSpacing(8);
+    threadRow->addWidget(refreshButton);
+    layout->addLayout(threadRow);
 
     statusLabel_ = new QLabel;
     statusLabel_->setObjectName("stackViewStatus");
@@ -44,9 +52,7 @@ StackViewWindow::StackViewWindow(ProcessHandle* proc, QWidget* parent)
     stackTable_->horizontalHeader()->setStretchLastSection(true);
     stackTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     stackTable_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    stackTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    stackTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    stackTable_->setFont(QFont("Monospace", 9));
+    styleDataTable(stackTable_);
     tabs_->addTab(stackTable_, "Raw Stack");
 
     traceTable_ = new QTableWidget;
@@ -57,9 +63,7 @@ StackViewWindow::StackViewWindow(ProcessHandle* proc, QWidget* parent)
     traceTable_->horizontalHeader()->setStretchLastSection(true);
     for (int c = 0; c < 4; ++c)
         traceTable_->horizontalHeader()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
-    traceTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    traceTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    traceTable_->setFont(QFont("Monospace", 9));
+    styleDataTable(traceTable_);
     tabs_->addTab(traceTable_, "Stack Trace");
 
     layout->addWidget(tabs_);
@@ -77,7 +81,8 @@ void StackViewWindow::populateThreads() {
     if (!proc_) return;
 
     for (const auto& thread : proc_->threads())
-        threadCombo_->addItem(QString::number(thread.tid), QVariant::fromValue((qlonglong)thread.tid));
+        threadCombo_->addItem(threadLabel(ce::localTargetPid(proc_).value_or(0), thread.tid),
+                              QVariant::fromValue((qlonglong)thread.tid));
     const auto previous = threadCombo_->findData(selected);
     if (previous >= 0) threadCombo_->setCurrentIndex(previous);
 }

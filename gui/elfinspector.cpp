@@ -1,6 +1,7 @@
 /// ELF inspector — thin wrapper over binutils' readelf. Tabbed view.
 
 #include "gui/elfinspector.hpp"
+#include "gui/theme.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -37,7 +38,7 @@ ElfInspector::ElfInspector(const QString& initialPath, QWidget* parent) : QDialo
     auto makePane = [&](const char* title) {
         auto* edit = new QPlainTextEdit;
         edit->setReadOnly(true);
-        edit->setFont(QFont("Monospace", 9));
+        edit->setFont(monospaceFont(-1));
         tabs_->addTab(edit, title);
         return edit;
     };

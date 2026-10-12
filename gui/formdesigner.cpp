@@ -103,7 +103,7 @@ FormDesigner::FormDesigner(QWidget* parent) : QMainWindow(parent) {
     luaLayout->addLayout(luaHeader);
     luaPreview_ = new QPlainTextEdit;
     luaPreview_->setReadOnly(true);
-    luaPreview_->setFont(QFont("Monospace", 9));
+    luaPreview_->setFont(monospaceFont(-1));
     luaLayout->addWidget(luaPreview_);
     centerSplit->addWidget(luaWrap);
     centerSplit->setStretchFactor(0, 3);

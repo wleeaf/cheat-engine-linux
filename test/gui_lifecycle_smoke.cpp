@@ -14,6 +14,7 @@
 #include <QApplication>
 #include <QAction>
 #include <QTemporaryDir>
+#include <QFile>
 #include <QThread>
 #include <QTextLayout>
 #include <QTextBlock>
@@ -333,6 +334,7 @@ static bool injectionTemplateChecks() {
     return ok;
 }
 
+#include <QTreeWidget>
 #include "test/gui_visual_review.hpp"
 
 static bool visualInteractionChecks() {
@@ -340,7 +342,7 @@ static bool visualInteractionChecks() {
     bool pickerOk = false, cancelOk = false, applyOk = false, fontOk = false, historyOk = false, syntaxOk = true;
     {
         ProcessListDialog picker;
-        auto* list = picker.findChild<QListWidget*>();
+        auto* list = picker.findChild<QTreeWidget*>();
         auto* filter = picker.findChild<QLineEdit*>();
         filter->setText("nonexistent_process_73acd");
         QMetaObject::invokeMethod(&picker, "onAccept", Qt::DirectConnection);
@@ -349,31 +351,38 @@ static bool visualInteractionChecks() {
             if (button->text() == "Open") pickerOk = pickerOk && !button->isEnabled();
         filter->clear();
         pickerOk = pickerOk && list->currentItem() && !list->currentItem()->isHidden();
-        for (int i = 0; i < list->count(); ++i)
-            if (list->item(i)->data(Qt::UserRole).toInt() == getpid()) list->setCurrentRow(i);
-        int selected = list->currentItem()->data(Qt::UserRole).toInt();
+        // Our own process is listed under its full name, owned by us, so it stays
+        // visible with "Only my processes" on.
+        bool ownListed = false;
+        for (int i = 0; i < list->topLevelItemCount(); ++i)
+            if (list->topLevelItem(i)->data(0, Qt::UserRole).toInt() == getpid()) {
+                list->setCurrentItem(list->topLevelItem(i));
+                ownListed = !list->topLevelItem(i)->isHidden();
+            }
+        pickerOk = pickerOk && ownListed;
+        int selected = list->currentItem()->data(0, Qt::UserRole).toInt();
         QMetaObject::invokeMethod(&picker, "refreshList", Qt::DirectConnection);
-        pickerOk = pickerOk && list->currentItem()->data(Qt::UserRole).toInt() == selected;
+        pickerOk = pickerOk && list->currentItem()->data(0, Qt::UserRole).toInt() == selected;
     }
-    QSettings().setValue("symbols/demangle", true);
-    auto editDemangle = [](SettingsDialog& settings) {
+    QSettings().setValue("display/hexUpper", true);
+    auto editHexCase = [](SettingsDialog& settings) {
         for (auto* box : settings.findChildren<QCheckBox*>())
-            if (box->text() == "Demangle C++ symbol names") { box->setChecked(false); return true; }
+            if (box->text().startsWith("Uppercase hexadecimal")) { box->setChecked(false); return true; }
         return false;
     };
     {
         SettingsDialog settings;
-        cancelOk = editDemangle(settings) && QSettings().value("symbols/demangle").toBool();
+        cancelOk = editHexCase(settings) && QSettings().value("display/hexUpper").toBool();
         settings.reject();
-        cancelOk = cancelOk && QSettings().value("symbols/demangle").toBool();
+        cancelOk = cancelOk && QSettings().value("display/hexUpper").toBool();
     }
     {
         MainWindow main;
         auto* settings = qobject_cast<SettingsDialog*>(main.openSettingsDialog("Display"));
-        applyOk = editDemangle(*settings);
+        applyOk = editHexCase(*settings);
         settings->findChild<QSpinBox*>("displayFontSize")->setValue(14);
         QMetaObject::invokeMethod(settings, "onApply", Qt::DirectConnection);
-        applyOk = applyOk && !QSettings().value("symbols/demangle").toBool();
+        applyOk = applyOk && !QSettings().value("display/hexUpper").toBool();
         fontOk = true;
         for (auto* view : main.findChildren<QTableView*>())
             if (qobject_cast<AddressListModel*>(view->model()) || qobject_cast<ScanResultsModel*>(view->model()))
@@ -540,7 +549,7 @@ int main(int argc, char** argv) {
     app.setOrganizationName("cecore-test");
     app.setApplicationName("gui-lifecycle");
     if (argc == 3 && QString::fromLocal8Bit(argv[1]) == "--screenshots") {
-        alarm(90);
+        alarm(300);
         int result = renderGuiReview(QString::fromLocal8Bit(argv[2]), first, reinterpret_cast<uintptr_t>(&watched));
         kill(first, SIGKILL); kill(second, SIGKILL);
         waitpid(first, nullptr, 0); waitpid(second, nullptr, 0);

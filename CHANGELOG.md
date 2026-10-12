@@ -15,6 +15,22 @@ reimplementation of Cheat Engine).
 
 ## Unreleased: target compatibility foundation
 
+- GUI polish pass, driven by a screenshot review of every window, menu and
+  dialog in both themes. Settings is rebuilt as titled pages with sized fields,
+  and every option on it now does something (worker threads, float tolerance,
+  data breakpoint size and hotkey step were stored but never read; options
+  with no effect and placeholder pages are gone). The process picker is a
+  sortable table with full names (the kernel cuts them to 15 characters),
+  memory sizes and an "Only my processes" filter. Module, region, thread and
+  heap lists share one data-table style with readable sizes and a filter box;
+  empty tables say what to do next. Menus no longer show disabled "not yet
+  implemented" items, and the overlay is reachable from Tools. File > Save
+  writes back to the open table and the title names it. The Auto Assembler and
+  table Lua editors gain a line-number gutter, and `db` bytes are coloured
+  consistently. Data breakpoints take one dialog instead of three prompts.
+  Process Info, Speedhack, ceserver and Memory Allocations dialogs are
+  redesigned, and tables keep the chosen monospace font after reparenting.
+
 - CI cross-builds the CLI for RISC-V64, s390x, PowerPC64LE and ARM32 and runs
   it inside each full-system guest, so every target row now has live
   frontend evidence.

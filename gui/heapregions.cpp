@@ -1,4 +1,5 @@
 #include "gui/heapregions.hpp"
+#include "gui/theme.hpp"
 
 #include <QFont>
 #include <QHeaderView>
@@ -51,9 +52,8 @@ HeapRegionsWindow::HeapRegionsWindow(ProcessHandle* proc, QWidget* parent)
     hh->setStretchLastSection(true);
     for (int c = 0; c < 5; ++c)
         hh->setSectionResizeMode(c, QHeaderView::ResizeToContents);
-    table_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table_->setFont(QFont("Monospace", 9));
+    styleDataTable(table_);
+    table_->setToolTip("Double-click a region to browse it");
     connect(table_, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
         bool ok = false;
         uintptr_t addr = table_->item(row, 0)->text().toULongLong(&ok, 16);
@@ -80,16 +80,18 @@ void HeapRegionsWindow::populate() {
         const auto& region = heaps[row];
         table_->setItem(row, 0, new QTableWidgetItem(QString("%1").arg(region.base, 16, 16, QChar('0'))));
         table_->setItem(row, 1, new QTableWidgetItem(QString("%1").arg(region.base + region.size, 16, 16, QChar('0'))));
-        table_->setItem(row, 2, new QTableWidgetItem(QString::number(region.size)));
+        table_->setItem(row, 2, new QTableWidgetItem(formatByteSize(region.size)));
+        table_->item(row, 2)->setToolTip(QString("%1 bytes (0x%2)").arg(region.size).arg(region.size, 0, 16));
+        table_->item(row, 2)->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         table_->setItem(row, 3, new QTableWidgetItem(permsFor(region)));
         table_->setItem(row, 4, new QTableWidgetItem(heapKind(region)));
         table_->setItem(row, 5, new QTableWidgetItem(QString::fromStdString(region.path)));
         total += region.size;
     }
 
-    setWindowTitle(QString("Heap Regions - %1 regions, %2 MB")
+    setWindowTitle(QString("Heap Regions: %1 regions, %2")
         .arg(heaps.size())
-        .arg(total / 1048576));
+        .arg(formatByteSize(total)));
 }
 
 } // namespace ce::gui

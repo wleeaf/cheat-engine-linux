@@ -43,9 +43,19 @@ ChangeAddressDialog::ChangeAddressDialog(const QString& address, ce::ValueType t
     form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     form->setRowWrapPolicy(QFormLayout::WrapLongRows);
 
+    // One label width for the form and the pointer rows below it, so "Base:" and
+    // "Offset:" line up under "Address:" and "Type:".
+    labelWidth_ = 0;
+    for (const char* text : {"Address:", "Type:", "Length:", "Base:", "Offset:"})
+        labelWidth_ = std::max(labelWidth_, fontMetrics().horizontalAdvance(text) + 8);
+    auto label = [this](const QString& text) {
+        auto* l = new QLabel(text);
+        l->setFixedWidth(labelWidth_);
+        return l;
+    };
     addrEdit_ = new QLineEdit(address);          // CE editAddress
     addrEdit_->setMinimumWidth(240);
-    form->addRow("Address:", addrEdit_);
+    form->addRow(label("Address:"), addrEdit_);
 
     typeCombo_ = new QComboBox;                   // CE cbvarType
     int sel = 2;                                  // default 4 Bytes
@@ -60,10 +70,10 @@ ChangeAddressDialog::ChangeAddressDialog(const QString& address, ce::ValueType t
         for (int i = 0; i < (int)(sizeof(kTypes) / sizeof(kTypes[0])); ++i)
             if (kTypes[i].type == ce::ValueType::String) { sel = i; break; }
     typeCombo_->setCurrentIndex(sel);
-    form->addRow("Type:", typeCombo_);
+    form->addRow(label("Type:"), typeCombo_);
 
     lengthEdit_ = new QLineEdit(QString::number(length > 0 ? length : 1));  // CE edtSize
-    lengthLabel_ = new QLabel("Length:");
+    lengthLabel_ = label("Length:");
     lengthLabel_->setBuddy(lengthEdit_);
     form->addRow(lengthLabel_, lengthEdit_);
     v->addLayout(form);
@@ -98,17 +108,23 @@ ChangeAddressDialog::ChangeAddressDialog(const QString& address, ce::ValueType t
     auto* pv = new QVBoxLayout(pointerBox_);
     pv->setContentsMargins(0, 0, 0, 0);
     auto* baseRow = new QHBoxLayout;
-    baseRow->addWidget(new QLabel("Base:"));
+    baseRow->addWidget(label("Base:"));
     pointerBaseEdit_ = new QLineEdit;
     baseRow->addWidget(pointerBaseEdit_);
     pv->addLayout(baseRow);
     offsetsLayout_ = new QVBoxLayout;
     pv->addLayout(offsetsLayout_);
     auto* addOffBtn = new QPushButton("Add offset");
-    pv->addWidget(addOffBtn, 0, Qt::AlignLeft);
+    auto* addRow = new QHBoxLayout;
+    addRow->addSpacing(labelWidth_ + addRow->spacing());
+    addRow->addWidget(addOffBtn);
+    addRow->addStretch();
+    pv->addLayout(addRow);
     // Live resolution of the chain (CE shows the pointer resolving as you edit it).
     previewLabel_ = new QLabel;
     previewLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    previewLabel_->setProperty("secondary", true);
+    previewLabel_->setContentsMargins(labelWidth_ + 6, 2, 0, 0);
     pv->addWidget(previewLabel_);
     v->addWidget(pointerBox_);
     pointerBox_->setVisible(false);
@@ -230,12 +246,16 @@ void ChangeAddressDialog::addOffsetRow(long long value) {
     auto* row = new QWidget;
     auto* h = new QHBoxLayout(row);
     h->setContentsMargins(0, 0, 0, 0);
-    h->addWidget(new QLabel("Offset:"));
+    auto* label = new QLabel("Offset:");
+    label->setFixedWidth(labelWidth_);
+    h->addWidget(label);
     auto* edit = new QLineEdit;
     edit->setText(value < 0 ? "-" + QString::number(-value, 16) : QString::number(value, 16));
     h->addWidget(edit);
     auto* rm = new QPushButton("−");
-    rm->setFixedWidth(28);
+    rm->setToolTip("Remove this offset");
+    rm->setStyleSheet("QPushButton { padding: 0; }");
+    rm->setFixedSize(30, edit->sizeHint().height());
     h->addWidget(rm);
     offsetsLayout_->addWidget(row);
     offsetEdits_.push_back(edit);

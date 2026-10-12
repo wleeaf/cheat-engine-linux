@@ -113,8 +113,16 @@ void GraphicalMemoryView::fetch() {
     std::vector<uint8_t> buf(count);
     auto r = proc_->read(addr, buf.data(), buf.size());
     size_t got = (r && *r > 0) ? *r : 0;
-    statusLabel_->setText(got ? QString("Read %1 of %2 bytes at 0x%3.").arg(got).arg(count).arg(addr, 0, 16)
-                             : QString("Could not read memory at 0x%1.").arg(addr, 0, 16));
+    // One byte per pixel, darker = smaller value. Say when the readable memory
+    // ended early, so a short image isn't mistaken for a rendering fault.
+    if (!got)
+        statusLabel_->setText(QString("Could not read memory at 0x%1.").arg(addr, 0, 16));
+    else if (got < count)
+        statusLabel_->setText(QString("Showing %1 bytes from 0x%2; the memory after 0x%3 is not readable.")
+            .arg(got).arg(addr, 0, 16).arg(addr + got, 0, 16));
+    else
+        statusLabel_->setText(QString("Showing %1 bytes from 0x%2, one byte per pixel (black = 00, white = FF).")
+            .arg(got).arg(addr, 0, 16));
     buf.resize(got);
     view_->setPerLine(perLine);
     view_->setData(std::move(buf));

@@ -1,4 +1,5 @@
 #include "gui/codereferences.hpp"
+#include "gui/theme.hpp"
 #include "analysis/code_analysis.hpp"
 
 #include <QHeaderView>
@@ -53,7 +54,8 @@ CodeReferencesWindow::CodeReferencesWindow(ProcessHandle* proc, QWidget* parent)
         table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
         table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
         table->setSelectionBehavior(QAbstractItemView::SelectRows);
-        table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        styleDataTable(table);
+        setEmptyHint(table, "Pick a module and click Analyze.");
         table->verticalHeader()->setVisible(false);
         connect(table, &QTableWidget::cellDoubleClicked, this, [this, table](int row, int column) {
             bool ok = false;
@@ -67,7 +69,8 @@ CodeReferencesWindow::CodeReferencesWindow(ProcessHandle* proc, QWidget* parent)
     functionSummaryTable_->horizontalHeader()->setStretchLastSection(true);
     functionSummaryTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     functionSummaryTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    functionSummaryTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    styleDataTable(functionSummaryTable_);
+    setEmptyHint(functionSummaryTable_, "Pick a module and click Analyze.");
     functionSummaryTable_->verticalHeader()->setVisible(false);
     connect(functionSummaryTable_, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
         bool ok = false;
@@ -80,7 +83,8 @@ CodeReferencesWindow::CodeReferencesWindow(ProcessHandle* proc, QWidget* parent)
     callGraphTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     callGraphTable_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     callGraphTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    callGraphTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    styleDataTable(callGraphTable_);
+    setEmptyHint(callGraphTable_, "Pick a module and click Analyze.");
     callGraphTable_->verticalHeader()->setVisible(false);
     connect(callGraphTable_, &QTableWidget::cellDoubleClicked, this, [this](int row, int column) {
         bool ok = false;
@@ -93,7 +97,8 @@ CodeReferencesWindow::CodeReferencesWindow(ProcessHandle* proc, QWidget* parent)
     cavesTable_->horizontalHeader()->setStretchLastSection(true);
     cavesTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     cavesTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    cavesTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    styleDataTable(cavesTable_);
+    setEmptyHint(cavesTable_, "Pick a module and click Analyze to list unused code space.");
     cavesTable_->verticalHeader()->setVisible(false);
     connect(cavesTable_, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
         bool ok = false;

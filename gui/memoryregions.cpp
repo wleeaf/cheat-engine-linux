@@ -1,4 +1,6 @@
 #include "gui/memoryregions.hpp"
+#include "gui/theme.hpp"
+#include <QLineEdit>
 #include <QVBoxLayout>
 #include <QHeaderView>
 #include <QFont>
@@ -22,14 +24,14 @@ MemoryRegionsWindow::MemoryRegionsWindow(ProcessHandle* proc, QWidget* parent)
     hh->setStretchLastSection(true);
     for (int c = 0; c < 4; ++c)
         hh->setSectionResizeMode(c, QHeaderView::ResizeToContents);
-    table_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table_->setFont(QFont("Monospace", 9));
-    table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    styleDataTable(table_);
+    table_->setToolTip("Double-click a region to browse it");
     connect(table_, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
         bool ok;
         uintptr_t addr = table_->item(row, 0)->text().toULongLong(&ok, 16);
         if (ok) emit navigateTo(addr);
     });
+    layout->addWidget(makeTableFilter(table_, "Filter by address, permissions or path"));
     layout->addWidget(table_);
     setCentralWidget(central);
     populate();
@@ -44,7 +46,9 @@ void MemoryRegionsWindow::populate() {
         auto& r = regions[i];
         table_->setItem(i, 0, new QTableWidgetItem(QString("%1").arg(r.base, 16, 16, QChar('0'))));
         table_->setItem(i, 1, new QTableWidgetItem(QString("%1").arg(r.base + r.size, 16, 16, QChar('0'))));
-        table_->setItem(i, 2, new QTableWidgetItem(QString::number(r.size)));
+        table_->setItem(i, 2, new QTableWidgetItem(formatByteSize(r.size)));
+        table_->item(i, 2)->setToolTip(QString("%1 bytes (0x%2)").arg(r.size).arg(r.size, 0, 16));
+        table_->item(i, 2)->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         char perms[4] = "---";
         if (r.protection & MemProt::Read) perms[0] = 'r';
         if (r.protection & MemProt::Write) perms[1] = 'w';
@@ -54,8 +58,8 @@ void MemoryRegionsWindow::populate() {
         table_->item(i, 4)->setToolTip(table_->item(i, 4)->text());
         if (r.protection & MemProt::Read) totalReadable += r.size;
     }
-    setWindowTitle(QString("Memory Regions: %1 regions, %2 MB readable")
-        .arg(regions.size()).arg(totalReadable / 1048576));
+    setWindowTitle(QString("Memory Regions: %1 regions, %2 readable")
+        .arg(regions.size()).arg(formatByteSize(totalReadable)));
 }
 
 } // namespace ce::gui

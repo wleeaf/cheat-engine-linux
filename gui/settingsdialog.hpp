@@ -1,6 +1,6 @@
 #pragma once
-/// Settings dialog with tabs: Scan / Display / Debugger / Memory View / Hotkeys / Network.
-/// Persisted via QSettings under the org "cecore".
+/// Settings dialog: a category sidebar and one titled page per category.
+/// Persisted via QSettings; nothing is written until Apply or OK.
 
 #include <QDialog>
 #include <QSpinBox>
@@ -9,9 +9,9 @@
 #include <QComboBox>
 #include <QLineEdit>
 #include <QFontComboBox>
-#include <QTableWidget>
-#include <QMap>
-#include <QVariant>
+
+class QFormLayout;
+class QVBoxLayout;
 
 namespace ce::gui {
 
@@ -24,51 +24,45 @@ signals:
 private slots:
     void onApply();
 private:
-    QMap<QString, QVariant> pendingSettings_;
-    QWidget* buildScanTab();
-    QWidget* buildDisplayTab();
-    QWidget* buildDebuggerTab();
-    QWidget* buildMemoryViewTab();
-    QWidget* buildHotkeysTab();
-    QWidget* buildNetworkTab();
+    QWidget* buildScanPage();
+    QWidget* buildDisplayPage();
+    QWidget* buildMemoryViewPage();
+    QWidget* buildDebuggerPage();
+    QWidget* buildHotkeysPage();
+    QWidget* buildNetworkPage();
+    QWidget* buildLuaPage();
 
     // Scan
+    QComboBox* defaultValueTypeCombo_;
     QSpinBox* alignSpin_;
+    QCheckBox* fastScanCheck_;
     QCheckBox* writableCheck_;
     QCheckBox* executableCheck_;
-    QCheckBox* fastScanCheck_;
     QSpinBox* threadsSpin_;
-    QComboBox* defaultValueTypeCombo_;
     QDoubleSpinBox* defaultFloatToleranceSpin_;
 
     // Display
-    QCheckBox* hexUpperCheck_;
-    QSpinBox* fontSizeSpin_;
+    QComboBox* themeCombo_;
     QFontComboBox* fontFamilyCombo_;
+    QSpinBox* fontSizeSpin_;
+    QCheckBox* hexUpperCheck_;
     QComboBox* addressWidthCombo_;
-    QCheckBox* darkThemeCheck_;
-
-    // Debugger
-    QComboBox* bpTypeCombo_;
-    QSpinBox* bpSizeSpin_;
-    QSpinBox* attachDelaySpin_;
-    QSpinBox* conditionTimeoutSpin_;
-    QCheckBox* breakOnSignalsCheck_;
 
     // Memory View
     QSpinBox* bytesPerRowSpin_;
-    QSpinBox* refreshIntervalSpin_;
     QCheckBox* autoRefreshCheck_;
-    QComboBox* defaultArchCombo_;
+    QSpinBox* refreshIntervalSpin_;
 
-    // Hotkeys (only the address-list value hotkey defaults are stored here for now)
-    QTableWidget* hotkeyTable_;
+    // Debugger
+    QComboBox* dataBpSizeCombo_;
+    QComboBox* watchSizeCombo_;
+
+    // Hotkeys
+    QLineEdit* valueStepEdit_;
 
     // Network
     QLineEdit* ceserverHostEdit_;
     QSpinBox* ceserverPortSpin_;
-    QSpinBox* compressionLevelSpin_;
-    QSpinBox* gdbDefaultPortSpin_;
 };
 
 } // namespace ce::gui

@@ -1,6 +1,7 @@
 /// Branch Mapper window — LBR sample collector + frequency view.
 
 #include "gui/branchmapper.hpp"
+#include "gui/theme.hpp"
 #include <limits>
 #include "core/local_target.hpp"
 
@@ -30,6 +31,8 @@ BranchMapper::BranchMapper(ProcessHandle* proc, QWidget* parent)
         if (!threads.empty()) tidSpin_->setValue(threads.front().tid);
         else if (auto pid=ce::localTargetPid(proc_)) tidSpin_->setValue(*pid);
     }
+    tidSpin_->setMaximumWidth(160);
+    tidSpin_->setGroupSeparatorShown(false);
     form->addRow("Thread ID:", tidSpin_);
 
     auto* btnRow = new QHBoxLayout;
@@ -58,8 +61,9 @@ BranchMapper::BranchMapper(ProcessHandle* proc, QWidget* parent)
     table_->setHorizontalHeaderLabels({"From", "From symbol", "To", "To symbol", "Hits", "% of total"});
     table_->horizontalHeader()->setStretchLastSection(true);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table_->setFont(QFont("Monospace", 9));
-    table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table_->setProperty("monospace", true);   // font from the theme sheet
+    styleDataTable(table_);
+    setEmptyHint(table_, "Click Start sampling to record the branches this thread takes.");
     layout->addWidget(table_);
 
     setCentralWidget(central);

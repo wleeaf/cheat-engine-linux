@@ -1,4 +1,5 @@
 #include "gui/guest_scan_dialog.hpp"
+#include "gui/theme.hpp"
 #include "core/guest_view.hpp"
 
 #include <QVBoxLayout>
@@ -124,7 +125,8 @@ GuestScanDialog::GuestScanDialog(ce::ProcessHandle* proc, QWidget* parent)
     resultsTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     resultsTable_->horizontalHeader()->setStretchLastSection(true);
     resultsTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    resultsTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    styleDataTable(resultsTable_);
+    setEmptyHint(resultsTable_, "Guest RAM scan results appear here.");
     layout->addWidget(resultsTable_);
 
     connect(firstBtn_,   &QPushButton::clicked, this, &GuestScanDialog::onFirstScan);
@@ -132,6 +134,10 @@ GuestScanDialog::GuestScanDialog(ce::ProcessHandle* proc, QWidget* parent)
     connect(nextBtn_,    &QPushButton::clicked, this, &GuestScanDialog::onNextScan);
     connect(newBtn_,     &QPushButton::clicked, this, &GuestScanDialog::onNewScan);
     connect(addBtn,      &QPushButton::clicked, this, &GuestScanDialog::onAddToList);
+    // Adding needs a selected result.
+    addBtn->setEnabled(false);
+    connect(resultsTable_->selectionModel(), &QItemSelectionModel::selectionChanged, addBtn,
+            [this, addBtn]() { addBtn->setEnabled(resultsTable_->selectionModel()->hasSelection()); });
     connect(changedBtn_,   &QPushButton::clicked, this, [this]() { narrowCompare((int)ce::GuestCompare::Changed); });
     connect(unchangedBtn_, &QPushButton::clicked, this, [this]() { narrowCompare((int)ce::GuestCompare::Unchanged); });
     connect(increasedBtn_, &QPushButton::clicked, this, [this]() { narrowCompare((int)ce::GuestCompare::Increased); });

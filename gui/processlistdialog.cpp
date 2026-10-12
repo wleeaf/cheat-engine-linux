@@ -8,37 +8,84 @@
 #include <QHBoxLayout>
 #include <QPushButton>
 #include <QFont>
+#include <QHeaderView>
+#include <QKeySequence>
+#include <sys/stat.h>
+#include "gui/theme.hpp"
 
 namespace ce::gui {
 
+namespace {
+
+enum Column { NameColumn, PidColumn, MemoryColumn, CommandColumn };
+enum Role { PidRole = Qt::UserRole, NameRole, FilterRole, SortRole, MineRole };
+
+// Numeric columns sort by their number, not their text ("9 MiB" < "10 MiB").
+class ProcessItem : public QTreeWidgetItem {
+public:
+    using QTreeWidgetItem::QTreeWidgetItem;
+    bool operator<(const QTreeWidgetItem& other) const override {
+        const int column = treeWidget() ? treeWidget()->sortColumn() : NameColumn;
+        if (column == PidColumn || column == MemoryColumn)
+            return data(column, SortRole).toULongLong() < other.data(column, SortRole).toULongLong();
+        const int byName = text(column).compare(other.text(column), Qt::CaseInsensitive);
+        if (byName != 0 || column != NameColumn) return byName < 0;
+        // Same name (a game's many Wine helpers): the biggest, likely the game, first.
+        return data(MemoryColumn, SortRole).toULongLong() > other.data(MemoryColumn, SortRole).toULongLong();
+    }
+};
+
+} // namespace
+
 ProcessListDialog::ProcessListDialog(QWidget* parent) : QDialog(parent) {
     setWindowTitle("Open Process");
-    resize(600, 500);
+    resize(720, 520);
 
     auto* layout = new QVBoxLayout(this);
+    layout->setSpacing(8);
 
-    // Filter
+    // Filter, plus the owner toggle: other users' processes and kernel threads
+    // cannot be opened without elevated rights, so they are hidden by default.
+    auto* filterRow = new QHBoxLayout;
     filterEdit_ = new QLineEdit;
-    filterEdit_->setPlaceholderText("Filter by process name, PID, or path");
+    filterEdit_->setPlaceholderText("Filter by process name, PID, or command");
     filterEdit_->setAccessibleName("Filter processes");
     filterEdit_->setClearButtonEnabled(true);
     connect(filterEdit_, &QLineEdit::textChanged, this, &ProcessListDialog::onFilter);
-    layout->addWidget(filterEdit_);
+    filterRow->addWidget(filterEdit_, 1);
+    mineOnly_ = new QCheckBox("Only my processes");
+    mineOnly_->setToolTip("Hide kernel threads and processes owned by other users");
+    mineOnly_->setChecked(geteuid() != 0);
+    connect(mineOnly_, &QCheckBox::toggled, this, [this]() { onFilter(filterEdit_->text()); });
+    filterRow->addWidget(mineOnly_);
+    layout->addLayout(filterRow);
     filterEdit_->setFocus();   // type the game name immediately
 
-    // Tabs
-    tabs_ = new QTabWidget;
-    processList_ = new QListWidget;
-    processList_->setFont(QFont("Monospace", 9));
-    connect(processList_, &QListWidget::itemDoubleClicked, this, &ProcessListDialog::onAccept);
+    processList_ = new QTreeWidget;
+    processList_->setColumnCount(4);
+    processList_->setHeaderLabels({"Name", "PID", "Memory", "Command"});
+    processList_->setRootIsDecorated(false);
+    processList_->setUniformRowHeights(true);
+    processList_->setAlternatingRowColors(true);
+    processList_->setTextElideMode(Qt::ElideMiddle);
+    processList_->setAllColumnsShowFocus(true);
+    processList_->setSortingEnabled(true);
+    processList_->sortByColumn(NameColumn, Qt::AscendingOrder);
+    auto* header = processList_->header();
+    header->setStretchLastSection(true);
+    header->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    header->resizeSection(NameColumn, 210);
+    header->resizeSection(PidColumn, 72);
+    header->resizeSection(MemoryColumn, 88);
+    processList_->headerItem()->setTextAlignment(PidColumn, Qt::AlignRight | Qt::AlignVCenter);
+    processList_->headerItem()->setTextAlignment(MemoryColumn, Qt::AlignRight | Qt::AlignVCenter);
+    connect(processList_, &QTreeWidget::itemDoubleClicked, this, &ProcessListDialog::onAccept);
+    layout->addWidget(processList_, 1);
 
-    tabs_->addTab(processList_, "Processes");
-    layout->addWidget(tabs_);
     statusLabel_ = new QLabel;
     statusLabel_->setProperty("secondary", true);
-    layout->addWidget(statusLabel_);
 
-    // Buttons
+    // Buttons: Refresh is a list action (left); Open/Cancel are the dialog actions (right).
     auto* btnLayout = new QHBoxLayout;
     auto* openBtn = new QPushButton("Open");
     openBtn_ = openBtn;
@@ -46,16 +93,18 @@ ProcessListDialog::ProcessListDialog(QWidget* parent) : QDialog(parent) {
     openBtn->setDefault(true);
     auto* cancelBtn = new QPushButton("Cancel");
     auto* refreshBtn = new QPushButton("Refresh");
+    refreshBtn->setShortcut(QKeySequence::Refresh);
     connect(openBtn, &QPushButton::clicked, this, &ProcessListDialog::onAccept);
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
     connect(refreshBtn, &QPushButton::clicked, this, &ProcessListDialog::refreshList);
-    // Refresh is a list action (left); Open/Cancel are the dialog actions (right).
     btnLayout->addWidget(refreshBtn);
+    btnLayout->addSpacing(8);
+    btnLayout->addWidget(statusLabel_);
     btnLayout->addStretch();
     btnLayout->addWidget(openBtn);
     btnLayout->addWidget(cancelBtn);
     layout->addLayout(btnLayout);
-    connect(processList_, &QListWidget::currentItemChanged, this, [this]() {
+    connect(processList_, &QTreeWidget::currentItemChanged, this, [this]() {
         auto* current = processList_->currentItem();
         openBtn_->setEnabled(current && !current->isHidden());
     });
@@ -74,87 +123,78 @@ static uint64_t residentBytes(pid_t pid) {
 
 void ProcessListDialog::refreshList() {
     auto* selected = processList_->currentItem();
-    qlonglong previousPid = selected ? selected->data(Qt::UserRole).toLongLong() : 0;
+    qlonglong previousPid = selected ? selected->data(NameColumn, PidRole).toLongLong() : 0;
+    processList_->setSortingEnabled(false);
     processList_->clear();
     os::LinuxProcessEnumerator enumerator;
-    auto procs = enumerator.list();
+    const uid_t me = geteuid();
+    QTreeWidgetItem* reselect = nullptr;
+    for (const auto& p : enumerator.list()) {
+        const uint64_t rss = residentBytes(p.pid);
+        struct stat st{};
+        const bool known = ::stat(("/proc/" + std::to_string(p.pid)).c_str(), &st) == 0;
+        // Kernel threads have no command line and no memory of their own.
+        const bool kernelThread = p.path.empty() && rss == 0;
+        const bool mine = known && st.st_uid == me && !kernelThread;
 
-    // Attach resident memory to each process, then sort by name (grouping the
-    // many wine helper processes of a game together) and, within a name, by
-    // memory descending so the actual game (largest RSS) is the first match.
-    struct Row { ce::ProcessInfo info; uint64_t rss; };
-    std::vector<Row> rows;
-    rows.reserve(procs.size());
-    for (auto& p : procs) rows.push_back({p, residentBytes(p.pid)});
-    std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) {
-        int n = QString::fromStdString(a.info.name)
-                    .compare(QString::fromStdString(b.info.name), Qt::CaseInsensitive);
-        if (n != 0) return n < 0;
-        return a.rss > b.rss;  // biggest (likely the game) first within a name
-    });
-
-    for (auto& r : rows) {
-        const auto& p = r.info;
-        QString mem = r.rss >= (1u << 20)
-            ? QString("%1 MB").arg(r.rss / (1024.0 * 1024.0), 0, 'f', 1)
-            : QString("%1 KB").arg(r.rss / 1024.0, 0, 'f', 0);
-        // Name first (readable), then pid + memory so duplicates are distinguishable.
-        // A sandboxed process gets a trailing tag so the user knows they are attaching
-        // into a Flatpak/Snap/container namespace.
-        auto text = QString("%1   (pid %2, %3)%4")
-                        .arg(QString::fromStdString(p.name)).arg(p.pid).arg(mem)
-                        .arg(p.sandboxed ? QStringLiteral("   [sandboxed]") : QString());
-        auto* item = new QListWidgetItem(text);
-        item->setData(Qt::UserRole, QVariant::fromValue((qlonglong)p.pid));
-        item->setData(Qt::UserRole + 1, QString::fromStdString(p.name));
-        // Stash the full path / cmdline so the filter can match against it
-        // (Wine-wrapped processes keep their .exe name in cmdline even when
-        // /proc/PID/comm reads "Main Thread" or "wine64-preloader"). Append the
-        // sandbox tag so typing "sandboxed" filters to those processes.
-        QString filterPath = QString::fromStdString(p.path);
-        if (p.sandboxed) filterPath += QStringLiteral(" sandboxed");
-        item->setData(Qt::UserRole + 2, filterPath);
-        QString tip = QString::fromStdString(p.path);
+        const QString name = QString::fromStdString(p.name);
+        const QString command = QString::fromStdString(p.path);
+        auto* item = new ProcessItem;
+        item->setText(NameColumn, p.sandboxed ? name + QStringLiteral("  [sandboxed]") : name);
+        item->setText(PidColumn, QString::number(p.pid));
+        item->setText(MemoryColumn, rss ? formatByteSize(rss) : QStringLiteral("-"));
+        item->setText(CommandColumn, command);
+        item->setTextAlignment(PidColumn, Qt::AlignRight | Qt::AlignVCenter);
+        item->setTextAlignment(MemoryColumn, Qt::AlignRight | Qt::AlignVCenter);
+        item->setData(PidColumn, SortRole, QVariant::fromValue<qulonglong>(p.pid));
+        item->setData(MemoryColumn, SortRole, QVariant::fromValue<qulonglong>(rss));
+        item->setData(NameColumn, PidRole, QVariant::fromValue((qlonglong)p.pid));
+        item->setData(NameColumn, NameRole, name);
+        item->setData(NameColumn, MineRole, mine);
+        // The filter matches the name, PID and command; "sandboxed" finds those.
+        item->setData(NameColumn, FilterRole, QStringList{name, QString::number(p.pid), command,
+            p.sandboxed ? QStringLiteral("sandboxed") : QString()}.join('\n'));
+        QString tip = command.isEmpty() ? name : command;
         if (p.sandboxed)
-            tip += (tip.isEmpty() ? QString() : QStringLiteral("\n")) +
-                   QStringLiteral("Sandboxed (Flatpak/Snap/container): attaching reaches into "
+            tip += QStringLiteral("\nSandboxed (Flatpak/Snap/container): attaching reaches into "
                                   "its namespace; scan, edit and symbols work.");
-        item->setToolTip(tip.isEmpty() ? text : text + "\n" + tip);
-        processList_->addItem(item);
-        if (p.pid == previousPid) processList_->setCurrentItem(item);
+        for (int column = 0; column < processList_->columnCount(); ++column) item->setToolTip(column, tip);
+        if (kernelThread || !known)
+            for (int column = 0; column < processList_->columnCount(); ++column)
+                item->setForeground(column, palette().color(QPalette::Disabled, QPalette::Text));
+        processList_->addTopLevelItem(item);
+        if (p.pid == previousPid) reselect = item;
     }
+    processList_->setSortingEnabled(true);
+    if (reselect) processList_->setCurrentItem(reselect);
     onFilter(filterEdit_->text());
 }
 
 void ProcessListDialog::onAccept() {
     auto* item = processList_->currentItem();
     if (!item || item->isHidden()) return;
-    selectedPid_ = item->data(Qt::UserRole).toLongLong();
-    selectedName_ = item->data(Qt::UserRole + 1).toString();
+    selectedPid_ = item->data(NameColumn, PidRole).toLongLong();
+    selectedName_ = item->data(NameColumn, NameRole).toString();
     accept();
 }
 
 void ProcessListDialog::onFilter(const QString& text) {
-    for (int i = 0; i < processList_->count(); ++i) {
-        auto* item = processList_->item(i);
-        if (text.isEmpty()) { item->setHidden(false); continue; }
-        bool match = item->text().contains(text, Qt::CaseInsensitive);
-        if (!match) {
-            auto path = item->data(Qt::UserRole + 2).toString();
-            match = path.contains(text, Qt::CaseInsensitive);
-        }
-        item->setHidden(!match);
-    }
-    QListWidgetItem* first = nullptr;
+    const QString needle = text.trimmed();
+    const bool mineOnly = mineOnly_->isChecked();
+    QTreeWidgetItem* first = nullptr;
     int visible = 0;
-    for (int i = 0; i < processList_->count(); ++i) {
-        auto* item = processList_->item(i);
-        if (!item->isHidden()) { ++visible; if (!first) first = item; }
+    for (int i = 0; i < processList_->topLevelItemCount(); ++i) {
+        auto* item = processList_->topLevelItem(i);
+        bool match = needle.isEmpty() ||
+            item->data(NameColumn, FilterRole).toString().contains(needle, Qt::CaseInsensitive);
+        if (mineOnly && !item->data(NameColumn, MineRole).toBool()) match = false;
+        item->setHidden(!match);
+        if (match) { ++visible; if (!first) first = item; }
     }
     auto* current = processList_->currentItem();
     if (!current || current->isHidden()) processList_->setCurrentItem(first);
     openBtn_->setEnabled(visible > 0 && processList_->currentItem());
-    statusLabel_->setText(visible ? QString("%1 matching processes").arg(visible)
+    statusLabel_->setText(visible ? QString("%1 %2").arg(visible).arg(visible == 1 ? "process" : "processes")
                                 : "No processes match this filter.");
     if (auto* item = processList_->currentItem()) processList_->scrollToItem(item);
 }

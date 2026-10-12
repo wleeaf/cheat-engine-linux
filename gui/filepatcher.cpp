@@ -3,6 +3,7 @@
 /// click Apply.
 
 #include "gui/filepatcher.hpp"
+#include "gui/theme.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -27,7 +28,7 @@ FilePatcher::FilePatcher(QWidget* parent) : QDialog(parent) {
 
     auto* pathRow = new QHBoxLayout;
     pathEdit_ = new QLineEdit;
-    pathEdit_->setPlaceholderText("/path/to/file.exe");
+    pathEdit_->setPlaceholderText("/path/to/file");
     auto* browseBtn = new QPushButton("Browse…");
     connect(browseBtn, &QPushButton::clicked, this, &FilePatcher::onChooseFile);
     pathRow->addWidget(pathEdit_);
@@ -53,7 +54,7 @@ FilePatcher::FilePatcher(QWidget* parent) : QDialog(parent) {
 
     root->addWidget(new QLabel("Hex bytes to write (whitespace ignored):"));
     hexEdit_ = new QPlainTextEdit;
-    hexEdit_->setFont(QFont("Monospace", 10));
+    hexEdit_->setFont(monospaceFont());
     hexEdit_->setPlaceholderText("DE AD BE EF\n90 90 90");
     root->addWidget(hexEdit_, /*stretch=*/1);
 

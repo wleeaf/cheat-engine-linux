@@ -1,4 +1,5 @@
 #include "gui/advancedoptions.hpp"
+#include "gui/theme.hpp"
 
 #include "debug/patch.hpp"
 
@@ -29,7 +30,8 @@ AdvancedOptionsWindow::AdvancedOptionsWindow(ce::ProcessHandle* proc, QWidget* p
     table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setSelectionMode(QAbstractItemView::SingleSelection);
-    table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    styleDataTable(table_);
+    setEmptyHint(table_, "Code found with \"Find out what writes\" can be added here to keep it, disassemble it or replace it with NOPs.");
     table_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(table_, &QWidget::customContextMenuRequested,
             this, &AdvancedOptionsWindow::showContextMenu);

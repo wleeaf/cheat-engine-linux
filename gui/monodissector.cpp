@@ -1,4 +1,5 @@
 #include "gui/monodissector.hpp"
+#include "gui/theme.hpp"
 #include "analysis/il2cpp_binary.hpp"
 
 #include <QApplication>
@@ -86,6 +87,7 @@ MonoDissectorWindow::MonoDissectorWindow(ce::ProcessHandle* proc, QWidget* paren
     resize(720, 640);
 
     auto* bar = new QToolBar;
+    bar->setMovable(false);
     auto* dissectAct = bar->addAction("Dissect (inject agent)");
     dissectAct->setToolTip("Inject the Mono agent and read the target's class/field layout");
     connect(dissectAct, &QAction::triggered, this, &MonoDissectorWindow::runDissect);
@@ -105,6 +107,7 @@ MonoDissectorWindow::MonoDissectorWindow(ce::ProcessHandle* proc, QWidget* paren
     tree_->setHeaderLabels({"Name", "Offset", "Type"});
     tree_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     tree_->setAlternatingRowColors(true);
+    setEmptyHint(tree_, "Click Dissect to load the target's Mono assemblies, classes and fields.");
     // Double-click a field row -> request it be added to the address list.
     connect(tree_, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* it, int) {
         if (!it || it->data(0, kKindRole).toString() != "fld") return;
@@ -113,7 +116,7 @@ MonoDissectorWindow::MonoDissectorWindow(ce::ProcessHandle* proc, QWidget* paren
                                it->data(0, kLabelRole).toString());
     });
     v->addWidget(tree_);
-    status_ = new QLabel("Click \"Dissect\" to read the target's Mono layout.");
+    status_ = new QLabel("Not dissected yet.");
     v->addWidget(status_);
     setCentralWidget(central);
 }

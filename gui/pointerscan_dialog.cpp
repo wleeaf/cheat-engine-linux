@@ -1,4 +1,5 @@
 #include "gui/pointerscan_dialog.hpp"
+#include "gui/theme.hpp"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -20,7 +21,7 @@ PointerScanDialog::PointerScanDialog(ProcessHandle* proc, QWidget* parent)
     auto* configRow = new QHBoxLayout;
     configRow->addWidget(new QLabel("Target Address:"));
     targetEdit_ = new QLineEdit;
-    targetEdit_->setFont(QFont("Monospace", 10));
+    targetEdit_->setFont(monospaceFont());
     targetEdit_->setPlaceholderText("0x7f1234");
     configRow->addWidget(targetEdit_, 1);
     layout->addLayout(configRow);
@@ -80,8 +81,9 @@ PointerScanDialog::PointerScanDialog(ProcessHandle* proc, QWidget* parent)
     hh->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     hh->setMinimumSectionSize(48);
     resultsTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    resultsTable_->setFont(QFont("Monospace", 9));
-    resultsTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    resultsTable_->setProperty("monospace", true);   // font from the theme sheet
+    styleDataTable(resultsTable_);
+    setEmptyHint(resultsTable_, "Enter the address of a value and click Scan to find pointer paths that lead to it.");
     connect(resultsTable_, &QTableWidget::cellDoubleClicked, this, &PointerScanDialog::onResultDoubleClicked);
     layout->addWidget(resultsTable_);
 }

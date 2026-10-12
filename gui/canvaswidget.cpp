@@ -1,6 +1,7 @@
 /// CanvasWidget — QImage-backed drawing surface for Lua-driven HUDs.
 
 #include "gui/canvaswidget.hpp"
+#include "gui/theme.hpp"
 
 #include <QPainter>
 #include <QPaintEvent>
@@ -11,7 +12,7 @@ namespace ce::gui {
 CanvasWidget::CanvasWidget(QWidget* parent) : QWidget(parent) {
     pen_   = QPen(QColor(255, 255, 255));
     brush_ = QBrush(QColor(0, 0, 0));
-    font_  = QFont("Monospace", 10);
+    font_  = monospaceFont();
     setAttribute(Qt::WA_OpaquePaintEvent, false);
     setAutoFillBackground(false);
     resize(200, 100);

@@ -69,6 +69,9 @@ jobs:
       # Pinned, redistributable Proton build; Valve's Proton needs a Steam login.
       GE_PROTON: GE-Proton11-7
       GE_PROTON_SHA256: c5448b76a230384e2d7bc6beb5ccb97bafb7e2c3b6c527cb03a1a546bbcb00a0
+      # The Steam Linux Runtime 4 container GE-Proton11 declares (app 4183110).
+      STEAM_RUNTIME: 4.0.20260805.254769
+      STEAM_RUNTIME_SHA256: 3226d8234e7c0542ee767837832bfb1dad5e5e2dc944ec97eb221b437f6b9349
     steps:
       - uses: actions/checkout@v7
       - name: Install native and 32-bit loader dependencies
@@ -85,13 +88,28 @@ jobs:
           curl -fsSL -o "$RUNNER_TEMP/proton.tar.gz" \
             "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/$GE_PROTON/$GE_PROTON-x86_64.tar.gz"
           echo "$GE_PROTON_SHA256  $RUNNER_TEMP/proton.tar.gz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/proton.tar.gz" -C "$RUNNER_TEMP"
+          mkdir "$RUNNER_TEMP/proton" && tar -xzf "$RUNNER_TEMP/proton.tar.gz" -C "$RUNNER_TEMP/proton"
+          # Locate the launcher rather than assuming the archive's directory name.
+          launcher=$(find "$RUNNER_TEMP/proton" -maxdepth 2 -type f -name proton | head -n1)
+          test -n "$launcher"
+          echo "PROTON_DIR=$(dirname "$launcher")" >> "$GITHUB_ENV"
       - name: Build compatibility tools without Qt
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_DISABLE_FIND_PACKAGE_Qt6=ON
           cmake --build build --target cescan wine_integration -j"$(nproc)"
       - name: Require real Proton PE32 and PE32+ operations
-        run: sudo env GITHUB_SHA="$GITHUB_SHA" xvfb-run -a python3 test/proton_compatibility_gate.py build --proton "$RUNNER_TEMP/$GE_PROTON" --report compatibility-evidence/proton.json
+        run: sudo env GITHUB_SHA="$GITHUB_SHA" xvfb-run -a python3 test/proton_compatibility_gate.py build --proton "$PROTON_DIR" --report compatibility-evidence/proton.json
+      - name: Download and verify the Steam Linux Runtime
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/runtime.tar.xz" \
+            "https://repo.steampowered.com/steamrt4/images/$STEAM_RUNTIME/SteamLinuxRuntime_4.tar.xz"
+          echo "$STEAM_RUNTIME_SHA256  $RUNNER_TEMP/runtime.tar.xz" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/runtime" && tar -xJf "$RUNNER_TEMP/runtime.tar.xz" -C "$RUNNER_TEMP/runtime"
+          entry=$(find "$RUNNER_TEMP/runtime" -maxdepth 2 -type f -name _v2-entry-point | head -n1)
+          test -n "$entry"
+          echo "RUNTIME_DIR=$(dirname "$entry")" >> "$GITHUB_ENV"
+      - name: Require the same operations with Proton inside the Steam Runtime container
+        run: sudo env GITHUB_SHA="$GITHUB_SHA" xvfb-run -a python3 test/proton_compatibility_gate.py build --proton "$PROTON_DIR" --runtime "$RUNTIME_DIR" --report compatibility-evidence/proton-steam-runtime.json
       - name: Save operation evidence
         if: always()
         uses: actions/upload-artifact@v4

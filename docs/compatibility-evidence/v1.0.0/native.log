@@ -1,0 +1,331 @@
+[    0.000000] Booting Linux on physical CPU 0x0
+[    0.000000] Linux version 6.18.52-0-lts (buildozer@build-3-23-armv7) (cc (Alpine 15.2.0) 15.2.0, GNU ld (GNU Binutils) 2.45.1) #1-Alpine SMP 2026-09-14 14:00:08
+[    0.000000] CPU: ARMv7 Processor [414fc0f0] revision 0 (ARMv7), cr=10c5387d
+[    0.000000] CPU: div instructions available: patching division code
+[    0.000000] CPU: PIPT / VIPT nonaliasing data cache, PIPT instruction cache
+[    0.000000] OF: fdt: Machine model: linux,dummy-virt
+[    0.000000] random: crng init done
+[    0.000000] Memory policy: Data cache writealloc
+[    0.000000] efi: UEFI not found.
+[    0.000000] cma: Reserved 48 MiB at 0x45000000
+[    0.000000] Zone ranges:
+[    0.000000]   DMA      [mem 0x0000000040000000-0x0000000047ffffff]
+[    0.000000]   Normal   empty
+[    0.000000]   HighMem  empty
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000040000000-0x0000000047ffffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000040000000-0x0000000047ffffff]
+[    0.000000] OF: reserved mem: Reserved memory: No reserved-memory node in the DT
+[    0.000000] psci: probing for conduit method from DT.
+[    0.000000] psci: PSCIv1.1 detected in firmware.
+[    0.000000] psci: Using standard PSCI v0.2 function IDs
+[    0.000000] psci: Trusted OS migration not required
+[    0.000000] psci: SMC Calling Convention v1.0
+[    0.000000] percpu: Embedded 20 pages/cpu s49676 r8192 d24052 u81920
+[    0.000000] Kernel command line: console=ttyAMA0 rdinit=/init panic=1
+[    0.000000] printk: log buffer data + meta data: 16384 + 51200 = 67584 bytes
+[    0.000000] Dentry cache hash table entries: 8192 (order: 3, 32768 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 4096 (order: 2, 16384 bytes, linear)
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 32768
+[    0.000000] mem auto-init: stack:all(zero), heap alloc:on, heap free:off
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+[    0.000000] kmemleak: Kernel memory leak detector disabled
+[    0.000000] ftrace: allocating 38141 entries in 75 pages
+[    0.000000] ftrace: allocated 75 pages with 4 groups
+[    0.000000] rcu: Hierarchical RCU implementation.
+[    0.000000] rcu: 	RCU restricting CPUs from NR_CPUS=32 to nr_cpu_ids=1.
+[    0.000000] 	Rude variant of Tasks RCU enabled.
+[    0.000000] 	Tracing variant of Tasks RCU enabled.
+[    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 100 jiffies.
+[    0.000000] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=1
+[    0.000000] RCU Tasks Rude: Setting shift to 0 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=1.
+[    0.000000] RCU Tasks Trace: Setting shift to 0 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=1.
+[    0.000000] NR_IRQS: 16, nr_irqs: 16, preallocated irqs: 16
+[    0.000000] GICv2m: range[mem 0x08020000-0x08020fff], SPI[80:143]
+[    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.000000] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 1911260446275000 ns
+[    0.000000] arch_timer: cp15 timer running at 62.50MHz (virt).
+[    0.000000] clocksource: arch_sys_counter: mask: 0x1ffffffffffffff max_cycles: 0x1cd42e208c, max_idle_ns: 881590405314 ns
+[    0.000178] sched_clock: 57 bits at 63MHz, resolution 16ns, wraps every 4398046511096ns
+[    0.000408] Switching to timer-based delay loop, resolution 16ns
+[    0.010743] Console: colour dummy device 80x30
+[    0.013250] Calibrating delay loop (skipped), value calculated using timer frequency.. 125.00 BogoMIPS (lpj=62500)
+[    0.013445] CPU: Testing write buffer coherency: ok
+[    0.014994] CPU0: Spectre v2: firmware did not set auxiliary control register IBE bit, system vulnerable
+[    0.015151] CPU0: Spectre BHB: enabling loop workaround for all CPUs
+[    0.015246] pid_max: default: 32768 minimum: 301
+[    0.018372] LSM: initializing lsm=lockdown,capability,landlock,yama
+[    0.019964] landlock: Up and running.
+[    0.020019] Yama: becoming mindful.
+[    0.021966] Mount-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)
+[    0.022023] Mountpoint-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)
+[    0.055139] /cpus/cpu@0 missing clock-frequency property
+[    0.055533] CPU0: thread -1, cpu 0, socket 0, mpidr 80000000
+[    0.070142] Setting up static identity map for 0x40100000 - 0x401000ac
+[    0.073307] rcu: Hierarchical SRCU implementation.
+[    0.073389] rcu: 	Max phase no-delay instances is 400.
+[    0.079841] EFI services will not be available.
+[    0.080706] smp: Bringing up secondary CPUs ...
+[    0.081993] smp: Brought up 1 node, 1 CPU
+[    0.082103] SMP: Total of 1 processors activated (125.00 BogoMIPS).
+[    0.082191] CPU: All CPU(s) started in SVC mode.
+[    0.090763] Memory: 54352K/131072K available (12288K kernel code, 1057K rwdata, 4080K rodata, 2048K init, 1908K bss, 25796K reserved, 49152K cma-reserved, 0K highmem)
+[    0.099529] devtmpfs: initialized
+[    0.111990] VFP support v0.3: implementor 41 architecture 4 part 30 variant f rev 0
+[    0.155275] posixtimers hash table entries: 512 (order: 0, 4096 bytes, linear)
+[    0.156912] futex hash table entries: 256 (16384 bytes on 1 NUMA nodes, total 16 KiB, linear).
+[    0.172492] pinctrl core: initialized pinctrl subsystem
+[    0.184808] DMI not present or invalid.
+[    0.192178] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    0.208848] DMA: preallocated 256 KiB pool for atomic coherent allocations
+[    0.210611] audit: initializing netlink subsys (disabled)
+[    0.212937] audit: type=2000 audit(0.171:1): state=initialized audit_enabled=0 res=1
+[    0.217469] thermal_sys: Registered thermal governor 'fair_share'
+[    0.217520] thermal_sys: Registered thermal governor 'step_wise'
+[    0.218137] cpuidle: using governor ladder
+[    0.218278] cpuidle: using governor menu
+[    0.219453] hw-breakpoint: found 5 (+1 reserved) breakpoint and 4 watchpoint registers.
+[    0.219623] hw-breakpoint: maximum watchpoint size is 8 bytes.
+[    0.222839] Serial: AMBA PL011 UART driver
+[    0.267838] 9000000.pl011: ttyAMA0 at MMIO 0x9000000 (irq = 28, base_baud = 0) is a PL011 rev1
+[    0.271374] printk: console [ttyAMA0] enabled
+[    0.295161] kprobes: kprobe jump-optimization is enabled. All kprobes are optimized if possible.
+[    0.324156] iommu: Default domain type: Translated
+[    0.324293] iommu: DMA domain TLB invalidation policy: lazy mode
+[    0.331560] pps_core: LinuxPPS API ver. 1 registered
+[    0.331655] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[    0.331817] PTP clock support registered
+[    0.366211] NetLabel: Initializing
+[    0.366307] NetLabel:  domain hash size = 128
+[    0.366392] NetLabel:  protocols = UNLABELED CIPSOv4 CALIPSO
+[    0.368102] NetLabel:  unlabeled traffic allowed by default
+[    0.373421] vgaarb: loaded
+[    0.381048] clocksource: Switched to clocksource arch_sys_counter
+[    0.425134] VFS: Disk quotas dquot_6.6.0
+[    0.426604] VFS: Dquot-cache hash table entries: 1024 (order 0, 4096 bytes)
+[    0.461603] NET: Registered PF_INET protocol family
+[    0.463628] IP idents hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    0.472729] tcp_listen_portaddr_hash hash table entries: 512 (order: 0, 4096 bytes, linear)
+[    0.472985] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    0.473698] TCP established hash table entries: 1024 (order: 0, 4096 bytes, linear)
+[    0.474130] TCP bind hash table entries: 1024 (order: 2, 16384 bytes, linear)
+[    0.474477] TCP: Hash tables configured (established 1024 bind 1024)
+[    0.476961] MPTCP token hash table entries: 256 (order: 0, 4096 bytes, linear)
+[    0.477859] UDP hash table entries: 256 (order: 2, 14336 bytes, linear)
+[    0.478627] UDP-Lite hash table entries: 256 (order: 2, 14336 bytes, linear)
+[    0.481500] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    0.482522] NET: Registered PF_XDP protocol family
+[    0.483077] PCI: CLS 0 bytes, default 64
+[    0.499877] Initialise system trusted keyrings
+[    0.503062] Trying to unpack rootfs image as initramfs...
+[    0.510788] workingset: timestamp_bits=14 max_order=15 bucket_order=1
+[    0.521183] Key type asymmetric registered
+[    0.522690] Asymmetric key parser 'x509' registered
+[    0.523768] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 248)
+[    0.525048] io scheduler mq-deadline registered
+[    0.525216] io scheduler kyber registered
+[    0.527695] io scheduler bfq registered
+[    0.571106] pl061_gpio 9030000.pl061: PL061 GPIO chip registered
+[    0.576856] ledtrig-cpu: registered to indicate activity on CPUs
+[    0.612084] Serial: 8250/16550 driver, 8 ports, IRQ sharing disabled
+[    0.645011] Freeing initrd memory: 904K
+[    0.646905] Serial: AMBA driver
+[    0.648838] msm_serial: driver initialized
+[    0.732454] brd: module loaded
+[    0.762218] NET: Registered PF_INET6 protocol family
+[    0.773416] Segment Routing with IPv6
+[    0.773882] In-situ OAM (IOAM) with IPv6
+[    0.775168] Key type dns_resolver registered
+[    0.776213] ThumbEE CPU extension supported.
+[    0.776682] Registering SWP/SWPB emulation handler
+[    0.846729] registered taskstats version 1
+[    0.848759] Loading compiled-in X.509 certificates
+[    0.877704] Loaded X.509 cert 'alpinelinux.org: Build time autogenerated kernel key: 3887a79bce241012cb16661d929851b22b2cf04f'
+[    0.892552] Key type .fscrypt registered
+[    0.892813] Key type fscrypt-provisioning registered
+[    0.905965] clk: Disabling unused clocks
+[    0.907372] PM: genpd: Disabling unused power domains
+[    1.003646] Freeing unused kernel image (initmem) memory: 2048K
+[    1.010171] Run /init as init process
+ARM32_REG_GUEST kernel=6.18.52-0-lts machine=armv7l page=4096 engine=ARM32
+ARM32_REG ARM OK: actual ARM32 executable starts in the requested code mode
+ARM32_REG ARM OK: the caller owns a real kernel ptrace stop
+ARM32_REG ARM OK: the kernel supplies the complete 72-byte ARM register ABI and actual ARM/Thumb CPSR mode
+ARM32_REG ARM OK: native register reads preserve high 32-bit values without sign extension
+ARM32_REG ARM OK: generic PC SP and frame-pointer accessors use the ARM register bank
+ARM32_REG ARM OK: register consumers expose all real R0-R15 and CPSR fields at their actual width
+ARM32_REG ARM OK: status flags report the actual instruction mode
+ARM32_REG ARM OK: a real ARM register edit commits through the product backend
+ARM32_REG ARM OK: kernel readback verifies the edit while preserving every other register and ORIG_R0
+ARM32_REG ARM OK: overflowing register values are rejected before any kernel mutation
+ARM32_REG ARM OK: misaligned ARM and Thumb PCs cannot corrupt the stopped thread
+ARM32_REG ARM OK: an unrelated register ABI is rejected without writing
+ARM32_REG ARM OK: kernel-rejected privileged CPSR edits restore and verify the complete original bank
+ARM32_REG ARM OK: an injected error after an actual kernel write rolls back every original register
+ARM32_REG ARM OK: failed rollback reports the retained stop and permits verified recovery from the caller's original snapshot
+ARM32_REG ARM OK: stale ARM versus Thumb snapshots cannot overwrite the current instruction mode
+ARM32_REG ARM OK: register consumers reject overflow without changing their snapshot
+ARM32_REG VFP_ARM OK: the real kernel exposes seeded D8 D31 and FPSCR in the 260-byte ARM VFP bank
+ARM32_REG VFP_ARM OK: product capture uses the actual ARM32 VFP ABI without fabricated ARM64 extensions
+ARM32_REG VFP_ARM OK: capture preserves independently probed native FPA or compat TLS images
+ARM32_REG VFP_ARM OK: the untouched opaque register image verifies without mutation
+ARM32_REG VFP_ARM OK: actual kernel VFP edits change D8 D31 and FPSCR while preserving all GP registers
+ARM32_REG VFP_ARM OK: verification detects changed floating-point state without replacing the original saved image
+ARM32_REG VFP_ARM OK: opaque recovery restores every VFP byte and leaves the original GP stop intact
+ARM32_REG VFP_ARM OK: idempotent restoration does not rewrite already exact kernel banks
+ARM32_REG VFP_ARM OK: a simulated changed legacy FPA read retains recovery without invoking the unsafe kernel write
+ARM32_REG VFP_ARM OK: original legacy FPA bytes remain intact and unchanged recovery finishes without writing them
+ARM32_REG VFP_ARM OK: an injected error after a real VFP restore retains its image and permits verified retry
+ARM32_REG VFP_ARM OK: a refused VFP restoration keeps the real stopped task recoverable by the original owner
+ARM32_REG VFP_ARM OK: a failed required VFP capture cannot be silently omitted from a successful saved image
+ARM32_REG MEM_ARM OK: the actual ELF32 target supplies private scratch and a real sparse-file descriptor
+ARM32_REG MEM_ARM OK: the memory executor starts with independent full GP VFP and private-code snapshots
+ARM32_REG MEM_ARM OK: the product executes an actual ARM32 mmap2 and returns its mapping
+ARM32_REG MEM_ARM OK: the kernel publishes the actual requested target mapping permissions
+ARM32_REG MEM_ARM OK: the new target page can be independently read and edited
+ARM32_REG MEM_ARM OK: mmap returns the exact GP VFP and private code snapshots to the stopped owner
+ARM32_REG MEM_ARM OK: ARM32 mprotect changes actual target permissions without altering the original program
+ARM32_REG MEM_ARM OK: read-only target pages reject independent writes and retain the original context
+ARM32_REG MEM_ARM OK: actual write protection is restored through the same private syscall owner
+ARM32_REG MEM_ARM OK: a kernel EINVAL result is not mistaken for a mapping and restores the original context
+ARM32_REG MEM_ARM OK: oversized ARM32 arguments are rejected before mutating code or registers
+ARM32_REG MEM_ARM OK: misaligned private ARM or Thumb instruction sites are rejected without mutation
+ARM32_REG MEM_ARM OK: the original return-code page cannot be unmapped while using a different private scratch page
+ARM32_REG MEM_ARM OK: the private syscall and return-trap page cannot unmap itself
+ARM32_REG MEM_ARM OK: MAP_FIXED cannot replace the original code restored after a private syscall
+ARM32_REG MEM_ARM OK: mmap2 maps actual sparse-file data above four GiB using page-based offsets
+ARM32_REG MEM_ARM OK: the high-offset file mapping is reclaimed without changing other target memory
+ARM32_REG MEM_ARM OK: a falsely successful private-code write is rejected before target execution and leaves no mapping
+ARM32_REG MEM_ARM OK: an error after a real injected-register write rolls back before any syscall or new mapping
+ARM32_REG MEM_ARM OK: a completed real mmap retains its value and stopped recovery owner when GP restoration fails
+ARM32_REG MEM_ARM OK: failed ARM32 syscall restoration refuses a different host ptrace owner
+ARM32_REG MEM_ARM OK: verified restoration retry returns the exact original context and is idempotent
+ARM32_REG MEM_ARM OK: the recovered completed mmap is reclaimed without leaking private target storage
+ARM32_REG MEM_ARM OK: actual ARM32 munmap removes the target page and restores all original executable bytes
+ARM32_REG MEM_ARM OK: an ARM32 context cannot accidentally enter the native AArch64 function-call ABI
+ARM32_MEM_SIGNAL_DIAGNOSTIC mode=MEM_ARM success=0 sent=1 error=4 pending=12 completed=0 maps=1 intact=1
+ARM32_REG MEM_ARM OK: a genuine application signal before private syscall execution retains delivery and creates no mapping
+ARM32_REG MEM_ARM OK: the original target handles the preserved signal exactly once and returns to a real owned stop
+ARM32_MEM_RESULT mode=ARM checks=27 failures=0
+ARM32_REG ARM OK: a mode-specific software breakpoint installs through kernel code and cache handling
+ARM32_REG ARM OK: an existing trap cannot be adopted as another owner's original code
+ARM32_REG ARM OK: actual ARM/Thumb execution hits the trap and reports its exact instruction address
+ARM32_REG ARM OK: replaced-code conflicts preserve the live breakpoint and recovery owner
+ARM32_REG ARM OK: repairing the conflict restores the exact instruction and adjacent bytes
+ARM32_REG ARM OK: repeated successful breakpoint cleanup is harmless
+ARM32_REG ARM OK: the original executable instruction remains available before resuming
+ARM32_REG ARM OK: the target detaches with no injected application stop signal
+ARM32_REG_OBSERVATION mode=ARM value=ARM32_CHILD 270544960
+ARM32_REG ARM OK: the actual application observes its edited register and exits normally after code restoration
+ARM32_VFP_OBSERVATION mode=ARM value=ARM32_VFP_CHILD 11150031900141442680 18364758544493064720 4194304
+ARM32_REG VFP_ARM OK: the actual application observes its original VFP state and exits normally
+ARM32_EXT_RESULT mode=ARM checks=14 failures=0
+ARM32_REG_RESULT mode=ARM checks=26 failures=0
+ARM32_REG THUMB OK: actual ARM32 executable starts in the requested code mode
+ARM32_REG THUMB OK: the caller owns a real kernel ptrace stop
+ARM32_REG THUMB OK: the kernel supplies the complete 72-byte ARM register ABI and actual ARM/Thumb CPSR mode
+ARM32_REG THUMB OK: native register reads preserve high 32-bit values without sign extension
+ARM32_REG THUMB OK: generic PC SP and frame-pointer accessors use the ARM register bank
+ARM32_REG THUMB OK: register consumers expose all real R0-R15 and CPSR fields at their actual width
+ARM32_REG THUMB OK: status flags report the actual instruction mode
+ARM32_REG THUMB OK: a real ARM register edit commits through the product backend
+ARM32_REG THUMB OK: kernel readback verifies the edit while preserving every other register and ORIG_R0
+ARM32_REG THUMB OK: overflowing register values are rejected before any kernel mutation
+ARM32_REG THUMB OK: misaligned ARM and Thumb PCs cannot corrupt the stopped thread
+ARM32_REG THUMB OK: an unrelated register ABI is rejected without writing
+ARM32_REG THUMB OK: kernel-rejected privileged CPSR edits restore and verify the complete original bank
+ARM32_REG THUMB OK: an injected error after an actual kernel write rolls back every original register
+ARM32_REG THUMB OK: failed rollback reports the retained stop and permits verified recovery from the caller's original snapshot
+ARM32_REG THUMB OK: stale ARM versus Thumb snapshots cannot overwrite the current instruction mode
+ARM32_REG THUMB OK: register consumers reject overflow without changing their snapshot
+ARM32_REG VFP_THUMB OK: the real kernel exposes seeded D8 D31 and FPSCR in the 260-byte ARM VFP bank
+ARM32_REG VFP_THUMB OK: product capture uses the actual ARM32 VFP ABI without fabricated ARM64 extensions
+ARM32_REG VFP_THUMB OK: capture preserves independently probed native FPA or compat TLS images
+ARM32_REG VFP_THUMB OK: the untouched opaque register image verifies without mutation
+ARM32_REG VFP_THUMB OK: actual kernel VFP edits change D8 D31 and FPSCR while preserving all GP registers
+ARM32_REG VFP_THUMB OK: verification detects changed floating-point state without replacing the original saved image
+ARM32_REG VFP_THUMB OK: opaque recovery restores every VFP byte and leaves the original GP stop intact
+ARM32_REG VFP_THUMB OK: idempotent restoration does not rewrite already exact kernel banks
+ARM32_REG VFP_THUMB OK: a simulated changed legacy FPA read retains recovery without invoking the unsafe kernel write
+ARM32_REG VFP_THUMB OK: original legacy FPA bytes remain intact and unchanged recovery finishes without writing them
+ARM32_REG VFP_THUMB OK: an injected error after a real VFP restore retains its image and permits verified retry
+ARM32_REG VFP_THUMB OK: a refused VFP restoration keeps the real stopped task recoverable by the original owner
+ARM32_REG VFP_THUMB OK: a failed required VFP capture cannot be silently omitted from a successful saved image
+ARM32_REG MEM_THUMB OK: the actual ELF32 target supplies private scratch and a real sparse-file descriptor
+ARM32_REG MEM_THUMB OK: the memory executor starts with independent full GP VFP and private-code snapshots
+ARM32_REG MEM_THUMB OK: the product executes an actual ARM32 mmap2 and returns its mapping
+ARM32_REG MEM_THUMB OK: the kernel publishes the actual requested target mapping permissions
+ARM32_REG MEM_THUMB OK: the new target page can be independently read and edited
+ARM32_REG MEM_THUMB OK: mmap returns the exact GP VFP and private code snapshots to the stopped owner
+ARM32_REG MEM_THUMB OK: ARM32 mprotect changes actual target permissions without altering the original program
+ARM32_REG MEM_THUMB OK: read-only target pages reject independent writes and retain the original context
+ARM32_REG MEM_THUMB OK: actual write protection is restored through the same private syscall owner
+ARM32_REG MEM_THUMB OK: a kernel EINVAL result is not mistaken for a mapping and restores the original context
+ARM32_REG MEM_THUMB OK: oversized ARM32 arguments are rejected before mutating code or registers
+ARM32_REG MEM_THUMB OK: misaligned private ARM or Thumb instruction sites are rejected without mutation
+ARM32_REG MEM_THUMB OK: the original return-code page cannot be unmapped while using a different private scratch page
+ARM32_REG MEM_THUMB OK: the private syscall and return-trap page cannot unmap itself
+ARM32_REG MEM_THUMB OK: MAP_FIXED cannot replace the original code restored after a private syscall
+ARM32_REG MEM_THUMB OK: mmap2 maps actual sparse-file data above four GiB using page-based offsets
+ARM32_REG MEM_THUMB OK: the high-offset file mapping is reclaimed without changing other target memory
+ARM32_REG MEM_THUMB OK: a falsely successful private-code write is rejected before target execution and leaves no mapping
+ARM32_REG MEM_THUMB OK: an error after a real injected-register write rolls back before any syscall or new mapping
+ARM32_REG MEM_THUMB OK: a completed real mmap retains its value and stopped recovery owner when GP restoration fails
+ARM32_REG MEM_THUMB OK: failed ARM32 syscall restoration refuses a different host ptrace owner
+ARM32_REG MEM_THUMB OK: verified restoration retry returns the exact original context and is idempotent
+ARM32_REG MEM_THUMB OK: the recovered completed mmap is reclaimed without leaking private target storage
+ARM32_REG MEM_THUMB OK: actual ARM32 munmap removes the target page and restores all original executable bytes
+ARM32_REG MEM_THUMB OK: an ARM32 context cannot accidentally enter the native AArch64 function-call ABI
+ARM32_MEM_SIGNAL_DIAGNOSTIC mode=MEM_THUMB success=0 sent=1 error=4 pending=12 completed=0 maps=1 intact=1
+ARM32_REG MEM_THUMB OK: a genuine application signal before private syscall execution retains delivery and creates no mapping
+ARM32_REG MEM_THUMB OK: the original target handles the preserved signal exactly once and returns to a real owned stop
+ARM32_MEM_RESULT mode=THUMB checks=27 failures=0
+ARM32_REG THUMB OK: a mode-specific software breakpoint installs through kernel code and cache handling
+ARM32_REG THUMB OK: an existing trap cannot be adopted as another owner's original code
+ARM32_REG THUMB OK: actual ARM/Thumb execution hits the trap and reports its exact instruction address
+ARM32_REG THUMB OK: replaced-code conflicts preserve the live breakpoint and recovery owner
+ARM32_REG THUMB OK: repairing the conflict restores the exact instruction and adjacent bytes
+ARM32_REG THUMB OK: repeated successful breakpoint cleanup is harmless
+ARM32_REG THUMB OK: the original executable instruction remains available before resuming
+ARM32_REG MEM_IT_THUMB OK: actual Thumb execution stopped inside a live conditional IT block with independent GP VFP and code snapshots
+ARM32_REG MEM_IT_THUMB OK: private mmap2 executes both SVC and its trap independently of the original IT conditions
+ARM32_REG MEM_IT_THUMB OK: private completion restores the exact live Thumb IT state with every GP VFP and code byte
+ARM32_REG MEM_IT_THUMB OK: private munmap restores the same conditional Thumb return and reclaims its actual mapping
+ARM32_IT_MEM_RESULT checks=4 failures=0
+ARM32_REG MEM_BOUNDARY_THUMB OK: a real stopped Thumb application supplies complete GP VFP and private-code boundary snapshots
+ARM32_REG MEM_BOUNDARY_THUMB OK: an actual 32-bit MOVW begins at the last halfword and requires both executable pages
+ARM32_REG MEM_BOUNDARY_THUMB OK: unmap, lost execute permission and MAP_FIXED cannot destroy the second half of a Thumb return instruction
+ARM32_REG MEM_BOUNDARY_THUMB OK: the boundary operation returns exact Thumb code, full GP VFP and private syscall bytes
+THUMB_RETURN_BOUNDARY_OBSERVATION variant=0 instruction=movw4 operation=1 success=0 stop=5 pc=76fcd002 value=5678
+ARM32_REG MEM_BOUNDARY_THUMB OK: actual Thumb execution fetches its full original instruction and reaches its owned UDF with the expected value
+ARM32_REG MEM_BOUNDARY_THUMB OK: the owner restores the original live Thumb IT context and reclaims both boundary pages
+ARM32_REG MEM_BOUNDARY_THUMB OK: an actual 32-bit MOVW begins at the last halfword and requires both executable pages
+ARM32_REG MEM_BOUNDARY_THUMB OK: unmap, lost execute permission and MAP_FIXED cannot destroy the second half of a Thumb return instruction
+ARM32_REG MEM_BOUNDARY_THUMB OK: the boundary operation returns exact Thumb code, full GP VFP and private syscall bytes
+THUMB_RETURN_BOUNDARY_OBSERVATION variant=1 instruction=movw4 operation=2 success=0 stop=5 pc=76fcd002 value=5678
+ARM32_REG MEM_BOUNDARY_THUMB OK: actual Thumb execution fetches its full original instruction and reaches its owned UDF with the expected value
+ARM32_REG MEM_BOUNDARY_THUMB OK: the owner restores the original live Thumb IT context and reclaims both boundary pages
+ARM32_REG MEM_BOUNDARY_THUMB OK: an actual 32-bit MOVW begins at the last halfword and requires both executable pages
+ARM32_REG MEM_BOUNDARY_THUMB OK: unmap, lost execute permission and MAP_FIXED cannot destroy the second half of a Thumb return instruction
+ARM32_REG MEM_BOUNDARY_THUMB OK: the boundary operation returns exact Thumb code, full GP VFP and private syscall bytes
+THUMB_RETURN_BOUNDARY_OBSERVATION variant=2 instruction=movw4 operation=0 success=0 stop=5 pc=76fcd002 value=5678
+ARM32_REG MEM_BOUNDARY_THUMB OK: actual Thumb execution fetches its full original instruction and reaches its owned UDF with the expected value
+ARM32_REG MEM_BOUNDARY_THUMB OK: the owner restores the original live Thumb IT context and reclaims both boundary pages
+ARM32_REG MEM_BOUNDARY_THUMB OK: an actual 16-bit BX LR fits at the page end and branches into mapped Thumb code
+ARM32_REG MEM_BOUNDARY_THUMB OK: a next page outside the actual 16-bit return instruction can be unmapped
+ARM32_REG MEM_BOUNDARY_THUMB OK: a complete 16-bit Thumb prefix remains usable beside an already unmapped next page
+ARM32_REG MEM_BOUNDARY_THUMB OK: the boundary operation returns exact Thumb code, full GP VFP and private syscall bytes
+THUMB_RETURN_BOUNDARY_OBSERVATION variant=3 instruction=bx2 operation=1 success=1 stop=5 pc=76fcc044 value=5678
+ARM32_REG MEM_BOUNDARY_THUMB OK: actual Thumb execution fetches its full original instruction and reaches its owned UDF with the expected value
+ARM32_REG MEM_BOUNDARY_THUMB OK: the owner restores the original live Thumb IT context and reclaims both boundary pages
+THUMB_RETURN_BOUNDARY_RESULT checks=22 failures=0
+ARM32_REG THUMB OK: the target detaches with no injected application stop signal
+ARM32_REG_OBSERVATION mode=THUMB value=ARM32_CHILD 270544960
+ARM32_REG THUMB OK: the actual application observes its edited register and exits normally after code restoration
+ARM32_VFP_OBSERVATION mode=THUMB value=ARM32_VFP_CHILD 11150031900141442680 18364758544493064720 4194304
+ARM32_REG VFP_THUMB OK: the actual application observes its original VFP state and exits normally
+ARM32_EXT_RESULT mode=THUMB checks=14 failures=0
+ARM32_REG_RESULT mode=THUMB checks=26 failures=0
+ARM32_REG_VM_RESULT=PASSED failures=0
+[    1.626589] reboot: Power down

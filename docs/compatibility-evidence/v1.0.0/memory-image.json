@@ -1,0 +1,18 @@
+{
+  "suite": "shared-mm-exec-affinity",
+  "passed": true,
+  "utc": "2026-10-13T09:04:44.372841+00:00",
+  "sourceRevision": "4a996b17169675661a65e4602198ea6a2c3909ba",
+  "sourceRef": "refs/tags/v1.0.0",
+  "driverSha256": "e20fddd808e927c81599afc3d132f6201bf402754fae3cf10ae279497942143f",
+  "fixtureSha256": "d581d84738441953a4b127c011efa8a0afe19cf17c92114714f0238c9bd01279",
+  "coreSha256": "4299139a482b39f194d58d7f67198d944fb9948cd3ba7efaf0c91ae09ad09792",
+  "command": [
+    "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/memory_image_integration",
+    "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/shared_mm_fixture"
+  ],
+  "checks": 42,
+  "pageSize": 4096,
+  "exitCode": 0,
+  "outputSha256": "da41427a0bbb3fefddac8e538e35f64b00689449d6c52f17baeee97b8be40ed0"
+}

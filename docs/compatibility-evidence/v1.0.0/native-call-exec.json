@@ -1,0 +1,19 @@
+{
+  "suite": "native-callee-exec-retirement",
+  "passed": true,
+  "utc": "2026-10-13T09:04:44.566112+00:00",
+  "sourceRevision": "4a996b17169675661a65e4602198ea6a2c3909ba",
+  "sourceRef": "refs/tags/v1.0.0",
+  "driverSha256": "ab9cf50954edfb6e181bd823e74477c493af233bc94c8bff8a3cf1004ed67f4a",
+  "fixtureSha256": "3cea25c22f462f3c35b631a39d8f11428c3e332143531dad1194aea6683049c6",
+  "coreSha256": "4299139a482b39f194d58d7f67198d944fb9948cd3ba7efaf0c91ae09ad09792",
+  "command": [
+    "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/native_call_exec_integration",
+    "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/native_call_image_fixture"
+  ],
+  "width": 8,
+  "checks": 475,
+  "pageSize": 4096,
+  "exitCode": 0,
+  "outputSha256": "f6638c7b425be5786065d6dcb8a7071a852ae979c2ec214dfa53252beda0da24"
+}

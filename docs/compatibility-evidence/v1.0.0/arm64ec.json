@@ -1,0 +1,38 @@
+{
+  "target": "ARM64EC under Wine",
+  "checks": {
+    "info identifies a Wine-hosted ARM64EC program": true,
+    "a typed write reaches the program and reads back": true,
+    "a first scan and a next scan after the program's own change isolate the value": true,
+    "a static pointer scan resolves through the ARM64EC module": true,
+    "disassembly works or refuses explicitly": true,
+    "code injection works or refuses explicitly": true,
+    "a native call works or refuses explicitly": true,
+    "find what writes works or refuses explicitly": true,
+    "the debugger works or refuses explicitly": true,
+    "the program keeps running after every frontend detached": true
+  },
+  "capabilities": {
+    "C5": {
+      "state": "refused",
+      "message": "disasm: ARM64EC code mixes ARM64 and x64 instructions; choosing the decoder per address needs the image's CHPE code-range map, which is not implemented"
+    },
+    "C6": {
+      "state": "refused",
+      "message": "lua: [string \"...\"]:4: injection template / hook: Injection templates and hooks currently require x86"
+    },
+    "C7": {
+      "state": "refused",
+      "message": "lua: [string \"...\"]:4: create remote thread: No complete backend for this target/transport"
+    },
+    "C8": {
+      "state": "refused",
+      "message": "watch: could not arm the watchpoint: hardware watchpoint: No complete backend for this target/transport"
+    },
+    "C9": {
+      "state": "refused",
+      "message": "lua: [string \"...\"]:7: breakpoint refused: debugger: No complete backend for this target/transport"
+    }
+  },
+  "status": "passed"
+}

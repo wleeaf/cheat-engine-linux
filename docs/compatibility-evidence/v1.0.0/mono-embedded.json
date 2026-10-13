@@ -1,0 +1,227 @@
+{
+  "suite": "real-mono-runtime-and-lifecycle",
+  "passed": true,
+  "utc": "2026-10-13T09:17:36.550383+00:00",
+  "sourceRevision": "4a996b17169675661a65e4602198ea6a2c3909ba",
+  "sourceRef": "refs/tags/v1.0.0",
+  "container": null,
+  "phases": [
+    {
+      "phase": "initial",
+      "ready": "MONO_READY 11722 8 0x7fc53241f00c 0x7fc531400768 0 37 0x40918c80 0x40919d30 0x40919d50",
+      "collections": 0,
+      "pinnedData": "0x7fc531400768",
+      "hostPid": 11722,
+      "namespacePid": 11722,
+      "command": [
+        "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/mono_integration",
+        "11722",
+        "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/libcecore_mono_agent.so",
+        "initial",
+        "0x7fc53241f00c",
+        "0x7fc531400768",
+        "0x40918c80",
+        "0x40919d30",
+        "0x40919d50",
+        "release"
+      ],
+      "exitCode": 0,
+      "output": "OK: real Mono process exposes the live native ABI\nOK: a native Mono .exe keeps its Unix execution and pointer ABI\nOK: the target profile does not impose Wine restrictions on Mono\nOK: runtime detection identifies the actual Mono executable\nOK: a real agent returns a complete runtime metadata dump\nOK: the runtime returns the actual Player fields\nOK: field types, offsets and static flags come from Mono\nOK: runtime field offsets address the real pinned managed object\nOK: managed field read/write restores the exact original value\nOK: refresh returns fresh metadata from the already resident agent\nOK: method lookup returns the runtime's actual JIT address\nOK: different method requests keep distinct JIT results\nOK: CLR names longer than 255 bytes remain exact\nOK: a nonexistent overload reports no method\nOK: a nonexistent class reports no method\nOK: concurrent clients receive only their own method response\nOK: production Lua bindings refresh Mono metadata and return the exact JIT address\nOK: the initial dump does not invent an unloaded assembly\nOK: runtime operations leave the original application live without retained native cleanup\nOK: the managed application resumes its original native loop\nMONO_INTEGRATION_RESULT=PASSED phase=initial checks=20 failures=0\n",
+      "stderr": "",
+      "checks": 20
+    },
+    {
+      "phase": "collected",
+      "ready": "MONO_READY 11722 8 0x7fc53241f00c 0x7fc531400768 2 37 0x40918c80 0x40919d30 0x40919d50",
+      "collections": 2,
+      "pinnedData": "0x7fc531400768",
+      "hostPid": 11722,
+      "namespacePid": 11722,
+      "command": [
+        "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/mono_integration",
+        "11722",
+        "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/libcecore_mono_agent.so",
+        "collected",
+        "0x7fc53241f00c",
+        "0x7fc531400768",
+        "0x40918c80",
+        "0x40919d30",
+        "0x40919d50",
+        "release"
+      ],
+      "exitCode": 0,
+      "output": "OK: real Mono process exposes the live native ABI\nOK: a native Mono .exe keeps its Unix execution and pointer ABI\nOK: the target profile does not impose Wine restrictions on Mono\nOK: runtime detection identifies the actual Mono executable\nOK: a real agent returns a complete runtime metadata dump\nOK: the runtime returns the actual Player fields\nOK: field types, offsets and static flags come from Mono\nOK: runtime field offsets address the real pinned managed object\nOK: managed field read/write restores the exact original value\nOK: refresh returns fresh metadata from the already resident agent\nOK: method lookup returns the runtime's actual JIT address\nOK: different method requests keep distinct JIT results\nOK: CLR names longer than 255 bytes remain exact\nOK: a nonexistent overload reports no method\nOK: a nonexistent class reports no method\nOK: concurrent clients receive only their own method response\nOK: production Lua bindings refresh Mono metadata and return the exact JIT address\nOK: the initial dump does not invent an unloaded assembly\nOK: runtime operations leave the original application live without retained native cleanup\nOK: the managed application resumes its original native loop\nMONO_INTEGRATION_RESULT=PASSED phase=collected checks=20 failures=0\n",
+      "stderr": "",
+      "checks": 20
+    },
+    {
+      "phase": "loaded",
+      "ready": "MONO_READY 11722 8 0x7fc53241f00c 0x7fc531400768 2 37 0x40918c80 0x40919d30 0x40919d50",
+      "collections": 2,
+      "pinnedData": "0x7fc531400768",
+      "hostPid": 11722,
+      "namespacePid": 11722,
+      "command": [
+        "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/mono_integration",
+        "11722",
+        "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/libcecore_mono_agent.so",
+        "loaded",
+        "0x7fc53241f00c",
+        "0x7fc531400768",
+        "0x40918c80",
+        "0x40919d30",
+        "0x40919d50",
+        "release"
+      ],
+      "exitCode": 0,
+      "output": "OK: real Mono process exposes the live native ABI\nOK: a native Mono .exe keeps its Unix execution and pointer ABI\nOK: the target profile does not impose Wine restrictions on Mono\nOK: runtime detection identifies the actual Mono executable\nOK: a real agent returns a complete runtime metadata dump\nOK: the runtime returns the actual Player fields\nOK: field types, offsets and static flags come from Mono\nOK: runtime field offsets address the real pinned managed object\nOK: managed field read/write restores the exact original value\nOK: refresh returns fresh metadata from the already resident agent\nOK: method lookup returns the runtime's actual JIT address\nOK: different method requests keep distinct JIT results\nOK: CLR names longer than 255 bytes remain exact\nOK: a nonexistent overload reports no method\nOK: a nonexistent class reports no method\nOK: concurrent clients receive only their own method response\nOK: production Lua bindings refresh Mono metadata and return the exact JIT address\nOK: a refreshed dump discovers assemblies loaded after injection\nOK: the agent compiles a method from the newly loaded assembly\nOK: runtime operations leave the original application live without retained native cleanup\nOK: the managed application resumes its original native loop\nMONO_INTEGRATION_RESULT=PASSED phase=loaded checks=21 failures=0\n",
+      "stderr": "",
+      "checks": 21
+    }
+  ],
+  "execution": "embedded-local",
+  "binariesSha256": {
+    "mono_integration": "35958b92c31a90745e61417b130f46c221a54e100e11ee31a264b82baf30d5d4",
+    "libmono_fixture_control.so": "2990430417170bddfa0403d6b63d8c7efb45d3fa9ad5e79a246eea6553eb2af1",
+    "libcecore_mono_agent.so": "4b71cfe791efbf753557225a5a91f16dbaaec513779980fb2138619b64bb3c42",
+    "libmono_limit_agent.so": "55ad28f2af7ceffae997e4fc1618475e46e1f951a73e0277c14157793926284f",
+    "cescan": "e4d9d66afe8537608f9896d022b82ab48dbdff95a790f309887ef7b1a09b0f48",
+    "libcecore.so": "b69319ebc52d6e8afacccb322d935becb647a208c4b817c3c111c0fd5d5d9b90",
+    "mono_embed_fixture": "8d71200144d755b7aeae3f76a132d03e008410077491a3e99edcea6e8f3f8d46"
+  },
+  "embeddedLibrarySha256": "e174a0460c868dbc4715b5d8e1add1e50fc15ddd653f1dd5faabb183cb1289ba",
+  "mono": "Mono JIT compiler version 6.8.0.105 (Debian 6.8.0.105+dfsg-3.6ubuntu2 Sun Mar 31 02:55:28 UTC 2024)\nCopyright (C) 2002-2014 Novell, Inc, Xamarin Inc and Contributors. www.mono-project.com\n\tTLS:           __thread\n\tSIGSEGV:       altstack\n\tNotifications: epoll\n\tArchitecture:  amd64\n\tDisabled:      none\n\tMisc:          softdebug \n\tInterpreter:   yes\n\tLLVM:          supported, not enabled.\n\tSuspend:       hybrid\n\tGC:            sgen (concurrent by default)",
+  "monoSha256": "694bbbe53b678d374cff2d41c5ce6dd06987314e5127606ac3052c85ca1cb041",
+  "fixturesSha256": {
+    "fixture.exe": "340ce4365c018baedb230f1f1ed5c266afe3a193e4eff9a4a5b01429ce8ea73b",
+    "late.dll": "23ea57e0ab716967a3e83e6b9ad8d027183ba930b6ab6bfbb69871d77d2d1854"
+  },
+  "fixtureCommand": [
+    "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/mono_embed_fixture",
+    "/usr/lib/libmonosgen-2.0.so.1.0.0",
+    "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/.mono-compat/fixture.exe",
+    "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/.mono-compat/late.dll",
+    "/usr/lib",
+    "/etc"
+  ],
+  "cli": {
+    "exitCode": 0,
+    "output": "MONO_CLI_LUA_RESULT=PASSED\n",
+    "stderr": "",
+    "stagedExecutable": "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/.mono-compat/installed/bin/cescan",
+    "engineLibraryDirectory": "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/.mono-compat/installed/engine-libraries"
+  },
+  "rejectedHeaders": [
+    "magic",
+    "command",
+    "length",
+    "negativeParameterCount"
+  ],
+  "partialDisconnectAndMalformedHeader": "passed",
+  "afterCleanupMapped": {
+    "ready": "MONO_CLEANED_READY 11722 0x55f269e3f04c",
+    "command": [
+      "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/mono_integration",
+      "11722",
+      "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/libcecore_mono_agent.so",
+      "shutdown_mapped",
+      "0x55f269e3f04c",
+      "0",
+      "0",
+      "0",
+      "0",
+      "release"
+    ],
+    "exitCode": 0,
+    "output": "OK: real Mono process exposes the live native ABI\nOK: a native Mono .exe keeps its Unix execution and pointer ABI\nOK: the target profile does not impose Wine restrictions on Mono\nOK: requests after real Mono cleanup report unavailable runtime without entering it\nOK: repeated post-cleanup requests remain safe on the resident agent\nOK: a method lookup cannot return freed JIT code after runtime cleanup\nOK: Lua runtime requests cannot expose freed layouts or JIT addresses after cleanup\nOK: the original native application survives runtime cleanup and subsequent requests\nOK: the original native application resumes after Mono is closed\nMONO_INTEGRATION_RESULT=PASSED phase=shutdown_mapped checks=9 failures=0\n",
+    "stderr": "09:17:38.366 W [general] te8f1 Mono method lookup: Mono runtime: Mono runtime is shutting down\n09:17:38.462 W [general] te8f1 Mono method lookup: Mono runtime: Mono runtime is shutting down\n",
+    "checks": 9
+  },
+  "afterCleanup": {
+    "ready": "MONO_SHUTDOWN_READY 11722 0x55f269e3f04c",
+    "command": [
+      "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/mono_integration",
+      "11722",
+      "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/libcecore_mono_agent.so",
+      "shutdown",
+      "0x55f269e3f04c",
+      "0",
+      "0",
+      "0",
+      "0",
+      "release"
+    ],
+    "exitCode": 0,
+    "output": "OK: real Mono process exposes the live native ABI\nOK: a native Mono .exe keeps its Unix execution and pointer ABI\nOK: the target profile does not impose Wine restrictions on Mono\nOK: requests after real Mono cleanup report unavailable runtime without entering it\nOK: repeated post-cleanup requests remain safe on the resident agent\nOK: a method lookup cannot return freed JIT code after runtime cleanup\nOK: Lua runtime requests cannot expose freed layouts or JIT addresses after cleanup\nOK: the original native application survives runtime cleanup and subsequent requests\nOK: the original native application resumes after Mono is closed\nMONO_INTEGRATION_RESULT=PASSED phase=shutdown checks=9 failures=0\n",
+    "stderr": "09:17:38.522 W [general] tedf4 Mono method lookup: Mono runtime: Mono root domain is unavailable\n09:17:38.579 W [general] tedf4 Mono method lookup: Mono runtime: Mono root domain is unavailable\n",
+    "checks": 9
+  },
+  "fixtureExitCode": 0,
+  "normalExit": "MONO_EXIT 123",
+  "checks": 61,
+  "boundedMetadata": {
+    "ready": "MONO_READY 11815 8 0x7f02e621700c 0x7f02e5400768 0 37 0x4055ec80 0x4055fd30 0x4055fd50",
+    "hostPid": 11815,
+    "namespacePid": 11815,
+    "responseLimit": 1024,
+    "command": [
+      "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/mono_integration",
+      "11815",
+      "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/libmono_limit_agent.so",
+      "limited",
+      "0x7f02e621700c",
+      "0x7f02e5400768",
+      "0x4055ec80",
+      "0x4055fd30",
+      "0x4055fd50",
+      "release"
+    ],
+    "exitCode": 0,
+    "output": "OK: real Mono process exposes the live native ABI\nOK: a native Mono .exe keeps its Unix execution and pointer ABI\nOK: the target profile does not impose Wine restrictions on Mono\nOK: runtime detection identifies the actual Mono executable\nOK: oversized real metadata returns a clear error without a partial dump\nOK: resident overflow remains recoverable on the next request\nOK: method lookup remains exact after metadata overflow\nOK: metadata overflow leaves the original application live without retained native cleanup\nOK: the overflow fixture resumes its original native loop\nMONO_INTEGRATION_RESULT=PASSED phase=limited checks=9 failures=0\n",
+    "stderr": "",
+    "checks": 9,
+    "fixtureExitCode": 0,
+    "fixtureStderr": "MONO_EMBED_LOCAL_EXPORTS=hidden\nMONO_EMBED_AFTER_CLEANUP_SHUTTING_DOWN=1\nMONO_EMBED_RUNTIME_AFTER_OWNER_CLOSE=unloaded\nMONO_EMBED_LOCAL_EXPORTS_AFTER_REQUESTS=hidden\n"
+  },
+  "boundedAfterCleanupMapped": {
+    "ready": "MONO_CLEANED_READY 11815 0x55859de8704c",
+    "command": [
+      "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/mono_integration",
+      "11815",
+      "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/libmono_limit_agent.so",
+      "shutdown_mapped",
+      "0x55859de8704c",
+      "0",
+      "0",
+      "0",
+      "0",
+      "release"
+    ],
+    "exitCode": 0,
+    "output": "OK: real Mono process exposes the live native ABI\nOK: a native Mono .exe keeps its Unix execution and pointer ABI\nOK: the target profile does not impose Wine restrictions on Mono\nOK: requests after real Mono cleanup report unavailable runtime without entering it\nOK: repeated post-cleanup requests remain safe on the resident agent\nOK: a method lookup cannot return freed JIT code after runtime cleanup\nOK: Lua runtime requests cannot expose freed layouts or JIT addresses after cleanup\nOK: the original native application survives runtime cleanup and subsequent requests\nOK: the original native application resumes after Mono is closed\nMONO_INTEGRATION_RESULT=PASSED phase=shutdown_mapped checks=9 failures=0\n",
+    "stderr": "09:17:38.763 W [general] t79ae Mono method lookup: Mono runtime: Mono runtime is shutting down\n09:17:38.865 W [general] t79ae Mono method lookup: Mono runtime: Mono runtime is shutting down\n",
+    "checks": 9
+  },
+  "boundedAfterCleanup": {
+    "ready": "MONO_SHUTDOWN_READY 11815 0x55859de8704c",
+    "command": [
+      "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/mono_integration",
+      "11815",
+      "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/libmono_limit_agent.so",
+      "shutdown",
+      "0x55859de8704c",
+      "0",
+      "0",
+      "0",
+      "0",
+      "release"
+    ],
+    "exitCode": 0,
+    "output": "OK: real Mono process exposes the live native ABI\nOK: a native Mono .exe keeps its Unix execution and pointer ABI\nOK: the target profile does not impose Wine restrictions on Mono\nOK: requests after real Mono cleanup report unavailable runtime without entering it\nOK: repeated post-cleanup requests remain safe on the resident agent\nOK: a method lookup cannot return freed JIT code after runtime cleanup\nOK: Lua runtime requests cannot expose freed layouts or JIT addresses after cleanup\nOK: the original native application survives runtime cleanup and subsequent requests\nOK: the original native application resumes after Mono is closed\nMONO_INTEGRATION_RESULT=PASSED phase=shutdown checks=9 failures=0\n",
+    "stderr": "09:17:38.927 W [general] t7e70 Mono method lookup: Mono runtime: Mono root domain is unavailable\n09:17:38.982 W [general] t7e70 Mono method lookup: Mono runtime: Mono root domain is unavailable\n",
+    "checks": 9
+  },
+  "totalChecks": 106,
+  "fixtureStderr": "MONO_EMBED_LOCAL_EXPORTS=hidden\nMONO_EMBED_AFTER_CLEANUP_SHUTTING_DOWN=1\nMONO_EMBED_RUNTIME_AFTER_OWNER_CLOSE=unloaded\nMONO_EMBED_LOCAL_EXPORTS_AFTER_REQUESTS=hidden\n",
+  "boundedFixtureStderr": "MONO_EMBED_LOCAL_EXPORTS=hidden\nMONO_EMBED_AFTER_CLEANUP_SHUTTING_DOWN=1\nMONO_EMBED_RUNTIME_AFTER_OWNER_CLOSE=unloaded\nMONO_EMBED_LOCAL_EXPORTS_AFTER_REQUESTS=hidden\n"
+}

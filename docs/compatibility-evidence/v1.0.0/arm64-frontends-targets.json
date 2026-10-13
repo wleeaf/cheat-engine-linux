@@ -1,0 +1,33 @@
+{
+  "targets": [
+    {
+      "fixture": "dynamic_fixture_glibc",
+      "launcher": [],
+      "checks": {
+        "info identifies an ARM64 Linux program": true,
+        "the symbol table names the writer": true,
+        "the executable is its own module": true,
+        "typed write reaches the program and reads back": true,
+        "a whole-process first scan finds the value": true,
+        "a next scan follows the changed value": true,
+        "a pointer scan finds the static pointer path": true,
+        "an Auto Assembler hook with a code cave changes the program's behavior": true,
+        "disabling the hook restores the original bytes and behavior": true,
+        "find-what-writes names the writer instruction": true,
+        "a Lua debugger breakpoint stops at the writer and the call completes": true,
+        "Lua resolves the program's own symbol right after openProcess": true,
+        "a native call into a wholly syscall-parked program is refused with its reason": true,
+        "executeCode runs the program's own function on a new thread": true,
+        "injectLibrary loads a real shared library into the program": true,
+        "the program keeps running after every frontend detached": true,
+        "cescan ceserver listens on loopback": true,
+        "a Lua client writes the program through cescan ceserver": true,
+        "first and next scans run over the ceserver transport": true,
+        "a pointer scan over ceserver finds the static path": true,
+        "remote ARM code patches are refused with an explicit reason": true,
+        "native calls over ceserver are refused with a reason": true
+      }
+    }
+  ],
+  "status": "passed"
+}

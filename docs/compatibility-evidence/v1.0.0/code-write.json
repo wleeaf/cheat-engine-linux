@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "createdUTC": "2026-10-13T09:04:44.146932+00:00",
+  "scope": "Actual executable RX-page writes, NOP/undo, debugger ownership, short/dropped/post-mutation writes, retained restoration, reentrant ownership, same-file exec and self-code edits. Guest excludes AutoAssembler and Lua; host additionally requires production CLI/Lua. Does not establish atomic live hooks, hardware caches, other ISAs or all kernel proc-mem policies.",
+  "resources": {
+    "cpus": 1,
+    "guestMemoryMiB": 128,
+    "nice": 10
+  },
+  "sourceState": "uncommitted worktree snapshot",
+  "driverSha256": "0239f5d2463dfe2a1b029d2d107dcf553f5611f8c22eeffca9f1ce785cc49b17",
+  "cliSha256": "8f4a384ece2155e578135043709325ac8b3cd471bc1905504b9dd2c6cb6cbb2e",
+  "coreSha256": "4299139a482b39f194d58d7f67198d944fb9948cd3ba7efaf0c91ae09ad09792",
+  "command": [
+    "build/code_write_integration"
+  ],
+  "exitCode": 0,
+  "passed": true,
+  "kernel": "6.17.0-1022-azure",
+  "pageSize": 4096,
+  "checks": 40,
+  "cliChecks": 5,
+  "outputSha256": "0b10d82786fecc3001b3d7cbc355cb10441b533b6008bef5b9af988c629af47c"
+}

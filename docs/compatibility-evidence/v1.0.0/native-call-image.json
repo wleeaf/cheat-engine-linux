@@ -1,0 +1,19 @@
+{
+  "suite": "native-call-retained-image-affinity",
+  "passed": true,
+  "utc": "2026-10-13T09:04:44.455982+00:00",
+  "sourceRevision": "4a996b17169675661a65e4602198ea6a2c3909ba",
+  "sourceRef": "refs/tags/v1.0.0",
+  "driverSha256": "8187390ef62361b91d08285e4d9428c8ef032b2c061f550f701119b013da761c",
+  "fixtureSha256": "3cea25c22f462f3c35b631a39d8f11428c3e332143531dad1194aea6683049c6",
+  "coreSha256": "4299139a482b39f194d58d7f67198d944fb9948cd3ba7efaf0c91ae09ad09792",
+  "command": [
+    "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/native_call_image_integration",
+    "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/native_call_image_fixture"
+  ],
+  "width": 8,
+  "checks": 83,
+  "pageSize": 4096,
+  "exitCode": 0,
+  "outputSha256": "c4ccbbfe7a295dc1b534f5f35672981073f6848c5d982f5a2206ec9039954c90"
+}

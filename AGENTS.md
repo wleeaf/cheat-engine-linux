@@ -43,7 +43,8 @@ QT_QPA_PLATFORM=offscreen ./build/gui_lifecycle_smoke   # the broadest GUI test
   `$ORIGIN`, bundled Capstone/Keystone, speedhack, docs, desktop file).
 - Release: bump the version, add a `CHANGELOG.md` section and an AppStream
   `<release>` in `packaging/*.metainfo.xml`, then push a `vX.Y.Z` tag;
-  `release.yml` builds and uploads the `.deb` and AppImage.
+  `release.yml` uploads only the `.deb`, the AppImage and their checksums;
+  test evidence stays on the workflow run as an artifact.
 - Commit messages and PRs carry no AI attribution lines.
 
 ## GUI conventions

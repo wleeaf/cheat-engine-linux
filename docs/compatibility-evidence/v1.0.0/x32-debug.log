@@ -1,0 +1,1386 @@
+c[?7l[2J[0mSeaBIOS (version 1.16.3-debian-1.16.3-2)
+Booting from ROM...
+Probing EDD (edd=off to disable)... ok
+c[?7l[2J[    0.000000] Linux version 6.1.0-50-amd64 (debian-kernel@lists.debian.org) (gcc-12 (Debian 12.2.0-14+deb12u1) 12.2.0, GNU ld (GNU Binutils for Debian) 2.40) #1 SMP PREEMPT_DYNAMIC Debian 6.1.176-1 (2026-07-02)
+[    0.000000] Command line: console=ttyS0 rdinit=/init panic=1 syscall.x32=y ce_vm_dispatch=legacy
+[    0.000000] BIOS-provided physical RAM map:
+[    0.000000] BIOS-e820: [mem 0x0000000000000000-0x000000000009fbff] usable
+[    0.000000] BIOS-e820: [mem 0x000000000009fc00-0x000000000009ffff] reserved
+[    0.000000] BIOS-e820: [mem 0x00000000000f0000-0x00000000000fffff] reserved
+[    0.000000] BIOS-e820: [mem 0x0000000000100000-0x0000000007fdffff] usable
+[    0.000000] BIOS-e820: [mem 0x0000000007fe0000-0x0000000007ffffff] reserved
+[    0.000000] BIOS-e820: [mem 0x00000000fffc0000-0x00000000ffffffff] reserved
+[    0.000000] BIOS-e820: [mem 0x000000fd00000000-0x000000ffffffffff] reserved
+[    0.000000] NX (Execute Disable) protection: active
+[    0.000000] SMBIOS 3.0.0 present.
+[    0.000000] DMI: QEMU Standard PC (i440FX + PIIX, 1996), BIOS 1.16.3-debian-1.16.3-2 04/01/2014
+[    0.000000] tsc: Fast TSC calibration using PIT
+[    0.000000] tsc: Detected 2445.391 MHz processor
+[    0.019104] last_pfn = 0x7fe0 max_arch_pfn = 0x10000000000
+[    0.020098] x86/PAT: Configuration [0-7]: WB  WC  UC- UC  WB  WP  UC- WT  
+[    0.039837] found SMP MP-table at [mem 0x000f5480-0x000f548f]
+[    0.041691] Using GB pages for direct mapping
+[    0.047145] RAMDISK: [mem 0x07d02000-0x07fdffff]
+[    0.047650] ACPI: Early table checksum verification disabled
+[    0.048073] ACPI: RSDP 0x00000000000F52B0 000014 (v00 BOCHS )
+[    0.048415] ACPI: RSDT 0x0000000007FE1CA7 000034 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.049028] ACPI: FACP 0x0000000007FE1B53 000074 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.049667] ACPI: DSDT 0x0000000007FE0040 001B13 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.049761] ACPI: FACS 0x0000000007FE0000 000040
+[    0.049828] ACPI: APIC 0x0000000007FE1BC7 000080 (v03 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.049860] ACPI: HPET 0x0000000007FE1C47 000038 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.049888] ACPI: WAET 0x0000000007FE1C7F 000028 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.049974] ACPI: Reserving FACP table memory at [mem 0x7fe1b53-0x7fe1bc6]
+[    0.050005] ACPI: Reserving DSDT table memory at [mem 0x7fe0040-0x7fe1b52]
+[    0.050014] ACPI: Reserving FACS table memory at [mem 0x7fe0000-0x7fe003f]
+[    0.050021] ACPI: Reserving APIC table memory at [mem 0x7fe1bc7-0x7fe1c46]
+[    0.050028] ACPI: Reserving HPET table memory at [mem 0x7fe1c47-0x7fe1c7e]
+[    0.050035] ACPI: Reserving WAET table memory at [mem 0x7fe1c7f-0x7fe1ca6]
+[    0.052861] No NUMA configuration found
+[    0.052888] Faking a node at [mem 0x0000000000000000-0x0000000007fdffff]
+[    0.053688] NODE_DATA(0) allocated [mem 0x07cd7000-0x07d01fff]
+[    0.064989] Zone ranges:
+[    0.065025]   DMA      [mem 0x0000000000001000-0x0000000000ffffff]
+[    0.065105]   DMA32    [mem 0x0000000001000000-0x0000000007fdffff]
+[    0.065121]   Normal   empty
+[    0.065140]   Device   empty
+[    0.065154] Movable zone start for each node
+[    0.065191] Early memory node ranges
+[    0.065222]   node   0: [mem 0x0000000000001000-0x000000000009efff]
+[    0.065395]   node   0: [mem 0x0000000000100000-0x0000000007fdffff]
+[    0.065672] Initmem setup node 0 [mem 0x0000000000001000-0x0000000007fdffff]
+[    0.066809] On node 0, zone DMA: 1 pages in unavailable ranges
+[    0.067166] On node 0, zone DMA: 97 pages in unavailable ranges
+[    0.068968] On node 0, zone DMA32: 32 pages in unavailable ranges
+[    0.069340] ACPI: PM-Timer IO Port: 0x608
+[    0.069868] ACPI: LAPIC_NMI (acpi_id[0xff] dfl dfl lint[0x1])
+[    0.070317] IOAPIC[0]: apic_id 0, version 32, address 0xfec00000, GSI 0-23
+[    0.070457] ACPI: INT_SRC_OVR (bus 0 bus_irq 0 global_irq 2 dfl dfl)
+[    0.070756] ACPI: INT_SRC_OVR (bus 0 bus_irq 5 global_irq 5 high level)
+[    0.070810] ACPI: INT_SRC_OVR (bus 0 bus_irq 9 global_irq 9 high level)
+[    0.070909] ACPI: INT_SRC_OVR (bus 0 bus_irq 10 global_irq 10 high level)
+[    0.070924] ACPI: INT_SRC_OVR (bus 0 bus_irq 11 global_irq 11 high level)
+[    0.071118] ACPI: Using ACPI (MADT) for SMP configuration information
+[    0.071171] ACPI: HPET id: 0x8086a201 base: 0xfed00000
+[    0.071534] smpboot: Allowing 2 CPUs, 0 hotplug CPUs
+[    0.072504] PM: hibernation: Registered nosave memory: [mem 0x00000000-0x00000fff]
+[    0.072538] PM: hibernation: Registered nosave memory: [mem 0x0009f000-0x000fffff]
+[    0.072658] [mem 0x08000000-0xfffbffff] available for PCI devices
+[    0.072700] Booting paravirtualized kernel on bare hardware
+[    0.073044] clocksource: refined-jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645519600211568 ns
+[    0.084915] setup_percpu: NR_CPUS:8192 nr_cpumask_bits:2 nr_cpu_ids:2 nr_node_ids:1
+[    0.094006] percpu: Embedded 62 pages/cpu s217088 r8192 d28672 u1048576
+[    0.096113] Fallback order for Node 0: 0 
+[    0.096437] Built 1 zonelists, mobility grouping on.  Total pages: 31968
+[    0.096460] Policy zone: DMA32
+[    0.096659] Kernel command line: console=ttyS0 rdinit=/init panic=1 syscall.x32=y ce_vm_dispatch=legacy
+[    0.097944] Unknown kernel command line parameters "ce_vm_dispatch=legacy", will be passed to user space.
+[    0.098701] random: crng init done
+[    0.099390] Dentry cache hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[    0.099701] Inode-cache hash table entries: 8192 (order: 4, 65536 bytes, linear)
+[    0.101582] mem auto-init: stack:all(zero), heap alloc:on, heap free:off
+[    0.112314] Memory: 68468K/130552K available (14343K kernel code, 2338K rwdata, 9116K rodata, 2820K init, 17356K bss, 61880K reserved, 0K cma-reserved)
+[    0.118554] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=2, Nodes=1
+[    0.121585] ftrace: allocating 40432 entries in 158 pages
+[    0.163886] ftrace: allocated 158 pages with 5 groups
+[    0.174027] Dynamic Preempt: voluntary
+[    0.177171] rcu: Preemptible hierarchical RCU implementation.
+[    0.177204] rcu: 	RCU restricting CPUs from NR_CPUS=8192 to nr_cpu_ids=2.
+[    0.177338] 	Trampoline variant of Tasks RCU enabled.
+[    0.177349] 	Rude variant of Tasks RCU enabled.
+[    0.177361] 	Tracing variant of Tasks RCU enabled.
+[    0.177475] rcu: RCU calculated value of scheduler-enlistment delay is 25 jiffies.
+[    0.177510] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=2
+[    0.218275] NR_IRQS: 524544, nr_irqs: 440, preallocated irqs: 16
+[    0.224512] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.231531] Console: colour VGA+ 80x25
+[    0.252562] printk: console [ttyS0] enabled
+[    0.253939] ACPI: Core revision 20220331
+[    0.259172] clocksource: hpet: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 19112604467 ns
+[    0.264082] APIC: Switch to symmetric I/O mode setup
+[    0.268721] ..TIMER: vector=0x30 apic1=0 pin1=2 apic2=-1 pin2=-1
+[    0.289024] tsc: Marking TSC unstable due to TSCs unsynchronized
+[    0.289600] Calibrating delay loop (skipped), value calculated using timer frequency.. 4890.78 BogoMIPS (lpj=9781564)
+[    0.291537] x86/cpu: User Mode Instruction Prevention (UMIP) activated
+[    0.302377] Last level iTLB entries: 4KB 0, 2MB 0, 4MB 0
+[    0.302749] Last level dTLB entries: 4KB 0, 2MB 0, 4MB 0, 1GB 0
+[    0.304316] Spectre V1 : Mitigation: usercopy/swapgs barriers and __user pointer sanitization
+[    0.305005] Spectre V2 : Mitigation: Retpolines
+[    0.305205] Spectre V2 : Spectre v2 / SpectreRSB: Filling RSB on context switch and VMEXIT
+[    0.305473] Speculative Store Bypass: Vulnerable
+[    0.307290] x86/fpu: Supporting XSAVE feature 0x001: 'x87 floating point registers'
+[    0.313467] x86/fpu: Supporting XSAVE feature 0x002: 'SSE registers'
+[    0.313709] x86/fpu: Supporting XSAVE feature 0x004: 'AVX registers'
+[    0.313944] x86/fpu: Supporting XSAVE feature 0x008: 'MPX bounds registers'
+[    0.314162] x86/fpu: Supporting XSAVE feature 0x010: 'MPX CSR'
+[    0.314457] x86/fpu: Supporting XSAVE feature 0x200: 'Protection Keys User registers'
+[    0.314759] x86/fpu: xstate_offset[2]:  576, xstate_sizes[2]:  256
+[    0.315032] x86/fpu: xstate_offset[3]:  960, xstate_sizes[3]:   64
+[    0.315146] x86/fpu: xstate_offset[4]: 1024, xstate_sizes[4]:   64
+[    0.315256] x86/fpu: xstate_offset[9]: 2688, xstate_sizes[9]:    8
+[    0.315381] x86/fpu: Enabled xstate features 0x21f, context size is 2696 bytes, using 'standard' format.
+[    0.453156] Freeing SMP alternatives memory: 36K
+[    0.453940] pid_max: default: 32768 minimum: 301
+[    0.460226] LSM: Security Framework initializing
+[    0.461870] landlock: Up and running.
+[    0.461987] Yama: disabled by default; enable with sysctl kernel.yama.*
+[    0.465961] AppArmor: AppArmor initialized
+[    0.466098] TOMOYO Linux initialized
+[    0.466681] LSM support for eBPF active
+[    0.469565] Mount-cache hash table entries: 512 (order: 0, 4096 bytes, linear)
+[    0.469788] Mountpoint-cache hash table entries: 512 (order: 0, 4096 bytes, linear)
+[    0.610968] smpboot: CPU0: AMD QEMU TCG CPU version 2.5+ (family: 0x6, model: 0x6, stepping: 0x3)
+[    0.619028] cblist_init_generic: Setting adjustable number of callback queues.
+[    0.619192] cblist_init_generic: Setting shift to 1 and lim to 1.
+[    0.619678] cblist_init_generic: Setting adjustable number of callback queues.
+[    0.619813] cblist_init_generic: Setting shift to 1 and lim to 1.
+[    0.620489] cblist_init_generic: Setting adjustable number of callback queues.
+[    0.620642] cblist_init_generic: Setting shift to 1 and lim to 1.
+[    0.621239] Performance Events: PMU not available due to virtualization, using software events only.
+[    0.622516] signal: max sigframe size: 3632
+[    0.623598] rcu: Hierarchical SRCU implementation.
+[    0.623724] rcu: 	Max phase no-delay instances is 1000.
+[    0.629866] NMI watchdog: Perf NMI watchdog permanently disabled
+[    0.633022] smp: Bringing up secondary CPUs ...
+[    0.640243] x86: Booting SMP configuration:
+[    0.640374] .... node  #0, CPUs:      #1
+[    0.739717] smp: Brought up 1 node, 2 CPUs
+[    0.739973] smpboot: Max logical packages: 1
+[    0.740126] smpboot: Total of 2 processors activated (9782.95 BogoMIPS)
+[    0.759126] devtmpfs: initialized
+[    0.763251] x86/mm: Memory block size: 128MB
+[    0.770779] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.771503] futex hash table entries: 512 (order: 3, 32768 bytes, linear)
+[    0.774640] pinctrl core: initialized pinctrl subsystem
+[    0.805602] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    0.809918] DMA: preallocated 128 KiB GFP_KERNEL pool for atomic allocations
+[    0.811396] DMA: preallocated 128 KiB GFP_KERNEL|GFP_DMA pool for atomic allocations
+[    0.812036] DMA: preallocated 128 KiB GFP_KERNEL|GFP_DMA32 pool for atomic allocations
+[    0.812405] audit: initializing netlink subsys (disabled)
+[    0.813988] audit: type=2000 audit(1791881845.552:1): state=initialized audit_enabled=0 res=1
+[    0.819308] thermal_sys: Registered thermal governor 'fair_share'
+[    0.819349] thermal_sys: Registered thermal governor 'bang_bang'
+[    0.819558] thermal_sys: Registered thermal governor 'step_wise'
+[    0.819742] thermal_sys: Registered thermal governor 'user_space'
+[    0.819944] thermal_sys: Registered thermal governor 'power_allocator'
+[    0.821610] cpuidle: using governor ladder
+[    0.821922] cpuidle: using governor menu
+[    0.823368] Enabled x32 syscalls
+[    0.824336] acpiphp: ACPI Hot Plug PCI Controller Driver version: 0.5
+[    0.828143] PCI: Using configuration type 1 for base access
+[    0.830070] mtrr: your CPUs had inconsistent fixed MTRR settings
+[    0.830199] mtrr: your CPUs had inconsistent variable MTRR settings
+[    0.830315] mtrr: your CPUs had inconsistent MTRRdefType settings
+[    0.830423] mtrr: probably your BIOS does not setup all CPUs.
+[    0.830524] mtrr: corrected configuration.
+[    0.844302] kprobes: kprobe jump-optimization is enabled. All kprobes are optimized if possible.
+[    0.882429] HugeTLB: registered 1.00 GiB page size, pre-allocated 0 pages
+[    0.882693] HugeTLB: 16380 KiB vmemmap can be freed for a 1.00 GiB page
+[    0.882938] HugeTLB: registered 2.00 MiB page size, pre-allocated 0 pages
+[    0.883137] HugeTLB: 28 KiB vmemmap can be freed for a 2.00 MiB page
+[    0.909102] ACPI: Added _OSI(Module Device)
+[    0.909216] ACPI: Added _OSI(Processor Device)
+[    0.909381] ACPI: Added _OSI(Processor Aggregator Device)
+[    0.927461] ACPI: 1 ACPI AML tables successfully acquired and loaded
+[    0.943912] ACPI: Interpreter enabled
+[    0.945139] ACPI: PM: (supports S0 S3 S4 S5)
+[    0.945331] ACPI: Using IOAPIC for interrupt routing
+[    0.945999] PCI: Using host bridge windows from ACPI; if necessary, use "pci=nocrs" and report a bug
+[    0.946302] PCI: Using E820 reservations for host bridge windows
+[    0.947889] ACPI: Enabled 2 GPEs in block 00 to 0F
+[    0.981893] ACPI: PCI Root Bridge [PCI0] (domain 0000 [bus 00-ff])
+[    0.982888] acpi PNP0A03:00: _OSC: OS supports [ASPM ClockPM Segments MSI HPX-Type3]
+[    0.983325] acpi PNP0A03:00: _OSC: not requesting OS control; OS requires [ExtendedConfig ASPM ClockPM MSI]
+[    0.984473] acpi PNP0A03:00: fail to add MMCONFIG information, can't access extended PCI configuration space under this bridge.
+[    0.991328] acpiphp: Slot [3] registered
+[    0.991621] acpiphp: Slot [4] registered
+[    0.991858] acpiphp: Slot [5] registered
+[    0.992108] acpiphp: Slot [6] registered
+[    0.992340] acpiphp: Slot [7] registered
+[    0.992568] acpiphp: Slot [8] registered
+[    0.992863] acpiphp: Slot [9] registered
+[    0.993148] acpiphp: Slot [10] registered
+[    0.993433] acpiphp: Slot [11] registered
+[    0.993675] acpiphp: Slot [12] registered
+[    0.993928] acpiphp: Slot [13] registered
+[    0.994156] acpiphp: Slot [14] registered
+[    0.994390] acpiphp: Slot [15] registered
+[    0.994648] acpiphp: Slot [16] registered
+[    0.994898] acpiphp: Slot [17] registered
+[    0.995126] acpiphp: Slot [18] registered
+[    0.995351] acpiphp: Slot [19] registered
+[    0.995605] acpiphp: Slot [20] registered
+[    0.995835] acpiphp: Slot [21] registered
+[    0.996084] acpiphp: Slot [22] registered
+[    0.996337] acpiphp: Slot [23] registered
+[    0.996572] acpiphp: Slot [24] registered
+[    0.996946] acpiphp: Slot [25] registered
+[    0.997181] acpiphp: Slot [26] registered
+[    0.997458] acpiphp: Slot [27] registered
+[    0.997698] acpiphp: Slot [28] registered
+[    0.997997] acpiphp: Slot [29] registered
+[    0.998231] acpiphp: Slot [30] registered
+[    0.998456] acpiphp: Slot [31] registered
+[    0.998930] PCI host bridge to bus 0000:00
+[    0.999274] pci_bus 0000:00: root bus resource [io  0x0000-0x0cf7 window]
+[    0.999642] pci_bus 0000:00: root bus resource [io  0x0d00-0xffff window]
+[    0.999854] pci_bus 0000:00: root bus resource [mem 0x000a0000-0x000bffff window]
+[    1.000171] pci_bus 0000:00: root bus resource [mem 0x08000000-0xfebfffff window]
+[    1.000428] pci_bus 0000:00: root bus resource [mem 0x100000000-0x17fffffff window]
+[    1.000848] pci_bus 0000:00: root bus resource [bus 00-ff]
+[    1.001355] pci 0000:00:00.0: [8086:1237] type 00 class 0x060000
+[    1.007949] pci 0000:00:01.0: [8086:7000] type 00 class 0x060100
+[    1.008916] pci 0000:00:01.1: [8086:7010] type 00 class 0x010180
+[    1.011443] pci 0000:00:01.1: BAR 4 [io  0xc000-0xc00f]
+[    1.012695] pci 0000:00:01.1: BAR 0 [io  0x01f0-0x01f7]: legacy IDE quirk
+[    1.012919] pci 0000:00:01.1: BAR 1 [io  0x03f6]: legacy IDE quirk
+[    1.013415] pci 0000:00:01.1: BAR 2 [io  0x0170-0x0177]: legacy IDE quirk
+[    1.013560] pci 0000:00:01.1: BAR 3 [io  0x0376]: legacy IDE quirk
+[    1.014415] pci 0000:00:01.3: [8086:7113] type 00 class 0x068000
+[    1.014931] pci 0000:00:01.3: quirk: [io  0x0600-0x063f] claimed by PIIX4 ACPI
+[    1.015099] pci 0000:00:01.3: quirk: [io  0x0700-0x070f] claimed by PIIX4 SMB
+[    1.015829] pci 0000:00:02.0: [1234:1111] type 00 class 0x030000
+[    1.016910] pci 0000:00:02.0: BAR 0 [mem 0xfd000000-0xfdffffff pref]
+[    1.018698] pci 0000:00:02.0: BAR 2 [mem 0xfebf0000-0xfebf0fff]
+[    1.021913] pci 0000:00:02.0: ROM [mem 0xfebe0000-0xfebeffff pref]
+[    1.022317] pci 0000:00:02.0: Video device with shadowed ROM at [mem 0x000c0000-0x000dffff]
+[    1.027115] ACPI: PCI: Interrupt link LNKA configured for IRQ 10
+[    1.027914] ACPI: PCI: Interrupt link LNKB configured for IRQ 10
+[    1.028469] ACPI: PCI: Interrupt link LNKC configured for IRQ 11
+[    1.029106] ACPI: PCI: Interrupt link LNKD configured for IRQ 11
+[    1.029470] ACPI: PCI: Interrupt link LNKS configured for IRQ 9
+[    1.033874] iommu: Default domain type: Translated 
+[    1.033874] iommu: DMA domain TLB invalidation policy: lazy mode 
+[    1.035312] pps_core: LinuxPPS API ver. 1 registered
+[    1.035422] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[    1.035647] PTP clock support registered
+[    1.037651] EDAC MC: Ver: 3.0.0
+[    1.048435] NetLabel: Initializing
+[    1.048555] NetLabel:  domain hash size = 128
+[    1.048664] NetLabel:  protocols = UNLABELED CIPSOv4 CALIPSO
+[    1.049649] NetLabel:  unlabeled traffic allowed by default
+[    1.049789] PCI: Using ACPI for IRQ routing
+[    1.053845] pci 0000:00:02.0: vgaarb: setting as boot VGA device
+[    1.054076] pci 0000:00:02.0: vgaarb: bridge control possible
+[    1.054241] pci 0000:00:02.0: vgaarb: VGA device added: decodes=io+mem,owns=io+mem,locks=none
+[    1.054408] vgaarb: loaded
+[    1.054983] hpet0: at MMIO 0xfed00000, IRQs 2, 8, 0
+[    1.055157] hpet0: 3 comparators, 64-bit 100.000000 MHz counter
+[    1.062732] clocksource: Switched to clocksource hpet
+[    1.195118] VFS: Disk quotas dquot_6.6.0
+[    1.195436] VFS: Dquot-cache hash table entries: 512 (order 0, 4096 bytes)
+[    1.200093] AppArmor: AppArmor Filesystem Enabled
+[    1.200715] pnp: PnP ACPI init
+[    1.205384] pnp: PnP ACPI: found 6 devices
+[    1.235225] clocksource: acpi_pm: mask: 0xffffff max_cycles: 0xffffff, max_idle_ns: 2085701024 ns
+[    1.236458] NET: Registered PF_INET protocol family
+[    1.237721] IP idents hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    1.254285] tcp_listen_portaddr_hash hash table entries: 256 (order: 0, 4096 bytes, linear)
+[    1.255442] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    1.255779] TCP established hash table entries: 1024 (order: 1, 8192 bytes, linear)
+[    1.256305] TCP bind hash table entries: 1024 (order: 3, 32768 bytes, linear)
+[    1.256931] TCP: Hash tables configured (established 1024 bind 1024)
+[    1.258828] MPTCP token hash table entries: 256 (order: 1, 6144 bytes, linear)
+[    1.259213] UDP hash table entries: 256 (order: 1, 8192 bytes, linear)
+[    1.259552] UDP-Lite hash table entries: 256 (order: 1, 8192 bytes, linear)
+[    1.261207] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    1.261834] NET: Registered PF_XDP protocol family
+[    1.262844] pci_bus 0000:00: resource 4 [io  0x0000-0x0cf7 window]
+[    1.262982] pci_bus 0000:00: resource 5 [io  0x0d00-0xffff window]
+[    1.263094] pci_bus 0000:00: resource 6 [mem 0x000a0000-0x000bffff window]
+[    1.263212] pci_bus 0000:00: resource 7 [mem 0x08000000-0xfebfffff window]
+[    1.263330] pci_bus 0000:00: resource 8 [mem 0x100000000-0x17fffffff window]
+[    1.263946] pci 0000:00:01.0: PIIX3: Enabling Passive Release
+[    1.264158] pci 0000:00:00.0: Limiting direct PCI/PCI transfers
+[    1.264554] PCI: CLS 0 bytes, default 64
+[    1.272321] Trying to unpack rootfs image as initramfs...
+[    1.275369] Initialise system trusted keyrings
+[    1.278164] Key type blacklist registered
+[    1.279198] workingset: timestamp_bits=36 max_order=15 bucket_order=0
+[    1.292255] zbud: loaded
+[    1.297244] integrity: Platform Keyring initialized
+[    1.297704] integrity: Machine keyring initialized
+[    1.297886] Key type asymmetric registered
+[    1.298119] Asymmetric key parser 'x509' registered
+[    1.491560] Freeing initrd memory: 2936K
+[    1.518001] alg: self-tests for CTR-KDF (hmac(sha256)) passed
+[    1.518724] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 248)
+[    1.519724] io scheduler mq-deadline registered
+[    1.530075] shpchp: Standard Hot Plug PCI Controller Driver version: 0.4
+[    1.535097] Serial: 8250/16550 driver, 4 ports, IRQ sharing enabled
+[    1.537714] 00:04: ttyS0 at I/O 0x3f8 (irq = 4, base_baud = 115200) is a 16550A
+[    1.545020] Linux agpgart interface v0.103
+[    1.546973] AMD-Vi: AMD IOMMUv2 functionality not available on this system - This is not a bug.
+[    1.552148] i8042: PNP: PS/2 Controller [PNP0303:KBD,PNP0f13:MOU] at 0x60,0x64 irq 1,12
+[    1.555766] serio: i8042 KBD port at 0x60,0x64 irq 1
+[    1.556148] serio: i8042 AUX port at 0x60,0x64 irq 12
+[    1.558366] mousedev: PS/2 mouse device common for all mice
+[    1.560857] rtc_cmos 00:05: RTC can wake from S4
+[    1.562002] input: AT Translated Set 2 keyboard as /devices/platform/i8042/serio0/input/input0
+[    1.564983] rtc_cmos 00:05: registered as rtc0
+[    1.565722] rtc_cmos 00:05: setting system clock to 2026-10-13T08:57:27 UTC (1791881847)
+[    1.567437] rtc_cmos 00:05: alarms up to one day, y3k, 242 bytes nvram, hpet irqs
+[    1.568280] ledtrig-cpu: registered to indicate activity on CPUs
+[    1.651357] NET: Registered PF_INET6 protocol family
+[    1.666043] Segment Routing with IPv6
+[    1.666544] In-situ OAM (IOAM) with IPv6
+[    1.667261] mip6: Mobile IPv6
+[    1.667674] NET: Registered PF_PACKET protocol family
+[    1.668345] mpls_gso: MPLS GSO support
+[    1.670882] IPI shorthand broadcast: enabled
+[    1.673589] registered taskstats version 1
+[    1.674011] Loading compiled-in X.509 certificates
+[    1.783099] Loaded X.509 cert 'Build time autogenerated kernel key: 0a219777213e78bd031a2420db649c60888ff27d'
+[    1.791805] zswap: loaded using pool lzo/zbud
+[    1.794455] Key type .fscrypt registered
+[    1.794561] Key type fscrypt-provisioning registered
+[    1.807140] Key type encrypted registered
+[    1.807365] AppArmor: AppArmor sha1 policy hashing enabled
+[    1.808061] ima: No TPM chip found, activating TPM-bypass!
+[    1.808295] ima: Allocated hash algorithm: sha256
+[    1.810418] ima: No architecture policies found
+[    1.811111] evm: Initialising EVM extended attributes:
+[    1.811295] evm: security.selinux
+[    1.811443] evm: security.SMACK64 (disabled)
+[    1.811577] evm: security.SMACK64EXEC (disabled)
+[    1.811750] evm: security.SMACK64TRANSMUTE (disabled)
+[    1.811906] evm: security.SMACK64MMAP (disabled)
+[    1.812050] evm: security.apparmor
+[    1.812163] evm: security.ima
+[    1.812265] evm: security.capability
+[    1.812546] evm: HMAC attrs: 0x1
+[    2.374970] Unstable clock detected, switching default tracing clock to "global"
+[    2.374970] If you want to keep using the local clock, then add:
+[    2.374970]   "trace_clock=local"
+[    2.374970] on the kernel command line
+[    2.376071] clk: Disabling unused clocks
+[    2.414523] Freeing unused decrypted memory: 2036K
+[    2.494259] Freeing unused kernel image (initmem) memory: 2820K
+[    2.494515] Write protecting the kernel read-only data: 26624k
+[    2.498375] Freeing unused kernel image (text/rodata gap) memory: 2040K
+[    2.499820] Freeing unused kernel image (rodata/data gap) memory: 1124K
+[    2.656106] x86/mm: Checked W+X mappings: passed, no W+X pages found.
+[    2.657085] Run /init as init process
+RETURN_BOUNDARY_CHECK OK: return-boundary fixture starts an actual native application
+RETURN_BOUNDARY_CHECK OK: boundary fixtures own real executable page pairs, private stacks and separate syscall scratch
+RETURN_BOUNDARY_CHECK OK: the original application supplies a full real register bank under its ptrace owner
+RETURN_BOUNDARY_CHECK OK: the boundary owner independently snapshots the original extended state and private code
+RETURN_BOUNDARY_CHECK OK: a real five-byte MOV begins at the last page byte and requires the following page
+RETURN_BOUNDARY_CHECK OK: unmap, lost execute permission or MAP_FIXED cannot remove the tail of the saved return instruction
+RETURN_BOUNDARY_CHECK OK: the page-boundary operation preserves exact code, GP, extended state and private instructions
+RETURN_BOUNDARY_OBSERVATION variant=0 instruction=mov5 operation=1 success=0 stop=5 pc=f7ff7005 value=12345678
+RETURN_BOUNDARY_CHECK OK: actual execution reads the complete original instruction and reaches its owned trap with the exact result
+RETURN_BOUNDARY_CHECK OK: the owner restores its original application stop and reclaims all boundary code and stack pages
+RETURN_BOUNDARY_CHECK OK: a real five-byte MOV begins at the last page byte and requires the following page
+RETURN_BOUNDARY_CHECK OK: unmap, lost execute permission or MAP_FIXED cannot remove the tail of the saved return instruction
+RETURN_BOUNDARY_CHECK OK: the page-boundary operation preserves exact code, GP, extended state and private instructions
+RETURN_BOUNDARY_OBSERVATION variant=1 instruction=mov5 operation=2 success=0 stop=5 pc=f7ff4005 value=12345678
+RETURN_BOUNDARY_CHECK OK: actual execution reads the complete original instruction and reaches its owned trap with the exact result
+RETURN_BOUNDARY_CHECK OK: the owner restores its original application stop and reclaims all boundary code and stack pages
+RETURN_BOUNDARY_CHECK OK: a real five-byte MOV begins at the last page byte and requires the following page
+RETURN_BOUNDARY_CHECK OK: unmap, lost execute permission or MAP_FIXED cannot remove the tail of the saved return instruction
+RETURN_BOUNDARY_CHECK OK: the page-boundary operation preserves exact code, GP, extended state and private instructions
+RETURN_BOUNDARY_OBSERVATION variant=2 instruction=mov5 operation=0 success=0 stop=5 pc=f7ff1005 value=12345678
+RETURN_BOUNDARY_CHECK OK: actual execution reads the complete original instruction and reaches its owned trap with the exact result
+RETURN_BOUNDARY_CHECK OK: the owner restores its original application stop and reclaims all boundary code and stack pages
+RETURN_BOUNDARY_CHECK OK: a real one-byte RET fits at the page end and owns a stack return to mapped code
+RETURN_BOUNDARY_CHECK OK: an unrelated next page can actually be unmapped when the saved instruction fits before it
+RETURN_BOUNDARY_CHECK OK: the actual short x86 instruction remains usable with a partial decode window beside an already unmapped page
+RETURN_BOUNDARY_CHECK OK: the page-boundary operation preserves exact code, GP, extended state and private instructions
+RETURN_BOUNDARY_OBSERVATION variant=3 instruction=ret1 operation=1 success=1 stop=5 pc=f7fed046 value=12345678
+RETURN_BOUNDARY_CHECK OK: actual execution reads the complete original instruction and reaches its owned trap with the exact result
+RETURN_BOUNDARY_CHECK OK: the owner restores its original application stop and reclaims all boundary code and stack pages
+RETURN_BOUNDARY_CHECK OK: boundary cleanup releases scratch and preserves actual application console work after the original stop resumes
+RETURN_BOUNDARY_RESULT=PASSED architecture=x86-64 checks=26
+RESTART_BOUNDARY_CHECK OK: restart-boundary fixture starts an actual native application
+RESTART_BOUNDARY_CHECK OK: restart fixtures own a code pair, read buffer and separate syscall scratch
+RESTART_BOUNDARY_CHECK OK: the original stop supplies independently captured full GP, extended state and private instructions
+RESTART_BOUNDARY_CHECK OK: actual SYSCALL or INT 80 ends at the page boundary beside a mapped owned return trap
+RESTART_BOUNDARY_STOP variant=0 pc=f7f90000 syscall=40000000 result=fffffffffffffe00 ready=1
+RESTART_BOUNDARY_CHECK OK: an actual blocked read exposes its real restart error with the saved PC on the following page
+RESTART_BOUNDARY_CHECK OK: destructive memory operations cannot destroy the preceding page needed by the kernel restart
+RESTART_BOUNDARY_CHECK OK: the operation returns exact GP, syscall restart metadata, extended state and original private instructions
+RESTART_BOUNDARY_OBSERVATION variant=0 operation=1 success=0 stop=5 pc=f7f90001 result=1 byte=122
+RESTART_BOUNDARY_CHECK OK: actual resume restarts the original read when needed, receives its byte and reaches the owned return trap
+RESTART_BOUNDARY_CHECK OK: the caller restores the original application stop and reclaims its real code and read-buffer mappings
+RESTART_BOUNDARY_CHECK OK: scratch cleanup and detach preserve the original application's blocked read and console work
+RESTART_BOUNDARY_CHECK OK: restart-boundary fixture starts an actual native application
+RESTART_BOUNDARY_CHECK OK: restart fixtures own a code pair, read buffer and separate syscall scratch
+RESTART_BOUNDARY_CHECK OK: the original stop supplies independently captured full GP, extended state and private instructions
+RESTART_BOUNDARY_CHECK OK: actual SYSCALL or INT 80 ends at the page boundary beside a mapped owned return trap
+RESTART_BOUNDARY_STOP variant=1 pc=f7ff2000 syscall=40000000 result=fffffffffffffe00 ready=1
+RESTART_BOUNDARY_CHECK OK: an actual blocked read exposes its real restart error with the saved PC on the following page
+RESTART_BOUNDARY_CHECK OK: destructive memory operations cannot destroy the preceding page needed by the kernel restart
+RESTART_BOUNDARY_CHECK OK: the operation returns exact GP, syscall restart metadata, extended state and original private instructions
+RESTART_BOUNDARY_OBSERVATION variant=1 operation=2 success=0 stop=5 pc=f7ff2001 result=1 byte=122
+RESTART_BOUNDARY_CHECK OK: actual resume restarts the original read when needed, receives its byte and reaches the owned return trap
+RESTART_BOUNDARY_CHECK OK: the caller restores the original application stop and reclaims its real code and read-buffer mappings
+RESTART_BOUNDARY_CHECK OK: scratch cleanup and detach preserve the original application's blocked read and console work
+RESTART_BOUNDARY_CHECK OK: restart-boundary fixture starts an actual native application
+RESTART_BOUNDARY_CHECK OK: restart fixtures own a code pair, read buffer and separate syscall scratch
+RESTART_BOUNDARY_CHECK OK: the original stop supplies independently captured full GP, extended state and private instructions
+RESTART_BOUNDARY_CHECK OK: actual SYSCALL or INT 80 ends at the page boundary beside a mapped owned return trap
+RESTART_BOUNDARY_STOP variant=2 pc=f7fd3000 syscall=40000000 result=fffffffffffffe00 ready=1
+RESTART_BOUNDARY_CHECK OK: an actual blocked read exposes its real restart error with the saved PC on the following page
+RESTART_BOUNDARY_CHECK OK: destructive memory operations cannot destroy the preceding page needed by the kernel restart
+RESTART_BOUNDARY_CHECK OK: the operation returns exact GP, syscall restart metadata, extended state and original private instructions
+RESTART_BOUNDARY_OBSERVATION variant=2 operation=0 success=0 stop=5 pc=f7fd3001 result=1 byte=122
+RESTART_BOUNDARY_CHECK OK: actual resume restarts the original read when needed, receives its byte and reaches the owned return trap
+RESTART_BOUNDARY_CHECK OK: the caller restores the original application stop and reclaims its real code and read-buffer mappings
+RESTART_BOUNDARY_CHECK OK: scratch cleanup and detach preserve the original application's blocked read and console work
+RESTART_BOUNDARY_CHECK OK: restart-boundary fixture starts an actual native application
+RESTART_BOUNDARY_CHECK OK: restart fixtures own a code pair, read buffer and separate syscall scratch
+RESTART_BOUNDARY_CHECK OK: the original stop supplies independently captured full GP, extended state and private instructions
+RESTART_BOUNDARY_CHECK OK: actual SYSCALL or INT 80 ends at the page boundary beside a mapped owned return trap
+RESTART_BOUNDARY_STOP variant=3 pc=f7f0f000 syscall=40000000 result=1 ready=1
+RESTART_BOUNDARY_CHECK OK: a real completed read reaches its syscall-exit stop with no restart error
+RESTART_BOUNDARY_CHECK OK: an unused preceding page can be released after syscall completion or from ordinary user code
+RESTART_BOUNDARY_CHECK OK: the operation returns exact GP, syscall restart metadata, extended state and original private instructions
+RESTART_BOUNDARY_OBSERVATION variant=3 operation=1 success=1 stop=5 pc=f7f0f001 result=1 byte=122
+RESTART_BOUNDARY_CHECK OK: actual resume restarts the original read when needed, receives its byte and reaches the owned return trap
+RESTART_BOUNDARY_CHECK OK: the caller restores the original application stop and reclaims its real code and read-buffer mappings
+RESTART_BOUNDARY_CHECK OK: scratch cleanup and detach preserve the original application's blocked read and console work
+RESTART_BOUNDARY_CHECK OK: restart-boundary fixture starts an actual native application
+RESTART_BOUNDARY_CHECK OK: restart fixtures own a code pair, read buffer and separate syscall scratch
+RESTART_BOUNDARY_CHECK OK: the original stop supplies independently captured full GP, extended state and private instructions
+RESTART_BOUNDARY_CHECK OK: actual SYSCALL or INT 80 ends at the page boundary beside a mapped owned return trap
+RESTART_BOUNDARY_STOP variant=4 pc=f7f73000 syscall=ffffffffffffffff result=fffffffffffffe00 ready=1
+RESTART_BOUNDARY_CHECK OK: a user-code error-looking value has no active kernel syscall to restart
+RESTART_BOUNDARY_CHECK OK: an unused preceding page can be released after syscall completion or from ordinary user code
+RESTART_BOUNDARY_CHECK OK: the operation returns exact GP, syscall restart metadata, extended state and original private instructions
+RESTART_BOUNDARY_OBSERVATION variant=4 operation=1 success=1 stop=5 pc=f7f73001 result=fffffffffffffe00 byte=0
+RESTART_BOUNDARY_CHECK OK: actual resume restarts the original read when needed, receives its byte and reaches the owned return trap
+RESTART_BOUNDARY_CHECK OK: the caller restores the original application stop and reclaims its real code and read-buffer mappings
+RESTART_BOUNDARY_CHECK OK: scratch cleanup and detach preserve the original application's blocked read and console work
+RESTART_BOUNDARY_RESULT=PASSED architecture=x86-64 checks=50
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+MIXED_ABI_RESTART_CHECK OK: the normal memory operation or independent direct-resume control completes without losing ownership
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_OBSERVATION variant=0 syscall=1073741859 entry=c000003e restoredEntry=c000003e edited=0 elapsed=2005 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CLEANUP variant=0 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+MIXED_ABI_RESTART_CHECK OK: the normal memory operation or independent direct-resume control completes without losing ownership
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_OBSERVATION variant=1 syscall=162 entry=40000003 restoredEntry=40000003 edited=0 elapsed=2005 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CLEANUP variant=1 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+MIXED_ABI_RESTART_CHECK OK: the normal memory operation or independent direct-resume control completes without losing ownership
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_OBSERVATION variant=2 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2005 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CLEANUP variant=2 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+MIXED_ABI_RESTART_CHECK OK: the normal memory operation or independent direct-resume control completes without losing ownership
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_OBSERVATION variant=3 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2009 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CLEANUP variant=3 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+MIXED_ABI_RESTART_CHECK OK: a real completed mmap retains its value, mapping and same ptrace owner after controlled restart-recovery failure
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_OBSERVATION variant=4 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2001 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CLEANUP variant=4 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+MIXED_ABI_RESTART_CHECK OK: a real completed mmap retains its value, mapping and same ptrace owner after controlled restart-recovery failure
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_OBSERVATION variant=5 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2009 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CLEANUP variant=5 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+MIXED_ABI_RESTART_CHECK OK: a real completed mmap retains its value, mapping and same ptrace owner after controlled restart-recovery failure
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_OBSERVATION variant=6 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2008 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CLEANUP variant=6 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+MIXED_ABI_RESTART_CHECK OK: a real completed mmap retains its value, mapping and same ptrace owner after controlled restart-recovery failure
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_OBSERVATION variant=7 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2002 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CLEANUP variant=7 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+MIXED_ABI_RESTART_CHECK OK: a real completed mmap retains its value, mapping and same ptrace owner after controlled restart-recovery failure
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_OBSERVATION variant=8 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2003 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CLEANUP variant=8 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+MIXED_ABI_RESTART_CHECK OK: a real completed mmap retains its value, mapping and same ptrace owner after controlled restart-recovery failure
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_OBSERVATION variant=9 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2004 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CLEANUP variant=9 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+MIXED_ABI_RESTART_CHECK OK: a real completed mmap retains its value, mapping and same ptrace owner after controlled restart-recovery failure
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_OBSERVATION variant=10 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2000 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CLEANUP variant=10 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+MIXED_ABI_RESTART_CHECK OK: a real completed mmap retains its value, mapping and same ptrace owner after controlled restart-recovery failure
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_OBSERVATION variant=11 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2001 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CLEANUP variant=11 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+MIXED_ABI_RESTART_CHECK OK: a real completed mmap retains its value, mapping and same ptrace owner after controlled restart-recovery failure
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_OBSERVATION variant=12 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2001 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CLEANUP variant=12 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+MIXED_ABI_RESTART_CHECK OK: a real completed mmap retains its value, mapping and same ptrace owner after controlled restart-recovery failure
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_OBSERVATION variant=13 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2009 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CLEANUP variant=13 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+MIXED_ABI_RESTART_CHECK OK: a real completed mmap retains its value, mapping and same ptrace owner after controlled restart-recovery failure
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_OBSERVATION variant=14 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2000 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CLEANUP variant=14 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+MIXED_ABI_RESTART_CHECK OK: a real completed mmap retains its value, mapping and same ptrace owner after controlled restart-recovery failure
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_OBSERVATION variant=15 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2007 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CLEANUP variant=15 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+MIXED_ABI_RESTART_CHECK OK: a real completed mmap retains its value, mapping and same ptrace owner after controlled restart-recovery failure
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_OBSERVATION variant=16 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2010 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CLEANUP variant=16 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+MIXED_ABI_RESTART_CHECK OK: a real completed mmap retains its value, mapping and same ptrace owner after controlled restart-recovery failure
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_OBSERVATION variant=17 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2001 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CLEANUP variant=17 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+MIXED_ABI_RESTART_CHECK OK: the normal memory operation or independent direct-resume control completes without losing ownership
+MIXED_ABI_RESTART_CHECK OK: ABI restoration defers an actual queued asynchronous signal without changing its sender or value
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_CHECK OK: the real resumed target receives the original asynchronous signal at its original context
+MIXED_ABI_RESTART_OBSERVATION variant=18 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2005 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CHECK OK: after actual signal delivery and timer completion the owned allocation can be protected and reclaimed
+MIXED_ABI_RESTART_CLEANUP variant=18 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+RESTART_PREENTRY_STOP actualStop=19 queuedCode=-1 leftWait=1
+MIXED_ABI_RESTART_CHECK OK: a real completed mmap retains its value, mapping and same ptrace owner after controlled restart-recovery failure
+MIXED_ABI_RESTART_CHECK OK: a real queued SIGSTOP retains its delivery data and same owned completed mmap during ABI restoration
+MIXED_ABI_RESTART_CHECK OK: bounded recovery preserves a real kernel group stop with the original GP bank and signal mask until SIGCONT
+MIXED_ABI_RESTART_CHECK OK: a real SIGCONT notification between an empty wait poll and stop inspection is collected without replaying LISTEN
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_CHECK OK: the real resumed target receives the original asynchronous signal at its original context
+MIXED_ABI_RESTART_OBSERVATION variant=19 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2005 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CHECK OK: after actual signal delivery and timer completion the owned allocation can be protected and reclaimed
+MIXED_ABI_RESTART_CLEANUP variant=19 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+RESTART_PREENTRY_STOP actualStop=19 queuedCode=-1 leftWait=1
+MIXED_ABI_RESTART_CHECK OK: a real completed mmap retains its value, mapping and same ptrace owner after controlled restart-recovery failure
+MIXED_ABI_RESTART_CHECK OK: a real queued SIGSTOP retains its delivery data and same owned completed mmap during ABI restoration
+MIXED_ABI_RESTART_CHECK OK: SIGCONT canceling a held SIGSTOP does not create a replacement group stop or run the borrowed context
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_CHECK OK: the real resumed target receives the original asynchronous signal at its original context
+MIXED_ABI_RESTART_OBSERVATION variant=20 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2002 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CHECK OK: after actual signal delivery and timer completion the owned allocation can be protected and reclaimed
+MIXED_ABI_RESTART_CLEANUP variant=20 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+RESTART_PREENTRY_STOP actualStop=19 queuedCode=-1 leftWait=1
+MIXED_ABI_RESTART_CHECK OK: a real completed mmap retains its value, mapping and same ptrace owner after controlled restart-recovery failure
+MIXED_ABI_RESTART_CHECK OK: a real queued SIGSTOP retains its delivery data and same owned completed mmap during ABI restoration
+MIXED_ABI_RESTART_CHECK OK: a LISTEN failure before or after kernel application retains the actual task, stop and completed allocation
+MIXED_ABI_RESTART_CHECK OK: bounded recovery preserves a real kernel group stop with the original GP bank and signal mask until SIGCONT
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_CHECK OK: the real resumed target receives the original asynchronous signal at its original context
+MIXED_ABI_RESTART_OBSERVATION variant=21 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2003 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CHECK OK: after actual signal delivery and timer completion the owned allocation can be protected and reclaimed
+MIXED_ABI_RESTART_CLEANUP variant=21 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_CHECK OK: timed restart fixture is an actual native application
+MIXED_ABI_RESTART_CHECK OK: real code pair and timer data use valid syscall-ABI addresses beside separate private scratch
+MIXED_ABI_RESTART_CHECK OK: caller captures complete original GP, extended state, signal mask and scratch bytes
+MIXED_ABI_RESTART_CHECK OK: the target owns a two-second nanosleep ending at the page boundary beside INT3
+MIXED_ABI_RESTART_CHECK OK: procfs and the real interrupted stop prove the original live restart-block timer
+MIXED_ABI_RESTART_CHECK OK: actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit
+MIXED_ABI_RESTART_CHECK OK: the preceding restart page stays protected even when a compat error is zero-extended in a 64-bit bank
+RESTART_PREENTRY_STOP actualStop=19 queuedCode=-1 leftWait=1
+MIXED_ABI_RESTART_CHECK OK: a real completed mmap retains its value, mapping and same ptrace owner after controlled restart-recovery failure
+MIXED_ABI_RESTART_CHECK OK: a real queued SIGSTOP retains its delivery data and same owned completed mmap during ABI restoration
+MIXED_ABI_RESTART_CHECK OK: a LISTEN failure before or after kernel application retains the actual task, stop and completed allocation
+MIXED_ABI_RESTART_CHECK OK: bounded recovery preserves a real kernel group stop with the original GP bank and signal mask until SIGCONT
+MIXED_ABI_RESTART_CHECK OK: normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI
+MIXED_ABI_RESTART_CHECK OK: recovery preserves extended state, both original instructions, private scratch and the application signal mask
+MIXED_ABI_RESTART_CHECK OK: the real resumed target receives the original asynchronous signal at its original context
+MIXED_ABI_RESTART_OBSERVATION variant=22 syscall=162 entry=40000003 restoredEntry=40000003 edited=1 elapsed=2010 result=0 stop=5
+MIXED_ABI_RESTART_CHECK OK: actual target resume completes the original timer deadline and reaches INT3 with success
+MIXED_ABI_RESTART_CHECK OK: after actual signal delivery and timer completion the owned allocation can be protected and reclaimed
+MIXED_ABI_RESTART_CLEANUP variant=22 original=1 storage=1 storageError=0 scratch=1 scratchError=0 absent=1 detach=1 console=1
+MIXED_ABI_RESTART_CHECK OK: owned cleanup reclaims all mappings and preserves the original application console work
+MIXED_ABI_RESTART_RESULT=PASSED architecture=x86-64 checks=298
+OK: lifecycle stepping attaches and traps the selected native instruction
+OK: the selected task reaches its real instruction with the thread group frozen
+OK: the fixture publishes its original console work before the trapped exit
+OK: an exiting step selects a real surviving register bank without inventing a single-step result
+OK: the surviving debugger remains editable and restores the complete shared exit trap
+OK: native stepping continues on the explicitly selected live sibling after task exit
+OK: task-exit cleanup resumes the original console and releases the surviving kernel stop
+OK: leader exit during an all-stop step completes without waiting for stopped siblings
+OK: lifecycle stepping attaches and traps the selected native instruction
+OK: the selected task reaches its real instruction with the thread group frozen
+OK: the fixture publishes its original console work before the trapped exit
+OK: an exiting step selects a real surviving register bank without inventing a single-step result
+OK: the surviving debugger remains editable and restores the complete shared exit trap
+OK: native stepping continues on the explicitly selected live sibling after task exit
+OK: task-exit cleanup resumes the original console and releases the surviving kernel stop
+OK: worker exit during an all-stop step retires its selected context
+OK: lifecycle stepping attaches and traps the selected native instruction
+OK: the selected task reaches its real instruction with the thread group frozen
+OK: stepping the final thread's exit publishes process exit and retires the stopped snapshot
+OK: last-thread exit during an all-stop step publishes its terminal event
+OK: lifecycle stepping attaches and traps the selected native instruction
+OK: the selected task reaches its real instruction with the thread group frozen
+OK: the fixture publishes its original console work before the trapped exit
+OK: a failed EXIT-stop detach retains the actual owner and frozen siblings without publishing completion
+OK: process metadata and thread selection omit the irreversibly exiting leader before it becomes a zombie
+OK: EXIT-stop recovery retries detach and rearms the original shared instruction before reporting the survivor
+OK: an exiting step selects a real surviving register bank without inventing a single-step result
+OK: the surviving debugger remains editable and restores the complete shared exit trap
+OK: native stepping continues on the explicitly selected live sibling after task exit
+OK: task-exit cleanup resumes the original console and releases the surviving kernel stop
+OK: failed thread-exit detach is recoverable on the original debugger owner
+OK: lifecycle stepping attaches and traps the selected native instruction
+OK: the selected task reaches its real instruction with the thread group frozen
+OK: stepping a genuine program INT3 or BRK preserves its signal instead of inventing syscall completion
+OK: the original program trap is delivered and its actual process exit remains observable
+OK: real program traps stay distinct from kernel syscall-step notifications
+OK: lifecycle stepping attaches and traps the selected native instruction
+OK: the selected task reaches its real instruction with the thread group frozen
+OK: the fixture publishes its original console work before the trapped exit
+OK: a nonleader exec drains sibling EXIT stops, adopts the renamed task and retires old-image traps
+OK: the replacement program starts and completes console work after an all-stop nonleader exec step
+OK: a nonleader exec step completes despite sibling exit and kernel TID replacement
+OK: instruction tracing recognizes an actual native syscall-return step trap
+OK: syscall tracing preserves its real return value and original console liveness
+OK: native syscall instruction tracing restores its owner and preserves the program
+OK: a debugger's parent process launches its own real target
+OK: the debugger callback establishes the requested running or paused state before the launcher competes for notifications
+OK: the launcher consumes the actual requested stop notification while the debugger retains ownership
+OK: debugger cleanup releases an EXIT stop whose wait notification was consumed by its launcher
+OK: same-process child reaping cannot deadlock debugger destruction
+OK: a debugger's parent process launches its own real target
+OK: the debugger callback establishes the requested running or paused state before the launcher competes for notifications
+OK: the launcher consumes the actual requested stop notification while the debugger retains ownership
+OK: a running debugger reports final exit automatically after its launcher consumes the EXIT notification
+OK: debugger cleanup releases an EXIT stop whose wait notification was consumed by its launcher
+OK: same-process child reaping preserves automatic final-exit notification
+OK: a debugger's parent process launches its own real target
+OK: the debugger callback establishes the requested running or paused state before the launcher competes for notifications
+OK: the launcher consumes the actual requested stop notification while the debugger retains ownership
+OK: a running debugger automatically releases a worker EXIT stop consumed by its launcher without stopping the survivor
+OK: automatic worker-exit retirement preserves shared code and the original console work
+OK: debugger cleanup releases an EXIT stop whose wait notification was consumed by its launcher
+OK: same-process child reaping preserves automatic worker-exit retirement and target liveness
+OK: a debugger's parent process launches its own real target
+OK: the debugger callback establishes the requested running or paused state before the launcher competes for notifications
+OK: the launcher consumes the actual requested stop notification while the debugger retains ownership
+OK: failed automatic EXIT-stop detach retains the original owner and freezes the surviving thread for recovery
+OK: automatic EXIT-stop recovery publishes the actual surviving register bank only after owned cleanup completes
+OK: automatic worker-exit retirement preserves shared code and the original console work
+OK: debugger cleanup releases an EXIT stop whose wait notification was consumed by its launcher
+OK: same-process child reaping preserves recoverable automatic EXIT-stop cleanup
+OK: a debugger's parent process launches its own real target
+OK: the debugger callback establishes the requested running or paused state before the launcher competes for notifications
+OK: the launcher consumes the actual requested stop notification while the debugger retains ownership
+OK: a consumed program-trap notification still publishes its actual signal and fresh stopped register bank
+OK: continuing a consumed program-trap stop delivers the original fatal signal exactly once
+OK: debugger cleanup releases an EXIT stop whose wait notification was consumed by its launcher
+OK: same-process child reaping preserves genuine program-trap handling and delivery
+OK: a debugger's parent process launches its own real target
+OK: the debugger callback establishes the requested running or paused state before the launcher competes for notifications
+OK: the launcher consumes the actual requested stop notification while the debugger retains ownership
+OK: a consumed CLONE notification still adopts and runs the real worker to completion
+OK: a consumed CLONE stop restores every original shared syscall instruction byte
+OK: the original parent console remains live after consumed CLONE and real worker exit
+OK: debugger cleanup releases an EXIT stop whose wait notification was consumed by its launcher
+OK: same-process child reaping preserves real CLONE adoption and worker execution
+OK: a debugger's parent process launches its own real target
+OK: the debugger callback establishes the requested running or paused state before the launcher competes for notifications
+OK: the launcher consumes the actual requested stop notification while the debugger retains ownership
+OK: a consumed EXEC notification retires old-image traps and publishes the replacement kernel register bank
+OK: the replacement program starts and completes original console work after a consumed EXEC stop
+OK: debugger cleanup releases an EXIT stop whose wait notification was consumed by its launcher
+OK: same-process child reaping preserves actual EXEC adoption and replacement-image liveness
+OK: a debugger's parent process launches its own real target
+OK: the debugger callback establishes the requested running or paused state before the launcher competes for notifications
+OK: the paused target is killed while its EXIT wait notification remains available to the debugger
+OK: a paused debugger reports final exit automatically whether its launcher consumes the EXIT notification or leaves it queued
+OK: debugger cleanup releases an EXIT stop whose wait notification was consumed by its launcher
+OK: paused target death is observable without requiring another debugger command
+OK: a debugger's parent process launches its own real target
+OK: the debugger callback establishes the requested running or paused state before the launcher competes for notifications
+OK: the launcher consumes the actual requested stop notification while the debugger retains ownership
+OK: a paused debugger reports final exit automatically whether its launcher consumes the EXIT notification or leaves it queued
+OK: debugger cleanup releases an EXIT stop whose wait notification was consumed by its launcher
+OK: paused target death is observable without requiring another debugger command
+OK: a same-process launcher publishes its real nonleader-exec target
+OK: nonleader exec replaces its real TID while the owner is held after the actual leader detach
+OK: the parent consumes the actual nonleader EXEC report at its replacement process TID
+OK: the debugger recovers a consumed nonleader EXEC and adopts its actual replacement thread
+OK: recovered nonleader EXEC retires old-image traps without replaying them into the replacement program
+OK: a recovered nonleader replacement image starts and completes its original console work
+OK: the recovered replacement process exits normally without retaining a kernel owner
+OK: same-process child reaping preserves nonleader EXEC across kernel TID replacement
+OK: a same-process launcher publishes its real nonleader-exec target
+OK: the actual nonleader exec instruction is selected with its sibling frozen before an all-stop step
+OK: nonleader exec replaces its real TID while the owner is held after the actual leader detach
+OK: the parent consumes the actual nonleader EXEC report at its replacement process TID
+OK: the debugger recovers a consumed nonleader EXEC and adopts its actual replacement thread
+OK: recovered nonleader EXEC retires old-image traps without replaying them into the replacement program
+OK: a recovered nonleader replacement image starts and completes its original console work
+OK: the recovered replacement process exits normally without retaining a kernel owner
+OK: same-process child reaping preserves nonleader EXEC across kernel TID replacement
+OK: a same-process launcher publishes its real nonleader-exec target
+OK: nonleader exec replaces its real TID while the owner is held after the actual leader detach
+OK: the parent consumes the actual nonleader EXEC report at its replacement process TID
+OK: the debugger recovers a consumed nonleader EXEC and adopts its actual replacement thread
+OK: an actual exec with a failed context read still notifies image retirement without retaining an old register bank
+OK: the existing exec owner retries a transient context read and exposes the real replacement register bank
+OK: recovered nonleader EXEC retires old-image traps without replaying them into the replacement program
+OK: a recovered nonleader replacement image starts and completes its original console work
+OK: the recovered replacement process exits normally without retaining a kernel owner
+OK: same-process child reaping preserves nonleader EXEC across kernel TID replacement
+SESSION_THREAD_EXIT_RESULT=PASSED
+OK: x64 syscall plan uses its Linux number and opcode
+OK: compat mode in an ELF64 host uses mmap2 and the signed fd sentinel
+OK: x32 retains a 64-bit result register and file offset with its separate syscall-number bit
+OK: 32-bit syscall arguments cannot silently truncate addresses or lengths
+OK: ARM and Thumb plans have distinct instruction widths
+OK: ARM instruction byte order is independent of target data byte order
+OK: unknown ARM instruction order cannot select an opcode
+OK: ARM64 syscall plan uses svc zero and the native mmap number
+OK: a Windows or unknown program descriptor cannot masquerade as a Linux syscall host
+OK: real native syscall fixture starts
+OK: fixture ELF declares the actual syscall ABI
+SYSCALL_TARGET architecture=x86-64 abi=Linux x32 width=4 pageSize=4096
+SYSCALL_KERNEL release=6.1.0-50-amd64 machine=x86_64
+OK: original target instructions are readable
+OK: target mmap executes using its native register and syscall ABI
+OK: allocated target memory is observable through real process_vm access
+OK: target mprotect removes write access
+OK: target munmap removes the allocated mapping
+OK: syscall injection leaves original target instructions unchanged
+OK: syscall restart state survives repeated attach/inject/restore/detach
+OK: target mmap executes using its native register and syscall ABI
+OK: allocated target memory is observable through real process_vm access
+OK: target mprotect removes write access
+OK: target munmap removes the allocated mapping
+OK: syscall injection leaves original target instructions unchanged
+OK: syscall restart state survives repeated attach/inject/restore/detach
+OK: target mmap executes using its native register and syscall ABI
+OK: allocated target memory is observable through real process_vm access
+OK: target mprotect removes write access
+OK: target munmap removes the allocated mapping
+OK: syscall injection leaves original target instructions unchanged
+OK: syscall restart state survives repeated attach/inject/restore/detach
+OK: kernel syscall errors preserve target liveness and report the actual errno
+OK: unmapping the current syscall instruction is rejected before any mutation
+OK: removing execute access from the current syscall page preserves liveness
+OK: application process API executes allocation/protection/free through the owner service
+OK: a rejected low-address near-allocation candidate falls back to a usable gap
+OK: application API exposes retained recovery after a real kernel restoration failure
+OK: a new process handle recovers the original ptrace owner and cleans its unreturned allocation
+OK: caller destruction retains the completed allocation until it is actually unmapped
+OK: independent frontend threads share syscall ownership without conflicting ptrace attachment
+OK: zero-size and overflowing application requests are rejected before target mutation
+OK: page-rounded 32-bit allocations and preferred addresses cannot overflow the program address space
+OK: service shutdown fixture has a stable target identity
+OK: isolated service owns a real pending restoration at shutdown
+OK: service shutdown finishes restoration and allocation cleanup on the original owner thread
+OK: real completed mmap retains its allocation and a recovery ticket on restoration failure
+OK: a different thread cannot replay a ptrace owner's recovery record
+OK: recovery restores the actual target and is idempotent
+OK: target continues executing after verified recovery
+OK: completed-but-unreturned mmap can be cleaned up after recovery
+OK: busy-code restoration fixture receives its command
+OK: busy-code fixture publishes its wait flag
+OK: code-restoration fault owns the only stopped thread before patching its busy instruction
+OK: real completed mmap retains its allocation and a recovery ticket on restoration failure
+OK: a different thread cannot replay a ptrace owner's recovery record
+OK: recovery restores the actual target and is idempotent
+OK: quiesced instruction recovery retains attachment until the original owner detaches
+OK: restored busy-code target can leave its wait loop
+OK: target continues executing after verified recovery
+OK: completed-but-unreturned mmap can be cleaned up after recovery
+OK: real completed mmap retains its allocation and a recovery ticket on restoration failure
+OK: a different thread cannot replay a ptrace owner's recovery record
+OK: recovery restores the actual target and is idempotent
+OK: target continues executing after verified recovery
+OK: completed-but-unreturned mmap can be cleaned up after recovery
+OK: same-file exec fixture starts
+OK: same-file exec fixture retains its original memory image
+OK: original image is restored before fixture exec
+OK: target really execs the same ELF file on the same PID
+OK: same-file exec cannot be detected by PID/start-time/executable-inode alone
+OK: old memory-image ownership rejects cleanup into a same-file replacement process
+OK: separate target starts for exit during recovery
+OK: exiting target retains a real failed-restoration record
+OK: stopped recovery target can exit normally through the kernel
+OK: exit clears recovery ownership without replaying dead registers or memory
+OK: a real user SIGTRAP during a nested affinity syscall is delivered without inventing caller completion
+OK: a real user SIGTRAP is delivered rather than swallowed as a single-step trap
+OK: native debugger fixture starts
+OK: native fixture seeds independent low and high SIMD register sentinels
+OK: native debugger seizes a syscall-parked thread without a signal
+OK: register context identifies the stopped thread ISA and native PC/SP
+OK: native SIMD register bank is read through its architecture ABI
+OK: SIMD reads preserve the fixture's independent 128-bit low and high register values
+OK: native register edits reach the actual kernel register bank
+OK: original register bank is restored before target execution
+OK: a rejected register write restores earlier fields rather than leaving a partial kernel update
+OK: a foreign register context cannot corrupt a stopped thread
+OK: kernel reports the native hardware breakpoint bank
+OK: an invalid breakpoint slot is rejected without changing another slot
+OK: native hardware execution breakpoint arms at the real writer function
+OK: execution breakpoint traps at the exact native instruction address
+OK: native execution breakpoint is removed from its own bank
+OK: a real hardware programming failure restores and verifies the previous native slot
+OK: a failed hardware rollback is reported while ptrace ownership remains retained
+OK: explicit recovery restores the saved native hardware bank before execution
+OK: recovered breakpoint ownership can be released
+OK: native single-step advances a real instruction and captures the new PC
+OK: single-stepped writer completes before a separate watchpoint operation
+OK: native debugger interrupts the running target without SIGSTOP
+OK: native four-byte hardware write watchpoint arms at the actual data address
+OK: a native write produces a genuine hardware-watchpoint trap
+OK: native watchpoint reports the correct watched access and architecture timing
+HARDWARE_WATCHPOINT timing=after-access
+OK: watchpoint removal and status cleanup succeed before detach
+OK: stepping with the watchpoint removed completes the actual native store
+OK: target completes its command after native debugger detach
+OK: target keeps executing with its original registers and no residual breakpoint
+OK: same target can reattach for native software-breakpoint checks
+OK: software-breakpoint fixture retains its exact original instruction bytes
+OK: failed software-breakpoint verification retains the original bytes and recovery record
+OK: software-breakpoint recovery restores real target code before another operation
+OK: architecture-specific software trap installs on read-only executable code
+OK: native software trap fires with the correct architecture-specific PC semantics
+OK: software breakpoint restores exact code and adjacent bytes, and cleanup is idempotent
+OK: restored original instruction executes after the software trap is removed
+OK: target completes the original writer after software-breakpoint recovery and detach
+OK: target stays live after both native software and hardware breakpoint cycles
+DEBUG_BACKEND_RESULT=PASSED architecture=x86-64
+OK: full debugger session fixture exposes actual code and call sites
+OK: full session fixture seeds native SIMD values before attachment
+OK: application DebugSession attaches through its real owner thread and all-stop loop
+OK: full session publishes the actual ISA and complete native SIMD register bank
+OK: frontend register edits execute on the session owner and restore the original bank
+OK: full session retains a failed software installation and its original code
+OK: full session retries failed code restoration on the same ptrace owner
+OK: full session installs its native software breakpoint
+OK: full event loop attributes the software trap and restores the correct native PC
+OK: full session steps the original instruction and rearms the software breakpoint
+OK: session removal restores all native instruction bytes and their neighbors
+OK: target completes its original writer after session single-step
+OK: full session preserves a separate watchpoint in another native slot
+OK: full session arms a data watchpoint while the target is running
+OK: full session attributes the actual native hardware watchpoint
+OK: continuing a native watchpoint executes its store without retrapping or losing liveness
+OK: full session attributes the actual native hardware watchpoint
+OK: continuing a native watchpoint executes its store without retrapping or losing liveness
+OK: full session attributes the actual native hardware watchpoint
+OK: continuing a native watchpoint executes its store without retrapping or losing liveness
+OK: session follows a newly cloned writer thread and stops the whole target at its watchpoint
+OK: full session can inspect and select both stopped thread register banks
+OK: new writer thread continues and exits after its native watchpoint
+OK: full session removes the native data watchpoint from every traced thread
+OK: removing one native watchpoint preserves the independently owned slot until its removal
+OK: full session stops at the real native call instruction
+OK: step-over decodes the target ISA and completes at the native call return address
+OK: native call breakpoint removes cleanly after step-over
+OK: native caller completes after step-over without code or stack corruption
+OK: entry step-out uses the native saved return register or stack slot
+OK: native caller keeps executing after callee step-out
+OK: run-to-cursor executes and restores its architecture-specific temporary breakpoint
+OK: native return instruction executes after temporary breakpoint cleanup
+OK: exec discards old breakpoint ownership without writing old code into the replacement image
+OK: replacement program starts after the full debugger exec stop
+OK: replacement program runs with no residual old-image breakpoint
+OK: full session detach drains restoration on its original owner thread
+OK: target remains live after full session detach and exec transition
+DEBUG_SESSION_RESULT=PASSED architecture=x86-64
+OK: session interrupted-step fixture starts
+OK: session reaches an owned trap before an interrupted instruction step
+OK: a signal during single-step keeps the target stopped until software traps are safely rearmed
+OK: continuing an interrupted step forwards its signal and executes the original instruction
+OK: interrupted-step breakpoint cleanup succeeds
+OK: session destruction fixture starts
+OK: session owns a planted trap before caller destruction
+OK: caller destruction retains ptrace ownership until failed code cleanup can be verified
+OK: session destruction retries and verifies the exact original instruction bytes
+OK: target remains live after session destruction and failed cleanup recovery
+OK: session signal-delivery fixture starts
+OK: full session attaches before testing a genuine user signal
+OK: a genuine user SIGTRAP is surfaced without being confused with an owned breakpoint
+OK: continuing an exception breakpoint preserves genuine signal delivery and process-exit notification
+DEBUG_RECOVERY_RESULT=PASSED
+OK: native instruction-trace fixture starts
+OK: instruction tracing reports readiness only after native execution breakpoints are armed
+OK: overlapping trace requests cannot reset cancellation or seize a second owner
+OK: real instruction tracing publishes native PCs, register banks and decoded instructions
+OK: instruction tracing restores native hardware state and leaves the writer alive
+OK: instruction trace steps over native calls and stops at the requested return instruction
+OK: native call trace restores its temporary execution breakpoint without stack corruption
+OK: waiting instruction trace cancels and drains its ptrace owner
+OK: target continues after cancelling an armed instruction trace
+OK: failed trace hardware cleanup retains the real ptrace stop and its original bank
+OK: trace cleanup retries on its owner and leaves no residual execution breakpoint
+OK: instruction tracing adopts and arms a newly cloned writer before its first instruction
+OK: new writer exits and target stays live after cloned-thread trace cleanup
+OK: exec ends an armed trace and discards old-image hardware restoration records
+OK: replacement image runs after trace exec without an old-image breakpoint
+OK: exit during failed trace cleanup retires ownership without hanging on a dead register bank
+OK: an armed trace forwards genuine user SIGTRAP rather than swallowing it as its own breakpoint
+TRACE_BACKEND_RESULT=PASSED architecture=x86-64
+OK: native CodeFinder fixture starts
+OK: fixture exposes an independently decoded native store instruction
+OK: CodeFinder fixture retains occupied and previously configured disabled slots before monitoring
+OK: real CodeFinder arms native data banks before reporting startup success
+OK: target completes a native store while CodeFinder records and rearms its watchpoint
+OK: target completes a native store while CodeFinder records and rearms its watchpoint
+OK: target completes a native store while CodeFinder records and rearms its watchpoint
+OK: CodeFinder reports the exact native store and correct pre/post-access register timing
+OK: CodeFinder arms a newly cloned writer before its first store and lets it exit
+OK: CodeFinder attributes cloned-thread accesses to the same real writer instruction
+OK: CodeFinder restores every original native bank and detaches without a residual watchpoint
+OK: CodeFinder preserves the independent slot exactly and restores all addresses and enable/control state
+OK: ARM64 hardware cleanup does not create unused later-slot perf events
+OK: independently owned test watchpoint removes cleanly after CodeFinder restoration
+OK: failed CodeFinder cleanup keeps its owner, stopped target and exact original hardware bank
+OK: CodeFinder retries failed hardware restoration before releasing the target
+OK: failed CodeFinder startup retains cleanup ownership after a partially written bank
+OK: failed CodeFinder startup restores the target before returning failure
+OK: CodeFinder ends on exec without replaying old-image debug banks
+OK: replacement image runs without an old-image CodeFinder watchpoint
+OK: CodeFinder preserves genuine user SIGTRAP delivery instead of swallowing the signal
+OK: target exit drains failed CodeFinder cleanup without hanging on a dead bank
+CODEFINDER_BACKEND_RESULT=PASSED architecture=x86-64
+OK: stopped native syscall fixture starts
+OK: stopped syscall fixture owns a private executable scratch page
+OK: an initialization error reported after real target mutation restores every native register, syscall slot and instruction before returning ownership
+OK: an initialization error reported after real target mutation restores every native register, syscall slot and instruction before returning ownership
+OK: stopped syscall uses the native register ABI and really changes target protection
+OK: private-gadget syscall restores native registers, shared code and the existing ptrace relationship
+OK: stopped syscall failure retains exact register recovery and the completed protection result
+OK: stopped syscall recovery restores on the existing owner without detaching it
+OK: quiesced syscall releases its scratch page and restores exact shared program instructions
+OK: stopped syscall scratch cleanup and detach preserve the original blocked-read restart state
+STOPPED_SYSCALL_RESULT=PASSED architecture=x86-64
+OK: native software CodeFinder fixture starts
+OK: software CodeFinder arms its real native page guard before startup succeeds
+OK: software watchpoint executes a native store and rearms its page guard without losing liveness
+OK: software watchpoint executes a native store and rearms its page guard without losing liveness
+OK: software watchpoint executes a native store and rearms its page guard without losing liveness
+OK: software CodeFinder records the native faulting store and its register context
+OK: software CodeFinder follows a newly cloned writer without exposing an untraced page fault
+OK: software CodeFinder restores exact page permissions and releases its syscall scratch mapping before detach
+OK: software cleanup retains native register recovery and the real stopped-thread owner
+OK: software cleanup retries native restoration and leaves no permission or mapping residue
+OK: software CodeFinder retires old page/scratch ownership on exec without changing the replacement image
+OK: replacement program executes after software watchpoint exec cleanup
+SOFTWARE_CODEFINDER_RESULT=PASSED architecture=x86-64
+OK: hardware job-control fixture arms
+OK: CodeFinder preserves a real group stop while a requested write stays pending
+OK: SIGCONT resumes the target and native monitoring still records its pending store
+OK: detaching CodeFinder preserves the target's preexisting job-control stop
+OK: the detached target runs normally after its owner sends SIGCONT
+OK: software job-control fixture arms
+OK: CodeFinder preserves a real group stop while a requested write stays pending
+OK: SIGCONT resumes the target and native monitoring still records its pending store
+OK: detaching CodeFinder preserves the target's preexisting job-control stop
+OK: the detached target runs normally after its owner sends SIGCONT
+OK: a real ignored signal during software gadget execution survives cleanup and the original store completes
+OK: signal-interrupted software watchpoint cleanup leaves no page guard or scratch residue
+CODEFINDER_SIGNAL_RESULT=PASSED architecture=x86-64
+OK: teardown race starts an independent native target
+OK: teardown fixture continuously executes a real watched store
+OK: teardown saves the real original hardware bank before CodeFinder takes ownership
+HARDWARE_RACE_CPUS target=0 owner=1
+HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=529 applicationSignal=0
+OK: cleanup encounters a kernel queued hardware SIGTRAP behind an interrupt stop
+OK: teardown drains the owned trap and releases its actual ptrace owner
+OK: queued-trap cleanup restores original hardware addresses, control, status and test CPU affinity
+OK: the original program continues its computation and console work without a leaked hardware trap
+OK: teardown race starts an independent native target
+OK: teardown fixture continuously executes a real watched store
+OK: teardown saves the real original hardware bank before CodeFinder takes ownership
+HARDWARE_RACE_CPUS target=0 owner=1
+HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=520 applicationSignal=10
+OK: cleanup encounters a kernel queued hardware SIGTRAP behind an interrupt stop
+OK: teardown drains the owned trap and releases its actual ptrace owner
+OK: cleanup preserves the application SIGUSR1 instead of replacing it with its hardware SIGTRAP
+OK: teardown race starts an independent native target
+OK: teardown fixture continuously executes a real watched store
+OK: teardown saves the real original hardware bank before CodeFinder takes ownership
+HARDWARE_RACE_CPUS target=0 owner=1
+HARDWARE_TEARDOWN_RACE event=interrupt queuedSignal=5 queuedCode=4 attempts=332 applicationSignal=19
+OK: cleanup encounters a kernel queued hardware SIGTRAP behind an interrupt stop
+OK: teardown drains the owned trap and releases its actual ptrace owner
+OK: queued application SIGSTOP remains a genuine stopped target after watchpoint cleanup
+OK: the application's SIGCONT resumes its preserved stop
+OK: queued-trap cleanup restores original hardware addresses, control, status and test CPU affinity
+OK: the original program continues its computation and console work without a leaked hardware trap
+CODEFINDER_TEARDOWN_RESULT=PASSED architecture=x86-64
+OK: leader-exit fixture publishes its actual target format and memory
+OK: the actual kernel retires the leader while its console sibling remains alive
+OK: existing and newly opened handles retain real metadata after leader exit
+OK: process reads use a live member after the group leader releases its memory
+OK: process writes preserve original console work after leader exit
+OK: batched scanner reads follow the live address space after leader exit
+OK: memory maps, module backing files and surviving threads remain available
+OK: selected-thread inspection reads the surviving thread and releases its real stop
+OK: process-level memory allocation selects a live thread after leader exit
+OK: live-thread memory operations preserve protection, remove allocations and resume console work
+OK: failed live-member restoration retains its unreturned mapping against the original process identity
+OK: another frontend recovers the live member and releases its unreturned mapping after leader exit
+OK: full debugger retains the original process PID and selects an actual surviving stopped thread
+OK: leaderless debugger reports the real surviving writer's software breakpoint
+OK: leaderless debugger single-steps native code and restores its complete trap bytes
+OK: leaderless debugger cleanup releases the selected stop and preserves original console execution
+OK: leaderless instruction tracing captures actual surviving-thread registers and native decoding
+OK: leaderless trace cleanup restores the real hardware bank and original console work
+OK: all-thread CodeFinder monitors the actual surviving writer after leader exit
+OK: leaderless CodeFinder cleanup restores kernel watchpoints and resumes console work
+OK: native single-thread CodeFinder selects a live member after leader exit
+OK: leaderless CodeFinder cleanup restores kernel watchpoints and resumes console work
+OK: the original process handle retires only after the last live member exits
+LEADER_EXIT_RESULT=PASSED
+OK: concurrent frontend metadata and an owned inspection callback complete without a lock-order deadlock
+OK: image-metadata recovery starts a real syscall-parked target
+OK: unavailable executable metadata after real mmap retains its allocation and original stopped owner
+OK: restored executable metadata permits verified GP/restart recovery and original console work
+OK: completed but unreturned mmap is released after metadata and register recovery
+OK: unavailable image metadata with a stale requested birth retains the actual seized task without calling user code
+OK: cleanup binds to the actual seized task birth rather than retiring a stale caller identity
+OK: brokered metadata recovery starts a separate real target
+OK: the application broker never returns a mapping while live metadata failure leaves GP restoration pending
+OK: process recovery owns and unmaps the unreturned allocation after executable metadata becomes readable
+OK: thread inspection starts a real syscall-parked native target
+OK: owned inspection reads registers and stack together then releases the actual kernel stop
+OK: real kernel edit merges a changed GP register without replaying stale PC or SP
+OK: register edit can restore the target's original general register
+OK: failed inspection callback restores its real register mutation and retains syscall restart
+OK: inspection detach failure retains ownership beyond the frontend callback
+OK: native service recovers retained inspection ownership on its original thread
+OK: all inspections and edit rollback preserve the target's original blocked read
+OK: inspection concurrency fixture has a real running sibling
+OK: inspecting one selected thread leaves its shared-code sibling running
+OK: failed sibling inspection reports pending recovery against its process without seizing the whole group
+OK: process-level recovery releases the retained selected sibling on its original owner
+OK: selected-thread inspections preserve both real threads and original console work
+OK: preflight recovery starts a real native target
+OK: failure before syscall execution retains the actual ptrace owner without an invented allocation
+OK: preflight recovery refuses a different host owner thread
+OK: preflight recovery releases the original attachment and is idempotent
+OK: the untouched target resumes its original blocked read and console work after preflight recovery
+OK: preflight recovery starts a real native target
+OK: failure before syscall execution retains the actual ptrace owner without an invented allocation
+OK: preflight recovery refuses a different host owner thread
+OK: preflight recovery releases the original attachment and is idempotent
+OK: the untouched target resumes its original blocked read and console work after preflight recovery
+OK: preflight recovery starts a real native target
+OK: failure before syscall execution retains the actual ptrace owner without an invented allocation
+OK: preflight recovery refuses a different host owner thread
+OK: preflight recovery releases the original attachment and is idempotent
+OK: the untouched target resumes its original blocked read and console work after preflight recovery
+OK: preflight recovery starts a real native target
+OK: failure before syscall execution retains the actual ptrace owner without an invented allocation
+OK: preflight recovery refuses a different host owner thread
+OK: preflight recovery releases the original attachment and is idempotent
+OK: the untouched target resumes its original blocked read and console work after preflight recovery
+OK: preflight recovery starts a real native target
+OK: failure before syscall execution retains the actual ptrace owner without an invented allocation
+OK: preflight recovery refuses a different host owner thread
+OK: preflight recovery releases the original attachment and is idempotent
+OK: the untouched target resumes its original blocked read and console work after preflight recovery
+OK: allocation preflight starts a separate real native target
+OK: failure allocating recovery ownership occurs before any ptrace attachment or target execution
+OK: allocation failure before attachment leaves the target running normally
+OK: exit preflight recovery starts a separate real native target
+OK: an untouched stopped target retains preflight ownership before exit
+OK: preflight ownership retires idempotently after real target exit without replaying an unfinished snapshot
+OK: service preflight recovery starts a separate real native target
+OK: the application service retains preflight detach failure through caller destruction
+OK: a new application handle recovers the original preflight ptrace owner without a register snapshot
+OK: service preflight recovery preserves the real target's blocked read and continued execution
+PREFLIGHT_RECOVERY_RESULT=PASSED architecture=x86-64
+OK: native function fixture starts a real process
+OK: fixture publishes real native callable functions and their wait controls
+OK: native call uses an executable private page and a separate guarded private stack
+OK: a real blocked read, including ARM64's cleared syscall slot and rewound SVC, rejects a native call before private code or context mutation
+OK: the refused parked-thread call resumes the original blocked read and console work
+OK: call fixture seeds SIMD state and reaches an actual user-mode stop
+OK: native function snapshots every kernel GP and extended register, signal mask and original stack bytes
+OK: eight native arguments, including x86 stack arguments, return exactly and restore SIMD, GP, mask and original stack bytes
+OK: a private call frame can be reused without leaking target register or stack state
+OK: a transient return-register or opcode read failure retains the unclassified stop without reporting a result
+OK: retry classifies the saved return stop before continuing and restores the completed call exactly
+OK: a transient return-register or opcode read failure retains the unclassified stop without reporting a result
+OK: retry classifies the saved return stop before continuing and restores the completed call exactly
+OK: a real timeout interrupt racing the queued return trap is drained in private code before original context restoration
+OK: a raced timeout leaves no stale owned interrupt for the next native call
+OK: a reported setup error after a real private instruction or register write restores the original context without running the callee
+OK: a reported setup error after a real private instruction or register write restores the original context without running the callee
+OK: failure restoring a completed native call retains the actual return value and exact owner recovery
+OK: retry restores a completed call without invoking the function a second time
+FUNCTION_TIMEOUT_DIAGNOSTIC loop=S signal=28 requestedMs=0 controls=1 error=110 recovery=1 completed=0 elapsedMs=105 markerRead=1 marker=1 startupRetries=1 startupOwned=1
+OK: a real unfinished callee is bounded by its timeout and retains ownership without inventing a return value
+OK: an unfinished native call refuses recovery from a different host owner thread
+OK: an external signal or foreign SIGTRAP remains a delivery stop rather than being mistaken for the private return trap
+OK: retry does not silently suppress an undecided native call signal
+OK: an explicit signal decision completes the original callee, restores its context and makes recovery idempotent
+OK: a real unfinished callee is bounded by its timeout and retains ownership without inventing a return value
+OK: an unfinished native call refuses recovery from a different host owner thread
+OK: an external signal or foreign SIGTRAP remains a delivery stop rather than being mistaken for the private return trap
+OK: retry does not silently suppress an undecided native call signal
+OK: an explicit signal decision completes the original callee, restores its context and makes recovery idempotent
+OK: an owned existing syscall releases the private frame without touching shared code or detaching
+OK: native call and cleanup resume the original CPU loop and console work
+OK: a genuine callee segmentation fault retains its real signal stop and never reports a successful function result
+OK: a dead faulting callee retires recovery without replaying registers or fabricating a result
+STOPPED_FUNCTION_RESULT=PASSED architecture=x86-64
+OK: shared native call owner starts a real target
+OK: shared owner fixture publishes callable ABI and resource-lease functions
+OK: two real threads keep running while the call owner selects only one thread
+OK: shared owner completes a native call and restores the exact mapping/protection list before releasing ownership
+OK: a callee's real thread-directed signal follows the requested delivery policy and still returns its actual result
+OK: a timed-out call retains its private frame and shared owner across frontend failure
+OK: a sibling makes real CPU progress while the selected native call retains ownership
+OK: memory operations and caller destruction cannot seize a second owner or discard a live call frame
+OK: shared owner retains a genuine external SIGTRAP until an explicit signal decision
+OK: a new frontend resumes the original call on its existing owner and releases every private mapping
+OK: a successful resource-producing call keeps a client lease without retaining a private frame or blocking other calls
+OK: destroying the resource result schedules one native detach and cleans its replacement frame without frontend ownership
+OK: a resource lease explicitly released after target cleanup never performs a duplicate detach
+OK: shared call recovery leaves both original threads and console work live
+NATIVE_CALL_OWNER_RESULT=PASSED architecture=x86-64
+OK: shared-code syscall fixture starts
+OK: two real native threads execute the same busy function while sharing program code
+OK: transient mmap/mprotect/munmap use existing native syscall instructions without any program-code write
+OK: the unseized sibling keeps making progress through shared code during transient memory operations
+OK: all readable non-writable executable mappings stay byte-for-byte unchanged
+OK: both busy threads finish normally and the original blocked-read restart state survives
+SHARED_SYSCALL_RESULT=PASSED architecture=x86-64
+OK: syscall-policy fixture starts
+OK: the actual target installs a kernel seccomp filter trapping its native mmap syscall
+OK: a kernel-denied synthetic syscall reports permission failure without inventing a completed allocation
+OK: the denied operation preserves the filter and original target context without injecting a synthetic SIGSYS
+OK: other native syscalls still reach the kernel under the unchanged target policy
+OK: saved-image protection refuses a denied affinity allocation without changing caller mappings or injecting SIGSYS
+OK: saved-image allocation preserves seccomp policy without inventing an unreturned probe mapping
+SYSCALL_POLICY_RESULT=PASSED architecture=x86-64
+OK: legacy dispatch fixture starts a real target
+OK: legacy dispatch fixture publishes its selector and empty native range
+OK: the legacy guest really lacks dispatch configuration introspection
+OK: the legacy kernel enables dispatch and reaches the actual target CPU loop
+OK: legacy allowing dispatch completes real mmap/mprotect/munmap without patching code
+OK: legacy dispatch operations preserve the original selector byte
+OK: the original legacy dispatch CPU loop continues after memory operations
+OK: the legacy target disables its own dispatch mode and resumes console work
+OK: legacy dispatch fixture starts a real target
+OK: legacy dispatch fixture publishes its selector and empty native range
+OK: the legacy guest really lacks dispatch configuration introspection
+OK: the legacy kernel enables dispatch and reaches the actual target CPU loop
+OK: legacy dispatch denial restores context without inventing an allocation or delivering synthetic SIGSYS
+OK: legacy dispatch operations preserve the original selector byte
+OK: the original legacy dispatch CPU loop continues after memory operations
+OK: the legacy target disables its own dispatch mode and resumes console work
+SYSCALL_DISPATCH_LEGACY_RESULT=PASSED
+0 failed target syscall checks
+CE_VM_RESULT=PASSED
+[   54.473316] ACPI: PM: Preparing to enter system sleep state S5
+[   54.474105] reboot: Power down

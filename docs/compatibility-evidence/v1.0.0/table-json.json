@@ -1,0 +1,40 @@
+{
+  "suite": "table-json-exact-integers-and-unicode",
+  "utc": "2026-10-13T09:14:32.514597+00:00",
+  "passed": true,
+  "runs": [
+    {
+      "command": [
+        "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/table_json_integration"
+      ],
+      "exitCode": 0,
+      "output": "OK: escaped BMP and supplementary Unicode become exact UTF-8\nOK: maximum address JSON numbers retain every integer bit\nOK: signed pointer offsets preserve both 64-bit endpoints\nOK: integral decimal/exponent syntax remains supported\nOK: decimal/exponent integers are converted without floating-point rounding\nOK: legacy integer strings retain hex/octal bases and signed offsets\nOK: duplicate fields follow the same last-value semantics as Qt JSON\nOK: serialization escapes every control byte and preserves it on reload\nOK: out-of-range record ID\nOK: fractional record ID\nOK: boolean record ID\nOK: negative address\nOK: overflowing address\nOK: fractional address\nOK: partially parsed address string\nOK: negative record length\nOK: negative structure size\nOK: overflowing structure size\nOK: overflowing pointer offset\nOK: fractional pointer offset\nOK: unknown numeric value type\nOK: unknown named value type\nOK: unknown freeze mode\nOK: leading-zero JSON number\nOK: JSON number missing fractional digits\nOK: unpaired high surrogate\nOK: unpaired low surrogate\nOK: invalid surrogate pair\nOK: non-hexadecimal Unicode escape\nOK: unescaped string control byte\nOK: non-array entry collection\nOK: non-object record\nOK: invalid later record after valid metadata/record\nTABLE_JSON_RESULT=PASSED checks=33 failures=0\n"
+    },
+    {
+      "command": [
+        "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/table_json_integration",
+        "--integer-limits"
+      ],
+      "exitCode": 0,
+      "output": "{\"pointerBits\":64,\"sizeBits\":64,\"offsetBits\":64}\n"
+    },
+    {
+      "command": [
+        "/home/runner/work/cheat-engine-linux/cheat-engine-linux/build/table_json_integration",
+        "--round-trip",
+        "/tmp/ce-table-json-oracle-0943gdcc/source.json",
+        "/tmp/ce-table-json-oracle-0943gdcc/saved.json"
+      ],
+      "exitCode": 0,
+      "output": ""
+    }
+  ],
+  "integerLimits": {
+    "pointerBits": 64,
+    "sizeBits": 64,
+    "offsetBits": 64
+  },
+  "coreChecks": 33,
+  "decimalRecords": 128,
+  "decimalIntegerChecks": 384
+}

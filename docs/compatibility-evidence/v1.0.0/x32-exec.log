@@ -1,0 +1,874 @@
+c[?7l[2J[0mSeaBIOS (version 1.16.3-debian-1.16.3-2)
+Booting from ROM...
+Probing EDD (edd=off to disable)... ok
+c[?7l[2J[    0.000000] Linux version 6.1.0-50-amd64 (debian-kernel@lists.debian.org) (gcc-12 (Debian 12.2.0-14+deb12u1) 12.2.0, GNU ld (GNU Binutils for Debian) 2.40) #1 SMP PREEMPT_DYNAMIC Debian 6.1.176-1 (2026-07-02)
+[    0.000000] Command line: console=ttyS0 rdinit=/init panic=1 syscall.x32=y
+[    0.000000] BIOS-provided physical RAM map:
+[    0.000000] BIOS-e820: [mem 0x0000000000000000-0x000000000009fbff] usable
+[    0.000000] BIOS-e820: [mem 0x000000000009fc00-0x000000000009ffff] reserved
+[    0.000000] BIOS-e820: [mem 0x00000000000f0000-0x00000000000fffff] reserved
+[    0.000000] BIOS-e820: [mem 0x0000000000100000-0x0000000007fdffff] usable
+[    0.000000] BIOS-e820: [mem 0x0000000007fe0000-0x0000000007ffffff] reserved
+[    0.000000] BIOS-e820: [mem 0x00000000fffc0000-0x00000000ffffffff] reserved
+[    0.000000] BIOS-e820: [mem 0x000000fd00000000-0x000000ffffffffff] reserved
+[    0.000000] NX (Execute Disable) protection: active
+[    0.000000] SMBIOS 3.0.0 present.
+[    0.000000] DMI: QEMU Standard PC (i440FX + PIIX, 1996), BIOS 1.16.3-debian-1.16.3-2 04/01/2014
+[    0.000000] tsc: Fast TSC calibration using PIT
+[    0.000000] tsc: Detected 2445.395 MHz processor
+[    0.018814] last_pfn = 0x7fe0 max_arch_pfn = 0x10000000000
+[    0.019749] x86/PAT: Configuration [0-7]: WB  WC  UC- UC  WB  WP  UC- WT  
+[    0.040182] found SMP MP-table at [mem 0x000f5480-0x000f548f]
+[    0.042109] Using GB pages for direct mapping
+[    0.047535] RAMDISK: [mem 0x07d26000-0x07fdffff]
+[    0.048051] ACPI: Early table checksum verification disabled
+[    0.048452] ACPI: RSDP 0x00000000000F52B0 000014 (v00 BOCHS )
+[    0.048783] ACPI: RSDT 0x0000000007FE1C4C 000034 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.049404] ACPI: FACP 0x0000000007FE1B00 000074 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.050055] ACPI: DSDT 0x0000000007FE0040 001AC0 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.050154] ACPI: FACS 0x0000000007FE0000 000040
+[    0.050223] ACPI: APIC 0x0000000007FE1B74 000078 (v03 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.050255] ACPI: HPET 0x0000000007FE1BEC 000038 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.050282] ACPI: WAET 0x0000000007FE1C24 000028 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.050367] ACPI: Reserving FACP table memory at [mem 0x7fe1b00-0x7fe1b73]
+[    0.050398] ACPI: Reserving DSDT table memory at [mem 0x7fe0040-0x7fe1aff]
+[    0.050408] ACPI: Reserving FACS table memory at [mem 0x7fe0000-0x7fe003f]
+[    0.050415] ACPI: Reserving APIC table memory at [mem 0x7fe1b74-0x7fe1beb]
+[    0.050422] ACPI: Reserving HPET table memory at [mem 0x7fe1bec-0x7fe1c23]
+[    0.050429] ACPI: Reserving WAET table memory at [mem 0x7fe1c24-0x7fe1c4b]
+[    0.053237] No NUMA configuration found
+[    0.053266] Faking a node at [mem 0x0000000000000000-0x0000000007fdffff]
+[    0.054063] NODE_DATA(0) allocated [mem 0x07cfb000-0x07d25fff]
+[    0.065405] Zone ranges:
+[    0.065452]   DMA      [mem 0x0000000000001000-0x0000000000ffffff]
+[    0.065543]   DMA32    [mem 0x0000000001000000-0x0000000007fdffff]
+[    0.065558]   Normal   empty
+[    0.065581]   Device   empty
+[    0.065595] Movable zone start for each node
+[    0.065633] Early memory node ranges
+[    0.065664]   node   0: [mem 0x0000000000001000-0x000000000009efff]
+[    0.065839]   node   0: [mem 0x0000000000100000-0x0000000007fdffff]
+[    0.066105] Initmem setup node 0 [mem 0x0000000000001000-0x0000000007fdffff]
+[    0.067245] On node 0, zone DMA: 1 pages in unavailable ranges
+[    0.067599] On node 0, zone DMA: 97 pages in unavailable ranges
+[    0.069390] On node 0, zone DMA32: 32 pages in unavailable ranges
+[    0.069766] ACPI: PM-Timer IO Port: 0x608
+[    0.070301] ACPI: LAPIC_NMI (acpi_id[0xff] dfl dfl lint[0x1])
+[    0.070729] IOAPIC[0]: apic_id 0, version 32, address 0xfec00000, GSI 0-23
+[    0.070889] ACPI: INT_SRC_OVR (bus 0 bus_irq 0 global_irq 2 dfl dfl)
+[    0.071148] ACPI: INT_SRC_OVR (bus 0 bus_irq 5 global_irq 5 high level)
+[    0.071195] ACPI: INT_SRC_OVR (bus 0 bus_irq 9 global_irq 9 high level)
+[    0.071290] ACPI: INT_SRC_OVR (bus 0 bus_irq 10 global_irq 10 high level)
+[    0.071304] ACPI: INT_SRC_OVR (bus 0 bus_irq 11 global_irq 11 high level)
+[    0.071529] ACPI: Using ACPI (MADT) for SMP configuration information
+[    0.071585] ACPI: HPET id: 0x8086a201 base: 0xfed00000
+[    0.071958] smpboot: Allowing 1 CPUs, 0 hotplug CPUs
+[    0.072937] PM: hibernation: Registered nosave memory: [mem 0x00000000-0x00000fff]
+[    0.072972] PM: hibernation: Registered nosave memory: [mem 0x0009f000-0x000fffff]
+[    0.073095] [mem 0x08000000-0xfffbffff] available for PCI devices
+[    0.073134] Booting paravirtualized kernel on bare hardware
+[    0.073454] clocksource: refined-jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645519600211568 ns
+[    0.085306] setup_percpu: NR_CPUS:8192 nr_cpumask_bits:1 nr_cpu_ids:1 nr_node_ids:1
+[    0.093679] percpu: Embedded 62 pages/cpu s217088 r8192 d28672 u2097152
+[    0.095747] Fallback order for Node 0: 0 
+[    0.096065] Built 1 zonelists, mobility grouping on.  Total pages: 31968
+[    0.096087] Policy zone: DMA32
+[    0.096277] Kernel command line: console=ttyS0 rdinit=/init panic=1 syscall.x32=y
+[    0.098042] random: crng init done
+[    0.098719] Dentry cache hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[    0.099046] Inode-cache hash table entries: 8192 (order: 4, 65536 bytes, linear)
+[    0.100820] mem auto-init: stack:all(zero), heap alloc:on, heap free:off
+[    0.111334] Memory: 68860K/130552K available (14343K kernel code, 2338K rwdata, 9116K rodata, 2820K init, 17356K bss, 61488K reserved, 0K cma-reserved)
+[    0.117609] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+[    0.120496] ftrace: allocating 40432 entries in 158 pages
+[    0.162624] ftrace: allocated 158 pages with 5 groups
+[    0.172895] Dynamic Preempt: voluntary
+[    0.176107] rcu: Preemptible hierarchical RCU implementation.
+[    0.176144] rcu: 	RCU restricting CPUs from NR_CPUS=8192 to nr_cpu_ids=1.
+[    0.176258] 	Trampoline variant of Tasks RCU enabled.
+[    0.176267] 	Rude variant of Tasks RCU enabled.
+[    0.176275] 	Tracing variant of Tasks RCU enabled.
+[    0.176377] rcu: RCU calculated value of scheduler-enlistment delay is 25 jiffies.
+[    0.176412] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=1
+[    0.216821] NR_IRQS: 524544, nr_irqs: 256, preallocated irqs: 16
+[    0.222948] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.229830] Console: colour VGA+ 80x25
+[    0.250429] printk: console [ttyS0] enabled
+[    0.251813] ACPI: Core revision 20220331
+[    0.257051] clocksource: hpet: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 19112604467 ns
+[    0.261988] APIC: Switch to symmetric I/O mode setup
+[    0.266605] ..TIMER: vector=0x30 apic1=0 pin1=2 apic2=-1 pin2=-1
+[    0.286943] clocksource: tsc-early: mask: 0xffffffffffffffff max_cycles: 0x233fba4d6dd, max_idle_ns: 440795239847 ns
+[    0.287732] Calibrating delay loop (skipped), value calculated using timer frequency.. 4890.79 BogoMIPS (lpj=9781580)
+[    0.289686] x86/cpu: User Mode Instruction Prevention (UMIP) activated
+[    0.300729] Last level iTLB entries: 4KB 0, 2MB 0, 4MB 0
+[    0.301133] Last level dTLB entries: 4KB 0, 2MB 0, 4MB 0, 1GB 0
+[    0.302665] Spectre V1 : Mitigation: usercopy/swapgs barriers and __user pointer sanitization
+[    0.303355] Spectre V2 : Mitigation: Retpolines
+[    0.303673] Spectre V2 : Spectre v2 / SpectreRSB: Filling RSB on context switch and VMEXIT
+[    0.304056] Speculative Store Bypass: Vulnerable
+[    0.305795] x86/fpu: Supporting XSAVE feature 0x001: 'x87 floating point registers'
+[    0.311823] x86/fpu: Supporting XSAVE feature 0x002: 'SSE registers'
+[    0.312064] x86/fpu: Supporting XSAVE feature 0x004: 'AVX registers'
+[    0.312273] x86/fpu: Supporting XSAVE feature 0x008: 'MPX bounds registers'
+[    0.312496] x86/fpu: Supporting XSAVE feature 0x010: 'MPX CSR'
+[    0.312805] x86/fpu: Supporting XSAVE feature 0x200: 'Protection Keys User registers'
+[    0.313190] x86/fpu: xstate_offset[2]:  576, xstate_sizes[2]:  256
+[    0.314430] x86/fpu: xstate_offset[3]:  960, xstate_sizes[3]:   64
+[    0.314621] x86/fpu: xstate_offset[4]: 1024, xstate_sizes[4]:   64
+[    0.314831] x86/fpu: xstate_offset[9]: 2688, xstate_sizes[9]:    8
+[    0.315050] x86/fpu: Enabled xstate features 0x21f, context size is 2696 bytes, using 'standard' format.
+[    0.606442] Freeing SMP alternatives memory: 36K
+[    0.607313] pid_max: default: 32768 minimum: 301
+[    0.614022] LSM: Security Framework initializing
+[    0.615614] landlock: Up and running.
+[    0.615801] Yama: disabled by default; enable with sysctl kernel.yama.*
+[    0.619411] AppArmor: AppArmor initialized
+[    0.619677] TOMOYO Linux initialized
+[    0.620330] LSM support for eBPF active
+[    0.623224] Mount-cache hash table entries: 512 (order: 0, 4096 bytes, linear)
+[    0.623565] Mountpoint-cache hash table entries: 512 (order: 0, 4096 bytes, linear)
+[    0.763473] smpboot: CPU0: AMD QEMU TCG CPU version 2.5+ (family: 0x6, model: 0x6, stepping: 0x3)
+[    0.769371] cblist_init_generic: Setting adjustable number of callback queues.
+[    0.769636] cblist_init_generic: Setting shift to 0 and lim to 1.
+[    0.770239] cblist_init_generic: Setting adjustable number of callback queues.
+[    0.770464] cblist_init_generic: Setting shift to 0 and lim to 1.
+[    0.771269] cblist_init_generic: Setting adjustable number of callback queues.
+[    0.771488] cblist_init_generic: Setting shift to 0 and lim to 1.
+[    0.772212] Performance Events: PMU not available due to virtualization, using software events only.
+[    0.773535] signal: max sigframe size: 3632
+[    0.774688] rcu: Hierarchical SRCU implementation.
+[    0.774902] rcu: 	Max phase no-delay instances is 1000.
+[    0.781375] NMI watchdog: Perf NMI watchdog permanently disabled
+[    0.785137] smp: Bringing up secondary CPUs ...
+[    0.785375] smp: Brought up 1 node, 1 CPU
+[    0.785548] smpboot: Max logical packages: 1
+[    0.785792] smpboot: Total of 1 processors activated (4890.79 BogoMIPS)
+[    0.807885] devtmpfs: initialized
+[    0.812144] x86/mm: Memory block size: 128MB
+[    0.818336] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.819135] futex hash table entries: 256 (order: 2, 16384 bytes, linear)
+[    0.822357] pinctrl core: initialized pinctrl subsystem
+[    0.853317] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    0.857874] DMA: preallocated 128 KiB GFP_KERNEL pool for atomic allocations
+[    0.859275] DMA: preallocated 128 KiB GFP_KERNEL|GFP_DMA pool for atomic allocations
+[    0.859985] DMA: preallocated 128 KiB GFP_KERNEL|GFP_DMA32 pool for atomic allocations
+[    0.860459] audit: initializing netlink subsys (disabled)
+[    0.867512] thermal_sys: Registered thermal governor 'fair_share'
+[    0.867963] audit: type=2000 audit(1791881833.600:1): state=initialized audit_enabled=0 res=1
+[    0.868650] thermal_sys: Registered thermal governor 'bang_bang'
+[    0.868667] thermal_sys: Registered thermal governor 'step_wise'
+[    0.868875] thermal_sys: Registered thermal governor 'user_space'
+[    0.869056] thermal_sys: Registered thermal governor 'power_allocator'
+[    0.870390] cpuidle: using governor ladder
+[    0.870868] cpuidle: using governor menu
+[    0.872332] Enabled x32 syscalls
+[    0.873402] acpiphp: ACPI Hot Plug PCI Controller Driver version: 0.5
+[    0.876354] PCI: Using configuration type 1 for base access
+[    0.892695] kprobes: kprobe jump-optimization is enabled. All kprobes are optimized if possible.
+[    0.964294] HugeTLB: registered 1.00 GiB page size, pre-allocated 0 pages
+[    0.964558] HugeTLB: 16380 KiB vmemmap can be freed for a 1.00 GiB page
+[    0.964802] HugeTLB: registered 2.00 MiB page size, pre-allocated 0 pages
+[    0.965002] HugeTLB: 28 KiB vmemmap can be freed for a 2.00 MiB page
+[    0.981390] ACPI: Added _OSI(Module Device)
+[    0.981575] ACPI: Added _OSI(Processor Device)
+[    0.981721] ACPI: Added _OSI(Processor Aggregator Device)
+[    1.010431] ACPI: 1 ACPI AML tables successfully acquired and loaded
+[    1.027020] ACPI: Interpreter enabled
+[    1.028439] ACPI: PM: (supports S0 S3 S4 S5)
+[    1.028632] ACPI: Using IOAPIC for interrupt routing
+[    1.029298] PCI: Using host bridge windows from ACPI; if necessary, use "pci=nocrs" and report a bug
+[    1.029597] PCI: Using E820 reservations for host bridge windows
+[    1.031460] ACPI: Enabled 2 GPEs in block 00 to 0F
+[    1.066586] ACPI: PCI Root Bridge [PCI0] (domain 0000 [bus 00-ff])
+[    1.067675] acpi PNP0A03:00: _OSC: OS supports [ASPM ClockPM Segments MSI HPX-Type3]
+[    1.068129] acpi PNP0A03:00: _OSC: not requesting OS control; OS requires [ExtendedConfig ASPM ClockPM MSI]
+[    1.069189] acpi PNP0A03:00: fail to add MMCONFIG information, can't access extended PCI configuration space under this bridge.
+[    1.076002] acpiphp: Slot [3] registered
+[    1.076298] acpiphp: Slot [4] registered
+[    1.076551] acpiphp: Slot [5] registered
+[    1.076792] acpiphp: Slot [6] registered
+[    1.077014] acpiphp: Slot [7] registered
+[    1.077230] acpiphp: Slot [8] registered
+[    1.077444] acpiphp: Slot [9] registered
+[    1.077662] acpiphp: Slot [10] registered
+[    1.077909] acpiphp: Slot [11] registered
+[    1.078150] acpiphp: Slot [12] registered
+[    1.078367] acpiphp: Slot [13] registered
+[    1.078583] acpiphp: Slot [14] registered
+[    1.078821] acpiphp: Slot [15] registered
+[    1.079036] acpiphp: Slot [16] registered
+[    1.079243] acpiphp: Slot [17] registered
+[    1.079589] acpiphp: Slot [18] registered
+[    1.079837] acpiphp: Slot [19] registered
+[    1.080059] acpiphp: Slot [20] registered
+[    1.080273] acpiphp: Slot [21] registered
+[    1.080490] acpiphp: Slot [22] registered
+[    1.080703] acpiphp: Slot [23] registered
+[    1.080953] acpiphp: Slot [24] registered
+[    1.081207] acpiphp: Slot [25] registered
+[    1.081432] acpiphp: Slot [26] registered
+[    1.081651] acpiphp: Slot [27] registered
+[    1.081901] acpiphp: Slot [28] registered
+[    1.082134] acpiphp: Slot [29] registered
+[    1.082365] acpiphp: Slot [30] registered
+[    1.082653] acpiphp: Slot [31] registered
+[    1.083174] PCI host bridge to bus 0000:00
+[    1.083595] pci_bus 0000:00: root bus resource [io  0x0000-0x0cf7 window]
+[    1.083975] pci_bus 0000:00: root bus resource [io  0x0d00-0xffff window]
+[    1.084182] pci_bus 0000:00: root bus resource [mem 0x000a0000-0x000bffff window]
+[    1.084509] pci_bus 0000:00: root bus resource [mem 0x08000000-0xfebfffff window]
+[    1.084734] pci_bus 0000:00: root bus resource [mem 0x100000000-0x17fffffff window]
+[    1.085129] pci_bus 0000:00: root bus resource [bus 00-ff]
+[    1.086637] pci 0000:00:00.0: [8086:1237] type 00 class 0x060000
+[    1.090947] pci 0000:00:01.0: [8086:7000] type 00 class 0x060100
+[    1.092060] pci 0000:00:01.1: [8086:7010] type 00 class 0x010180
+[    1.094221] pci 0000:00:01.1: BAR 4 [io  0xc000-0xc00f]
+[    1.095202] pci 0000:00:01.1: BAR 0 [io  0x01f0-0x01f7]: legacy IDE quirk
+[    1.095515] pci 0000:00:01.1: BAR 1 [io  0x03f6]: legacy IDE quirk
+[    1.095770] pci 0000:00:01.1: BAR 2 [io  0x0170-0x0177]: legacy IDE quirk
+[    1.095999] pci 0000:00:01.1: BAR 3 [io  0x0376]: legacy IDE quirk
+[    1.097034] pci 0000:00:01.3: [8086:7113] type 00 class 0x068000
+[    1.097594] pci 0000:00:01.3: quirk: [io  0x0600-0x063f] claimed by PIIX4 ACPI
+[    1.097880] pci 0000:00:01.3: quirk: [io  0x0700-0x070f] claimed by PIIX4 SMB
+[    1.098735] pci 0000:00:02.0: [1234:1111] type 00 class 0x030000
+[    1.099473] pci 0000:00:02.0: BAR 0 [mem 0xfd000000-0xfdffffff pref]
+[    1.101021] pci 0000:00:02.0: BAR 2 [mem 0xfebf0000-0xfebf0fff]
+[    1.103891] pci 0000:00:02.0: ROM [mem 0xfebe0000-0xfebeffff pref]
+[    1.104410] pci 0000:00:02.0: Video device with shadowed ROM at [mem 0x000c0000-0x000dffff]
+[    1.110186] ACPI: PCI: Interrupt link LNKA configured for IRQ 10
+[    1.111098] ACPI: PCI: Interrupt link LNKB configured for IRQ 10
+[    1.111825] ACPI: PCI: Interrupt link LNKC configured for IRQ 11
+[    1.112439] ACPI: PCI: Interrupt link LNKD configured for IRQ 11
+[    1.112854] ACPI: PCI: Interrupt link LNKS configured for IRQ 9
+[    1.117280] iommu: Default domain type: Translated 
+[    1.117489] iommu: DMA domain TLB invalidation policy: lazy mode 
+[    1.119041] pps_core: LinuxPPS API ver. 1 registered
+[    1.119219] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[    1.119586] PTP clock support registered
+[    1.120031] EDAC MC: Ver: 3.0.0
+[    1.129912] NetLabel: Initializing
+[    1.130087] NetLabel:  domain hash size = 128
+[    1.130247] NetLabel:  protocols = UNLABELED CIPSOv4 CALIPSO
+[    1.131263] NetLabel:  unlabeled traffic allowed by default
+[    1.131515] PCI: Using ACPI for IRQ routing
+[    1.136010] pci 0000:00:02.0: vgaarb: setting as boot VGA device
+[    1.136309] pci 0000:00:02.0: vgaarb: bridge control possible
+[    1.136564] pci 0000:00:02.0: vgaarb: VGA device added: decodes=io+mem,owns=io+mem,locks=none
+[    1.136864] vgaarb: loaded
+[    1.137477] hpet0: at MMIO 0xfed00000, IRQs 2, 8, 0
+[    1.137720] hpet0: 3 comparators, 64-bit 100.000000 MHz counter
+[    1.144591] clocksource: Switched to clocksource tsc-early
+[    1.271464] VFS: Disk quotas dquot_6.6.0
+[    1.271838] VFS: Dquot-cache hash table entries: 512 (order 0, 4096 bytes)
+[    1.278590] AppArmor: AppArmor Filesystem Enabled
+[    1.279265] pnp: PnP ACPI init
+[    1.284069] pnp: PnP ACPI: found 6 devices
+[    1.306052] clocksource: acpi_pm: mask: 0xffffff max_cycles: 0xffffff, max_idle_ns: 2085701024 ns
+[    1.307274] NET: Registered PF_INET protocol family
+[    1.308587] IP idents hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    1.333613] tcp_listen_portaddr_hash hash table entries: 256 (order: 0, 4096 bytes, linear)
+[    1.334801] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    1.335163] TCP established hash table entries: 1024 (order: 1, 8192 bytes, linear)
+[    1.335705] TCP bind hash table entries: 1024 (order: 3, 32768 bytes, linear)
+[    1.336151] TCP: Hash tables configured (established 1024 bind 1024)
+[    1.338355] MPTCP token hash table entries: 256 (order: 1, 6144 bytes, linear)
+[    1.338857] UDP hash table entries: 256 (order: 1, 8192 bytes, linear)
+[    1.339321] UDP-Lite hash table entries: 256 (order: 1, 8192 bytes, linear)
+[    1.341032] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    1.341864] NET: Registered PF_XDP protocol family
+[    1.342944] pci_bus 0000:00: resource 4 [io  0x0000-0x0cf7 window]
+[    1.343183] pci_bus 0000:00: resource 5 [io  0x0d00-0xffff window]
+[    1.343377] pci_bus 0000:00: resource 6 [mem 0x000a0000-0x000bffff window]
+[    1.343586] pci_bus 0000:00: resource 7 [mem 0x08000000-0xfebfffff window]
+[    1.343796] pci_bus 0000:00: resource 8 [mem 0x100000000-0x17fffffff window]
+[    1.344569] pci 0000:00:01.0: PIIX3: Enabling Passive Release
+[    1.344857] pci 0000:00:00.0: Limiting direct PCI/PCI transfers
+[    1.345170] PCI: CLS 0 bytes, default 64
+[    1.350404] Trying to unpack rootfs image as initramfs...
+[    1.360418] Initialise system trusted keyrings
+[    1.362408] Key type blacklist registered
+[    1.369352] workingset: timestamp_bits=36 max_order=15 bucket_order=0
+[    1.393949] zbud: loaded
+[    1.404124] integrity: Platform Keyring initialized
+[    1.404586] integrity: Machine keyring initialized
+[    1.404766] Key type asymmetric registered
+[    1.405009] Asymmetric key parser 'x509' registered
+[    1.587131] Freeing initrd memory: 2792K
+[    1.612973] alg: self-tests for CTR-KDF (hmac(sha256)) passed
+[    1.613676] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 248)
+[    1.614596] io scheduler mq-deadline registered
+[    1.624712] shpchp: Standard Hot Plug PCI Controller Driver version: 0.4
+[    1.629651] Serial: 8250/16550 driver, 4 ports, IRQ sharing enabled
+[    1.632301] 00:04: ttyS0 at I/O 0x3f8 (irq = 4, base_baud = 115200) is a 16550A
+[    1.639691] Linux agpgart interface v0.103
+[    1.641930] AMD-Vi: AMD IOMMUv2 functionality not available on this system - This is not a bug.
+[    1.646379] i8042: PNP: PS/2 Controller [PNP0303:KBD,PNP0f13:MOU] at 0x60,0x64 irq 1,12
+[    1.650097] serio: i8042 KBD port at 0x60,0x64 irq 1
+[    1.650424] serio: i8042 AUX port at 0x60,0x64 irq 12
+[    1.652598] mousedev: PS/2 mouse device common for all mice
+[    1.655945] input: AT Translated Set 2 keyboard as /devices/platform/i8042/serio0/input/input0
+[    1.656633] rtc_cmos 00:05: RTC can wake from S4
+[    1.662209] rtc_cmos 00:05: registered as rtc0
+[    1.662902] rtc_cmos 00:05: setting system clock to 2026-10-13T08:57:14 UTC (1791881834)
+[    1.664677] rtc_cmos 00:05: alarms up to one day, y3k, 242 bytes nvram, hpet irqs
+[    1.667983] ledtrig-cpu: registered to indicate activity on CPUs
+[    1.752294] NET: Registered PF_INET6 protocol family
+[    1.765625] Segment Routing with IPv6
+[    1.765970] In-situ OAM (IOAM) with IPv6
+[    1.766488] mip6: Mobile IPv6
+[    1.766826] NET: Registered PF_PACKET protocol family
+[    1.767507] mpls_gso: MPLS GSO support
+[    1.769610] IPI shorthand broadcast: enabled
+[    1.770238] sched_clock: Marking stable (1732091667, 35982932)->(1771871855, -3797256)
+[    1.773092] registered taskstats version 1
+[    1.773430] Loading compiled-in X.509 certificates
+[    1.882022] Loaded X.509 cert 'Build time autogenerated kernel key: 0a219777213e78bd031a2420db649c60888ff27d'
+[    1.888443] zswap: loaded using pool lzo/zbud
+[    1.890729] Key type .fscrypt registered
+[    1.890851] Key type fscrypt-provisioning registered
+[    1.902677] Key type encrypted registered
+[    1.902833] AppArmor: AppArmor sha1 policy hashing enabled
+[    1.903425] ima: No TPM chip found, activating TPM-bypass!
+[    1.903577] ima: Allocated hash algorithm: sha256
+[    1.905556] ima: No architecture policies found
+[    1.906162] evm: Initialising EVM extended attributes:
+[    1.906275] evm: security.selinux
+[    1.906364] evm: security.SMACK64 (disabled)
+[    1.906441] evm: security.SMACK64EXEC (disabled)
+[    1.906519] evm: security.SMACK64TRANSMUTE (disabled)
+[    1.906603] evm: security.SMACK64MMAP (disabled)
+[    1.906679] evm: security.apparmor
+[    1.906740] evm: security.ima
+[    1.906793] evm: security.capability
+[    1.906863] evm: HMAC attrs: 0x1
+[    2.372440] tsc: Refined TSC clocksource calibration: 2445.400 MHz
+[    2.372974] clocksource: tsc: mask: 0xffffffffffffffff max_cycles: 0x233fbf27eb4, max_idle_ns: 440795299680 ns
+[    2.373314] clocksource: Switched to clocksource tsc
+[    2.461987] clk: Disabling unused clocks
+[    2.500293] Freeing unused decrypted memory: 2036K
+[    2.568205] Freeing unused kernel image (initmem) memory: 2820K
+[    2.568468] Write protecting the kernel read-only data: 26624k
+[    2.571827] Freeing unused kernel image (text/rodata gap) memory: 2040K
+[    2.573210] Freeing unused kernel image (rodata/data gap) memory: 1124K
+[    2.728252] x86/mm: Checked W+X mappings: passed, no W+X pages found.
+[    2.729709] Run /init as init process
+CALL_EXEC_KERNEL release=6.1.0-50-amd64 machine=x86_64
+CALL_EXEC_PAGE_SIZE=4096
+OK: real callee-exec fixture starts with an independent old-mm peer
+OK: callee exec begins from an eligible original user stop
+CALL_EXEC_DIAGNOSTIC mode=0 nonleader=0 error=125:Operation canceled
+OK: exec replaces the callee instead of returning an invented value
+OK: the owner consumes the kernel's actual EXEC notification
+OK: retired call cleanup never writes registers in the replacement image
+OK: callee exec releases the old native call owner
+OK: replacement reaches its own entry and retains the original mm peer
+OK: same-file exec preserves the metadata that cannot establish mm affinity
+OK: replacement remains responsive with its own executable context
+OK: replacement accepts normal shutdown after callee exec
+OK: replacement and old-mm peer exit normally
+OK: real callee-exec fixture starts with an independent old-mm peer
+OK: callee exec begins from an eligible original user stop
+CALL_EXEC_DIAGNOSTIC mode=1 nonleader=0 error=4:Interrupted system call
+OK: a genuine callee SIGUSR1 retains the original call before exec
+OK: explicit signal suppression reports the callee's subsequent real exec
+OK: the owner consumes the kernel's actual EXEC notification
+OK: retired call cleanup never writes registers in the replacement image
+OK: callee exec releases the old native call owner
+OK: replacement reaches its own entry and retains the original mm peer
+OK: same-file exec preserves the metadata that cannot establish mm affinity
+OK: replacement remains responsive with its own executable context
+OK: replacement accepts normal shutdown after callee exec
+OK: replacement and old-mm peer exit normally
+OK: real callee-exec fixture starts with an independent old-mm peer
+OK: callee exec begins from an eligible original user stop
+CALL_EXEC_DIAGNOSTIC mode=2 nonleader=0 error=5:Input/output error
+OK: exec replaces the callee instead of returning an invented value
+OK: the owner consumes the kernel's actual EXEC notification
+OK: retired call cleanup never writes registers in the replacement image
+OK: failed replacement detach retains the actual new-image stop for retry
+OK: detach retry retires the old call without restoring old context
+OK: replacement reaches its own entry and retains the original mm peer
+OK: same-file exec preserves the metadata that cannot establish mm affinity
+OK: replacement remains responsive with its own executable context
+OK: replacement accepts normal shutdown after callee exec
+OK: replacement and old-mm peer exit normally
+OK: real callee-exec fixture starts with an independent old-mm peer
+OK: callee exec begins from an eligible original user stop
+CALL_EXEC_DIAGNOSTIC mode=3 nonleader=0 error=125:Operation canceled
+OK: automatic delivery of a real callee signal reports its subsequent exec
+OK: the owner consumes the kernel's actual EXEC notification
+OK: retired call cleanup never writes registers in the replacement image
+OK: callee exec releases the old native call owner
+OK: replacement reaches its own entry and retains the original mm peer
+OK: same-file exec preserves the metadata that cannot establish mm affinity
+OK: replacement remains responsive with its own executable context
+OK: replacement accepts normal shutdown after callee exec
+OK: replacement and old-mm peer exit normally
+OK: borrowed stopped-function fixture starts with an old-mm peer
+OK: borrowed function has real private code and stack storage
+OK: direct caller owns the actual user stop and EXEC tracing option
+CALL_EXEC_DIRECT_DIAGNOSTIC nonleader=0 error=4:Interrupted system call signal=10 event=0
+OK: direct recovery retains a genuine callee signal without a function result
+OK: the direct ticket initially belongs to the original live image
+OK: real callee exec permanently retires the borrowed recovery context
+OK: a retired recovery fails its image check even while the old mm is still alive
+OK: repeated recovery cannot resume or restore an exec-retired function
+OK: direct caller releases the replacement's unchanged exec stop
+OK: direct replacement reaches its own entry with the original mm peer alive
+OK: direct replacement accepts normal shutdown
+OK: direct replacement and old-mm peer exit normally
+OK: real callee-exec fixture starts with an independent old-mm peer
+OK: callee exec begins from an eligible original user stop
+CALL_EXEC_DIAGNOSTIC mode=0 nonleader=1 error=125:Operation canceled
+OK: exec replaces the callee instead of returning an invented value
+OK: the owner consumes the kernel's actual EXEC notification
+OK: actual EXEC identifies the selected nonleader while its independent original-mm peer stays readable
+OK: retired call cleanup never writes registers in the replacement image
+OK: callee exec releases the old native call owner
+OK: replacement reaches its own entry and retains the original mm peer
+OK: same-file exec preserves the metadata that cannot establish mm affinity
+OK: replacement remains responsive with its own executable context
+OK: replacement accepts normal shutdown after callee exec
+OK: replacement and old-mm peer exit normally
+OK: real callee-exec fixture starts with an independent old-mm peer
+OK: callee exec begins from an eligible original user stop
+CALL_EXEC_DIAGNOSTIC mode=1 nonleader=1 error=4:Interrupted system call
+OK: a genuine callee SIGUSR1 retains the original call before exec
+OK: explicit signal suppression reports the callee's subsequent real exec
+OK: the owner consumes the kernel's actual EXEC notification
+OK: actual EXEC identifies the selected nonleader while its independent original-mm peer stays readable
+OK: retired call cleanup never writes registers in the replacement image
+OK: callee exec releases the old native call owner
+OK: replacement reaches its own entry and retains the original mm peer
+OK: same-file exec preserves the metadata that cannot establish mm affinity
+OK: replacement remains responsive with its own executable context
+OK: replacement accepts normal shutdown after callee exec
+OK: replacement and old-mm peer exit normally
+OK: real callee-exec fixture starts with an independent old-mm peer
+OK: callee exec begins from an eligible original user stop
+CALL_EXEC_DIAGNOSTIC mode=2 nonleader=1 error=5:Input/output error
+OK: exec replaces the callee instead of returning an invented value
+OK: the owner consumes the kernel's actual EXEC notification
+OK: actual EXEC identifies the selected nonleader while its independent original-mm peer stays readable
+OK: retired call cleanup never writes registers in the replacement image
+OK: failed replacement detach retains the actual new-image stop for retry
+OK: detach retry retires the old call without restoring old context
+OK: replacement reaches its own entry and retains the original mm peer
+OK: same-file exec preserves the metadata that cannot establish mm affinity
+OK: replacement remains responsive with its own executable context
+OK: replacement accepts normal shutdown after callee exec
+OK: replacement and old-mm peer exit normally
+OK: real callee-exec fixture starts with an independent old-mm peer
+OK: callee exec begins from an eligible original user stop
+CALL_EXEC_DIAGNOSTIC mode=3 nonleader=1 error=125:Operation canceled
+OK: automatic delivery of a real callee signal reports its subsequent exec
+OK: the owner consumes the kernel's actual EXEC notification
+OK: actual EXEC identifies the selected nonleader while its independent original-mm peer stays readable
+OK: retired call cleanup never writes registers in the replacement image
+OK: callee exec releases the old native call owner
+OK: replacement reaches its own entry and retains the original mm peer
+OK: same-file exec preserves the metadata that cannot establish mm affinity
+OK: replacement remains responsive with its own executable context
+OK: replacement accepts normal shutdown after callee exec
+OK: replacement and old-mm peer exit normally
+OK: borrowed stopped-function fixture starts with an old-mm peer
+OK: borrowed function has real private code and stack storage
+OK: direct caller owns the actual user stop and EXEC tracing option
+CALL_EXEC_DIRECT_DIAGNOSTIC nonleader=1 error=4:Interrupted system call signal=10 event=0
+OK: direct recovery retains a genuine callee signal without a function result
+OK: the direct ticket initially belongs to the original live image
+OK: real callee exec permanently retires the borrowed recovery context
+OK: direct recovery observes the former nonleader TID with the independent original-mm peer still readable
+OK: borrowed owner receives the replacement TID and birth for releasing its stop
+OK: a retired recovery fails its image check even while the old mm is still alive
+OK: repeated recovery cannot resume or restore an exec-retired function
+OK: direct caller releases the replacement's unchanged exec stop
+OK: direct replacement reaches its own entry with the original mm peer alive
+OK: direct replacement accepts normal shutdown
+OK: direct replacement and old-mm peer exit normally
+OK: real callee-exec fixture starts with an independent old-mm peer
+OK: callee exec begins from an eligible original user stop
+CALL_EXEC_DIAGNOSTIC mode=4 nonleader=1 error=5:Input/output error
+OK: failed actual former-TID inspection retains the consumed exec stop
+OK: retry verifies and releases the retained replacement stop after inspection succeeds
+OK: the owner consumes the kernel's actual EXEC notification
+OK: actual EXEC identifies the selected nonleader while its independent original-mm peer stays readable
+OK: retired call cleanup never writes registers in the replacement image
+OK: callee exec releases the old native call owner
+OK: replacement reaches its own entry and retains the original mm peer
+OK: same-file exec preserves the metadata that cannot establish mm affinity
+OK: replacement remains responsive with its own executable context
+OK: replacement accepts normal shutdown after callee exec
+OK: replacement and old-mm peer exit normally
+CLEANUP_EXEC wrapped=1 mode=0 nonleader=0
+OK: cleanup callee fixture starts with real pthread functions and an old-mm peer
+OK: pthread creation and cleanup use an eligible original application thread
+OK: cleanup callee exec cancels the original pthread operation
+OK: cleanup consumes the kernel EXEC event under the actual replacement TID
+OK: the cleanup replacement still has an independent readable original-mm peer
+OK: cleanup callee exec never restores GP registers into the replacement
+OK: cleanup exec releases pending calls and retained pthread leases
+OK: pthread cleanup replacement reaches its own executable entry
+OK: pthread cleanup replacement performs its own console work
+OK: pthread cleanup replacement accepts normal shutdown
+OK: pthread cleanup replacement and original-mm peer exit normally
+CLEANUP_EXEC wrapped=1 mode=1 nonleader=0
+OK: cleanup callee fixture starts with real pthread functions and an old-mm peer
+OK: pthread creation and cleanup use an eligible original application thread
+OK: cleanup callee retains its genuine SIGUSR1 stop for the owner
+OK: explicit resume works for the retained cleanup callee and reports its actual exec
+OK: cleanup consumes the kernel EXEC event under the actual replacement TID
+OK: the cleanup replacement still has an independent readable original-mm peer
+OK: cleanup callee exec never restores GP registers into the replacement
+OK: cleanup exec releases pending calls and retained pthread leases
+OK: pthread cleanup replacement reaches its own executable entry
+OK: pthread cleanup replacement performs its own console work
+OK: pthread cleanup replacement accepts normal shutdown
+OK: pthread cleanup replacement and original-mm peer exit normally
+CLEANUP_EXEC wrapped=1 mode=2 nonleader=0
+OK: cleanup callee fixture starts with real pthread functions and an old-mm peer
+OK: pthread creation and cleanup use an eligible original application thread
+OK: cleanup callee exec cancels the original pthread operation
+OK: cleanup consumes the kernel EXEC event under the actual replacement TID
+OK: the cleanup replacement still has an independent readable original-mm peer
+OK: cleanup callee exec never restores GP registers into the replacement
+OK: failed cleanup detach retains the replacement stop and original resource owner
+OK: failed cleanup detach retries without executing stale cleanup syscalls
+OK: cleanup exec releases pending calls and retained pthread leases
+OK: pthread cleanup replacement reaches its own executable entry
+OK: pthread cleanup replacement performs its own console work
+OK: pthread cleanup replacement accepts normal shutdown
+OK: pthread cleanup replacement and original-mm peer exit normally
+CLEANUP_EXEC wrapped=1 mode=3 nonleader=0
+OK: cleanup callee fixture starts with real pthread functions and an old-mm peer
+OK: pthread creation and cleanup use an eligible original application thread
+OK: cleanup callee applies automatic signal forwarding before reporting exec
+OK: cleanup consumes the kernel EXEC event under the actual replacement TID
+OK: the cleanup replacement still has an independent readable original-mm peer
+OK: cleanup callee exec never restores GP registers into the replacement
+OK: cleanup exec releases pending calls and retained pthread leases
+OK: pthread cleanup replacement reaches its own executable entry
+OK: pthread cleanup replacement performs its own console work
+OK: pthread cleanup replacement accepts normal shutdown
+OK: pthread cleanup replacement and original-mm peer exit normally
+CLEANUP_EXEC wrapped=1 mode=0 nonleader=1
+OK: cleanup callee fixture starts with real pthread functions and an old-mm peer
+OK: pthread creation and cleanup use an eligible original application thread
+OK: cleanup callee exec cancels the original pthread operation
+OK: cleanup consumes the kernel EXEC event under the actual replacement TID
+OK: the cleanup replacement still has an independent readable original-mm peer
+OK: cleanup callee exec never restores GP registers into the replacement
+OK: cleanup exec releases pending calls and retained pthread leases
+OK: pthread cleanup replacement reaches its own executable entry
+OK: pthread cleanup replacement performs its own console work
+OK: pthread cleanup replacement accepts normal shutdown
+OK: pthread cleanup replacement and original-mm peer exit normally
+CLEANUP_EXEC wrapped=1 mode=1 nonleader=1
+OK: cleanup callee fixture starts with real pthread functions and an old-mm peer
+OK: pthread creation and cleanup use an eligible original application thread
+OK: cleanup callee retains its genuine SIGUSR1 stop for the owner
+OK: explicit resume works for the retained cleanup callee and reports its actual exec
+OK: cleanup consumes the kernel EXEC event under the actual replacement TID
+OK: the cleanup replacement still has an independent readable original-mm peer
+OK: cleanup callee exec never restores GP registers into the replacement
+OK: cleanup exec releases pending calls and retained pthread leases
+OK: pthread cleanup replacement reaches its own executable entry
+OK: pthread cleanup replacement performs its own console work
+OK: pthread cleanup replacement accepts normal shutdown
+OK: pthread cleanup replacement and original-mm peer exit normally
+CLEANUP_EXEC wrapped=1 mode=2 nonleader=1
+OK: cleanup callee fixture starts with real pthread functions and an old-mm peer
+OK: pthread creation and cleanup use an eligible original application thread
+OK: cleanup callee exec cancels the original pthread operation
+OK: cleanup consumes the kernel EXEC event under the actual replacement TID
+OK: the cleanup replacement still has an independent readable original-mm peer
+OK: cleanup callee exec never restores GP registers into the replacement
+OK: failed cleanup detach retains the replacement stop and original resource owner
+OK: failed cleanup detach retries without executing stale cleanup syscalls
+OK: cleanup exec releases pending calls and retained pthread leases
+OK: pthread cleanup replacement reaches its own executable entry
+OK: pthread cleanup replacement performs its own console work
+OK: pthread cleanup replacement accepts normal shutdown
+OK: pthread cleanup replacement and original-mm peer exit normally
+CLEANUP_EXEC wrapped=1 mode=3 nonleader=1
+OK: cleanup callee fixture starts with real pthread functions and an old-mm peer
+OK: pthread creation and cleanup use an eligible original application thread
+OK: cleanup callee applies automatic signal forwarding before reporting exec
+OK: cleanup consumes the kernel EXEC event under the actual replacement TID
+OK: the cleanup replacement still has an independent readable original-mm peer
+OK: cleanup callee exec never restores GP registers into the replacement
+OK: cleanup exec releases pending calls and retained pthread leases
+OK: pthread cleanup replacement reaches its own executable entry
+OK: pthread cleanup replacement performs its own console work
+OK: pthread cleanup replacement accepts normal shutdown
+OK: pthread cleanup replacement and original-mm peer exit normally
+CLEANUP_EXEC wrapped=1 mode=4 nonleader=1
+OK: cleanup callee fixture starts with real pthread functions and an old-mm peer
+OK: pthread creation and cleanup use an eligible original application thread
+OK: failed former-TID inspection retains the cleanup callee's actual exec stop
+OK: cleanup recovery verifies and releases the replacement after inspection retry
+OK: cleanup consumes the kernel EXEC event under the actual replacement TID
+OK: the cleanup replacement still has an independent readable original-mm peer
+OK: cleanup callee exec never restores GP registers into the replacement
+OK: cleanup exec releases pending calls and retained pthread leases
+OK: pthread cleanup replacement reaches its own executable entry
+OK: pthread cleanup replacement performs its own console work
+OK: pthread cleanup replacement accepts normal shutdown
+OK: pthread cleanup replacement and original-mm peer exit normally
+CLEANUP_EXEC wrapped=0 mode=0 nonleader=0
+OK: cleanup callee fixture starts with real pthread functions and an old-mm peer
+OK: pthread creation and cleanup use an eligible original application thread
+OK: real pthread_create returns a handle lease before its cleanup callee executes
+OK: cleanup callee exec cancels the original pthread operation
+OK: cleanup consumes the kernel EXEC event under the actual replacement TID
+OK: the cleanup replacement still has an independent readable original-mm peer
+OK: cleanup callee exec never restores GP registers into the replacement
+OK: cleanup exec releases pending calls and retained pthread leases
+OK: pthread cleanup replacement reaches its own executable entry
+OK: pthread cleanup replacement performs its own console work
+OK: pthread cleanup replacement accepts normal shutdown
+OK: pthread cleanup replacement and original-mm peer exit normally
+CLEANUP_EXEC wrapped=0 mode=1 nonleader=0
+OK: cleanup callee fixture starts with real pthread functions and an old-mm peer
+OK: pthread creation and cleanup use an eligible original application thread
+OK: real pthread_create returns a handle lease before its cleanup callee executes
+OK: cleanup callee retains its genuine SIGUSR1 stop for the owner
+OK: explicit resume works for the retained cleanup callee and reports its actual exec
+OK: cleanup consumes the kernel EXEC event under the actual replacement TID
+OK: the cleanup replacement still has an independent readable original-mm peer
+OK: cleanup callee exec never restores GP registers into the replacement
+OK: cleanup exec releases pending calls and retained pthread leases
+OK: pthread cleanup replacement reaches its own executable entry
+OK: pthread cleanup replacement performs its own console work
+OK: pthread cleanup replacement accepts normal shutdown
+OK: pthread cleanup replacement and original-mm peer exit normally
+CLEANUP_EXEC wrapped=0 mode=2 nonleader=0
+OK: cleanup callee fixture starts with real pthread functions and an old-mm peer
+OK: pthread creation and cleanup use an eligible original application thread
+OK: real pthread_create returns a handle lease before its cleanup callee executes
+OK: cleanup callee exec cancels the original pthread operation
+OK: cleanup consumes the kernel EXEC event under the actual replacement TID
+OK: the cleanup replacement still has an independent readable original-mm peer
+OK: cleanup callee exec never restores GP registers into the replacement
+OK: failed cleanup detach retains the replacement stop and original resource owner
+OK: failed cleanup detach retries without executing stale cleanup syscalls
+OK: cleanup exec releases pending calls and retained pthread leases
+OK: pthread cleanup replacement reaches its own executable entry
+OK: pthread cleanup replacement performs its own console work
+OK: pthread cleanup replacement accepts normal shutdown
+OK: pthread cleanup replacement and original-mm peer exit normally
+CLEANUP_EXEC wrapped=0 mode=3 nonleader=0
+OK: cleanup callee fixture starts with real pthread functions and an old-mm peer
+OK: pthread creation and cleanup use an eligible original application thread
+OK: real pthread_create returns a handle lease before its cleanup callee executes
+OK: cleanup callee applies automatic signal forwarding before reporting exec
+OK: cleanup consumes the kernel EXEC event under the actual replacement TID
+OK: the cleanup replacement still has an independent readable original-mm peer
+OK: cleanup callee exec never restores GP registers into the replacement
+OK: cleanup exec releases pending calls and retained pthread leases
+OK: pthread cleanup replacement reaches its own executable entry
+OK: pthread cleanup replacement performs its own console work
+OK: pthread cleanup replacement accepts normal shutdown
+OK: pthread cleanup replacement and original-mm peer exit normally
+CLEANUP_EXEC wrapped=0 mode=0 nonleader=1
+OK: cleanup callee fixture starts with real pthread functions and an old-mm peer
+OK: pthread creation and cleanup use an eligible original application thread
+OK: real pthread_create returns a handle lease before its cleanup callee executes
+OK: cleanup callee exec cancels the original pthread operation
+OK: cleanup consumes the kernel EXEC event under the actual replacement TID
+OK: the cleanup replacement still has an independent readable original-mm peer
+OK: cleanup callee exec never restores GP registers into the replacement
+OK: cleanup exec releases pending calls and retained pthread leases
+OK: pthread cleanup replacement reaches its own executable entry
+OK: pthread cleanup replacement performs its own console work
+OK: pthread cleanup replacement accepts normal shutdown
+OK: pthread cleanup replacement and original-mm peer exit normally
+CLEANUP_EXEC wrapped=0 mode=1 nonleader=1
+OK: cleanup callee fixture starts with real pthread functions and an old-mm peer
+OK: pthread creation and cleanup use an eligible original application thread
+OK: real pthread_create returns a handle lease before its cleanup callee executes
+OK: cleanup callee retains its genuine SIGUSR1 stop for the owner
+OK: explicit resume works for the retained cleanup callee and reports its actual exec
+OK: cleanup consumes the kernel EXEC event under the actual replacement TID
+OK: the cleanup replacement still has an independent readable original-mm peer
+OK: cleanup callee exec never restores GP registers into the replacement
+OK: cleanup exec releases pending calls and retained pthread leases
+OK: pthread cleanup replacement reaches its own executable entry
+OK: pthread cleanup replacement performs its own console work
+OK: pthread cleanup replacement accepts normal shutdown
+OK: pthread cleanup replacement and original-mm peer exit normally
+CLEANUP_EXEC wrapped=0 mode=2 nonleader=1
+OK: cleanup callee fixture starts with real pthread functions and an old-mm peer
+OK: pthread creation and cleanup use an eligible original application thread
+OK: real pthread_create returns a handle lease before its cleanup callee executes
+OK: cleanup callee exec cancels the original pthread operation
+OK: cleanup consumes the kernel EXEC event under the actual replacement TID
+OK: the cleanup replacement still has an independent readable original-mm peer
+OK: cleanup callee exec never restores GP registers into the replacement
+OK: failed cleanup detach retains the replacement stop and original resource owner
+OK: failed cleanup detach retries without executing stale cleanup syscalls
+OK: cleanup exec releases pending calls and retained pthread leases
+OK: pthread cleanup replacement reaches its own executable entry
+OK: pthread cleanup replacement performs its own console work
+OK: pthread cleanup replacement accepts normal shutdown
+OK: pthread cleanup replacement and original-mm peer exit normally
+CLEANUP_EXEC wrapped=0 mode=3 nonleader=1
+OK: cleanup callee fixture starts with real pthread functions and an old-mm peer
+OK: pthread creation and cleanup use an eligible original application thread
+OK: real pthread_create returns a handle lease before its cleanup callee executes
+OK: cleanup callee applies automatic signal forwarding before reporting exec
+OK: cleanup consumes the kernel EXEC event under the actual replacement TID
+OK: the cleanup replacement still has an independent readable original-mm peer
+OK: cleanup callee exec never restores GP registers into the replacement
+OK: cleanup exec releases pending calls and retained pthread leases
+OK: pthread cleanup replacement reaches its own executable entry
+OK: pthread cleanup replacement performs its own console work
+OK: pthread cleanup replacement accepts normal shutdown
+OK: pthread cleanup replacement and original-mm peer exit normally
+CLEANUP_EXEC wrapped=0 mode=4 nonleader=1
+OK: cleanup callee fixture starts with real pthread functions and an old-mm peer
+OK: pthread creation and cleanup use an eligible original application thread
+OK: real pthread_create returns a handle lease before its cleanup callee executes
+OK: failed former-TID inspection retains the cleanup callee's actual exec stop
+OK: cleanup recovery verifies and releases the replacement after inspection retry
+OK: cleanup consumes the kernel EXEC event under the actual replacement TID
+OK: the cleanup replacement still has an independent readable original-mm peer
+OK: cleanup callee exec never restores GP registers into the replacement
+OK: cleanup exec releases pending calls and retained pthread leases
+OK: pthread cleanup replacement reaches its own executable entry
+OK: pthread cleanup replacement performs its own console work
+OK: pthread cleanup replacement accepts normal shutdown
+OK: pthread cleanup replacement and original-mm peer exit normally
+RETURNING_CLEANUP nonleader=0 forward=0
+OK: returning cleanup fixture exposes the real signal-delivering pthread detacher
+OK: returning cleanup starts under the selected original application context
+OK: real pthread_create supplies the returning cleanup's lease
+OK: returning detacher retains its actual SIGUSR1 delivery stop in the lease
+OK: returning detacher restores and releases the original context without inventing exec
+OK: the returning cleanup callee executes exactly once and reports actual libc success
+OK: the restored selected application thread resumes its own user loop
+OK: the original program can independently release its detached pthread
+OK: the original program accepts normal shutdown after returning cleanup
+OK: the original program and old-mm peer exit normally after context restoration
+RETURNING_CLEANUP nonleader=0 forward=1
+OK: returning cleanup fixture exposes the real signal-delivering pthread detacher
+OK: returning cleanup starts under the selected original application context
+OK: real pthread_create supplies the returning cleanup's lease
+OK: returning detacher restores and releases the original context without inventing exec
+OK: the returning cleanup callee executes exactly once and reports actual libc success
+OK: the restored selected application thread resumes its own user loop
+OK: the original program can independently release its detached pthread
+OK: the original program accepts normal shutdown after returning cleanup
+OK: the original program and old-mm peer exit normally after context restoration
+RETURNING_CLEANUP nonleader=1 forward=0
+OK: returning cleanup fixture exposes the real signal-delivering pthread detacher
+OK: returning cleanup starts under the selected original application context
+OK: real pthread_create supplies the returning cleanup's lease
+OK: returning detacher retains its actual SIGUSR1 delivery stop in the lease
+OK: returning detacher restores and releases the original context without inventing exec
+OK: the returning cleanup callee executes exactly once and reports actual libc success
+OK: the restored selected application thread resumes its own user loop
+OK: the original program can independently release its detached pthread
+OK: the original program accepts normal shutdown after returning cleanup
+OK: the original program and old-mm peer exit normally after context restoration
+RETURNING_CLEANUP nonleader=1 forward=1
+OK: returning cleanup fixture exposes the real signal-delivering pthread detacher
+OK: returning cleanup starts under the selected original application context
+OK: real pthread_create supplies the returning cleanup's lease
+OK: returning detacher restores and releases the original context without inventing exec
+OK: the returning cleanup callee executes exactly once and reports actual libc success
+OK: the restored selected application thread resumes its own user loop
+OK: the original program can independently release its detached pthread
+OK: the original program accepts normal shutdown after returning cleanup
+OK: the original program and old-mm peer exit normally after context restoration
+RELEASED_CLEANUP mode=0
+OK: release-race fixture exposes real pthread creation and cleanup
+OK: an original nonleader runs cleanup while the leader remains available for independent work
+OK: the real created pthread supplies a shareable release notification
+OK: the abandoned handle's cleanup owns a genuine SIGUSR1 stop before independent release
+OK: the target independently detaches its actual live pthread while the cleanup owner remains separate
+OK: handle release does not hide an owned cleanup stop from pending queries
+OK: process recovery retains the released lease until its actual signal stop is resumed
+OK: the retained stop is still the kernel's original SIGUSR1 delivery stop
+OK: released-lease recovery restores the application context and releases every owned stop
+OK: the interrupted cleanup callee returns EINVAL for the already detached handle without repeating its call
+OK: the released lease leaves the selected application's own loop writable
+OK: the original program independently releases the detached worker
+OK: the original program accepts normal shutdown after released-lease recovery
+OK: the original application and its old-mm peer exit normally after released-lease recovery
+RELEASED_CLEANUP mode=1
+OK: release-race fixture exposes real pthread creation and cleanup
+OK: an original nonleader runs cleanup while the leader remains available for independent work
+OK: the real created pthread supplies a shareable release notification
+OK: the abandoned handle's cleanup owns a genuine SIGUSR1 stop before independent release
+OK: the target independently detaches its actual live pthread while the cleanup owner remains separate
+OK: handle release does not hide an owned cleanup stop from pending queries
+OK: global recovery retains the released lease until its actual signal stop is resumed
+OK: the retained stop is still the kernel's original SIGUSR1 delivery stop
+OK: released-lease recovery restores the application context and releases every owned stop
+OK: the interrupted cleanup callee returns EINVAL for the already detached handle without repeating its call
+OK: the released lease leaves the selected application's own loop writable
+OK: the original program independently releases the detached worker
+OK: the original program accepts normal shutdown after released-lease recovery
+OK: the original application and its old-mm peer exit normally after released-lease recovery
+RELEASED_CLEANUP mode=2
+OK: release-race fixture exposes real pthread creation and cleanup
+OK: an original nonleader runs cleanup while the leader remains available for independent work
+OK: the real created pthread supplies a shareable release notification
+OK: the abandoned handle's cleanup owns a genuine SIGUSR1 stop before independent release
+OK: the target independently detaches its actual live pthread while the cleanup owner remains separate
+OK: handle release does not hide an owned cleanup stop from pending queries
+OK: process recovery retains the released lease until its actual signal stop is resumed
+OK: the retained stop is still the kernel's original SIGUSR1 delivery stop
+OK: failed detach after context restoration keeps released-lease ownership retryable
+OK: released-lease recovery restores the application context and releases every owned stop
+OK: the interrupted cleanup callee returns EINVAL for the already detached handle without repeating its call
+OK: the released lease leaves the selected application's own loop writable
+OK: the original program independently releases the detached worker
+OK: the original program accepts normal shutdown after released-lease recovery
+OK: the original application and its old-mm peer exit normally after released-lease recovery
+RELEASED_CLEANUP mode=3
+OK: release-race fixture exposes real pthread creation and cleanup
+OK: an original nonleader runs cleanup while the leader remains available for independent work
+OK: the real created pthread supplies a shareable release notification
+OK: the abandoned handle's cleanup owns a genuine SIGUSR1 stop before independent release
+OK: the target independently detaches its actual live pthread while the cleanup owner remains separate
+OK: handle release does not hide an owned cleanup stop from pending queries
+OK: global recovery retains the released lease until its actual signal stop is resumed
+OK: the retained stop is still the kernel's original SIGUSR1 delivery stop
+OK: failed detach after context restoration keeps released-lease ownership retryable
+OK: released-lease recovery restores the application context and releases every owned stop
+OK: the interrupted cleanup callee returns EINVAL for the already detached handle without repeating its call
+OK: the released lease leaves the selected application's own loop writable
+OK: the original program independently releases the detached worker
+OK: the original program accepts normal shutdown after released-lease recovery
+OK: the original application and its old-mm peer exit normally after released-lease recovery
+RELEASED_CLEANUP mode=4
+OK: release-race fixture exposes real pthread creation and cleanup
+OK: an original nonleader runs cleanup while the leader remains available for independent work
+OK: the real created pthread supplies a shareable release notification
+OK: the target independently detaches its actual live pthread while the cleanup owner remains separate
+OK: an independently released handle with no owned stop needs no synthetic cleanup call
+OK: the released lease leaves the selected application's own loop writable
+OK: the original program independently releases the detached worker
+OK: the original program accepts normal shutdown after released-lease recovery
+OK: the original application and its old-mm peer exit normally after released-lease recovery
+RELEASED_CLEANUP mode=5
+OK: release-race fixture exposes real pthread creation and cleanup
+OK: an original nonleader runs cleanup while the leader remains available for independent work
+OK: the real created pthread supplies a shareable release notification
+OK: the abandoned handle's cleanup owns a genuine SIGUSR1 stop before independent release
+OK: the target independently detaches its actual live pthread while the cleanup owner remains separate
+OK: handle release does not hide an owned cleanup stop from pending queries
+OK: process recovery retains the released lease until its actual signal stop is resumed
+OK: the retained stop is still the kernel's original SIGUSR1 delivery stop
+OK: an independently released handle preserves cancellation when its retained cleanup callee execs
+OK: released-lease exec reaches the replacement with its original-mm peer still readable
+OK: released-lease exec leaves the replacement's own console work responsive
+OK: released-lease exec accepts normal replacement shutdown
+OK: released-lease exec replacement and original-mm peer exit normally
+OK: all callee exec cases exercise the selected native ABI
+NATIVE_CALL_EXEC_RESULT=PASSED width=4 checks=475 failures=0
+[    8.888701] ACPI: PM: Preparing to enter system sleep state S5
+[    8.889451] reboot: Power down

@@ -1,3 +1,4 @@
+#include "core/target_capabilities.hpp"
 #include "platform/linux/call_service.hpp"
 #include "platform/linux/target_debug.hpp"
 #include "platform/linux/thread_entry.hpp"
@@ -526,7 +527,7 @@ struct NativeCallOwner::Impl {
             auto identity=targetProcessIdentity(tid);
             if (!identity) continue;
             c.tid=tid; c.threadIdentity=*identity;
-            if (ptrace(PTRACE_SEIZE,tid,nullptr,reinterpret_cast<void*>(PTRACE_O_TRACEEXEC))<0) continue;
+            if (ce::seizeIfOwned(tid,PTRACE_O_TRACEEXEC)<0) continue;
             c.seized=true;
             // Rebind cleanup to the task actually seized, then reject a stale PID.
             auto ownedIdentity=targetProcessIdentity(tid);

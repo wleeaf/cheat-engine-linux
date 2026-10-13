@@ -193,7 +193,7 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
         // Seizing it again would fail and lose the retained ownership record.
         if (threads.contains(tid)) continue;
         threads.emplace(tid, ThreadState{});
-        if (ptrace(PTRACE_SEIZE,tid,nullptr,reinterpret_cast<void*>(PTRACE_O_TRACECLONE|PTRACE_O_TRACEEXEC))<0) {
+        if (ce::seizeIfOwned(tid,PTRACE_O_TRACECLONE|PTRACE_O_TRACEEXEC)<0) {
             int failure=errno;
             threads.erase(tid);
             if (failure==ESRCH) continue;

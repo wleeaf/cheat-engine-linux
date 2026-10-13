@@ -1,4 +1,5 @@
 #include "platform/linux/code_write.hpp"
+#include "core/target_capabilities.hpp"
 #include "platform/linux/memory_image.hpp"
 #include <algorithm>
 #include <array>
@@ -35,6 +36,7 @@ std::expected<std::shared_ptr<CodeWriteRecovery>,std::error_code> CodeWriteRecov
             if (!task) return std::unexpected(task.error());
             auto member=targetProcessIdentity(*task);
             if (!member) return std::unexpected(member.error());
+            if (!ce::processOwnedByCaller(*task)) return std::unexpected(std::make_error_code(std::errc::operation_not_permitted));
             const auto path="/proc/"+std::to_string(*task)+"/mem";
             state->fd_=open(path.c_str(),O_RDWR|O_CLOEXEC);
             if (state->fd_<0) return std::unexpected(error());

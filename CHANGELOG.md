@@ -62,6 +62,15 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Security: the `.deb` gives the binaries `cap_sys_ptrace`, which let any
+  local user who ran them read and write every user's processes, root's
+  included, and `cescan ceserver` accepted any local connection, handing that
+  access to other users. Processes of another user are now refused (unless
+  running as root), every ptrace seize and `/proc/<pid>/mem` open is checked,
+  and the server only serves programs of the user who started it.
+- Fixed: the GDB client rejected run-length counts `+` and `-`, which
+  `gdbserver` sends for runs of 14 and 16 more characters, and dropped the
+  connection; ceserver module sizes above 2 GiB became negative.
 - Fixed: speedhack clocks jumped when the speed changed while the game ran
   (from 2x back to 1x the monotonic clock ran backwards), and
   `gettimeofday` was scaled against the monotonic clock's origin, so at any

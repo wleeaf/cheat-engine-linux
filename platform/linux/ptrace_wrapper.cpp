@@ -34,7 +34,7 @@ Result<void> LinuxDebugger::attach(pid_t pid) {
     // syscall-parked Wine/Proton thread, whereas SEIZE stops it without
     // delivering a signal (preserving syscall restart). Matches the rule used by
     // CodeFinder/DebugSession and the injector.
-    if (ptrace(PTRACE_SEIZE, pid, nullptr, nullptr) < 0)
+    if (ce::seizeIfOwned(pid, 0) < 0)
         return std::unexpected(errFromErrno());
     if (ptrace(PTRACE_INTERRUPT, pid, nullptr, nullptr) < 0) {
         ptrace(PTRACE_DETACH, pid, nullptr, nullptr);

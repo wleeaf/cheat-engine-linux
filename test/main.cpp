@@ -2943,8 +2943,11 @@ static void test_gdb_remote_client() {
         sendPacket(client, "01020304");
         auto second = readPacket(client);
         sendPacket(client, "11223344");
+        // gdbserver run-length encodes 14 more zeros with the count '+'.
+        auto third = readPacket(client);
+        sendPacket(client, "10*+");
 
-        serverOk = first == "g" && second == "m1000,4";
+        serverOk = first == "g" && second == "m1000,4" && third == "m2000,8";
         ::close(client);
     });
 
@@ -2953,9 +2956,11 @@ static void test_gdb_remote_client() {
     bool connected = client.connectTcp("127.0.0.1", ntohs(addr.sin_port), error);
     std::expected<std::string, std::string> regs = std::unexpected(error);
     std::expected<std::vector<uint8_t>, std::string> mem = std::unexpected(error);
+    std::expected<std::vector<uint8_t>, std::string> runLength = std::unexpected(error);
     if (connected) {
         regs = client.readRegisters();
         mem = client.readMemory(0x1000, 4);
+        runLength = client.readMemory(0x2000, 8);
     }
     stub.join();
     bool disconnectOk = connected && !client.readRegisters() && !client.readRegisters();
@@ -2967,7 +2972,25 @@ static void test_gdb_remote_client() {
         mem && *mem == std::vector<uint8_t>({0x11, 0x22, 0x33, 0x44}) &&
         serverOk;
     printf("  packet exchange: %s\n", ok ? "OK" : "FAILED");
+    printf("  run-length counts '+' and '-' as gdbserver sends them: %s\n",
+           runLength && *runLength == std::vector<uint8_t>({0x10, 0, 0, 0, 0, 0, 0, 0}) ? "OK" : "FAILED");
     printf("  disconnected GDB peer returns errors without SIGPIPE: %s\n", disconnectOk ? "OK" : "FAILED");
+}
+
+// Only our own processes are opened, even with cap_sys_ptrace (the .deb sets
+// it on the binaries to get past Yama).
+static void test_process_owner_check() {
+    printf("\n── Test: Other users' processes are refused ──\n");
+    const bool self = ce::processOwnedByCaller(getpid());
+    bool foreign = true;
+    if (getuid() != 0) {
+        ce::os::LinuxProcessHandle init(1);   // root's
+        uint8_t byte = 0;
+        foreign = !ce::processOwnedByCaller(1) && init.targetDescription().otherOwner && !init.read(0x1000, &byte, 1) &&
+                  ce::seizeIfOwned(1, 0) == -1 && errno == EPERM &&
+                  ce::targetOperationError(init, ce::TargetFeature::ReadMemory).find("another user") != std::string::npos;
+    }
+    printf("  own processes allowed, another user's refused: %s\n", self && foreign ? "OK" : "FAILED");
 }
 
 static void test_ceserver_client() {
@@ -12274,6 +12297,7 @@ int main(int argc, char* argv[]) {
     test_memory_access_problem();
     test_agent_mcp();
     test_agent_chat();
+    test_process_owner_check();
     test_device_mapping_not_module();
     test_scan_directory_cleanup();
     test_scan_review_fixes();

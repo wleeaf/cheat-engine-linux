@@ -26,6 +26,15 @@ load tables you authored or trust. Every native binding is additionally routed
 through a central exception firewall, so a C++ exception escaping a binding
 becomes a Lua error instead of unwinding through liblua's C frames.
 
+## Your processes only
+
+The `.deb` gives `cheatengine` and `cescan` the `cap_sys_ptrace` capability so
+they can read your own games under the default Yama `ptrace_scope=1`. That
+capability would reach every user's processes, so the tools refuse any process
+whose user and group ids differ from yours, unless they really run as root.
+`cescan ceserver` listens on 127.0.0.1 only and accepts connections only from
+programs of the user who started it: its protocol has no authentication.
+
 ## Running with least privilege
 
 - Prefer running as your normal user with `/proc/sys/kernel/yama/ptrace_scope`

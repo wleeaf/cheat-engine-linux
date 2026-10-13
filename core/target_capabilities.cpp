@@ -1,7 +1,9 @@
 #include "core/target_capabilities.hpp"
+#include <sys/ptrace.h>
 #include <unistd.h>
 #include <cerrno>
 #include <fstream>
+#include <sstream>
 #include "arch/target_arch.hpp"
 
 namespace ce {
@@ -58,6 +60,7 @@ std::vector<TargetCapability> targetCapabilities(const TargetDescription& d) {
     bool tracedElsewhere = d.tracerPid != 0 && !ownedTracer;
     auto add = [&](F feature, S state, std::string reason = {}) {
         if (!d.live) { state = S::Blocked; reason = "Target exited or its identity changed"; }
+        if (d.otherOwner) { state = S::Blocked; reason = "The process belongs to another user; only root can open it"; }
         result.push_back({feature, state, std::move(reason)});
     };
     bool byteTransport = d.transport == TargetTransport::Local || d.transport == TargetTransport::CEServer || d.transport==TargetTransport::Gdb;
@@ -156,6 +159,30 @@ std::string targetOperationError(ProcessHandle& process, TargetFeature feature, 
     }
     if (error) return std::string(targetFeatureName(feature)) + ": " + error.message();
     return std::string(targetFeatureName(feature)) + " failed";
+}
+
+bool processOwnedByCaller(pid_t pid) {
+    if (pid <= 0) return false;
+    const uid_t uid = getuid();
+    if (uid == 0) return true;
+    std::ifstream status("/proc/" + std::to_string(pid) + "/status");
+    bool uidsMatch = false, gidsMatch = false;
+    for (std::string line; std::getline(status, line);) {
+        const bool isUid = line.rfind("Uid:", 0) == 0, isGid = line.rfind("Gid:", 0) == 0;
+        if (!isUid && !isGid) continue;
+        std::istringstream ids(line.substr(4));
+        const unsigned long want = isUid ? static_cast<unsigned long>(uid) : static_cast<unsigned long>(getgid());
+        int count = 0;
+        bool all = true;
+        for (unsigned long id; ids >> id; ++count) all = all && id == want;
+        (isUid ? uidsMatch : gidsMatch) = all && count == 4;
+    }
+    return uidsMatch && gidsMatch;
+}
+
+long seizeIfOwned(pid_t tid, unsigned long options) {
+    if (!processOwnedByCaller(tid)) { errno = EPERM; return -1; }
+    return ptrace(PTRACE_SEIZE, tid, nullptr, reinterpret_cast<void*>(options));
 }
 
 std::optional<std::string> memoryAccessProblem(ProcessHandle& process) {

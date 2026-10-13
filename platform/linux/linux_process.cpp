@@ -78,6 +78,13 @@ template<class Operation> ssize_t memoryTransfer(pid_t pid,Operation operation) 
 
 LinuxProcessHandle::LinuxProcessHandle(pid_t pid) : pid_(pid) {
     description_.transport = TargetTransport::Local;
+    // Another user's process is never opened, even when cap_sys_ptrace would
+    // let us: the handle stays inert and says why.
+    if (pid_ > 0 && !processOwnedByCaller(pid_)) {
+        description_.otherOwner = true;
+        description_.live = false;
+        return;
+    }
     startTime_ = processStartTime(pid_);
 #ifdef SYS_pidfd_open
     if (pid_ > 0) pidfd_ = static_cast<int>(syscall(SYS_pidfd_open, pid_, 0));

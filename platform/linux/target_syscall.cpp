@@ -2,6 +2,7 @@
 #if defined(__arm__) && !defined(_FILE_OFFSET_BITS)
 #define _FILE_OFFSET_BITS 64
 #endif
+#include "core/target_capabilities.hpp"
 #include "platform/linux/target_syscall.hpp"
 #include "platform/linux/memory_image.hpp"
 #include "platform/linux/register_image.hpp"
@@ -996,7 +997,7 @@ Result<void> TargetSyscallRecovery::State::progressRestartAbi(pid_t notified,int
 
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__arm__)
 Result<int> TargetSyscallRecovery::State::seizeStopped(const TargetProcessIdentity& expected) {
-    if (ptrace(PTRACE_SEIZE,tid,nullptr,reinterpret_cast<void*>(PTRACE_O_TRACEEXEC)) < 0)
+    if (ce::seizeIfOwned(tid,PTRACE_O_TRACEEXEC) < 0)
         return std::unexpected(currentError());
     seized = true;
     // Until binding succeeds, cleanup must release the task actually seized,

@@ -403,7 +403,7 @@ void CodeFinder::monitorLoop() {
         if (stopRequested_) return;
         if (threads.contains(tid)) continue;
         threads.try_emplace(tid);
-        if (ptrace(PTRACE_SEIZE,tid,nullptr,reinterpret_cast<void*>(uintptr_t(options)))<0) {
+        if (ce::seizeIfOwned(tid,static_cast<unsigned long>(options))<0) {
             int failure=errno; threads.erase(tid);
             if (failure==ESRCH) continue;
             setError({failure,std::system_category()}); return;

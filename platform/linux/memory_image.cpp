@@ -3,6 +3,7 @@
 #define _FILE_OFFSET_BITS 64
 #endif
 #include "platform/linux/memory_image.hpp"
+#include "core/target_capabilities.hpp"
 #include "platform/linux/linux_process.hpp"
 #include "platform/linux/syscall_service.hpp"
 
@@ -45,6 +46,7 @@ std::expected<std::shared_ptr<NativeMemoryImage>, std::error_code> NativeMemoryI
         auto image = std::make_shared<NativeMemoryImage>();
         image->identity_ = identity;
         image->host_ = host;
+        if (!ce::processOwnedByCaller(*task)) return std::unexpected(std::make_error_code(std::errc::operation_not_permitted));
         const auto path = "/proc/" + std::to_string(*task) + "/mem";
         image->fd_ = open(path.c_str(), O_RDWR | O_CLOEXEC);
         if (image->fd_ < 0) return std::unexpected(error());

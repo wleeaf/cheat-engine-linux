@@ -46,6 +46,7 @@ struct TargetDescription {
     TargetRuntime runtime = TargetRuntime::Unknown;
     bool mixedCode = false;
     bool live = true;
+    bool otherOwner = false;   // a local process of another user: never opened
     int tracerPid = 0;
     bool pendingRecovery = false;
 };

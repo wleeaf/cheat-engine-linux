@@ -201,7 +201,10 @@ std::vector<ModuleInfo> RemoteProcessHandle::modules() {
     for (const auto& m : *r) {
         ModuleInfo mi;
         mi.base = m.baseAddress;
-        mi.size = static_cast<size_t>(m.moduleSize);
+        // The wire field is 32 bits: read it unsigned (a negative value from a
+        // hostile server is not ~2^64), and never let base + size wrap.
+        mi.size = static_cast<uint32_t>(m.moduleSize);
+        if (mi.size > UINTPTR_MAX - mi.base) mi.size = UINTPTR_MAX - mi.base;
         mi.path = m.name;
         // Strip directory portion to keep parity with the local /proc-backed enumerator.
         auto slash = m.name.find_last_of('/');

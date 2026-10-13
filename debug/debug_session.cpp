@@ -123,7 +123,7 @@ bool DebugSession::seizeAllThreads() {
         pendingRewinds_.emplace(tid,0);
         pendingHardwareSteps_.emplace(tid,0);
         traced_.insert(tid);
-        if (ptrace(PTRACE_SEIZE,tid,nullptr,reinterpret_cast<void*>(PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXEC | PTRACE_O_TRACEEXIT))<0) {
+        if (ce::seizeIfOwned(tid,PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXEC | PTRACE_O_TRACEEXIT)<0) {
             traced_.erase(tid);
             pendingSignals_.erase(tid); pendingRewinds_.erase(tid); pendingHardwareSteps_.erase(tid); continue;
         }

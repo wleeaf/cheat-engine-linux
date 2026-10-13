@@ -197,7 +197,9 @@ std::expected<std::string,std::string> GdbRemoteClient::readPacket() {
             } else if (c=='*') {
                 if (decoded.empty() || ++i==raw.size()) return std::unexpected("Invalid GDB run-length data");
                 unsigned char count=raw[i];
-                if (count<32 || count>126 || count=='$' || count=='#' || count=='+' || count=='-')
+                // gdbserver sends '+' and '-' as counts (it only avoids the
+                // frame characters), though the manual says to skip them.
+                if (count<32 || count>126 || count=='$' || count=='#')
                     return std::unexpected("Invalid GDB run-length count");
                 const size_t repeat=count-29;
                 if (repeat>maxDecoded-decoded.size()) return std::unexpected("Decoded GDB packet exceeds size limit");

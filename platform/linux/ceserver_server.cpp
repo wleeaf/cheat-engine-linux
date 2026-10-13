@@ -16,6 +16,10 @@
 #include <limits>
 #include <array>
 #include <cerrno>
+#include <cstdio>
+#include <fstream>
+#include <optional>
+#include <sstream>
 
 namespace ce::os {
 namespace {
@@ -121,6 +125,32 @@ struct CeserverServer::ClientState {
     std::unique_ptr<ce::DebugSession> dbg;
 };
 
+// The uid owning the client end of an accepted loopback connection, from
+// /proc/net/tcp: the client's socket has the peer address as its local end
+// and ours as its remote end.
+static std::optional<uid_t> loopbackPeerUid(int fd) {
+    sockaddr_in peer{}, self{};
+    socklen_t peerLength = sizeof peer, selfLength = sizeof self;
+    if (getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &peerLength) != 0 || peer.sin_family != AF_INET ||
+        getsockname(fd, reinterpret_cast<sockaddr*>(&self), &selfLength) != 0)
+        return std::nullopt;
+    // /proc/net/tcp prints the address as the raw 32-bit value in host order.
+    char wantLocal[32], wantRemote[32];
+    std::snprintf(wantLocal, sizeof wantLocal, "%08X:%04X", peer.sin_addr.s_addr, ntohs(peer.sin_port));
+    std::snprintf(wantRemote, sizeof wantRemote, "%08X:%04X", self.sin_addr.s_addr, ntohs(self.sin_port));
+    std::ifstream table("/proc/net/tcp");
+    std::string line;
+    std::getline(table, line);   // header
+    while (std::getline(table, line)) {
+        std::istringstream fields(line);
+        std::string slot, local, remote, state, queues, timer, retransmits;
+        unsigned long uid = 0;
+        if (!(fields >> slot >> local >> remote >> state >> queues >> timer >> retransmits >> uid)) continue;
+        if (local == wantLocal && remote == wantRemote) return static_cast<uid_t>(uid);
+    }
+    return std::nullopt;
+}
+
 CeserverServer::CeserverServer() = default;
 CeserverServer::~CeserverServer() { stop(); }
 
@@ -212,6 +242,9 @@ void CeserverServer::acceptLoop(int listener,int wakeFd) {
             }
             break;
         }
+        // The protocol has no authentication and grants full access to this
+        // user's processes, so only this user's own programs may connect.
+        if (auto owner = loopbackPeerUid(fd); !owner || *owner != getuid()) { ::close(fd); continue; }
         std::lock_guard sockets(socketMutex_);
         if (!running_.load()) { ::close(fd);break; }
         // Resource exhaustion affects this connection, not the accept owner or
@@ -275,7 +308,8 @@ void CeserverServer::serveClient(ClientState& client) {
                 int32_t pid = 0;
                 if (!recvAll(fd, &pid, 4)) return;
                 int32_t handle=0;
-                if (pid>0 && nextHandle<std::numeric_limits<int32_t>::max()) {
+                // Each handle holds a pidfd: a bounded number per connection.
+                if (pid>0 && nextHandle<std::numeric_limits<int32_t>::max() && processes.size()<256) {
                     auto opened=std::make_shared<LinuxProcessHandle>(static_cast<pid_t>(pid));
                     if (opened->targetDescription().live) {
                         handle=nextHandle++;
@@ -417,7 +451,7 @@ void CeserverServer::serveClient(ClientState& client) {
                         return true;
                     };
                     for (auto& m : modules)
-                        if (!sendEntry(1, m.base, static_cast<int32_t>(m.size),
+                        if (!sendEntry(1, m.base, static_cast<int32_t>(static_cast<uint32_t>(std::min<uint64_t>(m.size, UINT32_MAX))),
                                        m.name.empty() ? m.path : m.name)) return;
                     if (!sendEntry(0, 0, 0, std::string())) return;   // terminator
                 } else {

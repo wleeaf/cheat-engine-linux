@@ -37,7 +37,7 @@ GdbConnectionDialog::GdbConnectionDialog(QWidget* parent):QDialog(parent) {
     explanation->setWordWrap(true);form->addRow(explanation);
     status_=new QLabel;status_->setWordWrap(true);status_->setObjectName("gdbConnectionStatus");form->addRow(status_);
     auto* buttons=new QDialogButtonBox;
-    connect_=buttons->addButton("Connect",QDialogButtonBox::AcceptRole);connect_->setObjectName("gdbConnect");
+    connect_=buttons->addButton("Connect",QDialogButtonBox::AcceptRole);connect_->setObjectName("gdbConnect");connect_->setProperty("primary",true);connect_->setDefault(true);
     cancel_=buttons->addButton(QDialogButtonBox::Cancel);form->addRow(buttons);
     connect(connect_,&QPushButton::clicked,this,&GdbConnectionDialog::connectTarget);
     connect(cancel_,&QPushButton::clicked,this,&GdbConnectionDialog::reject);

@@ -147,7 +147,7 @@ ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget*
     : QMainWindow(parent), proc_(proc), autoAsm_(autoAsm) {
 
     setWindowTitle("Auto Assembler");
-    resize(700, 500);
+    resize(860, 600);   // wide enough for the whole toolbar, Templates included
 
     // Toolbar
     auto* toolbar = new QToolBar;

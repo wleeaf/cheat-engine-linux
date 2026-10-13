@@ -129,7 +129,7 @@ void StackViewWindow::refreshStack() {
         traceTable_->setItem(row, 4, new QTableWidgetItem(QString::fromStdString(frame.symbol)));
     }
 
-    statusLabel_->setText(QString("TID %1 %2=0x%3 %4=0x%5 Frames=%6")
+    statusLabel_->setText(QString("Thread %1    %2 0x%3    %4 0x%5    %6 frames")
         .arg(tid)
         .arg(context.architecture == CpuArchitecture::Arm64 ? "SP" : digits == 8 ? "ESP" : "RSP")
         .arg(context.stackPointer(), 0, 16)

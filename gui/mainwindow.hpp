@@ -383,7 +383,7 @@ public:
     // Add a cheat-table entry whose checkbox runs an auto-assembler script's
     // [ENABLE]/[DISABLE] (an "(Auto Assembler script)" row, like CE).
     void addScriptEntry(const QString& desc, const QString& script);
-    void addGroup(const QString& desc = "-- Group --");
+    void addGroup(const QString& desc = "New group");
     // Replace the auto-assembler script (and optionally description) of an
     // existing script entry, found by its stable id so it survives row reorder.
     bool updateScriptEntryById(int id, const QString& desc, const QString& script);
@@ -401,7 +401,7 @@ public:
     void outdentRows(QList<int> rows);
     /// CE "add the selected records to a new group": wrap `rows` under a new group
     /// header inserted at the earliest selected row (via ce::groupSelection).
-    void groupSelectedRows(QList<int> rows, const QString& desc = "-- Group --");
+    void groupSelectedRows(QList<int> rows, const QString& desc = "New group");
     void setFreezeMode(int row, ce::FreezeMode mode);
     // Obfuscation codec for an entry: value is stored as encode(logical) in memory.
     void setEntryCodec(int row, ce::ValueCodec codec);

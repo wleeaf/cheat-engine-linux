@@ -276,7 +276,7 @@ int main(int argc, char** argv) {
             auto* raw = stackWindow.findChild<QTableWidget*>("stackViewRaw");
             auto* stackStatus = stackWindow.findChild<QLabel*>("stackViewStatus");
             bool words = raw && raw->rowCount() == 32 && stackStatus &&
-                stackStatus->text().contains(arm ? " SP=" : " RSP=");
+                stackStatus->text().contains(arm ? " SP 0x" : " RSP 0x");
             if (words) {
                 bool ok0=false,ok1=false;
                 auto first=raw->item(0,0)->text().toULongLong(&ok0,16);

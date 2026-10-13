@@ -40,6 +40,7 @@ public:
 ProcessListDialog::ProcessListDialog(QWidget* parent) : QDialog(parent) {
     setWindowTitle("Open Process");
     resize(720, 520);
+    setMinimumSize(560, 360);   // narrower clips the columns behind a horizontal scrollbar
 
     auto* layout = new QVBoxLayout(this);
     layout->setSpacing(8);

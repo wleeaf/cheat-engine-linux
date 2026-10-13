@@ -27,7 +27,7 @@ CodeReferencesWindow::CodeReferencesWindow(ProcessHandle* proc, QWidget* parent)
     minCaveSizeSpin_->setRange(4, 4096);
     minCaveSizeSpin_->setValue(16);
     assemblyPatternEdit_ = new QLineEdit;
-    assemblyPatternEdit_->setPlaceholderText("Assembly pattern");
+    assemblyPatternEdit_->setPlaceholderText("Instruction to find, e.g. mov eax,1");
     auto* analyzeBtn = new QPushButton("Analyze");
     top->addWidget(moduleCombo_, 1);
     top->addWidget(new QLabel("Min cave bytes:"));
@@ -55,7 +55,9 @@ CodeReferencesWindow::CodeReferencesWindow(ProcessHandle* proc, QWidget* parent)
         table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
         table->setSelectionBehavior(QAbstractItemView::SelectRows);
         styleDataTable(table);
-        setEmptyHint(table, "Pick a module and click Analyze.");
+        setEmptyHint(table, table == assemblyTable_
+            ? "Type an instruction above (for example \"mov eax,1\") and click Analyze to find every place the module contains exactly it."
+            : "Pick a module and click Analyze.");
         table->verticalHeader()->setVisible(false);
         connect(table, &QTableWidget::cellDoubleClicked, this, [this, table](int row, int column) {
             bool ok = false;

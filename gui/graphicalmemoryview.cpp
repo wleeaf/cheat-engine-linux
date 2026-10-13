@@ -52,7 +52,8 @@ GraphicalMemoryView::GraphicalMemoryView(ce::ProcessHandle* proc, QWidget* paren
 
     auto* controls = new QHBoxLayout;
     controls->addWidget(new QLabel("Address:"));
-    addrEdit_ = new QLineEdit("0");
+    addrEdit_ = new QLineEdit;
+    addrEdit_->setPlaceholderText("address (hex)");
     addrEdit_->setMinimumWidth(220);
     controls->addWidget(addrEdit_, 1);
     auto* fetchBtn = new QPushButton("Fetch");
@@ -82,6 +83,7 @@ GraphicalMemoryView::GraphicalMemoryView(ce::ProcessHandle* proc, QWidget* paren
     auto* scroll = new QScrollArea;
     scroll->setWidget(view_);
     scroll->setWidgetResizable(false);
+    scroll->setAlignment(Qt::AlignCenter);   // the hint, and small images, sit in the middle
     v->addWidget(scroll, 1);
 
     connect(fetchBtn, &QPushButton::clicked, this, &GraphicalMemoryView::fetch);

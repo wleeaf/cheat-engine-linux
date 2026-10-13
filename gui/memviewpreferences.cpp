@@ -14,6 +14,9 @@
 #include <QFontDialog>
 #include <QSettings>
 #include <QScrollArea>
+#include <QGuiApplication>
+#include <QScreen>
+#include <algorithm>
 
 namespace ce::gui {
 
@@ -115,6 +118,10 @@ MemviewPreferences::MemviewPreferences(QWidget* parent) : QDialog(parent) {
     });
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     root->addWidget(buttons);
+    // Open tall enough to show every group without scrolling, within the screen.
+    int fit = content->sizeHint().height() + buttons->sizeHint().height() + 48;
+    if (auto* screen = QGuiApplication::primaryScreen()) fit = std::min(fit, screen->availableGeometry().height() - 80);
+    resize(520, std::max(620, fit));
 }
 
 void MemviewPreferences::apply() {

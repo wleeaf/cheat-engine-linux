@@ -283,7 +283,7 @@ void MainWindow::setupMenus() {
 
     // ── File ──
     auto* file = menuBar()->addMenu("&File");
-    file->addAction("Clear list", this, [this]() {
+    file->addAction("Clear scan results", this, [this]() {
         resultsModel_->clear(); lastResult_.reset(); undoResult_.reset(); updateScanButtons();
     });
     file->addAction("Open Process", this, &MainWindow::onOpenProcess, QKeySequence("Ctrl+O"));
@@ -295,7 +295,7 @@ void MainWindow::setupMenus() {
     recentMenu_->setToolTipsVisible(true);      // show the full path on hover
     rebuildRecentMenu();
     file->addSeparator();
-    file->addAction("Save current scanresults", this, &MainWindow::onSaveScanResults,
+    file->addAction("Save scan results...", this, &MainWindow::onSaveScanResults,
                     QKeySequence("Alt+Shift+S"));
     file->addSeparator();
     file->addAction("Generate generic trainer lua script from table", this, &MainWindow::onCreateTrainer);
@@ -539,7 +539,7 @@ void MainWindow::setupMenus() {
         v->addWidget(intro);
         auto* list = new QListWidget;
         list->setProperty("monospace", true);   // font from the theme sheet
-        setEmptyHint(list, "No blocks allocated yet. Click Allocate to reserve memory in the target.");
+        setEmptyHint(list, "No blocks allocated yet.\nClick Allocate to reserve memory in the target.");
         auto refill = [this, list]() {
             list->clear();
             for (const auto& a : allocations_)
@@ -606,10 +606,23 @@ void MainWindow::setupMenus() {
     tools->addAction("Structure Spider...", this, [this]() {
         if (!process_) { QMessageBox::warning(this, "Structure Spider", "Open a process first."); return; }
         bool ok = false;
-        QString ts = QInputDialog::getText(this, "Structure Spider", "Target address (hex):",
-                                           QLineEdit::Normal, "0", &ok);
-        if (!ok) return;
-        uintptr_t target = ts.toULongLong(nullptr, 16);
+        // Start from the selected cheat-table entry, the usual thing to spider from.
+        QString initial;
+        if (auto rows = addressListView_->selectionModel()->selectedRows(); !rows.isEmpty()) {
+            const auto& entries = addressListModel_->entries();
+            if (int r = rows.first().row(); r >= 0 && r < (int)entries.size() && !entries[r].isGroup)
+                initial = QString("0x%1").arg((qulonglong)entries[r].address, 0, 16);
+        }
+        QString ts = QInputDialog::getText(this, "Structure Spider",
+                                           "Address of the value to find pointer paths to (hex):",
+                                           QLineEdit::Normal, initial, &ok);
+        if (!ok || ts.trimmed().isEmpty()) return;
+        bool valid = false;
+        uintptr_t target = ts.trimmed().toULongLong(&valid, 16);
+        if (!valid || !target) {
+            QMessageBox::warning(this, "Structure Spider", QString("\"%1\" is not a hexadecimal address.").arg(ts.trimmed()));
+            return;
+        }
         QApplication::setOverrideCursor(Qt::WaitCursor);
         ce::PointerScanner scanner;
         ce::PointerScanConfig cfg;
@@ -1871,7 +1884,7 @@ void MainWindow::setupUi() {
                 menu.addAction("Change address...", [this, firstRow]() {
                     const auto& e = addressListModel_->entries()[firstRow];
                     QString addrStr = !e.addressExpr.isEmpty()
-                        ? e.addressExpr : QString("%1").arg((qulonglong)e.address, 0, 16);
+                        ? e.addressExpr : QString("0x%1").arg((qulonglong)e.address, 0, 16);
                     ce::gui::ChangeAddressDialog dlg(addrStr, e.type, e.showAsHex,
                                                      (int)e.byteCount, this, e.showAsSigned,
                                                      process_.get());
@@ -1960,9 +1973,9 @@ void MainWindow::setupUi() {
                 if (rows.isEmpty()) return;
                 bool ok = false;
                 QString name = QInputDialog::getText(this, "New group",
-                    "Group name:", QLineEdit::Normal, "-- Group --", &ok);
+                    "Group name:", QLineEdit::Normal, "New group", &ok);
                 if (!ok) return;
-                if (name.isEmpty()) name = "-- Group --";
+                if (name.isEmpty()) name = "New group";
                 addressListModel_->groupSelectedRows(rows, name);
             });
             if (selected.size() == 1) {

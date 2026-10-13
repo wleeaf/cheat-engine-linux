@@ -27,7 +27,7 @@ D3D/.Net are hidden on a Linux build.)
   Load Recent
   Sign table
   ——
-  Save current scanresults
+  Save scan results...
   Delete scanresult
   ——
   Generate generic trainer lua script from table

@@ -46,7 +46,7 @@ static QString hex(uintptr_t v) { return QStringLiteral("0x%1").arg(v, 0, 16); }
 DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     : QMainWindow(parent), proc_(proc), session_(std::make_unique<ce::DebugSession>()) {
     setWindowTitle("Debugger");
-    resize(920, 640);
+    resize(1080, 720);
 
     auto* central = new QWidget(this);
     auto* root = new QVBoxLayout(central);
@@ -216,7 +216,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
         }
         if (session_->isStopped()) updateDisassembly(session_->getStopContext());
     });
-    setEmptyHint(bpList_, "No breakpoints. Add an address above, or press F5 on a disassembly line.");
+    setEmptyHint(bpList_, "No breakpoints yet.\nAdd one above, or press F5\non a line of code.");
     bl->addWidget(bpList_);
     auto* rmRow = new QHBoxLayout();
     rmRow->addStretch();
@@ -228,8 +228,11 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     bl->addLayout(rmRow);
     rl->addWidget(bpGroup, 2);
     split->addWidget(right);
-    split->setStretchFactor(0, 3);
-    split->setStretchFactor(1, 2);
+    // The register panel needs about "RFLAGS  0x0000000000000000"; anything wider
+    // only leaves its value column empty, so the disassembly gets the rest.
+    right->setMaximumWidth(QFontMetrics(mono).horizontalAdvance(QString(36, QLatin1Char('0'))) + 80);
+    split->setStretchFactor(0, 1);
+    split->setStretchFactor(1, 0);
     root->addWidget(split, 1);
 
     setCentralWidget(central);

@@ -94,8 +94,12 @@ uintptr_t PointerMap::moduleBase(const std::string& name) const {
 }
 
 uintptr_t PointerMap::resolve(const PointerPath& path) const {
-    uintptr_t base = moduleBase(path.module);
-    if (base == 0) return 0;
+    // A path without a module has an absolute base (a heap or JIT pointer).
+    uintptr_t base = 0;
+    if (!path.module.empty()) {
+        base = moduleBase(path.module);
+        if (base == 0) return 0;
+    }
     uintptr_t addr = base + path.baseOffset;
     for (auto off : path.offsets) {
         auto v = valueAt(addr);
@@ -358,25 +362,25 @@ std::vector<PointerPath> PointerScanner::scanWithMap(const PointerMap& map,
                 bool ownedByShard = config.shardCount <= 1 ||
                     (moduleIndex % config.shardCount) == config.shardIndex;
                 if (ownedByShard) {
+                    // Full: this path is one too many, so the result is cut short.
+                    if (results.size() >= config.maxResults) { truncated_.store(true); goto done; }
                     PointerPath path;
                     path.module = mod->name;
                     path.moduleBase = mod->base;
                     path.baseOffset = it->locatedAt - mod->base;
                     path.offsets = newOffsets;
                     results.push_back(std::move(path));
-
-                    if (results.size() >= config.maxResults) { truncated_.store(true); goto done; }
                 }
             } else if (!config.staticOnly &&
                        (config.shardCount <= 1 || ((it->locatedAt >> 12) % config.shardCount) == config.shardIndex)) {
                 // Heap, JIT or guest-RAM base (no module): an absolute base,
                 // valid until that memory moves. Shards split these by page.
+                if (results.size() >= config.maxResults) { truncated_.store(true); goto done; }
                 PointerPath path;
                 path.moduleBase = 0;
                 path.baseOffset = it->locatedAt;
                 path.offsets = newOffsets;
                 results.push_back(std::move(path));
-                if (results.size() >= config.maxResults) { truncated_.store(true); goto done; }
             }
 
             // Go deeper if not at max depth and not static-only

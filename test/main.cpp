@@ -445,6 +445,62 @@ static void test_scan_directory_cleanup() {
     std::filesystem::remove_all(keptDir);
 }
 
+// Values that do not fit the type, float steps and an unaligned From address.
+static void test_scan_review_fixes() {
+    printf("\n── Test: Scan values, float steps and From alignment ──\n");
+    alignas(16) static volatile int32_t ints[16];
+    for (auto& v : ints) v = 0;
+    ints[4] = 0x13572468;
+    LinuxProcessHandle proc(getpid());
+    MemoryScanner scanner(1);
+    ScanConfig config;
+    config.valueType = ValueType::Byte;
+    config.compareType = ScanCompare::Exact;
+    config.intValue = 300;   // cast to a byte this was 44
+    config.startAddress = reinterpret_cast<uintptr_t>(ints);
+    config.stopAddress = config.startAddress + sizeof ints - 1;
+    auto refused = [&](const ScanConfig& c) {
+        try { (void)scanner.firstScan(proc, c); } catch (const std::invalid_argument&) { return true; }
+        return false;
+    };
+    ScanConfig between = config;
+    between.compareType = ScanCompare::Between;
+    between.intValue = -5;
+    between.intValue2 = 5;
+    ScanConfig bigger = config;
+    bigger.valueType = ValueType::Int16;
+    bigger.compareType = ScanCompare::Greater;
+    bigger.intValue = 40000;
+    ScanConfig unsignedExact = config;
+    unsignedExact.valueType = ValueType::Int16;
+    unsignedExact.intValue = 40000;   // the unsigned reading of the same bits is fine
+    printf("  values that do not fit the type are refused: %s\n",
+           refused(config) && refused(between) && refused(bigger) && !refused(unsignedExact) ? "OK" : "FAILED");
+
+    config.valueType = ValueType::Int32;
+    config.intValue = 0x13572468;
+    config.alignment = 4;
+    config.startAddress = reinterpret_cast<uintptr_t>(ints) + 2;   // off the grid
+    ScanResult aligned = scanner.firstScan(proc, config);
+    printf("  an unaligned From address keeps the alignment grid: %s\n",
+           aligned.count() == 1 && aligned.address(0) == reinterpret_cast<uintptr_t>(&ints[4]) ? "OK" : "FAILED");
+
+    alignas(16) static volatile float health[4] = {100.0f, 0, 0, 0};
+    ScanConfig floats;
+    floats.valueType = ValueType::Float;
+    floats.compareType = ScanCompare::Unknown;
+    floats.alignment = 4;
+    floats.startAddress = reinterpret_cast<uintptr_t>(health);
+    floats.stopAddress = floats.startAddress + sizeof health - 1;
+    ScanResult before = scanner.firstScan(proc, floats);
+    health[0] = 100.0f + 0.1f;   // stored as 100.0999985
+    floats.compareType = ScanCompare::IncreasedBy;
+    floats.floatValue = 0.1;
+    ScanResult after = scanner.nextScan(proc, floats, before);
+    printf("  float increased by 0.1 from 100 is found: %s\n",
+           after.count() == 1 && after.address(0) == reinterpret_cast<uintptr_t>(&health[0]) ? "OK" : "FAILED");
+}
+
 // Two game objects and the pointer that picks one: the agent's pointer records
 // must follow the pointer when the game switches objects.
 static int32_t g_agentObjects[2][4] = {{1, 5, 40, 9}, {2, 5, 40, 9}};
@@ -11627,8 +11683,15 @@ void test_scanner_differential() {
                     size_t aligns[] = {ts, 1, 2};
                     c.alignment = aligns[rng.range(3)];
                     int64_t v = (int64_t)(int32_t)rng.u32();
+                    // Search values must fit the type (the scanner refuses the
+                    // rest): Byte compares unsigned, 2 and 4 Bytes signed.
+                    int64_t low = INT64_MIN, high = INT64_MAX;
+                    if (c.valueType == ValueType::Byte) { low = 0; high = 255; }
+                    else if (c.valueType == ValueType::Int16) { low = INT16_MIN; high = INT16_MAX; }
+                    if (c.valueType == ValueType::Byte || c.valueType == ValueType::Int16)
+                        v = low + (int64_t)(rng.u32() % (uint32_t)(high - low + 1));
                     c.intValue = v;
-                    c.intValue2 = v + (int64_t)rng.range(2000) - 1000;
+                    c.intValue2 = std::clamp<int64_t>(v + (int64_t)rng.range(2000) - 1000, low, high);
                     // Plant exact needle + near neighbours at aligned offsets.
                     for (int k = 0; k < 24 && (size_t)ts <= n; ++k) {
                         size_t slot = rng.range((n - ts) / (c.alignment ? c.alignment : 1) + 1);
@@ -12014,6 +12077,7 @@ int main(int argc, char* argv[]) {
     test_agent_chat();
     test_device_mapping_not_module();
     test_scan_directory_cleanup();
+    test_scan_review_fixes();
     test_cheat_table_json();
     test_mono_dissector_parse();
     test_breakpoint_condition();

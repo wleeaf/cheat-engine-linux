@@ -937,7 +937,13 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
     try {
         std::unique_ptr<ScanResult> result;
         if (previousDir) {
-            ScanResult previous{std::filesystem::path(previousDir)};
+            // Opening a directory without results would create an empty one.
+            const std::filesystem::path previousPath(previousDir);
+            if (!std::filesystem::exists(previousPath / "shards.txt") && !std::filesystem::exists(previousPath / "offsets.bin")) {
+                fprintf(stderr, "No scan results in %s\n", previousDir);
+                return 1;
+            }
+            ScanResult previous{previousPath};
             printf("Next scan on %zu previous results...\n",previous.count());
             result=std::make_unique<ScanResult>(scanner.nextScan(proc,config,previous));
         } else {

@@ -62,6 +62,14 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Fixed: integer search values were cut to the type's width, so Byte 300
+  found every 44 and 2 Bytes "bigger than 40000" compared against -25536. A
+  value that does not fit is now refused with the type's range.
+- Fixed: "Increased by" on Float missed ordinary steps on larger values
+  (100.0 to 100.1), a From address off the alignment grid shifted every
+  candidate in its region off the grid, pointer scans reported "truncated"
+  when the result count only reached the limit, and `cescan --previous` with
+  a wrong directory quietly scanned zero results instead of failing.
 - Fixed: listing a process's modules read every mapped file, devices
   included; a game that maps GPU memory through `/dev/dri/renderD128` (Mesa
   on AMD and Intel) made the read wait forever, hanging the attach. Devices,

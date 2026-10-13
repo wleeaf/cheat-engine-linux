@@ -1157,9 +1157,14 @@ bool compareNextNumericValues(const ScanConfig& config,T cur,T old) {
             double actual = config.compareType == ScanCompare::IncreasedBy
                 ? static_cast<double>(cur) - static_cast<double>(old)
                 : static_cast<double>(old) - static_cast<double>(cur);
-            double tol = std::max(1e-6, std::abs(d) * 1e-5);
-            bool dir = config.compareType == ScanCompare::IncreasedBy ? (cur > old) : (cur < old);
-            return dir && std::abs(actual - d) <= tol;
+            // The operands' own precision counts too: 100.0f + 0.1f stores as
+            // 100.0999985, a difference 1.5e-6 away from 0.1.
+            const double magnitude = std::max(std::abs(static_cast<double>(cur)), std::abs(static_cast<double>(old)));
+            const double tol = std::max({1e-6, std::abs(d) * 1e-5, 4.0 * std::numeric_limits<T>::epsilon() * magnitude});
+            const bool dir = config.compareType == ScanCompare::IncreasedBy ? (cur > old) : (cur < old);
+            const T expected = config.compareType == ScanCompare::IncreasedBy ? static_cast<T>(old + static_cast<T>(d))
+                                                                               : static_cast<T>(old - static_cast<T>(d));
+            return dir && (cur == expected || std::abs(actual - d) <= tol);
         } else {
             using U=std::make_unsigned_t<T>;
             if constexpr (std::is_signed_v<T> || sizeof(T)<8) if (config.intValue<0) return false;
@@ -2439,7 +2444,44 @@ static bool scanNeedsPointerWidth(const ScanConfig& config) {
     for (const auto& term:config.groupedTerms) if (term.valueType==ValueType::Pointer) return true;
     return false;
 }
+// An integer search value must fit its type: the scan casts it to the type's
+// width, so Byte 300 would find 44 and 2 Bytes "bigger than 40000" would
+// compare against -25536. Exact takes the signed or unsigned reading of the
+// same bits; ordered compares use the type's own (Byte unsigned, 2 and 4
+// Bytes signed); an amount changed by may span the whole type.
+static void checkIntegerRange(const ScanConfig& config) {
+    int bits = 0;
+    bool unsignedCompare = false;
+    const char* name = "";
+    switch (config.valueType) {
+        case ValueType::Byte:  bits = 8;  unsignedCompare = true; name = "Byte"; break;
+        case ValueType::Int16: bits = 16; name = "2 Bytes"; break;
+        case ValueType::Int32: bits = 32; name = "4 Bytes"; break;
+        default: return;
+    }
+    const int64_t signedMin = -(int64_t(1) << (bits - 1)), signedMax = (int64_t(1) << (bits - 1)) - 1;
+    const int64_t unsignedMax = (int64_t(1) << bits) - 1;
+    int64_t low = 0, high = 0;
+    switch (config.compareType) {
+        case ScanCompare::Exact: low = signedMin; high = unsignedMax; break;
+        case ScanCompare::Greater: case ScanCompare::Less: case ScanCompare::Between:
+            low = unsignedCompare ? 0 : signedMin;
+            high = unsignedCompare ? unsignedMax : signedMax;
+            break;
+        case ScanCompare::IncreasedBy: case ScanCompare::DecreasedBy: low = -unsignedMax; high = unsignedMax; break;
+        default: return;
+    }
+    auto check = [&](int64_t value) {
+        if (value < low || value > high)
+            throw std::invalid_argument(std::to_string(value) + " does not fit in " + name + " for this scan (" +
+                                        std::to_string(low) + " to " + std::to_string(high) + ")");
+    };
+    check(config.intValue);
+    if (config.compareType == ScanCompare::Between) check(config.intValue2);
+}
+
 static ScanConfig targetScanConfig(ProcessHandle& proc,const ScanConfig& requested,bool& gdbTarget) {
+    checkIntegerRange(requested);
     const auto description=proc.targetDescription();gdbTarget=description.transport==TargetTransport::Gdb;
     if (!description.live) throw std::runtime_error("Scan target disconnected or exited");
     if (requested.startAddress>requested.stopAddress) throw std::invalid_argument("Scan From must not exceed To");
@@ -2499,7 +2541,22 @@ ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& reque
 
         if (!r.size) continue;
         if (r.size-1>UINTPTR_MAX-r.base) throw std::invalid_argument("Target memory region overflows the address space");
-        const uintptr_t scanStart=std::max(r.base,config.startAddress);
+        uintptr_t scanStart=std::max(r.base,config.startAddress);
+        // Scanners step from the start of each span, so a From address off the
+        // alignment grid would shift every candidate in the region off it too.
+        size_t grid=1;
+        switch (config.valueType) {
+            case ValueType::Byte: case ValueType::Int16: case ValueType::Int32: case ValueType::Int64:
+            case ValueType::Float: case ValueType::Double: case ValueType::Pointer:
+                grid=std::max<size_t>(config.alignment,1); break;
+            case ValueType::UnicodeString: grid=2; break;
+            default: break;
+        }
+        if (grid>1 && scanStart%grid) {
+            const uintptr_t add=grid-scanStart%grid;
+            if (scanStart>UINTPTR_MAX-add) continue;
+            scanStart+=add;
+        }
         if (scanStart>config.stopAddress || scanStart-r.base>=r.size) continue;
         const size_t remaining=r.size-(scanStart-r.base);
         const uintptr_t distance=config.stopAddress-scanStart;

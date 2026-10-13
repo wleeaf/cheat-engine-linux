@@ -215,6 +215,7 @@ private:
     AgentPanel* agentPanel_ = nullptr;
     QDockWidget* agentDock_ = nullptr;
     void updateWindowTitle();
+    void syncAgentTarget();   // the AI Assistant follows the open process
     int scannerThreads_ = 0;
     AutoAssembler autoAsm_;
     LuaEngine luaEngine_;

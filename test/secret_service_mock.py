@@ -23,11 +23,12 @@ class State:
     prompts = 0
     items = {}      # path -> {"attributes": {}, "label": str, "secret": bytes}
     next_id = 0
+    open_sessions = 0
 
 
 def save():
     with open(STATE, "w") as f:
-        json.dump({"locked": State.locked, "prompts": State.prompts,
+        json.dump({"locked": State.locked, "prompts": State.prompts, "open_sessions": State.open_sessions,
                    "items": [{"label": i["label"], "attributes": i["attributes"], "secret": i["secret"].decode()}
                              for i in State.items.values()]}, f)
 
@@ -51,6 +52,14 @@ class Prompt(dbus.service.Object):
     @dbus.service.signal("org.freedesktop.Secret.Prompt", signature="bv")
     def Completed(self, dismissed, result):
         pass
+
+
+class Session(dbus.service.Object):
+    @dbus.service.method("org.freedesktop.Secret.Session")
+    def Close(self):
+        State.open_sessions -= 1
+        save()
+        GLib.idle_add(lambda: self.remove_from_connection() and False)
 
 
 class Item(dbus.service.Object):
@@ -104,12 +113,18 @@ class Service(dbus.service.Object):
         self.bus = bus
         self.collection = Collection(bus)
         self.prompt_id = 0
+        self.session_id = 0
 
     @dbus.service.method("org.freedesktop.Secret.Service", in_signature="sv", out_signature="vo")
     def OpenSession(self, algorithm, value):
         if algorithm != "plain":
             raise dbus.exceptions.DBusException("unsupported", name="org.freedesktop.DBus.Error.NotSupported")
-        return (dbus.String("", variant_level=1), dbus.ObjectPath(PREFIX + "/session/1"))
+        self.session_id += 1
+        path = f"{PREFIX}/session/{self.session_id}"
+        Session(self.bus, path)
+        State.open_sessions += 1
+        save()
+        return (dbus.String("", variant_level=1), dbus.ObjectPath(path))
 
     @dbus.service.method("org.freedesktop.Secret.Service", in_signature="s", out_signature="o")
     def ReadAlias(self, name):

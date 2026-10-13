@@ -36,6 +36,9 @@ struct AgentConfig {
     QString name;      // for display
 };
 AgentConfig loadAgentConfig();
+/// Whether ANTHROPIC_API_KEY / OPENAI_API_KEY may be sent: only to that
+/// provider's own API, never to another server the user points the panel at.
+bool agentEnvKeyApplies(bool openAi, const QString& baseUrl);
 /// The API key for the configured provider: the environment variable, else the
 /// keyring. `source` says where it came from.
 std::optional<QString> agentApiKey(const AgentConfig& config, QString* source, QString* error);
@@ -47,6 +50,7 @@ public:
     ~AgentPanel() override;
 
     /// The process the main window has open; the assistant attaches to it.
+    /// pid 0 with a name is a target the tools cannot reach (ceserver, GDB).
     void setTarget(pid_t pid, const QString& name);
     /// Receives the assistant's table when the user adds it to the address list.
     void setTableSink(std::function<void(const std::vector<CheatEntry>&)> sink) { tableSink_ = std::move(sink); }
@@ -61,6 +65,8 @@ public:
     QString transcriptText() const;
     /// The settings changed: the next message uses the new provider.
     void reloadSettings();
+    /// Stop the turn in progress.
+    void stop();
 
 signals:
     void turnFinished(bool ok);
@@ -78,6 +84,8 @@ private:
     void updateState();
     ChatHttpResponse post(const ChatHttpRequest& request);
     bool approve(const std::string& tool, const json::Value& arguments);
+    QString settingsSignature(const AgentConfig& config) const;
+    void syncSession();
 
     QTextBrowser* transcript_;
     QPlainTextEdit* input_;
@@ -89,6 +97,7 @@ private:
     QLabel* provider_;
     QFrame* approvalBar_;
     QLabel* approvalText_;
+    QPlainTextEdit* approvalDetail_;
 
     QThread* worker_;
     QObject* workerContext_;
@@ -100,8 +109,10 @@ private:
 
     pid_t targetPid_ = 0;
     QString targetName_;
+    pid_t turnPid_ = 0;     // the target when the turn started, for the worker
+    QString turnName_;
+    QString chatSignature_;   // the settings chat_ was made with
     QString pendingCall_;   // a tool call waiting for its result line
-    pid_t attachedPid_ = 0;
     bool busy_ = false;
     std::atomic<bool> stopping_{false};
     std::atomic<bool> allowForChat_{false};

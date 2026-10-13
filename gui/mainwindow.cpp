@@ -2715,7 +2715,6 @@ void MainWindow::attachToPid(pid_t pid, const QString& name) {
     processLabel_->setText(label);
     processDetail_->setText(QString("PID %1").arg(pid));
     currentProcessName_ = label;
-    if (agentPanel_) agentPanel_->setTarget(pid, label);
     updateWindowTitle();
     warnIfMemoryUnreadable(this, process_.get(), pid, label);
     addressListModel_->setProcess(process_.get());
@@ -4065,6 +4064,15 @@ void MainWindow::updateWindowTitle() {
                                  : " - " + currentProcessName_;
     if (!currentTablePath_.isEmpty()) title += " - " + QFileInfo(currentTablePath_).fileName();
     setWindowTitle(title);
+    syncAgentTarget();   // every change of target ends here
+}
+
+void MainWindow::syncAgentTarget() {
+    if (!agentPanel_) return;
+    // The agent tools work on local processes only: a ceserver PID belongs to
+    // another machine, and a GDB target has none.
+    const bool local = process_ && !ceserverClient_ && currentPid_ > 0;
+    agentPanel_->setTarget(local ? currentPid_ : 0, process_ ? currentProcessName_ : QString());
 }
 
 void MainWindow::rebuildRecentMenu() {
@@ -4507,7 +4515,7 @@ AgentPanel* MainWindow::showAgentPanel() {
         addDockWidget(Qt::RightDockWidgetArea, agentDock_);
         agentPanel_->setTableSink([this](const std::vector<ce::CheatEntry>& entries) { addTableEntries(entries); });
         connect(agentPanel_, &AgentPanel::settingsRequested, this, [this]() { openSettingsDialog("AI Assistant"); });
-        if (currentPid_) agentPanel_->setTarget(currentPid_, currentProcessName_);
+        syncAgentTarget();
     }
     agentDock_->show();
     agentDock_->raise();

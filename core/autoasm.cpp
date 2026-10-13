@@ -980,8 +980,11 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
     // compilers pad with, as relocated by injection templates) is an
     // ordinary instruction.
     const auto nopOperand = upper.size() > 3 ? trim(upper.substr(3)) : std::string();
+    // "nop eax" (0f 1f c0) is a register, though it reads like a hex count.
+    static const std::set<std::string> nopRegisters = {"AX", "BX", "CX", "DX", "EAX", "EBX", "ECX", "EDX"};
     const bool nopCount = nopOperand.empty() ||
-        std::all_of(nopOperand.begin(), nopOperand.end(), [](unsigned char c) { return std::isxdigit(c) || c == 'X'; });
+        (!nopRegisters.count(nopOperand) &&
+         std::all_of(nopOperand.begin(), nopOperand.end(), [](unsigned char c) { return std::isxdigit(c) || c == 'X'; }));
     if ((upper == "NOP" || startsWith(upper, "NOP ")) && nopCount) {
         auto count = trim(line.size() > 3 ? line.substr(3) : "1");
         asmLines.push_back("__NOP__:" + count);

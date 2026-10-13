@@ -22,7 +22,8 @@ parity with Cheat Engine on Windows.
   AI Assistant is `core/agent_chat` (the model conversation, Qt-free, HTTP
   supplied by the caller) plus `gui/agent_panel` (Qt Network, approvals) and
   `gui/secret_store` (API keys in the Secret Service keyring). Changes to the
-  game always need the user's Allow there (`AgentChat::changesGame`). Never
+  game and saved files always need the user's Allow there
+  (`AgentChat::needsApproval`). Never
   test the keyring against the user's session bus: `test/secret_store_gate.py`
   runs a private bus without service activation. Tested by
   `test_agent_mcp` in `cecore_test`, end to end by `test/mcp_gate.py`, and on

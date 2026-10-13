@@ -5,6 +5,7 @@
 #include <QApplication>
 #include <QEvent>
 #include <QEventLoop>
+#include <QFontDatabase>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QKeyEvent>
@@ -21,6 +22,7 @@
 #include <QTextCursor>
 #include <QThread>
 #include <QTimer>
+#include <QUrl>
 #include <QVBoxLayout>
 
 namespace ce::gui {
@@ -81,9 +83,16 @@ AgentConfig loadAgentConfig() {
     return config;
 }
 
+bool agentEnvKeyApplies(bool openAi, const QString& baseUrl) {
+    if (baseUrl.trimmed().isEmpty()) return true;
+    const QUrl url(baseUrl.trimmed());
+    return url.scheme() == "https" && url.host().compare(openAi ? "api.openai.com" : "api.anthropic.com", Qt::CaseInsensitive) == 0;
+}
+
 std::optional<QString> agentApiKey(const AgentConfig& config, QString* source, QString* error) {
     const QString fromEnvironment = qEnvironmentVariable(config.envVar.toUtf8().constData()).trimmed();
-    if (!fromEnvironment.isEmpty()) {
+    const bool openAi = config.provider.kind == ChatProviderKind::OpenAiCompatible;
+    if (!fromEnvironment.isEmpty() && agentEnvKeyApplies(openAi, QString::fromStdString(config.provider.baseUrl))) {
         if (source) *source = config.envVar;
         return fromEnvironment;
     }
@@ -126,7 +135,15 @@ AgentPanel::AgentPanel(QWidget* parent) : QWidget(parent) {
     approvalButtons->addWidget(allowAll);
     approvalButtons->addStretch(1);
     approvalButtons->addWidget(decline);
+    // The whole script, scrollable: the user approves exactly what will run.
+    approvalDetail_ = new QPlainTextEdit;
+    approvalDetail_->setReadOnly(true);
+    approvalDetail_->setLineWrapMode(QPlainTextEdit::NoWrap);
+    approvalDetail_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    approvalDetail_->setMaximumHeight(approvalDetail_->fontMetrics().lineSpacing() * 12);
+    approvalDetail_->hide();
     approvalLayout->addWidget(approvalText_);
+    approvalLayout->addWidget(approvalDetail_);
     approvalLayout->addLayout(approvalButtons);
     approvalBar_->hide();
 
@@ -143,15 +160,10 @@ AgentPanel::AgentPanel(QWidget* parent) : QWidget(parent) {
     addToTable_->setToolTip("Copy the values and scripts the assistant saved into the address list");
     auto* settings = new QPushButton("Settings...");
     connect(send_, &QPushButton::clicked, this, [this] { send(input_->toPlainText()); });
-    connect(stop_, &QPushButton::clicked, this, [this] {
-        stopping_ = true;
-        if (chat_) chat_->cancel();
-        approvalChanged_.notify_all();
-        status_->setText("Stopping...");
-    });
+    connect(stop_, &QPushButton::clicked, this, &AgentPanel::stop);
     connect(newChat_, &QPushButton::clicked, this, [this] {
         if (busy_) return;
-        if (chat_) chat_->reset();
+        chat_.reset();   // the next message starts with the current settings and key
         allowForChat_ = false;
         transcript_->clear();
     });
@@ -190,18 +202,19 @@ AgentPanel::AgentPanel(QWidget* parent) : QWidget(parent) {
     workerContext_->moveToThread(worker_);
     connect(worker_, &QThread::finished, workerContext_, &QObject::deleteLater);
     worker_->start();
-    QMetaObject::invokeMethod(workerContext_, [this] { network_ = new QNetworkAccessManager; }, Qt::BlockingQueuedConnection);
+    // A child of workerContext_, so it is deleted on the worker thread when the
+    // thread finishes, after any request in progress has returned.
+    QMetaObject::invokeMethod(workerContext_, [this] { network_ = new QNetworkAccessManager(workerContext_); },
+                              Qt::BlockingQueuedConnection);
 
     reloadSettings();
     updateState();
 }
 
 AgentPanel::~AgentPanel() {
-    stopping_ = true;
-    if (chat_) chat_->cancel();
-    approvalChanged_.notify_all();
-    // Runs after any turn in progress has stopped.
-    QMetaObject::invokeMethod(workerContext_, [this] { delete network_; network_ = nullptr; }, Qt::BlockingQueuedConnection);
+    stop();
+    // quit() also ends the event loop of a request waiting in post(); the turn
+    // then sees the cancel and returns, and wait() lets it finish.
     worker_->quit();
     worker_->wait();
     chat_.reset();
@@ -224,12 +237,42 @@ void AgentPanel::reloadSettings() {
     const QString model = text(config.provider.modelName());
     provider_->setText(QString("%1%2. Your messages and what the tools find in the game are sent there.")
                            .arg(config.name, model.isEmpty() ? QString() : ", " + model));
-    if (!busy_) chat_.reset();   // the next message starts with the new provider
+    // send() compares the settings with the ones the chat was made with, so a
+    // change applies to the next message, even one sent while a turn runs.
+}
+
+QString AgentPanel::settingsSignature(const AgentConfig& config) const {
+    return QString("%1|%2|%3|%4").arg(int(config.provider.kind)).arg(text(config.provider.model), text(config.provider.baseUrl))
+        .arg(SecretStore::changeCount());
+}
+
+void AgentPanel::stop() {
+    {
+        std::lock_guard lock(approvalMutex_);   // so a waiting approve() cannot miss it
+        stopping_ = true;
+    }
+    if (chat_) chat_->cancel();
+    approvalChanged_.notify_all();
+    if (busy_) status_->setText("Stopping...");
 }
 
 void AgentPanel::setTarget(pid_t pid, const QString& name) {
+    if (pid == targetPid_ && name == targetName_) return;
     targetPid_ = pid;
     targetName_ = name;
+    syncSession();
+}
+
+// Leave a process the main window no longer has open, so the assistant's
+// scripts and freezes do not stay behind in it.
+void AgentPanel::syncSession() {
+    if (busy_) return;   // finishTurn calls this again
+    const pid_t pid = targetPid_;
+    QMetaObject::invokeMethod(workerContext_, [this, pid] {
+        const pid_t attached = session_->attachedPid();
+        if (attached && attached != pid) session_->detach();
+        QMetaObject::invokeMethod(this, [this] { if (!busy_) updateState(); }, Qt::QueuedConnection);
+    });
 }
 
 void AgentPanel::updateState() {
@@ -272,7 +315,18 @@ QString AgentPanel::transcriptText() const { return transcript_->toPlainText(); 
 void AgentPanel::send(const QString& message) {
     const QString trimmed = message.trimmed();
     if (busy_ || trimmed.isEmpty()) return;
+    // Busy from here: reading the key may show the keyring's prompt, which runs
+    // an event loop where another Enter must not start a second turn.
+    busy_ = true;
+    updateState();
     const AgentConfig config = loadAgentConfig();
+    if (chat_ && settingsSignature(config) != chatSignature_) {
+        chat_.reset();
+        allowForChat_ = false;
+        if (!transcript_->document()->isEmpty())
+            addLine(QString("<span style='color:%1'>The AI Assistant settings changed, so this message starts a new "
+                            "conversation.</span>").arg(palette().color(QPalette::PlaceholderText).name()), 16);
+    }
     if (!chat_) {
         std::string key;
         ChatTransport transport = testTransport_;
@@ -282,6 +336,8 @@ void AgentPanel::send(const QString& message) {
             if (!found && config.provider.kind == ChatProviderKind::Anthropic) {
                 addLine(QString("<span style='color:#d9534f'>Add your Anthropic API key in Settings, AI Assistant%1.</span>")
                             .arg(error.isEmpty() ? QString() : " (" + error.toHtmlEscaped() + ")"), 8);
+                busy_ = false;
+                updateState();
                 emit settingsRequested();
                 return;
             }
@@ -289,28 +345,33 @@ void AgentPanel::send(const QString& message) {
             transport = [this](const ChatHttpRequest& request) { return post(request); };
         }
         chat_ = std::make_unique<AgentChat>(*session_, config.provider, key, transport);
+        chatSignature_ = settingsSignature(config);
         chat_->setEventSink([this](const ChatEvent& event) {
             QMetaObject::invokeMethod(this, [this, event] { onEvent(event); }, Qt::QueuedConnection);
         });
         chat_->setApprover([this](const std::string& tool, const Value& arguments) { return approve(tool, arguments); });
     }
-    chat_->setContext(targetPid_
-        ? QString("The user has the process \"%1\" (PID %2) open in Cheat Engine, and you are attached to it.")
-              .arg(targetName_).arg(targetPid_).toStdString()
-        : std::string("No process is open in Cheat Engine. Use list_processes and attach, or ask the user to open "
-                      "the game with Ctrl+O."));
 
     addLine(QString("<b>You</b><br>%1").arg(trimmed.toHtmlEscaped().replace("\n", "<br>")), transcript_->document()->isEmpty() ? 0 : 16);
     input_->clear();
-    busy_ = true;
-    stopping_ = false;
+    {
+        std::lock_guard lock(approvalMutex_);
+        stopping_ = false;
+    }
+    chat_->clearCancel();   // before the worker starts, so an early Stop counts
     status_->setText("Working...");
-    updateState();
+    turnPid_ = targetPid_;
+    turnName_ = targetName_;
     const pid_t pid = targetPid_;
-    QMetaObject::invokeMethod(workerContext_, [this, trimmed, pid] {
-        if (pid && pid != attachedPid_) {
+    const QString name = targetName_;
+    QMetaObject::invokeMethod(workerContext_, [this, trimmed, pid, name] {
+        std::string context = "No process is open in Cheat Engine. Use list_processes and attach, or ask the user to "
+                              "open the game with Ctrl+O.";
+        if (!pid && !name.isEmpty())
+            context = QString("Cheat Engine has \"%1\" open, a remote or emulator target that these tools cannot reach: "
+                              "they work on processes on this computer only.").arg(name).toStdString();
+        if (pid && !stopping_ && pid != session_->attachedPid()) {
             const auto attached = session_->call("attach", Value::object().set("target", Value::string(std::to_string(pid))));
-            attachedPid_ = attached.isError ? 0 : pid;
             ChatEvent shown{ChatEvent::Type::ToolCall};
             shown.tool = "attach";
             shown.arguments = Value::object().set("target", Value::string(std::to_string(pid)));
@@ -321,7 +382,13 @@ void AgentPanel::send(const QString& message) {
             result.isError = attached.isError;
             QMetaObject::invokeMethod(this, [this, result] { onEvent(result); }, Qt::QueuedConnection);
         }
-        const bool ok = chat_->send(trimmed.toStdString());
+        if (pid) {
+            const QString opened = QString("The user has the process \"%1\" (PID %2) open in Cheat Engine").arg(name).arg(pid);
+            context = (session_->attachedPid() == pid ? opened + ", and you are attached to it."
+                                                      : opened + ", but attaching to it failed.").toStdString();
+        }
+        chat_->setContext(context);
+        const bool ok = !stopping_ && chat_->send(trimmed.toStdString());
         QMetaObject::invokeMethod(this, [this, ok] { finishTurn(ok); }, Qt::QueuedConnection);
     });
 }
@@ -350,8 +417,10 @@ void AgentPanel::onEvent(const ChatEvent& event) {
 void AgentPanel::finishTurn(bool ok) {
     busy_ = false;
     approvalBar_->hide();
-    status_->setText(ok ? QString() : QString("Stopped."));
+    // A failure is explained in the transcript; the status only marks a Stop.
+    status_->setText(!ok && stopping_ ? QString("Stopped.") : QString());
     updateState();
+    syncSession();
     input_->setFocus();
     emit turnFinished(ok);
 }
@@ -359,23 +428,46 @@ void AgentPanel::finishTurn(bool ok) {
 // Runs on the worker thread: show the request in the panel and wait for the
 // user's answer (or Stop, or the panel closing).
 bool AgentPanel::approve(const std::string& tool, const Value& arguments) {
+    // The process the user opened needs no question; any other one does, since
+    // the assistant could then read its memory and send it to the provider.
+    if (tool == "attach") {
+        const std::string target = arguments.getString("target").value_or(scalar(arguments.get("target") ? *arguments.get("target") : Value()).toStdString());
+        if (turnPid_ && (target == std::to_string(turnPid_) || QString::fromStdString(target) == turnName_)) return true;
+    }
     if (allowForChat_) return true;
     QString description, detail;
+    // Values and addresses may come as JSON numbers as well as strings.
+    auto field = [&](const char* key) {
+        const QString value = scalar(arguments.get(key) ? *arguments.get(key) : Value());
+        return value.isEmpty() ? QString("?") : value;
+    };
     if (tool == "write") {
-        description = QString("Write %1 (%2) to %3?").arg(text(arguments.getString("value").value_or("?")),
-            text(arguments.getString("type").value_or("?")), text(arguments.getString("address").value_or("?")));
+        description = QString("Write %1 (%2) to %3?").arg(field("value"), field("type"), field("address"));
+    } else if (tool == "save_table") {
+        description = arguments.getBool("overwrite").value_or(false)
+            ? QString("Save the table to %1, replacing that file if it exists?").arg(field("path"))
+            : QString("Save the table to %1?").arg(field("path"));
+    } else if (tool == "attach") {
+        description = QString("Let the assistant open \"%1\"? It can then read that program's memory, and what it reads "
+                              "is sent to the model's provider.").arg(field("target"));
     } else if (tool == "set_frozen") {
         const QString value = scalar(arguments.get("value") ? *arguments.get("value") : Value());
-        description = QString("Freeze table entry %1 at %2?").arg(scalar(arguments.get("index") ? *arguments.get("index") : Value()),
-                                                                 value.isEmpty() ? QString("its current value") : value);
+        QString record = field("index");
+        if (auto index = arguments.getInt("index"); index && *index >= 0) {
+            const auto entries = session_->tableEntries();   // the worker owns the session during a turn
+            const auto at = static_cast<size_t>(*index);
+            if (at < entries.size() && !entries[at].description.empty()) record = "\"" + text(entries[at].description) + "\"";
+        }
+        description = QString("Freeze %1 at %2?").arg(record, value.isEmpty() ? QString("its current value") : value);
     } else {
-        description = QString("Enable the script \"%1\" in the game?").arg(text(arguments.getString("description").value_or("")));
-        QStringList lines = text(arguments.getString("script").value_or("")).split('\n');
-        if (lines.size() > 30) { lines = lines.mid(0, 30); lines << "..."; }
-        detail = lines.join('\n');
+        description = QString("Enable the script \"%1\"?").arg(text(arguments.getString("description").value_or("")));
+        detail = text(arguments.getString("script").value_or(""));
     }
+    if (tool != "attach" && tool != "save_table" && turnPid_ && description.endsWith('?'))
+        description = description.chopped(1) + QString(" in %1 (PID %2)?").arg(turnName_).arg(turnPid_);
     {
         std::lock_guard lock(approvalMutex_);
+        if (stopping_) return false;
         approvalAnswer_.reset();
         approvalWaiting_ = true;
     }
@@ -390,9 +482,9 @@ bool AgentPanel::approve(const std::string& tool, const Value& arguments) {
 }
 
 void AgentPanel::showApproval(const QString& description, const QString& detail) {
-    QString html = "<b>" + description.toHtmlEscaped() + "</b>";
-    if (!detail.isEmpty()) html += "<pre style='margin-top:6px'>" + detail.toHtmlEscaped() + "</pre>";
-    approvalText_->setText(html);
+    approvalText_->setText("<b>" + description.toHtmlEscaped() + "</b>");
+    approvalDetail_->setPlainText(detail);
+    approvalDetail_->setVisible(!detail.isEmpty());
     approvalBar_->show();
     status_->setText("Waiting for your answer...");
 }
@@ -419,6 +511,8 @@ ChatHttpResponse AgentPanel::post(const ChatHttpRequest& request) {
     ChatHttpResponse response;
     if (!network_) { response.error = "closing"; return response; }
     QNetworkRequest http(QUrl(QString::fromStdString(request.url)));
+    // Never follow a redirect to another host: it would carry the API key there.
+    http.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::SameOriginRedirectPolicy);
     for (const auto& [name, value] : request.headers) http.setRawHeader(QByteArray::fromStdString(name), QByteArray::fromStdString(value));
     http.setTransferTimeout(300000);
     QNetworkReply* reply = network_->post(http, QByteArray::fromStdString(request.body));

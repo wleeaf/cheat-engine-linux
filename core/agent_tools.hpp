@@ -9,6 +9,7 @@
 #include "core/json.hpp"
 
 #include <memory>
+#include <sys/types.h>
 #include <string>
 #include <vector>
 
@@ -51,6 +52,12 @@ public:
 
     /// Allow or refuse changes to the game from now on (the GUI's switch).
     void setAllowWrites(bool allow);
+    /// The process the tools work on, or 0.
+    pid_t attachedPid();
+    /// Leave the process: disable the scripts the agent enabled there and
+    /// forget its records (stopping their freezes). Returns scripts that
+    /// could not be disabled.
+    std::vector<std::string> detach();
     /// The table the agent built, as save_table would write it: pointer
     /// records as base and offsets, frozen records active.
     std::vector<CheatEntry> tableEntries();

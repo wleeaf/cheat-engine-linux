@@ -478,6 +478,28 @@ AgentSession::~AgentSession() {
     if (state_->freezer.joinable()) state_->freezer.join();
 }
 
+pid_t AgentSession::attachedPid() {
+    std::lock_guard lock(state_->mutex);
+    return state_->process ? state_->pid : 0;
+}
+
+std::vector<std::string> AgentSession::detach() {
+    std::lock_guard lock(state_->mutex);
+    auto& s = *state_;
+    std::vector<std::string> failures;
+    if (s.process) failures = s.disableAll();
+    s.process.reset();
+    s.pid = 0;
+    s.processName.clear();
+    s.modules.clear();
+    s.symbols.reset();
+    s.result.reset();
+    s.undo.reset();
+    s.records.clear();
+    s.paths.clear();
+    return failures;
+}
+
 void AgentSession::setAllowWrites(bool allow) {
     std::lock_guard lock(state_->mutex);
     state_->options.allowWrites = allow;

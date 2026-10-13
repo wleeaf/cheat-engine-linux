@@ -13,6 +13,7 @@
 #include <QSettings>
 
 #include "core/agent_chat.hpp"
+#include "gui/agent_panel.hpp"
 #include "gui/secret_store.hpp"
 #include <QScrollArea>
 #include <QFontMetrics>
@@ -337,12 +338,16 @@ QWidget* SettingsDialog::buildLuaPage() {
 namespace {
 const char* const kAgentAccounts[2] = {"anthropic", "openai-compatible"};
 const char* const kAgentEnv[2] = {"ANTHROPIC_API_KEY", "OPENAI_API_KEY"};
-QString agentKeyState(int provider) {
-    if (!qEnvironmentVariableIsEmpty(kAgentEnv[provider]))
-        return QString("Using %1 from the environment.").arg(kAgentEnv[provider]);
+QString agentKeyState(int provider, const QString& baseUrl) {
+    if (!qEnvironmentVariableIsEmpty(kAgentEnv[provider])) {
+        if (agentEnvKeyApplies(provider == 1, baseUrl))
+            return QString("Using %1 from the environment.").arg(kAgentEnv[provider]);
+        // Not sent to another server, so a key for it is set here.
+    }
     const QString saved = QSettings().value(QString("agent/%1/keyStored").arg(kAgentAccounts[provider])).toString();
     if (saved == "keyring") return "A key is saved in the system keyring.";
-    if (saved == "memory") return "A key is set until Cheat Engine closes (no keyring was available).";
+    if (SecretStore(kAgentAccounts[provider]).inMemory())
+        return "A key is set until Cheat Engine closes (no keyring was available).";
     return provider == 0 ? "No key yet. Create one at console.anthropic.com." : "No key set; local servers usually need none.";
 }
 } // namespace
@@ -385,7 +390,7 @@ QWidget* SettingsDialog::buildAgentPage() {
         QString error;
         SecretStore(kAgentAccounts[provider]).remove(&error);
         QSettings().remove(QString("agent/%1/keyStored").arg(kAgentAccounts[provider]));
-        agentKeyStatus_->setText(error.isEmpty() ? agentKeyState(provider) : "Could not remove the key: " + error);
+        agentKeyStatus_->setText(error.isEmpty() ? agentKeyState(provider, agentUrlEdit_->text()) : "Could not remove the key: " + error);
     });
     agentProviderCombo_->setCurrentIndex(s.value("agent/provider", 0).toInt() == 1 ? 1 : 0);
     showAgentProvider(agentProviderCombo_->currentIndex());
@@ -403,7 +408,7 @@ void SettingsDialog::showAgentProvider(int index) {
     agentUrlEdit_->setText(agentUrls_[index]);
     agentUrlEdit_->setPlaceholderText(index == 0 ? "https://api.anthropic.com" : "https://api.openai.com/v1 or http://localhost:11434/v1");
     agentKeyEdit_->clear();
-    agentKeyStatus_->setText(agentKeyState(index));
+    agentKeyStatus_->setText(agentKeyState(index, agentUrls_[index]));
 }
 
 void SettingsDialog::onApply() {
@@ -438,20 +443,24 @@ void SettingsDialog::onApply() {
     s.setValue(NET_CESERVER_HOST_KEY, ceserverHostEdit_->text().trimmed());
     s.setValue(NET_CESERVER_PORT_KEY, ceserverPortSpin_->value());
 
+    // Read the key before showAgentProvider, which clears the field.
+    const QString key = agentKeyEdit_->text().trimmed();
     showAgentProvider(agentProviderCombo_->currentIndex());   // keep the fields being edited
     s.setValue("agent/provider", agentProviderCombo_->currentIndex());
     for (int i = 0; i < 2; ++i) {
         s.setValue(QString("agent/%1/model").arg(kAgentAccounts[i]), agentModels_[i]);
         s.setValue(QString("agent/%1/baseUrl").arg(kAgentAccounts[i]), agentUrls_[i]);
     }
-    if (const QString key = agentKeyEdit_->text().trimmed(); !key.isEmpty()) {
+    if (!key.isEmpty()) {
         const int provider = agentProviderCombo_->currentIndex();
         SecretStore store(kAgentAccounts[provider]);
         QString error;
         store.store(key, &error);
-        s.setValue(QString("agent/%1/keyStored").arg(kAgentAccounts[provider]), store.persisted() ? "keyring" : "memory");
+        // A key kept in memory dies with this run, so only the keyring is remembered.
+        if (store.persisted()) s.setValue(QString("agent/%1/keyStored").arg(kAgentAccounts[provider]), "keyring");
+        else s.remove(QString("agent/%1/keyStored").arg(kAgentAccounts[provider]));
         agentKeyEdit_->clear();
-        agentKeyStatus_->setText(store.persisted() ? agentKeyState(provider)
+        agentKeyStatus_->setText(store.persisted() ? agentKeyState(provider, agentUrls_[provider])
                                                    : "Kept until Cheat Engine closes: " + error + ".");
     }
     emit settingsApplied();

@@ -12,6 +12,8 @@
 #include <QMutex>
 #include <QTimer>
 
+#include <atomic>
+
 // The Secret Service D-Bus API (freedesktop.org), with a "plain" session: the
 // secret crosses the user's own session bus unencrypted, as with libsecret's
 // default, and is stored encrypted by the keyring.
@@ -72,6 +74,7 @@ const QString kItemInterface = "org.freedesktop.Secret.Item";
 const QString kPromptInterface = "org.freedesktop.Secret.Prompt";
 
 QMutex memoryLock;
+std::atomic<int> changes{0};
 QHash<QString, QString>& memory() {
     static QHash<QString, QString> secrets;
     return secrets;
@@ -127,6 +130,16 @@ bool runPrompt(const QDBusObjectPath& prompt, QString* error) {
     return true;
 }
 
+void closeSession(const QDBusObjectPath& session) {
+    call(session.path(), "org.freedesktop.Secret.Session", "Close", {}, nullptr);
+}
+
+// Closes a session when the call that opened it is done.
+struct SessionCloser {
+    QDBusObjectPath session;
+    ~SessionCloser() { closeSession(session); }
+};
+
 std::optional<QDBusObjectPath> openSession(QString* error) {
     auto reply = call(kPath, kServiceInterface, "OpenSession", {QString("plain"), QVariant::fromValue(QDBusVariant(QString()))}, error);
     if (failed(reply, 2)) return std::nullopt;
@@ -148,8 +161,8 @@ std::optional<QList<QDBusObjectPath>> search(const QString& account, bool unlock
     if (!locked.isEmpty() && unlockLocked) {
         if (!unlock(locked, error)) return std::nullopt;
         unlocked += locked;
-    } else if (unlocked.isEmpty() && !locked.isEmpty()) {
-        unlocked = locked;   // deletion works on locked items too
+    } else {
+        unlocked += locked;   // deletion works on locked items too
     }
     return unlocked;
 }
@@ -157,6 +170,13 @@ std::optional<QList<QDBusObjectPath>> search(const QString& account, bool unlock
 } // namespace
 
 SecretStore::SecretStore(QString account) : account_(std::move(account)) {}
+
+int SecretStore::changeCount() { return changes.load(); }
+
+bool SecretStore::inMemory() const {
+    QMutexLocker lock(&memoryLock);
+    return memory().contains(account_);
+}
 
 bool SecretStore::available() {
     auto* bus = QDBusConnection::sessionBus().interface();
@@ -171,10 +191,12 @@ bool SecretStore::store(const QString& value, QString* error) {
         QMutexLocker lock(&memoryLock);
         memory()[account_] = value;
     }
+    ++changes;
     persisted_ = false;
     if (!available()) { if (error) *error = "no keyring service is running"; return false; }
     auto session = openSession(error);
     if (!session) return false;
+    const SessionCloser closer{*session};
     auto alias = call(kPath, kServiceInterface, "ReadAlias", {QString("default")}, error);
     if (failed(alias, 1)) return false;
     const auto collection = alias.arguments().at(0).value<QDBusObjectPath>();
@@ -203,6 +225,7 @@ std::optional<QString> SecretStore::lookup(QString* error) {
     if (!available()) return std::nullopt;
     auto session = openSession(error);
     if (!session) return std::nullopt;
+    const SessionCloser closer{*session};
     auto items = search(account_, true, error);
     if (!items || items->isEmpty()) return std::nullopt;
     auto reply = call(items->first().path(), kItemInterface, "GetSecret", {QVariant::fromValue(*session)}, error);
@@ -219,6 +242,7 @@ bool SecretStore::remove(QString* error) {
         QMutexLocker lock(&memoryLock);
         memory().remove(account_);
     }
+    ++changes;
     persisted_ = false;
     if (!available()) return true;
     auto items = search(account_, false, error);

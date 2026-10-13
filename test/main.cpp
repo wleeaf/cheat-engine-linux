@@ -268,7 +268,11 @@ static void test_agent_chat() {
         chat.setEventSink([&](const ce::ChatEvent& e) { events.push_back(e); });
         bool allow = false;
         int asked = 0;
-        chat.setApprover([&](const std::string& tool, const ce::json::Value&) { ++asked; return tool == "write" && allow; });
+        chat.setApprover([&](const std::string& tool, const ce::json::Value&) {
+            if (tool == "attach") return true;   // the panel lets the opened process through
+            ++asked;
+            return tool == "write" && allow;
+        });
         const bool first = chat.send("Set my health to 1234.");
         bool keyHeader = false, version = false;
         for (const auto& [name, value] : seen.front().headers) {
@@ -303,6 +307,31 @@ static void test_agent_chat() {
                    stopped && bodies.size() == 2 &&
                    bodies[1].find("\"tool_use_id\":\"t9\"") < bodies[1].find("\"text\":\"Go on.\"") &&
                    bodies[1].find("\"role\":\"user\",\"content\":\"Go on.\"") == std::string::npos ? "OK" : "FAILED");
+        }
+        // An empty reply after tool results must not leave an empty assistant
+        // turn behind (the API rejects every later request), and a failure after
+        // tools ran keeps their results so the model knows what was done.
+        {
+            std::vector<std::string> bodies;
+            std::vector<ce::ChatHttpResponse> answers = {
+                {200, R"({"content":[{"type":"tool_use","id":"e1","name":"target_info","input":{}}]})", {}},
+                {200, R"({"content":[],"stop_reason":"end_turn"})", {}},
+                {200, R"({"content":[{"type":"tool_use","id":"e2","name":"target_info","input":{}}]})", {}},
+                {529, R"({"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}})", {}},
+                {200, R"({"content":[{"type":"text","text":"ok"}]})", {}},
+            };
+            size_t at = 0;
+            ce::AgentChat empty(session, {}, "k", [&](const ce::ChatHttpRequest& request) {
+                bodies.push_back(request.body);
+                return at < answers.size() ? answers[at++] : ce::ChatHttpResponse{500, "{}", {}};
+            });
+            const bool firstOk = empty.send("Look.");
+            const bool overloaded = !empty.send("Again.");
+            const bool resumed = empty.send("Go on.");
+            printf("  an empty reply leaves no empty assistant turn: %s\n",
+                   firstOk && bodies.size() >= 3 && bodies[2].find("\"content\":[]") == std::string::npos ? "OK" : "FAILED");
+            printf("  a failure after tools ran keeps their results: %s\n",
+                   overloaded && resumed && bodies.size() == 5 && bodies[4].find("\"tool_use_id\":\"e2\"") != std::string::npos ? "OK" : "FAILED");
         }
         bool sawCall = false, sawText = false;
         for (const auto& e : events) {
@@ -346,6 +375,7 @@ static void test_agent_chat() {
         });
         std::string reply;
         chat.setEventSink([&](const ce::ChatEvent& e) { if (e.type == ce::ChatEvent::Type::AssistantText) reply = e.text; });
+        chat.setApprover([](const std::string& tool, const ce::json::Value&) { return tool == "attach"; });
         const bool ok = chat.send("Attach to my game.");
         bool auth = false;
         for (const auto& header : seen.front().headers) auth = auth || header.first == "authorization";
@@ -356,13 +386,28 @@ static void test_agent_chat() {
         printf("  tool results go back as role tool messages: %s\n",
                ok && reply == "Attached." && seen.size() == 2 &&
                seen[1].body.find("\"role\":\"tool\",\"tool_call_id\":\"c1\"") != std::string::npos ? "OK" : "FAILED");
+        // Some local servers send the arguments as an object, not a JSON string.
+        std::vector<std::string> bodies;
+        bool first = true;
+        ce::AgentChat objects(session, provider, "", [&](const ce::ChatHttpRequest& request) {
+            bodies.push_back(request.body);
+            if (!first) return ce::ChatHttpResponse{200, R"({"choices":[{"message":{"role":"assistant","content":"ok"}}]})", {}};
+            first = false;
+            return ce::ChatHttpResponse{200, R"({"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"o1","type":"function","function":{"name":"read","arguments":{"address":")" +
+                std::string(address) + R"(","type":"i32"}}}]}}]})", {}};
+        });
+        printf("  object arguments are accepted: %s\n",
+               objects.send("Read it.") && bodies.size() == 2 && bodies[1].find("arguments are not") == std::string::npos &&
+               bodies[1].find(std::to_string(health())) != std::string::npos ? "OK" : "FAILED");
     }
     printf("  changes that need approval: %s\n",
-           ce::AgentChat::changesGame("write", ce::json::Value::object()) &&
-           ce::AgentChat::changesGame("aa_enable", ce::json::Value::object()) &&
-           ce::AgentChat::changesGame("set_frozen", ce::json::Value::object().set("frozen", ce::json::Value::boolean(true))) &&
-           !ce::AgentChat::changesGame("set_frozen", ce::json::Value::object().set("frozen", ce::json::Value::boolean(false))) &&
-           !ce::AgentChat::changesGame("first_scan", ce::json::Value::object()) ? "OK" : "FAILED");
+           ce::AgentChat::needsApproval("write", ce::json::Value::object()) &&
+           ce::AgentChat::needsApproval("aa_enable", ce::json::Value::object()) &&
+           ce::AgentChat::needsApproval("save_table", ce::json::Value::object()) &&
+           ce::AgentChat::needsApproval("attach", ce::json::Value::object()) &&
+           ce::AgentChat::needsApproval("set_frozen", ce::json::Value::object().set("frozen", ce::json::Value::boolean(true))) &&
+           !ce::AgentChat::needsApproval("set_frozen", ce::json::Value::object().set("frozen", ce::json::Value::boolean(false))) &&
+           !ce::AgentChat::needsApproval("first_scan", ce::json::Value::object()) ? "OK" : "FAILED");
     kill(child, SIGKILL);
     waitpid(child, nullptr, 0);
 }
@@ -8014,6 +8059,15 @@ static void test_autoassembler_nop_fillmem(pid_t pid) {
     // Keystone picks a 4-byte hint NOP (0f 18 /4); any 4-byte NOP is right.
     printf("  nop with an operand assembles as an instruction: %s\n",
            multiByte.success && padded[0] == 0x0f && padded[3] == 0x00 && padded[4] == 0x90 && padded[5] == 0x90 ? "OK" : "FAILED");
+    // "nop eax" reads like a hex count but is a 3-byte register NOP (Keystone
+    // picks 0f 18 e0; 0f 1f c0 is the same), not 0xEAX one-byte NOPs.
+    padded[3] = 0xaa;
+    (void)proc.write(addr + 3, &padded[3], 1);
+    snprintf(script, sizeof(script), "[ENABLE]\n%lx:\nnop eax\n", addr);
+    auto registerForm = aa.execute(proc, script);
+    proc.read(addr, padded, sizeof(padded));
+    printf("  nop with a register assembles as an instruction: %s\n",
+           registerForm.success && padded[0] == 0x0f && padded[2] >= 0xc0 && padded[3] == 0xaa ? "OK" : "FAILED");
     proc.free(addr, 4096);
 }
 

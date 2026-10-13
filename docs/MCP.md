@@ -19,16 +19,19 @@ on the process you have open.
 - **Keys stay in your keyring.** The key is saved in the system keyring
   (GNOME Keyring, KWallet or any Secret Service), never in Cheat Engine's
   settings file. `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the environment
-  takes precedence. Without a keyring the key lasts until Cheat Engine closes.
+  takes precedence, but only for that provider's own API: it is never sent to
+  another server you enter as the API address. Without a keyring the key
+  lasts until Cheat Engine closes.
 - **You approve every change.** Scanning, reading and disassembling run on
-  their own; writing a value, freezing and enabling a script wait for your
-  Allow in the panel (or Allow for this chat). Stop ends a turn at any time.
+  their own; writing a value, freezing, enabling a script, saving a file and
+  opening any process other than yours wait for your Allow in the panel (or
+  Allow for this chat). Stop ends a turn at any time.
 - **What leaves your computer.** Your messages and what the tools find in the
   game (process names, addresses, values, code) are sent to the provider you
   chose, and nothing else. With a local model nothing leaves your computer.
 - **Keep the results.** Add to address list copies the values, pointer paths
   and scripts the assistant saved into your table. Scripts it enabled are
-  undone when you close Cheat Engine.
+  undone when you close Cheat Engine or open another process.
 
 ## From another app: MCP
 

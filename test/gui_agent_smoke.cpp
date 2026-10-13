@@ -72,6 +72,8 @@ int main(int argc, char** argv) {
         R"({"content":[{"type":"text","text":"Health is now **999**."}]})",
         R"({"content":[{"type":"tool_use","id":"d","name":"write","input":{"address":")" + std::string(address) + R"(","type":"i32","value":"5"}}]})",
         R"({"content":[{"type":"text","text":"Left it alone."}]})",
+        R"({"content":[{"type":"tool_use","id":"e","name":"attach","input":{"target":")" + std::to_string(getpid()) + R"("}}]})",
+        R"({"content":[{"type":"text","text":"Not opened."}]})",
     };
     std::atomic<size_t> next{0};
     std::atomic<bool> slow{false};
@@ -133,6 +135,19 @@ int main(int argc, char** argv) {
     slow = false;
     check("Stop ends a turn", waitFor([&] { return finished; }) && !finishedOk);
     check("the panel takes a new message after Stop", !panel->busy());
+
+    finished = false;
+    panel->send("Open the other program.");
+    check("opening another process asks first", waitFor([&] { return panel->approvalPending(); }));
+    panel->answerApproval(false);
+    check("a declined attach is not made", waitFor([&] { return finished; }) &&
+          panel->transcriptText().contains("attach target=" + QString::number(getpid()) + " \u2192 refused"),
+          panel->transcriptText().right(300));
+
+    // Closing the process in the main window leaves it: the records go, so
+    // there is nothing left to add to the address list.
+    panel->setTarget(0, {});
+    check("closing the process leaves it", waitFor([&] { return addButton && !addButton->isEnabled(); }));
 
     delete panel;   // closes the worker thread cleanly
     kill(child, SIGKILL);

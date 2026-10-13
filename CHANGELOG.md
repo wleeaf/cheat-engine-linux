@@ -19,8 +19,10 @@ reimplementation of Cheat Engine).
   model of your choice finds and changes values with the agent tools, on the
   process you have open. Anthropic or any OpenAI-compatible API (OpenAI,
   Ollama, LM Studio), configured in Settings > AI Assistant. API keys go to the
-  system keyring over the Secret Service API, never to the settings file.
-  Writing, freezing and enabling scripts wait for your Allow; Stop ends a turn;
+  system keyring over the Secret Service API, never to the settings file; a
+  key from the environment is only sent to that provider's own API.
+  Writing, freezing, enabling scripts, saving files and opening any process
+  but yours wait for your Allow; Stop ends a turn;
   results can be added to the address list. The conversation loop is Qt-free
   (`core/agent_chat`) and tested with a scripted model; the panel with
   `gui_agent_smoke`, and the keyring client against a mock Secret Service
@@ -60,7 +62,8 @@ reimplementation of Cheat Engine).
   `getAddress` and Cheat Engine.
 - Fixed: Auto Assembler read `nop dword ptr [rax+rax]` (the padding GCC
   emits, which injection templates relocate) as a NOP count and failed; a
-  `nop` with an operand now assembles as an instruction.
+  `nop` with an operand (including a register, `nop eax`) now assembles as an
+  instruction.
 
 ## v1.0.0: first stable release (2026-10-13)
 

@@ -64,7 +64,7 @@ public:
     /// Extra system text, for example which process the user has open.
     void setContext(std::string context) { context_ = std::move(context); }
     /// Asked before every tool call that changes the game (write, freeze,
-    /// enabling a script); returning false refuses the call. Without an
+    /// enabling a script) or saves a file; returning false refuses the call. Without an
     /// approver such calls are refused.
     void setApprover(std::function<bool(const std::string& tool, const json::Value& arguments)> approver) {
         approver_ = std::move(approver);
@@ -78,6 +78,9 @@ public:
     bool send(const std::string& userText);
     /// Stop the running turn after the current request or tool call.
     void cancel() { cancelled_ = true; }
+    /// Forget an earlier cancel. Call before handing a new turn to another
+    /// thread, so a Stop pressed before send() starts is not lost.
+    void clearCancel() { cancelled_ = false; }
     /// Forget the conversation.
     void reset() { messages_.clear(); }
     size_t messageCount() const { return messages_.size(); }
@@ -85,8 +88,10 @@ public:
     /// The request body for the current conversation (exposed for tests).
     std::string requestBody() const;
 
-    /// Tool calls that change the running program and need the user's approval.
-    static bool changesGame(const std::string& tool, const json::Value& arguments);
+    /// Tool calls that need the user's approval: changes to the running
+    /// program, files written to the user's disk, and attaching (the approver
+    /// lets the process the user opened through without asking).
+    static bool needsApproval(const std::string& tool, const json::Value& arguments);
 
 private:
     struct ToolCall { std::string id, name; json::Value arguments; };

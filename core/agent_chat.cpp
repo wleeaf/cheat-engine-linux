@@ -41,8 +41,8 @@ std::string chatErrorMessage(const std::string& body) {
 AgentChat::AgentChat(AgentSession& session, ChatProvider provider, std::string apiKey, ChatTransport transport)
     : session_(session), provider_(std::move(provider)), apiKey_(std::move(apiKey)), transport_(std::move(transport)) {}
 
-bool AgentChat::changesGame(const std::string& tool, const Value& arguments) {
-    if (tool == "write" || tool == "aa_enable") return true;
+bool AgentChat::needsApproval(const std::string& tool, const Value& arguments) {
+    if (tool == "write" || tool == "aa_enable" || tool == "save_table" || tool == "attach") return true;
     if (tool == "set_frozen") return arguments.getBool("frozen").value_or(false);
     return false;
 }
@@ -103,7 +103,9 @@ bool AgentChat::parseReply(const std::string& body, std::string& text, std::vect
                                  input ? *input : Value::object()});
             }
         }
-        messages_.push_back(Value::object().set("role", Value::string("assistant")).set("content", *content));
+        // An empty assistant turn would make every later request invalid.
+        if (!content->arrayValue.empty())
+            messages_.push_back(Value::object().set("role", Value::string("assistant")).set("content", *content));
         return true;
     }
     const Value* choices = reply.get("choices");
@@ -118,8 +120,12 @@ bool AgentChat::parseReply(const std::string& body, std::string& text, std::vect
             const Value* function = call.get("function");
             if (!function) continue;
             Value arguments = Value::object();
-            const std::string raw = function->getString("arguments").value_or("{}");
-            if (!raw.empty() && !json::parse(raw, arguments)) arguments = Value::string(raw);   // reported as an error below
+            if (const Value* given = function->get("arguments"); given && given->isObject()) {
+                arguments = *given;   // some local servers send an object instead of a JSON string
+            } else {
+                const std::string raw = function->getString("arguments").value_or("{}");
+                if (!raw.empty() && !json::parse(raw, arguments)) arguments = Value::string(raw);   // reported as an error below
+            }
             calls.push_back({call.getString("id").value_or(""), function->getString("name").value_or(""), arguments});
         }
     // Keep the assistant message as sent, minus fields some servers reject on input.
@@ -132,13 +138,17 @@ bool AgentChat::parseReply(const std::string& body, std::string& text, std::vect
 }
 
 bool AgentChat::send(const std::string& userText) {
-    cancelled_ = false;
     const size_t start = messages_.size();
     std::optional<Value> beforeMerge;   // the turn the user text joined, as it was
+    bool acted = false;                 // tool calls ran, so the model must keep seeing them
     auto fail = [&](const std::string& message) {
-        // Drop the unfinished turn so the conversation stays valid for the next one.
-        messages_.resize(start);
-        if (beforeMerge) messages_.back() = *beforeMerge;
+        // Before anything ran, drop the message so a retry does not repeat it.
+        // After that the conversation already ends on tool results, which is
+        // valid for the next turn.
+        if (!acted) {
+            messages_.resize(start);
+            if (beforeMerge) messages_.back() = *beforeMerge;
+        }
         report({ChatEvent::Type::Error, message});
         return false;
     };
@@ -197,7 +207,7 @@ bool AgentChat::send(const std::string& userText) {
                 result = {true, Value::object().set("error", Value::string("The user stopped the assistant."))};
             } else if (!call.arguments.isObject()) {
                 result = {true, Value::object().set("error", Value::string("arguments are not a JSON object"))};
-            } else if (changesGame(call.name, call.arguments) && !(approver_ && approver_(call.name, call.arguments))) {
+            } else if (needsApproval(call.name, call.arguments) && !(approver_ && approver_(call.name, call.arguments))) {
                 result = {true, Value::object().set("error", Value::string("The user declined this change."))};
             } else {
                 result = session_.call(call.name, call.arguments);
@@ -217,6 +227,7 @@ bool AgentChat::send(const std::string& userText) {
         }
         if (isAnthropic(provider_))
             messages_.push_back(Value::object().set("role", Value::string("user")).set("content", results));
+        acted = true;
         if (cancelled_) {
             report({ChatEvent::Type::Error, "Stopped."});
             return false;

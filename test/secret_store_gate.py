@@ -94,6 +94,7 @@ def main():
             check("remove deletes it", out.startswith("REMOVED ok=1") and not state()["items"], (out, state()))
             out = run("lookup")
             check("nothing is found after remove", out.startswith("NONE"), out)
+            check("every keyring session is closed again", state()["open_sessions"] == 0, state())
         finally:
             mock.terminate()
             mock.wait(timeout=10)

@@ -51,6 +51,13 @@ takes its colours from the portal's `color-scheme`, not from the app, so on a
 `prefer-dark` desktop a first launch showed light content under a dark frame
 (the GTK3 palette reports light). The first-run theme now follows that same
 portal preference; an explicit Theme choice in Settings still wins.
+A last capture reproduced the user's own GNOME configuration (1920x1080 at
+scale 1, `text-scaling-factor` 1.35, Adwaita Sans 11 and Adwaita Mono 11,
+`prefer-dark`) on the headless mutter. The monospace default now follows the
+desktop font; resolving it through `QFontDatabase::systemFont(FixedFont)`
+was rejected after that capture showed it switching combo boxes, line edits
+and group boxes to the fixed font under the GTK3 theme in dark mode, so the
+family is resolved through fontconfig instead.
 
 ## Frontends inside every ISA guest; coverage complete: 12 October 2026
 

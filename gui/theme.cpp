@@ -2,6 +2,7 @@
 
 #include <QApplication>
 #include <QPalette>
+#include <QFontInfo>
 #include <QStyleHints>
 #include <QSettings>
 #include <QImage>
@@ -394,11 +395,27 @@ void recolorConsole(QTextDocument* document, const EditorPalette& previous, cons
     }
 }
 
+QString defaultMonospaceFamily() {
+    // Resolve the generic "monospace" through fontconfig (Adwaita Mono, Noto Sans
+    // Mono...). Not QFontDatabase::systemFont(FixedFont): asking the GTK platform
+    // theme for its fonts before applyTheme changes the color scheme made Qt
+    // re-resolve combo boxes, line edits and group boxes to the fixed font.
+    QFont probe(QStringLiteral("monospace"));
+    probe.setStyleHint(QFont::TypeWriter);
+    const QString family = QFontInfo(probe).family();
+    return family.isEmpty() ? QStringLiteral("Monospace") : family;
+}
+
+int defaultMonospaceSize() {
+    const int size = QApplication::font().pointSize();
+    return size > 0 ? std::clamp(size, 8, 16) : 10;
+}
+
 QFont monospaceFont(int delta) {
     QSettings s;
-    QFont font(s.value("display/fontFamily", "Monospace").toString());
+    QFont font(s.value("display/fontFamily", defaultMonospaceFamily()).toString());
     font.setStyleHint(QFont::Monospace);
-    font.setPointSize(std::max(6, s.value("display/fontSize", 10).toInt() + delta));
+    font.setPointSize(std::max(6, s.value("display/fontSize", defaultMonospaceSize()).toInt() + delta));
     return font;
 }
 

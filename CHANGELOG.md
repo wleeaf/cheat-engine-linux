@@ -35,6 +35,9 @@ reimplementation of Cheat Engine).
   with a version suffix (`QAction::staticMetaObject@Qt_6`) are demangled.
   Before a Theme is chosen, the app follows the desktop's light/dark
   preference from the portal, the same setting Qt's GNOME title bar uses.
+  Until a font is chosen in Settings, tables, code and hex views use the
+  desktop's monospace font (Adwaita Mono on GNOME) at the interface font's
+  size, instead of a fixed 10 pt "Monospace".
 
 - CI cross-builds the CLI for RISC-V64, s390x, PowerPC64LE and ARM32 and runs
   it inside each full-system guest, so every target row now has live

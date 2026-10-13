@@ -1180,11 +1180,11 @@ void MainWindow::updateOverlayStatus() {
 }
 
 // The monospace font from the Settings dialog (display/fontFamily + fontSize),
-// used for the results / cheat-table views. Falls back to "Monospace" 10.
+// used for the results / cheat-table views. Defaults to the desktop's monospace font.
 static QFont settingsMonospaceFont() {
     QSettings s;
-    return QFont(s.value("display/fontFamily", "Monospace").toString(),
-                 s.value("display/fontSize", 10).toInt());
+    return QFont(s.value("display/fontFamily", defaultMonospaceFamily()).toString(),
+                 s.value("display/fontSize", defaultMonospaceSize()).toInt());
 }
 
 void MainWindow::setupUi() {
@@ -1563,12 +1563,12 @@ void MainWindow::setupUi() {
     optLayout->addWidget(new QLabel("From:"), 0, 0);
     fromAddressEdit_ = new QLineEdit("0000000000");
     fromAddressEdit_->setObjectName("scanFrom");
-    fromAddressEdit_->setFont(monospaceFont(-1));
+    fromAddressEdit_->setFont(monospaceFont());
     optLayout->addWidget(fromAddressEdit_, 0, 1);
     optLayout->addWidget(new QLabel("To:"), 1, 0);
     toAddressEdit_ = new QLineEdit(QString::number(UINTPTR_MAX,16));
     toAddressEdit_->setObjectName("scanTo");
-    toAddressEdit_->setFont(monospaceFont(-1));
+    toAddressEdit_->setFont(monospaceFont());
     optLayout->addWidget(toAddressEdit_, 1, 1);
     // Tri-state like CE: checked = must have the protection, unchecked = must NOT,
     // partial (grey) = don't care. Writable defaults to "must" (values live in

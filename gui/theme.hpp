@@ -44,6 +44,12 @@ EditorPalette editorPalette();
 /// Update existing console text when switching themes without losing its roles.
 void recolorConsole(QTextDocument* document, const EditorPalette& previous, const EditorPalette& current);
 
+/// Defaults for Settings > Display before the user picks a font: the desktop's
+/// own fixed-width font (Adwaita Mono on GNOME) at the application font's size,
+/// so code and tables match the surrounding text.
+QString defaultMonospaceFamily();
+int defaultMonospaceSize();
+
 /// The monospace font chosen in Settings > Display, `delta` points from its size.
 QFont monospaceFont(int delta = 0);
 

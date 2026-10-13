@@ -216,14 +216,14 @@ QWidget* SettingsDialog::buildDisplayPage() {
 
     fontFamilyCombo_ = sized(new QFontComboBox);
     fontFamilyCombo_->setFontFilters(QFontComboBox::MonospacedFonts);
-    fontFamilyCombo_->setCurrentFont(QFont(s.value(DISP_FONT_FAMILY_KEY, "Monospace").toString()));
+    fontFamilyCombo_->setCurrentFont(QFont(s.value(DISP_FONT_FAMILY_KEY, defaultMonospaceFamily()).toString()));
     form->addRow("Monospace font:", fontFamilyCombo_);
 
     fontSizeSpin_ = sized(new QSpinBox);
     fontSizeSpin_->setObjectName("displayFontSize");
     fontSizeSpin_->setRange(7, 24);
     fontSizeSpin_->setSuffix(" pt");
-    fontSizeSpin_->setValue(s.value(DISP_FONT_SIZE_KEY, 10).toInt());
+    fontSizeSpin_->setValue(s.value(DISP_FONT_SIZE_KEY, defaultMonospaceSize()).toInt());
     form->addRow("Font size:", fontSizeSpin_);
 
     addressWidthCombo_ = sized(new QComboBox);

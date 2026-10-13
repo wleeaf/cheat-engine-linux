@@ -80,6 +80,15 @@ static void* object(size_t size) {
     return p;
 }
 
+/* An object for a pointer step, after a gap of random size, so objects
+   allocated together are not neighbours at fixed distances. Otherwise a
+   pointer scan finds shortcuts ([object]+offset into its neighbour) that
+   survive a rescan by luck of the allocator. The gaps are never freed. */
+static void* scattered(size_t size) {
+    (void)object((size_t)rnd_range(1, 256) * 16);
+    return object(size);
+}
+
 /* ── The code you change ── */
 
 GAME_CODE void tutorial_set_value(struct Step5* s, int32_t value) {
@@ -229,7 +238,7 @@ static void enter_step(int step) {
         step5->value = 100;
         break;
     case 6:
-        step6 = object(sizeof *step6);
+        step6 = scattered(sizeof *step6);
         step6->id = 6;
         step6->value = 100;
         break;
@@ -238,10 +247,10 @@ static void enter_step(int step) {
         step7->health = 100;
         break;
     case 8: {
-        struct Step8A* a = object(sizeof *a);
-        a->next = object(sizeof *a->next);
-        a->next->next = object(sizeof *a->next->next);
-        a->next->next->next = object(sizeof *a->next->next->next);
+        struct Step8A* a = scattered(sizeof *a);
+        a->next = scattered(sizeof *a->next);
+        a->next->next = scattered(sizeof *a->next->next);
+        a->next->next->next = scattered(sizeof *a->next->next->next);
         a->next->next->next->value = 100;
         step8 = a;
         break;
@@ -390,7 +399,7 @@ void tut_action(int index, char* message, size_t size) {
             step6->value = new_value(step6->value);
             snprintf(message, size, "The value changed.");
         } else {
-            struct Step6* moved = object(sizeof *moved);
+            struct Step6* moved = scattered(sizeof *moved);
             moved->id = 6;
             moved->value = new_value(LOAD(step6->value));
             step6 = moved;
@@ -417,10 +426,10 @@ void tut_action(int index, char* message, size_t size) {
             step8->next->next->next->value = new_value(step8->next->next->next->value);
             snprintf(message, size, "The value changed.");
         } else {
-            struct Step8A* a = object(sizeof *a);
-            a->next = object(sizeof *a->next);
-            a->next->next = object(sizeof *a->next->next);
-            a->next->next->next = object(sizeof *a->next->next->next);
+            struct Step8A* a = scattered(sizeof *a);
+            a->next = scattered(sizeof *a->next);
+            a->next->next = scattered(sizeof *a->next->next);
+            a->next->next->next = scattered(sizeof *a->next->next->next);
             a->next->next->next->value = new_value(LOAD(step8->next->next->next->value));
             step8 = a;
             check_pending = 1;

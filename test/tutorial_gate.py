@@ -640,7 +640,7 @@ class AgentPlayer:
             if not error and rescanned["count"]:
                 survivors = rescanned["paths"]
                 break
-        check("step 8: pointer_rescan keeps a path", survivors and survivors[0].count("[") == 4, survivors)
+        check("step 8: pointer_rescan keeps only four-level paths", survivors and all(p.count("[") == 4 for p in survivors), survivors)
         error, record = tool("add_record", address=survivors[0], type="i32", description="Step 8 value")
         tool("set_frozen", index=record.get("index", -1), frozen=True, value="5000")
         message, _ = tut.action("pointer", "Value")

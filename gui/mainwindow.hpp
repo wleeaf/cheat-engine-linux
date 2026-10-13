@@ -233,6 +233,7 @@ private:
 
     // Top panel — process & scan
     QLabel* processLabel_;
+    QLabel* processDetail_ = nullptr;   // dim line beside the name: PID and kind of target
     QLineEdit* scanValueEdit_;
     QLineEdit* scanValue2Edit_;   // upper bound for "Value between..."
     QLabel* betweenAndLabel_;

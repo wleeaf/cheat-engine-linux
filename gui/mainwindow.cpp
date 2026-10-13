@@ -202,6 +202,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (dynamic_cast<ce::GdbProcessHandle*>(process_.get()) && !process_->targetDescription().live) {
             onDisconnectProcess();
             processLabel_->setText("GDB target disconnected or exited");
+            processDetail_->clear();
             statusBar()->showMessage("GDB target disconnected or exited",5000);
             return;
         }
@@ -209,6 +210,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         // so the UI doesn't keep showing stale values against a dead process.
         if (!ceserverClient_ && currentPid_ > 0 && ::kill(currentPid_, 0) != 0 && errno == ESRCH) {
             processLabel_->setText(QString("Process %1 has exited").arg(currentPid_));
+            processDetail_->setText(tr("Open another process with Ctrl+O."));
             statusBar()->showMessage("Target process exited", 5000);
             if (!releaseTargetUsers()) return;
             process_.reset();
@@ -1223,7 +1225,10 @@ void MainWindow::setupUi() {
     connect(openBtn, &QPushButton::clicked, this, &MainWindow::onOpenProcess);
     processLabel_ = new QLabel("No process selected");
     processLabel_->setObjectName("processLabel");
-    processLabel_->setStyleSheet("font-weight: bold;");
+    processLabel_->setStyleSheet("font-weight: 600; font-size: 11pt;");
+    processDetail_ = new QLabel(tr("Press Ctrl+O or click the magnifier to choose a process."));
+    processDetail_->setObjectName("processDetail");
+    processDetail_->setProperty("secondary", true);
     processBar->addWidget(openBtn);
     processBar->addWidget(processLabel_, 1);
     mainLayout->addLayout(processBar);
@@ -2393,7 +2398,10 @@ void MainWindow::setupUi() {
     openBtn->setFixedSize(32, 32);
     auto* procRow = new QHBoxLayout;
     procRow->addWidget(openBtn);
-    procRow->addWidget(processLabel_, 1);
+    procRow->addSpacing(4);
+    procRow->addWidget(processLabel_);
+    procRow->addSpacing(10);
+    procRow->addWidget(processDetail_, 1);
     progressBar_->setFixedWidth(220);
     procRow->addWidget(progressBar_);
     sv->addLayout(procRow);
@@ -2639,7 +2647,8 @@ void MainWindow::attachToPid(pid_t pid, const QString& name) {
             label = QString::fromUtf8(comm.readAll()).trimmed();
         if (label.isEmpty()) label = QString::number(pid);
     }
-    processLabel_->setText(QString("PID: %1 - %2").arg(pid).arg(label));
+    processLabel_->setText(label);
+    processDetail_->setText(QString("PID %1").arg(pid));
     currentProcessName_ = label;
     updateWindowTitle();
     warnIfMemoryUnreadable(this, process_.get(), pid, label);
@@ -2665,6 +2674,7 @@ void MainWindow::attachToPid(pid_t pid, const QString& name) {
     // explicit note, not a silent surprise later. See docs/CHALLENGING_TARGETS.md.
     {
         ce::TargetProfile prof = ce::probeTarget(pid);
+        processDetail_->setText(QString("PID %1  ·  %2").arg(pid).arg(QString::fromStdString(prof.summary())));
         statusBar()->showMessage(
             QString("Attached to %1: %2").arg(label, QString::fromStdString(prof.summary())), 8000);
         // The summary + every note live on the process label's tooltip (persistent,
@@ -2711,7 +2721,8 @@ bool MainWindow::attachToGdb(std::unique_ptr<ce::GdbProcessHandle> process,const
         ? "data order unknown" : QString("%1 data").arg(ce::byteOrderName(description.program.byteOrder));
     const QString pointers=description.program.pointerWidth
         ? QString("%1-bit pointers").arg(description.program.pointerWidth*8) : "pointer width unknown";
-    processLabel_->setText(QString("GDB: %1 (%2, %3, %4)").arg(endpoint,architecture,dataOrder,pointers));
+    processLabel_->setText(QString("GDB: %1").arg(endpoint));
+    processDetail_->setText(QString("%1  ·  %2  ·  %3").arg(architecture,dataOrder,pointers));
     QString tip=QString("Guest CPU: %1\nData order: %2\nProgram pointers: %3\nTransport: GDB")
         .arg(architecture).arg(ce::byteOrderName(description.program.byteOrder)).arg(pointers);
     for (const auto& capability:ce::targetCapabilities(description))
@@ -2739,7 +2750,7 @@ void MainWindow::onDisconnectProcess() {
     addressListModel_->setProcess(nullptr);resultsModel_->setProcess(nullptr);resultsModel_->clear();
     lastResult_.reset();undoResult_.reset();lastResultType_=undoResultType_=ValueType::Int32;
     lastResultValueSize_=undoResultValueSize_=0;foundLabel_->setText("Found: 0");
-    processLabel_->setText("No process selected");processLabel_->setToolTip({});currentProcessName_.clear();updateWindowTitle();updateScanButtons();
+    processLabel_->setText("No process selected");processLabel_->setToolTip({});processDetail_->setText(tr("Press Ctrl+O or click the magnifier to choose a process."));currentProcessName_.clear();updateWindowTitle();updateScanButtons();
 }
 
 bool MainWindow::attachToCeserver(const QString& host, uint16_t port, pid_t pid, QString* error) {
@@ -2759,8 +2770,8 @@ bool MainWindow::attachToCeserver(const QString& host, uint16_t port, pid_t pid,
     process_ = std::move(handle);
     luaEngine_.setProcess(process_.get());
     currentPid_ = pid;
-    processLabel_->setText(QString("REMOTE PID: %1 @ %2:%3 (%4)")
-        .arg((int)pid).arg(host).arg(port).arg(QString::fromStdString(version->versionString)));
+    processLabel_->setText(QString("Remote process %1").arg((int)pid));
+    processDetail_->setText(QString("ceserver %1:%2  ·  %3").arg(host).arg(port).arg(QString::fromStdString(version->versionString)));
     currentProcessName_ = QString("ceserver %1:%2").arg(host).arg(port);
     updateWindowTitle();
     addressListModel_->setProcess(process_.get());
@@ -3564,7 +3575,7 @@ void MainWindow::editScriptEntry(int row) {
 
 ce::CheatTable MainWindow::buildCheatTable() const {
     ce::CheatTable table=tableMetadata_;
-    if (table.gameName.empty()) table.gameName = processLabel_->text().toStdString();
+    if (table.gameName.empty()) table.gameName = (currentProcessName_.isEmpty() ? processLabel_->text() : currentProcessName_).toStdString();
     table.comment = tableComment_.toStdString();   // table notes (Comments window)
     table.luaScript = tableLuaScript_.toStdString();  // table-level Lua (CE <LuaScript>)
     auto json = addressListModel_->toJson();
@@ -3829,7 +3840,7 @@ bool MainWindow::saveTableToPath(const QString& path) {
             // Keep the GUI's richer native records (including codecs), while
             // serializing shared table metadata through the core JSON writer.
             auto metadata=tableMetadata_;
-            if (metadata.gameName.empty()) metadata.gameName=processLabel_->text().toStdString();
+            if (metadata.gameName.empty()) metadata.gameName=(currentProcessName_.isEmpty() ? processLabel_->text() : currentProcessName_).toStdString();
             metadata.comment=tableComment_.toStdString();metadata.luaScript=tableLuaScript_.toStdString();
             metadata.disassemblerComments=disasmAnnotations_;
             std::ostringstream output;

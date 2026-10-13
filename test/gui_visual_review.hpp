@@ -37,6 +37,8 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QFile>
+#include <QProcess>
+#include <QFileInfo>
 #include <QMenuBar>
 #include <QMenu>
 #include <QElapsedTimer>
@@ -177,6 +179,35 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
             model->updateValues(&process);
             for (auto* label : main.findChildren<QLabel*>()) if (label->text() == "Found: 0") label->setText("Found: 24");
             capture(main, prefix + "main-populated", {1000, 780});
+            // The README picture (docs/screenshot.png): CE_README_GAME names a build of
+            // test/readme_game.c, which prints the addresses of its health, ammo, gold
+            // and speed; it is named "game", attached and scanned for real.
+            if (const char* gamePath = std::getenv("CE_README_GAME"); dark && gamePath) {
+                QProcess game;
+                game.start(QString::fromLocal8Bit(gamePath), {});
+                if (game.waitForStarted(3000) && game.waitForReadyRead(3000)) {
+                    const QStringList addresses = QString::fromLatin1(game.readLine()).split(' ', Qt::SkipEmptyParts);
+                    MainWindow readme;
+                    readme.attachToPid(static_cast<pid_t>(game.processId()), QFileInfo(gamePath).fileName());
+                    auto* table = readme.findChild<AddressListModel*>();
+                    const char* names[] = {"Health", "Ammo", "Gold", "Movement speed"};
+                    for (int i = 0; i < 4 && i < addresses.size(); ++i)
+                        table->addEntry(addresses[i].trimmed().toULongLong(nullptr, 16),
+                                        i == 3 ? ce::ValueType::Float : ce::ValueType::Int32, names[i]);
+                    table->groupSelectedRows({0, 1, 2, 3}, "Player");
+                    readme.findChild<QLineEdit*>("scanValue")->setText("100");
+                    for (auto* button : readme.findChildren<QPushButton*>())
+                        if (button->text() == "First Scan") button->click();
+                    readme.resize(1100, 760);
+                    readme.show();
+                    // Let the scan finish and the address list's live values refresh.
+                    QElapsedTimer settle; settle.start();
+                    while (settle.elapsed() < 1500) pump(1);
+                    capture(readme, "readme-main", {1100, 760});
+                }
+                game.kill();
+                game.waitForFinished(2000);
+            }
             capture(main, prefix + "main-compact", {760, 600});
             auto* settings = qobject_cast<SettingsDialog*>(main.openSettingsDialog("Display"));
             settings->findChild<QSpinBox*>("displayFontSize")->setValue(14);

@@ -539,7 +539,7 @@ interrupted call completing with the correct result. After detach the program
 keeps answering. Break-and-trace then arms the same function, records its
 instructions in the right mode, and the traced call completes.
 
-Stopping the whole Wine process is this feature's purpose (see CLAUDE.md's
+Stopping the whole Wine process is this feature's purpose (see AGENTS.md's
 Wine rules); transient operations elsewhere still never stop the whole group.
 The checks pass on local Wine 11 (new WoW64) and through both Proton builds on
 the host and inside their Steam Runtime containers, **110 checks per build**

@@ -32,6 +32,17 @@
   <url type="bugtracker">https://github.com/wleeaf/cheat-engine-linux/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.0.0" date="2026-10-13">
+      <description>
+        <p>First stable release. A redesigned, consistent interface in light and
+        dark themes that follows the desktop's theme, fonts and text scaling;
+        Settings whose every option takes effect; a sortable process picker;
+        and installs that run from any prefix.</p>
+        <p>Compatibility work across native, Wine and Proton, ARM64, ARM32,
+        x32, RISC-V, s390x and PowerPC guests, .NET, Mono and emulator targets,
+        with explicit errors where a feature is not supported.</p>
+      </description>
+    </release>
     <release version="0.9.5" date="2026-10-03">
       <description>
         <p>Site-specific auto-assembler injection templates, consistent typed

@@ -259,7 +259,7 @@ instruction that writes the value; the logic runs in a custom bytecode VM, so
 find-what-writes only ever finds the VM dispatcher.
 
 **Plan:** **detect and report, never bypass.** This is a hard project boundary
-(CLAUDE.md: no detection-evasion / anti-cheat-bypass). The valuable, in-scope work is
+(AGENTS.md: no detection-evasion / anti-cheat-bypass). The valuable, in-scope work is
 block E: recognize "this process self-traces / is packed (entropy, known packer
 signatures) / virtualizes its code" and tell the user plainly why find-what-writes or
 patching will not work, instead of freezing or silently failing. No evasion, no
@@ -384,7 +384,7 @@ games, RE, learning, native Linux):
 ## Explicit non-goals
 
 - **No anti-cheat / anti-tamper bypass, no detection evasion, no un-packing tooling.**
-  For those targets we detect and report only. This is a hard boundary (CLAUDE.md,
+  For those targets we detect and report only. This is a hard boundary (AGENTS.md,
   project scope).
 - **No Windows / kernel-stealth (DBVM/DBK).** Parked.
 - The point is to be the best *native Linux* memory tool for legitimate targets, not

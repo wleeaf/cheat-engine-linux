@@ -23,6 +23,13 @@ def sha(path):
         return hashlib.file_digest(source, "sha256").hexdigest()
 
 
+def cecore_soname(library):
+    """The SONAME programs load (libcecore.so.<major>), read from the library itself."""
+    dynamic = subprocess.check_output(["readelf", "-d", str(library)], text=True)
+    match = re.search(r"Library soname: \[([^\]]+)\]", dynamic)
+    return match.group(1) if match else "libcecore.so.1"
+
+
 def stage_installed_file(source, target):
     # CMake's library name is a symlink. Linking that symlink itself creates a
     # dangling installed entry, which exists() misses on the next invocation.
@@ -100,7 +107,7 @@ def main():
         # Stage the CLI away from the build tree and ordinary ../lib paths.
         # Hard links keep the low-memory gate from duplicating large binaries.
         for source, target in ((build / "cescan", installed_bin / "cescan"),
-                               (build / "libcecore.so", installed_lib / "libcecore.so.0"),
+                               (build / "libcecore.so", installed_lib / cecore_soname(build / "libcecore.so")),
                                (build / "libcecore_mono_agent.so", installed_lib / "libcecore_mono_agent.so")):
             stage_installed_file(source, target)
         report["mono"] = subprocess.check_output([args.mono, "--version"], text=True, timeout=10).strip()

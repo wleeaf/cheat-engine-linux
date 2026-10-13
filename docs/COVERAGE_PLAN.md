@@ -87,7 +87,7 @@ The matrix is kept machine-readable in `docs/compatibility-matrix.json`
 7. **Green and committed.** Each finished item: relevant local tests pass,
    `tools/ci-check.sh --config` passes, matrix and PROGRESS.md updated, one
    commit, push. Fix a red hosted CI run before starting the next item.
-8. **Safety rules from CLAUDE.md still apply** (Wine/Proton ptrace rules,
+8. **Safety rules from AGENTS.md still apply** (Wine/Proton ptrace rules,
    default-deny Lua, no anti-cheat bypass).
 
 ## Waves

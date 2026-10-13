@@ -13,7 +13,12 @@ reimplementation of Cheat Engine).
 
 ---
 
-## Unreleased: target compatibility foundation
+## v1.0.0: first stable release (2026-10-13)
+
+The first stable release: a polished, consistent GUI in both themes that follows
+the desktop (theme, fonts, GNOME text scaling), installs that run from any
+prefix, and broad live-verified target compatibility with explicit errors where
+a feature is unsupported. Details below.
 
 - GUI polish pass, driven by a screenshot review of every window, menu and
   dialog in both themes. Settings is rebuilt as titled pages with sized fields,

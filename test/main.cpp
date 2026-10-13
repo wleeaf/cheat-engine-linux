@@ -598,7 +598,7 @@ static void test_parser_fuzz() {
     printf("\n── Test: untrusted-parser negative-input / mutation fuzz ──\n");
     // .CT/.CETRAINER tables and a target's ELF/PE modules are loaded from untrusted
     // sources (downloaded tables, the game's own binaries), so the hand-rolled parsers
-    // must never crash on malformed input (CLAUDE.md: treat these as untrusted,
+    // must never crash on malformed input (AGENTS.md: treat these as untrusted,
     // bounds-checked). This is a deterministic, seeded mutation fuzz plus a hand-picked
     // pathological corpus; reaching the end without a SIGSEGV/abort is the pass, and
     // under the CI sanitizers (ASan/UBSan) job it additionally gates memory safety.

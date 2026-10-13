@@ -6,6 +6,13 @@
 #include <QApplication>
 #include <QDialog>
 #include <QIcon>
+#include <QPalette>
+#include <QStyleHints>
+#ifdef CECORE_HAVE_WAYLAND_HOTKEYS
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusVariant>
+#endif
 #include <QPixmap>
 #include <QDir>
 #include <QFileInfo>
@@ -36,6 +43,28 @@ int main(int argc, char* argv[]) {
     app.setOrganizationName("cecore");
     // Wayland app id: the compositor finds the icon and name in cheatengine.desktop.
     app.setDesktopFileName("cheatengine");
+    // The desktop's light/dark preference, used until a Theme is chosen in Settings.
+    // Qt's own GNOME title bar takes its colours from the portal's color-scheme, so
+    // read the same setting; the palette alone reports light under the GTK3 theme
+    // even when the desktop prefers dark, which gave a light window a dark frame.
+    {
+        bool systemDark = app.palette().color(QPalette::Window).lightness() < 128;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+        if (app.styleHints()->colorScheme() == Qt::ColorScheme::Dark) systemDark = true;
+#endif
+#ifdef CECORE_HAVE_WAYLAND_HOTKEYS   // Qt6::DBus is linked
+        QDBusMessage read = QDBusMessage::createMethodCall("org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop", "org.freedesktop.portal.Settings", "ReadOne");
+        read << QStringLiteral("org.freedesktop.appearance") << QStringLiteral("color-scheme");
+        const QDBusMessage reply = QDBusConnection::sessionBus().call(read, QDBus::Block, 500);
+        if (reply.type() == QDBusMessage::ReplyMessage && !reply.arguments().isEmpty()) {
+            const uint scheme = qvariant_cast<QDBusVariant>(reply.arguments().first()).variant().toUInt();
+            if (scheme == 1) systemDark = true;        // prefer dark
+            else if (scheme == 2) systemDark = false;  // prefer light
+        }
+#endif
+        app.setProperty("ceSystemDarkTheme", systemDark);
+    }
     // Honor the Settings dialog's Theme choice; with none saved yet, follow the
     // desktop's light or dark preference.
     // The same helper is used by the Settings dialog so a toggle applies live.

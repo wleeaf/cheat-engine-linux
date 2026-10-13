@@ -33,6 +33,8 @@ reimplementation of Cheat Engine).
   The native GTK file chooser now shows `.CT` tables (its filters are
   case-sensitive), Save As adds the chosen type's extension, and C++ symbols
   with a version suffix (`QAction::staticMetaObject@Qt_6`) are demangled.
+  Before a Theme is chosen, the app follows the desktop's light/dark
+  preference from the portal, the same setting Qt's GNOME title bar uses.
 
 - CI cross-builds the CLI for RISC-V64, s390x, PowerPC64LE and ARM32 and runs
   it inside each full-system guest, so every target row now has live

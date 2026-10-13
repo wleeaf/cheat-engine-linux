@@ -2,6 +2,7 @@
 
 #include <QApplication>
 #include <QPalette>
+#include <QStyleHints>
 #include <QSettings>
 #include <QImage>
 #include <QPainter>
@@ -233,8 +234,11 @@ bool isDarkTheme() {
     // (Qt 6.4 has no QStyleHints::colorScheme(); this palette check is the
     // dependency-free equivalent. The Settings toggle stores an explicit choice
     // that wins here afterwards.)
-    if (auto* app = qApp)
+    if (auto* app = qApp) {
+        // main() stores the desktop preference it detected (portal color-scheme).
+        if (app->property("ceSystemDarkTheme").isValid()) return app->property("ceSystemDarkTheme").toBool();
         return app->palette().color(QPalette::Window).lightness() < 128;
+    }
     return false;
 }
 
@@ -316,6 +320,12 @@ void applyTheme(bool dark) {
     palette.setColor(QPalette::LinkVisited, dark ? QColor("#cba6f7") : QColor("#7c3aed"));
     for (auto role : {QPalette::WindowText, QPalette::Text, QPalette::ButtonText})
         palette.setColor(QPalette::Disabled, role, dark ? QColor("#9399b2") : QColor("#737985"));
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    // Window frames drawn by Qt (the Adwaita title bar on GNOME Wayland) and the
+    // platform's own dialogs follow the application color scheme, so a light
+    // window doesn't get a dark title bar or the other way round.
+    app->styleHints()->setColorScheme(dark ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
+#endif
     app->setStyleSheet(qss);
     app->setPalette(palette);
 }

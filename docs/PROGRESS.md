@@ -44,6 +44,13 @@ that GNOME selects, and the screen was captured with ImageMagick. That showed
 the native GTK file chooser hides `.CT` tables because its patterns are
 case-sensitive; table and script filters now list both spellings, and Save As
 adds the extension of the chosen file type.
+The window frame was checked too, by running the app as a native Wayland
+client on that headless mutter and recording its virtual monitor through
+`org.gnome.Mutter.ScreenCast` (a private PipeWire). Qt's Adwaita title bar
+takes its colours from the portal's `color-scheme`, not from the app, so on a
+`prefer-dark` desktop a first launch showed light content under a dark frame
+(the GTK3 palette reports light). The first-run theme now follows that same
+portal preference; an explicit Theme choice in Settings still wins.
 
 ## Frontends inside every ISA guest; coverage complete: 12 October 2026
 

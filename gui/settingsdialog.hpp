@@ -11,6 +11,7 @@
 #include <QFontComboBox>
 
 class QFormLayout;
+class QLabel;
 class QVBoxLayout;
 
 namespace ce::gui {
@@ -31,6 +32,8 @@ private:
     QWidget* buildHotkeysPage();
     QWidget* buildNetworkPage();
     QWidget* buildLuaPage();
+    QWidget* buildAgentPage();
+    void showAgentProvider(int index);
 
     // Scan
     QComboBox* defaultValueTypeCombo_;
@@ -63,6 +66,16 @@ private:
     // Network
     QLineEdit* ceserverHostEdit_;
     QSpinBox* ceserverPortSpin_;
+
+    // AI Assistant: model and address per provider, edited one at a time.
+    QComboBox* agentProviderCombo_;
+    QLineEdit* agentModelEdit_;
+    QLineEdit* agentUrlEdit_;
+    QLineEdit* agentKeyEdit_;
+    QLabel* agentKeyStatus_;
+    QString agentModels_[2];
+    QString agentUrls_[2];
+    int agentShown_ = -1;
 };
 
 } // namespace ce::gui

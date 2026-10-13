@@ -18,7 +18,13 @@ parity with Cheat Engine on Windows.
   tools go in `AgentSession::tools()` and `call()`, return short JSON summaries,
   and refuse game writes unless `allowWrites`. Scripts are dry-run through
   `DryRunProcess` (real reads, private writes and allocations) before
-  `aa_enable`, and the session disables its scripts when it ends. Tested by
+  `aa_enable`, and the session disables its scripts when it ends. The in-app
+  AI Assistant is `core/agent_chat` (the model conversation, Qt-free, HTTP
+  supplied by the caller) plus `gui/agent_panel` (Qt Network, approvals) and
+  `gui/secret_store` (API keys in the Secret Service keyring). Changes to the
+  game always need the user's Allow there (`AgentChat::changesGame`). Never
+  test the keyring against the user's session bus: `test/secret_store_gate.py`
+  runs a private bus without service activation. Tested by
   `test_agent_mcp` in `cecore_test`, end to end by `test/mcp_gate.py`, and on
   the tutorial games by `test/tutorial_gate.py`.
 - Tutorial games: `tutorial/` (`cetutorial`, nine steps) and

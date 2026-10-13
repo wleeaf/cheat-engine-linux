@@ -88,6 +88,9 @@
 #include <QProgressDialog>
 #include <QFileInfo>
 #include <QProcess>
+#include <QDockWidget>
+
+#include "gui/agent_panel.hpp"
 #include <QStandardPaths>
 #include <QDir>
 #include <QDialog>
@@ -350,6 +353,7 @@ void MainWindow::setupMenus() {
     // Registers, Breakpoint list, Debugger, Branch mapper, Break-and-trace, …) live
     // in ITS View/Debug menus — matching CE — populated by populateBrowserMenus().
     tools->addAction("Memory Viewer...", this, &MainWindow::onMemoryView, QKeySequence("Ctrl+M"));
+    tools->addAction("AI Assistant", this, [this]() { showAgentPanel(); }, QKeySequence("Ctrl+Shift+I"));
     tools->addSeparator();
     // Analysis panels (also in the Memory Viewer's Tools menu) — surfaced here so
     // they're findable from the main window without opening the viewer first.
@@ -2711,6 +2715,7 @@ void MainWindow::attachToPid(pid_t pid, const QString& name) {
     processLabel_->setText(label);
     processDetail_->setText(QString("PID %1").arg(pid));
     currentProcessName_ = label;
+    if (agentPanel_) agentPanel_->setTarget(pid, label);
     updateWindowTitle();
     warnIfMemoryUnreadable(this, process_.get(), pid, label);
     addressListModel_->setProcess(process_.get());
@@ -4492,10 +4497,41 @@ QWidget* MainWindow::openPanelByName(const QString& name) {
     return nullptr;
 }
 
+AgentPanel* MainWindow::showAgentPanel() {
+    if (!agentPanel_) {
+        agentDock_ = new QDockWidget("AI Assistant", this);
+        agentDock_->setObjectName("aiAssistantDock");
+        agentPanel_ = new AgentPanel(agentDock_);
+        agentDock_->setWidget(agentPanel_);
+        agentDock_->setMinimumWidth(340);
+        addDockWidget(Qt::RightDockWidgetArea, agentDock_);
+        agentPanel_->setTableSink([this](const std::vector<ce::CheatEntry>& entries) { addTableEntries(entries); });
+        connect(agentPanel_, &AgentPanel::settingsRequested, this, [this]() { openSettingsDialog("AI Assistant"); });
+        if (currentPid_) agentPanel_->setTarget(currentPid_, currentProcessName_);
+    }
+    agentDock_->show();
+    agentDock_->raise();
+    return agentPanel_;
+}
+
+void MainWindow::addTableEntries(const std::vector<ce::CheatEntry>& entries) {
+    ce::CheatTable table;
+    table.entries = entries;
+    auto list = addressListModel_->toJson();
+    for (auto value : cheatEntriesToJson(table)) {
+        auto obj = value.toObject();
+        obj["active"] = false;   // the user turns them on
+        obj.remove("id");        // fresh ids, as when pasting
+        list.append(obj);
+    }
+    addressListModel_->fromJson(list, true);
+}
+
 QDialog* MainWindow::openSettingsDialog(const QString& page) {
     auto* dlg = new SettingsDialog(this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     connect(dlg, &SettingsDialog::settingsApplied, this, [this]() {
+        if (agentPanel_) agentPanel_->reloadSettings();
         // A scan blocks user input, so Apply can't land mid-scan; the scanner is idle.
         if (int threads = QSettings().value("scan/threads", 0).toInt(); threads != scannerThreads_) {
             scannerThreads_ = threads;

@@ -11,6 +11,9 @@
 #include <QListWidget>
 #include <QStackedWidget>
 #include <QSettings>
+
+#include "core/agent_chat.hpp"
+#include "gui/secret_store.hpp"
 #include <QScrollArea>
 #include <QFontMetrics>
 #include <QDoubleValidator>
@@ -133,6 +136,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     addPage(buildHotkeysPage(),    "Hotkeys");
     addPage(buildNetworkPage(),    "Network");
     addPage(buildLuaPage(),        "Lua");
+    addPage(buildAgentPage(),      "AI Assistant");
 
     connect(nav, &QListWidget::currentRowChanged, pages, &QStackedWidget::setCurrentIndex);
     nav->setCurrentRow(0);
@@ -330,6 +334,78 @@ QWidget* SettingsDialog::buildLuaPage() {
     return w;
 }
 
+namespace {
+const char* const kAgentAccounts[2] = {"anthropic", "openai-compatible"};
+const char* const kAgentEnv[2] = {"ANTHROPIC_API_KEY", "OPENAI_API_KEY"};
+QString agentKeyState(int provider) {
+    if (!qEnvironmentVariableIsEmpty(kAgentEnv[provider]))
+        return QString("Using %1 from the environment.").arg(kAgentEnv[provider]);
+    const QString saved = QSettings().value(QString("agent/%1/keyStored").arg(kAgentAccounts[provider])).toString();
+    if (saved == "keyring") return "A key is saved in the system keyring.";
+    if (saved == "memory") return "A key is set until Cheat Engine closes (no keyring was available).";
+    return provider == 0 ? "No key yet. Create one at console.anthropic.com." : "No key set; local servers usually need none.";
+}
+} // namespace
+
+QWidget* SettingsDialog::buildAgentPage() {
+    auto* w = new QWidget;
+    auto* form = makePage(w, "AI Assistant", "The model behind Tools > AI Assistant. You bring the API key, "
+                                             "or run a model on your own computer.");
+    QSettings s;
+    agentProviderCombo_ = sized(new QComboBox);
+    agentProviderCombo_->addItem("Anthropic (Claude)");
+    agentProviderCombo_->addItem("OpenAI-compatible (OpenAI, Ollama, LM Studio)");
+    for (int i = 0; i < 2; ++i) {
+        agentModels_[i] = s.value(QString("agent/%1/model").arg(kAgentAccounts[i])).toString();
+        agentUrls_[i] = s.value(QString("agent/%1/baseUrl").arg(kAgentAccounts[i])).toString();
+    }
+    form->addRow("Provider:", agentProviderCombo_);
+    agentModelEdit_ = sized(new QLineEdit);
+    form->addRow("Model:", agentModelEdit_);
+    agentUrlEdit_ = sized(new QLineEdit);
+    form->addRow("API address:", agentUrlEdit_);
+    agentKeyEdit_ = sized(new QLineEdit);
+    agentKeyEdit_->setEchoMode(QLineEdit::Password);
+    agentKeyEdit_->setPlaceholderText("Paste a new key to save it");
+    auto* forget = new QPushButton("Forget key");
+    auto* keyRow = new QHBoxLayout;
+    keyRow->addWidget(agentKeyEdit_);
+    keyRow->addWidget(forget);
+    keyRow->addStretch(1);
+    form->addRow("API key:", keyRow);
+    agentKeyStatus_ = hint(QString());
+    form->addRow("", agentKeyStatus_);
+    form->addRow("", hint("Keys are kept in the system keyring, never in Cheat Engine's settings file; "
+                          "ANTHROPIC_API_KEY or OPENAI_API_KEY in the environment take precedence. Your "
+                          "messages and what the tools find in the game are sent to this provider, and "
+                          "every change to the game waits for your Allow."));
+    connect(agentProviderCombo_, &QComboBox::currentIndexChanged, this, &SettingsDialog::showAgentProvider);
+    connect(forget, &QPushButton::clicked, this, [this]() {
+        const int provider = agentProviderCombo_->currentIndex();
+        QString error;
+        SecretStore(kAgentAccounts[provider]).remove(&error);
+        QSettings().remove(QString("agent/%1/keyStored").arg(kAgentAccounts[provider]));
+        agentKeyStatus_->setText(error.isEmpty() ? agentKeyState(provider) : "Could not remove the key: " + error);
+    });
+    agentProviderCombo_->setCurrentIndex(s.value("agent/provider", 0).toInt() == 1 ? 1 : 0);
+    showAgentProvider(agentProviderCombo_->currentIndex());
+    return w;
+}
+
+void SettingsDialog::showAgentProvider(int index) {
+    if (agentShown_ >= 0) {
+        agentModels_[agentShown_] = agentModelEdit_->text().trimmed();
+        agentUrls_[agentShown_] = agentUrlEdit_->text().trimmed();
+    }
+    agentShown_ = index;
+    agentModelEdit_->setText(agentModels_[index]);
+    agentModelEdit_->setPlaceholderText(index == 0 ? QString(ChatProvider::defaultAnthropicModel()) : "for example gpt-5 or qwen3");
+    agentUrlEdit_->setText(agentUrls_[index]);
+    agentUrlEdit_->setPlaceholderText(index == 0 ? "https://api.anthropic.com" : "https://api.openai.com/v1 or http://localhost:11434/v1");
+    agentKeyEdit_->clear();
+    agentKeyStatus_->setText(agentKeyState(index));
+}
+
 void SettingsDialog::onApply() {
     QSettings s;
     s.setValue(SCAN_DEFAULT_VT_KEY,   defaultValueTypeCombo_->currentIndex());
@@ -361,6 +437,23 @@ void SettingsDialog::onApply() {
 
     s.setValue(NET_CESERVER_HOST_KEY, ceserverHostEdit_->text().trimmed());
     s.setValue(NET_CESERVER_PORT_KEY, ceserverPortSpin_->value());
+
+    showAgentProvider(agentProviderCombo_->currentIndex());   // keep the fields being edited
+    s.setValue("agent/provider", agentProviderCombo_->currentIndex());
+    for (int i = 0; i < 2; ++i) {
+        s.setValue(QString("agent/%1/model").arg(kAgentAccounts[i]), agentModels_[i]);
+        s.setValue(QString("agent/%1/baseUrl").arg(kAgentAccounts[i]), agentUrls_[i]);
+    }
+    if (const QString key = agentKeyEdit_->text().trimmed(); !key.isEmpty()) {
+        const int provider = agentProviderCombo_->currentIndex();
+        SecretStore store(kAgentAccounts[provider]);
+        QString error;
+        store.store(key, &error);
+        s.setValue(QString("agent/%1/keyStored").arg(kAgentAccounts[provider]), store.persisted() ? "keyring" : "memory");
+        agentKeyEdit_->clear();
+        agentKeyStatus_->setText(store.persisted() ? agentKeyState(provider)
+                                                   : "Kept until Cheat Engine closes: " + error + ".");
+    }
     emit settingsApplied();
 }
 

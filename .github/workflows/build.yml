@@ -45,6 +45,7 @@ jobs:
             g++-multilib \
             libvulkan-dev \
             dbus \
+            python3-dbus python3-gi \
             cmake \
             ninja-build \
             qemu-system-arm \
@@ -225,6 +226,12 @@ jobs:
         timeout-minutes: 5
         # Root: under Yama ptrace_scope 1 the server cannot read a game it did not start.
         run: sudo python3 test/mcp_gate.py build --report build/compatibility-evidence/mcp-agent.json
+
+      - name: Run the AI Assistant panel (scripted model) and its keyring client (mock keyring)
+        timeout-minutes: 5
+        run: |
+          QT_QPA_PLATFORM=offscreen ./build/gui_agent_smoke
+          python3 test/secret_store_gate.py build --report build/compatibility-evidence/secret-store.json
 
       - name: Finish both tutorial games with the CLI and the agent tools
         timeout-minutes: 15

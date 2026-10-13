@@ -1,12 +1,41 @@
-# AI agents (MCP)
+# AI agents
 
-`cescan mcp` lets an AI agent drive Cheat Engine for you: find a value, narrow
-it down as it changes in the game, freeze it, find the code that changes it,
-write an Auto Assembler script that changes that code, and save a cheat table
-you can open in the app. It speaks the Model Context Protocol over
-stdin/stdout, so any MCP client can use it, with the model of your choice.
+An AI model can drive Cheat Engine for you: find a value, narrow it down as it
+changes in the game, freeze it, follow pointers, find the code that changes it,
+write an Auto Assembler script that changes that code, and save a cheat table.
+Use it from the app (the AI Assistant) or from another AI app over MCP; both
+use the same tools.
 
-## Connect
+## In the app: the AI Assistant
+
+Open **Tools > AI Assistant** (Ctrl+Shift+I) and describe what you want, for
+example "My health shows 100. Find it and keep it at 100." The assistant works
+on the process you have open.
+
+- **Your model, your key.** In **Settings > AI Assistant**, pick Anthropic
+  (Claude) or any OpenAI-compatible API: OpenAI, or a model on your own
+  computer with Ollama (`http://localhost:11434/v1`) or LM Studio. Paste your
+  API key there; local servers usually need none.
+- **Keys stay in your keyring.** The key is saved in the system keyring
+  (GNOME Keyring, KWallet or any Secret Service), never in Cheat Engine's
+  settings file. `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the environment
+  takes precedence. Without a keyring the key lasts until Cheat Engine closes.
+- **You approve every change.** Scanning, reading and disassembling run on
+  their own; writing a value, freezing and enabling a script wait for your
+  Allow in the panel (or Allow for this chat). Stop ends a turn at any time.
+- **What leaves your computer.** Your messages and what the tools find in the
+  game (process names, addresses, values, code) are sent to the provider you
+  chose, and nothing else. With a local model nothing leaves your computer.
+- **Keep the results.** Add to address list copies the values, pointer paths
+  and scripts the assistant saved into your table. Scripts it enabled are
+  undone when you close Cheat Engine.
+
+## From another app: MCP
+
+`cescan mcp` speaks the Model Context Protocol over stdin/stdout, so any MCP
+client can drive Cheat Engine with the model of your choice.
+
+### Connect
 
 Claude Code:
 
@@ -25,7 +54,7 @@ Without `--allow-writes` the agent can look but not touch: scanning, reading
 and disassembling work, while writing values and freezing are refused. The
 server only talks to the client that started it; it opens no network port.
 
-## Tools
+### Tools
 
 | Tool | What it does |
 |---|---|
@@ -50,7 +79,7 @@ embedded Lua (`{$lua}`), and when the session ends every script the agent
 enabled is disabled, restoring the original code. Addresses in saved tables are module-relative (`game+0x301C`), so the
 table keeps working after the game restarts.
 
-## Example
+### Example
 
 > **You:** My health is 100 in the game window. Find it and keep it at 100.
 >

@@ -15,6 +15,16 @@ reimplementation of Cheat Engine).
 
 ## Unreleased
 
+- AI Assistant (Tools > AI Assistant, Ctrl+Shift+I): a chat panel where a
+  model of your choice finds and changes values with the agent tools, on the
+  process you have open. Anthropic or any OpenAI-compatible API (OpenAI,
+  Ollama, LM Studio), configured in Settings > AI Assistant. API keys go to the
+  system keyring over the Secret Service API, never to the settings file.
+  Writing, freezing and enabling scripts wait for your Allow; Stop ends a turn;
+  results can be added to the address list. The conversation loop is Qt-free
+  (`core/agent_chat`) and tested with a scripted model; the panel with
+  `gui_agent_smoke`, and the keyring client against a mock Secret Service
+  (`test/secret_store_gate.py`).
 - `cescan mcp`: a Model Context Protocol server that lets AI agents drive
   Cheat Engine (list and attach to processes, scan and narrow values, read,
   write, disassemble, find what writes an address, generate, check, enable

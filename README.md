@@ -82,8 +82,13 @@ Both also run in a terminal with `--text`.
 
 ## AI agents
 
-`cescan mcp` lets an AI agent (Claude Code, Claude Desktop or any MCP client)
-find values, freeze them and save tables for you:
+**Tools > AI Assistant** lets a model find and change values for you: bring
+your own API key (Anthropic, OpenAI) or run a local model (Ollama, LM Studio).
+The key stays in your system keyring, and every change to the game waits for
+your Allow.
+
+`cescan mcp` offers the same tools to Claude Code, Claude Desktop or any MCP
+client:
 
 ```bash
 claude mcp add cheat-engine -- cescan mcp --allow-writes

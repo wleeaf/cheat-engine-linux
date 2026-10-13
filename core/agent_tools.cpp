@@ -376,6 +376,23 @@ struct AgentSession::State {
         return options;
     }
 
+    std::vector<CheatEntry> entries() {
+        std::vector<CheatEntry> out;
+        for (auto& r : records) {
+            CheatEntry entry = r.entry;
+            entry.active = r.frozen;
+            if (!r.expression.empty())
+                if (auto chain = parsePointerExpression(r.expression)) {
+                    entry.addressString = chain->base;
+                    entry.offsets = chain->offsets;
+                }
+            if (entry.autoAsmScript.empty() && process)
+                entry.value = r.frozen ? r.frozenValue : (refresh(r) ? readValue(r.entry.address, r.entry.type) : "");
+            out.push_back(std::move(entry));
+        }
+        return out;
+    }
+
     // Follow a pointer record's path to where the value is now. False when a
     // pointer on the way is null or unreadable.
     bool refresh(Record& r) {
@@ -459,6 +476,16 @@ AgentSession::~AgentSession() {
     }
     state_->wake.notify_all();
     if (state_->freezer.joinable()) state_->freezer.join();
+}
+
+void AgentSession::setAllowWrites(bool allow) {
+    std::lock_guard lock(state_->mutex);
+    state_->options.allowWrites = allow;
+}
+
+std::vector<CheatEntry> AgentSession::tableEntries() {
+    std::lock_guard lock(state_->mutex);
+    return state_->entries();
 }
 
 std::string AgentSession::instructions() {
@@ -1153,18 +1180,7 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             CheatTable table;
             table.gameName = s.processName;
             table.comment = "Created with Cheat Engine for Linux by an AI agent.";
-            for (const auto& r : s.records) {
-                CheatEntry entry = r.entry;
-                entry.active = r.frozen;
-                if (!r.expression.empty())
-                    if (auto chain = parsePointerExpression(r.expression)) {
-                        entry.addressString = chain->base;
-                        entry.offsets = chain->offsets;
-                    }
-                if (entry.autoAsmScript.empty())
-                    entry.value = r.frozen ? r.frozenValue : s.readValue(r.entry.address, r.entry.type);
-                table.entries.push_back(std::move(entry));
-            }
+            table.entries = s.entries();
             const bool saved = extension == ".ct" ? table.save(path) : table.saveJson(path);
             if (!saved) return fail("could not write " + path);
             return ok(Value::object().set("saved", Value::string(std::filesystem::absolute(path).string()))

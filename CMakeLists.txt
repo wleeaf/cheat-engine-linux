@@ -204,6 +204,7 @@ add_library(cecore SHARED
     core/json.cpp
     core/agent_tools.cpp
     core/mcp_server.cpp
+    core/agent_chat.cpp
     core/log.cpp
     core/simple_hook.cpp
     core/trainer.cpp
@@ -358,7 +359,9 @@ set_target_properties(ce_vulkan_overlay_layer PROPERTIES
 )
 
 # ── Qt6 GUI ──
-find_package(Qt6 COMPONENTS Widgets)
+# Network and DBus (both part of qtbase) carry the AI Assistant's API calls
+# and its keyring access.
+find_package(Qt6 COMPONENTS Widgets Network DBus)
 if(Qt6_FOUND)
     set(CMAKE_AUTOMOC ON)
     qt_add_executable(cheatengine
@@ -400,11 +403,13 @@ if(Qt6_FOUND)
         gui/findstaticswindow.cpp
         gui/globalhotkeys.cpp
         gui/debuggerwindow.cpp
+        gui/agent_panel.cpp
+        gui/secret_store.cpp
         scripting/lua_gui.cpp
         scripting/lua_bitmap.cpp
     )
     target_include_directories(cheatengine PRIVATE ${LUA_DIR})
-    target_link_libraries(cheatengine PRIVATE cecore Qt6::Widgets)
+    target_link_libraries(cheatengine PRIVATE cecore Qt6::Widgets Qt6::Network Qt6::DBus)
     # Global hotkeys need X11 (XGrabKey). Optional: without it, hotkeys fall back
     # to Qt::ApplicationShortcut (only active when a cheatengine window is focused).
     find_package(X11)
@@ -458,7 +463,16 @@ if(Qt6_FOUND)
         list(REMOVE_ITEM CE_GUI_TEST_SOURCES gui/main.cpp gui/resources.qrc)
         qt_add_executable(gui_lifecycle_smoke test/gui_lifecycle_smoke.cpp ${CE_GUI_TEST_SOURCES})
         target_include_directories(gui_lifecycle_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
-        target_link_libraries(gui_lifecycle_smoke PRIVATE cecore Qt6::Widgets)
+        target_link_libraries(gui_lifecycle_smoke PRIVATE cecore Qt6::Widgets Qt6::Network Qt6::DBus)
+
+        # The AI Assistant panel with a scripted model, and its keyring client
+        # against a mock Secret Service (test/secret_store_gate.py).
+        qt_add_executable(gui_agent_smoke test/gui_agent_smoke.cpp gui/agent_panel.cpp gui/secret_store.cpp)
+        target_include_directories(gui_agent_smoke PRIVATE ${CMAKE_SOURCE_DIR})
+        target_link_libraries(gui_agent_smoke PRIVATE cecore Qt6::Widgets Qt6::Network Qt6::DBus)
+        qt_add_executable(secret_store_test test/secret_store_test.cpp gui/secret_store.cpp)
+        target_include_directories(secret_store_test PRIVATE ${CMAKE_SOURCE_DIR})
+        target_link_libraries(secret_store_test PRIVATE Qt6::Core Qt6::DBus)
 
         qt_add_executable(gui_debugger_smoke
             test/gui_debugger_smoke.cpp

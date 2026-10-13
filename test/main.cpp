@@ -82,6 +82,7 @@
 #include <cstdarg>
 #include <stdexcept>
 #include "core/mcp_server.hpp"
+#include "core/agent_chat.hpp"
 #include "core/json.hpp"
 #include <unistd.h>
 #include <sys/wait.h>
@@ -215,6 +216,157 @@ static void test_memory_access_problem() {
 // The agent tools through the MCP server, against a real child process: the
 // protocol handshake, tool listing, attach, scanning, write gating, freezing,
 // and a saved table that loads back.
+static volatile int g_agentHealth = 4711;
+
+// The AI Assistant's conversation loop against a scripted model: both API
+// formats, tool calls run in a real session, approval before changes, and
+// errors that leave the conversation usable.
+static void test_agent_chat() {
+    printf("\n── Test: AI Assistant conversation (scripted model) ──\n");
+    int ready[2];
+    if (pipe(ready) != 0) { printf("  pipe: FAILED\n"); return; }
+    const pid_t child = fork();
+    if (child == 0) {
+        prctl(PR_SET_PDEATHSIG, SIGKILL);
+        g_agentHealth = 4711;
+        if (write(ready[1], "x", 1) != 1) _exit(1);
+        for (;;) pause();
+    }
+    char byte = 0;
+    if (read(ready[0], &byte, 1) != 1) printf("  child start: FAILED\n");
+    close(ready[0]); close(ready[1]);
+    char address[32];
+    std::snprintf(address, sizeof address, "0x%lx", static_cast<unsigned long>(reinterpret_cast<uintptr_t>(&g_agentHealth)));
+    const std::string pid = std::to_string(child);
+    auto health = [&] {
+        int32_t v = 0;
+        (void)ce::os::LinuxProcessHandle(child).read(reinterpret_cast<uintptr_t>(&g_agentHealth), &v, sizeof v);
+        return v;
+    };
+
+    // Anthropic: the model attaches, then asks to write; the user declines once, then allows.
+    {
+        ce::AgentSessionOptions options;
+        options.allowWrites = true;
+        ce::AgentSession session(options);
+        std::vector<ce::ChatHttpRequest> seen;
+        std::vector<std::string> replies = {
+            R"({"content":[{"type":"tool_use","id":"t1","name":"attach","input":{"target":")" + pid + R"("}}],"stop_reason":"tool_use"})",
+            R"({"content":[{"type":"text","text":"Setting health."},{"type":"tool_use","id":"t2","name":"write","input":{"address":")" +
+                std::string(address) + R"(","type":"i32","value":"1234"}}],"stop_reason":"tool_use"})",
+            R"({"content":[{"type":"text","text":"Left it as it was."}],"stop_reason":"end_turn"})",
+            R"({"content":[{"type":"tool_use","id":"t3","name":"write","input":{"address":")" + std::string(address) +
+                R"(","type":"i32","value":"1234"}}],"stop_reason":"tool_use"})",
+            R"({"content":[{"type":"text","text":"Done."}],"stop_reason":"end_turn"})",
+        };
+        size_t next = 0;
+        ce::AgentChat chat(session, {}, "sk-test", [&](const ce::ChatHttpRequest& request) {
+            seen.push_back(request);
+            return next < replies.size() ? ce::ChatHttpResponse{200, replies[next++], {}} : ce::ChatHttpResponse{500, "{}", {}};
+        });
+        std::vector<ce::ChatEvent> events;
+        chat.setEventSink([&](const ce::ChatEvent& e) { events.push_back(e); });
+        bool allow = false;
+        int asked = 0;
+        chat.setApprover([&](const std::string& tool, const ce::json::Value&) { ++asked; return tool == "write" && allow; });
+        const bool first = chat.send("Set my health to 1234.");
+        bool keyHeader = false, version = false;
+        for (const auto& [name, value] : seen.front().headers) {
+            keyHeader = keyHeader || (name == "x-api-key" && value == "sk-test");
+            version = version || name == "anthropic-version";
+        }
+        printf("  Anthropic request: endpoint, key header, tools, model: %s\n",
+               seen.front().url == "https://api.anthropic.com/v1/messages" && keyHeader && version &&
+               seen.front().body.find("\"input_schema\"") != std::string::npos &&
+               seen.front().body.find("claude-sonnet-5-5") != std::string::npos ? "OK" : "FAILED");
+        printf("  tool results go back as tool_result blocks: %s\n",
+               seen.size() >= 2 && seen[1].body.find("\"tool_result\"") != std::string::npos &&
+               seen[1].body.find("\"tool_use_id\":\"t1\"") != std::string::npos ? "OK" : "FAILED");
+        printf("  a declined change is not made and the model is told: %s\n",
+               first && asked == 1 && health() == 4711 && seen.size() == 3 &&
+               seen[2].body.find("declined") != std::string::npos ? "OK" : "FAILED");
+        allow = true;
+        const bool second = chat.send("Do it, I approve.");
+        printf("  an approved change is made: %s (%d)\n", second && health() == 1234 ? "OK" : "FAILED", health());
+        // A turn cut off after tool results: the next user text joins that user
+        // turn, because Anthropic's turns must alternate.
+        {
+            std::vector<std::string> bodies;
+            ce::AgentChat cut(session, {}, "k", [&](const ce::ChatHttpRequest& request) {
+                bodies.push_back(request.body);
+                return ce::ChatHttpResponse{200, R"({"content":[{"type":"tool_use","id":"t9","name":"target_info","input":{}}]})", {}};
+            });
+            cut.setMaxRounds(1);
+            const bool stopped = !cut.send("Look around.");
+            cut.send("Go on.");
+            printf("  user and assistant turns alternate after a cut-off turn: %s\n",
+                   stopped && bodies.size() == 2 &&
+                   bodies[1].find("\"tool_use_id\":\"t9\"") < bodies[1].find("\"text\":\"Go on.\"") &&
+                   bodies[1].find("\"role\":\"user\",\"content\":\"Go on.\"") == std::string::npos ? "OK" : "FAILED");
+        }
+        bool sawCall = false, sawText = false;
+        for (const auto& e : events) {
+            sawCall = sawCall || (e.type == ce::ChatEvent::Type::ToolCall && e.tool == "attach");
+            sawText = sawText || (e.type == ce::ChatEvent::Type::AssistantText && e.text == "Done.");
+        }
+        printf("  events report tool calls and replies: %s\n", sawCall && sawText ? "OK" : "FAILED");
+
+        // A refused key: an error, and the conversation is as it was.
+        ce::AgentChat refused(session, {}, "bad", [](const ce::ChatHttpRequest&) {
+            return ce::ChatHttpResponse{401, R"({"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}})", {}};
+        });
+        std::string error;
+        refused.setEventSink([&](const ce::ChatEvent& e) { if (e.type == ce::ChatEvent::Type::Error) error = e.text; });
+        const bool refusedSent = refused.send("hi");
+        printf("  a refused key is reported: %s (%s)\n",
+               !refusedSent && error.find("API key was refused") != std::string::npos &&
+               error.find("invalid x-api-key") != std::string::npos && refused.messageCount() == 0 ? "OK" : "FAILED", error.c_str());
+        ce::AgentChat offline(session, {}, "k", [](const ce::ChatHttpRequest&) { return ce::ChatHttpResponse{0, {}, "connection refused"}; });
+        offline.setEventSink([&](const ce::ChatEvent& e) { if (e.type == ce::ChatEvent::Type::Error) error = e.text; });
+        printf("  no connection is reported: %s\n", !offline.send("hi") && error.find("Could not reach") != std::string::npos ? "OK" : "FAILED");
+    }
+
+    // OpenAI-compatible: function calls with JSON-string arguments, role "tool" results.
+    {
+        ce::AgentSession session;
+        ce::ChatProvider provider;
+        provider.kind = ce::ChatProviderKind::OpenAiCompatible;
+        provider.baseUrl = "http://localhost:11434/v1/";
+        provider.model = "qwen3";
+        std::vector<ce::ChatHttpRequest> seen;
+        std::vector<std::string> replies = {
+            R"({"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"attach","arguments":"{\"target\":\")" +
+                pid + R"(\"}"}}]},"finish_reason":"tool_calls"}]})",
+            R"({"choices":[{"message":{"role":"assistant","content":"Attached."},"finish_reason":"stop"}]})",
+        };
+        size_t next = 0;
+        ce::AgentChat chat(session, provider, "", [&](const ce::ChatHttpRequest& request) {
+            seen.push_back(request);
+            return next < replies.size() ? ce::ChatHttpResponse{200, replies[next++], {}} : ce::ChatHttpResponse{500, "{}", {}};
+        });
+        std::string reply;
+        chat.setEventSink([&](const ce::ChatEvent& e) { if (e.type == ce::ChatEvent::Type::AssistantText) reply = e.text; });
+        const bool ok = chat.send("Attach to my game.");
+        bool auth = false;
+        for (const auto& header : seen.front().headers) auth = auth || header.first == "authorization";
+        printf("  OpenAI-compatible request: endpoint, functions, no key header without a key: %s\n",
+               seen.front().url == "http://localhost:11434/v1/chat/completions" && !auth &&
+               seen.front().body.find("\"parameters\"") != std::string::npos &&
+               seen.front().body.find("\"role\":\"system\"") != std::string::npos ? "OK" : "FAILED");
+        printf("  tool results go back as role tool messages: %s\n",
+               ok && reply == "Attached." && seen.size() == 2 &&
+               seen[1].body.find("\"role\":\"tool\",\"tool_call_id\":\"c1\"") != std::string::npos ? "OK" : "FAILED");
+    }
+    printf("  changes that need approval: %s\n",
+           ce::AgentChat::changesGame("write", ce::json::Value::object()) &&
+           ce::AgentChat::changesGame("aa_enable", ce::json::Value::object()) &&
+           ce::AgentChat::changesGame("set_frozen", ce::json::Value::object().set("frozen", ce::json::Value::boolean(true))) &&
+           !ce::AgentChat::changesGame("set_frozen", ce::json::Value::object().set("frozen", ce::json::Value::boolean(false))) &&
+           !ce::AgentChat::changesGame("first_scan", ce::json::Value::object()) ? "OK" : "FAILED");
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
+}
+
 // A discarded scan removes its directory; the CLI keeps the ones it prints.
 static void test_scan_directory_cleanup() {
     printf("\n── Test: Scan results clean up after themselves ──\n");
@@ -246,7 +398,6 @@ static void test_scan_directory_cleanup() {
     std::filesystem::remove_all(keptDir);
 }
 
-static volatile int g_agentHealth = 4711;
 // Two game objects and the pointer that picks one: the agent's pointer records
 // must follow the pointer when the game switches objects.
 static int32_t g_agentObjects[2][4] = {{1, 5, 40, 9}, {2, 5, 40, 9}};
@@ -11729,6 +11880,7 @@ int main(int argc, char* argv[]) {
     test_recover_store();
     test_memory_access_problem();
     test_agent_mcp();
+    test_agent_chat();
     test_scan_directory_cleanup();
     test_cheat_table_json();
     test_mono_dissector_parse();

@@ -5,6 +5,7 @@
 /// one implementation. Results are compact JSON summaries sized for a model's
 /// context, never raw memory dumps.
 
+#include "core/ct_file.hpp"
 #include "core/json.hpp"
 
 #include <memory>
@@ -47,6 +48,12 @@ public:
 
     /// Text an MCP client shows the model about how to use the tools.
     static std::string instructions();
+
+    /// Allow or refuse changes to the game from now on (the GUI's switch).
+    void setAllowWrites(bool allow);
+    /// The table the agent built, as save_table would write it: pointer
+    /// records as base and offsets, frozen records active.
+    std::vector<CheatEntry> tableEntries();
 
 private:
     struct State;

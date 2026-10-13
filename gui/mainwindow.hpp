@@ -38,6 +38,8 @@
 #include <cstdint>
 #include <optional>
 
+class QDockWidget;
+
 namespace ce::gui {
 
 class ScanResultsModel;
@@ -47,6 +49,7 @@ class MemoryBrowser;
 class AdvancedOptionsWindow;
 class DebuggerWindow;
 class StructureDissector;
+class AgentPanel;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -66,6 +69,11 @@ public:
     /// Open the Settings dialog (non-modal) and return it. Used by the Edit menu
     /// and the `--settings` launch flag.
     QDialog* openSettingsDialog(const QString& page = QString());
+
+    /// Show the AI Assistant dock (created on first use) and return its panel.
+    AgentPanel* showAgentPanel();
+    /// Append table entries (the assistant's results) to the address list.
+    void addTableEntries(const std::vector<ce::CheatEntry>& entries);
 
     /// Dev/screenshot hook: trigger the first menu action whose text contains
     /// `name` (reusing its normal open code) and return the window it spawned, so
@@ -204,6 +212,8 @@ private:
     std::unique_ptr<MemoryScanner> scanner_;
     QString currentTablePath_;   // file the open table was loaded from or saved to
     QString currentProcessName_; // the attached process's display name
+    AgentPanel* agentPanel_ = nullptr;
+    QDockWidget* agentDock_ = nullptr;
     void updateWindowTitle();
     int scannerThreads_ = 0;
     AutoAssembler autoAsm_;

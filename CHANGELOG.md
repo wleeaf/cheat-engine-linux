@@ -62,6 +62,20 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Fixed: cheat tables. A set-value hotkey's `<Value>` became the record's
+  value (and the trainer's freeze value); a disassembler comment became the
+  table comment; records without an `<ID>` could hang under the wrong group;
+  an offset that was not plain hex was dropped or cut short, following a
+  shorter pointer chain to another address (such a record now keeps no
+  address); `<Length>` and `<freezeMode>` were not checked; markup in an
+  address or color was written unescaped. Deeply nested groups are refused at
+  64 levels instead of recursing without bound, and children are parsed in
+  place instead of copying the rest of the file at every level.
+- Fixed: generated trainers froze pointer records at their base address,
+  writing into the pointer itself; they now leave out pointer and symbolic
+  records. A table with 44 or more cheats produced a trainer that did not
+  compile; default keys now stop at 9. A backslash in the game name or
+  author could swallow the next source line.
 - Fixed: integer search values were cut to the type's width, so Byte 300
   found every 44 and 2 Bytes "bigger than 40000" compared against -25536. A
   value that does not fit is now refused with the type's range.

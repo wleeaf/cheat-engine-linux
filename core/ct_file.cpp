@@ -1,4 +1,3 @@
-#include <charconv>
 #include "core/ct_file.hpp"
 #include "core/ct_file_stream.hpp"
 #include "core/json.hpp"
@@ -8,6 +7,8 @@
 #include <cstring>
 #include <cctype>
 #include <cstdlib>
+#include <charconv>
+#include <set>
 #include <filesystem>
 #include <unordered_map>
 #include <functional>
@@ -20,6 +21,11 @@
 
 // Simple XML writer/reader (no external dependency)
 namespace ce {
+
+// Groups nest this deep at most; a deeper table is refused rather than
+// recursing without bound.
+constexpr int kMaxEntryDepth = 64;
+
 
 static constexpr uint64_t kFnvOffset = 1469598103934665603ULL;
 static constexpr uint64_t kFnvPrime = 1099511628211ULL;
@@ -90,6 +96,21 @@ static std::string xmlEscape(const std::string& s) {
             case '>':  out += "&gt;"; break;
             case '"':  out += "&quot;"; break;
             default:   out += c;
+        }
+    }
+    return out;
+}
+
+// Element text as Cheat Engine writes it: only what would break the markup
+// is escaped, so an address keeps its quotes ("game.exe"+10) on disk.
+static std::string xmlEscapeText(const std::string& s) {
+    std::string out;
+    for (char c : s) {
+        switch (c) {
+            case '&': out += "&amp;"; break;
+            case '<': out += "&lt;"; break;
+            case '>': out += "&gt;"; break;
+            default:  out += c;
         }
     }
     return out;
@@ -352,7 +373,7 @@ bool writeTableXml(const CheatTable& table,std::ostream& f) {
             // <Address>0</Address> + <VariableType>4 Bytes</VariableType> here made
             // re-saved AA tables diverge from the original.
             if (!e.addressString.empty())
-                f << "      <Address>" << e.addressString << "</Address>\n";
+                f << "      <Address>" << xmlEscapeText(e.addressString) << "</Address>\n";
             f << "      <VariableType>Auto Assembler Script</VariableType>\n";
         } else {
             // Data record. CE writes the address expression RAW (quotes and all);
@@ -360,7 +381,7 @@ bool writeTableXml(const CheatTable& table,std::ostream& f) {
             // readable by CE and by our raw-reading loader. Escaping it (turning "
             // into &quot;) double-encoded on the next load.
             if (!e.addressString.empty()) {
-                f << "      <Address>" << e.addressString << "</Address>\n";
+                f << "      <Address>" << xmlEscapeText(e.addressString) << "</Address>\n";
             } else {
                 char addr[32];
                 snprintf(addr, sizeof(addr), "%lx", e.address);
@@ -420,7 +441,7 @@ bool writeTableXml(const CheatTable& table,std::ostream& f) {
         }
 
         if (!e.color.empty())
-            f << "      <Color>" << e.color << "</Color>\n";
+            f << "      <Color>" << xmlEscapeText(e.color) << "</Color>\n";
 
         // Preserve an imported CE record's <Options> element verbatim so flags we do
         // not model survive a load+save; otherwise synthesize one for a group whose
@@ -483,14 +504,16 @@ bool writeTableXml(const CheatTable& table,std::ostream& f) {
         }
     }
     std::vector<char> done(entries.size(), 0);
-    std::function<void(int)> writeEntry = [&](int i) {
+    // Nesting stops at the depth the loader accepts; deeper children are
+    // written further out (the loop below picks them up), not recursed into.
+    std::function<void(int, int)> writeEntry = [&](int i, int depth) {
         if (done[i]) return;
         done[i] = 1;
         f << "    <CheatEntry>\n";
         writeEntryFields(entries[i]);
-        if (!children[i].empty()) {
+        if (!children[i].empty() && depth + 1 < kMaxEntryDepth) {
             f << "      <CheatEntries>\n";
-            for (int c : children[i]) writeEntry(c);
+            for (int c : children[i]) writeEntry(c, depth + 1);
             f << "      </CheatEntries>\n";
         }
         f << "    </CheatEntry>\n";
@@ -498,9 +521,9 @@ bool writeTableXml(const CheatTable& table,std::ostream& f) {
 
     f << "  <CheatEntries>\n";
     for (size_t i = 0; i < entries.size(); ++i)
-        if (!isChild[i]) writeEntry(static_cast<int>(i));
+        if (!isChild[i]) writeEntry(static_cast<int>(i), 0);
     for (size_t i = 0; i < entries.size(); ++i)   // orphan sweep (cycles)
-        if (!done[i]) writeEntry(static_cast<int>(i));
+        if (!done[i]) writeEntry(static_cast<int>(i), 0);
     f << "  </CheatEntries>\n";
     if (!rawFormsXml.empty())
         f << "  <Forms>" << rawFormsXml << "</Forms>\n";
@@ -577,36 +600,51 @@ static bool parseRecordDataFormat(const std::string& order, const std::string& w
     return true;
 }
 
-static void parseCheatEntriesBlock(const std::string& entriesXml, int parentId,
-                                   std::vector<CheatEntry>& entries, bool& validFormat) {
+// The <CheatEntry> blocks directly inside xml[begin, end). Children are parsed
+// in place, by position, so a deep table is not copied once per level.
+static void parseCheatEntriesBlock(const std::string& xml, size_t begin, size_t end, int parentId,
+                                   std::vector<CheatEntry>& entries, bool& validFormat, std::set<int>& usedIds,
+                                   int depth = 0) {
     static const std::string CE_CLOSE = "</CheatEntry>";
-    size_t pos = 0;
+    static const std::string LIST_OPEN = "<CheatEntries>";
+    if (depth >= kMaxEntryDepth) { validFormat = false; return; }
+    size_t pos = begin;
     while (true) {
-        auto entryStart = entriesXml.find("<CheatEntry>", pos);
-        if (entryStart == std::string::npos) break;
-        auto entryClose = findMatchingClose(entriesXml, entryStart, "CheatEntry");
-        if (entryClose == std::string::npos) break;
-        std::string entryXml = entriesXml.substr(entryStart, entryClose - entryStart + CE_CLOSE.size());
+        auto entryStart = xml.find("<CheatEntry>", pos);
+        if (entryStart == std::string::npos || entryStart >= end) break;
+        auto entryClose = findMatchingClose(xml, entryStart, "CheatEntry");
+        if (entryClose == std::string::npos || entryClose + CE_CLOSE.size() > end) break;
         pos = entryClose + CE_CLOSE.size();
 
         // Split this entry's own fields (before any nested child list) from the
         // nested <CheatEntries> so getTag() reads the parent's fields, not a child's.
-        std::string ownXml = entryXml;
-        std::string childListXml;
-        auto nestedOpen = entryXml.find("<CheatEntries>");
-        if (nestedOpen != std::string::npos) {
-            ownXml = entryXml.substr(0, nestedOpen);
-            auto nestedClose = findMatchingClose(entryXml, nestedOpen, "CheatEntries");
-            if (nestedClose != std::string::npos) {
-                size_t cs = nestedOpen + std::string("<CheatEntries>").size();
-                childListXml = entryXml.substr(cs, nestedClose - cs);
+        size_t ownEnd = pos;
+        size_t childBegin = 0, childEnd = 0;
+        auto nestedOpen = xml.find(LIST_OPEN, entryStart);
+        if (nestedOpen != std::string::npos && nestedOpen < entryClose) {
+            ownEnd = nestedOpen;
+            auto nestedClose = findMatchingClose(xml, nestedOpen, "CheatEntries");
+            if (nestedClose != std::string::npos && nestedClose < entryClose) {
+                childBegin = nestedOpen + LIST_OPEN.size();
+                childEnd = nestedClose;
             }
+        }
+        const std::string hotkeysXml = xml.substr(entryStart, ownEnd - entryStart);
+        // The record's own scalar fields, without its <Hotkeys>: a set-value
+        // hotkey has a <Value> (and could have any other tag) of its own.
+        std::string ownXml = hotkeysXml;
+        if (auto h = ownXml.find("<Hotkeys>"); h != std::string::npos) {
+            auto hEnd = ownXml.find("</Hotkeys>", h);
+            ownXml.erase(h, hEnd == std::string::npos ? std::string::npos : hEnd + std::string("</Hotkeys>").size() - h);
         }
 
         CheatEntry e;
         e.parentId = parentId;
         auto idStr = getTag(ownXml, "ID");
-        if (!idStr.empty()) e.id = std::atoi(idStr.c_str());
+        int parsedId = 0;
+        const auto [idStop, idError] = std::from_chars(idStr.data(), idStr.data() + idStr.size(), parsedId);
+        const bool hasId = !idStr.empty() && idError == std::errc() && idStop == idStr.data() + idStr.size() && parsedId >= 0;
+        if (hasId) e.id = parsedId;
         e.description = xmlUnescape(getTag(ownXml, "Description"));
         if (e.description.size() >= 2 && e.description.front() == '"' && e.description.back() == '"')
             e.description = e.description.substr(1, e.description.size() - 2);
@@ -615,14 +653,31 @@ static void parseCheatEntriesBlock(const std::string& entriesXml, int parentId,
         if (!e.isGroup) {
             auto addrStr = getTag(ownXml, "Address");
             if (!addrStr.empty()) {
-                e.addressString = addrStr;
-                try { e.address = std::stoull(addrStr, nullptr, 16); } catch (...) { e.address = 0; }
+                e.addressString = xmlUnescape(addrStr);
+                // Only a plain hex address is one; "game.exe+10" must not read as 0xBA.
+                uint64_t plain = 0;
+                const auto [stop, error] = std::from_chars(addrStr.data(), addrStr.data() + addrStr.size(), plain, 16);
+                e.address = error == std::errc() && stop == addrStr.data() + addrStr.size() ? plain : 0;
             }
             auto offsetsXml = getTag(ownXml, "Offsets");
             for (const auto& offBlock : getTagBlocks(offsetsXml, "Offset")) {
-                std::string offStr = getTag(offBlock, "Offset");
-                try { e.offsets.push_back(static_cast<int64_t>(std::stoll(offStr, nullptr, 16))); }
-                catch (...) {}
+                const std::string offStr = getTag(offBlock, "Offset");
+                // The whole text must be hex (64-bit values wrap, as pointer
+                // math does). Dropping or cutting one offset would follow a
+                // shorter chain to some other address, so a record with an
+                // offset we cannot read keeps no address at all.
+                const bool negative = !offStr.empty() && offStr[0] == '-';
+                const std::string digits = offStr.substr(negative ? 1 : 0);
+                uint64_t magnitude = 0;
+                const auto [stop, error] = std::from_chars(digits.data(), digits.data() + digits.size(), magnitude, 16);
+                const bool parsed = !digits.empty() && error == std::errc() && stop == digits.data() + digits.size();
+                if (parsed) e.offsets.push_back(static_cast<int64_t>(negative ? 0 - magnitude : magnitude));
+                if (!parsed) {
+                    e.offsets.clear();
+                    e.address = 0;
+                    e.addressString = "(unsupported offset " + xmlUnescape(offStr) + ")";
+                    break;
+                }
             }
             e.type = strToType(getTag(ownXml, "VariableType"));
             // CE String + <Unicode>1</Unicode> is our UnicodeString; <Length> is the
@@ -630,7 +685,8 @@ static void parseCheatEntriesBlock(const std::string& entriesXml, int parentId,
             if (e.type == ValueType::String && getTag(ownXml, "Unicode") == "1")
                 e.type = ValueType::UnicodeString;
             if (auto ln = getTag(ownXml, "Length"); !ln.empty()) {
-                try { e.length = std::stoi(ln); } catch (...) {}
+                // Read on every refresh: a huge length would read that much each time.
+                try { e.length = std::clamp(std::stoi(ln), 0, 65536); } catch (...) {}
             }
             e.value = xmlUnescape(getTag(ownXml, "Value"));
         }
@@ -639,11 +695,15 @@ static void parseCheatEntriesBlock(const std::string& entriesXml, int parentId,
         if (!parseRecordDataFormat(getTag(ownXml, "LinuxDataByteOrder"), getTag(ownXml, "LinuxPointerWidth"), e)) validFormat = false;
         e.showAsSigned = (getTag(ownXml, "ShowAsSigned") != "0");  // absent -> signed default
         if (auto fm = getTag(ownXml, "freezeMode"); !fm.empty()) {
-            try { e.freezeMode = (FreezeMode)std::stoi(fm); } catch (...) {}
+            try {
+                const int mode = std::stoi(fm);
+                if (mode >= static_cast<int>(FreezeMode::Normal) && mode <= static_cast<int>(FreezeMode::NeverDecrease))
+                    e.freezeMode = static_cast<FreezeMode>(mode);
+            } catch (...) {}
         }
         e.autoAsmScript = xmlUnescape(getTag(ownXml, "AssemblerScript"));
         e.luaScript = xmlUnescape(getTag(ownXml, "LuaScript"));
-        e.color = getTag(ownXml, "Color");
+        e.color = xmlUnescape(getTag(ownXml, "Color"));
         // CE writes the PascalCase <DropDownList> (like every other tag); accept the
         // mis-cased <DropdownList> older builds of this port wrote as a fallback.
         e.dropdownList = xmlUnescape(getTag(ownXml, "DropDownList"));
@@ -664,7 +724,7 @@ static void parseCheatEntriesBlock(const std::string& entriesXml, int parentId,
         // </Key>...</Keys><Value>..</Value></Hotkey>...</Hotkeys>; older builds of this
         // port wrote a flat "<Hotkeys>Ctrl+H</Hotkeys>" plus separate tags. Detect the
         // nested form by the inner <Hotkey and map each action to our slot; else read flat.
-        auto hkXml = getTag(ownXml, "Hotkeys");
+        auto hkXml = getTag(hotkeysXml, "Hotkeys");
         if (hkXml.find("<Hotkey") != std::string::npos) {
             for (const auto& hk : getTagBlocks(hkXml, "Hotkey")) {
                 int action = 0;
@@ -693,10 +753,18 @@ static void parseCheatEntriesBlock(const std::string& entriesXml, int parentId,
             e.hotkeyStep = xmlUnescape(getTag(ownXml, "HotkeyStep"));
         }
 
+        // Children find their parent by id, so a record without one, or with
+        // one already taken, gets a fresh id before its children are linked.
+        if (!hasId || !usedIds.insert(e.id).second) {
+            if (usedIds.empty()) e.id = 1;
+            else if (*usedIds.rbegin() < std::numeric_limits<int>::max()) e.id = *usedIds.rbegin() + 1;
+            else for (e.id = 1; usedIds.count(e.id); ++e.id) {}   // INT_MAX is taken: the first gap
+            usedIds.insert(e.id);
+        }
         int myId = e.id;
         entries.push_back(std::move(e));
-        if (!childListXml.empty())
-            parseCheatEntriesBlock(childListXml, myId, entries, validFormat);
+        if (childEnd > childBegin)
+            parseCheatEntriesBlock(xml, childBegin, childEnd, myId, entries, validFormat, usedIds, depth + 1);
     }
 }
 
@@ -957,6 +1025,15 @@ bool CheatTable::loadFromString(const std::string& xml) {
         headerXml = xml;
     }
 
+    // Header fields only: nested sections have tags of the same names (each
+    // disassembler comment has a <Comment>).
+    for (const char* section : {"DisassemblerComments", "Structures", "Forms", "UserdefinedSymbols", "Files"}) {
+        const std::string open = std::string("<") + section + ">", close = std::string("</") + section + ">";
+        for (size_t at; (at = headerXml.find(open)) != std::string::npos;) {
+            const size_t stop = headerXml.find(close, at);
+            headerXml.erase(at, stop == std::string::npos ? std::string::npos : stop + close.size() - at);
+        }
+    }
     gameName = xmlUnescape(getTag(headerXml, "GameName"));
     gameVersion = xmlUnescape(getTag(headerXml, "GameVersion"));
     author = xmlUnescape(getTag(headerXml, "Author"));
@@ -1019,7 +1096,8 @@ bool CheatTable::loadFromString(const std::string& xml) {
         if (topClose != std::string::npos) {
             size_t cs = topOpen + std::string("<CheatEntries>").size();
             bool validFormat = true;
-            parseCheatEntriesBlock(xml.substr(cs, topClose - cs), -1, entries, validFormat);
+            std::set<int> usedIds;
+            parseCheatEntriesBlock(xml, cs, topClose, -1, entries, validFormat, usedIds);
             if (!validFormat) return false;
         }
     }

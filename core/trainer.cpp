@@ -58,10 +58,22 @@ std::string lineCommentText(std::string text) {
         if (c == '\r' || c == '\n')
             c = ' ';
     }
-    // C splices backslash-newline before parsing comments.
-    if (!text.empty() && text.back() == '\\') text.push_back(' ');
+    // C splices a backslash, even one followed by spaces, with the next line
+    // before parsing comments, so no backslash may end up in the comment.
+    for (char& c : text)
+        if (c == '\\') c = '/';
     return text;
 }
+
+// A record the trainer can write: a plain address. Pointer paths and symbolic
+// addresses (module+offset) are resolved by Cheat Engine, not by the trainer;
+// writing to their base would hit the pointer itself, not the value.
+bool trainerWritable(const CheatEntry& e) {
+    return !e.isGroup && e.address != 0 && e.offsets.empty();
+}
+
+// The default key of the n-th cheat: 1 to 9, then none.
+int fallbackKey(int index) { return index < 9 ? '1' + index : -1; }
 
 // Build the C freeze-write body for an entry: a sanitized typed declaration plus
 // the matching-width wpm() call. The CheatEntry::value comes from an untrusted
@@ -260,7 +272,7 @@ std::string TrainerGenerator::generateSource(const CheatTable& table) const {
     // Generate toggle functions for each entry
     for (size_t i = 0; i < table.entries.size(); ++i) {
         auto& e = table.entries[i];
-        if (e.isGroup || e.address == 0) continue;
+        if (!trainerWritable(e)) continue;
 
         src << "static int cheat_" << i << "_enabled = 0;\n";
         src << "static void toggle_cheat_" << i << "() {\n";
@@ -279,9 +291,9 @@ std::string TrainerGenerator::generateSource(const CheatTable& table) const {
     int keyIdx = 0;
     for (size_t i = 0; i < table.entries.size(); ++i) {
         auto& e = table.entries[i];
-        if (e.isGroup || e.address == 0) continue;
-        auto fallbackKey = static_cast<char>('1' + keyIdx);
-        auto hotkeyText = e.hotkeyKeys.empty() ? std::string(1, fallbackKey) : e.hotkeyKeys;
+        if (!trainerWritable(e)) continue;
+        const int key = fallbackKey(keyIdx);
+        auto hotkeyText = e.hotkeyKeys.empty() ? (key < 0 ? std::string("-") : std::string(1, static_cast<char>(key))) : e.hotkeyKeys;
         src << "    printf(\"  [%c] %-12s %s\\n\", cheat_" << i << "_enabled ? 'x' : ' ', "
             << cString(hotkeyText) << ", " << cString(e.description) << ");\n";
         ++keyIdx;
@@ -298,7 +310,7 @@ std::string TrainerGenerator::generateSource(const CheatTable& table) const {
     src << "    while (running) {\n";
     for (size_t i = 0; i < table.entries.size(); ++i) {
         auto& e = table.entries[i];
-        if (e.isGroup || e.address == 0 || e.value.empty()) continue;
+        if (!trainerWritable(e) || e.value.empty()) continue;
         auto body = freezeWriteBody(e);
         if (!body) continue;
         src << "        if (cheat_" << i << "_enabled) {\n";
@@ -337,9 +349,9 @@ std::string TrainerGenerator::generateSource(const CheatTable& table) const {
     keyIdx = 0;
     for (size_t i = 0; i < table.entries.size(); ++i) {
         auto& e = table.entries[i];
-        if (e.isGroup || e.address == 0) continue;
+        if (!trainerWritable(e)) continue;
         src << "            if (hotkey_matches((unsigned char)c, " << cString(e.hotkeyKeys)
-            << ", '" << static_cast<char>('1' + keyIdx) << "')) { toggle_cheat_" << i << "(); print_trainer_ui(); }\n";
+            << ", " << fallbackKey(keyIdx) << ")) { toggle_cheat_" << i << "(); print_trainer_ui(); }\n";
         ++keyIdx;
     }
 
@@ -347,7 +359,7 @@ std::string TrainerGenerator::generateSource(const CheatTable& table) const {
     src << "        // Freeze active cheats\n";
     for (size_t i = 0; i < table.entries.size(); ++i) {
         auto& e = table.entries[i];
-        if (e.isGroup || e.address == 0 || e.value.empty()) continue;
+        if (!trainerWritable(e) || e.value.empty()) continue;
         auto body = freezeWriteBody(e);
         if (!body) continue;
         src << "        if (cheat_" << i << "_enabled) {\n";

@@ -1911,6 +1911,62 @@ static void test_ce_table_import() {
 // loadFromString parses .CT XML held in memory. The clipboard path relies on it
 // accepting a bare <CheatEntries> fragment (what CE copies), not just a full
 // <CheatTable> document.
+// Fields of the same name in nested sections, odd offsets and ids, and a
+// table nested too deep for the loader.
+static void test_ct_review_fixes() {
+    printf("\n── Test: Cheat table fields, ids and nesting ──\n");
+    const std::string table =
+        "<CheatTable><CheatEntries>"
+        "<CheatEntry><ID>1</ID><Description>\"Health\"</Description><VariableType>4 Bytes</VariableType>"
+        "<Address>1000</Address><Length>268435456</Length><freezeMode>9</freezeMode>"
+        "<Hotkeys><Hotkey><Action>5</Action><Keys><Key>112</Key></Keys><Value>999</Value></Hotkey></Hotkeys></CheatEntry>"
+        "<CheatEntry><Description>\"Group\"</Description><GroupHeader>1</GroupHeader><CheatEntries>"
+        "<CheatEntry><Description>\"A\"</Description><VariableType>4 Bytes</VariableType><Address>2000</Address></CheatEntry>"
+        "<CheatEntry><Description>\"B\"</Description><VariableType>4 Bytes</VariableType><Address>3000</Address></CheatEntry>"
+        "</CheatEntries></CheatEntry>"
+        "<CheatEntry><ID>9</ID><Description>\"Ptr\"</Description><VariableType>4 Bytes</VariableType><Address>game+10</Address>"
+        "<Offsets><Offset>10</Offset><Offset>player_ofs</Offset></Offsets></CheatEntry>"
+        "</CheatEntries>"
+        "<DisassemblerComments><DisassemblerComment><Address>401000</Address><Comment>not the table's</Comment>"
+        "</DisassemblerComment></DisassemblerComments></CheatTable>";
+    CheatTable t;
+    const bool loaded = t.loadFromString(table);
+    const bool fields = loaded && t.entries.size() == 5 && t.entries[0].value.empty() &&
+        t.entries[0].setValueHotkeyValue == "999" && t.entries[0].length == 65536 &&
+        t.entries[0].freezeMode == FreezeMode::Normal && t.comment.empty();
+    printf("  a hotkey's Value and a disassembler Comment stay theirs: %s\n", fields ? "OK" : "FAILED");
+    // The group and its children had no ids: each gets its own, and both
+    // children hang off the group.
+    const bool ids = loaded && t.entries.size() == 5 && t.entries[1].id != t.entries[2].id &&
+        t.entries[2].id != t.entries[3].id && t.entries[2].parentId == t.entries[1].id &&
+        t.entries[3].parentId == t.entries[1].id;
+    printf("  records without ids keep their hierarchy: %s\n", ids ? "OK" : "FAILED");
+    const bool offsets = loaded && t.entries.size() == 5 && t.entries[4].offsets.empty() && t.entries[4].address == 0 &&
+        t.entries[4].addressString.find("unsupported offset player_ofs") != std::string::npos;
+    printf("  an offset that cannot be read leaves no wrong address: %s\n", offsets ? "OK" : "FAILED");
+
+    std::string deep = "<CheatTable><CheatEntries>";
+    for (int i = 0; i < 5000; ++i) deep += "<CheatEntry><GroupHeader>1</GroupHeader><CheatEntries>";
+    for (int i = 0; i < 5000; ++i) deep += "</CheatEntries></CheatEntry>";
+    deep += "</CheatEntries></CheatTable>";
+    CheatTable tooDeep;
+    printf("  a table nested too deep is refused: %s\n", !tooDeep.loadFromString(deep) ? "OK" : "FAILED");
+
+    // Markup characters in an address survive a save and load as text.
+    CheatTable markup;
+    CheatEntry odd;
+    odd.id = 1;
+    odd.addressString = "1<2&3";
+    odd.type = ValueType::Int32;
+    markup.entries = {odd};
+    const auto path = std::filesystem::temp_directory_path() / "ce_markup.CT";
+    CheatTable back;
+    const bool roundTrip = markup.save(path.string()) && back.load(path.string()) && back.entries.size() == 1 &&
+        back.entries[0].addressString == "1<2&3";
+    std::filesystem::remove(path);
+    printf("  markup in an address is escaped: %s\n", roundTrip ? "OK" : "FAILED");
+}
+
 static void test_ct_load_from_string() {
     printf("\n── Test: CheatTable::loadFromString (clipboard fragment) ──\n");
 
@@ -12030,8 +12086,33 @@ static void test_review_regressions() {
     trainerTable.luaScript = "\xc3\xa9" "abc";
     auto trainerSource = TrainerGenerator{}.generateSource(trainerTable);
     bool escapeOk = trainerSource.find("\\303\\251abc") != std::string::npos &&
-        trainerSource.find("// Author: author\\ \n#define _GNU_SOURCE") != std::string::npos;
+        trainerSource.find("// Author: author/\n#define _GNU_SOURCE") != std::string::npos;
     printf("  trainer escapes UTF-8 before hex digits and trailing comment backslashes: %s\n", escapeOk ? "OK" : "FAILED");
+
+    // Many cheats: keys 1 to 9, then none (a key past '9' was a broken char
+    // literal from the 44th on). A pointer record is not written at its base.
+    CheatTable manyCheats;
+    for (int i = 0; i < 50; ++i) {
+        CheatEntry e;
+        e.id = i + 1;
+        e.address = 0x10000 + 4 * i;
+        e.type = ValueType::Int32;
+        e.value = "1";
+        manyCheats.entries.push_back(e);
+    }
+    CheatEntry pointer;
+    pointer.id = 99;
+    pointer.address = 0x45a000;
+    pointer.offsets = {0x10, 0x8};
+    pointer.type = ValueType::Int32;
+    pointer.value = "5";
+    manyCheats.entries.push_back(pointer);
+    const auto manySource = TrainerGenerator{}.generateSource(manyCheats);
+    printf("  trainer keys stop after 9 and pointer records are left out: %s\n",
+           manySource.find("'\\'") == std::string::npos && manySource.find(", '9'") == std::string::npos &&
+           manySource.find(", 57)) { toggle_cheat_8()") != std::string::npos &&
+           manySource.find(", -1)) { toggle_cheat_49()") != std::string::npos &&
+           manySource.find("0x45a000") == std::string::npos ? "OK" : "FAILED");
 
     bool diskOk = !snapshot.save("/dev/full") && !graph.save("/dev/full") &&
         !savePointerPaths("/dev/full", {path});
@@ -12090,6 +12171,7 @@ int main(int argc, char* argv[]) {
     test_perf_map_symbols();
     test_wx_double_mapped_code();
     test_ct_load_from_string();
+    test_ct_review_fixes();
     test_ct_format_detection();
     test_ct_forms_roundtrip();
     test_trainer_generation();

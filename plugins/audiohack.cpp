@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <atomic>
@@ -62,17 +63,23 @@ void initSpeedSource() {
     // O_NOFOLLOW refuses a symlink-swapped /dev/shm entry, matching the
     // speedhack side. No O_CREAT: this is a read-side consumer of the channel.
     int fd = shm_open("/ce_speedhack", O_RDWR | O_NOFOLLOW, 0666);
-    if (fd >= 0) {
+    // Only this user's channel, of full size: a short file maps past its end
+    // (SIGBUS on the first read), and another user's could be truncated later.
+    struct stat st{};
+    if (fd >= 0 && ::fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_uid == ::geteuid() &&
+        !(st.st_mode & 077) && st.st_size >= static_cast<off_t>(sizeof(double))) {
         auto* mapped = ::mmap(nullptr, sizeof(double),
                               PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
         if (mapped != MAP_FAILED) g_sharedSpeed = static_cast<double*>(mapped);
-        ::close(fd);
     }
+    if (fd >= 0) ::close(fd);
 }
 
 double currentSpeed() {
     double v = g_sharedSpeed ? *g_sharedSpeed : g_envSpeed;
-    if (v <= 0.0 || !(v == v) || v == HUGE_VAL || v == -HUGE_VAL) v = 1.0;
+    // The speedhack's range: outside it the game runs at 1x, so the audio must too
+    // (tempo 0.005 would also make ~200x the frames to write).
+    if (!(v >= 0.01 && v <= 1000.0)) v = 1.0;
     return v;
 }
 

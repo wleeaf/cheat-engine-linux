@@ -2,6 +2,7 @@
 #include "gui/theme.hpp"
 #include "analysis/code_analysis.hpp"
 
+#include <QMessageBox>
 #include <QHeaderView>
 #include <QLabel>
 #include <QPushButton>
@@ -146,7 +147,14 @@ void CodeReferencesWindow::analyzeSelectedModule() {
     if (!proc_ || modules_.empty()) return;
 
     auto module = selectedModule();
-    CodeAnalyzer analyzer(analyzerArchFor(*proc_));
+    // The module's own instruction set (WoW64, ARM), and an error rather than an
+    // escaping exception when it cannot be disassembled.
+    auto architecture = disassemblerArchFor(*proc_, module.base);
+    if (!architecture) {
+        QMessageBox::warning(this, "Code references", QString::fromStdString(architecture.error()));
+        return;
+    }
+    CodeAnalyzer analyzer(*architecture);
 
     // Each pass scans the whole module and can take a while on a big image (libc),
     // so drive a cancelable progress dialog and update it between passes. This

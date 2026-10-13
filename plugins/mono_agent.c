@@ -117,10 +117,44 @@ static void* resolve_sym(const char* sym) {
     if (!p && g_exe) p = dlsym(g_exe, sym);
     return p;
 }
-static int find_runtime(struct dl_phdr_info* info,size_t size,void* data) {
-    (void)size;(void)data;
+/* dl_iterate_phdr holds the loader's write lock while it calls back, and
+ * dlopen/dlsym/dladdr take the loader lock: calling them from the callback
+ * deadlocks against a game thread that is dlopening at that moment. So the
+ * callback only records each object; the lookups happen afterwards. */
+#define MAX_LOAD_RANGES 16
+struct loaded_object {
+    char* name;   /* NULL for the main program */
+    unsigned ranges;
+    uintptr_t start[MAX_LOAD_RANGES], end[MAX_LOAD_RANGES];
+};
+struct loaded_objects { struct loaded_object* items; size_t count, capacity; };
+
+static int record_object(struct dl_phdr_info* info,size_t size,void* data) {
+    (void)size;
+    struct loaded_objects* list=(struct loaded_objects*)data;
+    if (list->count==list->capacity) {
+        size_t capacity=list->capacity ? list->capacity*2 : 64;
+        void* grown=realloc(list->items,capacity*sizeof(*list->items));
+        if (!grown) return 1;   /* stop: work with what was recorded */
+        list->items=(struct loaded_object*)grown;list->capacity=capacity;
+    }
+    struct loaded_object* object=&list->items[list->count];
+    memset(object,0,sizeof(*object));
     int main_program=!info->dlpi_name || !*info->dlpi_name;
-    void* candidate=main_program ? g_exe : dlopen(info->dlpi_name,RTLD_LAZY|RTLD_NOLOAD);
+    if (!main_program && !(object->name=strdup(info->dlpi_name))) return 0;
+    for (unsigned i=0;i<info->dlpi_phnum && object->ranges<MAX_LOAD_RANGES;++i) {
+        if (info->dlpi_phdr[i].p_type!=PT_LOAD) continue;
+        object->start[object->ranges]=info->dlpi_addr+info->dlpi_phdr[i].p_vaddr;
+        object->end[object->ranges]=object->start[object->ranges]+info->dlpi_phdr[i].p_memsz;
+        ++object->ranges;
+    }
+    ++list->count;
+    return 0;
+}
+
+static int find_runtime(const struct loaded_object* object) {
+    int main_program=object->name==NULL;
+    void* candidate=main_program ? g_exe : dlopen(object->name,RTLD_LAZY|RTLD_NOLOAD);
     if (!candidate) return 0;
     void* root=dlsym(candidate,"mono_get_root_domain");
     if (root && dlsym(candidate,"mono_thread_attach") && dlsym(candidate,"mono_assembly_foreach")) {
@@ -131,11 +165,8 @@ static int find_runtime(struct dl_phdr_info* info,size_t size,void* data) {
         if (!handle && main_program) {
             /* A statically linked mono-sgen executable cannot be dlopened by
              * filename. Prove that this symbol belongs to its own load ranges. */
-            for (unsigned i=0;i<info->dlpi_phnum;++i) {
-                if (info->dlpi_phdr[i].p_type!=PT_LOAD) continue;
-                uintptr_t start=info->dlpi_addr+info->dlpi_phdr[i].p_vaddr;
-                uintptr_t end=start+info->dlpi_phdr[i].p_memsz;
-                if (end>=start && (uintptr_t)root>=start && (uintptr_t)root<end) {
+            for (unsigned i=0;i<object->ranges;++i) {
+                if (object->end[i]>=object->start[i] && (uintptr_t)root>=object->start[i] && (uintptr_t)root<object->end[i]) {
                     handle=g_exe;break;
                 }
             }
@@ -152,7 +183,11 @@ static void acquire_runtime(void) {
     /* Cached API pointers become invalid when an embedded owner dlcloses its
      * runtime between requests. Discover and resolve them afresh each time. */
     memset(&mono,0,sizeof(mono));
-    dl_iterate_phdr(find_runtime,NULL);
+    struct loaded_objects list={NULL,0,0};
+    dl_iterate_phdr(record_object,&list);
+    for (size_t i=0;i<list.count && !g_runtime;++i) find_runtime(&list.items[i]);
+    for (size_t i=0;i<list.count;++i) free(list.items[i].name);
+    free(list.items);
 }
 static void release_runtime(void) {
     if (g_runtime && g_runtime!=g_exe) dlclose(g_runtime);

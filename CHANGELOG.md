@@ -62,6 +62,23 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Fixed: code analysis (Find Statics, string and code references) stopped
+  at the first byte it could not decode, so data inside code (headers, jump
+  tables) cut results short, and it decoded whole regions at once (tens of GB
+  for a large GameAssembly). It now steps over data and decodes in chunks.
+  Find Statics decoded 32-bit games as x86-64, and an architecture that
+  cannot be disassembled terminated Cheat Engine from the references windows.
+- Fixed: injected libraries. The Mono agent could deadlock a game that was
+  loading a library at the same moment; the in-process exception shim
+  replaced handlers that run on an alternate signal stack (Wine, Mono, JVM)
+  with one that does not, which kills the game on a guard-page fault, and made
+  an ignored signal fatal. The speedhack crashed on `gettimeofday(NULL, tz)`,
+  ran dynamically linked SDL games at the square of the speed (SDL's own
+  clock was scaled twice), returned the remaining time of an interrupted
+  sleep in real time, and could spin forever if a signal handler read the
+  clock during a speed change. The shared speed file is only used when it
+  belongs to the user and nobody else can write it (another user could crash
+  the game with SIGBUS); the audio hack applies the speedhack's speed range.
 - Fixed: the pointer scan window scanned on the GUI thread, freezing Cheat
   Engine (and pausing frozen values) for the whole scan. It now scans in the
   background with progress and a Cancel button.

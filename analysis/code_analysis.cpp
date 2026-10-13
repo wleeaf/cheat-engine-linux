@@ -95,59 +95,75 @@ std::vector<CodeRef> CodeAnalyzer::dissectModule(ProcessHandle& proc, const Modu
         auto rr = proc.read(r.base, buf.data(), readLen);
         if (!rr || *rr == 0) continue;
 
-        auto insns = disasm_.disassemble(r.base, {buf.data(), *rr}, 0);
-        for (auto& inst : insns) {
-            // CALL instructions
-            if (inst.mnemonic == "call") {
-                CodeRef ref;
-                ref.address = inst.address;
-                ref.type = RefType::Call;
-                ref.text = inst.mnemonic + " " + inst.operands;
-                ref.target = parseDirectTarget(inst.operands).value_or(0);
-                if (ref.target) {
-                    refs.push_back(ref);
+        // Decode in chunks: a whole region's instructions with details would
+        // take ~100x the code size. Data inside code (headers, jump tables,
+        // literal pools) is stepped over as "db" instead of ending the region,
+        // and the last bytes of a chunk are decoded again with the next one so
+        // no instruction is cut in two.
+        constexpr size_t kChunk = size_t(1) << 20, kMaxInstruction = 16;
+        for (size_t offset = 0; offset < *rr;) {
+            const size_t length = std::min(kChunk, *rr - offset);
+            const bool lastChunk = offset + length >= *rr;
+            auto insns = disasm_.disassemble(r.base + offset, {buf.data() + offset, length}, 0, /*emitDataBytes=*/true);
+            size_t next = offset + length;
+            for (auto& inst : insns) {
+                if (!lastChunk && inst.address + kMaxInstruction > r.base + offset + length) {
+                    next = inst.address - r.base;
+                    break;
                 }
-                // Indirect PIC form: call qword ptr [rip + disp] (GOT/PLT stub).
-                // The direct-target parse fails on the '['; recover the referenced
-                // slot as a RIP-relative data ref so findStatics/findRipRelative*
-                // do not silently drop it. Recorded as RipRelative (not Call) on
-                // purpose: the target is a GOT data slot, not a function entry, so
-                // the direct-only call graph must not treat it as a callee.
+                // CALL instructions
+                if (inst.mnemonic == "call") {
+                    CodeRef ref;
+                    ref.address = inst.address;
+                    ref.type = RefType::Call;
+                    ref.text = inst.mnemonic + " " + inst.operands;
+                    ref.target = parseDirectTarget(inst.operands).value_or(0);
+                    if (ref.target) {
+                        refs.push_back(ref);
+                    }
+                    // Indirect PIC form: call qword ptr [rip + disp] (GOT/PLT stub).
+                    // The direct-target parse fails on the '['; recover the referenced
+                    // slot as a RIP-relative data ref so findStatics/findRipRelative*
+                    // do not silently drop it. Recorded as RipRelative (not Call) on
+                    // purpose: the target is a GOT data slot, not a function entry, so
+                    // the direct-only call graph must not treat it as a callee.
+                    else if (auto target = parseRipRelativeTarget(inst)) {
+                        ref.type = RefType::RipRelative;
+                        ref.target = *target;
+                        refs.push_back(ref);
+                    }
+                }
+                // JMP instructions
+                else if (inst.mnemonic == "jmp" || (!inst.mnemonic.empty() && inst.mnemonic[0] == 'j')) {
+                    CodeRef ref;
+                    ref.address = inst.address;
+                    ref.type = RefType::Jump;
+                    ref.text = inst.mnemonic + " " + inst.operands;
+                    ref.target = parseDirectTarget(inst.operands).value_or(0);
+                    if (ref.target) {
+                        refs.push_back(ref);
+                    }
+                    // Indirect PIC form: jmp qword ptr [rip + disp] (PLT stub).
+                    // Recover the referenced slot as a RIP-relative data ref rather
+                    // than discarding it; not recorded as a Jump because the target
+                    // is a GOT data slot, not a code address.
+                    else if (auto target = parseRipRelativeTarget(inst)) {
+                        ref.type = RefType::RipRelative;
+                        ref.target = *target;
+                        refs.push_back(ref);
+                    }
+                }
+                // RIP-relative memory operands often reference literals in nearby rodata.
                 else if (auto target = parseRipRelativeTarget(inst)) {
+                    CodeRef ref;
+                    ref.address = inst.address;
                     ref.type = RefType::RipRelative;
+                    ref.text = inst.mnemonic + " " + inst.operands;
                     ref.target = *target;
                     refs.push_back(ref);
                 }
             }
-            // JMP instructions
-            else if (inst.mnemonic == "jmp" || (!inst.mnemonic.empty() && inst.mnemonic[0] == 'j')) {
-                CodeRef ref;
-                ref.address = inst.address;
-                ref.type = RefType::Jump;
-                ref.text = inst.mnemonic + " " + inst.operands;
-                ref.target = parseDirectTarget(inst.operands).value_or(0);
-                if (ref.target) {
-                    refs.push_back(ref);
-                }
-                // Indirect PIC form: jmp qword ptr [rip + disp] (PLT stub).
-                // Recover the referenced slot as a RIP-relative data ref rather
-                // than discarding it; not recorded as a Jump because the target
-                // is a GOT data slot, not a code address.
-                else if (auto target = parseRipRelativeTarget(inst)) {
-                    ref.type = RefType::RipRelative;
-                    ref.target = *target;
-                    refs.push_back(ref);
-                }
-            }
-            // RIP-relative memory operands often reference literals in nearby rodata.
-            else if (auto target = parseRipRelativeTarget(inst)) {
-                CodeRef ref;
-                ref.address = inst.address;
-                ref.type = RefType::RipRelative;
-                ref.text = inst.mnemonic + " " + inst.operands;
-                ref.target = *target;
-                refs.push_back(ref);
-            }
+            offset = next > offset ? next : offset + length;
         }
     }
 

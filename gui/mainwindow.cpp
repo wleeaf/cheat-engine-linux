@@ -966,7 +966,7 @@ void MainWindow::setupMenus() {
                 // Confirm we opened a real regular file, not a fifo/device an
                 // attacker pre-created at the predictable path.
                 struct stat st{};
-                if (::fstat(shmfd, &st) == 0 && S_ISREG(st.st_mode) &&
+                if (::fstat(shmfd, &st) == 0 && S_ISREG(st.st_mode) && st.st_uid == ::geteuid() && !(st.st_mode & 077) &&
                     ::ftruncate(shmfd, sizeof(double)) == 0) {
                     void* mem = ::mmap(nullptr, sizeof(double), PROT_READ|PROT_WRITE, MAP_SHARED, shmfd, 0);
                     if (mem != MAP_FAILED) { *(double*)mem = speed; ::munmap(mem, sizeof(double)); }

@@ -2571,8 +2571,13 @@ void MemoryBrowser::showXrefs(uintptr_t addr) {
         return;
     }
 
+    auto architecture = ce::disassemblerArchFor(*proc_, mod.base);
+    if (!architecture) {
+        QMessageBox::warning(this, "References", QString::fromStdString(architecture.error()));
+        return;
+    }
     QApplication::setOverrideCursor(Qt::WaitCursor);
-    ce::CodeAnalyzer analyzer(ce::analyzerArchFor(*proc_));
+    ce::CodeAnalyzer analyzer(*architecture);
     auto refs = analyzer.findReferencesTo(*proc_, mod, addr);
     QApplication::restoreOverrideCursor();
 

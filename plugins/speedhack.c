@@ -17,6 +17,9 @@
 #include <string.h>
 #include <stdio.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
+#include <signal.h>
+#include <pthread.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <link.h>    // dl_iterate_phdr, struct dl_phdr_info
@@ -78,6 +81,13 @@ static void init_speedhack() {
     // and audiohack.cpp; per-pid namespacing must be coordinated across all
     // three (see followup).
     int fd = shm_open(SHM_NAME, O_CREAT | O_RDWR | O_NOFOLLOW, 0600);
+    // Only a channel this user owns and nobody else can write: a file another
+    // user created could be truncated under the mapping (SIGBUS in the game).
+    struct stat st;
+    if (fd >= 0 && (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_uid != geteuid() || (st.st_mode & 077))) {
+        close(fd);
+        fd = -1;
+    }
     if (fd >= 0) {
         if (ftruncate(fd, sizeof(double)) != 0) {
             close(fd);
@@ -128,7 +138,7 @@ typedef struct {
     uint64_t speed_bits;       // the double the base was taken at; 0 = not started
 } sh_clock_t;
 
-static sh_clock_t sh_monotonic, sh_monotonic_raw, sh_realtime, sh_sdl_ticks;
+static sh_clock_t sh_monotonic, sh_monotonic_raw, sh_realtime;
 
 static int64_t sh_scale_elapsed(int64_t elapsed_ns, double speed) {
     if (elapsed_ns <= 0) return 0;   // read before another thread's rebase
@@ -155,13 +165,22 @@ static int64_t sh_fake_time(sh_clock_t* c, int64_t now_ns) {
         if (bits == want_bits)
             return base_fake + sh_scale_elapsed(now_ns - base_real, base_speed);
         // Not started, or the speed changed: rebase at now, continuing from
-        // where the old speed had taken the clock.
-        if (!__atomic_compare_exchange_n(&c->seq, &seq, seq + 1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) continue;
+        // where the old speed had taken the clock. Signals stay blocked while
+        // seq is odd: a handler on this thread reading the clock would
+        // otherwise wait for a rebase that cannot finish.
+        sigset_t all, previous;
+        sigfillset(&all);
+        pthread_sigmask(SIG_BLOCK, &all, &previous);
+        if (!__atomic_compare_exchange_n(&c->seq, &seq, seq + 1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+            pthread_sigmask(SIG_SETMASK, &previous, NULL);
+            continue;
+        }
         const int64_t fake_now = bits ? base_fake + sh_scale_elapsed(now_ns - base_real, base_speed) : now_ns;
         __atomic_store_n(&c->base_real_ns, now_ns, __ATOMIC_RELAXED);
         __atomic_store_n(&c->base_fake_ns, fake_now, __ATOMIC_RELAXED);
         __atomic_store_n(&c->speed_bits, want_bits, __ATOMIC_RELAXED);
         __atomic_store_n(&c->seq, seq + 2, __ATOMIC_RELEASE);
+        pthread_sigmask(SIG_SETMASK, &previous, NULL);
         return fake_now;
     }
 }
@@ -196,13 +215,26 @@ int gettimeofday(struct timeval* tv, void* tz) {
     if (!real_fn) real_fn = (gettimeofday_t)dlsym(RTLD_NEXT, "gettimeofday");
     if (!real_fn) { errno = ENOSYS; return -1; }
     int ret = real_fn(tv, tz);
-    if (ret == 0) {
+    if (ret == 0 && tv) {   // tv may be NULL (only the time zone wanted)
         struct timespec ts = { tv->tv_sec, tv->tv_usec * 1000 };
         adjust_time(&sh_realtime, &ts);
         tv->tv_sec = ts.tv_sec;
         tv->tv_usec = ts.tv_nsec / 1000;
     }
     return ret;
+}
+
+// An interrupted sleep reports what is left in real time; the caller will
+// sleep that again through us, so report it in game time.
+static void sh_remaining_to_game_time(struct timespec* rem, double spd) {
+    if (!rem) return;
+    double ns = ((double)rem->tv_sec * 1e9 + (double)rem->tv_nsec) * spd;
+    if (!isfinite(ns) || ns < 0) ns = 0;
+    if (ns > (double)LONG_MAX * 1e9) ns = (double)LONG_MAX * 1e9;
+    rem->tv_sec = (time_t)(ns / 1e9);
+    rem->tv_nsec = (long)(ns - (double)rem->tv_sec * 1e9);
+    if (rem->tv_nsec < 0) rem->tv_nsec = 0;
+    if (rem->tv_nsec >= 1000000000L) rem->tv_nsec = 999999999L;
 }
 
 int nanosleep(const struct timespec* req, struct timespec* rem) {
@@ -224,7 +256,9 @@ int nanosleep(const struct timespec* req, struct timespec* rem) {
         .tv_sec = (time_t)sleep_secs,
         .tv_nsec = (long)((long long)sleep_ns % 1000000000LL)
     };
-    return real_fn(&adjusted, rem);
+    int ret = real_fn(&adjusted, rem);
+    if (ret != 0 && errno == EINTR) sh_remaining_to_game_time(rem, spd);
+    return ret;
 }
 
 // clock_nanosleep — same semantics, called by many newer codebases. Only
@@ -248,7 +282,9 @@ int clock_nanosleep(clockid_t clk, int flags, const struct timespec* req, struct
         .tv_sec = (time_t)sleep_secs,
         .tv_nsec = (long)((long long)sleep_ns % 1000000000LL)
     };
-    return real_fn(clk, flags, &adjusted, rem);
+    int ret = real_fn(clk, flags, &adjusted, rem);
+    if (ret == EINTR) sh_remaining_to_game_time(rem, spd);
+    return ret;
 }
 
 // usleep — legacy POSIX microsecond sleep, still used by many games.
@@ -314,33 +350,9 @@ int poll(struct pollfd* fds, nfds_t nfds, int timeout) {
     return real_fn(fds, nfds, adjusted);
 }
 
-// SDL convenience symbols some games rely on directly (statically resolved
-// builds skip this preload, but dynamically-linked SDL games pick it up).
-unsigned int SDL_GetTicks(void) {
-    typedef unsigned int (*fn_t)(void);
-    static fn_t real_fn = NULL;
-    if (!real_fn) real_fn = (fn_t)dlsym(RTLD_NEXT, "SDL_GetTicks");
-    if (!real_fn) return 0;
-    unsigned int raw = real_fn();
-    if (!initialized) init_speedhack();
-    // Continuous across speed changes, like the other clocks; clamped to the
-    // 32-bit millisecond range SDL returns.
-    int64_t fake_ms = sh_fake_time(&sh_sdl_ticks, (int64_t)raw * 1000000LL) / 1000000LL;
-    if (fake_ms < 0) fake_ms = 0;
-    if (fake_ms > (int64_t)UINT32_MAX) fake_ms = (int64_t)UINT32_MAX;
-    return (unsigned int)fake_ms;
-}
-
-void SDL_Delay(unsigned int ms) {
-    typedef void (*fn_t)(unsigned int);
-    static fn_t real_fn = NULL;
-    if (!real_fn) real_fn = (fn_t)dlsym(RTLD_NEXT, "SDL_Delay");
-    if (!real_fn) return;
-    if (!initialized) init_speedhack();
-    double spd = get_speed();
-    if (spd <= 0) spd = 1.0;
-    real_fn((unsigned int)(ms / spd));
-}
+// No SDL_GetTicks/SDL_Delay hooks: SDL takes its ticks from clock_gettime and
+// sleeps with nanosleep, which are scaled already; hooking both scaled SDL
+// games twice (2x became 4x).
 
 // ── In-process GOT patching (covers dlopen injection) ──
 // The wrappers above interpose by name, which only works when we load first
@@ -363,8 +375,6 @@ static const sh_hook_t sh_hooks[] = {
     {"sleep",           (void*)sleep},
     {"select",          (void*)select},
     {"poll",            (void*)poll},
-    {"SDL_GetTicks",    (void*)SDL_GetTicks},
-    {"SDL_Delay",       (void*)SDL_Delay},
 };
 static const int sh_nhooks = (int)(sizeof(sh_hooks) / sizeof(sh_hooks[0]));
 static void* sh_self_base = NULL;

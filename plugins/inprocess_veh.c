@@ -146,6 +146,10 @@ static void cecore_handler(int signo, siginfo_t* info, void* ucontext) {
         }
     }
 
+    // The process ignored this signal: one sent by kill()/raise() stays
+    // ignored. A CPU trap (si_code > 0) cannot be ignored and falls through.
+    if (!(prev->sa_flags & SA_SIGINFO) && prev->sa_handler == SIG_IGN && (!info || info->si_code <= 0)) return;
+
     // Restore default disposition + re-raise so the kernel can do its thing
     // (core dump, terminate, …).
     signal(signo, SIG_DFL);
@@ -157,7 +161,11 @@ static void cecore_install_one(int signo) {
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = cecore_handler;
-    sa.sa_flags = SA_SIGINFO | SA_RESTART;
+    // On the alternate signal stack when there is one: Wine, Mono and the JVM
+    // handle guard-page and stack-overflow faults there, and a handler on the
+    // faulting stack would be pushed into the guard page (the kernel kills the
+    // process).
+    sa.sa_flags = SA_SIGINFO | SA_RESTART | SA_ONSTACK;
     sigemptyset(&sa.sa_mask);
     sigaction(signo, &sa, &g_prev[signo]);
 }

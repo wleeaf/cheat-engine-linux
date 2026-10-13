@@ -25,7 +25,6 @@ private slots:
 
 private:
     ce::ProcessHandle* proc_;
-    ce::CodeAnalyzer analyzer_;
     ce::SymbolResolver resolver_;
     bool symbolsLoaded_ = false;
 

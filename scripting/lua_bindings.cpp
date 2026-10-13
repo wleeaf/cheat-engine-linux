@@ -1647,7 +1647,7 @@ static int l_speedhack_setSpeed(lua_State* L) {
     if (fd < 0) { lua_pushboolean(L, 0); return 1; }
     bool ok = false;
     struct stat st{};
-    if (::fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && ::ftruncate(fd, sizeof(double)) == 0) {
+    if (::fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_uid == ::geteuid() && !(st.st_mode & 077) && ::ftruncate(fd, sizeof(double)) == 0) {
         void* mem = ::mmap(nullptr, sizeof(double), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
         if (mem != MAP_FAILED) { *reinterpret_cast<double*>(mem) = speed; ::munmap(mem, sizeof(double)); ok = true; }
     }

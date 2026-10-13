@@ -69,7 +69,15 @@ void FindStaticsWindow::onScan() {
         resolver_.loadProcess(*proc_);
         symbolsLoaded_ = true;
     }
-    auto statics = analyzer_.findStatics(*proc_, mods[idx]);
+    // Decode as the module's own instruction set: a 32-bit Wine game read as
+    // x86-64 turns every [abs32] access into a bogus RIP-relative "static".
+    auto architecture = ce::disassemblerArchFor(*proc_, mods[idx].base);
+    if (!architecture) {
+        statusLabel_->setText(QString::fromStdString(architecture.error()));
+        scanBtn_->setEnabled(true);
+        return;
+    }
+    auto statics = ce::CodeAnalyzer(*architecture).findStatics(*proc_, mods[idx]);
 
     table_->setRowCount((int)statics.size());
     for (size_t i = 0; i < statics.size(); ++i) {

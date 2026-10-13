@@ -290,9 +290,11 @@ void applyTheme(bool dark) {
         QToolButton::menu-indicator { image: url("%1"); subcontrol-origin: padding;
             subcontrol-position: center right; right: 8px; width: 10px; height: 7px; }
         QToolButton::menu-indicator:pressed, QToolButton::menu-indicator:open { top: 0; left: 0; }
-        QLabel#pageTitle { font-size: 13pt; font-weight: 600; background: transparent; }
+        QLabel#pageTitle { font-size: %3pt; font-weight: 600; background: transparent; }
         QFrame#hairline { background: %2; border: none; max-height: 1px; min-height: 1px; }
-    )").arg(arrowFile(arrow, /*up=*/false), dark ? "#313244" : "#e0e2e7");
+    )").arg(arrowFile(arrow, /*up=*/false), dark ? "#313244" : "#e0e2e7")
+       // Titles follow the interface font (which honours the desktop's text scaling).
+       .arg(QString::number(std::max(10.0, QApplication::font().pointSizeF() * 1.2), 'f', 1));
     // Data tables take the Settings > Display monospace font through the sheet:
     // a font set with setFont() is dropped when Qt's stylesheet engine re-polishes
     // a reparented widget, a stylesheet font is not.

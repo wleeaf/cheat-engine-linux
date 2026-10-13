@@ -877,7 +877,8 @@ void MainWindow::setupMenus() {
         speedRow->addWidget(new QLabel("Speed"));
         speedRow->addStretch();
         auto* speedValue = new QLabel("1.0×");
-        speedValue->setStyleSheet("font-size: 15pt; font-weight: 600;");
+        speedValue->setStyleSheet(QString("font-size: %1pt; font-weight: 600;")
+            .arg(QApplication::font().pointSizeF() * 1.4, 0, 'f', 1));
         speedRow->addWidget(speedValue);
         auto* slider = new QSlider(Qt::Horizontal);
         slider->setRange(1, 100);  // 0.1x to 10.0x
@@ -1246,7 +1247,8 @@ void MainWindow::setupUi() {
     connect(openBtn, &QPushButton::clicked, this, &MainWindow::onOpenProcess);
     processLabel_ = new QLabel("No process selected");
     processLabel_->setObjectName("processLabel");
-    processLabel_->setStyleSheet("font-weight: 600; font-size: 11pt;");
+    processLabel_->setStyleSheet(QString("font-weight: 600; font-size: %1pt;")
+        .arg(QApplication::font().pointSizeF() * 1.1, 0, 'f', 1));
     processDetail_ = new QLabel(tr("Press Ctrl+O or click the magnifier to choose a process."));
     processDetail_->setObjectName("processDetail");
     processDetail_->setProperty("secondary", true);

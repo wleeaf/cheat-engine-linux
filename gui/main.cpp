@@ -6,6 +6,8 @@
 #include <QApplication>
 #include <QDialog>
 #include <QIcon>
+#include <cmath>
+#include <string>
 #include <QPalette>
 #include <QStyleHints>
 #ifdef CECORE_HAVE_WAYLAND_HOTKEYS
@@ -26,6 +28,25 @@
 #include <cstdio>
 #include <cstdlib>
 
+// Sets QT_FONT_DPI from GNOME's text-scaling-factor on a Wayland session, unless
+// the user already chose a font DPI. Fixed command, no user input in it.
+static void applyGnomeTextScaling() {
+    const char* dpi = std::getenv("QT_FONT_DPI");
+    const char* wayland = std::getenv("WAYLAND_DISPLAY");
+    if ((dpi && *dpi) || !wayland || !*wayland) return;
+    const char* desktop = std::getenv("XDG_CURRENT_DESKTOP");
+    if (!desktop || !std::strstr(desktop, "GNOME")) return;
+    FILE* pipe = popen("gsettings get org.gnome.desktop.interface text-scaling-factor 2>/dev/null", "r");
+    if (!pipe) return;
+    char buffer[64] = {};
+    const bool read = std::fgets(buffer, sizeof buffer, pipe) != nullptr;
+    pclose(pipe);
+    if (!read) return;
+    const double factor = std::strtod(buffer, nullptr);
+    if (factor > 0.5 && factor < 3.0 && std::abs(factor - 1.0) > 0.01)
+        setenv("QT_FONT_DPI", std::to_string(static_cast<int>(std::lround(96.0 * factor))).c_str(), 1);
+}
+
 int main(int argc, char* argv[]) {
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--version") == 0 || std::strcmp(argv[i], "-v") == 0) {
@@ -38,6 +59,11 @@ int main(int argc, char* argv[]) {
     // (e.g. `CE_LOG=ptrace:debug ./cheatengine` to see why a memory pane is blank).
     ce::log::initFromEnv();
 
+    // GNOME's "Large text" / text-scaling-factor. GTK applies it everywhere and Qt
+    // on X11 receives it through Xft.dpi, but Qt on Wayland ignores it, so the
+    // window came out about a quarter smaller than the rest of a scaled desktop.
+    // Qt reads its font DPI before the application exists, so look it up first.
+    applyGnomeTextScaling();
     QApplication app(argc, argv);
     app.setApplicationName("Cheat Engine");
     app.setOrganizationName("cecore");

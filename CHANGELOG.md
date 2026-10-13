@@ -38,6 +38,9 @@ reimplementation of Cheat Engine).
   Until a font is chosen in Settings, tables, code and hex views use the
   desktop's monospace font (Adwaita Mono on GNOME) at the interface font's
   size, instead of a fixed 10 pt "Monospace".
+  On GNOME Wayland the window now follows the desktop's text scaling
+  ("Large text", `text-scaling-factor`), which Qt ignores there, so it no
+  longer comes out smaller than every other app on a scaled desktop.
 
 - CI cross-builds the CLI for RISC-V64, s390x, PowerPC64LE and ARM32 and runs
   it inside each full-system guest, so every target row now has live

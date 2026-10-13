@@ -26,7 +26,7 @@ def main():
         for binary in [*binaries, build / "libcecore.so"]:
             with binary.open("rb") as source:
                 report["binarySha256"][binary.name] = hashlib.file_digest(source, "sha256").hexdigest()
-        for mode, prefix, count in (("--injection-lifecycle-only", "GUI_INJECTION", 78),
+        for mode, prefix, count in (("--injection-lifecycle-only", "GUI_INJECTION", 80),
                                     ("--editor-injection-only", "GUI_EDITOR_INJECTION", 77)):
             command = [str(binaries[0]), mode, *map(str, binaries[1:])]
             run = {"command": command, "profile": prefix}

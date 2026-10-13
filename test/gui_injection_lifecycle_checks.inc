@@ -118,11 +118,15 @@ bool profile(const char* path, unsigned width) {
             main.loadTableFromPath(file);
             auto* model = main.findChild<ce::gui::AddressListModel*>();
             if (!model || !model->byId(41)) return false;
-            if (scenario != 0) check(model->setActive(41, true), "manual enable succeeds");
+            // A table's saved <Activated> is not acted on at load: running its
+            // script before the user asked is what loading must never do.
+            if (scenario == 0)
+                check(!model->byId(41)->active && !block(), "a saved active record loads switched off, with nothing patched");
+            check(model->setActive(41, true), "manual enable succeeds");
             allocated = block();
             check(allocated && valueIs("777") && codeIs(0x90), "live target confirms the patch and mapped allocation");
             if (scenario == 0) {
-                check(saved(model->entries()[0].autoAsmDisableInfo), "imported activation retains its undo ownership");
+                check(saved(model->entries()[0].autoAsmDisableInfo), "an imported script keeps its undo ownership once enabled");
                 check(model->setActive(41, false), "imported script can be disabled");
             } else if (scenario == 1) {
                 QApplication::clipboard()->setText("[{\"description\":\"Pasted\",\"address\":\"0\",\"type\":\"i32\"}]");

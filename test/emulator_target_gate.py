@@ -89,22 +89,29 @@ def main():
         info = run("info", pid)
         check("info identifies the mGBA emulator", re.search(r"^emulator:\s*mGBA", info, re.M) is not None, info)
 
-        first = run("scan", pid, "--type", "i32", "--value", MARKER)
-        snapshot = re.search(r"^Results: (.+)$", first, re.M)
-        candidates = [int(a, 16) for a in re.findall(r"^\s*(0x[0-9a-f]+) = ", first, re.M)]
-        # mGBA's rewind buffer holds many snapshots of guest RAM, refreshed as the
-        # game runs. The live copy is the one the guest program itself copies
-        # from: a host write at +0 shows up at +8 only there.
-        copies = [a for a in candidates if read_i32(pid, a + 8) == MARKER]
+        # A slow runner (software GL) can still be booting the ROM after the fixed
+        # wait, so look for the guest's marker until it appears or 30 s pass.
         ewram = None
-        for index, address in enumerate(copies):
-            probe = MARKER + 1 + index
-            run("write", pid, hex(address), probe, "--type", "i32")
-            time.sleep(0.3)
-            if read_i32(pid, address + 8) == probe:
-                ewram = address
+        deadline = time.monotonic() + 30
+        while True:
+            first = run("scan", pid, "--type", "i32", "--value", MARKER)
+            snapshot = re.search(r"^Results: (.+)$", first, re.M)
+            candidates = [int(a, 16) for a in re.findall(r"^\s*(0x[0-9a-f]+) = ", first, re.M)]
+            # mGBA's rewind buffer holds many snapshots of guest RAM, refreshed as the
+            # game runs. The live copy is the one the guest program itself copies
+            # from: a host write at +0 shows up at +8 only there.
+            copies = [a for a in candidates if read_i32(pid, a + 8) == MARKER]
+            for index, address in enumerate(copies):
+                probe = MARKER + 1 + index
+                run("write", pid, hex(address), probe, "--type", "i32")
+                time.sleep(0.3)
+                if read_i32(pid, address + 8) == probe:
+                    ewram = address
+                    break
+                run("write", pid, hex(address), MARKER, "--type", "i32")
+            if ewram is not None or time.monotonic() > deadline or emulator.poll() is not None:
                 break
-            run("write", pid, hex(address), MARKER, "--type", "i32")
+            time.sleep(1)
         check("a host value scan finds the guest's marker in emulated work RAM", ewram is not None, first[-2000:])
         if ewram is None:
             # Tell "ROM not loaded" from "loaded but not running" from "RAM not scanned".

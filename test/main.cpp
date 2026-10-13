@@ -273,16 +273,24 @@ static void test_agent_mcp() {
         auto attached = tool(readOnly, "attach", "{\"target\":\"" + pid + "\"}", &error);
         printf("  attach by PID: %s\n", !error && attached.getInt("pid") == child ? "OK" : "FAILED");
         auto scan = tool(readOnly, "first_scan", "{\"type\":\"i32\",\"value\":\"4711\"}", &error);
-        bool found = false;
-        if (const auto* candidates = scan.get("candidates"))
-            for (const auto& c : candidates->arrayValue) found = found || c.getString("address") == hexAddress;
-        if (!found && scan.getInt("count").value_or(0) > 10) {   // page if the first ten missed it
-            auto page = tool(readOnly, "scan_results", "{\"limit\":50}");
-            if (const auto* candidates = page.get("candidates"))
-                for (const auto& c : candidates->arrayValue) found = found || c.getString("address") == hexAddress;
-        }
-        printf("  first_scan finds the value: %s (count %lld)\n", !error && found ? "OK" : "FAILED",
+        printf("  first_scan reports matches: %s (count %lld)\n", !error && scan.getInt("count").value_or(0) >= 1 ? "OK" : "FAILED",
                static_cast<long long>(scan.getInt("count").value_or(-1)));
+        // Narrow like an agent does: the value changes in the game, then next_scan.
+        // (A sanitizer build holds many stray copies of the first value.)
+        {
+            ce::os::LinuxProcessHandle process(child);
+            const int32_t changed = 0x1d3c5b7;
+            (void)process.write(address, &changed, sizeof changed);
+        }
+        auto narrowed = tool(readOnly, "next_scan", "{\"compare\":\"exact\",\"value\":\"30655927\"}", &error);
+        bool found = false;
+        if (const auto* candidates = narrowed.get("candidates"))
+            for (const auto& c : candidates->arrayValue) found = found || c.getString("address") == hexAddress;
+        printf("  next_scan narrows to the value: %s (count %lld)\n", !error && found ? "OK" : "FAILED",
+               static_cast<long long>(narrowed.getInt("count").value_or(-1)));
+        auto undone = tool(readOnly, "undo_scan", "{}", &error);
+        printf("  undo_scan restores the first results: %s\n",
+               !error && undone.getInt("count") == scan.getInt("count") ? "OK" : "FAILED");
         tool(readOnly, "write", "{\"address\":\"" + std::string(hexAddress) + "\",\"type\":\"i32\",\"value\":\"1\"}", &error);
         printf("  write is refused without --allow-writes: %s\n", error ? "OK" : "FAILED");
     }

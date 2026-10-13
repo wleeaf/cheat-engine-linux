@@ -3782,10 +3782,20 @@ void MainWindow::onSaveTable() {
     else onSaveTableAs();
 }
 
+// Cheat Engine writes ".CT"; GTK's file chooser matches patterns case-sensitively,
+// so list both spellings or a user's existing tables would be hidden.
+static const char* kTableFileFilter =
+    "Cheat Tables (*.ct *.CT);;JSON Tables (*.json *.JSON);;All Files (*)";
+
 void MainWindow::onSaveTableAs() {
-    auto path=QFileDialog::getSaveFileName(this,"Save Cheat Table",currentTablePath_,
-        "Cheat Tables (*.ct);;JSON Tables (*.json);;All Files (*)");
-    if (!path.isEmpty()) saveTableToPath(path);
+    QString filter;
+    auto path=QFileDialog::getSaveFileName(this,"Save Cheat Table",currentTablePath_,kTableFileFilter,&filter);
+    if (path.isEmpty()) return;
+    // Native choosers don't add an extension; take it from the chosen file type,
+    // since saveTableToPath picks the format from the name.
+    if (QFileInfo(path).suffix().isEmpty())
+        path += filter.startsWith("JSON") ? ".json" : ".CT";
+    saveTableToPath(path);
 }
 
 bool MainWindow::saveTableToPath(const QString& path) {
@@ -3828,8 +3838,8 @@ bool MainWindow::saveTableToPath(const QString& path) {
 }
 
 void MainWindow::onLoadTable() {
-    auto path = QFileDialog::getOpenFileName(this, "Load Cheat Table", "",
-        "Cheat Tables (*.ct);;JSON Tables (*.json);;All Files (*)");
+    auto path = QFileDialog::getOpenFileName(this, "Load Cheat Table",
+        currentTablePath_.isEmpty() ? QString() : QFileInfo(currentTablePath_).absolutePath(), kTableFileFilter);
     if (path.isEmpty()) return;
     loadTableFromPath(path);
 }

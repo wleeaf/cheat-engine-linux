@@ -38,6 +38,12 @@ themes, and the whole harness was rendered at `QT_SCALE_FACTOR=1.5`; chevrons,
 check marks and text stay sharp at every scale. Analysis windows were captured
 with real data (code references, find statics, pointer scan, ELF tabs), which
 surfaced versioned C++ symbols (`...@Qt_6`) left mangled; they now demangle.
+Finally the real binary ran on an actual X11 server (a private headless mutter
+with rootful Xwayland, in its own D-Bus session) with the GTK3 platform theme
+that GNOME selects, and the screen was captured with ImageMagick. That showed
+the native GTK file chooser hides `.CT` tables because its patterns are
+case-sensitive; table and script filters now list both spellings, and Save As
+adds the extension of the chosen file type.
 
 ## Frontends inside every ISA guest; coverage complete: 12 October 2026
 

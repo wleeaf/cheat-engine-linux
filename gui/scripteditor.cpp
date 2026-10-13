@@ -175,7 +175,7 @@ ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget*
     auto* loadBtn = new QAction("Load", this);
     connect(loadBtn, &QAction::triggered, this, [this]() {
         QPointer<ScriptEditor> self(this);
-        auto path = QFileDialog::getOpenFileName(this, "Load Script", "", "CE Scripts (*.cea *.asm);;All Files (*)");
+        auto path = QFileDialog::getOpenFileName(this, "Load Script", "", "CE Scripts (*.cea *.CEA *.asm);;All Files (*)");
         if (!self || path.isEmpty()) return;
         QFile f(path);
         if (f.open(QIODevice::ReadOnly)) {
@@ -186,7 +186,7 @@ ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget*
     auto* saveBtn = new QAction("Save", this);
     connect(saveBtn, &QAction::triggered, this, [this]() {
         QPointer<ScriptEditor> self(this);
-        auto path = QFileDialog::getSaveFileName(this, "Save Script", "", "CE Scripts (*.cea);;All Files (*)");
+        auto path = QFileDialog::getSaveFileName(this, "Save Script", "", "CE Scripts (*.cea *.CEA);;All Files (*)");
         if (!self || path.isEmpty()) return;
         QSaveFile file(path);
         const QByteArray bytes = editor_->toPlainText().toUtf8();

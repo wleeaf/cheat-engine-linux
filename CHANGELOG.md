@@ -30,6 +30,9 @@ reimplementation of Cheat Engine).
   consistently. Data breakpoints take one dialog instead of three prompts.
   Process Info, Speedhack, ceserver and Memory Allocations dialogs are
   redesigned, and tables keep the chosen monospace font after reparenting.
+  The native GTK file chooser now shows `.CT` tables (its filters are
+  case-sensitive), Save As adds the chosen type's extension, and C++ symbols
+  with a version suffix (`QAction::staticMetaObject@Qt_6`) are demangled.
 
 - CI cross-builds the CLI for RISC-V64, s390x, PowerPC64LE and ARM32 and runs
   it inside each full-system guest, so every target row now has live

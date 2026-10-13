@@ -134,6 +134,7 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
     table_->setProperty("monospace", true);   // font from the theme sheet
     table_->setShowGrid(false);
     table_->setWordWrap(false);
+    setEmptyHint(table_, "Enter the address of a structure above and press Go to see its fields.");
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->verticalHeader()->setVisible(false);
     table_->setAlternatingRowColors(true);

@@ -94,7 +94,7 @@ static bool guiScanFormatChecks(const QString& screenshot = {}) {
                 dialogUsed=true;
                 if (!prepared) {
                     dialog->setDirectory(directory.path());
-                    dialog->selectNameFilter(QString(extension)=="json" ? "JSON Tables (*.json)":"Cheat Tables (*.ct)");
+                    dialog->selectNameFilter(QString(extension)=="json" ? "JSON Tables (*.json *.JSON)":"Cheat Tables (*.ct *.CT)");
                     prepared=true;
                 }
                 // selectFile() intentionally leaves a visible, focused filename

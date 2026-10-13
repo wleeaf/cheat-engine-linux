@@ -1315,6 +1315,10 @@ public:
 
         // Push a fresh copy of the precompiled chunk (registry ref) to call.
         lua_rawgeti(L_, LUA_REGISTRYINDEX, chunkRef_);
+        // A runaway formula (a loop that never ends) fails this candidate
+        // instead of hanging the scan. Setting the hook restarts its count.
+        lua_sethook(L_, [](lua_State* L, lua_Debug*) { luaL_error(L, "formula ran too long"); },
+                    LUA_MASKCOUNT, 1000000);
         bool ok = false;
         if (lua_pcall(L_, 0, 1, 0) == LUA_OK) {
             if (lua_isboolean(L_, -1)) {
@@ -1341,6 +1345,11 @@ private:
         luaL_requiref(L_, "_G", luaopen_base, 1);   lua_pop(L_, 1);
         luaL_requiref(L_, "math", luaopen_math, 1);  lua_pop(L_, 1);
         luaL_requiref(L_, "string", luaopen_string, 1); lua_pop(L_, 1);
+        // The base library also loads files and code; a formula needs neither.
+        for (const char* name : {"dofile", "loadfile", "load", "require", "collectgarbage"}) {
+            lua_pushnil(L_);
+            lua_setglobal(L_, name);
+        }
 
         if (luaL_loadstring(L_, formula_.c_str()) != LUA_OK) {
             lua_pop(L_, 1);

@@ -10478,6 +10478,21 @@ static void test_custom_formula_scan() {
     auto exactResult = scanner.nextScan(proc, custom, changedResult);
     ok = ok && exactResult.count() == 1 && exactResult.address(0) == base + 64;
 
+    // A formula that never ends fails its candidates instead of hanging the
+    // scan, and cannot load files.
+    ScanConfig runaway = custom;
+    runaway.customFormula = "while true do end";
+    runaway.stopAddress = base + 15;   // four candidates
+    const auto runawayStart = std::chrono::steady_clock::now();
+    auto stopped = scanner.firstScan(proc, runaway);
+    const bool bounded = stopped.count() == 0 &&
+        std::chrono::steady_clock::now() - runawayStart < std::chrono::seconds(30);
+    ScanConfig fileAccess = runaway;
+    fileAccess.customFormula = "return dofile ~= nil or loadfile ~= nil or load ~= nil";
+    auto noFiles = scanner.firstScan(proc, fileAccess);
+    printf("  a runaway formula is stopped, and formulas cannot load files: %s\n",
+           bounded && noFiles.count() == 0 ? "OK" : "FAILED");
+
     munmap(page, pageSize);
 
     printf("  custom Lua formula: %s\n", ok ? "OK" : "FAILED");

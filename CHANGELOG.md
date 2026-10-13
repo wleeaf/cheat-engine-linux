@@ -62,6 +62,9 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Fixed: a custom formula scan whose formula never ended hung the scan;
+  each evaluation now has an instruction limit, and formulas can no longer
+  load files or code (`dofile`, `loadfile`, `load`, `require`).
 - Fixed: re-saving a Cheat Engine table dropped its user-defined symbols,
   embedded files and Cheat Engine-format structures; they are now kept as
   they were. Hotkeys on the keypad, punctuation keys, the plus key and F13 to

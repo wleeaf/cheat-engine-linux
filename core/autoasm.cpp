@@ -975,8 +975,14 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
         return true;
     }
 
-    // NOP [count] emits this many target instructions at the active address.
-    if (upper == "NOP" || startsWith(upper, "NOP ")) {
+    // NOP [count] emits this many target instructions at the active address. A
+    // NOP with an operand ("nop dword ptr [rax+rax]", the multi-byte form
+    // compilers pad with, as relocated by injection templates) is an
+    // ordinary instruction.
+    const auto nopOperand = upper.size() > 3 ? trim(upper.substr(3)) : std::string();
+    const bool nopCount = nopOperand.empty() ||
+        std::all_of(nopOperand.begin(), nopOperand.end(), [](unsigned char c) { return std::isxdigit(c) || c == 'X'; });
+    if ((upper == "NOP" || startsWith(upper, "NOP ")) && nopCount) {
         auto count = trim(line.size() > 3 ? line.substr(3) : "1");
         asmLines.push_back("__NOP__:" + count);
         return true;

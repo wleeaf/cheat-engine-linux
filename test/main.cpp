@@ -7852,8 +7852,18 @@ static void test_autoassembler_nop_fillmem(pid_t pid) {
     const uint8_t expected[] = {0x90, 0x90, 0x90, 0xcc, 0xcc, 0xcc, 0xcc};
 
     bool ok = result.success && std::memcmp(actual, expected, sizeof(actual)) == 0;
-    proc.free(addr, 4096);
     printf("  nop/fillmem: %s\n", ok ? "OK" : "FAILED");
+
+    // A NOP with an operand is the multi-byte instruction compilers pad with
+    // (injection templates relocate it), not a count.
+    snprintf(script, sizeof(script), "[ENABLE]\n%lx:\nnop dword ptr [rax+rax]\nnop 2\n", addr);
+    auto multiByte = aa.execute(proc, script);
+    uint8_t padded[7] = {};
+    proc.read(addr, padded, sizeof(padded));
+    // Keystone picks a 4-byte hint NOP (0f 18 /4); any 4-byte NOP is right.
+    printf("  nop with an operand assembles as an instruction: %s\n",
+           multiByte.success && padded[0] == 0x0f && padded[3] == 0x00 && padded[4] == 0x90 && padded[5] == 0x90 ? "OK" : "FAILED");
+    proc.free(addr, 4096);
 }
 
 static void test_autoassembler_try_except(pid_t pid) {

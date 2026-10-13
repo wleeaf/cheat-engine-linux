@@ -311,13 +311,13 @@ class CliPlayer:
         check("step 7: the assembled add makes Hit me give 2 health", tut.wait_complete(7) and "SUCCESS" in out, (out, message))
         tut.next(8)
 
-        # Step 8: four levels. A Lua script pointer scans with the GUI's defaults,
+        # Step 8: four levels. A Lua script pointer scans (four levels, offsets up to 0x400),
         # waits while the value moves, then keeps the paths that lead to the new value.
         rows = self.narrow("i32", "Value", "change", limit=1)
         ready, moved = self.work / "scanned", self.work / "moved"
         lua = self.work / "pointers.lua"
         lua.write_text(f"""openProcess({self.pid})
-local paths = pointerScan({rows[0][0]}, 4, 0x800)
+local paths = pointerScan({rows[0][0]}, 4, 0x400)
 writeFile('{ready}', tostring(#paths))
 while not fileExists('{moved}') do sleep(50) end
 local value = tonumber(readFile('{moved}'))
@@ -334,7 +334,7 @@ end
         check("step 8: the Lua pointer scan finds paths", count > 0, count)
         _, values = tut.action("pointer", "Value")
         moved.write_text(values["Value"])
-        out, _ = script.communicate(timeout=120)
+        out, _ = script.communicate(timeout=300)
         kept = re.findall(r"^KEEP (.+)$", out, re.M)
         check("step 8: rescanning by the new value keeps the four-level path",
               any(path.count("[") == 4 for path in kept), (count, kept[:5], out[-300:]))

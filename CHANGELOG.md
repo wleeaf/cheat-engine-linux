@@ -48,6 +48,9 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Fixed: Auto Assembler read `nop dword ptr [rax+rax]` (the padding GCC
+  emits, which injection templates relocate) as a NOP count and failed; a
+  `nop` with an operand now assembles as an instruction.
 
 ## v1.0.0: first stable release (2026-10-13)
 

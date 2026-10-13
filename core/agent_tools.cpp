@@ -5,6 +5,7 @@
 #include "core/autoasm.hpp"
 #include "core/injection_gen.hpp"
 #include "debug/code_finder.hpp"
+#include "debug/instruction_access.hpp"
 #include "platform/linux/ptrace_wrapper.hpp"
 #include "core/ct_file.hpp"
 #include "core/expression.hpp"
@@ -16,9 +17,11 @@
 #include "core/value_transform.hpp"
 #include "platform/linux/linux_process.hpp"
 #include "scanner/memory_scanner.hpp"
+#include "scanner/pointer_scanner.hpp"
 #include "symbols/elf_symbols.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <atomic>
 #include <cctype>
@@ -42,6 +45,8 @@ constexpr size_t kMaxInstructions = 40;
 constexpr size_t kMaxReadBytes = 256;
 constexpr size_t kMaxScriptBytes = 64 * 1024;
 constexpr int kMaxWatchSeconds = 30;
+constexpr size_t kMaxPaths = 20;
+constexpr size_t kMaxStructureBytes = 512;
 
 std::string hex(uint64_t v) {
     char buffer[24];
@@ -87,11 +92,64 @@ std::optional<ScanCompare> parseCompare(const std::string& s) {
     if (s == "increased") return ScanCompare::Increased;
     if (s == "decreased") return ScanCompare::Decreased;
     if (s == "same_as_first") return ScanCompare::SameAsFirst;
+    if (s == "increased_by") return ScanCompare::IncreasedBy;
+    if (s == "decreased_by") return ScanCompare::DecreasedBy;
     return std::nullopt;
 }
 
 bool comparisonTakesValue(ScanCompare c) {
-    return c == ScanCompare::Exact || c == ScanCompare::Greater || c == ScanCompare::Less || c == ScanCompare::Between;
+    return c == ScanCompare::Exact || c == ScanCompare::Greater || c == ScanCompare::Less || c == ScanCompare::Between ||
+           c == ScanCompare::IncreasedBy || c == ScanCompare::DecreasedBy;
+}
+
+// Comparisons that only make sense against an earlier scan.
+bool comparisonNeedsPrevious(ScanCompare c) {
+    return c != ScanCompare::Exact && c != ScanCompare::Greater && c != ScanCompare::Less &&
+           c != ScanCompare::Between && c != ScanCompare::Unknown;
+}
+
+// A field's likely type, from its bytes, for compare_structures.
+std::string guessFieldType(const uint8_t* bytes, size_t available, bool pointerAligned, ProcessHandle& process) {
+    if (pointerAligned && available >= 8) {
+        uint64_t q;
+        std::memcpy(&q, bytes, 8);
+        if (q >= 0x10000 && q < 0x800000000000ull)
+            if (auto region = process.queryRegion(static_cast<uintptr_t>(q)); region && q >= region->base && q < region->base + region->size)
+                return "pointer";
+    }
+    size_t printable = 0;
+    while (printable < 4 && printable < available && std::isprint(bytes[printable])) ++printable;
+    if (printable >= 2 && (printable == 4 || (printable < available && bytes[printable] == 0))) return "string";
+    // Small integers are tiny denormals as floats; real floats have an exponent.
+    uint32_t u;
+    std::memcpy(&u, bytes, 4);
+    float f;
+    std::memcpy(&f, bytes, 4);
+    if (u != 0 && std::isfinite(f) && std::fabs(f) >= 0.001f && std::fabs(f) < 1e9f) return "float";
+    return "i32";
+}
+
+std::string formatField(const std::string& type, const uint8_t* bytes, size_t available) {
+    char text[64];
+    if (type == "pointer") {
+        uint64_t q;
+        std::memcpy(&q, bytes, 8);
+        std::snprintf(text, sizeof text, "0x%llx", static_cast<unsigned long long>(q));
+    } else if (type == "string") {
+        std::string out;
+        for (size_t i = 0; i < 4 && i < available && bytes[i]; ++i)
+            out += std::isprint(bytes[i]) ? static_cast<char>(bytes[i]) : '.';
+        return out;
+    } else if (type == "float") {
+        float f;
+        std::memcpy(&f, bytes, 4);
+        std::snprintf(text, sizeof text, "%g", static_cast<double>(f));
+    } else {
+        int32_t v;
+        std::memcpy(&v, bytes, 4);
+        std::snprintf(text, sizeof text, "%d", v);
+    }
+    return text;
 }
 
 // Fill the search value(s) of a scan, mirroring the CLI's parsing.
@@ -229,6 +287,7 @@ private:
 struct AgentSession::State {
     struct Record {
         CheatEntry entry;
+        std::string expression;   // a pointer path, followed again before every use
         bool frozen = false;
         std::string frozenValue;
     };
@@ -245,6 +304,7 @@ struct AgentSession::State {
     ValueType scanType = ValueType::Int32;
     size_t scanValueSize = 4;
     std::vector<Record> records;
+    std::vector<PointerPath> paths;   // the last pointer_scan, narrowed by pointer_rescan
 
     // Scripts the agent enabled, kept so they can be disabled (original bytes
     // restored, allocations released) on request, on a new attach, or at exit.
@@ -316,6 +376,34 @@ struct AgentSession::State {
         return options;
     }
 
+    // Follow a pointer record's path to where the value is now. False when a
+    // pointer on the way is null or unreadable.
+    bool refresh(Record& r) {
+        if (r.expression.empty()) return true;
+        auto now = address(r.expression);
+        if (!now) return false;
+        r.entry.address = *now;
+        return true;
+    }
+
+    std::optional<MemoryOperand> memoryOperand(uintptr_t at) {
+        auto arch = disassemblerArchFor(*process, at);
+        if (!arch) return std::nullopt;
+        uint8_t code[16];
+        auto got = process->read(at, code, sizeof code);
+        if (!got || *got == 0) return std::nullopt;
+        Disassembler disassembler(*arch);
+        auto decoded = disassembler.disassemble(at, {code, *got}, 1);
+        if (decoded.empty() || !decoded.front().memory.present) return std::nullopt;
+        return decoded.front().memory;
+    }
+
+    Value pathList(size_t limit) {
+        Value list = Value::array();
+        for (size_t i = 0; i < paths.size() && i < limit; ++i) list.push(Value::string(paths[i].toString()));
+        return list;
+    }
+
     std::string readValue(uintptr_t address, ValueType type, size_t size = 32) {
         auto value = readTypedValue(*process, address, type, ioOptions(address, type, size));
         return value ? *value : std::string("?");
@@ -350,7 +438,7 @@ struct AgentSession::State {
             wake.wait_for(lock, std::chrono::milliseconds(options.freezeIntervalMs));
             if (stopping || !process) continue;
             for (auto& r : records)
-                if (r.frozen)
+                if (r.frozen && refresh(r))
                     (void)writeTypedValue(*process, r.entry.address, r.entry.type, r.frozenValue,
                                           ioOptions(r.entry.address, r.entry.type, r.frozenValue.size()));
         }
@@ -387,6 +475,14 @@ std::string AgentSession::instructions() {
            "the user makes the value change, aa_template on the writing instruction, edit the code under newmem "
            "(for example remove the subtraction), aa_check, then aa_enable and ask the user to confirm. Save "
            "working scripts with add_record script so they land in the table. Scripts cannot contain {$lua}.\n"
+           "Values that move (the game reallocates them): pointer_scan the address, ask the user to make the value move "
+           "(for example load a level), find it again and pointer_rescan with its new address. add_record with a path "
+           "from the result keeps following the pointer, also when frozen. find_what_writes also reports the pointer "
+           "value an instruction used, which you can scan for (type i64) to follow a pointer by hand.\n"
+           "Code shared by several objects (one instruction writes the health of player and enemies): "
+           "find_accessed_addresses on the instruction lists the objects it touches; compare_structures with the "
+           "player's objects as group1 and the enemies' as group2 finds the field that tells them apart (a team "
+           "or owner id). Then write an injection that checks that field before the original instruction.\n"
            "Only use this for single-player games or software the user may analyze. Writes change the "
            "running program; they are refused unless the server was started with writes enabled.";
 }
@@ -408,8 +504,9 @@ std::vector<AgentToolInfo> AgentSession::tools() {
                  {"value2", prop("string", "Upper bound for compare between")}},
                 {"type"})},
         {"next_scan", "Narrow the previous scan after the value changed in the game.",
-         schema({{"compare", enumProp({"exact", "greater", "less", "between", "changed", "unchanged", "increased", "decreased", "same_as_first"}, "How the value changed (default exact)")},
-                 {"value", prop("string", "The new value, for exact/greater/less/between")},
+         schema({{"compare", enumProp({"exact", "greater", "less", "between", "changed", "unchanged", "increased", "decreased", "same_as_first",
+                                       "increased_by", "decreased_by"}, "How the value changed (default exact)")},
+                 {"value", prop("string", "The new value for exact/greater/less/between, or the amount for increased_by/decreased_by")},
                  {"value2", prop("string", "Upper bound for between")}},
                 {})},
         {"undo_scan", "Restore the results from before the last next_scan.", schema({}, {})},
@@ -433,6 +530,29 @@ std::vector<AgentToolInfo> AgentSession::tools() {
                  {"size", prop("integer", "Bytes to watch: 1, 2, 4 or 8 (default 4)")},
                  {"accesses", prop("boolean", "Also report reads (default false: writes only)")}},
                 {"address"})},
+        {"find_accessed_addresses", "Watch one instruction (usually from find_what_writes) and list every address it reads or "
+                                    "writes, with hit counts: shows whether code is shared by several objects (player and enemies). "
+                                    "Pauses the game briefly at each hit; ask the user to play during the given seconds.",
+         schema({{"address", address},
+                 {"seconds", prop("integer", "How long to watch (default 4, at most 30)")}},
+                {"address"})},
+        {"compare_structures", "Dissect structures side by side: each 4-byte field with a guessed type (i32, float, string, "
+                               "pointer) and its value in every structure. With group2, marks the fields that are equal within "
+                               "each group but different between the groups, such as a team field.",
+         schema({{"group1", Value::object().set("type", Value::string("array")).set("items", Value::object().set("type", Value::string("string")))
+                                .set("description", Value::string("Structure start addresses (for example the player's)"))},
+                 {"group2", Value::object().set("type", Value::string("array")).set("items", Value::object().set("type", Value::string("string")))
+                                .set("description", Value::string("Optional second group (for example the enemies')"))},
+                 {"size", prop("integer", "Bytes to compare from each address (default 64, at most 512)")}},
+                {"group1"})},
+        {"pointer_scan", "Find pointer paths from the game's static memory to an address, so a value the game moves can be "
+                         "found again (and frozen) after it moves. Returns the shortest paths; then pointer_rescan.",
+         schema({{"address", address},
+                 {"max_depth", prop("integer", "Pointer levels (default 4, at most 6)")},
+                 {"max_offset", prop("integer", "Largest offset at each level (default 1024)")}},
+                {"address"})},
+        {"pointer_rescan", "After the value moved, keep only the paths from pointer_scan that lead to its new address.",
+         schema({{"address", prop("string", "The value's new address")}}, {"address"})},
         {"aa_template", "Generate an Auto Assembler code-injection script for an instruction (usually one from find_what_writes). "
                         "It relocates the original instructions into a code cave and restores the exact bytes on disable; "
                         "edit the code under newmem, then aa_check and aa_enable.",
@@ -449,7 +569,8 @@ std::vector<AgentToolInfo> AgentSession::tools() {
         {"aa_disable", "Disable a script enabled with aa_enable: restores the original code and frees its memory.",
          schema({{"id", prop("integer", "Id returned by aa_enable")}}, {"id"})},
         {"aa_list", "List the scripts currently enabled in the game.", schema({}, {})},
-        {"add_record", "Add an entry to the cheat table: a value (address and type) or a script (script), with a description the user will recognize.",
+        {"add_record", "Add an entry to the cheat table: a value (address and type) or a script (script), with a description the user will recognize. "
+                       "A pointer path such as [[game+0x2010]+0x10]+0x18 is followed again on every read and freeze.",
          schema({{"address", address}, {"type", type}, {"description", prop("string", "What the entry is, e.g. Health or Infinite health")},
                  {"script", prop("string", "An Auto Assembler script, for a script entry instead of a value")}},
                 {"description"})},
@@ -527,7 +648,7 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             s.symbols.reset();
             s.result.reset();
             s.undo.reset();
-            if (!sameProcess) s.records.clear();
+            if (!sameProcess) { s.records.clear(); s.paths.clear(); }
             std::string procName;
             for (const auto& p : os::LinuxProcessEnumerator().list()) if (p.pid == pid) procName = p.name;
             s.processName = procName.empty() ? std::to_string(pid) : procName;
@@ -565,7 +686,7 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             auto compare = parseCompare(compareText);
             if (!compare) return fail("unknown compare '" + compareText + "'");
             const bool firstOnly = *compare == ScanCompare::Unknown;
-            const bool nextOnly = !comparisonTakesValue(*compare) && !firstOnly;
+            const bool nextOnly = comparisonNeedsPrevious(*compare);
             if (first && nextOnly) return fail("compare " + compareText + " needs an earlier scan; use next_scan");
             if (!first && firstOnly) return fail("compare unknown starts a scan; use first_scan");
             ScanConfig config;
@@ -691,6 +812,7 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             std::this_thread::sleep_for(std::chrono::seconds(seconds));
             finder.stop();
             Value list = Value::array();
+            bool pointerHint = false;
             for (const auto& hit : finder.results()) {
                 uintptr_t at = hit.instructionAddress;
                 std::string text = hit.instructionText;
@@ -702,8 +824,15 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
                 std::string where = s.resolver().resolve(at);
                 if (where.empty()) where = s.location(at);
                 if (!where.empty()) item.set("location", Value::string(where));
-                list.push(item.set("instruction", Value::string(text))
-                              .set("hits", Value::number(static_cast<uint64_t>(hit.hitCount))));
+                item.set("instruction", Value::string(text)).set("hits", Value::number(static_cast<uint64_t>(hit.hitCount)));
+                // [reg+offset]: the pointer the game followed is the address minus the
+                // offset, whatever the register holds after the instruction ran.
+                if (auto memory = s.memoryOperand(at); memory && !memory->ripRelative && memory->indexReg.empty() && !memory->baseReg.empty()) {
+                    item.set("pointer", Value::string(hex(*address - static_cast<uintptr_t>(memory->disp))));
+                    item.set("offset", Value::string(memory->disp < 0 ? "-" + hex(static_cast<uint64_t>(-memory->disp)) : hex(static_cast<uint64_t>(memory->disp))));
+                    pointerHint = true;
+                }
+                list.push(std::move(item));
                 if (list.arrayValue.size() >= 10) break;
             }
             Value out = Value::object().set("watched_seconds", Value::number(seconds)).set("instructions", list);
@@ -712,8 +841,128 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
                     " the address. Ask the user to make the value change, then watch again." +
                     (wine ? " (Wine: only the main thread is watched.)" : "")));
             else
-                out.set("next", Value::string("Pass the instruction address to aa_template to build an injection."));
+                out.set("next", Value::string(std::string("Pass the instruction address to aa_template to build an injection.") +
+                    (pointerHint ? " The value sits at pointer+offset: if the game moves it, pointer_scan it, or first_scan "
+                                   "type i64 for the pointer value to find where that pointer is kept." : "")));
             return ok(out);
+        }
+
+        if (name == "find_accessed_addresses") {
+            auto address = needAddress();
+            if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
+            const int seconds = static_cast<int>(std::clamp<int64_t>(args.getInt("seconds").value_or(4), 1, kMaxWatchSeconds));
+            if (!s.memoryOperand(*address)) return fail("the instruction at " + hex(*address) + " does not access memory");
+            auto accesses = findInstructionAccesses(*s.process, *address, 4096, seconds * 1000);
+            Value list = Value::array();
+            for (const auto& access : accesses) {
+                Value item = Value::object().set("address", Value::string(hex(access.address)))
+                                            .set("hits", Value::number(static_cast<int64_t>(access.hitCount)));
+                if (auto where = s.location(access.address); !where.empty()) item.set("location", Value::string(where));
+                list.push(std::move(item));
+                if (list.arrayValue.size() >= 32) break;
+            }
+            Value out = Value::object().set("watched_seconds", Value::number(seconds)).set("addresses", list);
+            out.set("next", Value::string(list.arrayValue.empty()
+                ? "The instruction did not run. Ask the user to play so it runs, then watch again."
+                : "Several addresses mean shared code. The structure starts at address minus the instruction's offset; "
+                  "compare_structures with the player's and the enemies' structures to find what tells them apart."));
+            return ok(out);
+        }
+
+        if (name == "compare_structures") {
+            auto collect = [&](const char* key, std::vector<uintptr_t>& out) -> std::optional<std::string> {
+                const Value* list = args.get(key);
+                if (!list) return std::nullopt;
+                if (!list->isArray()) return std::string(key) + " must be a list of addresses";
+                for (const auto& item : list->arrayValue) {
+                    std::string text = item.isString() ? item.stringValue : std::string();
+                    auto resolved = text.empty() ? std::nullopt : s.address(text);
+                    if (!resolved) return "cannot resolve address '" + text + "' in " + key;
+                    out.push_back(*resolved);
+                }
+                return std::nullopt;
+            };
+            std::vector<uintptr_t> group1, group2;
+            if (auto error = collect("group1", group1)) return fail(*error);
+            if (auto error = collect("group2", group2)) return fail(*error);
+            if (group1.empty()) return fail("group1 needs at least one address");
+            if (group1.size() + group2.size() > 8) return fail("compare at most 8 structures at a time");
+            const size_t size = static_cast<size_t>(std::clamp<int64_t>(args.getInt("size").value_or(64), 4, kMaxStructureBytes)) & ~size_t{3};
+            std::vector<uintptr_t> all = group1;
+            all.insert(all.end(), group2.begin(), group2.end());
+            std::vector<std::vector<uint8_t>> snapshots;
+            for (uintptr_t base : all) {
+                std::vector<uint8_t> bytes(size + 8, 0);
+                auto got = s.process->read(base, bytes.data(), bytes.size());
+                if (!got || *got < size) return fail("cannot read " + std::to_string(size) + " bytes at " + hex(base));
+                snapshots.push_back(std::move(bytes));
+            }
+            Value fields = Value::array();
+            Value discriminators = Value::array();
+            for (size_t offset = 0; offset < size; offset += 4) {
+                // The first structure decides the type; an 8-byte pointer covers two fields.
+                const std::string type = guessFieldType(snapshots[0].data() + offset, size + 8 - offset, offset % 8 == 0, *s.process);
+                const size_t width = type == "pointer" ? 8 : 4;
+                Value values = Value::array();
+                std::vector<std::vector<uint8_t>> raw;
+                for (const auto& snapshot : snapshots) {
+                    values.push(Value::string(formatField(type, snapshot.data() + offset, size + 8 - offset)));
+                    raw.emplace_back(snapshot.begin() + offset, snapshot.begin() + offset + width);
+                }
+                Value field = Value::object().set("offset", Value::string(hex(offset))).set("type", Value::string(type))
+                                             .set("values", values);
+                bool differs = false;
+                if (!group2.empty()) {
+                    auto same = [&](size_t from, size_t to) {
+                        for (size_t i = from + 1; i < to; ++i) if (raw[i] != raw[from]) return false;
+                        return true;
+                    };
+                    differs = same(0, group1.size()) && same(group1.size(), raw.size()) && raw[0] != raw[group1.size()];
+                    if (differs) {
+                        field.set("differs_between_groups", Value::boolean(true));
+                        discriminators.push(Value::string(hex(offset)));
+                    }
+                }
+                fields.push(std::move(field));
+                if (width == 8) offset += 4;
+            }
+            Value out = Value::object().set("structures", Value::number(static_cast<uint64_t>(all.size())))
+                                       .set("fields", fields);
+            if (!group2.empty()) out.set("differs_between_groups", discriminators);
+            return ok(out);
+        }
+
+        if (name == "pointer_scan") {
+            auto address = needAddress();
+            if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
+            PointerScanConfig config;
+            config.targetAddress = *address;
+            config.maxDepth = static_cast<int>(std::clamp<int64_t>(args.getInt("max_depth").value_or(4), 1, 6));
+            config.maxOffset = static_cast<int>(std::clamp<int64_t>(args.getInt("max_offset").value_or(1024), 8, 1 << 20));
+            PointerScanner scanner;
+            s.paths = scanner.scan(*s.process, config);
+            sortPointerPaths(s.paths, PointerSortKey::Depth);
+            Value out = Value::object().set("count", Value::number(static_cast<uint64_t>(s.paths.size())))
+                                       .set("paths", s.pathList(kMaxPaths));
+            if (scanner.truncated())
+                out.set("truncated", Value::string("stopped at " + std::to_string(config.maxResults) +
+                                                   " paths, so longer ones may be missing; a smaller max_offset finds them"));
+            out.set("next", Value::string(s.paths.empty()
+                ? "No path found. Try a larger max_depth or max_offset."
+                : "Ask the user to make the value move (restart the level, or whatever reallocates it), find it again, "
+                  "then pointer_rescan with its new address. add_record accepts a path directly."));
+            return ok(out);
+        }
+
+        if (name == "pointer_rescan") {
+            if (s.paths.empty()) return fail("no pointer paths; call pointer_scan first");
+            auto address = needAddress();
+            if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
+            const size_t before = s.paths.size();
+            s.paths = rescanPointerPaths(*s.process, s.paths, *address);
+            return ok(Value::object().set("before", Value::number(static_cast<uint64_t>(before)))
+                                     .set("count", Value::number(static_cast<uint64_t>(s.paths.size())))
+                                     .set("paths", s.pathList(kMaxPaths)));
         }
 
         if (name == "aa_template") {
@@ -797,7 +1046,14 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             if (!script) return fail("script must be at most 64 KiB");
             const std::string description = argString(args, "description");
             if (description.empty()) return fail("description is required");
-            if (auto checked = s.dryRun(*script); !checked.ok) return fail(checked.error);
+            // An enabled script already passed its dry run, and its assert() would
+            // now see the patched code; check only its structure.
+            const bool enabled = std::any_of(s.scripts.begin(), s.scripts.end(), [&](const auto& a) { return a.script == *script; });
+            if (enabled) {
+                if (auto checked = s.assembler.check(*script); !checked.success) return fail("script error: " + checked.error);
+            } else if (auto checked = s.dryRun(*script); !checked.ok) {
+                return fail(checked.error);
+            }
             State::Record record;
             record.entry.id = static_cast<int>(s.records.size()) + 1;
             record.entry.description = description;
@@ -819,32 +1075,42 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             record.entry.description = description;
             record.entry.address = *address;
             record.entry.type = *type;
-            // Module-relative addresses keep working after the game restarts (ASLR).
-            const std::string where = s.location(*address);
-            record.entry.addressString = where.empty() ? hex(*address) : where;
+            const std::string text = argString(args, "address");
+            if (text.find('[') != std::string::npos) {
+                record.expression = text;   // a pointer path: follow it on every use
+                record.entry.addressString = text;
+            } else {
+                // Module-relative addresses keep working after the game restarts (ASLR).
+                const std::string where = s.location(*address);
+                record.entry.addressString = where.empty() ? hex(*address) : where;
+            }
             if (*type == ValueType::String || *type == ValueType::ByteArray) record.entry.length = 32;
             s.records.push_back(record);
-            return ok(Value::object().set("index", Value::number(static_cast<uint64_t>(s.records.size() - 1)))
-                                     .set("address", Value::string(record.entry.addressString))
-                                     .set("value", Value::string(s.readValue(*address, *type))));
+            Value out = Value::object().set("index", Value::number(static_cast<uint64_t>(s.records.size() - 1)))
+                                       .set("address", Value::string(record.entry.addressString))
+                                       .set("value", Value::string(s.readValue(*address, *type)));
+            if (!record.expression.empty()) out.set("follows_pointer", Value::boolean(true));
+            return ok(out);
         }
 
         if (name == "list_records") {
             Value list = Value::array();
             for (size_t i = 0; i < s.records.size(); ++i) {
-                const auto& r = s.records[i];
+                auto& r = s.records[i];
                 if (!r.entry.autoAsmScript.empty()) {
                     list.push(Value::object().set("index", Value::number(static_cast<uint64_t>(i)))
                                              .set("description", Value::string(r.entry.description))
                                              .set("kind", Value::string("script")));
                     continue;
                 }
+                const bool resolved = s.refresh(r);
                 Value item = Value::object().set("index", Value::number(static_cast<uint64_t>(i)))
                     .set("description", Value::string(r.entry.description))
                     .set("address", Value::string(r.entry.addressString))
                     .set("type", Value::string(valueTypeName(r.entry.type)))
-                    .set("value", Value::string(s.readValue(r.entry.address, r.entry.type)))
+                    .set("value", Value::string(resolved ? s.readValue(r.entry.address, r.entry.type) : "?"))
                     .set("frozen", Value::boolean(r.frozen));
+                if (!r.expression.empty()) item.set("points_to", Value::string(resolved ? hex(r.entry.address) : "unresolved"));
                 if (r.frozen) item.set("frozen_value", Value::string(r.frozenValue));
                 list.push(std::move(item));
             }
@@ -859,6 +1125,7 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             if (!frozen) return fail("frozen must be true or false");
             auto& r = s.records[static_cast<size_t>(*index)];
             if (!r.entry.autoAsmScript.empty()) return fail("that record is a script; use aa_enable and aa_disable");
+            if (!s.refresh(r)) return fail("the record's pointer path does not lead anywhere right now");
             if (*frozen) {
                 if (!s.options.allowWrites)
                     return fail("freezing writes to the game; the user must start the server with --allow-writes");
@@ -889,6 +1156,11 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             for (const auto& r : s.records) {
                 CheatEntry entry = r.entry;
                 entry.active = r.frozen;
+                if (!r.expression.empty())
+                    if (auto chain = parsePointerExpression(r.expression)) {
+                        entry.addressString = chain->base;
+                        entry.offsets = chain->offsets;
+                    }
                 if (entry.autoAsmScript.empty())
                     entry.value = r.frozen ? r.frozenValue : s.readValue(r.entry.address, r.entry.type);
                 table.entries.push_back(std::move(entry));

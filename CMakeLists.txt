@@ -417,6 +417,33 @@ if(Qt6_FOUND)
     endif()
     message(STATUS "Qt6 found — building GUI")
 
+    # ── Tutorial game ──
+    # A game to practice on, step by step; also the target of the tutorial
+    # gates. It does not link cecore. game.c is the code players change: -O1
+    # keeps each of those changes to one plain instruction whatever the build
+    # type, and it is never instrumented, so injected code meets the
+    # instructions the tutorial describes.
+    qt_add_executable(cetutorial
+        tutorial/main.cpp
+        tutorial/window.cpp
+        tutorial/text_mode.cpp
+        tutorial/game.c
+    )
+    set_source_files_properties(tutorial/game.c PROPERTIES COMPILE_OPTIONS "-O1;-falign-functions=16;-fno-sanitize=all")
+    target_include_directories(cetutorial PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(cetutorial PRIVATE Qt6::Widgets Threads::Threads)
+
+    # The graphical tutorial: three small game levels, built the same way.
+    qt_add_executable(cegtutorial
+        tutorial/graphical/main.cpp
+        tutorial/graphical/window.cpp
+        tutorial/graphical/text_mode.cpp
+        tutorial/graphical/game.c
+    )
+    set_source_files_properties(tutorial/graphical/game.c PROPERTIES COMPILE_OPTIONS "-O1;-fno-sanitize=all")
+    target_include_directories(cegtutorial PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(cegtutorial PRIVATE Qt6::Widgets Threads::Threads)
+
     # Headless offscreen smoke test for the interactive debugger window.
     if(CECORE_BUILD_TESTS)
         if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64|aarch64|arm64)$")
@@ -793,7 +820,7 @@ if(TARGET cescan)
     install(TARGETS cescan RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 if(TARGET cheatengine)
-    install(TARGETS cheatengine RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(TARGETS cheatengine cetutorial cegtutorial RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     install(FILES packaging/cheatengine.desktop
             DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
     install(FILES packaging/cheatengine.png

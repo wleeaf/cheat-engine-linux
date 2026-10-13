@@ -215,7 +215,42 @@ static void test_memory_access_problem() {
 // The agent tools through the MCP server, against a real child process: the
 // protocol handshake, tool listing, attach, scanning, write gating, freezing,
 // and a saved table that loads back.
+// A discarded scan removes its directory; the CLI keeps the ones it prints.
+static void test_scan_directory_cleanup() {
+    printf("\n── Test: Scan results clean up after themselves ──\n");
+    static volatile int32_t values[64];
+    for (int i = 0; i < 64; ++i) values[i] = 0x5eed0000 + (i % 3);
+    LinuxProcessHandle proc(getpid());
+    MemoryScanner scanner(1);
+    ScanConfig config;
+    config.valueType = ValueType::Int32;
+    config.compareType = ScanCompare::Exact;
+    config.intValue = 0x5eed0001;
+    config.startAddress = reinterpret_cast<uintptr_t>(values);
+    config.stopAddress = config.startAddress + sizeof values - 1;
+    std::filesystem::path firstDir, nextDir, keptDir;
+    {
+        ScanResult first = scanner.firstScan(proc, config);
+        firstDir = first.directory().parent_path();
+        ScanResult next = scanner.nextScan(proc, config, first);
+        nextDir = next.directory().parent_path();
+        printf("  results exist while in use: %s\n",
+               std::filesystem::exists(firstDir) && std::filesystem::exists(nextDir) && next.count() == 21 ? "OK" : "FAILED");
+        ScanResult kept = scanner.firstScan(proc, config);
+        kept.keepFiles();
+        keptDir = kept.directory().parent_path();
+    }
+    printf("  discarded results remove their directories: %s\n",
+           !std::filesystem::exists(firstDir) && !std::filesystem::exists(nextDir) ? "OK" : "FAILED");
+    printf("  keepFiles leaves them for a later scan: %s\n", std::filesystem::exists(keptDir) ? "OK" : "FAILED");
+    std::filesystem::remove_all(keptDir);
+}
+
 static volatile int g_agentHealth = 4711;
+// Two game objects and the pointer that picks one: the agent's pointer records
+// must follow the pointer when the game switches objects.
+static int32_t g_agentObjects[2][4] = {{1, 5, 40, 9}, {2, 5, 40, 9}};
+static int32_t* volatile g_agentPointer = g_agentObjects[0];
 static void test_agent_mcp() {
     printf("\n── Test: Agent tools over MCP ──\n");
     int ready[2];
@@ -293,6 +328,30 @@ static void test_agent_mcp() {
                !error && undone.getInt("count") == scan.getInt("count") ? "OK" : "FAILED");
         tool(readOnly, "write", "{\"address\":\"" + std::string(hexAddress) + "\",\"type\":\"i32\",\"value\":\"1\"}", &error);
         printf("  write is refused without --allow-writes: %s\n", error ? "OK" : "FAILED");
+        // Unknown value that changes by a known amount.
+        {
+            ce::os::LinuxProcessHandle process(child);
+            const int32_t start = 0x2468ace;
+            (void)process.write(address, &start, sizeof start);
+            tool(readOnly, "first_scan", "{\"type\":\"i32\",\"value\":\"38177486\"}", &error);
+            const int32_t raised = start + 7;
+            (void)process.write(address, &raised, sizeof raised);
+        }
+        auto by = tool(readOnly, "next_scan", "{\"compare\":\"increased_by\",\"value\":\"7\"}", &error);
+        bool foundBy = false;
+        if (const auto* candidates = by.get("candidates"))
+            for (const auto& c : candidates->arrayValue) foundBy = foundBy || c.getString("address") == hexAddress;
+        printf("  next_scan increased_by finds the value: %s\n", !error && foundBy ? "OK" : "FAILED");
+        tool(readOnly, "first_scan", "{\"type\":\"i32\",\"compare\":\"increased_by\",\"value\":\"7\"}", &error);
+        printf("  increased_by needs an earlier scan: %s\n", error ? "OK" : "FAILED");
+        char objects[2][32];
+        for (int i = 0; i < 2; ++i)
+            std::snprintf(objects[i], sizeof objects[i], "0x%lx", static_cast<unsigned long>(reinterpret_cast<uintptr_t>(g_agentObjects[i])));
+        auto compared = tool(readOnly, "compare_structures", std::string("{\"group1\":[\"") + objects[0] + "\"],\"group2\":[\"" +
+                             objects[1] + "\"],\"size\":16}", &error);
+        const auto* differs = compared.get("differs_between_groups");
+        printf("  compare_structures finds the field that differs: %s\n",
+               !error && differs && differs->arrayValue.size() == 1 && differs->arrayValue[0].stringValue == "0x0" ? "OK" : "FAILED");
     }
     {
         ce::AgentSessionOptions options;
@@ -324,6 +383,30 @@ static void test_agent_mcp() {
         printf("  save_table will not overwrite by default: %s\n", error ? "OK" : "FAILED");
         tool(session, "save_table", "{\"path\":\"/tmp/x.sh\"}", &error);
         printf("  save_table only writes .CT or .json: %s\n", error ? "OK" : "FAILED");
+        std::filesystem::remove(path);
+
+        // A pointer record keeps following the pointer, frozen or not.
+        char pointerPath[64];
+        std::snprintf(pointerPath, sizeof pointerPath, "[0x%lx]+8",
+                      static_cast<unsigned long>(reinterpret_cast<uintptr_t>(&g_agentPointer)));
+        auto pointerRecord = tool(session, "add_record", std::string("{\"address\":\"") + pointerPath +
+                                  "\",\"type\":\"i32\",\"description\":\"Moving value\"}", &error);
+        printf("  add_record keeps a pointer path: %s\n",
+               !error && pointerRecord.getBool("follows_pointer").value_or(false) ? "OK" : "FAILED");
+        tool(session, "set_frozen", "{\"index\":1,\"frozen\":true,\"value\":\"321\"}", &error);
+        int32_t* const moved = g_agentObjects[1];
+        (void)process.write(reinterpret_cast<uintptr_t>(&g_agentPointer), &moved, sizeof moved);
+        usleep(150000);
+        int32_t followed = 0;
+        (void)process.read(reinterpret_cast<uintptr_t>(&g_agentObjects[1][2]), &followed, sizeof followed);
+        printf("  a frozen pointer record follows the pointer: %s (%d)\n", !error && followed == 321 ? "OK" : "FAILED", followed);
+        std::filesystem::remove(path);
+        tool(session, "save_table", "{\"path\":\"" + path + "\"}", &error);
+        ce::CheatTable pointerTable;
+        const bool pointerLoaded = !error && pointerTable.loadAuto(path);
+        printf("  save_table stores the pointer as base and offsets: %s\n",
+               pointerLoaded && pointerTable.entries.size() == 2 && pointerTable.entries[1].offsets == std::vector<int64_t>{8}
+                   ? "OK" : "FAILED");
         std::filesystem::remove(path);
     }
     kill(child, SIGKILL);
@@ -11636,6 +11719,7 @@ int main(int argc, char* argv[]) {
     test_recover_store();
     test_memory_access_problem();
     test_agent_mcp();
+    test_scan_directory_cleanup();
     test_cheat_table_json();
     test_mono_dissector_parse();
     test_breakpoint_condition();

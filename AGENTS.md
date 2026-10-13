@@ -19,7 +19,15 @@ parity with Cheat Engine on Windows.
   and refuse game writes unless `allowWrites`. Scripts are dry-run through
   `DryRunProcess` (real reads, private writes and allocations) before
   `aa_enable`, and the session disables its scripts when it ends. Tested by
-  `test_agent_mcp` in `cecore_test` and end to end by `test/mcp_gate.py`.
+  `test_agent_mcp` in `cecore_test`, end to end by `test/mcp_gate.py`, and on
+  the tutorial games by `test/tutorial_gate.py`.
+- Tutorial games: `tutorial/` (`cetutorial`, nine steps) and
+  `tutorial/graphical/` (`cegtutorial`, three levels). Qt front ends and a
+  `--text` mode over shared C game logic (`game.c`, built at `-O1` without
+  sanitizers so the code the steps change stays one plain instruction; values
+  the checks read go through `LOAD`). `test/tutorial_gate.py` finishes both
+  with the CLI and with the agent tools; a change to a step's code or text
+  needs the gate rerun. `--screenshots DIR` renders every step.
 - Docs: `docs/COMPATIBILITY.md` (feature by target), `docs/PROGRESS.md`
   (work log, newest first), `docs/COVERAGE_PLAN.md`, `docs/SCRIPTING.md`,
   `CHANGELOG.md`. The version is `project(... VERSION ...)` in `CMakeLists.txt`.

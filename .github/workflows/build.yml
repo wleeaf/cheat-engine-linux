@@ -226,6 +226,25 @@ jobs:
         # Root: under Yama ptrace_scope 1 the server cannot read a game it did not start.
         run: sudo python3 test/mcp_gate.py build --report build/compatibility-evidence/mcp-agent.json
 
+      - name: Finish both tutorial games with the CLI and the agent tools
+        timeout-minutes: 15
+        # No root: the tutorials allow any tracer with PR_SET_PTRACER, as a game
+        # meant to be practised on should.
+        run: |
+          python3 test/tutorial_gate.py build --report build/compatibility-evidence/tutorial-gate.json
+          QT_QPA_PLATFORM=offscreen ./build/cetutorial --screenshots build/compatibility-evidence/tutorial-screens
+          QT_QPA_PLATFORM=offscreen ./build/cegtutorial --screenshots build/compatibility-evidence/tutorial-screens
+
+      - name: Save the tutorial results and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tutorial-evidence
+          path: |
+            build/compatibility-evidence/tutorial-gate.json
+            build/compatibility-evidence/tutorial-screens
+          if-no-files-found: warn
+
       - name: Run JIT runtime workflows (Node/V8, HotSpot, Mono, CoreCLR)
         # Stock runtimes cannot opt in with PR_SET_PTRACER, so Yama scope 1
         # needs root to attach to them from a separately started tool.

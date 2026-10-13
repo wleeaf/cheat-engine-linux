@@ -289,6 +289,7 @@ std::vector<PointerPath> PointerScanner::scanWithMap(const PointerMap& map,
         config.maxDepth <= 0 || config.maxOffset < 0)
         return {};
 
+    truncated_.store(false);
     const std::vector<PointerMap::Entry>& entries = map.entriesByTarget();
     const std::vector<ModuleInfo>& modules = map.modules();
 
@@ -364,8 +365,7 @@ std::vector<PointerPath> PointerScanner::scanWithMap(const PointerMap& map,
                     path.offsets = newOffsets;
                     results.push_back(std::move(path));
 
-                    // Cap results
-                    if (results.size() >= 10000) goto done;
+                    if (results.size() >= config.maxResults) { truncated_.store(true); goto done; }
                 }
             } else if (!config.staticOnly &&
                        (config.shardCount <= 1 || ((it->locatedAt >> 12) % config.shardCount) == config.shardIndex)) {
@@ -376,7 +376,7 @@ std::vector<PointerPath> PointerScanner::scanWithMap(const PointerMap& map,
                 path.baseOffset = it->locatedAt;
                 path.offsets = newOffsets;
                 results.push_back(std::move(path));
-                if (results.size() >= 10000) goto done;
+                if (results.size() >= config.maxResults) { truncated_.store(true); goto done; }
             }
 
             // Go deeper if not at max depth and not static-only

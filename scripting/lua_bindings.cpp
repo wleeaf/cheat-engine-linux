@@ -1581,6 +1581,9 @@ static int l_getAddressFromName(lua_State* L) {
     if (!r) { lua_pushnil(L); return 1; }
     const char* name = luaL_checkstring(L, 1);
     auto addr = r->lookup(name);
+    // Like getAddress (and Cheat Engine), also accept module+offset and [pointer] paths.
+    if (!addr)
+        if (auto parsed = ExpressionParser(getProc(L), r).parse(name)) addr = *parsed;
     if (addr) lua_pushinteger(L, (lua_Integer)addr);
     else lua_pushnil(L);
     return 1;

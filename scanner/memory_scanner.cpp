@@ -1594,11 +1594,16 @@ ScanResult::~ScanResult() {
     if (offsetFd_ >= 0) close(offsetFd_);
     if (valueFd_ >= 0) close(valueFd_);
     if (firstValueFd_ >= 0) close(firstValueFd_);
+    if (!ownedRoot_.empty()) {
+        std::error_code ignored;
+        std::filesystem::remove_all(ownedRoot_, ignored);
+    }
 }
 
 void ScanResult::swap(ScanResult& other) noexcept {
     using std::swap;
     swap(dir_, other.dir_);
+    swap(ownedRoot_, other.ownedRoot_);
     swap(count_, other.count_);
     swap(valueSize_, other.valueSize_);
     swap(hasDataFormat_,other.hasDataFormat_);swap(byteOrder_,other.byteOrder_);swap(pointerWidth_,other.pointerWidth_);
@@ -2390,7 +2395,9 @@ std::unique_ptr<ScanResult> pruneScanResult(const ScanResult& src, size_t valueS
     // firstValue is carried across, letting a later "same as first scan" / directional
     // Next Scan compare correctly. Matches arrive (and are re-emitted) in ascending
     // address order, which the frame encoding in addResult requires.
-    auto out = std::make_unique<ScanResult>(makeScanDir() / "results", /*storeFirst=*/true);
+    const auto pruneDir = makeScanDir();
+    auto out = std::make_unique<ScanResult>(pruneDir / "results", /*storeFirst=*/true);
+    out->adoptDirectory(pruneDir);
     if (src.hasDataFormat()) out->setDataFormat(src.byteOrder(),src.pointerWidth());
     const bool all=src.hasAllTypeCandidates();
     if (all) out->enableAllTypeCandidates();
@@ -2512,7 +2519,7 @@ ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& reque
         if (r.size>SIZE_MAX-totalMem) throw std::invalid_argument("Total scan span exceeds the frontend size limit");
         totalMem+=r.size;
     }
-    if (totalMem == 0) { ScanResult empty(resultDir / "results", false); empty.setDataFormat(config.byteOrder,config.pointerWidth);if (config.valueType==ValueType::All) empty.enableAllTypeCandidates();empty.finalize(); return empty; }
+    if (totalMem == 0) { ScanResult empty(resultDir / "results", false); empty.adoptDirectory(resultDir); empty.setDataFormat(config.byteOrder,config.pointerWidth);if (config.valueType==ValueType::All) empty.enableAllTypeCandidates();empty.finalize(); return empty; }
 
     // Scan dispatch lambda (reused by each thread). `customEval` is a
     // per-thread evaluator for ValueType::Custom (null for other types).
@@ -2689,7 +2696,7 @@ ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& reque
     // Drives the thread partition and the progress denominator below.
     totalMem = 0;
     for (const auto& c : chunks) totalMem += c.owned;
-    if (totalMem == 0) { ScanResult empty(resultDir / "results", false); empty.setDataFormat(config.byteOrder,config.pointerWidth);empty.finalize(); return empty; }
+    if (totalMem == 0) { ScanResult empty(resultDir / "results", false); empty.adoptDirectory(resultDir); empty.setDataFormat(config.byteOrder,config.pointerWidth);empty.finalize(); return empty; }
 
     // Only fan out across cores when the handle tolerates concurrent reads
     // (process_vm_readv does; a socket-backed ceserver handle does not).
@@ -2753,7 +2760,9 @@ ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& reque
 
     // Reference the worker files in place (in address order) — no merge copy.
     if (gdbTarget && !proc.targetDescription().live) throw std::runtime_error("GDB target disconnected during scanning");
-    return assembleShardedResult(resultDir / "results", threadResults);
+    auto merged = assembleShardedResult(resultDir / "results", threadResults);
+    merged.adoptDirectory(resultDir);
+    return merged;
 }
 
 ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& requested, const ScanResult& previous) {
@@ -2833,6 +2842,7 @@ ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& reques
     size_t total = previous.count();
     if (total == 0) {
         ScanResult empty(resultDir / "results");
+        empty.adoptDirectory(resultDir);
         if (config.valueType==ValueType::All) empty.enableAllTypeCandidates();
         empty.setDataFormat(config.byteOrder,config.pointerWidth);empty.finalize();
         return empty;
@@ -2960,6 +2970,7 @@ ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& reques
 
     if (nThreads == 1) {
         ScanResult result(resultDir / "results");
+        result.adoptDirectory(resultDir);
         const std::atomic<bool> failed{false};
         try { worker(0, total, result, failed); }
         catch (...) { rethrowScanFailure(std::current_exception()); }
@@ -2982,7 +2993,9 @@ ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& reques
 
     // Reference the worker files in place (in address order) — no merge copy.
     if (gdbTarget && !proc.targetDescription().live) throw std::runtime_error("GDB target disconnected during scanning");
-    return assembleShardedResult(resultDir / "results", parts);
+    auto merged = assembleShardedResult(resultDir / "results", parts);
+    merged.adoptDirectory(resultDir);
+    return merged;
 }
 
 } // namespace ce

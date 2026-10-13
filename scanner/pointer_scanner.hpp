@@ -32,6 +32,10 @@ struct PointerScanConfig {
     size_t    shardCount = 1;       // Total distributed workers
     bool      useGpu = false;       // Offload per-region candidate filter to CUDA when available
     size_t    gpuMinRegionBytes = 1u << 20;  // Skip GPU for regions below this size (transfer overhead)
+    // Stop after this many paths. Paths come shortest first, so a scan that stops
+    // early misses the deeper ones; truncated() says so, and a smaller maxOffset
+    // usually brings them back.
+    size_t    maxResults = 100000;
 };
 
 /// Build one config per worker. Merged results are equivalent to a full scan.
@@ -119,9 +123,13 @@ public:
 
     void cancel() { cancelled_.store(true); }
 
+    /// The last scan stopped at config.maxResults.
+    bool truncated() const { return truncated_.load(); }
+
 private:
     std::atomic<float> progress_{0};
     std::atomic<bool> cancelled_{false};
+    std::atomic<bool> truncated_{false};
 };
 
 // ── Result-set persistence and post-processing ──

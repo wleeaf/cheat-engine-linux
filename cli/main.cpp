@@ -14,6 +14,7 @@
 #include "symbols/elf_symbols.hpp"
 #include "scanner/pointer_scanner.hpp"
 #include "debug/code_finder.hpp"
+#include "debug/instruction_access.hpp"
 #include "scripting/lua_engine.hpp"
 #include "core/simple_address_list.hpp"
 #include "core/types.hpp"   // ce::moduleOffsetString
@@ -84,13 +85,17 @@ static void usage() {
         "  freeze <pid> <addr> <val> [--type <t>] [--codec <c>] [--be] [--interval <ms>]\n"
         "         [--count <n>] [--mode normal|floor|ceil]  Lock a value: re-write it until Ctrl-C\n"
         "                                (floor = never let it drop, ceil = never rise;\n"
-        "                                 --codec locks an obfuscated value by its value)\n"
+        "                                 --codec locks an obfuscated value by its value;\n"
+        "                                 a [pointer]+offset path is followed on every write)\n"
         "  watch <pid> <addr> [--access] [--regs] [--size <n>] [--duration <s>]\n"
         "        [--mode hw|sw|st]       Find what writes (or --access: reads+writes) an\n"
         "                                address: lists the instructions that touch it.\n"
         "                                Wine-safe by default (main-thread hardware watch);\n"
         "                                --regs dumps registers + the base-pointer for a\n"
         "                                pointer path\n"
+        "  accessed <pid> <instruction> [--duration <s>]  List the addresses one\n"
+        "                                instruction reads or writes, with hit counts\n"
+        "                                (shared code: which objects it touches)\n"
         "  disasm <pid> <addr> [count] [--arch x86-32|x86-64|arm32|arm64]  Disassemble\n"
         "                                instructions (arch auto-detected from the target)\n"
         "  asm \"<instr>\" [--arch x86-32|x86-64|arm32|arm64]  Assemble to bytes (no target\n"
@@ -140,7 +145,8 @@ static void usage() {
         "                    grouped --value format: type:value@offset;type:value@offset\n"
         "                    custom --value must be a Lua chunk returning true/false\n"
         "  --compare <cmp>   exact, greater, less, between, changed,\n"
-        "                    unchanged, increased, decreased, unknown, samefirst\n"
+        "                    unchanged, increased, decreased, unknown, samefirst,\n"
+        "                    increasedby, decreasedby (--value is the amount)\n"
         "  --previous <dir>  Previous scan result directory (for next scan)\n"
         "  --percent <pct>   Percentage threshold for next-scan compare\n"
         "  --percent2 <pct>  Upper bound for percentage 'between'\n"
@@ -243,6 +249,8 @@ static ScanCompare parseCompare(const char* s) {
     if (!strcmp(s, "unchanged")) return ScanCompare::Unchanged;
     if (!strcmp(s, "increased")) return ScanCompare::Increased;
     if (!strcmp(s, "decreased")) return ScanCompare::Decreased;
+    if (!strcmp(s, "increasedby") || !strcmp(s, "increased-by")) return ScanCompare::IncreasedBy;
+    if (!strcmp(s, "decreasedby") || !strcmp(s, "decreased-by")) return ScanCompare::DecreasedBy;
     if (!strcmp(s, "unknown"))   return ScanCompare::Unknown;
     if (!strcmp(s, "samefirst") || !strcmp(s, "same-as-first") || !strcmp(s, "sameasfirst"))
         return ScanCompare::SameAsFirst;
@@ -395,8 +403,14 @@ static void onFreezeSignal(int) { g_freezeStop = 1; }
 // value by its logical value. Runs until SIGINT/SIGTERM.
 static int cmd_freeze(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt,
                       ce::ValueCodec codec, unsigned intervalMs, ce::FreezeMode mode,
-                      bool bigEndian = false, size_t maxCycles = 0, bool terminate = false, const std::string& encoding = "UTF-8", bool isSigned = true, std::optional<ByteOrder> byteOrder = std::nullopt) {
+                      bool bigEndian = false, size_t maxCycles = 0, bool terminate = false, const std::string& encoding = "UTF-8", bool isSigned = true, std::optional<ByteOrder> byteOrder = std::nullopt,
+                      const char* expression = nullptr) {
     LinuxProcessHandle proc(pid);
+    // A pointer path ([[game+0x10]+8]) is followed again before every write, so
+    // the freeze keeps up when the game moves the value, as a table record does.
+    std::unique_ptr<SymbolResolver> resolver;
+    const bool followPointer = expression && std::strchr(expression, '[');
+    if (followPointer) { resolver = std::make_unique<SymbolResolver>(); resolver->loadProcess(proc); }
     if (codec.active() && (vt == ValueType::Float || vt == ValueType::Double)) {
         fprintf(stderr, "freeze: --codec applies to integer types only\n"); return 1;
     }
@@ -416,13 +430,23 @@ static int cmd_freeze(pid_t pid, uintptr_t addr, const char* valStr, ValueType v
     signal(SIGTERM, onFreezeSignal);
     const char* modeStr = mode==ce::FreezeMode::NeverDecrease ? " (floor)"
                         : mode==ce::FreezeMode::NeverIncrease ? " (ceiling)" : "";
-    printf("Freezing 0x%lx = %s%s%s every %u ms. Ctrl-C to stop.\n", addr, valStr,
-           codec.active() ? " [encoded]" : "", modeStr, intervalMs);
+    if (followPointer)
+        printf("Freezing %s (now 0x%lx) = %s%s%s every %u ms, following the pointer. Ctrl-C to stop.\n", expression, addr,
+               valStr, codec.active() ? " [encoded]" : "", modeStr, intervalMs);
+    else
+        printf("Freezing 0x%lx = %s%s%s every %u ms. Ctrl-C to stop.\n", addr, valStr,
+               codec.active() ? " [encoded]" : "", modeStr, intervalMs);
+    fflush(stdout);
 
     unsigned long long writes=0, misses=0; size_t cycles = 0;
     const struct timespec ts{ intervalMs/1000, (long)(intervalMs%1000)*1000000L };
     while (!g_freezeStop && (!maxCycles || cycles < maxCycles)) {
         ++cycles;
+        if (followPointer) {
+            auto resolved = ExpressionParser(&proc, resolver.get()).parse(expression);
+            if (!resolved) { ++misses; if (maxCycles && cycles >= maxCycles) break; nanosleep(&ts, nullptr); continue; }
+            addr = *resolved;
+        }
         bool doWrite = true;
         if (mode != ce::FreezeMode::Normal) {
             auto comparison = compareTypedValue(proc, addr, vt, valStr, options);
@@ -528,6 +552,27 @@ static int cmd_watch(pid_t pid, uintptr_t addr, bool writesOnly, int watchSize,
         printf("  %6llu x  0x%lx  %s%s%s\n", static_cast<unsigned long long>(r.hitCount), (unsigned long)insAddr,
                insText.c_str(), loc.empty() ? "" : "   ; ", loc.c_str());
         if (showRegs) dumpWriterRegs(r.firstContext, addr);
+    }
+    return 0;
+}
+
+// Find out what addresses this instruction accesses: break on it each time it
+// runs and tally the address its memory operand resolves to.
+static int cmd_accessed(pid_t pid, uintptr_t instruction, int durationSec) {
+    LinuxProcessHandle proc(pid);
+    printf("Watching the instruction at 0x%lx for %ds. Ctrl-C to stop.\n", (unsigned long)instruction, durationSec);
+    fflush(stdout);
+    auto accesses = ce::findInstructionAccesses(proc, instruction, 1 << 20, durationSec * 1000);
+    if (accesses.empty()) {
+        printf("No accesses observed: the instruction did not run, has no memory operand, or could not be traced.\n");
+        return 1;
+    }
+    const auto modules = proc.modules();
+    printf("\n%zu address(es) accessed (most hits first):\n", accesses.size());
+    for (const auto& access : accesses) {
+        std::string loc = ce::moduleOffsetString(modules, access.address);
+        printf("  %6d x  0x%lx%s%s\n", access.hitCount, (unsigned long)access.address,
+               loc.empty() ? "" : "   ; ", loc.c_str());
     }
     return 0;
 }
@@ -863,6 +908,7 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
             result=std::make_unique<ScanResult>(scanner.firstScan(proc,config));
         }
         if (result->hasWriteError()) {fprintf(stderr,"Incomplete scan result files\n");return 1;}
+        result->keepFiles();   // for a later --previous scan
         printf("Found: %zu results\nResults: %s\n",result->count(),result->directory().c_str());
         const size_t size=result->valueSize();
         std::vector<uint8_t> value(size);
@@ -1942,7 +1988,15 @@ int main(int argc, char** argv) {
             else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
         }
         if (interval < 1) interval = 1;
-        return cmd_freeze(parsePid(argv[2]), parseAddress(argv[2], argv[3]), argv[4], vt, codec, interval, mode, bigEndian, maxCycles, terminate, encoding, isSigned, byteOrder);
+        return cmd_freeze(parsePid(argv[2]), parseAddress(argv[2], argv[3]), argv[4], vt, codec, interval, mode, bigEndian, maxCycles, terminate, encoding, isSigned, byteOrder, argv[3]);
+    }
+    else if (!strcmp(cmd, "accessed") && argc >= 4) {
+        int duration = 4;
+        for (int i = 4; i < argc; ++i) {
+            if (!strcmp(argv[i], "--duration") && i + 1 < argc) duration = (int)strtoul(argv[++i], nullptr, 0);
+            else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
+        }
+        return cmd_accessed(parsePid(argv[2]), parseAddress(argv[2], argv[3]), std::clamp(duration, 1, 600));
     }
     else if (!strcmp(cmd, "watch") && argc >= 4) {
         bool writesOnly = true, showRegs = false; int watchSize = 4, duration = 10, mode = 0;

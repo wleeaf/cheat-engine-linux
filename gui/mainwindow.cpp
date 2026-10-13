@@ -973,6 +973,16 @@ void MainWindow::setupMenus() {
                     "https://github.com/wleeaf/cheat-engine-linux/blob/main/docs/SCRIPTING.md");
     });
     help->addSeparator();
+    // The tutorial games are installed next to cheatengine.
+    auto launchTutorial = [this](const QString& program) {
+        const QString path = QCoreApplication::applicationDirPath() + "/" + program;
+        if (!QProcess::startDetached(path, {}))
+            QMessageBox::warning(this, "Tutorial not found",
+                QString("Could not start %1. It is installed next to cheatengine.").arg(path));
+    };
+    help->addAction("Cheat Engine Tutorial...", this, [launchTutorial]() { launchTutorial("cetutorial"); });
+    help->addAction("Graphical Tutorial...", this, [launchTutorial]() { launchTutorial("cegtutorial"); });
+    help->addSeparator();
     help->addAction("About", this, [this]() {
         QMessageBox::about(this, "About Cheat Engine for Linux",
             QString("<h2 style='margin-bottom:2px'>Cheat Engine for Linux</h2>"

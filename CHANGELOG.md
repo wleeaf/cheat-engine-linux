@@ -24,6 +24,30 @@ reimplementation of Cheat Engine).
   embedded Lua, and are undone when the session ends. The tools live in cecore (`core/agent_tools`) so
   a GUI agent panel can share them; a shared JSON module replaces the table
   loader's private parser. See [docs/MCP.md](docs/MCP.md).
+- Tutorial games replace `sample_game.c`: `cetutorial` (nine steps, from an
+  exact value to pointers, code injection and shared code, with step
+  passwords) and `cegtutorial` (three game levels). Both open from the Help
+  menu and run in a terminal with `--text`. `test/tutorial_gate.py` finishes
+  every step and level twice in CI, once with the `cescan` commands and once
+  through the agent tools.
+- New agent tools found missing while playing the tutorials:
+  `pointer_scan` and `pointer_rescan`, `find_accessed_addresses`,
+  `compare_structures`, `next_scan` increased and decreased by an amount,
+  table records that follow a pointer path (also when frozen, saved as base
+  and offsets), and `find_what_writes` reporting the pointer each instruction
+  followed. An enabled script can now be saved to the table.
+- `cescan`: `scan --compare increasedby|decreasedby`, `accessed` (the
+  addresses one instruction touches), and `freeze` follows a `[pointer]+offset`
+  path on every write instead of resolving it once.
+- Fixed: every scan left its result files in the temporary directory (RAM on
+  most desktops) until reboot; results now delete their files when discarded
+  (`cescan scan` keeps the ones it prints for `--previous`).
+- Fixed: pointer scans stopped at 10,000 paths and kept the short ones, so
+  with the default maximum offset a four-level path could be missing. The limit
+  is now 100,000, and the pointer scan window and the agent tool say when it
+  was reached.
+- Lua `getAddressFromName` accepts module+offset and pointer paths, like
+  `getAddress` and Cheat Engine.
 
 ## v1.0.0: first stable release (2026-10-13)
 

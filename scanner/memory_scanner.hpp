@@ -165,6 +165,15 @@ public:
 
     const std::filesystem::path& directory() const { return dir_; }
 
+    /// A scan's final result owns its scan directory (the results and every
+    /// worker shard under it) and deletes it when destroyed, so discarded scans
+    /// do not pile up in the temporary directory. A result opened from an
+    /// existing directory owns nothing.
+    void adoptDirectory(const std::filesystem::path& root) { ownedRoot_ = root; }
+    /// Leave the files on disk after this object is gone (the CLI prints the
+    /// directory for a later --previous scan).
+    void keepFiles() { ownedRoot_.clear(); }
+
     /// Each backing shard's directory and record count, in address order. A scan
     /// splits its output across worker shards and the result references them in
     /// place (via a shards.txt manifest) instead of concatenating into one file,
@@ -197,6 +206,7 @@ public:
 
 private:
     std::filesystem::path dir_;
+    std::filesystem::path ownedRoot_;
     size_t count_ = 0;
     size_t valueSize_ = 0;
     bool hasDataFormat_ = false;

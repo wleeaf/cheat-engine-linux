@@ -68,6 +68,18 @@ cescan lua script.lua                       # run a Lua script
 cescan --help                               # everything else
 ```
 
+## Learn with the tutorials
+
+Two games made to be changed come with the app (Help menu, or from a terminal):
+
+- `cetutorial`: nine steps, from an exact value scan to pointers, code
+  injection and code shared by players and enemies. Each step shows a password
+  to come back to it.
+- `cegtutorial`: three small game levels: a health bar, an overheating gun and
+  a jump that is too low.
+
+Both also run in a terminal with `--text`.
+
 ## AI agents
 
 `cescan mcp` lets an AI agent (Claude Code, Claude Desktop or any MCP client)

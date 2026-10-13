@@ -108,10 +108,11 @@ void PointerScanDialog::onScan() {
     results_ = scanner.scan(*proc_, config);
 
     populateResults();
-    if (results_.size() > 1000)
-        statusLabel_->setText(QString("Found %1 paths (showing first 1000)").arg(results_.size()));
-    else
-        statusLabel_->setText(QString("Found %1 paths").arg(results_.size()));
+    QString status = results_.size() > 1000 ? QString("Found %1 paths (showing first 1000)").arg(results_.size())
+                                            : QString("Found %1 paths").arg(results_.size());
+    if (scanner.truncated())
+        status += ". The scan stopped at its path limit, so longer paths may be missing: lower Max offset and scan again.";
+    statusLabel_->setText(status);
     scanBtn_->setEnabled(true);
 }
 

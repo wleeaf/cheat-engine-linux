@@ -32,6 +32,12 @@ widget, so data tables now take the monospace font from the theme sheet
 (`monospace` property). The full lifecycle, debugger, register, search,
 hex-view, disassembler, Lua console, guest-scan, code-finder, change-address,
 structure and theme smokes pass locally, and CI is green.
+The installed `cheatengine` binary was also captured directly (`CE_SCREENSHOT`,
+first run, attached, Memory Viewer, Settings) at 1x, 1.5x and 2x in both
+themes, and the whole harness was rendered at `QT_SCALE_FACTOR=1.5`; chevrons,
+check marks and text stay sharp at every scale. Analysis windows were captured
+with real data (code references, find statics, pointer scan, ELF tabs), which
+surfaced versioned C++ symbols (`...@Qt_6`) left mangled; they now demangle.
 
 ## Frontends inside every ISA guest; coverage complete: 12 October 2026
 

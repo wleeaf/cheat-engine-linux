@@ -4661,7 +4661,7 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
         auto* console = new LuaConsole(&luaEngine_, this);
         console->setAttribute(Qt::WA_DeleteOnClose); console->show();
     });
-    tools->addAction("Find Statics / ELF Inspector", this, [this]() {
+    tools->addAction("ELF Inspector", this, [this]() {
         QString initial;
         if (process_) { auto mods = process_->modules(); if (!mods.empty()) initial = QString::fromStdString(mods.front().path); }
         auto* dlg = new ElfInspector(initial, this);

@@ -2,6 +2,10 @@
 
 #include "arch/disassembler.hpp"
 #include "arch/target_arch.hpp"
+#include "core/autoasm.hpp"
+#include "core/injection_gen.hpp"
+#include "debug/code_finder.hpp"
+#include "platform/linux/ptrace_wrapper.hpp"
 #include "core/ct_file.hpp"
 #include "core/expression.hpp"
 #include "core/target_capabilities.hpp"
@@ -15,6 +19,7 @@
 #include "symbols/elf_symbols.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <atomic>
 #include <cctype>
 #include <condition_variable>
@@ -35,6 +40,8 @@ using json::Value;
 constexpr size_t kMaxCandidates = 50;
 constexpr size_t kMaxInstructions = 40;
 constexpr size_t kMaxReadBytes = 256;
+constexpr size_t kMaxScriptBytes = 64 * 1024;
+constexpr int kMaxWatchSeconds = 30;
 
 std::string hex(uint64_t v) {
     char buffer[24];
@@ -131,6 +138,92 @@ std::string argString(const Value& args, const char* key) {
     return {};
 }
 
+
+// Runs an Auto Assembler script against the real process without changing it:
+// reads come from the game, while writes and allocations land in a private
+// overlay. A dry run assembles every instruction, resolves symbols and checks
+// assert() against the live code, which the structural check() cannot do.
+class DryRunProcess : public ProcessHandle {
+public:
+    explicit DryRunProcess(ProcessHandle& inner) : inner_(inner), regions_(inner.queryRegions()) {}
+
+    pid_t pid() const override { return inner_.pid(); }
+    bool is64bit() const override { return inner_.is64bit(); }
+    bool runs32BitCode() override { return inner_.runs32BitCode(); }
+    TargetDescription targetDescription() override { return inner_.targetDescription(); }
+    TargetMachine machineAt(uintptr_t address) override { return inner_.machineAt(address); }
+    std::vector<MemoryRegion> queryRegions() override { return inner_.queryRegions(); }
+    std::optional<MemoryRegion> queryRegion(uintptr_t address) override {
+        for (const auto& [base, bytes] : allocations_)
+            if (address >= base && address < base + bytes.size())
+                return MemoryRegion{base, bytes.size(), MemProt::All, MemType::Private, MemState::Committed, ""};
+        return inner_.queryRegion(address);
+    }
+    std::vector<ModuleInfo> modules() override { return inner_.modules(); }
+    std::vector<ThreadInfo> threads() override { return inner_.threads(); }
+
+    Result<size_t> read(uintptr_t address, void* buffer, size_t size) override {
+        auto* out = static_cast<uint8_t*>(buffer);
+        if (auto* block = allocationAt(address, size)) {
+            std::memcpy(out, block->second.data() + (address - block->first), size);
+            return size;
+        }
+        auto got = inner_.read(address, buffer, size);
+        if (!got) return got;
+        for (const auto& [at, bytes] : writes_)   // show the script its own earlier writes
+            for (size_t i = 0; i < bytes.size(); ++i)
+                if (at + i >= address && at + i < address + *got) out[at + i - address] = bytes[i];
+        return got;
+    }
+    Result<size_t> write(uintptr_t address, const void* buffer, size_t size) override {
+        const auto* in = static_cast<const uint8_t*>(buffer);
+        if (auto* block = allocationAt(address, size)) {
+            std::memcpy(block->second.data() + (address - block->first), in, size);
+            return size;
+        }
+        writes_.push_back({address, std::vector<uint8_t>(in, in + size)});
+        return size;
+    }
+    Result<size_t> writeCode(uintptr_t address, const void* buffer, size_t size) override { return write(address, buffer, size); }
+    Result<uintptr_t> allocate(size_t size, MemProt, uintptr_t preferredBase) override {
+        // A free spot near the preferred address, so rel32 jumps encode as they will for real.
+        const uintptr_t step = 0x10000;
+        uintptr_t candidate = (preferredBase ? preferredBase : 0x10000000) & ~(step - 1);
+        const size_t rounded = (size + step - 1) & ~(step - 1);
+        for (int attempt = 0; attempt < 32768; ++attempt, candidate += step)
+            if (isFree(candidate, rounded)) {
+                allocations_.push_back({candidate, std::vector<uint8_t>(rounded, 0)});
+                return candidate;
+            }
+        return std::unexpected(std::make_error_code(std::errc::not_enough_memory));
+    }
+    Result<void> free(uintptr_t, size_t) override { return {}; }
+    Result<void> protect(uintptr_t, size_t, MemProt) override { return {}; }
+
+    size_t patchedBytes() const {
+        size_t total = 0;
+        for (const auto& w : writes_) total += w.second.size();
+        return total;
+    }
+    size_t allocations() const { return allocations_.size(); }
+
+private:
+    std::pair<uintptr_t, std::vector<uint8_t>>* allocationAt(uintptr_t address, size_t size) {
+        for (auto& block : allocations_)
+            if (address >= block.first && address + size <= block.first + block.second.size()) return &block;
+        return nullptr;
+    }
+    bool isFree(uintptr_t base, size_t size) const {
+        for (const auto& r : regions_) if (base < r.base + r.size && r.base < base + size) return false;
+        for (const auto& a : allocations_) if (base < a.first + a.second.size() && a.first < base + size) return false;
+        return true;
+    }
+
+    ProcessHandle& inner_;
+    std::vector<MemoryRegion> regions_;
+    std::vector<std::pair<uintptr_t, std::vector<uint8_t>>> allocations_;
+    std::vector<std::pair<uintptr_t, std::vector<uint8_t>>> writes_;
+};
 } // namespace
 
 struct AgentSession::State {
@@ -152,6 +245,45 @@ struct AgentSession::State {
     ValueType scanType = ValueType::Int32;
     size_t scanValueSize = 4;
     std::vector<Record> records;
+
+    // Scripts the agent enabled, kept so they can be disabled (original bytes
+    // restored, allocations released) on request, on a new attach, or at exit.
+    struct ActiveScript {
+        int id = 0;
+        std::string description;
+        std::string script;
+        DisableInfo disable;
+    };
+    AutoAssembler assembler;   // no Lua evaluator: agent scripts cannot run {$lua}
+    std::vector<ActiveScript> scripts;
+    int nextScriptId = 1;
+
+    struct DryRunResult { bool ok = false; std::string error; size_t patchedBytes = 0, allocations = 0; };
+    // Structural check, then a full assemble against the live code with every
+    // write and allocation kept in an overlay: nothing in the game changes.
+    DryRunResult dryRun(const std::string& script) {
+        DryRunResult out;
+        if (auto checked = assembler.check(script); !checked.success) { out.error = "script error: " + checked.error; return out; }
+        DryRunProcess dry(*process);
+        AutoAssembler scratch;   // its own symbol table: a dry run registers nothing for real
+        auto result = scratch.execute(dry, script);
+        if (!result.success) { out.error = "script error: " + result.error; return out; }
+        out.ok = true;
+        out.patchedBytes = dry.patchedBytes();
+        out.allocations = dry.allocations();
+        return out;
+    }
+
+    // Disable every enabled script. Returns the ones that failed.
+    std::vector<std::string> disableAll() {
+        std::vector<std::string> failures;
+        for (auto it = scripts.rbegin(); it != scripts.rend(); ++it) {
+            auto result = assembler.disable(*process, it->script, it->disable);
+            if (!result.success) failures.push_back("#" + std::to_string(it->id) + ": " + result.error);
+        }
+        scripts.clear();
+        return failures;
+    }
 
     std::atomic<bool> stopping{false};
     std::condition_variable wake;
@@ -234,6 +366,8 @@ AgentSession::~AgentSession() {
     {
         std::lock_guard lock(state_->mutex);
         state_->stopping = true;
+        // Leave the game as it was: undo injected code the agent enabled.
+        if (state_->process) state_->disableAll();
     }
     state_->wake.notify_all();
     if (state_->freezer.joinable()) state_->freezer.join();
@@ -249,6 +383,10 @@ std::string AgentSession::instructions() {
            "keep it, and save_table so the user can reuse it.\n"
            "Floats: use type float and the value the game shows. Unknown starting value: first_scan "
            "with compare unknown, then next_scan increased/decreased/unchanged.\n"
+           "To change behaviour (for example health never decreasing): find_what_writes on the address while "
+           "the user makes the value change, aa_template on the writing instruction, edit the code under newmem "
+           "(for example remove the subtraction), aa_check, then aa_enable and ask the user to confirm. Save "
+           "working scripts with add_record script so they land in the table. Scripts cannot contain {$lua}.\n"
            "Only use this for single-player games or software the user may analyze. Writes change the "
            "running program; they are refused unless the server was started with writes enabled.";
 }
@@ -288,9 +426,33 @@ std::vector<AgentToolInfo> AgentSession::tools() {
         {"disassemble", "Disassemble instructions at an address, with symbols.",
          schema({{"address", address}, {"count", prop("integer", "Instructions (default 12, at most 40)")}},
                 {"address"})},
-        {"add_record", "Add an address to the cheat table, with a description the user will recognize.",
-         schema({{"address", address}, {"type", type}, {"description", prop("string", "What the value is, e.g. Health")}},
-                {"address", "type", "description"})},
+        {"find_what_writes", "Watch an address and report the instructions that write to it (or read it, with accesses true). "
+                             "Blocks for the given seconds: ask the user to make the value change in the game during that time.",
+         schema({{"address", address},
+                 {"seconds", prop("integer", "How long to watch (default 8, at most 30)")},
+                 {"size", prop("integer", "Bytes to watch: 1, 2, 4 or 8 (default 4)")},
+                 {"accesses", prop("boolean", "Also report reads (default false: writes only)")}},
+                {"address"})},
+        {"aa_template", "Generate an Auto Assembler code-injection script for an instruction (usually one from find_what_writes). "
+                        "It relocates the original instructions into a code cave and restores the exact bytes on disable; "
+                        "edit the code under newmem, then aa_check and aa_enable.",
+         schema({{"address", address},
+                 {"kind", enumProp({"code", "aob"}, "code: module+offset address (default); aob: found by a unique byte signature, survives game updates")}},
+                {"address"})},
+        {"aa_check", "Check an Auto Assembler script for errors without touching the game.",
+         schema({{"script", prop("string", "The full script with [ENABLE] and [DISABLE] sections")}}, {"script"})},
+        {"aa_enable", "Enable an Auto Assembler script in the game (patches its code; needs writes enabled). "
+                      "Returns an id for aa_disable. A wrong script can crash the game: check it first and tell the user what it changes.",
+         schema({{"script", prop("string", "The full script with [ENABLE] and [DISABLE] sections")},
+                 {"description", prop("string", "What the script does, e.g. Infinite health")}},
+                {"script", "description"})},
+        {"aa_disable", "Disable a script enabled with aa_enable: restores the original code and frees its memory.",
+         schema({{"id", prop("integer", "Id returned by aa_enable")}}, {"id"})},
+        {"aa_list", "List the scripts currently enabled in the game.", schema({}, {})},
+        {"add_record", "Add an entry to the cheat table: a value (address and type) or a script (script), with a description the user will recognize.",
+         schema({{"address", address}, {"type", type}, {"description", prop("string", "What the entry is, e.g. Health or Infinite health")},
+                 {"script", prop("string", "An Auto Assembler script, for a script entry instead of a value")}},
+                {"description"})},
         {"list_records", "List the cheat table with live values.", schema({}, {})},
         {"set_frozen", "Freeze a record at a value (kept in memory continuously), or unfreeze it. Freezing needs writes enabled.",
          schema({{"index", prop("integer", "Record index from list_records")},
@@ -358,6 +520,7 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             auto process = std::make_unique<os::LinuxProcessHandle>(pid);
             if (auto problem = memoryAccessProblem(*process)) return fail("cannot read this process: " + *problem);
             const bool sameProcess = s.pid == pid;
+            if (s.process) s.disableAll();   // never leave a previous target patched
             s.process = std::move(process);
             s.pid = pid;
             s.modules = s.process->modules();
@@ -509,6 +672,141 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             return ok(Value::object().set("instructions", lines));
         }
 
+
+        if (name == "find_what_writes") {
+            auto address = needAddress();
+            if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
+            const int seconds = static_cast<int>(std::clamp<int64_t>(args.getInt("seconds").value_or(8), 1, kMaxWatchSeconds));
+            const int size = static_cast<int>(args.getInt("size").value_or(4));
+            if (size != 1 && size != 2 && size != 4 && size != 8) return fail("size must be 1, 2, 4 or 8");
+            const bool writesOnly = !args.getBool("accesses").value_or(false);
+            // Wine/Proton: watch the main thread only with a hardware register; stopping
+            // the whole thread group or the software page guard would freeze the game.
+            const bool wine = probeTarget(s.pid).wine;
+            os::LinuxDebugger debugger;
+            CodeFinder finder;
+            if (!finder.start(*s.process, debugger, *address, writesOnly, size, /*software=*/false, /*singleThread=*/wine))
+                return fail("could not watch the address: " +
+                            targetOperationError(*s.process, TargetFeature::HardwareWatchpoint, finder.lastError()));
+            std::this_thread::sleep_for(std::chrono::seconds(seconds));
+            finder.stop();
+            Value list = Value::array();
+            for (const auto& hit : finder.results()) {
+                uintptr_t at = hit.instructionAddress;
+                std::string text = hit.instructionText;
+                // A hardware trap stops after the store; recover the exact instruction.
+                auto recovered = recoverStoreInstruction(*s.process, s.resolver(), hit.firstContext.instructionPointer(),
+                                                         s.process->is64bit());
+                if (recovered.ok) { at = recovered.address; text = recovered.text; }
+                Value item = Value::object().set("address", Value::string(hex(at)));
+                std::string where = s.resolver().resolve(at);
+                if (where.empty()) where = s.location(at);
+                if (!where.empty()) item.set("location", Value::string(where));
+                list.push(item.set("instruction", Value::string(text))
+                              .set("hits", Value::number(static_cast<uint64_t>(hit.hitCount))));
+                if (list.arrayValue.size() >= 10) break;
+            }
+            Value out = Value::object().set("watched_seconds", Value::number(seconds)).set("instructions", list);
+            if (list.arrayValue.empty())
+                out.set("next", Value::string(std::string("Nothing ") + (writesOnly ? "wrote" : "touched") +
+                    " the address. Ask the user to make the value change, then watch again." +
+                    (wine ? " (Wine: only the main thread is watched.)" : "")));
+            else
+                out.set("next", Value::string("Pass the instruction address to aa_template to build an injection."));
+            return ok(out);
+        }
+
+        if (name == "aa_template") {
+            auto address = needAddress();
+            if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
+            const std::string kind = argString(args, "kind").empty() ? "code" : argString(args, "kind");
+            if (kind != "code" && kind != "aob") return fail("kind must be code or aob");
+            std::string error;
+            std::string script = generateInjectionScript(*s.process, *address,
+                kind == "aob" ? InjectionKind::Aob : InjectionKind::Code, error);
+            if (script.empty()) return fail("cannot build an injection here: " + error);
+            return ok(Value::object().set("script", Value::string(script))
+                .set("next", Value::string("Edit the code under newmem (keep the relocated original instructions unless "
+                                           "you mean to skip them), then aa_check and aa_enable.")));
+        }
+
+        auto needScript = [&]() -> std::optional<std::string> {
+            std::string script = argString(args, "script");
+            if (script.empty() || script.size() > kMaxScriptBytes) return std::nullopt;
+            return script;
+        };
+
+        if (name == "aa_check") {
+            auto script = needScript();
+            if (!script) return fail("script is required (at most 64 KiB)");
+            if (auto checked = s.dryRun(*script); !checked.ok) return fail(checked.error);
+            else return ok(Value::object().set("ok", Value::boolean(true))
+                                          .set("would_patch_bytes", Value::number(static_cast<uint64_t>(checked.patchedBytes)))
+                                          .set("would_allocate", Value::number(static_cast<uint64_t>(checked.allocations))));
+        }
+
+        if (name == "aa_enable") {
+            if (!s.options.allowWrites)
+                return fail("enabling a script patches the game; the user must start the server with --allow-writes");
+            auto script = needScript();
+            if (!script) return fail("script is required (at most 64 KiB)");
+            const std::string description = argString(args, "description");
+            if (description.empty()) return fail("description is required");
+            if (auto checked = s.dryRun(*script); !checked.ok) return fail(checked.error);
+            auto result = s.assembler.execute(*s.process, *script);
+            if (!result.success) return fail("enable failed: " + result.error);
+            Value patches = Value::array();
+            for (const auto& original : result.disableInfo.originals) {
+                Value patch = Value::object().set("address", Value::string(hex(original.address)))
+                                             .set("bytes", Value::number(static_cast<uint64_t>(original.bytes.size())));
+                if (auto where = s.location(original.address); !where.empty()) patch.set("location", Value::string(where));
+                patches.push(std::move(patch));
+            }
+            Value allocations = Value::array();
+            for (const auto& allocation : result.disableInfo.allocs)
+                allocations.push(Value::object().set("name", Value::string(allocation.name))
+                                                .set("address", Value::string(hex(allocation.address)))
+                                                .set("size", Value::number(static_cast<uint64_t>(allocation.size))));
+            State::ActiveScript active{s.nextScriptId++, description, *script, std::move(result.disableInfo)};
+            const int id = active.id;
+            s.scripts.push_back(std::move(active));
+            return ok(Value::object().set("id", Value::number(id)).set("patched", patches).set("allocated", allocations)
+                .set("next", Value::string("Ask the user whether it works in the game. aa_disable undoes it; add_record "
+                                           "with the script saves it to the table.")));
+        }
+
+        if (name == "aa_disable") {
+            auto id = args.getInt("id");
+            auto it = std::find_if(s.scripts.begin(), s.scripts.end(), [&](const auto& a) { return id && a.id == *id; });
+            if (it == s.scripts.end()) return fail("no enabled script with that id; see aa_list");
+            auto result = s.assembler.disable(*s.process, it->script, it->disable);
+            if (!result.success) return fail("disable failed: " + result.error);
+            s.scripts.erase(it);
+            return ok(Value::object().set("disabled", Value::number(*id)));
+        }
+
+        if (name == "aa_list") {
+            Value list = Value::array();
+            for (const auto& a : s.scripts)
+                list.push(Value::object().set("id", Value::number(a.id)).set("description", Value::string(a.description)));
+            return ok(Value::object().set("enabled", list));
+        }
+
+        if (name == "add_record" && !argString(args, "script").empty()) {
+            auto script = needScript();
+            if (!script) return fail("script must be at most 64 KiB");
+            const std::string description = argString(args, "description");
+            if (description.empty()) return fail("description is required");
+            if (auto checked = s.dryRun(*script); !checked.ok) return fail(checked.error);
+            State::Record record;
+            record.entry.id = static_cast<int>(s.records.size()) + 1;
+            record.entry.description = description;
+            record.entry.autoAsmScript = *script;
+            s.records.push_back(record);
+            return ok(Value::object().set("index", Value::number(static_cast<uint64_t>(s.records.size() - 1)))
+                                     .set("kind", Value::string("script")));
+        }
+
         if (name == "add_record") {
             auto address = needAddress();
             if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
@@ -535,6 +833,12 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             Value list = Value::array();
             for (size_t i = 0; i < s.records.size(); ++i) {
                 const auto& r = s.records[i];
+                if (!r.entry.autoAsmScript.empty()) {
+                    list.push(Value::object().set("index", Value::number(static_cast<uint64_t>(i)))
+                                             .set("description", Value::string(r.entry.description))
+                                             .set("kind", Value::string("script")));
+                    continue;
+                }
                 Value item = Value::object().set("index", Value::number(static_cast<uint64_t>(i)))
                     .set("description", Value::string(r.entry.description))
                     .set("address", Value::string(r.entry.addressString))
@@ -554,6 +858,7 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
                 return fail("index must be a record index from list_records");
             if (!frozen) return fail("frozen must be true or false");
             auto& r = s.records[static_cast<size_t>(*index)];
+            if (!r.entry.autoAsmScript.empty()) return fail("that record is a script; use aa_enable and aa_disable");
             if (*frozen) {
                 if (!s.options.allowWrites)
                     return fail("freezing writes to the game; the user must start the server with --allow-writes");
@@ -584,7 +889,8 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             for (const auto& r : s.records) {
                 CheatEntry entry = r.entry;
                 entry.active = r.frozen;
-                entry.value = r.frozen ? r.frozenValue : s.readValue(r.entry.address, r.entry.type);
+                if (entry.autoAsmScript.empty())
+                    entry.value = r.frozen ? r.frozenValue : s.readValue(r.entry.address, r.entry.type);
                 table.entries.push_back(std::move(entry));
             }
             const bool saved = extension == ".ct" ? table.save(path) : table.saveJson(path);

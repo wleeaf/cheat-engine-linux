@@ -10,6 +10,7 @@ Usage: test/mcp_gate.py <build-dir> [--report file.json]
 import argparse
 import json
 import os
+import re
 import pathlib
 import subprocess
 import sys
@@ -108,10 +109,78 @@ def main():
             error, rejected = tool("first_scan", type="i32", compare="increased")
             check("an invalid request is refused with a reason", error and "next_scan" in rejected.get("error", ""), rejected)
 
-            table = work / "game.CT"
-            error, saved = tool("save_table", path=str(table))
-            text = table.read_text() if table.exists() else ""
-            check("save_table writes a Cheat Engine table", not error and "Health" in text and "game+" in text, saved)
+            # Change behaviour with Auto Assembler, on a copy of the game that takes damage.
+            damaged = subprocess.Popen([str(game_bin), "--damage"], stdout=subprocess.PIPE, text=True)
+            try:
+                hurt_health = damaged.stdout.readline().split()[0]
+                error, attached = tool("attach", target=str(damaged.pid))
+                check("attach to the game that takes damage", not error, attached)
+                error, writers = tool("find_what_writes", address=hurt_health, seconds=2)
+                found = writers.get("instructions", [])
+                check("find_what_writes finds the code that lowers health",
+                      not error and found and "take_damage" in found[0].get("location", ""), writers)
+                error, template = tool("aa_template", address=found[0]["address"]) if found else (True, {})
+                script = template.get("script", "")
+                check("aa_template builds an injection with a restore section",
+                      not error and "[ENABLE]" in script and "[DISABLE]" in script and "db " in script, template)
+                # The agent's edit: drop the relocated store, so health is never written.
+                edited, changes = re.subn(r"(\ncode:\n)(  (?!jmp)[^\n]*\n)", r"\1  // health no longer decreases\n", script, count=1)
+                error, checked = tool("aa_check", script=edited)
+                check("aa_check accepts the edited script", changes == 1 and not error, checked)
+                error, broken = tool("aa_check", script="[ENABLE]\nnot an instruction\n[DISABLE]\n")
+                check("aa_check reports a broken script", error and "error" in broken, broken)
+                error, lua = tool("aa_check", script="[ENABLE]\n{$lua}\nreturn ''\n{$asm}\n[DISABLE]\n")
+                check("agent scripts cannot run Lua", error, lua)
+                # The dry run assembles against the live code, so it catches what a structural check cannot.
+                code_bytes = lambda: tool("read", address=found[0]["address"], type="aob", size=6)[1].get("value")
+                original = code_bytes()
+                typo = edited.replace("// health no longer decreases", "movv eax, 1")
+                error, typo_result = tool("aa_check", script=typo)
+                check("aa_check catches a misspelled instruction", error, typo_result)
+                stale = re.sub(r"assert\(INJECT,[^)]*\)", "assert(INJECT,90 90 90 90 90 90)", edited)
+                error, stale_result = tool("aa_check", script=stale)
+                check("aa_check catches an assert that no longer matches the code", error, stale_result)
+                check("aa_check leaves the game's code untouched", code_bytes() == original, (original, code_bytes()))
+
+                error, enabled = tool("aa_enable", script=edited, description="Infinite health")
+                before = tool("read", address=hurt_health, type="i32")[1].get("value")
+                time.sleep(0.6)
+                after = tool("read", address=hurt_health, type="i32")[1].get("value")
+                check("aa_enable stops the damage", not error and before == after, (enabled, before, after))
+                error, listed = tool("aa_list")
+                check("aa_list shows the enabled script",
+                      not error and [s["description"] for s in listed["enabled"]] == ["Infinite health"], listed)
+                error, disabled = tool("aa_disable", id=enabled.get("id", -1))
+                start = tool("read", address=hurt_health, type="i32")[1].get("value")
+                time.sleep(0.6)
+                later = tool("read", address=hurt_health, type="i32")[1].get("value")
+                check("aa_disable restores the original code", not error and start != later, (disabled, start, later))
+
+                # A session that ends (the client quits or crashes) undoes its scripts.
+                calls = [{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                          "params": {"name": "attach", "arguments": {"target": str(damaged.pid)}}},
+                         {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                          "params": {"name": "aa_enable", "arguments": {"script": edited, "description": "Infinite health"}}}]
+                short = subprocess.run([str(build / "cescan"), "mcp", "--allow-writes"], capture_output=True, text=True,
+                                       input="".join(json.dumps(c) + "\n" for c in calls), timeout=60)
+                replies = [json.loads(line) for line in short.stdout.splitlines() if line.strip()]
+                enabled_in_short = len(replies) == 2 and not replies[1]["result"]["isError"]
+                first_read = tool("read", address=hurt_health, type="i32")[1].get("value")
+                time.sleep(0.6)
+                second_read = tool("read", address=hurt_health, type="i32")[1].get("value")
+                check("ending the session undoes its scripts", enabled_in_short and first_read != second_read,
+                      (short.stdout[-300:], first_read, second_read))
+
+                error, record = tool("add_record", description="Infinite health", script=edited)
+                check("add_record stores the script", not error and record.get("kind") == "script", record)
+                table = work / "game.CT"
+                error, saved = tool("save_table", path=str(table))
+                text = table.read_text() if table.exists() else ""
+                check("save_table writes the script entry", not error and "Infinite health" in text
+                      and "Auto Assembler Script" in text, saved)
+            finally:
+                damaged.kill()
+                damaged.wait()
         finally:
             server.stdin.close()
             try:

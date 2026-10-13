@@ -128,6 +128,7 @@ private:
     bool releaseTargetUsers(bool force = false);
     bool releaseTargetUsersOnce(bool force);
     bool scanInProgress_ = false;   // a scan worker is using process_
+    QAction* pauseAction_ = nullptr;   // Process > Pause the process
     QPointer<ce::gui::ChangeAddressDialog> openAddressDialog_;   // reads process_ while open
     void trackTargetWindow(QWidget* window) { targetWindows_.push_back(window); }
     std::vector<QPointer<QWidget>> targetWindows_;

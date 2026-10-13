@@ -540,6 +540,13 @@ int l_sl_saveToFile(lua_State* L) {
 int l_sl_loadFromFile(lua_State* L) {
     auto* sl = checkSL(L, 1);
     const char* path = luaL_checkstring(L, 2);
+    // A regular file of at most 64 MiB: a device such as /dev/zero would grow
+    // one line without end, and a FIFO would block.
+    constexpr std::uintmax_t kMaxListFile = std::uintmax_t(64) << 20;
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec)) { lua_pushboolean(L, 0); return 1; }
+    const auto size = std::filesystem::file_size(path, ec);
+    if (ec || size > kMaxListFile) { lua_pushboolean(L, 0); return 1; }
     std::ifstream in(path);
     if (!in.is_open()) { lua_pushboolean(L, 0); return 1; }
     std::vector<std::string> items;

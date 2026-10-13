@@ -62,6 +62,25 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Fixed: a scan value that is not a number (an empty box, "12a", a pointer
+  without "0x" while Hex is off) quietly scanned for 0; it is now refused.
+  Pointer values follow the Hex box.
+- Fixed: a toggle hotkey set from the address list's menu did nothing until
+  some unrelated change; keypad hotkeys grabbed the top-row digit in every
+  application (X11) or bound the wrong key (Wayland).
+- Fixed: Enter and "Add selected" kept scan-only types (All, Grouped, Custom,
+  Binary), adding records that could never show or edit a value; the "Add
+  Address" button ignored Length, Hex and Signed; right-click Paste used a
+  separate parser that dropped most fields; a custom-type Next Scan failed
+  after a First Scan without Fast Scan; disabled script records showed "??".
+- Fixed: "Pause the process" left the old process stopped after opening
+  another one, and a process started with Create Process was never reaped,
+  so its exit went unnoticed.
+- Fixed: Lua `read*Local` on a bad address crashed Cheat Engine (they now
+  return nil), `StringList.loadFromFile` and `writeRegionFromFile` on a device
+  grew without limit, scan and value options that ran Lua could free the
+  scan or the process in use, and an Auto Assembler disable handle could be
+  destroyed twice.
 - Fixed: Unicode String records became 4 Bytes integers whenever a table was
   loaded, pasted or reloaded, so edits wrote integers over the text.
 - Fixed: crashes when the target changed or exited at the wrong moment: while

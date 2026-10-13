@@ -87,7 +87,21 @@ Display* x11Display() {
     return nullptr;
 }
 
-unsigned long qtKeyToKeysym(int key) {
+unsigned long qtKeyToKeysym(int key, bool keypad = false) {
+    // Keypad keys are their own keysyms: grabbing the top-row digit instead
+    // would take that key from every application.
+    if (keypad) {
+        if (key >= Qt::Key_0 && key <= Qt::Key_9) return XK_KP_0 + (key - Qt::Key_0);
+        switch (key) {
+            case Qt::Key_Asterisk: return XK_KP_Multiply;
+            case Qt::Key_Plus:     return XK_KP_Add;
+            case Qt::Key_Minus:    return XK_KP_Subtract;
+            case Qt::Key_Period:   return XK_KP_Decimal;
+            case Qt::Key_Slash:    return XK_KP_Divide;
+            case Qt::Key_Enter:    return XK_KP_Enter;
+            default:               return NoSymbol;
+        }
+    }
     if (key >= Qt::Key_A && key <= Qt::Key_Z) return XK_a + (key - Qt::Key_A);
     if (key >= Qt::Key_0 && key <= Qt::Key_9) return XK_0 + (key - Qt::Key_0);
     if (key >= Qt::Key_F1 && key <= Qt::Key_F35) return XK_F1 + (key - Qt::Key_F1);
@@ -158,7 +172,7 @@ bool GlobalHotkeyManager::registerHotkey(int id, const QKeySequence& seq) {
 
     // Use the first chord of the sequence (CE hotkeys are single chords).
     const QKeyCombination combo = seq[0];
-    unsigned long keysym = qtKeyToKeysym(combo.key());
+    unsigned long keysym = qtKeyToKeysym(combo.key(), combo.keyboardModifiers() & Qt::KeypadModifier);
     if (keysym == NoSymbol) return false;
     KeyCode keycode = XKeysymToKeycode(dpy, keysym);
     if (keycode == 0) return false;

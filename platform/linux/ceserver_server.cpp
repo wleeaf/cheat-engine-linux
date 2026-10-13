@@ -17,7 +17,7 @@
 #include <array>
 #include <cerrno>
 #include <cstdio>
-#include <fstream>
+#include <fcntl.h>
 #include <optional>
 #include <sstream>
 
@@ -126,9 +126,9 @@ struct CeserverServer::ClientState {
 };
 
 // The uid owning the client end of an accepted loopback connection, from
-// /proc/net/tcp: the client's socket has the peer address as its local end
-// and ours as its remote end.
-static std::optional<uid_t> loopbackPeerUid(int fd) {
+// /proc/net/tcp (tableFd, re-read from the start each time): the client's
+// socket has the peer address as its local end and ours as its remote end.
+static std::optional<uid_t> loopbackPeerUid(int fd, int tableFd) {
     sockaddr_in peer{}, self{};
     socklen_t peerLength = sizeof peer, selfLength = sizeof self;
     if (getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &peerLength) != 0 || peer.sin_family != AF_INET ||
@@ -138,7 +138,16 @@ static std::optional<uid_t> loopbackPeerUid(int fd) {
     char wantLocal[32], wantRemote[32];
     std::snprintf(wantLocal, sizeof wantLocal, "%08X:%04X", peer.sin_addr.s_addr, ntohs(peer.sin_port));
     std::snprintf(wantRemote, sizeof wantRemote, "%08X:%04X", self.sin_addr.s_addr, ntohs(self.sin_port));
-    std::ifstream table("/proc/net/tcp");
+    std::string contents;
+    char buffer[16384];
+    for (off_t offset = 0;;) {
+        const ssize_t got = ::pread(tableFd, buffer, sizeof buffer, offset);
+        if (got < 0 && errno == EINTR) continue;
+        if (got <= 0) break;
+        contents.append(buffer, static_cast<size_t>(got));
+        offset += got;
+    }
+    std::istringstream table(contents);
     std::string line;
     std::getline(table, line);   // header
     while (std::getline(table, line)) {
@@ -171,10 +180,13 @@ uint16_t CeserverServer::start(uint16_t port) {
     }
     int wake=eventfd(0,EFD_CLOEXEC|EFD_NONBLOCK);
     if (wake<0) { ::close(listener);return 0; }
+    const int tcpTable=::open("/proc/net/tcp",O_RDONLY|O_CLOEXEC);
+    if (tcpTable<0) { ::close(listener);::close(wake);return 0; }
+    tcpTableFd_=tcpTable;
     listenFd_=listener;wakeFd_=wake;port_=ntohs(addr.sin_port);running_=true;
     try { thread_=std::thread(&CeserverServer::acceptLoop,this,listener,wake); }
     catch (...) {
-        running_=false;port_=0;::close(listener);::close(wake);listenFd_=-1;wakeFd_=-1;
+        running_=false;port_=0;::close(listener);::close(wake);listenFd_=-1;wakeFd_=-1;::close(tcpTableFd_);tcpTableFd_=-1;
         return 0;
     }
     return port_.load();
@@ -204,6 +216,7 @@ void CeserverServer::stop() {
     clients_.clear();
     if (listenFd_>=0) { ::close(listenFd_);listenFd_=-1; }
     if (wakeFd_>=0) { ::close(wakeFd_);wakeFd_=-1; }
+    if (tcpTableFd_>=0) { ::close(tcpTableFd_);tcpTableFd_=-1; }
     port_=0;
 }
 
@@ -244,7 +257,7 @@ void CeserverServer::acceptLoop(int listener,int wakeFd) {
         }
         // The protocol has no authentication and grants full access to this
         // user's processes, so only this user's own programs may connect.
-        if (auto owner = loopbackPeerUid(fd); !owner || *owner != getuid()) { ::close(fd); continue; }
+        if (auto owner = loopbackPeerUid(fd, tcpTableFd_); !owner || *owner != getuid()) { ::close(fd); continue; }
         std::lock_guard sockets(socketMutex_);
         if (!running_.load()) { ::close(fd);break; }
         // Resource exhaustion affects this connection, not the accept owner or

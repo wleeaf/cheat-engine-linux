@@ -131,6 +131,20 @@ QString keySequenceToPortalTrigger(const QKeySequence& seq) {
     if (mods & Qt::ShiftModifier)   parts << QStringLiteral("SHIFT");
     if (mods & Qt::MetaModifier)    parts << QStringLiteral("LOGO");   // Super/Windows
 
+    // Keypad keys by their XKB names ("KP_1"), not the top-row key.
+    if (mods & Qt::KeypadModifier) {
+        QString keypadName;
+        if (key >= Qt::Key_0 && key <= Qt::Key_9) keypadName = QStringLiteral("KP_%1").arg(key - Qt::Key_0);
+        else if (key == Qt::Key_Asterisk) keypadName = QStringLiteral("KP_Multiply");
+        else if (key == Qt::Key_Plus) keypadName = QStringLiteral("KP_Add");
+        else if (key == Qt::Key_Minus) keypadName = QStringLiteral("KP_Subtract");
+        else if (key == Qt::Key_Period) keypadName = QStringLiteral("KP_Decimal");
+        else if (key == Qt::Key_Slash) keypadName = QStringLiteral("KP_Divide");
+        else if (key == Qt::Key_Enter) keypadName = QStringLiteral("KP_Enter");
+        if (keypadName.isEmpty()) return QString();
+        parts << keypadName;
+        return parts.join(QLatin1Char('+'));
+    }
     // The bare key name, upper-cased ("G", "F1", "SPACE"). Building a sequence
     // from just the key strips the modifiers QKeySequence would otherwise print.
     const QString keyName =

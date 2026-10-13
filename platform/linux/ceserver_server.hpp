@@ -36,6 +36,7 @@ private:
 
     int listenFd_ = -1;
     int wakeFd_ = -1;
+    int tcpTableFd_ = -1;   // /proc/net/tcp, opened once: a peer check needs no new descriptor
     // Serialize start/stop, including their complete thread ownership changes.
     std::mutex lifecycleMutex_;
     // Each worker closes its socket under this lock. Shutdown and worker

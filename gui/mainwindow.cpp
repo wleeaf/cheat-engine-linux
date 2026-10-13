@@ -84,6 +84,8 @@
 #include <QColorDialog>
 #include <QListWidget>
 #include <sys/prctl.h>
+#include <sys/wait.h>
+#include <QSignalBlocker>
 #include <QFile>
 #include <QProgressDialog>
 #include <QFileInfo>
@@ -146,6 +148,9 @@ static QString foundLabelText(size_t count) {
 static double parseUserDouble(const QString& s, bool* ok = nullptr);
 // Hex-aware integer field parse (shared ce::parseIntegerScalar); defined lower down.
 static long long parseIntField(const QString& valStr, bool hex);
+static std::optional<long long> scanIntegerInput(const QString& text, bool hex, bool pointer = false);
+static bool scanTakesValue(ScanCompare compare);
+static void warnBadScanValue(QWidget* parent, const QString& text);
 
 // Forward declarations of static helpers
 static QJsonArray cheatEntriesToJson(const ce::CheatTable& table);
@@ -220,11 +225,19 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         }
         // Detect target death: once the pid is gone, stop polling and clear state
         // so the UI doesn't keep showing stale values against a dead process.
-        if (!ceserverClient_ && currentPid_ > 0 && ::kill(currentPid_, 0) != 0 && errno == ESRCH) {
+        // A process we started (Create Process) stays a zombie until reaped, and
+        // kill(pid, 0) still succeeds on a zombie. waitid with WNOWAIT only looks
+        // at exits, so it never takes a ptrace stop from the debugger's thread.
+        siginfo_t exitInfo{};
+        const bool exitedChild = !ceserverClient_ && currentPid_ > 0 &&
+            ::waitid(P_PID, static_cast<id_t>(currentPid_), &exitInfo, WEXITED | WNOHANG | WNOWAIT) == 0 &&
+            exitInfo.si_pid == currentPid_;
+        if (exitedChild || (!ceserverClient_ && currentPid_ > 0 && ::kill(currentPid_, 0) != 0 && errno == ESRCH)) {
             processLabel_->setText(QString("Process %1 has exited").arg(currentPid_));
             processDetail_->setText(tr("Open another process with Ctrl+O."));
             statusBar()->showMessage("Target process exited", 5000);
             if (!releaseTargetUsers()) return;
+            if (exitedChild) (void)::waitpid(currentPid_, nullptr, WNOHANG);   // reap it now that nothing traces it
             process_.reset();
             currentPid_ = 0;
             updateWindowTitle();
@@ -458,6 +471,7 @@ void MainWindow::setupMenus() {
     // "Pause the process" toggle (CE's pause-the-game) — SIGSTOP/SIGCONT the target.
     auto* pauseAct = process->addAction("Pause the process");
     pauseAct->setCheckable(true);
+    pauseAction_ = pauseAct;
     connect(pauseAct, &QAction::toggled, this, [this, pauseAct](bool checked) {
         auto pid=ce::localTargetPid(process_.get());
         if (!pid) {
@@ -1345,8 +1359,7 @@ void MainWindow::setupUi() {
         if (!lastResult_) return;
         auto sel = resultsView_->selectionModel()->selectedRows();
         for (auto& idx : sel)
-            addressListModel_->addEntry(resultsModel_->addressAt(idx.row()), lastResultType_,
-                                        "No description", "", lastResultValueSize_);
+            onResultDoubleClicked(idx);   // the same record a double-click adds
     });
     resultsView_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(resultsView_, &QTableView::customContextMenuRequested, this, [this](const QPoint& pos) {
@@ -1374,8 +1387,7 @@ void MainWindow::setupUi() {
         const uintptr_t firstAddr = resultsModel_->addressAt(sel.first().row());
         if (picked == addAct) {
             for (auto& idx : sel)
-                addressListModel_->addEntry(resultsModel_->addressAt(idx.row()), lastResultType_,
-                                        "No description", "", lastResultValueSize_);
+                onResultDoubleClicked(idx);   // the same record a double-click adds
         } else if (picked == browseAct || picked == disasmAct) {
             // Full-featured viewer (breakpoints, add-to-list, Tools/Debug menus),
             // the same one the Memory View button opens, not a stripped-down clone.
@@ -1466,7 +1478,10 @@ void MainWindow::setupUi() {
                 std::all_of(hexBody.begin(), hexBody.end(),
                             [](QChar c){ return std::isxdigit(c.toLatin1()); });
             QString expr = plainHex ? QString() : trimmed;
-            addressListModel_->addEntry(*addr, dlg.valueType(), "Manual entry", expr);
+            // Every field of the dialog, as Add Address Manually applies them.
+            const int id = addressListModel_->addEntry(*addr, dlg.valueType(), "Manual entry", expr, (size_t)dlg.length());
+            addressListModel_->setHexView(id, dlg.showHex());
+            addressListModel_->setSigned(id, dlg.isSigned());
         } else
             QMessageBox::warning(this, "Add Address", QString("Could not resolve \"%1\".").arg(text.trimmed()));
     });
@@ -1976,24 +1991,8 @@ void MainWindow::setupUi() {
             // CE PopupMenu2: Cut / Copy / Paste (PasteTableentryFRM).
             menu.addAction("Cut", this, [this]() { onCopyAddresses(); onDeleteAddresses(); }, QKeySequence::Cut);
             menu.addAction("Copy", this, &MainWindow::onCopyAddresses, QKeySequence::Copy);
-            menu.addAction("Paste", this, [this]() {
-                auto doc = QJsonDocument::fromJson(QApplication::clipboard()->text().toUtf8());
-                if (!doc.isArray()) return;
-                for (auto v : doc.array()) {
-                    auto o = v.toObject();
-                    uintptr_t addr = o["address"].toString().toULongLong(nullptr, 16);
-                    QString expr = o["addressExpr"].toString();
-                    QString ts = o["type"].toString();
-                    ce::ValueType t = ts == "byte"    ? ce::ValueType::Byte
-                                    : ts == "i16"     ? ce::ValueType::Int16
-                                    : ts == "i64"     ? ce::ValueType::Int64
-                                    : ts == "float"   ? ce::ValueType::Float
-                                    : ts == "double"  ? ce::ValueType::Double
-                                    : ts == "pointer" ? ce::ValueType::Pointer
-                                                      : ce::ValueType::Int32;
-                    addressListModel_->addEntry(addr, t, o["description"].toString(), expr);
-                }
-            }, QKeySequence::Paste);
+            // The same paste as Ctrl+V: every field, groups, scripts and CE XML.
+            menu.addAction("Paste", this, &MainWindow::onPasteAddresses, QKeySequence::Paste);
             // Copy an individual field of the first selected entry to the clipboard.
             if (firstRow >= 0 && firstRow < (int)ents0.size()) {
                 const auto& fe = ents0[firstRow];
@@ -2331,6 +2330,7 @@ void MainWindow::setupUi() {
                     if (dialog.exec() == QDialog::Accepted) {
                         addressListModel_->setHotkeyKeys(row,
                             editor->keySequence().toString(QKeySequence::PortableText));
+                        rebuildValueHotkeys();   // grab the new key (and release a cleared one) now
                     }
                 });
                 hotkeyMenu->addAction("Value hotkeys...", [this, selected]() {
@@ -3207,13 +3207,17 @@ void MainWindow::onFirstScan() {
             QMessageBox::warning(this, "Floating scan", "Enter valid numeric values for the selected comparison.");return;
         }
     } else if (config.valueType == ValueType::Pointer) {
-        config.intValue = static_cast<int64_t>(text.toULongLong(nullptr, 0));
+        auto value = scanIntegerInput(text, intBase == 16, /*pointer=*/true);
+        if (!value && scanTakesValue(config.compareType)) { warnBadScanValue(this, text); return; }
+        config.intValue = value.value_or(0);
     } else if (config.valueType == ValueType::All) {
         if (!config.parseAllValues(text.toStdString(), scanValue2Edit_->text().toStdString(), intBase == 16)) {
             QMessageBox::warning(this, "All scan", "Enter valid numeric values for the selected comparison.");return;
         }
     } else {
-        config.intValue = parseIntField(text, intBase == 16);
+        auto value = scanIntegerInput(text, intBase == 16);
+        if (!value && scanTakesValue(config.compareType)) { warnBadScanValue(this, text); return; }
+        config.intValue = value.value_or(0);
     }
     // "Value between..." needs a second (upper) bound from its own box.
     if (config.compareType == ScanCompare::Between && config.valueType != ValueType::All &&
@@ -3221,8 +3225,11 @@ void MainWindow::onFirstScan() {
         auto text2 = scanValue2Edit_->text();
         if (config.valueType == ValueType::Float || config.valueType == ValueType::Double || config.valueType == ValueType::All)
             config.floatValue2 = parseUserDouble(text2);
-        if (config.valueType != ValueType::Float && config.valueType != ValueType::Double)
-            config.intValue2 = parseIntField(text2, intBase == 16);
+        if (config.valueType != ValueType::Float && config.valueType != ValueType::Double) {
+            auto value = scanIntegerInput(text2, intBase == 16, config.valueType == ValueType::Pointer);
+            if (!value) { warnBadScanValue(this, text2); return; }
+            config.intValue2 = *value;
+        }
     }
     if (!applyFloatOptions(config, floatRoundingCombo_, floatToleranceEdit_)) {
         QMessageBox::warning(this, "Floating tolerance", "Enter a finite nonnegative tolerance.");return;
@@ -3318,28 +3325,36 @@ void MainWindow::onNextScan() {
         config.alignment = 1;
     } else if (config.valueType == ValueType::Custom) {
         config.customFormula = text.toStdString();
-        config.customValueSize = std::max<size_t>(1, static_cast<size_t>(config.alignment));
+        // The first scan fixed the size (it depends on Fast Scan then, not now).
+        config.customValueSize = lastResultValueSize_ ? lastResultValueSize_ : std::max<size_t>(1, static_cast<size_t>(config.alignment));
         config.alignment = 1;
     } else if (config.valueType == ValueType::Float || config.valueType == ValueType::Double) {
         if (!config.parseFloatingValues(text.toStdString(), scanValue2Edit_->text().toStdString())) {
             QMessageBox::warning(this, "Floating scan", "Enter valid numeric values for the selected comparison.");return;
         }
     } else if (config.valueType == ValueType::Pointer) {
-        config.intValue = static_cast<int64_t>(text.toULongLong(nullptr, 0));
+        auto value = scanIntegerInput(text, intBase == 16, /*pointer=*/true);
+        if (!value && scanTakesValue(config.compareType)) { warnBadScanValue(this, text); return; }
+        config.intValue = value.value_or(0);
     } else if (config.valueType == ValueType::All) {
         if (!config.parseAllValues(text.toStdString(), scanValue2Edit_->text().toStdString(), intBase == 16)) {
             QMessageBox::warning(this, "All scan", "Enter valid numeric values for the selected comparison.");return;
         }
     } else {
-        config.intValue = parseIntField(text, intBase == 16);
+        auto value = scanIntegerInput(text, intBase == 16);
+        if (!value && scanTakesValue(config.compareType)) { warnBadScanValue(this, text); return; }
+        config.intValue = value.value_or(0);
     }
     if (config.compareType == ScanCompare::Between && config.valueType != ValueType::All &&
         config.valueType != ValueType::Float && config.valueType != ValueType::Double) {
         auto text2 = scanValue2Edit_->text();
         if (config.valueType == ValueType::Float || config.valueType == ValueType::Double || config.valueType == ValueType::All)
             config.floatValue2 = parseUserDouble(text2);
-        if (config.valueType != ValueType::Float && config.valueType != ValueType::Double)
-            config.intValue2 = parseIntField(text2, intBase == 16);
+        if (config.valueType != ValueType::Float && config.valueType != ValueType::Double) {
+            auto value = scanIntegerInput(text2, intBase == 16, config.valueType == ValueType::Pointer);
+            if (!value) { warnBadScanValue(this, text2); return; }
+            config.intValue2 = *value;
+        }
     }
     if (!applyFloatOptions(config, floatRoundingCombo_, floatToleranceEdit_)) {
         QMessageBox::warning(this, "Floating tolerance", "Enter a finite nonnegative tolerance.");return;
@@ -3570,6 +3585,12 @@ bool MainWindow::releaseTargetUsersOnce(bool force) {
     structDissectors_.clear();
     if (advancedOptions_) advancedOptions_->setProcess(nullptr);
     if (openAddressDialog_) openAddressDialog_->detachFromTarget();
+    // A paused target must not stay frozen once we leave it.
+    if (pauseAction_ && pauseAction_->isChecked()) {
+        if (auto pid = ce::localTargetPid(process_.get())) ::kill(*pid, SIGCONT);
+        QSignalBlocker quiet(pauseAction_);
+        pauseAction_->setChecked(false);
+    }
     snapshot_.reset();
     allocations_.clear();
     luaEngine_.setProcess(nullptr);
@@ -5260,6 +5281,32 @@ static double parseUserDouble(const QString& s, bool* ok) {
 // Parse an integer value field tolerantly: accept a leading '-', an optional 0x
 // hex prefix, and both signed and full-width-unsigned magnitudes. Returns a wide
 // value the caller truncates to the target width — so "-1" -> byte 0xFF and
+// An integer scan value, or nullopt when the text is not one: scanning for 0
+// instead would quietly find the wrong thing. Pointers are unsigned.
+static std::optional<long long> scanIntegerInput(const QString& text, bool hex, bool pointer) {
+    if (pointer) {
+        bool ok = false;
+        const QString trimmed = text.trimmed();
+        const bool prefixed = trimmed.startsWith("0x", Qt::CaseInsensitive);
+        const qulonglong value = (prefixed ? trimmed.mid(2) : trimmed).toULongLong(&ok, hex || prefixed ? 16 : 10);
+        return ok ? std::optional<long long>(static_cast<long long>(value)) : std::nullopt;
+    }
+    bool ok = false;
+    const long long value = ce::parseIntegerScalar(text.toStdString(), hex, ok);
+    return ok ? std::optional<long long>(value) : std::nullopt;
+}
+
+static bool scanTakesValue(ScanCompare compare) {
+    return compare == ScanCompare::Exact || compare == ScanCompare::Greater || compare == ScanCompare::Less ||
+           compare == ScanCompare::Between || compare == ScanCompare::IncreasedBy || compare == ScanCompare::DecreasedBy;
+}
+
+static void warnBadScanValue(QWidget* parent, const QString& text) {
+    QMessageBox::warning(parent, "Scan value", text.trimmed().isEmpty()
+        ? QString("Enter a value for this scan.")
+        : QString("\"%1\" is not a number (or does not fit in 64 bits).").arg(text.trimmed()));
+}
+
 // "40000" -> int16 fits, matching how CE accepts either sign for a fixed width.
 static long long parseIntField(const QString& valStr, bool hex = false) {
     // In hex-display mode a bare token is hex (CE); a "0x" prefix is always hex.
@@ -5865,6 +5912,7 @@ void AddressListModel::updateValues(ProcessHandle* proc) {
         auto& e = entries_[i];
         if (e.isGroup) continue;
         if (e.active) continue; // Don't overwrite display for frozen entries
+        if (!e.autoAsmScript.isEmpty()) continue;   // a script has no value to read (it would show "??")
 
         // Pointer records: re-evaluate the address expression so a moving pointer
         // chain is followed live (CE re-resolves every refresh).

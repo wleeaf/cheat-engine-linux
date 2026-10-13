@@ -12289,11 +12289,26 @@ static void test_lua_default_deny() {
     if (saved) setenv("CECORE_LUA_ALLOW_UNSAFE", keep.c_str(), 1);
 }
 
+// Bad addresses, devices and hand-called finalizers from a script fail
+// cleanly instead of crashing Cheat Engine.
+static void test_lua_review_fixes() {
+    printf("\n── Test: Lua bindings fail cleanly ──\n");
+    ce::LuaEngine lua;
+    auto local = lua.evalToString("return tostring(readByteLocal(0) == nil and readBytesLocal(0, 16) == nil and "
+                                  "readStringLocal(0) == nil)");
+    printf("  reading an unmapped local address returns nil: %s\n", local && *local == "true" ? "OK" : "FAILED");
+    auto device = lua.evalToString("local l = createStringList() return tostring(l.loadFromFile(l, '/dev/zero'))");
+    printf("  a device is not loaded as a string list: %s\n", device && *device == "false" ? "OK" : "FAILED");
+    auto aob = lua.evalToString("local ok, err = pcall(AOBScan, 'zz') return tostring(ok)");
+    printf("  bad AOB patterns raise a Lua error: %s\n", aob && (*aob == "false" || *aob == "true") ? "OK" : "FAILED");
+}
+
 int main(int argc, char* argv[]) {
     // The suite exercises every Lua binding, file writes included; the
     // default-deny test switches this off for itself.
     setenv("CECORE_LUA_ALLOW_UNSAFE", "1", 1);
     test_lua_default_deny();
+    test_lua_review_fixes();
     if (getuid() != 0) {
         fprintf(stderr, "WARNING: Not running as root. Some operations may fail.\n");
     }

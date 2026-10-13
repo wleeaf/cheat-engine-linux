@@ -162,6 +162,8 @@ int main(int argc, char** argv) {
             == QLatin1String("F1") &&
         keySequenceToPortalTrigger(QKeySequence(QStringLiteral("Alt+Meta+Space")))
             == QLatin1String("ALT+LOGO+SPACE") &&
+        keySequenceToPortalTrigger(QKeySequence(QStringLiteral("Ctrl+Num+1")))
+            == QLatin1String("CTRL+KP_1") &&
         keySequenceToPortalTrigger(QKeySequence()).isEmpty();
     printf("  keySequenceToPortalTrigger mapping: %s\n", triggerOk ? "OK" : "FAILED");
 

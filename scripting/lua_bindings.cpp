@@ -52,6 +52,7 @@ extern "C" {
 }
 
 #include <cstring>
+#include <sys/uio.h>
 #include <cerrno>
 #include <iconv.h>
 #include <cstdlib>
@@ -190,11 +191,17 @@ static int typedValue(lua_State* L, bool write) {
         lua_pushlstring(L, error.data(), error.size());
         return 2;
     };
-    auto* process = getProc(L);
-    if (!process) return fail("Open a process first");
     const char* name = lua_tostring(L, 2);
     auto type = name ? parseValueType(name) : std::nullopt;
     if (!type) return fail("Unknown value type; use i32, u64, pointer, float, string, unicode or aob");
+    bool isSigned = !(std::tolower(static_cast<unsigned char>(name[0])) == 'u' &&
+                      std::isdigit(static_cast<unsigned char>(name[1])));
+    // The options can run Lua (metatables) that closes or replaces the
+    // process: read them before taking the process pointer.
+    auto options = typedOptions(L, write ? 4 : 3, isSigned);
+    if (!options) return fail(options.error());
+    auto* process = getProc(L);
+    if (!process) return fail("Open a process first");
     uintptr_t address = 0;
     if (lua_isinteger(L, 1)) address = static_cast<uintptr_t>(lua_tointeger(L, 1));
     else {
@@ -203,10 +210,6 @@ static int typedValue(lua_State* L, bool write) {
         if (!parsed) return fail("Cannot resolve the address expression");
         address = *parsed;
     }
-    bool isSigned = !(std::tolower(static_cast<unsigned char>(name[0])) == 'u' &&
-                      std::isdigit(static_cast<unsigned char>(name[1])));
-    auto options = typedOptions(L, write ? 4 : 3, isSigned);
-    if (!options) return fail(options.error());
     if (write) {
         size_t length = 0;
         const char* value = lua_tolstring(L, 3, &length);
@@ -393,7 +396,7 @@ static int l_readString(lua_State* L) {
             lua_pushstring(L, buf.data());
         } else lua_pushnil(L);
     } catch (const std::exception& ex) {
-        return luaL_error(L, "%s", ex.what());
+        throw;   // the firewall reports it outside this catch
     }
     return 1;
 }
@@ -871,9 +874,14 @@ static int l_writeRegionFromFile(lua_State* L) {
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 2);
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); return 1; }
+    // A regular file of at most 256 MiB (a device has no real size).
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec)) { lua_pushnil(L); return 1; }
     std::ifstream f(path, std::ios::binary | std::ios::ate);
     if (!f) { lua_pushnil(L); return 1; }
-    size_t size = (size_t)f.tellg();
+    const std::streamoff end = f.tellg();
+    if (end < 0 || end > (std::streamoff(1) << 28)) { lua_pushnil(L); return 1; }
+    size_t size = (size_t)end;
     f.seekg(0);
     std::vector<uint8_t> buf(size);
     if (size && !f.read(reinterpret_cast<char*>(buf.data()), (std::streamsize)size)) {
@@ -1114,10 +1122,18 @@ static int l_bShr(lua_State* L) {
 // TODO(security): gate the *Local family behind an explicit opt-in/sandbox flag
 // if cecore is ever exposed to untrusted scripts.
 
+// Copies cecore's own memory through the kernel, so a bad address is an error
+// (EFAULT) instead of a crash of the whole program.
+static bool copyLocal(void* destination, uintptr_t addr, size_t size) {
+    if (!size) return true;
+    iovec local{destination, size}, remote{reinterpret_cast<void*>(addr), size};
+    return process_vm_readv(getpid(), &local, 1, &remote, 1, 0) == static_cast<ssize_t>(size);
+}
+
 template <typename T>
-static T readLocalValue(uintptr_t addr) {
+static std::optional<T> readLocalValue(uintptr_t addr) {
     T value{};
-    std::memcpy(&value, reinterpret_cast<const void*>(addr), sizeof(T));
+    if (!copyLocal(&value, addr, sizeof(T))) return std::nullopt;
     return value;
 }
 
@@ -1128,43 +1144,57 @@ static void writeLocalValue(uintptr_t addr, T value) {
 
 static int l_readByteLocal(lua_State* L) {
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
-    lua_pushinteger(L, readLocalValue<uint8_t>(addr));
+    auto value = readLocalValue<uint8_t>(addr);
+    if (!value) { lua_pushnil(L); return 1; }
+    lua_pushinteger(L, *value);
     return 1;
 }
 
 static int l_readSmallIntegerLocal(lua_State* L) {
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
-    lua_pushinteger(L, readLocalValue<int16_t>(addr));
+    auto value = readLocalValue<int16_t>(addr);
+    if (!value) { lua_pushnil(L); return 1; }
+    lua_pushinteger(L, *value);
     return 1;
 }
 
 static int l_readIntegerLocal(lua_State* L) {
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
-    lua_pushinteger(L, readLocalValue<int32_t>(addr));
+    auto value = readLocalValue<int32_t>(addr);
+    if (!value) { lua_pushnil(L); return 1; }
+    lua_pushinteger(L, *value);
     return 1;
 }
 
 static int l_readQwordLocal(lua_State* L) {
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
-    lua_pushinteger(L, readLocalValue<int64_t>(addr));
+    auto value = readLocalValue<int64_t>(addr);
+    if (!value) { lua_pushnil(L); return 1; }
+    lua_pushinteger(L, *value);
     return 1;
 }
 
 static int l_readPointerLocal(lua_State* L) {
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
-    lua_pushinteger(L, (lua_Integer)readLocalValue<uintptr_t>(addr));
+    auto value = readLocalValue<uintptr_t>(addr);
+    if (!value) { lua_pushnil(L); return 1; }
+    lua_pushinteger(L, (lua_Integer)*value);
     return 1;
 }
 
 static int l_readFloatLocal(lua_State* L) {
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
-    lua_pushnumber(L, readLocalValue<float>(addr));
+    auto value = readLocalValue<float>(addr);
+    if (!value) { lua_pushnil(L); return 1; }
+    lua_pushnumber(L, *value);
     return 1;
 }
 
 static int l_readDoubleLocal(lua_State* L) {
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
-    lua_pushnumber(L, readLocalValue<double>(addr));
+    auto value = readLocalValue<double>(addr);
+    if (!value) { lua_pushnil(L); return 1; }
+    lua_pushnumber(L, *value);
     return 1;
 }
 
@@ -1175,10 +1205,11 @@ static int l_readBytesLocal(lua_State* L) {
     // accidental huge size would read far past `addr` into unmapped pages (SIGSEGV).
     luaL_argcheck(L, size >= 0 && size <= (1 << 24), 2, "size must be 0..16MB");
 
-    auto* bytes = reinterpret_cast<const uint8_t*>(addr);
-    lua_newtable(L);
+    std::vector<uint8_t> bytes(static_cast<size_t>(size));
+    if (!copyLocal(bytes.data(), addr, bytes.size())) { lua_pushnil(L); return 1; }
+    lua_createtable(L, size, 0);
     for (int i = 0; i < size; ++i) {
-        lua_pushinteger(L, bytes[i]);
+        lua_pushinteger(L, bytes[static_cast<size_t>(i)]);
         lua_rawseti(L, -2, i + 1);
     }
     return 1;
@@ -1193,8 +1224,21 @@ static int l_readStringLocal(lua_State* L) {
     constexpr int kMaxReadString = 1 << 24;  // 16 MB
     if (maxLen > kMaxReadString) maxLen = kMaxReadString;
 
-    auto* str = reinterpret_cast<const char*>(addr);
-    lua_pushlstring(L, str, strnlen(str, maxLen));
+    // Read in pages, so a string near the end of a mapping is still found.
+    std::string text;
+    char chunk[4096];
+    while ((int)text.size() < maxLen) {
+        const uintptr_t at = addr + text.size();
+        const size_t want = std::min<size_t>(maxLen - text.size(), sizeof chunk - at % sizeof chunk);
+        if (!copyLocal(chunk, at, want)) {
+            if (text.empty()) { lua_pushnil(L); return 1; }
+            break;
+        }
+        const size_t length = strnlen(chunk, want);
+        text.append(chunk, length);
+        if (length < want) break;
+    }
+    lua_pushlstring(L, text.data(), text.size());
     return 1;
 }
 
@@ -1429,7 +1473,7 @@ static int l_copyMemory(lua_State* L) {
         if (!p->read(src, buf.data(), n)) { lua_pushboolean(L, 0); return 1; }
         lua_pushboolean(L, (bool)p->write(dst, buf.data(), n) ? 1 : 0);
     } catch (const std::exception& ex) {
-        return luaL_error(L, "%s", ex.what());
+        throw;   // the firewall reports it outside this catch
     }
     return 1;
 }
@@ -1858,6 +1902,9 @@ static int l_autoAssemble(lua_State* L) {
     if (luaL_newmetatable(L, kAADisableInfo)) {
         lua_pushcfunction(L, l_aaDisableInfoGc);
         lua_setfield(L, -2, "__gc");
+        // Out of reach of scripts: calling __gc by hand would destroy it twice.
+        lua_pushliteral(L, "locked");
+        lua_setfield(L, -2, "__metatable");
     }
     lua_setmetatable(L, -2);
     return 2;
@@ -2123,7 +2170,7 @@ static int l_readFromFile(lua_State* L) {
         lua_pushlstring(L, content.data(), content.size());
         return 1;
     } catch (const std::exception& ex) {
-        return luaL_error(L, "readFile: %s", ex.what());
+        throw std::runtime_error(std::string("readFile: ") + ex.what());   // the firewall reports it
     }
 }
 
@@ -2392,11 +2439,16 @@ static int l_createMemScan(lua_State* L) {
         lua_setfield(L, -2, "__gc");
 
         lua_pushcfunction(L, [](lua_State* L) -> int {
+            checkScan(L, 1);
+            // The options can run Lua (metatables) that frees this scan or the
+            // process: read them before taking either pointer.
+            ScanConfig cfg;
+            try { cfg = luaScanConfig(L, 2, 3, 4); }
+            catch (const std::exception& ex) { lua_pushboolean(L, 0); lua_pushstring(L, ex.what()); return 2; }
             auto* sd = checkScan(L, 1);
             auto* p = getProc(L);
             if (!p) { lua_pushboolean(L, 0); return 1; }
             try {
-                auto cfg = luaScanConfig(L, 2, 3, 4);
                 auto result=std::make_unique<ScanResult>(sd->scanner.firstScan(*p, cfg));
                 if (result->hasWriteError()) throw std::runtime_error("Incomplete scan result files");
                 sd->encoding=cfg.stringEncoding;sd->valueType=cfg.valueType;sd->result=std::move(result);
@@ -2414,11 +2466,14 @@ static int l_createMemScan(lua_State* L) {
         lua_setfield(L, -2, "firstScan");
 
         lua_pushcfunction(L, [](lua_State* L) -> int {
+            checkScan(L, 1);
+            ScanConfig cfg;   // read first: the options can run Lua (see firstScan)
+            try { cfg = luaScanConfig(L, 2, 3, 4); }
+            catch (const std::exception& ex) { lua_pushboolean(L, 0); lua_pushstring(L, ex.what()); return 2; }
             auto* sd = checkScan(L, 1);
             auto* p = getProc(L);
             if (!p || !sd->result) { lua_pushboolean(L, 0); return 1; }
             try {
-                auto cfg = luaScanConfig(L, 2, 3, 4);
                 auto result=std::make_unique<ScanResult>(sd->scanner.nextScan(*p, cfg, *sd->result));
                 if (result->hasWriteError()) throw std::runtime_error("Incomplete scan result files");
                 sd->encoding=cfg.stringEncoding;sd->valueType=cfg.valueType;sd->result=std::move(result);
@@ -4822,7 +4877,7 @@ static int l_readRegionFromFile(lua_State* L) {
         lua_pushboolean(L, r.has_value());
         return 1;
     } catch (const std::exception& ex) {
-        return luaL_error(L, "readRegionFromFile: %s", ex.what());
+        throw std::runtime_error(std::string("readRegionFromFile: ") + ex.what());   // the firewall reports it
     }
 }
 
@@ -4855,7 +4910,7 @@ static int l_AOBScan(lua_State* L) {
         ScanConfig cfg;
         cfg.valueType = ValueType::ByteArray;
         if (!cfg.parseAOB(pattern))
-            return luaL_error(L, "AOBScan: invalid AOB pattern '%s'", pattern);
+            throw std::invalid_argument(std::string("AOBScan: invalid AOB pattern '") + pattern + "'");
         cfg.alignment = 1;
         MemoryScanner scanner;
         auto result = scanner.firstScan(*p, cfg);
@@ -4875,9 +4930,9 @@ static int l_AOBScan(lua_State* L) {
         lua_pushcfunction(L, [](lua_State*) { return 0; });  // .destroy() no-op
         lua_setfield(L, -2, "destroy");
     } catch (const std::exception& ex) {
-        return luaL_error(L, "%s", ex.what());
+        throw;   // the firewall reports it outside this catch
     } catch (...) {
-        return luaL_error(L, "AOBScan failed");
+        throw std::runtime_error("AOBScan failed");
     }
     return 1;
 }
@@ -4891,7 +4946,7 @@ static int l_AOBScanEx(lua_State* L) {
         ScanConfig cfg;
         cfg.valueType = ValueType::ByteArray;
         if (!cfg.parseAOB(pattern))
-            return luaL_error(L, "AOBScan: invalid AOB pattern '%s'", pattern);
+            throw std::invalid_argument(std::string("AOBScan: invalid AOB pattern '") + pattern + "'");
         cfg.alignment = 1;
         MemoryScanner scanner;
         auto result = scanner.firstScan(*p, cfg);
@@ -4904,9 +4959,9 @@ static int l_AOBScanEx(lua_State* L) {
             lua_rawseti(L, -2, i + 1);
         }
     } catch (const std::exception& ex) {
-        return luaL_error(L, "%s", ex.what());
+        throw;   // the firewall reports it outside this catch
     } catch (...) {
-        return luaL_error(L, "AOBScan failed");
+        throw std::runtime_error("AOBScan failed");
     }
     return 1;
 }
@@ -4944,7 +4999,7 @@ static int l_AOBScanModule(lua_State* L) {
         ScanConfig cfg;
         cfg.valueType = ValueType::ByteArray;
         if (!cfg.parseAOB(pattern))
-            return luaL_error(L, "AOBScan: invalid AOB pattern '%s'", pattern);
+            throw std::invalid_argument(std::string("AOBScan: invalid AOB pattern '") + pattern + "'");
         cfg.alignment = 1;
         cfg.startAddress = mod->base;
         cfg.stopAddress = mod->base + mod->size;
@@ -4963,9 +5018,9 @@ static int l_AOBScanModule(lua_State* L) {
         lua_pushcfunction(L, [](lua_State*) { return 0; });
         lua_setfield(L, -2, "destroy");
     } catch (const std::exception& ex) {
-        return luaL_error(L, "%s", ex.what());
+        throw;   // the firewall reports it outside this catch
     } catch (...) {
-        return luaL_error(L, "AOBScanModule failed");
+        throw std::runtime_error("AOBScanModule failed");
     }
     return 1;
 }
@@ -4982,16 +5037,16 @@ static int l_AOBScanUnique(lua_State* L) {
         ScanConfig cfg;
         cfg.valueType = ValueType::ByteArray;
         if (!cfg.parseAOB(pattern))
-            return luaL_error(L, "AOBScanUnique: invalid AOB pattern '%s'", pattern);
+            throw std::invalid_argument(std::string("AOBScanUnique: invalid AOB pattern '") + pattern + "'");
         cfg.alignment = 1;
         MemoryScanner scanner;
         auto result = scanner.firstScan(*p, cfg);
         if (result.count() == 0) { lua_pushnil(L); return 1; }
         lua_pushinteger(L, (lua_Integer)result.address(0));
     } catch (const std::exception& ex) {
-        return luaL_error(L, "%s", ex.what());
+        throw;   // the firewall reports it outside this catch
     } catch (...) {
-        return luaL_error(L, "AOBScanUnique failed");
+        throw std::runtime_error("AOBScanUnique failed");
     }
     return 1;
 }
@@ -5008,7 +5063,7 @@ static int l_AOBScanModuleUnique(lua_State* L) {
         ScanConfig cfg;
         cfg.valueType = ValueType::ByteArray;
         if (!cfg.parseAOB(pattern))
-            return luaL_error(L, "AOBScanModuleUnique: invalid AOB pattern '%s'", pattern);
+            throw std::invalid_argument(std::string("AOBScanModuleUnique: invalid AOB pattern '") + pattern + "'");
         cfg.alignment = 1;
         cfg.startAddress = mod->base;
         cfg.stopAddress = mod->base + mod->size;
@@ -5017,9 +5072,9 @@ static int l_AOBScanModuleUnique(lua_State* L) {
         if (result.hasWriteError() || result.count() != 1) { lua_pushnil(L); return 1; }
         lua_pushinteger(L, (lua_Integer)result.address(0));
     } catch (const std::exception& ex) {
-        return luaL_error(L, "%s", ex.what());
+        throw;   // the firewall reports it outside this catch
     } catch (...) {
-        return luaL_error(L, "AOBScanModuleUnique failed");
+        throw std::runtime_error("AOBScanModuleUnique failed");
     }
     return 1;
 }

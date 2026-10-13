@@ -585,6 +585,11 @@ static void il2cppTests(const fs::path& root) {
 }
 
 static void luaTests(const fs::path& root) {
+    // These exercise writing streams and files, which Lua only does when
+    // launched with CECORE_LUA_ALLOW_UNSAFE (the default-deny test is in
+    // cecore_test).
+    setenv("CECORE_LUA_ALLOW_UNSAFE", "1", 1);
+    struct ClearOptIn { ~ClearOptIn() { unsetenv("CECORE_LUA_ALLOW_UNSAFE"); } } clearOptIn;
     LuaEngine lua;
     auto run = [&](const std::string& code, const char* name) {
         auto error = lua.execute(code);

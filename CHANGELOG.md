@@ -62,6 +62,10 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Fixed: pointer paths through a module whose name has a `+` or a space
+  (`libstdc++.so.6`, "Game Name.exe") were written unquoted and did not
+  resolve when added to the address list; the name is now quoted as Cheat
+  Engine does.
 - Fixed: a custom formula scan whose formula never ended hung the scan;
   each evaluation now has an instruction limit, and formulas can no longer
   load files or code (`dofile`, `loadfile`, `load`, `require`).

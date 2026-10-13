@@ -2,6 +2,7 @@
 #include "scanner/cuda_search.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -22,7 +23,12 @@ std::string PointerPath::toString() const {
     char buf[64];
     // Module-less (absolute) bases print as the bare address.
     snprintf(buf, sizeof(buf), module.empty() ? "%lx" : "+%lx", baseOffset);
-    result += module + buf;
+    // A name with '+', spaces or brackets ("libstdc++.so.6", "Game Name.exe")
+    // is quoted, as Cheat Engine writes it, so the path parses back.
+    const bool plainName = std::all_of(module.begin(), module.end(), [](unsigned char c) {
+        return std::isalnum(c) || c == '_' || c == '.' || c == '-';
+    });
+    result += (plainName ? module : "\"" + module + "\"") + buf;
 
     for (auto off : offsets) {
         result += "]";

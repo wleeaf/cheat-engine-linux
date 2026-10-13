@@ -804,12 +804,14 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             if (first) {
                 if (auto problem = memoryAccessProblem(*s.process)) return fail("cannot read this process: " + *problem);
                 auto scanned = std::make_unique<ScanResult>(s.scanner.firstScan(*s.process, config));
+                if (scanned->hasWriteError()) return fail("the scan results could not be stored (is the temp folder full?)");
                 s.undo.reset();
                 s.result = std::move(scanned);
                 s.scanType = type;
                 s.scanValueSize = type == ValueType::String ? value.size() : std::max<size_t>(1, s.result->valueSize());
             } else {
                 auto narrowed = std::make_unique<ScanResult>(s.scanner.nextScan(*s.process, config, *s.result));
+                if (narrowed->hasWriteError()) return fail("the scan results could not be stored (is the temp folder full?)");
                 s.undo = std::move(s.result);
                 s.result = std::move(narrowed);
             }

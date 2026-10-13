@@ -1720,6 +1720,20 @@ static void test_pointer_path_expression() {
     printf("  '%s' resolves to the scanned target: %s (got 0x%lx want 0x%lx)\n",
            expr.c_str(), ok ? "OK" : "FAILED",
            (unsigned long)(resolved ? *resolved : 0), (unsigned long)want);
+
+    // A module name with '+' (libstdc++.so.6) is quoted so the path parses back.
+    FakeProcessHandle plusProc({
+        {{moduleBase, module.size(), MemProt::Read, MemType::Image, MemState::Committed, "/tmp/libstdc++.so.6"}, module},
+        {{node1, n1.size(), MemProt::ReadWrite, MemType::Private, MemState::Committed, "[heap]"}, n1},
+    }, {
+        {moduleBase, module.size(), "libstdc++.so.6", "/tmp/libstdc++.so.6", true},
+    });
+    PointerPath plusPath = path;
+    plusPath.module = "libstdc++.so.6";
+    const std::string plusExpr = plusPath.toString();
+    auto plusResolved = ce::ExpressionParser(&plusProc, nullptr).parse(plusExpr);
+    printf("  '%s' (a module name with '+') resolves: %s\n", plusExpr.c_str(),
+           plusResolved && *plusResolved == want ? "OK" : "FAILED");
 }
 
 static void test_ce_table_import() {

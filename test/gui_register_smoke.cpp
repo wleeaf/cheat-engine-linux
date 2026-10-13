@@ -269,7 +269,7 @@ int main(int argc, char** argv) {
             check(status && status->text().startsWith("Invalid") && general->isEnabled(),
                   "invalid register text leaves the live target and editable snapshot intact");
             if (auto* refresh = editor.findChild<QPushButton*>("registerEditorRefresh")) refresh->click();
-            check(status && status->text().startsWith("Loaded TID") && general->isEnabled(),
+            check(status && status->text().startsWith("Registers of thread") && general->isEnabled(),
                   "refresh replaces invalid editor text with a fresh kernel snapshot");
             ce::gui::StackViewWindow stackWindow(&process);
             stackWindow.show(); pump();

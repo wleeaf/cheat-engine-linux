@@ -297,11 +297,11 @@ void MainWindow::setupMenus() {
     file->addAction("Clear scan results", this, [this]() {
         resultsModel_->clear(); lastResult_.reset(); undoResult_.reset(); updateScanButtons();
     });
-    file->addAction("Open Process", this, &MainWindow::onOpenProcess, QKeySequence("Ctrl+O"));
+    file->addAction("Open Process...", this, &MainWindow::onOpenProcess, QKeySequence("Ctrl+O"));
     file->addSeparator();
     file->addAction("Save", this, &MainWindow::onSaveTable, QKeySequence("Ctrl+S"));
     file->addAction("Save As...", this, &MainWindow::onSaveTableAs, QKeySequence("Ctrl+Shift+S"));
-    file->addAction("Load", this, &MainWindow::onLoadTable, QKeySequence("Ctrl+L"));
+    file->addAction("Load...", this, &MainWindow::onLoadTable, QKeySequence("Ctrl+L"));
     recentMenu_ = file->addMenu("Load Recent"); // populated from QSettings below
     recentMenu_->setToolTipsVisible(true);      // show the full path on hover
     rebuildRecentMenu();
@@ -309,7 +309,7 @@ void MainWindow::setupMenus() {
     file->addAction("Save scan results...", this, &MainWindow::onSaveScanResults,
                     QKeySequence("Alt+Shift+S"));
     file->addSeparator();
-    file->addAction("Generate generic trainer lua script from table", this, &MainWindow::onCreateTrainer);
+    file->addAction("Generate Trainer Lua Script...", this, &MainWindow::onCreateTrainer);
     file->addSeparator();
     file->addAction("Connect to ceserver...", this, &MainWindow::onConnectCeserver);  // Linux extra
     file->addAction("Connect to GDB / QEMU...", this, &MainWindow::onConnectGdb);
@@ -338,7 +338,7 @@ void MainWindow::setupMenus() {
     table->addAction("Show Cheat Table Lua Script", this, &MainWindow::showTableLuaScript,
                      QKeySequence("Ctrl+Alt+L"));
     table->addSeparator();
-    table->addAction("Create form", this, [this]() {
+    table->addAction("Create Form...", this, [this]() {
         auto* fd = new FormDesigner(this); fd->setAttribute(Qt::WA_DeleteOnClose); fd->show();
     });
 
@@ -349,7 +349,7 @@ void MainWindow::setupMenus() {
     // Regions, Heap list, Module list, Referenced strings, Thread list, Stacktrace,
     // Registers, Breakpoint list, Debugger, Branch mapper, Break-and-trace, …) live
     // in ITS View/Debug menus — matching CE — populated by populateBrowserMenus().
-    tools->addAction("Memory Browser", this, &MainWindow::onMemoryView, QKeySequence("Ctrl+M"));
+    tools->addAction("Memory Viewer...", this, &MainWindow::onMemoryView, QKeySequence("Ctrl+M"));
     tools->addSeparator();
     // Analysis panels (also in the Memory Viewer's Tools menu) — surfaced here so
     // they're findable from the main window without opening the viewer first.
@@ -357,8 +357,17 @@ void MainWindow::setupMenus() {
     // Table > Auto Assemble... is the fuller version (it picks up the viewer's
     // selected instruction), so the Tools copy would only duplicate it.
     for (QAction* action : tools->actions())
-        if (action->text() == "Auto Assemble") tools->removeAction(action);
+        if (action->text() == "Auto Assemble...") tools->removeAction(action);
     tools->addSeparator();
+    // Table-wide edits (the entry context menu keeps to the entry under the cursor).
+    for (auto* button : findChildren<QPushButton*>())
+        if (button->text() == "Add Address")
+            edit->addAction("Add Address...", button, &QPushButton::click);
+    edit->addAction("Add Group", this, [this]() { addressListModel_->addGroup(); });
+    edit->addSeparator();
+    edit->addAction("Enable all entries", this, [this]() { addressListModel_->setAllActive(true); });
+    edit->addAction("Disable all entries", this, [this]() { addressListModel_->setAllActive(false); });
+    edit->addSeparator();
     edit->addAction("Settings...", this, [this]() { openSettingsDialog(); });
 
     // ── Process menu ──
@@ -4669,15 +4678,17 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
     // Analysis tools (shared with the main window Tools menu). The viewer already
     // has address-aware Auto Assemble and Dissect entries, so drop the generic copies.
     tools->addSeparator();
+    const auto own = tools->actions();
     addAnalysisToolsMenu(tools);
     for (QAction* action : tools->actions())
-        if (action->text() == "Auto Assemble" || action->text() == "Dissect data/structures")
+        if (!own.contains(action) &&
+            (action->text() == "Auto Assemble..." || action->text() == "Dissect data/structures..."))
             tools->removeAction(action);
     (void)needProc;
 }
 
 void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
-    tools->addAction("Auto Assemble", this, [this]() {
+    tools->addAction("Auto Assemble...", this, [this]() {
         auto* editor = new ScriptEditor(process_.get(), &autoAsm_, this);
         trackTargetWindow(editor);
         editor->setAttribute(Qt::WA_DeleteOnClose);
@@ -4685,7 +4696,7 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
         editor->setBeforeExecute([this]() { stopCodeFindersForInjection(); });
         editor->show();
     });
-    tools->addAction("Pointer scan", this, [this]() {
+    tools->addAction("Pointer scan...", this, [this]() {
         if (!process_) return;
         auto* dlg = new PointerScanDialog(process_.get(), this);
         trackTargetWindow(dlg);
@@ -4696,7 +4707,7 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
                 });
         dlg->setAttribute(Qt::WA_DeleteOnClose); dlg->show();
     });
-    tools->addAction("Emulator guest scan", this, [this]() {
+    tools->addAction("Emulator guest scan...", this, [this]() {
         if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
         auto* dlg = new GuestScanDialog(process_.get(), this);
         trackTargetWindow(dlg);
@@ -4707,7 +4718,7 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
                 });
         dlg->setAttribute(Qt::WA_DeleteOnClose); dlg->show();
     });
-    tools->addAction("Dissect data/structures", this, [this]() {
+    tools->addAction("Dissect data/structures...", this, [this]() {
         if (!process_) return;
         auto* sd = new StructureDissector(process_.get(), 0, this);
         sd->setAttribute(Qt::WA_DeleteOnClose);
@@ -4715,21 +4726,21 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
         trackStructDissector(sd);
         sd->show();
     });
-    tools->addAction("Find static addresses", this, [this]() {
+    tools->addAction("Find static addresses...", this, [this]() {
         if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
         auto* w = new FindStaticsWindow(process_.get(), this);
         trackTargetWindow(w);
         w->setAttribute(Qt::WA_DeleteOnClose); w->show();
     });
     tools->addAction("Mono dissector...", this, &MainWindow::openMonoDissector);
-    tools->addAction("Lua Engine", this, [this]() {
+    tools->addAction("Lua Engine...", this, [this]() {
         luaEngine_.setProcess(process_.get());
         luaEngine_.setAddressList(addressListModel_);   // so getMemoryRecord etc. work
         if (process_) { luaResolver_.loadProcess(*process_); luaEngine_.setResolver(&luaResolver_); }
         auto* console = new LuaConsole(&luaEngine_, this);
         console->setAttribute(Qt::WA_DeleteOnClose); console->show();
     });
-    tools->addAction("ELF Inspector", this, [this]() {
+    tools->addAction("ELF Inspector...", this, [this]() {
         QString initial;
         if (process_) { auto mods = process_->modules(); if (!mods.empty()) initial = QString::fromStdString(mods.front().path); }
         auto* dlg = new ElfInspector(initial, this);

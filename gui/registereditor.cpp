@@ -149,7 +149,7 @@ void RegisterEditorWindow::refreshRegisters() {
     auto snapshot = ce::inspectThread(*proc_, tid);
     if (!snapshot) { statusLabel_->setText(QString::fromStdString(snapshot.error())); return; }
     displaySnapshot(std::move(*snapshot));
-    statusLabel_->setText(QString("Loaded TID %1").arg(tid));
+    statusLabel_->setText(QString("Registers of thread %1. Double-click a value to edit it, then Apply changes.").arg(tid));
 }
 
 void RegisterEditorWindow::displaySnapshot(ThreadSnapshot snapshot) {

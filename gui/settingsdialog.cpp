@@ -312,6 +312,7 @@ QWidget* SettingsDialog::buildLuaPage() {
     const QString folder = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation) + "/autorun";
     auto* path = new QLineEdit(QDir::toNativeSeparators(folder));
     path->setReadOnly(true);
+    path->setToolTip(path->text());
     path->setMinimumWidth(kFieldWidth);
     auto* open = new QPushButton("Open folder");
     connect(open, &QPushButton::clicked, this, [folder]() {

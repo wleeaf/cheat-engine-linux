@@ -5,6 +5,7 @@
 #include <QHeaderView>
 #include <QFont>
 #include <fstream>
+#include <cctype>
 
 namespace ce::gui {
 
@@ -52,6 +53,12 @@ void ThreadListWindow::populate() {
                 state = line.substr(6);
                 size_t nonWs = state.find_first_not_of(" \t");
                 state = (nonWs == std::string::npos) ? "" : state.substr(nonWs);
+                // "S (sleeping)" -> "Sleeping": the word, capitalised, without the code letter.
+                if (auto open = state.find('('), close = state.rfind(')');
+                    open != std::string::npos && close != std::string::npos && close > open + 1) {
+                    state = state.substr(open + 1, close - open - 1);
+                    state[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(state[0])));
+                }
                 break;
             }
         }

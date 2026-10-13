@@ -30,7 +30,7 @@ D3D/.Net are hidden on a Linux build.)
   Save scan results...
   Delete scanresult
   ——
-  Generate generic trainer lua script from table
+  Generate Trainer Lua Script...
   ——
   Quit
 &Edit

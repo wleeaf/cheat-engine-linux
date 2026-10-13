@@ -256,8 +256,8 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
                      {"Connect to GDB / QEMU...", "gdb"}, {"Memory Allocations...", "allocations"},
                      {"Structure Spider...", "structure-spider"}, {"Group Scan Generator...", "group-scan"},
                      {"Wait for process...", "wait-process"}, {"Generate Trainer (executable)...", "trainer"},
-                     {"Breakpoint list", "breakpoint-list"}, {"Lua Engine", "lua-engine"},
-                     {"Create form", "create-form"}, {"Cheat Engine Help", "help"},
+                     {"Breakpoint list", "breakpoint-list"}, {"Lua Engine...", "lua-engine"},
+                     {"Create Form...", "create-form"}, {"Cheat Engine Help", "help"},
                      {"Settings...", "settings-from-menu"}, {"Save Memory Region...", "save-region"}})
                 captureNew(openAction(action), prefix + "dialog-" + name);
             captureNew(openAction("Overlay..."), prefix + "dialog-overlay");

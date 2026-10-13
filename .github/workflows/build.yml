@@ -139,6 +139,9 @@ jobs:
       - name: Run GUI structure-dissector smoke test (compare mode, offscreen Qt)
         run: ./build/gui_structdissect_smoke
 
+      - name: Run GUI pointer-scan smoke test (scan off the GUI thread, offscreen Qt)
+        run: ./build/gui_pointerscan_smoke
+
       - name: Run GUI hex-view smoke test (changed-byte highlight, offscreen Qt)
         run: ./build/gui_hexview_smoke
 

@@ -503,6 +503,15 @@ if(Qt6_FOUND)
         target_include_directories(gui_structdissect_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
         target_link_libraries(gui_structdissect_smoke PRIVATE cecore Qt6::Widgets)
 
+        # Offscreen smoke test: the pointer scan runs off the GUI thread.
+        qt_add_executable(gui_pointerscan_smoke
+            test/gui_pointerscan_smoke.cpp
+            gui/pointerscan_dialog.cpp
+            gui/theme.cpp
+        )
+        target_include_directories(gui_pointerscan_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
+        target_link_libraries(gui_pointerscan_smoke PRIVATE cecore Qt6::Widgets)
+
         # Offscreen smoke test for the hex pane's changed-byte highlight.
         qt_add_executable(gui_hexview_smoke
             test/gui_hexview_smoke.cpp

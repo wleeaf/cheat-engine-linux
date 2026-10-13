@@ -88,32 +88,72 @@ PointerScanDialog::PointerScanDialog(ProcessHandle* proc, QWidget* parent)
     layout->addWidget(resultsTable_);
 }
 
+PointerScanDialog::~PointerScanDialog() {
+    // The process handle outlives this window (it is closed first on a
+    // target change), but not this worker: stop and join it here.
+    if (scanner_) scanner_->cancel();
+    if (worker_.joinable()) worker_.join();
+}
+
 void PointerScanDialog::onScan() {
+    if (worker_.joinable()) {   // the button reads Cancel while a scan runs
+        scanner_->cancel();
+        statusLabel_->setText("Cancelling...");
+        return;
+    }
     if (!proc_) return;
 
     bool ok;
     uintptr_t target = targetEdit_->text().toULongLong(&ok, 16);
     if (!ok) { statusLabel_->setText("Invalid address"); return; }
 
-    scanBtn_->setEnabled(false);
     statusLabel_->setText("Scanning...");
     resultsTable_->setRowCount(0);
+    rescanBtn_->setEnabled(false);
+    saveBtn_->setEnabled(false);
+    loadBtn_->setEnabled(false);
+    scanBtn_->setText("Cancel");
 
     PointerScanConfig config;
     config.targetAddress = target;
     config.maxDepth = depthSpin_->value();
     config.maxOffset = offsetSpin_->value();
 
-    PointerScanner scanner;
-    results_ = scanner.scan(*proc_, config);
+    scanner_ = std::make_unique<PointerScanner>();
+    scanDone_ = false;
+    scanned_.clear();
+    worker_ = std::thread([this, config] {
+        try { scanned_ = scanner_->scan(*proc_, config); } catch (...) { scanned_.clear(); }
+        scanDone_ = true;
+    });
+    if (!scanPoll_) {
+        scanPoll_ = new QTimer(this);
+        connect(scanPoll_, &QTimer::timeout, this, [this] {
+            if (!scanDone_) {
+                statusLabel_->setText(QString("Scanning... %1%").arg(int(scanner_->progress() * 100)));
+                return;
+            }
+            scanPoll_->stop();
+            finishScan();
+        });
+    }
+    scanPoll_->start(100);
+}
 
+void PointerScanDialog::finishScan() {
+    worker_.join();
+    const bool cancelled = scanner_->wasCancelled();
+    results_ = std::move(scanned_);
     populateResults();
     QString status = results_.size() > 1000 ? QString("Found %1 paths (showing first 1000)").arg(results_.size())
                                             : QString("Found %1 paths").arg(results_.size());
-    if (scanner.truncated())
+    if (cancelled)
+        status = QString("Cancelled; %1 paths found so far").arg(results_.size());
+    else if (scanner_->truncated())
         status += ". The scan stopped at its path limit, so longer paths may be missing: lower Max offset and scan again.";
     statusLabel_->setText(status);
-    scanBtn_->setEnabled(true);
+    scanBtn_->setText("Scan");
+    loadBtn_->setEnabled(true);
 }
 
 void PointerScanDialog::populateResults() {

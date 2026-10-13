@@ -62,6 +62,9 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Fixed: the pointer scan window scanned on the GUI thread, freezing Cheat
+  Engine (and pausing frozen values) for the whole scan. It now scans in the
+  background with progress and a Cancel button.
 - Fixed: a scan value that is not a number (an empty box, "12a", a pointer
   without "0x" while Hex is off) quietly scanned for 0; it is now refused.
   Pointer values follow the Hex box.

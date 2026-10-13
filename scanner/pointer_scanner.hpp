@@ -122,6 +122,7 @@ public:
     float progress() const { return progress_.load(std::memory_order_relaxed); }
 
     void cancel() { cancelled_.store(true); }
+    bool wasCancelled() const { return cancelled_.load(); }
 
     /// The last scan stopped at config.maxResults.
     bool truncated() const { return truncated_.load(); }

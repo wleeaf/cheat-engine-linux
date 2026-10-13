@@ -42,17 +42,29 @@ struct Pe {
     std::optional<uint16_t> u16AtRva(uint64_t rva) const {
         auto o = rvaToOff(rva, 2); if (!o) return std::nullopt; return u16(*o);
     }
+    // File offset of rva and how many bytes follow it in the same raw extent.
+    std::optional<std::pair<size_t, size_t>> rvaSpan(uint64_t rva) const {
+        if (rva > UINT32_MAX) return std::nullopt;
+        if (rva < headerSize && rva < buf.size())
+            return std::pair<size_t, size_t>{static_cast<size_t>(rva),
+                                             std::min<size_t>(headerSize - rva, buf.size() - rva)};
+        for (const auto& s : secs)
+            if (rva >= s.rva && rva - s.rva < std::max(s.vsize, s.fileSize)) {
+                const uint32_t d = rva - s.rva;
+                const size_t off = static_cast<size_t>(s.fileOff) + d;
+                if (d >= s.fileSize || off >= buf.size()) return std::nullopt;
+                return std::pair<size_t, size_t>{off, std::min<size_t>(s.fileSize - d, buf.size() - off)};
+            }
+        return std::nullopt;
+    }
     std::string cstrAtRva(uint64_t rva, size_t maxLen = 512) const {
-        std::string s;
-        for (size_t i = 0; i < maxLen; ++i) {
-            // Require the whole string to belong to one mapped raw extent.
-            auto o = rvaToOff(rva, i + 1);
-            if (!o) return {};
-            char c = static_cast<char>(buf[*o + i]);
-            if (c == '\0') return s;
-            s.push_back(c);
-        }
-        return {};
+        // The whole string, with its NUL, must lie in one mapped raw extent.
+        const auto span = rvaSpan(rva);
+        if (!span) return {};
+        const char* start = reinterpret_cast<const char*>(buf.data()) + span->first;
+        const size_t limit = std::min(maxLen, span->second);
+        const void* end = std::memchr(start, '\0', limit);
+        return end ? std::string(start, static_cast<const char*>(end)) : std::string();
     }
 };
 
@@ -96,6 +108,8 @@ bool loadPe(Pe& pe, PeDirs& dirs) {
     }
 
     size_t secTbl = opt + optSize;
+    // Windows loads at most 96 sections; more only makes every lookup slower.
+    if (nSec > 96) return false;
     if (!pe.inRange(secTbl, static_cast<size_t>(nSec) * 40)) return false;
     for (uint16_t k = 0; k < nSec; ++k) {
         size_t so = secTbl + static_cast<size_t>(k) * 40;

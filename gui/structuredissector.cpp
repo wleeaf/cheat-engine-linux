@@ -471,7 +471,9 @@ void StructureDissector::onTypeAsIl2Cpp() {
         fieldTypes_[static_cast<int>(f.offset)] = f.type;
     }
     if (def.size > 0) {
-        structSize_ = std::max(8, (static_cast<int>(def.size) + 7) / 8 * 8);
+        // The size comes from DWARF, il2cpp or a table: keep it to the size box range.
+        structSize_ = static_cast<int>((std::min<uint64_t>(def.size, 8192) + 7) / 8 * 8);
+        structSize_ = std::max(8, structSize_);
         if (sizeSpin_) sizeSpin_->setValue(structSize_);
     }
     if (baseAddr_) populateTable();
@@ -505,7 +507,9 @@ void StructureDissector::onTypeAsCStruct() {
         fieldTypes_[static_cast<int>(f.offset)] = f.type;
     }
     if (def.size > 0) {
-        structSize_ = std::max(8, (static_cast<int>(def.size) + 7) / 8 * 8);
+        // The size comes from DWARF, il2cpp or a table: keep it to the size box range.
+        structSize_ = static_cast<int>((std::min<uint64_t>(def.size, 8192) + 7) / 8 * 8);
+        structSize_ = std::max(8, structSize_);
         if (sizeSpin_) sizeSpin_->setValue(structSize_);
     }
     if (baseAddr_) populateTable();

@@ -71,6 +71,11 @@ reimplementation of Cheat Engine).
   address or color was written unescaped. Deeply nested groups are refused at
   64 levels instead of recursing without bound, and children are parsed in
   place instead of copying the rest of the file at every level.
+- Fixed: crafted symbol files could exhaust memory or time: an ELF whose
+  section headers all name the same symbol table read it once per header,
+  PE export names were located one byte at a time across up to 65,535
+  sections (now 96, the Windows limit), and a huge structure size from DWARF
+  or il2cpp overflowed the structure dissector's size.
 - Fixed: generated trainers froze pointer records at their base address,
   writing into the pointer itself; they now leave out pointer and symbolic
   records. A table with 44 or more cheats produced a trainer that did not

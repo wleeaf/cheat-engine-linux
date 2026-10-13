@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <algorithm>
 #include <array>
+#include <set>
 
 namespace ce {
 namespace {
@@ -451,10 +452,14 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
     };
 
     bool hasSymtab = false;
+    // Each table once: many section headers can name the same data, and
+    // reading it again per header multiplies the symbols without limit.
+    std::set<std::pair<uint64_t, uint64_t>> seenTables;
     for (size_t i = 0; i < shdrs.size(); ++i) {
         if ((shdrs[i].sh_type == SHT_DYNSYM || shdrs[i].sh_type == SHT_SYMTAB) &&
             shdrs[i].sh_link < shdrs.size()) {
             if (shdrs[i].sh_type == SHT_SYMTAB) hasSymtab = true;
+            if (!seenTables.insert({shdrs[i].sh_offset, shdrs[i].sh_size}).second) continue;
             processSymtab(shdrs[i], shdrs[shdrs[i].sh_link]);
         }
     }
@@ -537,8 +542,9 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
         }
     };
 
+    std::set<std::pair<uint64_t, uint64_t>> seenRelocations;
     for (size_t i = 0; i < shdrs.size(); ++i) {
-        if (shdrs[i].sh_type == SHT_RELA)
+        if (shdrs[i].sh_type == SHT_RELA && seenRelocations.insert({shdrs[i].sh_offset, shdrs[i].sh_size}).second)
             processRelocations(shdrs[i]);
     }
 
@@ -684,10 +690,14 @@ void SymbolResolver::parseElf32Symbols(const std::string& path, const std::strin
     };
 
     bool hasSymtab = false;
+    // Each table once: many section headers can name the same data, and
+    // reading it again per header multiplies the symbols without limit.
+    std::set<std::pair<uint64_t, uint64_t>> seenTables;
     for (size_t i = 0; i < shdrs.size(); ++i) {
         if ((shdrs[i].sh_type == SHT_DYNSYM || shdrs[i].sh_type == SHT_SYMTAB) &&
             shdrs[i].sh_link < shdrs.size()) {
             if (shdrs[i].sh_type == SHT_SYMTAB) hasSymtab = true;
+            if (!seenTables.insert({shdrs[i].sh_offset, shdrs[i].sh_size}).second) continue;
             processSymtab(shdrs[i], shdrs[shdrs[i].sh_link]);
         }
     }

@@ -12,7 +12,7 @@ the graphical tutorial, each on fresh games in text mode:
 Neither player knows where anything is: they find every value, pointer and
 instruction by scanning and watching, as the tutorial asks.
 
-Usage: test/tutorial_gate.py <build-dir> [--player cli|agent|both] [--report file.json]
+Usage: test/tutorial_gate.py <build-dir> [--player cli|agent|both] [--seed N] [--report file.json]
 """
 import argparse
 import json
@@ -145,9 +145,10 @@ class GraphicalTutorial:
         return bars
 
     @staticmethod
-    def around(percent):
-        """The range a bar of this length stands for, with room for what changed since."""
-        return str(max(0.0, percent - 6)), str(percent + 6)
+    def around(percent, full=100):
+        """The range a bar of this length stands for (full = the value of a full
+        bar), with room for what changed since. Whole numbers, for integer scans."""
+        return str(int(max(0.0, percent - 6) * full / 100)), str(int((percent + 6) * full / 100 + 1))
 
     def wait_complete(self, level, timeout=3.0):
         return self.inner.wait_complete(level, timeout)
@@ -415,8 +416,11 @@ dealloc(newmem)
         # Level 1: health seen only as a bar; it drops while shot and recovers after.
         count, results, rows = self.scan("--type", "i32", "--compare", "unknown")
         for _ in range(6):
-            game.press("fire", 800)
+            bar = game.press("fire", 800)["Target"]
             count, results, rows = self.scan("--type", "i32", "--compare", "decreased", previous=results)
+            low, high = game.around(bar, 500)
+            count, results, rows = self.scan("--type", "i32", "--compare", "between", "--value", low, "--value2", high,
+                                             previous=results)
             game.press("", 2600)
             count, results, rows = self.scan("--type", "i32", "--compare", "increased", previous=results)
             if count <= 3:
@@ -706,8 +710,10 @@ class AgentPlayer:
         # Level 1.
         error, result = tool("first_scan", type="i32", compare="unknown")
         for _ in range(6):
-            game.press("fire", 800)
+            bar = game.press("fire", 800)["Target"]
             tool("next_scan", compare="decreased")
+            low, high = game.around(bar, 500)
+            tool("next_scan", compare="between", value=low, value2=high)
             game.press("", 2600)
             error, result = tool("next_scan", compare="increased")
             if error or result["count"] <= 3:
@@ -757,6 +763,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("build")
     parser.add_argument("--player", choices=["cli", "agent", "both"], default="both")
+    parser.add_argument("--seed", type=int, default=20261013, help="the games' random numbers")
     parser.add_argument("--report")
     args = parser.parse_args()
     build = pathlib.Path(args.build).resolve()
@@ -776,12 +783,12 @@ def main():
             return ok
 
         with tempfile.TemporaryDirectory(prefix=f"ce-tutorial-{prefix}-") as work:
-            tutorial = Tutorial(build / "cetutorial", seed=20261013)
+            tutorial = Tutorial(build / "cetutorial", seed=args.seed)
             player = player_class(build, tutorial, pathlib.Path(work), check)
             try:
                 player.play()
                 tutorial.close()
-                tutorial = GraphicalTutorial(build / "cegtutorial", seed=20261013)
+                tutorial = GraphicalTutorial(build / "cegtutorial", seed=args.seed)
                 player.play_graphical(tutorial)
             except AssertionError:
                 pass

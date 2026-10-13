@@ -80,13 +80,12 @@ static void* object(size_t size) {
     return p;
 }
 
-/* An object for a pointer step, after a gap of random size, so objects
-   allocated together are not neighbours at fixed distances. Otherwise a
-   pointer scan finds shortcuts ([object]+offset into its neighbour) that
-   survive a rescan by luck of the allocator. The gaps are never freed. */
+/* An object for a pointer step, with unused room of random size after it, so
+   objects allocated together are not neighbours at fixed distances. Otherwise
+   a pointer scan finds shortcuts ([object]+offset into its neighbour) that
+   survive a rescan by luck of the allocator. */
 static void* scattered(size_t size) {
-    (void)object((size_t)rnd_range(1, 256) * 16);
-    return object(size);
+    return object(size + (size_t)rnd_range(1, 256) * 16);
 }
 
 /* ── The code you change ── */

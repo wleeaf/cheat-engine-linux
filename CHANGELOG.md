@@ -62,6 +62,11 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Fixed: speedhack clocks jumped when the speed changed while the game ran
+  (from 2x back to 1x the monotonic clock ran backwards), and
+  `gettimeofday` was scaled against the monotonic clock's origin, so at any
+  speed but 1x it returned a date years away. Each clock now keeps its own
+  base and continues smoothly from a speed change.
 - Fixed: pointer paths through a module whose name has a `+` or a space
   (`libstdc++.so.6`, "Game Name.exe") were written unquoted and did not
   resolve when added to the address list; the name is now quoted as Cheat

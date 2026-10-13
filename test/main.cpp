@@ -6378,6 +6378,63 @@ static void test_speedhack_got_injection() {
            scaled > 0 ? base / scaled : 0.0);
 }
 
+// Changing the speed at run time keeps the clocks continuous: no jump, a
+// monotonic clock never runs backwards, and the wall clock stays near the
+// real one (it used to be scaled against the monotonic clock's origin).
+static void test_speedhack_speed_changes() {
+    printf("\n── Test: Speedhack speed changes ──\n");
+    char exe[4096];
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    if (n <= 0) { printf("  speed changes: FAILED (no exe path)\n"); return; }
+    exe[n] = 0;
+    const std::string libpath = std::string(exe).substr(0, std::string(exe).find_last_of('/')) + "/libspeedhack.so";
+    int fds[2];
+    if (pipe(fds) != 0) return;
+    pid_t child = fork();
+    if (child == 0) {
+        close(fds[0]);
+        setenv("CE_SPEED", "1", 1);
+        void* h = dlopen(libpath.c_str(), RTLD_NOW);
+        int shm = shm_open("/ce_speedhack", O_RDWR, 0600);
+        auto* speed = shm >= 0 ? static_cast<double*>(mmap(nullptr, sizeof(double), PROT_READ | PROT_WRITE, MAP_SHARED, shm, 0)) : nullptr;
+        auto mono = [] { timespec t{}; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + t.tv_nsec / 1e9; };
+        auto wall = [] { timeval t{}; gettimeofday(&t, nullptr); return t.tv_sec + t.tv_usec / 1e6; };
+        auto realWall = [] { timespec t{}; syscall(SYS_clock_gettime, CLOCK_REALTIME, &t); return t.tv_sec + t.tv_nsec / 1e9; };
+        auto realSleep = [] { timespec t{0, 50 * 1000000L}; syscall(SYS_nanosleep, &t, nullptr); };
+        double out[4] = {-1, -1, -1, -1};
+        if (h && speed && speed != MAP_FAILED) {
+            (void)wall();   // the wall clock starts at speed 1
+            (void)mono();
+            // A new speed counts from the next clock read, which a game makes
+            // every frame; read right after each change, as a game would.
+            *speed = 4.0;
+            const double a = mono();
+            realSleep();
+            const double b = mono();
+            const double fakeWall = wall();
+            const double trueWall = realWall();
+            *speed = 0.5;
+            const double b2 = mono();
+            realSleep();
+            const double c = mono();
+            out[0] = b - a; out[1] = c - b2; out[2] = fakeWall - trueWall; out[3] = b2 - b;
+        }
+        ssize_t wr = write(fds[1], out, sizeof(out)); (void)wr;
+        _exit(0);
+    }
+    close(fds[1]);
+    double out[4] = {-1, -1, -1, -1};
+    ssize_t got = read(fds[0], out, sizeof(out));
+    close(fds[0]);
+    waitpid(child, nullptr, 0);
+    shm_unlink("/ce_speedhack");
+    // 50 ms at 4x is about 200 ms; then 50 ms at 0.5x about 25 ms, forward.
+    const bool ok = got == (ssize_t)sizeof(out) && out[0] > 0.12 && out[0] < 2.0 &&
+                    out[1] > 0.01 && out[1] < 0.1 && out[3] >= 0 && std::fabs(out[2]) < 60;
+    printf("  clocks stay continuous across speed changes: %s (4x %.0f ms, 0.5x %.0f ms, wall off by %.1f s)\n",
+           ok ? "OK" : "FAILED", out[0] * 1000, out[1] * 1000, out[2]);
+}
+
 // Adversarial / malformed input for the parsers that the README says treat
 // their input as untrusted. Each must fail gracefully — return empty/false, not
 // throw an uncaught exception or crash. A throw is reported FAILED so we fix the
@@ -12317,6 +12374,7 @@ int main(int argc, char* argv[]) {
     test_lua_memory_region_info();
     test_lua_md5memory();
     test_speedhack_got_injection();
+    test_speedhack_speed_changes();
     test_parser_fuzz_negatives();
     test_lua_shellexecute_gate();
     test_lua_localwrite_gate();

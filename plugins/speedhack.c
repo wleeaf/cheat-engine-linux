@@ -23,8 +23,6 @@
 #include <elf.h>
 
 static double speed_factor = 1.0;
-static struct timespec base_real_time;
-static struct timespec base_fake_time;
 static int initialized = 0;
 
 // Real clock_gettime, resolved once before init so init never re-enters the
@@ -74,11 +72,6 @@ static void init_speedhack() {
     if (env) speed_factor = clamp_speed(parse_ce_speed(env));
     if (speed_factor <= 0) speed_factor = 1.0;
 
-    // Record base time via the REAL libc clock_gettime (not the interposer).
-    if (real_clock_gettime)
-        real_clock_gettime(CLOCK_MONOTONIC, &base_real_time);
-    base_fake_time = base_real_time;
-
     // Try to open shared memory for runtime control. O_NOFOLLOW refuses a
     // symlink-swapped /dev/shm entry; 0600 keeps the channel same-user only.
     // NOTE: the name is fixed by contract with gui/mainwindow.cpp (the writer)
@@ -122,27 +115,63 @@ static double get_speed() {
     return clamp_speed(v);
 }
 
-static void adjust_time(struct timespec* ts) {
+// A clock seen at the game's speed. Each clock keeps its own base, and is
+// rebased whenever the speed changes, so the fake time stays continuous: a
+// change from 2x back to 1x must not send a monotonic clock backwards, and
+// the wall clock must not be scaled against the monotonic clock's origin.
+// Clocks are read from any thread (and from signal handlers), so the base
+// sits behind a seqlock instead of a mutex.
+typedef struct {
+    unsigned long seq;         // odd while a rebase is being written
+    int64_t base_real_ns;
+    int64_t base_fake_ns;
+    uint64_t speed_bits;       // the double the base was taken at; 0 = not started
+} sh_clock_t;
+
+static sh_clock_t sh_monotonic, sh_monotonic_raw, sh_realtime, sh_sdl_ticks;
+
+static int64_t sh_scale_elapsed(int64_t elapsed_ns, double speed) {
+    if (elapsed_ns <= 0) return 0;   // read before another thread's rebase
+    double scaled = (double)elapsed_ns * speed;
+    if (!isfinite(scaled) || scaled > (double)(INT64_MAX / 4)) scaled = (double)(INT64_MAX / 4);
+    return (int64_t)scaled;
+}
+
+// The fake time for a real reading `now_ns` of clock c.
+static int64_t sh_fake_time(sh_clock_t* c, int64_t now_ns) {
+    const double speed = get_speed();
+    uint64_t want_bits;
+    memcpy(&want_bits, &speed, sizeof want_bits);
+    for (;;) {
+        unsigned long seq = __atomic_load_n(&c->seq, __ATOMIC_ACQUIRE);
+        if (seq & 1) continue;
+        const int64_t base_real = __atomic_load_n(&c->base_real_ns, __ATOMIC_RELAXED);
+        const int64_t base_fake = __atomic_load_n(&c->base_fake_ns, __ATOMIC_RELAXED);
+        const uint64_t bits = __atomic_load_n(&c->speed_bits, __ATOMIC_RELAXED);
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (__atomic_load_n(&c->seq, __ATOMIC_RELAXED) != seq) continue;
+        double base_speed;
+        memcpy(&base_speed, &bits, sizeof base_speed);
+        if (bits == want_bits)
+            return base_fake + sh_scale_elapsed(now_ns - base_real, base_speed);
+        // Not started, or the speed changed: rebase at now, continuing from
+        // where the old speed had taken the clock.
+        if (!__atomic_compare_exchange_n(&c->seq, &seq, seq + 1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) continue;
+        const int64_t fake_now = bits ? base_fake + sh_scale_elapsed(now_ns - base_real, base_speed) : now_ns;
+        __atomic_store_n(&c->base_real_ns, now_ns, __ATOMIC_RELAXED);
+        __atomic_store_n(&c->base_fake_ns, fake_now, __ATOMIC_RELAXED);
+        __atomic_store_n(&c->speed_bits, want_bits, __ATOMIC_RELAXED);
+        __atomic_store_n(&c->seq, seq + 2, __ATOMIC_RELEASE);
+        return fake_now;
+    }
+}
+
+static void adjust_time(sh_clock_t* c, struct timespec* ts) {
     if (!initialized) init_speedhack();
-    double spd = get_speed();
-
-    // Calculate elapsed real time since init
-    double real_elapsed = (ts->tv_sec - base_real_time.tv_sec) +
-                          (ts->tv_nsec - base_real_time.tv_nsec) / 1e9;
-
-    // Scale it
-    double fake_elapsed = real_elapsed * spd;
-
-    // Clamp to the representable tv_sec range before the double->long cast;
-    // an out-of-range cast is UB and would produce a garbage clock.
-    double max_secs = (double)(LONG_MAX - base_fake_time.tv_sec - 1);
-    if (!isfinite(fake_elapsed) || fake_elapsed < 0) fake_elapsed = 0;
-    if (fake_elapsed > max_secs) fake_elapsed = max_secs;
-
-    // Add to base fake time
-    ts->tv_sec = base_fake_time.tv_sec + (long)fake_elapsed;
-    ts->tv_nsec = base_fake_time.tv_nsec + (long)((fake_elapsed - (long)fake_elapsed) * 1e9);
-    if (ts->tv_nsec >= 1000000000L) { ts->tv_sec++; ts->tv_nsec -= 1000000000L; }
+    const int64_t now = (int64_t)ts->tv_sec * 1000000000LL + ts->tv_nsec;
+    const int64_t fake = sh_fake_time(c, now);
+    ts->tv_sec = (time_t)(fake / 1000000000LL);
+    ts->tv_nsec = (long)(fake % 1000000000LL);
 }
 
 // ── Intercepted functions ──
@@ -157,8 +186,8 @@ int clock_gettime(clockid_t clk_id, struct timespec* tp) {
     if (!real_clock_gettime) real_clock_gettime = (clock_gettime_t)dlsym(RTLD_NEXT, "clock_gettime");
     if (!real_clock_gettime) { errno = ENOSYS; return -1; }
     int ret = real_clock_gettime(clk_id, tp);
-    if (ret == 0 && (clk_id == CLOCK_MONOTONIC || clk_id == CLOCK_MONOTONIC_RAW))
-        adjust_time(tp);
+    if (ret == 0 && clk_id == CLOCK_MONOTONIC) adjust_time(&sh_monotonic, tp);
+    else if (ret == 0 && clk_id == CLOCK_MONOTONIC_RAW) adjust_time(&sh_monotonic_raw, tp);
     return ret;
 }
 
@@ -169,7 +198,7 @@ int gettimeofday(struct timeval* tv, void* tz) {
     int ret = real_fn(tv, tz);
     if (ret == 0) {
         struct timespec ts = { tv->tv_sec, tv->tv_usec * 1000 };
-        adjust_time(&ts);
+        adjust_time(&sh_realtime, &ts);
         tv->tv_sec = ts.tv_sec;
         tv->tv_usec = ts.tv_nsec / 1000;
     }
@@ -294,13 +323,12 @@ unsigned int SDL_GetTicks(void) {
     if (!real_fn) return 0;
     unsigned int raw = real_fn();
     if (!initialized) init_speedhack();
-    double spd = get_speed();  // already finite/positive-clamped
-    // Compute in 64-bit and clamp to the 32-bit ms range so a large raw or
-    // speed can't wrap and send SDL frame pacing backwards.
-    double scaled = (double)raw * spd;
-    if (scaled < 0) scaled = 0;
-    if (scaled > (double)UINT32_MAX) scaled = (double)UINT32_MAX;
-    return (unsigned int)scaled;
+    // Continuous across speed changes, like the other clocks; clamped to the
+    // 32-bit millisecond range SDL returns.
+    int64_t fake_ms = sh_fake_time(&sh_sdl_ticks, (int64_t)raw * 1000000LL) / 1000000LL;
+    if (fake_ms < 0) fake_ms = 0;
+    if (fake_ms > (int64_t)UINT32_MAX) fake_ms = (int64_t)UINT32_MAX;
+    return (unsigned int)fake_ms;
 }
 
 void SDL_Delay(unsigned int ms) {

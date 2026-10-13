@@ -62,6 +62,14 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Fixed: listing a process's modules read every mapped file, devices
+  included; a game that maps GPU memory through `/dev/dri/renderD128` (Mesa
+  on AMD and Intel) made the read wait forever, hanging the attach. Devices,
+  memfd and SysV shared memory are no longer modules, only regular files are
+  opened, shared mappings count as Mapped rather than Image, and a library
+  replaced on disk keeps its name without " (deleted)". The JIT perf map in
+  `/tmp`, which anyone can create, is read without blocking on a FIFO and
+  with a size limit.
 - Fixed: Auto Assembler read `nop dword ptr [rax+rax]` (the padding GCC
   emits, which injection templates relocate) as a NOP count and failed; a
   `nop` with an operand (including a register, `nop eax`) now assembles as an

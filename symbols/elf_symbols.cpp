@@ -5,7 +5,10 @@
 #include "analysis/pe_exports.hpp"
 
 #include <cerrno>
+#include <fcntl.h>
 #include <fstream>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <sstream>
 #include <cstring>
 #include <elf.h>
@@ -80,14 +83,27 @@ void SymbolResolver::loadProcess(ProcessHandle& proc) {
 // untrusted: bounded in size, entry count and line length. Code is recompiled
 // over time, so a later entry for the same address or name wins.
 void SymbolResolver::loadPerfMap(const std::string& path) {
-    std::ifstream file(path);
-    if (!file) return;
+    // Anyone can create /tmp/perf-<pid>.map: open it without following a
+    // link or blocking on a FIFO, insist on a regular file and read a bounded
+    // amount, so no line can grow without limit.
     constexpr size_t kMaxEntries = size_t(1) << 20;
-    constexpr uintmax_t kMaxBytes = uintmax_t(64) << 20;
-    uintmax_t consumed = 0;
+    constexpr size_t kMaxBytes = size_t(64) << 20;
+    const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NONBLOCK | O_NOFOLLOW);
+    if (fd < 0) return;
+    std::string contents;
+    if (struct stat st{}; ::fstat(fd, &st) == 0 && S_ISREG(st.st_mode)) {
+        char buffer[65536];
+        while (contents.size() < kMaxBytes) {
+            const ssize_t got = ::read(fd, buffer, std::min(sizeof buffer, kMaxBytes - contents.size()));
+            if (got < 0 && errno == EINTR) continue;
+            if (got <= 0) break;
+            contents.append(buffer, static_cast<size_t>(got));
+        }
+    }
+    ::close(fd);
+    std::istringstream file(contents);
     size_t added = 0;
-    for (std::string line; added < kMaxEntries && consumed < kMaxBytes && std::getline(file, line);) {
-        consumed += line.size() + 1;
+    for (std::string line; added < kMaxEntries && std::getline(file, line);) {
         if (line.size() > 4096) continue;
         if (!line.empty() && line.back() == '\r') line.pop_back();
         const char* text = line.c_str();
@@ -115,6 +131,8 @@ void SymbolResolver::loadPerfMap(const std::string& path) {
 void SymbolResolver::loadModule(const std::string& path, const std::string& moduleName, uintptr_t baseAddr) {
     // Wine/Proton modules are PE images (MZ magic); their symbols live in the PE
     // export table, not an ELF symtab. Dispatch on the file magic.
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec)) return;   // a device could block the read
     std::ifstream probe(path, std::ios::binary);
     char magic[2] = {};
     if (probe.read(magic, 2) && magic[0] == 'M' && magic[1] == 'Z') {

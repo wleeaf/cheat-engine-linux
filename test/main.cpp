@@ -77,6 +77,8 @@
 #include <sys/socket.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <future>
+#include <sys/stat.h>
 #include <dlfcn.h>
 #include <sys/syscall.h>
 #include <cstdarg>
@@ -1588,6 +1590,54 @@ static void test_perf_map_symbols() {
         resolver.resolve(0x7f0000001010) == "[jit]!JS:*hotLoopRecompiled game.js:3:1+0x10" &&
         resolver.lookup("bogus") == 0;
     printf("  perf map entries, recompiled names and malformed lines: %s\n", ok ? "OK" : "FAILED");
+
+    // Anyone can create the file: a FIFO there must not block the loader.
+    char fifo[] = "/tmp/ce-perfmap-fifo-XXXXXX";
+    if (int temp = mkstemp(fifo); temp >= 0) {
+        close(temp);
+        unlink(fifo);
+        if (mkfifo(fifo, 0600) == 0) {
+            auto loaded = std::async(std::launch::async, [&] { ce::SymbolResolver fifoResolver; fifoResolver.loadPerfMap(fifo); });
+            const bool returned = loaded.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+            if (!returned) { int unblock = open(fifo, O_WRONLY | O_NONBLOCK); if (unblock >= 0) close(unblock); }
+            printf("  a FIFO in place of the perf map does not block: %s\n", returned ? "OK" : "FAILED");
+            loaded.wait();
+            unlink(fifo);
+        }
+    }
+}
+
+// A mapped device (a GPU's /dev/dri node in a real game) is not a module: a
+// blocking read on it would hang module enumeration.
+static void test_device_mapping_not_module() {
+    printf("\n── Test: Mapped devices are not modules ──\n");
+    int ready[2];
+    if (pipe(ready) != 0) return;
+    const pid_t child = fork();
+    if (child == 0) {
+        prctl(PR_SET_PDEATHSIG, SIGKILL);
+        int fd = open("/dev/zero", O_RDWR);
+        void* shared = fd >= 0 ? mmap(nullptr, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0) : MAP_FAILED;
+        if (write(ready[1], shared == MAP_FAILED ? "n" : "y", 1) != 1) _exit(1);
+        for (;;) pause();
+    }
+    char byte = 'n';
+    if (read(ready[0], &byte, 1) != 1) byte = 'n';
+    close(ready[0]); close(ready[1]);
+    if (byte == 'y') {
+        ce::os::LinuxProcessHandle proc(child);
+        bool deviceModule = false, deletedName = false;
+        for (const auto& m : proc.modules()) {
+            deviceModule = deviceModule || m.path.rfind("/dev/", 0) == 0;
+            deletedName = deletedName || m.name.find(" (deleted)") != std::string::npos;
+        }
+        printf("  no module for a mapped device, no \"(deleted)\" in names: %s\n",
+               !deviceModule && !deletedName ? "OK" : "FAILED");
+    } else {
+        printf("  no module for a mapped device: SKIPPED (no /dev/zero mapping)\n");
+    }
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
 }
 
 static void test_pointer_path_expression() {
@@ -11962,6 +12012,7 @@ int main(int argc, char* argv[]) {
     test_memory_access_problem();
     test_agent_mcp();
     test_agent_chat();
+    test_device_mapping_not_module();
     test_scan_directory_cleanup();
     test_cheat_table_json();
     test_mono_dissector_parse();

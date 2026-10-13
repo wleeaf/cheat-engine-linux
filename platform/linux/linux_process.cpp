@@ -51,6 +51,10 @@ uint64_t processStartTime(pid_t pid) {
     try { return std::stoull(field); } catch (...) { return 0; }
 }
 TargetMachine readElfMachine(const std::string& path) {
+    // Only regular files: a mapped device (a GPU's /dev/dri/renderD128) can
+    // block a read forever.
+    std::error_code ec;
+    if (!fs::is_regular_file(path, ec)) return {};
     std::ifstream f(path, std::ios::binary);
     std::array<uint8_t, 64> bytes{};
     f.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
@@ -442,10 +446,13 @@ std::vector<MemoryRegion> LinuxProcessHandle::queryRegions() {
             while (!r.path.empty() && r.path.back() == ' ') r.path.pop_back();
         }
 
-        if (!r.path.empty() && r.path[0] == '/')
-            r.type = MemType::Image;
-        else if (perms.size() > 3 && perms[3] == 's')
+        // Shared mappings (memfd guest RAM, SysV shared memory, /dev/shm) are
+        // Mapped; a private file mapping is an Image; devices are not files.
+        if (perms.size() > 3 && perms[3] == 's')
             r.type = MemType::Mapped;
+        else if (!r.path.empty() && r.path[0] == '/' && r.path.rfind("/memfd:", 0) != 0 &&
+                 r.path.rfind("/SYSV", 0) != 0 && r.path.rfind("/dev/", 0) != 0)
+            r.type = MemType::Image;
         else
             r.type = MemType::Private;
         regions.push_back(std::move(r));
@@ -759,9 +766,11 @@ std::vector<ModuleInfo> LinuxProcessHandle::modules() {
     // module rather than a nearby ELF/data mapping.
     enumeratePeModules(mods, regions);
 
-    // Collapse regions with the same file path into modules
+    // Collapse regions with the same file path into modules. Devices, memfd
+    // and SysV shared memory are not modules.
     for (auto& r : regions) {
         if (r.path.empty() || r.path[0] != '/') continue;
+        if (r.path.rfind("/dev/", 0) == 0 || r.path.rfind("/memfd:", 0) == 0 || r.path.rfind("/SYSV", 0) == 0) continue;
 
         auto it = std::find_if(mods.begin(), mods.end(),
             [&](const ModuleInfo& m) { return m.path == r.path; });
@@ -783,6 +792,11 @@ std::vector<ModuleInfo> LinuxProcessHandle::modules() {
             m.size = r.size;
             m.path = r.path;
             m.name = fs::path(r.path).filename().string();
+            // A library replaced on disk while mapped: keep the name it is
+            // known by, so "libgame.so+1C" still resolves. The path keeps the
+            // suffix, so the new file on disk is not read for it.
+            if (constexpr std::string_view deleted = " (deleted)"; m.name.ends_with(deleted))
+                m.name.resize(m.name.size() - deleted.size());
             m.is64bit = is64bit_;
             mods.push_back(std::move(m));
         }
@@ -795,6 +809,12 @@ std::vector<ModuleInfo> LinuxProcessHandle::modules() {
     auto task=processMemoryTask(pid_);
     for (auto& m : mods) {
         if (!m.path.empty()) m.path = resolveProcPath(task ? *task : pid_, m.path);
+        // A file that exists but is not regular (a device under another name,
+        // a FIFO) is never opened.
+        if (struct stat st{}; !m.path.empty() && ::stat(m.path.c_str(), &st) == 0 && !S_ISREG(st.st_mode)) {
+            m.path.clear();
+            continue;
+        }
         if (m.machine.architecture == CpuArchitecture::Unknown) {
             m.machine = readElfMachine(m.path);
             if (m.machine.hasPointers()) m.is64bit = m.machine.pointerWidth == 8;

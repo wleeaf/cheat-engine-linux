@@ -22,6 +22,7 @@ extern "C" {
 #include <elfutils/libdw.h>
 #include <dwarf.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 }
 #include <cstring>
@@ -53,8 +54,15 @@ bool DwarfInfo::available() { return true; }
 
 bool DwarfInfo::load(const std::string& elfPath, uintptr_t loadBase) {
     impl_->closeAll();
-    impl_->fd = ::open(elfPath.c_str(), O_RDONLY);
+    // Non-blocking open and a regular-file check: a device or FIFO given as
+    // the path must not hang the caller.
+    impl_->fd = ::open(elfPath.c_str(), O_RDONLY | O_CLOEXEC | O_NONBLOCK);
     if (impl_->fd < 0) return false;
+    if (struct stat st{}; ::fstat(impl_->fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+        ::close(impl_->fd);
+        impl_->fd = -1;
+        return false;
+    }
     impl_->dwarf = dwarf_begin(impl_->fd, DWARF_C_READ);
     if (!impl_->dwarf) {
         ::close(impl_->fd);

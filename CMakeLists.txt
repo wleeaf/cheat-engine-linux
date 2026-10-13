@@ -751,6 +751,25 @@ endif()
 # "public" for now; a curated public-API subset + a CMake package config with
 # transitive Capstone/Keystone handling is a tracked follow-up (see ROADMAP.md).
 include(GNUInstallDirs)
+# Installed programs find libcecore and the bundled Capstone/Keystone next to
+# them (bin/../lib64), so a ~/.local or /opt install runs without LD_LIBRARY_PATH.
+if(NOT DEFINED CMAKE_INSTALL_RPATH)
+    set_target_properties(cecore PROPERTIES INSTALL_RPATH "$ORIGIN")
+    foreach(program cheatengine cescan)
+        if(TARGET ${program})
+            set_target_properties(${program} PROPERTIES INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+        endif()
+    endforeach()
+endif()
+# A fetched Capstone is not a system library: ship it with libcecore.
+if(TARGET capstone)
+    get_target_property(CE_CAPSTONE_TYPE capstone TYPE)
+    if(CE_CAPSTONE_TYPE STREQUAL "SHARED_LIBRARY")
+        install(TARGETS capstone LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    endif()
+endif()
+# The speedhack library is injected into games; the GUI looks for it in lib.
+install(TARGETS speedhack LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(FILES third_party/tinyxml2/LICENSE.txt
     DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/cheat-engine-linux/tinyxml2)
 set_target_properties(cecore PROPERTIES
@@ -780,6 +799,9 @@ if(TARGET cheatengine)
             DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)
     install(FILES packaging/cheat-engine-linux.mime.xml
             DESTINATION ${CMAKE_INSTALL_DATADIR}/mime/packages)
+    # Help > Cheat Engine Help / Lua documentation open these offline.
+    install(FILES README.md docs/SCRIPTING.md
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/cheat-engine-linux)
 endif()
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/packaging/cecore.pc.in
                ${CMAKE_CURRENT_BINARY_DIR}/cecore.pc @ONLY)

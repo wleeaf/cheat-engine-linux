@@ -2409,6 +2409,7 @@ void MemoryBrowser::assembleAt(uintptr_t addr, int origSize, const QString& curr
         QString("Instruction to assemble at 0x%1:").arg(addr, 0, 16),
         QLineEdit::Normal, current, &ok);
     if (!ok || text.trimmed().isEmpty()) return;
+    if (!proc_) return;   // detached while the dialog was open
 
     auto architecture = ce::disassemblerArchFor(*proc_, addr);
     if (!architecture) {
@@ -2627,6 +2628,7 @@ void MemoryBrowser::saveRegionToFile(uintptr_t addr) {
     auto path = QFileDialog::getSaveFileName(this, "Save region",
         QString("region_%1_%2.bin").arg(addr, 0, 16).arg(size), "Binary (*.bin);;All (*)");
     if (path.isEmpty()) return;
+    if (!proc_) return;   // detached while the dialog was open
 
     std::vector<uint8_t> buf(size);
     auto r = proc_->read(addr, buf.data(), size);
@@ -2672,6 +2674,7 @@ void MemoryBrowser::loadRegionFromFile(uintptr_t addr) {
                 .arg(data.size()).arg(path).arg(addr, 0, 16),
             QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
         return;
+    if (!proc_) return;   // detached while the dialog was open
 
     auto w = proc_->write(addr, data.constData(), static_cast<size_t>(data.size()));
     if (!w || *w < static_cast<size_t>(data.size())) {

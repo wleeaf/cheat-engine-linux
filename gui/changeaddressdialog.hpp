@@ -24,6 +24,8 @@ namespace ce::gui {
 class ChangeAddressDialog : public QDialog {
     Q_OBJECT
 public:
+    /// The target is going away: stop reading it (the preview shows nothing).
+    void detachFromTarget() { proc_ = nullptr; }
     ChangeAddressDialog(const QString& address, ce::ValueType type, bool showHex,
                         int length, QWidget* parent = nullptr, bool showSigned = true,
                         ce::ProcessHandle* proc = nullptr);

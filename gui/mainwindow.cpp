@@ -502,6 +502,7 @@ void MainWindow::setupMenus() {
         if (!process_) { QMessageBox::warning(this, "Save Memory Region", "Open a process first."); return; }
         auto* dlg = new QDialog(this);
         dlg->setWindowTitle("Save Memory Region");
+        trackTargetWindow(dlg);   // closed when the target changes
         auto* v = new QVBoxLayout(dlg);
         auto* intro = new QLabel("Save a range of the target's memory to a file (up to 64 MiB). "
                                  "Addresses are hexadecimal; To is exclusive.");
@@ -536,6 +537,8 @@ void MainWindow::setupMenus() {
             }
             auto path = QFileDialog::getSaveFileName(dlg, "Save memory region", "region.bin");
             if (path.isEmpty()) return;
+            // The process can have exited or been closed while this was open.
+            if (!process_) { QMessageBox::warning(dlg, "Save", "The process is no longer open."); return; }
             std::vector<uint8_t> buf(to - from);
             auto r = process_->read(from, buf.data(), buf.size());
             if (!r || *r == 0) { QMessageBox::warning(dlg, "Save", "Could not read that region."); return; }
@@ -650,6 +653,7 @@ void MainWindow::setupMenus() {
             QMessageBox::warning(this, "Structure Spider", QString("\"%1\" is not a hexadecimal address.").arg(ts.trimmed()));
             return;
         }
+        if (!process_) { QMessageBox::warning(this, "Structure Spider", "The process is no longer open."); return; }
         QApplication::setOverrideCursor(Qt::WaitCursor);
         ce::PointerScanner scanner;
         ce::PointerScanConfig cfg;
@@ -731,6 +735,7 @@ void MainWindow::setupMenus() {
         if (to <= from || to - from > (64u << 20)) {
             QMessageBox::warning(this, "Save Disassembly", "Invalid or too-large range."); return;
         }
+        if (!process_) { QMessageBox::warning(this, "Save Disassembly", "The process is no longer open."); return; }
         std::vector<uint8_t> buf(to - from);
         auto r = process_->read(from, buf.data(), buf.size());
         if (!r || *r == 0) { QMessageBox::warning(this, "Save Disassembly", "Could not read that range."); return; }
@@ -835,6 +840,8 @@ void MainWindow::setupMenus() {
                     "writable region captured (%1 regions, %2 bytes).")
                 .arg(snapshot_->regionCount()).arg(snapshot_->byteCount()));
         if (answer != QMessageBox::Yes) return;
+        // Both go away if the process exits while the question is open.
+        if (!process_ || !snapshot_) { QMessageBox::warning(this, "Restore", "The process is no longer open."); return; }
         auto written = snapshot_->restore(*process_);
         QMessageBox::information(this, "Restored",
             QString("Wrote %1 bytes back into the process.").arg(written));
@@ -1387,7 +1394,14 @@ void MainWindow::setupUi() {
                 int r = idx.row();
                 if (r >= 0 && r < (int)mask.size()) mask[r] = true;
             }
-            auto pruned = ce::pruneScanResult(*lastResult_, lastResultValueSize_, mask);
+            // A failure (incomplete result files, a full disk) must not escape
+            // the slot: that would terminate Cheat Engine.
+            std::unique_ptr<ce::ScanResult> pruned;
+            try { pruned = ce::pruneScanResult(*lastResult_, lastResultValueSize_, mask); }
+            catch (const std::exception& error) {
+                QMessageBox::warning(this, "Remove from results", QString::fromStdString(error.what()));
+                return;
+            }
             resultsModel_->setResult(pruned.get(), lastResultType_, lastResultValueSize_, resultsModel_->stringEncoding());
             undoResult_ = std::move(lastResult_);
             undoResultType_ = lastResultType_;
@@ -1434,6 +1448,7 @@ void MainWindow::setupUi() {
         // CE uses formAddressChange for both add and edit.
         ce::gui::ChangeAddressDialog dlg("", mapValueType(valueTypeCombo_->currentIndex()),
                                          false, 1, this, /*showSigned=*/true, process_.get());
+        openAddressDialog_ = &dlg;
         dlg.setWindowTitle("Add address");
         if (dlg.exec() != QDialog::Accepted) return;
         auto text = dlg.address();
@@ -1936,6 +1951,7 @@ void MainWindow::setupUi() {
                     ce::gui::ChangeAddressDialog dlg(addrStr, e.type, e.showAsHex,
                                                      (int)e.byteCount, this, e.showAsSigned,
                                                      process_.get());
+                    openAddressDialog_ = &dlg;
                     if (dlg.exec() != QDialog::Accepted) return;
                     const int id = e.id;
                     const QString a = dlg.address();
@@ -2376,6 +2392,7 @@ void MainWindow::setupUi() {
             // optional structured pointer in one dialog.
             ce::gui::ChangeAddressDialog dlg("", mapValueType(valueTypeCombo_->currentIndex()),
                                              false, 0, this, /*showSigned=*/true, process_.get());
+            openAddressDialog_ = &dlg;
             if (dlg.exec() != QDialog::Accepted) return;
             const QString a = dlg.address();
             if (a.trimmed().isEmpty()) return;
@@ -2697,6 +2714,10 @@ static void warnIfMemoryUnreadable(QWidget* parent, ce::ProcessHandle* p,
 }
 
 void MainWindow::attachToPid(pid_t pid, const QString& name) {
+    if (scanInProgress_) {   // queued while a scan runs ("Wait for process"): attach after it
+        QTimer::singleShot(200, this, [this, pid, name] { attachToPid(pid, name); });
+        return;
+    }
     if (!releaseTargetUsers()) return;
     currentPid_ = pid;
     process_.reset();
@@ -3053,6 +3074,7 @@ std::unique_ptr<ScanResult> MainWindow::runScanWithProgress(
     std::unique_ptr<ScanResult> result;
     std::exception_ptr err;
     std::atomic<bool> done{false};
+    QScopedValueRollback scanning(scanInProgress_, true);
     std::thread worker([&] {
         try { result = std::make_unique<ScanResult>(scanFn()); }
         catch (...) { err = std::current_exception(); }
@@ -3482,6 +3504,21 @@ void MainWindow::closeEvent(QCloseEvent* ev) {
 }
 
 bool MainWindow::releaseTargetUsers(bool force) {
+    // A scan worker is reading process_: the target cannot change under it.
+    // Callers retry (the exit check runs again, attachToPid re-queues).
+    if (scanInProgress_ && !force) return false;
+    const bool released = releaseTargetUsersOnce(force);
+    // The models stop using the old process at once: the caller may open a
+    // dialog (an event loop with timers and hotkeys) before it hands them the
+    // new one, and the old handle is about to be freed.
+    if (released || force) {
+        if (addressListModel_) addressListModel_->setProcess(nullptr);
+        if (resultsModel_) resultsModel_->setProcess(nullptr);
+    }
+    return released;
+}
+
+bool MainWindow::releaseTargetUsersOnce(bool force) {
     AutoAsmUiOperation retirement(&autoAsm_, AutoAsmUiOperation::Purpose::Retire);
     if (!retirement && !force) return false;
     // Release debugger traces before restoring injected code. Editors must keep
@@ -3532,6 +3569,7 @@ bool MainWindow::releaseTargetUsers(bool force) {
     for (auto& dissector : structDissectors_) if (dissector) dissector->detachFromTarget();
     structDissectors_.clear();
     if (advancedOptions_) advancedOptions_->setProcess(nullptr);
+    if (openAddressDialog_) openAddressDialog_->detachFromTarget();
     snapshot_.reset();
     allocations_.clear();
     luaEngine_.setProcess(nullptr);
@@ -5160,6 +5198,7 @@ static ValueType strToType(const QString& s) {
             case 4: return ValueType::Float;
             case 5: return ValueType::Double;
             case 6: return ValueType::String;
+            case 7: return ValueType::UnicodeString;
             case 8: return ValueType::ByteArray;
             case 9: return ValueType::Binary;
             case 10: return ValueType::All;
@@ -5381,6 +5420,9 @@ static bool hasSavedUndo(const ce::DisableInfo& info) {
         !info.protections.empty() || !info.symbols.empty();
 }
 
+// The longest String / Array of byte record: its bytes are read on every refresh.
+constexpr int kMaxRecordBytes = 65536;
+
 bool AddressListModel::fromJson(const QJsonArray& arr, bool preserveExisting) {
     if (scriptBusy_ || mutationBusy_ || AutoAsmUiOperation::retiring(autoAsm_)) return false;
     QScopedValueRollback mutation(mutationBusy_, true);
@@ -5420,7 +5462,9 @@ bool AddressListModel::fromJson(const QJsonArray& arr, bool preserveExisting) {
         e.address = obj["address"].toString().toULongLong(nullptr, 16);
         e.addressExpr = obj["addressExpr"].toString();
         e.type = strToType(obj["type"].toString());
-        e.byteCount = (size_t)obj["byteCount"].toInt(0);   // AOB/string length (0 if absent)
+        // AOB/string length (0 if absent). Read on every refresh: a table or the
+        // clipboard must not make it huge.
+        e.byteCount = (size_t)std::clamp(obj["byteCount"].toInt(0), 0, kMaxRecordBytes);
         e.currentValue = obj["value"].toString();
         e.active = obj["active"].toBool();
         e.autoAsmScript = obj["asm"].toString();
@@ -5437,6 +5481,11 @@ bool AddressListModel::fromJson(const QJsonArray& arr, bool preserveExisting) {
             : (obj["parent"].toInt(-1) >= 0 && obj["parent"].toInt(-1) < (int)parentIndentById.size()
                 ? parentIndentById[obj["parent"].toInt()] + 1
                 : 0));
+        // A record nests at most one level below the one before it; a huge
+        // indent from a table would build a prefix of that many characters.
+        const int previousIndent = !incoming.empty() ? incoming.back().indent
+                                 : preserveExisting && !entries_.empty() ? entries_.back().indent : -1;
+        e.indent = std::min(e.indent, previousIndent + 1);
         e.isGroup = obj["group"].toBool();
         e.collapsed = obj["collapsed"].toBool();
         e.activateChildren = obj["activateChildren"].toBool(true);
@@ -6284,7 +6333,7 @@ bool AddressListModel::setHexView(int id, bool hex) {
 bool AddressListModel::setByteCount(int id, std::size_t count) {
     int row = rowOfId(id);
     if (row < 0) return false;
-    entries_[row].byteCount = count;   // element length for String / Array of byte
+    entries_[row].byteCount = std::min<std::size_t>(count, kMaxRecordBytes);   // String / Array of byte length
     emit dataChanged(index(row, 0), index(row, columnCount() - 1));
     return true;
 }

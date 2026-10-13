@@ -1450,7 +1450,7 @@ static bool readTableJson(const JsonValue& root,CheatTable& table) {
                 e.offsets.push_back(*offset);
             }
         }
-        e.length = jsonIntField(item, getField(item,"length") ? "length" : "byteCount", 0);
+        e.length = std::min(jsonIntField(item, getField(item,"length") ? "length" : "byteCount", 0), 65536);   // as <Length>
         if (e.length<0) return false;
         e.active = jsonBoolField(item, "active");
         e.showAsHex = jsonBoolField(item, "showAsHex");

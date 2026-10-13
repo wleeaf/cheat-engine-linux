@@ -62,6 +62,16 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Fixed: Unicode String records became 4 Bytes integers whenever a table was
+  loaded, pasted or reloaded, so edits wrote integers over the text.
+- Fixed: crashes when the target changed or exited at the wrong moment: while
+  the "memory not readable" warning was open after opening another process,
+  while a dialog (Save Memory Region, Save Disassembly, Structure Spider,
+  Restore baseline, the memory view's save, load and assemble, the address
+  editor) was open, or when "Wait for process" attached during a scan.
+- Fixed: a record's indent and length from a table or the clipboard were not
+  bounded (a huge indent hung the list; a huge length was read every refresh),
+  and removing results from an incomplete scan could terminate Cheat Engine.
 - Security: Lua's default-deny gate covered only `shellExecute` and
   `write*Local`, while scripts still had `os.execute`, `io.popen`,
   `package.loadlib`, the `debug` library and every file-writing binding.

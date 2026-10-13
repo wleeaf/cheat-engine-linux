@@ -50,6 +50,7 @@ class AdvancedOptionsWindow;
 class DebuggerWindow;
 class StructureDissector;
 class AgentPanel;
+class ChangeAddressDialog;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -125,6 +126,9 @@ protected:
 private:
     void setupUi();
     bool releaseTargetUsers(bool force = false);
+    bool releaseTargetUsersOnce(bool force);
+    bool scanInProgress_ = false;   // a scan worker is using process_
+    QPointer<ce::gui::ChangeAddressDialog> openAddressDialog_;   // reads process_ while open
     void trackTargetWindow(QWidget* window) { targetWindows_.push_back(window); }
     std::vector<QPointer<QWidget>> targetWindows_;
     /// Move the cheat-table entry at `row` up (-1) or down (+1) and keep it selected.

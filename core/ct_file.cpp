@@ -159,8 +159,18 @@ static std::string vkToKeyToken(int vk) {
     }
     if (vk >= 48 && vk <= 57)  return std::string(1, static_cast<char>('0' + (vk - 48)));  // 0-9
     if (vk >= 65 && vk <= 90)  return std::string(1, static_cast<char>('A' + (vk - 65)));  // A-Z
-    if (vk >= 96 && vk <= 105) return std::string(1, static_cast<char>('0' + (vk - 96)));  // Numpad 0-9
-    if (vk >= 112 && vk <= 123) return "F" + std::to_string(vk - 111);                      // F1-F12
+    // The keypad is Qt's "Num" modifier on the same key, not the main digits.
+    if (vk >= 96 && vk <= 105) return "Num+" + std::string(1, static_cast<char>('0' + (vk - 96)));
+    switch (vk) {
+        case 106: return "Num+*"; case 107: return "Num++"; case 109: return "Num+-";
+        case 110: return "Num+."; case 111: return "Num+/";
+        // US-layout punctuation (VK_OEM_*), as Qt names those keys.
+        case 186: return ";"; case 187: return "="; case 188: return ","; case 189: return "-";
+        case 190: return "."; case 191: return "/"; case 192: return "`"; case 219: return "[";
+        case 220: return "\\"; case 221: return "]"; case 222: return "'";
+        default: break;
+    }
+    if (vk >= 112 && vk <= 135) return "F" + std::to_string(vk - 111);                      // F1-F24
     return {};
 }
 
@@ -181,8 +191,8 @@ static std::string vksToKeyString(const std::vector<int>& vks) {
     if (alt)   out += "Alt+";
     if (shift) out += "Shift+";
     if (meta)  out += "Meta+";
+    if (key.empty() && !out.empty()) out.pop_back();   // modifier-only (rare): drop the last '+'
     out += key;
-    if (!out.empty() && out.back() == '+') out.pop_back();   // modifier-only (rare)
     return out;
 }
 
@@ -202,23 +212,55 @@ static int keyTokenToVK(const std::string& t) {
     if (t.size() == 1 && t[0] >= '0' && t[0] <= '9') return static_cast<unsigned char>(t[0]);  // 48-57
     if (t.size() == 1 && t[0] >= 'A' && t[0] <= 'Z') return static_cast<unsigned char>(t[0]);  // 65-90
     if (t.size() >= 2 && t[0] == 'F') {
-        try { int n = std::stoi(t.substr(1)); if (n >= 1 && n <= 12) return 111 + n; } catch (...) {}
+        try { int n = std::stoi(t.substr(1)); if (n >= 1 && n <= 24) return 111 + n; } catch (...) {}
+    }
+    if (t.size() == 1) {
+        switch (t[0]) {
+            case ';': return 186; case '=': case '+': return 187; case ',': return 188; case '-': return 189;
+            case '.': return 190; case '/': return 191; case '`': return 192; case '[': return 219;
+            case '\\': return 220; case ']': return 221; case '\'': return 222;
+            default: break;
+        }
     }
     return 0;
 }
 
-// "Ctrl+Shift+F1" -> {17, 16, 112}. Unknown tokens are dropped.
+// A key with Qt's "Num" (keypad) modifier -> its keypad VK code, 0 if none.
+static int keypadTokenToVK(const std::string& t) {
+    if (t.size() != 1) return 0;
+    if (t[0] >= '0' && t[0] <= '9') return 96 + (t[0] - '0');
+    switch (t[0]) {
+        case '*': return 106; case '+': return 107; case '-': return 109; case '.': return 110; case '/': return 111;
+        default: return 0;
+    }
+}
+
+// "Ctrl+Shift+F1" -> {17, 16, 112}; "Ctrl++" is Ctrl and the plus key, and
+// "Num+5" the keypad 5. Unknown tokens are dropped.
 static std::vector<int> keyStringToVKs(const std::string& s) {
-    std::vector<int> vks;
+    std::string rest = s;
+    std::string plusKey;
+    if (rest == "+") { rest.clear(); plusKey = "+"; }
+    else if (rest.size() >= 2 && rest.compare(rest.size() - 2, 2, "++") == 0) { rest.resize(rest.size() - 2); plusKey = "+"; }
+    std::vector<std::string> tokens;
     size_t start = 0;
-    while (start <= s.size()) {
-        size_t plus = s.find('+', start);
-        std::string tok = s.substr(start, plus == std::string::npos ? std::string::npos : plus - start);
+    while (start <= rest.size()) {
+        size_t plus = rest.find('+', start);
+        std::string tok = rest.substr(start, plus == std::string::npos ? std::string::npos : plus - start);
         while (!tok.empty() && tok.front() == ' ') tok.erase(tok.begin());
         while (!tok.empty() && tok.back() == ' ') tok.pop_back();
-        if (int vk = keyTokenToVK(tok)) vks.push_back(vk);
+        if (!tok.empty()) tokens.push_back(tok);
         if (plus == std::string::npos) break;
         start = plus + 1;
+    }
+    if (!plusKey.empty()) tokens.push_back(plusKey);
+    std::vector<int> vks;
+    bool keypad = false;
+    for (const auto& tok : tokens) {
+        if (tok == "Num") { keypad = true; continue; }
+        int vk = keypad ? keypadTokenToVK(tok) : 0;
+        if (!vk) vk = keyTokenToVK(tok);
+        if (vk) vks.push_back(vk);
     }
     return vks;
 }
@@ -527,6 +569,7 @@ bool writeTableXml(const CheatTable& table,std::ostream& f) {
     f << "  </CheatEntries>\n";
     if (!rawFormsXml.empty())
         f << "  <Forms>" << rawFormsXml << "</Forms>\n";
+    f << table.rawSectionsXml;
     f << "</CheatTable>\n";
 
     return f.good();
@@ -561,6 +604,30 @@ static std::vector<std::string> getTagBlocks(const std::string& xml, const std::
 }
 
 static std::string xmlUnescape(const std::string& s);  // defined below
+
+// Every "<tag>...</tag>" or "<tag attr=...>...</tag>" block in xml, as
+// [begin, end) ranges including both tags. An unclosed block runs to the end.
+static std::vector<std::pair<size_t, size_t>> tagBlockRanges(const std::string& xml, const std::string& tag,
+                                                             bool withAttributesOnly = false) {
+    std::vector<std::pair<size_t, size_t>> ranges;
+    const std::string open = "<" + tag, close = "</" + tag + ">";
+    for (size_t at = xml.find(open); at != std::string::npos; at = xml.find(open, at + 1)) {
+        const size_t after = at + open.size();
+        if (after >= xml.size()) break;
+        const char next = xml[after];
+        if (next != '>' && next != ' ' && next != '\t' && next != '\n' && next != '\r' && next != '/') continue;
+        if (withAttributesOnly && next == '>') continue;
+        if (next == '/') {   // <tag/>
+            const size_t end = xml.find('>', after);
+            ranges.push_back({at, end == std::string::npos ? xml.size() : end + 1});
+        } else {
+            const size_t end = xml.find(close, after);
+            ranges.push_back({at, end == std::string::npos ? xml.size() : end + close.size()});
+        }
+        at = ranges.back().second - 1;
+    }
+    return ranges;
+}
 
 // Position of the "</tag>" that matches the "<tag>" opened at openPos, accounting
 // for nested <tag> pairs. npos if unbalanced. Needed because Cheat Engine nests a
@@ -1028,12 +1095,17 @@ bool CheatTable::loadFromString(const std::string& xml) {
     // Header fields only: nested sections have tags of the same names (each
     // disassembler comment has a <Comment>).
     for (const char* section : {"DisassemblerComments", "Structures", "Forms", "UserdefinedSymbols", "Files"}) {
-        const std::string open = std::string("<") + section + ">", close = std::string("</") + section + ">";
-        for (size_t at; (at = headerXml.find(open)) != std::string::npos;) {
-            const size_t stop = headerXml.find(close, at);
-            headerXml.erase(at, stop == std::string::npos ? std::string::npos : stop + close.size() - at);
-        }
+        const auto ranges = tagBlockRanges(headerXml, section);
+        for (auto it = ranges.rbegin(); it != ranges.rend(); ++it) headerXml.erase(it->first, it->second - it->first);
     }
+    // Sections we do not model, kept as they are so a re-save does not drop
+    // them. Only Cheat Engine's own structure format (with attributes); ours
+    // is parsed below.
+    rawSectionsXml.clear();
+    for (const auto& [section, attributesOnly] : {std::pair{"UserdefinedSymbols", false}, std::pair{"Files", false},
+                                                  std::pair{"Structures", true}})
+        for (const auto& [begin, end] : tagBlockRanges(xml, section, attributesOnly))
+            rawSectionsXml += "  " + xml.substr(begin, end - begin) + "\n";
     gameName = xmlUnescape(getTag(headerXml, "GameName"));
     gameVersion = xmlUnescape(getTag(headerXml, "GameVersion"));
     author = xmlUnescape(getTag(headerXml, "Author"));
@@ -1205,6 +1277,7 @@ bool writeTableJson(const CheatTable& table,std::ostream& f) {
     f << "  \"comment\": \"" << jsonEscape(comment) << "\",\n";
     f << "  \"luaScript\": \"" << jsonEscape(luaScript) << "\",\n";
     f << "  \"rawFormsXml\": \"" << jsonEscape(rawFormsXml) << "\",\n";
+    f << "  \"rawSectionsXml\": \"" << jsonEscape(table.rawSectionsXml) << "\",\n";
     f << "  \"structures\": [\n";
     for (size_t i = 0; i < structures.size(); ++i) {
         const auto& s = structures[i];
@@ -1307,6 +1380,7 @@ static bool readTableJson(const JsonValue& root,CheatTable& table) {
     comment = jsonStringField(root, "comment");
     luaScript = jsonStringField(root, "luaScript");
     rawFormsXml = jsonStringField(root, "rawFormsXml");
+    table.rawSectionsXml = jsonStringField(root, "rawSectionsXml");
 
     structures.clear();
     auto* structuresValue = getField(root, "structures");

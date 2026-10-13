@@ -62,6 +62,10 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Fixed: re-saving a Cheat Engine table dropped its user-defined symbols,
+  embedded files and Cheat Engine-format structures; they are now kept as
+  they were. Hotkeys on the keypad, punctuation keys, the plus key and F13 to
+  F24 were dropped or turned into main-keyboard digits.
 - Fixed: cheat tables. A set-value hotkey's `<Value>` became the record's
   value (and the trainer's freeze value); a disassembler comment became the
   table comment; records without an `<ID>` could hang under the wrong group;

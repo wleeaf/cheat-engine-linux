@@ -94,6 +94,10 @@ struct CheatTable {
     // embeds Delphi form designs here; we can't render them on Linux, but we must
     // not silently drop them when a user edits and re-saves a table that has them.
     std::string rawFormsXml;
+    // Other Cheat Engine sections we do not model, kept verbatim with their
+    // tags: <UserdefinedSymbols>, <Files> (embedded files) and Cheat Engine's
+    // own <Structures StructVersion=...> format.
+    std::string rawSectionsXml;
 
     /// Save to .CT XML file.
     bool save(const std::string& path) const;

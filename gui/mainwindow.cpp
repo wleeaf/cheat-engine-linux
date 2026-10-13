@@ -4013,7 +4013,7 @@ bool MainWindow::loadCheatTableModel(const ce::CheatTable& table,const QJsonArra
     if (!loadAddressEntries(arr)) return false;
     tableMetadata_.gameName=table.gameName;tableMetadata_.gameVersion=table.gameVersion;
     tableMetadata_.author=table.author;tableMetadata_.structures=table.structures;
-    tableMetadata_.rawFormsXml=table.rawFormsXml;
+    tableMetadata_.rawFormsXml=table.rawFormsXml;tableMetadata_.rawSectionsXml=table.rawSectionsXml;
     tableComment_ = QString::fromStdString(table.comment);
     // Retain the table-level Lua script so it can be viewed/edited (Table > Show
     // Cheat Table Lua Script) and re-saved, not just run once on load.

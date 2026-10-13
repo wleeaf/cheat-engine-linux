@@ -1965,6 +1965,38 @@ static void test_ct_review_fixes() {
         back.entries[0].addressString == "1<2&3";
     std::filesystem::remove(path);
     printf("  markup in an address is escaped: %s\n", roundTrip ? "OK" : "FAILED");
+
+    // Keypad, punctuation and the plus key survive a save and load, and so do
+    // Cheat Engine sections we do not model.
+    CheatTable keys;
+    keys.rawSectionsXml = "  <UserdefinedSymbols><SymbolEntry><Name>player</Name><Address>1000</Address></SymbolEntry></UserdefinedSymbols>\n";
+    // "Ctrl++" is the =/+ key (VK_OEM_PLUS), which reads back as "Ctrl+=".
+    const std::vector<std::string> sequences = {"Ctrl+Num+0", "Ctrl+Num++", "Ctrl+-", "Ctrl+=", "Shift+F13", "Alt+;"};
+    for (size_t i = 0; i < sequences.size(); ++i) {
+        CheatEntry e;
+        e.id = static_cast<int>(i) + 1;
+        e.addressString = "1000";
+        e.address = 0x1000;
+        e.type = ValueType::Int32;
+        e.hotkeyKeys = sequences[i] == "Ctrl+=" ? "Ctrl++" : sequences[i];
+        keys.entries.push_back(e);
+    }
+    const auto keysPath = std::filesystem::temp_directory_path() / "ce_keys.CT";
+    CheatTable keysBack;
+    bool keysOk = keys.save(keysPath.string()) && keysBack.load(keysPath.string()) &&
+                  keysBack.entries.size() == sequences.size();
+    for (size_t i = 0; keysBack.entries.size() == sequences.size() && i < sequences.size(); ++i)
+        if (keysBack.entries[i].hotkeyKeys != sequences[i]) {
+            printf("    %s came back as %s\n", sequences[i].c_str(), keysBack.entries[i].hotkeyKeys.c_str());
+            keysOk = false;
+        }
+    std::string keysDisk;
+    { std::ifstream in(keysPath); keysDisk.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()); }
+    std::filesystem::remove(keysPath);
+    printf("  keypad and punctuation hotkeys round-trip: %s\n", keysOk ? "OK" : "FAILED");
+    printf("  Cheat Engine sections we do not model are kept: %s\n",
+           keysBack.rawSectionsXml.find("<SymbolEntry><Name>player</Name>") != std::string::npos &&
+           keysDisk.find("<UserdefinedSymbols>") != std::string::npos ? "OK" : "FAILED");
 }
 
 static void test_ct_load_from_string() {

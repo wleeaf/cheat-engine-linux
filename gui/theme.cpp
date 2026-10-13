@@ -77,7 +77,7 @@ static const char* kDarkStyleSheet = R"(
     QMenuBar::item { padding: 4px 8px; border-radius: 4px; }
     QMenuBar::item:selected { background-color: #313244; }
     QMenu { background-color: #1e1e2e; color: #cdd6f4; border: 1px solid #45475a; padding: 4px; }
-    QMenu::item { padding: 5px 24px 5px 12px; border-radius: 4px; }
+    QMenu::item { padding: 4px 24px 4px 12px; border-radius: 4px; }
     QMenu::item:selected { background-color: #313244; }
     QMenu::separator { height: 1px; background: #313244; margin: 4px 8px; }
     QPushButton, QToolButton { background-color: #313244; color: #cdd6f4; border: 1px solid #45475a;
@@ -155,7 +155,7 @@ static const char* kLightStyleSheet = R"(
     QMenuBar::item { padding: 4px 8px; border-radius: 4px; }
     QMenuBar::item:selected { background-color: #e4ecfb; }
     QMenu { background-color: #ffffff; color: #1b1f24; border: 1px solid #d4d7dd; padding: 4px; }
-    QMenu::item { padding: 5px 24px 5px 12px; border-radius: 4px; }
+    QMenu::item { padding: 4px 24px 4px 12px; border-radius: 4px; }
     QMenu::item:selected { background-color: #e4ecfb; }
     QMenu::separator { height: 1px; background: #e6e8ec; margin: 4px 8px; }
     QPushButton, QToolButton { background-color: #ffffff; color: #1b1f24; border: 1px solid #cdd1d9;

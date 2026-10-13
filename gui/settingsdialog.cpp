@@ -281,7 +281,7 @@ QWidget* SettingsDialog::buildDebuggerPage() {
 QWidget* SettingsDialog::buildHotkeysPage() {
     auto* w = new QWidget;
     auto* form = makePage(w, "Hotkeys", "Hotkeys belong to cheat table entries: right-click an entry and "
-                                        "choose Configure Hotkey or Configure Value Hotkeys.");
+                                        "choose Hotkeys.");
     QSettings s;
     valueStepEdit_ = sized(new QLineEdit(s.value(HK_VALUE_STEP_KEY, "1").toString()));
     valueStepEdit_->setValidator(new QDoubleValidator(valueStepEdit_));

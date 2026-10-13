@@ -104,7 +104,13 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
         QTimer::singleShot(250, [&]() {
             auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
             QAction* chosen = nullptr;
-            if (menu) for (auto* a : menu->actions()) if (a->text() == actionText) chosen = a;
+            std::function<void(QMenu*)> find = [&](QMenu* m) {
+                for (auto* a : m->actions()) {
+                    if (a->text() == actionText) chosen = a;
+                    else if (a->menu()) find(a->menu());
+                }
+            };
+            if (menu) find(menu);
             if (menu) menu->close();
             if (!chosen) { std::printf("visual review: no menu item %s\n", qPrintable(actionText)); done = true; return; }
             QTimer::singleShot(actionText.startsWith("Find") ? 1500 : 300, [&]() {
@@ -214,8 +220,8 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
             auto entryMenu = [&] { emit table->customContextMenuRequested(table->visualRect(model->index(0, 1)).center()); };
             for (const auto& [action, name] : std::vector<std::pair<QString, QString>>{
                      {"Change address...", "entry-change-address"}, {"Set value...", "entry-set-value"},
-                     {"Configure Hotkey...", "entry-hotkey"}, {"Configure Value Hotkeys...", "entry-value-hotkeys"},
-                     {"Set value codec...", "entry-codec"}, {"Set/Change dropdown selection options...", "entry-dropdown"},
+                     {"Toggle hotkey...", "entry-hotkey"}, {"Value hotkeys...", "entry-value-hotkeys"},
+                     {"Set value codec...", "entry-codec"}, {"Dropdown options...", "entry-dropdown"},
                      {"Add to new group...", "entry-group"}, {"Change Color...", "entry-color"},
                      {"Find what writes to this address", "entry-find-writes"},
                      {"Pointer scan for this address", "entry-pointer-scan"}})

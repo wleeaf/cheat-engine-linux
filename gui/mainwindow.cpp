@@ -1972,19 +1972,22 @@ void MainWindow::setupUi() {
             menu.addAction("Delete", this, &MainWindow::onDeleteAddresses, QKeySequence::Delete);
 
             menu.addSeparator();
-            menu.addAction("Indent", [this, selected]() {
+            // Rarely used items sit in submenus so the menu stays one column at
+            // large text sizes (it wrapped into two at 130 DPI).
+            QMenu* arrangeMenu = menu.addMenu("Arrange");
+            arrangeMenu->addAction("Indent", [this, selected]() {
                 QList<int> rows;
                 for (const auto& idx : selected) rows.append(idx.row());
                 addressListModel_->indentRows(rows);
             });
-            menu.addAction("Outdent", [this, selected]() {
+            arrangeMenu->addAction("Outdent", [this, selected]() {
                 QList<int> rows;
                 for (const auto& idx : selected) rows.append(idx.row());
                 addressListModel_->outdentRows(rows);
             });
             // CE "Add the selected records to a new group": wrap the selection under a
             // fresh group header (prompts for its name, like CE's group description).
-            menu.addAction("Add to new group...", [this, selected]() {
+            arrangeMenu->addAction("Add to new group...", [this, selected]() {
                 QList<int> rows;
                 for (const auto& idx : selected) rows.append(idx.row());
                 if (rows.isEmpty()) return;
@@ -1997,9 +2000,9 @@ void MainWindow::setupUi() {
             });
             if (selected.size() == 1) {
                 int row = selected.first().row();
-                auto* up = menu.addAction("Move Up", [this, row]() { moveSelectedEntry(row, -1); });
+                auto* up = arrangeMenu->addAction("Move Up", [this, row]() { moveSelectedEntry(row, -1); });
                 up->setShortcut(QKeySequence("Ctrl+Up"));
-                auto* down = menu.addAction("Move Down", [this, row]() { moveSelectedEntry(row, +1); });
+                auto* down = arrangeMenu->addAction("Move Down", [this, row]() { moveSelectedEntry(row, +1); });
                 down->setShortcut(QKeySequence("Ctrl+Down"));
             }
 
@@ -2066,7 +2069,9 @@ void MainWindow::setupUi() {
 
             // Obfuscated values: declare a codec so the value is displayed decoded and
             // edited/frozen by its logical value (block 6). Reuses ce::ValueCodec::parse.
-            menu.addAction("Set value codec...", [this, selected]() {
+            // How the entry is shown and decoded: format, colour, dropdown, codec.
+            QMenu* encodingMenu = menu.addMenu("Display");
+            encodingMenu->addAction("Set value codec...", [this, selected]() {
                 if (selected.isEmpty()) return;
                 QString cur = QString::fromStdString(
                     addressListModel_->entryCodecSpec(selected.first().row()));
@@ -2091,7 +2096,7 @@ void MainWindow::setupUi() {
                 for (auto& idx : selected) addressListModel_->setEntryCodec(idx.row(), codec);
             });
 
-            auto* orderMenu = menu.addMenu("Data order");
+            auto* orderMenu = encodingMenu->addMenu("Data order");
             for (auto choice : {std::pair{"Auto (target)", ByteOrder::Unknown},
                                 std::pair{"Little-endian", ByteOrder::Little},
                                 std::pair{"Big-endian", ByteOrder::Big}}) {
@@ -2106,7 +2111,7 @@ void MainWindow::setupUi() {
                     }
                 });
             }
-            auto* widthMenu = menu.addMenu("Pointer size");
+            auto* widthMenu = encodingMenu->addMenu("Pointer size");
             for (auto choice : {std::pair{"Auto (target)", 0}, std::pair{"4 bytes", 4}, std::pair{"8 bytes", 8}}) {
                 auto* action = widthMenu->addAction(choice.first); action->setCheckable(true);
                 action->setChecked(addressListModel_->entries()[selected.first().row()].pointerWidth == choice.second);
@@ -2137,7 +2142,8 @@ void MainWindow::setupUi() {
             const auto& ents = addressListModel_->entries();
             bool firstHex = !selected.isEmpty() && selected.first().row() < (int)ents.size()
                             && ents[selected.first().row()].showAsHex;
-            auto* hexAct = menu.addAction("Show as hexadecimal");
+            encodingMenu->addSeparator();
+            auto* hexAct = encodingMenu->addAction("Show as hexadecimal");
             hexAct->setCheckable(true);
             hexAct->setChecked(firstHex);
             connect(hexAct, &QAction::triggered, this, [this, selected, firstHex]() {
@@ -2218,7 +2224,7 @@ void MainWindow::setupUi() {
                 });
             }
             // CE "Change Color" — per-record display color.
-            menu.addAction("Change Color...", [this, selected]() {
+            encodingMenu->addAction("Change Color...", [this, selected]() {
                 const auto& entries = addressListModel_->entries();
                 if (selected.isEmpty()) return;
                 int row = selected.first().row();
@@ -2232,7 +2238,7 @@ void MainWindow::setupUi() {
             });
             // CE "Set/Change dropdown selection options".
             if (selected.size() == 1) {
-                menu.addAction("Set/Change dropdown selection options...", [this, firstRow]() {
+                encodingMenu->addAction("Dropdown options...", [this, firstRow]() {
                     const auto& entries = addressListModel_->entries();
                     if (firstRow >= (int)entries.size()) return;
                     bool ok = false;
@@ -2247,7 +2253,8 @@ void MainWindow::setupUi() {
             }
             if (selected.size() == 1) {
                 menu.addSeparator();
-                menu.addAction("Configure Hotkey...", [this, selected]() {
+                QMenu* hotkeyMenu = menu.addMenu("Hotkeys");
+                hotkeyMenu->addAction("Toggle hotkey...", [this, selected]() {
                     int row = selected.first().row();
                     const auto& entries = addressListModel_->entries();
                     if (row < 0 || row >= (int)entries.size()) return;
@@ -2279,7 +2286,7 @@ void MainWindow::setupUi() {
                             editor->keySequence().toString(QKeySequence::PortableText));
                     }
                 });
-                menu.addAction("Configure Value Hotkeys...", [this, selected]() {
+                hotkeyMenu->addAction("Value hotkeys...", [this, selected]() {
                     int row = selected.first().row();
                     const auto& entries = addressListModel_->entries();
                     if (row < 0 || row >= (int)entries.size()) return;
@@ -2361,11 +2368,16 @@ void MainWindow::setupUi() {
         menu.addAction("Add Group", [this]() {
             addressListModel_->addGroup();
         });
-        menu.addAction("Paste", this, &MainWindow::onPasteAddresses, QKeySequence::Paste);
+        // With entries selected, Paste is already in the edit group above.
+        if (selected.isEmpty()) menu.addAction("Paste", this, &MainWindow::onPasteAddresses, QKeySequence::Paste);
 
         menu.addSeparator();
-        menu.addAction("Enable all", [this]() { addressListModel_->setAllActive(true); });
-        menu.addAction("Disable all", [this]() { addressListModel_->setAllActive(false); });
+        // Whole-table actions only on empty space: with an entry under the cursor the
+        // menu is about that entry, and it has to fit one column on a 1080p screen.
+        if (selected.isEmpty()) {
+            menu.addAction("Enable all", [this]() { addressListModel_->setAllActive(true); });
+            menu.addAction("Disable all", [this]() { addressListModel_->setAllActive(false); });
+        }
 
         menu.exec(addressListView_->viewport()->mapToGlobal(pos));
     });

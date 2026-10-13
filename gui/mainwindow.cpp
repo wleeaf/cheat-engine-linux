@@ -4010,6 +4010,14 @@ bool MainWindow::loadCheatTableModel(const ce::CheatTable& table,const QJsonArra
             arr[i]=record;
         }
     }
+    // A table's saved <Activated> is not acted on: enabling a record writes to
+    // the game or runs its script (and the script's {$lua}) before the user was
+    // asked anything. Records load switched off, as paste does.
+    for (qsizetype i=0;i<arr.size();++i) {
+        auto record=arr[i].toObject();
+        record["active"]=false;
+        arr[i]=record;
+    }
     if (!loadAddressEntries(arr)) return false;
     tableMetadata_.gameName=table.gameName;tableMetadata_.gameVersion=table.gameVersion;
     tableMetadata_.author=table.author;tableMetadata_.structures=table.structures;

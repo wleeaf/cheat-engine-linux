@@ -389,7 +389,7 @@ void buildStreamMetatable(lua_State* L) {
         {"seek",         l_stream_seek},
         {"getPosition",  l_stream_position},
         {"getSize",      l_stream_size},
-        {"saveToFile",   l_stream_saveToFile},
+        {"saveToFile",   ce::guardFileWrite<l_stream_saveToFile>},
         {"loadFromFile", l_stream_loadFromFile},
         {"clear",        l_stream_clear},
         {"close",        l_stream_close},
@@ -410,7 +410,12 @@ int l_createMemoryStream(lua_State* L) {
 
 int l_createFileStream(lua_State* L) {
     const char* path = luaL_checkstring(L, 1);
-    const char* mode = luaL_optstring(L, 2, "rw");
+    // Reading only, unless writing files is allowed (see guardFileWrite).
+    const bool unsafe = ce::luaUnsafeAllowed();
+    const char* mode = luaL_optstring(L, 2, unsafe ? "rw" : "r");
+    if (!unsafe && std::strpbrk(mode, "wa+"))
+        return luaL_error(L, "createFileStream: writing files is blocked; launch with CECORE_LUA_ALLOW_UNSAFE=1 "
+                             "for tables you trust (see SECURITY.md)");
     pushFileStream(L, path, mode);
     return 1;
 }
@@ -600,7 +605,7 @@ void buildStringListMetatable(lua_State* L) {
         {"getText",      l_sl_getText},
         {"setText",      l_sl_setText},
         {"indexOf",      l_sl_indexOf},
-        {"saveToFile",   l_sl_saveToFile},
+        {"saveToFile",   ce::guardFileWrite<l_sl_saveToFile>},
         {"loadFromFile", l_sl_loadFromFile},
         {nullptr, nullptr},
     };

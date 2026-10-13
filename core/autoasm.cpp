@@ -2559,6 +2559,17 @@ AutoAsmResult AutoAssembler::disable(ProcessHandle& proc, const std::string& scr
 AutoAsmResult AutoAssembler::check(const std::string& script) {
     programMachine_ = nativeTargetMachine();
     targetModules_.clear(); codeAllocations_.clear();
+    // A check never runs code: {$lua} blocks expand to nothing and {$if}
+    // conditions are not evaluated (a script under review may be untrusted).
+    struct RestoreEvaluator {
+        LuaEvaluator& slot;
+        LuaEvaluator saved;
+        ~RestoreEvaluator() { slot = std::move(saved); }
+    } restore{luaEvaluator_, std::move(luaEvaluator_)};
+    if (restore.saved)
+        luaEvaluator_ = [](const std::string&) -> std::expected<std::string, std::string> { return std::string(); };
+    else
+        luaEvaluator_ = nullptr;
     AutoAsmResult result;
     // Parse without a process — syntax check only
     auto enableCode = extractSection(script, "ENABLE");

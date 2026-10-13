@@ -157,7 +157,7 @@ void buildBitmapMetatable(lua_State* L) {
     luaL_newmetatable(L, BITMAP_MT);
     static const luaL_Reg methods[] = {
         {"loadFromFile", l_bmp_loadFromFile},
-        {"saveToFile",   l_bmp_saveToFile},
+        {"saveToFile",   ce::guardFileWrite<l_bmp_saveToFile>},
         {"getWidth",     l_bmp_width},
         {"getHeight",    l_bmp_height},
         {"resize",       l_bmp_resize},

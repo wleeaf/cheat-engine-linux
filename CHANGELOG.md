@@ -62,6 +62,14 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Security: Lua's default-deny gate covered only `shellExecute` and
+  `write*Local`, while scripts still had `os.execute`, `io.popen`,
+  `package.loadlib`, the `debug` library and every file-writing binding.
+  Without `CECORE_LUA_ALLOW_UNSAFE=1` those are now gone or refuse (see
+  SECURITY.md). Opening a table also switched its saved active records on,
+  running their Auto Assembler scripts and `{$lua}` blocks before the Lua
+  prompt; records now load switched off, and the script editor's Check no
+  longer evaluates `{$lua}`.
 - Security: the `.deb` gives the binaries `cap_sys_ptrace`, which let any
   local user who ran them read and write every user's processes, root's
   included, and `cescan ceserver` accepted any local connection, handing that

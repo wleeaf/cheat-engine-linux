@@ -6,9 +6,23 @@ extern "C" {
 }
 
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 
 namespace ce {
+
+// Default-deny: shell commands, native code, writing files on this computer
+// and cecore's own memory need CECORE_LUA_ALLOW_UNSAFE=1 in the environment
+// Cheat Engine was started with. A script cannot set it.
+inline bool luaUnsafeAllowed() { return std::getenv("CECORE_LUA_ALLOW_UNSAFE") != nullptr; }
+
+template <lua_CFunction Fn>
+int guardFileWrite(lua_State* L) {
+    if (!luaUnsafeAllowed())
+        return luaL_error(L, "writing files is blocked: a table could overwrite any of your files. Enable it only "
+                             "for tables you trust by launching with CECORE_LUA_ALLOW_UNSAFE=1 (see SECURITY.md).");
+    return Fn(L);
+}
 
 // Leave the catch scope before raising a Lua error: luaL_error uses longjmp,
 // so raising it while a C++ exception is alive would skip its destruction.

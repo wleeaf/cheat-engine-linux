@@ -12,19 +12,31 @@ execute arbitrary code on your machine, typically with whatever privileges you
 launched the tool with (i.e. root, if you used `sudo`). Treat a shared table like
 a shared executable.
 
-The two most dangerous parts of the Lua surface are **denied by default** and
-only enabled by an out-of-band opt-in that a table's own script cannot set — the
-environment variable `CECORE_LUA_ALLOW_UNSAFE=1`, launched with the process:
+The dangerous parts of the Lua surface are **denied by default** and only
+enabled by an out-of-band opt-in that a table's own script cannot set: the
+environment variable `CECORE_LUA_ALLOW_UNSAFE=1`, set when Cheat Engine starts.
+Without it, scripts get:
 
-- `shellExecute` — runs arbitrary shell commands.
-- the `write*Local` functions — write cecore's *own* address space, which a
-  malicious table could use to patch cecore's code/GOT and hijack the process.
+- no shell: `shellExecute`, `os.execute` and `io.popen` are gone;
+- no native code or interpreter internals: no `package` (`loadlib`,
+  `require`), no `debug` library, no `dofile`/`loadfile`, `string.dump`, and
+  `load` accepts source text only (binary chunks are not verified by Lua);
+- no file writes: `io.open` opens for reading only, and `writeToFile`,
+  `saveTable`, `generateTrainer`, `readRegionToFile`, `writeRegionToFile`,
+  `createFileStream` in a write mode and the `saveToFile` methods refuse;
+- no writes to cecore's own memory: the `write*Local` functions refuse.
 
-The `read*Local` functions (host-memory read / info disclosure) and the rest of
-the target-memory API stay available, so the operational rule still holds: only
-load tables you authored or trust. Every native binding is additionally routed
-through a central exception firewall, so a C++ exception escaping a binding
-becomes a Lua error instead of unwinding through liblua's C frames.
+`os` keeps only the clock (`clock`, `date`, `difftime`, `time`). Reading files
+and the rest of the target-memory API stay available, so the operational rule
+still holds: only load tables you authored or trust.
+
+A table never runs anything just by being opened: its records load switched
+off (enabling an Auto Assembler record runs its script, `{$lua}` included),
+its `<LuaScript>` runs only after you answer Yes, and checking a script in the
+editor does not evaluate its `{$lua}` blocks. Every native binding is
+additionally routed through a central exception firewall, so a C++ exception
+escaping a binding becomes a Lua error instead of unwinding through liblua's C
+frames.
 
 ## Your processes only
 

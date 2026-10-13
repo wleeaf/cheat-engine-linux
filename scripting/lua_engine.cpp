@@ -1,4 +1,5 @@
 #include "core/expression.hpp"
+#include "scripting/lua_safe.hpp"
 #include "scripting/lua_engine.hpp"
 #include "core/log.hpp"
 #include "core/address_list.hpp"
@@ -316,9 +317,81 @@ static int l_getProcessId(lua_State* L) {
 
 // ── Engine implementation ──
 
+// io.open for reading only: write modes would let a table overwrite files.
+static int l_ioOpenReadOnly(lua_State* L) {
+    const char* mode = luaL_optstring(L, 2, "r");
+    if (std::strpbrk(mode, "wa+"))
+        return luaL_error(L, "io.open: writing files is blocked; launch with CECORE_LUA_ALLOW_UNSAFE=1 for tables "
+                             "you trust (see SECURITY.md)");
+    lua_pushvalue(L, lua_upvalueindex(1));
+    lua_insert(L, 1);
+    lua_call(L, lua_gettop(L) - 1, LUA_MULTRET);
+    return lua_gettop(L);
+}
+
+// load() for source text only: Lua does not verify binary chunks, and a
+// crafted one can corrupt memory.
+static int l_loadText(lua_State* L) {
+    // load(chunk [, chunkname [, mode [, env]]]): set mode to "t". An absent
+    // env must stay absent (an explicit nil would leave the chunk no globals).
+    if (lua_gettop(L) < 3) lua_settop(L, 3);
+    lua_pushliteral(L, "t");
+    lua_replace(L, 3);
+    lua_pushvalue(L, lua_upvalueindex(1));
+    lua_insert(L, 1);
+    lua_call(L, lua_gettop(L) - 1, LUA_MULTRET);
+    return lua_gettop(L);
+}
+
+// Default-deny (SECURITY.md): unless CECORE_LUA_ALLOW_UNSAFE is set, scripts
+// get no shell, no native code (package.loadlib), no debug library, no file
+// writes and no binary chunks. Reading files and the clock stay.
+static void openLibraries(lua_State* L) {
+    if (ce::luaUnsafeAllowed()) { luaL_openlibs(L); return; }
+    const luaL_Reg libraries[] = {
+        {"_G", luaopen_base}, {LUA_COLIBNAME, luaopen_coroutine}, {LUA_TABLIBNAME, luaopen_table},
+        {LUA_STRLIBNAME, luaopen_string}, {LUA_MATHLIBNAME, luaopen_math}, {LUA_UTF8LIBNAME, luaopen_utf8},
+        {LUA_IOLIBNAME, luaopen_io}, {LUA_OSLIBNAME, luaopen_os},
+    };
+    for (const auto& library : libraries) {
+        luaL_requiref(L, library.name, library.func, 1);
+        lua_pop(L, 1);
+    }
+    for (const char* name : {"dofile", "loadfile"}) {
+        lua_pushnil(L);
+        lua_setglobal(L, name);
+    }
+    lua_getglobal(L, "load");
+    lua_pushcclosure(L, l_loadText, 1);
+    lua_setglobal(L, "load");
+    lua_getglobal(L, "string");
+    lua_pushnil(L);
+    lua_setfield(L, -2, "dump");
+    lua_pop(L, 1);
+    // os: the clock only.
+    lua_newtable(L);
+    lua_getglobal(L, "os");
+    for (const char* name : {"clock", "date", "difftime", "time"}) {
+        lua_getfield(L, -1, name);
+        lua_setfield(L, -3, name);
+    }
+    lua_pop(L, 1);
+    lua_setglobal(L, "os");
+    // io: reading. No popen, temporary files or redirected output.
+    lua_getglobal(L, "io");
+    for (const char* name : {"popen", "tmpfile", "output"}) {
+        lua_pushnil(L);
+        lua_setfield(L, -2, name);
+    }
+    lua_getfield(L, -1, "open");
+    lua_pushcclosure(L, l_ioOpenReadOnly, 1);
+    lua_setfield(L, -2, "open");
+    lua_pop(L, 1);
+}
+
 LuaEngine::LuaEngine() {
     L_ = luaL_newstate();
-    luaL_openlibs(L_);
+    openLibraries(L_);
 
     // Store engine pointer
     lua_pushlightuserdata(L_, this);

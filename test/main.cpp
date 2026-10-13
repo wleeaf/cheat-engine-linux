@@ -4560,15 +4560,15 @@ static void test_autoasm_lua_blocks() {
         printf("  unterminated block flagged: %s\n", detected ? "OK" : ("FAILED: " + r.error).c_str());
     }
 
-    // Lua error inside the block.
+    // A check never runs the block: a script under review may be untrusted.
     {
         std::string script =
             "[ENABLE]\n"
             "{$lua}error(\"boom\"){$asm}\n"
             "[DISABLE]\n";
         auto r = aa.check(script);
-        bool detected = !r.success && r.error.find("boom") != std::string::npos;
-        printf("  lua error surfaced: %s\n", detected ? "OK" : ("FAILED: " + r.error).c_str());
+        bool notRun = r.success && r.error.find("boom") == std::string::npos;
+        printf("  check does not run {$lua} blocks: %s\n", notRun ? "OK" : ("FAILED: " + r.error).c_str());
     }
 
     // {$ccode} block — explicit reject.
@@ -6552,7 +6552,7 @@ static void test_lua_shellexecute_gate() {
     LuaEngine eng2;
     std::string allowed = eng2.execute("return shellExecute('true')");
     bool isAllowed = allowed.empty();   // opted in: runs, no error
-    unsetenv("CECORE_LUA_ALLOW_UNSAFE");
+    setenv("CECORE_LUA_ALLOW_UNSAFE", "1", 1);   // the suite runs opted in
 
     bool ok = isBlocked && isAllowed;
     printf("  shellExecute default-blocked + env opt-in: %s (blocked=%d allowed=%d)\n",
@@ -6580,7 +6580,7 @@ static void test_lua_localwrite_gate() {
     LuaEngine eng2;
     std::string allowed = eng2.execute("writeIntegerLocal(" + a + ", 0x2222)");
     bool isAllowed = allowed.empty() && target == 0x2222;
-    unsetenv("CECORE_LUA_ALLOW_UNSAFE");
+    setenv("CECORE_LUA_ALLOW_UNSAFE", "1", 1);   // the suite runs opted in
 
     bool ok = isBlocked && readUngated && isAllowed;
     printf("  write*Local default-blocked + read ungated + env opt-in: %s (blocked=%d read=%d allowed=%d)\n",
@@ -9566,7 +9566,7 @@ static void test_lua_local_memory() {
     // the legitimate use, so it opts in explicitly (see test_lua_localwrite_gate).
     setenv("CECORE_LUA_ALLOW_UNSAFE", "1", 1);
     auto err = lua.execute(script);
-    unsetenv("CECORE_LUA_ALLOW_UNSAFE");
+    setenv("CECORE_LUA_ALLOW_UNSAFE", "1", 1);   // the suite runs opted in
 
     printf("  read/write local variants: %s\n",
            err.empty() ? "OK" : ("FAILED (" + err + ")").c_str());
@@ -9899,7 +9899,7 @@ static void test_lua_memscan() {
     // which is now gated; opt in for this incidental use.
     setenv("CECORE_LUA_ALLOW_UNSAFE", "1", 1);
     auto err = lua.execute(script);
-    unsetenv("CECORE_LUA_ALLOW_UNSAFE");
+    setenv("CECORE_LUA_ALLOW_UNSAFE", "1", 1);   // the suite runs opted in
     munmap(page, pageSize);
 
     printf("  firstScan/nextScan: %s\n",
@@ -12260,7 +12260,40 @@ static void test_review_regressions() {
     printf("  buffered file write errors reported: %s\n", diskOk ? "OK" : "FAILED");
 }
 
+// Without CECORE_LUA_ALLOW_UNSAFE a script gets no shell, native code, debug
+// library, file writes or binary chunks; reading and the clock still work.
+static void test_lua_default_deny() {
+    printf("\n── Test: Lua default-deny ──\n");
+    const char* saved = getenv("CECORE_LUA_ALLOW_UNSAFE");
+    const std::string keep = saved ? saved : "";
+    unsetenv("CECORE_LUA_ALLOW_UNSAFE");
+    const auto path = std::filesystem::temp_directory_path() / "ce_lua_deny.txt";
+    std::filesystem::remove(path);
+    {
+        ce::LuaEngine lua;
+        auto blocked = lua.evalToString(
+            "return tostring(os.execute == nil and io.popen == nil and package == nil and debug == nil and "
+            "dofile == nil and loadfile == nil and string.dump == nil and type(os.time()) == 'number')");
+        auto ioWrite = lua.evalToString("local f = io.open('" + path.string() + "', 'w') return 'opened'");
+        auto bindingWrite = lua.evalToString("writeToFile('" + path.string() + "', 'x') return 'written'");
+        auto streamWrite = lua.evalToString("createFileStream('" + path.string() + "', 'w') return 'created'");
+        auto binaryChunk = lua.evalToString("return tostring(load('\\27Lua') == nil)");
+        auto reading = lua.evalToString("local f = io.open('/proc/self/status', 'r') local ok = f ~= nil if f then f:close() end "
+                                        "return tostring(ok and load('return 1')() == 1)");
+        printf("  shell, native code, debug and file writes are closed: %s\n",
+               blocked && *blocked == "true" && !ioWrite && !bindingWrite && !streamWrite &&
+               binaryChunk && *binaryChunk == "true" && !std::filesystem::exists(path) ? "OK" : "FAILED");
+        printf("  reading files, the clock and text chunks still work: %s\n", reading && *reading == "true" ? "OK" : "FAILED");
+    }
+    std::filesystem::remove(path);
+    if (saved) setenv("CECORE_LUA_ALLOW_UNSAFE", keep.c_str(), 1);
+}
+
 int main(int argc, char* argv[]) {
+    // The suite exercises every Lua binding, file writes included; the
+    // default-deny test switches this off for itself.
+    setenv("CECORE_LUA_ALLOW_UNSAFE", "1", 1);
+    test_lua_default_deny();
     if (getuid() != 0) {
         fprintf(stderr, "WARNING: Not running as root. Some operations may fail.\n");
     }

@@ -5750,7 +5750,7 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "readDouble", l_readDouble);
     lua_register(L, "readString", l_readString);
     lua_register(L, "readBytes", l_readBytes);
-    lua_register(L, "readRegionToFile", l_readRegionToFile);
+    lua_register(L, "readRegionToFile", ce::guardFileWrite<l_readRegionToFile>);
     lua_register(L, "writeRegionFromFile", l_writeRegionFromFile);
     lua_register(L, "getModuleAddress", l_getModuleAddress);
     lua_register(L, "compareMemory", l_compareMemory);
@@ -5878,7 +5878,7 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "readFile", l_readFromFile);
     lua_register(L, "writeFile", l_writeToFile);
     lua_register(L, "readFromFile", l_readFromFile);
-    lua_register(L, "writeToFile", l_writeToFile);
+    lua_register(L, "writeToFile", ce::guardFileWrite<l_writeToFile>);
     lua_register(L, "fileExists", l_fileExists);
     lua_register(L, "getTempDir", l_getTempDir);
     lua_register(L, "getProcessDir", l_getProcessDir);
@@ -5904,9 +5904,9 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "addressList_addEntry", l_addressList_addEntry);
     lua_register(L, "addressList_removeEntry", l_addressList_removeEntry);
     lua_register(L, "addressList_clear", l_addressList_clear);
-    lua_register(L, "saveTable", l_saveTable);
+    lua_register(L, "saveTable", ce::guardFileWrite<l_saveTable>);
     lua_register(L, "loadTable", l_loadTable);
-    lua_register(L, "generateTrainer", l_generateTrainer);
+    lua_register(L, "generateTrainer", ce::guardFileWrite<l_generateTrainer>);
     lua_register(L, "generateTrainerSource", l_generateTrainerSource);
     lua_register(L, "isKeyPressed", l_isKeyPressed);
     lua_register(L, "createTimer", l_createTimer);
@@ -6013,7 +6013,7 @@ void registerExtendedBindings(lua_State* L) {
 
     // File regions
     lua_register(L, "readRegionFromFile", l_readRegionFromFile);
-    lua_register(L, "writeRegionToFile", l_writeRegionToFile);
+    lua_register(L, "writeRegionToFile", ce::guardFileWrite<l_writeRegionToFile>);
 
     // UI
     lua_register(L, "inputQuery", l_inputQuery);

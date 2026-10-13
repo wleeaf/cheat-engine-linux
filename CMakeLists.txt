@@ -201,6 +201,9 @@ add_library(cecore SHARED
     core/injection_gen.cpp
     core/expression.cpp
     core/ct_file.cpp
+    core/json.cpp
+    core/agent_tools.cpp
+    core/mcp_server.cpp
     core/log.cpp
     core/simple_hook.cpp
     core/trainer.cpp

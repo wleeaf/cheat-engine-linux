@@ -13,6 +13,15 @@ reimplementation of Cheat Engine).
 
 ---
 
+## Unreleased
+
+- `cescan mcp`: a Model Context Protocol server that lets AI agents drive
+  Cheat Engine (list and attach to processes, scan and narrow values, read,
+  write, disassemble, and build, freeze and save cheat tables). Writes to the
+  game need `--allow-writes`. The tools live in cecore (`core/agent_tools`) so
+  a GUI agent panel can share them; a shared JSON module replaces the table
+  loader's private parser. See [docs/MCP.md](docs/MCP.md).
+
 ## v1.0.0: first stable release (2026-10-13)
 
 The first stable release: a polished, consistent GUI in both themes that follows

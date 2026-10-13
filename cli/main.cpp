@@ -26,6 +26,7 @@
 #include "core/value_io.hpp"
 #include "core/expression.hpp"
 #include "core/ns_attach.hpp"
+#include "core/mcp_server.hpp"
 #include <type_traits>
 #include <utility>
 #include "analysis/il2cpp_metadata.hpp"
@@ -120,6 +121,7 @@ static void usage() {
         "                                reused from the last guest-scan)\n"
         "  lua <script.lua>|-e <code>|-  Run a Lua script (same API as the GUI console)\n"
         "  lua                           Interactive Lua REPL\n"
+        "  mcp [--allow-writes]          Serve AI agents over MCP (stdin/stdout)\n"
         "  il2cpp <global-metadata.dat>|--pid <pid>  Browse a Unity IL2CPP game's classes,\n"
         "                                fields (with byte offsets) and method RVAs. --pid\n"
         "                                resolves a running game directly (auto-locates the\n"
@@ -1745,6 +1747,27 @@ int main(int argc, char** argv) {
     }
 
     if (!strcmp(cmd, "gdb")) return cmd_gdb(argc,argv);
+    if (!strcmp(cmd, "mcp")) {
+        // Model Context Protocol server on stdin/stdout for AI agents (Claude Code,
+        // Claude Desktop, ...). Writes to the game stay off unless asked for.
+        ce::AgentSessionOptions options;
+        for (int i = 2; i < argc; ++i) {
+            if (!strcmp(argv[i], "--allow-writes")) options.allowWrites = true;
+            else { fprintf(stderr, "Unknown option: %s\n", argv[i]); return 1; }
+        }
+        // stdout carries the protocol. Keep a private copy of it for responses and
+        // point the ordinary stdout at stderr, so stray library output can never
+        // corrupt the message stream.
+        fflush(stdout);
+        const int protocolFd = dup(STDOUT_FILENO);
+        if (protocolFd < 0 || dup2(STDERR_FILENO, STDOUT_FILENO) < 0) { perror("mcp"); return 1; }
+        std::ofstream protocol("/dev/fd/" + std::to_string(protocolFd));
+        if (!protocol) { fprintf(stderr, "mcp: cannot open the protocol stream\n"); return 1; }
+        fprintf(stderr, "cescan mcp: serving Cheat Engine tools on stdin/stdout (writes %s)\n",
+                options.allowWrites ? "enabled" : "disabled");
+        ce::AgentSession session(options);
+        return ce::runMcpServer(std::cin, protocol, session, CECORE_VERSION);
+    }
     if (!strcmp(cmd, "ceserver")) {
         // Serve local processes to Cheat Engine (or another cecore) over the
         // ceserver protocol. Loopback only: the protocol grants full memory

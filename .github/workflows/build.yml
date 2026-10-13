@@ -221,6 +221,11 @@ jobs:
         # Yama scope 1: only root may read an emulator that cescan did not start.
         run: sudo xvfb-run -a python3 test/emulator_target_gate.py build --gui --report build/compatibility-evidence/emulator-mgba.json
 
+      - name: Drive the AI agent tools over MCP (cescan mcp)
+        timeout-minutes: 5
+        # Root: under Yama ptrace_scope 1 the server cannot read a game it did not start.
+        run: sudo python3 test/mcp_gate.py build --report build/compatibility-evidence/mcp-agent.json
+
       - name: Run JIT runtime workflows (Node/V8, HotSpot, Mono, CoreCLR)
         # Stock runtimes cannot opt in with PR_SET_PTRACER, so Yama scope 1
         # needs root to attach to them from a separately started tool.

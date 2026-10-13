@@ -13,6 +13,11 @@ parity with Cheat Engine on Windows.
 - `cheatengine`: the Qt GUI (`gui/`). `cescan`: the CLI and `cescan lua`.
 - Tests: `cecore_test` (main regression suite), `cecore_deep_test`, and the
   offscreen GUI smokes (`gui_*_smoke`). Live-target gates are `test/*_gate.py`.
+- Agent tools: `core/agent_tools` (Qt-free tool set for AI agents) and
+  `core/mcp_server` (MCP over stdio, `cescan mcp`); see `docs/MCP.md`. New
+  tools go in `AgentSession::tools()` and `call()`, return short JSON summaries,
+  and refuse game writes unless `allowWrites`. Tested by `test_agent_mcp` in
+  `cecore_test` and end to end by `test/mcp_gate.py`.
 - Docs: `docs/COMPATIBILITY.md` (feature by target), `docs/PROGRESS.md`
   (work log, newest first), `docs/COVERAGE_PLAN.md`, `docs/SCRIPTING.md`,
   `CHANGELOG.md`. The version is `project(... VERSION ...)` in `CMakeLists.txt`.

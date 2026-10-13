@@ -81,6 +81,8 @@
 #include <sys/syscall.h>
 #include <cstdarg>
 #include <stdexcept>
+#include "core/mcp_server.hpp"
+#include "core/json.hpp"
 #include <unistd.h>
 #include <sys/wait.h>
 #include <csignal>
@@ -207,6 +209,117 @@ static void test_memory_access_problem() {
            problem && problem->starts_with("read memory: ") ? "OK" : "FAILED",
            problem ? problem->c_str() : "none");
     printf("  no readable regions -> nothing to report: %s\n", !ce::memoryAccessProblem(empty) ? "OK" : "FAILED");
+}
+
+
+// The agent tools through the MCP server, against a real child process: the
+// protocol handshake, tool listing, attach, scanning, write gating, freezing,
+// and a saved table that loads back.
+static volatile int g_agentHealth = 4711;
+static void test_agent_mcp() {
+    printf("\n── Test: Agent tools over MCP ──\n");
+    int ready[2];
+    if (pipe(ready) != 0) { printf("  pipe: FAILED\n"); return; }
+    const pid_t child = fork();
+    if (child == 0) {
+        prctl(PR_SET_PDEATHSIG, SIGKILL);
+        g_agentHealth = 4711;
+        if (write(ready[1], "x", 1) != 1) _exit(1);
+        for (;;) pause();
+    }
+    char byte = 0;
+    if (read(ready[0], &byte, 1) != 1) { printf("  child start: FAILED\n"); }
+    close(ready[0]); close(ready[1]);
+    auto rpc = [](ce::AgentSession& session, int id, const std::string& method, const std::string& params) {
+        const std::string line = "{\"jsonrpc\":\"2.0\",\"id\":" + std::to_string(id) + ",\"method\":\"" + method +
+                                 "\",\"params\":" + params + "}";
+        ce::json::Value reply;
+        ce::json::parse(ce::handleMcpMessage(line, session, "test"), reply);
+        return reply;
+    };
+    // Call a tool and return its result object (the text content, parsed).
+    auto tool = [&](ce::AgentSession& session, const std::string& name, const std::string& arguments, bool* isError = nullptr) {
+        auto reply = rpc(session, 9, "tools/call", "{\"name\":\"" + name + "\",\"arguments\":" + arguments + "}");
+        ce::json::Value content;
+        const ce::json::Value* result = reply.get("result");
+        if (isError) *isError = result && result->getBool("isError").value_or(true);
+        if (result && result->get("content") && !result->get("content")->arrayValue.empty())
+            ce::json::parse(result->get("content")->arrayValue[0].getString("text").value_or(""), content);
+        return content;
+    };
+    const std::string pid = std::to_string(child);
+    const uintptr_t address = reinterpret_cast<uintptr_t>(&g_agentHealth);
+    char hexAddress[32];
+    std::snprintf(hexAddress, sizeof hexAddress, "0x%lx", static_cast<unsigned long>(address));
+    {
+        ce::AgentSession readOnly;
+        auto init = rpc(readOnly, 1, "initialize", "{\"protocolVersion\":\"2025-06-18\"}");
+        const auto* initResult = init.get("result");
+        printf("  initialize negotiates the protocol: %s\n",
+               initResult && initResult->getString("protocolVersion") == "2025-06-18" ? "OK" : "FAILED");
+        auto list = rpc(readOnly, 2, "tools/list", "{}");
+        bool hasScan = false;
+        if (const auto* r = list.get("result"); r && r->get("tools"))
+            for (const auto& t : r->get("tools")->arrayValue) hasScan = hasScan || t.getString("name") == "first_scan";
+        printf("  tools/list includes first_scan: %s\n", hasScan ? "OK" : "FAILED");
+        printf("  notifications get no reply: %s\n",
+               ce::handleMcpMessage("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}", readOnly, "t").empty() ? "OK" : "FAILED");
+        auto unknown = rpc(readOnly, 3, "nope", "{}");
+        printf("  unknown method -> error -32601: %s\n",
+               unknown.get("error") && unknown.get("error")->getInt("code") == -32601 ? "OK" : "FAILED");
+        bool error = false;
+        tool(readOnly, "first_scan", "{\"type\":\"i32\",\"value\":\"4711\"}", &error);
+        printf("  tools need an attached process: %s\n", error ? "OK" : "FAILED");
+        auto attached = tool(readOnly, "attach", "{\"target\":\"" + pid + "\"}", &error);
+        printf("  attach by PID: %s\n", !error && attached.getInt("pid") == child ? "OK" : "FAILED");
+        auto scan = tool(readOnly, "first_scan", "{\"type\":\"i32\",\"value\":\"4711\"}", &error);
+        bool found = false;
+        if (const auto* candidates = scan.get("candidates"))
+            for (const auto& c : candidates->arrayValue) found = found || c.getString("address") == hexAddress;
+        if (!found && scan.getInt("count").value_or(0) > 10) {   // page if the first ten missed it
+            auto page = tool(readOnly, "scan_results", "{\"limit\":50}");
+            if (const auto* candidates = page.get("candidates"))
+                for (const auto& c : candidates->arrayValue) found = found || c.getString("address") == hexAddress;
+        }
+        printf("  first_scan finds the value: %s (count %lld)\n", !error && found ? "OK" : "FAILED",
+               static_cast<long long>(scan.getInt("count").value_or(-1)));
+        tool(readOnly, "write", "{\"address\":\"" + std::string(hexAddress) + "\",\"type\":\"i32\",\"value\":\"1\"}", &error);
+        printf("  write is refused without --allow-writes: %s\n", error ? "OK" : "FAILED");
+    }
+    {
+        ce::AgentSessionOptions options;
+        options.allowWrites = true;
+        options.freezeIntervalMs = 20;
+        ce::AgentSession session(options);
+        bool error = false;
+        tool(session, "attach", "{\"target\":\"" + pid + "\"}", &error);
+        auto written = tool(session, "write", "{\"address\":\"" + std::string(hexAddress) + "\",\"type\":\"i32\",\"value\":\"999\"}", &error);
+        printf("  write changes the value: %s\n", !error && written.getString("value_now") == "999" ? "OK" : "FAILED");
+        tool(session, "add_record", "{\"address\":\"" + std::string(hexAddress) + "\",\"type\":\"i32\",\"description\":\"Health\"}", &error);
+        tool(session, "set_frozen", "{\"index\":0,\"frozen\":true,\"value\":\"500\"}", &error);
+        // Something else changes the value; the freeze puts it back.
+        ce::os::LinuxProcessHandle process(child);
+        const int32_t other = 7;
+        (void)process.write(address, &other, sizeof other);
+        usleep(150000);
+        int32_t now = 0;
+        (void)process.read(address, &now, sizeof now);
+        printf("  set_frozen keeps the value: %s (%d)\n", !error && now == 500 ? "OK" : "FAILED", now);
+        const std::string path = (std::filesystem::temp_directory_path() / ("ce-agent-" + pid + ".CT")).string();
+        std::filesystem::remove(path);
+        auto saved = tool(session, "save_table", "{\"path\":\"" + path + "\"}", &error);
+        ce::CheatTable table;
+        const bool loaded = !error && table.loadAuto(path);
+        printf("  save_table writes a loadable .CT: %s\n",
+               loaded && table.entries.size() == 1 && table.entries[0].description == "Health" ? "OK" : "FAILED");
+        tool(session, "save_table", "{\"path\":\"" + path + "\"}", &error);
+        printf("  save_table will not overwrite by default: %s\n", error ? "OK" : "FAILED");
+        tool(session, "save_table", "{\"path\":\"/tmp/x.sh\"}", &error);
+        printf("  save_table only writes .CT or .json: %s\n", error ? "OK" : "FAILED");
+        std::filesystem::remove(path);
+    }
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
 }
 
 static void test_recover_store() {
@@ -11514,6 +11627,7 @@ int main(int argc, char* argv[]) {
     test_value_transform();
     test_recover_store();
     test_memory_access_problem();
+    test_agent_mcp();
     test_cheat_table_json();
     test_mono_dissector_parse();
     test_breakpoint_condition();

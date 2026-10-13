@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+"""End-to-end check of `cescan mcp`, the server AI agents use.
+
+Starts the stand-in game (test/readme_game.c), runs the MCP server over pipes
+the way an MCP client does, and walks the agent workflow: find health, narrow
+it after the game changes it, confirm, freeze it, and save a table.
+
+Usage: test/mcp_gate.py <build-dir> [--report file.json]
+"""
+import argparse
+import json
+import os
+import pathlib
+import subprocess
+import sys
+import tempfile
+import time
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("build")
+    parser.add_argument("--report")
+    args = parser.parse_args()
+    build = pathlib.Path(args.build).resolve()
+    source = pathlib.Path(__file__).resolve().parent / "readme_game.c"
+    results = []
+
+    def check(name, ok, detail=""):
+        results.append({"check": name, "ok": bool(ok), "detail": str(detail)[:400]})
+        print(f"MCP_GATE_CHECK {'OK' if ok else 'FAILED'}: {name}" + ("" if ok else f" ({detail})"), flush=True)
+        return ok
+
+    with tempfile.TemporaryDirectory(prefix="ce-mcp-") as work:
+        work = pathlib.Path(work)
+        game_bin = work / "game"
+        subprocess.run(["cc", "-O0", "-o", str(game_bin), str(source)], check=True)
+        game = subprocess.Popen([str(game_bin)], stdout=subprocess.PIPE, text=True)
+        server = subprocess.Popen([str(build / "cescan"), "mcp", "--allow-writes"], stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        next_id = [0]
+
+        def rpc(method, params=None, notify=False):
+            message = {"jsonrpc": "2.0", "method": method}
+            if params is not None:
+                message["params"] = params
+            if not notify:
+                next_id[0] += 1
+                message["id"] = next_id[0]
+            server.stdin.write(json.dumps(message) + "\n")
+            server.stdin.flush()
+            if notify:
+                return None
+            reply = json.loads(server.stdout.readline())
+            assert reply.get("id") == next_id[0], reply
+            return reply
+
+        def tool(name, **arguments):
+            reply = rpc("tools/call", {"name": name, "arguments": arguments})
+            result = reply["result"]
+            return result.get("isError", False), json.loads(result["content"][0]["text"])
+
+        def cli_write(address, value):
+            subprocess.run([str(build / "cescan"), "write", str(game.pid), address, str(value)],
+                           check=True, capture_output=True)
+
+        try:
+            health, ammo, gold, speed = game.stdout.readline().split()
+            init = rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                      "clientInfo": {"name": "mcp_gate", "version": "1"}})
+            check("initialize returns server info and instructions",
+                  init["result"]["serverInfo"]["name"] == "cheat-engine-linux" and init["result"].get("instructions"), init)
+            rpc("notifications/initialized", notify=True)
+            tools = {t["name"] for t in rpc("tools/list")["result"]["tools"]}
+            check("tools/list offers the scan, memory and table tools",
+                  {"attach", "first_scan", "next_scan", "write", "set_frozen", "save_table"} <= tools, sorted(tools))
+
+            error, listed = tool("list_processes", filter="game")
+            check("list_processes finds the game", not error and any(p["pid"] == game.pid for p in listed["processes"]), listed)
+            error, attached = tool("attach", target=str(game.pid))
+            check("attach to the game", not error and attached["pid"] == game.pid, attached)
+
+            error, first = tool("first_scan", type="i32", value="100")
+            addresses = {c["address"] for c in first.get("candidates", [])}
+            if health not in addresses and first.get("count", 0) > 10:
+                addresses |= {c["address"] for c in tool("scan_results", limit=50)[1]["candidates"]}
+            check("first_scan finds health = 100", not error and health in addresses, first)
+
+            cli_write(health, 75)   # the player takes damage
+            error, second = tool("next_scan", compare="exact", value="75")
+            narrowed = {c["address"] for c in second.get("candidates", [])}
+            check("next_scan narrows to health after it changes", not error and health in narrowed and second["count"] <= 3, second)
+
+            error, read = tool("read", address=health, type="i32")
+            check("read confirms the value", not error and read["value"] == "75" and read.get("location", "").startswith("game+"), read)
+
+            error, record = tool("add_record", address=health, type="i32", description="Health")
+            check("add_record stores a module-relative address", not error and record["address"].startswith("game+"), record)
+            error, frozen = tool("set_frozen", index=0, frozen=True, value="100")
+            cli_write(health, 1)    # the game changes it again
+            time.sleep(0.4)
+            error2, after = tool("read", address=health, type="i32")
+            check("set_frozen holds the value against the game", not error and not error2 and after["value"] == "100", after)
+
+            error, code = tool("disassemble", address="main", count=6)
+            check("disassemble resolves a symbol", not error and len(code.get("instructions", [])) >= 3, code)
+
+            error, rejected = tool("first_scan", type="i32", compare="increased")
+            check("an invalid request is refused with a reason", error and "next_scan" in rejected.get("error", ""), rejected)
+
+            table = work / "game.CT"
+            error, saved = tool("save_table", path=str(table))
+            text = table.read_text() if table.exists() else ""
+            check("save_table writes a Cheat Engine table", not error and "Health" in text and "game+" in text, saved)
+        finally:
+            server.stdin.close()
+            try:
+                server.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                server.kill()
+            check("the server exits cleanly at end of input", server.returncode == 0, server.stderr.read()[-400:])
+            game.kill()
+            game.wait()
+
+    failed = [r for r in results if not r["ok"]]
+    print(f"MCP_GATE_RESULT={'FAILED' if failed else 'PASSED'} checks={len(results)} failed={len(failed)}")
+    if args.report:
+        pathlib.Path(args.report).parent.mkdir(parents=True, exist_ok=True)
+        pathlib.Path(args.report).write_text(json.dumps({"checks": results}, indent=2))
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

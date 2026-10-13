@@ -68,6 +68,17 @@ cescan lua script.lua                       # run a Lua script
 cescan --help                               # everything else
 ```
 
+## AI agents
+
+`cescan mcp` lets an AI agent (Claude Code, Claude Desktop or any MCP client)
+find values, freeze them and save tables for you:
+
+```bash
+claude mcp add cheat-engine -- cescan mcp --allow-writes
+```
+
+See [AI agents](docs/MCP.md).
+
 ## Documentation
 
 - [Lua scripting reference](docs/SCRIPTING.md) and [examples](examples)

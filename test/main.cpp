@@ -449,6 +449,12 @@ static int32_t g_agentObjects[2][4] = {{1, 5, 40, 9}, {2, 5, 40, 9}};
 static int32_t* volatile g_agentPointer = g_agentObjects[0];
 static void test_agent_mcp() {
     printf("\n── Test: Agent tools over MCP ──\n");
+    {
+        // JSON text is UTF-8: raw bytes from game memory must not break it.
+        const std::string escaped = ce::json::escape(std::string("ok \xc3\xa9 \xff \xe2\x82 \xed\xa0\x80 end"));
+        printf("  JSON output replaces invalid UTF-8: %s (%s)\n",
+               escaped == "ok \xc3\xa9 \\ufffd \\ufffd\\ufffd \\ufffd\\ufffd\\ufffd end" ? "OK" : "FAILED", escaped.c_str());
+    }
     int ready[2];
     if (pipe(ready) != 0) { printf("  pipe: FAILED\n"); return; }
     const pid_t child = fork();
@@ -503,6 +509,15 @@ static void test_agent_mcp() {
         printf("  tools need an attached process: %s\n", error ? "OK" : "FAILED");
         auto attached = tool(readOnly, "attach", "{\"target\":\"" + pid + "\"}", &error);
         printf("  attach by PID: %s\n", !error && attached.getInt("pid") == child ? "OK" : "FAILED");
+        // A JSON number is a decimal address; the expression parser alone would read it as hex.
+        auto byNumber = tool(readOnly, "read", "{\"address\":" + std::to_string(reinterpret_cast<uintptr_t>(&g_agentHealth)) +
+                                               ",\"type\":\"i32\"}", &error);
+        printf("  an address given as a JSON number is decimal: %s\n",
+               !error && byNumber.getString("value") == "4711" ? "OK" : "FAILED");
+        tool(readOnly, "first_scan", "{\"type\":\"string\",\"compare\":\"greater\",\"value\":\"abc\"}", &error);
+        printf("  string scans refuse compares they cannot do: %s\n", error ? "OK" : "FAILED");
+        tool(readOnly, "attach", "{\"target\":\"4294968296\"}", &error);
+        printf("  attach refuses a PID out of range: %s\n", error ? "OK" : "FAILED");
         auto scan = tool(readOnly, "first_scan", "{\"type\":\"i32\",\"value\":\"4711\"}", &error);
         printf("  first_scan reports matches: %s (count %lld)\n", !error && scan.getInt("count").value_or(0) >= 1 ? "OK" : "FAILED",
                static_cast<long long>(scan.getInt("count").value_or(-1)));
@@ -579,6 +594,18 @@ static void test_agent_mcp() {
         printf("  save_table will not overwrite by default: %s\n", error ? "OK" : "FAILED");
         tool(session, "save_table", "{\"path\":\"/tmp/x.sh\"}", &error);
         printf("  save_table only writes .CT or .json: %s\n", error ? "OK" : "FAILED");
+        tool(session, "save_table", "{\"path\":\"/tmp/ce-agent-nul.sh\\u0000.json\",\"overwrite\":true}", &error);
+        printf("  save_table refuses a NUL in the path: %s\n",
+               error && !std::filesystem::exists("/tmp/ce-agent-nul.sh") ? "OK" : "FAILED");
+        // Library loads, threads and file reads would happen for real even in
+        // the dry run, so agent scripts may not use them.
+        bool refusedAll = true;
+        for (const char* directive : {"loadlibrary(/tmp/x.so)", "LoadBinary(0,/etc/passwd)", "include(/etc/passwd)",
+                                      "createthread(0)", "CREATETHREADANDWAIT(0)"}) {
+            auto checked = tool(session, "aa_check", std::string("{\"script\":\"[ENABLE]\\n") + directive + "\\n[DISABLE]\\n\"}", &error);
+            refusedAll = refusedAll && error && checked.getString("error").value_or("").find("not available to agent scripts") != std::string::npos;
+        }
+        printf("  agent scripts cannot load files or start threads: %s\n", refusedAll ? "OK" : "FAILED");
         std::filesystem::remove(path);
 
         // A pointer record keeps following the pointer, frozen or not.

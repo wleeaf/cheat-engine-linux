@@ -23,13 +23,38 @@ std::string errorResponse(const Value& id, int code, const std::string& message)
 
 } // namespace
 
+namespace {
+
+std::string handleRequest(const Value& message, AgentSession& session, const std::string& version);
+
+} // namespace
+
 std::string handleMcpMessage(const std::string& line, AgentSession& session, const std::string& version) {
     Value message;
     if (!json::parse(line, message)) return errorResponse(Value(), -32700, "parse error");
+    // A batch (JSON-RPC 2.0, MCP 2025-03-26): one array of replies, leaving
+    // out the notifications.
+    if (message.isArray()) {
+        if (message.arrayValue.empty()) return errorResponse(Value(), -32600, "invalid request: empty batch");
+        std::string replies;
+        for (const auto& item : message.arrayValue)
+            if (std::string reply = handleRequest(item, session, version); !reply.empty())
+                replies += (replies.empty() ? "[" : ",") + reply;
+        return replies.empty() ? std::string() : replies + "]";
+    }
+    return handleRequest(message, session, version);
+}
+
+namespace {
+
+std::string handleRequest(const Value& message, AgentSession& session, const std::string& version) {
     if (!message.isObject()) return errorResponse(Value(), -32600, "invalid request");
     const Value* id = message.get("id");
     const auto method = message.getString("method");
-    // Notifications (no id) and responses to our own requests get no reply.
+    // Notifications (no id) and responses to our own requests get no reply,
+    // but a request without a usable method must not leave its caller waiting.
+    if (id && !method && !message.get("result") && !message.get("error"))
+        return errorResponse(id->isNumber() || id->isString() ? *id : Value(), -32600, "invalid request: no method");
     if (!id || !method) return {};
     if (!id->isNumber() && !id->isString()) return errorResponse(Value(), -32600, "invalid request id");
     const Value* params = message.get("params");
@@ -69,15 +94,19 @@ std::string handleMcpMessage(const std::string& line, AgentSession& session, con
     return errorResponse(*id, -32601, "method not found: " + *method);
 }
 
-int runMcpServer(std::istream& in, std::ostream& out, AgentSession& session, const std::string& version) {
+} // namespace
+
+int runMcpServer(std::istream& in, std::ostream& out, AgentSession& session, const std::string& version,
+                 const std::function<bool()>& stop) {
     std::string line;
-    while (std::getline(in, line)) {
+    while (!(stop && stop()) && std::getline(in, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
         if (line.find_first_not_of(" \t") == std::string::npos) continue;
         const std::string reply = handleMcpMessage(line, session, version);
         if (!reply.empty()) {
-            out << reply << '\n';
+            out << reply + '\n';   // one write per message
             out.flush();
+            if (!out) break;        // the client is gone
         }
     }
     return 0;

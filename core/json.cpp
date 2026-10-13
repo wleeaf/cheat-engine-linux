@@ -318,9 +318,43 @@ std::string dump(const Value& value) {
     return out;
 }
 
+namespace {
+
+// Length of the well-formed UTF-8 sequence at s[i], or 0 if it is not one
+// (stray continuation byte, truncated, overlong, surrogate, above U+10FFFF).
+size_t utf8Sequence(const std::string& s, size_t i) {
+    const auto byte = [&](size_t k) { return static_cast<unsigned char>(s[k]); };
+    const unsigned char lead = byte(i);
+    size_t length;
+    unsigned char low = 0x80, high = 0xBF;   // allowed range of the second byte
+    if (lead >= 0xC2 && lead <= 0xDF) length = 2;
+    else if (lead >= 0xE0 && lead <= 0xEF) { length = 3; if (lead == 0xE0) low = 0xA0; if (lead == 0xED) high = 0x9F; }
+    else if (lead >= 0xF0 && lead <= 0xF4) { length = 4; if (lead == 0xF0) low = 0x90; if (lead == 0xF4) high = 0x8F; }
+    else return 0;
+    if (i + length > s.size()) return 0;
+    if (byte(i + 1) < low || byte(i + 1) > high) return 0;
+    for (size_t k = 2; k < length; ++k)
+        if ((byte(i + k) & 0xC0) != 0x80) return 0;
+    return length;
+}
+
+} // namespace
+
 std::string escape(const std::string& s) {
     std::string out;
-    for (char c : s) {
+    for (size_t i = 0; i < s.size(); ++i) {
+        const char c = s[i];
+        // JSON text is UTF-8: bytes that are not (raw game memory, odd file
+        // names) become U+FFFD instead of making the whole message invalid.
+        if (static_cast<unsigned char>(c) >= 0x80) {
+            if (const size_t length = utf8Sequence(s, i)) {
+                out.append(s, i, length);
+                i += length - 1;
+            } else {
+                out += "\\ufffd";
+            }
+            continue;
+        }
         switch (c) {
             case '\\': out += "\\\\"; break;
             case '"':  out += "\\\""; break;

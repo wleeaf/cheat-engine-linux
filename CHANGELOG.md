@@ -33,7 +33,9 @@ reimplementation of Cheat Engine).
   and disable Auto Assembler scripts, and build, freeze and save cheat tables
   with values and scripts). Writes to the game need `--allow-writes`. Scripts
   are dry-run against the live code before they are applied, cannot run
-  embedded Lua, and are undone when the session ends. The tools live in cecore (`core/agent_tools`) so
+  embedded Lua, load files or libraries, or start threads, and are undone when
+  the session ends (also on SIGINT or SIGTERM). Works with clients that give
+  the server sockets for stdio, as Node-based clients do. The tools live in cecore (`core/agent_tools`) so
   a GUI agent panel can share them; a shared JSON module replaces the table
   loader's private parser. See [docs/MCP.md](docs/MCP.md).
 - Tutorial games replace `sample_game.c`: `cetutorial` (nine steps, from an

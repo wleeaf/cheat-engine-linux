@@ -191,6 +191,46 @@ def main():
             game.kill()
             game.wait()
 
+    # Node-based clients (Claude Code, Claude Desktop, VS Code) give the server
+    # sockets for stdio, not pipes.
+    import signal
+    import socket
+    ours, theirs = socket.socketpair()
+    server = subprocess.Popen([str(build / "cescan"), "mcp"], stdin=theirs, stdout=theirs, stderr=subprocess.PIPE)
+    theirs.close()
+    ours.settimeout(10)
+    stream = ours.makefile("rw", encoding="utf-8", newline="\n")
+    try:
+        def exchange(text):
+            stream.write(text + "\n")
+            stream.flush()
+            return json.loads(stream.readline())
+        reply = exchange(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                                     "params": {"protocolVersion": "2025-03-26", "capabilities": {},
+                                                "clientInfo": {"name": "gate", "version": "1"}}}))
+        check("the server works with socket stdio", reply.get("result", {}).get("serverInfo", {}).get("name") == "cheat-engine-linux", reply)
+        reply = exchange(json.dumps([{"jsonrpc": "2.0", "id": 2, "method": "ping"},
+                                     {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                                     {"jsonrpc": "2.0", "id": 3, "method": "ping"}]))
+        check("a batch gets one array of replies", isinstance(reply, list) and [r.get("id") for r in reply] == [2, 3], reply)
+        reply = exchange(json.dumps({"jsonrpc": "2.0", "id": 4, "params": {}}))
+        check("a request without a method gets an error", reply.get("id") == 4 and reply.get("error", {}).get("code") == -32600, reply)
+        server.send_signal(signal.SIGTERM)
+        try:
+            server.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            server.kill()
+            server.wait()
+        check("SIGTERM ends the server cleanly", server.returncode == 0, server.returncode)
+    except (OSError, ValueError) as error:
+        check("the server works with socket stdio", False, error)
+    finally:
+        if server.poll() is None:
+            server.kill()
+            server.wait()
+        stream.close()
+        ours.close()
+
     failed = [r for r in results if not r["ok"]]
     print(f"MCP_GATE_RESULT={'FAILED' if failed else 'PASSED'} checks={len(results)} failed={len(failed)}")
     if args.report:

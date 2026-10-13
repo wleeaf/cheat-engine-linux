@@ -20,6 +20,9 @@
 #include "scanner/pointer_scanner.hpp"
 #include "symbols/elf_symbols.hpp"
 
+#include <charconv>
+#include <limits>
+#include <regex>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -109,10 +112,13 @@ bool comparisonNeedsPrevious(ScanCompare c) {
 }
 
 // A field's likely type, from its bytes, for compare_structures.
-std::string guessFieldType(const uint8_t* bytes, size_t available, bool pointerAligned, ProcessHandle& process) {
-    if (pointerAligned && available >= 8) {
-        uint64_t q;
-        std::memcpy(&q, bytes, 8);
+// pointerWidth is the game's (4 for 32-bit code), so a 4-byte pointer does
+// not swallow the field after it.
+std::string guessFieldType(const uint8_t* bytes, size_t available, bool pointerAligned, ProcessHandle& process,
+                           size_t pointerWidth) {
+    if (pointerAligned && available >= pointerWidth) {
+        uint64_t q = 0;
+        std::memcpy(&q, bytes, pointerWidth == 4 ? 4 : 8);
         if (q >= 0x10000 && q < 0x800000000000ull)
             if (auto region = process.queryRegion(static_cast<uintptr_t>(q)); region && q >= region->base && q < region->base + region->size)
                 return "pointer";
@@ -129,11 +135,11 @@ std::string guessFieldType(const uint8_t* bytes, size_t available, bool pointerA
     return "i32";
 }
 
-std::string formatField(const std::string& type, const uint8_t* bytes, size_t available) {
+std::string formatField(const std::string& type, const uint8_t* bytes, size_t available, size_t pointerWidth) {
     char text[64];
     if (type == "pointer") {
-        uint64_t q;
-        std::memcpy(&q, bytes, 8);
+        uint64_t q = 0;
+        std::memcpy(&q, bytes, pointerWidth == 4 ? 4 : 8);
         std::snprintf(text, sizeof text, "0x%llx", static_cast<unsigned long long>(q));
     } else if (type == "string") {
         std::string out;
@@ -193,6 +199,23 @@ uint64_t residentBytes(pid_t pid) {
 std::string argString(const Value& args, const char* key) {
     if (auto s = args.getString(key)) return *s;
     if (const Value* v = args.get(key); v && v->isNumber()) return v->stringValue;   // numbers given as JSON numbers
+    return {};
+}
+
+// An address: text for the expression parser, which reads bare digits as hex,
+// so a JSON number (decimal) is turned into 0x form first.
+std::string addressText(const Value& value) {
+    if (value.isString()) return value.stringValue;
+    if (value.isNumber()) {
+        uint64_t number = 0;
+        const auto& digits = value.stringValue;
+        const auto [end, error] = std::from_chars(digits.data(), digits.data() + digits.size(), number);
+        if (error == std::errc() && end == digits.data() + digits.size()) {
+            char text[24];
+            std::snprintf(text, sizeof text, "0x%llx", static_cast<unsigned long long>(number));
+            return text;
+        }
+    }
     return {};
 }
 
@@ -323,6 +346,15 @@ struct AgentSession::State {
     // write and allocation kept in an overlay: nothing in the game changes.
     DryRunResult dryRun(const std::string& script) {
         DryRunResult out;
+        // These read files from the user's disk into the game, or run code in
+        // it at once; no overlay can hold that, so agent scripts go without.
+        static const std::regex forbidden(R"(\b(loadlibrary|loadbinary|include|createthread|createthreadandwait)\s*\()",
+                                          std::regex::icase);
+        if (std::smatch match; std::regex_search(script, match, forbidden)) {
+            out.error = match[1].str() + " is not available to agent scripts: it would load a file from this computer "
+                        "or run code in the game";
+            return out;
+        }
         if (auto checked = assembler.check(script); !checked.success) { out.error = "script error: " + checked.error; return out; }
         DryRunProcess dry(*process);
         AutoAssembler scratch;   // its own symbol table: a dry run registers nothing for real
@@ -638,7 +670,7 @@ std::vector<AgentToolInfo> AgentSession::tools() {
 
 AgentToolResult AgentSession::call(const std::string& name, const json::Value& args) {
     State& s = *state_;
-    std::lock_guard lock(s.mutex);
+    std::unique_lock lock(s.mutex);
     if (!args.isObject() && !args.isNull()) return fail("arguments must be an object");
     try {
         if (name == "list_processes") {
@@ -673,7 +705,9 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             if (target.empty()) return fail("target is required");
             pid_t pid = 0;
             if (std::all_of(target.begin(), target.end(), [](unsigned char c) { return std::isdigit(c); })) {
-                pid = static_cast<pid_t>(std::stol(target));
+                if (target.size() > 10 || std::stoll(target) > std::numeric_limits<pid_t>::max())
+                    return fail("process " + target + " is not running");
+                pid = static_cast<pid_t>(std::stoll(target));
             } else {
                 std::vector<ProcessInfo> matches;
                 for (const auto& p : os::LinuxProcessEnumerator().list())
@@ -690,7 +724,8 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             auto process = std::make_unique<os::LinuxProcessHandle>(pid);
             if (auto problem = memoryAccessProblem(*process)) return fail("cannot read this process: " + *problem);
             const bool sameProcess = s.pid == pid;
-            if (s.process) s.disableAll();   // never leave a previous target patched
+            std::vector<std::string> stuck;   // scripts left in the previous target
+            if (s.process) stuck = s.disableAll();   // never leave a previous target patched
             s.process = std::move(process);
             s.pid = pid;
             s.modules = s.process->modules();
@@ -701,9 +736,15 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             std::string procName;
             for (const auto& p : os::LinuxProcessEnumerator().list()) if (p.pid == pid) procName = p.name;
             s.processName = procName.empty() ? std::to_string(pid) : procName;
-            return ok(Value::object().set("attached", Value::string(s.processName))
-                                     .set("pid", Value::number(static_cast<int64_t>(pid)))
-                                     .set("kind", Value::string(probeTarget(pid).summary())));
+            Value attached = Value::object().set("attached", Value::string(s.processName))
+                                            .set("pid", Value::number(static_cast<int64_t>(pid)))
+                                            .set("kind", Value::string(probeTarget(pid).summary()));
+            if (!stuck.empty()) {
+                std::string list;
+                for (const auto& failure : stuck) list += (list.empty() ? "" : "; ") + failure;
+                attached.set("warning", Value::string("scripts still enabled in the previous process: " + list));
+            }
+            return ok(attached);
         }
 
         if (!s.process) return fail("no process attached; call attach first");
@@ -738,6 +779,16 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             const bool nextOnly = comparisonNeedsPrevious(*compare);
             if (first && nextOnly) return fail("compare " + compareText + " needs an earlier scan; use next_scan");
             if (!first && firstOnly) return fail("compare unknown starts a scan; use first_scan");
+            // The scanner compares text and byte patterns only for equality: other
+            // compares would be ignored (first scan) or drop every result.
+            if (type == ValueType::String || type == ValueType::ByteArray) {
+                const bool supported = *compare == ScanCompare::Exact ||
+                    (!first && (*compare == ScanCompare::Changed || *compare == ScanCompare::Unchanged ||
+                                *compare == ScanCompare::SameAsFirst));
+                if (!supported)
+                    return fail(first ? "string and aob scans start with compare exact"
+                                      : "string and aob scans support exact, changed, unchanged and same_as_first");
+            }
             ScanConfig config;
             config.valueType = type;
             config.compareType = *compare;
@@ -785,7 +836,10 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
                                      .set("candidates", s.candidates(static_cast<size_t>(offset), static_cast<size_t>(limit))));
         }
 
-        auto needAddress = [&]() -> std::optional<uintptr_t> { return s.address(argString(args, "address")); };
+        auto needAddress = [&]() -> std::optional<uintptr_t> {
+            const Value* given = args.get("address");
+            return s.address(given ? addressText(*given) : std::string());
+        };
         auto needType = [&]() -> std::optional<ValueType> {
             const std::string t = argString(args, "type");
             if (std::find(kTypes.begin(), kTypes.end(), t) == kTypes.end()) return std::nullopt;
@@ -858,7 +912,11 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             if (!finder.start(*s.process, debugger, *address, writesOnly, size, /*software=*/false, /*singleThread=*/wine))
                 return fail("could not watch the address: " +
                             targetOperationError(*s.process, TargetFeature::HardwareWatchpoint, finder.lastError()));
+            // Let the freezer keep writing while the watch runs. Calls come one at
+            // a time (MCP, the panel's worker), so nothing else uses the session.
+            lock.unlock();
             std::this_thread::sleep_for(std::chrono::seconds(seconds));
+            lock.lock();
             finder.stop();
             Value list = Value::array();
             bool pointerHint = false;
@@ -901,7 +959,9 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
             const int seconds = static_cast<int>(std::clamp<int64_t>(args.getInt("seconds").value_or(4), 1, kMaxWatchSeconds));
             if (!s.memoryOperand(*address)) return fail("the instruction at " + hex(*address) + " does not access memory");
+            lock.unlock();   // as in find_what_writes: frozen values stay frozen meanwhile
             auto accesses = findInstructionAccesses(*s.process, *address, 4096, seconds * 1000);
+            lock.lock();
             Value list = Value::array();
             for (const auto& access : accesses) {
                 Value item = Value::object().set("address", Value::string(hex(access.address)))
@@ -924,7 +984,7 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
                 if (!list) return std::nullopt;
                 if (!list->isArray()) return std::string(key) + " must be a list of addresses";
                 for (const auto& item : list->arrayValue) {
-                    std::string text = item.isString() ? item.stringValue : std::string();
+                    std::string text = addressText(item);
                     auto resolved = text.empty() ? std::nullopt : s.address(text);
                     if (!resolved) return "cannot resolve address '" + text + "' in " + key;
                     out.push_back(*resolved);
@@ -948,14 +1008,16 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             }
             Value fields = Value::array();
             Value discriminators = Value::array();
+            const size_t pointerWidth = s.process->pointerWidth() == 4 ? 4 : 8;
             for (size_t offset = 0; offset < size; offset += 4) {
                 // The first structure decides the type; an 8-byte pointer covers two fields.
-                const std::string type = guessFieldType(snapshots[0].data() + offset, size + 8 - offset, offset % 8 == 0, *s.process);
-                const size_t width = type == "pointer" ? 8 : 4;
+                const std::string type = guessFieldType(snapshots[0].data() + offset, size + 8 - offset,
+                                                        offset % pointerWidth == 0, *s.process, pointerWidth);
+                const size_t width = type == "pointer" ? pointerWidth : 4;
                 Value values = Value::array();
                 std::vector<std::vector<uint8_t>> raw;
                 for (const auto& snapshot : snapshots) {
-                    values.push(Value::string(formatField(type, snapshot.data() + offset, size + 8 - offset)));
+                    values.push(Value::string(formatField(type, snapshot.data() + offset, size + 8 - offset, pointerWidth)));
                     raw.emplace_back(snapshot.begin() + offset, snapshot.begin() + offset + width);
                 }
                 Value field = Value::object().set("offset", Value::string(hex(offset))).set("type", Value::string(type))
@@ -1193,6 +1255,9 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
 
         if (name == "save_table") {
             const std::string path = argString(args, "path");
+            // The file opened stops at a NUL, so "x.bashrc\u0000.json" would pass
+            // the extension check and replace another file.
+            if (path.find('\0') != std::string::npos) return fail("path must not contain a NUL character");
             std::string extension = std::filesystem::path(path).extension().string();
             std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) { return std::tolower(c); });
             if (extension != ".ct" && extension != ".json") return fail("path must end in .CT or .json");

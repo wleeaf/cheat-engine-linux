@@ -4,6 +4,7 @@
 /// (the complement of find-what-accesses-an-address). Built on DebugSession +
 /// the disassembler's computeEffectiveAddress.
 
+#include <functional>
 #include "platform/process_api.hpp"
 #include "core/types.hpp"
 #include <cstdint>
@@ -22,8 +23,10 @@ struct InstructionAccess {
 /// live registers and tally it. Runs until `maxHits` accesses are recorded or
 /// `timeoutMs` elapses, then detaches. Results are sorted by hit count (desc).
 /// Returns empty if the instruction has no memory operand or attach fails.
+/// `cancelled`, polled while waiting, ends the watch early (Ctrl-C): the
+/// breakpoint is still removed before returning.
 std::vector<InstructionAccess> findInstructionAccesses(
     ProcessHandle& proc, uintptr_t instructionAddress,
-    int maxHits = 32, int timeoutMs = 4000);
+    int maxHits = 32, int timeoutMs = 4000, const std::function<bool()>& cancelled = {});
 
 } // namespace ce

@@ -398,6 +398,36 @@ static int cmd_write(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt
 static volatile sig_atomic_t g_freezeStop = 0;
 static void onFreezeSignal(int) { g_freezeStop = 1; }
 
+// An ostream target that writes straight to a file descriptor: pipes, sockets
+// and files alike.
+class FdOutputBuffer : public std::streambuf {
+public:
+    explicit FdOutputBuffer(int fd) : fd_(fd) {}
+
+protected:
+    int_type overflow(int_type c) override {
+        if (traits_type::eq_int_type(c, traits_type::eof())) return traits_type::not_eof(c);
+        const char ch = traits_type::to_char_type(c);
+        return writeAll(&ch, 1) ? c : traits_type::eof();
+    }
+    std::streamsize xsputn(const char* data, std::streamsize size) override { return writeAll(data, size) ? size : 0; }
+
+private:
+    bool writeAll(const char* data, std::streamsize size) {
+        while (size > 0) {
+            const ssize_t written = ::write(fd_, data, static_cast<size_t>(size));
+            if (written < 0) {
+                if (errno == EINTR) continue;
+                return false;
+            }
+            data += written;
+            size -= written;
+        }
+        return true;
+    }
+    int fd_;
+};
+
 // Continuously re-write a value so the game cannot change it (CE's freeze/lock).
 // --mode floor/ceil use the directional FreezeMode logic; --codec locks an obfuscated
 // value by its logical value. Runs until SIGINT/SIGTERM.
@@ -562,7 +592,14 @@ static int cmd_accessed(pid_t pid, uintptr_t instruction, int durationSec) {
     LinuxProcessHandle proc(pid);
     printf("Watching the instruction at 0x%lx for %ds. Ctrl-C to stop.\n", (unsigned long)instruction, durationSec);
     fflush(stdout);
-    auto accesses = ce::findInstructionAccesses(proc, instruction, 1 << 20, durationSec * 1000);
+    // Ctrl-C ends the watch, and the breakpoint comes out of the game's code
+    // before cescan exits: left behind it would kill the game the next time
+    // the instruction runs.
+    g_freezeStop = 0;
+    signal(SIGINT, onFreezeSignal);
+    signal(SIGTERM, onFreezeSignal);
+    auto accesses = ce::findInstructionAccesses(proc, instruction, 1 << 20, durationSec * 1000,
+                                                [] { return g_freezeStop != 0; });
     if (accesses.empty()) {
         printf("No accesses observed: the instruction did not run, has no memory operand, or could not be traced.\n");
         return 1;
@@ -1804,15 +1841,27 @@ int main(int argc, char** argv) {
         // stdout carries the protocol. Keep a private copy of it for responses and
         // point the ordinary stdout at stderr, so stray library output can never
         // corrupt the message stream.
+        // The copy is written directly: reopening it by path fails when the
+        // client's stdio is a socket, as Node-based clients use.
         fflush(stdout);
         const int protocolFd = dup(STDOUT_FILENO);
         if (protocolFd < 0 || dup2(STDERR_FILENO, STDOUT_FILENO) < 0) { perror("mcp"); return 1; }
-        std::ofstream protocol("/dev/fd/" + std::to_string(protocolFd));
-        if (!protocol) { fprintf(stderr, "mcp: cannot open the protocol stream\n"); return 1; }
+        FdOutputBuffer protocolBuffer(protocolFd);
+        std::ostream protocol(&protocolBuffer);
         fprintf(stderr, "cescan mcp: serving Cheat Engine tools on stdin/stdout (writes %s)\n",
                 options.allowWrites ? "enabled" : "disabled");
+        // End cleanly on SIGINT/SIGTERM or when the client goes away, so the
+        // session's destructor undoes the scripts it enabled. Without
+        // SA_RESTART a signal also ends a read waiting for the next request.
+        signal(SIGPIPE, SIG_IGN);
+        g_freezeStop = 0;
+        struct sigaction stopAction {};
+        stopAction.sa_handler = onFreezeSignal;
+        sigemptyset(&stopAction.sa_mask);
+        sigaction(SIGINT, &stopAction, nullptr);
+        sigaction(SIGTERM, &stopAction, nullptr);
         ce::AgentSession session(options);
-        return ce::runMcpServer(std::cin, protocol, session, CECORE_VERSION);
+        return ce::runMcpServer(std::cin, protocol, session, CECORE_VERSION, [] { return g_freezeStop != 0; });
     }
     if (!strcmp(cmd, "ceserver")) {
         // Serve local processes to Cheat Engine (or another cecore) over the

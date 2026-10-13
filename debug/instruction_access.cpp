@@ -13,7 +13,8 @@
 namespace ce {
 
 std::vector<InstructionAccess> findInstructionAccesses(
-    ProcessHandle& proc, uintptr_t instructionAddress, int maxHits, int timeoutMs) {
+    ProcessHandle& proc, uintptr_t instructionAddress, int maxHits, int timeoutMs,
+    const std::function<bool()>& cancelled) {
 
     if (unsupportedTargetOperation(proc, TargetFeature::Debugger)) return {};
     DebugSession session;
@@ -60,7 +61,7 @@ std::vector<InstructionAccess> findInstructionAccesses(
     session.setSoftwareBreakpoint(instructionAddress);
     session.continueExecution();
 
-    for (int i = 0; i < timeoutMs / 10 && hits.load() < maxHits; ++i)
+    for (int i = 0; i < timeoutMs / 10 && hits.load() < maxHits && !(cancelled && cancelled()); ++i)
         usleep(10000);
 
     session.detach();

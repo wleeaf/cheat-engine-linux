@@ -63,10 +63,13 @@ static int gdbGuiChecks(const QString& mode, const QString& host, int port) {
         if (fail) check(sawError,"invalid XML is reported in the connection dialog");
         std::printf("GDB_GUI_RESULT=%s mode=%s\n",failures ? "FAILED" : "PASSED",mode.toUtf8().constData());return failures ? 1 : 0;
     }
-    check(started && label && label->text().startsWith("GDB:") && label->text().contains("aarch64"),"the GUI displays the guest endpoint and architecture without a local PID");
+    // The header shows the endpoint as the name and the format on the detail line.
+    auto* detail=main.findChild<QLabel*>("processDetail");
+    const QString header=label && detail ? label->text()+" "+detail->text() : QString{};
+    check(started && label && label->text().startsWith("GDB:") && header.contains("aarch64"),"the GUI displays the guest endpoint and architecture without a local PID");
     if (!label || !label->text().startsWith("GDB:")) return 1;
-    check(label->text().contains(unknown ? "data order unknown" : qemu ? "little-endian data" : "big-endian data") &&
-          label->text().contains(qemu ? "64-bit pointers" : "32-bit pointers"),"visible guest label distinguishes CPU architecture, data order and program pointer width");
+    check(header.contains(unknown ? "data order unknown" : qemu ? "little-endian data" : "big-endian data") &&
+          header.contains(qemu ? "64-bit pointers" : "32-bit pointers"),"visible guest label distinguishes CPU architecture, data order and program pointer width");
     check(oldViewer && oldViewer->windowTitle().contains("target exited"),"target switching freezes the previous memory viewer before releasing its process");
     auto* viewer=main.openMemoryView(base);auto* hex=viewer ? viewer->findChild<ce::gui::HexView*>() : nullptr;
     check(hex!=nullptr,"the ordinary memory viewer opens on guest RAM");
@@ -219,6 +222,6 @@ static int gdbGuiChecks(const QString& mode, const QString& host, int port) {
     check(!editor && !mapper && viewer->windowTitle().contains("target exited") && label->text()=="No process selected","disconnect releases target-bound editors and freezes its memory viewer");
     check(lua("assert(getTargetInfo()==nil and readInteger(0x40000000)==nil and readGdbRegister('x0')==nil)"),"the shared console rejects stale reads after GUI disconnect");
     main.attachToPid(getpid(),"native again");
-    check(label->text().startsWith("PID:"),"the GUI can return to a native target after a guest disconnect");
+    check(label->text()=="native again" && detail && detail->text().startsWith("PID "),"the GUI can return to a native target after a guest disconnect");
     std::printf("GDB_GUI_RESULT=%s mode=%s\n",failures ? "FAILED" : "PASSED",mode.toUtf8().constData());return failures ? 1 : 0;
 }

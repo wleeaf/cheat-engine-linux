@@ -61,6 +61,7 @@ FilePatcher::FilePatcher(QWidget* parent) : QDialog(parent) {
     auto* btnRow = new QHBoxLayout;
     btnRow->addStretch();
     auto* applyBtn = new QPushButton("Apply Patch");
+    applyBtn->setProperty("primary", true);
     auto* closeBtn = new QPushButton("Close");
     connect(applyBtn, &QPushButton::clicked, this, &FilePatcher::onApply);
     connect(closeBtn, &QPushButton::clicked, this, &QDialog::accept);

@@ -92,6 +92,8 @@
 #include <QDir>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QScreen>
+#include <QGuiApplication>
 #include <QLabel>
 #include <QKeySequenceEdit>
 #include <QPushButton>
@@ -161,7 +163,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setupMenus();
     updateScanButtons();
     setWindowTitle("Cheat Engine");
-    resize(960, 760);
+    {
+        // The default size grows with the text size, within the screen.
+        const double textScale = std::max(1.0, fontMetrics().height() / 17.0);
+        QSize size(int(960 * textScale), int(760 * textScale));
+        if (auto* screen = QGuiApplication::primaryScreen())
+            size = size.boundedTo(screen->availableGeometry().size() * 0.92);
+        resize(size);
+    }
     // Restore the last window size/position and splitter layout (no-ops on the
     // first run, leaving the defaults above). Saved back in closeEvent().
     {
@@ -552,6 +561,9 @@ void MainWindow::setupMenus() {
         auto* row = new QHBoxLayout;
         auto* allocBtn = new QPushButton("Allocate");
         auto* freeBtn = new QPushButton("Free");
+        freeBtn->setToolTip("Free the selected block");
+        freeBtn->setEnabled(false);   // needs a selected block
+        connect(list, &QListWidget::currentRowChanged, freeBtn, [freeBtn](int row) { freeBtn->setEnabled(row >= 0); });
         auto* closeBtn = new QPushButton("Close");
         row->addWidget(allocBtn); row->addWidget(freeBtn); row->addStretch(); row->addWidget(closeBtn);
         v->addLayout(row);
@@ -664,7 +676,7 @@ void MainWindow::setupMenus() {
     tools->addAction("Group Scan Generator...", this, [this]() {
         if (!process_ || !lastResult_) { QMessageBox::warning(this, "Group Scan Generator", "Run a scan and select results first."); return; }
         auto sel = resultsView_->selectionModel()->selectedRows();
-        if (sel.size() < 2) { QMessageBox::warning(this, "Group Scan Generator", "Select at least two results."); return; }
+        if (sel.size() < 2) { QMessageBox::information(this, "Group Scan Generator", "Select two or more addresses in the scan results first (Ctrl+click or Shift+click). The generator builds a pattern from their offsets and values."); return; }
         std::vector<uintptr_t> addrs;
         for (const auto& idx : sel) addrs.push_back(resultsModel_->addressAt(idx.row()));
         std::sort(addrs.begin(), addrs.end());
@@ -729,7 +741,7 @@ void MainWindow::setupMenus() {
     process->addAction("Wait for process...", this, [this]() {
         bool ok = false;
         auto name = QInputDialog::getText(this, "Wait for process",
-            "Process name substring (will auto-attach when seen):",
+            "Name (or part of the name) of the program to wait for.\nCheat Engine opens it as soon as it starts:",
             QLineEdit::Normal, "", &ok);
         if (!ok || name.isEmpty()) return;
         if (processWatcher_) processWatcher_->stop();
@@ -2211,7 +2223,7 @@ void MainWindow::setupUi() {
                 if (selected.isEmpty()) return;
                 int row = selected.first().row();
                 QColor initial = (row < (int)entries.size() && !entries[row].color.isEmpty())
-                    ? QColor(entries[row].color) : QColor(Qt::black);
+                    ? QColor(entries[row].color) : addressListView_->palette().color(QPalette::Text);
                 QColor c = QColorDialog::getColor(initial, this, "Change record color");
                 if (!c.isValid()) return;
                 for (const auto& idx : selected)
@@ -2225,7 +2237,8 @@ void MainWindow::setupUi() {
                     if (firstRow >= (int)entries.size()) return;
                     bool ok = false;
                     QString v = QInputDialog::getMultiLineText(this, "Dropdown options",
-                        "One \"value:label\" per line (or value alone):",
+                        "The values this entry can be set to from a dropdown, one per line,\n"
+                        "as value:label or just value. For example:\n0:Off\n1:On",
                         addressListModel_->dropdownList(firstRow).split(';').join('\n'), &ok);
                     if (ok)
                         addressListModel_->setDropdownList(entries[firstRow].id,
@@ -2248,7 +2261,13 @@ void MainWindow::setupUi() {
                     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
                     auto* clearButton = buttons->addButton("Clear", QDialogButtonBox::ResetRole);
 
+                    auto* note = new QLabel("Press the key combination that turns this entry on and off. "
+                                            "It works while the game has focus.", &dialog);
+                    note->setProperty("secondary", true);
+                    note->setWordWrap(true);
+                    editor->setMinimumWidth(280);
                     layout->addWidget(label);
+                    layout->addWidget(note);
                     layout->addWidget(editor);
                     layout->addWidget(buttons);
                     connect(clearButton, &QPushButton::clicked, editor, &QKeySequenceEdit::clear);
@@ -2517,7 +2536,10 @@ void MainWindow::setupUi() {
     vsplit->setStretchFactor(0, 0);
     vsplit->setStretchFactor(1, 1);
     vsplit->setChildrenCollapsible(false);
-    vsplit->setSizes({480, 220});
+    // Sizes for a 10 pt font at 96 DPI, scaled up for larger text (GNOME's text
+    // scaling, bigger fonts) so the scan options fit without scrolling.
+    const double textScale = std::max(1.0, fontMetrics().height() / 17.0);
+    vsplit->setSizes({int(480 * textScale), int(220 * textScale)});
     v->addWidget(vsplit, 1);
     addressListView_->setMinimumHeight(140);
 

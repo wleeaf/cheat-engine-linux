@@ -19,6 +19,7 @@
 #include "scanner/pointer_scanner.hpp"
 #include "scanner/snapshot.hpp"
 #include "core/target_capabilities.hpp"
+#include "core/value_io.hpp"
 #include "core/autoasm.hpp"
 #include "core/aa_templates.hpp"
 #include "core/injection_gen.hpp"
@@ -8396,6 +8397,28 @@ static void test_autoassembler_review_fixes() {
     printf("  a data token that is not a number is refused: %s\n", !garbage.success ? "OK" : "FAILED");
     auto fill = run("[ENABLE]\nfillmem(" + hex(base + 0x30) + ",4,CC)\n");
     printf("  fillmem needs no active address: %s\n", fill.success && g_aaScratch[0x33] == 0xCC ? "OK" : ("FAILED: " + fill.error).c_str());
+
+    // The largest float, as the address list shows it, can be written back.
+    {
+        ce::ValueIoOptions floatOptions;
+        auto written = ce::writeTypedValue(proc, base + 0x38, ValueType::Float, "3.4028235e+38", floatOptions);
+        float back = 0;
+        std::memcpy(&back, g_aaScratch + 0x38, 4);
+        auto tooBig = ce::writeTypedValue(proc, base + 0x38, ValueType::Float, "1e39", floatOptions);
+        printf("  the largest float round-trips through its text: %s\n",
+               written && back == std::numeric_limits<float>::max() && !tooBig ? "OK" : "FAILED");
+    }
+
+    // reassemble() of a RIP-relative instruction still reaches the same data.
+    static const uint8_t source[8] = {0x8B, 0x05, 0x10, 0x00, 0x00, 0x00, 0x90, 0x90};   // mov eax,[rip+0x10]
+    alignas(16) static uint8_t copy[16];
+    const auto sourceAddress = reinterpret_cast<uintptr_t>(source);
+    auto relocated = run("[ENABLE]\n" + hex(reinterpret_cast<uintptr_t>(copy)) + ":\nreassemble(" + hex(sourceAddress) + ")\n");
+    Disassembler decoder(Arch::X86_64);
+    auto decoded = decoder.disassemble(reinterpret_cast<uintptr_t>(copy), {copy, sizeof copy}, 1);
+    printf("  reassemble keeps a RIP-relative target: %s\n",
+           relocated.success && !decoded.empty() && decoded[0].ripTarget == sourceAddress + 6 + 0x10 ? "OK"
+           : ("FAILED: " + relocated.error).c_str());
 }
 
 static void test_autoassembler_nop_fillmem(pid_t pid) {

@@ -133,9 +133,15 @@ std::expected<std::vector<uint8_t>, std::string> encodeTypedValue(
         if (token.empty() || parsed.ec != std::errc{} || parsed.ptr != token.data() + token.size())
             return std::unexpected("Enter a floating-point value, for example 2.5 or 2,5");
         if (type == ValueType::Float) {
-            if (std::isfinite(number) && std::abs(number) > std::numeric_limits<float>::max())
-                return std::unexpected("The value exceeds the float range; use double instead");
-            float converted = static_cast<float>(number); bits = std::bit_cast<uint32_t>(converted);
+            // Parse as a float: the shortest text of FLT_MAX ("3.4028235e+38")
+            // is above FLT_MAX as a double, but rounds to it as a float.
+            float converted = 0;
+            auto asFloat = std::from_chars(token.data(), token.data() + token.size(), converted);
+            if (asFloat.ec == std::errc::result_out_of_range) {
+                if (std::abs(number) > 1) return std::unexpected("The value exceeds the float range; use double instead");
+                converted = static_cast<float>(number);   // too small: rounds to (signed) zero, as before
+            }
+            bits = std::bit_cast<uint32_t>(converted);
         } else bits = std::bit_cast<uint64_t>(number);
     }
     std::vector<uint8_t> bytes(count);

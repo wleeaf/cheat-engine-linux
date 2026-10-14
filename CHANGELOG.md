@@ -62,6 +62,10 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Fixed: Auto Assembler `reassemble()` copied a RIP-relative instruction
+  with its operand unchanged, so the copy no longer reached the original
+  data; it is re-encoded relative to its new address. The largest float, as
+  the address list shows it (3.4028235e+38), could not be written back.
 - Fixed: "Wait for process" never matched a program name longer than 15
   characters (the kernel's truncated process name); the full program name is
   matched too. Signatures of 32-bit code kept absolute addresses, so they

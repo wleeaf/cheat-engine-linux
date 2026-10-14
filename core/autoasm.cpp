@@ -1742,7 +1742,17 @@ std::expected<std::vector<uint8_t>,std::string> AutoAssembler::reassembleTarget(
         if (!relocated) return std::unexpected(relocated.error());
         return std::move(relocated->bytes);
     }
-    return assembleTarget(decoded[0].mnemonic+" "+decoded[0].operands,destination);
+    // A RIP-relative operand reaches its target from the original address:
+    // re-encode it relative to the new one, as injection templates do.
+    std::string operands=decoded[0].operands;
+    if (decoded[0].memory.ripRelative) {
+        const auto open=operands.find('['),close=operands.find(']',open);
+        if (open==std::string::npos || close==std::string::npos)
+            return std::unexpected("REASSEMBLE cannot relocate this RIP-relative operand");
+        char target[32];std::snprintf(target,sizeof target,"rel 0x%llx",static_cast<unsigned long long>(decoded[0].ripTarget));
+        operands.replace(open+1,close-open-1,target);
+    }
+    return assembleTarget(decoded[0].mnemonic+" "+operands,destination);
 }
 
 AutoAsmResult AutoAssembler::cleanup(ProcessHandle& proc, const DisableInfo& info) {

@@ -2409,6 +2409,15 @@ void MemoryBrowser::refreshBreakpoints() {
 
 bool MemoryBrowser::patchBytes(uintptr_t addr, const std::vector<uint8_t>& bytes, QString* error) {
     if (!proc_ || bytes.empty()) return false;
+    // Over a planted debugger breakpoint the trap byte would be overwritten:
+    // removing the breakpoint then finds neither the trap nor the original and
+    // fails, and the debugger cannot be detached cleanly.
+    if (bpQuery_)
+        for (uintptr_t bp : bpQuery_())
+            if (bp >= addr && bp - addr < bytes.size()) {
+                if (error) *error = QString("A breakpoint is set at 0x%1: remove it before patching this code").arg(bp, 0, 16);
+                return false;
+            }
     auto patched=ce::patchInstructionBytes(*proc_,addr,bytes);
     if (!patched && error) *error=QString::fromStdString(patched.error());
     return patched.has_value();

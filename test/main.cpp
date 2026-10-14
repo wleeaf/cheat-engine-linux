@@ -4671,15 +4671,15 @@ static void test_autoasm_lua_blocks() {
         printf("  conditional codegen: %s\n", r.success ? "OK" : ("FAILED: " + r.error).c_str());
     }
 
-    // Unmatched {$lua}.
+    // A {$lua} block runs to the end of its section, as in Cheat Engine's
+    // pure-Lua records ([ENABLE] {$lua} ... [DISABLE] {$lua} ...).
     {
         std::string script =
             "[ENABLE]\n"
             "{$lua}return \"\"\n"
             "[DISABLE]\n";
         auto r = aa.check(script);
-        bool detected = !r.success && r.error.find("matching") != std::string::npos;
-        printf("  unterminated block flagged: %s\n", detected ? "OK" : ("FAILED: " + r.error).c_str());
+        printf("  a Lua block may end with its section: %s\n", r.success ? "OK" : ("FAILED: " + r.error).c_str());
     }
 
     // A check never runs the block: a script under review may be untrusted.
@@ -8492,13 +8492,20 @@ static void test_autoassembler_globalalloc_shared(pid_t pid) {
     printf("\n── Test: Auto Assembler globalalloc is shared ──\n");
     LinuxProcessHandle proc(pid);
     AutoAssembler aa;
+    // The name is a shared symbol owned by no script (not in either script's
+    // undo symbols), so read it from the assembler.
     auto first = aa.execute(proc, "[ENABLE]\nglobalalloc(ce_shared_block,64)\nce_shared_block:\ndd #4242\n[DISABLE]\n");
+    const uintptr_t firstAddress = first.success ? aa.resolveSymbol("ce_shared_block") : 0;
     auto second = aa.execute(proc, "[ENABLE]\nglobalalloc(ce_shared_block,64)\n[DISABLE]\n");
-    const uintptr_t firstAddress = first.success && !first.disableInfo.symbols.empty() ? first.disableInfo.symbols.begin()->second : 0;
-    const uintptr_t secondAddress = second.success && !second.disableInfo.symbols.empty() ? second.disableInfo.symbols.begin()->second : 0;
+    const uintptr_t secondAddress = second.success ? aa.resolveSymbol("ce_shared_block") : 0;
     printf("  a second globalalloc of the name reuses the memory: %s\n",
            firstAddress && firstAddress == secondAddress ? "OK" : ("FAILED: " + first.error + second.error).c_str());
     if (first.success) aa.disable(proc, "[ENABLE]\nglobalalloc(ce_shared_block,64)\n[DISABLE]\n", first.disableInfo);
+    // Toggling one script leaves the shared name in place: the next
+    // globalalloc still reuses the same block.
+    auto third = second.success ? aa.execute(proc, "[ENABLE]\nglobalalloc(ce_shared_block,64)\n[DISABLE]\n") : second;
+    printf("  the shared name survives a script's disable: %s\n",
+           third.success && aa.resolveSymbol("ce_shared_block") == firstAddress ? "OK" : "FAILED");
     int32_t value = 0;
     auto read = firstAddress ? proc.read(firstAddress, &value, sizeof value) : ce::Result<size_t>(std::unexpected(std::make_error_code(std::errc::invalid_argument)));
     // Mapped (its bytes are restored like any the script wrote, but the

@@ -19,8 +19,13 @@ namespace {
 // RIP-relative operands) rather than relocate them in this first version.
 bool isPositionDependent(const Instruction& in) {
     if (in.memory.ripRelative || in.ripTarget != 0) return true;
-    const std::string& m = in.mnemonic;
-    if (m == "call" || m.rfind("loop", 0) == 0) return true;
+    // The operation without prefixes: Capstone names "bnd jmp", "notrack jmp",
+    // "bnd call", which an exact match missed (copied, they branched wrong).
+    const std::string& full = in.mnemonic;
+    const auto space = full.find_last_of(' ');
+    const std::string m = space == std::string::npos ? full : full.substr(space + 1);
+    if (m == "call" || m.rfind("loop", 0) == 0 || m == "jcxz" || m == "jecxz" || m == "jrcxz") return true;
+    if (m == "xbegin") return true;                // relative abort target
     if (!m.empty() && m[0] == 'j') return true;   // jmp + all jcc
     return false;
 }

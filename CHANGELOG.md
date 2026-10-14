@@ -153,6 +153,24 @@ reimplementation of Cheat Engine).
   registers on ARM; unknown or incomplete options of `disasm`, `il2cpp` and
   `analyze` were ignored. MCP watches end on shutdown instead of holding it
   for up to 30 seconds.
+- Fixed: Auto Assembler. `aobscan`, `aobscanmodule`, `aobscanregion` and
+  `aobscanall` with a missing argument were skipped silently, so the name
+  could resolve to a label another enabled script registered and the hook
+  went there. A section header with a trailing comment (`[DISABLE] // x`) was
+  not recognised, merging the disable code into enable; an empty `[ENABLE]`
+  ran the whole script. A `{$lua}` block that runs to the end of its section
+  (Cheat Engine's pure-Lua records) was rejected. A `globalalloc` shared by
+  several scripts got a fresh block after one of them was toggled, and could
+  reuse a same-named plain `alloc` of another script that frees it. An
+  `alloc` near-address that does not resolve allocated anywhere; a missing
+  `include()` file was skipped. Simple hooks copied `bnd jmp`/`bnd call`
+  instructions into the trampoline unrelocated.
+- Fixed: debugger. Detach while a Step Over or Run to Cursor hit its
+  breakpoint resumed the thread one byte into the instruction; attaching
+  missed threads created while it ran (a breakpoint they hit killed the
+  game) and dropped a signal that was in flight. The Memory Viewer could
+  assemble over a planted breakpoint, after which the debugger could not
+  remove it or detach cleanly; it now refuses.
 - Fixed: `cescan scan --previous` accepted results of another value type (a
   float scan narrowed as integers) or another process; scans now record
   both and refuse a mismatch. The MCP `compare_structures` tool read

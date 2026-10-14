@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <functional>
 #include <expected>
 #include <map>
@@ -162,6 +163,7 @@ private:
     uintptr_t processSymbol(const std::string& name) const;
     std::unordered_map<std::string,std::weak_ptr<DisableInfo::Ownership>> symbolOwners_;
     std::unordered_map<std::string, DisableInfo::AllocEntry> knownAllocations_;
+    std::unordered_set<std::string> globalAllocations_;   // names of globalalloc memory
     std::unordered_map<std::string, CustomCommandHandler> customCommands_;
     std::vector<ScriptHook> preprocessorHooks_;
     std::vector<ScriptHook> postprocessorHooks_;

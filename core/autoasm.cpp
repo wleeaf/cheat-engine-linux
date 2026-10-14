@@ -648,6 +648,24 @@ static std::string stripBraceComments(const std::string& script) {
     return out;
 }
 
+// "[ENABLE]", "[DISABLE] // comment" and the like: the upper-case header, or
+// empty when the line is not one. A trailing comment no longer hides it
+// ("[DISABLE] // x" merged the disable body into the enable section).
+static std::string sectionHeader(const std::string& line) {
+    auto trimmed = toUpper(trim(stripInlineComment(trim(line))));
+    const bool header = trimmed.size() > 2 && trimmed.front() == '[' && trimmed.back() == ']' &&
+        std::all_of(trimmed.begin() + 1, trimmed.end() - 1, [](unsigned char ch) { return std::isalpha(ch); });
+    return header ? trimmed : std::string();
+}
+
+// Whether a script has sections at all; one without runs whole on enable.
+static bool hasSectionHeaders(const std::string& script) {
+    std::istringstream ss(script);
+    for (std::string line; std::getline(ss, line);)
+        if (!sectionHeader(line).empty()) return true;
+    return false;
+}
+
 std::string AutoAssembler::extractSection(const std::string& script, const std::string& section) {
     // As in Cheat Engine, lines outside every section (a define() above
     // [ENABLE] in the standard templates) belong to both sections.
@@ -658,10 +676,8 @@ std::string AutoAssembler::extractSection(const std::string& script, const std::
     enum class Part { Shared, Wanted, Other } part = Part::Shared;
 
     while (std::getline(ss, line)) {
-        auto trimmed = toUpper(trim(line));
-        const bool header = trimmed.size() > 2 && trimmed.front() == '[' && trimmed.back() == ']' &&
-            std::all_of(trimmed.begin() + 1, trimmed.end() - 1, [](unsigned char ch) { return std::isalpha(ch); });
-        if (header) {
+        const auto trimmed = sectionHeader(line);
+        if (!trimmed.empty()) {
             part = trimmed == tagUpper ? Part::Wanted : Part::Other;
             continue;
         }
@@ -729,7 +745,9 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
         a.address = 0;
         a.global = true;
         allocs.push_back(a);
-        registeredSymbols.push_back(a.name);  // export after resolution
+        // Exported in Phase 4 without an owner: as one of this script's undo
+        // symbols, disabling the last script that declared it erased the name,
+        // and the next globalalloc mapped a new block while others kept the old.
         log.push_back("GLOBALALLOC: " + a.name + " size=" + std::to_string(a.size));
         return true;
     }
@@ -847,6 +865,10 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
     if (startsWith(upper, "AOBSCANREGION(") && line.back() == ')' && proc) {
         auto args = line.substr(14, line.size() - 15);
         auto parts = splitArgs(args, 4);
+        // A missing argument used to skip the scan silently: the name then
+        // resolved to a label another enabled script registered (templates
+        // share INJECT), and the hook went to that script's address.
+        if (parts.size() != 4) { error = "AOBSCANREGION(name, start, stop, pattern) takes 4 arguments"; return false; }
         if (parts.size() == 4) {
             auto name = trim(parts[0]);
             auto startExpr = trim(parts[1]);
@@ -881,6 +903,10 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
     if (startsWith(upper, "AOBSCANALL(") && line.back() == ')' && proc) {
         auto args = line.substr(11, line.size() - 12);
         auto parts = splitArgs(args, 2);
+        // A missing argument used to skip the scan silently: the name then
+        // resolved to a label another enabled script registered (templates
+        // share INJECT), and the hook went to that script's address.
+        if (parts.size() != 2) { error = "AOBSCANALL(name, pattern) takes 2 arguments"; return false; }
         if (parts.size() == 2) {
             auto name = trim(parts[0]);
             auto pattern = stripOptionalQuotes(parts[1]);
@@ -910,6 +936,10 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
     if (startsWith(upper, "AOBSCANMODULE(") && line.back() == ')' && proc) {
         auto args = line.substr(14, line.size() - 15);
         auto parts = splitArgs(args, 3);
+        // A missing argument used to skip the scan silently: the name then
+        // resolved to a label another enabled script registered (templates
+        // share INJECT), and the hook went to that script's address.
+        if (parts.size() != 3) { error = "AOBSCANMODULE(name, module, pattern) takes 3 arguments"; return false; }
         if (parts.size() == 3) {
             auto name = trim(parts[0]);
             auto moduleName = stripOptionalQuotes(parts[1]);
@@ -947,6 +977,10 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
     if (startsWith(upper, "AOBSCAN(") && line.back() == ')' && proc) {
         auto args = line.substr(8, line.size() - 9);
         auto parts = splitArgs(args, 2);
+        // A missing argument used to skip the scan silently: the name then
+        // resolved to a label another enabled script registered (templates
+        // share INJECT), and the hook went to that script's address.
+        if (parts.size() != 2) { error = "AOBSCAN(name, pattern) takes 2 arguments"; return false; }
         if (parts.size() == 2) {
             auto name = trim(parts[0]);
             auto pattern = stripOptionalQuotes(parts[1]);
@@ -1025,7 +1059,10 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
             }
             log.push_back("INCLUDE: " + filename + " (loaded)");
         } else {
-            log.push_back("INCLUDE: " + filename + " (NOT FOUND)");
+            // Carrying on without the file's allocs and defines "succeeded"
+            // with a script that is not the one written.
+            error = "INCLUDE: cannot read " + filename;
+            return false;
         }
         return true;
     }
@@ -1964,10 +2001,9 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
 
     // Extract ENABLE section
     auto enableCode = extractSection(script, "ENABLE");
-    if (enableCode.empty()) {
-        // No sections — treat entire script as enable
-        enableCode = script;
-    }
+    // No sections: the entire script is the enable part. An empty [ENABLE]
+    // (with a [DISABLE]) enables nothing; it must not run the whole script.
+    if (!hasSectionHeaders(stripBraceComments(script))) enableCode = script;
 
     if (!preprocessScript(enableCode, result.log, result.error))
         return rollback();
@@ -1993,7 +2029,10 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
         if (a.global) {
             auto symbol = globalSymbols_.find(a.name);
             auto known = knownAllocations_.find(a.name);
-            if (symbol != globalSymbols_.end() && known != knownAllocations_.end() && known->second.address == symbol->second &&
+            // Only memory made by a globalalloc: a plain alloc of the same name
+            // (registered by another script) is freed when that script is disabled.
+            if (globalAllocations_.contains(a.name) &&
+                symbol != globalSymbols_.end() && known != knownAllocations_.end() && known->second.address == symbol->second &&
                 known->second.size >= a.size) {
                 a.address = symbol->second;
                 result.log.push_back("GLOBALALLOC: " + a.name + " reuses its existing memory");
@@ -2007,6 +2046,12 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             std::string p = a.preferredExpr;
             if (p.front() == '$') p = "0x" + p.substr(1);
             a.preferred = resolveAddress(p, allocs, labels, defines);
+            // A typo here made it "anywhere": a cave out of jump range of the
+            // hook, which then fails to assemble or branches wrong.
+            if (!a.preferred) {
+                result.error = "ALLOC(" + a.name + "): cannot resolve the near address " + a.preferredExpr;
+                return rollback();
+            }
         }
         // Allocate ownership metadata before asking the target to map memory.
         auto released = std::make_shared<std::atomic<bool>>(false);
@@ -2032,7 +2077,10 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             // names; the address-matched erases below keep disable() from evicting a
             // different script's same-named entry.
             knownAllocations_[a.name] = result.disableInfo.allocs.back();
-            if (a.global) result.disableInfo.allocs.pop_back();   // never freed by a disable
+            if (a.global) {
+                result.disableInfo.allocs.pop_back();   // never freed by a disable
+                globalAllocations_.insert(a.name);
+            }
             result.log.push_back("Allocated " + a.name + " at 0x" +
                 ([&]{ char b[32]; snprintf(b, 32, "%lx", a.address); return std::string(b); })());
         } else {
@@ -2354,6 +2402,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
                 result.log.push_back("DEALLOC: " + name);
                 if(it->second.released) it->second.released->store(true);
                 knownAllocations_.erase(it);
+                globalAllocations_.erase(name);   // a dealloc ends a globalalloc too
             }
             continue;
         }
@@ -2667,6 +2716,10 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
     }
 
     // ── Phase 4: Register symbols ──
+    // globalalloc names are shared and outlive any one script: no owner, and
+    // not part of this script's undo.
+    for (const auto& a : allocs)
+        if (a.global && a.address) { globalSymbols_[a.name] = a.address; symbolOwners_.erase(a.name); }
     for (auto& sym : registeredSymbols) {
         uintptr_t addr = resolveAddress(sym, allocs, labels, defines);
         if (addr) {
@@ -2707,7 +2760,7 @@ AutoAsmResult AutoAssembler::check(const std::string& script) {
     AutoAsmResult result;
     // Parse without a process — syntax check only
     auto enableCode = extractSection(script, "ENABLE");
-    if (enableCode.empty()) enableCode = script;
+    if (!hasSectionHeaders(stripBraceComments(script))) enableCode = script;
 
     if (!preprocessScript(enableCode, result.log, result.error))
         return result;
@@ -2908,8 +2961,9 @@ bool AutoAssembler::expandLuaBlocks(std::string& code, std::vector<std::string>&
             closeLen = std::string("{$endlua}").size();
         }
         if (closePos == std::string::npos) {
-            error = "{$lua} block has no matching {$asm} or {$endlua} terminator";
-            return false;
+            // The end of the section closes a Lua block (see preprocessScript).
+            closePos = code.size();
+            closeLen = 0;
         }
 
         std::string luaCode = code.substr(bodyStart, closePos - bodyStart);
@@ -3006,6 +3060,10 @@ bool AutoAssembler::expandConditionalBlocks(std::string& code,
                 auto alternate = findCi("{$ENDLUA}", close + 1);
                 if (alternate < end) { end = alternate; endLength = 9; }
             }
+            // A Lua block may run to the end of its section, as in the common
+            // pure-Lua record ("[ENABLE] {$lua} ... [DISABLE] {$lua} ..."): the
+            // section's end closes it.
+            if (end == std::string::npos && upper == "LUA") { end = code.size(); endLength = 0; }
             if (end == std::string::npos) { error = "{$" + directive + "} block has no matching terminator"; return false; }
             if (active) {
                 auto expanded = std::string(upper == "LUA" ? "{$lua}" : "{$ccode}") +

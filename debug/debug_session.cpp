@@ -15,6 +15,7 @@
 #include <vector>
 #include <algorithm>
 #include <optional>
+#include <set>
 
 namespace ce {
 
@@ -115,26 +116,39 @@ void DebugSession::detach() {
 bool DebugSession::seizeAllThreads() {
     traced_.clear(); stoppedTids_.clear(); pendingSignals_.clear(); pendingRewinds_.clear(); pendingHardwareSteps_.clear();
     pendingExitStops_.clear(); exitedDuringStop_.clear();
-    std::vector<pid_t> tids;
-    for (auto& t : proc_->threads()) tids.push_back(t.tid);
-    if (tids.empty()) tids.push_back(pid_);
-    for (pid_t tid : tids) {
-        pendingSignals_.emplace(tid,0);
-        pendingRewinds_.emplace(tid,0);
-        pendingHardwareSteps_.emplace(tid,0);
-        traced_.insert(tid);
-        if (ce::seizeIfOwned(tid,PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXEC | PTRACE_O_TRACEEXIT)<0) {
-            traced_.erase(tid);
-            pendingSignals_.erase(tid); pendingRewinds_.erase(tid); pendingHardwareSteps_.erase(tid); continue;
-        }
-        if (ptrace(PTRACE_INTERRUPT,tid,nullptr,nullptr)<0) continue;
-        int status=0;
-        if (waitForStop(tid,status,false)) {
-            stoppedTids_.insert(tid);
-            if (isEventStop(status,PTRACE_EVENT_CLONE) && !adoptClonedThread(tid)) {
-                tracerCleanup(); return false;
+    // A thread not yet seized can clone while we work through the list; its
+    // child is untraced (TRACECLONE applies once the parent is seized) and a
+    // breakpoint it runs would kill the game. List again until a pass finds
+    // nothing new: seized threads are stopped, so this converges.
+    std::set<pid_t> attempted;
+    for (int pass = 0; pass < 16; ++pass) {
+        std::vector<pid_t> tids;
+        for (auto& t : proc_->threads()) if (attempted.insert(t.tid).second) tids.push_back(t.tid);
+        if (pass == 0 && tids.empty() && attempted.insert(pid_).second) tids.push_back(pid_);
+        if (tids.empty()) break;
+        for (pid_t tid : tids) {
+            if (traced_.contains(tid)) continue;   // adopted through a clone event meanwhile
+            pendingSignals_.emplace(tid,0);
+            pendingRewinds_.emplace(tid,0);
+            pendingHardwareSteps_.emplace(tid,0);
+            traced_.insert(tid);
+            if (ce::seizeIfOwned(tid,PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXEC | PTRACE_O_TRACEEXIT)<0) {
+                traced_.erase(tid);
+                pendingSignals_.erase(tid); pendingRewinds_.erase(tid); pendingHardwareSteps_.erase(tid); continue;
             }
-            if (isEventStop(status,PTRACE_EVENT_EXEC)) handleExec(tid);
+            if (ptrace(PTRACE_INTERRUPT,tid,nullptr,nullptr)<0) continue;
+            int status=0;
+            if (waitForStop(tid,status,false)) {
+                stoppedTids_.insert(tid);
+                if (isEventStop(status,PTRACE_EVENT_CLONE) && !adoptClonedThread(tid)) {
+                    tracerCleanup(); return false;
+                }
+                if (isEventStop(status,PTRACE_EVENT_EXEC)) handleExec(tid);
+                // A signal in flight at attach (a timer, SIGCHLD, Wine's thread
+                // suspend) stops here first: keep it for delivery, not drop it.
+                else if ((status>>16)==0 && WIFSTOPPED(status) && traced_.contains(tid))
+                    pendingSignals_.at(tid)=WSTOPSIG(status);
+            }
         }
     }
     // The group leader can already be a zombie while live members still own
@@ -1056,7 +1070,23 @@ bool DebugSession::runToTempBreakpoint(pid_t tid,uintptr_t expected) {
         }
         pendingSignals_.at(tid)=0; stoppedTids_.erase(tid);
         int status=0;
-        if (!waitForStop(tid,status) || !attached_) return false;
+        if (!waitForStop(tid,status)) return false;
+        if (!attached_) {
+            // Detach (the way to end a step that does not return) arrived as a
+            // trap fired: rewind it first, or cleanup resumes the thread one
+            // byte into the instruction under the restored breakpoint. A
+            // signal that stopped it is kept for delivery.
+            if (isSoftwareStop(tid,status)) {
+                if (auto context=os::readNativeContext(tid)) {
+                    const uintptr_t address=os::nativeSoftwareBreakpointAddress(*context);
+                    auto bp=softBreakpoints_.find(address);
+                    if (address==expected || (bp!=softBreakpoints_.end() && bp->second.active)) rewindSoftwareStop(tid,address);
+                }
+            } else if (WIFSTOPPED(status) && (status>>16)==0 && WSTOPSIG(status)!=SIGTRAP) {
+                pendingSignals_.at(tid)=WSTOPSIG(status);
+            }
+            return false;
+        }
         if (isEventStop(status,PTRACE_EVENT_EXEC)) { handleExec(tid); return false; }
         bool softwareStop=isSoftwareStop(tid,status);
         if (softwareStop) {

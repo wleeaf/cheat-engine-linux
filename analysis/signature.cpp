@@ -13,21 +13,57 @@ namespace {
 // A pattern byte: a concrete value or a wildcard.
 struct PatByte { uint8_t value; bool wild; };
 
-// Count matches of `pat` in `region`, stopping once a second is found. Sets
-// `firstPos` to the first match offset.
-int countMatches(const std::vector<PatByte>& pat, const std::vector<uint8_t>& region,
-                 size_t& firstPos) {
+// The pattern without its trailing wildcards: what is emitted, and so what
+// must be unique.
+std::vector<PatByte> trimmed(std::vector<PatByte> pat) {
+    while (!pat.empty() && pat.back().wild) pat.pop_back();
+    return pat;
+}
+
+// Count matches of `pat` in a buffer holding [base, ...), stopping once a
+// second is found. Sets `first` to the first match's address.
+int countInBuffer(const std::vector<PatByte>& pat, const std::vector<uint8_t>& buffer, uintptr_t base, uintptr_t& first) {
     const size_t pl = pat.size();
-    if (pl == 0 || pl > region.size()) return 0;
+    if (pl == 0 || pl > buffer.size()) return 0;
     int cnt = 0;
-    for (size_t p = 0; p + pl <= region.size(); ++p) {
+    for (size_t p = 0; p + pl <= buffer.size(); ++p) {
         bool m = true;
         for (size_t j = 0; j < pl; ++j)
-            if (!pat[j].wild && region[p + j] != pat[j].value) { m = false; break; }
+            if (!pat[j].wild && buffer[p + j] != pat[j].value) { m = false; break; }
         if (m) {
-            if (cnt == 0) firstPos = p;
+            if (cnt == 0) first = base + p;
             if (++cnt > 1) break;
         }
+    }
+    return cnt;
+}
+
+// The same over [base, base + size) of the process, read in overlapping
+// chunks: for regions too large to keep in memory.
+int countMatches(ProcessHandle& proc, const std::vector<PatByte>& pat, uintptr_t base, size_t size,
+                 uintptr_t& first) {
+    const size_t pl = pat.size();
+    if (pl == 0 || pl > size) return 0;
+    constexpr size_t kChunk = size_t(16) << 20;
+    std::vector<uint8_t> buffer;
+    int cnt = 0;
+    for (size_t offset = 0; offset + pl <= size;) {
+        const size_t want = std::min(kChunk + pl - 1, size - offset);
+        buffer.resize(want);
+        auto got = proc.read(base + offset, buffer.data(), want);
+        if (!got || *got < pl) break;
+        const size_t limit = *got - pl + 1;
+        for (size_t p = 0; p < limit; ++p) {
+            bool m = true;
+            for (size_t j = 0; j < pl; ++j)
+                if (!pat[j].wild && buffer[p + j] != pat[j].value) { m = false; break; }
+            if (m) {
+                if (cnt == 0) first = base + offset + p;
+                if (++cnt > 1) return cnt;
+            }
+        }
+        if (*got < want) break;
+        offset += limit;
     }
     return cnt;
 }
@@ -55,22 +91,31 @@ SignatureResult makeSignature(ProcessHandle& proc, uintptr_t address,
     if (regionSize == 0 || address < regionBase || address >= regionBase + regionSize)
         return out;
 
-    // Read the region once (this is the search space for uniqueness).
-    const size_t cap = std::min<size_t>(regionSize, 128u * 1024 * 1024);
-    std::vector<uint8_t> region(cap);
-    auto rr = proc.read(regionBase, region.data(), cap);
-    if (!rr || *rr == 0) return out;
-    region.resize(*rr);
-
+    // The code at the address; uniqueness is checked against the whole
+    // region, read in chunks (a large .text is hundreds of MB).
     const size_t codeOff = static_cast<size_t>(address - regionBase);
-    if (codeOff >= region.size()) return out;
+    std::vector<uint8_t> code(std::min<size_t>(regionSize - codeOff, maxBytes + 16));
+    auto rr = proc.read(address, code.data(), code.size());
+    if (!rr || *rr == 0) return out;
+    code.resize(*rr);
 
     auto arch = disassemblerArchFor(proc, address);
     if (!arch) return out;
     Disassembler dis(*arch);
-    const size_t codeLen = std::min<size_t>(region.size() - codeOff, maxBytes + 16);
-    auto insns = dis.disassemble(address,
-        std::span<const uint8_t>(region.data() + codeOff, codeLen), 0, /*emitDataBytes=*/true);
+    auto insns = dis.disassemble(address, std::span<const uint8_t>(code.data(), code.size()), 0, /*emitDataBytes=*/true);
+
+    // A region of ordinary size is read once and searched in memory; a larger
+    // one is searched in chunks from the process.
+    std::vector<uint8_t> cached;
+    if (regionSize <= (size_t(128) << 20)) {
+        cached.resize(regionSize);
+        auto got = proc.read(regionBase, cached.data(), cached.size());
+        cached.resize(got ? *got : 0);
+    }
+    auto count = [&](const std::vector<PatByte>& pattern, uintptr_t& first) {
+        return !cached.empty() ? countInBuffer(pattern, cached, regionBase, first)
+                               : countMatches(proc, pattern, regionBase, regionSize, first);
+    };
 
     std::vector<PatByte> pat;
     for (const auto& in : insns) {
@@ -100,17 +145,18 @@ SignatureResult makeSignature(ProcessHandle& proc, uintptr_t address,
             pat.push_back({in.bytes[k], wild});
         }
 
-        size_t firstPos = 0;
-        if (countMatches(pat, region, firstPos) == 1) {
-            out.unique = (regionBase + firstPos == address);
+        uintptr_t first = 0;
+        if (count(trimmed(pat), first) == 1) {
+            out.unique = (first == address);
             break;
         }
         if (pat.size() >= maxBytes) break;
     }
 
+    pat = trimmed(pat);
     if (!out.unique) {
-        size_t firstPos = 0;
-        out.unique = (countMatches(pat, region, firstPos) == 1 && regionBase + firstPos == address);
+        uintptr_t first = 0;
+        out.unique = (count(pat, first) == 1 && first == address);
     }
     out.pattern = toAob(pat);
     out.length = pat.size();

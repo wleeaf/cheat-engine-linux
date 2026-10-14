@@ -62,6 +62,10 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Fixed: signatures for code more than 128 MB into a mapping failed, and
+  uniqueness was checked only within that first 128 MB; the printed pattern
+  (trailing wildcards trimmed) is now the one checked, and its byte count
+  matches it.
 - Fixed: a crafted `global-metadata.dat` could make the il2cpp reader
   allocate tens of gigabytes (overlapping field slices, long identifiers,
   string literals sharing bytes) and end Cheat Engine from the structure

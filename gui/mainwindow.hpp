@@ -518,6 +518,12 @@ public:
     bool setHexView(int id, bool hex) override;
     bool setByteCount(int id, std::size_t count) override;
     bool setSigned(int id, bool isSigned) override;
+    bool setDataFormat(int id, ce::ByteOrder order, uint8_t pointerWidth) override {
+        const int row = rowOfId(id);
+        if (row < 0) return false;
+        setEntryDataFormat(row, order, pointerWidth);
+        return true;
+    }
     bool setIndent(int id, int indent) override;
     std::string liveValue(int id) override;
     void setActivationCallback(ce::IAddressList::ActivationCallback cb) override {

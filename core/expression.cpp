@@ -12,6 +12,11 @@ static std::string trim(const std::string& s) {
     return a == std::string::npos ? "" : s.substr(a, b - a + 1);
 }
 
+const std::vector<ModuleInfo>& ExpressionParser::modules() const {
+    if (!modules_) modules_ = proc_ ? proc_->modules() : std::vector<ModuleInfo>{};
+    return *modules_;
+}
+
 std::optional<uintptr_t> ExpressionParser::resolveToken(const std::string& token) const {
     if (token.empty()) return std::nullopt;
     if (token.size() >= 2 && (token.front() == '"' || token.front() == '\'') && token.back() == token.front()) {
@@ -20,7 +25,7 @@ std::optional<uintptr_t> ExpressionParser::resolveToken(const std::string& token
             if (auto address = resolver_->lookup(name)) return address;
         }
         if (proc_) {
-            for (const auto& m : proc_->modules()) if (m.name == name) return m.base;
+            for (const auto& m : modules()) if (m.name == name) return m.base;
         }
         return std::nullopt;
     }
@@ -53,7 +58,7 @@ std::optional<uintptr_t> ExpressionParser::resolveToken(const std::string& token
         if (addr) return addr;
     }
     if (proc_) {
-        for (const auto& m : proc_->modules())
+        for (const auto& m : modules())
             if (m.name == token) return m.base;
     }
     // A lone hex letter remains symbol-first for CE compatibility.
@@ -76,8 +81,10 @@ std::optional<uintptr_t> ExpressionParser::parseImpl(const std::string& expr, in
 
     // Split only at top-level operators. All arithmetic is evaluated left to
     // right, including offsets after a dereference ("[base]-8-4").
-    std::vector<ModuleInfo> mods;
-    if (proc_) mods = proc_->modules();
+    // A 32-bit target's addresses wrap at 32 bits: "[p]+FFFFFFFC" is p-4
+    // there, not an address above 4 GiB.
+    if (!mask_) mask_ = proc_ && proc_->pointerWidth() == 4 ? uintptr_t(0xFFFFFFFFu) : UINTPTR_MAX;
+    const uintptr_t mask = *mask_;
     uintptr_t result = 0;
     bool subtract = false;
     size_t pos = 0;
@@ -120,8 +127,17 @@ std::optional<uintptr_t> ExpressionParser::parseImpl(const std::string& expr, in
             val = resolveToken(s.substr(start, pos - start));
         } else {
             // Preserve operators inside known module names, taking the longest match.
+            // A plain number ("1C", "0x10", "#16") is no module name: skip the list.
+            size_t tokenEnd = pos;
+            while (tokenEnd < s.size() && s[tokenEnd] != '+' && s[tokenEnd] != '-' &&
+                   s[tokenEnd] != ' ' && s[tokenEnd] != '\t') ++tokenEnd;
+            const std::string head = s.substr(pos, tokenEnd - pos);
+            const bool plainNumber = !head.empty() &&
+                (head[0] == '#' || std::all_of(head.begin() + (head.starts_with("0x") || head.starts_with("0X") ? 2 : 0),
+                                               head.end(), [](unsigned char c) { return std::isxdigit(c); }));
+            static const std::vector<ModuleInfo> none;
             size_t modLen = 0;
-            for (const auto& m : mods) {
+            for (const auto& m : plainNumber ? none : modules()) {
                 if (m.name.empty() || m.name.size() <= modLen ||
                     s.compare(pos, m.name.size(), m.name) != 0) continue;
                 const size_t after = pos + m.name.size();
@@ -135,6 +151,7 @@ std::optional<uintptr_t> ExpressionParser::parseImpl(const std::string& expr, in
         if (!val) return std::nullopt;
         if (subtract) result -= *val;
         else result += *val;
+        result &= mask;
 
         while (pos < s.size() && (s[pos] == ' ' || s[pos] == '\t')) ++pos;
         if (pos == s.size()) return result;

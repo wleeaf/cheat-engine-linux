@@ -6504,6 +6504,12 @@ static AddressEntrySnapshot snapshotOf(const AddressEntry& e) {
     s.isGroup = e.isGroup;
     s.showAsHex = e.showAsHex;
     s.indent = e.indent;
+    s.addressExpression = e.addressExpr.toStdString();
+    s.showAsSigned = e.showAsSigned;
+    s.byteCount = e.byteCount;
+    s.dataByteOrder = e.dataByteOrder;
+    s.pointerWidth = e.pointerWidth;
+    s.freezeMode = static_cast<int>(e.freezeMode);
     return s;
 }
 

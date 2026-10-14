@@ -124,6 +124,20 @@ reimplementation of Cheat Engine).
   debugger's. A tracer Cancel right at the start could be lost. Form
   Designer: edits after a delete went nowhere, names could repeat, and names
   or captions could produce invalid Lua.
+- Fixed: Lua `loadTable` wrote every record's saved value into the game and
+  activated the records marked active (running their scripts) without
+  asking; records now load inactive with their length, signedness, byte
+  order and pointer width. Lua `saveTable` and the Lua trainer functions
+  saved pointer records as this session's address and lost groups.
+- Fixed: generated trainers wrote 8 bytes for a 32-bit pointer, wrote
+  big-endian records in the wrong byte order, and froze directional records
+  ("allow increase") unconditionally.
+- Fixed: the tracer stopped without saying so when the traced thread got an
+  ordinary signal (a timer, SIGCHLD, a runtime's GC signal); it delivers it
+  and keeps tracing. On 32-bit targets, address arithmetic such as
+  `[p]+FFFFFFFC` now wraps at 32 bits. Resolving an address read the
+  target's memory map for every number in it; once per expression now, and
+  not at all for plain numbers (the freezer does this ten times a second).
 - Fixed: value hotkeys did Int64 arithmetic in floating point, so +1 on a
   value above 2^53 wrote the wrong number. Two records with the same global
   hotkey: only one fired, and removing one released the key for the other;

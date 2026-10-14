@@ -160,6 +160,13 @@ struct AddressEntrySnapshot {
     bool isGroup = false;
     bool showAsHex = false;
     int indent = 0;
+    // Enough to save and re-create the record (Lua saveTable, trainers).
+    std::string addressExpression;   // pointer path / module+offset; empty = address
+    bool showAsSigned = true;
+    std::size_t byteCount = 0;       // String / Array of byte length
+    ByteOrder dataByteOrder = ByteOrder::Unknown;
+    uint8_t pointerWidth = 0;
+    int freezeMode = 0;
 };
 
 class IAddressList {
@@ -204,6 +211,9 @@ public:
     virtual bool setByteCount(int /*id*/, std::size_t /*count*/) { return false; }
     /// Display integer values signed vs unsigned (CE ShowAsSigned). Default no-op.
     virtual bool setSigned(int /*id*/, bool /*isSigned*/) { return false; }
+    // Data format of the stored value: byte order (Unknown follows the target)
+    // and an explicit pointer width (0 follows the target).
+    virtual bool setDataFormat(int /*id*/, ByteOrder /*order*/, uint8_t /*pointerWidth*/) { return false; }
     /// Nesting depth under group headers (0 = root). The current level is exposed
     /// read-side via AddressEntrySnapshot::indent. Default no-op for non-GUI lists.
     virtual bool setIndent(int /*id*/, int /*indent*/) { return false; }

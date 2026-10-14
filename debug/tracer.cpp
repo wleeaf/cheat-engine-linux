@@ -307,6 +307,14 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
                 if (!resume(traceTid,overCall ? PTRACE_CONT : PTRACE_SINGLESTEP)) return entries;
                 continue;
             }
+            // An ordinary signal (a timer, SIGCHLD, a runtime's GC suspend
+            // signal) is delivered and stepping goes on: ending here presented
+            // a cut-short trace as complete. A fatal one ends the thread,
+            // which the wait reports.
+            if (WSTOPSIG(status) != SIGTRAP && (status >> 16) == 0) {
+                if (!resume(traceTid, overCall ? PTRACE_CONT : PTRACE_SINGLESTEP)) return entries;
+                continue;
+            }
             siginfo_t si{};
             if (WSTOPSIG(status) != SIGTRAP || (status >> 16) != 0 ||
                 ptrace(PTRACE_GETSIGINFO, traceTid, nullptr, &si) < 0) return entries;
@@ -319,8 +327,11 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
                 if (!restoreDebug(traceTid)) return entries;
                 break;
             }
-            // Preserve genuine signals and unrelated traps for the target.
-            if (!overCall || !resume(traceTid, PTRACE_CONT)) return entries;
+            // Preserve genuine signals and unrelated traps for the target. A
+            // trap that is not our step (the program's own int3) ends the
+            // trace; say so rather than look finished.
+            if (!overCall) { error(std::make_error_code(std::errc::interrupted)); return entries; }
+            if (!resume(traceTid, PTRACE_CONT)) return entries;
         }
     }
     return entries;

@@ -1,4 +1,5 @@
 #pragma once
+#include <vector>
 /// Expression parser for address expressions like "game.exe+0x100", "[rax+8]", "0x7f1234"
 
 #include "platform/process_api.hpp"
@@ -25,8 +26,14 @@ public:
 private:
     std::optional<uintptr_t> parseImpl(const std::string& expr, int depth) const;
     std::optional<uintptr_t> resolveToken(const std::string& token) const;
+    // The module list, read once per parser and only when a token needs it:
+    // the freezer re-resolves pointer records ten times a second, and every
+    // read of it parses the target's whole memory map.
+    const std::vector<ModuleInfo>& modules() const;
     ProcessHandle* proc_;
     SymbolResolver* resolver_;
+    mutable std::optional<std::vector<ModuleInfo>> modules_;
+    mutable std::optional<uintptr_t> mask_;   // address width of the target
 };
 
 } // namespace ce

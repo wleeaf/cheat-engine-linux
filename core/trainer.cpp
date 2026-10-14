@@ -98,6 +98,8 @@ int fallbackKey(int index) { return index < 9 ? '1' + index : -1; }
 // well-formed numeric literal or whose type is unsupported for freezing.
 std::optional<std::string> freezeWriteBody(const CheatEntry& e) {
     std::ostringstream body;
+    std::string ctype, literal;
+    int width = 0;
 
     auto fullySigned = [&](long long& out) -> bool {
         if (e.value.empty()) return false;
@@ -116,32 +118,40 @@ std::optional<std::string> freezeWriteBody(const CheatEntry& e) {
         case ValueType::Byte: {
             long long v;
             if (!fullySigned(v) || !inRange(v, -128, 255)) return std::nullopt;
-            body << "uint8_t v = " << static_cast<unsigned>(static_cast<uint8_t>(v))
-                 << "u; wpm((void*)0x" << std::hex << e.address << std::dec << ", &v, 1);";
-            return body.str();
+            ctype = "uint8_t"; width = 1;
+            literal = std::to_string(static_cast<unsigned>(static_cast<uint8_t>(v))) + "u";
+            break;
         }
         case ValueType::Int16: {
             long long v;
             if (!fullySigned(v) || !inRange(v, -32768, 65535)) return std::nullopt;
-            body << "int16_t v = " << static_cast<int16_t>(v)
-                 << "; wpm((void*)0x" << std::hex << e.address << std::dec << ", &v, 2);";
-            return body.str();
+            ctype = "int16_t"; width = 2;
+            literal = std::to_string(static_cast<int16_t>(v));
+            break;
         }
         case ValueType::Int32: {
             long long v;
             if (!fullySigned(v) || !inRange(v, INT32_MIN, UINT32_MAX)) return std::nullopt;
-            body << "int32_t v = " << static_cast<int32_t>(v)
-                 << "; wpm((void*)0x" << std::hex << e.address << std::dec << ", &v, 4);";
-            return body.str();
+            ctype = "int32_t"; width = 4;
+            literal = std::to_string(static_cast<int32_t>(v));
+            break;
         }
         case ValueType::Int64:
         case ValueType::Pointer: {
             // strtoll covers the full signed 64-bit range; out-of-range sets errno.
             long long v;
             if (!fullySigned(v)) return std::nullopt;
-            body << "int64_t v = " << static_cast<long long>(v)
-                 << "LL; wpm((void*)0x" << std::hex << e.address << std::dec << ", &v, 8);";
-            return body.str();
+            // A pointer is as wide as the record says (a 32-bit game's is 4
+            // bytes; writing 8 would clobber the next field).
+            if (e.type == ValueType::Pointer && e.pointerWidth == 4) {
+                if (!inRange(v, INT32_MIN, UINT32_MAX)) return std::nullopt;
+                ctype = "uint32_t"; width = 4;
+                literal = std::to_string(static_cast<uint32_t>(v)) + "u";
+                break;
+            }
+            ctype = "int64_t"; width = 8;
+            literal = v == LLONG_MIN ? std::string("(-9223372036854775807LL - 1)") : std::to_string(v) + "LL";
+            break;
         }
         case ValueType::Float: {
             if (e.value.empty()) return std::nullopt;
@@ -162,9 +172,8 @@ std::optional<std::string> freezeWriteBody(const CheatEntry& e) {
             // "9999" (no '.') — then "9999f" is an INVALID integer-with-f-suffix.
             // Ensure a fractional part so the 'f' attaches to a floating constant.
             if (lit.find_first_of(".eE") == std::string::npos) lit += ".0";
-            body << "float v = " << lit << "f; wpm((void*)0x" << std::hex << e.address
-                 << std::dec << ", &v, 4);";
-            return body.str();
+            ctype = "float"; width = 4; literal = lit + "f";
+            break;
         }
         case ValueType::Double: {
             if (e.value.empty()) return std::nullopt;
@@ -181,9 +190,8 @@ std::optional<std::string> freezeWriteBody(const CheatEntry& e) {
             *dr.ptr = '\0';
             // A whole-number double emits as "9999" — valid C (int->double), so no
             // fractional part is required here (unlike the float 'f'-suffix case).
-            body << "double v = " << buf << "; wpm((void*)0x" << std::hex << e.address
-                 << std::dec << ", &v, 8);";
-            return body.str();
+            ctype = "double"; width = 8; literal = buf;
+            break;
         }
         default:
             // String/ByteArray/Binary/Custom/etc.: no safe scalar freeze. Skip.
@@ -191,6 +199,34 @@ std::optional<std::string> freezeWriteBody(const CheatEntry& e) {
             // byte buffer instead of a scalar write.
             return std::nullopt;
     }
+
+    const bool big = e.dataByteOrder == ByteOrder::Big;
+    const bool directional = e.freezeMode != FreezeMode::Normal;
+    // A directional freeze compares the target's value with the frozen one;
+    // in a big-endian record that needs a swap per type, which is not
+    // generated: leave such a record out rather than write it unconditionally.
+    if (big && directional) return std::nullopt;
+    char address[32];
+    std::snprintf(address, sizeof(address), "(void*)0x%llx", static_cast<unsigned long long>(e.address));
+    body << ctype << " v = " << literal << ";";
+    if (big && width > 1) {
+        // Emulator memory in big-endian order: store the bytes reversed.
+        body << " unsigned char b[" << width << "]; memcpy(b, &v, " << width << ");"
+             << " for (int i = 0; i < " << width / 2 << "; ++i) { unsigned char t = b[i]; b[i] = b["
+             << width - 1 << " - i]; b[" << width - 1 << " - i] = t; }"
+             << " wpm(" << address << ", b, " << width << ");";
+        return body.str();
+    }
+    if (directional) {
+        // Floor (allow increase / never decrease) or ceiling (allow decrease /
+        // never increase) at the frozen value, as Cheat Engine does.
+        const bool floor = e.freezeMode == FreezeMode::IncreaseOnly || e.freezeMode == FreezeMode::NeverDecrease;
+        body << " " << ctype << " cur; if (rpm(" << address << ", &cur, " << width << ") && cur "
+             << (floor ? "<" : ">") << " v) wpm(" << address << ", &v, " << width << ");";
+        return body.str();
+    }
+    body << " wpm(" << address << ", &v, " << width << ");";
+    return body.str();
 }
 
 } // namespace

@@ -2406,8 +2406,21 @@ static void test_trainer_generation() {
     ptr.value = "99";
     table.entries.push_back(ptr);
 
+    // Data formats: a 32-bit pointer is 4 bytes, a big-endian record is
+    // stored reversed, and a directional freeze compares before writing.
+    CheatEntry p32; p32.description = "P32"; p32.address = 0x3000; p32.type = ValueType::Pointer;
+    p32.pointerWidth = 4; p32.value = "4096"; table.entries.push_back(p32);
+    CheatEntry be; be.description = "BE"; be.address = 0x3010; be.type = ValueType::Int32;
+    be.dataByteOrder = ByteOrder::Big; be.value = "7"; table.entries.push_back(be);
+    CheatEntry floorE; floorE.description = "Floor"; floorE.address = 0x3020; floorE.type = ValueType::Int32;
+    floorE.freezeMode = ce::FreezeMode::IncreaseOnly; floorE.value = "50"; table.entries.push_back(floorE);
+
     TrainerGenerator generator;
     auto source = generator.generateSource(table);
+    printf("  trainer honours pointer width, byte order and freeze direction: %s\n",
+           source.find("uint32_t v = 4096u; wpm((void*)0x3000, &v, 4);") != std::string::npos &&
+           source.find("wpm((void*)0x3010, b, 4);") != std::string::npos &&
+           source.find("cur < v) wpm((void*)0x3020, &v, 4);") != std::string::npos ? "OK" : "FAILED");
     printf("  pointer-path records are not written at a fixed address: %s\n",
            source.find("7f00dead0000") == std::string::npos ? "OK" : "FAILED");
     bool floatOk = source.find("2.5f") != std::string::npos &&

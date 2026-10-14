@@ -3021,10 +3021,23 @@ static int l_addressList_clear(lua_State* L) {
 static ce::CheatTable buildCheatTableFromList(ce::IAddressList* list) {
     ce::CheatTable table;
     if (!list) return table;
+    // The list is flat with an indent per row; a table nests by parent ID.
+    std::vector<std::pair<int, int>> parents;   // (indent, id) of open groups
     for (int id : list->ids()) {
         auto snap = list->byId(id);
         if (!snap) continue;
         ce::CheatEntry e;
+        while (!parents.empty() && parents.back().first >= snap->indent) parents.pop_back();
+        e.parentId = parents.empty() ? -1 : parents.back().second;
+        if (snap->isGroup) parents.push_back({snap->indent, snap->id});
+        // A pointer path or module+offset must be saved as such: `address` is
+        // only where it resolved now, and a trainer would write there forever.
+        e.addressString = snap->addressExpression;
+        e.showAsSigned = snap->showAsSigned;
+        e.length = static_cast<int>(std::min<std::size_t>(snap->byteCount, INT_MAX));
+        e.dataByteOrder = snap->dataByteOrder;
+        e.pointerWidth = snap->pointerWidth;
+        e.freezeMode = static_cast<ce::FreezeMode>(snap->freezeMode);
         e.id = snap->id;
         e.description = snap->description;
         e.address = snap->address;
@@ -3089,13 +3102,19 @@ static int l_loadTable(lua_State* L) {
             std::string base = e.addressString.empty() ? hexbuf : e.addressString;
             list->setAddressExpression(id, ce::buildPointerExpression(base, e.offsets));
         }
-        if (!e.value.empty()) list->setValue(id, e.value);
+        // The stored value is the last one seen, not something to write:
+        // setValue writes into the game. And like the GUI's Load Table,
+        // records load inactive: activating would run the loaded table's
+        // scripts (and freeze writes) without the user choosing to.
         if (!e.color.empty()) list->setColor(id, e.color);
         if (!e.autoAsmScript.empty()) list->setScript(id, e.autoAsmScript);
         if (e.showAsHex) list->setHexView(id, true);
+        if (!e.showAsSigned) list->setSigned(id, false);
+        if (e.length > 0) list->setByteCount(id, static_cast<std::size_t>(e.length));
+        if (e.dataByteOrder != ce::ByteOrder::Unknown || e.pointerWidth)
+            list->setDataFormat(id, e.dataByteOrder, e.pointerWidth);
         list->setFreezeMode(id, (int)e.freezeMode);
         list->setIndent(id, indent);
-        if (e.active) list->setActive(id, true);
     }
     lua_pushboolean(L, 1);
     return 1;

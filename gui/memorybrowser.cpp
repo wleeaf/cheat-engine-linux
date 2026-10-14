@@ -2793,6 +2793,21 @@ void MemoryBrowser::persistComments() {
     annotationSaver_(std::move(out));
 }
 
+void MemoryBrowser::replaceAnnotations(const std::vector<ce::DisassemblerComment>& previous,
+                                       const std::vector<ce::DisassemblerComment>& next) {
+    for (const auto& c : previous)
+        if (!c.label.empty())
+            if (uintptr_t addr = exprToAddr(c.address)) resolver_.removeUserSymbol(addr);
+    disasmView_->clearComments();
+    for (const auto& c : next) {
+        uintptr_t addr = exprToAddr(c.address);
+        if (!addr) continue;
+        if (!c.comment.empty()) disasmView_->setComment(addr, c.comment);
+        if (!c.label.empty())   resolver_.addUserSymbol(addr, c.label);
+    }
+    disasmView_->viewport()->update();
+}
+
 void MemoryBrowser::setAnnotationStore(
     std::vector<ce::DisassemblerComment> initial,
     std::function<void(std::vector<ce::DisassemblerComment>)> saver) {

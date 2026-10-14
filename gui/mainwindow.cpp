@@ -3498,11 +3498,16 @@ void MainWindow::onNextScan() {
     if (percentCheck_->isChecked()) {
         config.percentageScan = true;
         // parseUserDouble accepts ',' or '.' (Turkish comma-decimal locale).
-        config.percentageValue = parseUserDouble(percentValueEdit_->text());
+        // An empty or junk box was 0%, which also matches unchanged values.
+        bool ok = false;
+        config.percentageValue = parseUserDouble(percentValueEdit_->text(), &ok);
+        if (!ok || !std::isfinite(config.percentageValue)) { warnBadScanValue(this, percentValueEdit_->text()); return; }
         auto percent2Text = percentValue2Edit_->text().trimmed();
-        config.percentageValue2 = percent2Text.isEmpty()
-            ? config.percentageValue
-            : parseUserDouble(percent2Text);
+        config.percentageValue2 = config.percentageValue;
+        if (!percent2Text.isEmpty()) {
+            config.percentageValue2 = parseUserDouble(percent2Text, &ok);
+            if (!ok || !std::isfinite(config.percentageValue2)) { warnBadScanValue(this, percent2Text); return; }
+        }
     }
     size_t resultValueSize = resultValueSizeForConfig(config);
 
@@ -4247,6 +4252,10 @@ bool MainWindow::loadCheatTableModel(const ce::CheatTable& table,const QJsonArra
                     QString("Table Lua error: %1").arg(QString::fromStdString(res.error())), 8000);
         }
     }
+    // Open Memory Viewers hold the previous table's comments and labels; their
+    // next save would write those over the loaded table's.
+    for (auto& viewer : memoryViewers_)
+        if (viewer) viewer->replaceAnnotations(disasmAnnotations_, table.disassemblerComments);
     disasmAnnotations_ = table.disassemblerComments;
     return true;
 }
@@ -5947,28 +5956,37 @@ bool AddressListModel::adjustEntryValue(int row, double delta) {
     return true;
 }
 
-void AddressListModel::indentRows(QList<int> rows) {
+// Shift each selected record's indent by delta, together with the rows nested
+// under it (taken before any change): indenting a group header alone turned
+// its children into its siblings.
+void AddressListModel::shiftIndentRows(QList<int> rows, int delta) {
     if (scriptBusy_ || mutationBusy_) return;
     if (rows.isEmpty()) return;
     std::sort(rows.begin(), rows.end());
+    std::vector<int> indents;
+    indents.reserve(entries_.size());
+    for (const auto& e : entries_) indents.push_back(e.indent);
+    int done = -1;   // rows below this were already shifted with their parent
     for (int row : rows) {
-        if (row <= 0 || row >= (int)entries_.size()) continue;
-        int maxIndent = entries_[row - 1].indent + 1;
-        entries_[row].indent = std::min(entries_[row].indent + 1, maxIndent);
+        if (row < 0 || row >= (int)entries_.size() || row < done) continue;
+        const auto sub = ce::descendantRange(indents, static_cast<std::size_t>(row));
+        int shift = delta;
+        if (delta > 0) {
+            if (row == 0) continue;
+            shift = std::min(delta, entries_[row - 1].indent + 1 - entries_[row].indent);   // at most one under the row above
+        } else {
+            shift = std::max(delta, -entries_[row].indent);
+        }
+        if (shift == 0) { done = static_cast<int>(sub.second); continue; }
+        for (std::size_t i = static_cast<std::size_t>(row); i < sub.second; ++i)
+            entries_[i].indent = std::max(0, entries_[i].indent + shift);
+        done = static_cast<int>(sub.second);
     }
-    emit dataChanged(index(rows.first(), 0), index(rows.last(), columnCount() - 1));
+    emit dataChanged(index(rows.first(), 0), index(std::max(rows.last(), done - 1), columnCount() - 1));
 }
 
-void AddressListModel::outdentRows(QList<int> rows) {
-    if (scriptBusy_ || mutationBusy_) return;
-    if (rows.isEmpty()) return;
-    std::sort(rows.begin(), rows.end());
-    for (int row : rows) {
-        if (row < 0 || row >= (int)entries_.size()) continue;
-        entries_[row].indent = std::max(0, entries_[row].indent - 1);
-    }
-    emit dataChanged(index(rows.first(), 0), index(rows.last(), columnCount() - 1));
-}
+void AddressListModel::indentRows(QList<int> rows) { shiftIndentRows(std::move(rows), +1); }
+void AddressListModel::outdentRows(QList<int> rows) { shiftIndentRows(std::move(rows), -1); }
 
 void AddressListModel::reportActivationError(const QString& title, const QString& message) {
     if (activationErrorCb_)
@@ -6129,16 +6147,29 @@ bool AddressListModel::removeEntries(QList<int> rows) {
     return !expanded.empty();
 }
 
+// Move a record, with the rows nested under it, past its previous or next
+// sibling (and that sibling's subtree). Swapping single rows left a group's
+// children behind and could move a record into or out of a group.
 int AddressListModel::moveEntry(int row, int delta) {
     if (scriptBusy_ || mutationBusy_) return row;
-    int target = row + delta;
-    if (row < 0 || row >= (int)entries_.size() ||
-        target < 0 || target >= (int)entries_.size())
-        return row;
-    std::swap(entries_[row], entries_[target]);
-    emit dataChanged(index(std::min(row, target), 0),
-                     index(std::max(row, target), columnCount() - 1));
-    return target;
+    const int n = (int)entries_.size();
+    if (row < 0 || row >= n || delta == 0) return row;
+    std::vector<int> indents;
+    indents.reserve(n);
+    for (const auto& e : entries_) indents.push_back(e.indent);
+    const int level = indents[row];
+    const int end = static_cast<int>(ce::descendantRange(indents, static_cast<std::size_t>(row)).second);
+    if (delta < 0) {
+        int previous = row - 1;
+        while (previous >= 0 && indents[previous] > level) --previous;
+        if (previous < 0 || indents[previous] != level) return row;   // first in its group
+        moveEntryBlock(row, previous, -1);
+        return previous;
+    }
+    if (end >= n || indents[end] != level) return row;   // last in its group
+    const int nextEnd = static_cast<int>(ce::descendantRange(indents, static_cast<std::size_t>(end)).second);
+    moveEntryBlock(row, nextEnd, -1);
+    return row + (nextEnd - end);
 }
 
 // Read+format a variable-length value (String/UnicodeString/ByteArray) for display.

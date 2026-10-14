@@ -403,6 +403,9 @@ public:
     /// owned by MainWindow and keyed by module-relative address EXPRESSION so it
     /// survives ASLR. setAnnotationStore installs the initial set (applied now) and
     /// a saver called whenever a comment changes.
+    // Swap the table's comments and labels shown here for another table's.
+    void replaceAnnotations(const std::vector<ce::DisassemblerComment>& previous,
+                            const std::vector<ce::DisassemblerComment>& next);
     void setAnnotationStore(std::vector<ce::DisassemblerComment> initial,
                             std::function<void(std::vector<ce::DisassemblerComment>)> saver);
 

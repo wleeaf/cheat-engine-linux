@@ -421,6 +421,7 @@ public:
     /// down). Returns the entry's new row, or `row` if it couldn't move.
     int moveEntry(int row, int delta);
     void indentRows(QList<int> rows);
+    void shiftIndentRows(QList<int> rows, int delta);
     void outdentRows(QList<int> rows);
     /// CE "add the selected records to a new group": wrap `rows` under a new group
     /// header inserted at the earliest selected row (via ce::groupSelection).

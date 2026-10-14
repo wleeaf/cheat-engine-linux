@@ -141,6 +141,13 @@ reimplementation of Cheat Engine).
   address; freezing right after an edit froze "?" or nothing. Cut lost a
   group's children; dropping a record on the group right above it did
   nothing, and dragging a record left its children behind.
+- Fixed: Indent, Outdent and Move Up/Down moved a group header without its
+  records (and Move could move a record into or out of a group); they now
+  move the whole subtree past its sibling. An empty or invalid percentage in
+  a next scan scanned for 0%. Open Memory Viewers kept the previous table's
+  comments and labels after another table was loaded and saved them into
+  it. The pointer scan window showed byte-swapped values for big-endian
+  targets.
 - Fixed: input during a scan was replayed after it (a second First Scan
   click wiped the new results); Ctrl+C did nothing in either list, and
   Delete in the scan results deleted cheat-table records. "Wait for process"

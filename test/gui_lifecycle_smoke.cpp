@@ -199,9 +199,22 @@ static bool usabilityChecks() {
     int array = records.rowCount();
     records.addEntry(reinterpret_cast<uintptr_t>(bytes), ce::ValueType::ByteArray, "bytes", {}, 3);
     bool arrayValidation = !records.setData(records.index(array, 4), "90 XX 8B", Qt::EditRole) && bytes[0] == 0xAA;
-    std::printf("gui usability: rows=%d export=%d validation=%d UTF8=%d clear=%d bytes=%d\n",
-        incremental, allValues, validation, unicode, cleared, arrayValidation);
-    return incremental && allValues && validation && unicode && cleared && arrayValidation;
+    // Arrange keeps subtrees together: B moves above the whole group, and
+    // indenting the group takes its child along.
+    ce::gui::AddressListModel arranged;
+    const int g = arranged.createGroup("G");
+    const int a = arranged.createEntry(0x1000, ce::ValueType::Int32, "A");
+    arranged.setIndent(a, 1);
+    const int b = arranged.createEntry(0x2000, ce::ValueType::Int32, "B");
+    const int moved = arranged.moveEntry(arranged.rowOfId(b), -1);
+    bool arrange = moved == 0 && arranged.entries()[0].id == b && arranged.entries()[1].id == g &&
+                   arranged.entries()[2].id == a;
+    arranged.indentRows({arranged.rowOfId(g)});
+    arrange = arrange && arranged.entries()[arranged.rowOfId(g)].indent == 1 &&
+              arranged.entries()[arranged.rowOfId(a)].indent == 2;
+    std::printf("gui usability: rows=%d export=%d validation=%d UTF8=%d clear=%d bytes=%d arrange=%d\n",
+        incremental, allValues, validation, unicode, cleared, arrayValidation, arrange);
+    return incremental && allValues && validation && unicode && cleared && arrayValidation && arrange;
 }
 
 static bool allTypeGuiScanChecks(const QString& screenshot = {}) {

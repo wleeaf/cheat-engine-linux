@@ -1,4 +1,5 @@
 #include "gui/pointerscan_dialog.hpp"
+#include <cstring>
 #include "gui/theme.hpp"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -167,10 +168,17 @@ void PointerScanDialog::populateResults() {
         resultsTable_->setItem(i, 1, new QTableWidgetItem(
             addr ? QString("0x%1").arg(addr, 0, 16) : "??"));
         if (addr) {
-            int32_t val = 0;
-            auto vr = proc_->read(addr, &val, 4);
+            uint8_t bytes[4] = {};
+            auto vr = proc_->read(addr, bytes, 4);
+            // In the target's byte order: a big-endian guest's value read in host
+            // order showed byte-swapped.
+            uint32_t raw = 0;
+            if (proc_->byteOrder() == ce::ByteOrder::Big)
+                raw = (uint32_t(bytes[0]) << 24) | (uint32_t(bytes[1]) << 16) | (uint32_t(bytes[2]) << 8) | bytes[3];
+            else
+                std::memcpy(&raw, bytes, 4);
             resultsTable_->setItem(i, 2, new QTableWidgetItem(
-                (vr && *vr == 4) ? QString::number(val) : QStringLiteral("??")));
+                (vr && *vr == 4) ? QString::number(static_cast<int32_t>(raw)) : QStringLiteral("??")));
         }
     }
     bool have = !results_.empty();

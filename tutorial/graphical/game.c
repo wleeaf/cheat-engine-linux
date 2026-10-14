@@ -69,7 +69,7 @@ static const char* const texts[GT_LEVELS] = {
     "scan for Increased value. After a few rounds, set what is left to 0.",
 
     "The fortress repairs itself faster than you can hurt it: your gun overheats after "
-    "five quick shots and then jams for three seconds. The heat bar is a Float.\n\n"
+    "six quick shots and then jams for three seconds. The heat bar is a Float.\n\n"
     "Scan for an Unknown initial value with Value Type Float. Shoot (Increased value), "
     "wait (Decreased value) and repeat. Freeze the heat at 0, then hold Space until "
     "the fortress falls.",

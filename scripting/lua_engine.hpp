@@ -61,6 +61,8 @@ public:
     /// value is spliced back into the AA stream.
     /// On Lua error returns std::unexpected with the Lua error message.
     std::expected<std::string, std::string> evalToString(const std::string& code);
+    /// Whether code compiles, without running it.
+    bool compiles(const std::string& code);
 
     /// Execute a Lua file.
     std::string executeFile(const std::string& path);

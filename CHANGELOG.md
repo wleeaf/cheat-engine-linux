@@ -62,6 +62,21 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Fixed: `cescan`. A zero-padded address such as the ones its listings print
+  was read as octal (`010` too); `watch`, `accessed`, `guest-scan` and
+  `guest-write` silently ignored unknown options or turned bad numbers into
+  defaults, and a huge `--duration` overflowed into no wait; integer scans
+  without `--value` scanned for 0; a dead PID, or another user's, printed an
+  empty table and exit code 0; the Lua REPL ran a line twice when it raised an
+  error; `analyze xrefs` did not accept module+offset; `deref` split
+  `libstdc++.so.6` at its first `+`; `write --verify --find-writer` lost a
+  failed verify. Guest scans keep their state in a private directory instead
+  of a predictable `/tmp` file another user could plant, report a snapshot
+  that could not be saved, refuse values that do not fit the type, and
+  `guest-write` accepts the guest addresses `guest-scan` prints.
+- Fixed: the tutorials. Text-mode passwords were case-sensitive, `next` on
+  the finished tutorial said "Finish this step first", and the graphical
+  tutorial said the gun jams after five shots (it is six).
 - Fixed: Auto Assembler scripts in Cheat Engine's own style. Lines above
   `[ENABLE]` (the `define`s of the standard injection templates) were dropped;
   `{ }` comments were read as code; `assert(address,bytes)` did not use the

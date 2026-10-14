@@ -42,6 +42,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
+#include <sys/stat.h>
 #include <cerrno>
 #include <climits>
 #include <cmath>
@@ -133,6 +134,8 @@ static void usage() {
         "                                metadata + GameAssembly, incl. Proton/Flatpak).\n"
         "                                [--class <substr>] [--fields] [--methods] [--object <class>]\n"
         "  signature <pid> <addr> [max]  Generate a unique AOB signature for a code address\n"
+        "  pointerscan <pid> <addr> [depth] [max-offset]  Find pointer paths to an address\n"
+        "  deref <pid> <module+offset> [off...]  Follow a pointer path (offsets in hex)\n"
         "  analyze <pid> <what> [...]    Static RE toolkit: strings, statics, caves [min],\n"
         "                                functions, xrefs <addr>, asm \"<insn>\"  [--module <name>]\n"
         "\n"
@@ -188,7 +191,9 @@ static unsigned long long parseUInt(const char* s, const char* what,
     }
     errno = 0;
     char* end = nullptr;
-    unsigned long long v = strtoull(s, &end, 0);
+    // 0x is hex, anything else decimal: a leading 0 is not octal ("010" is ten).
+    const bool hex = (s[0] == '0' && (s[1] == 'x' || s[1] == 'X'));
+    unsigned long long v = strtoull(s, &end, hex ? 16 : 10);
     if (end == s || *end != '\0') {
         fprintf(stderr, "Invalid %s '%s': not a number\n", what, s);
         exit(1);
@@ -218,13 +223,21 @@ static pid_t parsePid(const char* s) {
     }
     unsigned long long v = parseUInt(s, "pid", static_cast<unsigned long long>(INT_MAX));
     if (v == 0) { fprintf(stderr, "PID must be positive\n"); exit(1); }
-    return static_cast<pid_t>(v);
+    // Say so instead of printing an empty table and reporting success.
+    const auto pid = static_cast<pid_t>(v);
+    if (::kill(pid, 0) != 0 && errno == ESRCH) { fprintf(stderr, "No process with PID %d\n", pid); exit(1); }
+    if (!ce::processOwnedByCaller(pid)) { fprintf(stderr, "Process %d belongs to another user; only root can open it\n", pid); exit(1); }
+    return pid;
 }
 
 static uintptr_t parseAddress(const char* target, const char* expression) {
-    // Preserve existing decimal/0x addresses, then accept the GUI's expression syntax.
+    // 0x is hex and plain digits decimal, as cescan always took them; a leading
+    // 0 is the zero-padded hex these listings print, never octal. Anything else
+    // goes to the GUI's expression syntax.
     errno = 0; char* end = nullptr;
-    unsigned long long numeric = std::strtoull(expression, &end, 0);
+    const bool prefixed = expression[0] == '0' && (expression[1] == 'x' || expression[1] == 'X');
+    const bool zeroPadded = expression[0] == '0' && expression[1] != '\0' && !prefixed;
+    unsigned long long numeric = std::strtoull(expression, &end, prefixed || zeroPadded ? 16 : 10);
     if (end != expression && *end == 0 && *expression != '-' && errno != ERANGE && numeric <= UINTPTR_MAX)
         return static_cast<uintptr_t>(numeric);
     LinuxProcessHandle process(parsePid(target));
@@ -390,8 +403,10 @@ static int cmd_write(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt
         if (current == *bytes) printf("verify: value held after %d ms\n", verifyMs);
         else { changed = true; printf("verify: value changed after %d ms\n", verifyMs); }
     }
-    if (findWriterSecs > 0)
-        return cmd_watch(pid, addr, true, static_cast<int>(bytes->size()), findWriterSecs, 0);
+    if (findWriterSecs > 0) {
+        const int watched = cmd_watch(pid, addr, true, static_cast<int>(bytes->size()), findWriterSecs, 0);
+        return changed ? 1 : watched;   // a reverted value stays a failure
+    }
     return changed ? 1 : 0;
 }
 
@@ -551,7 +566,7 @@ static int cmd_watch(pid_t pid, uintptr_t addr, bool writesOnly, int watchSize,
     signal(SIGINT, onFreezeSignal);
     signal(SIGTERM, onFreezeSignal);
     const struct timespec tick{0, 200 * 1000000L};   // 200 ms
-    for (int i = 0; i < durationSec * 5 && !g_freezeStop; ++i) nanosleep(&tick, nullptr);
+    for (long long i = 0; i < 5LL * durationSec && !g_freezeStop; ++i) nanosleep(&tick, nullptr);
     finder.stop();
 
     auto results = finder.results();
@@ -824,7 +839,7 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
     if (config.startAddress>config.stopAddress) {fprintf(stderr,"Scan From must not exceed To\n");return 1;}
 
     if (valueSizeStr)
-        config.customValueSize = std::max<size_t>(1, strtoull(valueSizeStr, nullptr, 0));
+        config.customValueSize = std::max<size_t>(1, parseUInt(valueSizeStr, "value size", 4096));
     if (encodingStr)
         config.stringEncoding = encodingStr;
 
@@ -887,6 +902,22 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
     } else if (config.valueType == ValueType::Custom && config.compareType == ScanCompare::Exact) {
         fprintf(stderr, "Custom exact scan requires --value Lua formula\n");
         return 1;
+    }
+    // A comparison against a value needs one: scanning for 0 instead would
+    // quietly narrow to zeros.
+    {
+        const auto compare = config.compareType;
+        const bool takesValue = !config.percentageScan &&
+            (compare == ScanCompare::Exact || compare == ScanCompare::Greater || compare == ScanCompare::Less ||
+             compare == ScanCompare::Between || compare == ScanCompare::IncreasedBy || compare == ScanCompare::DecreasedBy);
+        const bool integer = config.valueType == ValueType::Byte || config.valueType == ValueType::Int16 ||
+            config.valueType == ValueType::Int32 || config.valueType == ValueType::Int64 || config.valueType == ValueType::Pointer;
+        const bool literal = integer || config.valueType == ValueType::String || config.valueType == ValueType::UnicodeString ||
+            config.valueType == ValueType::ByteArray || config.valueType == ValueType::Binary;
+        if (takesValue && literal && !valueStr) { fprintf(stderr, "scan: this comparison needs --value\n"); return 1; }
+        if (takesValue && integer && compare == ScanCompare::Between && !value2Str) {
+            fprintf(stderr, "scan: between needs --value2\n"); return 1;
+        }
     }
 
     LinuxProcessHandle proc(pid);
@@ -977,26 +1008,71 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
 // Guest-scan state (candidates + their last value + region/type) is persisted
 // per-pid so a later --next / --changed / --increased / --decreased can narrow it
 // (cescan is stateless across invocations; the running pid keeps its region base).
-static std::string guestResultPath(pid_t pid) { return "/tmp/.cescan_guest_" + std::to_string(pid); }
+//
+// The state lives where only this user can create or read it ($XDG_RUNTIME_DIR,
+// else a 0700 directory of our own in /tmp), named with the process's start
+// time so a reused PID never picks up an older scan.
+static std::string guestStateDir() {
+    if (const char* runtime = getenv("XDG_RUNTIME_DIR"); runtime && *runtime == '/') return runtime;
+    const std::string dir = "/tmp/cescan-" + std::to_string(getuid());
+    (void)mkdir(dir.c_str(), 0700);
+    struct stat st{};
+    if (lstat(dir.c_str(), &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != getuid() || (st.st_mode & 077)) {
+        fprintf(stderr, "guest-scan: %s is not a private directory of this user\n", dir.c_str());
+        exit(1);
+    }
+    return dir;
+}
+static std::string processStartTag(pid_t pid) {
+    std::ifstream stat("/proc/" + std::to_string(pid) + "/stat");
+    std::string line;
+    std::getline(stat, line);
+    const auto close = line.rfind(')');
+    if (close == std::string::npos) return "0";
+    std::istringstream fields(line.substr(close + 1));
+    std::string field;
+    for (int i = 0; i < 20 && (fields >> field); ++i) {}   // field 22: start time
+    return field.empty() ? "0" : field;
+}
+static std::string guestResultPath(pid_t pid) {
+    return guestStateDir() + "/cescan-guest-" + std::to_string(pid) + "-" + processStartTag(pid);
+}
 
 template <class T> static uint64_t valBits(T v) { uint64_t u = 0; std::memcpy(&u, &v, sizeof(T)); return u; }
 template <class T> static T bitsVal(uint64_t u) { T v; std::memcpy(&v, &u, sizeof(T)); return v; }
-template <class T> static T parseVal(const char* s) {
-    if constexpr (std::is_same_v<T, float>)  return strtof(s, nullptr);
-    else if constexpr (std::is_same_v<T, double>) return strtod(s, nullptr);
-    else return static_cast<T>(strtoll(s, nullptr, 0));
+// A guest value: the whole text must be a number that fits the type (either
+// sign for integers, as elsewhere), or nothing.
+template <class T> static std::optional<T> parseVal(const char* s) {
+    if (!s || !*s) return std::nullopt;
+    char* end = nullptr;
+    errno = 0;
+    if constexpr (std::is_floating_point_v<T>) {
+        const double v = strtod(s, &end);
+        if (*end || errno == ERANGE) return std::nullopt;
+        return static_cast<T>(v);
+    } else {
+        const bool hex = s[0] == '0' && (s[1] == 'x' || s[1] == 'X');
+        const long long v = strtoll(s, &end, hex ? 16 : 10);
+        if (*end || errno == ERANGE) return std::nullopt;
+        using U = std::make_unsigned_t<T>;
+        if (v < static_cast<long long>(std::numeric_limits<T>::min()) ||
+            (v > 0 && static_cast<unsigned long long>(v) > std::numeric_limits<U>::max()))
+            return std::nullopt;
+        return static_cast<T>(v);
+    }
 }
 
-static void writeGuestResults(pid_t pid, const ce::TargetProfile::GuestRegion& g, bool be,
+static bool writeGuestResults(pid_t pid, const ce::TargetProfile::GuestRegion& g, bool be,
                               ValueType vt, const std::vector<std::pair<uint64_t, uint64_t>>& hits) {
     FILE* f = fopen(guestResultPath(pid).c_str(), "w");
-    if (!f) return;
+    if (!f) { fprintf(stderr, "guest-scan: cannot save the results: %s\n", strerror(errno)); return false; }
     fprintf(f, "GUESTSCAN 2 base %lx size %lx be %d type %d gbase %lx\n",
             (unsigned long)g.base, (unsigned long)g.size, be ? 1 : 0, (int)vt,
             (unsigned long)g.guestBase);
     for (const auto& [a, v] : hits)
         fprintf(f, "%llx %llx\n", (unsigned long long)a, (unsigned long long)v);
-    fclose(f);
+    if (fclose(f) != 0) { fprintf(stderr, "guest-scan: cannot save the results\n"); return false; }
+    return true;
 }
 
 enum class GsOp { ExactFirst, UnknownFirst, ExactNext, Compare };
@@ -1026,15 +1102,18 @@ static int cmd_guest_scan(pid_t pid, const char* valStr, ValueType vt, bool be, 
         region = p.guestCandidates.front();
         ce::GuestView gv{ &proc, region.base, region.size, be };
         auto bytes = ce::guestReadRegion(gv);
-        if (FILE* sf = fopen(guestSnapPath(pid).c_str(), "wb")) {
-            fwrite(bytes.data(), 1, bytes.size(), sf); fclose(sf);
-        }
-        if (FILE* f = fopen(guestResultPath(pid).c_str(), "w")) {
-            fprintf(f, "GUESTSCAN 3 base %lx size %lx be %d type %d gbase %lx\n",
-                    (unsigned long)region.base, (unsigned long)region.size, be ? 1 : 0, (int)vt,
-                    (unsigned long)region.guestBase);
-            fclose(f);
-        }
+        // Only report a snapshot that was really saved: the next comparison
+        // needs it.
+        FILE* sf = fopen(guestSnapPath(pid).c_str(), "wb");
+        const bool snapSaved = sf && fwrite(bytes.data(), 1, bytes.size(), sf) == bytes.size();
+        if (sf && fclose(sf) != 0 && snapSaved) { fprintf(stderr, "guest-scan: cannot save the snapshot\n"); return 1; }
+        if (!snapSaved) { fprintf(stderr, "guest-scan: cannot save the snapshot\n"); return 1; }
+        FILE* f = fopen(guestResultPath(pid).c_str(), "w");
+        if (!f) { fprintf(stderr, "guest-scan: cannot save the scan state\n"); return 1; }
+        fprintf(f, "GUESTSCAN 3 base %lx size %lx be %d type %d gbase %lx\n",
+                (unsigned long)region.base, (unsigned long)region.size, be ? 1 : 0, (int)vt,
+                (unsigned long)region.guestBase);
+        if (fclose(f) != 0) { fprintf(stderr, "guest-scan: cannot save the scan state\n"); return 1; }
         printf("snapshot taken: %zu MB of %s guest RAM (%s-endian). Change the value "
                "in-game, then narrow with:\n"
                "  cescan guest-scan %d --changed | --increased | --decreased | --unchanged\n",
@@ -1091,6 +1170,7 @@ static int cmd_guest_scan(pid_t pid, const char* valStr, ValueType vt, bool be, 
     if (fromSnapshot) liveBytes = ce::guestReadRegion(gv);
 
     std::vector<std::pair<uint64_t, uint64_t>> result;
+    bool badValue = false;
     auto run = [&]<class T>() {
         if (op == GsOp::Compare) {
             if (fromSnapshot) {
@@ -1105,7 +1185,9 @@ static int cmd_guest_scan(pid_t pid, const char* valStr, ValueType vt, bool be, 
                     result.emplace_back(h.first, valBits(h.second));
             }
         } else {
-            const T val = parseVal<T>(valStr);
+            const auto parsed = parseVal<T>(valStr);
+            if (!parsed) { badValue = true; return; }
+            const T val = *parsed;
             const uint64_t vb = valBits(val);
             std::vector<uint64_t> hits;
             if (op == GsOp::ExactFirst) {
@@ -1127,9 +1209,10 @@ static int cmd_guest_scan(pid_t pid, const char* valStr, ValueType vt, bool be, 
         case ValueType::Double: run.template operator()<double>();  break;
         default: fprintf(stderr, "guest-scan supports byte/i16/i32/i64/float/double\n"); return 1;
     }
+    if (badValue) { fprintf(stderr, "guest-scan: '%s' is not a value of this type\n", valStr ? valStr : ""); return 1; }
 
     if (fromSnapshot) remove(guestSnapPath(pid).c_str());   // now have an explicit set
-    writeGuestResults(pid, region, be, vt, result);
+    if (!writeGuestResults(pid, region, be, vt, result)) return 1;
     printf("%zu match(es):\n", result.size());
     const size_t shown = std::min<size_t>(result.size(), 200);
     for (size_t i = 0; i < shown; ++i)
@@ -1148,9 +1231,12 @@ static int cmd_guest_write(pid_t pid, uint64_t guestAddr, const char* valStr,
     // Reuse the last scan's region/endian/type so `guest-scan` then `guest-write
     // <addr> <val>` just works; explicit --type/--be override.
     if (FILE* f = fopen(guestResultPath(pid).c_str(), "r")) {
-        int ver = 0, beI = 0, typeI = 0; unsigned long base = 0, size = 0;
-        if (fscanf(f, "GUESTSCAN %d base %lx size %lx be %d type %d", &ver, &base, &size, &beI, &typeI) == 5) {
+        int ver = 0, beI = 0, typeI = 0; unsigned long base = 0, size = 0, gbase = 0;
+        const int fields = fscanf(f, "GUESTSCAN %d base %lx size %lx be %d type %d gbase %lx",
+                                  &ver, &base, &size, &beI, &typeI, &gbase);
+        if (fields >= 5) {
             region.base = base; region.size = size; haveRegion = true;
+            if (fields == 6) region.guestBase = gbase;
             if (!beSet) be = beI != 0;
             if (!typeSet) vt = (ValueType)typeI;
         }
@@ -1165,9 +1251,17 @@ static int cmd_guest_write(pid_t pid, uint64_t guestAddr, const char* valStr,
         }
         region = p.guestCandidates.front();
     }
+    // guest-scan prints guest addresses (with the emulator's guest base, such as
+    // Dolphin's 0x80000000); the view takes offsets into the region.
+    const uint64_t requested = guestAddr;
+    if (region.guestBase && guestAddr >= region.guestBase) guestAddr -= region.guestBase;
     ce::GuestView gv{ &proc, region.base, region.size, be };
-    bool ok = false;
-    auto run = [&]<class T>() { ok = gv.write<T>(guestAddr, parseVal<T>(valStr)); };
+    bool ok = false, badValue = false;
+    auto run = [&]<class T>() {
+        const auto value = parseVal<T>(valStr);
+        if (!value) { badValue = true; return; }
+        ok = gv.write<T>(guestAddr, *value);
+    };
     switch (vt) {
         case ValueType::Byte:   run.template operator()<int8_t>();  break;
         case ValueType::Int16:  run.template operator()<int16_t>(); break;
@@ -1177,10 +1271,11 @@ static int cmd_guest_write(pid_t pid, uint64_t guestAddr, const char* valStr,
         case ValueType::Double: run.template operator()<double>();  break;
         default: fprintf(stderr, "guest-write supports byte/i16/i32/i64/float/double\n"); return 1;
     }
+    if (badValue) { fprintf(stderr, "guest-write: '%s' is not a value of this type\n", valStr); return 1; }
     if (ok) printf("wrote %s to guest 0x%llx (host 0x%lx, %s-endian)\n", valStr,
-                   (unsigned long long)guestAddr, (unsigned long)gv.toHost(guestAddr), be ? "big" : "little");
+                   (unsigned long long)requested, (unsigned long)gv.toHost(guestAddr), be ? "big" : "little");
     else    fprintf(stderr, "guest-write: failed (guest 0x%llx out of range or unwritable)\n",
-                    (unsigned long long)guestAddr);
+                    (unsigned long long)requested);
     return ok ? 0 : 1;
 }
 
@@ -1294,20 +1389,37 @@ static int cmd_deref(pid_t pid, int argc, char** argv) {
     LinuxProcessHandle proc(pid);
     PointerPath path;
 
-    // Parse module+offset
+    // Hex numbers (offsets may be negative); anything else is an error, not 0.
+    auto hexNumber = [](const std::string& text, long long& out) {
+        errno = 0;
+        char* end = nullptr;
+        out = std::strtoll(text.c_str(), &end, 16);
+        return !text.empty() && end != text.c_str() && *end == '\0' && errno == 0;
+    };
+    // Parse module+offset; the last '+' splits, so "libstdc++.so.6+10" works.
     std::string base = argv[0];
-    auto plus = base.find('+');
-    if (plus != std::string::npos) {
+    auto plus = base.rfind('+');
+    long long number = 0;
+    if (plus != std::string::npos && plus > 0) {
         path.module = base.substr(0, plus);
-        path.baseOffset = strtoul(base.substr(plus + 1).c_str(), nullptr, 16);
+        if (!hexNumber(base.substr(plus + 1), number) || number < 0) {
+            fprintf(stderr, "deref: bad offset in '%s'\n", argv[0]);
+            return 1;
+        }
+        path.baseOffset = static_cast<uintptr_t>(number);
     } else {
         path.module = base;
         path.baseOffset = 0;
     }
 
     // Parse offsets
-    for (int i = 1; i < argc; ++i)
-        path.offsets.push_back((int32_t)strtol(argv[i], nullptr, 16));
+    for (int i = 1; i < argc; ++i) {
+        if (!hexNumber(argv[i], number) || number < INT32_MIN || number > INT32_MAX) {
+            fprintf(stderr, "deref: '%s' is not a 32-bit hex offset\n", argv[i]);
+            return 1;
+        }
+        path.offsets.push_back(static_cast<int32_t>(number));
+    }
 
     // Find module base
     auto modules = proc.modules();
@@ -1410,9 +1522,12 @@ static int cmd_lua(int argc, char** argv) {
         std::fputs("lua> ", stderr);
         if (!std::getline(std::cin, line)) { std::fputs("\n", stderr); break; }
         if (line.empty()) continue;
-        auto val = engine.evalToString("return " + line);
-        if (val) {
-            if (!val->empty()) std::printf("%s\n", val->c_str());
+        // Run the line once: as an expression when it is one, else as a
+        // statement. Retrying after a runtime error would run it twice.
+        if (engine.compiles("return " + line)) {
+            auto val = engine.evalToString("return " + line);
+            if (!val) std::fprintf(stderr, "error: %s\n", val.error().c_str());
+            else if (!val->empty()) std::printf("%s\n", val->c_str());
         } else {
             std::string err = engine.execute(line);
             if (!err.empty()) std::fprintf(stderr, "error: %s\n", err.c_str());
@@ -1665,7 +1780,7 @@ static int cmd_analyze(pid_t pid, int argc, char** argv) {
         for (const auto& s : an.findStatics(proc, *mod))
             printf("0x%lx  %zu refs\n", (unsigned long)s.address, s.references);
     } else if (!strcmp(what, "caves")) {
-        size_t minSize = !pos.empty() ? (size_t)strtoul(pos[0], nullptr, 0) : 16;
+        size_t minSize = !pos.empty() ? (size_t)parseUInt(pos[0], "minimum size", 1u << 20) : 16;
         for (const auto& c : an.findCodeCaves(proc, *mod, minSize))
             printf("0x%lx  %zu bytes\n", (unsigned long)c.address, c.size);
     } else if (!strcmp(what, "functions")) {
@@ -1673,7 +1788,9 @@ static int cmd_analyze(pid_t pid, int argc, char** argv) {
             printf("0x%lx  %zu refs\n", (unsigned long)f.address, f.references);
     } else if (!strcmp(what, "xrefs")) {
         if (pos.empty()) { fprintf(stderr, "cescan analyze xrefs: need <addr>\n"); return 1; }
-        uintptr_t target = strtoul(pos[0], nullptr, 0);
+        // Any address form (module+offset too), like every other address argument.
+        const std::string target_pid = std::to_string(pid);
+        uintptr_t target = parseAddress(target_pid.c_str(), pos[0]);
         for (const auto& r : an.findReferencesTo(proc, *mod, target))
             printf("0x%lx  %s\n", (unsigned long)r.address, r.text.c_str());
     } else if (!strcmp(what, "asm")) {
@@ -1925,14 +2042,17 @@ int main(int argc, char** argv) {
             if (!strcmp(argv[i], "--type") && i + 1 < argc) vt = parseType(argv[++i]);
             else if (!strcmp(argv[i], "--be")) be = true;
             else if (!strcmp(argv[i], "--align") && i + 1 < argc)
-                align = static_cast<size_t>(strtoul(argv[++i], nullptr, 0));
+                align = static_cast<size_t>(parseUInt(argv[++i], "alignment", 4096));
             else if (!strcmp(argv[i], "--unknown")) op = GsOp::UnknownFirst;
             else if (!strcmp(argv[i], "--next")) op = GsOp::ExactNext;
             else if (!strcmp(argv[i], "--changed"))   { op = GsOp::Compare; cmp = ce::GuestCompare::Changed; }
             else if (!strcmp(argv[i], "--unchanged")) { op = GsOp::Compare; cmp = ce::GuestCompare::Unchanged; }
             else if (!strcmp(argv[i], "--increased")) { op = GsOp::Compare; cmp = ce::GuestCompare::Increased; }
             else if (!strcmp(argv[i], "--decreased")) { op = GsOp::Compare; cmp = ce::GuestCompare::Decreased; }
-            else if (!val) val = argv[i];   // first positional after pid is the value
+            else if (!strncmp(argv[i], "--", 2) || val) {   // an unknown option, or a second value
+                fprintf(stderr, "Unknown or extra argument: %s\n", argv[i]); return 1;
+            }
+            else val = argv[i];   // the one positional after the pid is the value
         }
         if ((op == GsOp::ExactFirst || op == GsOp::ExactNext) && !val) {
             fprintf(stderr, "guest-scan: missing <value>\n"); return 1;
@@ -1944,6 +2064,7 @@ int main(int argc, char** argv) {
         for (int i = 5; i < argc; ++i) {
             if (!strcmp(argv[i], "--type") && i + 1 < argc) { vt = parseType(argv[++i]); typeSet = true; }
             else if (!strcmp(argv[i], "--be")) { be = true; beSet = true; }
+            else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
         }
         return cmd_guest_write(parsePid(argv[2]), parseUInt(argv[3], "guest address", UINT64_MAX), argv[4],
                                vt, be, typeSet, beSet);
@@ -2001,7 +2122,7 @@ int main(int argc, char** argv) {
                 verifyMs = static_cast<int>(parseUInt(argv[++i], "duration", INT_MAX));
             else if (!strcmp(argv[i], "--find-writer")) findWriterSecs = 5;
             else if (!strcmp(argv[i], "--find-writer-secs") && i + 1 < argc)
-                findWriterSecs = static_cast<int>(parseUInt(argv[++i], "duration", INT_MAX));
+                findWriterSecs = static_cast<int>(parseUInt(argv[++i], "duration", 86400));
             else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
         }
         return cmd_write(parsePid(argv[2]), parseAddress(argv[2], argv[3]), argv[4], vt,
@@ -2048,10 +2169,10 @@ int main(int argc, char** argv) {
     else if (!strcmp(cmd, "accessed") && argc >= 4) {
         int duration = 4;
         for (int i = 4; i < argc; ++i) {
-            if (!strcmp(argv[i], "--duration") && i + 1 < argc) duration = (int)strtoul(argv[++i], nullptr, 0);
+            if (!strcmp(argv[i], "--duration") && i + 1 < argc) duration = (int)parseUInt(argv[++i], "duration", 600);
             else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
         }
-        return cmd_accessed(parsePid(argv[2]), parseAddress(argv[2], argv[3]), std::clamp(duration, 1, 600));
+        return cmd_accessed(parsePid(argv[2]), parseAddress(argv[2], argv[3]), std::max(duration, 1));
     }
     else if (!strcmp(cmd, "watch") && argc >= 4) {
         bool writesOnly = true, showRegs = false; int watchSize = 4, duration = 10, mode = 0;
@@ -2059,8 +2180,8 @@ int main(int argc, char** argv) {
             if (!strcmp(argv[i], "--access")) writesOnly = false;
             else if (!strcmp(argv[i], "--writes")) writesOnly = true;
             else if (!strcmp(argv[i], "--regs")) showRegs = true;
-            else if (!strcmp(argv[i], "--size") && i + 1 < argc) watchSize = (int)strtoul(argv[++i], nullptr, 0);
-            else if (!strcmp(argv[i], "--duration") && i + 1 < argc) duration = (int)strtoul(argv[++i], nullptr, 0);
+            else if (!strcmp(argv[i], "--size") && i + 1 < argc) watchSize = (int)parseUInt(argv[++i], "size", 8);
+            else if (!strcmp(argv[i], "--duration") && i + 1 < argc) duration = (int)parseUInt(argv[++i], "duration", 86400);
             else if (!strcmp(argv[i], "--mode") && i + 1 < argc) {
                 const char* m = argv[++i];
                 if (!strcmp(m, "hw")) mode = 1;
@@ -2068,8 +2189,12 @@ int main(int argc, char** argv) {
                 else if (!strcmp(m, "st")) mode = 3;
                 else { fprintf(stderr, "watch: --mode must be hw|sw|st\n"); return 1; }
             }
+            else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
         }
-        if (watchSize != 1 && watchSize != 2 && watchSize != 4 && watchSize != 8) watchSize = 4;
+        if (watchSize != 1 && watchSize != 2 && watchSize != 4 && watchSize != 8) {
+            fprintf(stderr, "watch: --size must be 1, 2, 4 or 8\n");
+            return 1;
+        }
         if (duration < 1) duration = 1;
         return cmd_watch(parsePid(argv[2]), parseAddress(argv[2], argv[3]),
                          writesOnly, watchSize, duration, mode, showRegs);
@@ -2156,7 +2281,13 @@ int main(int argc, char** argv) {
         return 0;
     }
     else {
-        fprintf(stderr, "Unknown command: %s\n", cmd);
+        // A known command that matched no branch is missing arguments.
+        static const char* const known[] = {"accessed", "analyze", "asm", "autoasm", "ceserver", "deref", "disasm",
+            "freeze", "gdb", "guest-scan", "guest-write", "il2cpp", "info", "list", "lua", "mcp", "modules",
+            "pointerscan", "read", "regions", "scan", "signature", "symbols", "tree", "watch", "write"};
+        const bool isKnown = std::any_of(std::begin(known), std::end(known), [&](const char* name) { return !strcmp(cmd, name); });
+        if (isKnown) fprintf(stderr, "Missing arguments for '%s'; see the usage below.\n", cmd);
+        else fprintf(stderr, "Unknown command: %s\n", cmd);
         usage();
         return 1;
     }

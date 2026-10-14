@@ -77,7 +77,7 @@ def main():
 
     try:
         address = readable_address(target)
-        watch = subprocess.run([str(cescan), "watch", str(target), hex(address), "1"],
+        watch = subprocess.run([str(cescan), "watch", str(target), hex(address), "--duration", "1"],
                                capture_output=True, text=True, timeout=30)
         check(watch.returncode != 0 and REASON in watch.stderr,
               "CLI watch names the blocking debugger", watch.stdout + watch.stderr)

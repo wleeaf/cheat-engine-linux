@@ -478,6 +478,12 @@ std::string LuaEngine::execute(const std::string& code) {
     return {};
 }
 
+bool LuaEngine::compiles(const std::string& code) {
+    const bool ok = luaL_loadstring(L_, code.c_str()) == LUA_OK;
+    lua_pop(L_, 1);   // the chunk or the error message
+    return ok;
+}
+
 std::expected<std::string, std::string>
 LuaEngine::evalToString(const std::string& code) {
     if (!L_) return std::unexpected("lua state not initialised");

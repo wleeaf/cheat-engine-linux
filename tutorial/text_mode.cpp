@@ -6,6 +6,7 @@
 
 #include "tutorial/game.h"
 
+#include <cctype>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -134,9 +135,13 @@ int runTutorialTextMode(unsigned seed) {
         } else if (command == "values") {
             out = fields();
         } else if (command == "next") {
-            out = tut_next() ? screen() : "Finish this step first.\n";
+            out = tut_finished() ? "The tutorial is finished. Type quit to leave.\n"
+                : tut_next() ? screen() : "Finish this step first.\n";
         } else if (command == "password") {
-            const int step = tut_unlock(argument.c_str());
+            // Case-insensitive, as in the window.
+            std::string code = argument;
+            for (auto& c : code) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            const int step = tut_unlock(code.c_str());
             out = step ? screen() : (tut_step() == 1 ? "That password does not open a step.\n"
                                                       : "Passwords work on step 1.\n");
         } else {

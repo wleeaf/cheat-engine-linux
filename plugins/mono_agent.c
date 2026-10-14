@@ -435,6 +435,16 @@ finished:
     release_runtime();
     free(args);
 }
+// The socket and its directory, removed again when the game exits. Only by
+// the process that made them: a forked child exiting must not take the
+// parent's socket away.
+static char g_socket_directory[64],g_socket_path[sizeof(((struct sockaddr_un*)0)->sun_path)];
+static pid_t g_socket_owner;
+__attribute__((destructor))
+static void mono_agent_fini(void) {
+    if (!g_socket_owner || g_socket_owner!=getpid()) return;
+    unlink(g_socket_path);rmdir(g_socket_directory);
+}
 static void* worker(void* arg) {
     (void)arg;
     char directory[64];struct sockaddr_un address={.sun_family=AF_UNIX};
@@ -450,6 +460,9 @@ static void* worker(void* arg) {
     if (bind(listener,(struct sockaddr*)&address,sizeof(address))<0 || listen(listener,16)<0) {
         close(listener);return NULL;
     }
+    memcpy(g_socket_directory,directory,sizeof(g_socket_directory));
+    memcpy(g_socket_path,address.sun_path,sizeof(g_socket_path));
+    g_socket_owner=getpid();
     g_exe=dlopen(NULL,RTLD_LAZY);
     for (;;) {
         int client=accept4(listener,NULL,NULL,SOCK_CLOEXEC);

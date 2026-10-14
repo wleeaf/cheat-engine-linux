@@ -18,6 +18,7 @@
 /// than nothing for users who can't install soundtouch.
 
 #define _GNU_SOURCE
+#include <cerrno>
 #include <charconv>
 #include <string>
 #include <alsa/asoundlib.h>
@@ -298,6 +299,13 @@ snd_pcm_sframes_t snd_pcm_writei(snd_pcm_t* pcm, const void* buffer,
     uint32_t framesLeft = totalGot;
     while (framesLeft > 0) {
         snd_pcm_sframes_t w = real(pcm, outPtr, framesLeft);
+        if (w == -EAGAIN) {
+            // Non-blocking device with a full ring: snd_pcm_recover does not
+            // handle this. The input is already consumed into the stretcher,
+            // so wait for room rather than report an error and lose it.
+            if (snd_pcm_wait(pcm, 100) <= 0) break;
+            continue;
+        }
         if (w < 0) {
             // -EPIPE (underrun) / -ESTRPIPE: try to recover once, else report.
             if (snd_pcm_recover(pcm, (int)w, 1) < 0)

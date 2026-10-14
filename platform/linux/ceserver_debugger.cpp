@@ -155,8 +155,12 @@ Result<void>
 RemoteDebugger::setBreakpoint(pid_t tid, int reg, uintptr_t address, int type, int size) {
     auto operation=client_->lockConnection();
     if (!connectionValid()) return std::unexpected(std::make_error_code(std::errc::not_connected));
+    // The interface takes the x86 DR7 length code (0=1, 1=2, 3=4, 2=8 bytes);
+    // the wire carries the length in bytes.
+    if (size < 0 || size > 3) return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+    constexpr int32_t lengths[] = {1, 2, 8, 4};
     auto r = client_->setRemoteBreakpoint(
-        handle_, static_cast<int32_t>(tid), reg, address, type, size);
+        handle_, static_cast<int32_t>(tid), reg, address, type, lengths[size]);
     if (!r || *r == 0) return std::unexpected(remoteIo());
     return {};
 }

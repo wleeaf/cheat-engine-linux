@@ -53,6 +53,25 @@ reimplementation of Cheat Engine).
 - `cescan`: `scan --compare increasedby|decreasedby`, `accessed` (the
   addresses one instruction touches), and `freeze` follows a `[pointer]+offset`
   path on every write instead of resolving it once.
+- Fixed: Lua Engine opened a new console window each time; it now raises the
+  one already open.
+- Fixed: Auto Assembler. A `jmp`/`call`/`jcc` to a target more than 2 GiB away
+  assembled a branch that landed somewhere else; it now fails with an error.
+  `{$lua}` blocks in the `[DISABLE]` section now run when the script is
+  disabled.
+- Fixed: speedhack. A long sleep at a slow speed overflowed and slept the
+  wrong time, a malformed `nanosleep` no longer turns into a valid one,
+  `sleep(1)` at 2x slept a whole second, and `select` reports the time left in
+  game time. The monotonic clock could step back when the speed changed while
+  another thread read it, and a fork during a speed change hung the child's
+  clock reads. A second game loading the plugin no longer resets the speed the
+  first runs at.
+- Security: speedhack injection left the game's read-only GOT pages writable.
+- Fixed: ceserver. Setting a breakpoint resumed a target stopped at a debug
+  event, and hardware watchpoints from the client were refused or armed with
+  the wrong length (a 2-byte watch covered 1 byte). The mono agent removes its socket
+  when the game exits, and audiohack waits on a full non-blocking device
+  instead of dropping audio.
 - Fixed: every scan left its result files in the temporary directory (RAM on
   most desktops) until reboot; results now delete their files when discarded
   (`cescan scan` keeps the ones it prints for `--previous`).

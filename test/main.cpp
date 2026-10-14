@@ -2662,6 +2662,17 @@ static void test_code_analysis_references() {
                relocOk ? "OK" : "FAILED");
     }
 
+    // A relative branch more than 2 GiB away is an error, not a wrapped
+    // displacement that lands somewhere else.
+    {
+        ce::Assembler far(ce::AsmArch::X86_64);
+        auto jumpFar = far.assemble("jmp 0x100000000000", 0x1000);
+        auto callFar = far.assemble("call 0x100000000000", 0x1000);
+        auto jumpNear = far.assemble("jmp 0x2000", 0x1000);
+        printf("  a branch out of rel32 reach fails instead of wrapping: %s\n",
+               !jumpFar && !callFar && jumpNear ? "OK" : "FAILED");
+    }
+
     // Assemble<->disassemble round-trip idempotency for instructions common in
     // code injection. assemble(text) -> bytes -> disassemble -> text2 ->
     // assemble(text2) -> bytes2; bytes2 must equal bytes (the canonical
@@ -6580,6 +6591,54 @@ static void test_speedhack_speed_changes() {
            ok ? "OK" : "FAILED", out[0] * 1000, out[1] * 1000, out[2]);
 }
 
+// Sleep scaling keeps the kernel's checks and the exact span, and a game
+// starting does not reset the speed another one runs at.
+static void test_speedhack_sleeps() {
+    printf("\n── Test: Speedhack sleeps ──\n");
+    char exe[4096];
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    if (n <= 0) { printf("  speedhack sleeps: FAILED (no exe path)\n"); return; }
+    exe[n] = 0;
+    const std::string libpath = std::string(exe).substr(0, std::string(exe).find_last_of('/')) + "/libspeedhack.so";
+    shm_unlink("/ce_speedhack");
+    int fd = shm_open("/ce_speedhack", O_CREAT | O_RDWR | O_EXCL, 0600);
+    bool seeded = fd >= 0 && ftruncate(fd, sizeof(double)) == 0;
+    if (seeded) { const double speed = 10.0; seeded = pwrite(fd, &speed, sizeof speed, 0) == (ssize_t)sizeof speed; }
+    if (fd >= 0) close(fd);
+    int fds[2];
+    if (!seeded || pipe(fds) != 0) { shm_unlink("/ce_speedhack"); printf("  speedhack sleeps: FAILED (setup)\n"); return; }
+    pid_t child = fork();
+    if (child == 0) {
+        close(fds[0]);
+        unsetenv("CE_SPEED");
+        void* h = dlopen(libpath.c_str(), RTLD_NOW);
+        double out[3] = {-1, -1, -1};
+        if (h) {
+            timespec bad{0, 2000000000L};
+            out[0] = nanosleep(&bad, nullptr) == -1 && errno == EINVAL ? 1 : 0;
+            const double t0 = sh_raw_monotonic();
+            out[1] = sleep(1);
+            out[2] = sh_raw_monotonic() - t0;
+        }
+        ssize_t wr = write(fds[1], out, sizeof(out)); (void)wr;
+        _exit(0);
+    }
+    close(fds[1]);
+    double out[3] = {-1, -1, -1};
+    ssize_t got = read(fds[0], out, sizeof(out));
+    close(fds[0]);
+    waitpid(child, nullptr, 0);
+    double after = 0;
+    fd = shm_open("/ce_speedhack", O_RDONLY, 0600);
+    if (fd >= 0) { if (pread(fd, &after, sizeof after, 0) != (ssize_t)sizeof after) after = 0; close(fd); }
+    shm_unlink("/ce_speedhack");
+    const bool full = got == (ssize_t)sizeof(out);
+    printf("  a malformed nanosleep still fails with EINVAL: %s\n", full && out[0] == 1 ? "OK" : "FAILED");
+    printf("  sleep(1) at 10x sleeps a tenth of a second: %s (%.0f ms)\n",
+           full && out[1] == 0 && out[2] > 0.05 && out[2] < 0.6 ? "OK" : "FAILED", out[2] * 1000);
+    printf("  loading the plugin keeps the shared speed: %s (%.1f)\n", after == 10.0 ? "OK" : "FAILED", after);
+}
+
 // Adversarial / malformed input for the parsers that the README says treat
 // their input as untrusted. Each must fail gracefully — return empty/false, not
 // throw an uncaught exception or crash. A throw is reported FAILED so we fix the
@@ -8535,6 +8594,20 @@ static void test_autoassembler_review_fixes() {
     printf("  assert compares nibbles and rejects bad bytes: %s\n", !mismatch.success && !badBytes.success ? "OK" : "FAILED");
     auto missing = run("[ENABLE]\naobscanregion(hook," + hex(base) + "," + hex(base + 32) + ",DE AD BE EF CA FE)\nhook:\ndb 90\n");
     printf("  an aobscan that finds nothing stops the script: %s\n", !missing.success ? "OK" : "FAILED");
+    // Disabling runs the [DISABLE] section's Lua (it stops what [ENABLE] started).
+    {
+        AutoAssembler aa;
+        std::vector<std::string> ran;
+        aa.setLuaEvaluator([&](const std::string& code) -> std::expected<std::string, std::string> {
+            ran.push_back(code); return std::string();
+        });
+        const std::string script = "[ENABLE]\n{$lua}\nstart()\n{$asm}\n[DISABLE]\n{$lua}\nstop()\n";
+        auto enabled = aa.execute(proc, script);
+        auto disabled = enabled.success ? aa.disable(proc, script, enabled.disableInfo) : enabled;
+        const bool stopped = disabled.success &&
+            std::any_of(ran.begin(), ran.end(), [](const std::string& code) { return code.find("stop()") != std::string::npos; });
+        printf("  disabling runs the [DISABLE] section's Lua: %s\n", stopped ? "OK" : ("FAILED: " + enabled.error + disabled.error).c_str());
+    }
     // readmem copies the code as it was before this script's own writes: the
     // usual hook-then-copy-the-original order.
     g_aaScratch[0x30] = 0xAA; g_aaScratch[0x31] = 0xBB; g_aaScratch[0x32] = 0xCC;
@@ -12696,6 +12769,7 @@ int main(int argc, char* argv[]) {
     test_lua_md5memory();
     test_speedhack_got_injection();
     test_speedhack_speed_changes();
+    test_speedhack_sleeps();
     test_parser_fuzz_negatives();
     test_lua_shellexecute_gate();
     test_lua_localwrite_gate();

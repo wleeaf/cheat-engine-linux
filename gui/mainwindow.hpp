@@ -205,6 +205,7 @@ private:
     QString tableLuaScript_;     // table-level Lua (runs on load, saved with the table)
     std::vector<QPointer<QWidget>> tableTextWindows_;   // Comments / Lua Script editors
     QPointer<QDialog> settingsDialog_;   // one at a time (see openSettingsDialog)
+    QPointer<QWidget> luaConsole_;       // one at a time: the engine has one output callback
     QByteArray savedTableFingerprint_;   // content of the last loaded/saved table
     QByteArray tableFingerprint() const;
     void markTableSaved();

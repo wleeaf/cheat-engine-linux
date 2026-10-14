@@ -519,7 +519,12 @@ void CeserverServer::serveClient(ClientState& client) {
                     client.dbgCv.notify_all();
                 });
                 int32_t result = client.dbg->attach(proc->pid(), client.dbgProc.get()) ? 1 : 0;
-                if (!result) stopDebug();
+                // The seize leaves every thread stopped, and no attach event is
+                // queued for the client to continue from: let the target run.
+                // Setting a breakpoint must not resume it later (that would
+                // release a thread the client is still inspecting at a hit).
+                if (result) client.dbg->continueExecution();
+                else stopDebug();
                 if (!sendAll(fd, &result, 4)) return;
                 break;
             }
@@ -549,7 +554,6 @@ void CeserverServer::serveClient(ClientState& client) {
                     result = (id > 0) ? 1 : 0;
                     breakpointIds[debugReg]=id>0 ? id : 0;
                     hardwareBreakpoints[debugReg]=bpType!=0;
-                    client.dbg->continueExecution();
                 }
                 if (!sendAll(fd, &result, 4)) return;
                 break;

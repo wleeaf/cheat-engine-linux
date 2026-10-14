@@ -1,4 +1,6 @@
 #include "arch/assembler.hpp"
+#include <optional>
+#include <cstring>
 #include "arch/disassembler.hpp"
 #include "core/expression.hpp"
 #include <keystone/keystone.h>
@@ -291,6 +293,36 @@ Assembler::assembleEx(const std::string& code, uintptr_t address, size_t& statem
             uint32_t bits = static_cast<uint32_t>(displacement);
             size_t offset = inst.address - address + inst.dispOffset;
             for (size_t j = 0; j < 4; ++j) result[offset + j] = static_cast<uint8_t>(bits >> (8 * j));
+        }
+    }
+    // A relative jmp/call/jcc to a numeric destination (labels are numbers by
+    // now): Keystone wraps a displacement it cannot represent instead of
+    // failing, and the branch lands somewhere else. Decode it and compare.
+    if ((arch_ == AsmArch::X86_32 || arch_ == AsmArch::X86_64) && count == 1 && !result.empty()) {
+        std::string statement = normalized;
+        while (!statement.empty() && std::isspace(static_cast<unsigned char>(statement.front()))) statement.erase(0, 1);
+        const auto space = statement.find_first_of(" \t");
+        std::string mnemonic = statement.substr(0, space);
+        for (auto& c : mnemonic) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        const bool branch = mnemonic == "jmp" || mnemonic == "call" || (mnemonic.size() >= 2 && mnemonic[0] == 'j');
+        if (branch && space != std::string::npos) {
+            if (auto target = ExpressionParser().parse(statement.substr(space + 1))) {
+                const uint8_t* b = result.data();
+                const size_t n = result.size();
+                std::optional<int64_t> rel;
+                size_t length = 0;
+                if ((b[0] == 0xE8 || b[0] == 0xE9) && n >= 5) { int32_t v; std::memcpy(&v, b + 1, 4); rel = v; length = 5; }
+                else if ((b[0] == 0xEB || (b[0] >= 0x70 && b[0] <= 0x7F)) && n >= 2) { rel = static_cast<int8_t>(b[1]); length = 2; }
+                else if (b[0] == 0x0F && n >= 6 && b[1] >= 0x80 && b[1] <= 0x8F) { int32_t v; std::memcpy(&v, b + 2, 4); rel = v; length = 6; }
+                if (rel && length == n) {
+                    uint64_t landed = static_cast<uint64_t>(address) + length + static_cast<uint64_t>(*rel);
+                    uint64_t wanted = *target;
+                    if (arch_ == AsmArch::X86_32) { landed &= 0xFFFFFFFFu; wanted &= 0xFFFFFFFFu; }
+                    if (landed != wanted)
+                        return std::unexpected("Branch destination is out of reach of a relative " + mnemonic +
+                                               " from this address (more than 2 GiB away)");
+                }
+            }
         }
     }
     statementsOut = count;

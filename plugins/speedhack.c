@@ -89,12 +89,16 @@ static void init_speedhack() {
         fd = -1;
     }
     if (fd >= 0) {
+        // The channel is shared by every process the plugin is loaded in: a
+        // second game starting must not reset the speed the first runs at.
+        // Seed it only when it is new, or when CE_SPEED asks for a speed.
+        const int seed = env != NULL || st.st_size < (off_t)sizeof(double);
         if (ftruncate(fd, sizeof(double)) != 0) {
             close(fd);
         } else {
             shared_speed = mmap(NULL, sizeof(double), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
             if (shared_speed != MAP_FAILED) {
-                *shared_speed = speed_factor;
+                if (seed) *shared_speed = speed_factor;
             } else {
                 shared_speed = NULL;
             }
@@ -108,12 +112,14 @@ static void init_speedhack() {
 // Repoint every loaded module's GOT slots for the time functions at our
 // wrappers, so we also take effect when injected via dlopen (defined below).
 static void speedhack_install_got_hooks(void);
+static void sh_atfork_child(void);
 
 // Capture the baseline race-free before any game thread runs, matching the
 // constructor approach used by audiohack/inprocess_veh.
 __attribute__((constructor))
 static void speedhack_ctor(void) {
     init_speedhack();
+    pthread_atfork(NULL, NULL, sh_atfork_child);
     // Symbol interposition (the wrappers) only fires under LD_PRELOAD; when we
     // are dlopen-injected into a running process the GOT is already bound to
     // libc, so also patch it directly.
@@ -132,13 +138,16 @@ static double get_speed() {
 // Clocks are read from any thread (and from signal handlers), so the base
 // sits behind a seqlock instead of a mutex.
 typedef struct {
+    clockid_t id;
     unsigned long seq;         // odd while a rebase is being written
     int64_t base_real_ns;
     int64_t base_fake_ns;
     uint64_t speed_bits;       // the double the base was taken at; 0 = not started
 } sh_clock_t;
 
-static sh_clock_t sh_monotonic, sh_monotonic_raw, sh_realtime;
+static sh_clock_t sh_monotonic = {.id = CLOCK_MONOTONIC};
+static sh_clock_t sh_monotonic_raw = {.id = CLOCK_MONOTONIC_RAW};
+static sh_clock_t sh_realtime = {.id = CLOCK_REALTIME};
 
 static int64_t sh_scale_elapsed(int64_t elapsed_ns, double speed) {
     if (elapsed_ns <= 0) return 0;   // read before another thread's rebase
@@ -175,13 +184,35 @@ static int64_t sh_fake_time(sh_clock_t* c, int64_t now_ns) {
             pthread_sigmask(SIG_SETMASK, &previous, NULL);
             continue;
         }
-        const int64_t fake_now = bits ? base_fake + sh_scale_elapsed(now_ns - base_real, base_speed) : now_ns;
-        __atomic_store_n(&c->base_real_ns, now_ns, __ATOMIC_RELAXED);
-        __atomic_store_n(&c->base_fake_ns, fake_now, __ATOMIC_RELAXED);
-        __atomic_store_n(&c->speed_bits, want_bits, __ATOMIC_RELAXED);
+        // Rebase at the current time, not at the caller's reading: another
+        // thread may have read the clock later and returned a time from the
+        // old base, and the new base must not start behind that.
+        int64_t at = now_ns;
+        struct timespec fresh;
+        if (real_clock_gettime && real_clock_gettime(c->id, &fresh) == 0) {
+            const int64_t f = (int64_t)fresh.tv_sec * 1000000000LL + fresh.tv_nsec;
+            if (f > at) at = f;
+        }
+        if (bits && at < base_real) at = base_real;
+        const int64_t fake_now = bits ? base_fake + sh_scale_elapsed(at - base_real, base_speed) : at;
+        // Fake base first: a fork that copies a half-written rebase (see
+        // sh_atfork_child) then sees the clock jump forward, never back.
+        __atomic_store_n(&c->base_fake_ns, fake_now, __ATOMIC_RELEASE);
+        __atomic_store_n(&c->base_real_ns, at, __ATOMIC_RELEASE);
+        __atomic_store_n(&c->speed_bits, want_bits, __ATOMIC_RELEASE);
         __atomic_store_n(&c->seq, seq + 2, __ATOMIC_RELEASE);
         pthread_sigmask(SIG_SETMASK, &previous, NULL);
         return fake_now;
+    }
+}
+
+// A fork while another thread was mid-rebase copies an odd seq that nothing
+// in the child will ever make even again: every clock read would spin.
+static void sh_atfork_child(void) {
+    sh_clock_t* clocks[] = {&sh_monotonic, &sh_monotonic_raw, &sh_realtime};
+    for (size_t i = 0; i < sizeof clocks / sizeof clocks[0]; i++) {
+        unsigned long seq = __atomic_load_n(&clocks[i]->seq, __ATOMIC_RELAXED);
+        if (seq & 1) __atomic_store_n(&clocks[i]->seq, seq + 1, __ATOMIC_RELEASE);
     }
 }
 
@@ -237,6 +268,26 @@ static void sh_remaining_to_game_time(struct timespec* rem, double spd) {
     if (rem->tv_nsec >= 1000000000L) rem->tv_nsec = 999999999L;
 }
 
+// The real-time span of a game-time span, saturating instead of overflowing.
+// Returns 0 when the request should go through unchanged: speed 1, or a
+// malformed timespec the kernel has to reject with EINVAL.
+static int sh_real_span(const struct timespec* req, double spd, struct timespec* out) {
+    if (!req || spd == 1.0 || req->tv_sec < 0 || req->tv_nsec < 0 || req->tv_nsec >= 1000000000L) return 0;
+    double secs = ((double)req->tv_sec + (double)req->tv_nsec / 1e9) / spd;
+    if (!isfinite(secs) || secs < 0) secs = 0;
+    if (secs >= (double)LONG_MAX) {
+        out->tv_sec = (time_t)LONG_MAX;
+        out->tv_nsec = 999999999L;
+        return 1;
+    }
+    out->tv_sec = (time_t)secs;
+    long ns = (long)((secs - (double)out->tv_sec) * 1e9);
+    if (ns < 0) ns = 0;
+    if (ns > 999999999L) ns = 999999999L;
+    out->tv_nsec = ns;
+    return 1;
+}
+
 int nanosleep(const struct timespec* req, struct timespec* rem) {
     static nanosleep_t real_fn = NULL;
     if (!real_fn) real_fn = (nanosleep_t)dlsym(RTLD_NEXT, "nanosleep");
@@ -244,18 +295,8 @@ int nanosleep(const struct timespec* req, struct timespec* rem) {
     if (!initialized) init_speedhack();
 
     double spd = get_speed();
-    if (spd <= 0) spd = 1.0;
-
-    // Divide sleep duration by speed
-    double sleep_ns = (req->tv_sec * 1e9 + req->tv_nsec) / spd;
-    // Guard the tv_sec cast: a tiny speed can push sleep_ns past time_t range.
-    double sleep_secs = sleep_ns / 1e9;
-    if (!isfinite(sleep_secs) || sleep_secs < 0) sleep_secs = 0;
-    if (sleep_secs > (double)LONG_MAX) sleep_secs = (double)LONG_MAX;
-    struct timespec adjusted = {
-        .tv_sec = (time_t)sleep_secs,
-        .tv_nsec = (long)((long long)sleep_ns % 1000000000LL)
-    };
+    struct timespec adjusted;
+    if (!sh_real_span(req, spd, &adjusted)) return real_fn(req, rem);
     int ret = real_fn(&adjusted, rem);
     if (ret != 0 && errno == EINTR) sh_remaining_to_game_time(rem, spd);
     return ret;
@@ -271,17 +312,8 @@ int clock_nanosleep(clockid_t clk, int flags, const struct timespec* req, struct
     if (!real_fn) { errno = ENOSYS; return ENOSYS; }
     if (!initialized) init_speedhack();
     double spd = get_speed();
-    if (spd <= 0 || (flags & TIMER_ABSTIME)) return real_fn(clk, flags, req, rem);
-
-    double sleep_ns = (req->tv_sec * 1e9 + req->tv_nsec) / spd;
-    // Guard the tv_sec cast: a tiny speed can push sleep_ns past time_t range.
-    double sleep_secs = sleep_ns / 1e9;
-    if (!isfinite(sleep_secs) || sleep_secs < 0) sleep_secs = 0;
-    if (sleep_secs > (double)LONG_MAX) sleep_secs = (double)LONG_MAX;
-    struct timespec adjusted = {
-        .tv_sec = (time_t)sleep_secs,
-        .tv_nsec = (long)((long long)sleep_ns % 1000000000LL)
-    };
+    struct timespec adjusted;
+    if ((flags & TIMER_ABSTIME) || !sh_real_span(req, spd, &adjusted)) return real_fn(clk, flags, req, rem);
     int ret = real_fn(clk, flags, &adjusted, rem);
     if (ret == EINTR) sh_remaining_to_game_time(rem, spd);
     return ret;
@@ -295,9 +327,18 @@ int usleep(useconds_t usec) {
     if (!real_fn) { errno = ENOSYS; return -1; }
     if (!initialized) init_speedhack();
     double spd = get_speed();
-    if (spd <= 0) spd = 1.0;
-    useconds_t adjusted = (useconds_t)(usec / spd);
-    return real_fn(adjusted);
+    if (spd == 1.0) return real_fn(usec);
+    // At a slow speed the scaled span can pass useconds_t's range; sleep it
+    // as a timespec instead of wrapping it.
+    double us = (double)usec / spd;
+    if (us < 4294967295.0) return real_fn((useconds_t)us);
+    struct timespec req = { .tv_sec = (time_t)usec / 1000000, .tv_nsec = (long)(usec % 1000000) * 1000 };
+    struct timespec adjusted;
+    sh_real_span(&req, spd, &adjusted);
+    static nanosleep_t real_nanosleep = NULL;
+    if (!real_nanosleep) real_nanosleep = (nanosleep_t)dlsym(RTLD_NEXT, "nanosleep");
+    if (!real_nanosleep) { errno = ENOSYS; return -1; }
+    return real_nanosleep(&adjusted, NULL);
 }
 
 // sleep — coarse second-granularity. CE-style: integer divide by speed.
@@ -308,10 +349,21 @@ unsigned int sleep(unsigned int seconds) {
     if (!real_fn) return seconds;
     if (!initialized) init_speedhack();
     double spd = get_speed();
-    if (spd <= 0) spd = 1.0;
-    unsigned int adjusted = (unsigned int)(seconds / spd);
-    if (adjusted == 0 && seconds > 0) adjusted = 1;  // don't completely starve
-    return real_fn(adjusted);
+    if (spd == 1.0 || seconds == 0) return real_fn(seconds);
+    // Sleep the exact scaled span (sleep(1) at 2x is half a second, not one
+    // or none), and report an interruption's remainder in game seconds.
+    static nanosleep_t real_nanosleep = NULL;
+    if (!real_nanosleep) real_nanosleep = (nanosleep_t)dlsym(RTLD_NEXT, "nanosleep");
+    if (!real_nanosleep) return real_fn(seconds);
+    struct timespec req = { .tv_sec = (time_t)seconds, .tv_nsec = 0 }, adjusted, rem = {0, 0};
+    sh_real_span(&req, spd, &adjusted);
+    if (real_nanosleep(&adjusted, &rem) == 0) return 0;
+    // Round up by hand: the plugin does not link libm, and a game that does
+    // not either would fail to load it.
+    double left = ((double)rem.tv_sec + (double)rem.tv_nsec / 1e9) * spd;
+    if (!isfinite(left) || left < 0 || left >= (double)seconds) return seconds;
+    unsigned int whole = (unsigned int)left;
+    return whole < left ? whole + 1 : whole;
 }
 
 // select / pselect timeout scaling. Returning fd-readiness verbatim, but
@@ -323,16 +375,20 @@ int select(int nfds, fd_set* r, fd_set* w, fd_set* e, struct timeval* timeout) {
     if (!real_fn) { errno = ENOSYS; return -1; }
     if (!initialized) init_speedhack();
     double spd = get_speed();
-    struct timeval adj;
-    struct timeval* adjp = timeout;
-    if (timeout && spd > 0 && spd != 1.0) {
-        double us = timeout->tv_sec * 1e6 + timeout->tv_usec;
-        us /= spd;
-        adj.tv_sec  = (time_t)(us / 1e6);
-        adj.tv_usec = (suseconds_t)((long long)us % 1000000LL);
-        adjp = &adj;
+    struct timespec req, span;
+    if (timeout) {
+        req.tv_sec = timeout->tv_sec;
+        req.tv_nsec = timeout->tv_usec >= 0 && timeout->tv_usec < 1000000 ? (long)timeout->tv_usec * 1000 : -1;
     }
-    return real_fn(nfds, r, w, e, adjp);
+    if (!timeout || !sh_real_span(&req, spd, &span)) return real_fn(nfds, r, w, e, timeout);
+    struct timeval adj = { .tv_sec = span.tv_sec, .tv_usec = (suseconds_t)(span.tv_nsec / 1000) };
+    int ret = real_fn(nfds, r, w, e, &adj);
+    // Linux reports the time left in *timeout; report it in game time.
+    struct timespec left = { adj.tv_sec, (long)adj.tv_usec * 1000 };
+    sh_remaining_to_game_time(&left, spd);
+    timeout->tv_sec = left.tv_sec;
+    timeout->tv_usec = (suseconds_t)(left.tv_nsec / 1000);
+    return ret;
 }
 
 int poll(struct pollfd* fds, nfds_t nfds, int timeout) {
@@ -343,8 +399,9 @@ int poll(struct pollfd* fds, nfds_t nfds, int timeout) {
     if (!initialized) init_speedhack();
     double spd = get_speed();
     int adjusted = timeout;
-    if (timeout > 0 && spd > 0 && spd != 1.0) {
-        adjusted = (int)(timeout / spd);
+    if (timeout > 0 && spd != 1.0) {
+        double ms = timeout / spd;
+        adjusted = ms >= (double)INT_MAX ? INT_MAX : (int)ms;
         if (adjusted == 0) adjusted = 1;
     }
     return real_fn(fds, nfds, adjusted);
@@ -386,7 +443,20 @@ static uintptr_t sh_fix(struct dl_phdr_info* info, uintptr_t v) {
     return (v < info->dlpi_addr) ? v + info->dlpi_addr : v;
 }
 
-static void sh_patch_slot(void** slot, void* newval) {
+// Whether page lies in the module's RELRO range, which the loader made
+// read-only after relocation (it protects whole pages from the range's
+// rounded-down start to its rounded-down end).
+static int sh_page_in_relro(struct dl_phdr_info* info, uintptr_t page, uintptr_t ps) {
+    for (int i = 0; i < info->dlpi_phnum; i++) {
+        if (info->dlpi_phdr[i].p_type != PT_GNU_RELRO) continue;
+        uintptr_t lo = (info->dlpi_addr + info->dlpi_phdr[i].p_vaddr) & ~(ps - 1);
+        uintptr_t hi = (info->dlpi_addr + info->dlpi_phdr[i].p_vaddr + info->dlpi_phdr[i].p_memsz) & ~(ps - 1);
+        if (page >= lo && page < hi) return 1;
+    }
+    return 0;
+}
+
+static void sh_patch_slot(struct dl_phdr_info* info, void** slot, void* newval) {
     if (*slot == newval) return;
     long ps = sysconf(_SC_PAGESIZE);
     if (ps <= 0) ps = 4096;
@@ -396,6 +466,10 @@ static void sh_patch_slot(void** slot, void* newval) {
                       ? (size_t)(2 * ps) : (size_t)ps;
     if (mprotect((void*)page, span, PROT_READ | PROT_WRITE) != 0) return;
     *slot = newval;
+    // Hand RELRO pages back read-only, or the game is left with a writable
+    // GOT for anything else to redirect.
+    for (uintptr_t p = page; p < page + span; p += (uintptr_t)ps)
+        if (sh_page_in_relro(info, p, (uintptr_t)ps)) mprotect((void*)p, (size_t)ps, PROT_READ);
 }
 
 static void sh_scan_rela(struct dl_phdr_info* info, const Elf64_Rela* rela,
@@ -411,7 +485,7 @@ static void sh_scan_rela(struct dl_phdr_info* info, const Elf64_Rela* rela,
         for (int h = 0; h < sh_nhooks; h++) {
             if (strcmp(name, sh_hooks[h].name) == 0) {
                 void** slot = (void**)(info->dlpi_addr + rela[i].r_offset);
-                sh_patch_slot(slot, sh_hooks[h].fn);
+                sh_patch_slot(info, slot, sh_hooks[h].fn);
                 break;
             }
         }

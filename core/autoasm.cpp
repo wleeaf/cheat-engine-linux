@@ -2781,8 +2781,20 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
 }
 
 AutoAsmResult AutoAssembler::disable(ProcessHandle& proc, const std::string& script, const DisableInfo& info) {
-    (void)script;
-    return cleanup(proc, info);
+    auto result = cleanup(proc, info);
+    // The saved bytes undo what the script wrote; Cheat Engine also runs the
+    // [DISABLE] section, whose {$lua} blocks typically stop what [ENABLE]
+    // started (a timer, a hook in Lua). Run those after a successful restore;
+    // any assembly they would generate is not applied over the restored code.
+    if (!result.success || script.empty() || !luaEvaluator_) return result;
+    auto code = extractSection(script, "DISABLE");
+    auto lower = code;
+    for (auto& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (lower.find("{$lua}") == std::string::npos) return result;
+    std::string error;
+    if (!expandLuaBlocks(code, result.log, error))
+        result.log.push_back("[DISABLE] Lua did not complete: " + error);
+    return result;
 }
 
 AutoAsmResult AutoAssembler::check(const std::string& script) {

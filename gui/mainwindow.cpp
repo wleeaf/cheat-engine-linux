@@ -5152,7 +5152,11 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
         luaEngine_.setProcess(process_.get());
         luaEngine_.setAddressList(addressListModel_);   // so getMemoryRecord etc. work
         if (process_) { luaResolver_.loadProcess(*process_); luaEngine_.setResolver(&luaResolver_); }
+        // One console: the engine has a single output callback, which each
+        // new console took over, so print() in an older one went to a closed one.
+        if (luaConsole_) { luaConsole_->show(); luaConsole_->raise(); luaConsole_->activateWindow(); return; }
         auto* console = new LuaConsole(&luaEngine_, this);
+        luaConsole_ = console;
         console->setAttribute(Qt::WA_DeleteOnClose); console->show();
     });
     tools->addAction("ELF Inspector...", this, [this]() {

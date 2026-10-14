@@ -270,7 +270,7 @@ static void live(const char* executable,unsigned width) {
     check(removed && restored && patched==original,"software breakpoint removal restores the real original instruction byte");
     auto continued=debugger.continueAfterEvent(target.pid);
     check(event && continued && target.line()=="123456790","the original application executes the restored instruction and continues");
-    auto watch=debugger.setBreakpoint(target.pid,1,target.value,1,4);
+    auto watch=debugger.setBreakpoint(target.pid,1,target.value,1,3);
     event.reset();
     if (watch && target.command('b')) event=trap(debugger,target.value);
     check(watch && event && event->threadId==target.pid,"an actual remote hardware watchpoint reports the target's write");

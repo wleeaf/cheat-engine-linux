@@ -16,6 +16,7 @@ Usage: test/tutorial_gate.py <build-dir> [--player cli|agent|both] [--seed N] [-
 """
 import argparse
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -190,8 +191,12 @@ class CliPlayer:
             raise RuntimeError(f"cescan {' '.join(map(str, args))} failed: {result.stdout[-400:]} {result.stderr[-400:]}")
         return result.stdout
 
-    def background(self, *args):
-        return subprocess.Popen([self.cescan, *map(str, args)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    def background(self, *args, allow_file_writes=False):
+        # The gate's own Lua signals progress through files, which needs the
+        # file-write opt-in a table would need too.
+        env = dict(os.environ, CECORE_LUA_ALLOW_UNSAFE="1") if allow_file_writes else None
+        return subprocess.Popen([self.cescan, *map(str, args)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, env=env)
 
     def scan(self, *args, previous=None):
         out = self.run("scan", self.pid, *args, *(["--previous", previous] if previous else []))
@@ -327,7 +332,7 @@ for _, p in ipairs(paths) do
   if at and readInteger(at) == value then print('KEEP ' .. p.path) end
 end
 """)
-        script = self.background("lua", lua)
+        script = self.background("lua", lua, allow_file_writes=True)
         deadline = time.time() + 120
         while not ready.exists() and time.time() < deadline and script.poll() is None:
             time.sleep(0.1)

@@ -60,6 +60,7 @@ extern "C" {
 #include <fstream>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/wait.h>
 #include <dirent.h>
 #include <sys/ioctl.h>
 #include <linux/input.h>
@@ -380,12 +381,13 @@ static int l_readString(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); return 1; }
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
-    int maxLen = luaL_optinteger(L, 2, 256);
-    luaL_argcheck(L, maxLen >= 0, 2, "max length must be non-negative");
-    // Cap like readBytes: an unbounded maxLen could OOM, and maxLen == INT_MAX
-    // made `maxLen + 1` signed-overflow (UB) before the allocation.
-    constexpr int kMaxReadString = 1 << 24;  // 16 MB
-    if (maxLen > kMaxReadString) maxLen = kMaxReadString;
+    // Clamp as a lua_Integer: narrowing first turned 0x100000000 into 0 and
+    // 0x80000000 into a negative length.
+    const lua_Integer requested = luaL_optinteger(L, 2, 256);
+    luaL_argcheck(L, requested >= 0, 2, "max length must be non-negative");
+    // Cap like readBytes: an unbounded maxLen could OOM.
+    constexpr lua_Integer kMaxReadString = 1 << 24;  // 16 MB
+    const int maxLen = static_cast<int>(std::min(requested, kMaxReadString));
     // Allocate under try/catch: a large maxLen can throw bad_alloc, which must
     // not escape this C function into C-compiled Lua frames (UB).
     try {
@@ -449,29 +451,42 @@ static int l_writeString(lua_State* L) {
     return 1;
 }
 
+// Raise for a non-integer (or, when strict, out of 0..255) element of the
+// table at `idx`, positions first..last, before the caller builds any C++
+// container: a Lua error longjmps past destructors and would leak it.
+static void checkByteTable(lua_State* L, int idx, lua_Integer first, lua_Integer last, bool strict) {
+    for (lua_Integer i = first; i <= last; ++i) {
+        lua_rawgeti(L, idx, i);
+        const lua_Integer value = luaL_checkinteger(L, -1);
+        if (strict) luaL_argcheck(L, value >= 0 && value <= 255, idx, "byte values must be 0..255");
+        lua_pop(L, 1);
+    }
+}
+
 static int l_writeBytes(lua_State* L) {
     auto* p = getProc(L);
     if (!p) return 0;
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
     // CE accepts writeBytes(addr, {b1,b2,...}) or writeBytes(addr, b1, b2, ...).
-    std::vector<uint8_t> bytes;
-    if (lua_istable(L, 2)) {
-        int n = (int)lua_rawlen(L, 2);
-        bytes.resize(n);
-        for (int i = 1; i <= n; ++i) {
-            lua_rawgeti(L, 2, i);
-            lua_Integer value = luaL_checkinteger(L, -1);
-            lua_pop(L, 1);
-            luaL_argcheck(L, value >= 0 && value <= 255, 2, "byte values must be 0..255");
-            bytes[i-1] = (uint8_t)value;
-        }
-    } else {
-        int top = lua_gettop(L);
+    const bool table = lua_istable(L, 2);
+    const int top = lua_gettop(L);
+    if (table) checkByteTable(L, 2, 1, (lua_Integer)lua_rawlen(L, 2), true);
+    else
         for (int i = 2; i <= top; ++i) {
             lua_Integer value = luaL_checkinteger(L, i);
             luaL_argcheck(L, value >= 0 && value <= 255, i, "byte values must be 0..255");
-            bytes.push_back((uint8_t)value);
         }
+    std::vector<uint8_t> bytes;   // every element is valid: nothing below raises
+    if (table) {
+        const int n = (int)lua_rawlen(L, 2);
+        bytes.resize(n);
+        for (int i = 1; i <= n; ++i) {
+            lua_rawgeti(L, 2, i);
+            bytes[i-1] = (uint8_t)lua_tointeger(L, -1);
+            lua_pop(L, 1);
+        }
+    } else {
+        for (int i = 2; i <= top; ++i) bytes.push_back((uint8_t)lua_tointeger(L, i));
     }
     p->write(addr, bytes.data(), bytes.size());
     return 0;
@@ -527,14 +542,17 @@ static int l_writeFloat(lua_State* L) {
 static int l_byteTableToString(lua_State* L) {
     luaL_checktype(L, 1, LUA_TTABLE);
     int n = (int)lua_rawlen(L, 1);
-    std::string s;
-    s.reserve(n);
+    // luaL_Buffer lives on the Lua stack, so a non-integer element's error
+    // leaks nothing.
+    luaL_Buffer b;
+    luaL_buffinit(L, &b);
     for (int i = 1; i <= n; ++i) {
         lua_rawgeti(L, 1, i);
-        s.push_back((char)(uint8_t)(luaL_checkinteger(L, -1) & 0xff));
+        const char c = (char)(uint8_t)(luaL_checkinteger(L, -1) & 0xff);
         lua_pop(L, 1);
+        luaL_addchar(&b, c);
     }
-    lua_pushlstring(L, s.data(), s.size());
+    luaL_pushresult(&b);
     return 1;
 }
 
@@ -602,10 +620,11 @@ static int l_byteTableToWideString(lua_State* L) {
     luaL_checktype(L, 1, LUA_TTABLE);
     int start = (int)luaL_optinteger(L, 2, 1);
     int n = (int)lua_rawlen(L, 1);
+    checkByteTable(L, 1, start, n, false);   // before the containers below exist
     std::vector<uint8_t> bytes;
     for (int i = start; i <= n; ++i) {
         lua_rawgeti(L, 1, i);
-        bytes.push_back((uint8_t)(luaL_checkinteger(L, -1) & 0xFF));
+        bytes.push_back((uint8_t)(lua_tointeger(L, -1) & 0xFF));
         lua_pop(L, 1);
     }
     std::string out;
@@ -830,21 +849,23 @@ static int l_readBytes(lua_State* L) {
     luaL_argcheck(L, requested >= 0 && requested <= (1 << 24), 2, "count must be 0..16MB");
     int count = static_cast<int>(requested);
     bool asTable = lua_toboolean(L, 3);
-    std::vector<uint8_t> buf(count);
-    if (!p || !readExact(p, addr, buf.data(), count)) { lua_pushnil(L); return 1; }
+    // Multi-value return pushes `count` values; guard the Lua stack so a large
+    // count raises a clean error instead of overflowing (use the table form).
+    // Checked before the buffer exists, and the buffer is Lua-owned, so a
+    // raise here or below cannot leak it.
+    if (!asTable) luaL_checkstack(L, count + 2, "readBytes: too many values, pass returnAsTable=true");
+    auto* buf = static_cast<uint8_t*>(lua_newuserdata(L, count ? count : 1));
+    if (!p || !readExact(p, addr, buf, count)) { lua_pushnil(L); return 1; }
     if (asTable) {
-        lua_newtable(L);
+        lua_createtable(L, count, 0);
         for (int i = 0; i < count; ++i) {
             lua_pushinteger(L, buf[i]);
             lua_rawseti(L, -2, i + 1);
         }
         return 1;
     }
-    // Multi-value return pushes `count` values; guard the Lua stack so a large
-    // count raises a clean error instead of overflowing (use the table form).
-    luaL_checkstack(L, count + 1, "readBytes: too many values, pass returnAsTable=true");
     for (int i = 0; i < count; ++i) lua_pushinteger(L, buf[i]);
-    return count;
+    return count;   // the values above the buffer
 }
 
 // readRegionToFile(fileName, address, size) -> bytes written, or nil (CE-compat:
@@ -1200,10 +1221,11 @@ static int l_readDoubleLocal(lua_State* L) {
 
 static int l_readBytesLocal(lua_State* L) {
     uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
-    int size = luaL_checkinteger(L, 2);
+    const lua_Integer requested = luaL_checkinteger(L, 2);
     // Cap the size: this walks cecore's own memory from a raw address, so an
     // accidental huge size would read far past `addr` into unmapped pages (SIGSEGV).
-    luaL_argcheck(L, size >= 0 && size <= (1 << 24), 2, "size must be 0..16MB");
+    luaL_argcheck(L, requested >= 0 && requested <= (1 << 24), 2, "size must be 0..16MB");
+    const int size = static_cast<int>(requested);
 
     std::vector<uint8_t> bytes(static_cast<size_t>(size));
     if (!copyLocal(bytes.data(), addr, bytes.size())) { lua_pushnil(L); return 1; }
@@ -1467,14 +1489,15 @@ static int l_copyMemory(lua_State* L) {
     if (!p) { lua_pushboolean(L, 0); return 1; }
     uintptr_t src = (uintptr_t)luaL_checkinteger(L, 1);
     uintptr_t dst = (uintptr_t)luaL_checkinteger(L, 2);
-    size_t n = (size_t)luaL_checkinteger(L, 3);
-    try {
-        std::vector<uint8_t> buf(n);
-        if (!p->read(src, buf.data(), n)) { lua_pushboolean(L, 0); return 1; }
-        lua_pushboolean(L, (bool)p->write(dst, buf.data(), n) ? 1 : 0);
-    } catch (const std::exception& ex) {
-        throw;   // the firewall reports it outside this catch
-    }
+    const lua_Integer requested = luaL_checkinteger(L, 3);
+    luaL_argcheck(L, requested >= 0 && requested <= (lua_Integer(1) << 28), 3, "size must be 0..256MB");
+    const size_t n = static_cast<size_t>(requested);
+    // A Lua-owned buffer: nothing leaks if a later call raises. The whole range
+    // must be read: a short read would copy zeros over the destination's tail.
+    auto* buf = static_cast<uint8_t*>(lua_newuserdata(L, n ? n : 1));
+    if (!readExact(p, src, buf, n)) { lua_pushboolean(L, 0); return 1; }
+    auto written = p->write(dst, buf, n);
+    lua_pushboolean(L, written && *written == n ? 1 : 0);
     return 1;
 }
 
@@ -2610,6 +2633,12 @@ static int l_debug_setBreakpoint(lua_State* L) {
         if (auto* sess = eng->debugSession()) {
             realId = (type == 0) ? sess->setSoftwareBreakpoint(address)
                                  : sess->setHardwareBreakpoint(address, type, size);
+            // Say why (bad address, no free debug register) instead of
+            // returning an id for a breakpoint that will never stop.
+            if (realId < 0) {
+                const auto error = sess->lastError();
+                failure = error ? "breakpoint not set: " + error.message() : "breakpoint not set";
+            }
             sess->continueExecution();
         } else if (auto* p = getProc(L)) {
             failure = ce::targetOperationError(*p, ce::TargetFeature::Debugger);
@@ -2718,7 +2747,14 @@ static int l_debug_pumpEvents(lua_State* L) {
             hit.type==DebugEventType::SignalReceived ? "debugger_onSignalReceived" : "debugger_onBreakpoint";
         lua_getglobal(L,callback);
         if (lua_isfunction(L, -1)) {
-            if (lua_pcall(L, 0, 0, 0) != LUA_OK) return lua_error(L);
+            if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+                // A failing handler must not leave the game frozen at the
+                // breakpoint: resume (without its half-made register edits),
+                // then report the error.
+                if (auto* sess = eng->debugSession(); sess && sess->imageGeneration() == hit.generation)
+                    sess->continueExecution();
+                return lua_error(L);
+            }
         } else {
             lua_pop(L, 1);
         }
@@ -3272,15 +3308,20 @@ static int l_selectFilePath(lua_State* L) {
 static int l_playSound(lua_State* L) {
     const char* path = lua_tostring(L, 1);
     if (!path || !*path) return 0;
+    // Double fork: the player is re-parented to init, and the intermediate
+    // child is reaped here, so repeated sounds leave no zombies behind.
     pid_t pid = fork();
     if (pid == 0) {
-        // Child: detach from stdio, try paplay then aplay.
+        if (fork() != 0) _exit(0);
+        // Grandchild: detach from stdio, try paplay then aplay. "--" keeps a
+        // path that starts with '-' from being read as an option.
         int devnull = ::open("/dev/null", O_WRONLY);
         if (devnull >= 0) { dup2(devnull, 1); dup2(devnull, 2); }
-        execlp("paplay", "paplay", path, (char*)nullptr);
-        execlp("aplay", "aplay", "-q", path, (char*)nullptr);
+        execlp("paplay", "paplay", "--", path, (char*)nullptr);
+        execlp("aplay", "aplay", "-q", "--", path, (char*)nullptr);
         _exit(127);
     }
+    if (pid > 0) while (::waitpid(pid, nullptr, 0) < 0 && errno == EINTR) {}
     return 0;
 }
 
@@ -4036,23 +4077,32 @@ static const char* structFieldTypeName(ce::ValueType t) {
 static int l_dissectStructure(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); return 1; }
-    std::vector<uintptr_t> addrs;
-    if (lua_istable(L, 1)) {
-        int n = (int)lua_rawlen(L, 1);
-        for (int i = 1; i <= n; ++i) {
+    // Check every argument before any C++ container exists (a raise longjmps
+    // past destructors), and bound the work: a size per address is read.
+    const lua_Integer requested = luaL_checkinteger(L, 2);
+    luaL_argcheck(L, requested >= 0 && requested <= (lua_Integer(1) << 20), 2, "size must be 0..1MB");
+    const bool many = lua_istable(L, 1);
+    const lua_Integer count = many ? (lua_Integer)lua_rawlen(L, 1) : 1;
+    luaL_argcheck(L, count <= 256, 1, "at most 256 addresses");
+    if (many)
+        for (lua_Integer i = 1; i <= count; ++i) {
             lua_rawgeti(L, 1, i);
-            addrs.push_back((uintptr_t)lua_tointeger(L, -1));
+            if (!lua_isinteger(L, -1)) return luaL_error(L, "address %d is not an integer", (int)i);
             lua_pop(L, 1);
         }
-    } else {
-        addrs.push_back((uintptr_t)luaL_checkinteger(L, 1));
+    else luaL_checkinteger(L, 1);
+    const size_t size = static_cast<size_t>(requested);
+    std::vector<uintptr_t> addrs;
+    for (lua_Integer i = 1; i <= count; ++i) {
+        if (many) { lua_rawgeti(L, 1, i); addrs.push_back((uintptr_t)lua_tointeger(L, -1)); lua_pop(L, 1); }
+        else addrs.push_back((uintptr_t)lua_tointeger(L, 1));
     }
-    size_t size = (size_t)luaL_checkinteger(L, 2);
     if (addrs.empty() || size == 0) { lua_pushnil(L); return 1; }
     std::vector<std::vector<uint8_t>> snapshots;
     for (auto a : addrs) {
         std::vector<uint8_t> buf(size);
-        if (!p->read(a, buf.data(), size)) { lua_pushnil(L); lua_pushstring(L, "read failed"); return 2; }
+        // A short read would present the unread zeros as fields.
+        if (!readExact(p, a, buf.data(), size)) { lua_pushnil(L); lua_pushstring(L, "read failed"); return 2; }
         snapshots.push_back(std::move(buf));
     }
     auto fields = ce::autoDetectStructureFieldsMulti(snapshots);
@@ -5931,7 +5981,7 @@ void registerExtendedBindings(lua_State* L) {
 
     // File I/O
     lua_register(L, "readFile", l_readFromFile);
-    lua_register(L, "writeFile", l_writeToFile);
+    lua_register(L, "writeFile", ce::guardFileWrite<l_writeToFile>);   // an alias must not skip the opt-in
     lua_register(L, "readFromFile", l_readFromFile);
     lua_register(L, "writeToFile", ce::guardFileWrite<l_writeToFile>);
     lua_register(L, "fileExists", l_fileExists);

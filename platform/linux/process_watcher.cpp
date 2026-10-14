@@ -74,7 +74,14 @@ void ProcessWatcher::watchLoop(std::string target, Callback callback, int pollMs
                 if (!std::getline(in, comm) || comm.empty()) continue;
                 std::string commLower = comm;
                 std::transform(commLower.begin(), commLower.end(), commLower.begin(), lower);
-                if (commLower.find(target) != std::string::npos) {
+                // comm is cut to 15 characters; the program name in argv[0] is
+                // not (a Wine game's is a Windows path, hence the backslash).
+                std::string program;
+                std::ifstream cmdline("/proc/" + name + "/cmdline");
+                std::getline(cmdline, program, '\0');
+                if (auto slash = program.find_last_of("/\\"); slash != std::string::npos) program.erase(0, slash + 1);
+                std::transform(program.begin(), program.end(), program.begin(), lower);
+                if (commLower.find(target) != std::string::npos || (!program.empty() && program.find(target) != std::string::npos)) {
                     known.insert(pid);
                     if (callback) callback(pid, comm);
                 }

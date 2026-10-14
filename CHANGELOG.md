@@ -62,6 +62,12 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Fixed: "Wait for process" never matched a program name longer than 15
+  characters (the kernel's truncated process name); the full program name is
+  matched too. Signatures of 32-bit code kept absolute addresses, so they
+  stopped matching after a rebase. A generic type that names itself could make
+  il2cpp field names grow without limit, and a crafted PE could make its
+  import list do the same.
 - Fixed: `cescan`. A zero-padded address such as the ones its listings print
   was read as octal (`010` too); `watch`, `accessed`, `guest-scan` and
   `guest-write` silently ignored unknown options or turned bad numbers into

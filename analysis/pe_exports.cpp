@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstring>
 #include <fstream>
+#include <set>
 #include <optional>
 
 namespace ce {
@@ -199,7 +200,11 @@ std::vector<PEImport> parsePEImports(const std::string& path) {
     // Import directory: a null-terminated array of IMAGE_IMPORT_DESCRIPTOR (20B).
     //   +0x00 OriginalFirstThunk (ILT rva)  +0x0C Name (dll name rva)  +0x10 FirstThunk (IAT rva)
     if (uint64_t(dirs.importRva) + dirs.importSize > uint64_t(UINT32_MAX) + 1) return out;
-    for (uint32_t d = 0; d < std::min<uint32_t>(4096, dirs.importSize / 20); ++d) {
+    // Descriptors may all share one lookup table: read each table once, and
+    // stop at a total no real module comes near.
+    constexpr size_t kMaxImports = 1'000'000;
+    std::set<uint32_t> seenTables;
+    for (uint32_t d = 0; d < std::min<uint32_t>(4096, dirs.importSize / 20) && out.size() < kMaxImports; ++d) {
         uint64_t base = uint64_t(dirs.importRva) + d * 20;
         if (!pe.rvaToOff(base, 20)) break;
         auto oft = pe.u32AtRva(base + 0x00);
@@ -210,7 +215,8 @@ std::vector<PEImport> parsePEImports(const std::string& path) {
         std::string dll = pe.cstrAtRva(*nameRva);
         if (dll.empty() || *ft == 0) continue;
         uint32_t iltRva = *oft ? *oft : *ft;                 // ILT preferred; else IAT
-        for (uint32_t i = 0; i < 100000; ++i) {
+        if (!seenTables.insert(iltRva).second) continue;
+        for (uint32_t i = 0; i < 100000 && out.size() < kMaxImports; ++i) {
             uint64_t thunk = 0;
             if (dirs.pe64) { auto t = pe.rvaToOff(uint64_t(iltRva) + i * 8, 8); if (!t) break;
                              std::memcpy(&thunk, pe.buf.data() + *t, 8); }

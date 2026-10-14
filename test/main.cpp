@@ -3220,6 +3220,35 @@ static void test_process_watcher() {
     if (child > 0) { kill(child, SIGKILL); waitpid(child, nullptr, 0); }
 
     printf("  detects a newly-launched matching process: %s\n", detected ? "OK" : "FAILED");
+
+    // A program name longer than comm's 15 characters still matches, through
+    // argv[0]. A copy of sleep under a long name stands in for the game.
+    const auto program = std::filesystem::temp_directory_path() / "ce_a_rather_long_game_name";
+    std::error_code ec;
+    std::filesystem::copy_file("/bin/sleep", program, std::filesystem::copy_options::overwrite_existing, ec);
+    if (!ec) {
+        ce::os::ProcessWatcher longWatcher;
+        std::atomic<pid_t> found{0};
+        longWatcher.start("ce_a_rather_long_game_name", [&](pid_t pid, const std::string&) {
+            pid_t expected = 0;
+            found.compare_exchange_strong(expected, pid);
+        }, 25);
+        pid_t game = fork();
+        if (game == 0) {
+            prctl(PR_SET_PDEATHSIG, SIGKILL);
+            execl(program.c_str(), program.c_str(), "30", (char*)nullptr);
+            _exit(127);
+        }
+        bool longDetected = false;
+        for (int i = 0; i < 500 && !longDetected && game > 0; ++i) {
+            if (found.load() == game) longDetected = true;
+            else usleep(10 * 1000);
+        }
+        longWatcher.stop();
+        if (game > 0) { kill(game, SIGKILL); waitpid(game, nullptr, 0); }
+        std::filesystem::remove(program, ec);
+        printf("  matches a program name longer than 15 characters: %s\n", longDetected ? "OK" : "FAILED");
+    }
 }
 
 // Validates MonoDebuggerClient against a REAL mono soft-debugger agent (not just

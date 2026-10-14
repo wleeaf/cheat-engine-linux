@@ -271,9 +271,14 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
     // "UnityEngine.Vector3", "System.String", "MyClass[]"). CLASS/VALUETYPE carry a
     // typeDefinitionIndex in the data union -> metadata name; PTR/arrays recurse on
     // the element Il2CppType* the union points at. Best-effort; depth-capped.
+    // A generic type's arguments can name the type itself (crafted or cyclic
+    // data): each top-level name gets a budget of type nodes, and arguments
+    // stop once the name is long.
+    size_t typeNodes = 0;
+    constexpr size_t kMaxTypeNodes = 256, kMaxTypeName = 512;
     std::function<std::string(uint64_t, int)> nameOfTypeVA =
         [&](uint64_t typeVA, int depth) -> std::string {
-        if (!typeVA || depth > 5) return {};
+        if (!typeVA || depth > 5 || ++typeNodes > kMaxTypeNodes) return {};
         uint32_t word = typeWordAt(typeVA);
         uint8_t e = static_cast<uint8_t>((word >> 16) & 0xFF);
         auto dataOpt = img.readPtrVA(typeVA + 0x00);   // 8-byte data union
@@ -329,6 +334,7 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
                             if (an.empty()) an = "?";
                             if (!args.empty()) args += ", ";
                             args += an;
+                            if (args.size() > kMaxTypeName) { args += ", ..."; break; }
                         }
                         // Strip the open generic's arity marker ("List`1" -> "List")
                         // before spelling the concrete arguments, so a field reads
@@ -389,6 +395,7 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
             rf.isStatic = (attrs & kFIELD_STATIC) != 0;
             rf.isConst = (attrs & kFIELD_LITERAL) != 0;
             rf.typeEnum = static_cast<uint8_t>((typeWord >> 16) & 0xFF);  // Il2CppTypeEnum
+            typeNodes = 0;
             rf.typeName = nameOfTypeVA(typeVA, 0);
             if (entryVA && *entryVA != 0) {
                 if (auto o = img.readI32VA(*entryVA, i * 4)) rf.offset = *o;

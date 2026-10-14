@@ -81,6 +81,13 @@ SignatureResult makeSignature(ProcessHandle& proc, uintptr_t address,
             if (ripWild && in.dispSize && k >= in.dispOffset &&
                 k < static_cast<size_t>(in.dispOffset) + in.dispSize)
                 wild = true;
+            // An absolute address in a displacement (32-bit code reaches globals
+            // as [abs32] or [reg*4+table]): it moves when the module is rebased.
+            if (!ripWild && in.dispSize == 4 && k >= in.dispOffset && k < static_cast<size_t>(in.dispOffset) + 4) {
+                uint32_t disp = 0;
+                for (size_t b = 0; b < 4; ++b) disp |= static_cast<uint32_t>(in.bytes[in.dispOffset + b]) << (8 * b);
+                if ((in.memory.present && in.memory.baseReg.empty()) || (disp >= 0x10000 && disp < 0xFFFF0000u)) wild = true;
+            }
             // address-sized immediate that looks like a pointer (skip stack offsets
             // / small constants, which are stable and add specificity).
             if (in.immSize >= 4 && k >= in.immOffset &&

@@ -62,6 +62,16 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Fixed: Auto Assembler scripts in Cheat Engine's own style. Lines above
+  `[ENABLE]` (the `define`s of the standard injection templates) were dropped;
+  `{ }` comments were read as code; `assert(address,bytes)` did not use the
+  `bytes` define and ignored half-byte wildcards (`4?`); an `aobscan` that
+  found nothing was only logged, so the hook could land on another script's
+  registered symbol; malformed patterns were accepted; `dd -1` and `dw #-5`
+  were refused while `dq bad_target` was written as 0xBAD; `fillmem` needed
+  an unrelated active address; `nop A` failed. `aobscanregion` and the like
+  read whole regions at once, `include` and `loadbinary` accepted devices,
+  and nested `define`s could grow a line without limit.
 - Fixed: code analysis (Find Statics, string and code references) stopped
   at the first byte it could not decode, so data inside code (headers, jump
   tables) cut results short, and it decoded whole regions at once (tens of GB

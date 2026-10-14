@@ -8337,6 +8337,38 @@ static void test_autoassembler_comment_in_string(pid_t pid) {
     printf("  // inside db string: %s\n", ok ? "OK" : "FAILED");
 }
 
+// Cheat Engine script conventions and malformed values, against this process.
+alignas(16) static uint8_t g_aaScratch[64];
+static void test_autoassembler_review_fixes() {
+    printf("\n── Test: Auto Assembler script conventions ──\n");
+    LinuxProcessHandle proc(getpid());
+    const auto base = reinterpret_cast<uintptr_t>(g_aaScratch);
+    auto run = [&](const std::string& script) { AutoAssembler aa; return aa.execute(proc, script); };
+    auto hex = [](uintptr_t value) { char text[32]; snprintf(text, sizeof text, "%lx", static_cast<unsigned long>(value)); return std::string(text); };
+    std::memset(g_aaScratch, 0, sizeof g_aaScratch);
+    g_aaScratch[0] = 0x48; g_aaScratch[1] = 0x8B;
+
+    // The standard template: defines above [ENABLE], assert(address,bytes),
+    // a { } comment, and a nibble wildcard.
+    auto shared = run("define(address," + hex(base) + ")\ndefine(bytes,4? 8B)\n{ Cheat Engine template\n  header }\n"
+                      "[ENABLE]\nassert(address,bytes)\naddress+10:\ndb 11 { inline note }\n[DISABLE]\n");
+    printf("  defines above [ENABLE], assert(address,bytes), { } comments: %s\n",
+           shared.success && g_aaScratch[0x10] == 0x11 ? "OK" : ("FAILED: " + shared.error).c_str());
+    auto mismatch = run("[ENABLE]\nassert(" + hex(base) + ",4? 8C)\n");
+    auto badBytes = run("[ENABLE]\nassert(" + hex(base) + ",48 GG)\n");
+    printf("  assert compares nibbles and rejects bad bytes: %s\n", !mismatch.success && !badBytes.success ? "OK" : "FAILED");
+    auto missing = run("[ENABLE]\naobscanregion(hook," + hex(base) + "," + hex(base + 32) + ",DE AD BE EF CA FE)\nhook:\ndb 90\n");
+    printf("  an aobscan that finds nothing stops the script: %s\n", !missing.success ? "OK" : "FAILED");
+    auto negative = run("[ENABLE]\n" + hex(base + 0x20) + ":\ndd -1\ndw #-5\n");
+    uint32_t minusOne = 0; uint16_t minusFive = 0;
+    std::memcpy(&minusOne, g_aaScratch + 0x20, 4); std::memcpy(&minusFive, g_aaScratch + 0x24, 2);
+    printf("  negative data values: %s\n", negative.success && minusOne == 0xFFFFFFFFu && minusFive == 0xFFFB ? "OK" : ("FAILED: " + negative.error).c_str());
+    auto garbage = run("[ENABLE]\n" + hex(base + 0x28) + ":\ndq bad_target\n");
+    printf("  a data token that is not a number is refused: %s\n", !garbage.success ? "OK" : "FAILED");
+    auto fill = run("[ENABLE]\nfillmem(" + hex(base + 0x30) + ",4,CC)\n");
+    printf("  fillmem needs no active address: %s\n", fill.success && g_aaScratch[0x33] == 0xCC ? "OK" : ("FAILED: " + fill.error).c_str());
+}
+
 static void test_autoassembler_nop_fillmem(pid_t pid) {
     printf("\n── Test: AutoAssembler nop/fillmem ──\n");
 
@@ -12482,6 +12514,7 @@ int main(int argc, char* argv[]) {
     test_autoassembler_data_directive_widths(targetPid);
     test_autoassembler_comment_in_string(targetPid);
     test_autoassembler_nop_fillmem(targetPid);
+    test_autoassembler_review_fixes();
     test_autoassembler_try_except(targetPid);
     test_autoassembler_forward_labels(targetPid);
     test_autoassembler_module_offset();

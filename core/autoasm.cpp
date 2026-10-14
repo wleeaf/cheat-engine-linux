@@ -151,27 +151,34 @@ static size_t findAobInRange(ProcessHandle& proc, uintptr_t start, uintptr_t sto
         if (regionEnd <= regionStart || regionEnd - regionStart < pattern.size())
             continue;
 
-        std::vector<uint8_t> buffer(regionEnd - regionStart);
-        auto readResult = proc.read(regionStart, buffer.data(), buffer.size());
-        if (!readResult || *readResult < pattern.size())
-            continue;
-
-        size_t bytesRead = *readResult;
-        size_t limit = bytesRead - pattern.size() + 1;
-        for (size_t offset = 0; offset < limit; ++offset) {
-            bool matched = true;
-            for (size_t i = 0; i < pattern.size(); ++i) {
-                uint8_t m = i < mask.size() ? mask[i] : 0xFF;
-                if ((buffer[offset + i] & m) != (pattern[i] & m)) {
-                    matched = false;
-                    break;
+        // Read in chunks (a region can be gigabytes of emulator RAM), each
+        // overlapping the next by the pattern length less one byte.
+        constexpr size_t kChunk = size_t(16) << 20;
+        std::vector<uint8_t> buffer;
+        for (uintptr_t chunkStart = regionStart; chunkStart < regionEnd;) {
+            const size_t want = std::min<uintptr_t>(kChunk + pattern.size() - 1, regionEnd - chunkStart);
+            buffer.resize(want);
+            auto readResult = proc.read(chunkStart, buffer.data(), buffer.size());
+            if (!readResult || *readResult < pattern.size()) break;
+            const size_t bytesRead = *readResult;
+            const size_t limit = bytesRead - pattern.size() + 1;
+            for (size_t offset = 0; offset < limit; ++offset) {
+                bool matched = true;
+                for (size_t i = 0; i < pattern.size(); ++i) {
+                    uint8_t m = i < mask.size() ? mask[i] : 0xFF;
+                    if ((buffer[offset + i] & m) != (pattern[i] & m)) {
+                        matched = false;
+                        break;
+                    }
+                }
+                if (matched) {
+                    if (matches == 0)
+                        firstMatch = chunkStart + offset;
+                    ++matches;
                 }
             }
-            if (matched) {
-                if (matches == 0)
-                    firstMatch = regionStart + offset;
-                ++matches;
-            }
+            if (bytesRead < want) break;   // the rest of the region is unreadable
+            chunkStart += limit;
         }
     }
 
@@ -208,8 +215,11 @@ static std::vector<std::string> splitDataValues(const std::string& data) {
 // e.g. "0x1000+4" (a label+offset after symbol substitution, for indexed pointer
 // tables). Each term is hex by default, or #decimal. No hex digit is '+' or '-',
 // so splitting on those signs is unambiguous.
-static bool evalDataToken(const std::string& tok, uint64_t& out) {
+static bool evalDataToken(std::string tok, uint64_t& out) {
     if (tok.empty()) return false;
+    // "#-5" is a negative decimal: move the sign in front of the '#'.
+    for (size_t at; (at = tok.find("#-")) != std::string::npos || (at = tok.find("#+")) != std::string::npos;)
+        std::swap(tok[at], tok[at + 1]);
     uint64_t acc = 0;
     bool sub = false;
     size_t i = 0;
@@ -219,11 +229,14 @@ static bool evalDataToken(const std::string& tok, uint64_t& out) {
         while (j < tok.size() && tok[j] != '+' && tok[j] != '-') ++j;
         std::string term = trim(tok.substr(i, j - i));
         if (term.empty()) return false;
-        uint64_t v;
-        try {
-            if (term[0] == '#') v = std::stoull(term.substr(1), nullptr, 10);
-            else                v = std::stoull(term, nullptr, 16);
-        } catch (...) { return false; }
+        // The whole term must be a number: "bad_target" is not 0xBAD.
+        uint64_t v = 0;
+        const bool decimal = term[0] == '#';
+        const char* first = term.data() + (decimal ? 1 : 0);
+        const char* last = term.data() + term.size();
+        if (!decimal && term.size() > 2 && (term[1] == 'x' || term[1] == 'X') && term[0] == '0') first += 2;
+        const auto [stop, failure] = std::from_chars(first, last, v, decimal ? 10 : 16);
+        if (failure != std::errc() || stop != last || first == last) return false;
         acc = sub ? (acc - v) : (acc + v);
         if (j < tok.size()) { sub = (tok[j] == '-'); i = j + 1; } else break;
     }
@@ -307,12 +320,16 @@ static bool parseDataDirective(const std::string& op, const std::string& data,
             return false;
         }
 
-        if (value > maxValue) {
+        // A negative value ("dd -1", "dw #-5") is its two's complement in the
+        // width, down to the type's smallest signed value.
+        const bool negativeFits = width < 8 && static_cast<int64_t>(value) < 0 &&
+            static_cast<int64_t>(value) >= -(int64_t(1) << (width * 8 - 1));
+        if (value > maxValue && !negativeFits) {
             error = op + " value out of range: " + token;
             return false;
         }
 
-        appendValue(value, width);
+        appendValue(value & maxValue, width);
     }
 
     return true;
@@ -435,18 +452,22 @@ static void autoDeclareNamedLabels(std::string& code, const std::unordered_map<s
     if (!preamble.empty()) code = preamble + code;
 }
 
+// A NOP count: decimal digits, or hex with 0x or with hex letters ("nop A").
 static bool parseNopCount(const std::string& countExpr, size_t& count, std::string& error) {
-    try {
-        size_t consumed=0;
-        if (!countExpr.empty() && countExpr.front()=='-') throw std::invalid_argument("negative NOP count");
-        const auto parsed = countExpr.empty() ? 1ull : std::stoull(countExpr, &consumed, 0);
-        if (!countExpr.empty() && consumed!=countExpr.size()) throw std::invalid_argument("trailing NOP count text");
-        if (parsed>256u*1024*1024) {error="NOP count exceeds the buffer limit";return false;}
-        count=static_cast<size_t>(parsed);
-    } catch (...) {
-        error = "Invalid NOP count: " + countExpr;
-        return false;
+    unsigned long long parsed = 1;
+    if (!countExpr.empty()) {
+        const bool prefixed = countExpr.size() > 2 && countExpr[0] == '0' && (countExpr[1] == 'x' || countExpr[1] == 'X');
+        const bool decimal = !prefixed && std::all_of(countExpr.begin(), countExpr.end(), [](unsigned char c) { return std::isdigit(c); });
+        const char* first = countExpr.data() + (prefixed ? 2 : 0);
+        const char* last = countExpr.data() + countExpr.size();
+        const auto [stop, failure] = std::from_chars(first, last, parsed, decimal ? 10 : 16);
+        if (failure != std::errc() || stop != last || first == last) {
+            error = "Invalid NOP count: " + countExpr;
+            return false;
+        }
     }
+    if (parsed > 256u * 1024 * 1024) { error = "NOP count exceeds the buffer limit"; return false; }
+    count = static_cast<size_t>(parsed);
     if (count == 0) {
         error = "NOP count must be greater than zero";
         return false;
@@ -566,24 +587,85 @@ static bool parseAllocArgs(const std::string& args, std::string& name, size_t& s
 
 // ── Section extraction ──
 
+// Cheat Engine's { ... } comments, which may span lines. {$...} directives,
+// the bodies of {$lua} blocks (Lua uses braces for tables), quoted text and
+// // comments are kept; a comment's line breaks stay so line numbers do.
+static std::string stripBraceComments(const std::string& script) {
+    auto at = [&](size_t i, const char* word) {
+        for (size_t k = 0; word[k]; ++k)
+            if (i + k >= script.size() || std::toupper(static_cast<unsigned char>(script[i + k])) != word[k]) return false;
+        return true;
+    };
+    std::string out;
+    out.reserve(script.size());
+    bool inLua = false;
+    char quote = 0;
+    for (size_t i = 0; i < script.size();) {
+        const char c = script[i];
+        if (inLua) {
+            if (at(i, "{$ASM}") || at(i, "{$ENDLUA}")) inLua = false;
+            else { out += c; ++i; continue; }
+        }
+        if (c == '\n') quote = 0;
+        if (quote) {
+            if (c == quote) quote = 0;
+        } else if (c == '"' || c == '\'') {
+            quote = c;
+        } else if (c == '/' && i + 1 < script.size() && script[i + 1] == '/') {
+            const size_t end = script.find('\n', i);
+            const size_t stop = end == std::string::npos ? script.size() : end;
+            out.append(script, i, stop - i);
+            i = stop;
+            continue;
+        } else if (c == '{' && at(i, "{$LUA}")) {
+            out.append(script, i, 6);
+            i += 6;
+            inLua = true;
+            continue;
+        } else if (c == '{' && i + 1 < script.size() && script[i + 1] == '$') {
+            // A directive ({$if expr} may hold Lua braces): copy it whole, up to
+            // its own closing brace.
+            size_t depth = 0, k = i;
+            for (; k < script.size(); ++k) {
+                if (script[k] == '{') ++depth;
+                else if (script[k] == '}' && --depth == 0) break;
+                else if (script[k] == '\n') break;
+            }
+            const size_t stop = k < script.size() && script[k] == '}' ? k + 1 : k;
+            out.append(script, i, stop - i);
+            i = stop;
+            continue;
+        } else if (c == '{') {
+            const size_t end = script.find('}', i);
+            const size_t stop = end == std::string::npos ? script.size() : end + 1;
+            for (size_t k = i; k < stop; ++k) if (script[k] == '\n') out += '\n';
+            i = stop;
+            continue;
+        }
+        out += c;
+        ++i;
+    }
+    return out;
+}
+
 std::string AutoAssembler::extractSection(const std::string& script, const std::string& section) {
-    auto tag = "[" + section + "]";
-    auto tagUpper = toUpper(tag);
-    std::istringstream ss(script);
+    // As in Cheat Engine, lines outside every section (a define() above
+    // [ENABLE] in the standard templates) belong to both sections.
+    auto tagUpper = toUpper("[" + section + "]");
+    std::istringstream ss(stripBraceComments(script));
     std::string line;
     std::string result;
-    bool inSection = false;
+    enum class Part { Shared, Wanted, Other } part = Part::Shared;
 
     while (std::getline(ss, line)) {
         auto trimmed = toUpper(trim(line));
-        if (trimmed == tagUpper) {
-            inSection = true;
+        const bool header = trimmed.size() > 2 && trimmed.front() == '[' && trimmed.back() == ']' &&
+            std::all_of(trimmed.begin() + 1, trimmed.end() - 1, [](unsigned char ch) { return std::isalpha(ch); });
+        if (header) {
+            part = trimmed == tagUpper ? Part::Wanted : Part::Other;
             continue;
         }
-        if (inSection && trimmed.size() > 2 && trimmed[0] == '[' && trimmed.back() == ']') {
-            break; // Next section
-        }
-        if (inSection)
+        if (part != Part::Other)
             result += line + "\n";
     }
     return result;
@@ -771,12 +853,12 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
             auto start = resolveAddress(startExpr, allocs, labels, defines);
             auto stop = resolveAddress(stopExpr, allocs, labels, defines);
             if (!start || !stop || stop <= start) {
-                log.push_back("AOBSCANREGION: " + name + " invalid range");
-                return true;
+                error = "AOBSCANREGION: invalid range for " + name;
+                return false;
             }
 
             ScanConfig cfg;
-            cfg.parseAOB(pattern);
+            if (!cfg.parseAOB(pattern) || cfg.byteArray.empty()) { error = "Invalid AOB pattern: " + pattern; return false; }
             uintptr_t addr = 0;
             size_t matches = findAobInRange(*proc, start, stop, cfg.byteArray, cfg.byteArrayMask, addr);
             if (matches > 0) {
@@ -787,7 +869,7 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
                 log.push_back("AOBSCANREGION: " + name + " = 0x" + d.value +
                     " (" + std::to_string(matches) + " matches)");
             } else {
-                log.push_back("AOBSCANREGION: " + name + " NOT FOUND");
+                error = std::string("AOBSCANREGION could not find ") + name; return false;
             }
         }
         return true;
@@ -803,7 +885,7 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
 
             ScanConfig cfg;
             cfg.valueType = ValueType::ByteArray;
-            cfg.parseAOB(pattern);
+            if (!cfg.parseAOB(pattern) || cfg.byteArray.empty()) { error = "Invalid AOB pattern: " + pattern; return false; }
             cfg.alignment = 1;
 
             MemoryScanner scanner;
@@ -816,7 +898,7 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
                 log.push_back("AOBSCANALL: " + name + " = 0x" + d.value +
                     " (" + std::to_string(result.count()) + " matches)");
             } else {
-                log.push_back("AOBSCANALL: " + name + " NOT FOUND");
+                error = std::string("AOBSCANALL could not find ") + name; return false;
             }
         }
         return true;
@@ -836,12 +918,12 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
                 return moduleMatches(module, moduleName);
             });
             if (moduleIt == modules.end()) {
-                log.push_back("AOBSCANMODULE: " + name + " module not found: " + moduleName);
-                return true;
+                error = "AOBSCANMODULE: module not found: " + moduleName;
+                return false;
             }
 
             ScanConfig cfg;
-            cfg.parseAOB(pattern);
+            if (!cfg.parseAOB(pattern) || cfg.byteArray.empty()) { error = "Invalid AOB pattern: " + pattern; return false; }
             uintptr_t addr = 0;
             size_t matches = findAobInRange(*proc, moduleIt->base, moduleIt->base + moduleIt->size,
                 cfg.byteArray, cfg.byteArrayMask, addr);
@@ -853,7 +935,7 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
                 log.push_back("AOBSCANMODULE: " + name + " = 0x" + d.value +
                     " in " + moduleIt->name + " (" + std::to_string(matches) + " matches)");
             } else {
-                log.push_back("AOBSCANMODULE: " + name + " NOT FOUND in " + moduleIt->name);
+                error = "AOBSCANMODULE could not find " + name + " in " + moduleIt->name; return false;
             }
         }
         return true;
@@ -870,7 +952,7 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
             // Use our scanner's AOB
             ScanConfig cfg;
             cfg.valueType = ValueType::ByteArray;
-            cfg.parseAOB(pattern);
+            if (!cfg.parseAOB(pattern) || cfg.byteArray.empty()) { error = "Invalid AOB pattern: " + pattern; return false; }
             cfg.alignment = 1;
 
             MemoryScanner scanner;
@@ -884,7 +966,7 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
                 log.push_back("AOBSCAN: " + name + " = 0x" + d.value +
                     " (" + std::to_string(result.count()) + " matches)");
             } else {
-                log.push_back("AOBSCAN: " + name + " NOT FOUND");
+                error = std::string("AOBSCAN could not find ") + name; return false;
             }
         }
         return true;
@@ -926,8 +1008,14 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
         }
 
         // Read the file and parse each line
-        std::ifstream incFile(filename);
-        if (incFile) {
+        // A regular file of reasonable size only: a device such as /dev/zero
+        // would be read without end (this also runs in a syntax check).
+        std::error_code sizeError;
+        const bool readable = std::filesystem::is_regular_file(filename, sizeError) &&
+                              std::filesystem::file_size(filename, sizeError) <= (16u << 20) && !sizeError;
+        std::ifstream incFile;
+        if (readable) incFile.open(filename);
+        if (readable && incFile) {
             std::string incLine;
             while (std::getline(incFile, incLine)) {
                 if (!parseLine(incLine, allocs, labels, defines, registeredSymbols, asmLines, log, proc, error, includeDepth + 1))
@@ -1104,6 +1192,10 @@ std::string AutoAssembler::substituteSymbols(const std::string& line,
                 bool leftOk  = (pos == 0) || !isIdentChar(result[pos - 1]);
                 size_t after = pos + name.size();
                 bool rightOk = (after >= result.size()) || !isIdentChar(result[after]);
+                // Defines that name other defines multiply a line's length
+                // with each level: stop at 64 KiB (the line then fails to
+                // assemble instead of using up memory).
+                if (leftOk && rightOk && result.size() - name.size() + value.size() > (64u << 10)) return;
                 if (leftOk && rightOk) {
                     result.replace(pos, name.size(), value);
                     pos += value.size();
@@ -1261,7 +1353,8 @@ bool AutoAssembler::resolveForwardLabels(const std::vector<std::string>& asmLine
                 continue;
             }
 
-            if (currentAddr == 0) {
+            // fillmem names its own address; it needs no active one.
+            if (currentAddr == 0 && !startsWith(trimmedLine, "__FILLMEM__:")) {
                 error = "No active assembly address for line: " + trimmedLine;
                 return false;
             }
@@ -1390,13 +1483,18 @@ bool AutoAssembler::tryBranchCanExecute(const std::vector<std::string>& branchLi
                 return false;
             }
 
+            // CE's templates write assert(address,bytes) after define(bytes,...).
+            for (int depth = 0; depth < 8; ++depth) {
+                auto named = std::find_if(defines.begin(), defines.end(), [&](const Define& d) { return d.name == bytesStr; });
+                if (named == defines.end()) break;
+                bytesStr = trim(named->value);
+            }
             if (!bytesStr.empty() && bytesStr.front() == '"') bytesStr = bytesStr.substr(1);
             if (!bytesStr.empty() && bytesStr.back() == '"') bytesStr.pop_back();
 
             ScanConfig pattern;
-            pattern.parseAOB(bytesStr);
-            if (pattern.byteArray.empty()) {
-                reason = "ASSERT has no bytes: " + bytesStr;
+            if (!pattern.parseAOB(bytesStr) || pattern.byteArray.empty()) {
+                reason = "ASSERT has no valid bytes: " + bytesStr;
                 return false;
             }
 
@@ -1408,9 +1506,9 @@ bool AutoAssembler::tryBranchCanExecute(const std::vector<std::string>& branchLi
             }
 
             for (size_t i = 0; i < pattern.byteArray.size(); ++i) {
-                if (i < pattern.byteArrayMask.size() && !pattern.byteArrayMask[i])
-                    continue;
-                if (current[i] != pattern.byteArray[i]) {
+                // Wildcards and half wildcards ("4?") compare only their mask.
+                const uint8_t mask = i < pattern.byteArrayMask.size() ? pattern.byteArrayMask[i] : 0xFF;
+                if ((current[i] & mask) != (pattern.byteArray[i] & mask)) {
                     reason = "ASSERT failed at " + addrExpr + "+" + std::to_string(i);
                     return false;
                 }
@@ -2141,13 +2239,18 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
                 return rollback();
             }
 
+            // CE's templates write assert(address,bytes) after define(bytes,...).
+            for (int depth = 0; depth < 8; ++depth) {
+                auto named = std::find_if(defines.begin(), defines.end(), [&](const Define& d) { return d.name == bytesStr; });
+                if (named == defines.end()) break;
+                bytesStr = trim(named->value);
+            }
             if (!bytesStr.empty() && bytesStr.front() == '"') bytesStr = bytesStr.substr(1);
             if (!bytesStr.empty() && bytesStr.back() == '"') bytesStr.pop_back();
 
             ScanConfig pattern;
-            pattern.parseAOB(bytesStr);
-            if (pattern.byteArray.empty()) {
-                result.error = "ASSERT has no bytes: " + bytesStr;
+            if (!pattern.parseAOB(bytesStr) || pattern.byteArray.empty()) {
+                result.error = "ASSERT has no valid bytes: " + bytesStr;
                 return rollback();
             }
 
@@ -2159,9 +2262,9 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             }
 
             for (size_t i = 0; i < pattern.byteArray.size(); ++i) {
-                if (i < pattern.byteArrayMask.size() && !pattern.byteArrayMask[i])
-                    continue;
-                if (current[i] != pattern.byteArray[i]) {
+                // Wildcards and half wildcards ("4?") compare only their mask.
+                const uint8_t mask = i < pattern.byteArrayMask.size() ? pattern.byteArrayMask[i] : 0xFF;
+                if ((current[i] & mask) != (pattern.byteArray[i] & mask)) {
                     char expected[8];
                     char actual[8];
                     snprintf(expected, sizeof(expected), "%02x", pattern.byteArray[i]);
@@ -2273,6 +2376,12 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
                 return rollback();
             }
 
+            std::error_code sizeError;
+            if (!std::filesystem::is_regular_file(filename, sizeError) ||
+                std::filesystem::file_size(filename, sizeError) > kMaxAaBufferBytes || sizeError) {
+                result.error = "LOADBINARY needs a regular file of at most 256 MB: " + filename;
+                return rollback();
+            }
             std::ifstream binFile(filename, std::ios::binary);
             if (!binFile) {
                 result.error = "LOADBINARY file not found: " + filename;
@@ -2314,7 +2423,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             continue;
         }
 
-        if (currentAddr == 0) {
+        if (currentAddr == 0 && !startsWith(trimmedLine, "__FILLMEM__:")) {   // fillmem names its own address
             result.error = "No active assembly address for line: " + trimmedLine;
             return rollback();
         }

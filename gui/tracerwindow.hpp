@@ -7,7 +7,8 @@
 #include "platform/process_api.hpp"
 
 #include <QMainWindow>
-#include <QTableWidget>
+#include <QTableView>
+#include <QAbstractTableModel>
 #include <QLineEdit>
 #include <QSpinBox>
 #include <QCheckBox>
@@ -15,10 +16,30 @@
 #include <QProgressBar>
 #include <QLabel>
 #include <functional>
+#include <climits>
+#include <algorithm>
 #include <thread>
 #include <atomic>
 
 namespace ce::gui {
+
+// The steps of a trace, read straight from the entries: a million-step trace
+// must not become eight million table items built on the GUI thread.
+class TraceTableModel : public QAbstractTableModel {
+public:
+    explicit TraceTableModel(const std::vector<ce::TraceEntry>* entries, QObject* parent = nullptr)
+        : QAbstractTableModel(parent), entries_(entries) {}
+    int rowCount(const QModelIndex& parent = {}) const override {
+        return parent.isValid() ? 0 : static_cast<int>(std::min<size_t>(entries_->size(), INT_MAX));
+    }
+    int columnCount(const QModelIndex& parent = {}) const override { return parent.isValid() ? 0 : 8; }
+    QVariant data(const QModelIndex& index, int role) const override;
+    QVariant headerData(int section, Qt::Orientation orientation, int role) const override;
+    void reload() { beginResetModel(); endResetModel(); }
+
+private:
+    const std::vector<ce::TraceEntry>* entries_;
+};
 
 class TracerWindow : public QMainWindow {
     Q_OBJECT
@@ -40,6 +61,7 @@ private slots:
     void onTraceFinished();
 
 private:
+    friend class TraceTableModel;
     void buildUi();
     static QString hexQ(uint64_t v);
 
@@ -66,7 +88,8 @@ private:
     QProgressBar* progressBar_;
     QLabel* statusLabel_;
 
-    QTableWidget* table_;
+    QTableView* table_;
+    TraceTableModel* model_ = nullptr;
 };
 
 } // namespace ce::gui

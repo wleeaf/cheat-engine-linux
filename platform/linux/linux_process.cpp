@@ -120,7 +120,11 @@ bool LinuxProcessHandle::stillOwned() const {
     char path[32];
     std::snprintf(path, sizeof path, "/proc/%d", static_cast<int>(pid_));
     struct stat st{};
-    return ::stat(path, &st) == 0 && st.st_uid == uid && st.st_gid == getgid();
+    if (::stat(path, &st) == 0 && st.st_uid == uid && st.st_gid == getgid()) return true;
+    // A process that made itself non-dumpable (some games' anti-tamper code
+    // does) shows /proc/<pid> as root's while still being ours: decide by its
+    // real, effective, saved and filesystem ids, which a setuid exec changes.
+    return processOwnedByCaller(pid_);
 }
 
 void LinuxProcessHandle::refreshMachine() {
@@ -227,7 +231,8 @@ Result<size_t> LinuxProcessHandle::read(uintptr_t address, void* buffer, size_t 
 
 void LinuxProcessHandle::readMany(const uintptr_t* addrs, size_t count, size_t size,
                                   uint8_t* out, uint8_t* ok) {
-    if (size == 0 || !sameProcess()) { std::memset(ok, 0, count); return; }
+    // The scanner's hot path: the same ownership rule as read() and write().
+    if (size == 0 || !sameProcess() || !stillOwned()) { std::memset(ok, 0, count); return; }
     // process_vm_readv processes the iovec arrays in order and stops at the
     // first remote page fault, returning the bytes transferred so far. Batching
     // up to IOV_MAX addresses into one syscall turns a per-address scan (one
@@ -403,7 +408,11 @@ Result<size_t> LinuxProcessHandle::writeCode(uintptr_t address,const void* buffe
     if (!identity) return std::unexpected(identity.error());
     auto written=memorySyscallService().writeCode(*identity,address,{static_cast<const uint8_t*>(buffer),size});
     // A W^X JIT's read-only shared code view: write through its backing file.
-    if (!written && writeSharedMappingBacking(pid_,address,{static_cast<const uint8_t*>(buffer),size})) return size;
+    // Only when the page refused the write: busy or unrecoverable native-call
+    // state must reach the caller, not be bypassed through the file.
+    if (!written && (written.error()==std::errc::bad_address || written.error()==std::errc::operation_not_permitted ||
+                     written.error()==std::errc::permission_denied) &&
+        writeSharedMappingBacking(pid_,address,{static_cast<const uint8_t*>(buffer),size})) return size;
     return written;
 }
 
@@ -419,7 +428,7 @@ MemProt LinuxProcessHandle::parsePerms(const std::string& perms) const {
 
 std::vector<MemoryRegion> LinuxProcessHandle::queryRegions() {
     std::vector<MemoryRegion> regions;
-    if (!sameProcess()) return regions;
+    if (!sameProcess() || !stillOwned()) return regions;   // not a privileged process's layout
     auto task=processMemoryTask(pid_);
     if (!task) return regions;
     std::ifstream maps("/proc/" + std::to_string(*task) + "/maps");
@@ -511,11 +520,11 @@ LinuxProcessHandle::residentRanges(uintptr_t base, size_t size) {
     if (ps <= 0 || size == 0) return whole;
     size_t pageSize = static_cast<size_t>(ps);
 
-    if (!sameProcess()) return whole;
+    if (!sameProcess() || !stillOwned()) return whole;   // reads fail anyway; no pagemap of it
     auto task=processMemoryTask(pid_);
     if (!task) return whole;
     std::string path = "/proc/" + std::to_string(*task) + "/pagemap";
-    int fd = ::open(path.c_str(), O_RDONLY);
+    int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);   // scan threads race forks
     if (fd < 0) return whole;
 
     uintptr_t start = base & ~static_cast<uintptr_t>(pageSize - 1);
@@ -637,15 +646,20 @@ Result<uintptr_t> LinuxProcessHandle::allocateInImage(size_t size,MemProt protec
                     if (extra <= end - address) {
                         address += extra;
                         auto result = mmapInTarget(address, MAP_FIXED_NOREPLACE);
-                        if (result) return static_cast<uintptr_t>(*result);
-                        // EPERM also rejects candidates below mmap_min_addr.
-                        // These are ordinary gap/address failures. Recovery and
-                        // identity failures must stop the entire allocation.
-                        auto error = result.error();
-                        if (error != std::errc::file_exists && error != std::errc::invalid_argument &&
-                            error != std::errc::not_enough_memory && error != std::errc::permission_denied &&
-                            error != std::errc::operation_not_permitted)
-                            return std::unexpected(error);
+                        if (result && static_cast<uintptr_t>(*result) == address) return address;
+                        // Kernels before 4.17 ignore the unknown flag and take the
+                        // address as a hint: memory elsewhere is out of rel32 reach.
+                        if (result) { (void)this->free(static_cast<uintptr_t>(*result), *allocSize); }
+                        else {
+                            // EPERM also rejects candidates below mmap_min_addr.
+                            // These are ordinary gap/address failures. Recovery and
+                            // identity failures must stop the entire allocation.
+                            auto error = result.error();
+                            if (error != std::errc::file_exists && error != std::errc::invalid_argument &&
+                                error != std::errc::not_enough_memory && error != std::errc::permission_denied &&
+                                error != std::errc::operation_not_permitted)
+                                return std::unexpected(error);
+                        }
                     }
                 }
             }
@@ -804,14 +818,18 @@ std::vector<ModuleInfo> LinuxProcessHandle::modules() {
         if (r.path.empty() || r.path[0] != '/') continue;
         if (r.path.rfind("/dev/", 0) == 0 || r.path.rfind("/memfd:", 0) == 0 || r.path.rfind("/SYSV", 0) == 0) continue;
 
-        // The newest module of this file. A region at file offset 0 starts a
-        // new view of the file (another load, or the file mmapped as data)
-        // instead of stretching the first one over everything in between.
+        // The newest module of this file. A region at file offset 0 that does
+        // not directly follow it starts a new view of the file (another load,
+        // or the file mmapped as data) instead of stretching the first one
+        // over everything in between. Adjacent offset-0 regions are the same
+        // load: lld does not page-align segment offsets, so a small binary's
+        // R, RX and RW segments can all show offset 0 (as can segments on
+        // 64K-page kernels); the loader maps one load contiguously.
         auto it = std::find_if(mods.rbegin(), mods.rend(),
             [&](const ModuleInfo& m) { return m.path == r.path; }).base();
         if (it != mods.begin()) --it; else it = mods.end();
         const bool newView = it != mods.end() && it->machine.architecture == CpuArchitecture::Unknown &&
-                             r.fileOffset && *r.fileOffset == 0;
+                             r.fileOffset && *r.fileOffset == 0 && r.base != it->base + it->size;
         if (newView) it = mods.end();
 
         if (it != mods.end()) {

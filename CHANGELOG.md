@@ -124,6 +124,24 @@ reimplementation of Cheat Engine).
   debugger's. A tracer Cancel right at the start could be lost. Form
   Designer: edits after a delete went nowhere, names could repeat, and names
   or captions could produce invalid Lua.
+- Fixed: a value edit or freeze on memory a game maps read-only from a file
+  (an asset pack, an SQLite database) could be written into that file on
+  disk, every freeze tick. Writing through a mapping's file is now limited
+  to a JIT's own shared-memory code view.
+- Fixed: modules of binaries linked with lld (Rust's default) or loaded on
+  64K-page kernels were split, which moved their base, after the module
+  change in this release; adjacent segments stay one module.
+- Security: the scanner's batched reads, the region list and the resident
+  page map did not re-check that the target still belongs to the user, so a
+  target that exec'd a setuid program stayed readable there. Your own
+  processes that make themselves non-dumpable (some games do) are no longer
+  refused.
+- Fixed: the tracer could leave a breakpoint trap queued when cancelled, which
+  killed the target after detaching, and its table built a widget item for
+  every cell (eight million for a million-step trace); it now reads the
+  trace directly. Code caves allocated near an address on kernels before
+  4.17 could land out of jump range. Form Designer fields stopped at 4000
+  and moved items placed further out.
 - Fixed: Lua `wideStringToByteTable` turned a cut-off UTF-8 sequence into a
   wrong character instead of U+FFFD; `print`, the Mono, IL2CPP and DWARF
   lookups, `disassembleBytes` and the custom-type helpers leaked memory when

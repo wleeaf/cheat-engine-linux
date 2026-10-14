@@ -132,10 +132,13 @@ FormDesigner::FormDesigner(QWidget* parent) : QMainWindow(parent) {
     auto* propForm = new QFormLayout;
     nameEdit_ = new QLineEdit;
     captionEdit_ = new QLineEdit;
-    xSpin_ = new QSpinBox; xSpin_->setRange(0, 4000);
-    ySpin_ = new QSpinBox; ySpin_->setRange(0, 4000);
-    wSpin_ = new QSpinBox; wSpin_->setRange(1, 4000); wSpin_->setValue(100);
-    hSpin_ = new QSpinBox; hSpin_->setRange(1, 4000); hSpin_->setValue(24);
+    // The same range as the form itself: a field that clamps at 4000 moved an
+    // item placed further out (by dragging or a loaded design) the next time
+    // any property was committed.
+    xSpin_ = new QSpinBox; xSpin_->setRange(0, QWIDGETSIZE_MAX);
+    ySpin_ = new QSpinBox; ySpin_->setRange(0, QWIDGETSIZE_MAX);
+    wSpin_ = new QSpinBox; wSpin_->setRange(1, QWIDGETSIZE_MAX); wSpin_->setValue(100);
+    hSpin_ = new QSpinBox; hSpin_->setRange(1, QWIDGETSIZE_MAX); hSpin_->setValue(24);
     propForm->addRow("Name:",    nameEdit_);
     propForm->addRow("Caption:", captionEdit_);
     propForm->addRow("X:",       xSpin_);
@@ -442,8 +445,11 @@ void FormDesigner::onLoad() {
         it.type    = o.value("type").toString();
         it.name    = o.value("name").toString();
         it.caption = o.value("caption").toString();
-        it.x = o.value("x").toInt(); it.y = o.value("y").toInt();
-        it.w = o.value("w").toInt(100); it.h = o.value("h").toInt(24);
+        // The property fields' ranges, so selecting a loaded item never moves it.
+        it.x = std::clamp(o.value("x").toInt(), 0, QWIDGETSIZE_MAX);
+        it.y = std::clamp(o.value("y").toInt(), 0, QWIDGETSIZE_MAX);
+        it.w = std::clamp(o.value("w").toInt(100), 1, QWIDGETSIZE_MAX);
+        it.h = std::clamp(o.value("h").toInt(24), 1, QWIDGETSIZE_MAX);
         items_.push_back(it);
         itemList_->addItem(QString("%1: %2").arg(it.type).arg(it.name));
     }

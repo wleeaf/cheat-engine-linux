@@ -1214,6 +1214,40 @@ static void test_guest_view() {
     auto back = gv.read<uint32_t>(4);
     printf("  read-back round trip: %s\n", (back && *back == 0x11223344u) ? "OK" : "FAILED");
 
+    // A read-only shared mapping of a regular file (an asset pack, an SQLite
+    // database): a write that the page refuses must fail, never go through to
+    // the file on disk.
+    {
+        const auto dataPath = std::filesystem::read_symlink("/proc/self/exe").parent_path() /
+            ("cecore-shared-ro-" + std::to_string(getpid()) + ".bin");
+        { std::ofstream out(dataPath, std::ios::binary); out << std::string(4096, 'A'); }
+        int ready[2]; bool piped = ::pipe(ready) == 0;
+        pid_t child = piped ? fork() : -1;
+        if (child == 0) {
+            int fd = ::open(dataPath.c_str(), O_RDONLY | O_CLOEXEC);
+            void* view = fd >= 0 ? ::mmap(nullptr, 4096, PROT_READ, MAP_SHARED, fd, 0) : MAP_FAILED;
+            uintptr_t at = view == MAP_FAILED ? 0 : reinterpret_cast<uintptr_t>(view);
+            (void)!::write(ready[1], &at, sizeof(at));
+            for (;;) pause();
+        }
+        uintptr_t at = 0;
+        if (child > 0) (void)!::read(ready[0], &at, sizeof(at));
+        bool refused = false;
+        if (at) {
+            ce::os::LinuxProcessHandle target(child);
+            const char patch[4] = {'B', 'B', 'B', 'B'};
+            auto w = target.write(at, patch, sizeof(patch));
+            refused = !w || *w != sizeof(patch);
+        }
+        if (child > 0) { kill(child, SIGKILL); waitpid(child, nullptr, 0); }
+        if (piped) { ::close(ready[0]); ::close(ready[1]); }
+        std::ifstream in(dataPath, std::ios::binary);
+        std::string content((std::istreambuf_iterator<char>(in)), {});
+        std::filesystem::remove(dataPath);
+        printf("  a read-only shared file mapping is never written through to disk: %s\n",
+               at && refused && content == std::string(4096, 'A') ? "OK" : "FAILED");
+    }
+
     // Our own executable also mapped as data (a game reading its binary): the
     // module keeps the loaded image's base and extent, and appears once.
     {

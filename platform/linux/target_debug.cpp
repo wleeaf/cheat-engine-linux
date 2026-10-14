@@ -6,6 +6,8 @@
 #include <elf.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <linux/magic.h>
+#include <sys/vfs.h>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -488,6 +490,17 @@ Result<void> writeSharedMappingBacking(pid_t pid,uintptr_t address,std::span<con
             const std::string path=fds+"/"+entry->d_name;
             struct stat info{};
             if (stat(path.c_str(),&info)<0 || info.st_dev!=dev || info.st_ino!=inode) continue;
+            // Only a JIT's own double mapping: shared memory (memfd, /dev/shm)
+            // that the target itself holds open for writing. A read-only
+            // shared mapping of a regular file (an asset pack, an SQLite
+            // database) must never have an edit or a freeze land in the file.
+            struct statfs fs{};
+            if (statfs(path.c_str(),&fs)<0 || (fs.f_type!=TMPFS_MAGIC && fs.f_type!=HUGETLBFS_MAGIC)) continue;
+            std::ifstream fdinfo("/proc/"+std::to_string(pid)+"/fdinfo/"+entry->d_name);
+            unsigned long flags=0; bool haveFlags=false;
+            for (std::string field; std::getline(fdinfo,field);)
+                if (field.rfind("flags:",0)==0) { flags=std::stoul(field.substr(6),nullptr,8); haveFlags=true; break; }
+            if (!haveFlags || (flags&O_ACCMODE)==O_RDONLY) continue;
             writable=open(path.c_str(),O_WRONLY|O_CLOEXEC);
             if (writable>=0) break;
         }

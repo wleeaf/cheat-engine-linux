@@ -20,6 +20,36 @@ namespace ce::gui {
 
 QString TracerWindow::hexQ(uint64_t v) { return QString("0x%1").arg(v, 0, 16); }
 
+QVariant TraceTableModel::data(const QModelIndex& index, int role) const {
+    if (role != Qt::DisplayRole || !index.isValid() || static_cast<size_t>(index.row()) >= entries_->size())
+        return {};
+    const auto& e = (*entries_)[static_cast<size_t>(index.row())];
+    const auto& c = e.context;
+    const bool arm = c.architecture == ce::CpuArchitecture::Arm64;
+    switch (index.column()) {
+        case 0: return QString::number(index.row());
+        case 1: return TracerWindow::hexQ(e.address);
+        case 2: return QString::fromStdString(e.instruction);
+        case 3: return TracerWindow::hexQ(arm ? c.x[0] : c.rax);
+        case 4: return TracerWindow::hexQ(arm ? c.x[1] : c.rbx);
+        case 5: return TracerWindow::hexQ(arm ? c.x[2] : c.rcx);
+        case 6: return TracerWindow::hexQ(arm ? c.x[3] : c.rdx);
+        case 7: return TracerWindow::hexQ(c.instructionPointer());
+    }
+    return {};
+}
+
+QVariant TraceTableModel::headerData(int section, Qt::Orientation orientation, int role) const {
+    if (orientation != Qt::Horizontal || role != Qt::DisplayRole || section < 0 || section >= 8) return {};
+    const auto architecture = entries_->empty() ? ce::CpuArchitecture::Unknown : entries_->front().context.architecture;
+    static const char* x64[] = {"#", "Address", "Instruction", "RAX", "RBX", "RCX", "RDX", "RIP"};
+    static const char* x86[] = {"#", "Address", "Instruction", "EAX", "EBX", "ECX", "EDX", "EIP"};
+    static const char* a64[] = {"#", "Address", "Instruction", "X0", "X1", "X2", "X3", "PC"};
+    const char** names = architecture == ce::CpuArchitecture::Arm64 ? a64
+                       : architecture == ce::CpuArchitecture::X86_32 ? x86 : x64;
+    return QString::fromLatin1(names[section]);
+}
+
 static QString fullRegisterDump(const ce::CpuContext& c) {
     auto h = [](uint64_t v) { return QString("0x%1").arg(v, 0, 16); };
     QString s;
@@ -126,9 +156,9 @@ void TracerWindow::buildUi() {
     layout->addLayout(btnRow);
 
     // Results table
-    table_ = new QTableWidget;
-    table_->setColumnCount(8);
-    table_->setHorizontalHeaderLabels({"#", "Address", "Instruction", "RAX", "RBX", "RCX", "RDX", "RIP"});
+    table_ = new QTableView;
+    model_ = new TraceTableModel(&entries_, table_);
+    table_->setModel(model_);
     // Fit the index, address and 64-bit register columns to content (they clipped
     // at the 100px default); the disassembly text column takes the slack.
     for (int c = 0; c < 8; ++c)
@@ -138,11 +168,11 @@ void TracerWindow::buildUi() {
     table_->setProperty("monospace", true);   // font from the theme sheet
     styleDataTable(table_);
     setEmptyHint(table_, "Traced instructions appear here.");
-    connect(table_, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem* item) {
-        if (!item || item->row() < 0 || item->row() >= (int)entries_.size()) return;
-        const auto& e = entries_[item->row()];
+    connect(table_, &QTableView::doubleClicked, this, [this](const QModelIndex& index) {
+        if (!index.isValid() || index.row() >= (int)entries_.size()) return;
+        const auto& e = entries_[index.row()];
         auto* dlg = new QDialog(this);
-        dlg->setWindowTitle(QString("Step %1 @ 0x%2").arg(item->row()).arg(e.address, 0, 16));
+        dlg->setWindowTitle(QString("Step %1 @ 0x%2").arg(index.row()).arg(e.address, 0, 16));
         dlg->resize(500, 320);
         auto* dl = new QVBoxLayout(dlg);
         auto* hdr = new QLabel(QString("<b>%1</b>").arg(QString::fromStdString(e.instruction)));
@@ -211,7 +241,7 @@ void TracerWindow::onStart() {
         return;
     }
     entries_.clear();
-    table_->setRowCount(0);
+    model_->reload();
     progressBar_->setValue(0);
     statusLabel_->setText("Tracing…");
     startBtn_->setEnabled(false);
@@ -236,26 +266,7 @@ void TracerWindow::onCancel() {
 void TracerWindow::onTraceFinished() {
     if (worker_.joinable()) worker_.join();
 
-    auto architecture=entries_.empty() ? ce::CpuArchitecture::Unknown : entries_.front().context.architecture;
-    table_->setHorizontalHeaderLabels(architecture==ce::CpuArchitecture::Arm64 ?
-        QStringList{"#","Address","Instruction","X0","X1","X2","X3","PC"} :
-        architecture==ce::CpuArchitecture::X86_32 ?
-        QStringList{"#","Address","Instruction","EAX","EBX","ECX","EDX","EIP"} :
-        QStringList{"#","Address","Instruction","RAX","RBX","RCX","RDX","RIP"});
-    table_->setRowCount(entries_.size());
-    for (size_t i = 0; i < entries_.size(); ++i) {
-        const auto& e = entries_[i];
-        const auto& c = e.context;
-        table_->setItem(i, 0, new QTableWidgetItem(QString::number(i)));
-        table_->setItem(i, 1, new QTableWidgetItem(hexQ(e.address)));
-        table_->setItem(i, 2, new QTableWidgetItem(QString::fromStdString(e.instruction)));
-        bool arm=c.architecture==ce::CpuArchitecture::Arm64;
-        table_->setItem(i, 3, new QTableWidgetItem(hexQ(arm ? c.x[0] : c.rax)));
-        table_->setItem(i, 4, new QTableWidgetItem(hexQ(arm ? c.x[1] : c.rbx)));
-        table_->setItem(i, 5, new QTableWidgetItem(hexQ(arm ? c.x[2] : c.rcx)));
-        table_->setItem(i, 6, new QTableWidgetItem(hexQ(arm ? c.x[3] : c.rdx)));
-        table_->setItem(i, 7, new QTableWidgetItem(hexQ(c.instructionPointer())));
-    }
+    model_->reload();   // headers follow the trace's architecture
     progressBar_->setValue(100);
     statusLabel_->setText(QString("%1 steps recorded%2")
         .arg(entries_.size())

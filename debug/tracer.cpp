@@ -13,6 +13,7 @@
 #include <functional>
 #include <map>
 #include <stdexcept>
+#include <array>
 
 namespace ce {
 
@@ -149,6 +150,15 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
         threads.at(tid).signal = 0; // The initial auto-attach stop belongs to ptrace.
         return tid;
     };
+    // A hardware breakpoint trap queued for this thread but not yet delivered.
+    auto queuedHardwareTrap = [&](pid_t tid) {
+        struct { uint64_t offset; uint32_t flags; int32_t count; } peek{0, 0, 32};
+        std::array<siginfo_t, 32> pending{};
+        const long count = ptrace(PTRACE_PEEKSIGINFO, tid, &peek, pending.data());
+        for (long i = 0; i < count; ++i)
+            if (pending[i].si_signo == SIGTRAP && pending[i].si_code == TRAP_HWBKPT) return true;
+        return false;
+    };
     struct Cleanup {
         std::function<void()> action;
         ~Cleanup() { action(); }
@@ -176,6 +186,18 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
                     threads.emplace(static_cast<pid_t>(child),ThreadState{});
                 }
             }
+            // INTERRUPT can win against the start-address breakpoint: its
+            // SIGTRAP is then still queued, and once the debug registers are
+            // restored and the thread detached it would kill the target. Let
+            // it reach its delivery stop, where consume() recognises it as ours
+            // (as the code finder's drainHardwareTraps does).
+            for (int tries = 0; state.armedAddress && tries < 4 && queuedHardwareTrap(tid); ++tries) {
+                const int observed = state.signal;   // an application signal already seen
+                state.signal = 0;
+                if (!resume(tid, PTRACE_CONT) || !waitThread(tid, status, false)) break;
+                if (!state.signal) state.signal = observed;
+            }
+            if (!state.alive) continue;
             if (!restoreDebug(tid)) { usleep(20000); continue; }
             if (ptrace(PTRACE_DETACH,tid,nullptr,reinterpret_cast<void*>(static_cast<intptr_t>(state.signal)))<0 &&
                 errno!=ESRCH && errno!=ECHILD) {

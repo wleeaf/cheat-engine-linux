@@ -109,7 +109,8 @@ public:
 private:
     // ── Internal types ──
     struct Alloc { std::string name; size_t size = 0; uintptr_t preferred = 0; uintptr_t address = 0;
-                   std::string preferredExpr; }; // 3rd alloc arg, resolved at alloc time (may be a symbol)
+                   std::string preferredExpr;   // 3rd alloc arg, resolved at alloc time (may be a symbol)
+                   bool global = false; };      // globalalloc: shared by name, never freed
     struct Label { std::string name; uintptr_t address; };
     struct Define { std::string name; std::string value; };
     struct AsmLine { std::string label; std::string code; uintptr_t targetAddr; };

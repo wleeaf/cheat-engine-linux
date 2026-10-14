@@ -62,6 +62,10 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Fixed: Auto Assembler `globalalloc` behaved like `alloc`: each script got
+  its own block, freed when that script was disabled even if another
+  script's hook still used it. As in Cheat Engine, a `globalalloc` of a name
+  that exists reuses it, and a disable never frees it.
 - Fixed: signatures for code more than 128 MB into a mapping failed, and
   uniqueness was checked only within that first 128 MB; the printed pattern
   (trailing wildcards trimmed) is now the one checked, and its byte count

@@ -8367,6 +8367,26 @@ static void test_autoassembler_comment_in_string(pid_t pid) {
     printf("  // inside db string: %s\n", ok ? "OK" : "FAILED");
 }
 
+// globalalloc is shared by name and outlives the script that made it: another
+// script's hook may still use it.
+static void test_autoassembler_globalalloc_shared(pid_t pid) {
+    printf("\n── Test: Auto Assembler globalalloc is shared ──\n");
+    LinuxProcessHandle proc(pid);
+    AutoAssembler aa;
+    auto first = aa.execute(proc, "[ENABLE]\nglobalalloc(ce_shared_block,64)\nce_shared_block:\ndd #4242\n[DISABLE]\n");
+    auto second = aa.execute(proc, "[ENABLE]\nglobalalloc(ce_shared_block,64)\n[DISABLE]\n");
+    const uintptr_t firstAddress = first.success && !first.disableInfo.symbols.empty() ? first.disableInfo.symbols.begin()->second : 0;
+    const uintptr_t secondAddress = second.success && !second.disableInfo.symbols.empty() ? second.disableInfo.symbols.begin()->second : 0;
+    printf("  a second globalalloc of the name reuses the memory: %s\n",
+           firstAddress && firstAddress == secondAddress ? "OK" : ("FAILED: " + first.error + second.error).c_str());
+    if (first.success) aa.disable(proc, "[ENABLE]\nglobalalloc(ce_shared_block,64)\n[DISABLE]\n", first.disableInfo);
+    int32_t value = 0;
+    auto read = firstAddress ? proc.read(firstAddress, &value, sizeof value) : ce::Result<size_t>(std::unexpected(std::make_error_code(std::errc::invalid_argument)));
+    // Mapped (its bytes are restored like any the script wrote, but the
+    // memory stays for the other script's hook).
+    printf("  disabling the script that made it keeps it mapped: %s\n", read && *read == 4 ? "OK" : "FAILED");
+}
+
 // Cheat Engine script conventions and malformed values, against this process.
 alignas(16) static uint8_t g_aaScratch[64];
 static void test_autoassembler_review_fixes() {
@@ -12566,6 +12586,7 @@ int main(int argc, char* argv[]) {
     test_autoassembler_data_directive_widths(targetPid);
     test_autoassembler_comment_in_string(targetPid);
     test_autoassembler_nop_fillmem(targetPid);
+    test_autoassembler_globalalloc_shared(targetPid);
     test_autoassembler_review_fixes();
     test_autoassembler_try_except(targetPid);
     test_autoassembler_forward_labels(targetPid);

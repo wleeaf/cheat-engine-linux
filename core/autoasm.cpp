@@ -715,9 +715,10 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
         return true;
     }
 
-    // GLOBALALLOC(name, size [, preferred]) — same as ALLOC but the symbol
-    // is also exported to the cross-script symbol table so other AA scripts
-    // can reference it after activation.
+    // GLOBALALLOC(name, size [, preferred]) — as in Cheat Engine, memory shared
+    // by name: a later globalalloc of the same name reuses it, the symbol is
+    // exported for other scripts, and disabling a script never frees it (another
+    // script's hook may still use it).
     if (startsWith(upper, "GLOBALALLOC(") && line.back() == ')') {
         auto args = line.substr(12, line.size() - 13);
         Alloc a;
@@ -726,6 +727,7 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
             return false;
         }
         a.address = 0;
+        a.global = true;
         allocs.push_back(a);
         registeredSymbols.push_back(a.name);  // export after resolution
         log.push_back("GLOBALALLOC: " + a.name + " size=" + std::to_string(a.size));
@@ -1986,6 +1988,18 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
 
     // ── Phase 2: Allocate memory ──
     for (auto& a : allocs) {
+        // A globalalloc whose memory already exists (an earlier globalalloc of
+        // this name, still registered) shares it.
+        if (a.global) {
+            auto symbol = globalSymbols_.find(a.name);
+            auto known = knownAllocations_.find(a.name);
+            if (symbol != globalSymbols_.end() && known != knownAllocations_.end() && known->second.address == symbol->second &&
+                known->second.size >= a.size) {
+                a.address = symbol->second;
+                result.log.push_back("GLOBALALLOC: " + a.name + " reuses its existing memory");
+                continue;
+            }
+        }
         // Resolve the optional "near" address now — it may be a symbol defined
         // by an earlier aobscanmodule/aobscan (e.g. alloc(newmem,$1000,INJECT)),
         // which is how AOB code injections keep the cave within jmp range.
@@ -2018,6 +2032,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             // names; the address-matched erases below keep disable() from evicting a
             // different script's same-named entry.
             knownAllocations_[a.name] = result.disableInfo.allocs.back();
+            if (a.global) result.disableInfo.allocs.pop_back();   // never freed by a disable
             result.log.push_back("Allocated " + a.name + " at 0x" +
                 ([&]{ char b[32]; snprintf(b, 32, "%lx", a.address); return std::string(b); })());
         } else {

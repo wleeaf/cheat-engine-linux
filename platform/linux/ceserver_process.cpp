@@ -1,6 +1,7 @@
 /// RemoteProcessHandle — adapts CEServerClient into the ProcessHandle interface.
 
 #include "platform/linux/ceserver_process.hpp"
+#include <algorithm>
 
 #include <cstdint>
 #include <system_error>
@@ -101,6 +102,8 @@ std::unique_ptr<RemoteProcessHandle> RemoteProcessHandle::open(CEServerClient& c
 }
 
 TargetDescription RemoteProcessHandle::targetDescription() {
+    // Asks the server each time: an exec can change the program's architecture
+    // and pointer width under the same handle. Callers in loops take it once.
     auto operation=client_->lockConnection();
     description_.live=connectionValid();
     if (description_.live) {
@@ -126,9 +129,22 @@ Result<size_t> RemoteProcessHandle::read(uintptr_t address, void* buffer, size_t
     // The ceserver protocol carries a 32-bit length; reject oversized requests
     // instead of silently truncating and reporting a short read as success.
     if (size > UINT32_MAX) return std::unexpected(std::make_error_code(std::errc::value_too_large));
-    auto r = client_->readProcessMemory(handle_, address, buffer, static_cast<uint32_t>(size));
-    if (!r) return std::unexpected(remoteError());
-    return static_cast<size_t>(*r);
+    // In pieces: each command has its own deadline, and one 64 MiB transfer
+    // over a slow link timed out mid-payload, which closes the connection.
+    constexpr size_t kChunk = size_t(1) << 20;
+    size_t done = 0;
+    while (done < size) {
+        const size_t part = std::min(kChunk, size - done);
+        auto r = client_->readProcessMemory(handle_, address + done, static_cast<uint8_t*>(buffer) + done,
+                                            static_cast<uint32_t>(part));
+        if (!r) {
+            if (done) return done;   // the readable prefix, as a local partial read
+            return std::unexpected(remoteError());
+        }
+        done += static_cast<size_t>(*r);
+        if (static_cast<size_t>(*r) < part) break;   // end of readable memory
+    }
+    return done;
 }
 
 Result<size_t> RemoteProcessHandle::write(uintptr_t address, const void* buffer, size_t size) {
@@ -138,9 +154,20 @@ Result<size_t> RemoteProcessHandle::write(uintptr_t address, const void* buffer,
     // writeProcessMemory carries a signed 32-bit length on the wire; reject
     // oversized requests rather than truncating to a (possibly negative) value.
     if (size > static_cast<size_t>(INT32_MAX)) return std::unexpected(std::make_error_code(std::errc::value_too_large));
-    auto r = client_->writeProcessMemory(handle_, address, buffer, static_cast<int32_t>(size));
-    if (!r) return std::unexpected(remoteError());
-    return static_cast<size_t>(*r);
+    constexpr size_t kChunk = size_t(1) << 20;   // see read()
+    size_t done = 0;
+    while (done < size) {
+        const size_t part = std::min(kChunk, size - done);
+        auto r = client_->writeProcessMemory(handle_, address + done, static_cast<const uint8_t*>(buffer) + done,
+                                             static_cast<int32_t>(part));
+        if (!r) {
+            if (done) return done;
+            return std::unexpected(remoteError());
+        }
+        done += static_cast<size_t>(*r);
+        if (static_cast<size_t>(*r) < part) break;
+    }
+    return done;
 }
 
 std::vector<MemoryRegion> RemoteProcessHandle::queryRegions() {

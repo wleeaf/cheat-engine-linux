@@ -917,9 +917,16 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             // Let the freezer keep writing while the watch runs. Calls come one at
             // a time (MCP, the panel's worker), so nothing else uses the session.
             lock.unlock();
-            std::this_thread::sleep_for(std::chrono::seconds(seconds));
+            // In short steps: a shutdown or a monitor that ended (an error, the
+            // target exited) must not wait out the full time.
+            const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+            while (std::chrono::steady_clock::now() < until && finder.running() &&
+                   !(s.options.stopRequested && s.options.stopRequested()))
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
             lock.lock();
             finder.stop();
+            if (auto error = finder.lastError(); error && finder.results().empty())
+                return fail("watching ended early: " + error.message());
             Value list = Value::array();
             bool pointerHint = false;
             for (const auto& hit : finder.results()) {
@@ -962,7 +969,9 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             const int seconds = static_cast<int>(std::clamp<int64_t>(args.getInt("seconds").value_or(4), 1, kMaxWatchSeconds));
             if (!s.memoryOperand(*address)) return fail("the instruction at " + hex(*address) + " does not access memory");
             lock.unlock();   // as in find_what_writes: frozen values stay frozen meanwhile
-            auto accesses = findInstructionAccesses(*s.process, *address, 4096, seconds * 1000);
+            auto stop = s.options.stopRequested;
+            auto accesses = findInstructionAccesses(*s.process, *address, 4096, seconds * 1000,
+                                                    [stop] { return stop && stop(); });
             lock.lock();
             Value list = Value::array();
             for (const auto& access : accesses) {

@@ -36,15 +36,20 @@ void ThreadListWindow::populate() {
     if (!proc_) return;
     auto threads = proc_->threads();
     table_->setRowCount(threads.size());
+    // Once per refresh: for a remote target each call is a network round trip.
+    const auto localPid = ce::localTargetPid(proc_);
     for (size_t i = 0; i < threads.size(); ++i) {
         auto& t = threads[i];
         table_->setItem(i, 0, new QTableWidgetItem(QString::number(t.tid)));
 
-        table_->setItem(i, 1, new QTableWidgetItem(threadName(ce::localTargetPid(proc_).value_or(0), t.tid)));
+        table_->setItem(i, 1, new QTableWidgetItem(threadName(localPid.value_or(0), t.tid)));
 
         // Read state from /proc/pid/task/tid/status
         std::string state = "?";
-        std::ifstream status("/proc/" + std::to_string(proc_->pid()) + "/task/" + std::to_string(t.tid) + "/status");
+        // Only a local target's tasks are under this machine's /proc: a remote
+        // PID would name an unrelated local process.
+        std::ifstream status;
+        if (localPid) status.open("/proc/" + std::to_string(*localPid) + "/task/" + std::to_string(t.tid) + "/status");
         std::string line;
         while (status && std::getline(status, line)) {
             if (line.substr(0, 6) == "State:") {

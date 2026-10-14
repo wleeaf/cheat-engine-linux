@@ -413,6 +413,16 @@ static int cmd_write(pid_t pid, uintptr_t addr, const char* valStr, ValueType vt
 static volatile sig_atomic_t g_freezeStop = 0;
 static void onFreezeSignal(int) { g_freezeStop = 1; }
 
+// Ends a long-running command cleanly, so its cleanup (a breakpoint taken out
+// of the game's code, a page guard lifted, enabled scripts disabled) runs
+// before cescan exits. A closed terminal or dropped ssh session (SIGHUP) and
+// Ctrl-\ (SIGQUIT) must do that too, not only Ctrl-C and SIGTERM.
+static constexpr int kStopSignals[] = {SIGINT, SIGTERM, SIGHUP, SIGQUIT};
+static void catchStopSignals() {
+    g_freezeStop = 0;
+    for (int sig : kStopSignals) signal(sig, onFreezeSignal);
+}
+
 // An ostream target that writes straight to a file descriptor: pipes, sockets
 // and files alike.
 class FdOutputBuffer : public std::streambuf {
@@ -471,8 +481,7 @@ static int cmd_freeze(pid_t pid, uintptr_t addr, const char* valStr, ValueType v
     }
 
     g_freezeStop = 0;
-    signal(SIGINT, onFreezeSignal);
-    signal(SIGTERM, onFreezeSignal);
+    catchStopSignals();
     const char* modeStr = mode==ce::FreezeMode::NeverDecrease ? " (floor)"
                         : mode==ce::FreezeMode::NeverIncrease ? " (ceiling)" : "";
     if (followPointer)
@@ -487,6 +496,12 @@ static int cmd_freeze(pid_t pid, uintptr_t addr, const char* valStr, ValueType v
     const struct timespec ts{ intervalMs/1000, (long)(intervalMs%1000)*1000000L };
     while (!g_freezeStop && (!maxCycles || cycles < maxCycles)) {
         ++cycles;
+        // Writes to a process that is gone only fail: with no cycle limit the
+        // loop would spin forever and a script waiting on it would hang.
+        if (::kill(proc.pid(), 0) != 0 && errno == ESRCH) {
+            printf("\nThe target exited after %llu write(s).\n", writes);
+            return 1;
+        }
         if (followPointer) {
             auto resolved = ExpressionParser(&proc, resolver.get()).parse(expression);
             if (!resolved) { ++misses; if (maxCycles && cycles >= maxCycles) break; nanosleep(&ts, nullptr); continue; }
@@ -511,21 +526,30 @@ static int cmd_freeze(pid_t pid, uintptr_t addr, const char* valStr, ValueType v
 // pointer path, flag any register that holds the target address or a base such that
 // target == [reg + offset] (the struct base you would pointer-scan for).
 static void dumpWriterRegs(const CpuContext& c, uintptr_t target) {
-    const struct { const char* n; uint64_t v; } gp[] = {
-        {"rax",c.rax},{"rbx",c.rbx},{"rcx",c.rcx},{"rdx",c.rdx},
-        {"rsi",c.rsi},{"rdi",c.rdi},{"rbp",c.rbp},{"rsp",c.rsp},
-        {"r8", c.r8}, {"r9", c.r9}, {"r10",c.r10},{"r11",c.r11},
-        {"r12",c.r12},{"r13",c.r13},{"r14",c.r14},{"r15",c.r15},
-    };
-    for (int i = 0; i < 16; ++i) {
-        printf("    %-3s=%016llx%s", gp[i].n, (unsigned long long)gp[i].v, (i % 4) == 3 ? "\n" : "  ");
+    struct Reg { std::string n; uint64_t v; };
+    std::vector<Reg> gp;
+    if (c.hasArmRegisters()) {
+        // An ARM stop has no x86 registers: those fields are all zero.
+        const int count = c.architecture == CpuArchitecture::Arm64 ? 31 : 13;
+        for (int i = 0; i < count; ++i)
+            gp.push_back({(c.architecture == CpuArchitecture::Arm64 ? "x" : "r") + std::to_string(i), c.x[i]});
+        gp.push_back({"sp", c.sp});
+    } else {
+        gp = {{"rax",c.rax},{"rbx",c.rbx},{"rcx",c.rcx},{"rdx",c.rdx},
+              {"rsi",c.rsi},{"rdi",c.rdi},{"rbp",c.rbp},{"rsp",c.rsp},
+              {"r8", c.r8}, {"r9", c.r9}, {"r10",c.r10},{"r11",c.r11},
+              {"r12",c.r12},{"r13",c.r13},{"r14",c.r14},{"r15",c.r15}};
+    }
+    for (size_t i = 0; i < gp.size(); ++i) {
+        printf("    %-3s=%016llx%s", gp[i].n.c_str(), (unsigned long long)gp[i].v,
+               (i % 4) == 3 || i + 1 == gp.size() ? "\n" : "  ");
     }
     for (const auto& r : gp) {
         if (r.v == target)
-            printf("    -> %s holds the target address (a direct pointer to it)\n", r.n);
+            printf("    -> %s holds the target address (a direct pointer to it)\n", r.n.c_str());
         else if (r.v < target && target - r.v <= 0x1000)
             printf("    -> target = [%s + 0x%llx]  (candidate base for a pointer path)\n",
-                   r.n, (unsigned long long)(target - r.v));
+                   r.n.c_str(), (unsigned long long)(target - r.v));
     }
 }
 
@@ -563,14 +587,18 @@ static int cmd_watch(pid_t pid, uintptr_t addr, bool writesOnly, int watchSize,
     }
 
     g_freezeStop = 0;   // reuse the interrupt flag
-    signal(SIGINT, onFreezeSignal);
-    signal(SIGTERM, onFreezeSignal);
+    catchStopSignals();
     const struct timespec tick{0, 200 * 1000000L};   // 200 ms
-    for (long long i = 0; i < 5LL * durationSec && !g_freezeStop; ++i) nanosleep(&tick, nullptr);
+    // The monitor ends on an error or when the target exits: stop waiting then,
+    // and say why rather than report a quiet watch.
+    for (long long i = 0; i < 5LL * durationSec && !g_freezeStop && finder.running(); ++i) nanosleep(&tick, nullptr);
     finder.stop();
+    const auto failure = finder.lastError();
+    if (failure) fprintf(stderr, "watch: monitoring ended early: %s\n", failure.message().c_str());
 
     auto results = finder.results();
     if (results.empty()) {
+        if (failure) return 1;
         printf("No %s to 0x%lx observed in %ds.%s\n", writesOnly ? "writes" : "accesses",
                addr, durationSec,
                prof.wine ? " (Wine: only the main thread was watched; if the value is "
@@ -588,8 +616,11 @@ static int cmd_watch(pid_t pid, uintptr_t addr, bool writesOnly, int watchSize,
         // rip; the software page-guard already stops on the faulting instruction.
         uintptr_t insAddr = r.instructionAddress;
         std::string insText = r.instructionText;
-        if (!software) {
-            auto rec = ce::recoverStoreInstruction(proc, resolver, r.firstContext.rip, proc.is64bit());
+        const bool x86 = r.firstContext.architecture == ce::CpuArchitecture::X86_64 ||
+                         r.firstContext.architecture == ce::CpuArchitecture::X86_32;
+        if (!software && x86) {
+            auto rec = ce::recoverStoreInstruction(proc, resolver, r.firstContext.instructionPointer(),
+                                                   r.firstContext.architecture == ce::CpuArchitecture::X86_64);
             if (rec.ok) { insAddr = rec.address; insText = rec.text; }
         }
         std::string loc = resolver.resolve(insAddr);
@@ -598,7 +629,7 @@ static int cmd_watch(pid_t pid, uintptr_t addr, bool writesOnly, int watchSize,
                insText.c_str(), loc.empty() ? "" : "   ; ", loc.c_str());
         if (showRegs) dumpWriterRegs(r.firstContext, addr);
     }
-    return 0;
+    return failure ? 1 : 0;
 }
 
 // Find out what addresses this instruction accesses: break on it each time it
@@ -611,8 +642,7 @@ static int cmd_accessed(pid_t pid, uintptr_t instruction, int durationSec) {
     // before cescan exits: left behind it would kill the game the next time
     // the instruction runs.
     g_freezeStop = 0;
-    signal(SIGINT, onFreezeSignal);
-    signal(SIGTERM, onFreezeSignal);
+    catchStopSignals();
     auto accesses = ce::findInstructionAccesses(proc, instruction, 1 << 20, durationSec * 1000,
                                                 [] { return g_freezeStop != 0; });
     if (accesses.empty()) {
@@ -978,6 +1008,14 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
             printf("Next scan on %zu previous results...\n",previous.count());
             result=std::make_unique<ScanResult>(scanner.nextScan(proc,config,previous));
         } else {
+            // A first scan has nothing to compare with: "increased" etc. would
+            // silently compare against 0 and report every non-zero value.
+            const auto c = config.compareType;
+            if (c != ScanCompare::Exact && c != ScanCompare::Greater && c != ScanCompare::Less &&
+                c != ScanCompare::Between && c != ScanCompare::Unknown) {
+                fprintf(stderr, "This comparison needs the previous scan: pass --previous <dir>\n");
+                return 1;
+            }
             printf("Scanning PID %d...\n",pid);
             result=std::make_unique<ScanResult>(scanner.firstScan(proc,config));
         }
@@ -1365,11 +1403,19 @@ static int cmd_pointerscan(pid_t pid, uintptr_t target, int depth, int maxOffset
     config.maxDepth = depth;
     config.maxOffset = maxOffset;
 
+    // An unreadable target yields no paths: say so, do not report 0 found.
+    if (auto problem = ce::memoryAccessProblem(proc)) {
+        fprintf(stderr, "pointerscan: %s\n", problem->c_str());
+        return 1;
+    }
     printf("Pointer scan: PID %d, target 0x%lx, depth %d, offset %d\n", pid, target, depth, maxOffset);
     printf("Building reverse pointer map...\n");
 
     auto results = scanner.scan(proc, config);
+    sortPointerPaths(results, PointerSortKey::Depth);   // the 50 shown are the shortest
     printf("Found %zu pointer paths:\n\n", results.size());
+    if (scanner.truncated())
+        printf("  (the path limit was reached: longer paths may be missing; lower depth or offset)\n\n");
 
     for (size_t i = 0; i < std::min(results.size(), size_t(50)); ++i) {
         auto& p = results[i];
@@ -1459,11 +1505,9 @@ static int cmd_autoasm(pid_t pid, const char* scriptFile, std::optional<unsigned
         return 1;
     }
     if (disableAfter) {
-        g_freezeStop = 0;
-        auto oldInt = signal(SIGINT, onFreezeSignal);
-        auto oldTerm = signal(SIGTERM, onFreezeSignal);
+        catchStopSignals();   // the script is disabled after the wait, also on a hang-up
         for (unsigned elapsed = 0; elapsed < *disableAfter && !g_freezeStop; ++elapsed) sleep(1);
-        signal(SIGINT, oldInt); signal(SIGTERM, oldTerm);
+        for (int sig : kStopSignals) signal(sig, SIG_DFL);
         auto disabled = autoAsm.disable(proc, script, result.disableInfo);
         if (!disabled.success) { fprintf(stderr, "Disable failed: %s\n", disabled.error.c_str()); return 1; }
         printf("Disabled: original bytes restored and allocations released\n");
@@ -1573,6 +1617,7 @@ static int cmd_il2cpp(int argc, char** argv) {
         else if (!strcmp(argv[i], "--binary") && i + 1 < argc) binaryPath = argv[++i];
         else if (!strcmp(argv[i], "--object") && i + 1 < argc) objectClass = argv[++i];
         else if (argv[i][0] != '-' && !path) path = argv[i];   // positional metadata file
+        else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }   // a typo, not ignored
     }
 
     // --pid: resolve directly from a running Unity game. Auto-locates the metadata and
@@ -1757,11 +1802,19 @@ static int cmd_analyze(pid_t pid, int argc, char** argv) {
     std::string modName;
     std::vector<const char*> pos;
     for (int i = 1; i < argc; ++i) {
-        if (!strcmp(argv[i], "--module") && i + 1 < argc) modName = argv[++i];
-        else pos.push_back(argv[i]);
+        if (!strcmp(argv[i], "--module")) {
+            if (i + 1 >= argc) { fprintf(stderr, "cescan analyze: --module needs a name\n"); return 1; }
+            modName = argv[++i];
+        } else if (argv[i][0] == '-' && argv[i][1] == '-') {
+            fprintf(stderr, "cescan analyze: unknown option %s\n", argv[i]); return 1;
+        } else pos.push_back(argv[i]);
     }
 
     LinuxProcessHandle proc(pid);
+    if (auto problem = ce::memoryAccessProblem(proc)) {   // nothing found is not "no strings"
+        fprintf(stderr, "cescan analyze: %s\n", problem->c_str());
+        return 1;
+    }
     auto mods = proc.modules();
     if (mods.empty()) { fprintf(stderr, "cescan analyze: no modules for pid %d\n", pid); return 1; }
     const ce::ModuleInfo* mod = nullptr;
@@ -1961,6 +2014,7 @@ int main(int argc, char** argv) {
             if (!strcmp(argv[i], "--allow-writes")) options.allowWrites = true;
             else { fprintf(stderr, "Unknown option: %s\n", argv[i]); return 1; }
         }
+        options.stopRequested = [] { return g_freezeStop != 0; };   // a running watch ends on SIGTERM
         // stdout carries the protocol. Keep a private copy of it for responses and
         // point the ordinary stdout at stderr, so stray library output can never
         // corrupt the message stream.
@@ -1981,8 +2035,7 @@ int main(int argc, char** argv) {
         struct sigaction stopAction {};
         stopAction.sa_handler = onFreezeSignal;
         sigemptyset(&stopAction.sa_mask);
-        sigaction(SIGINT, &stopAction, nullptr);
-        sigaction(SIGTERM, &stopAction, nullptr);
+        for (int sig : kStopSignals) sigaction(sig, &stopAction, nullptr);
         ce::AgentSession session(options);
         return ce::runMcpServer(std::cin, protocol, session, CECORE_VERSION, [] { return g_freezeStop != 0; });
     }
@@ -2001,8 +2054,7 @@ int main(int argc, char** argv) {
         printf("ceserver listening on 127.0.0.1:%u (Ctrl-C to stop)\n", bound);
         fflush(stdout);
         g_freezeStop = 0;
-        signal(SIGINT, onFreezeSignal);
-        signal(SIGTERM, onFreezeSignal);
+        catchStopSignals();
         const struct timespec tick{0, 200 * 1000000L};
         while (!g_freezeStop && server.running()) nanosleep(&tick, nullptr);
         server.stop();
@@ -2210,6 +2262,7 @@ int main(int argc, char** argv) {
         for (int i = 4; i < argc; ++i) {
             if (!strcmp(argv[i], "--arch") && i + 1 < argc) archStr = argv[++i];
             else if (argv[i][0] != '-') count = static_cast<size_t>(parseUInt(argv[i], "disasm count", kMaxDisasmCount));
+            else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
         }
         Arch arch = Arch::X86_64;
         if (archStr) {

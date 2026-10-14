@@ -141,6 +141,26 @@ reimplementation of Cheat Engine).
   address; freezing right after an edit froze "?" or nothing. Cut lost a
   group's children; dropping a record on the group right above it did
   nothing, and dragging a record left its children behind.
+- Fixed: `cescan`. Closing the terminal (SIGHUP) or Ctrl-\ during `accessed`,
+  `watch --mode sw`, `freeze`, `mcp` or `ceserver` killed it with a
+  breakpoint or page guard left in the game; they now clean up like on
+  Ctrl-C. `watch` waited out its full duration after the monitor had died
+  and reported "nothing observed" with exit 0; `freeze` spun forever after
+  the target exited; a first `scan` with `--compare increased` (or another
+  relative comparison) compared against 0; `pointerscan` and `analyze`
+  reported empty results for an unreadable target and `pointerscan` showed
+  an unsorted 50 without the path-limit note; `watch --regs` showed x86
+  registers on ARM; unknown or incomplete options of `disasm`, `il2cpp` and
+  `analyze` were ignored. MCP watches end on shutdown instead of holding it
+  for up to 30 seconds.
+- Fixed: ceserver targets. A dropped connection made a scan return partial
+  or empty results without an error, and the window kept showing `??`
+  values; scans now fail and the window reports the lost connection. Reads
+  and writes are sent in 1 MiB pieces (one 64 MiB transfer timed out on a
+  slow link and closed the connection), the module list had no overall size
+  limit, and the thread list (which also asked the server twice per row),
+  speedhack and target info looked up the remote PID in this machine's
+  /proc.
 - Fixed: Indent, Outdent and Move Up/Down moved a group header without its
   records (and Move could move a record into or out of a group); they now
   move the whole subtree past its sibling. An empty or invalid percentage in

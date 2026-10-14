@@ -238,6 +238,16 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             statusBar()->showMessage("GDB target disconnected or exited",5000);
             return;
         }
+        // A ceserver connection closes on any error or timeout and never comes
+        // back: say so, instead of showing "??" values against a dead link.
+        if (ceserverClient_ && !process_->targetDescription().live) {
+            if (nestedLoop) return;
+            onDisconnectProcess();
+            processLabel_->setText("ceserver connection lost");
+            processDetail_->setText(tr("Connect again with File > Connect to ceserver."));
+            statusBar()->showMessage("ceserver connection lost",5000);
+            return;
+        }
         // Detect target death: once the pid is gone, stop polling and clear state
         // so the UI doesn't keep showing stale values against a dead process.
         // A process we started (Create Process) stays a zombie until reaped, and
@@ -455,8 +465,8 @@ void MainWindow::setupMenus() {
             target->addRow("Name:", value(currentProcessName_));
             target->addRow("PID:", value(QString::number(currentPid_)));
             target->addRow("Executable:", value(modules.empty() ? QString("(unknown)") : QString::fromStdString(modules.front().path)));
-            if (currentPid_ > 0)
-                target->addRow("Kind:", value(QString::fromStdString(ce::probeTarget(currentPid_).summary())));
+            if (auto localPid = ce::localTargetPid(process_.get()))
+                target->addRow("Kind:", value(QString::fromStdString(ce::probeTarget(*localPid).summary())));
             target->addRow("Program:", value(QString("%1, %2-byte pointers, %3")
                 .arg(ce::cpuArchitectureName(description.program.architecture)).arg(description.program.pointerWidth)
                 .arg(ce::byteOrderName(description.program.byteOrder))));
@@ -941,7 +951,11 @@ void MainWindow::setupMenus() {
             // Inject the speedhack library into the running target the first time,
             // so it works without relaunching the game under LD_PRELOAD (CE-style).
             if (process_) {
-                pid_t pid = process_->pid();
+                // The speedhack is injected locally and speaks through this
+                // machine's /dev/shm: a remote PID names some other process here.
+                const auto localPid = ce::localTargetPid(process_.get());
+                if (!localPid) { label->setText("The speedhack works on local processes only."); return; }
+                pid_t pid = *localPid;
                 bool loaded = false;
                 std::ifstream maps("/proc/" + std::to_string(pid) + "/maps");
                 std::string line;

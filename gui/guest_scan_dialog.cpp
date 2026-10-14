@@ -1,4 +1,5 @@
 #include "gui/guest_scan_dialog.hpp"
+#include "core/local_target.hpp"
 #include "gui/theme.hpp"
 #include "core/guest_view.hpp"
 
@@ -85,7 +86,7 @@ GuestScanDialog::GuestScanDialog(ce::ProcessHandle* proc, QWidget* parent)
     : QDialog(parent), proc_(proc) {
     setWindowTitle("Emulator guest scan");
     resize(600, 520);
-    if (proc_) profile_ = ce::probeTarget(proc_->pid());
+    if (proc_) if (auto localPid = ce::localTargetPid(proc_)) profile_ = ce::probeTarget(*localPid);   // local /proc only
 
     auto* layout = new QVBoxLayout(this);
 

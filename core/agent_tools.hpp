@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 /// Tools an AI agent uses to drive Cheat Engine: attach to a process, scan and
 /// narrow values, read and write memory, disassemble, and build a cheat table.
 /// Qt-free, so the MCP server (`cescan mcp`) and a future GUI agent panel share
@@ -32,6 +33,9 @@ struct AgentSessionOptions {
     bool allowWrites = false;
     // How often frozen records are rewritten.
     int freezeIntervalMs = 100;
+    // True once the host is shutting down: long watches end early so the
+    // session can take its breakpoints out of the game before the process exits.
+    std::function<bool()> stopRequested;
 };
 
 class AgentSession {

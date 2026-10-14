@@ -360,6 +360,7 @@ CEServerClient::enumModules(int32_t pid) {
     //                            int32_t modulenamesize; } + namesize bytes.
     // result==0 marks end of list.
     std::vector<CeModuleInfo> modules;
+    size_t nameBytes = 0;   // a module list is paths: bounded in total, not just per name
     while (true) {
         int32_t result = 0;
         int64_t base = 0;
@@ -374,7 +375,7 @@ CEServerClient::enumModules(int32_t pid) {
             !recvAll(&fileOff, sizeof(fileOff), error) ||
             !recvAll(&nameSize, sizeof(nameSize), error))
             return std::unexpected(error);
-        if (nameSize < 0 || nameSize > (1 << 20)) {
+        if (nameSize < 0 || nameSize > 4096 || (nameBytes += static_cast<size_t>(nameSize)) > (size_t(64) << 20)) {
             retireConnection();
             return std::unexpected("ceserver returned invalid module name size");
         }
@@ -385,7 +386,7 @@ CEServerClient::enumModules(int32_t pid) {
         modules.push_back(CeModuleInfo{static_cast<uint64_t>(base), modSize, part, fileOff, std::move(name)});
         // A malicious/buggy server that never sends the result==0 terminator
         // must not grow this vector without bound.
-        if (modules.size() > (1u << 20)) {
+        if (modules.size() > (1u << 16)) {
             retireConnection();
             return std::unexpected("ceserver returned too many modules");
         }

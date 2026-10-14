@@ -2508,7 +2508,11 @@ static void checkIntegerRange(const ScanConfig& config) {
 
 static ScanConfig targetScanConfig(ProcessHandle& proc,const ScanConfig& requested,bool& gdbTarget) {
     checkIntegerRange(requested);
-    const auto description=proc.targetDescription();gdbTarget=description.transport==TargetTransport::Gdb;
+    // GDB and ceserver targets can disconnect mid-scan: their failed reads look
+    // like unreadable memory, so liveness is re-checked and a scan that lost
+    // its target fails instead of presenting partial results.
+    const auto description=proc.targetDescription();
+    gdbTarget=description.transport==TargetTransport::Gdb || description.transport==TargetTransport::CEServer;
     if (!description.live) throw std::runtime_error("Scan target disconnected or exited");
     if (requested.startAddress>requested.stopAddress) throw std::invalid_argument("Scan From must not exceed To");
     ScanConfig config=requested;
@@ -2551,7 +2555,10 @@ ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& reque
 
     // Get memory regions
     auto regions = proc.queryRegions();
-    if (gdbTarget && regions.empty()) throw std::invalid_argument("The GDB stub has no memory map; supply explicit guest ranges before scanning");
+    if (gdbTarget && regions.empty()) {
+        if (!proc.targetDescription().live) throw std::runtime_error("The remote target disconnected before scanning");
+        throw std::invalid_argument("The target reported no memory map; for a GDB stub supply explicit guest ranges before scanning");
+    }
 
     // Filter regions
     auto protAllowed = [](ProtMatch m, bool has) {
@@ -2842,7 +2849,7 @@ ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& reque
     progress_.store(1.0f);
 
     // Reference the worker files in place (in address order) — no merge copy.
-    if (gdbTarget && !proc.targetDescription().live) throw std::runtime_error("GDB target disconnected during scanning");
+    if (gdbTarget && !proc.targetDescription().live) throw std::runtime_error("The remote target disconnected during scanning");
     auto merged = assembleShardedResult(resultDir / "results", threadResults);
     merged.adoptDirectory(resultDir);
     return merged;
@@ -3057,7 +3064,7 @@ ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& reques
         const std::atomic<bool> failed{false};
         try { worker(0, total, result, failed); }
         catch (...) { rethrowScanFailure(std::current_exception()); }
-        if (gdbTarget && !proc.targetDescription().live) throw std::runtime_error("GDB target disconnected during scanning");
+        if (gdbTarget && !proc.targetDescription().live) throw std::runtime_error("The remote target disconnected during scanning");
         return result;
     }
 
@@ -3075,7 +3082,7 @@ ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& reques
     });
 
     // Reference the worker files in place (in address order) — no merge copy.
-    if (gdbTarget && !proc.targetDescription().live) throw std::runtime_error("GDB target disconnected during scanning");
+    if (gdbTarget && !proc.targetDescription().live) throw std::runtime_error("The remote target disconnected during scanning");
     auto merged = assembleShardedResult(resultDir / "results", parts);
     merged.adoptDirectory(resultDir);
     return merged;

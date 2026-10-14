@@ -15,6 +15,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
+#include <optional>
 #include <type_traits>
 #include <utility>
 
@@ -49,13 +51,31 @@ QString fmtBits(uint64_t b) {
     else                                       return QString::number((unsigned long long)v);
 }
 
+// Decimal, or hex with 0x (a leading zero is not octal). Integers accept the
+// signed and the unsigned range of their width. Empty or junk is rejected, not 0.
 template <class T>
-T parseValueT(const QString& s) {
+std::optional<T> parseValueT(const QString& text) {
+    const QString s = text.trimmed();
+    bool ok = false;
     if constexpr (std::is_floating_point_v<T>) {
-        return static_cast<T>(QString(s).replace(',', '.').toDouble());
+        const double v = QString(s).replace(',', '.').toDouble(&ok);
+        if (!ok) return std::nullopt;
+        return static_cast<T>(v);
     } else {
-        bool ok = false;
-        return static_cast<T>(s.trimmed().toLongLong(&ok, 0));
+        using U = std::make_unsigned_t<T>;
+        const bool negative = s.startsWith('-');
+        QString digits = negative ? s.mid(1) : s;
+        int base = 10;
+        if (digits.startsWith("0x", Qt::CaseInsensitive)) { base = 16; digits = digits.mid(2); }
+        if (digits.isEmpty() || digits.startsWith('-') || digits.startsWith('+')) return std::nullopt;
+        const qulonglong magnitude = digits.toULongLong(&ok, base);
+        if (!ok) return std::nullopt;
+        if (negative) {
+            if (magnitude > static_cast<qulonglong>(std::numeric_limits<T>::max()) + 1) return std::nullopt;
+            return static_cast<T>(static_cast<U>(U(0) - static_cast<U>(magnitude)));
+        }
+        if (magnitude > std::numeric_limits<U>::max()) return std::nullopt;
+        return static_cast<T>(static_cast<U>(magnitude));
     }
 }
 
@@ -177,13 +197,18 @@ void GuestScanDialog::beginScan() {
 
 void GuestScanDialog::onFirstScan() {
     if (profile_.guestCandidates.empty()) return;
+    const QString valStr = valueEdit_->text();
+    if (!dispatchType(selectedType(), [&]<class T>() { return parseValueT<T>(valStr).has_value(); })) {
+        statusLabel_->setText("Enter a value that fits the selected type.");
+        return;
+    }
     beginScan();
     ce::GuestView gv{ proc_, regionBase_, regionSize_, scanBigEndian_ };
-    const QString valStr = valueEdit_->text();
     candidates_ = dispatchType(scanType_, [&]<class T>() {
-        const uint64_t vb = valBits<T>(parseValueT<T>(valStr));
+        const T val = *parseValueT<T>(valStr);
+        const uint64_t vb = valBits<T>(val);
         std::vector<std::pair<uint64_t, uint64_t>> out;
-        for (uint64_t a : ce::guestScanExact<T>(gv, parseValueT<T>(valStr), sizeof(T)))
+        for (uint64_t a : ce::guestScanExact<T>(gv, val, sizeof(T)))
             out.emplace_back(a, vb);
         return out;
     });
@@ -203,10 +228,14 @@ void GuestScanDialog::onUnknownScan() {
 
 void GuestScanDialog::onNextScan() {
     if (!haveScan_ || unknownMode_) return;
-    ce::GuestView gv{ proc_, regionBase_, regionSize_, scanBigEndian_ };
     const QString valStr = valueEdit_->text();
+    if (!dispatchType(scanType_, [&]<class T>() { return parseValueT<T>(valStr).has_value(); })) {
+        statusLabel_->setText("Enter a value that fits the selected type.");   // keep the results
+        return;
+    }
+    ce::GuestView gv{ proc_, regionBase_, regionSize_, scanBigEndian_ };
     candidates_ = dispatchType(scanType_, [&]<class T>() {
-        const T val = parseValueT<T>(valStr);
+        const T val = *parseValueT<T>(valStr);
         std::vector<uint64_t> addrs;
         addrs.reserve(candidates_.size());
         for (auto& [a, _] : candidates_) addrs.push_back(a);

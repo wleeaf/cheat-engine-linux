@@ -240,7 +240,10 @@ int main(int argc, char* argv[]) {
     // or `cheatengine table.ct`), matching CE's file-association behaviour.
     for (int i = 1; i < cliArgs.size(); ++i) {
         const QString& arg = cliArgs.at(i);
-        if (arg == QLatin1String("--pid")) { ++i; continue; }   // --pid consumes its value
+        // Flags that take a value consume it; that value is never a table path.
+        if (arg == QLatin1String("--pid") || arg == QLatin1String("--memview") ||
+            arg == QLatin1String("--find-writes") || arg == QLatin1String("--settings-page") ||
+            arg == QLatin1String("--panel")) { ++i; continue; }
         if (arg.startsWith(QLatin1String("--"))) continue;      // other flags: no value
         if (QFile::exists(arg)) { w.loadTableFromPath(arg); break; }
     }

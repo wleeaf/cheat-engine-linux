@@ -97,15 +97,24 @@ static QByteArray parseHexBytes(const QString& text, QString* err) {
     return out;
 }
 
+// "0x" hex or decimal, as the field says; a leading zero is not octal (010 is
+// ten, not eight) and a negative offset is refused.
+static bool parseFileOffset(const QString& text, qint64& offset) {
+    QString s = text.trimmed();
+    bool ok = false;
+    if (s.startsWith("0x", Qt::CaseInsensitive)) offset = s.mid(2).toLongLong(&ok, 16);
+    else offset = s.toLongLong(&ok, 10);
+    return ok && offset >= 0;
+}
+
 void FilePatcher::onReadBytes() {
     if (pathEdit_->text().isEmpty()) {
         QMessageBox::warning(this, "Pick a file", "Choose a file first.");
         return;
     }
-    bool ok = false;
-    qint64 offset = offsetEdit_->text().toLongLong(&ok, 0);
-    if (!ok) {
-        QMessageBox::warning(this, "Bad offset", "Offset doesn't parse.");
+    qint64 offset = 0;
+    if (!parseFileOffset(offsetEdit_->text(), offset)) {
+        QMessageBox::warning(this, "Bad offset", "Enter a non-negative offset: 0x-prefixed hex or decimal.");
         return;
     }
     QFile f(pathEdit_->text());
@@ -131,10 +140,9 @@ void FilePatcher::onApply() {
         QMessageBox::warning(this, "Pick a file", "Choose a file first.");
         return;
     }
-    bool ok = false;
-    qint64 offset = offsetEdit_->text().toLongLong(&ok, 0);
-    if (!ok) {
-        QMessageBox::warning(this, "Bad offset", "Offset doesn't parse.");
+    qint64 offset = 0;
+    if (!parseFileOffset(offsetEdit_->text(), offset)) {
+        QMessageBox::warning(this, "Bad offset", "Enter a non-negative offset: 0x-prefixed hex or decimal.");
         return;
     }
     QString err;

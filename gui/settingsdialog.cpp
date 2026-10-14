@@ -261,7 +261,7 @@ QWidget* SettingsDialog::buildMemoryViewPage() {
     refreshIntervalSpin_->setRange(100, 30'000);
     refreshIntervalSpin_->setSingleStep(100);
     refreshIntervalSpin_->setSuffix(" ms");
-    refreshIntervalSpin_->setValue(s.value(MV_REFRESH_MS_KEY, 500).toInt());
+    refreshIntervalSpin_->setValue(s.value(MV_REFRESH_MS_KEY, 2000).toInt());   // the Memory Viewer default
     refreshIntervalSpin_->setEnabled(autoRefreshCheck_->isChecked());
     connect(autoRefreshCheck_, &QCheckBox::toggled, refreshIntervalSpin_, &QWidget::setEnabled);
     form->addRow("Refresh interval:", refreshIntervalSpin_);
@@ -426,7 +426,10 @@ void SettingsDialog::onApply() {
     s.setValue(DISP_ADDR_WIDTH_KEY,   addressWidthCombo_->currentIndex());
     s.setValue(DISP_HEX_UPPER_KEY,    hexUpperCheck_->isChecked());
     const bool dark = themeCombo_->currentIndex() == 1;
-    s.setValue(kDarkThemeKey, dark);
+    // Store a choice only when there is one: OK with the theme untouched keeps
+    // following the desktop's light/dark preference.
+    if (s.contains(kDarkThemeKey) || dark != isDarkTheme())
+        s.setValue(kDarkThemeKey, dark);
     // Re-apply the theme live: a theme change takes effect immediately, and the
     // sheet also carries the data tables' monospace font.
     applyTheme(dark);

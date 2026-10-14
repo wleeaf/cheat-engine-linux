@@ -77,6 +77,38 @@ reimplementation of Cheat Engine).
   address" pre-filled display text and saved it as a label; assembling a
   longer instruction left the rest of the next one as garbage (it is now
   padded with NOPs to the next boundary).
+- Security: Lua `snapshot:save()` wrote files without the file-write opt-in
+  (`CECORE_LUA_ALLOW_UNSAFE=1`) that other file writers need, and followed a
+  symlink at the path.
+- Fixed: Lua. A memory record handle or an OnActivate handler kept working
+  after another table was loaded, on the new record with the same ID; forms
+  and timers had no `destroy` (so `createTimer(nil)` ran forever); a bad
+  argument to a font, colour or `Lines` property leaked memory, and
+  `Stream.loadFromFile` of a too-large file leaked a file descriptor.
+- Fixed: the debugger. "Replace with NOPs" on a line with a breakpoint wrote
+  one NOP over the trap, and removing the breakpoint then put the original
+  byte back over it; it now refuses. Step Out planted a breakpoint at the
+  value on top of the stack even when that was data. Breakpoints set from the
+  Memory Viewer were only drawn, never armed; they now go to the debugger.
+  Run to Cursor's temporary breakpoint stayed armed after a stop elsewhere.
+  Advanced Options let one entry be replaced with NOPs twice, after which
+  Restore put back NOPs.
+- Fixed: the speedhack library was not found in the .deb (it is installed in
+  the multiarch library directory) and was missing from the AppImage; the
+  128x128 icon was installed as 256x256.
+- Fixed: symbols. Absolute ELF symbols (glibc's `GLIBC_2.x` version nodes are
+  0) named small numbers in the disassembler; a user label up to 4 KiB before
+  a function hid that function's name; DWARF multi-dimensional arrays had the
+  size of their first dimension, and DWARF 4 bitfields and DWARF 2 member
+  offsets were read as offset 0.
+- Fixed: dialogs. The file patcher read an offset with a leading zero as
+  octal (010 patched offset 8) and accepted negative offsets; the emulator
+  guest scan treated an empty or invalid value as 0 and a next scan with one
+  emptied the results; ticking Pointer in Change Address dropped the typed
+  address; a negative or junk Length became a huge byte count; pressing OK in
+  Settings stopped the theme following the desktop; `--panel`,
+  `--settings-page`, `--memview` and `--find-writes` values were opened as
+  table files when a file of that name existed.
 - Fixed: the script editor's syntax check never said why a script failed,
   and Find Statics could scan a different module than the one picked.
 - Fixed: Auto Assembler `globalalloc` behaved like `alloc`: each script got

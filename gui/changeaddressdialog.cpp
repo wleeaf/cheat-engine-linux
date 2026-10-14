@@ -275,6 +275,12 @@ void ChangeAddressDialog::setPointerMode(bool on) {
     { QSignalBlocker b(pointerCheck_); pointerCheck_->setChecked(on); }
     pointerBox_->setVisible(on);
     addrEdit_->setReadOnly(on);   // in pointer mode the address is composed, not typed
+    // Ticking Pointer after typing an address makes it the pointer's base,
+    // instead of replacing it with an empty composition.
+    if (on && pointerBaseEdit_->text().trimmed().isEmpty() && !addrEdit_->text().trimmed().isEmpty()) {
+        QSignalBlocker b(pointerBaseEdit_);
+        pointerBaseEdit_->setText(addrEdit_->text().trimmed());
+    }
     if (on) recomposeAddress();
     updatePreview();              // clears the preview when leaving pointer mode
 }
@@ -291,7 +297,11 @@ bool ChangeAddressDialog::showHex() const { return hexCheck_->isChecked(); }
 bool ChangeAddressDialog::isUnicode() const { return unicodeCheck_->isChecked(); }
 bool ChangeAddressDialog::isPointer() const { return pointerCheck_->isChecked(); }
 bool ChangeAddressDialog::isSigned() const { return signedCheck_->isChecked(); }
-int ChangeAddressDialog::length() const { return lengthEdit_->text().toInt(); }
+int ChangeAddressDialog::length() const {
+    bool ok = false;
+    const int n = lengthEdit_->text().trimmed().toInt(&ok, 10);
+    return ok ? std::clamp(n, 0, 65536) : 0;   // callers cast to size_t; the table caps records at 64 KiB
+}
 
 void ChangeAddressDialog::syncFlagState() {
     int i = typeCombo_->currentIndex();

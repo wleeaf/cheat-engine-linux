@@ -20,14 +20,9 @@ protected:
     void paintEvent(QPaintEvent* event) override;
 
 private:
-    void updateFpsCounter();
-
     QString statusText_ = "No process";
     bool osdEnabled_ = true;
     bool crosshairEnabled_ = true;
-    int fps_ = 0;
-    int frameCounter_ = 0;
-    QElapsedTimer fpsTimer_;
 };
 
 } // namespace ce::gui

@@ -1,4 +1,5 @@
 #include "gui/agent_panel.hpp"
+#include <QFile>
 
 #include "gui/secret_store.hpp"
 
@@ -107,6 +108,9 @@ std::optional<QString> agentApiKey(const AgentConfig& config, QString* source, Q
 AgentPanel::AgentPanel(QWidget* parent) : QWidget(parent) {
     AgentSessionOptions options;
     options.allowWrites = true;   // every change still waits for the user's Allow
+    // Stop (and closing the window, which waits for the worker) ends a long
+    // tool such as a 30 s watch, not only the network request.
+    options.stopRequested = [this] { return stopping_.load(); };
     session_ = std::make_unique<AgentSession>(options);
 
     provider_ = new QLabel;
@@ -463,8 +467,20 @@ bool AgentPanel::approve(const std::string& tool, const Value& arguments) {
         description = QString("Enable the script \"%1\"?").arg(text(arguments.getString("description").value_or("")));
         detail = text(arguments.getString("script").value_or(""));
     }
-    if (tool != "attach" && tool != "save_table" && turnPid_ && description.endsWith('?'))
-        description = description.chopped(1) + QString(" in %1 (PID %2)?").arg(turnName_).arg(turnPid_);
+    // Name the process the session is attached to now: the model may have
+    // attached elsewhere since the turn began (with the user's approval).
+    if (tool != "attach" && tool != "save_table" && description.endsWith('?')) {
+        const pid_t pid = session_->attachedPid();   // the worker owns the session during a turn
+        if (pid > 0) {
+            QString name = pid == turnPid_ ? turnName_ : QString();
+            if (name.isEmpty()) {
+                QFile comm(QString("/proc/%1/comm").arg(pid));
+                if (comm.open(QIODevice::ReadOnly)) name = QString::fromUtf8(comm.readAll()).trimmed();
+            }
+            description = description.chopped(1) + (name.isEmpty() ? QString(" in PID %1?").arg(pid)
+                                                                    : QString(" in %1 (PID %2)?").arg(name).arg(pid));
+        }
+    }
     {
         std::lock_guard lock(approvalMutex_);
         if (stopping_) return false;

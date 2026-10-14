@@ -204,6 +204,11 @@ private:
     QString tableComment_;
     QString tableLuaScript_;     // table-level Lua (runs on load, saved with the table)
     std::vector<QPointer<QWidget>> tableTextWindows_;   // Comments / Lua Script editors
+    QPointer<QDialog> settingsDialog_;   // one at a time (see openSettingsDialog)
+    QByteArray savedTableFingerprint_;   // content of the last loaded/saved table
+    QByteArray tableFingerprint() const;
+    void markTableSaved();
+    bool maybeSaveTable();
     ce::CheatTable tableMetadata_; // Imported author/version/structures/forms survive re-save.
     // Populate a Memory Viewer's View/Tools/Debug menus with the tools that need
     // MainWindow's context (CE keeps these in the Memory Viewer, not the main menu).

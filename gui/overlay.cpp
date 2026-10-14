@@ -21,10 +21,9 @@ OverlayWindow::OverlayWindow(QWidget* parent) : QWidget(parent) {
     if (auto* screen = QGuiApplication::primaryScreen())
         setGeometry(screen->geometry());
 
-    fpsTimer_.start();
-    auto* repaintTimer = new QTimer(this);
-    connect(repaintTimer, &QTimer::timeout, this, QOverload<>::of(&OverlayWindow::update));
-    repaintTimer->start(16);
+    // No repaint loop: the setters repaint when something changes. Redrawing
+    // a full-screen translucent window 60 times a second cost the game's
+    // compositor for nothing, and its count was shown as the game's FPS.
 }
 
 void OverlayWindow::setStatusText(const QString& text) {
@@ -42,17 +41,7 @@ void OverlayWindow::setCrosshairEnabled(bool enabled) {
     update();
 }
 
-void OverlayWindow::updateFpsCounter() {
-    ++frameCounter_;
-    if (fpsTimer_.elapsed() >= 1000) {
-        fps_ = frameCounter_;
-        frameCounter_ = 0;
-        fpsTimer_.restart();
-    }
-}
-
 void OverlayWindow::paintEvent(QPaintEvent*) {
-    updateFpsCounter();
 
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
@@ -64,7 +53,7 @@ void OverlayWindow::paintEvent(QPaintEvent*) {
         painter.setFont(font);
 
         QStringList lines;
-        lines << QString("CE Linux  FPS %1").arg(fps_);
+        lines << QStringLiteral("CE Linux");
         lines << statusText_;
 
         const QFontMetrics metrics(font);

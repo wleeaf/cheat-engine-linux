@@ -265,7 +265,7 @@ QWidget* SettingsDialog::buildMemoryViewPage() {
     refreshIntervalSpin_->setEnabled(autoRefreshCheck_->isChecked());
     connect(autoRefreshCheck_, &QCheckBox::toggled, refreshIntervalSpin_, &QWidget::setEnabled);
     form->addRow("Refresh interval:", refreshIntervalSpin_);
-    form->addRow("", hint("The address list's live values use the same interval."));
+    form->addRow("", hint("Applies to Memory Viewer windows opened from now on."));
     return w;
 }
 

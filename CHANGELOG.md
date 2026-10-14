@@ -153,6 +153,19 @@ reimplementation of Cheat Engine).
   registers on ARM; unknown or incomplete options of `disasm`, `il2cpp` and
   `analyze` were ignored. MCP watches end on shutdown instead of holding it
   for up to 30 seconds.
+- Fixed: closing Cheat Engine, loading a table or picking a recent one
+  discarded unsaved changes to the cheat table without asking; it now offers
+  Save, Discard or Cancel. File > Save over a password-protected
+  `.CETRAINER`, or a Cheat Engine XML table without the `.ct` name, replaced
+  it with plain JSON; it now asks where to save.
+- Fixed: a pending "Wait for process" kept watching after you opened another
+  process yourself and later switched to the next match; the Open Process
+  dialog could attach to a different process that reused an exited one's
+  PID. The AI Assistant's approval prompts named the process open when the
+  turn began, not the one the model had attached to, and Stop could not end
+  a running watch. A second Settings dialog could revert values on OK; there
+  is one now. The overlay redrew a full-screen window 60 times a second and
+  showed that as the game's FPS.
 - Fixed: Auto Assembler. `readmem` and `assert` read memory after the
   script's own earlier writes, so the common "hook, then copy the original
   instruction into the cave" copied the hook's jump and the game crashed;

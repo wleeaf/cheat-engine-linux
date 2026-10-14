@@ -2,6 +2,7 @@
 #include "platform/linux/linux_process.hpp"
 #include <algorithm>
 #include <fstream>
+#include <sstream>
 #include <unistd.h>
 
 #include <QVBoxLayout>
@@ -18,7 +19,7 @@ namespace ce::gui {
 namespace {
 
 enum Column { NameColumn, PidColumn, MemoryColumn, CommandColumn };
-enum Role { PidRole = Qt::UserRole, NameRole, FilterRole, SortRole, MineRole };
+enum Role { PidRole = Qt::UserRole, NameRole, FilterRole, SortRole, MineRole, StartRole };
 
 // Numeric columns sort by their number, not their text ("9 MiB" < "10 MiB").
 class ProcessItem : public QTreeWidgetItem {
@@ -113,6 +114,18 @@ ProcessListDialog::ProcessListDialog(QWidget* parent) : QDialog(parent) {
     refreshList();
 }
 
+// A process's start time (/proc/PID/stat field 22), which a reused PID does not share.
+static QString processStartTime(pid_t pid) {
+    std::ifstream f("/proc/" + std::to_string(pid) + "/stat");
+    std::string text((std::istreambuf_iterator<char>(f)), {});
+    const auto close = text.rfind(')');
+    if (close == std::string::npos) return {};
+    std::istringstream fields(text.substr(close + 2));
+    std::string field;
+    for (int i = 3; i <= 22 && fields >> field; ++i) {}
+    return QString::fromStdString(field);
+}
+
 // Resident memory (RSS) in bytes from /proc/PID/statm, or 0 if unavailable.
 static uint64_t residentBytes(pid_t pid) {
     std::ifstream f("/proc/" + std::to_string(pid) + "/statm");
@@ -152,6 +165,7 @@ void ProcessListDialog::refreshList() {
         item->setData(NameColumn, PidRole, QVariant::fromValue((qlonglong)p.pid));
         item->setData(NameColumn, NameRole, name);
         item->setData(NameColumn, MineRole, mine);
+        item->setData(NameColumn, StartRole, processStartTime(p.pid));
         // The filter matches the name, PID and command; "sandboxed" finds those.
         item->setData(NameColumn, FilterRole, QStringList{name, QString::number(p.pid), command,
             p.sandboxed ? QStringLiteral("sandboxed") : QString()}.join('\n'));
@@ -174,6 +188,14 @@ void ProcessListDialog::refreshList() {
 void ProcessListDialog::onAccept() {
     auto* item = processList_->currentItem();
     if (!item || item->isHidden()) return;
+    // The list is a snapshot: the process may have exited and its PID gone to
+    // another one since. Opening that would attach to it under the old name.
+    const pid_t pid = static_cast<pid_t>(item->data(NameColumn, PidRole).toLongLong());
+    if (processStartTime(pid) != item->data(NameColumn, StartRole).toString()) {
+        refreshList();
+        statusLabel_->setText("That process has exited; the list was refreshed.");
+        return;
+    }
     selectedPid_ = item->data(NameColumn, PidRole).toLongLong();
     selectedName_ = item->data(NameColumn, NameRole).toString();
     accept();

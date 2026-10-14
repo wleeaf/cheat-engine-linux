@@ -2828,6 +2828,9 @@ void MainWindow::attachToPid(pid_t pid, const QString& name) {
     process_.reset();
     ceserverClient_.reset();
     process_ = std::make_unique<os::LinuxProcessHandle>(pid);
+    // A target chosen now ends a pending "Wait for process": it would otherwise
+    // switch to the next match whenever one starts, hours later.
+    if (processWatcher_) processWatcher_->stop();
     // Resolve a readable name so the header isn't "PID: 1234 - 1234" when we were
     // handed a bare pid (--pid, or a caller that didn't know the name): read the
     // process's own /proc/<pid>/comm (e.g. "sleep"), falling back to the number.
@@ -2904,6 +2907,7 @@ bool MainWindow::attachToGdb(std::unique_ptr<ce::GdbProcessHandle> process,const
     if (!releaseTargetUsers()) return false;
     process_.reset();ceserverClient_.reset();
     process_=std::move(process);currentPid_=0;
+    if (processWatcher_) processWatcher_->stop();   // see attachToPid
     luaEngine_.setProcess(process_.get());luaEngine_.setAddressList(addressListModel_);
     addressListModel_->setProcess(process_.get());resultsModel_->setProcess(process_.get());
     resultsModel_->clear();lastResult_.reset();undoResult_.reset();
@@ -2954,6 +2958,7 @@ void MainWindow::resetGuestScanSetup() {
 
 void MainWindow::onDisconnectProcess() {
     if (!releaseTargetUsers()) return;
+    if (processWatcher_) processWatcher_->stop();
     resetGuestScanSetup();
     process_.reset();ceserverClient_.reset();currentPid_=0;
     addressListModel_->setProcess(nullptr);resultsModel_->setProcess(nullptr);resultsModel_->clear();
@@ -2998,6 +3003,7 @@ bool MainWindow::adoptCeserver(CeserverConnection connection, const QString& hos
     process_.reset();
     ceserverClient_ = std::move(client);
     process_ = std::move(handle);
+    if (processWatcher_) processWatcher_->stop();   // see attachToPid
     luaEngine_.setProcess(process_.get());
     currentPid_ = pid;
     processLabel_->setText(QString("Remote process %1").arg((int)pid));
@@ -3702,7 +3708,50 @@ void MainWindow::onFreezeTimer() {
         addressListModel_->freezeWrite(process_.get());
 }
 
+// What a save writes, without what changes on its own: live values, on/off
+// state, group folding, and the resolved address of a pointer record.
+QByteArray MainWindow::tableFingerprint() const {
+    QJsonArray entries;
+    for (const auto& value : addressListModel_->toJson()) {
+        auto record = value.toObject();
+        record.remove("value"); record.remove("active"); record.remove("collapsed");
+        if (!record.value("addressExpr").toString().isEmpty()) record.remove("address");
+        entries.append(record);
+    }
+    QByteArray print = QJsonDocument(entries).toJson(QJsonDocument::Compact);
+    print += '\0'; print += tableComment_.toUtf8();
+    print += '\0'; print += tableLuaScript_.toUtf8();
+    for (const auto& c : disasmAnnotations_) {
+        print += '\0'; print += QByteArray::fromStdString(c.address + '\x1f' + c.comment + '\x1f' + c.label);
+    }
+    return print;
+}
+
+void MainWindow::markTableSaved() { savedTableFingerprint_ = tableFingerprint(); }
+
+// Before the table is replaced or the window closes: Save, Discard or Cancel
+// when it has changes no file holds. Nothing tracked this, so edits were
+// dropped without a word.
+bool MainWindow::maybeSaveTable() {
+    // Headless (the offscreen test platform): nobody can answer a prompt.
+    const auto platform = QGuiApplication::platformName();
+    if (platform == "offscreen" || platform == "minimal") return true;
+    // Nothing loaded or saved yet: only content is a change.
+    if (savedTableFingerprint_.isNull() && addressListModel_->rowCount() == 0 && tableComment_.isEmpty() &&
+        tableLuaScript_.isEmpty() && disasmAnnotations_.empty())
+        return true;
+    if (tableFingerprint() == savedTableFingerprint_) return true;
+    const auto answer = QMessageBox::question(this, "Unsaved changes",
+        "The cheat table has changes that are not saved. Save them?",
+        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Save);
+    if (answer == QMessageBox::Discard) return true;
+    if (answer != QMessageBox::Save) return false;
+    onSaveTable();
+    return tableFingerprint() == savedTableFingerprint_;   // saved (not cancelled or failed)
+}
+
 void MainWindow::closeEvent(QCloseEvent* ev) {
+    if (!maybeSaveTable()) { ev->ignore(); return; }
     if (!releaseTargetUsers()) { ev->ignore(); return; }
     // Remember where the user put the window and how they sized the panels, so
     // the next launch comes up the same (restored in the constructor).
@@ -4122,8 +4171,19 @@ public:
 
 void MainWindow::onSaveTable() {
     // A deleted file is simply written again; saveTableToPath reports real errors.
-    if (!currentTablePath_.isEmpty()) saveTableToPath(currentTablePath_);
-    else onSaveTableAs();
+    if (currentTablePath_.isEmpty()) { onSaveTableAs(); return; }
+    // The saver picks the format from the name (.ct: XML, otherwise JSON). A
+    // table loaded from something else (a password-protected .CETRAINER, CE
+    // XML without .ct) would be replaced by a different format, a protected
+    // one in plain text: ask where to save instead.
+    const auto onDisk = ce::detectTableFormat(currentTablePath_.toStdString());
+    const bool ct = currentTablePath_.endsWith(".ct", Qt::CaseInsensitive);
+    if (onDisk == ce::TableFormat::Protected || (onDisk == ce::TableFormat::Xml && !ct) ||
+        (onDisk == ce::TableFormat::Json && ct)) {
+        onSaveTableAs();
+        return;
+    }
+    saveTableToPath(currentTablePath_);
 }
 
 // Cheat Engine writes ".CT"; GTK's file chooser matches patterns case-sensitively,
@@ -4182,6 +4242,7 @@ bool MainWindow::saveTableToPath(const QString& path) {
 }
 
 void MainWindow::onLoadTable() {
+    if (!maybeSaveTable()) return;
     auto path = QFileDialog::getOpenFileName(this, "Load Cheat Table",
         currentTablePath_.isEmpty() ? QString() : QFileInfo(currentTablePath_).absolutePath(), kTableFileFilter);
     if (path.isEmpty()) return;
@@ -4324,6 +4385,7 @@ void MainWindow::addRecentTable(const QString& path) {
     // Every successful load and save lands here: that file is now the table's own,
     // so File > Save writes back to it and the title names it.
     currentTablePath_ = abs;
+    markTableSaved();   // what this file holds is now the unchanged state
     updateWindowTitle();
 }
 
@@ -4367,7 +4429,7 @@ void MainWindow::rebuildRecentMenu() {
         auto* a = recentMenu_->addAction(QFileInfo(p).fileName());
         a->setToolTip(exists ? p : p + "  (missing)");
         a->setEnabled(exists);
-        if (exists) connect(a, &QAction::triggered, this, [this, p]() { loadTableFromPath(p); });
+        if (exists) connect(a, &QAction::triggered, this, [this, p]() { if (maybeSaveTable()) loadTableFromPath(p); });
     }
     recentMenu_->addSeparator();
     connect(recentMenu_->addAction("Clear list"), &QAction::triggered, this, [this]() {
@@ -4815,7 +4877,24 @@ void MainWindow::addTableEntries(const std::vector<ce::CheatEntry>& entries) {
 }
 
 QDialog* MainWindow::openSettingsDialog(const QString& page) {
+    // One dialog: a second one opened earlier would write back, on OK, the
+    // values it read when it opened, reverting changes made meanwhile.
+    auto selectPage = [](QDialog* dialog, const QString& name) {
+        if (name.isEmpty()) return;
+        if (auto* nav = dialog->findChild<QListWidget*>("settingsNav")) {
+            auto matches = nav->findItems(name, Qt::MatchContains);
+            if (!matches.isEmpty()) nav->setCurrentItem(matches.first());
+        }
+    };
+    if (settingsDialog_) {
+        selectPage(settingsDialog_, page);
+        settingsDialog_->show();
+        settingsDialog_->raise();
+        settingsDialog_->activateWindow();
+        return settingsDialog_;
+    }
     auto* dlg = new SettingsDialog(this);
+    settingsDialog_ = dlg;
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     connect(dlg, &SettingsDialog::settingsApplied, this, [this]() {
         if (agentPanel_) agentPanel_->reloadSettings();
@@ -4835,12 +4914,7 @@ QDialog* MainWindow::openSettingsDialog(const QString& page) {
     });
     // Optionally jump straight to a named category (used by the UI screenshot
     // harness, and handy for deep-linking to a settings page).
-    if (!page.isEmpty()) {
-        if (auto* nav = dlg->findChild<QListWidget*>("settingsNav")) {
-            auto matches = nav->findItems(page, Qt::MatchContains);
-            if (!matches.isEmpty()) nav->setCurrentItem(matches.first());
-        }
-    }
+    selectPage(dlg, page);
     dlg->show();
     dlg->raise();
     return dlg;

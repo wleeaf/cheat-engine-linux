@@ -325,9 +325,14 @@ void DebuggerWindow::onRunToCursor() {
 void DebuggerWindow::runToAddress(uintptr_t addr) {
     if (!session_->isAttached() || !session_->isStopped()) return;
     if (!addr) return;
-    // If a user breakpoint already sits there, just continue to it.
+    // One run-to-cursor at a time: a previous one that stopped short is dropped.
+    if (!clearRunToCursor()) {
+        statusLabel_->setText("Run-to-cursor cleanup pending: "+QString::fromStdString(session_->lastError().message()));
+        return;
+    }
+    // If an armed user breakpoint already sits there, just continue to it.
     bool existing = false;
-    for (auto& b : bps_) if (b.addr == addr) existing = true;
+    for (auto& b : bps_) if (!b.hardware && b.enabled && b.addr == addr) existing = true;
     if (!existing) {
         pendingRtcId_ = session_->setSoftwareBreakpoint(addr);
         pendingRtcAddr_ = addr;
@@ -426,19 +431,35 @@ void DebuggerWindow::editBreakpointCondition() {
 }
 
 void DebuggerWindow::onRemoveBreakpoint() {
-    int row = bpList_->currentRow();
-    if (row < 0 || row >= static_cast<int>(bps_.size())) return;
+    removeBreakpointRow(bpList_->currentRow());
+}
+
+bool DebuggerWindow::removeBreakpointRow(int row) {
+    if (row < 0 || row >= static_cast<int>(bps_.size())) return false;
     if (bps_[row].enabled) {
         bool removed=bps_[row].hardware ? session_->removeHardwareBreakpoint(bps_[row].id) :
                                          session_->removeSoftwareBreakpoint(bps_[row].id);
         if (!removed) {
             statusLabel_->setText("Breakpoint cleanup pending: "+QString::fromStdString(session_->lastError().message()));
-            return;
+            return false;
         }
     }
     bps_.erase(bps_.begin() + row);
     delete bpList_->takeItem(row);
     if (session_->isStopped()) updateDisassembly(session_->getStopContext());
+    return true;
+}
+
+bool DebuggerWindow::removeBreakpointAt(uintptr_t addr) {
+    for (size_t i = 0; i < bps_.size(); ++i)
+        if (!bps_[i].hardware && bps_[i].addr == addr) return removeBreakpointRow(static_cast<int>(i));
+    return false;
+}
+
+std::set<uintptr_t> DebuggerWindow::breakpointAddresses() const {
+    std::set<uintptr_t> out;
+    for (const auto& b : bps_) if (!b.hardware && b.enabled) out.insert(b.addr);
+    return out;
 }
 
 QString DebuggerWindow::bpDataLabel(uintptr_t addr, int type, int size) {
@@ -515,16 +536,6 @@ void DebuggerWindow::onDebugEvent(int type) {
         setRunningUi(false, true);
         return;
     }
-    // Auto-clear a run-to-cursor temp breakpoint when its target is hit.
-    if (type == static_cast<int>(ce::DebugEventType::BreakpointHit) &&
-        pendingRtcId_ > 0 && lastEvtAddr_.load() == pendingRtcAddr_) {
-        if (!session_->removeSoftwareBreakpoint(pendingRtcId_)) {
-            refreshStopped();
-            statusLabel_->setText("Run-to-cursor cleanup pending: "+QString::fromStdString(session_->lastError().message()));
-            return;
-        }
-        pendingRtcId_ = -1; pendingRtcAddr_ = 0;
-    }
     // Conditional breakpoints: if the breakpoint that stopped us carries a
     // condition and it evaluates false for the current register state, resume
     // silently instead of surfacing the stop (CE's "condition" field).
@@ -544,7 +555,21 @@ void DebuggerWindow::onDebugEvent(int type) {
             break;
         }
     }
+    // The run-to-cursor breakpoint is one-shot: clear it on the stop at its
+    // target, and also on a stop anywhere else, so it never fires later.
+    if (!clearRunToCursor()) {
+        refreshStopped();
+        statusLabel_->setText("Run-to-cursor cleanup pending: "+QString::fromStdString(session_->lastError().message()));
+        return;
+    }
     refreshStopped();
+}
+
+bool DebuggerWindow::clearRunToCursor() {
+    if (pendingRtcId_ <= 0) return true;
+    if (!session_->removeSoftwareBreakpoint(pendingRtcId_)) return false;
+    pendingRtcId_ = -1; pendingRtcAddr_ = 0;
+    return true;
 }
 
 void DebuggerWindow::refreshStopped() {
@@ -1087,7 +1112,28 @@ bool DebuggerWindow::toggleBreakpointAtCursorForTest(int lineIndex) {
 
 void DebuggerWindow::nopInstructionAtCursor() {
     if (!proc_ || !session_->isStopped()) return;
-    ce::nopInstruction(*proc_, currentCursorAddress());
+    const uintptr_t addr = currentCursorAddress();
+    // A planted breakpoint reads as a trap byte: the instruction would decode as
+    // one byte, and removing the breakpoint later writes the saved original back
+    // over the NOP. Decode the real instruction and refuse while a breakpoint
+    // sits inside it.
+    uint8_t buf[16];
+    auto rr = proc_->read(addr, buf, sizeof(buf));
+    if (!rr || *rr == 0) { statusLabel_->setText("Cannot read the instruction at " + hex(addr)); return; }
+    for (const auto& b : bps_) {
+        if (b.hardware || b.addr < addr || b.addr - addr >= *rr) continue;
+        const size_t offset = b.addr - addr;
+        std::copy_n(b.original.begin(), std::min(b.original.size(), *rr - offset), buf + offset);
+    }
+    auto insns = disasm_.disassemble(addr, {buf, *rr}, 1);
+    if (insns.empty() || insns[0].size == 0) { statusLabel_->setText("No instruction at " + hex(addr)); return; }
+    for (const auto& b : bps_)
+        if (!b.hardware && b.enabled && b.addr >= addr && b.addr - addr < insns[0].size) {
+            statusLabel_->setText("Remove the breakpoint on this instruction before replacing it with NOPs");
+            return;
+        }
+    if (ce::nopInstruction(*proc_, addr).empty())
+        statusLabel_->setText("Could not replace the instruction at " + hex(addr) + " with NOPs");
     updateDisassembly(session_->getStopContext());   // show the NOPs
 }
 

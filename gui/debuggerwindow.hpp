@@ -1,4 +1,5 @@
 #pragma once
+#include <set>
 // Interactive step-debugger window: attach, software breakpoints, and
 // continue/step-into/over/out/run-to-cursor over a live (multi-threaded) target,
 // driven by ce::DebugSession (all-stop). Debug events fire on the tracer thread
@@ -36,6 +37,10 @@ public:
     /// Plant a software breakpoint at `addr` (e.g. from the disassembler's
     /// "set breakpoint" action). No-op if not attached.
     void addBreakpointAt(uintptr_t addr, const QString& condition = QString());
+    /// Remove the software breakpoint at `addr`; false if none or cleanup failed.
+    bool removeBreakpointAt(uintptr_t addr);
+    /// Addresses of the armed software breakpoints (the Memory Viewer's markers).
+    std::set<uintptr_t> breakpointAddresses() const;
 
     // Accessors for automation/smoke tests.
     bool debugAttached() const { return session_ && session_->isAttached(); }
@@ -110,6 +115,8 @@ private slots:
     void onAddBreakpoint();
     void onAddDataBreakpoint();   // hardware watchpoint (break on write/access)
     void onRemoveBreakpoint();
+    bool removeBreakpointRow(int row);
+    bool clearRunToCursor();                 // drop the one-shot run-to-cursor trap
     void onRegisterEdited(QTableWidgetItem* item);  // edit a GP register in place
     void onThreadSelected(int index);               // switch the active thread
     void onMemAddrEntered();                         // point the hex pane at an address

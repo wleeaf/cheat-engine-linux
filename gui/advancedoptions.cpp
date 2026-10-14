@@ -87,13 +87,16 @@ void AdvancedOptionsWindow::showContextMenu(const QPoint& pos) {
     const bool have = (addr != 0);
     for (auto* a : {openAct, nopAct, renameAct, removeAct}) a->setEnabled(have);
     restoreAct->setEnabled(have && nopOriginals_.count(addr) > 0);
+    // Once replaced, a second replace would decode the NOP and save it as the
+    // "original", losing the real bytes Restore puts back.
+    nopAct->setEnabled(have && nopOriginals_.count(addr) == 0);
 
     auto* chosen = m.exec(table_->viewport()->mapToGlobal(pos));
     if (!chosen) return;
 
     if (chosen == openAct) {
         emit navigateTo(addr);
-    } else if (chosen == nopAct && proc_) {
+    } else if (chosen == nopAct && proc_ && !nopOriginals_.count(addr)) {
         auto orig = ce::nopInstruction(*proc_, addr);
         if (!orig.empty()) nopOriginals_[addr] = orig;
         else QMessageBox::warning(this, "NOP", "Could not read/patch the instruction.");

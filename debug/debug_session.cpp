@@ -1153,7 +1153,11 @@ void DebugSession::doStep(StepMode mode,uintptr_t targetAddress) {
                     proc_->machineAt(pc).byteOrder) : std::expected<uint64_t,std::string>(std::unexpected("Unreadable return address"));
                 if (decoded && *decoded<=UINTPTR_MAX) returnAddress=*decoded;
             }
-            if (returnAddress) completed=runTo(returnAddress);
+            // [SP] is the return address only at a function's entry; past its
+            // prologue it is local data. Never plant a trap outside code, where
+            // it would overwrite data the target is using.
+            auto region=returnAddress ? proc_->queryRegion(returnAddress) : std::nullopt;
+            if (returnAddress && region && (region->protection & MemProt::Exec)) completed=runTo(returnAddress);
             else setError(std::make_error_code(std::errc::bad_address));
             break;
         }

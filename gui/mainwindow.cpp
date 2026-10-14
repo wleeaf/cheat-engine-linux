@@ -4640,27 +4640,28 @@ MemoryBrowser* MainWindow::openMemoryView(uintptr_t addr) {
     browser->setAttribute(Qt::WA_DeleteOnClose);
     wireBrowserAnnotations(browser);
 
-    // Hook breakpoint actions through MainWindow's BpManager.
+    // Breakpoints are armed by the debugger window, which holds the ptrace
+    // session: open it (attaching) on first use, then plant through it.
     browser->setBreakpointSetter([this](uintptr_t addr, bool hardware) {
-        Breakpoint bp;
-        bp.address = addr;
-        bp.type = BpType::Execute;
-        bp.method = hardware ? BpMethod::Hardware : BpMethod::Software;
-        bp.size = 1;
-        bp.enabled = true;
-        bp.description = QString("BP @ 0x%1").arg(addr, 0, 16).toStdString();
-        bpManager_.add(bp);
+        if (!debuggerWindow_) showDebugger();
+        if (!debuggerWindow_ || !debuggerWindow_->debugAttached()) {
+            statusBar()->showMessage("The debugger could not attach; no breakpoint was set.", 5000);
+            return;
+        }
+        if (!debuggerWindow_->debugStopped()) {
+            statusBar()->showMessage("Pause the target in the debugger to set a breakpoint.", 5000);
+            return;
+        }
+        debuggerWindow_->addBreakpointAt(addr);
+        if (hardware)
+            statusBar()->showMessage("Execute breakpoints are software breakpoints in this debugger.", 5000);
     });
     browser->setBreakpointRemover([this](uintptr_t addr) {
-        for (const auto& bp : bpManager_.list()) {
-            if (bp.address == addr) bpManager_.remove(bp.id);
-        }
+        if (debuggerWindow_ && !debuggerWindow_->removeBreakpointAt(addr))
+            statusBar()->showMessage("Could not remove the breakpoint; see the debugger window.", 5000);
     });
     browser->setBreakpointQuery([this]() {
-        std::set<uintptr_t> out;
-        for (const auto& bp : bpManager_.list())
-            if (bp.enabled) out.insert(bp.address);
-        return out;
+        return debuggerWindow_ ? debuggerWindow_->breakpointAddresses() : std::set<uintptr_t>{};
     });
     browser->setCodeFinderLauncher([this](uintptr_t addr, bool writesOnly) {
         startCodeFinderForAddress(addr, writesOnly);

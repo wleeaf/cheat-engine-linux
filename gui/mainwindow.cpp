@@ -56,6 +56,8 @@
 #include "core/trainer.hpp"
 #include "analysis/managed_runtime.hpp"
 #include "analysis/mono_dissector.hpp"
+#include <QRegularExpression>
+#include <dlfcn.h>
 
 #include <QMenuBar>
 #include <QApplication>
@@ -2630,23 +2632,49 @@ void MainWindow::setupUi() {
 // (persistent, targeted, effective after a restart). For an AppImage the capability
 // can't persist on the read-only temp mount, so lower kernel.yama.ptrace_scope
 // instead (effective immediately, resets on reboot — the .deb sets it up permanently).
+// A binary with file capabilities runs in secure-execution mode, where the
+// loader ignores $ORIGIN in its run path. An install outside the system library
+// directories (~/.local, /opt) finds libcecore only through $ORIGIN, so a
+// capability would stop Cheat Engine from starting. The build tree uses
+// absolute run paths and keeps working.
+static bool capabilityKeepsLibrariesLoadable() {
+    Dl_info info{};
+    if (!dladdr(reinterpret_cast<void*>(&ce::findCompanionLibrary), &info) || !info.dli_fname) return false;
+    const QString library = QFileInfo(QString::fromLocal8Bit(info.dli_fname)).canonicalFilePath();
+    const QString exe = QFileInfo(QCoreApplication::applicationFilePath()).canonicalFilePath();
+    if (library.isEmpty() || library == exe) return true;   // engine linked into the executable
+    const QString dir = QFileInfo(library).absolutePath();
+    if (dir == QFileInfo(exe).absolutePath()) return true;  // build tree: absolute run path
+    static const QRegularExpression systemDir(
+        QStringLiteral("^/(usr/)?(local/)?lib(64|32)?(/[a-z0-9_]+-linux-gnu[a-z0-9_]*)?$"));
+    return systemDir.match(dir).hasMatch();
+}
+
 static void grantPtraceAccess(QWidget* parent) {
     const QString bin = QCoreApplication::applicationFilePath();
     const bool isAppImage = qEnvironmentVariableIsSet("APPIMAGE") || bin.contains("/.mount_");
+    const bool capabilityUsable = !isAppImage && capabilityKeepsLibrariesLoadable();
 
     QStringList args;
     QString followup;
-    if (isAppImage) {
+    if (!capabilityUsable) {
         args = {QStringLiteral("/bin/sh"), QStringLiteral("-c"),
                 QStringLiteral("echo 0 > /proc/sys/kernel/yama/ptrace_scope")};
-        followup = QObject::tr("Access granted for this session; re-open the process.\n"
-                               "(This resets on reboot. Install the .deb, or re-run the "
-                               "command, to make it permanent.)");
+        followup = isAppImage
+            ? QObject::tr("Access granted for this session; re-open the process.\n"
+                          "(This resets on reboot. Install the .deb, or re-run the "
+                          "command, to make it permanent.)")
+            : QObject::tr("Access granted for this session; re-open the process.\n"
+                          "(This resets on reboot. A capability on this install would "
+                          "stop it from finding its libraries, because it is outside the "
+                          "system library directories.)");
     } else {
         const QString cescan = QFileInfo(bin).absolutePath() + QStringLiteral("/cescan");
+        // Fail when either setcap fails (no xattr support, nosuid mount), so
+        // the result below is not "granted" for nothing.
         args = {QStringLiteral("/bin/sh"), QStringLiteral("-c"),
-                QStringLiteral("setcap cap_sys_ptrace+ep \"$1\"; "
-                               "[ -x \"$2\" ] && setcap cap_sys_ptrace+ep \"$2\" || true"),
+                QStringLiteral("setcap cap_sys_ptrace+ep \"$1\" || exit 1; "
+                               "if [ -x \"$2\" ]; then setcap cap_sys_ptrace+ep \"$2\" || exit 1; fi"),
                 QStringLiteral("sh"), bin, cescan};
         followup = QObject::tr("Access granted. Restart Cheat Engine for it to take effect.");
     }

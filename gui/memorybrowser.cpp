@@ -1,5 +1,6 @@
 #include "arch/target_arch.hpp"
 #include "gui/memorybrowser.hpp"
+#include <bit>
 #include "debug/patch.hpp"
 #include "gui/memviewpreferences.hpp"
 #include "gui/theme.hpp"
@@ -394,6 +395,10 @@ std::optional<uintptr_t> HexView::pointerValueAt(uintptr_t addr) const {
 void HexView::setAddress(uintptr_t addr) {
     address_ = addr & ~0xFULL; // Align to 16
     refresh();
+    // A jump re-reads the memory map (allocations come and go) and moves the
+    // handle to where the view now is.
+    flatMem_ = {};
+    updateScrollBar();
 }
 
 int HexView::visibleRows() const {
@@ -455,6 +460,7 @@ void HexView::scrollRows(int rows) {
     }
     keepSelectionAnchored(oldAddr);
     refresh();
+    updateScrollBar();   // keyboard and wheel moves move the handle too
 }
 
 void HexView::refresh() {
@@ -467,6 +473,9 @@ void HexView::refresh() {
         // grid never renders stale data past the readable end of the region.
         size_t got = r ? *r : 0;
         readableBytes_ = got;
+        const auto order = proc_->byteOrder();   // per process; by address costs a module walk on Wine
+        const auto host = std::endian::native == std::endian::little ? ce::ByteOrder::Little : ce::ByteOrder::Big;
+        swapGroups_ = order != ce::ByteOrder::Unknown && order != host;
         if (got < cache_.size())
             std::fill(cache_.begin() + got, cache_.end(), 0);
     } else {
@@ -517,8 +526,14 @@ static int hexGroupChars(HexView::DisplayType t) {
     }
 }
 
-// Format `bytes` (little-endian) as one display value for the current type.
-static QString formatHexGroup(const uint8_t* bytes, HexView::DisplayType t) {
+// Format `bytes` as one display value for the current type, in the target's
+// byte order (a big-endian gdb stub's dword is not the host's).
+static QString formatHexGroup(const uint8_t* raw, HexView::DisplayType t, bool swap) {
+    uint8_t ordered[8];
+    const int n = t == HexView::DisplayType::Word ? 2
+                : (t == HexView::DisplayType::Qword || t == HexView::DisplayType::Double) ? 8 : 4;
+    for (int i = 0; i < n; ++i) ordered[i] = swap ? raw[n - 1 - i] : raw[i];
+    const uint8_t* bytes = t == HexView::DisplayType::Byte ? raw : ordered;
     switch (t) {
         case HexView::DisplayType::Word:  { uint16_t v; std::memcpy(&v, bytes, 2); return QString("%1").arg(v, 4, 16, QChar('0')); }
         case HexView::DisplayType::Dword: { uint32_t v; std::memcpy(&v, bytes, 4); return QString("%1").arg(v, 8, 16, QChar('0')); }
@@ -609,7 +624,7 @@ void HexView::paintEvent(QPaintEvent*) {
                 bool grpChanged = false;
                 for (int j = 0; j < gsize; ++j) if (byteChanged(idx + j)) { grpChanged = true; break; }
                 p.setPen(!readable ? c.dim : (grpChanged ? changedCol : c.text));
-                QString gs = formatHexGroup(&cache_[idx], displayType_);
+                QString gs = formatHexGroup(&cache_[idx], displayType_, swapGroups_);
                 p.drawText(addrColW + g * fieldW, y,
                            readable ? (hexUpper_ ? gs.toUpper() : gs)
                                     : QString(hexGroupChars(displayType_), QChar('?')));
@@ -1144,6 +1159,8 @@ void DisasmView::contextMenuEvent(QContextMenuEvent* e) {
 void DisasmView::setAddress(uintptr_t addr) {
     address_ = addr;
     refresh();
+    flatMem_ = {};        // see HexView::setAddress
+    updateScrollBar();
 }
 
 int DisasmView::visibleRows() const {
@@ -2666,12 +2683,22 @@ void MemoryBrowser::saveRegionToFile(uintptr_t addr) {
             QString("Could not read %1 bytes at 0x%2.").arg(size).arg(addr, 0, 16));
         return;
     }
+    const qint64 got = (qint64)std::min<size_t>(*r, buf.size());
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly)) {
         QMessageBox::warning(this, "Save failed", f.errorString());
         return;
     }
-    f.write(reinterpret_cast<const char*>(buf.data()), (qint64)*r);
+    if (f.write(reinterpret_cast<const char*>(buf.data()), got) != got || !f.flush()) {
+        QMessageBox::warning(this, "Save failed", f.errorString());
+        return;
+    }
+    // The region can end inside the request (an unmapped page): say the file
+    // is shorter than asked rather than leave the user to find out.
+    if (got < size)
+        QMessageBox::information(this, "Save region",
+            QString("Only %1 of %2 bytes at 0x%3 were readable; the file holds those %1 bytes.")
+                .arg(got).arg(size).arg(addr, 0, 16));
 }
 
 void MemoryBrowser::loadRegionFromFile(uintptr_t addr) {

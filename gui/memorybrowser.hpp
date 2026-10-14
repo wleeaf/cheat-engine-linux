@@ -166,6 +166,7 @@ private:
     bool editAscii_ = false;   // selection is in the ASCII column (type chars)
     std::vector<uint8_t> cache_;
     size_t readableBytes_ = 0;   // how many leading cache_ bytes were actually read
+    bool swapGroups_ = false;    // target byte order differs from the host's
                                  // (the rest render as "??", not zeros)
     std::vector<uint8_t> prevCache_;   // previous refresh's bytes, for change highlight
     uintptr_t prevAddress_ = 0;        // address prevCache_ was read at (guards navigation)

@@ -111,6 +111,16 @@ reimplementation of Cheat Engine).
 - Fixed: on Wayland, removing the last hotkey left the old shortcuts bound
   and firing; the portal session is now closed when nothing is bound, and
   activations of unregistered hotkeys are ignored.
+- Fixed: "Grant access" said access was granted when `setcap` failed, and
+  on an install outside the system library directories (`~/.local`, `/opt`)
+  the capability made Cheat Engine unable to find `libcecore` on the next
+  start (the loader ignores `$ORIGIN` for capable binaries). Such installs
+  now get the session-only `ptrace_scope` route.
+- Fixed: Memory Viewer. Word, Dword, Qword, Float and Double display used the
+  host byte order on big-endian targets; the scrollbar did not follow Go,
+  Back/Forward or the keyboard and used the memory map from when the window
+  opened; "Save region" silently wrote fewer bytes than asked and did not
+  check the write.
 - Fixed: the speedhack library was not found in the .deb (it is installed in
   the multiarch library directory) and was missing from the AppImage; the
   128x128 icon was installed as 256x256.

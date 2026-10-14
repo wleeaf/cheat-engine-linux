@@ -605,10 +605,14 @@ static int l_wideStringToByteTable(lua_State* L) {
         else if ((c >> 3) == 0x1E){ cp = c & 0x07; extra = 3; }
         else                     { cp = 0xFFFD;   extra = 0; }
         ++i;
-        for (int k = 0; k < extra && i < len; ++k, ++i) {
-            if (((uint8_t)s[i] & 0xC0) != 0x80) { cp = 0xFFFD; break; }
+        int consumed = 0;
+        for (; consumed < extra && i < len; ++consumed, ++i) {
+            if (((uint8_t)s[i] & 0xC0) != 0x80) break;   // that byte starts the next character
             cp = (cp << 6) | ((uint8_t)s[i] & 0x3F);
         }
+        // A cut-off sequence, a surrogate or a value past U+10FFFF is not a
+        // character: replace it rather than emit a fragment of one.
+        if (consumed < extra || (cp >= 0xD800 && cp <= 0xDFFF) || cp > 0x10FFFF) cp = 0xFFFD;
         if (cp <= 0xFFFF) emit16((uint16_t)cp);
         else { cp -= 0x10000; emit16((uint16_t)(0xD800 + (cp >> 10)));
                                emit16((uint16_t)(0xDC00 + (cp & 0x3FF))); }
@@ -1758,16 +1762,18 @@ static int l_disassembleRange(lua_State* L) {
 // byte length, and the absolute RIP target (0 if not RIP-relative), or nil if the bytes
 // don't decode.
 static int l_disassembleBytes(lua_State* L) {
+    // Every argument check before the vector exists (a raise would leak it).
+    if (lua_istable(L, 1)) checkByteTable(L, 1, 1, (lua_Integer)lua_rawlen(L, 1), true);
+    else luaL_checkstring(L, 1);
+    const uintptr_t addr = (uintptr_t)luaL_optinteger(L, 2, 0);
     std::vector<uint8_t> bytes;
     if (lua_istable(L, 1)) {
         int n = (int)lua_rawlen(L, 1);
         bytes.reserve(n);
         for (int i = 1; i <= n; ++i) {
             lua_rawgeti(L, 1, i);
-            lua_Integer v = luaL_checkinteger(L, -1);
+            bytes.push_back((uint8_t)lua_tointeger(L, -1));
             lua_pop(L, 1);
-            luaL_argcheck(L, v >= 0 && v <= 255, 1, "byte values must be 0..255");
-            bytes.push_back((uint8_t)v);
         }
     } else {
         const char* s = luaL_checkstring(L, 1);
@@ -1783,7 +1789,6 @@ static int l_disassembleBytes(lua_State* L) {
         }
     }
     if (bytes.empty()) { lua_pushnil(L); return 1; }
-    uintptr_t addr = (uintptr_t)luaL_optinteger(L, 2, 0);
 
     // Use the target's bitness if attached, else CE's default 64-bit mode.
     auto* p = getProc(L);
@@ -3370,6 +3375,8 @@ static int l_getManagedRuntimes(lua_State* L) {
 // class/field layout. Missing targets/agents return nil + message. Request,
 // runtime and injection errors are reported in the result's ready/error fields.
 static int l_monoDissect(lua_State* L) {
+    // Arguments first: a raise after a std::string exists would leak it.
+    const int timeoutMs = (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) ? (int)luaL_checkinteger(L, 1) : 10000;
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process"); return 2; }
     switch (ce::detectManagedKind(*p)) {
@@ -3385,7 +3392,6 @@ static int l_monoDissect(lua_State* L) {
     if (agent.empty()) {
         lua_pushnil(L); lua_pushstring(L, "libcecore_mono_agent.so not found"); return 2;
     }
-    int timeoutMs = (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) ? (int)luaL_checkinteger(L, 1) : 10000;
     // Injection needs the target's symbols (to find dlopen); load a resolver for
     // this process rather than depend on the engine's (openProcess doesn't load one).
     ce::SymbolResolver resolver;
@@ -3474,14 +3480,15 @@ static int l_removeSimpleHook(lua_State* L) {
 // `params` is a comma-separated type list ("Entity,int") used only for its count
 // to disambiguate overloads; omit or "" to match any overload.
 static int l_findMonoFunction(lua_State* L) {
+    // Arguments first: a raise after a std::string exists would leak it.
+    const char* ns   = luaL_optstring(L, 1, "");
+    const char* cls  = luaL_checkstring(L, 2);
+    const char* meth = luaL_checkstring(L, 3);
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); return 1; }
     if (ce::detectManagedKind(*p) != ce::ManagedKind::Mono) { lua_pushnil(L); return 1; }
     std::string agent = ce::findMonoAgentPath();
     if (agent.empty()) { lua_pushnil(L); return 1; }
-    const char* ns   = luaL_optstring(L, 1, "");
-    const char* cls  = luaL_checkstring(L, 2);
-    const char* meth = luaL_checkstring(L, 3);
     int paramCount = -1;
     // lua_isstring() is true for numbers too, so check the concrete type: a
     // numeric arg is the param count, not a comma-separated type list.
@@ -3705,7 +3712,16 @@ static bool luaBuildIl2CppLayout(lua_State* L, const std::string& metaPath,
 // (nil/"" = all). Instance-field offsets are object-relative: value address =
 // objectPtr + offset. Static-field offsets are into the static block; const
 // fields have no storage.
+// Raise for a present (non-nil) argument in first..last that is not a string,
+// before the caller copies any of them into C++ strings: a raise after that
+// longjmps past their destructors.
+static void checkOptionalStrings(lua_State* L, int first, int last) {
+    for (int i = first; i <= last; ++i)
+        if (!lua_isnoneornil(L, i)) luaL_checkstring(L, i);
+}
+
 static int l_getIl2CppClassLayout(lua_State* L) {
+    checkOptionalStrings(L, 1, 3);
     std::string className, metaPath, binPath;
     if (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) className = luaL_checkstring(L, 1);
     if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) metaPath = luaL_checkstring(L, 2);
@@ -3759,6 +3775,7 @@ static int l_getIl2CppClassLayout(lua_State* L) {
 // object-relative offset and tagged with `declaringType`. `class` is matched
 // exactly by full name, else by short name, else as a full-name substring.
 static int l_getIl2CppObjectLayout(lua_State* L) {
+    checkOptionalStrings(L, 1, 3);
     std::string className, metaPath, binPath;
     if (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) className = luaL_checkstring(L, 1);
     if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) metaPath = luaL_checkstring(L, 2);
@@ -3817,6 +3834,7 @@ static const char* valueTypeShortName(ce::ValueType t) {
 // Unity class over an object address (base+offset) with real names + types. Uses
 // the open process (auto-locate) or explicit metadata/binary paths.
 static int l_getIl2CppStructure(lua_State* L) {
+    checkOptionalStrings(L, 1, 3);
     std::string className, metaPath, binPath;
     if (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) className = luaL_checkstring(L, 1);
     if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) metaPath = luaL_checkstring(L, 2);
@@ -3885,6 +3903,7 @@ static int l_getIl2CppStructure(lua_State* L) {
 // binary; otherwise resolves against the open process's modules. The DWARF analog
 // of getIl2CppStructure.
 static int l_getDwarfStructure(lua_State* L) {
+    luaL_checkstring(L, 1); checkOptionalStrings(L, 2, 2);
     if (!ce::DwarfInfo::available()) { lua_pushnil(L); lua_pushstring(L, "built without libdw"); return 2; }
     std::string name = luaL_checkstring(L, 1);
     std::optional<ce::DwarfStruct> st;
@@ -3990,6 +4009,7 @@ static std::string luaIl2CppMethodContext(lua_State* L, const std::string& metaP
 // open-process case `address` is the live runtime address (module base + rva); in
 // file mode it equals the rva.
 static int l_getIl2CppMethods(lua_State* L) {
+    checkOptionalStrings(L, 1, 3);
     std::string className, metaPath, binPath;
     if (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) className = luaL_checkstring(L, 1);
     if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) metaPath = luaL_checkstring(L, 2);
@@ -4019,6 +4039,7 @@ static int l_getIl2CppMethods(lua_State* L) {
 //   address | nil, err. The code address of one method (module base + rva live,
 //   or the rva in file mode). Useful for hooking a game function.
 static int l_findIl2CppMethod(lua_State* L) {
+    luaL_checkstring(L, 1); luaL_checkstring(L, 2); checkOptionalStrings(L, 3, 4);
     std::string className = luaL_checkstring(L, 1);
     std::string methodName = luaL_checkstring(L, 2);
     std::string metaPath, binPath;
@@ -4461,6 +4482,7 @@ static int l_findReferencedStrings(lua_State* L) {
 // module, usable to host injected code without a separate allocation. Defaults to
 // the main module.
 static int l_findCodeCaves(lua_State* L) {
+    checkOptionalStrings(L, 1, 1); if (!lua_isnoneornil(L, 2)) luaL_checkinteger(L, 2);
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process"); return 2; }
     std::string modName = (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) ? luaL_checkstring(L, 1) : "";
@@ -4485,6 +4507,7 @@ static int l_findCodeCaves(lua_State* L) {
 // module's code where those exact bytes occur. The instruction-level analog of an
 // AOB scan: e.g. "mov [rax+0x10], 999" or "call rax". Defaults to the main module.
 static int l_findAssemblyPattern(lua_State* L) {
+    luaL_checkstring(L, 1); checkOptionalStrings(L, 2, 2);
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process"); return 2; }
     std::string assembly = luaL_checkstring(L, 1);
@@ -5537,6 +5560,7 @@ static std::string customBytesArg(lua_State* L, int index) {
     }
 
     luaL_checktype(L, index, LUA_TTABLE);
+    checkByteTable(L, index, 1, (lua_Integer)lua_rawlen(L, index), true);   // before the string exists
     std::string bytes;
     auto count = lua_rawlen(L, index);
     bytes.reserve(count);

@@ -416,12 +416,19 @@ void LuaEngine::registerBindings() {
     lua_pushcfunction(L_, [](lua_State* L) -> int {
         auto* eng = LuaEngine::instanceFromState(L);
         int n = lua_gettop(L);
-        std::string out;
+        // Join in a Lua buffer: a __tostring that raises would longjmp past a
+        // std::string and leak it.
+        luaL_Buffer b;
+        luaL_buffinit(L, &b);
         for (int i = 1; i <= n; ++i) {
-            if (i > 1) out += "\t";
-            out += luaL_tolstring(L, i, nullptr);
-            lua_pop(L, 1);
+            if (i > 1) luaL_addchar(&b, '\t');
+            luaL_tolstring(L, i, nullptr);
+            luaL_addvalue(&b);
         }
+        luaL_pushresult(&b);
+        size_t length = 0;
+        const char* joined = lua_tolstring(L, -1, &length);
+        const std::string out(joined, length);
         if (eng && eng->outputCb_)
             eng->outputCb_(out);
         else

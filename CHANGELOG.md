@@ -124,6 +124,10 @@ reimplementation of Cheat Engine).
   debugger's. A tracer Cancel right at the start could be lost. Form
   Designer: edits after a delete went nowhere, names could repeat, and names
   or captions could produce invalid Lua.
+- Fixed: Lua `wideStringToByteTable` turned a cut-off UTF-8 sequence into a
+  wrong character instead of U+FFFD; `print`, the Mono, IL2CPP and DWARF
+  lookups, `disassembleBytes` and the custom-type helpers leaked memory when
+  given a bad argument.
 - Fixed: the Code Finder's page-protection mode missed accesses that start
   before the watched value and cover it (a 16-byte copy over a struct), and
   hits inside `rep movs`/`rep stos` were credited to the instruction before.

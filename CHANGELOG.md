@@ -124,6 +124,31 @@ reimplementation of Cheat Engine).
   debugger's. A tracer Cancel right at the start could be lost. Form
   Designer: edits after a delete went nowhere, names could repeat, and names
   or captions could produce invalid Lua.
+- Fixed: pointer scans dropped every path through an ELF program's
+  zero-initialised globals (`.bss`, the commonest static base), which were
+  not counted as part of the module; the module now extends to the end of
+  its last loaded segment. Code analysis (Find Statics, string references)
+  found nothing on 32-bit x86, which addresses globals absolutely. An "All"
+  scan missed 2- and 4-byte values above the signed maximum and negative
+  bytes, and a From address off the alignment grid shifted it. Untouched
+  pages of private memfd and device mappings were skipped as empty.
+- Fixed: address list. Actions from its context menu (Change address, Set
+  value, codec, data order, pointer size, groups, move) could apply to
+  another record when a table script changed the list meanwhile. Changing
+  the type of a frozen record kept writing the old frozen text in the new
+  type; the Type cell editor opened empty and committing it made the record
+  4 Bytes; editing the Address cell turned `game.exe+1C` into a fixed
+  address; freezing right after an edit froze "?" or nothing. Cut lost a
+  group's children; dropping a record on the group right above it did
+  nothing, and dragging a record left its children behind.
+- Fixed: input during a scan was replayed after it (a second First Scan
+  click wiped the new results); Ctrl+C did nothing in either list, and
+  Delete in the scan results deleted cheat-table records. "Wait for process"
+  could attach under an open menu or dialog and reported success when the
+  attach was refused. A GDB session's scan range and type carried over to
+  later processes. An open Comments or Lua Script window wrote the previous
+  table's text over a newly loaded one. Saving Settings slowed the address
+  list refresh and exit detection to 2 seconds.
 - Fixed: a value edit or freeze on memory a game maps read-only from a file
   (an asset pack, an SQLite database) could be written into that file on
   disk, every freeze tick. Writing through a mapping's file is now limited

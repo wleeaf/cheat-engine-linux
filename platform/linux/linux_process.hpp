@@ -43,6 +43,7 @@ public:
     Result<void> resumePendingCallSignal(bool deliverSignal) override;
 
     std::vector<ModuleInfo> modules() override;
+    std::optional<uint64_t> loadedElfSpan(uintptr_t base);   // see modules()
     std::vector<ThreadInfo> threads() override;
 
 private:

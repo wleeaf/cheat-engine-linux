@@ -83,6 +83,18 @@ bool readPrintableString(ProcessHandle& proc, uintptr_t address, std::string& ou
 
 std::vector<CodeRef> CodeAnalyzer::dissectModule(ProcessHandle& proc, const ModuleInfo& module) {
     std::vector<CodeRef> refs;
+    // The data address an instruction refers to: RIP-relative on x86-64, or an
+    // absolute [disp32] with no base or index register, which is how 32-bit
+    // code addresses its globals (and call/jmp [IAT] slots). Only inside the
+    // module: that also excludes segment-relative operands like fs:[0x28].
+    auto dataTarget = [&](const Instruction& inst) -> std::optional<uintptr_t> {
+        if (auto rip = parseRipRelativeTarget(inst)) return rip;
+        const auto& m = inst.memory;
+        if (!m.present || m.ripRelative || !m.baseReg.empty() || !m.indexReg.empty() || m.disp <= 0) return std::nullopt;
+        const auto target = static_cast<uintptr_t>(m.disp);
+        if (target < module.base || target - module.base >= module.size) return std::nullopt;
+        return target;
+    };
 
     // Read executable sections of the module
     auto regions = proc.queryRegions();
@@ -127,7 +139,7 @@ std::vector<CodeRef> CodeAnalyzer::dissectModule(ProcessHandle& proc, const Modu
                     // do not silently drop it. Recorded as RipRelative (not Call) on
                     // purpose: the target is a GOT data slot, not a function entry, so
                     // the direct-only call graph must not treat it as a callee.
-                    else if (auto target = parseRipRelativeTarget(inst)) {
+                    else if (auto target = dataTarget(inst)) {
                         ref.type = RefType::RipRelative;
                         ref.target = *target;
                         refs.push_back(ref);
@@ -147,14 +159,14 @@ std::vector<CodeRef> CodeAnalyzer::dissectModule(ProcessHandle& proc, const Modu
                     // Recover the referenced slot as a RIP-relative data ref rather
                     // than discarding it; not recorded as a Jump because the target
                     // is a GOT data slot, not a code address.
-                    else if (auto target = parseRipRelativeTarget(inst)) {
+                    else if (auto target = dataTarget(inst)) {
                         ref.type = RefType::RipRelative;
                         ref.target = *target;
                         refs.push_back(ref);
                     }
                 }
                 // RIP-relative memory operands often reference literals in nearby rodata.
-                else if (auto target = parseRipRelativeTarget(inst)) {
+                else if (auto target = dataTarget(inst)) {
                     CodeRef ref;
                     ref.address = inst.address;
                     ref.type = RefType::RipRelative;

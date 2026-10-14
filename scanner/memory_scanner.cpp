@@ -921,6 +921,14 @@ bool compareAllFloatingLiteral(const ScanConfig& config, T current) {
         return compareFloatingExact(config, current, config.floatValue);
     return getCompare<double>(config.compareType)(static_cast<double>(current), config.floatValue, config.floatValue2);
 }
+// The same bits read with the opposite signedness, widened (a byte 0xFF is
+// 255 one way and -1 the other).
+template <typename T>
+static int64_t otherSignedness(T value) {
+    if constexpr (std::is_signed_v<T>) return static_cast<int64_t>(static_cast<std::make_unsigned_t<T>>(value));
+    else return static_cast<int64_t>(static_cast<std::make_signed_t<T>>(value));
+}
+
 bool compareAllIntegerLiteral(const ScanConfig& config, int64_t current) {
     if (!config.allIntegerValue || (config.compareType != ScanCompare::Exact && config.compareType != ScanCompare::Greater &&
         config.compareType != ScanCompare::Less && config.compareType != ScanCompare::Between))
@@ -967,10 +975,15 @@ void scanBufferAllTypes(const uint8_t* buf,size_t bufSize,uintptr_t baseAddr,
             bool matches;
             if constexpr (std::is_floating_point_v<T>)
                 matches=compareAllFloatingLiteral(config,current);
-            else
+            else {
                 // Keep the full search value. Truncating 298 to a byte must not
                 // invent a Byte=42 match or change relational/between bounds.
                 matches=compareAllIntegerLiteral(config,static_cast<int64_t>(current));
+                // An exact value matches either reading of a narrow field, as in
+                // the single-type scans: 40000 is a 2-byte 0x9C40, -1 a byte 0xFF.
+                if (!matches && config.compareType==ScanCompare::Exact && sizeof(T)<8)
+                    matches=compareAllIntegerLiteral(config,otherSignedness(current));
+            }
             if (matches) mask|=static_cast<uint8_t>(1u<<bit);
         };
         candidate.template operator()<uint8_t>(0);candidate.template operator()<int16_t>(1);
@@ -2070,7 +2083,11 @@ static uint8_t nextAllTypeCandidates(const ScanConfig& config,uint8_t candidates
             match = literal && !(config.percentageScan && supportsPercentageCompare(config.compareType)) ?
                 compareAllFloatingLiteral(config,value) : compareNextNumericValues(config,value,previous);
         }
-        else match=compareNextAllInteger(config,static_cast<int64_t>(value),static_cast<int64_t>(previous));
+        else {
+            match=compareNextAllInteger(config,static_cast<int64_t>(value),static_cast<int64_t>(previous));
+            if (!match && config.compareType==ScanCompare::Exact && sizeof(T)<8)   // see the first scan
+                match=compareNextAllInteger(config,otherSignedness(value),otherSignedness(previous));
+        }
         if (match) kept|=static_cast<uint8_t>(1u<<bit);
     };
     candidate.template operator()<uint8_t>(0);candidate.template operator()<int16_t>(1);
@@ -2556,7 +2573,7 @@ ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& reque
         size_t grid=1;
         switch (config.valueType) {
             case ValueType::Byte: case ValueType::Int16: case ValueType::Int32: case ValueType::Int64:
-            case ValueType::Float: case ValueType::Double: case ValueType::Pointer:
+            case ValueType::Float: case ValueType::Double: case ValueType::Pointer: case ValueType::All:
                 grid=std::max<size_t>(config.alignment,1); break;
             case ValueType::UnicodeString: grid=2; break;
             default: break;

@@ -84,6 +84,9 @@ public:
     /// Attach to a running process by pid (no dialog). `name` is display-only.
     /// Used by the process picker and by `--pid <N>` on the command line.
     void attachToPid(pid_t pid, const QString& name);
+    void autoAttach(pid_t pid, const QString& name);   // "Wait for process" hit
+    void resetGuestScanSetup();   // undo a GDB guest's scan range and type
+    bool guestScanSetup_ = false;
     bool attachToGdb(std::unique_ptr<ce::GdbProcessHandle> process,const QString& endpoint);
     /// Open `pid` on a ceserver at host:port (the Connect to ceserver dialog's
     /// work). On failure, `error` receives the message for the user.
@@ -192,6 +195,7 @@ private:
     void openHelpDoc(const QString& relPath, const QString& title, const QString& url);
     QString tableComment_;
     QString tableLuaScript_;     // table-level Lua (runs on load, saved with the table)
+    std::vector<QPointer<QWidget>> tableTextWindows_;   // Comments / Lua Script editors
     ce::CheatTable tableMetadata_; // Imported author/version/structures/forms survive re-save.
     // Populate a Memory Viewer's View/Tools/Debug menus with the tools that need
     // MainWindow's context (CE keeps these in the Memory Viewer, not the main menu).

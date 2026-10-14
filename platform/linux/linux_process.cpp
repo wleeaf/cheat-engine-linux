@@ -6,6 +6,7 @@
 
 #include <fstream>
 #include <charconv>
+#include <elf.h>
 #include <set>
 #include <sstream>
 #include <algorithm>
@@ -493,6 +494,11 @@ std::vector<MemoryRegion> LinuxProcessHandle::queryRegions() {
         else if (!r.path.empty() && r.path[0] == '/' && r.path.rfind("/memfd:", 0) != 0 &&
                  r.path.rfind("/SYSV", 0) != 0 && r.path.rfind("/dev/", 0) != 0)
             r.type = MemType::Image;
+        else if (!r.path.empty() && r.path[0] == '/')
+            // A private view of a memfd or device: pages this process has not
+            // touched still hold the object's data, so it is not anonymous
+            // memory whose unfaulted pages a scan may skip as zero.
+            r.type = MemType::Mapped;
         else
             r.type = MemType::Private;
         regions.push_back(std::move(r));
@@ -803,6 +809,38 @@ void LinuxProcessHandle::enumeratePeModules(std::vector<ModuleInfo>& mods,
     }
 }
 
+// Bytes from an ELF image's load base to the end of its last PT_LOAD segment
+// (memory size, so .bss included), read from the loaded headers.
+std::optional<uint64_t> LinuxProcessHandle::loadedElfSpan(uintptr_t base) {
+    unsigned char header[64]{};
+    auto got = read(base, header, sizeof(header));
+    if (!got || *got < 52 || std::memcmp(header, ELFMAG, SELFMAG) != 0 || header[EI_DATA] != ELFDATA2LSB) return std::nullopt;
+    const bool wide = header[EI_CLASS] == ELFCLASS64;
+    if (!wide && header[EI_CLASS] != ELFCLASS32) return std::nullopt;
+    uint64_t phoff = 0; uint16_t phentsize = 0, phnum = 0;
+    if (wide) { Elf64_Ehdr h; std::memcpy(&h, header, sizeof(h)); phoff = h.e_phoff; phentsize = h.e_phentsize; phnum = h.e_phnum; }
+    else { Elf32_Ehdr h; std::memcpy(&h, header, sizeof(h)); phoff = h.e_phoff; phentsize = h.e_phentsize; phnum = h.e_phnum; }
+    if (phentsize != (wide ? sizeof(Elf64_Phdr) : sizeof(Elf32_Phdr)) || !phnum || phnum > 64 || phoff > 0x10000)
+        return std::nullopt;
+    std::vector<unsigned char> table(size_t(phentsize) * phnum);
+    auto read2 = read(base + phoff, table.data(), table.size());
+    if (!read2 || *read2 != table.size()) return std::nullopt;
+    const uint64_t page = static_cast<uint64_t>(sysconf(_SC_PAGESIZE));
+    std::optional<uint64_t> first;
+    uint64_t last = 0;
+    for (uint16_t i = 0; i < phnum; ++i) {
+        uint32_t type; uint64_t vaddr, memsz;
+        if (wide) { Elf64_Phdr ph; std::memcpy(&ph, table.data() + size_t(i) * phentsize, sizeof(ph)); type = ph.p_type; vaddr = ph.p_vaddr; memsz = ph.p_memsz; }
+        else { Elf32_Phdr ph; std::memcpy(&ph, table.data() + size_t(i) * phentsize, sizeof(ph)); type = ph.p_type; vaddr = ph.p_vaddr; memsz = ph.p_memsz; }
+        if (type != PT_LOAD || memsz > (uint64_t(1) << 40) || vaddr > (uint64_t(1) << 48)) continue;
+        if (!first) first = vaddr;
+        last = std::max(last, vaddr + memsz);
+    }
+    if (!first || last <= *first) return std::nullopt;
+    const uint64_t start = *first - *first % page;
+    return (last + page - 1) / page * page - start;
+}
+
 std::vector<ModuleInfo> LinuxProcessHandle::modules() {
     std::vector<ModuleInfo> mods;
     auto regions = queryRegions();
@@ -875,6 +913,20 @@ std::vector<ModuleInfo> LinuxProcessHandle::modules() {
             if (!imageElsewhere) kept.push_back(m);
         }
         mods = std::move(kept);
+    }
+    // An ELF image's .bss past its last file page is an anonymous mapping with
+    // no path, so the image would end before its zero-initialised globals
+    // (`static Player* g_player`), the commonest pointer-scan base, which a
+    // static-only scan then drops. The program headers in the image itself
+    // give its true extent; extend over the anonymous mapping only that far
+    // (an unrelated mapping can sit right after a library).
+    for (auto& m : mods) {
+        if (m.machine.architecture != CpuArchitecture::Unknown) continue;   // PE: SizeOfImage
+        const uintptr_t end = m.base + m.size;
+        auto next = std::find_if(regions.begin(), regions.end(), [&](const MemoryRegion& r) { return r.base == end; });
+        if (next == regions.end() || !next->path.empty()) continue;
+        if (auto span = loadedElfSpan(m.base); span && *span > m.size)
+            m.size = static_cast<size_t>(std::min<uint64_t>(*span, uint64_t(m.size) + next->size));
     }
     // Make backing-file paths host-openable for sandboxed targets (Flatpak/Snap/
     // container): a path like /app/bin/game exists only inside the target's mount

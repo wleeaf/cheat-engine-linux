@@ -1248,6 +1248,18 @@ static void test_guest_view() {
                at && refused && content == std::string(4096, 'A') ? "OK" : "FAILED");
     }
 
+    // A zero-initialised global past the executable's last file page lives in
+    // an anonymous mapping; it is still part of the module (pointer-scan statics).
+    {
+        static volatile char bssProbe[1 << 16];
+        bssProbe[sizeof(bssProbe) - 1] = 1;
+        const auto probe = reinterpret_cast<uintptr_t>(&bssProbe[sizeof(bssProbe) - 1]);
+        bool inside = false;
+        for (const auto& m : self.modules())
+            if (m.path.find("cecore_test") != std::string::npos && probe >= m.base && probe - m.base < m.size) inside = true;
+        printf("  an executable's .bss counts as part of its module: %s\n", inside ? "OK" : "FAILED");
+    }
+
     // Our own executable also mapped as data (a game reading its binary): the
     // module keeps the loaded image's base and extent, and appears once.
     {
@@ -10641,8 +10653,19 @@ static void test_all_types_scan() {
         nextOk = narrowed.count() == result.count();  // Exact 42 unchanged
     } catch (...) { nextOk = false; }
 
+    // A 2-byte field above the signed maximum: 40000 is 0x9C40, which a signed
+    // 16-bit reading sees as -25536.
+    const uint16_t unsignedWord = 40000;
+    std::memcpy(bytes + 128, &unsignedWord, sizeof(unsignedWord));
+    config.intValue = 40000;
+    config.floatValue = 40000.0;
+    auto wide = scanner.firstScan(proc, config);
+    bool unsignedOk = false;
+    for (size_t i = 0; i < wide.count(); ++i) if (wide.address(i) == base + 128) unsignedOk = true;
+
     munmap(page, pageSize);
 
+    printf("  vtAll exact matches a 2-byte value above the signed maximum: %s\n", unsignedOk ? "OK" : "FAILED");
     printf("  vtAll numeric match: %s\n", ok ? "OK" : "FAILED");
     printf("  vtAll value(i) stays in lockstep with address(i): %s\n", valuesAligned ? "OK" : "FAILED");
     printf("  vtAll nextScan does not throw: %s\n", nextOk ? "OK" : "FAILED");

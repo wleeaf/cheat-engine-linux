@@ -171,6 +171,10 @@ public:
     virtual std::optional<AddressEntrySnapshot> byId(int id) const = 0;
     virtual int findIdByDescription(const std::string& desc) const = 0;
     virtual std::vector<int> ids() const = 0;
+    // Bumped whenever the whole list is replaced (a table load), after which a
+    // record id may name an unrelated record. Lua handles and per-id callbacks
+    // from before the bump are stale.
+    virtual std::uint64_t replaceGeneration() const { return 0; }
 
     virtual int createEntry(uintptr_t addr, ValueType type, const std::string& description) = 0;
     virtual int createGroup(const std::string& description) = 0;

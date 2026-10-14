@@ -1,6 +1,7 @@
 #include "core/expression.hpp"
 #include "scripting/lua_safe.hpp"
 #include "scripting/lua_engine.hpp"
+#include "scripting/lua_memrec.hpp"
 #include "core/log.hpp"
 #include "core/address_list.hpp"
 #include "debug/debug_session.hpp"
@@ -168,8 +169,7 @@ void LuaEngine::setAddressList(IAddressList* list) {
     // stored in LUA_REGISTRYINDEX[MEMREC_CALLBACKS_KEY] keyed by record id.
     list->setActivationCallback([this](int id, bool active) {
         if (!L_) return;
-        lua_getfield(L_, LUA_REGISTRYINDEX, MEMREC_CALLBACKS_KEY);
-        if (!lua_istable(L_, -1)) { lua_pop(L_, 1); return; }
+        pushMemRecCallbacks(L_);   // empty if the table was replaced since
         lua_rawgeti(L_, -1, id);
         if (lua_isfunction(L_, -1)) {
             lua_pushboolean(L_, active);

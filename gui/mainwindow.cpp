@@ -5582,6 +5582,7 @@ bool AddressListModel::fromJson(const QJsonArray& arr, bool preserveExisting) {
     }
     beginResetModel();
     entries_ = std::move(incoming);
+    if (!preserveExisting) ++replaceGeneration_;   // ids now come from the loaded table
     const auto revision = ++targetRevision_;
     idWrapped_=largest==std::numeric_limits<int>::max();
     nextId_=idWrapped_ ? 1:largest+1;

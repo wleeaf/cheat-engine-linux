@@ -44,6 +44,7 @@ constexpr const char* MEMREC_CALLBACKS_KEY = "ce_memrec_callbacks";
 struct MemRecRef {
     int id;
     lua_Integer generation;
+    std::uint64_t replaceGeneration;
 };
 
 struct AddrListRef {
@@ -57,12 +58,35 @@ IAddressList* currentList(lua_State* L) {
     return list;
 }
 
+} // namespace
+
+void pushMemRecCallbacks(lua_State* L) {
+    auto* list = currentList(L);
+    const lua_Integer generation = list ? (lua_Integer)list->replaceGeneration() : 0;
+    lua_getfield(L, LUA_REGISTRYINDEX, "ce_memrec_callbacks_generation");
+    const bool current = lua_isinteger(L, -1) && lua_tointeger(L, -1) == generation;
+    lua_pop(L, 1);
+    lua_getfield(L, LUA_REGISTRYINDEX, MEMREC_CALLBACKS_KEY);
+    if (current && lua_istable(L, -1)) return;
+    lua_pop(L, 1);
+    lua_newtable(L);
+    lua_pushvalue(L, -1);
+    lua_setfield(L, LUA_REGISTRYINDEX, MEMREC_CALLBACKS_KEY);
+    lua_pushinteger(L, generation);
+    lua_setfield(L, LUA_REGISTRYINDEX, "ce_memrec_callbacks_generation");
+}
+
+namespace {
+
 MemRecRef* checkMemRec(lua_State* L, int idx) {
     auto* ref = static_cast<MemRecRef*>(luaL_checkudata(L, idx, MEMREC_MT));
     lua_getfield(L, LUA_REGISTRYINDEX, "ce_addresslist_generation");
     lua_Integer generation = lua_tointeger(L, -1);
     lua_pop(L, 1);
     if (generation != ref->generation) luaL_error(L, "memory record belongs to a previous address list");
+    auto* list = currentList(L);
+    if (list && list->replaceGeneration() != ref->replaceGeneration)
+        luaL_error(L, "memory record belongs to a previous table");
     return ref;
 }
 
@@ -76,6 +100,8 @@ void pushMemRec(lua_State* L, int id) {
     lua_getfield(L, LUA_REGISTRYINDEX, "ce_addresslist_generation");
     ref->generation = lua_tointeger(L, -1);
     lua_pop(L, 1);
+    auto* list = currentList(L);
+    ref->replaceGeneration = list ? list->replaceGeneration() : 0;
     luaL_getmetatable(L, MEMREC_MT);
     lua_setmetatable(L, -2);
 }
@@ -357,11 +383,9 @@ int l_mr_delete(lua_State* L) {
     auto* list = currentList(L);
     if (list) list->deleteById(ref->id);
     // Clear any registered OnActivate callback for this id.
-    lua_getfield(L, LUA_REGISTRYINDEX, MEMREC_CALLBACKS_KEY);
-    if (lua_istable(L, -1)) {
-        lua_pushnil(L);
-        lua_rawseti(L, -2, ref->id);
-    }
+    pushMemRecCallbacks(L);
+    lua_pushnil(L);
+    lua_rawseti(L, -2, ref->id);
     lua_pop(L, 1);
     return 0;
 }
@@ -480,20 +504,18 @@ int l_mr__newindex(lua_State* L) {
     auto* ref = checkMemRec(L, 1);
     // Copy the key: lua_remove(L, 2) below drops the stack reference, and a long
     // dynamically-built key would otherwise be collectible before the dispatch
-    // (and luaL_error's %s) reads it.
-    const std::string keyStr = luaL_checkstring(L, 2);
-    const char* key = keyStr.c_str();
+    // (and luaL_error's %s) reads it. A fixed buffer, because the setters and
+    // luaL_error longjmp past C++ destructors; no property name is this long.
+    size_t keyLen = 0;
+    const char* keyArg = luaL_checklstring(L, 2, &keyLen);
+    char key[64];
+    if (keyLen >= sizeof(key)) return luaL_error(L, "unknown MemoryRecord property");
+    std::memcpy(key, keyArg, keyLen + 1);
 
     // OnActivate handler — store function in registry callbacks table keyed by id.
     if (strcmp(key, "OnActivate") == 0 || strcmp(key, "OnDeactivate") == 0) {
         // Both share the same dispatch slot for now (real CE distinguishes — TODO).
-        lua_getfield(L, LUA_REGISTRYINDEX, MEMREC_CALLBACKS_KEY);
-        if (!lua_istable(L, -1)) {
-            lua_pop(L, 1);
-            lua_newtable(L);
-            lua_pushvalue(L, -1);
-            lua_setfield(L, LUA_REGISTRYINDEX, MEMREC_CALLBACKS_KEY);
-        }
+        pushMemRecCallbacks(L);
         lua_pushvalue(L, 3);
         lua_rawseti(L, -2, ref->id);
         lua_pop(L, 1);

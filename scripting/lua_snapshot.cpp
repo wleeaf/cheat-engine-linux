@@ -15,6 +15,8 @@ extern "C" {
 #include <memory>
 #include "scripting/lua_safe.hpp"
 
+#include <sys/stat.h>
+
 #undef lua_pushcfunction
 #define lua_pushcfunction(L, f) ce::pushSafeLuaFunction((L), (f))
 #undef lua_register
@@ -92,6 +94,9 @@ int l_loadSnapshot(lua_State* L) {
 int l_snap_save(lua_State* L) {
     auto* h = checkSnap(L, 1);
     const char* path = luaL_checkstring(L, 2);
+    // Never through a symlink planted at the path.
+    struct stat st{};
+    if (::lstat(path, &st) == 0 && S_ISLNK(st.st_mode)) { lua_pushboolean(L, 0); return 1; }
     lua_pushboolean(L, h->snap && h->snap->save(path));
     return 1;
 }
@@ -135,7 +140,7 @@ int l_snap_diff(lua_State* L) {
 void buildSnapshotMetatable(lua_State* L) {
     luaL_newmetatable(L, SNAPSHOT_MT);
     static const luaL_Reg methods[] = {
-        {"save",        l_snap_save},
+        {"save",        ce::guardFileWrite<l_snap_save>},   // writes a file: default-deny
         {"regionCount", l_snap_regionCount},
         {"byteCount",   l_snap_byteCount},
         {"restore",     l_snap_restore},

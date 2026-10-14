@@ -497,6 +497,7 @@ public:
     std::optional<ce::AddressEntrySnapshot> byId(int id) const override;
     int findIdByDescription(const std::string& desc) const override;
     std::vector<int> ids() const override;
+    std::uint64_t replaceGeneration() const override { return replaceGeneration_; }
     int createEntry(uintptr_t addr, ce::ValueType type, const std::string& description) override;
     int createGroup(const std::string& description) override;
     bool deleteById(int id) override;
@@ -556,6 +557,7 @@ private:
     bool scriptBusy_ = false;
     bool mutationBusy_ = false;
     uint64_t targetRevision_ = 0;
+    uint64_t replaceGeneration_ = 0;   // see IAddressList::replaceGeneration
 };
 
 } // namespace ce::gui

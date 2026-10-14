@@ -8041,6 +8041,33 @@ static void test_lua_headless_bindings() {
         if (!err.empty()) printf("    err: %s\n", err.c_str());
     }
 
+    // ---- loading another table retires record handles and OnActivate callbacks ----
+    {
+        struct ReplacingList : SimpleAddressList {
+            std::uint64_t generation = 0;
+            std::uint64_t replaceGeneration() const override { return generation; }
+        } l;
+        LuaEngine e; e.setAddressList(&l);
+        std::string err = e.execute(
+            "_G.oldRecord=createMemoryRecord(); oldRecord.Description='old'\n"
+            "_G.fired=false\n"
+            "oldRecord.OnActivate=function() _G.fired=true end\n");
+        const int id = l.ids().empty() ? 0 : l.ids().front();
+        l.generation = 1;   // a table load: the same id now names another record
+        if (err.empty()) err = e.execute(
+            "assert(not pcall(function() return oldRecord.Description end),"
+            " 'a handle from the previous table still reaches the record with its id')\n");
+        l.setActive(id, true);
+        if (err.empty()) err = e.execute("assert(not _G.fired, 'an OnActivate from the previous table ran for the new record')\n");
+        if (err.empty()) err = e.execute(
+            "local r=getAddressList():getMemoryRecord(0)\n"
+            "r.OnActivate=function() _G.fired=true end\n");
+        l.setActive(id, false);
+        if (err.empty()) err = e.execute("assert(_G.fired, 'OnActivate set after the load does not run')\n");
+        printf("  table load retires record handles and OnActivate: %s\n", err.empty() ? "OK" : "FAILED");
+        if (!err.empty()) printf("    err: %s\n", err.c_str());
+    }
+
     // The live-process tools (fork a child, then ptrace-SEIZE / scan it) are skipped
     // under ASan: a pointer scan of an ASan-instrumented target walks its ~20 TB
     // shadow address space and takes hours, and fork+ptrace conflicts with the

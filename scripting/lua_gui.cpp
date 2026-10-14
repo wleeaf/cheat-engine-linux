@@ -220,15 +220,34 @@ static int widgetfont_newindex(lua_State* L) {
     auto* f = checkWidgetFont(L, 1);
     if (!f->widget) return 0;
     const char* key = luaL_checkstring(L, 2);
-    QFont qf = f->widget->font();
-    if (!strcmp(key, "Name"))   { qf.setFamily(luaL_checkstring(L, 3)); f->widget->setFont(qf); return 0; }
-    if (!strcmp(key, "Size"))   { qf.setPointSize((int)luaL_checkinteger(L, 3)); f->widget->setFont(qf); return 0; }
-    if (!strcmp(key, "Bold"))   { qf.setBold(lua_toboolean(L, 3));   f->widget->setFont(qf); return 0; }
-    if (!strcmp(key, "Italic")) { qf.setItalic(lua_toboolean(L, 3)); f->widget->setFont(qf); return 0; }
-    if (!strcmp(key, "Color"))  {
+    // Read the arguments before building any QFont/QPalette/QString: a bad
+    // argument longjmps out and would skip their destructors.
+    if (!strcmp(key, "Name")) {
+        const char* family = luaL_checkstring(L, 3);
+        QFont qf = f->widget->font();
+        qf.setFamily(QString::fromUtf8(family));
+        f->widget->setFont(qf);
+        return 0;
+    }
+    if (!strcmp(key, "Size")) {
+        const int size = (int)luaL_checkinteger(L, 3);
+        QFont qf = f->widget->font();
+        if (size > 0) qf.setPointSize(size);
+        f->widget->setFont(qf);
+        return 0;
+    }
+    if (!strcmp(key, "Bold") || !strcmp(key, "Italic")) {
+        const bool on = lua_toboolean(L, 3);
+        QFont qf = f->widget->font();
+        if (key[0] == 'B') qf.setBold(on); else qf.setItalic(on);
+        f->widget->setFont(qf);
+        return 0;
+    }
+    if (!strcmp(key, "Color")) {
+        const QColor color = parseLuaColor(L, 3);
         QPalette pal = f->widget->palette();
-        pal.setColor(QPalette::WindowText, parseLuaColor(L, 3));
-        pal.setColor(QPalette::Text, parseLuaColor(L, 3));
+        pal.setColor(QPalette::WindowText, color);
+        pal.setColor(QPalette::Text, color);
         f->widget->setPalette(pal);
         return 0;
     }
@@ -310,6 +329,23 @@ static int widget_index(lua_State* L) {
     }
     if (!strcmp(key, "close")) {
         lua_pushcfunction(L, [](lua_State* L) -> int { liveWidget(L, 1)->close(); return 0; });
+        return 1;
+    }
+    if (!strcmp(key, "destroy")) {
+        // CE's TObject.destroy. Without it a parentless form or createTimer(nil)
+        // lives until exit. Deferred, so a handler can destroy its own object.
+        lua_pushcfunction(L, [](lua_State* L) -> int {
+            auto* lw = checkWidget(L, 1);
+            if (lw->timer) {
+                lw->timer->stop();
+                lw->timer->deleteLater();
+            }
+            if (lw->widget) {
+                lw->widget->hide();
+                lw->widget->deleteLater();
+            }
+            return 0;
+        });
         return 1;
     }
     if (!strcmp(key, "centerScreen") || !strcmp(key, "Centered")) {
@@ -396,9 +432,10 @@ static int widget_newindex(lua_State* L) {
     if (!strcmp(key, "Left"))   { w->move((int)luaL_checkinteger(L, 3), w->y()); return 0; }
     if (!strcmp(key, "Hint"))   { w->setToolTip(luaL_checkstring(L, 3)); return 0; }
     if (!strcmp(key, "Color"))  {
+        const QColor color = parseLuaColor(L, 3);   // may raise: before the palette exists
         QPalette pal = w->palette();
-        pal.setColor(QPalette::Window, parseLuaColor(L, 3));
-        pal.setColor(QPalette::Base,   parseLuaColor(L, 3));
+        pal.setColor(QPalette::Window, color);
+        pal.setColor(QPalette::Base,   color);
         w->setAutoFillBackground(true);
         w->setPalette(pal);
         return 0;
@@ -406,14 +443,22 @@ static int widget_newindex(lua_State* L) {
     if (!strcmp(key, "Lines")) {
         if (auto* memo = qobject_cast<QPlainTextEdit*>(w)) {
             luaL_checktype(L, 3, LUA_TTABLE);
-            QStringList ls;
-            int n = (int)lua_rawlen(L, 3);
-            for (int i = 1; i <= n; ++i) {
+            // Join on the Lua side: a non-string element raises, and a Lua error
+            // would longjmp past a QStringList's destructor.
+            luaL_Buffer b;
+            luaL_buffinit(L, &b);
+            const lua_Integer n = (lua_Integer)lua_rawlen(L, 3);
+            for (lua_Integer i = 1; i <= n; ++i) {
+                if (i > 1) luaL_addchar(&b, '\n');
                 lua_rawgeti(L, 3, i);
-                ls << QString::fromUtf8(luaL_optstring(L, -1, ""));
-                lua_pop(L, 1);
+                if (lua_isnil(L, -1)) lua_pop(L, 1);
+                else if (lua_type(L, -1) == LUA_TSTRING || lua_type(L, -1) == LUA_TNUMBER) {
+                    lua_tostring(L, -1);
+                    luaL_addvalue(&b);
+                } else return luaL_error(L, "Lines[%d] is not a string", (int)i);
             }
-            memo->setPlainText(ls.join('\n'));
+            luaL_pushresult(&b);
+            memo->setPlainText(QString::fromUtf8(lua_tostring(L, -1)));
             return 0;
         }
         return 0;
@@ -829,10 +874,12 @@ void shutdownLuaGuiBindings() {
     // about-to-be-freed lua_State; then drop the binding maps. The registry refs
     // they hold are released by the imminent lua_close, so no explicit unref here.
     guiLuaState = nullptr;
-    clickCallbacks.clear();
-    changeCallbacks.clear();
-    closeCallbacks.clear();
-    timerCallbacks.clear();
+    // Widgets made by scripts can outlive the state; cut their connections so a
+    // later state never sees registry refs that belonged to this one.
+    for (auto* callbacks : {&clickCallbacks, &changeCallbacks, &closeCallbacks, &timerCallbacks}) {
+        for (auto& [object, binding] : *callbacks) QObject::disconnect(binding.connection);
+        callbacks->clear();
+    }
 }
 
 void registerLuaGuiBindings(lua_State* L) {

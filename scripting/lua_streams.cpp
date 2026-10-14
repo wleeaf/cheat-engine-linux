@@ -306,8 +306,10 @@ int l_stream_loadFromFile(lua_State* L) {
     // larger than the cap before allocating so the vector ctor can't throw.
     if (rawSz < 0) { lua_pushboolean(L, 0); return 1; }
     size_t sz = static_cast<size_t>(rawSz);
-    if (sz > kMaxStreamBytes)
+    if (sz > kMaxStreamBytes) {
+        in.close();   // a Lua error longjmps past the stream's destructor
         return luaL_error(L, "file too large to load into stream");
+    }
     in.seekg(0);
     std::vector<uint8_t> buf(sz);
     in.read(reinterpret_cast<char*>(buf.data()), (std::streamsize)sz);

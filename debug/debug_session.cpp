@@ -15,6 +15,7 @@
 #include <vector>
 #include <algorithm>
 #include <optional>
+#include <array>
 #include <set>
 
 namespace ce {
@@ -186,6 +187,19 @@ bool DebugSession::rewindSoftwareStop(pid_t tid,uintptr_t address) {
     return true;
 }
 
+// A breakpoint trap queued for the thread and not yet delivered: an int3
+// (SI_KERNEL on x86, TRAP_BRKPT on arm64) or a hardware breakpoint.
+static bool queuedTrap(pid_t tid) {
+    struct { uint64_t offset; uint32_t flags; int32_t count; } peek{0, 0, 32};
+    std::array<siginfo_t, 32> pending{};
+    const long count = ptrace(PTRACE_PEEKSIGINFO, tid, &peek, pending.data());
+    for (long i = 0; i < count; ++i)
+        if (pending[i].si_signo == SIGTRAP &&
+            (pending[i].si_code == SI_KERNEL || pending[i].si_code == TRAP_BRKPT || pending[i].si_code == TRAP_HWBKPT))
+            return true;
+    return false;
+}
+
 void DebugSession::stopOtherThreads(pid_t active) {
     std::vector<pid_t> tids(traced_.begin(),traced_.end());
     for (pid_t tid : tids) {
@@ -202,6 +216,17 @@ void DebugSession::stopOtherThreads(pid_t active) {
         if (isEventStop(status,PTRACE_EVENT_CLONE)) {
             if (!adoptClonedThread(tid)) { hardwareRecovery_=true; recoveryPending_=true; }
             continue;
+        }
+        // The interrupt can be reported before a breakpoint trap the thread had
+        // already taken: the SIGTRAP is still queued, with the thread one byte
+        // past the int3. Once that breakpoint is removed (Run to Cursor's, or
+        // all of them on detach) the trap would reach the game and kill it.
+        // Let it reach its delivery stop now, where it is rewound below.
+        for (int tries=0; tries<4 && isEventStop(status,PTRACE_EVENT_STOP) && queuedTrap(tid); ++tries) {
+            if (ptrace(PTRACE_CONT,tid,nullptr,nullptr)<0) break;
+            stoppedTids_.erase(tid);
+            if (!waitForStop(tid,status,false)) break;
+            stoppedTids_.insert(tid);
         }
         if (isSoftwareStop(tid,status)) {
             auto context=os::readNativeContext(tid);
@@ -377,6 +402,34 @@ bool DebugSession::stepThreadOverBp(pid_t tid) {
     if (!liftSoftBreakpoint(address)) return false;
     uint64_t generation=imageGeneration_;
     bool stepped=singleStepThread(tid);
+    // A rep string instruction runs one iteration per step and leaves the
+    // instruction pointer on itself: re-arming now would stop again on every
+    // iteration (rcx Continues). Run this thread alone past the instruction,
+    // with the breakpoint still lifted, as Step Over does.
+    if (stepped && imageGeneration_==generation) {
+        auto after=os::readNativeContext(tid);
+        if (after && after->instructionPointer()==address) {
+            uint8_t bytes[16]{};
+            auto read=proc_->read(address,bytes,sizeof(bytes));
+            auto architecture=disassemblerArchFor(*proc_,address);
+            std::optional<Instruction> instruction;
+            if (read && *read && architecture)
+                instruction=Disassembler(*architecture).disassembleOne(address,{bytes,std::min(*read,sizeof(bytes))});
+            if (instruction && instruction->size) {
+                const uintptr_t next=address+instruction->size;
+                std::unique_lock lock(bpMutex_);
+                auto existing=softBreakpoints_.find(next);
+                const bool created=existing==softBreakpoints_.end();
+                const int existingId=created ? -1 : existing->second.id;
+                lock.unlock();
+                const int id=created ? static_cast<int>(doSetSoftBp(next)) : existingId;
+                if (id>=0) {
+                    stepped=runToTempBreakpoint(tid,next);
+                    if (created && imageGeneration_==generation && !doRemoveSoftBp(id)) stepped=false;
+                }
+            }
+        }
+    }
     if (imageGeneration_==generation && !rearmSoftBreakpoint(address)) return false;
     return stepped;
 }

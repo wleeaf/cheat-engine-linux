@@ -165,7 +165,11 @@ reimplementation of Cheat Engine).
   `alloc` near-address that does not resolve allocated anywhere; a missing
   `include()` file was skipped. Simple hooks copied `bnd jmp`/`bnd call`
   instructions into the trampoline unrelocated.
-- Fixed: debugger. Detach while a Step Over or Run to Cursor hit its
+- Fixed: debugger. A breakpoint trap another thread had already taken when
+  the debugger stopped it stayed queued; once that breakpoint was removed
+  (Run to Cursor's, or all of them on detach) the trap reached the game and
+  killed it. A breakpoint on a `rep` string instruction stopped again on
+  every iteration. Detach while a Step Over or Run to Cursor hit its
   breakpoint resumed the thread one byte into the instruction; attaching
   missed threads created while it ran (a breakpoint they hit killed the
   game) and dropped a signal that was in flight. The Memory Viewer could

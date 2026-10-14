@@ -560,13 +560,17 @@ bool CodeFinder::recordHit(pid_t tid, bool afterInstruction) {
     auto readResult = proc_->read(instrAddr, instrBuf, sizeof(instrBuf));
     std::string instrText;
     std::vector<uint8_t> instrBytes;
-    if (!readResult || !*readResult) {
-        setError(readResult ? std::make_error_code(std::errc::bad_address) : readResult.error()); return false;
+    // An instruction that cannot be read or decoded (unmapped since, or bytes
+    // the disassembler does not know) is still a hit: record it as "??"
+    // rather than ending the whole monitoring session.
+    if (readResult && *readResult) {
+        auto insns=disasm_->disassemble(instrAddr,{instrBuf,std::min(*readResult,sizeof(instrBuf))},1);
+        if (!insns.empty()) {
+            instrText=insns[0].mnemonic+" "+insns[0].operands;
+            instrBytes=insns[0].bytes;
+        }
     }
-    auto insns=disasm_->disassemble(instrAddr,{instrBuf,std::min(*readResult,sizeof(instrBuf))},1);
-    if (insns.empty()) { setError(std::make_error_code(std::errc::illegal_byte_sequence)); return false; }
-    instrText=insns[0].mnemonic+" "+insns[0].operands;
-    instrBytes=insns[0].bytes;
+    if (instrText.empty()) instrText="??";
     std::lock_guard lock(resultsMutex_);
     auto& entry = resultsMap_[instrAddr];
     if (entry.hitCount == 0) {

@@ -178,13 +178,32 @@ bool GlobalHotkeyManager::registerHotkey(int id, const QKeySequence& seq) {
     if (keycode == 0) return false;
 
     unsigned mod = qtModsToX11(combo.keyboardModifiers());
+    const Grab grab{(quint32)keycode, (quint32)mod};
+    // Another record already holds this combination: share the grab.
+    for (const auto& g : grabs_)
+        if (g.keycode == grab.keycode && g.modmask == grab.modmask) { grabs_.insert(id, grab); return true; }
+
+    // XGrabKey reports BadAccess (another client owns the combination)
+    // asynchronously; catch it during the XSync, so the caller can fall back
+    // instead of keeping a hotkey that never fires.
+    static bool grabRefused = false;
+    grabRefused = false;
+    auto previous = XSetErrorHandler([](Display*, XErrorEvent* error) -> int {
+        if (error->error_code == BadAccess) grabRefused = true;
+        return 0;
+    });
     Window root = DefaultRootWindow(dpy);
     for (unsigned lock : kLockMasks)
         XGrabKey(dpy, keycode, mod | lock, root, /*owner_events*/ True,
                  GrabModeAsync, GrabModeAsync);
     XSync(dpy, False);
+    XSetErrorHandler(previous);
+    if (grabRefused) {
+        ungrabOne(grab);   // release the lock-mask variants that did succeed
+        return false;
+    }
 
-    grabs_.insert(id, Grab{(quint32)keycode, (quint32)mod});
+    grabs_.insert(id, grab);
     return true;
 }
 
@@ -203,8 +222,12 @@ void GlobalHotkeyManager::unregisterHotkey(int id) {
 #endif
     auto it = grabs_.find(id);
     if (it == grabs_.end()) return;
-    ungrabOne(it.value());
+    const Grab grab = it.value();
     grabs_.erase(it);
+    // XUngrabKey releases the combination for every record sharing it.
+    for (const auto& g : grabs_)
+        if (g.keycode == grab.keycode && g.modmask == grab.modmask) return;
+    ungrabOne(grab);
 }
 
 void GlobalHotkeyManager::clear() {
@@ -224,13 +247,13 @@ bool GlobalHotkeyManager::nativeEventFilter(const QByteArray& eventType,
     auto* ke = reinterpret_cast<xcb_key_press_event_t*>(ev);
     // Strip the lock bits from the reported state before comparing.
     quint32 state = ke->state & (ShiftMask | ControlMask | Mod1Mask | Mod4Mask);
-    for (auto it = grabs_.constBegin(); it != grabs_.constEnd(); ++it) {
-        if (ke->detail == it.value().keycode && state == it.value().modmask) {
-            emit activated(it.key());
-            return true;   // consume
-        }
-    }
-    return false;
+    // Every record bound to this combination fires, not just the first one
+    // the hash happens to yield.
+    QList<int> ids;
+    for (auto it = grabs_.constBegin(); it != grabs_.constEnd(); ++it)
+        if (ke->detail == it.value().keycode && state == it.value().modmask) ids.push_back(it.key());
+    for (int id : ids) emit activated(id);
+    return !ids.isEmpty();   // consume
 }
 
 #endif // CECORE_HAVE_X11_HOTKEYS

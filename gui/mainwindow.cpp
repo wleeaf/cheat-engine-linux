@@ -136,6 +136,7 @@
 #include <QDataStream>
 #include <QMap>
 #include <cmath>
+#include <charconv>
 #include <cstring>
 #include <exception>
 
@@ -5759,6 +5760,44 @@ bool AddressListModel::adjustEntryValue(int row, double delta) {
     // Re-resolve pointer records so the hotkey acts on the current target, not a stale
     // cached address (a moved pointer would otherwise hit unrelated memory).
     if (!reresolveAddress(e)) return false;
+
+    // Integers with a whole step: exact 64-bit arithmetic. Through a double,
+    // an Int64 above 2^53 lost its low bits (+1 on 9007199254740993 wrote
+    // 9007199254740992).
+    const bool integer = e.type == ValueType::Byte || e.type == ValueType::Int16 ||
+                         e.type == ValueType::Int32 || e.type == ValueType::Int64;
+    if (integer && delta == std::trunc(delta) && std::abs(delta) < 9.2e18) {
+        ce::ValueIoOptions options;
+        options.hex = false; options.isSigned = e.showAsSigned;
+        options.codec = e.codec; options.bigEndian = e.bigEndian;
+        if (e.dataByteOrder != ByteOrder::Unknown) options.byteOrder = e.dataByteOrder;
+        if (auto text = ce::readTypedValue(*proc_, e.address, e.type, options)) {
+            const char* first = text->data();
+            const char* last = first + text->size();
+            const auto step = static_cast<int64_t>(delta);
+            uint64_t bits = 0;
+            bool parsed = false;
+            if (e.showAsSigned) {
+                int64_t v = 0;
+                parsed = std::from_chars(first, last, v).ec == std::errc{};
+                bits = static_cast<uint64_t>(v) + static_cast<uint64_t>(step);   // wraps like the target's integer
+            } else {
+                uint64_t v = 0;
+                parsed = std::from_chars(first, last, v).ec == std::errc{};
+                bits = v + static_cast<uint64_t>(step);
+            }
+            if (parsed) {
+                const QString nextText = QString::fromStdString(
+                    ce::formatIntegerScalar(bits, ce::scalarWidth(e.type), e.showAsSigned, e.showAsHex));
+                auto written = writeValueToProcess(proc_, e.address, e.type, nextText, e.codec, e.bigEndian, e.showAsHex, 0, e.dataByteOrder, e.pointerWidth);
+                if (!written) { reportActivationError("Value edit failed", QString::fromStdString(written.error())); return false; }
+                e.currentValue = nextText;
+                if (e.active) e.frozenValue = nextText;
+                emit dataChanged(index(row, 4), index(row, 4), {Qt::DisplayRole, Qt::EditRole});
+                return true;
+            }
+        }
+    }
 
     double current = 0;
     if (!readComparableValue(proc_, e.address, e.type, current, e.codec, e.bigEndian, e.showAsSigned, e.dataByteOrder, e.pointerWidth) &&

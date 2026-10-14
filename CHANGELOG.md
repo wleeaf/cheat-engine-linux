@@ -124,6 +124,15 @@ reimplementation of Cheat Engine).
   debugger's. A tracer Cancel right at the start could be lost. Form
   Designer: edits after a delete went nowhere, names could repeat, and names
   or captions could produce invalid Lua.
+- Fixed: value hotkeys did Int64 arithmetic in floating point, so +1 on a
+  value above 2^53 wrote the wrong number. Two records with the same global
+  hotkey: only one fired, and removing one released the key for the other;
+  a combination another program already owned was reported as registered.
+  The Code Finder stopped monitoring at the first instruction it could not
+  read or decode; it now lists it as `??`. The graphical memory view rebuilt
+  its whole image on every paint, and the ELF inspector ran readelf on the
+  GUI thread (up to a minute) and passed a file name starting with `-` as an
+  option.
 - Fixed: the debugger window froze while a step ran, for good when Step
   Over entered a call that never returned (or waited on a thread the step
   keeps paused); steps now run in the background and Detach ends one. The

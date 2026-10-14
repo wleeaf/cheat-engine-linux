@@ -93,6 +93,24 @@ reimplementation of Cheat Engine).
   Run to Cursor's temporary breakpoint stayed armed after a stop elsewhere.
   Advanced Options let one entry be replaced with NOPs twice, after which
   Restore put back NOPs.
+- Fixed: the debugger window froze while a step ran, for good when Step
+  Over entered a call that never returned (or waited on a thread the step
+  keeps paused); steps now run in the background and Detach ends one. The
+  changed-register highlight was cleared by a second redraw of the same stop;
+  data breakpoint hits were never counted; right-clicking below the last
+  line acted on RIP.
+- Fixed: the Code Finder's details and "Add to the address list" could take
+  another instruction than the one clicked (rows re-sort by hit count), and
+  added the trap address instead of the recovered instruction shown.
+- Fixed: the Structure Dissector kept showing old values after a read failed
+  and stale bytes past a partial read; with four compare addresses the
+  column headers never switched; Copy as C++ ignored declared field types.
+- Fixed: the Mono dissector added `System.String` fields as inline text (they
+  hold a reference), Unity vectors and colours as pointers, and asked for an
+  object address for static fields.
+- Fixed: on Wayland, removing the last hotkey left the old shortcuts bound
+  and firing; the portal session is now closed when nothing is bound, and
+  activations of unregistered hotkeys are ignored.
 - Fixed: the speedhack library was not found in the .deb (it is installed in
   the multiarch library directory) and was missing from the AppImage; the
   128x128 icon was installed as 256x256.

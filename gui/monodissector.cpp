@@ -69,8 +69,16 @@ ce::ValueType monoTypeToValueType(const QString& t) {
     if (t == "System.Int64" || t == "System.UInt64")                        return ce::ValueType::Int64;
     if (t == "System.Single")  return ce::ValueType::Float;
     if (t == "System.Double")  return ce::ValueType::Double;
-    if (t == "System.String")  return ce::ValueType::String;
+    // A string field holds a reference to a System.String object, not the
+    // characters; reading it as text would show the pointer's bytes.
+    if (t == "System.String")  return ce::ValueType::Pointer;
     if (t == "System.IntPtr" || t == "System.UIntPtr") return ce::ValueType::Pointer;
+    // Unity's vector-like value types are stored inline; their first member is
+    // a float (x, or r for Color).
+    if (t == "UnityEngine.Vector2" || t == "UnityEngine.Vector3" || t == "UnityEngine.Vector4" ||
+        t == "UnityEngine.Quaternion" || t == "UnityEngine.Color" || t == "UnityEngine.Rect")
+        return ce::ValueType::Float;
+    if (t == "UnityEngine.Vector2Int" || t == "UnityEngine.Vector3Int") return ce::ValueType::Int32;
     // Reference-type fields hold a pointer to the object.
     return ce::ValueType::Pointer;
 }
@@ -80,6 +88,7 @@ static constexpr int kOffsetRole = Qt::UserRole + 1;
 static constexpr int kTypeRole   = Qt::UserRole + 2;
 static constexpr int kLabelRole  = Qt::UserRole + 3;
 static constexpr int kKindRole   = Qt::UserRole + 4;   // "img" / "cls" / "fld"
+static constexpr int kStaticRole = Qt::UserRole + 5;   // the field lives in the class's static data
 
 MonoDissectorWindow::MonoDissectorWindow(ce::ProcessHandle* proc, QWidget* parent)
     : QMainWindow(parent), proc_(proc) {
@@ -113,7 +122,8 @@ MonoDissectorWindow::MonoDissectorWindow(ce::ProcessHandle* proc, QWidget* paren
         if (!it || it->data(0, kKindRole).toString() != "fld") return;
         emit addFieldRequested(it->data(0, kOffsetRole).toUInt(),
                                it->data(0, kTypeRole).toInt(),
-                               it->data(0, kLabelRole).toString());
+                               it->data(0, kLabelRole).toString(),
+                               it->data(0, kStaticRole).toBool());
     });
     v->addWidget(tree_);
     status_ = new QLabel("Not dissected yet.");
@@ -144,6 +154,7 @@ void MonoDissectorWindow::setDissection(const ce::MonoDissection& d) {
                 });
                 fldItem->setData(0, kKindRole, "fld");
                 fldItem->setData(0, kOffsetRole, static_cast<uint>(f.offset));
+                fldItem->setData(0, kStaticRole, f.isStatic);
                 fldItem->setData(0, kTypeRole, static_cast<int>(
                     monoTypeToValueType(QString::fromStdString(f.typeName))));
                 fldItem->setData(0, kLabelRole,

@@ -44,6 +44,7 @@ private:
     ce::gui::WaylandGlobalShortcuts* wayland_ = nullptr;   // null unless on Wayland
     bool waylandReady_ = false;      // portal session established
     bool rebindQueued_ = false;      // a coalesced rebind is already scheduled
+    bool waylandBound_ = false;      // the session holds shortcuts from a bind
     QHash<int, QString> waylandTriggers_;   // id -> "CTRL+SHIFT+G"
     void initWayland();
     bool tryRegisterWayland(int id, const QKeySequence& seq);

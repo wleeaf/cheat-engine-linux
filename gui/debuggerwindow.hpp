@@ -15,6 +15,7 @@
 #include <vector>
 #include <array>
 #include <atomic>
+#include <thread>
 
 class QLineEdit;
 class QPlainTextEdit;
@@ -44,7 +45,7 @@ public:
 
     // Accessors for automation/smoke tests.
     bool debugAttached() const { return session_ && session_->isAttached(); }
-    bool debugStopped() const { return session_ && session_->isStopped(); }
+    bool debugStopped() const { return paused(); }
     uintptr_t currentStopRip() const { return lastStopRip_; }
     /// Continue until execution reaches `addr` (a one-shot breakpoint), then stop.
     /// Public so the Memory Viewer's "Run to cursor" can target its own selected line.
@@ -153,6 +154,8 @@ private:
     std::vector<uint64_t> prevGp_;   // last stop's GP regs, to red-flag changes on step
     ce::CpuArchitecture registerArchitecture_ = ce::CpuArchitecture::Unknown;
     ce::os::NativeVectorContext prevVectors_{};
+    std::vector<uint64_t> shownGp_;                // what the table shows now
+    ce::os::NativeVectorContext shownVectors_{};
     QPlainTextEdit* stackView_ = nullptr;
     QLineEdit* memAddrInput_ = nullptr;
     QTextEdit* memView_ = nullptr;
@@ -196,6 +199,16 @@ private:
     // Run-to-cursor is a GUI-level temp breakpoint + continue (non-blocking),
     // auto-removed when its address is hit.
     uintptr_t pendingRtcAddr_ = 0;
+    // Steps run off the GUI thread: a Step Over into a call that never returns
+    // (or waits on a thread the all-stop step keeps frozen) must not hang the
+    // window; Detach still ends it.
+    std::thread stepThread_;
+    bool stepping_ = false;
+    void runStep(ce::StepMode mode);
+    void finishStep();
+    // Stopped and not in the middle of a step: only then may the window issue
+    // session commands, which would otherwise queue behind the step and block.
+    bool paused() const { return session_ && session_->isStopped() && !stepping_; }
     int pendingRtcId_ = -1;
 };
 

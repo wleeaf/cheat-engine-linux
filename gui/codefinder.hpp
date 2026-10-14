@@ -47,7 +47,8 @@ private:
     void onExportToFile();    // write the findings to a text report
     void onContextMenu(const QPoint& pos);   // per-result right-click actions
     uintptr_t addressOfRow(int row) const;   // the (recovered) address shown in column 0
-    bool nopInstructionAt(uintptr_t addr);   // overwrite the instruction with NOPs
+    bool nopInstructionAt(uintptr_t addr);
+    int resultIndexOfRow(int row, const std::vector<ce::CodeFinderResult>& results) const;   // overwrite the instruction with NOPs
     bool restoreInstructionAt(uintptr_t addr);   // write the saved original bytes back
 
     ce::CodeFinder* finder_;

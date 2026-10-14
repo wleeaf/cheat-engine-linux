@@ -533,10 +533,10 @@ void StructureDissector::populateTable() {
 
     cache_.resize(structSize_);
     auto r = proc_->read(baseAddr_, cache_.data(), structSize_);
-    if (!r) return;
     // read() may report a partial count when the struct straddles an unmapped
-    // page; only bytes [0, validBytes_) are real, the rest may be stale.
-    validBytes_ = (int)std::min<size_t>(*r, (size_t)structSize_);
+    // page; only bytes [0, validBytes_) are real, the rest may be stale. A
+    // failed read shows every field as unreadable instead of the last values.
+    validBytes_ = r ? (int)std::min<size_t>(*r, (size_t)structSize_) : 0;
 
     // Compare mode: read every compare instance. Each tracks how many bytes are
     // real: a partial read (the struct straddles an unmapped page) leaves stale
@@ -572,9 +572,12 @@ void StructureDissector::populateTable() {
 
     if (!cmp) {
         // Single-struct dissection: one row per 8 bytes, all display types shown.
-        if (table_->columnCount() != 7) {
+        // Compare mode with four instances also has seven columns: check the
+        // headers, not just the count, when switching back.
+        const QStringList headers{"Offset", "Name", "Hex", "Int8", "Int32", "Float", "Pointer?"};
+        if (table_->columnCount() != 7 || headerLabels() != headers) {
             table_->setColumnCount(7);
-            table_->setHorizontalHeaderLabels({"Offset", "Name", "Hex", "Int8", "Int32", "Float", "Pointer?"});
+            table_->setHorizontalHeaderLabels(headers);
             auto* hh = table_->horizontalHeader();
             hh->setStretchLastSection(false);
             for (int c = 0; c < 7; ++c) hh->setSectionResizeMode(c, QHeaderView::ResizeToContents);
@@ -590,8 +593,9 @@ void StructureDissector::populateTable() {
             nameItem->setForeground(ce::gui::editorPalette().label);
             table_->setItem(i, 1, nameItem);
             const char* types[] = {"hex", "int8", "int32", "float", "ptr"};
+            const bool readable = off + 8 <= validBytes_;
             for (int c = 0; c < 5; ++c) {
-                auto* it = new QTableWidgetItem(formatValue(d, off, types[c]));
+                auto* it = new QTableWidgetItem(readable ? formatValue(d, off, types[c]) : QStringLiteral("??"));
                 if (rowChanged[i]) {   // value changed since the last refresh -> red, CE-style
                     it->setForeground(changedFg);
                     if (c == 0) it->setData(Qt::UserRole + 1, true);   // test hook (Hex column)
@@ -614,10 +618,10 @@ void StructureDissector::populateTable() {
     // offset is coloured (same = default, different = red), so the fields that
     // discriminate between the instances stand out.
     const int cols = 3 + (int)compareAddrs_.size();
-    if (table_->columnCount() != cols) {
+    QStringList headers; headers << "Offset" << "Name" << "Base";
+    for (auto a : compareAddrs_) headers << QString("0x%1").arg(a, 0, 16);
+    if (table_->columnCount() != cols || headerLabels() != headers) {   // new addresses, same count
         table_->setColumnCount(cols);
-        QStringList headers; headers << "Offset" << "Name" << "Base";
-        for (auto a : compareAddrs_) headers << QString("0x%1").arg(a, 0, 16);
         table_->setHorizontalHeaderLabels(headers);
         auto* hh = table_->horizontalHeader();
         hh->setStretchLastSection(false);
@@ -678,6 +682,15 @@ int StructureDissector::addAllFieldsToList() {
     return n;
 }
 
+QStringList StructureDissector::headerLabels() const {
+    QStringList labels;
+    for (int c = 0; c < table_->columnCount(); ++c) {
+        auto* h = table_->horizontalHeaderItem(c);
+        labels << (h ? h->text() : QString());
+    }
+    return labels;
+}
+
 bool StructureDissector::cellDiffColoredForTest(int row, int col) const {
     auto* it = table_->item(row, col);
     return it && it->data(Qt::UserRole + 1).toBool();
@@ -707,7 +720,9 @@ void StructureDissector::onCopyAsCpp() {
         ce::StructureField f;
         f.name = name.toStdString();
         f.offset = (size_t)off;
-        f.type = (off >= 0 && off < (int)cache_.size())
+        // The declared type (Type as C struct / IL2CPP) wins over a guess from the bytes.
+        if (auto tit = fieldTypes_.find(off); tit != fieldTypes_.end()) f.type = tit->second;
+        else f.type = (off >= 0 && off < (int)cache_.size())
             ? guessType(cache_.data() + off, off) : ce::ValueType::Int32;
         switch (f.type) {
             case ce::ValueType::Byte:  f.size = 1; break;

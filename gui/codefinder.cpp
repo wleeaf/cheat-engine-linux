@@ -107,9 +107,9 @@ CodeFinderWindow::CodeFinderWindow(CodeFinder* finder, const QString& title,
     setEmptyHint(table_, "Waiting for an instruction to touch the address. Let the game run.");
     connect(table_, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem* item) {
         if (!item) return;
-        int row = item->row();
         auto results = finder_->results();
-        if (row < 0 || row >= (int)results.size()) return;
+        const int row = resultIndexOfRow(item->row(), results);
+        if (row < 0) return;
 
         auto* dlg = new QDialog(this);
         dlg->setWindowTitle(QString("Hit context @ 0x%1").arg(results[row].instructionAddress, 0, 16));
@@ -203,7 +203,11 @@ void CodeFinderWindow::refresh() {
             if (rec.ok) { insAddr = rec.address; insText = QString::fromStdString(rec.text); }
         }
         if (noppedOriginals_.count(insAddr)) insText = "[NOP] " + insText;   // patched to NOPs
-        table_->setItem(i, 0, new QTableWidgetItem(hexQ(insAddr)));
+        auto* addrItem = new QTableWidgetItem(hexQ(insAddr));
+        // Results are re-sorted by hit count on every fetch, so a row index names
+        // a different result a moment later: key the row by its result.
+        addrItem->setData(Qt::UserRole, QVariant::fromValue<qulonglong>(r.instructionAddress));
+        table_->setItem(i, 0, addrItem);
         table_->setItem(i, 1, new QTableWidgetItem(insText));
         table_->setItem(i, 2, new QTableWidgetItem(QString::number(r.hitCount)));
         table_->setItem(i, 3, ptrItem);
@@ -224,19 +228,23 @@ void CodeFinderWindow::onStop() {
 
 void CodeFinderWindow::onAddToList() {
     if (!addToList_) return;
-    auto results = finder_->results();
     // Use the selected rows, or all rows if the user selected none.
     std::vector<int> rows;
     for (const auto& idx : table_->selectionModel()->selectedRows())
         rows.push_back(idx.row());
     if (rows.empty())
-        for (int i = 0; i < (int)results.size(); ++i) rows.push_back(i);
+        for (int i = 0; i < table_->rowCount(); ++i) rows.push_back(i);
 
+    // Add what the rows show: the recovered writing instruction, not the raw
+    // trap address one instruction past it.
     int added = 0;
     for (int row : rows) {
-        if (row < 0 || row >= (int)results.size()) continue;
-        const auto& r = results[row];
-        addToList_(r.instructionAddress, QString::fromStdString(r.instructionText));
+        const uintptr_t addr = addressOfRow(row);
+        auto* textItem = table_->item(row, 1);
+        if (!addr || !textItem) continue;
+        QString text = textItem->text();
+        if (text.startsWith("[NOP] ")) text = text.mid(6);
+        addToList_(addr, text);
         ++added;
     }
     statusLabel_->setText(QString("Added %1 instruction(s) to the address list.").arg(added));
@@ -264,6 +272,15 @@ void CodeFinderWindow::onExportToFile() {
             << "Last hit:\n" << fullRegisterDump(r.lastContext) << '\n';
     }
     statusLabel_->setText(QString("Saved %1 instruction(s) to %2").arg(results.size()).arg(path));
+}
+
+int CodeFinderWindow::resultIndexOfRow(int row, const std::vector<ce::CodeFinderResult>& results) const {
+    auto* it = (row >= 0) ? table_->item(row, 0) : nullptr;
+    if (!it) return -1;
+    const auto key = static_cast<uintptr_t>(it->data(Qt::UserRole).toULongLong());
+    for (size_t i = 0; i < results.size(); ++i)
+        if (results[i].instructionAddress == key) return static_cast<int>(i);
+    return -1;
 }
 
 uintptr_t CodeFinderWindow::addressOfRow(int row) const {
@@ -314,18 +331,14 @@ void CodeFinderWindow::onContextMenu(const QPoint& pos) {
         showInDisasm_(addr);
     } else if (picked == nopAct) {
         if (nopInstructionAt(addr)) {
-            if (auto* it = table_->item(row, 1))
-                it->setText("[NOP] " + it->text());
+            refresh();   // the menu's event loop may have re-sorted the rows; relabel by address
             statusLabel_->setText(QString("Patched 0x%1 to NOPs.").arg(addr, 0, 16));
         } else {
             statusLabel_->setText(QString("Could not patch 0x%1.").arg(addr, 0, 16));
         }
     } else if (picked == restoreAct) {
         if (restoreInstructionAt(addr)) {
-            if (auto* it = table_->item(row, 1)) {
-                QString t = it->text();
-                if (t.startsWith("[NOP] ")) it->setText(t.mid(6));
-            }
+            refresh();
             statusLabel_->setText(QString("Restored the original code at 0x%1.").arg(addr, 0, 16));
         } else {
             statusLabel_->setText(QString("Could not restore 0x%1.").arg(addr, 0, 16));

@@ -163,11 +163,21 @@ void WaylandGlobalShortcuts::onBindResponse(uint response, const QVariantMap&) {
         emit sessionFailed(QStringLiteral("BindShortcuts response %1").arg(response));
 }
 
+void WaylandGlobalShortcuts::closeSession() {
+    if (sessionHandle_.isEmpty()) return;
+    bus_.asyncCall(QDBusMessage::createMethodCall(service_, sessionHandle_,
+        QStringLiteral("org.freedesktop.portal.Session"), QStringLiteral("Close")));
+    sessionHandle_.clear();
+}
+
 void WaylandGlobalShortcuts::onActivated(const QDBusMessage& message) {
     // Activated(o session_handle, s shortcut_id, t timestamp, a{sv} options).
+    // Only this session's shortcuts: a closed or another client's session is not ours.
     const QList<QVariant> args = message.arguments();
-    if (args.size() >= 2)
-        emit activated(args.at(1).toString());
+    if (args.size() < 2 || sessionHandle_.isEmpty()) return;
+    const QString handle = args.at(0).value<QDBusObjectPath>().path();
+    if (!handle.isEmpty() && handle != sessionHandle_) return;
+    emit activated(args.at(1).toString());
 }
 
 } // namespace ce::gui

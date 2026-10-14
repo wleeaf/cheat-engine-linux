@@ -262,7 +262,7 @@ void GlobalHotkeyManager::initWayland() {
                 if (!name.startsWith(prefix)) return;
                 bool ok = false;
                 const int id = name.mid(prefix.size()).toInt(&ok);
-                if (ok) emit activated(id);
+                if (ok && waylandTriggers_.contains(id)) emit activated(id);   // not an unregistered one
             });
     connect(wayland_, &ce::gui::WaylandGlobalShortcuts::sessionReady, this,
             [this] { waylandReady_ = true; rebindWayland(); });
@@ -301,7 +301,17 @@ void GlobalHotkeyManager::rebindWayland() {
         s.meta[QStringLiteral("preferred_trigger")] = it.value();
         shortcuts.push_back(s);
     }
-    if (!shortcuts.isEmpty())
+    if (!shortcuts.isEmpty()) {
         wayland_->bindShortcuts(shortcuts);
+        waylandBound_ = true;
+    } else if (waylandBound_) {
+        // An empty bind is never sent, so the old shortcuts would stay grabbed
+        // and keep firing: closing the session releases them. A fresh session
+        // is ready for the next registration.
+        waylandBound_ = false;
+        waylandReady_ = false;
+        wayland_->closeSession();
+        wayland_->createSession();
+    }
 }
 #endif // CECORE_HAVE_WAYLAND_HOTKEYS

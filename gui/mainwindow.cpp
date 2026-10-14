@@ -4503,10 +4503,12 @@ void MainWindow::openMonoDissector() {
     // Double-clicking a field asks for the object's base address, then adds
     // base+offset to the address list with the field's mapped type.
     connect(w, &ce::gui::MonoDissectorWindow::addFieldRequested, this,
-            [this](quint32 offset, int valueType, const QString& label) {
+            [this](quint32 offset, int valueType, const QString& label, bool isStatic) {
         bool ok = false;
+        // A static field's offset is into the class's static data, not an object.
         QString base = QInputDialog::getText(this, "Add Mono field",
-            QString("Object base address for '%1' (field at +0x%2):")
+            QString("%1 for '%2' (field at +0x%3):")
+                .arg(isStatic ? "Static data address of the class" : "Object base address")
                 .arg(label).arg(offset, 0, 16),
             QLineEdit::Normal, "", &ok);
         if (!ok || base.trimmed().isEmpty()) return;

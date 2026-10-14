@@ -28,7 +28,7 @@ public:
 signals:
     /// A field was chosen for the address list. `offset` is within the object;
     /// `type` is the mapped value type; `label` is "Class.field".
-    void addFieldRequested(quint32 offset, int valueType, const QString& label);
+    void addFieldRequested(quint32 offset, int valueType, const QString& label, bool isStatic);
 
 public slots:
     /// Inject the agent into the target and populate the tree with the result.

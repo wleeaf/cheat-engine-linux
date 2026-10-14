@@ -185,7 +185,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
         if (row < 0 || row >= static_cast<int>(bps_.size())) return;
         bool wantEnabled = (it->checkState() == Qt::Checked);
         if (wantEnabled == bps_[row].enabled) return;   // programmatic text change, not a toggle
-        if (!session_->isAttached() || !session_->isStopped()) {
+        if (!session_->isAttached() || !paused()) {
             QSignalBlocker block(bpList_);
             it->setCheckState(bps_[row].enabled ? Qt::Checked : Qt::Unchecked);
             statusLabel_->setText("Stop the target to enable/disable breakpoints");
@@ -214,7 +214,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
             }
             bps_[row].enabled = false;
         }
-        if (session_->isStopped()) updateDisassembly(session_->getStopContext());
+        if (paused()) updateDisassembly(session_->getStopContext());
     });
     setEmptyHint(bpList_, "No breakpoints yet.\nAdd one above, or press F5\non a line of code.");
     bl->addWidget(bpList_);
@@ -266,7 +266,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     });
 
     if (proc_ && session_->attach(proc_->pid(), proc_)) {
-        prevGp_.clear(); prevVectors_ = {};   // fresh session: don't flag the first stop's registers
+        prevGp_.clear(); prevVectors_ = {}; shownGp_.clear(); shownVectors_ = {};   // fresh session: don't flag the first stop's registers
         refreshStopped();   // target is all-stopped right after attach
     } else {
         statusLabel_->setText(proc_ ? "Attach failed: " + QString::fromStdString(
@@ -279,7 +279,8 @@ QString DebuggerWindow::statusTextForTest() const { return statusLabel_->text();
 
 DebuggerWindow::~DebuggerWindow() {
     if (session_ && session_->isAttached())
-        session_->detach();   // restores breakpoint bytes, resumes the target
+        session_->detach();   // restores breakpoint bytes, resumes the target; ends a step
+    if (stepThread_.joinable()) stepThread_.join();
 }
 
 void DebuggerWindow::setRunningUi(bool running, bool exited) {
@@ -300,22 +301,26 @@ void DebuggerWindow::onContinue() {
     session_->continueExecution();
 }
 
-void DebuggerWindow::onStepInto() {
-    if (!session_->isAttached() || !session_->isStopped()) return;
-    session_->step(ce::StepMode::Into);
-    refreshStopped();
+void DebuggerWindow::onStepInto() { runStep(ce::StepMode::Into); }
+void DebuggerWindow::onStepOver() { runStep(ce::StepMode::Over); }
+void DebuggerWindow::onStepOut()  { runStep(ce::StepMode::Out); }
+
+void DebuggerWindow::runStep(ce::StepMode mode) {
+    if (!session_->isAttached() || !paused()) return;
+    if (stepThread_.joinable()) stepThread_.join();   // a finished step not yet collected
+    stepping_ = true;
+    setRunningUi(true);
+    statusLabel_->setText("Stepping... (Detach ends a step that does not return)");
+    stepThread_ = std::thread([this, mode] {
+        try { session_->step(mode); } catch (...) {}   // a detach can abandon the command
+        QMetaObject::invokeMethod(this, [this] { finishStep(); }, Qt::QueuedConnection);
+    });
 }
 
-void DebuggerWindow::onStepOver() {
-    if (!session_->isAttached() || !session_->isStopped()) return;
-    session_->step(ce::StepMode::Over);
-    refreshStopped();
-}
-
-void DebuggerWindow::onStepOut() {
-    if (!session_->isAttached() || !session_->isStopped()) return;
-    session_->step(ce::StepMode::Out);
-    refreshStopped();
+void DebuggerWindow::finishStep() {
+    if (stepThread_.joinable()) stepThread_.join();
+    stepping_ = false;
+    if (session_->isAttached() && session_->isStopped()) refreshStopped();
 }
 
 void DebuggerWindow::onRunToCursor() {
@@ -323,7 +328,7 @@ void DebuggerWindow::onRunToCursor() {
 }
 
 void DebuggerWindow::runToAddress(uintptr_t addr) {
-    if (!session_->isAttached() || !session_->isStopped()) return;
+    if (!session_->isAttached() || !paused()) return;
     if (!addr) return;
     // One run-to-cursor at a time: a previous one that stopped short is dropped.
     if (!clearRunToCursor()) {
@@ -357,7 +362,7 @@ void DebuggerWindow::onAddBreakpoint() {
 }
 
 void DebuggerWindow::addBreakpointAt(uintptr_t addr, const QString& condition) {
-    if (!session_->isAttached() || !session_->isStopped()) {
+    if (!session_->isAttached() || !paused()) {
         statusLabel_->setText("Stop the target before setting a breakpoint");
         return;
     }
@@ -377,7 +382,7 @@ void DebuggerWindow::addBreakpointAt(uintptr_t addr, const QString& condition) {
     bps_.push_back(bp);
     bpList_->addItem(new QListWidgetItem());
     refreshBpRow(static_cast<int>(bps_.size()) - 1);
-    if (session_->isStopped()) updateDisassembly(session_->getStopContext());
+    if (paused()) updateDisassembly(session_->getStopContext());
 }
 
 QString DebuggerWindow::bpLabel(uintptr_t addr, const QString& condition) {
@@ -446,7 +451,7 @@ bool DebuggerWindow::removeBreakpointRow(int row) {
     }
     bps_.erase(bps_.begin() + row);
     delete bpList_->takeItem(row);
-    if (session_->isStopped()) updateDisassembly(session_->getStopContext());
+    if (paused()) updateDisassembly(session_->getStopContext());
     return true;
 }
 
@@ -467,7 +472,7 @@ QString DebuggerWindow::bpDataLabel(uintptr_t addr, int type, int size) {
 }
 
 void DebuggerWindow::onAddDataBreakpoint() {
-    if (!session_->isAttached() || !session_->isStopped()) {
+    if (!session_->isAttached() || !paused()) {
         statusLabel_->setText("Stop the target before setting a breakpoint");
         return;
     }
@@ -526,7 +531,7 @@ void DebuggerWindow::onDebugEvent(int type) {
         bps_.clear();
         bpList_->clear();
         pendingRtcId_=-1; pendingRtcAddr_=0;
-        prevGp_.clear(); prevVectors_={};
+        prevGp_.clear(); prevVectors_={}; shownGp_.clear(); shownVectors_={};
         refreshStopped();
         statusLabel_->setText("Process executed a new program; previous breakpoints cleared");
         return;
@@ -541,8 +546,11 @@ void DebuggerWindow::onDebugEvent(int type) {
     // silently instead of surfacing the stop (CE's "condition" field).
     if (type == static_cast<int>(ce::DebugEventType::BreakpointHit)) {
         auto ctx = session_->getStopContext();
+        // A code breakpoint stops at its address; a data breakpoint's event
+        // carries the watched address, while RIP is wherever the access was.
+        const uintptr_t eventAddr = lastEvtAddr_.load();
         for (size_t i = 0; i < bps_.size(); ++i) {
-            if (bps_[i].addr != ctx.instructionPointer()) continue;
+            if (bps_[i].addr != (bps_[i].hardware ? eventAddr : ctx.instructionPointer())) continue;
             // False condition => resume silently, don't count it as a hit.
             if (!bps_[i].condition.empty() &&
                 !ce::evaluateBreakpointCondition(bps_[i].condition, ctx, ctx.instructionPointer())) {
@@ -610,7 +618,7 @@ void DebuggerWindow::updateThreadList() {
 }
 
 void DebuggerWindow::onThreadSelected(int index) {
-    if (!session_ || index < 0 || !session_->isStopped()) return;
+    if (!session_ || index < 0 || !paused()) return;
     bool okv = false;
     pid_t tid = static_cast<pid_t>(threadCombo_->itemData(index).toInt(&okv));
     if (okv && session_->selectThread(tid))
@@ -735,6 +743,20 @@ void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
     // differs from the previous stop, default colour otherwise. Skipped on the
     // first stop of a session (prevGp_ empty), so nothing lights up spuriously.
     const bool sameArchitecture = registerArchitecture_ == c.architecture;
+    // A stop is rendered more than once (its debug event, then the command
+    // that caused it). Compare against the previous distinct stop, not the
+    // last render, or the second render clears every highlight.
+    std::vector<uint64_t> values;
+    for (const auto& value : registers) values.push_back(value.value);
+    auto sameVectors = [](const auto& a, const auto& b) {
+        return a.count == b.count && a.control == b.control && a.status == b.status && a.registers == b.registers;
+    };
+    if (!sameArchitecture || values != shownGp_ || !sameVectors(vectors, shownVectors_)) {
+        prevGp_ = sameArchitecture ? shownGp_ : std::vector<uint64_t>{};
+        prevVectors_ = shownVectors_;
+        shownGp_ = values;
+        shownVectors_ = vectors;
+    }
     const bool hasPrev = sameArchitecture && prevGp_.size() == registers.size();
     const QBrush changedFg(ce::gui::editorPalette().error);   // theme-aware red
     const QBrush normalFg = regTable_->palette().text();
@@ -767,8 +789,6 @@ void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
         it->setText(QStringLiteral("0x%1").arg(registers[i].value, registers[i].bits / 4, 16, QLatin1Char('0')));
         it->setForeground(hasPrev && prevGp_[i] != registers[i].value ? changedFg : normalFg);
     }
-    prevGp_.clear();
-    for (const auto& value : registers) prevGp_.push_back(value.value);
     if (flagsLabel_) {
         // Show every status flag's 0/1 state (CE-style), not just the set ones, so a
         // clear flag next to a conditional jump is still readable.
@@ -796,7 +816,6 @@ void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
         it->setText(vectors.count ? QStringLiteral("0x%1").arg(value, 8, 16, QLatin1Char('0')) : QStringLiteral("Unavailable"));
         it->setForeground(hasPrev && vectors.count && prevVectors_.count && value != previous ? changedFg : normalFg);
     }
-    prevVectors_ = vectors;
     registerArchitecture_ = c.architecture;
 }
 
@@ -818,7 +837,7 @@ QString DebuggerWindow::flagsTextForTest() const {
 // re-renders from the canonical post-write context (which also reverts bad hex).
 void DebuggerWindow::onRegisterEdited(QTableWidgetItem* item) {
     if (!session_ || !item || item->column() != 0) return;
-    if (!session_->isAttached() || !session_->isStopped()) return;
+    if (!session_->isAttached() || !paused()) return;
 
     QString t = item->text().trimmed();
     if (t.startsWith("0x") || t.startsWith("0X")) t = t.mid(2);
@@ -842,7 +861,7 @@ void DebuggerWindow::onRegisterEdited(QTableWidgetItem* item) {
 }
 
 bool DebuggerWindow::pokeRegisterForTest(int row, uint64_t value) {
-    if (!regTable_ || !session_ || !session_->isStopped()) return false;
+    if (!regTable_ || !session_ || !paused()) return false;
     auto before = ce::cpuRegisterValues(session_->getStopContext());
     if (row < 0 || row >= static_cast<int>(before.size())) return false;
     auto* it = regTable_->item(row, 0);
@@ -855,7 +874,7 @@ bool DebuggerWindow::pokeRegisterForTest(int row, uint64_t value) {
 void DebuggerWindow::setComments(std::map<uintptr_t, std::string> comments) {
     comments_ = std::move(comments);
     // Re-render the paused disassembly so a comment added mid-session appears at once.
-    if (session_ && session_->isStopped())
+    if (paused())
         updateDisassembly(session_->getStopContext());
 }
 
@@ -1111,7 +1130,7 @@ bool DebuggerWindow::toggleBreakpointAtCursorForTest(int lineIndex) {
 }
 
 void DebuggerWindow::nopInstructionAtCursor() {
-    if (!proc_ || !session_->isStopped()) return;
+    if (!proc_ || !paused()) return;
     const uintptr_t addr = currentCursorAddress();
     // A planted breakpoint reads as a trap byte: the instruction would decode as
     // one byte, and removing the breakpoint later writes the saved original back
@@ -1140,14 +1159,19 @@ void DebuggerWindow::nopInstructionAtCursor() {
 void DebuggerWindow::onDisasmContextMenu(const QPoint& pos) {
     // Move the caret to the clicked line so currentCursorAddress() targets it.
     disasmView_->setTextCursor(disasmView_->cursorForPosition(pos));
+    // Below the last instruction (or on an empty view) there is no line, and
+    // currentCursorAddress() would fall back to RIP: offer nothing to act on.
+    const int block = disasmView_->textCursor().blockNumber();
+    const bool onLine = block >= 0 && block < static_cast<int>(disasmLineAddrs_.size());
     QMenu menu(this);
-    menu.addAction("Set breakpoint here", this, &DebuggerWindow::setBreakpointAtCursor);
-    menu.addAction("Set conditional breakpoint...", this, &DebuggerWindow::setConditionalBreakpointAtCursor);
-    menu.addAction("Replace with NOPs",  this, &DebuggerWindow::nopInstructionAtCursor);
+    for (QAction* a : {menu.addAction("Set breakpoint here", this, &DebuggerWindow::setBreakpointAtCursor),
+                       menu.addAction("Set conditional breakpoint...", this, &DebuggerWindow::setConditionalBreakpointAtCursor),
+                       menu.addAction("Replace with NOPs",  this, &DebuggerWindow::nopInstructionAtCursor)})
+        a->setEnabled(onLine);
     menu.addSeparator();
     // Run to this line (CE's F4): only meaningful while the target is paused.
     QAction* rtc = menu.addAction("Run to cursor", this, &DebuggerWindow::onRunToCursor);
-    rtc->setEnabled(session_ && session_->isStopped());
+    rtc->setEnabled(onLine && paused());
     menu.exec(disasmView_->viewport()->mapToGlobal(pos));
 }
 

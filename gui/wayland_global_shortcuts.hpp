@@ -72,6 +72,10 @@ public:
 
     QString sessionHandle() const { return sessionHandle_; }
 
+    /// Close the session (org.freedesktop.portal.Session.Close), which releases
+    /// every shortcut bound in it. createSession() starts a new one.
+    void closeSession();
+
 signals:
     void sessionReady();
     void sessionFailed(const QString& reason);

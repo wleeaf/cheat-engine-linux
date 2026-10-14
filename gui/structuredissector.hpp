@@ -74,6 +74,7 @@ private:
     bool saveDefinition(const QString& path);   // JSON write, no dialog (testable)
     bool loadDefinition(const QString& path);   // JSON read, no dialog (testable)
     void populateTable();
+    QStringList headerLabels() const;
     // The type "Add ... (auto)" uses for a field: its declared type if set, else the
     // byte-pattern guess. Shared by the context menu and the test hook.
     ce::ValueType resolveFieldType(int offset);

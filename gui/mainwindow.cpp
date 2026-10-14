@@ -2962,17 +2962,38 @@ void MainWindow::onDisconnectProcess() {
     processLabel_->setText("No process selected");processLabel_->setToolTip({});processDetail_->setText(tr("Press Ctrl+O or click the magnifier to choose a process."));currentProcessName_.clear();updateWindowTitle();updateScanButtons();
 }
 
-bool MainWindow::attachToCeserver(const QString& host, uint16_t port, pid_t pid, QString* error) {
-    auto fail = [&](const QString& message) { if (error) *error = message; return false; };
-    auto client = std::make_unique<ce::os::CEServerClient>();
+// The network half of attaching to a ceserver target: no GUI state, so the
+// Connect dialog can run it on a worker thread (each step can wait 5 s, and
+// resolving a host name has no limit at all).
+MainWindow::CeserverConnection MainWindow::connectCeserver(const QString& host, uint16_t port, pid_t pid) {
+    CeserverConnection c;
+    c.client = std::make_unique<ce::os::CEServerClient>();
     std::string err;
-    if (!client->connectTcp(host.toStdString(), port, err))
-        return fail(QString("Connect failed: %1").arg(QString::fromStdString(err)));
-    auto version = client->getVersion();
-    if (!version)
-        return fail(QString("Handshake failed: %1").arg(QString::fromStdString(version.error())));
-    auto handle = ce::os::RemoteProcessHandle::open(*client, pid);
-    if (!handle) return fail(QString("Server refused PID %1").arg((int)pid));
+    if (!c.client->connectTcp(host.toStdString(), port, err)) {
+        c.error = QString("Connect failed: %1").arg(QString::fromStdString(err));
+        return c;
+    }
+    auto version = c.client->getVersion();
+    if (!version) {
+        c.error = QString("Handshake failed: %1").arg(QString::fromStdString(version.error()));
+        return c;
+    }
+    c.version = QString::fromStdString(version->versionString);
+    c.handle = ce::os::RemoteProcessHandle::open(*c.client, pid);
+    if (!c.handle) c.error = QString("Server refused PID %1").arg((int)pid);
+    return c;
+}
+
+bool MainWindow::attachToCeserver(const QString& host, uint16_t port, pid_t pid, QString* error) {
+    auto connection = connectCeserver(host, port, pid);
+    return adoptCeserver(std::move(connection), host, port, pid, error);
+}
+
+bool MainWindow::adoptCeserver(CeserverConnection connection, const QString& host, uint16_t port, pid_t pid, QString* error) {
+    auto fail = [&](const QString& message) { if (error) *error = message; return false; };
+    if (!connection.handle) return fail(connection.error);
+    auto client = std::move(connection.client);
+    auto handle = std::move(connection.handle);
     if (!releaseTargetUsers()) return fail({});
     process_.reset();
     ceserverClient_ = std::move(client);
@@ -2980,7 +3001,7 @@ bool MainWindow::attachToCeserver(const QString& host, uint16_t port, pid_t pid,
     luaEngine_.setProcess(process_.get());
     currentPid_ = pid;
     processLabel_->setText(QString("Remote process %1").arg((int)pid));
-    processDetail_->setText(QString("ceserver %1:%2  ·  %3").arg(host).arg(port).arg(QString::fromStdString(version->versionString)));
+    processDetail_->setText(QString("ceserver %1:%2  ·  %3").arg(host).arg(port).arg(connection.version));
     currentProcessName_ = QString("ceserver %1:%2").arg(host).arg(port);
     updateWindowTitle();
     addressListModel_->setProcess(process_.get());
@@ -3039,22 +3060,38 @@ void MainWindow::onConnectCeserver() {
     form->addRow(btnRow);
 
     connect(cancelBtn, &QPushButton::clicked, dlg, &QDialog::reject);
-    connect(connectBtn, &QPushButton::clicked, this, [&]() {
+    QPointer<QDialog> guard(dlg);
+    connect(connectBtn, &QPushButton::clicked, this, [this, guard, dlg, hostEdit, portSpin, pidEdit, statusLabel, connectBtn]() {
         bool ok = false;
         pid_t pid = pidEdit->text().toInt(&ok);
         if (!ok || pid <= 0) {
             statusLabel->setText("Enter a valid remote PID.");
             return;
         }
-        QString error;
-        if (!attachToCeserver(hostEdit->text(), static_cast<uint16_t>(portSpin->value()), pid, &error)) {
-            if (!error.isEmpty()) statusLabel->setText(error);
-            return;
-        }
-
-        settings.setValue("network/ceserverHost", hostEdit->text());
-        settings.setValue("network/ceserverPort", portSpin->value());
-        dlg->accept();
+        const QString host = hostEdit->text();
+        const auto port = static_cast<uint16_t>(portSpin->value());
+        statusLabel->setText(QString("Connecting to %1:%2...").arg(host).arg(port));
+        connectBtn->setEnabled(false);
+        // Off the GUI thread; Cancel closes the dialog and the late result is
+        // dropped (its connection closes with it).
+        std::thread([this, guard, dlg, host, port, pid, statusLabel, connectBtn]() {
+            auto connection = std::make_shared<CeserverConnection>(connectCeserver(host, port, pid));
+            // Posted to the application, not this window: the window may be
+            // gone by now. The dialog (its child) being alive says it is not.
+            QMetaObject::invokeMethod(qApp, [this, guard, dlg, host, port, pid, statusLabel, connectBtn, connection]() {
+                if (!guard || !dlg->isVisible()) return;   // cancelled meanwhile
+                connectBtn->setEnabled(true);
+                QString error;
+                if (!adoptCeserver(std::move(*connection), host, port, pid, &error)) {
+                    if (!error.isEmpty()) statusLabel->setText(error);
+                    return;
+                }
+                QSettings settings;
+                settings.setValue("network/ceserverHost", host);
+                settings.setValue("network/ceserverPort", port);
+                dlg->accept();
+            }, Qt::QueuedConnection);
+        }).detach();
     });
 
     dlg->exec();

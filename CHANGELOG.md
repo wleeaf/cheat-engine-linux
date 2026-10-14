@@ -153,6 +153,12 @@ reimplementation of Cheat Engine).
   registers on ARM; unknown or incomplete options of `disasm`, `il2cpp` and
   `analyze` were ignored. MCP watches end on shutdown instead of holding it
   for up to 30 seconds.
+- Fixed: `cescan scan --previous` accepted results of another value type (a
+  float scan narrowed as integers) or another process; scans now record
+  both and refuse a mismatch. The MCP `compare_structures` tool read
+  big-endian targets in host order. Connecting to ceserver froze the window
+  for up to 20 seconds (longer for a host name that does not resolve); it
+  now runs in the background and Cancel works.
 - Fixed: ceserver targets. A dropped connection made a scan return partial
   or empty results without an error, and the window kept showing `??`
   values; scans now fail and the window reports the lost connection. Reads

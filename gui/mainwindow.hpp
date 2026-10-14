@@ -4,6 +4,7 @@
 #include "platform/gdb_process.hpp"
 #include "platform/linux/ptrace_wrapper.hpp"
 #include "platform/linux/ceserver_client.hpp"
+#include "platform/linux/ceserver_process.hpp"
 #include "platform/linux/process_watcher.hpp"
 #include "scanner/memory_scanner.hpp"
 #include "scanner/snapshot.hpp"
@@ -91,6 +92,13 @@ public:
     /// Open `pid` on a ceserver at host:port (the Connect to ceserver dialog's
     /// work). On failure, `error` receives the message for the user.
     bool attachToCeserver(const QString& host, uint16_t port, pid_t pid, QString* error = nullptr);
+    struct CeserverConnection {
+        std::unique_ptr<ce::os::CEServerClient> client;
+        std::unique_ptr<ce::os::RemoteProcessHandle> handle;
+        QString version, error;
+    };
+    static CeserverConnection connectCeserver(const QString& host, uint16_t port, pid_t pid);
+    bool adoptCeserver(CeserverConnection connection, const QString& host, uint16_t port, pid_t pid, QString* error);
 
     /// Test hook: drive "find what writes" from the command line (`--find-writes`)
     /// so the exact GUI code path can be exercised headlessly against a repro

@@ -114,11 +114,18 @@ bool comparisonNeedsPrevious(ScanCompare c) {
 // A field's likely type, from its bytes, for compare_structures.
 // pointerWidth is the game's (4 for 32-bit code), so a 4-byte pointer does
 // not swallow the field after it.
+// `width` target bytes as an unsigned number, in the target's byte order.
+static uint64_t loadTarget(const uint8_t* bytes, size_t width, bool bigEndian) {
+    uint64_t value = 0;
+    for (size_t i = 0; i < width; ++i)
+        value |= uint64_t(bytes[bigEndian ? width - 1 - i : i]) << (8 * i);
+    return value;
+}
+
 std::string guessFieldType(const uint8_t* bytes, size_t available, bool pointerAligned, ProcessHandle& process,
-                           size_t pointerWidth) {
+                           size_t pointerWidth, bool bigEndian) {
     if (pointerAligned && available >= pointerWidth) {
-        uint64_t q = 0;
-        std::memcpy(&q, bytes, pointerWidth == 4 ? 4 : 8);
+        const uint64_t q = loadTarget(bytes, pointerWidth == 4 ? 4 : 8, bigEndian);
         if (q >= 0x10000 && q < 0x800000000000ull)
             if (auto region = process.queryRegion(static_cast<uintptr_t>(q)); region && q >= region->base && q < region->base + region->size)
                 return "pointer";
@@ -127,19 +134,18 @@ std::string guessFieldType(const uint8_t* bytes, size_t available, bool pointerA
     while (printable < 4 && printable < available && std::isprint(bytes[printable])) ++printable;
     if (printable >= 2 && (printable == 4 || (printable < available && bytes[printable] == 0))) return "string";
     // Small integers are tiny denormals as floats; real floats have an exponent.
-    uint32_t u;
-    std::memcpy(&u, bytes, 4);
+    const auto u = static_cast<uint32_t>(loadTarget(bytes, 4, bigEndian));
     float f;
-    std::memcpy(&f, bytes, 4);
+    std::memcpy(&f, &u, 4);
     if (u != 0 && std::isfinite(f) && std::fabs(f) >= 0.001f && std::fabs(f) < 1e9f) return "float";
     return "i32";
 }
 
-std::string formatField(const std::string& type, const uint8_t* bytes, size_t available, size_t pointerWidth) {
+std::string formatField(const std::string& type, const uint8_t* bytes, size_t available, size_t pointerWidth,
+                        bool bigEndian) {
     char text[64];
     if (type == "pointer") {
-        uint64_t q = 0;
-        std::memcpy(&q, bytes, pointerWidth == 4 ? 4 : 8);
+        const uint64_t q = loadTarget(bytes, pointerWidth == 4 ? 4 : 8, bigEndian);
         std::snprintf(text, sizeof text, "0x%llx", static_cast<unsigned long long>(q));
     } else if (type == "string") {
         std::string out;
@@ -147,12 +153,12 @@ std::string formatField(const std::string& type, const uint8_t* bytes, size_t av
             out += std::isprint(bytes[i]) ? static_cast<char>(bytes[i]) : '.';
         return out;
     } else if (type == "float") {
+        const auto u = static_cast<uint32_t>(loadTarget(bytes, 4, bigEndian));
         float f;
-        std::memcpy(&f, bytes, 4);
+        std::memcpy(&f, &u, 4);
         std::snprintf(text, sizeof text, "%g", static_cast<double>(f));
     } else {
-        int32_t v;
-        std::memcpy(&v, bytes, 4);
+        const auto v = static_cast<int32_t>(static_cast<uint32_t>(loadTarget(bytes, 4, bigEndian)));
         std::snprintf(text, sizeof text, "%d", v);
     }
     return text;
@@ -1020,15 +1026,16 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             Value fields = Value::array();
             Value discriminators = Value::array();
             const size_t pointerWidth = s.process->pointerWidth() == 4 ? 4 : 8;
+            const bool bigEndian = s.process->byteOrder() == ByteOrder::Big;
             for (size_t offset = 0; offset < size; offset += 4) {
                 // The first structure decides the type; an 8-byte pointer covers two fields.
                 const std::string type = guessFieldType(snapshots[0].data() + offset, size + 8 - offset,
-                                                        offset % pointerWidth == 0, *s.process, pointerWidth);
+                                                        offset % pointerWidth == 0, *s.process, pointerWidth, bigEndian);
                 const size_t width = type == "pointer" ? pointerWidth : 4;
                 Value values = Value::array();
                 std::vector<std::vector<uint8_t>> raw;
                 for (const auto& snapshot : snapshots) {
-                    values.push(Value::string(formatField(type, snapshot.data() + offset, size + 8 - offset, pointerWidth)));
+                    values.push(Value::string(formatField(type, snapshot.data() + offset, size + 8 - offset, pointerWidth, bigEndian)));
                     raw.emplace_back(snapshot.begin() + offset, snapshot.begin() + offset + width);
                 }
                 Value field = Value::object().set("offset", Value::string(hex(offset))).set("type", Value::string(type))

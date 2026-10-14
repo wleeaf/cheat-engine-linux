@@ -36,6 +36,7 @@
 #include "analysis/code_analysis.hpp"
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <iostream>
 
 #include <cstdio>
@@ -781,6 +782,37 @@ static int cmd_asm(const char* code, Arch arch, uintptr_t origin) {
     }
 }
 
+// A process's identity across PID reuse: its start time (/proc/<pid>/stat field 22).
+static std::string processIdentity(pid_t pid) {
+    std::ifstream stat("/proc/" + std::to_string(pid) + "/stat");
+    std::string text((std::istreambuf_iterator<char>(stat)), {});
+    const auto close = text.rfind(')');
+    if (close == std::string::npos) return std::to_string(pid);
+    std::istringstream fields(text.substr(close + 2));
+    std::string field;
+    for (int i = 3; i <= 22 && fields >> field; ++i) {}
+    return std::to_string(pid) + ":" + field;
+}
+
+// Saved next to a scan's results: what they hold and from which process, so a
+// later --previous cannot compare float bits as integers or another game's.
+static void writeScanMeta(const std::filesystem::path& dir, ValueType type, pid_t pid) {
+    std::ofstream meta(dir / "cescan.meta");
+    meta << "type=" << static_cast<int>(type) << "\nprocess=" << processIdentity(pid) << "\n";
+}
+
+static std::optional<std::pair<int, std::string>> readScanMeta(const std::filesystem::path& dir) {
+    std::ifstream meta(dir / "cescan.meta");
+    if (!meta) return std::nullopt;
+    int type = -1; std::string process;
+    for (std::string line; std::getline(meta, line);) {
+        if (line.rfind("type=", 0) == 0) type = std::atoi(line.c_str() + 5);
+        else if (line.rfind("process=", 0) == 0) process = line.substr(8);
+    }
+    if (type < 0) return std::nullopt;
+    return std::pair{type, process};
+}
+
 static int cmd_scan(pid_t pid, int argc, char** argv) {
     ScanConfig config;
     config.valueType = ValueType::Int32;
@@ -795,6 +827,7 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
     const char* toleranceStr = nullptr;
     const char* valueSizeStr = nullptr;
     const char* encodingStr = nullptr;
+    bool typeGiven = false;
     ce::ValueCodec codec;
 
     static struct option long_opts[] = {
@@ -839,7 +872,7 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
             }
             case 1006: config.startAddress=parseAddress(std::to_string(pid).c_str(),optarg);break;
             case 1007: config.stopAddress=parseAddress(std::to_string(pid).c_str(),optarg);break;
-            case 't': config.valueType = parseType(optarg); break;
+            case 't': config.valueType = parseType(optarg); typeGiven = true; break;
             case 'v': valueStr = optarg; break;
             case '2': value2Str = optarg; break;
             case 'e': encodingStr = optarg; break;
@@ -1004,6 +1037,22 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
                 fprintf(stderr, "No scan results in %s\n", previousDir);
                 return 1;
             }
+            if (auto meta = readScanMeta(previousPath)) {
+                if (meta->second != processIdentity(pid)) {
+                    fprintf(stderr, "The results in %s are from another process\n", previousDir);
+                    return 1;
+                }
+                if (meta->first != static_cast<int>(config.valueType)) {
+                    if (typeGiven) {
+                        fprintf(stderr, "The results in %s are %s values, not %s\n", previousDir,
+                                ce::valueTypeName(static_cast<ValueType>(meta->first)), ce::valueTypeName(config.valueType));
+                        return 1;
+                    }
+                    fprintf(stderr, "The results in %s are %s values: pass the same --type\n", previousDir,
+                            ce::valueTypeName(static_cast<ValueType>(meta->first)));
+                    return 1;
+                }
+            }
             ScanResult previous{previousPath};
             printf("Next scan on %zu previous results...\n",previous.count());
             result=std::make_unique<ScanResult>(scanner.nextScan(proc,config,previous));
@@ -1021,6 +1070,7 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
         }
         if (result->hasWriteError()) {fprintf(stderr,"Incomplete scan result files\n");return 1;}
         result->keepFiles();   // for a later --previous scan
+        writeScanMeta(result->directory(), config.valueType, pid);
         printf("Found: %zu results\nResults: %s\n",result->count(),result->directory().c_str());
         const size_t size=result->valueSize();
         std::vector<uint8_t> value(size);

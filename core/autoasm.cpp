@@ -1794,9 +1794,36 @@ std::expected<std::vector<uint8_t>,std::string> AutoAssembler::reassembleTarget(
     return assembleTarget(decoded[0].mnemonic+" "+operands,destination);
 }
 
-AutoAsmResult AutoAssembler::cleanup(ProcessHandle& proc, const DisableInfo& info) {
+AutoAsmResult AutoAssembler::cleanup(ProcessHandle& proc, const DisableInfo& saved) {
     AutoAsmResult result;
-    result.disableInfo = info;
+    result.disableInfo = saved;
+    // Code the script patched can be gone (a library unloaded, a JIT method
+    // freed): its bytes cannot be checked or restored, and insisting on it
+    // left the record impossible to disable and its cave allocated for good.
+    // Patches and protections over unmapped ranges are dropped; the rest of
+    // the cleanup (freeing allocations) goes on.
+    DisableInfo pruned = saved;
+    {
+        // Gone only when nothing of it can be read and no region holds it: a
+        // handle without a region map (a stub, a test double) reads fine.
+        auto mapped = [&](uintptr_t address, size_t size) {
+            uint8_t probe[64];
+            auto read = proc.read(address, probe, std::min<size_t>(size, sizeof probe));
+            if (read && *read) return true;
+            auto region = proc.queryRegion(address);
+            return region && address >= region->base && address - region->base < region->size;
+        };
+        if (!saved.image || saved.image->pid() == proc.pid()) {
+            std::erase_if(pruned.originals, [&](const auto& patch) {
+                return !patch.bytes.empty() && patch.bytes.size() - 1 <= UINTPTR_MAX - patch.address &&
+                       !mapped(patch.address, patch.bytes.size());
+            });
+            std::erase_if(pruned.protections, [&](const auto& protection) { return !mapped(protection.address, protection.size); });
+            if (pruned.originals.size() != saved.originals.size())
+                result.log.push_back("Patched code is no longer mapped; its original bytes were not restored");
+        }
+    }
+    const DisableInfo& info = pruned;
     auto fail = [&](const std::string& error) {
         if (!result.error.empty()) result.error += "\n";
         result.error += error;
@@ -2156,6 +2183,23 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
     // the caves — same as disable(). Called on ANY hard failure during execute so
     // a failed script leaves the target unchanged instead of a half-written cave
     // with an already-live hook (and doesn't leak the allocated RWX pages).
+    // What the script saw before it ran: live bytes with the originals of this
+    // run's earlier writes laid back over them (the earliest write's original
+    // wins). readmem and assert are about the unpatched code: read live after
+    // "INJECT: jmp newmem", readmem(INJECT,5) copied the hook itself into the
+    // cave and the game jumped to garbage.
+    auto readBeforeScript = [&](uintptr_t addr, uint8_t* out, size_t size) -> bool {
+        if (size && size - 1 > UINTPTR_MAX - addr) return false;
+        auto rr = result.disableInfo.image ? result.disableInfo.image->read(addr, out, size) : proc.read(addr, out, size);
+        if (!rr || *rr < size) return false;
+        const auto& written = result.disableInfo.originals;
+        for (auto it = written.rbegin(); it != written.rend(); ++it) {
+            const uintptr_t lo = std::max(addr, it->address);
+            const uintptr_t hi = std::min(addr + size, it->address + it->bytes.size());
+            for (uintptr_t a = lo; a < hi; ++a) out[a - addr] = it->bytes[a - it->address];
+        }
+        return true;
+    };
     auto patchMemory = [&](uintptr_t addr, const std::vector<uint8_t>& bytes, bool mutableData = false) -> bool {
         if (!bytes.empty() && bytes.size() - 1 > UINTPTR_MAX - addr) {
             result.error = "Patch range overflows the address space"; return false;
@@ -2328,8 +2372,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             }
 
             std::vector<uint8_t> current(pattern.byteArray.size());
-            auto readResult = proc.read(addr, current.data(), current.size());
-            if (!readResult || *readResult < current.size()) {
+            if (!readBeforeScript(addr, current.data(), current.size())) {   // the code before this script's writes
                 result.error = "ASSERT read failed at " + addrExpr;
                 return rollback();
             }
@@ -2550,8 +2593,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
                 }
                 if (sz > 0) {
                     std::vector<uint8_t> mem(sz);
-                    auto rr = proc.read(addr, mem.data(), sz);
-                    if (!rr || *rr < sz) {
+                    if (!readBeforeScript(addr, mem.data(), sz)) {
                         result.error = "READMEM source read failed at " + addrExpr;
                         return rollback();
                     }

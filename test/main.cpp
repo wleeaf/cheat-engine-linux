@@ -8535,6 +8535,14 @@ static void test_autoassembler_review_fixes() {
     printf("  assert compares nibbles and rejects bad bytes: %s\n", !mismatch.success && !badBytes.success ? "OK" : "FAILED");
     auto missing = run("[ENABLE]\naobscanregion(hook," + hex(base) + "," + hex(base + 32) + ",DE AD BE EF CA FE)\nhook:\ndb 90\n");
     printf("  an aobscan that finds nothing stops the script: %s\n", !missing.success ? "OK" : "FAILED");
+    // readmem copies the code as it was before this script's own writes: the
+    // usual hook-then-copy-the-original order.
+    g_aaScratch[0x30] = 0xAA; g_aaScratch[0x31] = 0xBB; g_aaScratch[0x32] = 0xCC;
+    auto copied = run("[ENABLE]\n" + hex(base + 0x30) + ":\ndb 90 90 90\n" + hex(base + 0x38) + ":\nreadmem(" +
+                      hex(base + 0x30) + ",3)\n");
+    printf("  readmem copies the bytes from before the script's writes: %s\n",
+           copied.success && g_aaScratch[0x38] == 0xAA && g_aaScratch[0x39] == 0xBB && g_aaScratch[0x3A] == 0xCC
+               ? "OK" : ("FAILED: " + copied.error).c_str());
     auto negative = run("[ENABLE]\n" + hex(base + 0x20) + ":\ndd -1\ndw #-5\n");
     uint32_t minusOne = 0; uint16_t minusFive = 0;
     std::memcpy(&minusOne, g_aaScratch + 0x20, 4); std::memcpy(&minusFive, g_aaScratch + 0x24, 2);

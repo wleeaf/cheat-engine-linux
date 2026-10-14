@@ -153,6 +153,13 @@ reimplementation of Cheat Engine).
   registers on ARM; unknown or incomplete options of `disasm`, `il2cpp` and
   `analyze` were ignored. MCP watches end on shutdown instead of holding it
   for up to 30 seconds.
+- Fixed: Auto Assembler. `readmem` and `assert` read memory after the
+  script's own earlier writes, so the common "hook, then copy the original
+  instruction into the cave" copied the hook's jump and the game crashed;
+  they now see the code as it was before the script. A record whose hooked
+  code had been unloaded (a library, a JIT method) could never be disabled
+  and kept its cave allocated; those patches are skipped and the rest is
+  cleaned up.
 - Fixed: Auto Assembler. `aobscan`, `aobscanmodule`, `aobscanregion` and
   `aobscanall` with a missing argument were skipped silently, so the name
   could resolve to a label another enabled script registered and the hook

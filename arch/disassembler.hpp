@@ -23,6 +23,7 @@ struct MemoryOperand {
     std::string indexReg;            // e.g. "rcx"; empty if none
     int32_t     scale = 1;
     int64_t     disp  = 0;
+    uint8_t     size  = 0;               // bytes accessed (0 = unknown)
 };
 
 struct Instruction {

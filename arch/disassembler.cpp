@@ -106,6 +106,7 @@ static MemoryOperand extractMemoryOperand(const cs_insn& in, csh handle) {
         if (op.type != X86_OP_MEM) continue;
         m.present = true;
         m.disp  = static_cast<int64_t>(op.mem.disp);
+        m.size  = op.size;
         m.scale = op.mem.scale ? op.mem.scale : 1;
         if (op.mem.base == X86_REG_RIP) {
             m.ripRelative = true;

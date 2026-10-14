@@ -448,7 +448,7 @@ void CodeFinder::monitorLoop() {
             siginfo_t info{};
             if (!guardFault(tid,&info)) return;
             uintptr_t fault=reinterpret_cast<uintptr_t>(info.si_addr);
-            if (fault>=targetAddress_ && fault<targetAddress_+watchSize_ && !recordHit(tid,false)) return;
+            if (accessTouchesTarget(tid,fault) && !recordHit(tid,false)) return;
             state.signal=0; state.signalInfo.reset(); state.guardStop=false;
             if (setStoppedProtection(tid,scratch,pageStart,pageLength,originalProtection,state.signal,&state.signalInfo)!=0) return;
             guardActive=false;
@@ -534,6 +534,27 @@ RecoveredInstruction recoverStoreInstruction(ProcessHandle& proc, SymbolResolver
     return out;
 }
 
+// A page fault reports where the access starts: a 16-byte copy at obj+8
+// covering a dword watched at obj+12 faults at obj+8. Decode the faulting
+// instruction for its operand size before discarding such a fault.
+bool CodeFinder::accessTouchesTarget(pid_t tid, uintptr_t fault) {
+    const uintptr_t end = targetAddress_ + watchSize_;
+    if (fault >= targetAddress_ && fault < end) return true;
+    if (fault > targetAddress_ || targetAddress_ - fault >= 64) return false;   // no access is wider
+    auto ctx = dbg_->getContext(tid);
+    if (!ctx) return false;
+    auto architecture = disassemblerArchFor(*proc_, ctx->instructionPointer());
+    if (!architecture) return false;
+    if (!disasm_) disasm_.emplace(*architecture);
+    else disasm_->setArch(*architecture);
+    uint8_t bytes[16];
+    auto read = proc_->read(ctx->instructionPointer(), bytes, sizeof(bytes));
+    if (!read || !*read) return false;
+    auto insns = disasm_->disassemble(ctx->instructionPointer(), {bytes, std::min(*read, sizeof(bytes))}, 1);
+    if (insns.empty() || !insns[0].memory.present || !insns[0].memory.size) return false;
+    return fault + insns[0].memory.size > targetAddress_;
+}
+
 bool CodeFinder::recordHit(pid_t tid, bool afterInstruction) {
     auto ctxResult = dbg_->getContext(tid);
     if (!ctxResult) { setError(ctxResult.error()); return false; }
@@ -544,7 +565,25 @@ bool CodeFinder::recordHit(pid_t tid, bool afterInstruction) {
     if (!disasm_) disasm_.emplace(*architecture);
     else disasm_->setArch(*architecture);
     uintptr_t instrAddr = rip;
-    if (afterInstruction) {
+    // A REP string instruction traps between iterations with the instruction
+    // pointer still on it: it is the writer, not the instruction before it.
+    bool repAtRip = false;
+    if (afterInstruction && (ctx.architecture == CpuArchitecture::X86_64 || ctx.architecture == CpuArchitecture::X86_32)) {
+        uint8_t bytes[16];
+        auto read = proc_->read(rip, bytes, sizeof(bytes));
+        auto insns = read && *read ? disasm_->disassemble(rip, {bytes, std::min(*read, sizeof(bytes))}, 1)
+                                   : std::vector<Instruction>{};
+        if (!insns.empty() && insns[0].mnemonic.starts_with("rep")) {
+            const auto& m = insns[0].mnemonic;
+            const bool stringOp = m.find("movs") != std::string::npos || m.find("stos") != std::string::npos ||
+                                  m.find("lods") != std::string::npos || m.find("scas") != std::string::npos ||
+                                  m.find("cmps") != std::string::npos;
+            // Mid-copy, RDI/RSI sit right next to the watched bytes.
+            auto near = [&](uint64_t reg) { return (reg > targetAddress_ ? reg - targetAddress_ : targetAddress_ - reg) <= 64; };
+            repAtRip = stringOp && (near(ctx.rdi) || near(ctx.rsi));
+        }
+    }
+    if (afterInstruction && !repAtRip) {
         // Hardware watchpoint: the trap fires once the store has retired, so rip is
         // at the NEXT instruction — back up to the one that actually touched the
         // address (a software page fault, by contrast, stops on the store itself).

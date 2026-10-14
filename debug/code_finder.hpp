@@ -93,6 +93,7 @@ private:
     // x86 hardware stops after the instruction. ARM64 hardware and software page
     // faults stop before it. Decode using the instruction address's native ISA.
     bool recordHit(pid_t tid, bool afterInstruction);
+    bool accessTouchesTarget(pid_t tid, uintptr_t fault);
     void setError(Error error) { std::lock_guard lock(errorMutex_); error_=error; }
     long setStoppedProtection(pid_t tid,uintptr_t scratch,uintptr_t address,size_t length,int protection,int& signal,
                               std::optional<siginfo_t>* signalInfo=nullptr);

@@ -124,6 +124,9 @@ reimplementation of Cheat Engine).
   debugger's. A tracer Cancel right at the start could be lost. Form
   Designer: edits after a delete went nowhere, names could repeat, and names
   or captions could produce invalid Lua.
+- Fixed: the Code Finder's page-protection mode missed accesses that start
+  before the watched value and cover it (a 16-byte copy over a struct), and
+  hits inside `rep movs`/`rep stos` were credited to the instruction before.
 - Fixed: Lua `loadTable` wrote every record's saved value into the game and
   activated the records marked active (running their scripts) without
   asking; records now load inactive with their length, signedness, byte

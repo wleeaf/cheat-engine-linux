@@ -259,6 +259,37 @@ void debuggerLifecycleTests() {
         kill(replacement, SIGKILL); waitpid(replacement, nullptr, 0);
         return restarted;
     }), "code-finder monitors can restart after their target exits");
+#ifdef __x86_64__
+    check(isolated([] {
+        // A 16-byte store that starts 4 bytes before the watched dword faults
+        // at its start address; the page-guard finder must still count it.
+        alarm(10);
+        alignas(64) static uint8_t object[64];
+        int fds[2]; if (pipe(fds)) return false;
+        pid_t child = fork();
+        if (!child) {
+            prctl(PR_SET_PDEATHSIG, SIGKILL); close(fds[1]);
+            char token; (void)::read(fds[0], &token, 1);
+            for (int i = 0; i < 200; ++i) {
+                asm volatile("pxor %%xmm0, %%xmm0\n\tmovdqu %%xmm0, (%0)" :: "r"(object) : "xmm0", "memory");
+                usleep(2000);
+            }
+            _exit(0);
+        }
+        if (child < 0) return false;
+        close(fds[0]);
+        os::LinuxProcessHandle proc(child);
+        os::LinuxDebugger debugger;
+        CodeFinder finder;
+        bool started = finder.start(proc, debugger, reinterpret_cast<uintptr_t>(object) + 4, true, 4, /*software=*/true);
+        (void)!::write(fds[1], "x", 1);
+        bool hit = started && waitUntil([&] { return !finder.results().empty(); });
+        finder.stop();
+        kill(child, SIGKILL); waitpid(child, nullptr, 0);
+        alarm(0);
+        return hit;
+    }), "page-guard code finder counts a wide store that starts before the watched value");
+#endif
     check(isolated([] {
         alarm(3);
         pid_t child = fork();

@@ -29,6 +29,7 @@ private:
     bool symbolsLoaded_ = false;
 
     QComboBox*    moduleCombo_;
+    std::vector<ce::ModuleInfo> modules_;   // what moduleCombo_ lists, in order
     QPushButton*  scanBtn_;
     QLabel*       statusLabel_;
     QTableWidget* table_;

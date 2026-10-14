@@ -240,12 +240,16 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
     }
     viewport()->update();
 
-    uintptr_t addr = (selectedOffset_ >= 0) ? address_ + selectedOffset_ : address_;
+    // Actions work on the selection's first byte (a drag ends wherever the
+    // mouse stopped).
+    int firstLo = 0, firstHi = 0;
+    const int startOffset = selRange(firstLo, firstHi) ? firstLo : selectedOffset_;
+    uintptr_t addr = (startOffset >= 0) ? address_ + startOffset : address_;
     // Capture the byte by value: the auto-refresh timer can resize cache_ or
     // reset selectedOffset_ while menu.exec() runs, so re-reading it in the
     // handler afterwards would be out-of-bounds.
-    bool haveByte = selectedOffset_ >= 0 && selectedOffset_ < (int)cache_.size();
-    uint8_t selByte = haveByte ? cache_[selectedOffset_] : 0;
+    bool haveByte = startOffset >= 0 && startOffset < (int)cache_.size();
+    uint8_t selByte = haveByte ? cache_[startOffset] : 0;
     // Capture the selected range as (start address, count) so a resize mid-menu
     // can't invalidate it; the bytes are re-read from the process on demand.
     int selLo = -1, selHi = -1;
@@ -446,7 +450,8 @@ void HexView::scrollRows(int rows) {
             address_ = target;
         }
     } else {
-        address_ += static_cast<uintptr_t>(rows) * bytesPerRow_;
+        const uintptr_t step = static_cast<uintptr_t>(rows) * bytesPerRow_;
+        if (UINTPTR_MAX - address_ >= step) address_ += step;   // stop at the top of the address space
     }
     keepSelectionAnchored(oldAddr);
     refresh();
@@ -669,7 +674,9 @@ int HexView::pasteBytes(const QString& aob) {
     if (!proc_) return 0;
     const auto bytes = parseAob(aob);
     if (bytes.empty()) return 0;
-    const uintptr_t start = address_ + static_cast<uintptr_t>(selectedOffset_ >= 0 ? selectedOffset_ : 0);
+    int lo = 0, hi = 0;   // paste at the selection's first byte
+    const int first = selRange(lo, hi) ? lo : selectedOffset_;
+    const uintptr_t start = address_ + static_cast<uintptr_t>(first >= 0 ? first : 0);
     int n = 0;
     for (size_t i = 0; i < bytes.size(); ++i) {
         if (bytes[i] < 0) continue;   // wildcard: leave the existing byte in place
@@ -730,7 +737,9 @@ void HexView::keyPressEvent(QKeyEvent* e) {
 
     // In-place hex editing: with a byte selected, typing a hex digit edits the
     // high then low nibble (CE-style), writing to the target and advancing.
-    if (!editAscii_ && selectedOffset_ >= 0 && selectedOffset_ < (int)cache_.size() &&
+    // Byte display only: a grouped value (Word, Dword, Float...) shows its bytes
+    // in value order, so typing digits byte by byte would land in the wrong one.
+    if (!editAscii_ && displayType_ == DisplayType::Byte && selectedOffset_ >= 0 && selectedOffset_ < (int)cache_.size() &&
         t.size() == 1 && std::isxdigit((unsigned char)t[0].toLatin1())) {
         int digit = QString(t).toInt(nullptr, 16);
         uint8_t cur = cache_[selectedOffset_];
@@ -775,10 +784,12 @@ void HexView::keyPressEvent(QKeyEvent* e) {
         if (end >= (int)cache_.size()) end = (int)cache_.size() - 1;
         selectedOffset_ = end; editNibble_ = 0; viewport()->update();
     }
-    else if (e->key() == Qt::Key_Down) { address_ += bytesPerRow_; editNibble_ = 0; refresh(); }
-    else if (e->key() == Qt::Key_Up) { address_ -= bytesPerRow_; editNibble_ = 0; refresh(); }
-    else if (e->key() == Qt::Key_PageDown) { address_ += rows * bytesPerRow_; editNibble_ = 0; refresh(); }
-    else if (e->key() == Qt::Key_PageUp) { address_ -= rows * bytesPerRow_; editNibble_ = 0; refresh(); }
+    // Through scrollRows, like the wheel: it stops at the ends of the address
+    // space instead of wrapping around.
+    else if (e->key() == Qt::Key_Down) { editNibble_ = 0; scrollRows(1); }
+    else if (e->key() == Qt::Key_Up) { editNibble_ = 0; scrollRows(-1); }
+    else if (e->key() == Qt::Key_PageDown) { editNibble_ = 0; scrollRows(rows); }
+    else if (e->key() == Qt::Key_PageUp) { editNibble_ = 0; scrollRows(-rows); }
     else QAbstractScrollArea::keyPressEvent(e);
 }
 
@@ -1712,12 +1723,9 @@ void MemoryBrowser::buildMenuBar() {
     viewMenu_->addSeparator();
 
     debugMenu_ = mb->addMenu("&Debug");
-    { auto* a = debugMenu_->addAction("Toggle breakpoint", this, [this]() {
-          uintptr_t addr = disasmView_->selectedAddress();
-          if (!addr) addr = currentAddr_;
-          if (addr && bpSetter_) { bpSetter_(addr, /*hardware=*/false); refreshBreakpoints(); }
-      });
-      a->setShortcut(QKeySequence("F5")); }
+    // Triggers the toolbar's Toggle BP (below), which owns F5: two actions with
+    // the same key in one window make Qt run neither.
+    toggleBreakpointMenu_ = debugMenu_->addAction("Toggle breakpoint\tF5");   // the hint only
     debugMenu_->addSeparator();
     // Step / run controls (CE parity: the Memory Viewer drives the debug session).
     // Each delegates to the Debugger window that owns the session; a no-op when the
@@ -1832,6 +1840,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     auto* bpAct = dbgBar->addAction("Toggle BP");
     bpAct->setToolTip("Toggle breakpoint at the selected instruction (F5)");
     bpAct->setShortcut(QKeySequence("F5"));
+    if (toggleBreakpointMenu_) connect(toggleBreakpointMenu_, &QAction::triggered, bpAct, &QAction::trigger);
     connect(bpAct, &QAction::triggered, this, [this]() {
         uintptr_t a = disasmView_->selectedAddress();
         if (!a) a = currentAddr_;
@@ -2086,7 +2095,11 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     connect(disasmView_, &DisasmView::requestSetSymbol, this, [this](uintptr_t addr) {
         // Name (or clear the name of) an address. The label then shows in the
         // disassembler wherever this address is referenced.
-        std::string existing = resolver_.resolve(addr);
+        // Only this address's own label: resolve() gives display text such as
+        // "libgame.so!update+0x1a", which OK would store as a bogus name.
+        const auto& labels = resolver_.userSymbols();
+        const auto label = labels.find(addr);
+        std::string existing = label != labels.end() ? label->second : std::string();
         bool ok = false;
         QString name = QInputDialog::getText(this, "Label address",
             QString("Name for 0x%1 (blank to clear):").arg(addr, 0, 16),
@@ -2132,12 +2145,8 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     connect(fwdSc, &QShortcut::activated, this, &MemoryBrowser::goForward);
     auto* bmSc = new QShortcut(QKeySequence("Ctrl+B"), this);
     connect(bmSc, &QShortcut::activated, this, &MemoryBrowser::toggleBookmark);
-    auto* findSc = new QShortcut(QKeySequence("Ctrl+F"), this);
-    connect(findSc, &QShortcut::activated, this, [this]() { findInMemory(false); });
-    auto* findNextSc = new QShortcut(QKeySequence("F3"), this);
-    connect(findNextSc, &QShortcut::activated, this, [this]() { findInMemory(true); });
-    auto* findPrevSc = new QShortcut(QKeySequence("Shift+F3"), this);
-    connect(findPrevSc, &QShortcut::activated, this, [this]() { findInMemory(true, /*backward=*/true); });
+    // Ctrl+F, F3 and Shift+F3 belong to the Search menu's actions; a second
+    // binding of the same key would make Qt run neither.
     auto* gotoShortcut = new QShortcut(QKeySequence("Ctrl+G"), this);
     connect(gotoShortcut, &QShortcut::activated, this, [this]() {
         bool ok;
@@ -2441,6 +2450,23 @@ void MemoryBrowser::assembleAt(uintptr_t addr, int origSize, const QString& curr
                 .arg(bytes.size()).arg(origSize),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (ans != QMessageBox::Yes) return;
+        // Pad to the next instruction boundary: the rest of a partly
+        // overwritten instruction would otherwise run as garbage opcodes.
+        uint8_t original[64] = {};
+        auto got = proc_ ? proc_->read(addr, original, sizeof original) : ce::Result<size_t>(0);
+        size_t boundary = 0;
+        if (got && *got) {
+            ce::Disassembler decoder(*architecture);
+            for (const auto& instruction : decoder.disassemble(addr, {original, *got}, 0)) {
+                boundary += instruction.size;
+                if (boundary >= bytes.size()) break;
+            }
+        }
+        if (boundary > bytes.size()) {
+            auto nops = ce::nopBytesFor(*proc_, addr + bytes.size(), boundary - bytes.size());
+            if (!nops) { QMessageBox::warning(this, "Assemble failed", QString::fromStdString(nops.error())); return; }
+            bytes.insert(bytes.end(), nops->begin(), nops->end());
+        }
     } else {
         // Pad the remainder of the original instruction with NOPs so the next
         // instruction boundary is preserved.
@@ -2616,10 +2642,8 @@ void MemoryBrowser::showXrefs(uintptr_t addr) {
     connect(table, &QTableWidget::cellDoubleClicked, this, [this, table, dlg](int row, int) {
         auto* it = table->item(row, 0);
         if (!it) return;
-        uintptr_t a = it->data(Qt::UserRole).toULongLong();
-        disasmView_->setAddress(a);
-        addressEdit_->setText(addressBarText(a));
-        hexView_->setAddress(a);
+        // Through navigateTo, so the current address and Back/Forward follow.
+        navigateTo(it->data(Qt::UserRole).toULongLong());
         dlg->raise();
     });
     dlg->show();

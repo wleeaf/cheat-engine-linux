@@ -61,6 +61,9 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
             state.signal = WSTOPSIG(status);
             state.event = status >> 16;
             if (state.event==PTRACE_EVENT_EXEC) {
+                // A setuid program that exec'd in it is not ours to trace (our
+                // cap_sys_ptrace would keep its privileges reachable): stop.
+                if (!processOwnedByCaller(tid)) cancelled_.store(true);
                 // Exec retires the old instruction addresses and debug banks.
                 for (auto& [otherTid,other] : threads) {
                     other.savedDebug=false;

@@ -62,6 +62,23 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Security: a process the user owns could exec a setuid program and keep
+  its PID; with the .deb's `cap_sys_ptrace`, memory access and the debugger
+  then reached the now-privileged process. Ownership is checked on every
+  memory access, and the debugger and tracer let go of a process whose exec
+  made it someone else's.
+- Fixed: Memory Viewer. F3, Shift+F3, Ctrl+F and F5 did nothing (each key was
+  bound twice); right-click actions and Paste used the end of a drag
+  selection instead of its start; typing hex digits in Word, Dword, Float or
+  Double display changed the wrong bytes (editing is now Byte display only);
+  the arrow and page keys wrapped around the address space; a bytes-per-row
+  setting that is not 8, 16, 32 or 64 broke grouped display; "Find
+  references" left Back/Forward and the current address behind; "Label this
+  address" pre-filled display text and saved it as a label; assembling a
+  longer instruction left the rest of the next one as garbage (it is now
+  padded with NOPs to the next boundary).
+- Fixed: the script editor's syntax check never said why a script failed,
+  and Find Statics could scan a different module than the one picked.
 - Fixed: Auto Assembler `globalalloc` behaved like `alloc`: each script got
   its own block, freed when that script was disabled even if another
   script's hook still used it. As in Cheat Engine, a `globalalloc` of a name

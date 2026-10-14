@@ -24,7 +24,8 @@ FindStaticsWindow::FindStaticsWindow(ProcessHandle* proc, QWidget* parent)
     row->addWidget(new QLabel("Module:"));
     moduleCombo_ = new QComboBox;
     if (proc_) {
-        for (const auto& m : proc_->modules()) {
+        modules_ = proc_->modules();
+        for (const auto& m : modules_) {
             moduleCombo_->addItem(
                 QString("%1  @ 0x%2").arg(QString::fromStdString(m.name)).arg(m.base, 0, 16));
         }
@@ -58,7 +59,9 @@ FindStaticsWindow::FindStaticsWindow(ProcessHandle* proc, QWidget* parent)
 void FindStaticsWindow::onScan() {
     if (!proc_) return;
     int idx = moduleCombo_->currentIndex();
-    auto mods = proc_->modules();
+    // The list the combo was filled from: a fresh modules() call may be ordered
+    // differently once libraries load or unload.
+    const auto& mods = modules_;
     if (idx < 0 || idx >= (int)mods.size()) return;
 
     statusLabel_->setText("Scanning…");

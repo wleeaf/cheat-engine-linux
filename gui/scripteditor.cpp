@@ -519,6 +519,9 @@ void ScriptEditor::onCheck() {
     if (result.success) {
         output_->setTextColor(ce::gui::editorPalette().success);
         output_->append("Syntax check passed.");
+    } else {
+        output_->setTextColor(ce::gui::editorPalette().error);
+        output_->append("Syntax check failed: " + QString::fromStdString(result.error));
     }
 }
 

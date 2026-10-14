@@ -248,8 +248,8 @@ QWidget* SettingsDialog::buildMemoryViewPage() {
     QSettings s;
 
     bytesPerRowSpin_ = sized(new QSpinBox);
-    bytesPerRowSpin_->setRange(4, 64);
-    bytesPerRowSpin_->setSingleStep(4);
+    bytesPerRowSpin_->setRange(8, 64);   // the view uses 8, 16, 32 or 64
+    bytesPerRowSpin_->setSingleStep(8);
     bytesPerRowSpin_->setValue(s.value(MV_BYTES_PER_ROW_KEY, 16).toInt());
     form->addRow("Bytes per row:", bytesPerRowSpin_);
 

@@ -109,6 +109,18 @@ bool LinuxProcessHandle::sameProcess() const {
     return processStartTime(pid_) == startTime_;
 }
 
+bool LinuxProcessHandle::stillOwned() const {
+    // /proc/<pid> belongs to the process's effective uid and gid, and to root
+    // once it is not dumpable (a setuid exec). With cap_sys_ptrace the kernel
+    // would let us into it anyway, so the handle checks on every access.
+    static const uid_t uid = getuid();
+    if (uid == 0) return true;
+    char path[32];
+    std::snprintf(path, sizeof path, "/proc/%d", static_cast<int>(pid_));
+    struct stat st{};
+    return ::stat(path, &st) == 0 && st.st_uid == uid && st.st_gid == getgid();
+}
+
 void LinuxProcessHandle::refreshMachine() {
     std::lock_guard lock(metadataMutex_);
     description_.live = sameProcess();
@@ -194,6 +206,7 @@ bool LinuxProcessHandle::runs32BitCode() {
 
 Result<size_t> LinuxProcessHandle::read(uintptr_t address, void* buffer, size_t size) {
     if (!sameProcess()) return std::unexpected(std::make_error_code(std::errc::no_such_process));
+    if (!stillOwned()) return std::unexpected(std::make_error_code(std::errc::operation_not_permitted));
     struct iovec local  = { buffer,          size };
     struct iovec remote = { (void*)address,  size };
 
@@ -317,6 +330,7 @@ void LinuxProcessHandle::readMany(const uintptr_t* addrs, size_t count, size_t s
 
 Result<size_t> LinuxProcessHandle::write(uintptr_t address, const void* buffer, size_t size) {
     if (!sameProcess()) return std::unexpected(std::make_error_code(std::errc::no_such_process));
+    if (!stillOwned()) return std::unexpected(std::make_error_code(std::errc::operation_not_permitted));
     if (size && buffer && size-1<=UINTPTR_MAX-address && nativeTargetMachine().architecture==CpuArchitecture::Arm64) {
         const auto regions=queryRegions();
         const uintptr_t last=address+size-1;
@@ -361,6 +375,7 @@ Result<size_t> LinuxProcessHandle::write(uintptr_t address, const void* buffer, 
 
 Result<size_t> LinuxProcessHandle::writeCode(uintptr_t address,const void* buffer,size_t size) {
     if (!sameProcess()) return std::unexpected(std::make_error_code(std::errc::no_such_process));
+    if (!stillOwned()) return std::unexpected(std::make_error_code(std::errc::operation_not_permitted));
     if (!size) return size_t(0);
     if (!buffer || size-1>UINTPTR_MAX-address)
         return std::unexpected(std::make_error_code(std::errc::invalid_argument));

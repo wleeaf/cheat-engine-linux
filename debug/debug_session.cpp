@@ -855,6 +855,16 @@ bool DebugSession::recoverRenamedExec() {
 }
 
 void DebugSession::handleExec(pid_t tid,bool notify) {
+    // A setuid program now runs in the process. A tracer with cap_sys_ptrace
+    // (the .deb's) would keep tracing it with its new privileges: let it go,
+    // and end the session as if the process had exited.
+    if (!processOwnedByCaller(tid)) {
+        ptrace(PTRACE_DETACH,tid,nullptr,nullptr);
+        stoppedTids_.clear();
+        traced_={tid};
+        retireThread(tid,0);
+        return;
+    }
     ++imageGeneration_;
     // EXEC destroys the old memory image and sibling threads. Its breakpoint
     // recovery records must never be replayed into the replacement program.

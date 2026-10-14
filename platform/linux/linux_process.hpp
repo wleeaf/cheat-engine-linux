@@ -58,6 +58,9 @@ private:
 
     MemProt parsePerms(const std::string& perms) const;
     bool sameProcess() const;
+    /// Still ours: checked before every access, since a process of ours can exec
+    /// a setuid program and keep its pid.
+    bool stillOwned() const;
     void refreshMachine();
     // Read Wine PE headers from memory to add real PE modules (base/size/name/
     // bitness) that /proc-maps collapsing would otherwise mis-attribute.

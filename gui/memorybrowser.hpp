@@ -57,7 +57,11 @@ public:
     }
     void setBytesPerRow(int n) {
         if (n <= 0) return;
-        bytesPerRow_ = n; selectedOffset_ = -1; selAnchor_ = -1;
+        // 8, 16, 32 or 64: grouped display (up to a qword) and the scroll
+        // alignment need a power of two that holds whole groups.
+        int rounded = 8;
+        while (rounded < n && rounded < 64) rounded *= 2;
+        bytesPerRow_ = rounded; selectedOffset_ = -1; selAnchor_ = -1;
         updateScrollBar(); refresh();
     }
 
@@ -492,7 +496,8 @@ private:
     QMenu* bookmarksMenu_ = nullptr;
     QMenu* viewMenu_ = nullptr;    // CE Memory Viewer "View" menu
     QMenu* toolsMenu_ = nullptr;   // CE Memory Viewer "Tools" menu
-    QMenu* debugMenu_ = nullptr;   // CE Memory Viewer "Debug" menu
+    QMenu* debugMenu_ = nullptr;
+    QAction* toggleBreakpointMenu_ = nullptr;   // runs the toolbar's Toggle BP (F5)   // CE Memory Viewer "Debug" menu
     void buildMenuBar();
     void toggleBookmark();
     void rebuildBookmarksMenu();

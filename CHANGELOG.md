@@ -62,6 +62,11 @@ reimplementation of Cheat Engine).
   was reached.
 - Lua `getAddressFromName` accepts module+offset and pointer paths, like
   `getAddress` and Cheat Engine.
+- Fixed: a crafted `global-metadata.dat` could make the il2cpp reader
+  allocate tens of gigabytes (overlapping field slices, long identifiers,
+  string literals sharing bytes) and end Cheat Engine from the structure
+  windows; copies are bounded by the file's own tables and the file size is
+  capped.
 - Fixed: Auto Assembler `reassemble()` copied a RIP-relative instruction
   with its operand unchanged, so the copy no longer reached the original
   data; it is re-encoded relative to its new address. The largest float, as

@@ -113,7 +113,9 @@ bool regionValid(int32_t off, int32_t size, size_t total) {
 std::string stringAt(const uint8_t* data, int32_t strOff, int32_t strSize, int32_t idx) {
     if (idx < 0 || idx >= strSize) return {};
     const char* s = reinterpret_cast<const char*>(data + strOff + idx);
-    const size_t maxLen = static_cast<size_t>(strSize - idx);
+    // Identifiers are short; a crafted index into a long unterminated run
+    // would otherwise copy megabytes per field.
+    const size_t maxLen = std::min<size_t>(static_cast<size_t>(strSize - idx), 1024);
     return std::string(s, ::strnlen(s, maxLen));
 }
 
@@ -175,7 +177,10 @@ bool decodeTables(const uint8_t* data, size_t size, Il2CppMetadata& md,
         allFields.push_back(std::move(f));
     }
 
-    // Type definitions.
+    // Type definitions. In real metadata the types' field slices do not
+    // overlap, so they copy each field once; crafted slices that overlap could
+    // copy the table thousands of times, so the copies stop at its size.
+    size_t copiedFields = 0;
     md.types.reserve(nTypes);
     for (size_t k = 0; k < nTypes; ++k) {
         const uint8_t* rec = data + tdOff + k * L->typeDefSize;
@@ -187,9 +192,10 @@ bool decodeTables(const uint8_t* data, size_t size, Il2CppMetadata& md,
         const int32_t fieldStart = rdI32(rec + L->tdFieldStartOff);
         const uint16_t fieldCount = rdU16(rec + L->tdFieldCountOff);
         if (fieldStart >= 0 &&
-            static_cast<uint64_t>(fieldStart) + fieldCount <= nFields) {
+            static_cast<uint64_t>(fieldStart) + fieldCount <= nFields && copiedFields + fieldCount <= nFields) {
             t.fields.assign(allFields.begin() + fieldStart,
                             allFields.begin() + fieldStart + fieldCount);
+            copiedFields += fieldCount;
         }
         md.types.push_back(std::move(t));
     }
@@ -369,6 +375,9 @@ std::optional<Il2CppMetadata> parseIl2CppMetadata(const uint8_t* data, size_t si
     const int32_t litDataSize = rdI32(data + kOffStrLitDataSize);
     if (regionValid(litOff, litSize, size) &&
         regionValid(litDataOff, litDataSize, size)) {
+        // Entries may all point at the same bytes: copy no more than the data
+        // region holds in total.
+        uint64_t copiedLiterals = 0;
         for (int32_t i = 0; i + 8 <= litSize; i += 8) {
             const uint32_t length = rdU32(data + litOff + i);
             const int32_t dataIndex = rdI32(data + litOff + i + 4);
@@ -376,6 +385,7 @@ std::optional<Il2CppMetadata> parseIl2CppMetadata(const uint8_t* data, size_t si
                 static_cast<uint64_t>(dataIndex) + length >
                     static_cast<uint64_t>(litDataSize))
                 continue;              // skip a malformed entry, keep the rest
+            if ((copiedLiterals += length) > static_cast<uint64_t>(litDataSize)) break;
             md.stringLiterals.emplace_back(
                 reinterpret_cast<const char*>(data + litDataOff + dataIndex), length);
         }

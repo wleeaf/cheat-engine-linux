@@ -610,10 +610,24 @@ Il2CppBinaryLayout resolveIl2CppForProcess(ProcessHandle& proc) {
     auto metaPath = findIl2CppMetadataPath(paths);
     if (!metaPath) { out.error = "global-metadata.dat not found for this process"; return out; }
 
+    // A regular file of plausible size (real ones are 10-100 MB), and an
+    // allocation failure is an error here, not a crash of the window asking.
+    std::error_code sizeError;
+    if (!std::filesystem::is_regular_file(*metaPath, sizeError) ||
+        std::filesystem::file_size(*metaPath, sizeError) > (size_t(512) << 20) || sizeError) {
+        out.error = *metaPath + " is not a metadata file of plausible size";
+        return out;
+    }
     std::ifstream in(*metaPath, std::ios::binary);
     if (!in) { out.error = "cannot open " + *metaPath; return out; }
-    std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    auto md = parseIl2CppMetadata(buf.data(), buf.size());
+    std::optional<Il2CppMetadata> md;
+    try {
+        std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        md = parseIl2CppMetadata(buf.data(), buf.size());
+    } catch (const std::bad_alloc&) {
+        out.error = "out of memory reading " + *metaPath;
+        return out;
+    }
     if (!md) { out.error = "failed to parse " + *metaPath; return out; }
     if (!md->tablesDecoded) {
         out.error = "metadata version " + std::to_string(md->version) + " unsupported for offsets";

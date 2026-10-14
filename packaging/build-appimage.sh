@@ -51,6 +51,7 @@ export OUTPUT="$BUILD_DIR/CheatEngine-${VERSION}-x86_64.AppImage"
     --executable "$BUILD_DIR/cescan" \
     ${CECORE_LIB:+--library "$CECORE_LIB"} \
     --library "$BUILD_DIR/libcecore_mono_agent.so" \
+    --library "$BUILD_DIR/libspeedhack.so" \
     --desktop-file "$SCRIPT_DIR/cheatengine.desktop" \
     --icon-file "$SCRIPT_DIR/cheatengine.png" \
     --plugin qt \

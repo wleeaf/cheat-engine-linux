@@ -821,7 +821,7 @@ if(TARGET capstone)
         install(TARGETS capstone LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
     endif()
 endif()
-# The speedhack library is injected into games; the GUI looks for it in lib.
+# The speedhack library is injected into games; the GUI looks for it beside libcecore.
 install(TARGETS speedhack LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(FILES third_party/tinyxml2/LICENSE.txt
     DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/cheat-engine-linux/tinyxml2)
@@ -846,8 +846,8 @@ if(TARGET cheatengine)
     install(TARGETS cheatengine cetutorial cegtutorial RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     install(FILES packaging/cheatengine.desktop
             DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
-    install(FILES packaging/cheatengine.png
-            DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps)
+    install(FILES packaging/cheatengine.png   # a 128x128 image
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/128x128/apps)
     install(FILES packaging/io.github.wleeaf.CheatEngineLinux.metainfo.xml
             DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)
     install(FILES packaging/cheat-engine-linux.mime.xml

@@ -117,9 +117,10 @@ ManagedKind detectManagedKind(ProcessHandle& proc) {
     return ManagedKind::None;
 }
 
-std::string findMonoAgentPath() {
+std::string findMonoAgentPath() { return findCompanionLibrary("libcecore_mono_agent.so"); }
+
+std::string findCompanionLibrary(const char* kName) {
     namespace fs = std::filesystem;
-    const char* kName = "libcecore_mono_agent.so";
 
     // Directory of the running executable (works for the build tree and installs).
     fs::path exeDir;
@@ -131,7 +132,7 @@ std::string findMonoAgentPath() {
     // Embedders and distro packages can load cecore from lib64, a multiarch
     // directory or a custom library directory. Follow the actual engine first.
     Dl_info library{};
-    if (dladdr(reinterpret_cast<void*>(&findMonoAgentPath),&library) && library.dli_fname)
+    if (dladdr(reinterpret_cast<void*>(&findCompanionLibrary),&library) && library.dli_fname)
         candidates.push_back(fs::path(library.dli_fname).parent_path() / kName);
     if (!exeDir.empty()) {
         candidates.push_back(exeDir / kName);                       // build tree (build/)

@@ -60,6 +60,11 @@ MonoDissection parseMonoDump(const std::string& text);
 /// and installed layouts) or on the library path. Returns "" if not found.
 std::string findMonoAgentPath();
 
+/// Same search for any library Cheat Engine installs beside libcecore (the
+/// speedhack, for one): next to the engine first, so lib64 and multiarch
+/// installs are found, then the executable's layouts and system directories.
+std::string findCompanionLibrary(const char* name);
+
 /// Which managed runtime a target uses, detected from its loaded modules. The
 /// dissector's live path only handles Mono; IL2CPP (AOT Unity) has no runtime to
 /// query in-process and is a separate track, so callers report it distinctly

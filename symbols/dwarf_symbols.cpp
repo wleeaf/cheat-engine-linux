@@ -257,25 +257,35 @@ static std::string dwarfTypeName(Dwarf_Die* type, uint64_t& sizeOut,
             std::string en = "?";
             uint64_t elemSize = 0; bool f2 = false, p2 = false;
             if (followType(&elem)) en = dwarfTypeName(&elem, elemSize, f2, p2, depth + 1);
-            // Array length via the DW_TAG_subrange_type child's upper bound + 1.
-            uint64_t count = 0;
+            // One DW_TAG_subrange_type child per dimension (int a[3][4] has two):
+            // the length is upper bound + 1, or DW_AT_count.
+            uint64_t total = 1;
+            bool known = true;
+            std::string dims;
             Dwarf_Die sub;
             if (dwarf_child(type, &sub) == 0) {
                 do {
-                    if (dwarf_tag(&sub) == DW_TAG_subrange_type) {
-                        Dwarf_Word ub = 0; Dwarf_Attribute a;
-                        if (dwarf_attr_integrate(&sub, DW_AT_upper_bound, &a) &&
-                            dwarf_formudata(&a, &ub) == 0)
-                            count = ub + 1;
-                        else if (dwarf_attr_integrate(&sub, DW_AT_count, &a) &&
-                                 dwarf_formudata(&a, &ub) == 0)
-                            count = ub;
-                        break;
-                    }
+                    if (dwarf_tag(&sub) != DW_TAG_subrange_type) continue;
+                    Dwarf_Word ub = 0; Dwarf_Attribute a;
+                    uint64_t count = 0;
+                    if (dwarf_attr_integrate(&sub, DW_AT_upper_bound, &a) &&
+                        dwarf_formudata(&a, &ub) == 0 && ub != UINT64_MAX)
+                        count = ub + 1;
+                    else if (dwarf_attr_integrate(&sub, DW_AT_count, &a) &&
+                             dwarf_formudata(&a, &ub) == 0)
+                        count = ub;
+                    if (count == 0 || total > UINT64_MAX / count) known = false;
+                    else total *= count;
+                    dims += "[" + (count ? std::to_string(count) : std::string()) + "]";
                 } while (dwarf_siblingof(&sub, &sub) == 0);
             }
-            sizeOut = elemSize * count;
-            return en + "[" + (count ? std::to_string(count) : std::string()) + "]";
+            if (dims.empty()) { dims = "[]"; known = false; }
+            Dwarf_Word bs = 0; Dwarf_Attribute sizeAttr;
+            if (dwarf_attr_integrate(type, DW_AT_byte_size, &sizeAttr) && dwarf_formudata(&sizeAttr, &bs) == 0)
+                sizeOut = bs;
+            else
+                sizeOut = known && (elemSize == 0 || total <= UINT64_MAX / elemSize) ? elemSize * total : 0;
+            return en + dims;
         }
         default: {
             const char* n = dwarf_diename(type);
@@ -300,7 +310,16 @@ static void readStructMembers(Dwarf_Die* structDie, DwarfStruct& out) {
         Dwarf_Attribute at;
         if (dwarf_attr_integrate(&child, DW_AT_data_member_location, &at)) {
             Dwarf_Word off = 0;
+            Dwarf_Op* expr = nullptr; size_t exprLen = 0;
             if (dwarf_formudata(&at, &off) == 0) m.offset = off;
+            // DWARF 2 style: a location expression, DW_OP_plus_uconst <offset>.
+            else if (dwarf_getlocation(&at, &expr, &exprLen) == 0 && exprLen == 1 &&
+                     expr[0].atom == DW_OP_plus_uconst)
+                m.offset = expr[0].number;
+        } else if (dwarf_attr_integrate(&child, DW_AT_data_bit_offset, &at)) {
+            // DWARF 4 bitfields give a bit offset from the start of the struct.
+            Dwarf_Word bits = 0;
+            if (dwarf_formudata(&at, &bits) == 0) m.offset = bits / 8;
         }
         Dwarf_Die typeDie;
         if (dwarf_attr_integrate(&child, DW_AT_type, &at) &&

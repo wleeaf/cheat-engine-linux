@@ -55,6 +55,7 @@
 #include "core/target_profile.hpp"
 #include "core/trainer.hpp"
 #include "analysis/managed_runtime.hpp"
+#include "analysis/mono_dissector.hpp"
 
 #include <QMenuBar>
 #include <QApplication>
@@ -939,14 +940,13 @@ void MainWindow::setupMenus() {
                     // injectLibrary needs the target's libc symbols (dlopen); the
                     // resolver is otherwise only populated lazily on Lua use.
                     if (luaResolver_.count() == 0) luaResolver_.loadProcess(*process_);
-                    // Build tree: next to the binary. Installed: bin/../lib64 or lib.
-                    const QString exeDir = QCoreApplication::applicationDirPath();
-                    QString found = exeDir + "/libspeedhack.so";
-                    for (const QString& candidate : {exeDir + "/libspeedhack.so",
-                                                     exeDir + "/../lib64/libspeedhack.so",
-                                                     exeDir + "/../lib/libspeedhack.so"})
-                        if (QFileInfo::exists(candidate)) { found = QFileInfo(candidate).canonicalFilePath(); break; }
-                    std::string so = found.toStdString();
+                    // Installed beside libcecore (lib, lib64 or a multiarch
+                    // directory), or next to the binary in a build tree.
+                    const std::string so = ce::findCompanionLibrary("libspeedhack.so");
+                    if (so.empty()) {
+                        label->setText("Inject failed: libspeedhack.so is not installed next to Cheat Engine.");
+                        return;
+                    }
                     auto r = ce::os::injectLibrary(*process_, luaResolver_, so);
                     if (!r) {
                         label->setText(QString("Inject failed: %1")

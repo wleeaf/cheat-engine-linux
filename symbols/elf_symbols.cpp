@@ -445,7 +445,9 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
 
             size_t idx = symbols_.size();
             symbols_.push_back(std::move(s));
-            addrIndex_[addr] = idx;
+            // SHN_ABS values are constants, not addresses (the GLIBC_2.x version
+            // nodes are absolute 0): findable by name, but never a label for a value.
+            if (sym.st_shndx != SHN_ABS) addrIndex_[addr] = idx;
             if (!nameIndex_.count(name))
                 nameIndex_[std::string(name)] = addr;
         }
@@ -683,7 +685,9 @@ void SymbolResolver::parseElf32Symbols(const std::string& path, const std::strin
 
             size_t idx = symbols_.size();
             symbols_.push_back(std::move(s));
-            addrIndex_[addr] = idx;
+            // SHN_ABS values are constants, not addresses (the GLIBC_2.x version
+            // nodes are absolute 0): findable by name, but never a label for a value.
+            if (sym.st_shndx != SHN_ABS) addrIndex_[addr] = idx;
             if (!nameIndex_.count(name))
                 nameIndex_[std::string(name)] = addr;
         }
@@ -730,7 +734,11 @@ void SymbolResolver::removeUserSymbol(uintptr_t address) {
 }
 
 std::string SymbolResolver::resolve(uintptr_t address) const {
-    // User-defined labels take priority over module symbols.
+    // User-defined labels take priority over module symbols at the same
+    // distance; a module symbol nearer the address (a function starting after
+    // the label) names it better.
+    std::string userName;
+    uintptr_t userOffset = UINTPTR_MAX;
     if (!userSymbols_.empty()) {
         auto it = userSymbols_.upper_bound(address);
         if (it != userSymbols_.begin()) {
@@ -740,15 +748,16 @@ std::string SymbolResolver::resolve(uintptr_t address) const {
             if (off <= 0x1000) {
                 char buf[32];
                 snprintf(buf, sizeof(buf), "+0x%lx", off);
-                return it->second + buf;
+                userName = it->second + buf;
+                userOffset = off;
             }
         }
     }
-    if (addrIndex_.empty()) return {};
+    if (addrIndex_.empty()) return userName;
 
     // Find the symbol at or before this address
     auto it = addrIndex_.upper_bound(address);
-    if (it == addrIndex_.begin()) return {};
+    if (it == addrIndex_.begin()) return userName;
     --it;
 
     auto& sym = symbols_[it->second];
@@ -761,7 +770,8 @@ std::string SymbolResolver::resolve(uintptr_t address) const {
     // would claim every address after it, up to megabytes away.
     uintptr_t offset = address - sym.address;
     uintptr_t extent = sym.size > 0 ? sym.size : 0;
-    if (offset >= extent && offset > 0x1000) return {};
+    if (offset >= extent && offset > 0x1000) return userName;
+    if (offset >= userOffset) return userName;
 
     if (offset == 0)
         return sym.module + "!" + sym.name;

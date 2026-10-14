@@ -5,6 +5,8 @@
 #include "platform/linux/runtime_probe.hpp"
 
 #include <fstream>
+#include <charconv>
+#include <set>
 #include <sstream>
 #include <algorithm>
 #include <filesystem>
@@ -450,6 +452,13 @@ std::vector<MemoryRegion> LinuxProcessHandle::queryRegions() {
         //   path) so the parser isn't tied to a fixed single-space layout.
         auto perms = line.substr(space1 + 1, 4);
         r.protection = parsePerms(perms);
+        if (auto offsetStart = line.find(' ', space1 + 1); offsetStart != std::string::npos) {
+            const char* first = line.data() + offsetStart + 1;
+            const char* last = line.data() + line.size();
+            uint64_t offset = 0;
+            if (auto [end, ec] = std::from_chars(first, last, offset, 16); ec == std::errc{} && end != first)
+                r.fileOffset = offset;
+        }
         r.state = MemState::Committed;
 
         // Find the path (last field after inode)
@@ -790,18 +799,27 @@ std::vector<ModuleInfo> LinuxProcessHandle::modules() {
 
     // Collapse regions with the same file path into modules. Devices, memfd
     // and SysV shared memory are not modules.
+    std::set<size_t> executableViews;   // indexes into mods
     for (auto& r : regions) {
         if (r.path.empty() || r.path[0] != '/') continue;
         if (r.path.rfind("/dev/", 0) == 0 || r.path.rfind("/memfd:", 0) == 0 || r.path.rfind("/SYSV", 0) == 0) continue;
 
-        auto it = std::find_if(mods.begin(), mods.end(),
-            [&](const ModuleInfo& m) { return m.path == r.path; });
+        // The newest module of this file. A region at file offset 0 starts a
+        // new view of the file (another load, or the file mmapped as data)
+        // instead of stretching the first one over everything in between.
+        auto it = std::find_if(mods.rbegin(), mods.rend(),
+            [&](const ModuleInfo& m) { return m.path == r.path; }).base();
+        if (it != mods.begin()) --it; else it = mods.end();
+        const bool newView = it != mods.end() && it->machine.architecture == CpuArchitecture::Unknown &&
+                             r.fileOffset && *r.fileOffset == 0;
+        if (newView) it = mods.end();
 
         if (it != mods.end()) {
             // A PE image's extent is its SizeOfImage; other views of the same file
             // (a runtime's flat metadata mapping) must not stretch it over
             // unrelated memory such as a JIT code heap.
             if (it->machine.architecture != CpuArchitecture::Unknown) continue;
+            if (r.protection & MemProt::Exec) executableViews.insert(static_cast<size_t>(it - mods.begin()));
             // Extend existing module
             auto end = r.base + r.size;
             auto modEnd = it->base + it->size;
@@ -820,8 +838,25 @@ std::vector<ModuleInfo> LinuxProcessHandle::modules() {
             if (constexpr std::string_view deleted = " (deleted)"; m.name.ends_with(deleted))
                 m.name.resize(m.name.size() - deleted.size());
             m.is64bit = is64bit_;
+            if (r.protection & MemProt::Exec) executableViews.insert(mods.size());
             mods.push_back(std::move(m));
         }
+    }
+    // A file seen in several views: the one with code is the loaded image; a
+    // data view of the same file (a game reading its own binary) would
+    // otherwise take its name and base, and every module+offset would be off.
+    {
+        std::vector<ModuleInfo> kept;
+        kept.reserve(mods.size());
+        for (size_t i = 0; i < mods.size(); ++i) {
+            const auto& m = mods[i];
+            bool imageElsewhere = false;
+            if (m.machine.architecture == CpuArchitecture::Unknown && !executableViews.contains(i))
+                for (size_t j = 0; j < mods.size() && !imageElsewhere; ++j)
+                    imageElsewhere = j != i && mods[j].path == m.path && executableViews.contains(j);
+            if (!imageElsewhere) kept.push_back(m);
+        }
+        mods = std::move(kept);
     }
     // Make backing-file paths host-openable for sandboxed targets (Flatpak/Snap/
     // container): a path like /app/bin/game exists only inside the target's mount

@@ -9,6 +9,9 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QImage>
+#include <QPaintEvent>
+#include <algorithm>
+#include <cstring>
 
 namespace ce::gui {
 
@@ -18,7 +21,7 @@ QSize MemPixelView::sizeHint() const {
     return QSize(perLine_ * scale_, rows * scale_);
 }
 
-void MemPixelView::paintEvent(QPaintEvent*) {
+void MemPixelView::paintEvent(QPaintEvent* event) {
     QPainter p(this);
     if (data_.empty()) {
         p.fillRect(rect(), palette().color(QPalette::Window));
@@ -27,18 +30,26 @@ void MemPixelView::paintEvent(QPaintEvent*) {
                    "Enter an address and press Fetch to visualize memory.");
         return;
     }
-    p.fillRect(rect(), Qt::black);
-    // One byte -> one greyscale pixel; upscale by `scale_`. Build an QImage once
-    // (fast) then blit scaled.
-    int rows = (int)((data_.size() + perLine_ - 1) / perLine_);
-    QImage img(perLine_, rows, QImage::Format_RGB32);
-    img.fill(Qt::black);
-    for (size_t i = 0; i < data_.size(); ++i) {
-        int x = (int)(i % perLine_), y = (int)(i / perLine_);
-        uint8_t b = data_[i];
-        img.setPixel(x, y, qRgb(b, b, b));
+    p.fillRect(event->rect(), Qt::black);
+    // One byte -> one greyscale pixel; upscale by `scale_`. The image is built
+    // once per fetch (row copies, not a setPixel per byte), and a paint scales
+    // only the part that is exposed: scrolling a 4096x4096 view stays cheap.
+    const int rows = (int)((data_.size() + perLine_ - 1) / perLine_);
+    if (image_.isNull()) {
+        image_ = QImage(perLine_, rows, QImage::Format_Grayscale8);
+        image_.fill(0);
+        for (int y = 0; y < rows; ++y) {
+            const size_t start = static_cast<size_t>(y) * perLine_;
+            std::memcpy(image_.scanLine(y), data_.data() + start, std::min<size_t>(perLine_, data_.size() - start));
+        }
     }
-    p.drawImage(QRect(0, 0, perLine_ * scale_, rows * scale_), img);
+    const QRect exposed = event->rect().intersected(QRect(0, 0, perLine_ * scale_, rows * scale_));
+    if (exposed.isEmpty()) return;
+    const QRect source(exposed.x() / scale_, exposed.y() / scale_,
+                       (exposed.width() + scale_ - 1) / scale_ + 1, (exposed.height() + scale_ - 1) / scale_ + 1);
+    const QRect clipped = source.intersected(image_.rect());
+    p.drawImage(QRect(clipped.x() * scale_, clipped.y() * scale_, clipped.width() * scale_, clipped.height() * scale_),
+                image_, clipped);
 }
 
 GraphicalMemoryView::GraphicalMemoryView(ce::ProcessHandle* proc, QWidget* parent)
@@ -91,6 +102,9 @@ GraphicalMemoryView::GraphicalMemoryView(ce::ProcessHandle* proc, QWidget* paren
     // Changing pixels-per-line or rows re-reads and re-lays-out the image (which
     // also refreshes the scroll range); previously perLine only repainted at the
     // old size and rows did nothing, leaving the scrollbar stale.
+    // Typing "4096" must not fetch for 4, 40 and 409 on the way.
+    perLineSpin_->setKeyboardTracking(false);
+    rowsSpin_->setKeyboardTracking(false);
     connect(perLineSpin_, &QSpinBox::valueChanged, this, &GraphicalMemoryView::fetch);
     connect(rowsSpin_, &QSpinBox::valueChanged, this, &GraphicalMemoryView::fetch);
     view_->setPerLine(256);

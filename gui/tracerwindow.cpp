@@ -218,6 +218,7 @@ void TracerWindow::onStart() {
     cancelBtn_->setEnabled(true);
     saveBtn_->setEnabled(false);
 
+    tracer_.prepare();   // a Cancel or close from now on reaches the worker
     worker_ = std::thread([this, cfg]() {
         auto results = tracer_.trace(*proc_, *debugger_, cfg);
         QMetaObject::invokeMethod(this, [this, results = std::move(results)]() mutable {

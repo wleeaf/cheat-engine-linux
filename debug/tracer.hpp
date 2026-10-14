@@ -34,6 +34,9 @@ public:
 
     /// Cancel a running trace.
     void cancel() { cancelled_.store(true); }
+    /// Clear a previous cancel before starting trace() on another thread, so a
+    /// cancel() issued before that thread reaches trace() is not lost.
+    void prepare() { cancelled_.store(false); prepared_.store(true); }
 
     float progress() const { return progress_.load(); }
     /// True once every selected thread is armed and waiting for the start address.
@@ -43,6 +46,7 @@ public:
 private:
     std::mutex traceMutex_;
     std::atomic<bool> cancelled_{false};
+    std::atomic<bool> prepared_{false};
     std::atomic<float> progress_{0};
     std::atomic<bool> ready_{false};
     mutable std::mutex errorMutex_;

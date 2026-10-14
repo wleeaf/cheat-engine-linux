@@ -219,7 +219,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* timer = valueRefreshTimer_;
     connect(timer, &QTimer::timeout, this, [this]() {
         if (!process_) return;
+        // Releasing a dead target deletes its windows. A modal dialog or menu
+        // open in one of them is a nested event loop on its stack (often a
+        // stack object parented to the window), so deleting under it crashes:
+        // wait until it closes, this timer comes back.
+        const bool nestedLoop = QApplication::activeModalWidget() || QApplication::activePopupWidget();
         if (dynamic_cast<ce::GdbProcessHandle*>(process_.get()) && !process_->targetDescription().live) {
+            if (nestedLoop) return;
             onDisconnectProcess();
             processLabel_->setText("GDB target disconnected or exited");
             processDetail_->clear();
@@ -236,6 +242,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             ::waitid(P_PID, static_cast<id_t>(currentPid_), &exitInfo, WEXITED | WNOHANG | WNOWAIT) == 0 &&
             exitInfo.si_pid == currentPid_;
         if (exitedChild || (!ceserverClient_ && currentPid_ > 0 && ::kill(currentPid_, 0) != 0 && errno == ESRCH)) {
+            if (nestedLoop) return;
             processLabel_->setText(QString("Process %1 has exited").arg(currentPid_));
             processDetail_->setText(tr("Open another process with Ctrl+O."));
             statusBar()->showMessage("Target process exited", 5000);
@@ -501,7 +508,10 @@ void MainWindow::setupMenus() {
                 break;
             }
         }
-        trackTargetWindow(editor);
+        // With no target yet the editor belongs to none: keep it (and its
+        // script) across the next attach and bind it then.
+        if (process_) trackTargetWindow(editor);
+        else unboundEditors_.push_back(editor);
         editor->setAttribute(Qt::WA_DeleteOnClose);
         editor->setAddToTable([this](const QString& d, const QString& s) {
             addressListModel_->addScriptEntry(d, s);
@@ -2273,30 +2283,34 @@ void MainWindow::setupUi() {
             }
             // CE "Change Color" — per-record display color.
             encodingMenu->addAction("Change Color...", [this, selected]() {
-                const auto& entries = addressListModel_->entries();
                 if (selected.isEmpty()) return;
-                int row = selected.first().row();
-                QColor initial = (row < (int)entries.size() && !entries[row].color.isEmpty())
-                    ? QColor(entries[row].color) : addressListView_->palette().color(QPalette::Text);
+                // The dialog runs an event loop in which table scripts may add or
+                // remove records: keep IDs, not rows or a reference into the list.
+                std::vector<int> ids;
+                QColor initial = addressListView_->palette().color(QPalette::Text);
+                {
+                    const auto& entries = addressListModel_->entries();
+                    const int row = selected.first().row();
+                    if (row < (int)entries.size() && !entries[row].color.isEmpty()) initial = QColor(entries[row].color);
+                    for (const auto& idx : selected)
+                        if (idx.row() < (int)entries.size()) ids.push_back(entries[idx.row()].id);
+                }
                 QColor c = QColorDialog::getColor(initial, this, "Change record color");
                 if (!c.isValid()) return;
-                for (const auto& idx : selected)
-                    if (idx.row() < (int)entries.size())
-                        addressListModel_->setColor(entries[idx.row()].id, c.name().toStdString());
+                for (int id : ids) addressListModel_->setColor(id, c.name().toStdString());
             });
             // CE "Set/Change dropdown selection options".
             if (selected.size() == 1) {
                 encodingMenu->addAction("Dropdown options...", [this, firstRow]() {
-                    const auto& entries = addressListModel_->entries();
-                    if (firstRow >= (int)entries.size()) return;
+                    if (firstRow < 0 || firstRow >= (int)addressListModel_->entries().size()) return;
+                    const int id = addressListModel_->entries()[firstRow].id;   // rows can move during the dialog
                     bool ok = false;
                     QString v = QInputDialog::getMultiLineText(this, "Dropdown options",
                         "The values this entry can be set to from a dropdown, one per line,\n"
                         "as value:label or just value. For example:\n0:Off\n1:On",
                         addressListModel_->dropdownList(firstRow).split(';').join('\n'), &ok);
                     if (ok)
-                        addressListModel_->setDropdownList(entries[firstRow].id,
-                                                           v.split('\n', Qt::SkipEmptyParts).join(';'));
+                        addressListModel_->setDropdownList(id, v.split('\n', Qt::SkipEmptyParts).join(';'));
                 });
             }
             if (selected.size() == 1) {
@@ -2329,7 +2343,10 @@ void MainWindow::setupUi() {
                     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
                     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
 
+                    const int id = entries[row].id;   // rows can move during the dialog
                     if (dialog.exec() == QDialog::Accepted) {
+                        row = addressListModel_->rowOfId(id);
+                        if (row < 0) return;
                         addressListModel_->setHotkeyKeys(row,
                             editor->keySequence().toString(QKeySequence::PortableText));
                         rebuildValueHotkeys();   // grab the new key (and release a cleared one) now
@@ -2374,7 +2391,10 @@ void MainWindow::setupUi() {
                     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
                     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
 
+                    const int id = entries[row].id;   // rows can move during the dialog
                     if (dialog.exec() == QDialog::Accepted) {
+                        row = addressListModel_->rowOfId(id);
+                        if (row < 0) return;
                         addressListModel_->setValueHotkeys(row,
                             increaseEditor->keySequence().toString(QKeySequence::PortableText),
                             decreaseEditor->keySequence().toString(QKeySequence::PortableText),
@@ -4160,6 +4180,12 @@ void MainWindow::updateWindowTitle() {
     if (!currentTablePath_.isEmpty()) title += " - " + QFileInfo(currentTablePath_).fileName();
     setWindowTitle(title);
     syncAgentTarget();   // every change of target ends here
+    if (process_) {
+        // Script editors opened before any target take this one.
+        for (auto& editor : unboundEditors_)
+            if (editor) { editor->attachProcess(process_.get()); trackTargetWindow(editor); }
+        unboundEditors_.clear();
+    }
 }
 
 void MainWindow::syncAgentTarget() {
@@ -4815,10 +4841,9 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
             trackTargetWindow(w);
             w->setAttribute(Qt::WA_DeleteOnClose); w->show();
         });
-        dbg->addAction("Breakpoint list", this, [this]() {
-            auto* w = new BreakpointListWindow(&bpManager_, this);
-            w->setAttribute(Qt::WA_DeleteOnClose); w->show();
-        });
+        // The debugger window holds the breakpoints that are actually armed
+        // (set there, or from the Memory Viewer); its list is the real one.
+        dbg->addAction("Breakpoint list", this, [this]() { showDebugger(); });
         dbg->addAction("Full debugger", this, [this]() { showDebugger(); });
         dbg->addAction("Break and trace", this, [this]() {
             if (!process_) return;
@@ -4902,7 +4927,12 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
     });
     tools->addAction("ELF Inspector...", this, [this]() {
         QString initial;
-        if (process_) { auto mods = process_->modules(); if (!mods.empty()) initial = QString::fromStdString(mods.front().path); }
+        // Only a local target's module path names a file readelf can open here
+        // (modules() already maps a sandboxed target's paths through /proc).
+        if (process_ && process_->targetDescription().transport == ce::TargetTransport::Local) {
+            auto mods = process_->modules();
+            if (!mods.empty()) initial = QString::fromStdString(mods.front().path);
+        }
         auto* dlg = new ElfInspector(initial, this);
         dlg->setAttribute(Qt::WA_DeleteOnClose); dlg->show();
     });
@@ -5409,12 +5439,15 @@ static bool parseComparableValue(ValueType type, const QString& valStr, double& 
     }
 }
 
-void AddressListModel::reresolveAddress(AddressEntry& e) {
-    if (e.addressExpr.isEmpty() || !proc_) return;
+bool AddressListModel::reresolveAddress(AddressEntry& e) {
+    if (e.addressExpr.isEmpty() || !proc_) return true;
     // Pass the shared resolver so a record can be addressed by a user-defined label
     // (or a module export) set in the Memory Viewer, not just a raw/module+offset expr.
     ExpressionParser parser(proc_, symbolResolver_);
-    if (auto v = parser.parse(e.addressExpr.toStdString())) e.address = *v;
+    auto v = parser.parse(e.addressExpr.toStdString());
+    if (!v) return false;   // keep e.address for display, but nothing may write there:
+    e.address = *v;         // the object it pointed into may be freed by now
+    return true;
 }
 
 void AddressListModel::freezeWrite(ProcessHandle* proc) {
@@ -5425,7 +5458,7 @@ void AddressListModel::freezeWrite(ProcessHandle* proc) {
         // Re-resolve pointer records so the freeze writes to the current target, not the
         // up-to-500ms-stale cached address (the value refresh runs slower than this 100ms
         // freeze); a moved pointer would otherwise clobber unrelated memory.
-        reresolveAddress(e);
+        if (!reresolveAddress(e)) continue;   // a broken chain freezes nothing
 
         if (e.freezeMode == FreezeMode::Normal) {
             (void)writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian, e.showAsHex, e.byteCount, e.dataByteOrder, e.pointerWidth);
@@ -5670,7 +5703,27 @@ bool AddressListModel::entryBigEndian(int row) const {
 
 void AddressListModel::setShowAsHex(int row, bool hex) {
     if (row < 0 || row >= (int)entries_.size()) return;
-    entries_[row].showAsHex = hex;
+    auto& e = entries_[row];
+    // The frozen value is text in the old base: "100" frozen in decimal would
+    // be written as 0x100 once hex is on. Re-express it (and the shown value)
+    // through its bytes.
+    const bool integer = e.type == ValueType::Byte || e.type == ValueType::Int16 || e.type == ValueType::Int32 ||
+                         e.type == ValueType::Int64 || e.type == ValueType::Pointer;
+    if (integer && e.showAsHex != hex) {
+        ce::ValueIoOptions from;
+        from.hex = e.showAsHex; from.isSigned = e.showAsSigned; from.codec = e.codec;
+        if (e.pointerWidth) { from.pointerWidth = e.pointerWidth; from.pointerWidthOverride = e.pointerWidth; }
+        else if (proc_) from.pointerWidth = static_cast<int>(proc_->pointerWidth(e.address));
+        ce::ValueIoOptions to = from;
+        to.hex = hex;
+        for (QString* text : {&e.frozenValue, &e.currentValue}) {
+            if (text->isEmpty() || *text == QStringLiteral("??")) continue;
+            auto bytes = ce::encodeTypedValue(e.type, text->toStdString(), from);
+            if (!bytes) continue;
+            if (auto converted = ce::decodeTypedValue(e.type, *bytes, to)) *text = QString::fromStdString(*converted);
+        }
+    }
+    e.showAsHex = hex;
     emit dataChanged(index(row, 4), index(row, 4));
 }
 
@@ -5705,7 +5758,7 @@ bool AddressListModel::adjustEntryValue(int row, double delta) {
 
     // Re-resolve pointer records so the hotkey acts on the current target, not a stale
     // cached address (a moved pointer would otherwise hit unrelated memory).
-    reresolveAddress(e);
+    if (!reresolveAddress(e)) return false;
 
     double current = 0;
     if (!readComparableValue(proc_, e.address, e.type, current, e.codec, e.bigEndian, e.showAsSigned, e.dataByteOrder, e.pointerWidth) &&
@@ -5852,6 +5905,12 @@ bool AddressListModel::setEntryActive(int row, bool active) {
         }
     }
     auto& e = entries_[row];
+    // "??" is the unreadable placeholder, not a value: frozen into a String
+    // record it would be written into the game as text.
+    if (active && e.autoAsmScript.isEmpty() && !e.isGroup && e.currentValue == QStringLiteral("??")) {
+        reportActivationError("Freeze failed", "The value cannot be read right now, so there is nothing to freeze.");
+        return false;
+    }
     e.active = active;
     if (e.active)
         e.frozenValue = e.currentValue;
@@ -5948,7 +6007,7 @@ void AddressListModel::updateValues(ProcessHandle* proc) {
 
         // Pointer records: re-evaluate the address expression so a moving pointer
         // chain is followed live (CE re-resolves every refresh).
-        reresolveAddress(e);
+        if (!reresolveAddress(e)) { e.currentValue = QStringLiteral("??"); continue; }
 
         // Variable-length types: read the element (exact length if known) and format.
         if (auto fv = formatVariableLengthValue(proc, e.address, e.type, e.byteCount, e.bigEndian, e.dataByteOrder)) {
@@ -5975,7 +6034,7 @@ std::string AddressListModel::liveValue(int id) {
     if (e.isGroup) return {};
     // Re-resolve pointer expressions and read the process now (CE's mr.Value does a
     // live read on access, not a cached refresh value).
-    reresolveAddress(e);
+    if (!reresolveAddress(e)) return {};
     if (auto fv = formatVariableLengthValue(proc_, e.address, e.type, e.byteCount, e.bigEndian, e.dataByteOrder))
         return fv->toStdString();
 
@@ -6322,7 +6381,10 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
             options.hex = e.showAsHex;
             options.pointerWidth = e.pointerWidth ? e.pointerWidth : proc_ ? proc_->pointerWidth(e.address) : sizeof(uintptr_t);
             if (proc_) {
-                reresolveAddress(e);
+                if (!reresolveAddress(e)) {
+                    reportActivationError("Value edit failed", "The pointer path does not resolve right now.");
+                    return false;
+                }
                 auto resolved = ce::valueOptionsForTarget(*proc_, e.address, e.type, options);
                 if (!resolved) { reportActivationError("Value edit failed", QString::fromStdString(resolved.error())); return false; }
                 options = *resolved;
@@ -6340,7 +6402,10 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
                 if (options.terminate) nextByteCount += e.type == ValueType::UnicodeString ? 2 : 1;
             }
             if (proc_) {
-                reresolveAddress(e);
+                if (!reresolveAddress(e)) {
+                    reportActivationError("Value edit failed", "The pointer path does not resolve right now.");
+                    return false;
+                }
                 auto written = ce::writeTypedValue(*proc_, e.address, e.type, rawValue.toStdString(), options);
                 if (!written) { reportActivationError("Value edit failed", QString::fromStdString(written.error())); return false; }
                 if (!e.active) scheduleEditVerify(e.address, e.type, rawValue, e.codec, e.bigEndian, e.showAsSigned, e.dataByteOrder, e.pointerWidth);

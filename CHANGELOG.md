@@ -93,6 +93,37 @@ reimplementation of Cheat Engine).
   Run to Cursor's temporary breakpoint stayed armed after a stop elsewhere.
   Advanced Options let one entry be replaced with NOPs twice, after which
   Restore put back NOPs.
+- Security: Lua `writeFile` (an alias of `writeToFile`) wrote files without
+  the `CECORE_LUA_ALLOW_UNSAFE=1` opt-in, so any table could overwrite the
+  user's files.
+- Fixed: a pointer record whose path stopped resolving (the game freed the
+  object, or a loading screen) kept its last address, and freezing, hotkeys
+  and edits wrote there, into memory that may belong to something else. It
+  now shows `??` and nothing is written until the path resolves again.
+- Fixed: generated trainers wrote pointer-path and module+offset records to
+  the address they had in this session; only plain absolute addresses are
+  written now. Toggling "Show as hex" on a frozen record changed the frozen
+  value (100 became 0x100), and freezing an unreadable String record wrote
+  the text `??` into the game.
+- Fixed: Lua. An error in `debugger_onBreakpoint` left the game stopped at the
+  breakpoint; `copyMemory` wrote zeros after a short read and had no size
+  limit; `debug_setBreakpoint` returned an id for a breakpoint that was not
+  set; `dissectStructure` presented unread bytes as fields; `playSound` left
+  a zombie process per call and read a path starting with `-` as an option;
+  `readString` and `readBytesLocal` truncated large sizes; several bindings
+  leaked memory when given a bad argument.
+- Fixed: a module whose file is also mapped as data (a game reading its own
+  binary) took the data view's extent, so module+offset addresses and
+  symbols could be wrong; the view with code is now the module.
+- Fixed: windows of a target that exits were deleted while a dialog or menu
+  of theirs was open, which could crash; this now waits for it to close. An
+  Auto Assemble window opened before attaching was closed (losing its
+  script) on attach; it now takes the new target. The color, dropdown and
+  hotkey dialogs could apply to another record if a script changed the list
+  meanwhile. Debug > Breakpoint list showed a list nothing used; it opens the
+  debugger's. A tracer Cancel right at the start could be lost. Form
+  Designer: edits after a delete went nowhere, names could repeat, and names
+  or captions could produce invalid Lua.
 - Fixed: the debugger window froze while a step ran, for good when Step
   Over entered a call that never returned (or waited on a thread the step
   keeps paused); steps now run in the background and Detach ends one. The

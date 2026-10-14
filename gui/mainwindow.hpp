@@ -51,6 +51,7 @@ class DebuggerWindow;
 class StructureDissector;
 class AgentPanel;
 class ChangeAddressDialog;
+class ScriptEditor;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -131,6 +132,7 @@ private:
     QAction* pauseAction_ = nullptr;   // Process > Pause the process
     QPointer<ce::gui::ChangeAddressDialog> openAddressDialog_;   // reads process_ while open
     void trackTargetWindow(QWidget* window) { targetWindows_.push_back(window); }
+    std::vector<QPointer<ScriptEditor>> unboundEditors_;   // opened before any target
     std::vector<QPointer<QWidget>> targetWindows_;
     /// Move the cheat-table entry at `row` up (-1) or down (+1) and keep it selected.
     void moveSelectedEntry(int row, int delta);
@@ -539,7 +541,7 @@ private:
                             uint8_t pointerWidth = 0);
     // Re-resolve a pointer/expression record's target from its address expression so a
     // read/write acts on the current target, not the cached (up to ~500ms stale) address.
-    void reresolveAddress(AddressEntry& e);
+    bool reresolveAddress(AddressEntry& e);   // false: the pointer path does not resolve
     int allocId();
     std::vector<int> cleanupOrder() const;
 

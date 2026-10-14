@@ -23,6 +23,15 @@ public:
     bool cleanupInjection(bool report = true);
     uint64_t injectionOrder() const { return enabled_ ? enableOrder_ : 0; }
 
+    /// Bind an editor opened with no process to the target attached since.
+    /// Ignored once it has one (its injection state belongs to that target).
+    void attachProcess(ce::ProcessHandle* proc) {
+        if (proc_ || !proc) return;
+        proc_ = proc;
+        updateExecutionActions();
+    }
+    bool hasProcess() const { return proc_ != nullptr; }
+
     void setScript(const std::string& script);
     void setInjectionAddress(uintptr_t address, size_t size = 5) { injectionAddress_ = address; injectionSize_ = size; }
     /// Hook to add the current script to the cheat table as a toggleable entry

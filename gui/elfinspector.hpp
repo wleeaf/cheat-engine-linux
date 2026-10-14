@@ -23,6 +23,7 @@ private slots:
 
 private:
     void runReadelf(QPlainTextEdit* sink, const QStringList& args);
+    int loadGeneration_ = 0;   // output of an older load is dropped
 
     QLineEdit*   pathEdit_;
     QTabWidget*  tabs_;

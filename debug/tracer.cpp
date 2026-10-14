@@ -23,7 +23,7 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
         error_=std::make_error_code(std::errc::device_or_resource_busy);
         return {};
     }
-    cancelled_.store(false);
+    if (!prepared_.exchange(false)) cancelled_.store(false);   // prepare() already cleared it
     progress_.store(0);
     ready_=false;
     auto error=[&](Error value) { std::lock_guard lock(errorMutex_); error_=value; };

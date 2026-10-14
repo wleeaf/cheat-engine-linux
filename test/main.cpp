@@ -1214,6 +1214,27 @@ static void test_guest_view() {
     auto back = gv.read<uint32_t>(4);
     printf("  read-back round trip: %s\n", (back && *back == 0x11223344u) ? "OK" : "FAILED");
 
+    // Our own executable also mapped as data (a game reading its binary): the
+    // module keeps the loaded image's base and extent, and appears once.
+    {
+        const int exeFd = ::open("/proc/self/exe", O_RDONLY | O_CLOEXEC);
+        void* view = exeFd >= 0 ? ::mmap(nullptr, 4096, PROT_READ, MAP_PRIVATE, exeFd, 0) : MAP_FAILED;
+        const auto code = reinterpret_cast<uintptr_t>(&ce::bswap64);
+        int images = 0;
+        bool containsCode = false, viewIsModule = false;
+        for (const auto& m : self.modules()) {
+            if (code >= m.base && code - m.base < m.size) containsCode = m.size < (size_t(1) << 30);
+            if (view != MAP_FAILED && reinterpret_cast<uintptr_t>(view) >= m.base &&
+                reinterpret_cast<uintptr_t>(view) - m.base < m.size && m.path.find("cecore_test") != std::string::npos)
+                viewIsModule = true;
+            if (m.path.find("cecore_test") != std::string::npos) ++images;
+        }
+        printf("  a data view of the executable is not its module: %s\n",
+               view != MAP_FAILED && containsCode && images == 1 && !viewIsModule ? "OK" : "FAILED");
+        if (view != MAP_FAILED) ::munmap(view, 4096);
+        if (exeFd >= 0) ::close(exeFd);
+    }
+
     // Bounds: a read that runs off the end of the region fails, and toHost maps right.
     bool bounds = !gv.read<uint32_t>(62).has_value()
                && gv.toHost(8) == reinterpret_cast<uintptr_t>(buffer) + 8;
@@ -2375,8 +2396,20 @@ static void test_trainer_generation() {
     we.value = "9999";
     table.entries.push_back(we);
 
+    // A pointer-path record as the GUI exports it: the path in addressString,
+    // no offsets, and `address` only where it resolved this session.
+    CheatEntry ptr;
+    ptr.description = "Ammo";
+    ptr.address = 0x7f00dead0000;
+    ptr.addressString = "[[game+1C]+8]+10";
+    ptr.type = ValueType::Int32;
+    ptr.value = "99";
+    table.entries.push_back(ptr);
+
     TrainerGenerator generator;
     auto source = generator.generateSource(table);
+    printf("  pointer-path records are not written at a fixed address: %s\n",
+           source.find("7f00dead0000") == std::string::npos ? "OK" : "FAILED");
     bool floatOk = source.find("2.5f") != std::string::npos &&
                    source.find("1.25") != std::string::npos &&
                    source.find("2,5") == std::string::npos &&   // comma never leaks into C

@@ -46,6 +46,9 @@ struct MemoryRegion {
     MemType   type = MemType::Private;
     MemState  state = MemState::Free;
     std::string path;  // Mapped file path (empty for anonymous)
+    // Offset of base within the mapped file, when the platform reports it
+    // (Linux maps). Tells a loaded image apart from another view of its file.
+    std::optional<uint64_t> fileOffset;
 };
 
 // ── Process info ──

@@ -7,6 +7,7 @@
 
 #include <QMainWindow>
 #include <QWidget>
+#include <QImage>
 #include <cstdint>
 #include <vector>
 
@@ -20,8 +21,8 @@ namespace ce::gui {
 class MemPixelView : public QWidget {
 public:
     using QWidget::QWidget;
-    void setData(std::vector<uint8_t> d) { data_ = std::move(d); update(); }
-    void setPerLine(int n) { perLine_ = n > 0 ? n : 1; updateGeometry(); update(); }
+    void setData(std::vector<uint8_t> d) { data_ = std::move(d); image_ = QImage(); update(); }
+    void setPerLine(int n) { perLine_ = n > 0 ? n : 1; image_ = QImage(); updateGeometry(); update(); }
     QSize sizeHint() const override;
 
 protected:
@@ -31,6 +32,7 @@ private:
     std::vector<uint8_t> data_;
     int perLine_ = 256;
     int scale_ = 2;
+    QImage image_;   // built once per data/layout change, not per paint
 };
 
 class GraphicalMemoryView : public QMainWindow {

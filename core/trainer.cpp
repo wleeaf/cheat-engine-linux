@@ -1,6 +1,8 @@
 #include <charconv>
 #include <cmath>
 #include "core/trainer.hpp"
+#include <cctype>
+#include <string_view>
 #include <sstream>
 #include <fstream>
 #include <cstdlib>
@@ -69,7 +71,18 @@ std::string lineCommentText(std::string text) {
 // addresses (module+offset) are resolved by Cheat Engine, not by the trainer;
 // writing to their base would hit the pointer itself, not the value.
 bool trainerWritable(const CheatEntry& e) {
-    return !e.isGroup && e.address != 0 && e.offsets.empty();
+    if (e.isGroup || e.address == 0 || !e.offsets.empty()) return false;
+    // The GUI and Lua put a pointer path ("[[game+1C]+8]+10") or module+offset
+    // in addressString with no offsets, and `address` is only where it
+    // resolved this session: a trainer would write there in every later run.
+    // Only a plain absolute address is fixed.
+    std::string_view text = e.addressString;
+    while (!text.empty() && (text.front() == ' ' || text.front() == '\t')) text.remove_prefix(1);
+    while (!text.empty() && (text.back() == ' ' || text.back() == '\t')) text.remove_suffix(1);
+    if (text.starts_with("0x") || text.starts_with("0X")) text.remove_prefix(2);
+    for (char c : text)
+        if (!std::isxdigit(static_cast<unsigned char>(c))) return false;
+    return true;
 }
 
 // The default key of the n-th cheat: 1 to 9, then none.

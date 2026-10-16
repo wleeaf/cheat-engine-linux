@@ -33,12 +33,6 @@ public:
     Result<size_t> writePhysicalMemory(uintptr_t physicalAddress, const void* buffer, size_t size);
     Result<VirtualAddressTranslation> translateVirtualAddress(pid_t pid, uintptr_t virtualAddress);
 
-    /// Hide / unhide a PID from /proc directory iteration. Scope: cecore
-    /// hiding itself from single-player anti-tamper string scans. Does not
-    /// defeat dedicated anti-cheat kernel modules.
-    Result<void> hidePid(pid_t pid);
-    Result<void> unhidePid(pid_t pid);
-
 private:
     Result<size_t> accessProcessMemory(
         unsigned long request,

@@ -88,26 +88,6 @@ Result<VirtualAddressTranslation> KernelDriverClient::translateVirtualAddress(
     };
 }
 
-Result<void> KernelDriverClient::hidePid(pid_t pid) {
-    if (fd_ < 0)
-        return std::unexpected(std::make_error_code(std::errc::bad_file_descriptor));
-    cecore_kmod_hide_request req{};
-    req.pid = static_cast<__u32>(pid);
-    if (::ioctl(fd_, CECORE_KMOD_IOC_HIDE_PID, &req) < 0)
-        return std::unexpected(std::error_code(errno, std::generic_category()));
-    return {};
-}
-
-Result<void> KernelDriverClient::unhidePid(pid_t pid) {
-    if (fd_ < 0)
-        return std::unexpected(std::make_error_code(std::errc::bad_file_descriptor));
-    cecore_kmod_hide_request req{};
-    req.pid = static_cast<__u32>(pid);
-    if (::ioctl(fd_, CECORE_KMOD_IOC_UNHIDE_PID, &req) < 0)
-        return std::unexpected(std::error_code(errno, std::generic_category()));
-    return {};
-}
-
 Result<size_t> KernelDriverClient::accessProcessMemory(
     unsigned long request,
     pid_t pid,

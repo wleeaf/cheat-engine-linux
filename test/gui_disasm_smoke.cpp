@@ -10,6 +10,8 @@
 #include <QKeyEvent>
 #include <QClipboard>
 #include <QScrollBar>
+#include <QSettings>
+#include <QTemporaryDir>
 #include <cstdio>
 #include <cstdint>
 #include <unistd.h>
@@ -32,7 +34,11 @@ static void sendKey(QObject* w, int key, Qt::KeyboardModifiers mods) {
 
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
+    // Preferences are written below; keep them out of the user's settings.
+    QTemporaryDir config;
+    if (config.isValid()) qputenv("XDG_CONFIG_HOME", config.path().toLocal8Bit());
     QApplication app(argc, argv);
+    app.setOrganizationName("cecore-smoke");
 
     ce::os::LinuxProcessHandle proc(getpid());
     ce::gui::DisasmView dv;
@@ -111,7 +117,22 @@ int main(int argc, char** argv) {
     bool horizontal = dv.horizontalScrollBar()->maximum() > 0;
     std::printf("GUI disassembly horizontal scrolling: %s\n", horizontal ? "OK" : "FAILED");
 
-    bool ok = horizontal && injectionSelection && single == 1 && rangeThree == 3 && rangeTwo == 2 && collapsed == 1
+    // Space between lines (Disassembler Preferences) makes every row taller,
+    // so fewer instructions fit the same view.
+    bool spacing = false;
+    if (config.isValid()) {
+        { QSettings s; s.setValue("disasm/spaceAbove", 6); s.setValue("disasm/spaceBelow", 6); }
+        dv.setAddress(reinterpret_cast<uintptr_t>(&decodeTarget) & ~0xFULL);
+        dv.reloadPreferences();
+        app.processEvents();
+        sendKey(&dv, Qt::Key_A, Qt::ControlModifier);
+        const int spacedAll = dv.selectionCountForTest();
+        spacing = spacedAll > 0 && spacedAll < selectAll;
+        std::printf("GUI disassembly line spacing preference: %s (%d rows, %d before)\n",
+                    spacing ? "OK" : "FAILED", spacedAll, selectAll);
+    }
+
+    bool ok = spacing && horizontal && injectionSelection && single == 1 && rangeThree == 3 && rangeTwo == 2 && collapsed == 1
            && copiedLines == 3 && selectAll > 3
            && homeSel == 1 && shiftEndSel == selectAll && escSel == 1 && dblAssemble && disasmSticky;
     printf("gui disasm smoke: %s (single=%d range3=%d range2=%d collapsed=%d copiedLines=%d "

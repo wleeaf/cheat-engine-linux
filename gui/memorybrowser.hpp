@@ -300,6 +300,13 @@ private:
     QColor addrColor_{0x89, 0xb4, 0xfa};
     QColor condJumpColor_{0xfa, 0xb3, 0x87};
     QColor jumpColor_{0x89, 0xb4, 0xfa};
+    QColor callColor_{0xcb, 0xa6, 0xf7};
+    QColor registerColor_{0xcd, 0xd6, 0xf4};
+    QColor symbolColor_{0xf9, 0xe2, 0xaf};
+    int jumpLineWidth_ = 1;     // jumpline pen width
+    int jumpLineSpacing_ = 0;   // pixels between jumpline lanes (0 = one character)
+    int spaceAbove_ = 0;        // extra pixels above and below each row's text
+    int spaceBelow_ = 0;
     std::vector<ce::Instruction> instructions_;
     QString emptyReason_;   // shown when a read yields no instructions (blank pane otherwise)
     bool hexUpper_ = false; // uppercase instruction addresses (display/hexUpper)

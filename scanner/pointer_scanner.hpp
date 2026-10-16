@@ -121,6 +121,8 @@ public:
     /// Progress (0.0 - 1.0)
     float progress() const { return progress_.load(std::memory_order_relaxed); }
 
+    /// Stop the scan in progress, or the next one if it has not started yet.
+    /// A cancel stays in effect; use a new scanner for another scan.
     void cancel() { cancelled_.store(true); }
     bool wasCancelled() const { return cancelled_.load(); }
 

@@ -7054,6 +7054,13 @@ static void test_pointer_map_reuse() {
     printf("  resolve == dereference, valueAt correct: %s\n", resolveOk ? "OK" : "FAILED");
     printf("  map save/load round-trip resolves: %s\n", loadOk ? "OK" : "FAILED");
     printf("  map-based rescan (addr + value) matches: %s\n", rescanOk ? "OK" : "FAILED");
+
+    // A cancel that lands before the worker thread enters scan() (the window
+    // closed right after Scan) must still stop it.
+    PointerScanner cancelledFirst;
+    cancelledFirst.cancel();
+    const bool cancelOk = cancelledFirst.scan(proc, c1).empty() && cancelledFirst.wasCancelled();
+    printf("  a cancel before the scan starts stops it: %s\n", cancelOk ? "OK" : "FAILED");
 }
 
 // 8-byte value written only by a sibling thread, to exercise a non-default

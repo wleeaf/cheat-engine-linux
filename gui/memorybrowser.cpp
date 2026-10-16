@@ -38,6 +38,7 @@
 #include <QStatusBar>
 #include <QSettings>
 #include <QFontMetrics>
+#include <QRegularExpression>
 #include <QShortcut>
 #include <QFile>
 #include <cstring>
@@ -827,8 +828,13 @@ void DisasmView::reloadPreferences() {
     setFont(monoFont_);
     QFontMetrics fm(monoFont_);
     charW_ = fm.horizontalAdvance('0');
-    charH_ = fm.height();
-    gutterW_ = charH_;  // square red dot column
+    // Space between lines: a row is the font's height plus the extra space.
+    spaceAbove_ = std::clamp(s.value("disasm/spaceAbove", 0).toInt(), 0, 32);
+    spaceBelow_ = std::clamp(s.value("disasm/spaceBelow", 0).toInt(), 0, 32);
+    charH_ = fm.height() + spaceAbove_ + spaceBelow_;
+    gutterW_ = fm.height();  // square red dot column
+    jumpLineWidth_ = std::clamp(s.value("disasm/jlThickness", 1).toInt(), 1, 8);
+    jumpLineSpacing_ = std::clamp(s.value("disasm/jlSpacing", 0).toInt(), 0, 64);
     auto col = [&s](const char* key, QColor def) {
         return QColor(s.value(QString("disasm/") + key, def.name()).toString());
     };
@@ -839,6 +845,12 @@ void DisasmView::reloadPreferences() {
     addrColor_     = col("colorHex",      mv.addr);
     condJumpColor_ = col("colorCondJump", mv.condJump);
     jumpColor_     = col("colorJump",     mv.jump);
+    callColor_     = col("colorCall",     mv.bg.lightness() < 128 ? QColor(0xcb, 0xa6, 0xf7) : QColor(0x88, 0x39, 0xef));
+    registerColor_ = col("colorRegister", mv.operand);
+    symbolColor_   = col("colorSymbol",   mv.symbol);
+    setMinimumHeight(charH_ * 8);
+    // The row height may have changed, and with it how many rows fit.
+    if (proc_) refresh();
     viewport()->update();
 }
 
@@ -1224,6 +1236,25 @@ static uintptr_t ripEffectiveAddress(const ce::Instruction& inst) {
     return inst.ripTarget;
 }
 
+// Operand text split into runs, each marked when it is a register name (x86
+// and ARM64), so the disassembler can draw registers in their own color.
+static std::vector<std::pair<QString, bool>> splitOperandRegisters(const QString& operands) {
+    static const QRegularExpression registerName(QStringLiteral(
+        "\\b(?:r(?:[89]|1[0-5])[dwb]?|[re]?(?:ax|bx|cx|dx|si|di|sp|bp|ip)|[abcd][lh]|(?:si|di|sp|bp)l"
+        "|[xyz]mm(?:[12]?[0-9]|3[01])|k[0-7]|st\\([0-7]\\)|[cdefgs]s|[cd]r[0-9]"
+        "|[xw](?:[12]?[0-9]|30)|wzr|xzr|wsp|[bhsdqv](?:[12]?[0-9]|3[01]))\\b"));
+    std::vector<std::pair<QString, bool>> runs;
+    qsizetype at = 0;
+    for (auto it = registerName.globalMatch(operands); it.hasNext();) {
+        const auto match = it.next();
+        if (match.capturedStart() > at) runs.emplace_back(operands.mid(at, match.capturedStart() - at), false);
+        runs.emplace_back(match.captured(), true);
+        at = match.capturedEnd();
+    }
+    if (at < operands.size()) runs.emplace_back(operands.mid(at), false);
+    return runs;
+}
+
 static QString ripRefAnnotation(const ce::Instruction& inst,
                                 ce::SymbolResolver* resolver,
                                 ce::ProcessHandle* proc) {
@@ -1298,14 +1329,15 @@ void DisasmView::paintEvent(QPaintEvent*) {
     // arrowhead at the target). Lanes are assigned greedily so nested/adjacent
     // arrows don't overlap. Unconditional jmp = blue, conditional = peach.
     {
-        struct Arrow { int src, dst; bool cond; };
+        struct Arrow { int src, dst; bool cond, call; };
         std::vector<Arrow> arrows;
         int nvis = std::min((int)instructions_.size(), visibleRows());
         for (int i = 0; i < nvis; ++i) {
             const auto& in = instructions_[i];
             bool isJmp = in.mnemonic == "jmp";
             bool isCond = in.mnemonic.size() > 1 && in.mnemonic[0] == 'j' && !isJmp;
-            if (!isJmp && !isCond) continue;
+            bool isCall = in.mnemonic == "call";
+            if (!isJmp && !isCond && !isCall) continue;
             uintptr_t t = parseImmediate(in.operands);
             if (!t) continue;
             int dst = -2;
@@ -1318,8 +1350,10 @@ void DisasmView::paintEvent(QPaintEvent*) {
                 if (t < instructions_[0].address)             dst = -1;    // off-top
                 else if (t > instructions_[nvis - 1].address) dst = nvis;  // off-bottom
             }
-            if (dst != -2)
-                arrows.push_back({i, dst, isCond});
+            // A call only gets a line to a target on screen: most calls leave
+            // the function, and a line off the edge for each would bury the jumps.
+            if (dst != -2 && (!isCall || (dst >= 0 && dst < nvis)))
+                arrows.push_back({i, dst, isCond, isCall});
         }
         // Greedy lane assignment by ascending span.
         std::sort(arrows.begin(), arrows.end(), [](const Arrow& a, const Arrow& b) {
@@ -1342,11 +1376,12 @@ void DisasmView::paintEvent(QPaintEvent*) {
             int dstRow = offTop ? 0 : (offBottom ? nvis - 1 : ar.dst);
             int lo = std::min(ar.src, dstRow), hi = std::max(ar.src, dstRow);
             int lane = laneOf(lo, hi);
-            int maxLane = std::max(0, arrowW / std::max(1, charW_) - 1);
-            int laneX = contentX - 3 - std::min(lane, maxLane) * charW_;
+            const int laneStep = jumpLineSpacing_ > 0 ? jumpLineSpacing_ : charW_;
+            int maxLane = std::max(0, arrowW / std::max(1, laneStep) - 1);
+            int laneX = contentX - 3 - std::min(lane, maxLane) * laneStep;
             int ySrc = ar.src * charH_ + charH_ / 2;
-            QColor col = ar.cond ? condJumpColor_ : jumpColor_;
-            p.setPen(QPen(col, 1));
+            QColor col = ar.call ? callColor_ : ar.cond ? condJumpColor_ : jumpColor_;
+            p.setPen(QPen(col, jumpLineWidth_));
             p.drawLine(contentX - 2, ySrc, laneX, ySrc);   // out from source
             if (offTop || offBottom) {
                 // Runs off the visible edge — arrowhead at the edge signals the
@@ -1388,7 +1423,7 @@ void DisasmView::paintEvent(QPaintEvent*) {
     for (int i = 0; i < (int)instructions_.size() && i < visibleRows(); ++i) {
         auto& inst = instructions_[i];
         int rowTop = i * charH_;
-        int y = rowTop + charH_ - 2;  // text baseline
+        int y = rowTop + charH_ - 2 - spaceBelow_;  // text baseline
 
         // Highlight order: the debugger's current instruction (green, like CE's
         // Memory Viewer when paused) wins over the selection, which wins over the
@@ -1414,7 +1449,7 @@ void DisasmView::paintEvent(QPaintEvent*) {
             int margin = 3;
             p.setBrush(mv.bg.lightness() < 128 ? QColor(0xf3, 0x8b, 0xa8) : QColor(0xd2, 0x0f, 0x39));
             p.setPen(Qt::NoPen);
-            p.drawEllipse(margin, rowTop + margin, charH_ - 2 * margin, charH_ - 2 * margin);
+            p.drawEllipse(margin, rowTop + spaceAbove_ + margin, gutterW_ - 2 * margin, gutterW_ - 2 * margin);
         }
 
         // Current-instruction ► marker (green), at the left of the arrow strip so it
@@ -1524,10 +1559,14 @@ void DisasmView::paintEvent(QPaintEvent*) {
             }
         }
 
-        p.setPen(mv.operand);
         int opX = mnemonicX + charW_ * 8;
-        p.drawText(opX, y, operands);
-        int endX = opX + p.fontMetrics().horizontalAdvance(operands);
+        int endX = opX;
+        // Registers in the Register color, the rest in the operand color.
+        for (const auto& [piece, isRegister] : splitOperandRegisters(operands)) {
+            p.setPen(isRegister ? registerColor_ : mv.operand);
+            p.drawText(endX, y, piece);
+            endX += p.fontMetrics().horizontalAdvance(piece);
+        }
 
         // User-defined comment first (green), immediately after the operands so
         // it's always visible even when an auto-annotation is long.
@@ -1546,7 +1585,7 @@ void DisasmView::paintEvent(QPaintEvent*) {
 
         if (!functionLabel.isEmpty()) {
             QString text = "  ; " + functionLabel;
-            p.setPen(mv.symbol);
+            p.setPen(symbolColor_);
             p.drawText(endX, y, text);
             endX += p.fontMetrics().horizontalAdvance(text);
         }

@@ -12,6 +12,7 @@
 #include <QDialogButtonBox>
 #include <QColorDialog>
 #include <QFontDialog>
+#include <QFontMetrics>
 #include <QSettings>
 #include <QScrollArea>
 #include <QGuiApplication>
@@ -82,7 +83,7 @@ MemviewPreferences::MemviewPreferences(QWidget* parent) : QDialog(parent) {
     auto* gbNormal = new QGroupBox("Normal");
     auto* nl = new QFormLayout(gbNormal);
     nl->addRow("Default color", colorButton("colorDefault", def(QColor(0xcd, 0xd6, 0xf4), QColor(0x00, 0x00, 0x00))));
-    nl->addRow("Register color", colorButton("colorRegister", def(QColor(0xa6, 0xe3, 0xa1), QColor(0x1a, 0x7f, 0x37))));
+    nl->addRow("Register color", colorButton("colorRegister", def(QColor(0xcd, 0xd6, 0xf4), QColor(0x3a, 0x42, 0x52))));
     nl->addRow("Symbol color", colorButton("colorSymbol", def(QColor(0xf9, 0xe2, 0xaf), QColor(0x80, 0x60, 0x00))));
     nl->addRow("Hexadecimal color", colorButton("colorHex", def(QColor(0x89, 0xb4, 0xfa), QColor(0x00, 0x00, 0xc0))));
     v->addWidget(gbNormal);
@@ -95,7 +96,8 @@ MemviewPreferences::MemviewPreferences(QWidget* parent) : QDialog(parent) {
     jl->addRow("Call color", colorButton("colorCall", def(QColor(0xcb, 0xa6, 0xf7), QColor(0x88, 0x39, 0xef))));
     jlThickness_ = new QLineEdit(s.value("disasm/jlThickness", 1).toString());
     jl->addRow("Thickness", jlThickness_);
-    jlSpacing_ = new QLineEdit(s.value("disasm/jlSpacing", 4).toString());
+    // Lanes default to one character apart, as the disassembler draws them.
+    jlSpacing_ = new QLineEdit(s.value("disasm/jlSpacing", QFontMetrics(font_).horizontalAdvance('0')).toString());
     jl->addRow("Spacing", jlSpacing_);
     v->addWidget(gbJump);
 

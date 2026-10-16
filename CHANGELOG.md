@@ -53,6 +53,15 @@ reimplementation of Cheat Engine).
 - `cescan`: `scan --compare increasedby|decreasedby`, `accessed` (the
   addresses one instruction touches), and `freeze` follows a `[pointer]+offset`
   path on every write instead of resolving it once.
+- Fixed: closing the Pointer Scan window right after pressing Scan could
+  freeze Cheat Engine until the whole scan finished: a cancel that arrived
+  before the scan started was cleared when it began.
+- Fixed: Disassembler Preferences. Register color, symbol color, call color,
+  jumpline thickness and spacing, and space above and below lines were saved
+  but never used; the disassembler now draws with them (calls get a jumpline
+  when their target is on screen).
+- Removed: the kernel module's process hiding ioctls. Hiding a process from
+  `/proc` is detection evasion, which the project does not ship.
 - Fixed: Lua Engine opened a new console window each time; it now raises the
   one already open.
 - Fixed: Auto Assembler. A `jmp`/`call`/`jcc` to a target more than 2 GiB away

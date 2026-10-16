@@ -282,7 +282,9 @@ PointerMap buildPointerMap(ProcessHandle& proc, const PointerScanConfig& config,
 }
 
 std::vector<PointerPath> PointerScanner::scan(ProcessHandle& proc, const PointerScanConfig& config) {
-    cancelled_.store(false);
+    // Do not clear cancelled_ here: a window closed right after Scan cancels
+    // before its worker thread reaches this point, and clearing it would run
+    // the whole scan while the window waits to join the worker.
     progress_.store(0);
     if (config.shardCount == 0 || config.shardIndex >= config.shardCount ||
         config.maxDepth <= 0 || config.maxOffset < 0)

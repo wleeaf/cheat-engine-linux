@@ -7,11 +7,9 @@
 #include <linux/miscdevice.h>
 #include <linux/mm.h>
 #include <linux/module.h>
-#include <linux/namei.h>
 #include <linux/pid.h>
 #include <linux/sched/mm.h>
 #include <linux/slab.h>
-#include <linux/spinlock.h>
 #include <linux/string.h>
 #include <linux/uaccess.h>
 
@@ -198,183 +196,11 @@ static int cecore_translate_va(struct cecore_kmod_translate_request *req)
     return 0;
 }
 
-/* ─────────────────────────────────────────────────────────────────
- * Process hiding — filter /proc/<pid> directory entries
- *
- * Use case: hide cecore itself from single-player anti-tamper string
- * scans. This is NOT a defence against dedicated anti-cheat kernel
- * modules (EAC/BattlEye/Vanguard etc.) which run their own ring-0
- * detection and will identify the hook itself. Documented as such in
- * the public header.
- *
- * Mechanism: at the first hide request we resolve /proc's inode,
- * duplicate its file_operations, swap iterate_shared for our wrapper,
- * and point inode->i_fop at the duplicate. The wrapper uses the
- * container_of dir_context trick to filter PID-named entries.
- * On module unload we restore the original.
- * ─────────────────────────────────────────────────────────────────*/
-
-#define CECORE_HIDE_LIST_MAX 32
-
-static DEFINE_SPINLOCK(cecore_hide_lock);
-static pid_t cecore_hidden_pids[CECORE_HIDE_LIST_MAX];
-static int   cecore_hidden_count;
-
-static struct file_operations cecore_proc_fops;
-static const struct file_operations *cecore_proc_fops_orig;
-static int (*cecore_proc_iterate_orig)(struct file *, struct dir_context *);
-static struct inode *cecore_proc_inode;
-static struct dentry *cecore_proc_dentry;
-
-static bool cecore_pid_is_hidden(pid_t pid)
-{
-    bool hidden = false;
-    unsigned long flags;
-    int i;
-    spin_lock_irqsave(&cecore_hide_lock, flags);
-    for (i = 0; i < cecore_hidden_count; ++i) {
-        if (cecore_hidden_pids[i] == pid) { hidden = true; break; }
-    }
-    spin_unlock_irqrestore(&cecore_hide_lock, flags);
-    return hidden;
-}
-
-static int cecore_pid_hide_add(pid_t pid)
-{
-    unsigned long flags;
-    int i, rc = 0;
-    if (pid <= 0) return -EINVAL;
-    spin_lock_irqsave(&cecore_hide_lock, flags);
-    for (i = 0; i < cecore_hidden_count; ++i) {
-        if (cecore_hidden_pids[i] == pid) { rc = 0; goto out; }
-    }
-    if (cecore_hidden_count >= CECORE_HIDE_LIST_MAX) { rc = -ENOSPC; goto out; }
-    cecore_hidden_pids[cecore_hidden_count++] = pid;
-out:
-    spin_unlock_irqrestore(&cecore_hide_lock, flags);
-    return rc;
-}
-
-static int cecore_pid_hide_remove(pid_t pid)
-{
-    unsigned long flags;
-    int i;
-    spin_lock_irqsave(&cecore_hide_lock, flags);
-    for (i = 0; i < cecore_hidden_count; ++i) {
-        if (cecore_hidden_pids[i] == pid) {
-            cecore_hidden_pids[i] = cecore_hidden_pids[--cecore_hidden_count];
-            spin_unlock_irqrestore(&cecore_hide_lock, flags);
-            return 0;
-        }
-    }
-    spin_unlock_irqrestore(&cecore_hide_lock, flags);
-    return -ENOENT;
-}
-
-struct cecore_dir_ctx {
-    struct dir_context ctx;
-    struct dir_context *orig;
-};
-
-static bool cecore_filter_actor(struct dir_context *ctx, const char *name,
-                                int namelen, loff_t offset, u64 ino,
-                                unsigned int d_type)
-{
-    struct cecore_dir_ctx *h = container_of(ctx, struct cecore_dir_ctx, ctx);
-
-    /* Skip the entry when name parses as a hidden PID. */
-    if (namelen > 0 && namelen < 12) {
-        char buf[12] = {0};
-        long pid;
-        memcpy(buf, name, namelen);
-        if (!kstrtol(buf, 10, &pid) && pid > 0 && cecore_pid_is_hidden((pid_t)pid))
-            return true; /* signal continue, skipping this entry */
-    }
-    return h->orig->actor(h->orig, name, namelen, offset, ino, d_type);
-}
-
-static int cecore_hooked_iterate_shared(struct file *file, struct dir_context *ctx)
-{
-    struct cecore_dir_ctx h = {
-        .ctx  = { .actor = cecore_filter_actor, .pos = ctx->pos },
-        .orig = ctx,
-    };
-    int rc;
-
-    if (!cecore_proc_iterate_orig)
-        return -ENOSYS;
-
-    rc = cecore_proc_iterate_orig(file, &h.ctx);
-    ctx->pos = h.ctx.pos;
-    return rc;
-}
-
-static int cecore_install_proc_hook(void)
-{
-    struct path p;
-    int rc;
-
-    if (cecore_proc_inode) return 0;  /* already installed */
-
-    rc = kern_path("/proc", LOOKUP_FOLLOW, &p);
-    if (rc) return rc;
-
-    cecore_proc_inode = d_inode(p.dentry);
-    if (!cecore_proc_inode) {
-        path_put(&p);
-        return -ENOENT;
-    }
-    /* Hold an extra ref on the dentry so the inode pointer stays valid;
-     * released in cecore_remove_proc_hook(). */
-    dget(p.dentry);
-    cecore_proc_dentry = p.dentry;
-
-    cecore_proc_fops_orig    = cecore_proc_inode->i_fop;
-    cecore_proc_fops         = *cecore_proc_fops_orig;
-    cecore_proc_iterate_orig = cecore_proc_fops.iterate_shared;
-    cecore_proc_fops.iterate_shared = cecore_hooked_iterate_shared;
-    /*
-     * Pin this module whenever the hooked /proc directory is opened: the VFS
-     * calls try_module_get(f_op->owner) on open, so an in-flight `ls /proc`
-     * keeps the module loaded and blocks rmmod while the hook can still run,
-     * closing the common use-after-free-on-unload window.
-     */
-    cecore_proc_fops.owner = THIS_MODULE;
-    cecore_proc_inode->i_fop = &cecore_proc_fops;
-
-    path_put(&p);
-    return 0;
-}
-
-static void cecore_remove_proc_hook(void)
-{
-    if (!cecore_proc_inode) return;
-    cecore_proc_inode->i_fop = cecore_proc_fops_orig;
-    /*
-     * Best-effort grace period for any iterator that already loaded the hooked
-     * i_fop pointer before we restored it. Combined with the THIS_MODULE owner
-     * pin taken at open time (see install), this closes the practical unload
-     * race for the common case.
-     * TODO(security): the i_fop pointer-swap /proc-hiding technique is
-     * fundamentally racy against concurrent openers on a shared live inode and
-     * should be replaced with a non-hijacking mechanism rather than mitigated.
-     */
-    synchronize_rcu();
-    if (cecore_proc_dentry) {
-        dput(cecore_proc_dentry);
-        cecore_proc_dentry = NULL;
-    }
-    cecore_proc_inode = NULL;
-    cecore_proc_fops_orig = NULL;
-    cecore_proc_iterate_orig = NULL;
-}
-
 static long cecore_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
     struct cecore_kmod_mem_request req;
     struct cecore_kmod_phys_request phys_req;
     struct cecore_kmod_translate_request translate_req;
-    struct cecore_kmod_hide_request hide_req;
     ssize_t result;
 
     (void)file;
@@ -405,22 +231,6 @@ static long cecore_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         if (copy_to_user((void __user *)arg, &translate_req, sizeof(translate_req)))
             return -EFAULT;
         return result;
-    }
-
-    if (cmd == CECORE_KMOD_IOC_HIDE_PID ||
-        cmd == CECORE_KMOD_IOC_UNHIDE_PID) {
-        result = cecore_check_privilege();
-        if (result)
-            return result;
-        if (copy_from_user(&hide_req, (void __user *)arg, sizeof(hide_req)))
-            return -EFAULT;
-        if (cmd == CECORE_KMOD_IOC_HIDE_PID) {
-            result = cecore_install_proc_hook();
-            if (result)
-                return result;
-            return cecore_pid_hide_add((pid_t)hide_req.pid);
-        }
-        return cecore_pid_hide_remove((pid_t)hide_req.pid);
     }
 
     if (cmd != CECORE_KMOD_IOC_READ_PROCESS_VM &&
@@ -462,7 +272,6 @@ static int __init cecore_kmod_init(void)
 
 static void __exit cecore_kmod_exit(void)
 {
-    cecore_remove_proc_hook();
     misc_deregister(&cecore_miscdev);
 }
 

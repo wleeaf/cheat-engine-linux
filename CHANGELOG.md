@@ -282,6 +282,17 @@ reimplementation of Cheat Engine).
   saved in place (shared, hard-linked or read-only directories) is no longer
   lost when the write fails, and Activate, Deactivate and differing-step
   hotkeys from CE tables keep their meaning when saved.
+- Fixed: debugger. Step Over and Step Out of a call that returns with a lower
+  stack pointer (`_chkstk`, `__SEH_prolog4` and similar helpers in 32-bit
+  Windows code under Wine, or `call $+5; pop`) let the game run on instead of
+  stopping (a regression in this release cycle).
+- Fixed: under Wine, an undeclared Auto Assembler label such as `exit:` could
+  be assembled over the Windows C runtime's function of that name; the
+  Windows runtimes (msvcrt, ucrtbase, vcruntime, msvcp, ntdll) now count as C
+  runtime too. Clearing or changing a hotkey that came from a CE Activate or
+  Deactivate key no longer brings the old key back on reload, scan folders of
+  another live Cheat Engine on a shared home are not removed, and pointer scans
+  over ceserver no longer ask the server about every memory region.
 - Fixed: scanner. A first scan with Changed, Unchanged, Increased, Decreased,
   Increased/Decreased by or Same as first ran as an Exact scan on whatever the
   value box held; it now says a first scan is needed. "Increased by -5" never

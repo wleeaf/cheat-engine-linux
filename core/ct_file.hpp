@@ -39,6 +39,8 @@ struct CheatEntry {
     std::string hotkeyStep;
     // CE <Hotkey> elements that fit none of the slots above (Activate, Deactivate,
     // a second toggle, a disabled one, ...), kept verbatim so a save writes them back.
+    // One that fills a slot above carries LinuxSlot marks; a save writes it only
+    // while the slot still holds its keys, and never writes the marks.
     std::string extraHotkeysXml;
     // CE group <Options>: whether toggling a group header cascades to its children.
     // Default on (our long-standing behavior and a sensible default when a table has

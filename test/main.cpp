@@ -7821,6 +7821,15 @@ static void test_pointer_scan_search_limits() {
     bool capOk = capped.truncated() && capped.size() == 1 &&
         cappedScanner.limitReached() == PointerScanLimit::MapEntries;
     printf("  the map entry limit stops the read and is reported: %s\n", capOk ? "OK" : "FAILED");
+    // A path limit after a cut map reports both.
+    cfg.maxResults = 0;
+    PointerScanner bothScanner;
+    bothScanner.scan(proc, cfg);
+    printf("  a cut map stays reported when the path limit also stops the search: %s\n",
+           bothScanner.limitReached() == PointerScanLimit::Results && bothScanner.mapTruncated() &&
+           bothScanner.limitHit(PointerScanLimit::Results) && !bothScanner.limitHit(PointerScanLimit::Work) &&
+           !cappedScanner.limitHit(PointerScanLimit::Results) && cappedScanner.mapTruncated() ? "OK" : "FAILED");
+    cfg.maxResults = PointerScanConfig{}.maxResults;
 
     // Two modules with one name: only the first can be named in a path.
     constexpr uintptr_t D1 = 0x400000, D2 = 0x600000;
@@ -9952,6 +9961,123 @@ static void test_autoassembler_disable_section(pid_t pid) {
         !restricted.check("[ENABLE]\nnop\n[DISABLE]\nloadlibrary(/tmp/x.so)\n").success;
     printf("  a restricted check covers the [DISABLE] section: %s\n",
            refused && restricted.check("[ENABLE]\nnop\n[DISABLE]\nnop\n").success ? "OK" : "FAILED");
+}
+
+// A PE image whose export table names one function, for a fake Wine module.
+static void writeSingleExportPe(const std::filesystem::path& path, const char* name, uint32_t rva) {
+    std::vector<uint8_t> f(0x1400, 0);
+    auto pU16 = [&](size_t o, uint16_t v) { f[o] = (uint8_t)v; f[o + 1] = (uint8_t)(v >> 8); };
+    auto pU32 = [&](size_t o, uint32_t v) { for (int i = 0; i < 4; ++i) f[o + i] = (uint8_t)(v >> (8 * i)); };
+    f[0] = 'M'; f[1] = 'Z'; pU32(0x3C, 0x80);
+    f[0x80] = 'P'; f[0x81] = 'E';
+    pU16(0x84, 0x8664); pU16(0x86, 1); pU16(0x94, 0xF0);
+    pU16(0x98, 0x20B);
+    pU32(0x104, 2);
+    pU32(0x108, 0x1000); pU32(0x10C, 0x100);
+    const char* section = ".rdata"; for (int i = 0; i < 6; ++i) f[0x188 + i] = section[i];
+    pU32(0x190, 0x1000); pU32(0x194, 0x1000); pU32(0x198, 0x1000); pU32(0x19C, 0x400);
+    pU32(0x410, 1); pU32(0x414, 1); pU32(0x418, 1);
+    pU32(0x41C, 0x1030); pU32(0x420, 0x1040); pU32(0x424, 0x1050);
+    pU32(0x430, rva); pU32(0x440, 0x1060); pU16(0x450, 0);
+    std::memcpy(f.data() + 0x460, name, std::min<size_t>(std::strlen(name), 32));
+    std::ofstream out(path, std::ios::binary);
+    out.write(reinterpret_cast<char*>(f.data()), (std::streamsize)f.size());
+}
+
+// Under Wine or Proton the C runtime is msvcrt.dll, ucrtbase.dll and friends:
+// an undeclared cave label "exit:" never lands on their export, and neither
+// does a name from a JIT runtime's perf map.
+static void test_autoassembler_windows_runtime_labels() {
+    printf("\n── Test: Auto Assembler labels never patch the Windows C runtime ──\n");
+    namespace fs = std::filesystem;
+    struct FakeWine final : ProcessHandle {
+        std::vector<uint8_t> bytes = std::vector<uint8_t>(0x10000);
+        std::vector<ModuleInfo> list;
+        pid_t pid() const override { return getpid(); }
+        bool is64bit() const override { return true; }
+        TargetDescription targetDescription() override { return ce::test::x86Target(true, false); }
+        Result<size_t> read(uintptr_t at, void* out, size_t n) override {
+            if (at > bytes.size() || n > bytes.size() - at) return std::unexpected(std::make_error_code(std::errc::bad_address));
+            std::memcpy(out, bytes.data() + at, n); return n;
+        }
+        Result<size_t> write(uintptr_t at, const void* in, size_t n) override {
+            if (at > bytes.size() || n > bytes.size() - at) return std::unexpected(std::make_error_code(std::errc::bad_address));
+            std::memcpy(bytes.data() + at, in, n); return n;
+        }
+        std::vector<MemoryRegion> queryRegions() override {
+            return {{0, bytes.size(), MemProt::All, MemType::Private, MemState::Committed, ""}};
+        }
+        std::optional<MemoryRegion> queryRegion(uintptr_t at) override {
+            return at < bytes.size() ? std::optional<MemoryRegion>(queryRegions()[0]) : std::nullopt;
+        }
+        Result<uintptr_t> allocate(size_t, MemProt, uintptr_t) override { return uintptr_t(0x8000); }
+        Result<void> free(uintptr_t, size_t) override { return {}; }
+        Result<void> protect(uintptr_t, size_t, MemProt) override { return {}; }
+        std::vector<ModuleInfo> modules() override { return list; }
+        std::vector<ThreadInfo> threads() override { return {}; }
+    };
+    const fs::path pe = fs::temp_directory_path() / ("ce-crt-" + std::to_string(getpid()) + ".dll");
+    writeSingleExportPe(pe, "exit", 0x1234);   // the export lands at 0x4000 + 0x1234
+    const uintptr_t exitAddress = 0x5234;
+    auto withModule = [&](const std::string& name) {
+        return std::vector<ModuleInfo>{{0x1000, 0x1000, "game.exe", "", true, {}}, {0x4000, 0x2000, name, pe.string(), true, {}}};
+    };
+    const std::string cave = "[ENABLE]\nalloc(ce_crt_cave,64)\nce_crt_cave:\ndd 0\nexit:\ndd 0\n";
+    const std::string site = "[ENABLE]\nexit:\ndb 90\n";
+
+    // Another DLL of the game that exports "exit" is that function.
+    FakeWine helper;
+    helper.list = withModule("helper.dll");
+    AutoAssembler control;
+    auto patched = control.execute(helper, site);
+    printf("  a game DLL's export written as \"name:\" is that function: %s\n",
+           patched.success && helper.bytes[exitAddress] == 0x90 ? "OK" : ("FAILED: " + patched.error).c_str());
+
+    bool allKept = true;
+    std::string failures;
+    for (const char* name : {"msvcrt.dll", "MSVCRT.DLL", "msvcrt", "ucrtbase.dll", "api-ms-win-crt-runtime-l1-1-0.dll",
+                             "msvcr120.dll", "msvcp140.dll", "vcruntime140_1.dll", "ntdll.dll", "msvcrt.dll.so", "ntdll.so"}) {
+        FakeWine wine;
+        wine.list = withModule(name);
+        AutoAssembler aa;
+        auto labelled = aa.execute(wine, cave);
+        const auto& info = labelled.disableInfo;
+        auto label = info.scriptSymbols.find("exit");
+        const bool inCave = labelled.success && label != info.scriptSymbols.end() && label->second > 0x8000 &&
+                            label->second < 0x8040 && wine.bytes[exitAddress] == 0;
+        auto refused = aa.execute(wine, site);
+        const bool siteRefused = !refused.success && refused.error.find("C library") != std::string::npos &&
+                                 wine.bytes[exitAddress] == 0;
+        if (!inCave || !siteRefused) {
+            allKept = false;
+            failures += std::string(" ") + name + (inCave ? "" : " (cave: " + labelled.error + ")") +
+                        (siteRefused ? "" : " (site: " + refused.error + ")");
+        }
+    }
+    printf("  \"exit:\" stays a cave label beside msvcrt, ucrtbase, msvcp, vcruntime, api-ms-win-crt and ntdll: %s%s\n",
+           allKept ? "OK" : "FAILED:", failures.c_str());
+
+    // A perf map entry of a JIT runtime is never a hook site for a label.
+    const std::string map = "/tmp/perf-" + std::to_string(getpid()) + ".map";
+    bool jitKept = false;
+    std::string jitError;
+    if (std::ofstream perf(map); perf) {
+        perf << "6000 10 ce_jit_probe\n";
+        perf.close();
+        FakeWine wine;
+        wine.list = withModule("helper.dll");
+        AutoAssembler aa;
+        auto labelled = aa.execute(wine, "[ENABLE]\nalloc(ce_jit_cave,64)\nce_jit_cave:\ndd 0\nce_jit_probe:\ndd 0\n");
+        auto label = labelled.disableInfo.scriptSymbols.find("ce_jit_probe");
+        jitKept = labelled.success && label != labelled.disableInfo.scriptSymbols.end() && label->second > 0x8000 &&
+                  label->second < 0x8040;
+        jitError = labelled.error;
+        std::error_code ec;
+        fs::remove(map, ec);
+    }
+    printf("  a JIT perf-map name stays a cave label: %s\n", jitKept ? "OK" : ("FAILED: " + jitError).c_str());
+    std::error_code ec;
+    fs::remove(pe, ec);
 }
 
 static void test_autoassembler_nop_fillmem(pid_t pid) {
@@ -14152,6 +14278,7 @@ int main(int argc, char* argv[]) {
     test_autoassembler_globalalloc_shared(targetPid);
     test_autoassembler_review_fixes();
     test_autoassembler_disable_section(targetPid);
+    test_autoassembler_windows_runtime_labels();
     test_autoassembler_try_except(targetPid);
     test_autoassembler_forward_labels(targetPid);
     test_autoassembler_module_offset();

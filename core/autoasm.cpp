@@ -1751,12 +1751,26 @@ uintptr_t AutoAssembler::processSymbol(const std::string& name) const {
 }
 
 // The C runtime and the dynamic loader: libc, ld-linux, musl, and glibc's
-// split-out parts. An undeclared "index:" or "exit:" never patches them.
+// split-out parts, and under Wine or Proton the Windows C runtimes (msvcrt,
+// ucrtbase, the api-ms-win-crt forwarders, msvcr*, msvcp*, vcruntime*) and
+// ntdll, which exports C functions too. Windows names in any case, with or
+// without ".dll", and Wine's builtin ".so" or ".dll.so" forms. An undeclared
+// "index:" or "exit:" never patches them.
 static bool isCRuntimeModule(const std::string& module) {
-    std::string stem = module.substr(0, module.find_first_of(".-"));
-    for (auto& c : stem) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    std::string name = module;
+    for (auto& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     static const std::set<std::string> runtime = {"libc", "ld", "libm", "libpthread", "libdl", "librt", "libresolv"};
-    return runtime.contains(stem);
+    if (runtime.contains(name.substr(0, name.find_first_of(".-")))) return true;
+    for (const char* suffix : {".so", ".dll"})
+        if (name.ends_with(suffix)) name.resize(name.size() - std::strlen(suffix));
+    static const std::set<std::string> windows = {"msvcrt", "msvcrtd", "ucrtbase", "ucrtbased", "crtdll", "ntdll"};
+    if (windows.contains(name) || name.starts_with("api-ms-win-crt-")) return true;
+    // Versioned runtimes: msvcr100, msvcp140, msvcp140_1, msvcp_win, vcruntime140_1.
+    for (const std::string prefix : {"msvcr", "msvcp", "vcruntime"})
+        if (name.starts_with(prefix) && name.size() > prefix.size() &&
+            (std::isdigit(static_cast<unsigned char>(name[prefix.size()])) || name[prefix.size()] == '_'))
+            return true;
+    return false;
 }
 
 AutoAssembler::HookSiteSymbol AutoAssembler::hookSiteSymbol(const std::string& name) {
@@ -1769,7 +1783,9 @@ AutoAssembler::HookSiteSymbol AutoAssembler::hookSiteSymbol(const std::string& n
     bool mainModule = false, runtimeOnly = false;
     for (const auto* found : processSymbols_->symbolsByRawName(name)) {
         const auto& symbol = *found;
-        if (!symbol.address) continue;
+        // Code a JIT runtime listed in its perf map is recompiled and moved;
+        // a label never lands on it.
+        if (!symbol.address || symbol.module == "[jit]") continue;
         if (isCRuntimeModule(symbol.module)) { runtimeOnly = true; continue; }
         const bool inMain = !main.empty() && symbol.module == main;
         if (!best || (inMain && !mainModule)) { best = symbol.address; mainModule = inMain; }

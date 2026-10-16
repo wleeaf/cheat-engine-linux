@@ -985,7 +985,89 @@ static void sessionRecovery(const char* path) {
         check(consistent.load(),"every reported stop names the thread whose registers it carries");
         check(session.continueExecution() && fixture.line()=="CE_RECURSE_DONE",
               "recursion completes after the frame-checked step-over");
+        // From the outermost frame with no breakpoint left on the call: the
+        // deeper frames' own returns reach the return site with a lower SP
+        // through a `ret`, which only the count of re-entered calls tells
+        // from a return of the stepped call itself.
+        bp=session.setSoftwareBreakpoint(callSite);
+        command='R';
+        resumed=bp>0 && ::write(fixture.input,&command,1)==1 && session.continueExecution();
+        hit=resumed && awaitState([&] { return hits.load()==3 && session.isStopped(); });
+        auto outermost=session.getStopContext();
+        check(hit && outermost.instructionPointer()==callSite && session.removeSoftwareBreakpoint(bp),
+              "recursion stops at its outermost call site again");
+        if (!hit) return;
+        session.step(StepMode::Over);
+        auto back=session.getStopContext();
+        check(steps==2 && back.instructionPointer()==returnSite && back.stackPointer()==outermost.stackPointer(),
+              "step-over from the outermost frame ends there after every deeper frame returned");
+        check(session.continueExecution() && fixture.line()=="CE_RECURSE_DONE","recursion completes again");
         session.detach();
+    }
+    {
+        // Calls that return with a lower stack pointer (MSVC's _chkstk and
+        // __SEH_prolog4 on 32-bit x86) and a call to the next instruction
+        // (call/pop) end Step Over and Step Out where they return, instead
+        // of being taken for a deeper frame while the target runs on.
+        Fixture fixture(path);
+        std::istringstream line(fixture.line()); std::string magic; pid_t pid=0;
+        line>>magic>>pid;
+        check(line && magic=="CE_TARGET" && pid==fixture.pid,"lower stack pointer fixture starts");
+        if (!line || magic!="CE_TARGET" || pid!=fixture.pid) return;
+        char command='G';
+        std::istringstream sites(::write(fixture.input,&command,1)==1 ? fixture.line() : std::string());
+        std::string tag; uintptr_t site=0,returnSite=0,helper=0,picSite=0,picNext=0;
+        sites>>tag>>std::hex>>site>>returnSite>>helper>>picSite>>picNext;
+        check(sites && tag=="CE_LOWER","lower stack pointer fixture reports its call sites");
+        if (!sites || tag!="CE_LOWER") return;
+        LinuxProcessHandle process(pid);
+        DebugSession session;
+        std::atomic<unsigned> hits{0},steps{0};
+        session.setEventCallback([&](const DebugEvent& event) {
+            if (event.type==DebugEventType::BreakpointHit) ++hits;
+            if (event.type==DebugEventType::SingleStep) ++steps;
+        });
+        bool attached=session.attach(pid,&process);
+        int bp=attached ? session.setSoftwareBreakpoint(site) : -1;
+        command='U';
+        bool resumed=bp>0 && ::write(fixture.input,&command,1)==1 && session.continueExecution();
+        bool hit=resumed && awaitState([&] { return hits.load()==1 && session.isStopped(); });
+        auto start=session.getStopContext();
+        check(attached && bp>0 && hit && start.instructionPointer()==site,"lower stack pointer call stops at its call site");
+        if (!hit) return;
+        // An x86 call pushes the return address and the helper lowers SP by
+        // 64; arm64 keeps the return address in a register and its helper
+        // returns normally.
+        const bool arm=start.hasArmRegisters();
+        const uintptr_t lowered=arm ? 0 : 64;
+        const uintptr_t pushed=arm ? 0 : start.architecture==CpuArchitecture::X86_32 ? 4 : 8;
+        session.step(StepMode::Over);
+        auto over=session.getStopContext();
+        check(steps==1 && hits==1 && over.instructionPointer()==returnSite && over.stackPointer()==start.stackPointer()-lowered,
+              "step-over ends after a call that returns with a lower stack pointer");
+        session.step(StepMode::Over);
+        check(steps==2 && session.getStopContext().instructionPointer()==picSite,"stepping reaches the call to the next instruction");
+        session.step(StepMode::Over);
+        auto popped=session.getStopContext();
+        check(steps==3 && popped.instructionPointer()==picNext && popped.stackPointer()==start.stackPointer()-pushed,
+              "step-over of a call to the next instruction stops there");
+        check(session.continueExecution() && fixture.line()=="CE_LOWER_DONE","lower stack pointer fixture finishes");
+        command='U';
+        resumed=::write(fixture.input,&command,1)==1;
+        hit=resumed && awaitState([&] { return hits.load()==2 && session.isStopped(); });
+        auto again=session.getStopContext();
+        check(hit && again.instructionPointer()==site,"lower stack pointer call stops at its call site again");
+        if (!hit) return;
+        session.step(StepMode::Into);
+        check(steps==4 && session.getStopContext().instructionPointer()==helper,
+              "step-into enters the helper that lowers the stack pointer");
+        session.step(StepMode::Out);
+        auto out=session.getStopContext();
+        check(steps==5 && out.instructionPointer()==returnSite && out.stackPointer()==again.stackPointer()-lowered,
+              "step-out of a helper that returns with a lower stack pointer ends at its return site");
+        check(session.continueExecution() && fixture.line()=="CE_LOWER_DONE","lower stack pointer fixture finishes again");
+        session.detach();
+        check(fixture.value(),"lower stack pointer fixture stays live after detach");
     }
     {
         // Job control: SIGSTOP must keep a debugged game stopped until

@@ -190,6 +190,10 @@ void PointerScanDialog::finishScan() {
         case ce::PointerScanLimit::None:
             break;
     }
+    // The map can be cut as well as the search.
+    if (jobError_.empty() && !cancelled && scanner_->mapTruncated() &&
+        scanner_->limitReached() != ce::PointerScanLimit::MapEntries)
+        status += " Memory also held more pointer-like values than the scan keeps.";
     statusLabel_->setText(status);
 }
 

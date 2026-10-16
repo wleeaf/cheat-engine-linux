@@ -43,6 +43,11 @@ extern void fixtureRecurse(unsigned depth) __attribute__((regparm(1)));
 extern void fixtureRecurse(unsigned depth);
 #endif
 extern void fixtureRecurseCall(void), fixtureRecurseReturn(void);
+/* Calls a helper that returns with the stack pointer 64 bytes lower (as
+   MSVC's _chkstk and __SEH_prolog4 do on x86; on arm64 it returns normally),
+   then a call to the next instruction (call/pop position-independent code). */
+extern void fixtureLowerCall(void), fixtureLowerSite(void), fixtureLowerReturn(void), fixtureLowerSp(void);
+extern void fixturePicSite(void), fixturePicNext(void);
 
 #if defined(__x86_64__)
 static iptr systemCallArgs(iptr nr, uptr a, uptr b, uptr c, uptr d, uptr e, uptr f) {
@@ -247,6 +252,14 @@ __attribute__((noreturn, used)) void fixtureMain(uptr* stack) {
             output(" 0x",3); number((uptr)fixtureRecurseReturn,16); output("\n",1);
         }
         if (command == 'R') { fixtureRecurse(2); output("CE_RECURSE_DONE\n",16); }
+        if (command == 'G') {
+            output("CE_LOWER 0x",11); number((uptr)fixtureLowerSite,16);
+            output(" 0x",3); number((uptr)fixtureLowerReturn,16);
+            output(" 0x",3); number((uptr)fixtureLowerSp,16);
+            output(" 0x",3); number((uptr)fixturePicSite,16);
+            output(" 0x",3); number((uptr)fixturePicNext,16); output("\n",1);
+        }
+        if (command == 'U') { fixtureLowerCall(); output("CE_LOWER_DONE\n",14); }
         if (command == 's') {
             spinning = 1;
             output("CE_SPIN 0x", 10); number((uptr)&spinning, 16); output("\n", 1);
@@ -492,6 +505,23 @@ __asm__(".pushsection .text\n.global fixtureRecurse,fixtureRecurseCall,fixtureRe
 __asm__(".pushsection .text\n.global fixtureRecurse,fixtureRecurseCall,fixtureRecurseReturn\n.p2align 2\nfixtureRecurse:\n"
         "stp x29,x30,[sp,#-16]!\ncbz w0,fixtureRecurseReturn\nsub w0,w0,#1\nfixtureRecurseCall:\nbl fixtureRecurse\n"
         "fixtureRecurseReturn:\nldp x29,x30,[sp],#16\nret\n.popsection\n");
+#endif
+
+#if defined(__x86_64__)
+__asm__(".pushsection .text\n.global fixtureLowerCall,fixtureLowerSite,fixtureLowerReturn,fixtureLowerSp,fixturePicSite,fixturePicNext\n"
+        "fixtureLowerCall:\nfixtureLowerSite:\ncall fixtureLowerSp\nfixtureLowerReturn:\nadd $64,%rsp\n"
+        "fixturePicSite:\ncall fixturePicNext\nfixturePicNext:\npop %rax\nret\n"
+        "fixtureLowerSp:\npop %r11\nsub $64,%rsp\npush %r11\nret\n.popsection\n");
+#elif defined(__i386__)
+__asm__(".pushsection .text\n.global fixtureLowerCall,fixtureLowerSite,fixtureLowerReturn,fixtureLowerSp,fixturePicSite,fixturePicNext\n"
+        "fixtureLowerCall:\nfixtureLowerSite:\ncall fixtureLowerSp\nfixtureLowerReturn:\nadd $64,%esp\n"
+        "fixturePicSite:\ncall fixturePicNext\nfixturePicNext:\npop %eax\nret\n"
+        "fixtureLowerSp:\npop %ecx\nsub $64,%esp\npush %ecx\nret\n.popsection\n");
+#elif defined(__aarch64__)
+__asm__(".pushsection .text\n.global fixtureLowerCall,fixtureLowerSite,fixtureLowerReturn,fixtureLowerSp,fixturePicSite,fixturePicNext\n"
+        ".p2align 2\nfixtureLowerCall:\nstp x29,x30,[sp,#-16]!\nfixtureLowerSite:\nbl fixtureLowerSp\nfixtureLowerReturn:\nadd sp,sp,#0\n"
+        "fixturePicSite:\nbl fixturePicNext\nfixturePicNext:\nldp x29,x30,[sp],#16\nret\n"
+        "fixtureLowerSp:\nret\n.popsection\n");
 #endif
 
 #if defined(__aarch64__)

@@ -121,7 +121,16 @@ TargetDescription RemoteProcessHandle::targetDescription() {
         description_.program=architecture ? wireMachine(*architecture) : TargetMachine{};
         is64bit_=description_.program.pointerWidth==8;
     }
+    described_=std::chrono::steady_clock::now();
+    describedOnce_=true;
     return description_;
+}
+
+TargetMachine RemoteProcessHandle::machineAt(uintptr_t) {
+    auto operation=client_->lockConnection();
+    if (describedOnce_ && description_.live && connectionValid() && std::chrono::steady_clock::now()-described_<=std::chrono::seconds(1))
+        return description_.program;
+    return targetDescription().program;
 }
 
 RemoteProcessHandle::~RemoteProcessHandle() {

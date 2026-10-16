@@ -1363,19 +1363,48 @@ void DebugSession::handleStop(pid_t tid,int status,bool holdStop) {
     }
 }
 
-bool DebugSession::runToTempBreakpoint(pid_t tid,uintptr_t expected,FrameCheck frame,uintptr_t startSp) {
+bool DebugSession::poppedReturnTo(const CpuContext& context,uintptr_t address) const {
+    if (context.architecture!=CpuArchitecture::X86_32 && context.architecture!=CpuArchitecture::X86_64) return false;
+    const size_t width=context.architecture==CpuArchitecture::X86_32 ? 4 : 8;
+    const uintptr_t sp=context.stackPointer();
+    if (sp<width) return false;
+    std::array<uint8_t,8> bytes{};
+    auto read=proc_->read(sp-width,bytes.data(),width);
+    if (!read || *read!=width) return false;
+    auto value=decodeTargetUnsigned({bytes.data(),width},proc_->machineAt(address).byteOrder);
+    return value && *value==address;
+}
+
+bool DebugSession::runToTempBreakpoint(pid_t tid,uintptr_t expected,FrameCheck frame,uintptr_t startSp,uintptr_t reentry) {
     // Step Over waits for the call to return to this frame (the stack pointer
     // is back where it started); Step Out for the caller's frame. x86 `ret`
     // pops the return address, so the caller's SP is strictly above the
     // entry SP; ARM `ret` leaves SP as it was at entry.
-    auto inFrame=[&](const CpuContext& context) {
+    auto returned=[&](const CpuContext& context,uintptr_t base) {
         const uintptr_t sp=context.stackPointer();
         switch (frame) {
             case FrameCheck::None: return true;
-            case FrameCheck::Over: return sp>=startSp;
-            case FrameCheck::Out:  return context.hasArmRegisters() ? sp>=startSp : sp>startSp;
+            case FrameCheck::Over: return sp>=base;
+            case FrameCheck::Out:  return context.hasArmRegisters() ? sp>=base : sp>base;
         }
         return true;
+    };
+    // Deeper frames that passed `reentry` and have not come back, by their
+    // SP there, innermost last. The list stays ordered, so it never grows
+    // past the recursion depth.
+    std::vector<uintptr_t> deeper;
+    // Some calls return with SP below where it started: MSVC's 32-bit
+    // __SEH_prolog4, __EH_prolog3 and _chkstk move the return address down
+    // and `ret` from there. Such a return is told from a deeper frame
+    // branching to the same address by the address `ret` left just below SP,
+    // and from a deeper frame's own return by no deeper frame being open.
+    // ARM returns through a register and keeps SP, so a lower SP there is
+    // always a deeper frame.
+    auto ours=[&](const CpuContext& context) {
+        if (returned(context,startSp)) return true;
+        bool popped=false;
+        while (!deeper.empty() && returned(context,deeper.back())) { deeper.pop_back(); popped=true; }
+        return !popped && deeper.empty() && poppedReturnTo(context,expected);
     };
     bool listen=false;
     for (;;) {
@@ -1415,9 +1444,19 @@ bool DebugSession::runToTempBreakpoint(pid_t tid,uintptr_t expected,FrameCheck f
             uintptr_t address=os::nativeSoftwareBreakpointAddress(*context);
             if (address==expected) {
                 if (!rewindSoftwareStop(tid,address)) return false;
-                if (inFrame(*context)) return true;
+                if (ours(*context)) return true;
                 // A deeper, recursive frame reached the address first. Step
                 // it over the temporary trap and keep running.
+                if (!stepThreadOverBp(tid) || !attached_) return false;
+                continue;
+            }
+            if (reentry && address==reentry) {
+                if (!rewindSoftwareStop(tid,address)) return false;
+                const uintptr_t sp=context->stackPointer();
+                // Frames at or above this SP have ended; below the stepping
+                // frame's SP it is a deeper one.
+                while (!deeper.empty() && deeper.back()<=sp) deeper.pop_back();
+                if (sp<startSp) deeper.push_back(sp);
                 if (!stepThreadOverBp(tid) || !attached_) return false;
                 continue;
             }
@@ -1469,16 +1508,19 @@ void DebugSession::doStep(StepMode mode,uintptr_t targetAddress) {
         return atBreakpoint ? stepThreadOverBp(tid) : singleStepThread(tid);
     };
     const uintptr_t startSp=registers->stackPointer();
+    const bool x86=registers->architecture==CpuArchitecture::X86_32 || registers->architecture==CpuArchitecture::X86_64;
     auto runTo=[&](uintptr_t address,FrameCheck frame) {
         uint64_t generation=imageGeneration_;
-        auto existing=softBreakpoints_.find(address);
-        bool created=existing==softBreakpoints_.end();
-        int id=created ? static_cast<int>(doSetSoftBp(address)) : existing->second.id;
+        const bool created=!softBreakpoints_.contains(address);
+        // An existing record is reused only while its trap is in place.
+        int id=static_cast<int>(doSetSoftBp(address));
         if (id<0) return false;
         // Step off this instruction with only its own trap lifted, for that
         // one instruction. A user breakpoint here then still fires if the
-        // run comes back to it (a recursive call).
-        const bool stepOff=pendingHardwareSteps_.at(tid) || atBreakpoint;
+        // run comes back to it (a recursive call). A frame-checked run on x86
+        // always steps off first, so it can trap this instruction again.
+        const bool counted=x86 && frame!=FrameCheck::None;
+        const bool stepOff=counted || pendingHardwareSteps_.at(tid) || atBreakpoint;
         bool completed=true, arrived=false;
         if (stepOff) {
             completed=stepOne();
@@ -1486,12 +1528,23 @@ void DebugSession::doStep(StepMode mode,uintptr_t targetAddress) {
                 auto now=os::readNativeContext(tid);
                 if (!now) { setError(now.error()); completed=false; }
                 // That one instruction already reached the target (a call to
-                // the next instruction, or a cursor right after it).
+                // the next instruction, a return, or a cursor right after it).
                 else arrived=now->instructionPointer()==address;
             }
         }
+        // On x86 a deeper frame passing this instruction again is counted
+        // (see runToTempBreakpoint). A user breakpoint here reports it instead.
+        int reentryId=-1;
+        if (completed && !arrived && counted && pc!=address &&
+            imageGeneration_==generation && attached_ && !softBreakpoints_.contains(pc)) {
+            reentryId=static_cast<int>(doSetSoftBp(pc));
+            // Without it the step still ends, perhaps in a deeper frame; a
+            // trap left half written must not run.
+            if (reentryId<0 && recoveryPending_) completed=false;
+        }
         if (completed && !arrived && imageGeneration_==generation && attached_)
-            completed=runToTempBreakpoint(tid,address,frame,startSp);
+            completed=runToTempBreakpoint(tid,address,frame,startSp,reentryId>=0 ? pc : 0);
+        if (imageGeneration_==generation && !traced_.empty() && reentryId>=0 && !doRemoveSoftBp(reentryId)) completed=false;
         if (imageGeneration_==generation && !traced_.empty() && created && !doRemoveSoftBp(id)) completed=false;
         return completed;
     };

@@ -165,9 +165,15 @@ private:
     // there; returns false in that case and on tracee exit, true on success.
     // A frame check accepts the trap only in the starting frame or an outer
     // one, so a recursive call reaching the same address does not end it.
+    // `reentry`, when set, holds a second temporary trap at the stepped call
+    // (or the entry of the function stepped out of): deeper frames passing it
+    // are counted, so a call that returns with a lower stack pointer is told
+    // apart from a deeper frame on x86.
     enum class FrameCheck { None, Over, Out };
     bool runToTempBreakpoint(pid_t tid, uintptr_t expected, FrameCheck frame = FrameCheck::None,
-                             uintptr_t startSp = 0);
+                             uintptr_t startSp = 0, uintptr_t reentry = 0);
+    // True when an x86 `ret` (or a pop) just took `address` off the stack.
+    bool poppedReturnTo(const CpuContext& context, uintptr_t address) const;
     // ── All-stop multi-thread helpers (tracer thread only) ──
     // Seize every thread of the target with PTRACE_O_TRACECLONE and leave them
     // stopped. Populates traced_/stoppedTids_. Returns false if none seized.

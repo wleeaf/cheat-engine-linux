@@ -1478,6 +1478,8 @@ static int cmd_pointerscan(pid_t pid, uintptr_t target, int depth, int maxOffset
         case ce::PointerScanLimit::None:
             break;
     }
+    if (scanner.mapTruncated() && scanner.limitReached() != ce::PointerScanLimit::MapEntries)
+        printf("  (memory also held more pointer-like values than the scan keeps)\n\n");
 
     const auto modules = proc.modules();   // one maps parse for every row
     for (size_t i = 0; i < std::min(results.size(), size_t(50)); ++i) {

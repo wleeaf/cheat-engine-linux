@@ -227,6 +227,11 @@ PointerMap buildPointerMap(ProcessHandle& proc, const PointerScanConfig& config,
     if ((programWidth != 4 && programWidth != 8) || programWidth > sizeof(uintptr_t) ||
         programOrder == ByteOrder::Unknown)
         throw std::runtime_error("Pointer scanning requires a known target pointer width and byte order");
+    // Only a Wine or mixed-code target has modules of another machine; any
+    // other reports the program's machine everywhere, and asking per region
+    // costs a server round trip each on a ceserver target.
+    const auto description = proc.targetDescription();
+    const bool machinePerRegion = description.mixedCode || description.runtime == TargetRuntime::Wine;
 
     const ReadableSpans readable(regions);
     // Untouched pages of anonymous memory read as zero, and zero is no pointer
@@ -247,8 +252,8 @@ PointerMap buildPointerMap(ProcessHandle& proc, const PointerScanConfig& config,
         if (!(region.protection & MemProt::Read) || region.size == 0) continue;
         // The width and byte order dereference() uses at this address: on WoW64
         // a 64-bit module keeps 8-byte pointers inside a 32-bit program.
-        const size_t ptrSize = proc.pointerWidth(region.base);
-        const ByteOrder order = proc.byteOrder(region.base);
+        const size_t ptrSize = machinePerRegion ? proc.pointerWidth(region.base) : programWidth;
+        const ByteOrder order = machinePerRegion ? proc.byteOrder(region.base) : programOrder;
         if ((ptrSize != 4 && ptrSize != 8) || ptrSize > sizeof(uintptr_t) || order == ByteOrder::Unknown)
             continue;   // dereference() cannot read a pointer here either
         const size_t ptrStep = config.alignedOnly ? ptrSize : 1;
@@ -355,7 +360,7 @@ std::vector<PointerPath> PointerScanner::scan(ProcessHandle& proc, const Pointer
     // before its worker thread reaches this point, and clearing it would run
     // the whole scan while the window waits to join the worker.
     progress_.store(0);
-    limit_.store(static_cast<int>(PointerScanLimit::None));
+    limit_.store(0);
     if (config.shardCount == 0 || config.shardIndex >= config.shardCount ||
         config.maxDepth <= 0 || config.maxOffset < 0)
         return {};
@@ -367,12 +372,12 @@ std::vector<PointerPath> PointerScanner::scan(ProcessHandle& proc, const Pointer
 
 std::vector<PointerPath> PointerScanner::scanWithMap(const PointerMap& map,
                                                      const PointerScanConfig& config) {
-    limit_.store(static_cast<int>(PointerScanLimit::None));
+    limit_.store(0);
     if (config.shardCount == 0 || config.shardIndex >= config.shardCount ||
         config.maxDepth <= 0 || config.maxOffset < 0)
         return {};
 
-    if (map.truncated()) limit_.store(static_cast<int>(PointerScanLimit::MapEntries));
+    if (map.truncated()) reachLimit(PointerScanLimit::MapEntries);
     const std::vector<PointerMap::Entry>& entries = map.entriesByTarget();
     const std::vector<ModuleInfo>& modules = map.modules();
 
@@ -467,7 +472,7 @@ std::vector<PointerPath> PointerScanner::scanWithMap(const PointerMap& map,
         }
         // Full: this path is one too many, so the result is cut short.
         if (results.size() >= config.maxResults) {
-            limit_.store(static_cast<int>(PointerScanLimit::Results));
+            reachLimit(PointerScanLimit::Results);
             return false;
         }
         path.offsets.reserve(chain.size() + 1);
@@ -495,7 +500,7 @@ std::vector<PointerPath> PointerScanner::scanWithMap(const PointerMap& map,
                 continue;
             }
             if (visits >= config.maxVisits) {
-                limit_.store(static_cast<int>(PointerScanLimit::Work));
+                reachLimit(PointerScanLimit::Work);
                 stop = true;
                 break;
             }

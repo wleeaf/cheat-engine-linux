@@ -292,8 +292,15 @@ struct ParsedHotkey {
     std::string value;   // set-value target, or the increase/decrease step
     int action = 0;      // CE mrh* action code
     bool usable = false; // has keys and is not Active="0"
+    // The loader marks a kept element that fills a record slot (LinuxSlot="1"),
+    // and for increase and decrease records the record's step at load
+    // (LinuxSlotStep). The marks live only in memory and the JSON forms; a
+    // .CT never carries them.
+    bool slotBound = false;
+    std::string slotStep;
 };
 static std::vector<ParsedHotkey> parseHotkeyBlocks(const std::string& xml);
+static std::string withoutSlotMarks(std::string block);
 
 // The record slot a hotkey action binds: 0 toggle (Toggle Activation, its
 // increase/decrease variants, Activate, Deactivate), 1 set value, 2 increase,
@@ -844,11 +851,30 @@ bool writeTableXml(const CheatTable& table,std::ostream& f) {
         // <Value> (set-value target, or the step for increase/decrease).
         struct HkOut { int action; const std::string* keys; const std::string* value; };
         const std::string empty;
-        const bool extraHotkeys = !e.extraHotkeysXml.empty() && isElementSequence(e.extraHotkeysXml, "Hotkey");
         // A slot the loader filled from a kept hotkey (an Activate key in the
         // toggle slot, a decrease key with its own step) is written by that
-        // hotkey's original element, not again as the slot's own action.
-        const auto kept = extraHotkeys ? parseHotkeyBlocks(e.extraHotkeysXml) : std::vector<ParsedHotkey>{};
+        // hotkey's original element, not again as the slot's own action, while
+        // the slot still holds the keys (and value or step) it was loaded with.
+        // Once the slot is cleared or changed the element is dropped, so the
+        // old key does not come back on the next load. Other kept hotkeys are
+        // always written.
+        auto kept = !e.extraHotkeysXml.empty() && isElementSequence(e.extraHotkeysXml, "Hotkey")
+                        ? parseHotkeyBlocks(e.extraHotkeysXml) : std::vector<ParsedHotkey>{};
+        auto slotHolds = [&](const ParsedHotkey& h) {
+            switch (hotkeySlot(h.action)) {
+                case 0: return h.keys == e.hotkeyKeys;
+                case 1: return h.keys == e.setValueHotkeyKeys && h.value == e.setValueHotkeyValue;
+                case 2: return h.keys == e.increaseHotkeyKeys && h.slotStep == e.hotkeyStep;
+                default: return h.keys == e.decreaseHotkeyKeys && h.slotStep == e.hotkeyStep;
+            }
+        };
+        std::erase_if(kept, [&](const ParsedHotkey& h) { return h.slotBound && !(h.usable && slotHolds(h)); });
+        std::string keptXml;
+        for (const auto& h : kept) {
+            if (!keptXml.empty()) keptXml += "\n        ";
+            keptXml += h.slotBound ? withoutSlotMarks(h.block) : h.block;
+        }
+        const bool extraHotkeys = !keptXml.empty();
         auto keptBinds = [&](int action, const std::string& keys) {
             return std::any_of(kept.begin(), kept.end(), [&](const ParsedHotkey& h) {
                 return h.usable && hotkeySlot(h.action) == hotkeySlot(action) && h.keys == keys;
@@ -867,7 +893,7 @@ bool writeTableXml(const CheatTable& table,std::ostream& f) {
             // Hotkey IDs are unique in a record: number ours after the kept ones.
             int hkId = 0;
             if (extraHotkeys)
-                for (const auto& block : getTagBlocks(e.extraHotkeysXml, "ID")) {
+                for (const auto& block : getTagBlocks(keptXml, "ID")) {
                     const std::string text = getTag(block, "ID");
                     int id = -1;
                     std::from_chars(text.data(), text.data() + text.size(), id);
@@ -886,7 +912,7 @@ bool writeTableXml(const CheatTable& table,std::ostream& f) {
                 f << "        </Hotkey>\n";
             }
             if (extraHotkeys)
-                f << "        " << e.extraHotkeysXml << "\n";
+                f << "        " << keptXml << "\n";
             f << "      </Hotkeys>\n";
         }
     };
@@ -1043,9 +1069,32 @@ static std::vector<ParsedHotkey> parseHotkeyBlocks(const std::string& xml) {
         h.keys = vksToKeyString(vks);
         h.value = xmlUnescape(getTag(hk, "Value"));
         h.usable = !h.keys.empty() && attributeValue(attributes, "Active") != "0";
+        h.slotBound = attributeValue(attributes, "LinuxSlot") == "1";
+        h.slotStep = xmlUnescape(attributeValue(attributes, "LinuxSlotStep"));
         parsed.push_back(std::move(h));
     }
     return parsed;
+}
+
+// A kept <Hotkey> element without the loader's LinuxSlot and LinuxSlotStep
+// attributes: for writing a .CT, and before the loader marks an element read
+// from an untrusted file.
+static std::string withoutSlotMarks(std::string block) {
+    for (const std::string name : {"LinuxSlotStep", "LinuxSlot"}) {
+        for (size_t at = block.find(name); at != std::string::npos && at < block.find('>'); at = block.find(name, at)) {
+            size_t p = at + name.size();
+            if (!std::isspace(static_cast<unsigned char>(block[at - 1])) || p >= block.size() || block[p] != '=' ||
+                p + 1 >= block.size() || (block[p + 1] != '"' && block[p + 1] != '\'')) {
+                ++at;
+                continue;
+            }
+            const size_t close = block.find(block[p + 1], p + 2);
+            if (close == std::string::npos) break;
+            block.erase(at - 1, close + 1 - (at - 1));
+            at -= 1;
+        }
+    }
+    return block;
 }
 
 // Record elements the loader reads; anything else is kept verbatim in extraXml.
@@ -1324,10 +1373,19 @@ static void parseCheatEntriesBlock(const std::string& xml, size_t begin, size_t 
                 });
                 if (otherAction || otherStep || shared) keep[index] = true;
             }
+            // A kept element that fills a slot is marked, so the save can tell
+            // whether the slot still holds what was loaded.
             for (size_t index = 0; index < parsed.size(); ++index) {
                 if (!keep[index] || !isElementSequence(parsed[index].block, "Hotkey")) continue;
+                std::string block = withoutSlotMarks(parsed[index].block);
+                const int slot = hotkeySlot(parsed[index].action);
+                if (boundBy[slot] == static_cast<int>(index) && block.starts_with("<Hotkey")) {
+                    std::string mark = " LinuxSlot=\"1\"";
+                    if (slot >= 2) mark += " LinuxSlotStep=\"" + xmlEscape(e.hotkeyStep) + "\"";
+                    block.insert(7, mark);
+                }
                 if (!e.extraHotkeysXml.empty()) e.extraHotkeysXml += "\n        ";
-                e.extraHotkeysXml += parsed[index].block;
+                e.extraHotkeysXml += block;
             }
         } else {
             e.hotkeyKeys = xmlUnescape(hkXml);

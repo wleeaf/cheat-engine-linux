@@ -173,8 +173,11 @@ public:
     /// A scan's final result owns its scan directory (the results and every
     /// worker shard under it) and deletes it when destroyed, so discarded scans
     /// do not pile up in the temporary directory. A result opened from an
-    /// existing directory owns nothing.
-    void adoptDirectory(const std::filesystem::path& root) { ownedRoot_ = root; }
+    /// existing directory owns nothing. The result also holds a shared flock on
+    /// the directory's .lock file while it lives, so the stale-directory
+    /// cleanup of another instance (another host on a shared home) leaves a
+    /// scan alone however long it stays open.
+    void adoptDirectory(const std::filesystem::path& root);
     /// Leave the files on disk after this object is gone (the CLI prints the
     /// directory for a later --previous scan). Kept directories are marked so
     /// the stale-directory cleanup gives them a week instead of removing them
@@ -214,6 +217,7 @@ public:
 private:
     std::filesystem::path dir_;
     std::filesystem::path ownedRoot_;
+    int lockFd_ = -1;   // the owned directory's .lock, held with LOCK_SH
     size_t count_ = 0;
     size_t valueSize_ = 0;
     bool hasDataFormat_ = false;

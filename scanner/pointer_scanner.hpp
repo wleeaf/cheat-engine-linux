@@ -158,13 +158,26 @@ public:
 
     /// The last scan stopped at a limit (see limitReached()), so paths may be
     /// missing.
-    bool truncated() const { return limitReached() != PointerScanLimit::None; }
-    PointerScanLimit limitReached() const { return static_cast<PointerScanLimit>(limit_.load()); }
+    bool truncated() const { return limit_.load() != 0; }
+    /// Whether the last scan hit this limit. A scan can hit two: the map
+    /// entry limit while reading memory, then a path or work limit.
+    bool limitHit(PointerScanLimit limit) const { return (limit_.load() & limitBit(limit)) != 0; }
+    /// The limit that stopped the search (Results or Work), else MapEntries
+    /// when only the map was cut, else None. mapTruncated() tells whether the
+    /// map was also cut when a search limit is returned.
+    PointerScanLimit limitReached() const {
+        for (auto limit : {PointerScanLimit::Results, PointerScanLimit::Work, PointerScanLimit::MapEntries})
+            if (limitHit(limit)) return limit;
+        return PointerScanLimit::None;
+    }
+    bool mapTruncated() const { return limitHit(PointerScanLimit::MapEntries); }
 
 private:
+    static int limitBit(PointerScanLimit limit) { return limit == PointerScanLimit::None ? 0 : 1 << static_cast<int>(limit); }
+    void reachLimit(PointerScanLimit limit) { limit_.fetch_or(limitBit(limit)); }
     std::atomic<float> progress_{0};
     std::atomic<bool> cancelled_{false};
-    std::atomic<int> limit_{0};
+    std::atomic<int> limit_{0};   // limitBit() of each limit hit
 };
 
 // ── Result-set persistence and post-processing ──

@@ -248,8 +248,33 @@ int main() {
         // A key changed after loading is written as the slot's own action.
         CheatTable edited=t;edited.entries[0].hotkeyKeys="F2";
         const auto editedDisk=hotkeys(saveAndRead(edited,"edited.CT"),0);
-        check(has(editedDisk,"<Action>Toggle Activation</Action>") && has(editedDisk,"<Key>113</Key>"),
-            "a borrowed hotkey changed after loading is saved as the slot's own");
+        check(has(editedDisk,"<Action>Toggle Activation</Action>") && has(editedDisk,"<Key>113</Key>") &&
+            !has(editedDisk,"<Action>Activate</Action>") && !has(editedDisk,"<Key>117</Key>") &&
+            has(editedDisk,"<Action>Deactivate</Action>") && count(editedDisk,"<Hotkey>")==2,
+            "a borrowed hotkey changed after loading is saved as the slot's own, without the old key");
+        // A cleared slot drops the element it borrowed; other kept hotkeys stay.
+        CheatTable cleared=t;cleared.entries[0].hotkeyKeys.clear();
+        const auto clearedDisk=saveAndRead(cleared,"cleared.CT");
+        CheatTable clearedBack;clearedBack.loadFromString(clearedDisk);
+        const auto clearedFirst=hotkeys(clearedDisk,0);
+        check(!has(clearedFirst,"<Action>Activate</Action>") && !has(clearedFirst,"<Key>117</Key>") &&
+            has(clearedFirst,"<Action>Deactivate</Action>") && count(clearedFirst,"<Hotkey>")==1 &&
+            clearedBack.entries.size()==3 && clearedBack.entries[0].hotkeyKeys=="F7",
+            "a cleared slot drops the hotkey it borrowed, so the old key does not come back");
+        // A changed step drops a decrease hotkey kept for its own step.
+        CheatTable stepped=t;stepped.entries[2].hotkeyStep="3";
+        const auto steppedThird=hotkeys(saveAndRead(stepped,"stepped.CT"),2);
+        check(has(steppedThird,"<Action>Decrease Value</Action>") && has(steppedThird,"<Key>119</Key>") &&
+            count(steppedThird,"<Value>3</Value>")==2 && !has(steppedThird,"<Value>5</Value>") && count(steppedThird,"<Hotkey>")==2,
+            "a changed step writes the decrease hotkey with the new step only");
+        // The marks survive the JSON form and never reach a .CT.
+        CheatTable viaJson;
+        const bool jsonOk=t.saveJson((directory/"borrowed.json").string()) && viaJson.loadJson((directory/"borrowed.json").string());
+        viaJson.entries[0].hotkeyKeys.clear();
+        const auto viaJsonDisk=jsonOk ? saveAndRead(viaJson,"borrowed-json.CT") : std::string();
+        check(jsonOk && !has(hotkeys(viaJsonDisk,0),"<Action>Activate</Action>") && !has(viaJsonDisk,"LinuxSlot") &&
+            !has(disk,"LinuxSlot") && !has(clearedDisk,"LinuxSlot"),
+            "a slot cleared after a JSON round trip drops its borrowed hotkey, and no .CT carries the marks");
     }
     {
         // Saving keeps what an ordinary save keeps: a read-only table stays

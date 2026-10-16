@@ -1113,6 +1113,8 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
                 case PointerScanLimit::None:
                     break;
             }
+            if (scanner.mapTruncated() && scanner.limitReached() != PointerScanLimit::MapEntries)
+                out.set("map_truncated", Value::string("memory also held more pointer-like values than the scan keeps"));
             out.set("next", Value::string(s.paths.empty()
                 ? "No path found. Try a larger max_depth or max_offset."
                 : "Ask the user to make the value move (restart the level, or whatever reallocates it), find it again, "

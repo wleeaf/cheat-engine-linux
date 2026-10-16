@@ -22,6 +22,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/file.h>
 #include <signal.h>
 #include <chrono>
 #include <iconv.h>
@@ -1755,12 +1756,14 @@ ScanResult::~ScanResult() {
         std::error_code ignored;
         std::filesystem::remove_all(ownedRoot_, ignored);
     }
+    if (lockFd_ >= 0) close(lockFd_);
 }
 
 void ScanResult::swap(ScanResult& other) noexcept {
     using std::swap;
     swap(dir_, other.dir_);
     swap(ownedRoot_, other.ownedRoot_);
+    swap(lockFd_, other.lockFd_);
     swap(count_, other.count_);
     swap(valueSize_, other.valueSize_);
     swap(hasDataFormat_,other.hasDataFormat_);swap(byteOrder_,other.byteOrder_);swap(pointerWidth_,other.pointerWidth_);
@@ -2507,12 +2510,52 @@ static const std::string& scanHostTag() {
     return tag;
 }
 
+// The newest modification time of a scan directory or anything in it,
+// without following links. A scan writes its shards and results inside, which
+// does not change the directory's own time. Past kMaxEntries entries the
+// directory counts as in use (nullopt): no scan writes that many files.
+static std::optional<std::filesystem::file_time_type> newestScanWrite(const std::filesystem::path& dir) {
+    namespace fs = std::filesystem;
+    constexpr size_t kMaxEntries = 16384;
+    std::error_code ec;
+    auto newest = fs::symlink_status(dir, ec).type() == fs::file_type::directory ? fs::last_write_time(dir, ec)
+                                                                               : fs::file_time_type::min();
+    if (ec) return std::nullopt;
+    size_t seen = 0;
+    for (fs::recursive_directory_iterator it(dir, fs::directory_options::none, ec), end; !ec && it != end;
+         it.increment(ec)) {
+        if (++seen > kMaxEntries) return std::nullopt;
+        std::error_code ignored;
+        if (it->is_symlink(ignored)) {
+            it.disable_recursion_pending();
+            continue;
+        }
+        const auto written = fs::last_write_time(it->path(), ignored);
+        if (!ignored && written > newest) newest = written;
+    }
+    if (ec) return std::nullopt;
+    return newest;
+}
+
+// Whether a live ScanResult (of any instance, on any host that shares the
+// directory) holds the directory's .lock. Over NFS Linux maps flock to a
+// byte-range lock the server arbitrates; with local_lock=flock, or no lock
+// manager, the lock is local only and the modification time rule decides.
+static bool scanDirectoryLocked(const std::filesystem::path& dir) {
+    const int fd = ::open((dir / ".lock").c_str(), O_RDWR | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+    if (fd < 0) return false;
+    const bool held = ::flock(fd, LOCK_EX | LOCK_NB) != 0 && errno == EWOULDBLOCK;
+    ::close(fd);
+    return held;
+}
+
 // Scan directories are named ce-scan-<host>-<pid>-XXXXXX. Remove this host's
 // whose process is gone (a crash or kill skipped their cleanup), and kept ones
 // (see ScanResult::keepFiles) once they are a week old. Another host's pids
-// cannot be checked from here, so its directories are removed once a week
-// old; that also clears this machine's own from before a hostname change, and
-// the ce-scan-<pid>-XXXXXX directories of earlier versions, which name no host.
+// cannot be checked from here, so its directories are removed once nothing in
+// them has changed for a week and no live scan holds their .lock; that also
+// clears this machine's own from before a hostname change, and the
+// ce-scan-<pid>-XXXXXX directories of earlier versions, which name no host.
 void pruneStaleScanDirectories(const std::filesystem::path& root) {
     namespace fs = std::filesystem;
     std::error_code ec;
@@ -2534,7 +2577,7 @@ void pruneStaleScanDirectories(const std::filesystem::path& root) {
         std::error_code ignored;
         if (fs::exists(it->path() / ".kept", ignored)) {
             const auto written = fs::last_write_time(it->path() / ".kept", ignored);
-            if (!ignored && written < weekAgo) fs::remove_all(it->path(), ignored);
+            if (!ignored && written < weekAgo && !scanDirectoryLocked(it->path())) fs::remove_all(it->path(), ignored);
             continue;
         }
         if (name.starts_with(ours)) {
@@ -2542,8 +2585,8 @@ void pruneStaleScanDirectories(const std::filesystem::path& root) {
             if (pid > 0 && ::kill(static_cast<pid_t>(pid), 0) != 0 && errno == ESRCH) fs::remove_all(it->path(), ignored);
             continue;
         }
-        const auto written = fs::last_write_time(it->path(), ignored);
-        if (!ignored && written < weekAgo) fs::remove_all(it->path(), ignored);
+        const auto written = newestScanWrite(it->path());
+        if (written && *written < weekAgo && !scanDirectoryLocked(it->path())) fs::remove_all(it->path(), ignored);
     }
 }
 
@@ -2583,7 +2626,22 @@ static std::filesystem::path makeScanDir() {
         (scanRoot() / ("ce-scan-" + scanHostTag() + "-" + std::to_string(::getpid()) + "-XXXXXX")).string();
     if (!mkdtemp(pattern.data()))
         throw std::system_error(errno, std::generic_category(), "create scan directory");
-    return pattern;
+    // The lock file the owning ScanResult holds (see adoptDirectory).
+    const std::filesystem::path dir = pattern;
+    if (const int fd = ::open((dir / ".lock").c_str(), O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0600); fd >= 0)
+        ::close(fd);
+    return dir;
+}
+
+void ScanResult::adoptDirectory(const std::filesystem::path& root) {
+    ownedRoot_ = root;
+    if (lockFd_ >= 0) { close(lockFd_); lockFd_ = -1; }
+    if (root.empty()) return;
+    lockFd_ = ::open((root / ".lock").c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (lockFd_ >= 0 && ::flock(lockFd_, LOCK_SH | LOCK_NB) != 0) {
+        close(lockFd_);
+        lockFd_ = -1;
+    }
 }
 
 void ScanResult::keepFiles() {

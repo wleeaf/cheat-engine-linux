@@ -33,6 +33,8 @@ extern "C" {
 #include <sys/prctl.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <sys/file.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <unistd.h>
 #include <elf.h>
@@ -643,6 +645,34 @@ void scannerTests(const fs::path& root) {
               "stale scan directories are pruned by pid only for this host");
         check(!aged && !fs::exists(renamed) && !fs::exists(oldStyleStale) && fs::exists(renamedKept),
               "another host's scan directories are pruned a week old unless kept");
+        // A file written inside keeps another host's directory, and so does a
+        // live scan's lock however old everything in it is.
+        const auto busy = pruneRoot / ("ce-scan-busy.example-" + std::to_string(gone) + "-stuvwx");
+        const auto held = pruneRoot / ("ce-scan-held.example-" + std::to_string(gone) + "-yzabcd");
+        const auto owned = pruneRoot / ("ce-scan-owned.example-" + std::to_string(gone) + "-efghij");
+        for (const auto& dir : {busy, held, owned}) fs::create_directories(dir / "results");
+        { std::ofstream recent(busy / "results" / "values.bin"); recent << "x"; }
+        { std::ofstream lockFile(held / ".lock"); }
+        ScanResult holder;
+        holder.adoptDirectory(owned);
+        const int lockFd = ::open((held / ".lock").c_str(), O_RDWR | O_CLOEXEC);
+        const bool locked = lockFd >= 0 && ::flock(lockFd, LOCK_SH | LOCK_NB) == 0;
+        auto age = [&](const fs::path& dir) {
+            for (fs::recursive_directory_iterator it(dir, aged), end; !aged && it != end; it.increment(aged))
+                fs::last_write_time(it->path(), eightDaysAgo, aged);
+            fs::last_write_time(dir / "results", eightDaysAgo, aged);
+            fs::last_write_time(dir, eightDaysAgo, aged);
+        };
+        age(held);
+        age(owned);
+        fs::last_write_time(busy / "results", eightDaysAgo, aged);
+        fs::last_write_time(busy, eightDaysAgo, aged);
+        pruneStaleScanDirectories(pruneRoot);
+        check(!aged && locked && fs::exists(busy) && fs::exists(held) && fs::exists(owned),
+              "another host's scan directory stays while a file in it is recent or a live scan holds its lock");
+        if (lockFd >= 0) ::close(lockFd);
+        pruneStaleScanDirectories(pruneRoot);
+        check(!fs::exists(held) && fs::exists(owned), "a released lock lets the week-old directory go");
         std::error_code ignored;
         fs::remove_all(pruneRoot, ignored);
     }

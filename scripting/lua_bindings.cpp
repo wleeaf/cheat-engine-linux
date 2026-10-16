@@ -1,5 +1,6 @@
 #include "core/target_capabilities.hpp"
 #include "core/local_target.hpp"
+#include "core/module_files.hpp"
 #include "arch/target_arch.hpp"
 /// Extended Lua API bindings — CE-compatible function set.
 #include <charconv>
@@ -3651,6 +3652,7 @@ static std::vector<std::string> mappedFilePaths(ce::ProcessHandle& p) {
 static int l_getIl2CppMetadataPath(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process"); return 2; }
+    if (!ce::moduleFilesAreLocal(*p)) { lua_pushnil(L); lua_pushstring(L, ce::kRemoteModuleFilesError); return 2; }
     auto found = ce::findIl2CppMetadataPath(mappedFilePaths(*p));
     if (!found) {
         lua_pushnil(L);
@@ -3700,6 +3702,7 @@ static int l_getIl2CppClasses(lua_State* L) {
     } else {
         auto* p = getProc(L);
         if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process and no path given"); return 2; }
+        if (!ce::moduleFilesAreLocal(*p)) { lua_pushnil(L); lua_pushstring(L, ce::kRemoteModuleFilesError); return 2; }
         auto found = ce::findIl2CppMetadataPath(mappedFilePaths(*p));
         if (!found) {
             lua_pushnil(L);
@@ -4074,6 +4077,7 @@ static std::string luaIl2CppMethodContext(lua_State* L, const std::string& metaP
     }
     auto* p = getProc(L);
     if (!p) return "no target process and no metadata path";
+    if (!ce::moduleFilesAreLocal(*p)) return ce::kRemoteModuleFilesError;
     auto paths = mappedFilePaths(*p);
     auto mp = ce::findIl2CppMetadataPath(paths);
     if (!mp) return "global-metadata.dat not found for this process";
@@ -4452,6 +4456,8 @@ static std::string resolvePEModuleArg(lua_State* L, const std::string& arg,
     if (!arg.empty() && std::filesystem::is_regular_file(arg, ec)) { path = arg; base = 0; return {}; }
     auto* p = getProc(L);
     if (!p) return "no target process; pass a PE file path";
+    // A remote module's path names a file on the remote system.
+    if (!ce::moduleFilesAreLocal(*p)) return ce::kRemoteModuleFilesError;
     auto modules = p->modules();
     const ce::ModuleInfo* mod = nullptr;
     if (arg.empty()) { if (!modules.empty()) mod = &modules.front(); }

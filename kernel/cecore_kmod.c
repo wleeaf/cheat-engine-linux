@@ -1,261 +1,196 @@
+/*
+ * Optional cecore kernel helper: read-only access to physical System RAM.
+ *
+ * The module does one thing user space cannot do on a kernel built with
+ * CONFIG_STRICT_DEVMEM: read a physical RAM frame. Everything else goes
+ * through interfaces that apply the kernel's own access checks:
+ *
+ * - Process memory: /proc/<pid>/mem. A module cannot call ptrace_may_access()
+ *   (it is not exported), so a module that read or wrote another process
+ *   would skip Yama ptrace_scope and every LSM. The process ioctls are retired
+ *   and return -EOPNOTSUPP.
+ * - Virtual to physical translation: /proc/<pid>/pagemap, which needs ptrace
+ *   read access and CAP_SYS_ADMIN for frame numbers. TRANSLATE_VA is retired.
+ * - Physical writes are refused. A frame number from pagemap is a snapshot:
+ *   the page can be freed, migrated, merged by KSM or shared (the zero page,
+ *   a page cache page of a library), so writing it can corrupt memory that
+ *   belongs to someone else. Write through /proc/<pid>/mem instead, which
+ *   breaks copy-on-write correctly.
+ *
+ * Physical reads need CAP_SYS_ADMIN and CAP_SYS_RAWIO, are refused under
+ * kernel lockdown (like /dev/mem), and only touch online System RAM pages
+ * through the kernel mapping. MMIO, firmware areas and holes return -EINVAL,
+ * and a page missing from the kernel mapping returns -EIO instead of oopsing.
+ */
 #include "cecore_kmod.h"
 
 #include <linux/capability.h>
+#include <linux/compat.h>
 #include <linux/fs.h>
-#include <linux/io.h>
+#include <linux/highmem.h>
+#include <linux/ioport.h>
 #include <linux/kernel.h>
+#include <linux/limits.h>
+#include <linux/memory_hotplug.h>
 #include <linux/miscdevice.h>
 #include <linux/mm.h>
 #include <linux/module.h>
-#include <linux/pid.h>
-#include <linux/sched/mm.h>
+#include <linux/page-flags.h>
+#include <linux/sched.h>
+#include <linux/sched/signal.h>
+#include <linux/security.h>
 #include <linux/slab.h>
-#include <linux/string.h>
 #include <linux/uaccess.h>
 
-#define CECORE_KMOD_CHUNK_SIZE (64 * 1024)
-
-static int cecore_check_privilege(void)
+static int cecore_check_physical_access(void)
 {
-    return capable(CAP_SYS_ADMIN) ? 0 : -EPERM;
+    if (!capable(CAP_SYS_ADMIN) || !capable(CAP_SYS_RAWIO))
+        return -EPERM;
+    /* Same rule as /dev/mem: no raw memory access under lockdown. */
+    return security_locked_down(LOCKDOWN_DEV_MEM);
 }
 
-static ssize_t cecore_access_process_vm(struct cecore_kmod_mem_request *req, int write)
+/* True when [start, start + size) fits below max + 1, without overflow. */
+static bool cecore_range_fits(u64 start, u64 size, u64 max)
 {
-    struct task_struct *task;
-    void *buffer;
-    size_t done = 0;
+    if (size == 0)
+        return start <= max;
+    return start <= max && size - 1 <= max - start;
+}
+
+/* Returns the online System RAM page holding phys, or NULL. */
+static struct page *cecore_ram_page(u64 phys)
+{
+    u64 pfn = phys >> PAGE_SHIFT;
+    struct page *page;
+
+    if (pfn > ULONG_MAX)
+        return NULL;
+    if (region_intersects((resource_size_t)(phys & ~(u64)(PAGE_SIZE - 1)), PAGE_SIZE,
+                          IORESOURCE_SYSTEM_RAM, IORES_DESC_NONE) != REGION_INTERSECTS)
+        return NULL;
+    page = pfn_to_online_page((unsigned long)pfn);
+    if (!page)
+        return NULL;
+    /* /proc/kcore skips these too: poisoned frames and frames given back to a hypervisor. */
+    if (PageHWPoison(page) || PageOffline(page))
+        return NULL;
+    return page;
+}
+
+static int cecore_read_physical(struct cecore_kmod_phys_request *req)
+{
+    char *bounce;
+    u64 done = 0;
     int ret = 0;
 
-    if (!req->pid || !req->remote_address || !req->user_buffer)
+    req->bytes_transferred = 0;
+    if (req->flags || req->reserved || !req->user_buffer)
         return -EINVAL;
     if (req->size == 0)
         return 0;
-    /* Reject wrapping ranges (remote_address/user_buffer/size are attacker-controlled). */
-    if (req->remote_address + req->size < req->remote_address ||
-        req->user_buffer + req->size < req->user_buffer)
+    /*
+     * Both ranges must be addressable by the caller. This bounds size by
+     * SIZE_MAX on 32-bit kernels and keeps a 32-bit caller's buffer below
+     * 4 GiB on a 64-bit kernel.
+     */
+    if (!cecore_range_fits(req->user_buffer, req->size,
+                           in_compat_syscall() ? (u64)U32_MAX : (u64)ULONG_MAX) ||
+        !cecore_range_fits(req->physical_address, req->size, (u64)PHYS_ADDR_MAX))
         return -EINVAL;
 
-    buffer = kmalloc(CECORE_KMOD_CHUNK_SIZE, GFP_KERNEL);
-    if (!buffer)
+    bounce = kmalloc(PAGE_SIZE, GFP_KERNEL);
+    if (!bounce)
         return -ENOMEM;
 
-    rcu_read_lock();
-    task = get_pid_task(find_vpid(req->pid), PIDTYPE_PID);
-    rcu_read_unlock();
-    if (!task) {
-        kfree(buffer);
-        return -ESRCH;
-    }
-
     while (done < req->size) {
-        size_t chunk = min_t(size_t, CECORE_KMOD_CHUNK_SIZE, req->size - done);
-        unsigned long remote = (unsigned long)(req->remote_address + done);
-        void __user *user = (void __user *)(uintptr_t)(req->user_buffer + done);
-        int copied;
+        u64 phys = req->physical_address + done;
+        size_t page_offset = (size_t)(phys & (PAGE_SIZE - 1));
+        size_t chunk = PAGE_SIZE - page_offset;
+        void __user *user = u64_to_user_ptr(req->user_buffer + done);
+        struct page *page;
+        void *mapped;
+        long failed;
 
-        if (write) {
-            if (copy_from_user(buffer, user, chunk)) {
-                ret = -EFAULT;
-                break;
-            }
-            copied = access_process_vm(task, remote, buffer, chunk, FOLL_WRITE);
-        } else {
-            copied = access_process_vm(task, remote, buffer, chunk, 0);
-            if (copied > 0 && copy_to_user(user, buffer, copied)) {
-                ret = -EFAULT;
-                break;
-            }
-        }
+        if (chunk > req->size - done)
+            chunk = (size_t)(req->size - done);
 
-        if (copied <= 0) {
-            ret = copied < 0 ? copied : -EFAULT;
+        if (fatal_signal_pending(current)) {
+            ret = -EINTR;
             break;
         }
+        cond_resched();
 
-        done += copied;
-        if ((size_t)copied < chunk)
+        page = cecore_ram_page(phys);
+        if (!page) {
+            ret = -EINVAL;
             break;
-    }
-
-    put_task_struct(task);
-    kfree(buffer);
-    req->bytes_transferred = done;
-    return done ? (ssize_t)done : ret;
-}
-
-static ssize_t cecore_access_physical(struct cecore_kmod_phys_request *req, int write)
-{
-    size_t done = 0;
-    int ret = 0;
-
-    if (!req->user_buffer)
-        return -EINVAL;
-    if (req->size == 0)
-        return 0;
-    /* Reject wrapping ranges (physical_address/user_buffer/size are attacker-controlled). */
-    if (req->physical_address + req->size < req->physical_address ||
-        req->user_buffer + req->size < req->user_buffer)
-        return -EINVAL;
-
-    while (done < req->size) {
-        phys_addr_t phys = (phys_addr_t)(req->physical_address + done);
-        size_t page_offset = offset_in_page(phys);
-        size_t chunk = min_t(size_t, PAGE_SIZE - page_offset, req->size - done);
-        void __iomem *mapped;
-        void __user *user = (void __user *)(uintptr_t)(req->user_buffer + done);
+        }
 
         /*
-         * Physical RAM access is intentionally permitted (a Cheat-Engine/DBVM
-         * capability). ioremap() of RAM is a powerful and dangerous primitive
-         * — it can corrupt kernel structures or leak secrets — so the device
-         * node stays root/CAP_SYS_ADMIN-gated (cecore_check_privilege) and the
-         * [physical_address, +size) range is wrap-checked above.
-         * TODO(security): for RAM specifically, prefer memremap()/kmap of a
-         * pfn_valid() struct page over ioremap, and honor kernel lockdown
-         * (security_locked_down(LOCKDOWN_DEV_MEM)) when configured.
+         * The frame may be freed or reused while we copy; that only changes
+         * which bytes we see. The nofault copy turns a frame that is missing
+         * from the kernel mapping (secretmem, debug_pagealloc) into -EIO.
          */
-        mapped = ioremap(phys & PAGE_MASK, PAGE_SIZE);
-        if (!mapped) {
-            ret = -ENOMEM;
+        mapped = kmap_local_page(page);
+        failed = copy_from_kernel_nofault(bounce, (char *)mapped + page_offset, chunk);
+        kunmap_local(mapped);
+        if (failed) {
+            ret = -EIO;
             break;
         }
-
-        if (write) {
-            void *buffer = memdup_user(user, chunk);
-            if (IS_ERR(buffer)) {
-                ret = PTR_ERR(buffer);
-                iounmap(mapped);
-                break;
-            }
-            memcpy_toio((char __iomem *)mapped + page_offset, buffer, chunk);
-            kfree(buffer);
-        } else {
-            void *buffer = kmalloc(chunk, GFP_KERNEL);
-            if (!buffer) {
-                ret = -ENOMEM;
-                iounmap(mapped);
-                break;
-            }
-            memcpy_fromio(buffer, (char __iomem *)mapped + page_offset, chunk);
-            if (copy_to_user(user, buffer, chunk))
-                ret = -EFAULT;
-            kfree(buffer);
-            if (ret) {
-                iounmap(mapped);
-                break;
-            }
+        if (copy_to_user(user, bounce, chunk)) {
+            ret = -EFAULT;
+            break;
         }
-
-        iounmap(mapped);
         done += chunk;
     }
 
+    kfree(bounce);
     req->bytes_transferred = done;
-    return done ? (ssize_t)done : ret;
-}
-
-static int cecore_translate_va(struct cecore_kmod_translate_request *req)
-{
-    struct task_struct *task;
-    struct mm_struct *mm;
-    struct page *page = NULL;
-    unsigned long address;
-    long pinned;
-    int ret = 0;
-
-    if (!req->pid || !req->virtual_address)
-        return -EINVAL;
-
-    rcu_read_lock();
-    task = get_pid_task(find_vpid(req->pid), PIDTYPE_PID);
-    rcu_read_unlock();
-    if (!task)
-        return -ESRCH;
-
-    mm = get_task_mm(task);
-    put_task_struct(task);
-    if (!mm)
-        return -EINVAL;
-
-    address = (unsigned long)(req->virtual_address & PAGE_MASK);
-    mmap_read_lock(mm);
-    pinned = get_user_pages_remote(mm, address, 1, FOLL_GET, &page, NULL);
-    mmap_read_unlock(mm);
-    mmput(mm);
-
-    if (pinned != 1 || !page) {
-        ret = pinned < 0 ? pinned : -EFAULT;
-        return ret;
-    }
-
-    req->page_size = PAGE_SIZE; /* NOTE: always reports base page size; huge-page mappings are not detected. */
-    req->page_offset = offset_in_page(req->virtual_address);
-    req->physical_address = page_to_phys(page) + req->page_offset;
-    put_page(page);
-    return 0;
+    return done ? 0 : ret;
 }
 
 static long cecore_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-    struct cecore_kmod_mem_request req;
+    void __user *argp = (void __user *)arg;
     struct cecore_kmod_phys_request phys_req;
-    struct cecore_kmod_translate_request translate_req;
-    ssize_t result;
+    long result;
 
     (void)file;
 
-    if (cmd == CECORE_KMOD_IOC_PING)
-        return cecore_check_privilege();
+    switch (cmd) {
+    case CECORE_KMOD_IOC_PING:
+        return cecore_check_physical_access();
 
-    if (cmd == CECORE_KMOD_IOC_READ_PHYSICAL ||
-        cmd == CECORE_KMOD_IOC_WRITE_PHYSICAL) {
-        result = cecore_check_privilege();
+    case CECORE_KMOD_IOC_READ_PHYSICAL:
+        result = cecore_check_physical_access();
         if (result)
             return result;
-        if (copy_from_user(&phys_req, (void __user *)arg, sizeof(phys_req)))
+        if (copy_from_user(&phys_req, argp, sizeof(phys_req)))
             return -EFAULT;
-        result = cecore_access_physical(&phys_req, cmd == CECORE_KMOD_IOC_WRITE_PHYSICAL);
-        if (copy_to_user((void __user *)arg, &phys_req, sizeof(phys_req)))
-            return -EFAULT;
-        return result < 0 ? result : 0;
-    }
-
-    if (cmd == CECORE_KMOD_IOC_TRANSLATE_VA) {
-        result = cecore_check_privilege();
-        if (result)
-            return result;
-        if (copy_from_user(&translate_req, (void __user *)arg, sizeof(translate_req)))
-            return -EFAULT;
-        result = cecore_translate_va(&translate_req);
-        if (copy_to_user((void __user *)arg, &translate_req, sizeof(translate_req)))
+        result = cecore_read_physical(&phys_req);
+        if (copy_to_user(argp, &phys_req, sizeof(phys_req)))
             return -EFAULT;
         return result;
-    }
 
-    if (cmd != CECORE_KMOD_IOC_READ_PROCESS_VM &&
-        cmd != CECORE_KMOD_IOC_WRITE_PROCESS_VM)
+    case CECORE_KMOD_IOC_READ_PROCESS_VM:
+    case CECORE_KMOD_IOC_WRITE_PROCESS_VM:
+    case CECORE_KMOD_IOC_WRITE_PHYSICAL:
+    case CECORE_KMOD_IOC_TRANSLATE_VA:
+        /* Retired; see the comment at the top of this file. */
+        return -EOPNOTSUPP;
+
+    default:
         return -ENOTTY;
-
-    result = cecore_check_privilege();
-    if (result)
-        return result;
-
-    if (copy_from_user(&req, (void __user *)arg, sizeof(req)))
-        return -EFAULT;
-
-    result = cecore_access_process_vm(&req, cmd == CECORE_KMOD_IOC_WRITE_PROCESS_VM);
-    if (copy_to_user((void __user *)arg, &req, sizeof(req)))
-        return -EFAULT;
-    return result < 0 ? result : 0;
+    }
 }
 
 static const struct file_operations cecore_fops = {
     .owner = THIS_MODULE,
     .unlocked_ioctl = cecore_ioctl,
-#ifdef CONFIG_COMPAT
-    .compat_ioctl = cecore_ioctl,
-#endif
+    /* The request structs have the same layout for 32-bit callers. */
+    .compat_ioctl = compat_ptr_ioctl,
 };
 
 static struct miscdevice cecore_miscdev = {
@@ -280,4 +215,4 @@ module_exit(cecore_kmod_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("cecore");
-MODULE_DESCRIPTION("Cheat Engine Linux privileged process-memory helper");
+MODULE_DESCRIPTION("Cheat Engine Linux helper: read-only physical RAM access");

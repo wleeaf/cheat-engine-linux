@@ -337,9 +337,16 @@ Function and variable names from the target's symbol tables (ELF `.symtab`,
 `alloc(newmem,256,UpdateHealth)` places the cave near the function,
 `define(hook,UpdateHealth)` then `hook:` patches it, and `[UpdateHealth+5]` or
 `UpdateHealth+0:` work as expressions. A plain undeclared `UpdateHealth:` line
-patches the function too, as in Cheat Engine, unless the script also jumps to
-the bare name (`jmp exit`): then it stays a local label, so a loop label that
-happens to share a libc name (`exit:`) never patches that function.
+patches the function only where it is a hook site, as in Cheat Engine's
+templates: the name is an alloc's near address (`alloc(newmem,$1000,UpdateHealth)`),
+the next line jumps to an allocation (`jmp newmem`), or no address is set
+before it (`UpdateHealth:` then `db ...` at the top of `[DISABLE]`). The main
+executable's symbol wins over a library's, and the C library and the loader
+are never patched this way: use `define(hook,time)` and `hook:` for that. Any
+other undeclared name, and any name the script jumps to (`jmp exit`), is a
+local label, so a data label such as `index:` or `exit:` in a code cave never
+lands on a libc function. In `[DISABLE]` the name is the address `[ENABLE]`
+hooked. A syntax check, which has no target, applies the same rule.
 
 Instruction operands follow Cheat Engine's number rules: hex by default,
 including letter-first hex (`mov al,FF`, `[rax+C8]`), `#` for decimal

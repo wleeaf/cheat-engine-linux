@@ -11,6 +11,7 @@
 #include "platform/network_compression.hpp"
 #include "platform/vulkan_overlay_injector.hpp"
 #include "platform/linux/injector.hpp"
+#include "platform/linux/memory_image.hpp"
 #ifdef CE_HAVE_VULKAN
 #include <vulkan/vulkan.h>
 #include <vulkan/vk_layer.h>
@@ -795,6 +796,33 @@ static void test_agent_mcp() {
         tool(session, "aa_check", "{\"script\":\"[ENABLE]\\nagentmark:\\ndd 9\\n[DISABLE]\\n\"}", &error);
         printf("  aa_check resolves a symbol an enabled script registered: %s\n", !registerError && !error ? "OK" : "FAILED");
         tool(session, "aa_disable", "{\"id\":" + std::to_string(registering.getInt("id").value_or(-1)) + "}", &error);
+
+        // The dry run covers the [DISABLE] section, which aa_disable runs.
+        char first[32], second[32];
+        std::snprintf(first, sizeof first, "%lx", static_cast<unsigned long>(reinterpret_cast<uintptr_t>(&g_agentObjects[0][0])));
+        std::snprintf(second, sizeof second, "%lx", static_cast<unsigned long>(reinterpret_cast<uintptr_t>(&g_agentObjects[0][1])));
+        auto brokenDisable = tool(session, "aa_check", std::string("{\"script\":\"[ENABLE]\\n") + first +
+                                  ":\\ndd 5\\n[DISABLE]\\n" + first + ":\\nnot_an_instruction\\n\"}", &error);
+        printf("  aa_check dry-runs the [DISABLE] section: %s\n",
+               error && brokenDisable.getString("error").value_or("").find("[DISABLE]") != std::string::npos ? "OK" : "FAILED");
+        {
+            // Detaching restores the saved bytes without the user's approval,
+            // so it does not run the [DISABLE] section (here a write elsewhere).
+            const int32_t before[2] = {11, 22};
+            (void)process.write(reinterpret_cast<uintptr_t>(&g_agentObjects[0][0]), before, sizeof before);
+            ce::AgentSession scripted(options);
+            tool(scripted, "attach", "{\"target\":\"" + pid + "\"}", &error);
+            const std::string script = std::string("[ENABLE]\\n") + first + ":\\ndd 5\\n[DISABLE]\\n" + second + ":\\ndd 6\\n";
+            tool(scripted, "aa_enable", "{\"description\":\"Five\",\"script\":\"" + script + "\"}", &error);
+            const bool enabledError = error;
+            int32_t during[2] = {}, after[2] = {};
+            (void)process.read(reinterpret_cast<uintptr_t>(&g_agentObjects[0][0]), during, sizeof during);
+            const auto stuck = scripted.detach();
+            (void)process.read(reinterpret_cast<uintptr_t>(&g_agentObjects[0][0]), after, sizeof after);
+            printf("  detach restores saved bytes and skips [DISABLE]: %s (%d %d -> %d %d)\n",
+                   !enabledError && stuck.empty() && during[0] == 5 && after[0] == 11 && after[1] == 22 ? "OK" : "FAILED",
+                   during[0], during[1], after[0], after[1]);
+        }
 
         // Turning writes off ends every freeze.
         session.setAllowWrites(false);
@@ -1857,8 +1885,14 @@ static void test_wx_double_mapped_code() {
         const uint8_t code[] = {0xb8, 42, 0, 0, 0, 0xc3};   // mov eax, 42; ret
         std::memcpy(rw, code, sizeof(code));
         munmap(rw, 4096);   // only the read-only executable view remains
-        uintptr_t address = reinterpret_cast<uintptr_t>(rx);
-        if (::write(replies[1], &address, sizeof(address)) != sizeof(address)) _exit(3);
+        // Shared memory the target can write but maps read-only and never runs.
+        int dataFd = memfd_create("ce-wx-data", 0);
+        if (dataFd < 0 || ftruncate(dataFd, 4096) < 0 || pwrite(dataFd, "D", 1, 0) != 1) _exit(5);
+        void* data = mmap(nullptr, 4096, PROT_READ, MAP_SHARED, dataFd, 0);
+        if (data == MAP_FAILED) _exit(6);
+        uintptr_t address = reinterpret_cast<uintptr_t>(rx), dataAddress = reinterpret_cast<uintptr_t>(data);
+        if (::write(replies[1], &address, sizeof(address)) != sizeof(address) ||
+            ::write(replies[1], &dataAddress, sizeof(dataAddress)) != sizeof(dataAddress)) _exit(3);
         for (char command; ::read(commands[0], &command, 1) == 1;) {
             int result = reinterpret_cast<int (*)()>(rx)();
             if (::write(replies[1], &result, sizeof(result)) != sizeof(result)) _exit(4);
@@ -1866,8 +1900,9 @@ static void test_wx_double_mapped_code() {
         _exit(0);
     }
     close(commands[0]); close(replies[1]);
-    uintptr_t rx = 0;
-    bool started = ::read(replies[0], &rx, sizeof(rx)) == sizeof(rx);
+    uintptr_t rx = 0, data = 0;
+    bool started = ::read(replies[0], &rx, sizeof(rx)) == sizeof(rx) &&
+                   ::read(replies[0], &data, sizeof(data)) == sizeof(data);
     auto call = [&]() {
         int result = -1;
         char command = 'c';
@@ -1898,9 +1933,46 @@ static void test_wx_double_mapped_code() {
     if (attached) session.detach();
     printf("  a software breakpoint in the read-only shared code view stops and the call completes: %s\n",
            stopped && completed ? "OK" : "FAILED");
+
+    // /proc/PID/mem refuses the forced write with EIO, which must reach the
+    // file fallback too: Auto Assembler patches go through writeCode().
+    const uint8_t nine[] = {9, 0, 0, 0}, eleven[] = {11, 0, 0, 0};
+    auto patched = started ? proc.writeCode(rx + 1, nine, sizeof(nine)) : ce::Result<size_t>(std::unexpected(std::error_code()));
+    bool codeOk = patched && *patched == sizeof(nine) && call() == 9;
+    auto image = ce::os::pinNativeMemoryImage(proc);
+    auto imaged = image && *image ? (*image)->write(rx + 1, eleven, true) : ce::Result<size_t>(std::unexpected(std::error_code()));
+    bool imageOk = imaged && *imaged == sizeof(eleven) && call() == 11;
+    printf("  writeCode and a pinned image write the read-only shared code view: %s\n", codeOk && imageOk ? "OK" : "FAILED");
+
+    // Read-only shared memory with no executable view is not code: its file stays untouched.
+    const uint8_t edit = 'E';
+    uint8_t seen = 0;
+    bool refused = started && !proc.write(data, &edit, 1) && proc.read(data, &seen, 1) && seen == 'D';
+    printf("  a read-only shared mapping that is never executable refuses writes: %s\n", refused ? "OK" : "FAILED");
     kill(child, SIGKILL);
     waitpid(child, nullptr, 0);
     close(commands[1]); close(replies[0]);
+}
+
+// Lua deAlloc(address) passes no size: free() releases the block that
+// allocate() returned there, and refuses an address it did not allocate.
+static void test_free_without_size() {
+    printf("\n── Test: free without a size ──\n");
+    pid_t child = fork();
+    if (child == 0) { for (;;) pause(); }
+    ce::os::LinuxProcessHandle proc(child);
+    const size_t page = static_cast<size_t>(sysconf(_SC_PAGESIZE));
+    auto block = proc.allocate(3 * page, ce::MemProt::Read | ce::MemProt::Write);
+    auto other = proc.allocate(page, ce::MemProt::Read | ce::MemProt::Write);
+    bool freed = block && proc.free(*block, 0) && !proc.queryRegion(*block) && !proc.queryRegion(*block + 2 * page);
+    bool again = block && !proc.free(*block, 0);
+    bool unknown = block && !proc.free(*block + page, 0);
+    bool sized = other && proc.free(*other, page) && !proc.queryRegion(*other) && !proc.free(*other, 0);
+    printf("  free(address, 0) releases a whole allocated block once: %s\n", freed && again ? "OK" : "FAILED");
+    printf("  free(address, 0) refuses an address it did not allocate; explicit sizes still work: %s\n",
+           unknown && sized ? "OK" : "FAILED");
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
 }
 
 static void test_perf_map_symbols() {
@@ -9395,6 +9467,153 @@ static void test_autoassembler_disable_section(pid_t pid) {
                ? "OK" : ("FAILED: " + localLabel.error).c_str());
     if (localLabel.success) aa.disable(proc, "", localLabel.disableInfo);
 
+    // Only a hook site is a target symbol. Data labels in a cave that share a
+    // libc name ("index:" used as index+4, "time:") stay labels in the cave.
+    const std::string cave = "[ENABLE]\nalloc(ce_label_mem,64)\nce_label_mem:\ndq index+4\n"
+                             "index:\ndq 0\ntime:\ndd 0\n[DISABLE]\ndealloc(ce_label_mem)\n";
+    auto caveLabels = aa.execute(child, cave);
+    auto inCave = [&](const char* name) {
+        const auto& info = caveLabels.disableInfo;
+        auto found = info.scriptSymbols.find(name);
+        return found != info.scriptSymbols.end() && !info.allocs.empty() && found->second > info.allocs[0].address &&
+               found->second < info.allocs[0].address + info.allocs[0].size;
+    };
+    printf("  a data label with a libc name stays in the cave: %s\n",
+           caveLabels.success && inCave("index") && inCave("time") && aa.check(cave).success
+               ? "OK" : ("FAILED: " + caveLabels.error).c_str());
+    if (caveLabels.success) aa.disable(child, cave, caveLabels.disableInfo);
+    auto libcSite = aa.execute(child, "[ENABLE]\nexit:\ndb 90\n");
+    printf("  an undeclared hook site never patches the C library: %s\n",
+           !libcSite.success && libcSite.error.find("C library") != std::string::npos ? "OK" : ("FAILED: " + libcSite.error).c_str());
+    if (libcSite.success) aa.disable(child, "", libcSite.disableInfo);
+
+    // The near address of an alloc and a jump to an allocation mark a hook
+    // site; [DISABLE] names the same address. The target is a copy of this
+    // program, whose main module has cecore_aa_symbol_probe.
+    auto spawn = [] {
+        const pid_t copy = fork();
+        if (copy == 0) {
+            prctl(PR_SET_PDEATHSIG, SIGKILL);
+            for (;;) pause();
+        }
+        return copy;
+    };
+    std::memset(cecore_aa_symbol_probe, 0, sizeof cecore_aa_symbol_probe);
+    const pid_t copyPid = spawn();
+    LinuxProcessHandle copy(copyPid);
+    const auto probeAddress = reinterpret_cast<uintptr_t>(cecore_aa_symbol_probe);
+    auto probeByte = [&] { uint8_t value = 0xAA; (void)copy.read(probeAddress, &value, 1); return value; };
+    const std::string nearHook = "[ENABLE]\nalloc(ce_hook_mem,64,cecore_aa_symbol_probe)\nce_hook_mem:\nret\n"
+        "cecore_aa_symbol_probe:\njmp ce_hook_mem\n[DISABLE]\ncecore_aa_symbol_probe:\ndb 11\ndealloc(ce_hook_mem)\n";
+    auto hooked = aa.execute(copy, nearHook);
+    const uint8_t hookByte = probeByte();
+    auto unhooked = hooked.success ? aa.disable(copy, nearHook, hooked.disableInfo) : hooked;
+    printf("  alloc's near address names a hook site, also in [DISABLE]: %s\n",
+           hooked.success && (hookByte == 0xE9 || hookByte == 0xFF) && unhooked.success &&
+           !logged(unhooked, "[DISABLE] failed") && probeByte() == 0x11
+               ? "OK" : ("FAILED: " + hooked.error + unhooked.error).c_str());
+    const uint8_t zero = 0;
+    (void)copy.write(probeAddress, &zero, 1);
+    const std::string jumpHook = "[ENABLE]\nalloc(ce_hook_jmp,64," + hex(base) + ")\nce_hook_jmp:\nret\n"
+        "cecore_aa_symbol_probe:\njmp ce_hook_jmp\n";
+    auto jumped = aa.execute(copy, jumpHook);
+    const uint8_t jumpByte = probeByte();
+    if (jumped.success) aa.disable(copy, "", jumped.disableInfo);
+    printf("  a jump to an allocation after \"name:\" marks a hook site: %s\n",
+           jumped.success && (jumpByte == 0xE9 || jumpByte == 0xFF) && probeByte() == 0
+               ? "OK" : ("FAILED: " + jumped.error).c_str());
+
+    // A globalalloc block of another process (a game run that ended) does not
+    // keep this process's writes at the same address from being undone. Two
+    // fresh copies of this program have the same layout, so the same mapping
+    // lands at the same address in both.
+    {
+        const pid_t otherPid = spawn(), twinPid = spawn();
+        LinuxProcessHandle other(otherPid), twin(twinPid);
+        bool reaped = false;
+        AutoAssembler longLived;
+        auto made = longLived.execute(other, "[ENABLE]\nglobalalloc(ce_stale_global,4096)\n");
+        const uintptr_t stale = made.success ? longLived.resolveSymbol("ce_stale_global") : 0;
+        auto mapped = stale ? twin.allocate(4096, MemProt::All) : ce::Result<uintptr_t>(0);
+        if (mapped && *mapped && *mapped != stale) {
+            (void)twin.free(*mapped, 4096);
+            mapped = twin.allocate(4096, MemProt::All, stale);
+        }
+        if (!stale || !mapped || *mapped != stale) {
+            printf("  a globalalloc block of another process is not shared: SKIPPED (block %lx, twin %lx)\n",
+                   static_cast<unsigned long>(stale), static_cast<unsigned long>(mapped ? *mapped : 0));
+        } else {
+            auto value = [&] { uint32_t v = 1; (void)twin.read(stale, &v, sizeof v); return v; };
+            const std::string write = "[ENABLE]\n" + hex(stale) + ":\ndd 5\n";
+            auto live = longLived.execute(twin, write);
+            const bool written = live.success && value() == 5;
+            if (live.success) longLived.disable(twin, "", live.disableInfo);
+            const bool restored = written && value() == 0;
+            kill(otherPid, SIGKILL);
+            waitpid(otherPid, nullptr, 0);
+            reaped = true;
+            live = longLived.execute(twin, write);   // the block's process is gone: it is forgotten
+            const bool forgotten = live.success && longLived.resolveSymbol("ce_stale_global") == 0;
+            if (live.success) longLived.disable(twin, "", live.disableInfo);
+            printf("  a globalalloc block of another process is not shared: %s\n",
+                   restored && forgotten && value() == 0 ? "OK" : ("FAILED: " + made.error + live.error).c_str());
+        }
+        if (!reaped) { kill(otherPid, SIGKILL); waitpid(otherPid, nullptr, 0); }
+        kill(twinPid, SIGKILL);
+        waitpid(twinPid, nullptr, 0);
+    }
+    kill(copyPid, SIGKILL);
+    waitpid(copyPid, nullptr, 0);
+
+    // A newer script that restored its bytes but could not free its memory
+    // takes no originals from an older script disabled after it.
+    {
+        struct NoFree final : ProcessHandle {
+            std::vector<uint8_t> bytes = std::vector<uint8_t>(0x10000);
+            bool refuse = false;
+            pid_t pid() const override { return getpid(); }
+            bool is64bit() const override { return true; }
+            TargetDescription targetDescription() override { return ce::test::x86Target(true, false); }
+            Result<size_t> read(uintptr_t at, void* out, size_t n) override {
+                if (at > bytes.size() || n > bytes.size() - at) return std::unexpected(std::make_error_code(std::errc::bad_address));
+                std::memcpy(out, bytes.data() + at, n); return n;
+            }
+            Result<size_t> write(uintptr_t at, const void* in, size_t n) override {
+                if (at > bytes.size() || n > bytes.size() - at) return std::unexpected(std::make_error_code(std::errc::bad_address));
+                std::memcpy(bytes.data() + at, in, n); return n;
+            }
+            std::vector<MemoryRegion> queryRegions() override {
+                return {{0, bytes.size(), MemProt::ReadWrite, MemType::Private, MemState::Committed, ""}};
+            }
+            std::optional<MemoryRegion> queryRegion(uintptr_t at) override {
+                return at < bytes.size() ? std::optional<MemoryRegion>(queryRegions()[0]) : std::nullopt;
+            }
+            Result<uintptr_t> allocate(size_t, MemProt, uintptr_t) override { return uintptr_t(0x8000); }
+            Result<void> free(uintptr_t, size_t) override {
+                if (refuse) return std::unexpected(std::make_error_code(std::errc::device_or_resource_busy));
+                return {};
+            }
+            Result<void> protect(uintptr_t, size_t, MemProt) override { return {}; }
+            std::vector<ModuleInfo> modules() override { return {}; }
+            std::vector<ThreadInfo> threads() override { return {}; }
+        } stubborn;
+        auto at = [&] { uint32_t value; std::memcpy(&value, stubborn.bytes.data() + 0x100, 4); return value; };
+        const std::string olderData = "[ENABLE]\n100:\ndd 1\n";
+        const std::string newerData = "[ENABLE]\nalloc(ce_newer_mem,16)\n100:\ndd 2\n";
+        AutoAssembler pair;
+        auto olderOn = pair.execute(stubborn, olderData);
+        auto newerOn = pair.execute(stubborn, newerData);
+        stubborn.refuse = true;
+        auto newerOff = newerOn.success ? pair.disable(stubborn, "", newerOn.disableInfo) : newerOn;
+        const bool newerRestored = olderOn.success && newerOn.success && !newerOff.success && at() == 1;
+        stubborn.refuse = false;
+        auto olderOff = olderOn.success ? pair.disable(stubborn, "", olderOn.disableInfo) : olderOn;
+        printf("  a script with restored bytes takes no handover: %s (%u)\n",
+               newerRestored && olderOff.success && at() == 0 ? "OK" : ("FAILED: " + olderOn.error + newerOn.error + olderOff.error).c_str(),
+               at());
+        if (!newerOff.success) pair.disable(stubborn, "", newerOff.disableInfo);
+    }
+
     // reassemble() relocates the instruction from before the script's writes.
     g_aaDisable[32] = 0x90;
     auto moved = aa.execute(proc, "[ENABLE]\n" + hex(base + 32) + ":\ndb C3\n" + hex(base + 48) + ":\nreassemble(" + hex(base + 32) + ")\n");
@@ -13478,6 +13697,7 @@ int main(int argc, char* argv[]) {
     test_pointer_path_expression();
     test_perf_map_symbols();
     test_wx_double_mapped_code();
+    test_free_without_size();
     test_ct_load_from_string();
     test_ct_review_fixes();
     test_ct_format_detection();

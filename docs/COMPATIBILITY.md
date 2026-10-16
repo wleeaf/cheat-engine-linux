@@ -1708,9 +1708,9 @@ large-scale memory/thread exhaustion is not established by this descriptor test.
 
 The required gate now checks 143 original actual-target assertions, 30 client
 transaction assertions and 31 multi-client assertions in both native and
-ASan/UBSan profiles (204 per profile; 219 since 16 October 2026, when the
-actual-target set grew to 158 with upstream-layout region frames, remote symbol
-isolation, debug-wait hangup and stale-continue checks). The retained previous server fails four
+ASan/UBSan profiles (204 per profile; 222 since 16 October 2026, when the
+actual-target set grew to 161 with upstream-layout region frames, remote symbol
+and module-file isolation, debug-wait hangup and stale-continue checks). The retained previous server fails four
 of ten idle/partial-peer assertions using the identical current source and
 `--blocking-only`; this baseline deliberately isolates the original serialized
 accept limitation. Native and sanitizer engine regressions are recorded along

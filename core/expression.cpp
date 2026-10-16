@@ -166,8 +166,25 @@ std::optional<uintptr_t> ExpressionParser::parseImpl(const std::string& expr, in
                 !sameNameIgnoringCase(std::string_view(s).substr(pos, m.name.size()), m.name)) continue;
             if (ends(pos + m.name.size())) modLen = m.name.size();
         }
-        if (modLen) pos += modLen;
-        else while (pos < s.size() && s[pos] != '+' && s[pos] != '-' && s[pos] != '*') ++pos;
+        if (modLen) {
+            pos += modLen;
+            return resolveToken(trim(s.substr(start, pos - start)));
+        }
+        // A demangled C++ name holds '*' ("Game::hit(Player*, int)"), so a
+        // symbol may run to the next '+' or '-'. Try that whole span first,
+        // then end it at each '*' from the right; a plain number ends at the
+        // first '*' ("10*4").
+        size_t spanEnd = pos;
+        while (spanEnd < s.size() && s[spanEnd] != '+' && s[spanEnd] != '-') ++spanEnd;
+        const size_t firstStar = s.find('*', pos);
+        if (!plainNumber && firstStar < spanEnd) {
+            for (size_t end = spanEnd; end > firstStar;) {
+                if (auto value = resolveToken(trim(s.substr(start, end - start)))) { pos = end; return value; }
+                end = s.rfind('*', end - 1);
+                if (end == std::string::npos || end < firstStar) break;
+            }
+        }
+        while (pos < s.size() && s[pos] != '+' && s[pos] != '-' && s[pos] != '*') ++pos;
         return resolveToken(trim(s.substr(start, pos - start)));
     };
     // A product of factors.

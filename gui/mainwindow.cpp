@@ -3192,6 +3192,18 @@ void MainWindow::onConnectCeserver() {
     dlg->deleteLater();
 }
 
+// Compares that only a next scan can do: they need the previous scan's values.
+static bool scanNeedsPreviousResult(ScanCompare compare) {
+    switch (compare) {
+        case ScanCompare::Changed: case ScanCompare::Unchanged: case ScanCompare::Increased:
+        case ScanCompare::Decreased: case ScanCompare::IncreasedBy: case ScanCompare::DecreasedBy:
+        case ScanCompare::SameAsFirst:
+            return true;
+        default:
+            return false;
+    }
+}
+
 static ScanCompare mapScanType(int index) {
     switch (index) {
         case 0: return ScanCompare::Exact;
@@ -3427,6 +3439,10 @@ void MainWindow::onFirstScan() {
         lastResult_.reset();
         undoResult_.reset();
         foundLabel_->setText("Found: 0");
+        // Changed, Increased and the like compare with a previous scan, which
+        // a first scan does not have: start again from Exact Value, as CE does.
+        if (scanNeedsPreviousResult(mapScanType(scanTypeCombo_->currentIndex())))
+            scanTypeCombo_->setCurrentIndex(0);
         statusBar()->showMessage("New scan: pick a value type and value, then First Scan.", 4000);
         updateScanButtons();
         return;
@@ -3550,6 +3566,12 @@ void MainWindow::onFirstScan() {
     std::unique_ptr<ScanResult> result;
     try {
         result = runScanWithProgress([&] { return scanner_->firstScan(*process_, config); });
+    } catch (const std::invalid_argument& e) {
+        // The scanner refused these settings and says why; the advice below
+        // is about running out of memory and does not apply.
+        firstScanBtn_->setEnabled(true);
+        QMessageBox::warning(this, "Scan failed", QString("The scan could not start: %1").arg(e.what()));
+        return;
     } catch (const std::exception& e) {
         // A huge target (e.g. an emulator mapping many GB of guest RAM) can
         // exhaust memory during the scan/merge. Report it instead of letting

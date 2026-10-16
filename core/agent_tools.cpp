@@ -364,14 +364,25 @@ struct AgentSession::State {
         out.ok = true;
         out.patchedBytes = dry.patchedBytes();
         out.allocations = dry.allocations();
+        // aa_disable runs the [DISABLE] section: try it on the same overlay.
+        auto undone = scratch.disable(dry, script, result.disableInfo);
+        if (!undone.success || !undone.disableSectionError.empty()) {
+            out.ok = false;
+            out.error = "script error in [DISABLE]: " + (undone.success ? undone.disableSectionError : undone.error);
+        }
         return out;
     }
 
-    // Disable every enabled script. Returns the ones that failed.
+    // Disable every enabled script. Returns the ones that failed. This runs
+    // without the user's approval (detach, a new attach, the end of the
+    // session), so it only restores the saved bytes and frees the script's
+    // memory: the [DISABLE] sections, which write to the game, do not run.
     std::vector<std::string> disableAll() {
         std::vector<std::string> failures;
         for (auto it = scripts.rbegin(); it != scripts.rend(); ++it) {
-            auto result = assembler.disable(*process, it->script, it->disable);
+            DisableInfo restoreOnly = it->disable;
+            restoreOnly.runDisableSection = false;
+            auto result = assembler.disable(*process, it->script, restoreOnly);
             if (!result.success) failures.push_back("#" + std::to_string(it->id) + ": " + result.error);
         }
         scripts.clear();

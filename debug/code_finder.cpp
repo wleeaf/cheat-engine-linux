@@ -343,7 +343,11 @@ void CodeFinder::monitorLoop() {
     struct Cleanup { std::function<void()> action; ~Cleanup() { action(); } } cleanup{[&] {
         reportStartup(false);
         if (software_) {
-            for (int attempt=0;;++attempt) {
+            // Detaching while the guard is still on would let the target's next
+            // touch of the page kill it, so the threads stay held (recovery
+            // pending) until it is restored. Only giving back the scratch page
+            // is given up on: a leaked page is harmless.
+            for (int releaseAttempts=0;;) {
                 // A target killed meanwhile leaves threads we consider stopped:
                 // reap them, or the restore below retries a dead thread forever.
                 for (auto& [tid,state] : threads) {
@@ -360,17 +364,25 @@ void CodeFinder::monitorLoop() {
                     if (!releaseScratch()) scratch=0;
                     break;
                 }
-                if (attempt==500) { setError(std::make_error_code(std::errc::timed_out)); break; }
+                if (!guardChanged && releaseAttempts++==500) {
+                    setError(std::make_error_code(std::errc::timed_out)); scratch=0; break;
+                }
                 if (!stopAll()) { recoveryPending_=true; usleep(20000); continue; }
                 if (imageRetired) { guardChanged=false; guardActive=false; scratch=0; break; }
                 for (auto& [tid,state] : threads) if (state.alive && guardFault(tid)) {
                     state.signal=0; state.signalInfo.reset(); state.guardStop=false;
                 }
-                auto owner=std::find_if(threads.begin(),threads.end(),[](const auto& entry) { return entry.second.alive && entry.second.stopped; });
-                if (guardChanged && owner!=threads.end()) {
-                    if (setStoppedProtection(owner->first,scratch,pageStart,pageLength,originalProtection,owner->second.signal,&owner->second.signalInfo)!=0) {
-                        recoveryPending_=true; usleep(20000); continue;
+                if (guardChanged) {
+                    // Any stopped thread can run the mprotect; one parked where
+                    // the syscall cannot be injected should not block the rest.
+                    bool restored=false;
+                    for (auto& [tid,state] : threads) {
+                        if (!state.alive || !state.stopped) continue;
+                        if (setStoppedProtection(tid,scratch,pageStart,pageLength,originalProtection,state.signal,&state.signalInfo)==0) {
+                            restored=true; break;
+                        }
                     }
+                    if (!restored) { recoveryPending_=true; usleep(20000); continue; }
                 }
                 guardChanged=false; guardActive=false;
                 if (!releaseScratch()) { usleep(20000); continue; }

@@ -60,8 +60,15 @@ programs of the user who started it: its protocol has no authentication.
 - Prefer running as your normal user with `/proc/sys/kernel/yama/ptrace_scope`
   set appropriately, or `PR_SET_PTRACER`, rather than blanket `sudo`, when the
   target permits it.
-- The optional kernel module (`kernel/cecore_kmod.ko`) exposes a privileged
-  memory-access device; only load it if you need it, and unload it when done.
+- The optional kernel module (`kernel/cecore_kmod.c`) only reads physical
+  System RAM, for root with `CAP_SYS_ADMIN` and `CAP_SYS_RAWIO`, and refuses
+  under kernel lockdown. It never writes physical memory, and process memory
+  and address translation go through `/proc/<pid>/mem` and
+  `/proc/<pid>/pagemap`, so ptrace, Yama and LSM checks always apply. Build
+  it for the running kernel right before loading it (`make -C kernel clean
+  all`, then `sudo insmod kernel/cecore_kmod.ko`); never load a `.ko` left
+  from an older checkout or built elsewhere. Load it only if you need it, and
+  unload it (`sudo rmmod cecore_kmod`) when done.
 
 ## Supported versions
 

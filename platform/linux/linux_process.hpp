@@ -8,6 +8,7 @@
 #include <mutex>
 #include <chrono>
 #include <vector>
+#include <map>
 
 namespace ce::os {
 class NativeMemoryImage;
@@ -65,7 +66,12 @@ private:
     std::chrono::steady_clock::time_point machineCacheTime_{};
     bool machineCacheValid_ = false;
     TargetDescription machineCacheDescription_;
-    std::vector<MachineRange> machineCacheRanges_;
+    std::shared_ptr<const std::vector<MachineRange>> machineCacheRanges_;
+    // Blocks allocate() mapped, base to size, so free(address, 0) can release
+    // one without its size. Guarded by allocationsMutex_.
+    std::mutex allocationsMutex_;
+    std::map<uintptr_t, size_t> allocations_;
+    void forgetAllocations(uintptr_t address, size_t size);
 
     MemProt parsePerms(const std::string& perms) const;
     bool sameProcess() const;

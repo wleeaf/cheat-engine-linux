@@ -569,9 +569,13 @@ void scannerTests(const fs::path& root) {
     put(0x400, int32_t(100));
     ScanConfig exact; exact.valueType = ValueType::Int32; exact.intValue = 100;
     auto first = scanner.firstScan(proc, exact);
+    char host[256] = {};
+    gethostname(host, sizeof(host) - 1);
+    const std::string scanDirName = first.directory().lexically_relative(scanRootDir).begin()->string();
     bool named = first.count() == 1 && first.directory().string().starts_with(scanRootDir.string()) &&
-                 first.directory().string().find("ce-scan-" + std::to_string(getpid()) + "-") != std::string::npos;
-    check(named, "scan results go to CE_SCAN_DIR in a directory named for the scanning process");
+                 scanDirName.starts_with("ce-scan-") && scanDirName.find("-" + std::to_string(getpid()) + "-") != std::string::npos &&
+                 (!*host || std::strchr(host, '-') || scanDirName.starts_with(std::string("ce-scan-") + host + "-"));
+    check(named, "scan results go to CE_SCAN_DIR in a directory named for the scanning host and process");
     put(0x400, int32_t(95));
     ScanConfig by; by.valueType = ValueType::Int32; by.compareType = ScanCompare::IncreasedBy; by.intValue = -5;
     check(scanner.nextScan(proc, by, first).count() == 1, "increased by a negative amount finds the decreased value");
@@ -592,6 +596,51 @@ void scannerTests(const fs::path& root) {
     bool found = false;
     for (size_t i = 0; i < alls.count(); ++i) found |= alls.address(i) == 0xC00;
     check(parsed && found, "an All-type exact scan finds an 8-byte value above INT64_MAX");
+
+    {
+        // Each candidate keeps 256 KiB in a global, so the 16 MiB formula
+        // state runs out of memory every ~60 candidates. That must neither
+        // abort the scan nor leave the state full for the candidates after it.
+        ModelProcess custom;
+        custom.bytes[0x1F00] = 0x42;
+        ScanConfig formula; formula.valueType = ValueType::Custom; formula.customValueSize = 4; formula.alignment = 4;
+        formula.customFormula = "keep = keep or {}\n"
+                                "keep[#keep + 1] = string.rep(current, 65536) .. #keep\n"
+                                "return string.byte(current, 1) == 0x42";
+        bool survived = isolated([&] {
+            auto hits = scanner.firstScan(custom, formula);
+            return hits.count() == 1 && hits.address(0) == 0x1F00;
+        });
+        check(survived, "a custom formula that runs out of memory fails its candidate and the state is rebuilt");
+    }
+
+    {
+        // Only this host's directories are judged by pid; another host's live
+        // scan on a shared home is left alone, and so is an old-style name.
+        const auto pruneRoot = root / "prune";
+        fs::create_directories(pruneRoot);
+        pid_t gone = fork();
+        if (gone == 0) _exit(0);
+        if (gone > 0) waitpid(gone, nullptr, 0);
+        const std::string tag = *host && !std::strchr(host, '-') ? host : "";
+        const auto mine = pruneRoot / ("ce-scan-" + tag + "-" + std::to_string(gone) + "-abcdef");
+        const auto live = pruneRoot / ("ce-scan-" + tag + "-" + std::to_string(getpid()) + "-abcdef");
+        const auto other = pruneRoot / ("ce-scan-elsewhere.example-" + std::to_string(gone) + "-abcdef");
+        const auto oldStyle = pruneRoot / ("ce-scan-" + std::to_string(gone) + "-abcdef");
+        for (const auto& dir : {mine, live, other, oldStyle}) fs::create_directories(dir);
+        pruneStaleScanDirectories(pruneRoot);
+        check(tag.empty() || (gone > 0 && !fs::exists(mine) && fs::exists(live) && fs::exists(other) && fs::exists(oldStyle)),
+              "stale scan directories are pruned by pid only for this host");
+        std::error_code ignored;
+        fs::remove_all(pruneRoot, ignored);
+    }
+
+    {
+        // CP932 and ISO-8859-16 are byte encodings: a bad byte is skipped alone.
+        const uint8_t bad[] = {0xFF, 'A', 'B', 'C'};
+        check(decodeStringBytes(bad, sizeof(bad), "CP932") == "\xEF\xBF\xBD" "ABC",
+              "a code page whose name holds 32 is decoded one byte at a time");
+    }
     unsetenv("CE_SCAN_DIR");
 }
 
@@ -605,6 +654,16 @@ void expressionTests() {
     ExpressionParser wide(&mixed);
     check(wide.parse("7f0012345678") == uintptr_t(0x7f0012345678) && wide.parse("FFFFFFFC+8") == 4u,
           "a WoW64 process keeps addresses above 4 GiB and still wraps 32-bit arithmetic");
+    SymbolResolver symbols;
+    symbols.addUserSymbol(0x1000, "Game::hit(Player*, int)");
+    symbols.addUserSymbol(0x2000, "Game::swap(Player*, Player*)");
+    ExpressionParser named(&proc, &symbols);
+    check(named.parse("Game::hit(Player*, int)+0x12") == 0x1012u && named.parse("Game::hit(Player*, int)*2") == 0x2000u &&
+          named.parse("Game::swap(Player*, Player*)-10") == 0x1FF0u && named.parse("Game::swap(Player*, Player*)*2+1") == 0x4001u,
+          "a demangled C++ name with '*' resolves as one symbol");
+    check(named.parse("fixture+10*4") == 320u && named.parse("10*4+fixture") == 320u && named.parse("0x10*2") == 32u &&
+          !named.parse("Game::hit(Player*, long)+4").has_value(),
+          "'*' still multiplies numbers and module offsets beside symbol names");
 
     check(!encodeTypedValue(ValueType::Float, "+-5").has_value(), "a float value with two signs is rejected");
     check(json::Value::number(1.5).stringValue == "1.5", "JSON numbers do not depend on the locale");

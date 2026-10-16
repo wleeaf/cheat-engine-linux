@@ -4,6 +4,7 @@
 #include <algorithm>
 
 #include <cstdint>
+#include <string_view>
 #include <system_error>
 
 namespace ce::os {
@@ -245,6 +246,11 @@ std::vector<ModuleInfo> RemoteProcessHandle::modules() {
         // Strip directory portion to keep parity with the local /proc-backed enumerator.
         auto slash = m.name.find_last_of('/');
         mi.name = slash == std::string::npos ? m.name : m.name.substr(slash + 1);
+        // A library replaced on disk while mapped keeps the name it is known
+        // by (as locally), so "libgame.so+1C" still resolves. The path keeps
+        // the suffix the server sent.
+        if (constexpr std::string_view deleted = " (deleted)"; mi.name.ends_with(deleted))
+            mi.name.resize(mi.name.size() - deleted.size());
         mi.is64bit = is64bit_;
         out.push_back(std::move(mi));
     }

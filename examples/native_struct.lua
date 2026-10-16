@@ -17,7 +17,7 @@ else
       -- Read the live value at base+offset using the field's type.
       local addr = BASE + f.offset
       local v
-      if f.typeName == "int32" then v = readInteger(addr)
+      if f.typeName == "int32" then v = readInteger(addr, true)   -- signed
       elseif f.typeName == "float" then v = readFloat(addr)
       elseif f.typeName == "pointer" then v = readPointer(addr) end
       if v ~= nil then line = line .. "  = " .. tostring(v) end

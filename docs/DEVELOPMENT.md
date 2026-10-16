@@ -439,9 +439,10 @@ routing both the disassembler and Lua through it closes many at once.
     painters. **[S]**
 28. **`CONTRIBUTING.md` + Lua API reference + a tutorial** + issue/PR templates —
     none exist; contributor/adoption blockers. **[M]**
-29. **Kernel-module ioctl test harness** — `kernel/cecore_kmod.c` (an
-    `ioremap`/`memcpy_toio` write primitive) is the most security-sensitive code
-    and is never loaded/tested; CI build is `continue-on-error`. **[M]**
+29. **Kernel-module ioctl test harness**: `kernel/cecore_kmod.c` (now a
+    read-only physical RAM reader; the process, translation and write ioctls
+    are retired) is the most security-sensitive code and is never loaded in
+    CI; the CI build is `continue-on-error`. **[M]**
 
 ---
 

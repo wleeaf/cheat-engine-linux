@@ -8,6 +8,9 @@
 #include "platform/network_compression.hpp"
 #include "symbols/dwarf_symbols.hpp"
 #include "symbols/elf_symbols.hpp"
+#include "analysis/il2cpp_binary.hpp"
+#include "core/module_files.hpp"
+#include "scripting/lua_engine.hpp"
 #include <array>
 #include <optional>
 #include <string>
@@ -388,6 +391,17 @@ static void upstreamFrames() {
                 std::array<uint8_t,4+sizeof(regions)> frame{};
                 uint32_t count=2;std::memcpy(frame.data(),&count,4);std::memcpy(frame.data()+4,regions,sizeof(regions));
                 transfer(fd,frame.data(),frame.size(),true);
+            } else if (op==35) {
+                // A module snapshot: a library replaced on disk while mapped,
+                // named by its full path as /proc/PID/maps shows it.
+                uint32_t fields[2]{};transfer(fd,fields,sizeof(fields),false);
+                const std::string path="/opt/game/libgame.so (deleted)";
+                UpstreamModuleEntry entry{1,0x500000,0,0x1000,0,int32_t(path.size())};
+                std::vector<uint8_t> frame(sizeof(entry));std::memcpy(frame.data(),&entry,sizeof(entry));
+                frame.insert(frame.end(),path.begin(),path.end());
+                const UpstreamModuleEntry end{};
+                frame.insert(frame.end(),reinterpret_cast<const uint8_t*>(&end),reinterpret_cast<const uint8_t*>(&end)+sizeof(end));
+                transfer(fd,frame.data(),frame.size(),true);
             } else if (op==8) {
                 // api.c VirtualQueryEx: the page holding the address, up to the
                 // end of its mapping, or a PAGE_NOACCESS type 0 gap up to the next.
@@ -414,6 +428,30 @@ static void upstreamFrames() {
     auto inside=remote ? remote->queryRegion(0x402345) : std::nullopt;
     check(remote && !gap && inside && inside->base==0x402000 && inside->size==0x1000 && inside->protection==MemProt::ReadWrite,
           "an upstream PAGE_NOACCESS type 0 gap is free space, not a committed private region");
+    auto modules=remote ? remote->modules() : std::vector<ModuleInfo>{};
+    check(modules.size()==1 && modules[0].name=="libgame.so" && modules[0].path=="/opt/game/libgame.so (deleted)" &&
+          modules[0].base==0x500000 && modules[0].size==0x1000,
+          "a remote module replaced on disk keeps its plain name and the path the server sent");
+    check(remote && ExpressionParser(remote.get()).parse("libgame.so+1C")==0x50001C,
+          "module-relative expressions resolve against a remote module replaced on disk");
+    // Module paths of a remote target are never parsed from this machine's files.
+    bool remoteFilesRefused=remote && !moduleFilesAreLocal(*remote);
+    if (remote) {
+        auto layout=resolveIl2CppForProcess(*remote);
+        remoteFilesRefused=remoteFilesRefused && !layout.ok && layout.error==kRemoteModuleFilesError;
+        LuaEngine lua;lua.setProcess(remote.get());
+        const std::string refused=lua.execute(
+            "local expected='module files of a remote target are not available locally'\n"
+            "for _,call in ipairs({getIl2CppMetadataPath,getIl2CppClasses,function() return getModuleExports('libgame.so') end,\n"
+            "    function() return getModuleImports('libgame.so') end,function() return getIl2CppMethods('Player') end}) do\n"
+            "  local value,err=call()\n"
+            "  assert(value==nil and err==expected,tostring(err))\n"
+            "end\n");
+        lua.setProcess(nullptr);
+        if (!refused.empty()) printf("  lua: %s\n",refused.c_str());
+        remoteFilesRefused=remoteFilesRefused && refused.empty();
+    }
+    check(remoteFilesRefused,"IL2CPP and PE module lookups refuse a remote target's module paths");
     remote.reset();client.close();peer.join();close(listener);
 }
 

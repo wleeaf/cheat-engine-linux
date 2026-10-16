@@ -389,28 +389,55 @@ static bool isSimpleLabelDefinition(const std::string& line) {
     return !line.empty() && line.back() == ':' && line.find_first_of(" \t") == std::string::npos;
 }
 
+// How a script uses an undeclared "name:" definition (see autoDeclareNamedLabels).
+struct NamedLabelUse {
+    // An instruction or data line uses the bare name ("jmp exit"), as code
+    // uses a local label; a directive ("alloc(newmem,$1000,UpdateHealth)") or
+    // an offset ("UpdateHealth+5") uses an address.
+    bool jumpTarget = false;
+    // The definition is where a hook goes, as in Cheat Engine's templates: the
+    // name is an alloc's near address ("alloc(newmem,$1000,UpdateHealth)"),
+    // the line after it jumps to an allocation ("UpdateHealth:" then
+    // "jmp newmem"), or no address is set before it, so it cannot be a label
+    // ("UpdateHealth:" then "db ..." at the top of [DISABLE]).
+    bool hookSite = false;
+};
+
 // Cheat Engine auto-registers any "name:" label defined anywhere in the script,
 // so a forward "jmp skip ... skip:" works without an explicit label(skip). Our
 // sizing pass aborts on the forward reference before it reaches the definition,
 // so mirror the anonymous-label mechanism: emit label() for every named
 // definition that is not already declared (via alloc/label/define/registersymbol/
 // globalalloc). Prepending these declarations makes the label known on pass 1.
-// known(name, jumpTarget) says a name is an address from outside the script
-// (a registered symbol, a module, a target function) rather than a label.
-// jumpTarget: an instruction or data line uses the bare name ("jmp exit"), as
-// code uses a local label; a directive ("alloc(newmem,$1000,UpdateHealth)")
-// or an offset ("UpdateHealth+5") uses an address.
-static void autoDeclareNamedLabels(std::string& code, const std::function<bool(const std::string&, bool)>& known) {
+// known(name, use) says a name is an address from outside the script (a
+// registered symbol, a module, a target function) rather than a label.
+static void autoDeclareNamedLabels(std::string& code,
+                                   const std::function<bool(const std::string&, const NamedLabelUse&)>& known) {
     auto firstArg = [](const std::string& line, size_t open) -> std::string {
         size_t end = line.find_first_of(",)", open);
         return trim(line.substr(open, end == std::string::npos ? std::string::npos : end - open));
     };
-    std::set<std::string> declared, defined, jumpTargets;
+    // The third argument of alloc(name,size,near), without quotes.
+    auto nearArg = [](const std::string& line, size_t open) -> std::string {
+        const size_t close = line.rfind(')');
+        if (close == std::string::npos || close < open) return {};
+        std::istringstream args(line.substr(open, close - open));
+        std::string part;
+        for (int index = 0; std::getline(args, part, ','); ++index)
+            if (index == 2) return stripOptionalQuotes(trim(part));
+        return {};
+    };
+    std::vector<std::string> lines;
+    {
+        std::istringstream ss(code);
+        for (std::string raw; std::getline(ss, raw);) lines.push_back(stripInlineComment(raw));
+    }
+    std::set<std::string> declared, defined, jumpTargets, nearNames, allocNames, firstAddress;
+    std::multimap<std::string, std::string> jumpsAfter;   // "name:" then "jmp target"
     std::vector<std::string> order;   // preserve definition order for stable output
-    std::istringstream ss(code);
-    std::string raw;
-    while (std::getline(ss, raw)) {
-        std::string line = trim(raw);
+    bool addressSet = false;           // a line before this one ends in ':'
+    for (size_t index = 0; index < lines.size(); ++index) {
+        const std::string& line = lines[index];
         std::string upper = toUpper(line);
         auto identifierEnd = [&](size_t at) {
             while (at < line.size() && (std::isalnum(static_cast<unsigned char>(line[at])) || line[at] == '_')) ++at;
@@ -429,9 +456,13 @@ static void autoDeclareNamedLabels(std::string& code, const std::function<bool(c
             if (!offset) jumpTargets.insert(line.substr(at, end - at));
             at = end;
         }
-        if (startsWith(upper, "ALLOC("))               declared.insert(firstArg(line, 6));
-        else if (startsWith(upper, "GLOBALALLOC("))     declared.insert(firstArg(line, 12));
-        else if (startsWith(upper, "KALLOC("))          declared.insert(firstArg(line, 7));
+        if (startsWith(upper, "ALLOC(")) {
+            declared.insert(firstArg(line, 6)); allocNames.insert(firstArg(line, 6)); nearNames.insert(nearArg(line, 6));
+        } else if (startsWith(upper, "GLOBALALLOC(")) {
+            declared.insert(firstArg(line, 12)); allocNames.insert(firstArg(line, 12)); nearNames.insert(nearArg(line, 12));
+        } else if (startsWith(upper, "KALLOC(")) {
+            declared.insert(firstArg(line, 7)); allocNames.insert(firstArg(line, 7));
+        }
         else if (startsWith(upper, "DEFINE("))          declared.insert(firstArg(line, 7));
         else if (startsWith(upper, "REGISTERSYMBOL("))  declared.insert(firstArg(line, 15));
         // AOB-scan results define a symbol at runtime; the injection point is
@@ -463,13 +494,34 @@ static void autoDeclareNamedLabels(std::string& code, const std::function<bool(c
             // still give names such as "dead" their intended symbol meaning.
             const bool hexAddress = name.size() > 1 &&
                 std::all_of(name.begin(), name.end(), [](unsigned char c) { return std::isxdigit(c); });
-            if (ident && !hexAddress && name.rfind("__anon_", 0) != 0 && defined.insert(name).second)
+            if (ident && !hexAddress && name.rfind("__anon_", 0) != 0 && defined.insert(name).second) {
                 order.push_back(name);
+                if (!addressSet) firstAddress.insert(name);
+                // The next line: "jmp newmem", "jmp far newmem", "call newmem".
+                size_t next = index + 1;
+                while (next < lines.size() && lines[next].empty()) ++next;
+                if (next < lines.size()) {
+                    std::istringstream words(lines[next]);
+                    std::string op, target;
+                    words >> op >> target;
+                    op = toUpper(op);
+                    if (toUpper(target) == "FAR" || toUpper(target) == "LONG") words >> target;
+                    if ((op == "JMP" || op == "JMP1" || op == "CALL") && !target.empty())
+                        jumpsAfter.emplace(name, target);   // checked once every alloc is known
+                }
+            }
         }
+        if (!line.empty() && line.back() == ':') addressSet = true;
     }
+    auto hookSite = [&](const std::string& name) {
+        if (firstAddress.contains(name) || nearNames.contains(name)) return true;
+        auto [first, last] = jumpsAfter.equal_range(name);
+        return std::any_of(first, last, [&](const auto& jump) { return allocNames.contains(jump.second); });
+    };
     std::string preamble;
     for (const auto& name : order)
-        if (!declared.count(name) && !known(name, jumpTargets.count(name) != 0)) preamble += "label(" + name + ")\n";
+        if (!declared.count(name) && !known(name, {jumpTargets.count(name) != 0, hookSite(name)}))
+            preamble += "label(" + name + ")\n";
     if (!preamble.empty()) code = preamble + code;
 }
 
@@ -1237,6 +1289,7 @@ uintptr_t AutoAssembler::resolveAddress(const std::string& expr,
         if (it != globalSymbols_.end()) return it->second;
         for (auto module = targetModules_.rbegin(); module != targetModules_.rend(); ++module)
             if (!module->name.empty() && module->name == stripOptionalQuotes(name)) return module->base;
+        if (auto site = hookSites_.find(stripOptionalQuotes(name)); site != hookSites_.end()) return site->second;
         if (auto symbol = processSymbol(stripOptionalQuotes(name))) return symbol;
         // Quoted module names can contain '+' and '-'; split arithmetic only
         // outside quotes, from the right, to preserve left-to-right evaluation.
@@ -1714,6 +1767,33 @@ uintptr_t AutoAssembler::processSymbol(const std::string& name) const {
     return processSymbols_->lookup(name);
 }
 
+// The C runtime and the dynamic loader: libc, ld-linux, musl, and glibc's
+// split-out parts. An undeclared "index:" or "exit:" never patches them.
+static bool isCRuntimeModule(const std::string& module) {
+    std::string stem = module.substr(0, module.find_first_of(".-"));
+    for (auto& c : stem) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    static const std::set<std::string> runtime = {"libc", "ld", "libm", "libpthread", "libdl", "librt", "libresolv"};
+    return runtime.contains(stem);
+}
+
+AutoAssembler::HookSiteSymbol AutoAssembler::hookSiteSymbol(const std::string& name) {
+    if (auto known = hookSites_.find(name); known != hookSites_.end()) return {known->second, false};
+    if (!processSymbol(name)) return {};   // also loads the table
+    // The main executable first, then any other module except the C runtime.
+    const std::string main = targetModules_.empty() ? std::string() : targetModules_.front().name;
+    uintptr_t best = 0;
+    bool mainModule = false, runtimeOnly = false;
+    for (const auto& symbol : processSymbols_->symbols()) {
+        if (symbol.name != name || !symbol.address) continue;
+        if (isCRuntimeModule(symbol.module)) { runtimeOnly = true; continue; }
+        const bool inMain = !main.empty() && symbol.module == main;
+        if (!best || (inMain && !mainModule)) { best = symbol.address; mainModule = inMain; }
+    }
+    if (!best) return {0, runtimeOnly};
+    hookSites_[name] = best;
+    return {best, false};
+}
+
 uintptr_t AutoAssembler::resolveSymbol(const std::string& name) const {
     auto it = globalSymbols_.find(name);
     if (it != globalSymbols_.end()) return it->second;
@@ -1766,16 +1846,27 @@ bool AutoAssembler::preprocessScript(std::string& code,
     // Auto-declare named labels so forward "jmp skip … skip:" works without an
     // explicit label(skip), matching CE. Runs after anonymous-label resolution so
     // the generated __anon_N labels are already declared and skipped.
-    autoDeclareNamedLabels(code, [&](const std::string& name, bool jumpTarget) {
+    std::string refused;
+    autoDeclareNamedLabels(code, [&](const std::string& name, const NamedLabelUse& use) {
         if (globalSymbols_.contains(name) || knownNames.contains(name)) return true;
         for (const auto& module : targetModules_)
             if (module.name == name) return true;
-        // As in Cheat Engine, which tries a "name:" as a symbol before making
-        // it a label, "UpdateHealth:" is the target's function. Not for a name
-        // the code jumps to: "jmp exit ... exit:" keeps a local label rather
-        // than patching libc's exit.
-        return !jumpTarget && processSymbol(name) != 0;
+        // Cheat Engine tries every "name:" as a symbol before making it a
+        // label. Here only a hook site does ("UpdateHealth:" then "jmp
+        // newmem"), so a data or code label in the cave ("index:" then
+        // "dq 0") never lands on a same-named function. A name the code jumps
+        // to ("jmp exit ... exit:") stays a local label.
+        if (use.jumpTarget || !use.hookSite) return false;
+        // A syntax check has no target: the hook site is taken as one, as
+        // execute() takes it when the target has the symbol.
+        if (!symbolProcess_) return true;
+        const auto symbol = hookSiteSymbol(name);
+        if (!symbol.address && symbol.runtimeOnly && refused.empty())
+            refused = name + ": only the C library or the loader has this symbol; to patch it there, write define(hook," +
+                      name + ") and hook:";
+        return symbol.address != 0;
     });
+    if (!refused.empty()) { error = refused; return false; }
 
     if (!runScriptHooks(preprocessorHooks_, code, log, error, "preprocessor"))
         return false;
@@ -1987,6 +2078,7 @@ std::vector<AutoAssembler::Handover> AutoAssembler::planHandovers(DisableInfo& i
     for (auto live = std::next(self); live != livePatches_.end(); ++live) {
         if (live->pid != pid) continue;
         if (auto image = live->image.lock(); image && !image->check()) continue;
+        if (live->ranges.empty()) continue;   // holds no originals to restore
         if (auto owner = live->owner.lock()) newer.push_back({std::move(owner), &*live});
     }
     if (newer.empty()) return handovers;
@@ -2153,6 +2245,11 @@ AutoAsmResult AutoAssembler::cleanup(ProcessHandle& proc, const DisableInfo& sav
     }
     if (!handovers.empty()) result.log.push_back("Left bytes that a newer enabled script wrote over; it restores the originals");
     result.disableInfo.originals.clear(); result.disableInfo.protections.clear();
+    // Its bytes are restored and no longer saved: an older script disabled
+    // later must restore its own originals there, not hand them to this one
+    // (whose retry after a failed free restores nothing).
+    if (info.ownership)
+        std::erase_if(livePatches_, [&](const LivePatch& live) { return live.owner.lock() == info.ownership; });
     std::vector<DisableInfo::AllocEntry> pending;
     for (const auto& a : info.allocs) {
         if(a.released ? a.released->load() : cleanedAllocations_.contains({a.address,a.size})) continue;
@@ -2194,6 +2291,27 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
         result.disableInfo.image=*image;
     }
 
+    // A globalalloc block made in this address space. One assembler (the
+    // GUI's) outlives a game run: a block from an earlier run or another
+    // process is not shared, and a write at its addresses here is undone.
+    // Handles without a pinned image (remote, test doubles) match as before.
+    auto liveBlock = [&](const DisableInfo::AllocEntry& block) {
+        if (!block.image || !result.disableInfo.image) return block.image == result.disableInfo.image;
+        return block.image->identity() == result.disableInfo.image->identity();
+    };
+    // Blocks whose address space is gone (the game exited or ran exec) are
+    // forgotten, with the symbol their globalalloc registered.
+    for (auto name = globalAllocations_.begin(); name != globalAllocations_.end();) {
+        auto known = knownAllocations_.find(*name);
+        if (known == knownAllocations_.end() || !known->second.image || known->second.image->check()) { ++name; continue; }
+        if (auto symbol = globalSymbols_.find(*name); symbol != globalSymbols_.end() && symbol->second == known->second.address) {
+            globalSymbols_.erase(symbol);
+            symbolOwners_.erase(*name);
+        }
+        knownAllocations_.erase(known);
+        name = globalAllocations_.erase(name);
+    }
+
     // globalalloc blocks this run maps. A rollback frees them (with the rest
     // of its allocations) and forgets the name; a success keeps them.
     struct NewGlobalBlock { std::string name; uintptr_t address; std::optional<DisableInfo::AllocEntry> previous; bool wasGlobal; };
@@ -2223,10 +2341,11 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
     // Process symbols resolve only while this target is being assembled.
     struct SymbolScope {
         AutoAssembler& owner;
-        ~SymbolScope() { owner.symbolProcess_ = nullptr; owner.processSymbols_.reset(); }
+        ~SymbolScope() { owner.symbolProcess_ = nullptr; owner.processSymbols_.reset(); owner.hookSites_.clear(); }
     } symbolScope{*this};
     symbolProcess_ = &proc;
     processSymbols_.reset();
+    hookSites_.clear();
 
     // CE tables address memory as "module+offset". Resolve modules from this
     // target snapshot, separate from explicitly registered symbols. Seeding the
@@ -2297,7 +2416,7 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
             // (registered by another script) is freed when that script is disabled.
             if (globalAllocations_.contains(a.name) &&
                 symbol != globalSymbols_.end() && known != knownAllocations_.end() && known->second.address == symbol->second &&
-                known->second.size >= a.size) {
+                known->second.size >= a.size && liveBlock(known->second)) {
                 a.address = symbol->second;
                 result.log.push_back("GLOBALALLOC: " + a.name + " reuses its existing memory");
                 continue;
@@ -2446,7 +2565,7 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
     auto inGlobalBlock = [&](uintptr_t address, size_t size) {
         for (const auto& name : globalAllocations_) {
             auto known = knownAllocations_.find(name);
-            if (known != knownAllocations_.end() && address >= known->second.address &&
+            if (known != knownAllocations_.end() && liveBlock(known->second) && address >= known->second.address &&
                 address - known->second.address < known->second.size &&
                 size <= known->second.size - (address - known->second.address)) return true;
         }
@@ -3066,6 +3185,8 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
         for (const auto& a : allocs) if (a.address) result.disableInfo.scriptSymbols[a.name] = a.address;
         for (const auto& l : labels)
             if (l.address && !startsWith(l.name, "__anon_")) result.disableInfo.scriptSymbols[l.name] = l.address;
+        // [DISABLE] restores the function [ENABLE] hooked, by the same address.
+        for (const auto& [name, address] : hookSites_) result.disableInfo.scriptSymbols.emplace(name, address);
         if (!result.disableInfo.originals.empty()) {
             LivePatch live{result.disableInfo.ownership, result.disableInfo.image, proc.pid(), {}};
             for (const auto& patch : result.disableInfo.originals)
@@ -3094,7 +3215,7 @@ static bool hasSection(const std::string& script, const std::string& name) {
 }
 
 std::expected<void, std::string> AutoAssembler::runDisableSection(ProcessHandle& proc, const std::string& script,
-    const DisableInfo& info, DisableInfo& saved, std::vector<std::string>& log) {
+    const DisableInfo& info, DisableInfo& saved, std::vector<std::string>& log, std::string& sectionError) {
     // Nothing to run, or nothing it may touch: an undo already completed, or
     // an address space that is gone (cleanup discards that undo unwritten).
     if (script.empty() || !hasSection(script, "DISABLE")) return {};
@@ -3119,6 +3240,7 @@ std::expected<void, std::string> AutoAssembler::runDisableSection(ProcessHandle&
             return std::unexpected("[DISABLE] failed and its own writes could not be undone: " + section.error);
         // Its writes are undone; the saved bytes still restore the script.
         log.push_back("[DISABLE] failed, restoring the saved bytes instead: " + section.error);
+        sectionError = section.error;
         return {};
     }
     // What the section wrote is what the script leaves behind: the restore
@@ -3149,10 +3271,11 @@ AutoAsmResult AutoAssembler::disable(ProcessHandle& proc, const std::string& scr
     // the section did not write, frees the allocations and drops the symbols.
     // It runs once: a retried cleanup only restores.
     std::vector<std::string> log;
+    std::string sectionError;
     DisableInfo saved = info;
     saved.runDisableSection = false;
     if (info.runDisableSection) {
-        if (auto ran = runDisableSection(proc, script, info, saved, log); !ran) {
+        if (auto ran = runDisableSection(proc, script, info, saved, log, sectionError); !ran) {
             AutoAsmResult failed;
             failed.error = ran.error();
             failed.disableInfo = info;
@@ -3162,6 +3285,7 @@ AutoAsmResult AutoAssembler::disable(ProcessHandle& proc, const std::string& scr
     }
     auto result = cleanup(proc, saved);
     result.log.insert(result.log.begin(), log.begin(), log.end());
+    result.disableSectionError = std::move(sectionError);
     return result;
 }
 

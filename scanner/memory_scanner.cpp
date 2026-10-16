@@ -18,6 +18,7 @@
 #include <limits>
 #include <optional>
 #include <cstdlib>
+#include <csetjmp>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -194,6 +195,24 @@ std::vector<uint8_t> encodeStringBytes(const std::string& text, const std::strin
     return out;
 }
 
+// The code unit width of a UTF-16/UCS-2 (2) or UTF-32/UCS-4 (4) encoding name,
+// 1 for anything else. Exact names only: CP932 and ISO-8859-16 are byte
+// encodings although their names hold "32" and "16".
+static size_t encodingUnitWidth(const std::string& encoding) {
+    std::string upper = encoding;
+    for (auto& c : upper) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    // iconv also accepts these without the dash.
+    if (upper.starts_with("UTF") && !upper.starts_with("UTF-")) upper.insert(3, "-");
+    if (upper.starts_with("UCS") && !upper.starts_with("UCS-")) upper.insert(3, "-");
+    static constexpr std::string_view wide2[] = {"UTF-16", "UTF-16LE", "UTF-16BE", "UCS-2", "UCS-2LE", "UCS-2BE",
+                                                 "UCS-2-INTERNAL", "UCS-2-SWAPPED"};
+    static constexpr std::string_view wide4[] = {"UTF-32", "UTF-32LE", "UTF-32BE", "UCS-4", "UCS-4LE", "UCS-4BE",
+                                                 "UCS-4-INTERNAL", "UCS-4-SWAPPED"};
+    for (auto name : wide2) if (upper == name) return 2;
+    for (auto name : wide4) if (upper == name) return 4;
+    return 1;
+}
+
 std::string decodeStringBytes(const uint8_t* data, size_t len, const std::string& encoding) {
     // Inverse of encodeStringBytes: interpret `len` code-page bytes as UTF-8 text for
     // display. A UTF-8 (or empty) encoding is already UTF-8; an unavailable charset
@@ -209,10 +228,7 @@ std::string decodeStringBytes(const uint8_t* data, size_t len, const std::string
     size_t inLeft = len;
     // A bad code unit is skipped whole: skipping one byte of a UTF-16 unit
     // would misalign every character after it.
-    std::string upper = encoding;
-    for (auto& c : upper) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-    const size_t unit = upper.find("32") != std::string::npos || upper.find("UCS-4") != std::string::npos ? 4
-                      : upper.find("16") != std::string::npos || upper.find("UCS-2") != std::string::npos ? 2 : 1;
+    const size_t unit = encodingUnitWidth(encoding);
     std::string out(len * 4 + 8, '\0');
     char* outPtr = out.data();
     size_t outLeft = out.size();
@@ -1320,16 +1336,21 @@ bool memoryTypeAllowed(const ScanConfig& config, MemType type) {
 // (or per worker thread, since lua_State is not thread-safe) and compiles the
 // formula once into a reusable chunk. Each candidate only resets the
 // current/old/hasOld/valueSize globals and re-calls the precompiled function.
-// Only base/math/string libraries are loaded — a numeric match predicate has
+// Only base/math/string libraries are loaded: a numeric match predicate has
 // no need for os/io (which would also be a sandbox-escape vector).
+//
+// The state has a 16 MiB budget, so any allocation can fail. Lua raises that
+// as an error, and an error outside a protected call goes to the panic
+// handler, after which Lua calls abort(). So every API call that can allocate
+// runs inside lua_pcall (the values travel as a light userdata argument,
+// which allocates nothing), and the panic handler jumps back here instead of
+// returning. A state that ran out of memory or panicked is rebuilt.
 class CustomFormulaEvaluator {
 public:
     explicit CustomFormulaEvaluator(std::string formula)
         : formula_(std::move(formula)) {}
 
-    ~CustomFormulaEvaluator() {
-        if (L_) lua_close(L_);
-    }
+    ~CustomFormulaEvaluator() { closeState(); }
 
     CustomFormulaEvaluator(const CustomFormulaEvaluator&) = delete;
     CustomFormulaEvaluator& operator=(const CustomFormulaEvaluator&) = delete;
@@ -1344,57 +1365,139 @@ public:
             return false;
         if (!ensureCompiled())
             return false;
-
-        lua_pushlstring(L_, reinterpret_cast<const char*>(currentVal), valueSize);
-        lua_setglobal(L_, "current");
-        lua_pushlstring(L_, reinterpret_cast<const char*>(oldVal), valueSize);
-        lua_setglobal(L_, "old");
-        lua_pushboolean(L_, hasOld ? 1 : 0);
-        lua_setglobal(L_, "hasOld");
-        lua_pushinteger(L_, static_cast<lua_Integer>(valueSize));
-        lua_setglobal(L_, "valueSize");
-
-        // Push a fresh copy of the precompiled chunk (registry ref) to call.
-        lua_rawgeti(L_, LUA_REGISTRYINDEX, chunkRef_);
-        // A runaway formula (a loop that never ends) fails this candidate
-        // instead of hanging the scan. Setting the hook restarts its count.
-        lua_sandbox::armInstructionBudget(L_, 1000000);
-        bool ok = false;
-        if (lua_pcall(L_, 0, 1, 0) == LUA_OK) {
-            if (lua_isboolean(L_, -1)) {
-                matchOut = lua_toboolean(L_, -1) != 0;
-                ok = true;
-            } else if (lua_isnumber(L_, -1)) {
-                matchOut = lua_tonumber(L_, -1) != 0.0;
-                ok = true;
-            }
-        }
-        lua_pop(L_, 1); // result or error message
-        return ok;
+        EvalCall call{currentVal, oldVal, valueSize, hasOld, chunkRef_};
+        const int status = runProtected(&evalBody, &call);
+        if (status == LUA_ERRMEM || status == kPanicked)
+            closeState(status == kPanicked);   // the next candidate starts from a fresh state
+        if (status != LUA_OK || !call.ok)
+            return false;
+        matchOut = call.match;
+        return true;
     }
 
 private:
+    static constexpr int kPanicked = -1;
+
+    struct EvalCall {
+        const uint8_t* current;
+        const uint8_t* old;
+        size_t size;
+        bool hasOld;
+        int chunkRef;
+        bool ok = false;
+        bool match = false;
+    };
+
+    struct SetupCall {
+        const std::string* formula;
+        int chunkRef = LUA_NOREF;
+        bool compiled = false;
+    };
+
+    static int evalBody(lua_State* L) {
+        auto* call = static_cast<EvalCall*>(lua_touserdata(L, 1));
+        lua_pushlstring(L, reinterpret_cast<const char*>(call->current), call->size);
+        lua_setglobal(L, "current");
+        lua_pushlstring(L, reinterpret_cast<const char*>(call->old), call->size);
+        lua_setglobal(L, "old");
+        lua_pushboolean(L, call->hasOld ? 1 : 0);
+        lua_setglobal(L, "hasOld");
+        lua_pushinteger(L, static_cast<lua_Integer>(call->size));
+        lua_setglobal(L, "valueSize");
+        lua_rawgeti(L, LUA_REGISTRYINDEX, call->chunkRef);
+        // A runaway formula (a loop that never ends) fails this candidate
+        // instead of hanging the scan. Setting the hook restarts its count.
+        lua_sandbox::armInstructionBudget(L, 1000000);
+        lua_call(L, 0, 1);
+        if (lua_isboolean(L, -1)) {
+            call->match = lua_toboolean(L, -1) != 0;
+            call->ok = true;
+        } else if (lua_isnumber(L, -1)) {
+            call->match = lua_tonumber(L, -1) != 0.0;
+            call->ok = true;
+        }
+        return 0;
+    }
+
+    static int setupBody(lua_State* L) {
+        auto* call = static_cast<SetupCall*>(lua_touserdata(L, 1));
+        // Restricted library set: arithmetic only, no os/io.
+        luaL_requiref(L, "_G", luaopen_base, 1);   lua_pop(L, 1);
+        luaL_requiref(L, "math", luaopen_math, 1);  lua_pop(L, 1);
+        luaL_requiref(L, "string", luaopen_string, 1); lua_pop(L, 1);
+        // No loading files or code, and nothing that escapes the limits.
+        lua_sandbox::restrictLibraries(L);
+        const int loaded = luaL_loadstring(L, call->formula->c_str());
+        if (loaded == LUA_ERRMEM) return lua_error(L);   // retried on a later candidate
+        if (loaded != LUA_OK) return 0;                  // a syntax error: never matches
+        call->chunkRef = luaL_ref(L, LUA_REGISTRYINDEX);
+        call->compiled = true;
+        return 0;
+    }
+
+    // Never returns to Lua, so Lua never reaches its abort(). Every call on
+    // the state, lua_close included, runs armed, so the jump always has a
+    // target; the exit only keeps this function from returning.
+    static int panic(lua_State* L) {
+        auto* self = *static_cast<CustomFormulaEvaluator**>(lua_getextraspace(L));
+        if (self && self->panicArmed_) std::longjmp(self->panicJump_, 1);
+        std::_Exit(70);
+    }
+
+    // Calls body(ud) under lua_pcall. Nothing between the setjmp and the
+    // longjmp in panic() has a destructor to skip: only Lua's C frames.
+    int runProtected(lua_CFunction body, void* ud) {
+        if (setjmp(panicJump_) != 0) {
+            panicArmed_ = false;
+            return kPanicked;
+        }
+        panicArmed_ = true;
+        lua_pushcfunction(L_, body);   // a light C function: no allocation
+        lua_pushlightuserdata(L_, ud);
+        const int status = lua_pcall(L_, 1, 0, 0);
+        lua_settop(L_, 0);             // the error object, if any
+        panicArmed_ = false;
+        return status;
+    }
+
     bool ensureCompiled() {
         if (compiled_)
             return chunkRef_ != LUA_NOREF;
-        compiled_ = true;
-        L_ = lua_newstate(lua_sandbox::budgetAlloc, &memory_);
-        if (!L_)
-            return false;
-        // Restricted library set: arithmetic only, no os/io.
-        luaL_requiref(L_, "_G", luaopen_base, 1);   lua_pop(L_, 1);
-        luaL_requiref(L_, "math", luaopen_math, 1);  lua_pop(L_, 1);
-        luaL_requiref(L_, "string", luaopen_string, 1); lua_pop(L_, 1);
-        // No loading files or code, and nothing that escapes the limits.
-        lua_sandbox::restrictLibraries(L_);
-
-        if (luaL_loadstring(L_, formula_.c_str()) != LUA_OK) {
-            lua_pop(L_, 1);
-            chunkRef_ = LUA_NOREF;
+        if (!L_) {
+            memory_.used = 0;
+            L_ = lua_newstate(lua_sandbox::budgetAlloc, &memory_);   // protected inside
+            if (!L_)
+                return false;
+            *static_cast<CustomFormulaEvaluator**>(lua_getextraspace(L_)) = this;
+            lua_atpanic(L_, &panic);
+        }
+        SetupCall call{&formula_};
+        const int status = runProtected(&setupBody, &call);
+        if (status != LUA_OK) {
+            // A fresh state that cannot hold the libraries and this formula
+            // never will: stop trying instead of rebuilding per candidate.
+            closeState(status == kPanicked);
+            compiled_ = true;
             return false;
         }
-        chunkRef_ = luaL_ref(L_, LUA_REGISTRYINDEX);
+        compiled_ = true;
+        chunkRef_ = call.compiled ? call.chunkRef : LUA_NOREF;
         return chunkRef_ != LUA_NOREF;
+    }
+
+    // A state left by a panic may be inconsistent, so it is abandoned rather
+    // than closed (it holds at most the 16 MiB budget).
+    void closeState(bool abandon = false) {
+        if (L_ && !abandon) {
+            if (setjmp(panicJump_) == 0) {
+                panicArmed_ = true;
+                lua_close(L_);
+            }
+            panicArmed_ = false;
+        }
+        L_ = nullptr;
+        chunkRef_ = LUA_NOREF;
+        compiled_ = false;
     }
 
     std::string formula_;
@@ -1402,6 +1505,8 @@ private:
     lua_State* L_ = nullptr;
     int chunkRef_ = LUA_NOREF;
     bool compiled_ = false;
+    bool panicArmed_ = false;
+    std::jmp_buf panicJump_;
 };
 
 } // anonymous namespace
@@ -2389,13 +2494,40 @@ MemoryScanner::MemoryScanner(int threadCount)
     if (threadCount_ < 1) threadCount_ = 1;
 }
 
-// Scan directories are named ce-scan-<pid>-XXXXXX. Remove the ones whose
-// process is gone (a crash or kill skipped their cleanup), and kept ones (see
-// ScanResult::keepFiles) once they are a week old.
-static void pruneStaleScanDirs(const std::filesystem::path& root) {
+// This host's name as it goes into a scan directory name: a home directory on
+// NFS is shared between machines, and a pid means something only on its own.
+static const std::string& scanHostTag() {
+    static const std::string tag = [] {
+        char name[256] = {};
+        std::string text = ::gethostname(name, sizeof(name) - 1) == 0 ? name : "";
+        for (auto& c : text)
+            if (!std::isalnum(static_cast<unsigned char>(c)) && c != '.' && c != '_') c = '_';
+        return text.empty() ? std::string("localhost") : text;
+    }();
+    return tag;
+}
+
+// Scan directories are named ce-scan-<host>-<pid>-XXXXXX. Remove this host's
+// whose process is gone (a crash or kill skipped their cleanup), and kept ones
+// (see ScanResult::keepFiles) once they are a week old. Another host's
+// directories are left alone: its pids cannot be checked from here. The
+// ce-scan-<pid>-XXXXXX directories of earlier versions name no host, so they
+// are only removed once a week old.
+void pruneStaleScanDirectories(const std::filesystem::path& root) {
     namespace fs = std::filesystem;
     std::error_code ec;
     const auto weekAgo = fs::file_time_type::clock::now() - std::chrono::hours(24 * 7);
+    const std::string ours = "ce-scan-" + scanHostTag() + "-";
+    // "<digits>-" and six more characters, as mkdtemp leaves them.
+    auto pidOf = [](const std::string& rest) -> long {
+        const char* digits = rest.c_str();
+        char* after = nullptr;
+        const long pid = std::strtol(digits, &after, 10);
+        if (after == digits || !std::isdigit(static_cast<unsigned char>(*digits)) || *after != '-' ||
+            std::strlen(after + 1) != 6 || pid <= 0)
+            return 0;
+        return pid;
+    };
     for (fs::directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
         const std::string name = it->path().filename().string();
         if (!name.starts_with("ce-scan-") || !it->is_directory(ec)) continue;
@@ -2405,11 +2537,15 @@ static void pruneStaleScanDirs(const std::filesystem::path& root) {
             if (!ignored && written < weekAgo) fs::remove_all(it->path(), ignored);
             continue;
         }
-        const char* digits = name.c_str() + 8;
-        char* after = nullptr;
-        const long pid = std::strtol(digits, &after, 10);
-        if (after == digits || *after != '-' || pid <= 0) continue;
-        if (::kill(static_cast<pid_t>(pid), 0) != 0 && errno == ESRCH) fs::remove_all(it->path(), ignored);
+        if (name.starts_with(ours)) {
+            const long pid = pidOf(name.substr(ours.size()));
+            if (pid > 0 && ::kill(static_cast<pid_t>(pid), 0) != 0 && errno == ESRCH) fs::remove_all(it->path(), ignored);
+            continue;
+        }
+        if (pidOf(name.substr(8)) > 0) {   // the old naming, with no host
+            const auto written = fs::last_write_time(it->path(), ignored);
+            if (!ignored && written < weekAgo) fs::remove_all(it->path(), ignored);
+        }
     }
 }
 
@@ -2440,12 +2576,13 @@ static std::filesystem::path scanRoot() {
         }
         if (root.empty()) root = fs::temp_directory_path();
     }
-    std::call_once(pruned, [&] { pruneStaleScanDirs(root); });
+    std::call_once(pruned, [&] { pruneStaleScanDirectories(root); });
     return root;
 }
 
 static std::filesystem::path makeScanDir() {
-    std::string pattern = (scanRoot() / ("ce-scan-" + std::to_string(::getpid()) + "-XXXXXX")).string();
+    std::string pattern =
+        (scanRoot() / ("ce-scan-" + scanHostTag() + "-" + std::to_string(::getpid()) + "-XXXXXX")).string();
     if (!mkdtemp(pattern.data()))
         throw std::system_error(errno, std::generic_category(), "create scan directory");
     return pattern;

@@ -70,6 +70,9 @@ struct AutoAsmResult {
     std::string error;
     DisableInfo disableInfo;
     std::vector<std::string> log; // Execution log messages
+    // disable(): the [DISABLE] section failed and its writes were undone, so
+    // the saved bytes restored the script instead (success stays true).
+    std::string disableSectionError;
 };
 
 /// The auto-assembler engine.
@@ -185,6 +188,11 @@ private:
     ProcessHandle* symbolProcess_ = nullptr;
     mutable std::shared_ptr<SymbolResolver> processSymbols_;
     uintptr_t processSymbol(const std::string& name) const;
+    // Undeclared "name:" hook sites resolved in this run: the main module's
+    // symbol first, never the C runtime's. runtimeOnly: only libc or ld has it.
+    struct HookSiteSymbol { uintptr_t address = 0; bool runtimeOnly = false; };
+    HookSiteSymbol hookSiteSymbol(const std::string& name);
+    std::unordered_map<std::string, uintptr_t> hookSites_;
     std::unordered_map<std::string,std::weak_ptr<DisableInfo::Ownership>> symbolOwners_;
     std::unordered_map<std::string, DisableInfo::AllocEntry> knownAllocations_;
     std::unordered_set<std::string> globalAllocations_;   // names of globalalloc memory
@@ -212,7 +220,7 @@ private:
     /// writes are kept unless it fails.
     AutoAsmResult run(ProcessHandle& proc, std::string code, const DisableInfo* undo);
     std::expected<void, std::string> runDisableSection(ProcessHandle& proc, const std::string& script,
-        const DisableInfo& info, DisableInfo& saved, std::vector<std::string>& log);
+        const DisableInfo& info, DisableInfo& saved, std::vector<std::string>& log, std::string& sectionError);
 
     // Scripts enabled through this assembler whose writes are not undone yet,
     // oldest first. Disabling one hands its original bytes under a newer

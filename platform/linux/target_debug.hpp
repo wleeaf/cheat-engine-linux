@@ -56,9 +56,15 @@ Result<void> removeNativeSoftwareBreakpoint(pid_t tid, NativeSoftwareBreakpoint&
 /// remote writes (POKETEXT, /proc/pid/mem) refuse. The target keeps the
 /// backing file open, so its descriptor is reopened through /proc/PID/fd
 /// (same ptrace access check) and written at the mapping's file offset; both
-/// views share the page. Fails if the range is not such a mapping or no open
-/// descriptor of that file exists.
+/// views share the page. Fails if the range is not such a mapping, no view of
+/// that file is executable, or no open descriptor of that file exists. On
+/// ARM64 the instruction cache is made coherent for the written range.
 Result<void> writeSharedMappingBacking(pid_t pid, uintptr_t address, std::span<const uint8_t> bytes);
+/// The errors with which a forced code write reports that the page refused it
+/// (EIO from /proc/PID/mem, EFAULT, EPERM, EACCES), the only ones after which
+/// writeSharedMappingBacking may be tried. Busy or unrecoverable native-call
+/// state is never one of them and must reach the caller.
+bool sharedMappingWriteRefused(const Error& error);
 uintptr_t nativeSoftwareBreakpointAddress(const CpuContext& context);
 
 // A failed update restores and verifies the previous slot before returning the

@@ -47,7 +47,7 @@ def main():
         if result.returncode or "FAILED:" in result.stdout or not summary:
             raise RuntimeError("required real CEServer checks failed")
         report["checks"] = int(summary.group(1))
-        if report["checks"] != 158 or result.stdout.count("CESERVER_PROFILE width=8") != 1 or result.stdout.count("CESERVER_PROFILE width=4") != 1:
+        if report["checks"] != 161 or result.stdout.count("CESERVER_PROFILE width=8") != 1 or result.stdout.count("CESERVER_PROFILE width=4") != 1:
             raise RuntimeError("required 32/64-bit CEServer profiles were not both exercised")
         if set(re.findall(r"CESERVER_MALFORMED mode=(\d+)", result.stdout)) != {str(i) for i in range(9)}:
             raise RuntimeError("required independent malformed-reply profiles were not all exercised")

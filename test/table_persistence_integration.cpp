@@ -8,6 +8,7 @@
 #include <fstream>
 #include <signal.h>
 #include <sys/resource.h>
+#include <sys/stat.h>
 #include <unistd.h>
 using namespace ce;
 static unsigned checks,failures;
@@ -196,6 +197,64 @@ int main() {
         CheatTable back;
         check(error.empty() && detectTableFormat(path)==TableFormat::Xml && back.load(path) && back.entries.size()==1,
             "Lua saveTable writes Cheat Engine XML to a .CT name");
+    }
+    {
+        CheatTable t;
+        t.loadFromString(ceTable(
+            "<CheatEntry><ID>1</ID><Description>\"a\"</Description><VariableType>4 Bytes</VariableType><Address>400000</Address>"
+            "<Hotkeys><Hotkey><Action>Activate</Action><Keys><Key>117</Key></Keys><ID>0</ID></Hotkey>"
+            "<Hotkey><Action>Deactivate</Action><Keys><Key>118</Key></Keys><ID>1</ID></Hotkey></Hotkeys></CheatEntry>\n"
+            "<CheatEntry><ID>2</ID><Description>\"b\"</Description><VariableType>4 Bytes</VariableType><Address>400004</Address>"
+            "<Hotkeys><Hotkey><Action>Activate</Action><Keys><Key>117</Key></Keys><ID>0</ID></Hotkey>"
+            "<Hotkey><Action>Toggle Activation</Action><Keys><Key>17</Key><Key>72</Key></Keys><ID>1</ID></Hotkey></Hotkeys></CheatEntry>\n"
+            "<CheatEntry><ID>3</ID><Description>\"c\"</Description><VariableType>4 Bytes</VariableType><Address>400008</Address>"
+            "<Hotkeys><Hotkey><Action>Increase Value</Action><Keys><Key>120</Key></Keys><Value>2</Value><ID>0</ID></Hotkey>"
+            "<Hotkey><Action>Decrease Value</Action><Keys><Key>119</Key></Keys><Value>5</Value><ID>1</ID></Hotkey></Hotkeys></CheatEntry>\n"));
+        check(t.entries.size()==3 && t.entries[0].hotkeyKeys=="F6" && has(t.entries[0].extraHotkeysXml,"<Action>Deactivate</Action>") &&
+            t.entries[1].hotkeyKeys=="Ctrl+H" && has(t.entries[1].extraHotkeysXml,"<Action>Activate</Action>"),
+            "an Activate hotkey fills the toggle slot when no plain toggle does");
+        check(t.entries.size()==3 && t.entries[2].increaseHotkeyKeys=="F9" && t.entries[2].decreaseHotkeyKeys=="F8" &&
+            t.entries[2].hotkeyStep=="2" && t.entries[2].extraHotkeysXml.empty(),
+            "increase and decrease hotkeys with different steps both bind, with the first step");
+    }
+    {
+        // Saving keeps what an ordinary save keeps: a read-only table stays
+        // untouched, links and hard links stay, and an unwritable directory
+        // still lets a writable table be saved.
+        const bool root=geteuid()==0;
+        const auto readOnly=directory/"readonly.ct";
+        table.save(readOnly.string());
+        const auto before=readFile(readOnly);
+        chmod(readOnly.c_str(),0444);
+        CheatTable changed=table;changed.gameName="changed";
+        check(root || (!changed.save(readOnly.string()) && readFile(readOnly)==before),"a read-only table is not replaced");
+        chmod(readOnly.c_str(),0644);
+
+        const auto linked=directory/"linked.ct",second=directory/"second-name.ct";
+        table.save(linked.string());
+        std::filesystem::create_hard_link(linked,second);
+        struct stat a{},b{};
+        check(changed.save(linked.string()) && has(readFile(second),"changed") && stat(linked.c_str(),&a)==0 &&
+            stat(second.c_str(),&b)==0 && a.st_ino==b.st_ino,"a save keeps a table's hard links");
+
+        const auto real=directory/"real.ct",link=directory/"link.ct",dangling=directory/"dangling.ct";
+        table.save(real.string());
+        std::filesystem::create_symlink("real.ct",link);
+        std::filesystem::create_symlink("missing/none.ct",dangling);
+        check(changed.save(link.string()) && std::filesystem::is_symlink(link) && has(readFile(real),"changed") &&
+            !changed.save(dangling.string()) && std::filesystem::is_symlink(dangling),
+            "a save writes through a symlink that resolves and refuses a dangling one");
+
+        const auto locked=directory/"locked";
+        std::filesystem::create_directory(locked);
+        table.save((locked/"t.ct").string());
+        chmod(locked.c_str(),0555);
+        bool savedLocked=changed.save((locked/"t.ct").string()) && has(readFile(locked/"t.ct"),"changed");
+        size_t names=0;for (const auto& entry:std::filesystem::directory_iterator(locked)) {(void)entry;++names;}
+        chmod(locked.c_str(),0755);
+        check(savedLocked && names==1,"a writable table in an unwritable directory is saved in place");
+        std::filesystem::remove_all(locked);
+        for (const auto& path:{readOnly,linked,second,real,link,dangling}) std::filesystem::remove(path);
     }
     table.save((directory/"keep.ct").string());
     rlimit previous{};struct sigaction ignored{},oldAction{};ignored.sa_handler=SIG_IGN;sigemptyset(&ignored.sa_mask);

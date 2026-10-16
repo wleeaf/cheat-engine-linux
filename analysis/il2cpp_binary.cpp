@@ -1,4 +1,5 @@
 #include "analysis/il2cpp_binary.hpp"
+#include "core/module_files.hpp"
 #include "core/regular_file.hpp"
 #include "core/ns_attach.hpp"
 
@@ -587,6 +588,8 @@ std::string findGameAssemblyPath(const std::vector<std::string>& mappedPaths) {
 Il2CppBinaryLayout resolveIl2CppForProcess(ProcessHandle& proc) {
     namespace fs = std::filesystem;
     Il2CppBinaryLayout out;
+    // The metadata and GameAssembly paths of a remote target name its files.
+    if (!moduleFilesAreLocal(proc)) { out.error = kRemoteModuleFilesError; return out; }
 
     // Make backing-file paths host-openable for sandboxed targets (Flatpak, and
     // Steam Proton's pressure-vessel bwrap): global-metadata.dat is a data file so it

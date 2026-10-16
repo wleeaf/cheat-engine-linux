@@ -63,7 +63,10 @@ and disassembling work, while writing values, freezing, enabling and
 disabling scripts, and `find_accessed_addresses` (which puts a breakpoint in
 the game's code) are refused. Turning writes off ends any freeze. Scripts
 checked or enabled by the agent cannot load libraries or binaries, include
-local files, start threads or compile C code. The server only talks to the
+local files, start threads or compile C code; both their [ENABLE] and
+[DISABLE] sections are dry-run first. When the session ends or the agent
+attaches elsewhere, its scripts are undone by restoring the saved bytes, not by
+running their [DISABLE] sections. The server only talks to the
 client that started it; it opens no network port.
 
 ### Tools

@@ -3,6 +3,7 @@
 #include "symbols/elf_symbols.hpp"
 #include "platform/linux/target_syscall.hpp"
 #include "analysis/pe_exports.hpp"
+#include "core/module_files.hpp"
 #include "core/regular_file.hpp"
 
 #include <cerrno>
@@ -55,17 +56,13 @@ static constexpr unsigned char kHostElfData = ELFDATA2LSB;
 void SymbolResolver::loadProcess(ProcessHandle& proc) {
     clear();
     const auto description = proc.targetDescription();
-    // Module paths of a ceserver or GDB target name files on the remote
-    // system. A local file at the same path is a different binary.
-    if (description.transport == TargetTransport::CEServer || description.transport == TargetTransport::Gdb)
-        return;
-    std::string root;
-    if (description.transport == TargetTransport::Local) {
-        if (!description.live || proc.pid() <= 0) return;
-        auto task=os::processMemoryTask(proc.pid());
-        if (!task) return;
-        root = "/proc/" + std::to_string(*task) + "/root";
-    }
+    // Module paths of a remote target name files on the remote system; a
+    // local file at the same path is a different binary.
+    if (!moduleFilesAreLocal(proc)) return;
+    if (!description.live || proc.pid() <= 0) return;
+    auto task=os::processMemoryTask(proc.pid());
+    if (!task) return;
+    const std::string root = "/proc/" + std::to_string(*task) + "/root";
     auto modules = proc.modules();
     for (auto& m : modules) {
         if (m.path.empty() || m.path[0] != '/') continue;
@@ -73,25 +70,23 @@ void SymbolResolver::loadProcess(ProcessHandle& proc) {
         // directory is private to the target. Keep that filesystem context even
         // when the ordinary module-file resolver can use the raw host pathname.
         auto path = m.path;
-        if (!root.empty() && path != root && !path.starts_with(root + "/"))
+        if (path != root && !path.starts_with(root + "/"))
             path = root + path;
         std::error_code ec;
         if (!std::filesystem::exists(path, ec)) continue;
         loadModule(path, m.name, m.base);
     }
-    if (!root.empty()) {
-        // The runtime names its map with the PID it sees, which differs from
-        // the host PID inside a container's PID namespace.
-        std::string pid = std::to_string(proc.pid());
-        std::ifstream status("/proc/" + std::to_string(proc.pid()) + "/status");
-        for (std::string line; std::getline(status, line);)
-            if (line.starts_with("NSpid:")) {
-                std::istringstream ids(line.substr(6));
-                for (std::string id; ids >> id;) pid = id;
-                break;
-            }
-        loadPerfMap(root + "/tmp/perf-" + pid + ".map");
-    }
+    // The runtime names its map with the PID it sees, which differs from the
+    // host PID inside a container's PID namespace.
+    std::string pid = std::to_string(proc.pid());
+    std::ifstream status("/proc/" + std::to_string(proc.pid()) + "/status");
+    for (std::string line; std::getline(status, line);)
+        if (line.starts_with("NSpid:")) {
+            std::istringstream ids(line.substr(6));
+            for (std::string id; ids >> id;) pid = id;
+            break;
+        }
+    loadPerfMap(root + "/tmp/perf-" + pid + ".map");
 }
 
 // JIT runtimes describe generated code in /tmp/perf-<pid>.map, one

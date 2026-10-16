@@ -1,6 +1,7 @@
 #include "gui/monodissector.hpp"
 #include "gui/theme.hpp"
 #include "analysis/il2cpp_binary.hpp"
+#include "core/module_files.hpp"
 
 #include <QApplication>
 #include <QHeaderView>
@@ -183,6 +184,12 @@ void MonoDissectorWindow::setDissection(const ce::MonoDissection& d) {
 
 void MonoDissectorWindow::runDissect() {
     if (!proc_) { status_->setText("No target process."); return; }
+    // Both paths read this machine's files: the IL2CPP metadata and
+    // GameAssembly, or the Mono agent loaded into the target.
+    if (!ce::moduleFilesAreLocal(*proc_)) {
+        status_->setText(QString::fromUtf8(ce::kRemoteModuleFilesError));
+        return;
+    }
     // Only Mono is queryable in-process; report IL2CPP / non-managed distinctly.
     switch (ce::detectManagedKind(*proc_)) {
         case ce::ManagedKind::Il2Cpp: {

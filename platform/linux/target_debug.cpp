@@ -11,6 +11,8 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
 #include <unistd.h>
@@ -465,58 +467,114 @@ Result<long> readCodeWord(pid_t tid,uintptr_t address) {
 }
 }  // namespace
 
+bool sharedMappingWriteRefused(const Error& error) {
+    return error==std::errc::bad_address || error==std::errc::operation_not_permitted ||
+           error==std::errc::permission_denied || error==std::errc::io_error;
+}
+
 Result<void> writeSharedMappingBacking(pid_t pid,uintptr_t address,std::span<const uint8_t> bytes) {
     if (bytes.empty() || bytes.size()-1>UINTPTR_MAX-address) return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+    struct View { uintptr_t start=0,end=0; std::string perms,device; unsigned long long offset=0,inode=0; };
+    std::vector<View> views;
     std::ifstream maps("/proc/"+std::to_string(pid)+"/maps");
     for (std::string line; std::getline(maps,line);) {
         // start-end perms offset major:minor inode [path]
         std::istringstream fields(line);
-        std::string range,perms,offsetText,device;unsigned long long inode=0;
-        if (!(fields>>range>>perms>>offsetText>>device>>inode) || perms.size()<4) continue;
-        const auto dash=range.find('-'),colon=device.find(':');
-        if (dash==std::string::npos || colon==std::string::npos) continue;
-        const uintptr_t start=std::stoull(range.substr(0,dash),nullptr,16),end=std::stoull(range.substr(dash+1),nullptr,16);
-        if (address<start || address>=end) continue;
-        if (address+bytes.size()>end || perms[3]!='s' || perms[1]=='w' || !inode)
-            return std::unexpected(std::make_error_code(std::errc::operation_not_supported));
-        const dev_t dev=makedev(std::stoul(device.substr(0,colon),nullptr,16),std::stoul(device.substr(colon+1),nullptr,16));
-        const off_t fileOffset=static_cast<off_t>(std::stoull(offsetText,nullptr,16)+(address-start));
-        const std::string fds="/proc/"+std::to_string(pid)+"/fd";
-        DIR* directory=opendir(fds.c_str());
-        if (!directory) return std::unexpected(std::error_code(errno,std::system_category()));
-        int writable=-1;
-        while (auto* entry=readdir(directory)) {
-            if (entry->d_name[0]=='.') continue;
-            const std::string path=fds+"/"+entry->d_name;
-            struct stat info{};
-            if (stat(path.c_str(),&info)<0 || info.st_dev!=dev || info.st_ino!=inode) continue;
-            // Only a JIT's own double mapping: shared memory (memfd, /dev/shm)
-            // that the target itself holds open for writing. A read-only
-            // shared mapping of a regular file (an asset pack, an SQLite
-            // database) must never have an edit or a freeze land in the file.
-            struct statfs fs{};
-            if (statfs(path.c_str(),&fs)<0 || (fs.f_type!=TMPFS_MAGIC && fs.f_type!=HUGETLBFS_MAGIC)) continue;
-            std::ifstream fdinfo("/proc/"+std::to_string(pid)+"/fdinfo/"+entry->d_name);
-            unsigned long flags=0; bool haveFlags=false;
-            for (std::string field; std::getline(fdinfo,field);)
-                if (field.rfind("flags:",0)==0) { flags=std::stoul(field.substr(6),nullptr,8); haveFlags=true; break; }
-            if (!haveFlags || (flags&O_ACCMODE)==O_RDONLY) continue;
-            writable=open(path.c_str(),O_WRONLY|O_CLOEXEC);
-            if (writable>=0) break;
-        }
-        closedir(directory);
-        if (writable<0) return std::unexpected(std::make_error_code(std::errc::operation_not_supported));
-        size_t done=0;
-        while (done<bytes.size()) {
-            const auto n=pwrite(writable,bytes.data()+done,bytes.size()-done,fileOffset+static_cast<off_t>(done));
-            if (n<0 && errno==EINTR) continue;
-            if (n<=0) {const int error=n<0 ? errno : EIO;close(writable);return std::unexpected(std::error_code(error,std::system_category()));}
-            done+=static_cast<size_t>(n);
-        }
-        close(writable);
-        return {};
+        View view;std::string range,offsetText;
+        if (!(fields>>range>>view.perms>>offsetText>>view.device>>view.inode) || view.perms.size()<4) continue;
+        const auto dash=range.find('-');
+        if (dash==std::string::npos || view.device.find(':')==std::string::npos) continue;
+        view.start=std::stoull(range.substr(0,dash),nullptr,16);view.end=std::stoull(range.substr(dash+1),nullptr,16);
+        view.offset=std::stoull(offsetText,nullptr,16);
+        views.push_back(std::move(view));
     }
-    return std::unexpected(std::make_error_code(std::errc::bad_address));
+    const auto found=std::find_if(views.begin(),views.end(),[&](const View& v) {return address>=v.start && address<v.end;});
+    if (found==views.end()) return std::unexpected(std::make_error_code(std::errc::bad_address));
+    const View& view=*found;
+    if (bytes.size()>view.end-address || view.perms[3]!='s' || view.perms[1]=='w' || !view.inode)
+        return std::unexpected(std::make_error_code(std::errc::operation_not_supported));
+    // Only code: this view or another view of the same file is executable.
+    // Read-only shared memory that never runs (a game's IPC or asset buffer)
+    // keeps refusing writes even when the target holds it open for writing.
+    if (std::none_of(views.begin(),views.end(),[&](const View& v) {
+            return v.perms[2]=='x' && v.inode==view.inode && v.device==view.device;}))
+        return std::unexpected(std::make_error_code(std::errc::operation_not_supported));
+    const auto colon=view.device.find(':');
+    const dev_t dev=makedev(std::stoul(view.device.substr(0,colon),nullptr,16),std::stoul(view.device.substr(colon+1),nullptr,16));
+    const off_t fileOffset=static_cast<off_t>(view.offset+(address-view.start));
+    const unsigned long long inode=view.inode;
+    const std::string fds="/proc/"+std::to_string(pid)+"/fd";
+    DIR* directory=opendir(fds.c_str());
+    if (!directory) return std::unexpected(std::error_code(errno,std::system_category()));
+    int writable=-1;
+    size_t block=0;
+    while (auto* entry=readdir(directory)) {
+        if (entry->d_name[0]=='.') continue;
+        const std::string path=fds+"/"+entry->d_name;
+        struct stat info{};
+        if (stat(path.c_str(),&info)<0 || info.st_dev!=dev || info.st_ino!=inode) continue;
+        // Only a JIT's own double mapping: shared memory (memfd, /dev/shm)
+        // that the target itself holds open for writing. A read-only
+        // shared mapping of a regular file (an asset pack, an SQLite
+        // database) must never have an edit or a freeze land in the file.
+        struct statfs fs{};
+        if (statfs(path.c_str(),&fs)<0 || (fs.f_type!=TMPFS_MAGIC && fs.f_type!=HUGETLBFS_MAGIC)) continue;
+        std::ifstream fdinfo("/proc/"+std::to_string(pid)+"/fdinfo/"+entry->d_name);
+        unsigned long flags=0; bool haveFlags=false;
+        for (std::string field; std::getline(fdinfo,field);)
+            if (field.rfind("flags:",0)==0) { flags=std::stoul(field.substr(6),nullptr,8); haveFlags=true; break; }
+        if (!haveFlags || (flags&O_ACCMODE)==O_RDONLY) continue;
+#if defined(__aarch64__)
+        // Readable too: the page is mapped here for cache maintenance.
+        writable=open(path.c_str(),O_RDWR|O_CLOEXEC);
+#else
+        writable=open(path.c_str(),O_WRONLY|O_CLOEXEC);
+#endif
+        if (writable>=0) { block=fs.f_bsize>0 ? static_cast<size_t>(fs.f_bsize) : 0; break; }
+    }
+    closedir(directory);
+    if (writable<0) return std::unexpected(std::make_error_code(std::errc::operation_not_supported));
+#if defined(__aarch64__)
+    // The kernel cleans and invalidates the caches for a forced remote
+    // write, not for a write to the file. Map the same page here at an
+    // address of the same cache colour as the target's view (so an
+    // aliasing VIPT instruction cache is covered too) and clear it after
+    // writing; the maintenance is broadcast to every core.
+    const long pageSize=sysconf(_SC_PAGESIZE);
+    if (!block) block=pageSize>0 ? static_cast<size_t>(pageSize) : 4096;
+    const size_t colour=std::max<size_t>(block,64*1024);
+    const size_t lead=static_cast<size_t>(fileOffset)%block;
+    const size_t length=(lead+bytes.size()+block-1)/block*block;
+    const uintptr_t targetBase=address-lead;
+    void* reserve=mmap(nullptr,length+colour,PROT_NONE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE,-1,0);
+    void* mirror=MAP_FAILED;
+    if (reserve!=MAP_FAILED) {
+        const uintptr_t base=reinterpret_cast<uintptr_t>(reserve);
+        const uintptr_t at=base+((targetBase-base)&(colour-1));
+        mirror=mmap(reinterpret_cast<void*>(at),length,PROT_READ,MAP_SHARED|MAP_FIXED,writable,fileOffset-static_cast<off_t>(lead));
+    }
+    if (mirror==MAP_FAILED) {
+        const int error=errno;
+        if (reserve!=MAP_FAILED) munmap(reserve,length+colour);
+        close(writable);
+        return std::unexpected(std::error_code(error,std::system_category()));
+    }
+#endif
+    Result<void> result{};
+    size_t done=0;
+    while (done<bytes.size()) {
+        const auto n=pwrite(writable,bytes.data()+done,bytes.size()-done,fileOffset+static_cast<off_t>(done));
+        if (n<0 && errno==EINTR) continue;
+        if (n<=0) {result=std::unexpected(std::error_code(n<0 ? errno : EIO,std::system_category()));break;}
+        done+=static_cast<size_t>(n);
+    }
+#if defined(__aarch64__)
+    char* first=static_cast<char*>(mirror)+lead;
+    __builtin___clear_cache(first,first+bytes.size());
+    munmap(reserve,length+colour);
+#endif
+    close(writable);
+    return result;
 }
 
 namespace {

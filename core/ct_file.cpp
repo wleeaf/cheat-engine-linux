@@ -91,20 +91,53 @@ static std::string makeSecureTempFile() {
     return std::string(buf.data());
 }
 
+static bool writeAll(int fd, std::string_view bytes) {
+    for (size_t done = 0; done < bytes.size();) {
+        const ssize_t n = ::write(fd, bytes.data() + done, bytes.size() - done);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return false;
+        done += static_cast<size_t>(n);
+    }
+    return true;
+}
+
+// Truncate and rewrite the file itself: what a plain save does. It keeps the
+// inode (owner, hard links, ACLs), at the cost of a window where the file is
+// partly written.
+static bool writeFileInPlace(const std::filesystem::path& target, std::string_view bytes) {
+    const int fd = ::open(target.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+    if (fd < 0) return false;
+    bool ok = writeAll(fd, bytes) && ::fsync(fd) == 0;
+    ok = ::close(fd) == 0 && ok;
+    return ok;
+}
+
 // Replace the file at path with bytes so that it is never left truncated or half
 // written: write a temporary file in the same directory, flush it to disk and
-// rename it over the old one. A symlink is followed, so the link itself stays.
+// rename it over the old one. A symlink is followed when it resolves; a
+// dangling one is refused rather than replaced by a regular file. A file the
+// user may not write (a chmod 444 table) is refused, as an ordinary save
+// would be. Where a rename would change the file's identity (another owner,
+// more hard links, not a regular file) or cannot be done (an unwritable
+// directory, a bind-mounted file), the file is rewritten in place instead.
 static bool writeFileAtomically(const std::string& path, std::string_view bytes) {
     namespace fs = std::filesystem;
     std::error_code ec;
     fs::path target(path);
     if (fs::is_symlink(target, ec)) {
         auto real = fs::canonical(target, ec);
-        if (!ec) target = real;
+        if (ec) { errno = ENOENT; return false; }
+        target = real;
     }
     const fs::path dir = target.has_parent_path() ? target.parent_path() : fs::path(".");
     struct stat old{};
     const bool existed = ::stat(target.c_str(), &old) == 0;
+    if (existed) {
+        if (::faccessat(AT_FDCWD, target.c_str(), W_OK, AT_EACCESS) != 0) return false;
+        const bool root = ::geteuid() == 0;
+        if (!S_ISREG(old.st_mode) || old.st_nlink > 1 || (!root && old.st_uid != ::geteuid()))
+            return writeFileInPlace(target, bytes);
+    }
     static std::atomic<unsigned> counter{0};
     std::string temp;
     int fd = -1;
@@ -113,21 +146,44 @@ static bool writeFileAtomically(const std::string& path, std::string_view bytes)
                        std::to_string(counter++))).string();
         // 0666 less the umask, like any new file; an existing table keeps its mode.
         fd = ::open(temp.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666);
-        if (fd < 0 && errno != EEXIST) return false;
+        if (fd >= 0 || errno == EEXIST) continue;
+        // A directory we cannot add to (or a file we cannot rename over) still
+        // lets us write a table that exists and is writable.
+        if (existed && (errno == EACCES || errno == EPERM || errno == EROFS || errno == EXDEV || errno == EBUSY))
+            return writeFileInPlace(target, bytes);
+        return false;
     }
     if (fd < 0) return false;
-    bool ok = !existed || ::fchmod(fd, old.st_mode & 07777) == 0;
-    for (size_t done = 0; ok && done < bytes.size();) {
-        const ssize_t n = ::write(fd, bytes.data() + done, bytes.size() - done);
-        if (n < 0 && errno == EINTR) continue;
-        if (n <= 0) ok = false;
-        else done += static_cast<size_t>(n);
+    bool ok = true;
+    if (existed) {
+        // Root saving a user's table keeps it the user's. Otherwise only the
+        // group can differ (we own the file); one we may not give the new
+        // file is kept by rewriting the old one.
+        if (::fchown(fd, ::geteuid() == 0 ? old.st_uid : static_cast<uid_t>(-1), old.st_gid) != 0) {
+            if (::geteuid() == 0) ok = false;
+            else {
+                ::close(fd);
+                ::unlink(temp.c_str());
+                return writeFileInPlace(target, bytes);
+            }
+        }
+        // After fchown, which may clear set-id bits.
+        ok = ok && ::fchmod(fd, old.st_mode & 07777) == 0;
     }
+    ok = ok && writeAll(fd, bytes);
     ok = ok && ::fsync(fd) == 0;
     ok = ::close(fd) == 0 && ok;
-    ok = ok && ::rename(temp.c_str(), target.c_str()) == 0;
-    if (!ok) {
+    if (ok && ::rename(temp.c_str(), target.c_str()) != 0) {
+        const int failure = errno;
         ::unlink(temp.c_str());
+        if (existed && (failure == EXDEV || failure == EBUSY)) return writeFileInPlace(target, bytes);
+        errno = failure;
+        return false;
+    }
+    if (!ok) {
+        const int failure = errno;
+        ::unlink(temp.c_str());
+        errno = failure;
         return false;
     }
     // Make the rename itself durable.
@@ -1107,45 +1163,64 @@ static void parseCheatEntriesBlock(const std::string& xml, size_t begin, size_t 
         // this port wrote numeric actions, and before that a flat "<Hotkeys>Ctrl+H
         // </Hotkeys>" plus separate tags. The first enabled hotkey of each kind fills
         // our toggle/set/increase/decrease slot; every other one is kept as written.
+        // With no enabled plain toggle, the first Activate, Deactivate or toggle
+        // that allows increase or decrease fills the toggle slot instead, so its
+        // key still works (a save then writes it as Toggle Activation).
         auto hkXml = getTag(hotkeysXml, "Hotkeys");
         if (hkXml.find("<Hotkey") != std::string::npos) {
-            bool stepTaken = false;
+            struct ParsedHotkey { std::string block, keys, value; int action; bool usable; };
+            std::vector<ParsedHotkey> parsed;
+            bool plainToggle = false;
             for (const auto& [hkBegin, hkEnd] : tagBlockRanges(hkXml, "Hotkey")) {
-                const std::string block = hkXml.substr(hkBegin, hkEnd - hkBegin);
+                ParsedHotkey h;
+                h.block = hkXml.substr(hkBegin, hkEnd - hkBegin);
                 std::string hkAttributes;
-                const std::string hk = getTagWithAttributes(block, "Hotkey", &hkAttributes);
-                const int action = hotkeyActionFromText(trimmedXmlText(xmlUnescape(getTag(hk, "Action"))));
+                const std::string hk = getTagWithAttributes(h.block, "Hotkey", &hkAttributes);
+                h.action = hotkeyActionFromText(trimmedXmlText(xmlUnescape(getTag(hk, "Action"))));
                 std::vector<int> vks;
                 for (const auto& kb : getTagBlocks(getTag(hk, "Keys"), "Key")) {
                     try { vks.push_back(std::stoi(getTag(kb, "Key"))); } catch (...) {}
                 }
-                const std::string keyStr = vksToKeyString(vks);
-                const std::string val = xmlUnescape(getTag(hk, "Value"));
+                h.keys = vksToKeyString(vks);
+                h.value = xmlUnescape(getTag(hk, "Value"));
+                h.usable = !h.keys.empty() && attributeValue(hkAttributes, "Active") != "0";
+                plainToggle |= h.usable && h.action == 0;
+                parsed.push_back(std::move(h));
+            }
+            bool stepTaken = false;
+            for (const auto& h : parsed) {
                 bool bound = false;
-                if (!keyStr.empty() && attributeValue(hkAttributes, "Active") != "0") {
-                    switch (action) {   // CE mrh* action codes
+                if (h.usable) {
+                    switch (h.action) {   // CE mrh* action codes
                         case 0:   // Toggle Activation
-                            if ((bound = e.hotkeyKeys.empty())) e.hotkeyKeys = keyStr;
+                            if ((bound = e.hotkeyKeys.empty())) e.hotkeyKeys = h.keys;
+                            break;
+                        case 1: case 2:   // Toggle Activation Allow Increase / Decrease
+                        case 3: case 4:   // Activate, Deactivate
+                            if ((bound = !plainToggle && e.hotkeyKeys.empty())) e.hotkeyKeys = h.keys;
                             break;
                         case 5:   // Set Value
-                            if ((bound = e.setValueHotkeyKeys.empty())) { e.setValueHotkeyKeys = keyStr; e.setValueHotkeyValue = val; }
+                            if ((bound = e.setValueHotkeyKeys.empty())) { e.setValueHotkeyKeys = h.keys; e.setValueHotkeyValue = h.value; }
                             break;
-                        case 6:   // Increase Value and Decrease Value share one step
+                        // Increase Value and Decrease Value share one step in our
+                        // model, the first one given. A key with another step
+                        // still binds, using that shared step, rather than doing
+                        // nothing.
+                        case 6:
                         case 7: {
-                            auto& slot = action == 6 ? e.increaseHotkeyKeys : e.decreaseHotkeyKeys;
-                            if ((bound = slot.empty() && (!stepTaken || val == e.hotkeyStep))) {
-                                slot = keyStr;
-                                e.hotkeyStep = val;
-                                stepTaken = true;
+                            auto& slot = h.action == 6 ? e.increaseHotkeyKeys : e.decreaseHotkeyKeys;
+                            if ((bound = slot.empty())) {
+                                slot = h.keys;
+                                if (!stepTaken && !h.value.empty()) { e.hotkeyStep = h.value; stepTaken = true; }
                             }
                             break;
                         }
                         default: break;
                     }
                 }
-                if (!bound && isElementSequence(block, "Hotkey")) {
+                if (!bound && isElementSequence(h.block, "Hotkey")) {
                     if (!e.extraHotkeysXml.empty()) e.extraHotkeysXml += "\n        ";
-                    e.extraHotkeysXml += block;
+                    e.extraHotkeysXml += h.block;
                 }
             }
         } else {

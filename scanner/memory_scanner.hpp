@@ -22,6 +22,11 @@ namespace ce {
 std::vector<std::uint8_t> encodeStringBytes(const std::string& text, const std::string& encoding);
 std::string decodeStringBytes(const std::uint8_t* data, std::size_t len, const std::string& encoding);
 
+/// Remove scan directories under `root` left by a process of this host that is
+/// gone, and kept ones a week old. Scans do this once per process on their own;
+/// declared here for tests.
+void pruneStaleScanDirectories(const std::filesystem::path& root);
+
 /// Tri-state region-protection filter (CE's grey/checked/unchecked boxes):
 /// Any = don't care, Yes = region must have the bit, No = must NOT have it.
 enum class ProtMatch { Any, Yes, No };

@@ -212,6 +212,8 @@ reimplementation of Cheat Engine).
   now covers only the process it was given for and never opening a process or
   overwriting a file. A key saved for one API address was sent to any address
   entered later, even over plain http; a key now belongs to its address.
+  A key saved before this version for a custom API address must be entered
+  again: it is treated as belonging to the provider's own API.
   Replies are capped at 16 MiB and tool calls at 16 per reply.
 - Fixed: AI Assistant. With no process open in the main window, every turn
   ended by detaching from the process the model had opened, undoing the
@@ -236,6 +238,16 @@ reimplementation of Cheat Engine).
   installed `cecore.pc` pointed at the configure-time prefix instead of the
   install prefix, and a release tag no longer publishes files under a version
   the sources do not build. The AppStream metadata lists every release.
+- Fixed: process memory. Under Wine, a stack trace taken while another thread
+  refreshed the module cache could deadlock Cheat Engine and leave a game
+  thread stopped (a regression in this release cycle). Auto Assembler patches
+  and hooks failed with "I/O error" on .NET 7+ JIT code mapped twice for W^X,
+  because the fallback for that memory never ran; it now does, also on ARM64
+  and for pinned images. Writes could reach any read-only shared memory the
+  game kept a writable handle to, not just JIT code. A process that exited and
+  whose pid was reused could receive an allocation or code write meant for the
+  old one. 32-bit games under FEX or box64 on ARM64 got memory above 4 GiB, and
+  Lua `deAlloc(addr)` without a size never freed anything.
 - Fixed: scanner. A first scan with Changed, Unchanged, Increased, Decreased,
   Increased/Decreased by or Same as first ran as an Exact scan on whatever the
   value box held; it now says a first scan is needed. "Increased by -5" never
@@ -274,6 +286,18 @@ reimplementation of Cheat Engine).
   when their target is on screen).
 - Removed: the kernel module's process hiding ioctls. Hiding a process from
   `/proc` is detection evasion, which the project does not ship.
+- Changed: the optional kernel module only reads physical System RAM. It used
+  `ioremap`, which refuses RAM with a kernel warning (so RAM reads never
+  worked) and mapped MMIO uncached. It now reads online System RAM pages
+  through the kernel mapping, rejects everything else, needs
+  `CAP_SYS_RAWIO` as well as `CAP_SYS_ADMIN`, is refused under kernel
+  lockdown, stops on a fatal signal, checks ranges on 32-bit kernels and
+  handles 32-bit callers. Physical writes are refused: a translated frame can
+  be freed or shared by the time it is written. The process read/write and
+  translation ioctls are retired because a module cannot apply ptrace, Yama
+  and LSM checks; `KernelDriverClient` now does them through
+  `/proc/<pid>/mem` (which also patches read-only code) and
+  `/proc/<pid>/pagemap`.
 - Fixed: Lua Engine opened a new console window each time; it now raises the
   one already open.
 - Fixed: Auto Assembler. A `jmp`/`call`/`jcc` to a target more than 2 GiB away

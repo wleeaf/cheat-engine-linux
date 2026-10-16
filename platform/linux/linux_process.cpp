@@ -77,6 +77,13 @@ template<class Operation> ssize_t memoryTransfer(pid_t pid,Operation operation) 
     }
     return result;
 }
+// processMemoryIdentity() looks the pid up again, and a pid reused since the
+// handle's sameProcess() check passes its own checks: the birth must match.
+Result<TargetProcessIdentity> handleIdentity(pid_t pid,uint64_t startTime) {
+    auto identity=processMemoryIdentity(pid);
+    if (identity && identity->startTime!=startTime) return std::unexpected(std::make_error_code(std::errc::no_such_process));
+    return identity;
+}
 } // namespace
 
 LinuxProcessHandle::LinuxProcessHandle(pid_t pid) : pid_(pid) {
@@ -197,22 +204,38 @@ TargetDescription LinuxProcessHandle::targetDescription() {
 }
 
 TargetMachine LinuxProcessHandle::machineAt(uintptr_t address) {
-    std::lock_guard lock(machineCacheMutex_);
+    // The cache lock is never held while the description or modules are
+    // rebuilt: targetDescription() waits on the syscall owner thread, and an
+    // inspection callback running there (a stack trace) calls machineAt() too.
+    TargetDescription description;
+    std::shared_ptr<const std::vector<MachineRange>> ranges;
     const auto now = std::chrono::steady_clock::now();
-    if (!machineCacheValid_ || now - machineCacheTime_ > std::chrono::seconds(1)) {
-        machineCacheDescription_ = targetDescription();
-        machineCacheRanges_.clear();
-        if (machineCacheDescription_.runtime == TargetRuntime::Wine)
+    bool fresh = false;
+    {
+        std::lock_guard lock(machineCacheMutex_);
+        if (machineCacheValid_ && now - machineCacheTime_ <= std::chrono::seconds(1)) {
+            description = machineCacheDescription_;
+            ranges = machineCacheRanges_;
+            fresh = true;
+        }
+    }
+    if (!fresh) {
+        description = targetDescription();
+        auto built = std::make_shared<std::vector<MachineRange>>();
+        if (description.runtime == TargetRuntime::Wine)
             for (const auto& m : modules())
                 if (m.machine.architecture != CpuArchitecture::Unknown)
-                    machineCacheRanges_.push_back({m.base, m.size, m.machine});
+                    built->push_back({m.base, m.size, m.machine});
+        ranges = std::move(built);
+        std::lock_guard lock(machineCacheMutex_);
+        machineCacheDescription_ = description;
+        machineCacheRanges_ = ranges;
         machineCacheTime_ = now;
         machineCacheValid_ = true;
     }
-    const auto& description = machineCacheDescription_;
     if (description.runtime != TargetRuntime::Wine || address == 0) return description.program;
     const MachineRange* best = nullptr;
-    for (const auto& m : machineCacheRanges_)
+    for (const auto& m : *ranges)
         if (address >= m.base && address - m.base < m.size && (!best || m.size < best->size)) best = &m;
     return best ? best->machine : description.program;
 }
@@ -355,9 +378,14 @@ Result<size_t> LinuxProcessHandle::write(uintptr_t address, const void* buffer, 
         for (const auto& region:regions) {
             if ((region.protection & MemProt::Exec) && region.size &&
                 (region.base<=address ? address-region.base<region.size : region.base<=last)) {
-                auto identity=processMemoryIdentity(pid_);
+                auto identity=handleIdentity(pid_,startTime_);
                 if (!identity) return std::unexpected(identity.error());
-                return memorySyscallService().writeCode(*identity,address,{static_cast<const uint8_t*>(buffer),size});
+                const std::span bytes{static_cast<const uint8_t*>(buffer),size};
+                auto written=memorySyscallService().writeCode(*identity,address,bytes);
+                // A W^X JIT's read-only shared code view: write through its backing file.
+                if (!written && sharedMappingWriteRefused(written.error()) &&
+                    writeSharedMappingBacking(pid_,address,bytes)) return size;
+                return written;
             }
         }
     }
@@ -376,7 +404,7 @@ Result<size_t> LinuxProcessHandle::write(uintptr_t address, const void* buffer, 
             for (const auto& region:queryRegions()) {
                 if ((region.protection & MemProt::Exec) && region.size &&
                     (region.base<=address ? address-region.base<region.size : region.base<=last)) {
-                    auto identity=processMemoryIdentity(pid_);
+                    auto identity=handleIdentity(pid_,startTime_);
                     if (!identity) return std::unexpected(identity.error());
                     return memorySyscallService().writeCode(*identity,address,{static_cast<const uint8_t*>(buffer),size});
                 }
@@ -415,14 +443,13 @@ Result<size_t> LinuxProcessHandle::writeCode(uintptr_t address,const void* buffe
             if (remaining) at+=count;
         }
     }
-    auto identity=processMemoryIdentity(pid_);
+    auto identity=handleIdentity(pid_,startTime_);
     if (!identity) return std::unexpected(identity.error());
     auto written=memorySyscallService().writeCode(*identity,address,{static_cast<const uint8_t*>(buffer),size});
     // A W^X JIT's read-only shared code view: write through its backing file.
     // Only when the page refused the write: busy or unrecoverable native-call
     // state must reach the caller, not be bypassed through the file.
-    if (!written && (written.error()==std::errc::bad_address || written.error()==std::errc::operation_not_permitted ||
-                     written.error()==std::errc::permission_denied) &&
+    if (!written && sharedMappingWriteRefused(written.error()) &&
         writeSharedMappingBacking(pid_,address,{static_cast<const uint8_t*>(buffer),size})) return size;
     return written;
 }
@@ -610,14 +637,14 @@ int nativeProtection(MemProt protection) {
 Result<void> LinuxProcessHandle::retryPendingOperations() {
     if (!sameProcess()) return std::unexpected(std::make_error_code(std::errc::no_such_process));
     if (!hasPendingMemorySyscalls(pid_, startTime_)) return {};
-    auto identity = processMemoryIdentity(pid_);
+    auto identity = handleIdentity(pid_, startTime_);
     if (!identity) return std::unexpected(identity.error());
     return memorySyscallService().recover(*identity);
 }
 
 Result<void> LinuxProcessHandle::resumePendingCallSignal(bool deliverSignal) {
     if (!sameProcess()) return std::unexpected(std::make_error_code(std::errc::no_such_process));
-    auto identity=processMemoryIdentity(pid_);
+    auto identity=handleIdentity(pid_,startTime_);
     if (!identity) return std::unexpected(identity.error());
     return memorySyscallService().resumeCall(*identity,deliverSignal);
 }
@@ -637,7 +664,7 @@ Result<uintptr_t> LinuxProcessHandle::allocateInImage(size_t size,MemProt protec
     auto allocationMachine = preferredBase ? machineAt(preferredBase) : description.program;
     if (allocationMachine.pointerWidth == 4 && (*allocSize > UINT32_MAX || preferredBase > UINT32_MAX))
         return std::unexpected(std::make_error_code(std::errc::invalid_argument));
-    auto identity = image ? Result<TargetProcessIdentity>(image->identity()) : processMemoryIdentity(pid_);
+    auto identity = image ? Result<TargetProcessIdentity>(image->identity()) : handleIdentity(pid_, startTime_);
     if (!identity) return std::unexpected(identity.error());
     const int prot = nativeProtection(protection);
     constexpr int flags = MAP_PRIVATE | MAP_ANONYMOUS;
@@ -683,6 +710,27 @@ Result<uintptr_t> LinuxProcessHandle::allocateInImage(size_t size,MemProt protec
         }
         return std::unexpected(std::make_error_code(std::errc::not_enough_memory));
     };
+    // A 32-bit program cannot use a block that ends above 4 GiB. Accepted
+    // blocks are remembered so free(address, 0) knows their size.
+    auto accept = [&](Result<uintptr_t> base) -> Result<uintptr_t> {
+        if (!base) return base;
+        if (allocationMachine.pointerWidth == 4 && static_cast<uint64_t>(*base) + *allocSize > (UINT64_C(1) << 32)) {
+            (void)freeInImage(*base, *allocSize, image);
+            return std::unexpected(std::make_error_code(std::errc::not_enough_memory));
+        }
+        std::lock_guard lock(allocationsMutex_);
+        forgetAllocations(*base, *allocSize);
+        allocations_[*base] = *allocSize;
+        return base;
+    };
+    // Every free gap below 4 GiB, without replacing any mapping.
+    auto allocateLow = [&] {
+        uintptr_t minimum = static_cast<uintptr_t>(sysconf(_SC_PAGESIZE));
+        std::ifstream limit("/proc/sys/vm/mmap_min_addr");
+        uintptr_t configured = 0;
+        if (limit >> configured) minimum = std::max(minimum, configured);
+        return allocateInGaps(minimum, UINT32_MAX - *allocSize + 1, UINT64_C(0x80000000));
+    };
     if (preferredBase) {
         constexpr uintptr_t maxDistance = 0x7fff0000;
         uintptr_t minimum = preferredBase > maxDistance ? preferredBase - maxDistance : 0;
@@ -690,26 +738,24 @@ Result<uintptr_t> LinuxProcessHandle::allocateInImage(size_t size,MemProt protec
         if (allocationMachine.pointerWidth == 4)
             maximum = std::min<uintptr_t>(maximum, UINT32_MAX - *allocSize + 1);
         auto nearby = allocateInGaps(minimum, maximum, preferredBase);
-        if (nearby || nearby.error() != std::errc::not_enough_memory) return nearby;
+        if (nearby || nearby.error() != std::errc::not_enough_memory) return accept(nearby);
     }
     int lowAddressFlag = 0;
 #if defined(__x86_64__)
     if (allocationMachine.pointerWidth == 4 && description.host.architecture == CpuArchitecture::X86_64)
         lowAddressFlag = MAP_32BIT;
 #endif
+    // Without MAP_32BIT (32-bit Windows code under FEX or box64 on an ARM64
+    // host) a 64-bit process's mmap may place the block anywhere.
+    if (allocationMachine.pointerWidth == 4 && !lowAddressFlag && description.host.pointerWidth != 4)
+        return accept(allocateLow());
     auto result = mmapInTarget(0, lowAddressFlag);
-    if (!result && lowAddressFlag && result.error() == std::errc::not_enough_memory) {
-        // MAP_32BIT searches below 2 GiB, although a program's 32-bit pointers
-        // can represent the full 4 GiB. Search the remaining free address space
-        // without replacing any mapping when that preferred range is full.
-        uintptr_t minimum = static_cast<uintptr_t>(sysconf(_SC_PAGESIZE));
-        std::ifstream limit("/proc/sys/vm/mmap_min_addr");
-        uintptr_t configured = 0;
-        if (limit >> configured) minimum = std::max(minimum, configured);
-        return allocateInGaps(minimum, UINT32_MAX - *allocSize + 1, UINT64_C(0x80000000));
-    }
+    // MAP_32BIT searches below 2 GiB, although a program's 32-bit pointers
+    // can represent the full 4 GiB: search the rest when that range is full.
+    if (!result && lowAddressFlag && result.error() == std::errc::not_enough_memory)
+        return accept(allocateLow());
     if (!result) return std::unexpected(result.error());
-    return static_cast<uintptr_t>(*result);
+    return accept(static_cast<uintptr_t>(*result));
 }
 
 Result<void> LinuxProcessHandle::free(uintptr_t address, size_t size) {
@@ -717,6 +763,13 @@ Result<void> LinuxProcessHandle::free(uintptr_t address, size_t size) {
 }
 Result<void> LinuxProcessHandle::freeInImage(uintptr_t address,size_t size,const NativeMemoryImage* image) {
     if(image) {if(image->pid()!=pid_) return std::unexpected(std::make_error_code(std::errc::invalid_argument));auto live=image->check();if(!live) return std::unexpected(live.error());}
+    if (!size) {
+        // No size (Lua deAlloc(address)): the whole block allocate() returned there.
+        std::lock_guard lock(allocationsMutex_);
+        auto found = allocations_.find(address);
+        if (found == allocations_.end()) return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+        size = found->second;
+    }
     auto freeSize = pageRoundedSize(size);
     if (!freeSize) return std::unexpected(freeSize.error());
     if (address > UINTPTR_MAX - *freeSize) return std::unexpected(std::make_error_code(std::errc::value_too_large));
@@ -725,12 +778,25 @@ Result<void> LinuxProcessHandle::freeInImage(uintptr_t address,size_t size,const
     if (unsupportedTargetOperation(*this, TargetFeature::Allocate))
         return std::unexpected(std::make_error_code(std::errc::not_supported));
     auto description = targetDescription();
-    auto identity = image ? Result<TargetProcessIdentity>(image->identity()) : processMemoryIdentity(pid_);
+    auto identity = image ? Result<TargetProcessIdentity>(image->identity()) : handleIdentity(pid_, startTime_);
     if (!identity) return std::unexpected(identity.error());
     auto result = memorySyscallService().execute(*identity, description.host, MemorySyscall::Unmap,
         {address, *freeSize, 0, 0, 0, 0},image);
     if (!result) return std::unexpected(result.error());
+    std::lock_guard lock(allocationsMutex_);
+    forgetAllocations(address, *freeSize);
     return {};
+}
+
+void LinuxProcessHandle::forgetAllocations(uintptr_t address, size_t size) {
+    // Blocks inside the range are gone; one that starts before it keeps its head.
+    const uintptr_t end = size > UINTPTR_MAX - address ? UINTPTR_MAX : address + size;
+    auto it = allocations_.lower_bound(address);
+    if (it != allocations_.begin()) {
+        auto before = std::prev(it);
+        if (before->second > address - before->first) before->second = address - before->first;
+    }
+    while (it != allocations_.end() && it->first < end) it = allocations_.erase(it);
 }
 
 Result<void> LinuxProcessHandle::protect(uintptr_t address, size_t size, MemProt newProtection) {
@@ -751,7 +817,7 @@ Result<void> LinuxProcessHandle::protectInImage(uintptr_t address,size_t size,Me
     if (unsupportedTargetOperation(*this, TargetFeature::Protect))
         return std::unexpected(std::make_error_code(std::errc::not_supported));
     auto description = targetDescription();
-    auto identity = image ? Result<TargetProcessIdentity>(image->identity()) : processMemoryIdentity(pid_);
+    auto identity = image ? Result<TargetProcessIdentity>(image->identity()) : handleIdentity(pid_, startTime_);
     if (!identity) return std::unexpected(identity.error());
     auto result = memorySyscallService().execute(*identity, description.host, MemorySyscall::Protect,
         {pageStart, *protSize, static_cast<uint64_t>(nativeProtection(newProtection)), 0, 0, 0},image);

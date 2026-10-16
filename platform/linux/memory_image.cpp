@@ -6,6 +6,7 @@
 #include "core/target_capabilities.hpp"
 #include "platform/linux/linux_process.hpp"
 #include "platform/linux/syscall_service.hpp"
+#include "platform/linux/target_debug.hpp"
 
 #include <cerrno>
 #include <fcntl.h>
@@ -138,7 +139,15 @@ std::expected<size_t, std::error_code> NativeMemoryImage::write(
     uintptr_t address, std::span<const uint8_t> bytes, bool executable) const {
     if (executable && !host_.isX86() && host_.architecture != CpuArchitecture::Arm64)
         return std::unexpected(std::make_error_code(std::errc::operation_not_supported));
-    return memorySyscallService().writeCode(identity_, address, bytes, this);
+    auto written = memorySyscallService().writeCode(identity_, address, bytes, this);
+    // A W^X JIT's read-only shared code view: write through its backing file,
+    // found by pid, so only while the pid still names this image's process.
+    if (!written && sharedMappingWriteRefused(written.error())) {
+        auto actual = processMemoryIdentity(identity_.pid);
+        if (actual && *actual == identity_ && writeSharedMappingBacking(identity_.pid, address, bytes))
+            return bytes.size();
+    }
+    return written;
 }
 
 std::expected<uintptr_t, std::error_code> NativeMemoryImage::allocate(size_t size, MemProt p, uintptr_t preferred) const {

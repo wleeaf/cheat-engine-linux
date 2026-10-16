@@ -86,7 +86,9 @@ def main():
             profile["command"] = command
             data = b""
             try:
-                result = subprocess.run(command, capture_output=True, timeout=70)
+                # The debug suite needs about 80 s under TCG on a fast host
+                # (about 50 s of it in the mixed-ABI restart checks' sleeps).
+                result = subprocess.run(command, capture_output=True, timeout=240 if suite == "debug" else 70)
                 data = result.stdout + result.stderr
                 profile["exitCode"] = result.returncode
             except subprocess.TimeoutExpired as error:
@@ -138,7 +140,7 @@ def main():
                         raise RuntimeError(f"required x32 {marker} checks did not complete")
             if expected not in decoded:
                 raise RuntimeError(f"required x32 {suite} matrix did not complete")
-            if profile["checks"] != {"calls": 42, "image": 83, "exec": 475, "debug": 627}[suite]:
+            if profile["checks"] != {"calls": 42, "image": 83, "exec": 475, "debug": 649}[suite]:
                 raise RuntimeError(f"required x32 {suite} checks are incomplete")
             profile["passed"] = True
         report["passed"] = True

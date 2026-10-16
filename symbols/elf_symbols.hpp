@@ -50,6 +50,11 @@ public:
     /// Get all symbols (for listing).
     const std::vector<Symbol>& symbols() const { return symbols_; }
 
+    /// Every loaded symbol whose name in its file is `raw`: a C name, or a
+    /// mangled C++ name ("_ZN6Player12UpdateHealthEi") that symbols() lists
+    /// demangled.
+    std::vector<const Symbol*> symbolsByRawName(const std::string& raw) const;
+
     /// Number of loaded symbols.
     size_t count() const { return symbols_.size(); }
 
@@ -74,6 +79,8 @@ private:
     // Sorted by address for binary search in resolve()
     std::map<uintptr_t, size_t> addrIndex_; // address → index into symbols_
     std::unordered_map<std::string, uintptr_t> nameIndex_; // name → address
+    // Raw name -> index into symbols_, for the symbols whose name was demangled.
+    std::unordered_multimap<std::string, size_t> mangledIndex_;
     std::unordered_map<std::string, uintptr_t> userNameIndex_;
     std::map<uintptr_t, std::string> userSymbols_;         // user-defined labels
 };

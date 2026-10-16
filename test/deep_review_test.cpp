@@ -22,7 +22,11 @@
 #include <atomic>
 #include <chrono>
 #include <thread>
+#include <mutex>
+#include <optional>
+#include <set>
 #include <sys/mman.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <sys/prctl.h>
 #include <signal.h>
@@ -903,6 +907,99 @@ static void debuggerTests() {
     munmap(code, 4096); munmap(counter, 4096);
 }
 
+// Two threads take the same kind of stop at nearly the same moment: each
+// must be reported once, with the event naming the thread whose registers it
+// carries, instead of the second being stepped over, dropped or delivered.
+// With an idle third thread the second stop tends to arrive while the tracer
+// waits for that third thread (a foreign stop); with only the two, while it
+// waits for the second thread itself.
+__attribute__((noinline)) static void concurrentMarker() {
+    static volatile int sink = 0;
+    sink = sink + 1;
+}
+struct ConcurrentShared {
+    std::atomic<int> phase{0}, ready{0}, done[4]{};
+    volatile unsigned watched = 0;
+};
+static void concurrentStopTests(bool idleThread) {
+    auto* shared = static_cast<ConcurrentShared*>(mmap(nullptr, 4096, PROT_READ | PROT_WRITE,
+                                                       MAP_SHARED | MAP_ANONYMOUS, -1, 0));
+    if (shared == MAP_FAILED) { check(false, "concurrent stop fixture allocation"); return; }
+    new (shared) ConcurrentShared;
+    pid_t child = fork();
+    if (!child) {
+        prctl(PR_SET_PDEATHSIG, SIGKILL);
+        signal(SIGUSR1, [](int) {});
+        auto worker = [shared] {
+            ++shared->ready;
+            for (int phase = 1; phase <= 3; ++phase) {
+                while (shared->phase.load() < phase) {}
+                if (phase == 1) concurrentMarker();
+                if (phase == 2) syscall(SYS_tgkill, getpid(), static_cast<pid_t>(syscall(SYS_gettid)), SIGUSR1);
+                if (phase == 3) shared->watched = shared->watched + 1;
+                ++shared->done[phase];
+            }
+        };
+        std::thread(worker).detach();
+        if (idleThread) std::thread(worker).detach();
+        else worker();
+        for (;;) pause();
+    }
+    if (child < 0) { check(false, "concurrent stop fixture fork"); munmap(shared, 4096); return; }
+    bool ready = waitUntil([&] { return shared->ready.load() == 2; });
+    os::LinuxProcessHandle proc(child);
+    DebugSession session;
+    std::mutex mutex;
+    std::vector<DebugEvent> events;
+    std::atomic<bool> consistent{true};
+    session.setEventCallback([&](const DebugEvent& event) {
+        if (session.activeThread() != event.tid) consistent = false;
+        std::lock_guard lock(mutex);
+        events.push_back(event);
+    });
+    auto eventCount = [&] { std::lock_guard lock(mutex); return events.size(); };
+    // Continue after each stop until both workers finished the phase; collect
+    // the threads each kind of stop was reported for.
+    // `pc` matches the stopped instruction, `address` the event's address.
+    auto runPhase = [&](int phase, DebugEventType type, std::optional<uintptr_t> pc, std::optional<uintptr_t> address) {
+        size_t seen = eventCount();
+        std::set<pid_t> tids;
+        bool continued = session.continueExecution();
+        shared->phase = phase;
+        while (continued && waitUntil([&] { return eventCount() > seen || shared->done[phase].load() == 2; })) {
+            if (eventCount() == seen) break;
+            DebugEvent event;
+            { std::lock_guard lock(mutex); event = events[seen++]; }
+            if (event.type == type && (!pc || event.context.instructionPointer() == *pc) &&
+                (!address || event.address == *address))
+                tids.insert(event.tid);
+            else consistent = false;
+            continued = session.continueExecution();
+        }
+        return continued && waitUntil([&] { return shared->done[phase].load() == 2; }) && tids.size() == 2;
+    };
+    bool attached = ready && session.attach(child, &proc);
+    const auto marker = reinterpret_cast<uintptr_t>(&concurrentMarker);
+    int bp = attached ? session.setSoftwareBreakpoint(marker) : -1;
+    const std::string variant = idleThread ? " (three threads)" : " (two threads)";
+    check(bp > 0 && runPhase(1, DebugEventType::BreakpointHit, marker, marker),
+          ("simultaneous software breakpoint hits are each reported for their own thread" + variant).c_str());
+    bool removed = bp > 0 && session.removeSoftwareBreakpoint(bp);
+    if (attached) session.addExceptionBreakpoint(SIGUSR1);
+    check(removed && runPhase(2, DebugEventType::ExceptionBreakpointHit, std::nullopt, std::nullopt),
+          ("simultaneous exception-breakpoint signals are each reported before delivery" + variant).c_str());
+    if (attached) session.removeExceptionBreakpoint(SIGUSR1);
+    const auto watched = reinterpret_cast<uintptr_t>(&shared->watched);
+    int watch = attached ? session.setHardwareBreakpoint(watched, 1, 4) : -1;
+    check(watch > 0 && runPhase(3, DebugEventType::BreakpointHit, std::nullopt, watched),
+          ("simultaneous watchpoint hits are each reported for their own thread" + variant).c_str());
+    check(attached && consistent.load(), ("each concurrent stop event names its own active thread and site" + variant).c_str());
+    if (watch > 0) session.removeHardwareBreakpoint(watch);
+    session.detach();
+    kill(child, SIGKILL); waitpid(child, nullptr, 0);
+    munmap(shared, 4096);
+}
+
 int runUnderlyingReviewTests(const fs::path& root);
 
 int main() {
@@ -919,6 +1016,7 @@ int main() {
     luaReviewTests();
     guestTests();
     debuggerTests();
+    for (int round = 0; round < 3; ++round) { concurrentStopTests(true); concurrentStopTests(false); }
     failures += runUnderlyingReviewTests(root);
     fs::remove_all(root);
     std::printf("%d failed checks\n", failures);

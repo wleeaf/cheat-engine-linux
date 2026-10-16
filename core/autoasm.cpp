@@ -395,12 +395,12 @@ struct NamedLabelUse {
     // uses a local label; a directive ("alloc(newmem,$1000,UpdateHealth)") or
     // an offset ("UpdateHealth+5") uses an address.
     bool jumpTarget = false;
-    // The definition is where a hook goes, as in Cheat Engine's templates: the
-    // name is an alloc's near address ("alloc(newmem,$1000,UpdateHealth)"),
-    // the line after it jumps to an allocation ("UpdateHealth:" then
-    // "jmp newmem"), or no address is set before it, so it cannot be a label
-    // ("UpdateHealth:" then "db ..." at the top of [DISABLE]).
-    bool hookSite = false;
+    // The name is an alloc's near address ("alloc(newmem,$1000,UpdateHealth)"),
+    // so the script itself treats it as an address outside the script.
+    bool nearAddress = false;
+    // No line before the definition sets an address ("exit:" then "db 90" at
+    // the top of a section), so as a label it would have no address.
+    bool firstAddress = false;
 };
 
 // Cheat Engine auto-registers any "name:" label defined anywhere in the script,
@@ -432,8 +432,7 @@ static void autoDeclareNamedLabels(std::string& code,
         std::istringstream ss(code);
         for (std::string raw; std::getline(ss, raw);) lines.push_back(stripInlineComment(raw));
     }
-    std::set<std::string> declared, defined, jumpTargets, nearNames, allocNames, firstAddress;
-    std::multimap<std::string, std::string> jumpsAfter;   // "name:" then "jmp target"
+    std::set<std::string> declared, defined, jumpTargets, nearNames, firstAddress;
     std::vector<std::string> order;   // preserve definition order for stable output
     bool addressSet = false;           // a line before this one ends in ':'
     for (size_t index = 0; index < lines.size(); ++index) {
@@ -457,11 +456,11 @@ static void autoDeclareNamedLabels(std::string& code,
             at = end;
         }
         if (startsWith(upper, "ALLOC(")) {
-            declared.insert(firstArg(line, 6)); allocNames.insert(firstArg(line, 6)); nearNames.insert(nearArg(line, 6));
+            declared.insert(firstArg(line, 6)); nearNames.insert(nearArg(line, 6));
         } else if (startsWith(upper, "GLOBALALLOC(")) {
-            declared.insert(firstArg(line, 12)); allocNames.insert(firstArg(line, 12)); nearNames.insert(nearArg(line, 12));
+            declared.insert(firstArg(line, 12)); nearNames.insert(nearArg(line, 12));
         } else if (startsWith(upper, "KALLOC(")) {
-            declared.insert(firstArg(line, 7)); allocNames.insert(firstArg(line, 7));
+            declared.insert(firstArg(line, 7));
         }
         else if (startsWith(upper, "DEFINE("))          declared.insert(firstArg(line, 7));
         else if (startsWith(upper, "REGISTERSYMBOL("))  declared.insert(firstArg(line, 15));
@@ -497,30 +496,14 @@ static void autoDeclareNamedLabels(std::string& code,
             if (ident && !hexAddress && name.rfind("__anon_", 0) != 0 && defined.insert(name).second) {
                 order.push_back(name);
                 if (!addressSet) firstAddress.insert(name);
-                // The next line: "jmp newmem", "jmp far newmem", "call newmem".
-                size_t next = index + 1;
-                while (next < lines.size() && lines[next].empty()) ++next;
-                if (next < lines.size()) {
-                    std::istringstream words(lines[next]);
-                    std::string op, target;
-                    words >> op >> target;
-                    op = toUpper(op);
-                    if (toUpper(target) == "FAR" || toUpper(target) == "LONG") words >> target;
-                    if ((op == "JMP" || op == "JMP1" || op == "CALL") && !target.empty())
-                        jumpsAfter.emplace(name, target);   // checked once every alloc is known
-                }
             }
         }
         if (!line.empty() && line.back() == ':') addressSet = true;
     }
-    auto hookSite = [&](const std::string& name) {
-        if (firstAddress.contains(name) || nearNames.contains(name)) return true;
-        auto [first, last] = jumpsAfter.equal_range(name);
-        return std::any_of(first, last, [&](const auto& jump) { return allocNames.contains(jump.second); });
-    };
     std::string preamble;
     for (const auto& name : order)
-        if (!declared.count(name) && !known(name, {jumpTargets.count(name) != 0, hookSite(name)}))
+        if (!declared.count(name) &&
+            !known(name, {jumpTargets.contains(name), nearNames.contains(name), firstAddress.contains(name)}))
             preamble += "label(" + name + ")\n";
     if (!preamble.empty()) code = preamble + code;
 }
@@ -1780,11 +1763,13 @@ AutoAssembler::HookSiteSymbol AutoAssembler::hookSiteSymbol(const std::string& n
     if (auto known = hookSites_.find(name); known != hookSites_.end()) return {known->second, false};
     if (!processSymbol(name)) return {};   // also loads the table
     // The main executable first, then any other module except the C runtime.
+    // By the name as written: a mangled C++ name is listed demangled.
     const std::string main = targetModules_.empty() ? std::string() : targetModules_.front().name;
     uintptr_t best = 0;
     bool mainModule = false, runtimeOnly = false;
-    for (const auto& symbol : processSymbols_->symbols()) {
-        if (symbol.name != name || !symbol.address) continue;
+    for (const auto* found : processSymbols_->symbolsByRawName(name)) {
+        const auto& symbol = *found;
+        if (!symbol.address) continue;
         if (isCRuntimeModule(symbol.module)) { runtimeOnly = true; continue; }
         const bool inMain = !main.empty() && symbol.module == main;
         if (!best || (inMain && !mainModule)) { best = symbol.address; mainModule = inMain; }
@@ -1847,26 +1832,42 @@ bool AutoAssembler::preprocessScript(std::string& code,
     // explicit label(skip), matching CE. Runs after anonymous-label resolution so
     // the generated __anon_N labels are already declared and skipped.
     std::string refused;
+    std::vector<std::string> undecided;
     autoDeclareNamedLabels(code, [&](const std::string& name, const NamedLabelUse& use) {
         if (globalSymbols_.contains(name) || knownNames.contains(name)) return true;
         for (const auto& module : targetModules_)
             if (module.name == name) return true;
         // Cheat Engine tries every "name:" as a symbol before making it a
-        // label. Here only a hook site does ("UpdateHealth:" then "jmp
-        // newmem"), so a data or code label in the cave ("index:" then
-        // "dq 0") never lands on a same-named function. A name the code jumps
-        // to ("jmp exit ... exit:") stays a local label.
-        if (use.jumpTarget || !use.hookSite) return false;
-        // A syntax check has no target: the hook site is taken as one, as
-        // execute() takes it when the target has the symbol.
-        if (!symbolProcess_) return true;
+        // label. Here a name the code jumps to ("jmp exit ... exit:") stays a
+        // local label, and so does a name that only the C runtime or the
+        // loader defines, so "index:" or "time:" in a cave never patches
+        // libc. A function of the game or of its other libraries
+        // ("UpdateHealth:") is that function, wherever the definition is.
+        if (use.jumpTarget) return false;
+        if (!symbolProcess_) {
+            // A syntax check has no target to look in. It parses the name as
+            // a label unless the script names it as an alloc's near address,
+            // and says that the target decides.
+            if (use.nearAddress) return true;
+            undecided.push_back(name);
+            return false;
+        }
         const auto symbol = hookSiteSymbol(name);
-        if (!symbol.address && symbol.runtimeOnly && refused.empty())
+        if (symbol.address) return true;
+        // As a label this one has no address, or the alloc beside it is
+        // placed near it: the script means the C runtime's function.
+        if (symbol.runtimeOnly && (use.firstAddress || use.nearAddress) && refused.empty())
             refused = name + ": only the C library or the loader has this symbol; to patch it there, write define(hook," +
                       name + ") and hook:";
-        return symbol.address != 0;
+        return false;
     });
     if (!refused.empty()) { error = refused; return false; }
+    if (!undecided.empty()) {
+        std::string names;
+        for (const auto& name : undecided) names += (names.empty() ? "" : ", ") + name;
+        log.push_back("Decided at inject time: " + names + " (the target's function of that name unless only the "
+                      "C library or the loader has one, otherwise a label in this script)");
+    }
 
     if (!runScriptHooks(preprocessorHooks_, code, log, error, "preprocessor"))
         return false;

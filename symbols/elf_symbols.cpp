@@ -43,6 +43,17 @@ void SymbolResolver::clear() {
     symbols_.clear();
     addrIndex_.clear();
     nameIndex_.clear();
+    mangledIndex_.clear();
+}
+
+std::vector<const Symbol*> SymbolResolver::symbolsByRawName(const std::string& raw) const {
+    std::vector<const Symbol*> found;
+    auto [first, last] = mangledIndex_.equal_range(raw);
+    for (auto it = first; it != last; ++it) found.push_back(&symbols_[it->second]);
+    // Names that were not demangled are listed as they are spelled.
+    for (const auto& symbol : symbols_)
+        if (symbol.name == raw) found.push_back(&symbol);
+    return found;
 }
 
 // ELF structures are read in host byte order, so a symbol file must use it:
@@ -504,6 +515,7 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
             s.module = moduleName;
 
             size_t idx = symbols_.size();
+            if (s.name != name) mangledIndex_.emplace(name, idx);
             symbols_.push_back(std::move(s));
             // SHN_ABS values are constants, not addresses (the GLIBC_2.x version
             // nodes are absolute 0): findable by name, but never a label for a value.
@@ -759,6 +771,7 @@ void SymbolResolver::parseElf32Symbols(const std::string& path, const std::strin
             s.module = moduleName;
 
             size_t idx = symbols_.size();
+            if (s.name != name) mangledIndex_.emplace(name, idx);
             symbols_.push_back(std::move(s));
             // SHN_ABS values are constants, not addresses (the GLIBC_2.x version
             // nodes are absolute 0): findable by name, but never a label for a value.

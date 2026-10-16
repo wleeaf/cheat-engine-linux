@@ -248,6 +248,40 @@ reimplementation of Cheat Engine).
   whose pid was reused could receive an allocation or code write meant for the
   old one. 32-bit games under FEX or box64 on ARM64 got memory above 4 GiB, and
   Lua `deAlloc(addr)` without a size never freed anything.
+- Fixed: pointer scanner. Deep or wide scans kept every partial path of a
+  level in memory and could use gigabytes before finding anything; the search
+  now goes one depth at a time with the same results and order, under a work
+  limit. On 32-bit Wine games almost every value, every positive float
+  included, counted as a pointer because unreadable reservations were taken
+  as targets; only readable memory counts now, the map has an entry cap, and
+  building it is much faster with working cancel and progress. Structure
+  Spider ran a whole scan on the GUI thread and closed Cheat Engine on a scan
+  error; it now runs in the background with Cancel. Showing results and
+  rescanning rebuilt the module list per row (rescans now run in the
+  background too). With two modules of the same name (WoW64 ntdll.dll) paths
+  resolved against the wrong one, and rescan by value ignored a big-endian
+  target's byte order. `cescan pointerscan` and Lua `pointerScan` accept depth
+  up to 7 and offsets up to 1 MiB.
+- Fixed: debugger. A stop of a third thread while all threads were being
+  stopped was reported from inside that stop, so the debugger could show one
+  thread's registers under another's id, and editing them wrote them into the
+  wrong thread; breakpoint, watchpoint and exception hits of other threads
+  during a stop were lost or delivered to the game. Detaching looped forever,
+  freezing the game and Cheat Engine, when a breakpoint's code was unloaded or
+  overwritten. Step Over and Step Out stopped in a deeper recursive frame and
+  disabled the breakpoint at the current line for the whole run; a SIGTRAP
+  exception breakpoint reported the debugger's own stops; Ctrl-Z and
+  `kill -STOP` were undone at once; error paths left the game stopped with
+  the window still saying "Running"; an exec during a breakpoint change could
+  plant the breakpoint in the new program; and detaching during a single step
+  dropped a signal.
+- Fixed: Auto Assembler. An undeclared `name:` line now patches the target's
+  function when that symbol lives in the game or its own libraries (also for
+  mangled C++ names), and stays a local label for C library names and names
+  the script jumps to, so patching two functions in a row works again. A table
+  saved in place (shared, hard-linked or read-only directories) is no longer
+  lost when the write fails, and Activate, Deactivate and differing-step
+  hotkeys from CE tables keep their meaning when saved.
 - Fixed: scanner. A first scan with Changed, Unchanged, Increased, Decreased,
   Increased/Decreased by or Same as first ran as an Exact scan on whatever the
   value box held; it now says a first scan is needed. "Increased by -5" never

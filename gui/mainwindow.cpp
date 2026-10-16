@@ -716,24 +716,46 @@ void MainWindow::setupMenus() {
             return;
         }
         if (!process_) { QMessageBox::warning(this, "Structure Spider", "The process is no longer open."); return; }
-        QApplication::setOverrideCursor(Qt::WaitCursor);
-        ce::PointerScanner scanner;
-        ce::PointerScanConfig cfg;
-        cfg.targetAddress = target; cfg.maxDepth = 2; cfg.maxOffset = 256; cfg.staticOnly = false;
-        auto paths = scanner.scan(*process_, cfg);
-        QApplication::restoreOverrideCursor();
+        // The scan runs on a worker so the GUI keeps running; the window shows
+        // its progress. Closing the window, or a target change (which deletes
+        // target windows), cancels the scan and joins the worker.
+        struct SpiderJob : QObject {
+            explicit SpiderJob(QObject* parent) : QObject(parent) {}
+            ~SpiderJob() override { scanner.cancel(); if (worker.joinable()) worker.join(); }
+            ce::PointerScanner scanner;
+            std::thread worker;
+            std::atomic<bool> done{false};
+            std::vector<ce::PointerPath> paths;   // written by the worker, read after join
+            std::string error;
+        };
         auto* dlg = new QDialog(this);
         dlg->setWindowTitle("Structure spider");
         dlg->resize(520, 420);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        trackTargetWindow(dlg);
         auto* v = new QVBoxLayout(dlg);
-        v->addWidget(new QLabel(QString("%1 pointer path(s) to 0x%2:")
-                                    .arg(paths.size()).arg((qulonglong)target, 0, 16)));
+        const QString targetText = QString("0x%1").arg((qulonglong)target, 0, 16);
+        auto* status = new QLabel(QString("Searching for pointer paths to %1...").arg(targetText));
+        status->setWordWrap(true);
+        v->addWidget(status);
         auto* list = new QListWidget;
-        for (const auto& p : paths) list->addItem(QString::fromStdString(p.toString()));
         v->addWidget(list);
+        auto* job = new SpiderJob(dlg);
+        ce::PointerScanConfig cfg;
+        cfg.targetAddress = target; cfg.maxDepth = 2; cfg.maxOffset = 256; cfg.staticOnly = false;
+        job->worker = std::thread([job, proc = process_.get(), cfg] {
+            // buildPointerMap throws for a target of unknown pointer width, and
+            // a huge target can run out of memory: report either in the window.
+            try { job->paths = job->scanner.scan(*proc, cfg); }
+            catch (const std::exception& e) { job->error = e.what(); }
+            catch (...) { job->error = "unexpected error"; }
+            job->done = true;
+        });
+        connect(dlg, &QDialog::finished, job, [job]() { job->scanner.cancel(); });
         auto* row = new QHBoxLayout;
         auto* dissectBtn = new QPushButton("Dissect structure at target");
         connect(dissectBtn, &QPushButton::clicked, this, [this, target]() {
+            if (!process_) return;
             auto* sd = new StructureDissector(process_.get(), target, this);
             sd->setAttribute(Qt::WA_DeleteOnClose);
             sd->setAddToListCallback([this](uintptr_t a, ce::ValueType t, const QString& d) {
@@ -742,11 +764,37 @@ void MainWindow::setupMenus() {
             trackStructDissector(sd);
             sd->show();
         });
-        auto* closeBtn = new QPushButton("Close");
-        connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::accept);
+        // Cancel while the scan runs, Close afterwards.
+        auto* closeBtn = new QPushButton("Cancel");
+        connect(closeBtn, &QPushButton::clicked, dlg, [dlg, job, status]() {
+            if (job->done) { dlg->accept(); return; }
+            job->scanner.cancel();
+            status->setText("Cancelling...");
+        });
         row->addWidget(dissectBtn); row->addStretch(); row->addWidget(closeBtn);
         v->addLayout(row);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        auto* poll = new QTimer(dlg);
+        connect(poll, &QTimer::timeout, dlg, [poll, job, status, list, closeBtn, targetText]() {
+            if (!job->done) {
+                if (!job->scanner.wasCancelled())
+                    status->setText(QString("Searching for pointer paths to %1... %2%")
+                                        .arg(targetText).arg(int(job->scanner.progress() * 100)));
+                return;
+            }
+            poll->stop();
+            job->worker.join();
+            closeBtn->setText("Close");
+            if (!job->error.empty()) {
+                status->setText(QString("The pointer scan failed: %1").arg(QString::fromStdString(job->error)));
+                return;
+            }
+            if (job->scanner.wasCancelled()) { status->setText("Cancelled."); return; }
+            QString text = QString("%1 pointer path(s) to %2:").arg(job->paths.size()).arg(targetText);
+            if (job->scanner.truncated()) text += " (the scan stopped at a limit, so some paths may be missing)";
+            status->setText(text);
+            for (const auto& p : job->paths) list->addItem(QString::fromStdString(p.toString()));
+        });
+        poll->start(100);
         dlg->show();
     });
     // CE frmgroupscanalgoritmgeneratorunit: build a grouped-scan pattern from the

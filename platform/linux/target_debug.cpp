@@ -656,13 +656,38 @@ std::expected<NativeSoftwareBreakpoint,NativeBreakpointFailure> installNativeSof
     auto restored=patchCodeBytes(tid,breakpoint,true);
     return std::unexpected(NativeBreakpointFailure{error,restored ? std::nullopt : std::optional(breakpoint)});
 }
+namespace {
+// True only when the process's map list was read and no mapping covers the
+// address: the page holding the breakpoint was unmapped (a module unloaded).
+bool addressUnmapped(pid_t tid,uintptr_t address) {
+    std::ifstream maps("/proc/"+std::to_string(tid)+"/maps");
+    bool listed=false;
+    for (std::string line; std::getline(maps,line);) {
+        const auto dash=line.find('-');
+        const auto space=line.find(' ');
+        if (dash==std::string::npos || space==std::string::npos || dash>space) continue;
+        unsigned long long start=0,end=0;
+        try {
+            start=std::stoull(line.substr(0,dash),nullptr,16);
+            end=std::stoull(line.substr(dash+1,space-dash-1),nullptr,16);
+        } catch (const std::exception&) { continue; }
+        listed=true;
+        if (address>=start && address<end) return false;
+    }
+    return listed;
+}
+}
 Result<void> removeNativeSoftwareBreakpoint(pid_t tid,NativeSoftwareBreakpoint& breakpoint) {
     if (!breakpoint.installed) return {};
     if (!breakpoint.size || breakpoint.size>4 ||
         breakpoint.address%sizeof(long)+breakpoint.size>sizeof(long)) return std::unexpected(invalid());
     uintptr_t base=breakpoint.address-breakpoint.address%sizeof(long);
     auto word=readCodeWord(tid,base);
-    if (!word) return std::unexpected(word.error());
+    // A read failure on a page that is no longer mapped is final, unlike a
+    // stopped-state or transient failure: report it as bad_address so the
+    // caller can drop the record instead of retrying forever.
+    if (!word) return std::unexpected(word.error()==std::errc::io_error && addressUnmapped(tid,breakpoint.address) ?
+                                      std::make_error_code(std::errc::bad_address) : word.error());
     auto bytes=reinterpret_cast<const uint8_t*>(&*word)+(breakpoint.address-base);
     if (!std::memcmp(bytes,breakpoint.original.data(),breakpoint.size)) { breakpoint.installed=false; return {}; }
     if (std::memcmp(bytes,breakpoint.trap.data(),breakpoint.size)) return std::unexpected(brokenRestore());

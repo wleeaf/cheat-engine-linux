@@ -18,6 +18,7 @@
 #include <type_traits>
 #include <string_view>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cerrno>
 #include <fcntl.h>
@@ -101,15 +102,71 @@ static bool writeAll(int fd, std::string_view bytes) {
     return true;
 }
 
-// Truncate and rewrite the file itself: what a plain save does. It keeps the
-// inode (owner, hard links, ACLs), at the cost of a window where the file is
-// partly written.
+static bool pwriteAll(int fd, std::string_view bytes) {
+    for (size_t done = 0; done < bytes.size();) {
+        const ssize_t n = ::pwrite(fd, bytes.data() + done, bytes.size() - done, static_cast<off_t>(done));
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) { if (n == 0) errno = EIO; return false; }
+        done += static_cast<size_t>(n);
+    }
+    return true;
+}
+
+static bool preadAll(int fd, std::string& out, size_t size) {
+    out.resize(size);
+    for (size_t done = 0; done < size;) {
+        const ssize_t n = ::pread(fd, out.data() + done, size - done, static_cast<off_t>(done));
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return false;
+        done += static_cast<size_t>(n);
+    }
+    return true;
+}
+
+// Rewrite the file itself: what a plain save does. It keeps the inode (owner,
+// hard links, ACLs). The space is reserved before anything changes, the new
+// bytes overwrite the old ones and the file is cut to size last; a write that
+// fails partway (a full disk, an I/O error) puts the old bytes back, so the
+// old table survives unless the process dies mid-write.
 static bool writeFileInPlace(const std::filesystem::path& target, std::string_view bytes) {
-    const int fd = ::open(target.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+    bool readable = true;
+    int fd = ::open(target.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0666);
+    if (fd < 0 && errno == EACCES) {   // write-only for us: no copy to restore from
+        readable = false;
+        fd = ::open(target.c_str(), O_WRONLY | O_CLOEXEC);
+    }
     if (fd < 0) return false;
-    bool ok = writeAll(fd, bytes) && ::fsync(fd) == 0;
-    ok = ::close(fd) == 0 && ok;
-    return ok;
+    auto fail = [fd](int failure) { ::close(fd); errno = failure; return false; };
+    struct stat st{};
+    if (::fstat(fd, &st) != 0) return fail(errno);
+    if (!S_ISREG(st.st_mode)) {   // a device or a pipe takes the bytes as a stream
+        bool ok = writeAll(fd, bytes);
+        ok = ::close(fd) == 0 && ok;
+        return ok;
+    }
+    // The old table, kept to undo a failed rewrite (up to a size it is sane
+    // to hold in memory).
+    std::string old;
+    const bool haveOld = readable && st.st_size >= 0 && static_cast<uint64_t>(st.st_size) <= (1ull << 30) &&
+                         preadAll(fd, old, static_cast<size_t>(st.st_size));
+    if (!bytes.empty()) {
+        const int reserved = ::posix_fallocate(fd, 0, static_cast<off_t>(bytes.size()));
+        if (reserved != 0 && reserved != EOPNOTSUPP && reserved != ENOSYS) {
+            // posix_fallocate may have grown the file with zeros before failing.
+            if (haveOld) (void)::ftruncate(fd, static_cast<off_t>(old.size()));
+            return fail(reserved);
+        }
+    }
+    bool ok = pwriteAll(fd, bytes);
+    ok = ok && ::ftruncate(fd, static_cast<off_t>(bytes.size())) == 0;
+    ok = ok && ::fsync(fd) == 0;
+    if (!ok) {
+        const int failure = errno;
+        if (haveOld && pwriteAll(fd, old) && ::ftruncate(fd, static_cast<off_t>(old.size())) == 0)
+            (void)::fsync(fd);
+        return fail(failure);
+    }
+    return ::close(fd) == 0;
 }
 
 // Replace the file at path with bytes so that it is never left truncated or half
@@ -227,6 +284,23 @@ static std::string xmlEscapeText(const std::string& s) {
 // The tag parsers, defined with the loader below.
 static std::string getTag(const std::string& xml, const std::string& tag);
 static std::vector<std::string> getTagBlocks(const std::string& xml, const std::string& tag);
+
+// One CE <Hotkey> element as the loader reads it.
+struct ParsedHotkey {
+    std::string block;   // the whole element, as written
+    std::string keys;    // "Ctrl+H"
+    std::string value;   // set-value target, or the increase/decrease step
+    int action = 0;      // CE mrh* action code
+    bool usable = false; // has keys and is not Active="0"
+};
+static std::vector<ParsedHotkey> parseHotkeyBlocks(const std::string& xml);
+
+// The record slot a hotkey action binds: 0 toggle (Toggle Activation, its
+// increase/decrease variants, Activate, Deactivate), 1 set value, 2 increase,
+// 3 decrease.
+static int hotkeySlot(int action) {
+    return action <= 4 ? 0 : action - 4;
+}
 
 static std::string typeToStr(ValueType vt) {
     switch (vt) {
@@ -770,12 +844,24 @@ bool writeTableXml(const CheatTable& table,std::ostream& f) {
         // <Value> (set-value target, or the step for increase/decrease).
         struct HkOut { int action; const std::string* keys; const std::string* value; };
         const std::string empty;
-        std::vector<HkOut> hks;
-        if (!e.hotkeyKeys.empty())          hks.push_back({0, &e.hotkeyKeys, &empty});               // Toggle
-        if (!e.setValueHotkeyKeys.empty())  hks.push_back({5, &e.setValueHotkeyKeys, &e.setValueHotkeyValue});
-        if (!e.increaseHotkeyKeys.empty())  hks.push_back({6, &e.increaseHotkeyKeys, &e.hotkeyStep});
-        if (!e.decreaseHotkeyKeys.empty())  hks.push_back({7, &e.decreaseHotkeyKeys, &e.hotkeyStep});
         const bool extraHotkeys = !e.extraHotkeysXml.empty() && isElementSequence(e.extraHotkeysXml, "Hotkey");
+        // A slot the loader filled from a kept hotkey (an Activate key in the
+        // toggle slot, a decrease key with its own step) is written by that
+        // hotkey's original element, not again as the slot's own action.
+        const auto kept = extraHotkeys ? parseHotkeyBlocks(e.extraHotkeysXml) : std::vector<ParsedHotkey>{};
+        auto keptBinds = [&](int action, const std::string& keys) {
+            return std::any_of(kept.begin(), kept.end(), [&](const ParsedHotkey& h) {
+                return h.usable && hotkeySlot(h.action) == hotkeySlot(action) && h.keys == keys;
+            });
+        };
+        std::vector<HkOut> hks;
+        auto add = [&](int action, const std::string& keys, const std::string& value) {
+            if (!keys.empty() && !keptBinds(action, keys)) hks.push_back({action, &keys, &value});
+        };
+        add(0, e.hotkeyKeys, empty);   // Toggle
+        add(5, e.setValueHotkeyKeys, e.setValueHotkeyValue);
+        add(6, e.increaseHotkeyKeys, e.hotkeyStep);
+        add(7, e.decreaseHotkeyKeys, e.hotkeyStep);
         if (!hks.empty() || extraHotkeys) {
             f << "      <Hotkeys>\n";
             // Hotkey IDs are unique in a record: number ours after the kept ones.
@@ -940,6 +1026,26 @@ static std::string attributeValue(const std::string& attributes, const std::stri
         return attributes.substr(p + 1, close - p - 1);
     }
     return {};
+}
+
+static std::vector<ParsedHotkey> parseHotkeyBlocks(const std::string& xml) {
+    std::vector<ParsedHotkey> parsed;
+    for (const auto& [begin, end] : tagBlockRanges(xml, "Hotkey")) {
+        ParsedHotkey h;
+        h.block = xml.substr(begin, end - begin);
+        std::string attributes;
+        const std::string hk = getTagWithAttributes(h.block, "Hotkey", &attributes);
+        h.action = hotkeyActionFromText(trimmedXmlText(xmlUnescape(getTag(hk, "Action"))));
+        std::vector<int> vks;
+        for (const auto& kb : getTagBlocks(getTag(hk, "Keys"), "Key")) {
+            try { vks.push_back(std::stoi(getTag(kb, "Key"))); } catch (...) {}
+        }
+        h.keys = vksToKeyString(vks);
+        h.value = xmlUnescape(getTag(hk, "Value"));
+        h.usable = !h.keys.empty() && attributeValue(attributes, "Active") != "0";
+        parsed.push_back(std::move(h));
+    }
+    return parsed;
 }
 
 // Record elements the loader reads; anything else is kept verbatim in extraXml.
@@ -1165,63 +1271,63 @@ static void parseCheatEntriesBlock(const std::string& xml, size_t begin, size_t 
         // our toggle/set/increase/decrease slot; every other one is kept as written.
         // With no enabled plain toggle, the first Activate, Deactivate or toggle
         // that allows increase or decrease fills the toggle slot instead, so its
-        // key still works (a save then writes it as Toggle Activation).
+        // key still works. Increase and decrease share one step, the first one
+        // given; a key with another step still binds, using that step.
+        // A hotkey whose slot cannot say what it says (one of those actions, or
+        // another step) is kept as written too, and so is one whose slot keys
+        // another kept hotkey also has: the save writes the kept element in
+        // place of the slot, so a load and save keeps every action and step.
         auto hkXml = getTag(hotkeysXml, "Hotkeys");
         if (hkXml.find("<Hotkey") != std::string::npos) {
-            struct ParsedHotkey { std::string block, keys, value; int action; bool usable; };
-            std::vector<ParsedHotkey> parsed;
+            const auto parsed = parseHotkeyBlocks(hkXml);
             bool plainToggle = false;
-            for (const auto& [hkBegin, hkEnd] : tagBlockRanges(hkXml, "Hotkey")) {
-                ParsedHotkey h;
-                h.block = hkXml.substr(hkBegin, hkEnd - hkBegin);
-                std::string hkAttributes;
-                const std::string hk = getTagWithAttributes(h.block, "Hotkey", &hkAttributes);
-                h.action = hotkeyActionFromText(trimmedXmlText(xmlUnescape(getTag(hk, "Action"))));
-                std::vector<int> vks;
-                for (const auto& kb : getTagBlocks(getTag(hk, "Keys"), "Key")) {
-                    try { vks.push_back(std::stoi(getTag(kb, "Key"))); } catch (...) {}
-                }
-                h.keys = vksToKeyString(vks);
-                h.value = xmlUnescape(getTag(hk, "Value"));
-                h.usable = !h.keys.empty() && attributeValue(hkAttributes, "Active") != "0";
-                plainToggle |= h.usable && h.action == 0;
-                parsed.push_back(std::move(h));
-            }
+            for (const auto& h : parsed) plainToggle |= h.usable && h.action == 0;
             bool stepTaken = false;
-            for (const auto& h : parsed) {
+            std::vector<bool> keep(parsed.size(), true);
+            std::array<int, 4> boundBy{-1, -1, -1, -1};   // per slot, the hotkey that fills it
+            for (size_t index = 0; index < parsed.size(); ++index) {
+                const auto& h = parsed[index];
+                if (!h.usable) continue;
                 bool bound = false;
-                if (h.usable) {
-                    switch (h.action) {   // CE mrh* action codes
-                        case 0:   // Toggle Activation
-                            if ((bound = e.hotkeyKeys.empty())) e.hotkeyKeys = h.keys;
-                            break;
-                        case 1: case 2:   // Toggle Activation Allow Increase / Decrease
-                        case 3: case 4:   // Activate, Deactivate
-                            if ((bound = !plainToggle && e.hotkeyKeys.empty())) e.hotkeyKeys = h.keys;
-                            break;
-                        case 5:   // Set Value
-                            if ((bound = e.setValueHotkeyKeys.empty())) { e.setValueHotkeyKeys = h.keys; e.setValueHotkeyValue = h.value; }
-                            break;
-                        // Increase Value and Decrease Value share one step in our
-                        // model, the first one given. A key with another step
-                        // still binds, using that shared step, rather than doing
-                        // nothing.
-                        case 6:
-                        case 7: {
-                            auto& slot = h.action == 6 ? e.increaseHotkeyKeys : e.decreaseHotkeyKeys;
-                            if ((bound = slot.empty())) {
-                                slot = h.keys;
-                                if (!stepTaken && !h.value.empty()) { e.hotkeyStep = h.value; stepTaken = true; }
-                            }
-                            break;
+                switch (h.action) {   // CE mrh* action codes
+                    case 0:   // Toggle Activation
+                        if ((bound = e.hotkeyKeys.empty())) e.hotkeyKeys = h.keys;
+                        break;
+                    case 1: case 2:   // Toggle Activation Allow Increase / Decrease
+                    case 3: case 4:   // Activate, Deactivate
+                        if ((bound = !plainToggle && e.hotkeyKeys.empty())) e.hotkeyKeys = h.keys;
+                        break;
+                    case 5:   // Set Value
+                        if ((bound = e.setValueHotkeyKeys.empty())) { e.setValueHotkeyKeys = h.keys; e.setValueHotkeyValue = h.value; }
+                        break;
+                    case 6:
+                    case 7: {
+                        auto& slot = h.action == 6 ? e.increaseHotkeyKeys : e.decreaseHotkeyKeys;
+                        if ((bound = slot.empty())) {
+                            slot = h.keys;
+                            if (!stepTaken && !h.value.empty()) { e.hotkeyStep = h.value; stepTaken = true; }
                         }
-                        default: break;
+                        break;
                     }
+                    default: break;
                 }
-                if (!bound && isElementSequence(h.block, "Hotkey")) {
-                    if (!e.extraHotkeysXml.empty()) e.extraHotkeysXml += "\n        ";
-                    e.extraHotkeysXml += h.block;
-                }
+                if (bound) { keep[index] = false; boundBy[hotkeySlot(h.action)] = static_cast<int>(index); }
+            }
+            for (int slot = 0; slot < 4; ++slot) {
+                const int index = boundBy[slot];
+                if (index < 0) continue;
+                const auto& h = parsed[index];
+                const bool otherAction = slot == 0 && h.action != 0;
+                const bool otherStep = slot >= 2 && h.value != e.hotkeyStep;
+                const bool shared = std::any_of(parsed.begin(), parsed.end(), [&](const ParsedHotkey& other) {
+                    return keep[&other - parsed.data()] && other.usable && hotkeySlot(other.action) == slot && other.keys == h.keys;
+                });
+                if (otherAction || otherStep || shared) keep[index] = true;
+            }
+            for (size_t index = 0; index < parsed.size(); ++index) {
+                if (!keep[index] || !isElementSequence(parsed[index].block, "Hotkey")) continue;
+                if (!e.extraHotkeysXml.empty()) e.extraHotkeysXml += "\n        ";
+                e.extraHotkeysXml += parsed[index].block;
             }
         } else {
             e.hotkeyKeys = xmlUnescape(hkXml);

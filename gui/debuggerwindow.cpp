@@ -300,7 +300,12 @@ void DebuggerWindow::onContinue() {
     if (!session_->isAttached() || stepping_) return;
     statusLabel_->setText("Running...");
     setRunningUi(true);
-    session_->continueExecution();
+    // Continue can leave the target stopped without reporting a stop: show
+    // it as stopped, with the reason, instead of "Running...".
+    if (!session_->continueExecution() && session_->isAttached() && session_->isStopped()) {
+        refreshStopped();
+        statusLabel_->setText("Continue failed, still stopped: "+QString::fromStdString(session_->lastError().message()));
+    }
 }
 
 void DebuggerWindow::onStepInto() { runStep(ce::StepMode::Into); }
@@ -573,7 +578,11 @@ void DebuggerWindow::onDebugEvent(int type) {
             if (!bps_[i].condition.empty() &&
                 !ce::evaluateBreakpointCondition(bps_[i].condition, ctx, ctx.instructionPointer())) {
                 setRunningUi(true);
-                session_->continueExecution();
+                if (!session_->continueExecution() && session_->isAttached() && session_->isStopped()) {
+                    refreshStopped();
+                    statusLabel_->setText("Continue failed, still stopped: "+
+                                          QString::fromStdString(session_->lastError().message()));
+                }
                 return;
             }
             bps_[i].hitCount++;

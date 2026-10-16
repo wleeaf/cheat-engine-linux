@@ -32,7 +32,10 @@ def main():
             target = {"bits": bits, "status": "failed", "fixtureSha256": hashlib.sha256(fixture.read_bytes()).hexdigest()}
             report["targets"].append(target)
             try:
-                result = subprocess.run([str(driver), str(fixture)], capture_output=True, text=True, timeout=60)
+                # The full run already took about 59 s (the mixed-ABI restart
+                # checks alone about 46 s) before the debugger session checks
+                # grew. Leave headroom instead of failing on a slow host.
+                result = subprocess.run([str(driver), str(fixture)], capture_output=True, text=True, timeout=120)
             except subprocess.TimeoutExpired as error:
                 target["output"] = (error.stdout or b"").decode(errors="replace")
                 target["stderr"] = (error.stderr or b"").decode(errors="replace")

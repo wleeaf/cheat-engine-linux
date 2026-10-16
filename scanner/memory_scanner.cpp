@@ -2509,10 +2509,10 @@ static const std::string& scanHostTag() {
 
 // Scan directories are named ce-scan-<host>-<pid>-XXXXXX. Remove this host's
 // whose process is gone (a crash or kill skipped their cleanup), and kept ones
-// (see ScanResult::keepFiles) once they are a week old. Another host's
-// directories are left alone: its pids cannot be checked from here. The
-// ce-scan-<pid>-XXXXXX directories of earlier versions name no host, so they
-// are only removed once a week old.
+// (see ScanResult::keepFiles) once they are a week old. Another host's pids
+// cannot be checked from here, so its directories are removed once a week
+// old; that also clears this machine's own from before a hostname change, and
+// the ce-scan-<pid>-XXXXXX directories of earlier versions, which name no host.
 void pruneStaleScanDirectories(const std::filesystem::path& root) {
     namespace fs = std::filesystem;
     std::error_code ec;
@@ -2542,10 +2542,8 @@ void pruneStaleScanDirectories(const std::filesystem::path& root) {
             if (pid > 0 && ::kill(static_cast<pid_t>(pid), 0) != 0 && errno == ESRCH) fs::remove_all(it->path(), ignored);
             continue;
         }
-        if (pidOf(name.substr(8)) > 0) {   // the old naming, with no host
-            const auto written = fs::last_write_time(it->path(), ignored);
-            if (!ignored && written < weekAgo) fs::remove_all(it->path(), ignored);
-        }
+        const auto written = fs::last_write_time(it->path(), ignored);
+        if (!ignored && written < weekAgo) fs::remove_all(it->path(), ignored);
     }
 }
 

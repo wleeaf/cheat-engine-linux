@@ -1,7 +1,7 @@
 // Offscreen smoke test for the pointer scan window: the scan runs on a worker,
 // so the GUI thread keeps running (the main window's freeze timer depends on
-// it), the result arrives, and closing the window during a scan stops and
-// joins the worker. Scans this process, so no fork/ptrace is needed.
+// it), the result arrives, a rescan runs on the worker as well, and closing the
+// window during a scan stops and joins the worker. Scans this process, so no fork/ptrace is needed.
 
 #include "gui/pointerscan_dialog.hpp"
 #include "platform/linux/linux_process.hpp"
@@ -65,6 +65,21 @@ int main(int argc, char** argv) {
         auto* table = dialog.findChild<QTableWidget*>();
         check("the scan finishes and lists the static pointer", finished && table && table->rowCount() > 0);
         check("the GUI thread kept running during the scan", ticks > before);
+
+        // Rescan runs on the worker too: Scan reads Cancel until it is done.
+        auto statusText = [&] {
+            for (auto* label : dialog.findChildren<QLabel*>())
+                if (label->text().startsWith("Rescan")) return label->text();
+            return QString();
+        };
+        dialog.rescanTo(reinterpret_cast<uintptr_t>(&g_value));
+        check("Rescan turns Scan into Cancel while it runs", scan->text() == "Cancel");
+        const bool rescanned = waitFor([&] { return scan->text() == "Scan"; }, 60000);
+        check("a rescan to the same address keeps the paths",
+              rescanned && table && table->rowCount() > 0 && statusText().startsWith("Rescan:"));
+        dialog.rescanTo(reinterpret_cast<uintptr_t>(&g_value) + 0x100000);
+        const bool moved = waitFor([&] { return scan->text() == "Scan"; }, 60000);
+        check("a rescan to another address drops the paths", moved && table && table->rowCount() == 0);
     }
 
     {

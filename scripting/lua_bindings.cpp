@@ -4158,8 +4158,18 @@ static int l_pointerScan(lua_State* L) {
     const auto target = (uintptr_t)luaL_checkinteger(L, 1);
     std::optional<int> maxDepth, maxOffset;
     std::optional<bool> negativeOffsets, staticOnly, alignedOnly;
-    if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) maxDepth  = (int)luaL_checkinteger(L, 2);
-    if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) maxOffset = (int)luaL_checkinteger(L, 3);
+    // The work grows as fanout^depth and the scan cannot be interrupted from
+    // Lua, so out-of-range limits are an error rather than a hang.
+    if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) {
+        const lua_Integer depth = luaL_checkinteger(L, 2);
+        luaL_argcheck(L, depth >= 1 && depth <= ce::kPointerScanMaxDepth, 2, "maxDepth must be 1 to 7");
+        maxDepth = static_cast<int>(depth);
+    }
+    if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) {
+        const lua_Integer offset = luaL_checkinteger(L, 3);
+        luaL_argcheck(L, offset >= 0 && offset <= ce::kPointerScanMaxOffset, 3, "maxOffset must be 0 to 1048576");
+        maxOffset = static_cast<int>(offset);
+    }
     if (lua_istable(L, 4)) {
         lua_getfield(L, 4, "negativeOffsets"); if (lua_isboolean(L, -1)) negativeOffsets = lua_toboolean(L, -1); lua_pop(L, 1);
         lua_getfield(L, 4, "staticOnly");      if (lua_isboolean(L, -1)) staticOnly      = lua_toboolean(L, -1); lua_pop(L, 1);

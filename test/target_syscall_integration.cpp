@@ -21,6 +21,7 @@
 #include <cerrno>
 #include <cstring>
 #include <fstream>
+#include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
 #include <sched.h>
@@ -99,6 +100,15 @@ static ssize_t readMemory(pid_t pid,uintptr_t address,void* buffer,size_t size) 
 static ssize_t writeMemory(pid_t pid,uintptr_t address,const void* buffer,size_t size) {
     iovec local{const_cast<void*>(buffer),size},remote{reinterpret_cast<void*>(address),size};
     return process_vm_writev(pid,&local,1,&remote,1,0);
+}
+// /proc/pid/mem writes read-only code the way another tool rewriting the
+// game's code would; process_vm_writev cannot.
+static bool forceWrite(pid_t pid,uintptr_t address,const void* buffer,size_t size) {
+    const int fd=open(("/proc/"+std::to_string(pid)+"/mem").c_str(),O_RDWR|O_CLOEXEC);
+    if (fd<0) return false;
+    const bool written=pwrite(fd,buffer,size,static_cast<off_t>(address))==ssize_t(size);
+    close(fd);
+    return written;
 }
 static pid_t fixtureTracer(pid_t pid) {
     std::ifstream status("/proc/"+std::to_string(pid)+"/status");
@@ -655,6 +665,13 @@ static void debugBackend(const char* path) {
           readMemory(pid,code,restoredCode.data(),restoredCode.size())==ssize_t(restoredCode.size()) &&
           originalCode==restoredCode,
           "software breakpoint restores exact code and adjacent bytes, and cleanup is idempotent");
+    // A record whose page is gone (its module was unloaded) reports a
+    // distinct, final error, while a transient failure keeps its own code.
+    NativeSoftwareBreakpoint unmapped=*software;
+    unmapped.address=0x1000; unmapped.installed=true;
+    auto gone=removeNativeSoftwareBreakpoint(pid,unmapped);
+    check(!gone && gone.error()==std::errc::bad_address && unmapped.installed,
+          "removing a breakpoint from an unmapped page reports bad_address and leaves the decision to its owner");
     softwareHit->setInstructionPointer(code);
     check(debugger.setContext(pid,*softwareHit).has_value() && debugger.singleStep(pid).has_value(),
           "restored original instruction executes after the software trap is removed");
@@ -717,6 +734,8 @@ static void fullSession(const char* path) {
     syscall_test::arm(syscall_test::Fault::SoftwareVerifyAndRestore);
     int failed=session.setSoftwareBreakpoint(code);
     check(failed<0 && session.hasPendingRecovery(),"full session retains a failed software installation and its original code");
+    check(!session.continueExecution() && session.isStopped() && session.hasPendingRecovery(),
+          "Continue reports its failure while code restoration is pending and leaves the target stopped");
     syscall_test::clear();
     check(session.retryPendingOperations() && !session.hasPendingRecovery() &&
           readMemory(pid,code,restored.data(),restored.size())==ssize_t(restored.size()) && original==restored,
@@ -724,10 +743,11 @@ static void fullSession(const char* path) {
     int software=session.setSoftwareBreakpoint(code);
     check(software>0,"full session installs its native software breakpoint");
     if (software<0) return;
-    command='b'; ::write(fixture.input,&command,1); session.continueExecution();
+    command='b'; ::write(fixture.input,&command,1);
+    bool resumed=session.continueExecution();
     bool hit=awaitState([&]{return hits.load()==1 && session.isStopped();});
     context=session.getStopContext();
-    check(hit && address==code && context.instructionPointer()==code && context.architecture==expected,
+    check(resumed && hit && address==code && context.instructionPointer()==code && context.architecture==expected,
           "full event loop attributes the software trap and restores the correct native PC");
     if (!hit) return;
     session.step(StepMode::Into);
@@ -920,6 +940,139 @@ static void sessionRecovery(const char* path) {
         session.continueExecution();
         check(awaitState([&] { return signalExited.load() && !session.isAttached(); }),
               "continuing an exception breakpoint preserves genuine signal delivery and process-exit notification");
+    }
+    {
+        // Step Over in a recursive function: a deeper frame reaching the
+        // return address first must not end the step, and the stepped
+        // instruction's own breakpoint stays armed for the recursive call.
+        Fixture fixture(path);
+        std::istringstream line(fixture.line()); std::string magic; pid_t pid=0;
+        line>>magic>>pid;
+        check(line && magic=="CE_TARGET" && pid==fixture.pid,"recursive step fixture starts");
+        if (!line || magic!="CE_TARGET" || pid!=fixture.pid) return;
+        char command='Q';
+        std::istringstream sites(::write(fixture.input,&command,1)==1 ? fixture.line() : std::string());
+        std::string tag; uintptr_t callSite=0,returnSite=0;
+        sites>>tag>>std::hex>>callSite>>returnSite;
+        check(sites && tag=="CE_RECURSE","recursive step fixture reports its call and return sites");
+        if (!sites || tag!="CE_RECURSE") return;
+        LinuxProcessHandle process(pid);
+        DebugSession session;
+        std::atomic<unsigned> hits{0},steps{0}; std::atomic<bool> consistent{true};
+        session.setEventCallback([&](const DebugEvent& event) {
+            if (event.type==DebugEventType::BreakpointHit) ++hits;
+            if (event.type==DebugEventType::SingleStep) ++steps;
+            if (session.activeThread()!=event.tid) consistent=false;
+        });
+        bool attached=session.attach(pid,&process);
+        int bp=attached ? session.setSoftwareBreakpoint(callSite) : -1;
+        command='R';
+        bool resumed=bp>0 && ::write(fixture.input,&command,1)==1 && session.continueExecution();
+        bool hit=resumed && awaitState([&] { return hits.load()==1 && session.isStopped(); });
+        auto outer=session.getStopContext();
+        check(attached && bp>0 && hit && outer.instructionPointer()==callSite,"recursion stops at its outermost call site");
+        if (!hit) return;
+        session.step(StepMode::Over);
+        auto inner=session.getStopContext();
+        check(hits==2 && steps==0 && inner.instructionPointer()==callSite && inner.stackPointer()<outer.stackPointer(),
+              "step-over keeps the stepped call site's breakpoint armed and reports the recursive call reaching it");
+        const uintptr_t frame=inner.stackPointer();
+        check(session.removeSoftwareBreakpoint(bp),"recursive call-site breakpoint is removed while stopped");
+        session.step(StepMode::Over);
+        auto after=session.getStopContext();
+        check(steps==1 && after.instructionPointer()==returnSite && after.stackPointer()==frame,
+              "step-over in a recursive function ends in the stepping frame, not where a deeper frame returns first");
+        check(consistent.load(),"every reported stop names the thread whose registers it carries");
+        check(session.continueExecution() && fixture.line()=="CE_RECURSE_DONE",
+              "recursion completes after the frame-checked step-over");
+        session.detach();
+    }
+    {
+        // Job control: SIGSTOP must keep a debugged game stopped until
+        // SIGCONT, and the tracer's own notification stops are not signals
+        // an exception breakpoint reports.
+        Fixture fixture(path);
+        std::istringstream line(fixture.line()); std::string magic; pid_t pid=0;
+        line>>magic>>pid;
+        check(line && magic=="CE_TARGET" && pid==fixture.pid,"job-control fixture starts");
+        if (!line || magic!="CE_TARGET" || pid!=fixture.pid) return;
+        char command='S';
+        std::istringstream busy(::write(fixture.input,&command,1)==1 ? fixture.line() : std::string());
+        std::string tag; uintptr_t spinning=0,heartbeat=0;
+        busy>>tag>>std::hex>>spinning>>heartbeat;
+        check(busy && tag=="CE_CALL_BUSY","job-control fixture spins with a heartbeat");
+        if (!busy || tag!="CE_CALL_BUSY") return;
+        auto beat=[&] { unsigned value=0; return readMemory(pid,heartbeat,&value,sizeof(value))==ssize_t(sizeof(value)) ? value : 0u; };
+        auto advancing=[&] { const unsigned first=beat(); return awaitState([&] { return beat()!=first; }); };
+        LinuxProcessHandle process(pid);
+        DebugSession session;
+        std::atomic<unsigned> trapReports{0};
+        session.setEventCallback([&](const DebugEvent& event) {
+            if (event.type==DebugEventType::ExceptionBreakpointHit && event.signal==SIGTRAP) ++trapReports;
+        });
+        bool attached=session.attach(pid,&process);
+        if (attached) session.addExceptionBreakpoint(SIGTRAP);
+        check(attached && session.continueExecution() && advancing(),"the debugged target runs before job control stops it");
+        if (!attached) return;
+        // The stop takes effect after a delay that grows under emulation:
+        // wait (bounded) until the heartbeat holds still, then require it to
+        // stay still. A tracer that resumes the group-stop never settles.
+        auto holdsStill=[&](std::chrono::milliseconds window) {
+            const unsigned before=beat();
+            std::this_thread::sleep_for(window);
+            return beat()==before;
+        };
+        bool sent=kill(pid,SIGSTOP)==0;
+        bool settled=false;
+        for (auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(10);
+             sent && !settled && std::chrono::steady_clock::now()<deadline;)
+            settled=holdsStill(std::chrono::milliseconds(100));
+        check(settled && holdsStill(std::chrono::milliseconds(300)) && session.isAttached() && !session.isStopped(),
+              "SIGSTOP keeps a debugged target stopped instead of the tracer resuming it");
+        check(kill(pid,SIGCONT)==0 && advancing(),"SIGCONT resumes the job-control stopped target under the debugger");
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        check(trapReports==0 && !session.isStopped(),
+              "the tracer's own job-control notifications never meet a SIGTRAP exception breakpoint");
+        const unsigned stop=0;
+        writeMemory(pid,spinning,&stop,sizeof(stop));
+        check(fixture.line()=="CE_CALL_DONE","job-control fixture finishes its loop");
+        session.detach();
+        check(fixture.value(),"job-control fixture stays live after detach");
+    }
+    {
+        // Code replaced under a breakpoint (an Auto Assembler script, a JIT)
+        // holds no trap of ours: removal and detach drop the record instead
+        // of writing old bytes over the new code or retrying forever.
+        Fixture fixture(path);
+        std::istringstream line(fixture.line()); std::string magic;
+        pid_t pid=0; unsigned width=0; uintptr_t value=0,pointer=0,code=0;
+        line>>magic>>pid>>width>>std::hex>>value>>pointer>>code;
+        check(line && magic=="CE_TARGET" && pid==fixture.pid,"replaced-code fixture starts");
+        if (!line || magic!="CE_TARGET" || pid!=fixture.pid) return;
+        LinuxProcessHandle process(pid);
+        std::array<uint8_t,4> original{},conflict{},observed{};
+        if (readMemory(pid,code,original.data(),original.size())!=ssize_t(original.size())) return;
+        auto session=std::make_unique<DebugSession>();
+        bool attached=session->attach(pid,&process);
+        int bp=attached ? session->setSoftwareBreakpoint(code) : -1;
+        bool replaced=bp>0 && readMemory(pid,code,conflict.data(),conflict.size())==ssize_t(conflict.size());
+        conflict[0]^=1;
+        replaced=replaced && forceWrite(pid,code,conflict.data(),1);
+        bool removed=replaced && session->removeSoftwareBreakpoint(bp);
+        readMemory(pid,code,observed.data(),observed.size());
+        check(removed && !session->hasPendingRecovery() && observed==conflict,
+              "removing a breakpoint whose code was replaced forgets it and leaves the new code intact");
+        bool rearmed=forceWrite(pid,code,original.data(),1) && session->setSoftwareBreakpoint(code)>0 &&
+                     forceWrite(pid,code,conflict.data(),1);
+        const auto started=std::chrono::steady_clock::now();
+        session.reset();
+        const auto elapsed=std::chrono::steady_clock::now()-started;
+        readMemory(pid,code,observed.data(),observed.size());
+        check(rearmed && elapsed<std::chrono::seconds(2) && observed==conflict && fixtureTracer(pid)==0,
+              "detach drops a breakpoint whose code was replaced and releases the target promptly");
+        char command='b';
+        check(forceWrite(pid,code,original.data(),1) && ::write(fixture.input,&command,1)==1 && fixture.line()=="123456790",
+              "the target runs its restored code after the dropped breakpoint");
     }
     printf("DEBUG_RECOVERY_RESULT=%s\n",failures==failuresBefore ? "PASSED" : "FAILED");
 }

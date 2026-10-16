@@ -1465,12 +1465,24 @@ static int cmd_pointerscan(pid_t pid, uintptr_t target, int depth, int maxOffset
     auto results = scanner.scan(proc, config);
     sortPointerPaths(results, PointerSortKey::Depth);   // the 50 shown are the shortest
     printf("Found %zu pointer paths:\n\n", results.size());
-    if (scanner.truncated())
-        printf("  (the path limit was reached: longer paths may be missing; lower depth or offset)\n\n");
+    switch (scanner.limitReached()) {
+        case ce::PointerScanLimit::Results:
+            printf("  (the path limit was reached: longer paths may be missing; lower depth or offset)\n\n");
+            break;
+        case ce::PointerScanLimit::Work:
+            printf("  (the work limit was reached: longer paths may be missing; lower depth or offset)\n\n");
+            break;
+        case ce::PointerScanLimit::MapEntries:
+            printf("  (memory held more pointer-like values than the scan keeps: some paths may be missing)\n\n");
+            break;
+        case ce::PointerScanLimit::None:
+            break;
+    }
 
+    const auto modules = proc.modules();   // one maps parse for every row
     for (size_t i = 0; i < std::min(results.size(), size_t(50)); ++i) {
         auto& p = results[i];
-        auto current = PointerScanner::dereference(proc, p);
+        auto current = PointerScanner::dereference(proc, modules, p);
         printf("  %s", p.toString().c_str());
         if (current) printf("  -> 0x%lx", current);
         printf("\n");
@@ -2356,8 +2368,9 @@ int main(int argc, char** argv) {
     else if (!strcmp(cmd, "pointerscan") && argc >= 4) {
         pid_t pid = parsePid(argv[2]);
         uintptr_t target = parseAddress(argv[2], argv[3]);
-        int depth = (argc >= 5) ? static_cast<int>(parseUInt(argv[4], "depth", 64)) : 4;
-        int offset = (argc >= 6) ? static_cast<int>(parseUInt(argv[5], "offset", INT_MAX)) : 2048;
+        // The work grows as fanout^depth: deeper or wider scans do not finish.
+        int depth = (argc >= 5) ? static_cast<int>(parseUInt(argv[4], "depth", ce::kPointerScanMaxDepth)) : 4;
+        int offset = (argc >= 6) ? static_cast<int>(parseUInt(argv[5], "offset", ce::kPointerScanMaxOffset)) : 2048;
         if (depth < 1) { fprintf(stderr, "pointerscan: depth must be at least 1\n"); return 1; }
         return cmd_pointerscan(pid, target, depth, offset);
     }

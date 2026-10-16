@@ -6,8 +6,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
 #include <unordered_map>
-#include <queue>
 #include <set>
 #include <stdexcept>
 #include <limits>
@@ -46,12 +46,44 @@ std::string PointerPath::toString() const {
 // Maps: pointed_to_address → vector of (address_containing_pointer)
 // We use a sorted vector for cache-friendly binary search.
 
-static bool isInRange(uintptr_t addr, const std::vector<MemoryRegion>& regions) {
-    for (auto& r : regions)
-        if (addr >= r.base && addr - r.base < r.size)
-            return true;
-    return false;
-}
+namespace {
+
+// Sorted, merged [first, last] spans of readable memory: the test for "this
+// value could be a pointer". Unreadable reservations are left out (Wine
+// reserves most of the low 4 GB, which would make nearly every small integer
+// and float a candidate). Tested once per slot, so it is a range check and a
+// binary search rather than a walk over every region.
+class ReadableSpans {
+public:
+    explicit ReadableSpans(const std::vector<MemoryRegion>& regions) {
+        std::vector<Span> spans;
+        for (const auto& r : regions) {
+            if (!(r.protection & MemProt::Read) || r.size == 0) continue;
+            const uintptr_t last = r.size - 1 > UINTPTR_MAX - r.base ? UINTPTR_MAX : r.base + (r.size - 1);
+            spans.push_back({r.base, last});
+        }
+        std::sort(spans.begin(), spans.end(), [](const Span& a, const Span& b) { return a.first < b.first; });
+        for (const auto& s : spans) {
+            if (!spans_.empty() && (spans_.back().last == UINTPTR_MAX || s.first <= spans_.back().last + 1))
+                spans_.back().last = std::max(spans_.back().last, s.last);
+            else
+                spans_.push_back(s);
+        }
+    }
+
+    bool contains(uintptr_t value) const {
+        if (spans_.empty() || value < spans_.front().first || value > spans_.back().last) return false;
+        auto it = std::upper_bound(spans_.begin(), spans_.end(), value,
+                                   [](uintptr_t v, const Span& s) { return v < s.first; });
+        return it != spans_.begin() && value <= std::prev(it)->last;
+    }
+
+private:
+    struct Span { uintptr_t first, last; };
+    std::vector<Span> spans_;
+};
+
+} // namespace
 
 std::vector<PointerScanConfig> makePointerScanShards(const PointerScanConfig& base, size_t shardCount) {
     if (shardCount == 0)
@@ -190,94 +222,131 @@ PointerMap buildPointerMap(ProcessHandle& proc, const PointerScanConfig& config,
     auto cancelled = [&] { return cancel && cancel->load(std::memory_order_relaxed); };
     auto regions = proc.queryRegions();
 
-    // ── Read all memory and find pointer-like values ──
-    std::vector<PointerMap::Entry> entries;
-    entries.reserve(1024 * 1024); // Preallocate ~16MB
+    const size_t programWidth = proc.pointerWidth();
+    const ByteOrder programOrder = proc.byteOrder();
+    if ((programWidth != 4 && programWidth != 8) || programWidth > sizeof(uintptr_t) ||
+        programOrder == ByteOrder::Unknown)
+        throw std::runtime_error("Pointer scanning requires a known target pointer width and byte order");
 
+    const ReadableSpans readable(regions);
+    // Untouched pages of anonymous memory read as zero, and zero is no pointer
+    // unless page 0 is mapped: skip them as the value scanner does. Aligned
+    // slots never straddle a page, so no pointer is lost.
+    const bool skipNonResident = config.alignedOnly && !readable.contains(0);
+    constexpr size_t kPagemapMinRegion = 256u * 1024;
+
+    // Read EVERY readable region (all module regions included) so the path
+    // search is complete even under sharding: a path routed THROUGH a static
+    // intermediate must be walkable no matter which shard "owns" that
+    // intermediate's region. Sharding partitions only the recorded endpoints
+    // (in scanWithMap), so merged shards == a full scan.
+    struct ReadSpan { uintptr_t base; size_t size; size_t ptrSize; ByteOrder order; };
+    std::vector<ReadSpan> spans;
     size_t totalMem = 0;
-    for (auto& r : regions) totalMem += r.size;
+    for (const auto& region : regions) {
+        if (!(region.protection & MemProt::Read) || region.size == 0) continue;
+        // The width and byte order dereference() uses at this address: on WoW64
+        // a 64-bit module keeps 8-byte pointers inside a 32-bit program.
+        const size_t ptrSize = proc.pointerWidth(region.base);
+        const ByteOrder order = proc.byteOrder(region.base);
+        if ((ptrSize != 4 && ptrSize != 8) || ptrSize > sizeof(uintptr_t) || order == ByteOrder::Unknown)
+            continue;   // dereference() cannot read a pointer here either
+        const size_t ptrStep = config.alignedOnly ? ptrSize : 1;
+        if (skipNonResident && region.type == MemType::Private && region.size >= kPagemapMinRegion &&
+            region.size <= UINTPTR_MAX - region.base) {
+            const uintptr_t regionEnd = region.base + region.size;
+            for (auto [begin, end] : proc.residentRanges(region.base, region.size)) {
+                begin = std::max<uintptr_t>(begin, region.base);
+                end = std::min<uintptr_t>(end, regionEnd);
+                // Keep the slots on the region's own grid.
+                begin += (ptrStep - (begin - region.base) % ptrStep) % ptrStep;
+                if (end <= begin) continue;
+                spans.push_back({begin, end - begin, ptrSize, order});
+                totalMem += end - begin;
+            }
+        } else {
+            spans.push_back({region.base, region.size, ptrSize, order});
+            totalMem += region.size;
+        }
+    }
     if (totalMem == 0) totalMem = 1;
 
+    // ── Read the spans and keep pointer-like values ──
+    const size_t maxEntries = std::min<size_t>(config.maxMapEntries, UINT32_MAX);
+    std::vector<PointerMap::Entry> entries;
+    entries.reserve(std::min<size_t>(1024 * 1024, maxEntries)); // ~16 MB
+    bool full = false;
     size_t scanned = 0;
     std::vector<uint8_t> buf;
-
-    // Pointer-shaped value range: anything that could plausibly be a userspace
-    // pointer on x86_64 / aarch64 Linux. We narrow further via isInRange on
-    // the candidates returned by the bulk filter.
-    constexpr uint64_t kPtrLow  = 0;
-    constexpr uint64_t kPtrHigh = UINTPTR_MAX;
 
     // GPU acceleration is opt-in and gated on CudaSearch::available(); we
     // construct the engine once and re-use it across regions for cheap
     // memory reallocation amortisation.
     const bool gpuActive = config.useGpu && CudaSearch::available();
     CudaSearch gpu;
-    const size_t ptrSize = proc.pointerWidth();
-    const ByteOrder order = proc.byteOrder();
-    if ((ptrSize != 4 && ptrSize != 8) || ptrSize > sizeof(uintptr_t) || order == ByteOrder::Unknown)
-        throw std::runtime_error("Pointer scanning requires a known target pointer width and byte order");
+    // Check for a cancel every megabyte of slots, not only per read window.
+    constexpr size_t kCancelMask = (1u << 20) - 1;
 
-    for (auto& region : regions) {
-        if (cancelled()) break;
-        if (!(region.protection & MemProt::Read)) continue;
-        // Read EVERY readable region (all module regions included) so Phase-2
-        // traversal is complete even under sharding: a path routed THROUGH a
-        // static intermediate must be walkable no matter which shard "owns" that
-        // intermediate's region. Sharding partitions only the recorded endpoints
-        // (module-index check in Phase 2), so merged shards == a full scan.
+    for (const auto& span : spans) {
+        if (full || cancelled()) break;
+        const size_t ptrSize = span.ptrSize;
+        const ByteOrder order = span.order;
 
-        // Read the region in bounded windows so a single multi-GB mapping in a
+        // Read the span in bounded windows so a single multi-GB mapping in a
         // hostile target can't drive one buf.resize(region.size) into bad_alloc.
         // Each window keeps an overlap so a target pointer straddling a
         // window boundary is still examined (owning offsets stay consecutive).
         constexpr size_t kPtrReadWindow = 64u * 1024 * 1024; // 64 MB
         const size_t ptrStep = config.alignedOnly ? ptrSize : 1;
         const size_t ownedLen = std::max<size_t>(ptrStep, (kPtrReadWindow / ptrStep) * ptrStep);
-        for (size_t windowStart = 0; windowStart < region.size; windowStart += ownedLen) {
-            if (cancelled()) break;
-            size_t want = std::min<size_t>(ownedLen + ptrSize - 1, region.size - windowStart);
+        for (size_t windowStart = 0; windowStart < span.size; windowStart += ownedLen) {
+            if (full || cancelled()) break;
+            const size_t owned = std::min(ownedLen, span.size - windowStart);
+            size_t want = std::min<size_t>(ownedLen + ptrSize - 1, span.size - windowStart);
             buf.resize(want);
-            auto rr = proc.read(region.base + windowStart, buf.data(), want);
-            if (!rr || *rr < ptrSize) continue;
-            size_t bytesRead = *rr;
-            uintptr_t winBase = region.base + windowStart;
+            auto rr = proc.read(span.base + windowStart, buf.data(), want);
+            if (rr && *rr >= ptrSize) {
+                size_t bytesRead = *rr;
+                uintptr_t winBase = span.base + windowStart;
 
-            const bool useGpuHere = gpuActive && order == ByteOrder::Little &&
-                nativeTargetMachine().byteOrder == ByteOrder::Little &&
-                bytesRead >= config.gpuMinRegionBytes &&
-                config.alignedOnly && ptrSize == 8; // GPU kernel walks 8-byte slots
+                const bool useGpuHere = gpuActive && order == ByteOrder::Little &&
+                    nativeTargetMachine().byteOrder == ByteOrder::Little &&
+                    bytesRead >= config.gpuMinRegionBytes &&
+                    config.alignedOnly && ptrSize == 8; // GPU kernel walks 8-byte slots
 
-            if (useGpuHere) {
-                auto candidates = gpu.searchU64Range(buf.data(), bytesRead, kPtrLow, kPtrHigh);
-                for (size_t off : candidates) {
-                    uintptr_t val;
-                    if (off + 8 > bytesRead) continue;
-                    std::memcpy(&val, buf.data() + off, 8);
-                    if (!isInRange(val, regions)) continue;
-                    entries.push_back({val, winBase + off});
-                }
-            } else {
-                size_t limit = std::min(ownedLen, bytesRead - ptrSize + 1);
-                for (size_t offset = 0; offset < limit; offset += ptrStep) {
-                    uintptr_t val = static_cast<uintptr_t>(*decodeTargetUnsigned(
-                        {buf.data() + offset, ptrSize}, order));
-
-                    if (val < kPtrLow || val > kPtrHigh) continue;
-                    if (!isInRange(val, regions)) continue;
-
-                    entries.push_back({val, winBase + offset});
+                if (useGpuHere) {
+                    auto candidates = gpu.searchU64Range(buf.data(), bytesRead, 0, UINTPTR_MAX);
+                    for (size_t off : candidates) {
+                        uintptr_t val;
+                        if (off + 8 > bytesRead) continue;
+                        std::memcpy(&val, buf.data() + off, 8);
+                        if (!readable.contains(val)) continue;
+                        if (entries.size() >= maxEntries) { full = true; break; }
+                        entries.push_back({val, winBase + off});
+                    }
+                } else {
+                    size_t limit = std::min(ownedLen, bytesRead - ptrSize + 1);
+                    for (size_t offset = 0; offset < limit; offset += ptrStep) {
+                        if ((offset & kCancelMask) == 0 && cancelled()) break;
+                        uintptr_t val = static_cast<uintptr_t>(*decodeTargetUnsigned(
+                            {buf.data() + offset, ptrSize}, order));
+                        if (!readable.contains(val)) continue;
+                        if (entries.size() >= maxEntries) { full = true; break; }
+                        entries.push_back({val, winBase + offset});
+                    }
                 }
             }
+            scanned += owned;
+            if (progress) progress->store(progressSpan * static_cast<float>(
+                static_cast<double>(scanned) / static_cast<double>(totalMem)));
         }
-
-        scanned += region.size;
-        if (progress) progress->store(progressSpan * scanned / totalMem);
     }
 
     PointerMap map;
     if (cancelled()) return map;    // empty
     map.setModules(proc.modules());
     map.setEntries(std::move(entries));   // sorts by target + builds by-location index
+    map.setTruncated(full);
     return map;
 }
 
@@ -286,6 +355,7 @@ std::vector<PointerPath> PointerScanner::scan(ProcessHandle& proc, const Pointer
     // before its worker thread reaches this point, and clearing it would run
     // the whole scan while the window waits to join the worker.
     progress_.store(0);
+    limit_.store(static_cast<int>(PointerScanLimit::None));
     if (config.shardCount == 0 || config.shardIndex >= config.shardCount ||
         config.maxDepth <= 0 || config.maxOffset < 0)
         return {};
@@ -297,118 +367,165 @@ std::vector<PointerPath> PointerScanner::scan(ProcessHandle& proc, const Pointer
 
 std::vector<PointerPath> PointerScanner::scanWithMap(const PointerMap& map,
                                                      const PointerScanConfig& config) {
+    limit_.store(static_cast<int>(PointerScanLimit::None));
     if (config.shardCount == 0 || config.shardIndex >= config.shardCount ||
         config.maxDepth <= 0 || config.maxOffset < 0)
         return {};
 
-    truncated_.store(false);
+    if (map.truncated()) limit_.store(static_cast<int>(PointerScanLimit::MapEntries));
     const std::vector<PointerMap::Entry>& entries = map.entriesByTarget();
     const std::vector<ModuleInfo>& modules = map.modules();
 
-    // Build quick lookup: is address in a module? (static pointer)
+    // ── Static bases ──
+    // A path names its module, and every resolver (dereference, PointerMap::
+    // resolve, address expressions) takes the first module of that name. So a
+    // later module with the same name (WoW64's two ntdll.dll, one file loaded
+    // twice), or one without a name, cannot be a base: its slots count as
+    // plain memory.
+    std::vector<size_t> nameable;   // module indices, in list order
+    {
+        std::set<std::string> seen;
+        for (size_t i = 0; i < modules.size(); ++i)
+            if (!modules[i].name.empty() && modules[i].size > 0 && seen.insert(modules[i].name).second)
+                nameable.push_back(i);
+    }
+    std::vector<size_t> byBase = nameable;
+    std::sort(byBase.begin(), byBase.end(),
+              [&](size_t a, size_t b) { return modules[a].base < modules[b].base; });
+    bool overlapping = false;
+    for (size_t k = 1; k < byBase.size() && !overlapping; ++k)
+        overlapping = modules[byBase[k]].base - modules[byBase[k - 1]].base < modules[byBase[k - 1]].size;
+
+    // The first nameable module that holds `addr`. Without overlaps at most one
+    // does, so a binary search finds the same one as the walk.
     auto findModule = [&](uintptr_t addr) -> const ModuleInfo* {
-        for (auto& m : modules)
-            if (addr >= m.base && addr - m.base < m.size)
-                return &m;
-        return nullptr;
+        if (overlapping) {
+            for (size_t i : nameable)
+                if (addr >= modules[i].base && addr - modules[i].base < modules[i].size) return &modules[i];
+            return nullptr;
+        }
+        auto it = std::upper_bound(byBase.begin(), byBase.end(), addr,
+                                   [&](uintptr_t a, size_t i) { return a < modules[i].base; });
+        if (it == byBase.begin()) return nullptr;
+        const ModuleInfo& m = modules[*std::prev(it)];
+        return addr - m.base < m.size ? &m : nullptr;
     };
 
-    // ── Reverse BFS from target ──
-
-    struct WorkItem {
-        uintptr_t address;          // Address to find pointers TO
-        std::vector<int32_t> offsets; // Offsets collected so far
-        int depth;
-        std::vector<uintptr_t> ancestors;
-    };
-
-    std::vector<PointerPath> results;
-    std::queue<WorkItem> queue;
-    queue.push({config.targetAddress, {}, 0, {config.targetAddress}});
-
-    size_t totalWork = 1;
-    size_t doneWork = 0;
-
-    while (!queue.empty() && !cancelled_.load()) {
-        auto item = queue.front();
-        queue.pop();
-        ++doneWork;
-
-        if (item.depth > 0)
-            progress_.store(0.5f + 0.5f * doneWork / std::max(totalWork, size_t(1)));
-
-        // Search window: find all pointers that point to [address - maxOffset, address + (negativeOffsets ? maxOffset : 0)]
-        uintptr_t searchMin = (item.address > (uintptr_t)config.maxOffset) ?
-            item.address - config.maxOffset : 0;
-        uintptr_t searchMax = item.address;
+    // Entries [first, second) whose pointer lands within maxOffset below
+    // `address` (or above it, with negativeOffsets).
+    auto window = [&](uintptr_t address) -> std::pair<size_t, size_t> {
+        uintptr_t searchMin = (address > (uintptr_t)config.maxOffset) ? address - config.maxOffset : 0;
+        uintptr_t searchMax = address;
         if (config.negativeOffsets)
-            searchMax = item.address + std::min<uintptr_t>(config.maxOffset,
-                std::numeric_limits<uintptr_t>::max() - item.address);
-
-        // Binary search for range [searchMin, searchMax] in sorted entries
+            searchMax = address + std::min<uintptr_t>(config.maxOffset,
+                std::numeric_limits<uintptr_t>::max() - address);
         auto lo = std::lower_bound(entries.begin(), entries.end(), searchMin,
             [](const PointerMap::Entry& e, uintptr_t val) { return e.pointsTo < val; });
         auto hi = std::upper_bound(entries.begin(), entries.end(), searchMax,
             [](uintptr_t val, const PointerMap::Entry& e) { return val < e.pointsTo; });
+        return {static_cast<size_t>(lo - entries.begin()), static_cast<size_t>(hi - entries.begin())};
+    };
 
-        for (auto it = lo; it != hi && !cancelled_.load(); ++it) {
-            int32_t offset = (int32_t)(item.address - it->pointsTo);
+    // ── Iterative-deepening search back from the target ──
+    // Pass N walks depth first to depth N and records only the paths of N
+    // links. That gives the order a breadth-first search gives (shortest first,
+    // and within one length in entry order) while holding one chain at a time
+    // instead of a queue that grows as fanout^depth.
+    struct Frame {
+        uintptr_t address;   // the address pointers are searched for
+        size_t next, end;    // the entries still to examine
+    };
+    std::vector<Frame> stack;
+    std::vector<int32_t> chain;         // chain[d]: the offset taken at depth d
+    std::vector<uintptr_t> ancestors;   // the target and every slot on the chain
+    std::vector<PointerPath> results;
+    uint64_t visits = 0;
+    bool stop = false;
 
-            // Build new offset chain
-            auto newOffsets = item.offsets;
-            newOffsets.insert(newOffsets.begin(), offset); // Prepend (innermost first)
+    // Record the path that ends at `e` (a slot pointing `offset` below the
+    // current chain's head). False when the result cap is reached.
+    auto record = [&](const PointerMap::Entry& e, int32_t offset) -> bool {
+        PointerPath path;
+        if (const ModuleInfo* mod = findModule(e.locatedAt)) {
+            // Under sharding, partition the recorded endpoints by MODULE index
+            // (the map holds every region, so the walk already saw every
+            // intermediate): each module's paths go to exactly one shard, and the
+            // union across shards is the full result set.
+            const size_t moduleIndex = static_cast<size_t>(mod - modules.data());
+            if (config.shardCount > 1 && moduleIndex % config.shardCount != config.shardIndex) return true;
+            path.module = mod->name;
+            path.moduleBase = mod->base;
+            path.baseOffset = e.locatedAt - mod->base;
+        } else {
+            // Heap, JIT or guest-RAM base (no module): an absolute base, valid
+            // until that memory moves. Shards split these by page.
+            if (config.staticOnly) return true;
+            if (config.shardCount > 1 && ((e.locatedAt >> 12) % config.shardCount) != config.shardIndex)
+                return true;
+            path.moduleBase = 0;
+            path.baseOffset = e.locatedAt;
+        }
+        // Full: this path is one too many, so the result is cut short.
+        if (results.size() >= config.maxResults) {
+            limit_.store(static_cast<int>(PointerScanLimit::Results));
+            return false;
+        }
+        path.offsets.reserve(chain.size() + 1);
+        path.offsets.push_back(offset);   // innermost first
+        for (auto it = chain.rbegin(); it != chain.rend(); ++it) path.offsets.push_back(*it);
+        results.push_back(std::move(path));
+        return true;
+    };
 
-            // Check if this pointer is in a static module
-            auto* mod = findModule(it->locatedAt);
-            if (mod) {
-                // Found a static path. Under sharding, partition the recorded
-                // endpoints by MODULE index (Phase 1 read all regions, so the
-                // traversal already saw every intermediate): each module's paths
-                // go to exactly one shard, and the union across shards is the full
-                // result set. Do this only for the RECORDING, never the traversal.
-                size_t moduleIndex = (size_t)(mod - modules.data());
-                bool ownedByShard = config.shardCount <= 1 ||
-                    (moduleIndex % config.shardCount) == config.shardIndex;
-                if (ownedByShard) {
-                    // Full: this path is one too many, so the result is cut short.
-                    if (results.size() >= config.maxResults) { truncated_.store(true); goto done; }
-                    PointerPath path;
-                    path.module = mod->name;
-                    path.moduleBase = mod->base;
-                    path.baseOffset = it->locatedAt - mod->base;
-                    path.offsets = newOffsets;
-                    results.push_back(std::move(path));
-                }
-            } else if (!config.staticOnly &&
-                       (config.shardCount <= 1 || ((it->locatedAt >> 12) % config.shardCount) == config.shardIndex)) {
-                // Heap, JIT or guest-RAM base (no module): an absolute base,
-                // valid until that memory moves. Shards split these by page.
-                if (results.size() >= config.maxResults) { truncated_.store(true); goto done; }
-                PointerPath path;
-                path.moduleBase = 0;
-                path.baseOffset = it->locatedAt;
-                path.offsets = newOffsets;
-                results.push_back(std::move(path));
+    const auto [rootBegin, rootEnd] = window(config.targetAddress);
+    const float passCount = static_cast<float>(config.maxDepth);
+    for (int pass = 1; pass <= config.maxDepth && !stop; ++pass) {
+        if (cancelled_.load(std::memory_order_relaxed)) break;
+        // Whether a slot recorded in this pass could be walked further: if none
+        // can, deeper passes find nothing new.
+        bool deeper = false;
+        stack.assign(1, Frame{config.targetAddress, rootBegin, rootEnd});
+        chain.clear();
+        ancestors.assign(1, config.targetAddress);
+        while (!stack.empty()) {
+            Frame& frame = stack.back();
+            if (frame.next == frame.end) {
+                stack.pop_back();
+                if (!stack.empty()) { chain.pop_back(); ancestors.pop_back(); }
+                continue;
             }
-
-            // Go deeper if not at max depth and not static-only
-            if (item.depth + 1 < config.maxDepth) {
-                if (std::find(item.ancestors.begin(), item.ancestors.end(), it->locatedAt) ==
-                    item.ancestors.end()) {
-                    auto ancestors = item.ancestors;
-                    ancestors.push_back(it->locatedAt);
-                    queue.push({it->locatedAt, newOffsets, item.depth + 1, std::move(ancestors)});
-                    ++totalWork;
-                }
+            if (visits >= config.maxVisits) {
+                limit_.store(static_cast<int>(PointerScanLimit::Work));
+                stop = true;
+                break;
+            }
+            if ((++visits & 1023) == 0) {
+                if (cancelled_.load(std::memory_order_relaxed)) { stop = true; break; }
+                const size_t rootTotal = rootEnd - rootBegin;
+                const float done = rootTotal ? static_cast<float>(stack.front().next - rootBegin) / rootTotal : 1.0f;
+                progress_.store(0.5f + 0.5f * (static_cast<float>(pass - 1) + done) / passCount);
+            }
+            const PointerMap::Entry& e = entries[frame.next++];
+            const int32_t offset = static_cast<int32_t>(frame.address - e.pointsTo);
+            const bool fresh = std::find(ancestors.begin(), ancestors.end(), e.locatedAt) == ancestors.end();
+            const size_t depth = stack.size() - 1;
+            if (static_cast<int>(depth) + 1 == pass) {
+                if (!record(e, offset)) { stop = true; break; }
+                deeper = deeper || fresh;
+            } else if (fresh) {
+                chain.push_back(offset);
+                ancestors.push_back(e.locatedAt);
+                const auto [begin, end] = window(e.locatedAt);
+                stack.push_back({e.locatedAt, begin, end});   // invalidates `frame`
             }
         }
+        if (!deeper) break;
     }
 
-done:
     progress_.store(1.0f);
     // Honour the cancellation contract used elsewhere (a cancelled scan yields
-    // no results, not a nondeterministic partial set). Reaching the result cap
-    // via `goto done` is a normal completion and still returns its results.
+    // no results, not a nondeterministic partial set). Reaching the result or
+    // work cap is a normal completion and still returns its results.
     if (cancelled_.load())
         return {};
     return results;
@@ -544,14 +661,21 @@ std::vector<PointerPath> loadPointerPaths(const std::string& path, std::string* 
 }
 
 std::vector<PointerPath>
-rescanPointerPaths(ProcessHandle& proc, const std::vector<PointerPath>& paths, uintptr_t newTarget) {
+rescanPointerPaths(ProcessHandle& proc, const std::vector<PointerPath>& paths, uintptr_t newTarget,
+                   std::atomic<bool>* cancel, std::atomic<float>* progress) {
     auto modules = proc.modules();   // parse /proc maps once, not per path
     std::vector<PointerPath> kept;
     kept.reserve(paths.size());
-    for (const auto& p : paths) {
-        if (PointerScanner::dereference(proc, modules, p) == newTarget)
-            kept.push_back(p);
+    for (size_t i = 0; i < paths.size(); ++i) {
+        if ((i & 255) == 0) {
+            if (cancel && cancel->load(std::memory_order_relaxed)) return {};
+            if (progress) progress->store(static_cast<float>(i) / static_cast<float>(paths.size()));
+        }
+        if (PointerScanner::dereference(proc, modules, paths[i]) == newTarget)
+            kept.push_back(paths[i]);
     }
+    if (cancel && cancel->load()) return {};
+    if (progress) progress->store(1.0f);
     return kept;
 }
 
@@ -566,9 +690,12 @@ rescanPointerPathsByValue(ProcessHandle& proc, const std::vector<PointerPath>& p
     for (const auto& p : paths) {
         uintptr_t addr = PointerScanner::dereference(proc, modules, p);
         if (addr == 0) continue;
-        uint64_t val = 0;
-        auto r = proc.read(addr, &val, valueSize);
-        if (r && *r == valueSize && (val & mask) == (expectedValue & mask))
+        uint8_t bytes[8]{};
+        auto r = proc.read(addr, bytes, valueSize);
+        if (!r || *r != valueSize) continue;
+        // In the target's byte order, as the value scanner reads it.
+        auto val = decodeTargetUnsigned({bytes, valueSize}, proc.byteOrder(addr));
+        if (val && (*val & mask) == (expectedValue & mask))
             kept.push_back(p);
     }
     return kept;
@@ -609,9 +736,8 @@ rescanPointerPathsByValueWithMap(ProcessHandle& proc, const PointerMap& map,
     const uint64_t mask = (valueSize == 8) ? ~0ull : ((1ull << (valueSize * 8)) - 1);
     for (size_t k = 0; k < addrs.size(); ++k) {
         if (!okFlags[k]) continue;
-        uint64_t val = 0;
-        std::memcpy(&val, out.data() + k * valueSize, valueSize);
-        if ((val & mask) == (expectedValue & mask)) kept.push_back(paths[pathIdx[k]]);
+        auto val = decodeTargetUnsigned({out.data() + k * valueSize, valueSize}, proc.byteOrder(addrs[k]));
+        if (val && (*val & mask) == (expectedValue & mask)) kept.push_back(paths[pathIdx[k]]);
     }
     return kept;
 }

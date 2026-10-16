@@ -74,6 +74,7 @@
 #include <sstream>
 #include <csignal>
 #include <thread>
+#include <chrono>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -7641,6 +7642,287 @@ static void test_pointer_map_reuse() {
     printf("  a cancel before the scan starts stops it: %s\n", cancelOk ? "OK" : "FAILED");
 }
 
+// The breadth-first search the scanner used before it searched depth first,
+// kept as the reference for which paths a scan returns and in what order.
+static std::vector<PointerPath> referencePointerBfs(const PointerMap& map, const PointerScanConfig& config,
+                                                    bool& truncated) {
+    const auto& entries = map.entriesByTarget();
+    const auto& modules = map.modules();
+    auto findModule = [&](uintptr_t addr) -> const ModuleInfo* {
+        for (const auto& m : modules)
+            if (addr >= m.base && addr - m.base < m.size) return &m;
+        return nullptr;
+    };
+    struct Item { uintptr_t address; std::vector<int32_t> offsets; int depth; std::vector<uintptr_t> ancestors; };
+    std::vector<Item> queue{{config.targetAddress, {}, 0, {config.targetAddress}}};
+    std::vector<PointerPath> results;
+    truncated = false;
+    for (size_t head = 0; head < queue.size(); ++head) {
+        const Item item = queue[head];
+        uintptr_t searchMin = item.address > (uintptr_t)config.maxOffset ? item.address - config.maxOffset : 0;
+        uintptr_t searchMax = item.address;
+        if (config.negativeOffsets)
+            searchMax = item.address + std::min<uintptr_t>(config.maxOffset, UINTPTR_MAX - item.address);
+        auto lo = std::lower_bound(entries.begin(), entries.end(), searchMin,
+            [](const PointerMap::Entry& e, uintptr_t v) { return e.pointsTo < v; });
+        auto hi = std::upper_bound(entries.begin(), entries.end(), searchMax,
+            [](uintptr_t v, const PointerMap::Entry& e) { return v < e.pointsTo; });
+        for (auto it = lo; it != hi; ++it) {
+            const int32_t offset = (int32_t)(item.address - it->pointsTo);
+            auto offsets = item.offsets;
+            offsets.insert(offsets.begin(), offset);
+            if (const auto* mod = findModule(it->locatedAt)) {
+                const size_t index = mod - modules.data();
+                if (config.shardCount <= 1 || index % config.shardCount == config.shardIndex) {
+                    if (results.size() >= config.maxResults) { truncated = true; return results; }
+                    results.push_back({mod->name, mod->base, it->locatedAt - mod->base, offsets});
+                }
+            } else if (!config.staticOnly &&
+                       (config.shardCount <= 1 || ((it->locatedAt >> 12) % config.shardCount) == config.shardIndex)) {
+                if (results.size() >= config.maxResults) { truncated = true; return results; }
+                results.push_back({"", 0, it->locatedAt, offsets});
+            }
+            if (item.depth + 1 < config.maxDepth &&
+                std::find(item.ancestors.begin(), item.ancestors.end(), it->locatedAt) == item.ancestors.end()) {
+                auto ancestors = item.ancestors;
+                ancestors.push_back(it->locatedAt);
+                queue.push_back({it->locatedAt, offsets, item.depth + 1, std::move(ancestors)});
+            }
+        }
+    }
+    return results;
+}
+
+static bool samePointerPaths(const std::vector<PointerPath>& a, const std::vector<PointerPath>& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i)
+        if (a[i].module != b[i].module || a[i].moduleBase != b[i].moduleBase ||
+            a[i].baseOffset != b[i].baseOffset || a[i].offsets != b[i].offsets) return false;
+    return true;
+}
+
+// The depth-first search returns what the breadth-first search returned, in the
+// same order, holds a bounded amount of memory, stops at its work limit and
+// answers a cancel quickly. Map building keeps only pointers into readable
+// memory, reads each region at its own pointer width and stops at its entry
+// limit; duplicate module names are not used as bases; value rescans decode in
+// the target's byte order.
+static void test_pointer_scan_search_limits() {
+    printf("\n── Test: pointer scan search order and limits ──\n");
+    constexpr uintptr_t G = 0x400000, L = 0x500000, H = 0x10000000;
+    PointerMap graph;
+    graph.setModules({{G, 0x1000, "game", "/tmp/game", true}, {L, 0x1000, "lib", "/tmp/lib", true}});
+    std::vector<uintptr_t> slots;
+    for (uintptr_t a = G; a < G + 0x1000; a += 8) slots.push_back(a);
+    for (uintptr_t a = L; a < L + 0x1000; a += 8) slots.push_back(a);
+    for (uintptr_t a = H; a < H + 0x2000; a += 8) slots.push_back(a);
+    uint64_t seed = 0x9e3779b97f4a7c15ull;
+    auto next = [&] { seed = seed * 6364136223846793005ull + 1442695040888963407ull; return seed >> 33; };
+    for (size_t i = slots.size() - 1; i > 0; --i) std::swap(slots[i], slots[next() % (i + 1)]);
+    std::vector<PointerMap::Entry> random;
+    for (size_t i = 0; i < 400; ++i)   // one value per slot, as in a real map
+        random.push_back({H + (uintptr_t)(next() % 0x2000), slots[i]});
+    graph.setEntries(random);
+
+    bool sameOrder = true;
+    size_t compared = 0;
+    for (int depth = 1; depth <= 5; ++depth)
+        for (bool negative : {false, true})
+            for (bool staticOnly : {true, false})
+                for (size_t cap : {size_t(100000), size_t(7)})
+                    for (size_t shards : {size_t(1), size_t(3)})
+                        for (size_t shard = 0; shard < shards; ++shard) {
+                            PointerScanConfig cfg;
+                            cfg.targetAddress = H + 0x1000; cfg.maxDepth = depth; cfg.maxOffset = 0x60;
+                            cfg.negativeOffsets = negative; cfg.staticOnly = staticOnly; cfg.maxResults = cap;
+                            cfg.shardCount = shards; cfg.shardIndex = shard;
+                            bool refTruncated = false;
+                            auto expected = referencePointerBfs(graph, cfg, refTruncated);
+                            PointerScanner scanner;
+                            auto found = scanner.scanWithMap(graph, cfg);
+                            sameOrder &= samePointerPaths(found, expected) &&
+                                (scanner.limitReached() == PointerScanLimit::Results) == refTruncated &&
+                                scanner.truncated() == refTruncated;
+                            compared += expected.size();
+                        }
+    printf("  depth-first search returns the breadth-first paths in order (%zu paths): %s\n",
+           compared, sameOrder && compared > 1000 ? "OK" : "FAILED");
+
+    PointerScanConfig deep;
+    deep.targetAddress = H + 0x1000; deep.maxDepth = 5; deep.maxOffset = 0x80; deep.staticOnly = false;
+    PointerScanner fullScanner;
+    const auto full = fullScanner.scanWithMap(graph, deep);
+    deep.maxVisits = 200;
+    PointerScanner budgetScanner;
+    const auto cut = budgetScanner.scanWithMap(graph, deep);
+    bool budgetOk = !full.empty() && fullScanner.limitReached() == PointerScanLimit::None &&
+        budgetScanner.limitReached() == PointerScanLimit::Work && budgetScanner.truncated() &&
+        cut.size() < full.size() &&
+        samePointerPaths(cut, std::vector<PointerPath>(full.begin(), full.begin() + cut.size()));
+    printf("  the work limit stops the search and keeps the shortest paths: %s\n", budgetOk ? "OK" : "FAILED");
+
+    // 64 heap slots that all point at the same place: fanout 64 at every level,
+    // 64^7 chains. A queue of them exhausted memory; the search is bounded.
+    PointerMap dense;
+    std::vector<PointerMap::Entry> clique;
+    for (uintptr_t i = 0; i < 64; ++i) clique.push_back({H, H + 8 * i});
+    dense.setEntries(clique);
+    PointerScanConfig wide;
+    wide.targetAddress = H + 0x100; wide.maxDepth = 7; wide.maxOffset = 0x400;
+    wide.staticOnly = true;   // nothing to record: only the walk itself runs
+    wide.maxVisits = 2'000'000;
+    PointerScanner denseScanner;
+    const auto denseStart = std::chrono::steady_clock::now();
+    const auto densePaths = denseScanner.scanWithMap(dense, wide);
+    const auto denseSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - denseStart).count();
+    bool denseOk = denseScanner.limitReached() == PointerScanLimit::Work && densePaths.empty() && denseSeconds < 30;
+    wide.staticOnly = false;
+    PointerScanner denseResults;
+    denseOk &= denseResults.scanWithMap(dense, wide).size() == wide.maxResults &&
+        denseResults.limitReached() == PointerScanLimit::Results;
+    printf("  a fanout-64 depth-7 graph stops at its limits (%.2f s): %s\n", denseSeconds, denseOk ? "OK" : "FAILED");
+
+    wide.maxVisits = uint64_t(1) << 40;
+    wide.staticOnly = true;
+    PointerScanner cancelScanner;
+    std::vector<PointerPath> cancelled{PointerPath{}};
+    const auto cancelStart = std::chrono::steady_clock::now();
+    std::thread cancelWorker([&] { cancelled = cancelScanner.scanWithMap(dense, wide); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    cancelScanner.cancel();
+    cancelWorker.join();
+    const auto cancelSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - cancelStart).count();
+    printf("  a cancel stops a running search promptly (%.2f s): %s\n", cancelSeconds,
+           cancelled.empty() && cancelSeconds < 5 ? "OK" : "FAILED");
+
+    // Map building: a value pointing into an unreadable reservation is no
+    // pointer; the entry limit stops the read and is reported.
+    constexpr uintptr_t R = 0x20000000;
+    std::vector<uint8_t> module(0x100, 0), heap(0x100, 0), reserved(0x100, 0);
+    const uintptr_t intoReserved = R + 0x40, intoHeap = H + 0x40, intoHeap2 = H + 0x80;
+    std::memcpy(module.data() + 0x00, &intoReserved, 8);
+    std::memcpy(module.data() + 0x08, &intoHeap, 8);
+    std::memcpy(module.data() + 0x10, &intoHeap2, 8);
+    FakeProcessHandle proc({
+        {{G, module.size(), MemProt::Read, MemType::Image, MemState::Committed, "/tmp/game"}, module},
+        {{H, heap.size(), MemProt::ReadWrite, MemType::Private, MemState::Committed, "[heap]"}, heap},
+        {{R, reserved.size(), MemProt::None, MemType::Private, MemState::Committed, ""}, reserved},
+    }, {{G, module.size(), "game", "/tmp/game", true}});
+    PointerScanConfig cfg;
+    cfg.targetAddress = H + 0x40; cfg.maxDepth = 1; cfg.maxOffset = 0;
+    const auto map = buildPointerMap(proc, cfg);
+    bool readableOk = !map.valueAt(G).has_value() && map.valueAt(G + 8) == H + 0x40 &&
+        map.valueAt(G + 0x10) == H + 0x80 && !map.truncated();
+    printf("  only pointers into readable memory enter the map: %s\n", readableOk ? "OK" : "FAILED");
+    cfg.maxMapEntries = 1;
+    const auto capped = buildPointerMap(proc, cfg);
+    PointerScanner cappedScanner;
+    cappedScanner.scan(proc, cfg);
+    bool capOk = capped.truncated() && capped.size() == 1 &&
+        cappedScanner.limitReached() == PointerScanLimit::MapEntries;
+    printf("  the map entry limit stops the read and is reported: %s\n", capOk ? "OK" : "FAILED");
+
+    // Two modules with one name: only the first can be named in a path.
+    constexpr uintptr_t D1 = 0x400000, D2 = 0x600000;
+    std::vector<uint8_t> first(0x100, 0), second(0x100, 0), heap2(0x100, 0);
+    const uintptr_t target = H + 0x40;
+    std::memcpy(first.data() + 0x10, &target, 8);
+    std::memcpy(second.data() + 0x20, &target, 8);
+    FakeProcessHandle twice({
+        {{D1, first.size(), MemProt::Read, MemType::Image, MemState::Committed, "/a/dup.dll"}, first},
+        {{D2, second.size(), MemProt::Read, MemType::Image, MemState::Committed, "/b/dup.dll"}, second},
+        {{H, heap2.size(), MemProt::ReadWrite, MemType::Private, MemState::Committed, "[heap]"}, heap2},
+    }, {{D1, first.size(), "dup.dll", "/a/dup.dll", true}, {D2, second.size(), "dup.dll", "/b/dup.dll", true}});
+    PointerScanConfig dupCfg;
+    dupCfg.targetAddress = target; dupCfg.maxDepth = 1; dupCfg.maxOffset = 0;
+    PointerScanner dupScanner;
+    const auto dupStatic = dupScanner.scan(twice, dupCfg);
+    dupCfg.staticOnly = false;
+    const auto dupAll = dupScanner.scan(twice, dupCfg);
+    bool dupOk = dupStatic.size() == 1 && dupStatic[0].module == "dup.dll" && dupStatic[0].baseOffset == 0x10 &&
+        PointerScanner::dereference(twice, dupStatic[0]) == target &&
+        std::any_of(dupAll.begin(), dupAll.end(), [&](const PointerPath& p) {
+            return p.module.empty() && p.baseOffset == D2 + 0x20 && PointerScanner::dereference(twice, p) == target;
+        }) &&
+        std::none_of(dupAll.begin(), dupAll.end(), [&](const PointerPath& p) {
+            return p.module == "dup.dll" && p.baseOffset == 0x20;
+        });
+    printf("  a second module with the same name is no static base: %s\n", dupOk ? "OK" : "FAILED");
+
+    // WoW64: a 64-bit module keeps 8-byte pointers inside a 32-bit program. The
+    // map reads it at the width dereference() uses there.
+    struct Wow64Fake : FakeProcessHandle {
+        using FakeProcessHandle::FakeProcessHandle;
+        uintptr_t wideBase = 0, wideSize = 0;
+        bool runs32BitCode() override { return true; }
+        TargetMachine machineAt(uintptr_t address) override {
+            auto d = targetDescription();
+            return address >= wideBase && address - wideBase < wideSize ? d.host : d.program;
+        }
+    };
+    constexpr uintptr_t N64 = 0x180000000ull, H64 = 0x200000000ull, E32 = 0x400000;
+    std::vector<uint8_t> ntdll(0x100, 0), heap64(0x100, 0), exe(0x100, 0), heap32(0x100, 0);
+    const uint64_t wideTarget = H64;
+    const uint32_t narrowTarget = H;
+    std::memcpy(ntdll.data() + 0x10, &wideTarget, 8);
+    std::memcpy(exe.data() + 0x8, &narrowTarget, 4);
+    Wow64Fake wow({
+        {{E32, exe.size(), MemProt::Read, MemType::Image, MemState::Committed, "/w/game.exe"}, exe},
+        {{H, heap32.size(), MemProt::ReadWrite, MemType::Private, MemState::Committed, ""}, heap32},
+        {{N64, ntdll.size(), MemProt::Read, MemType::Image, MemState::Committed, "/w/ntdll.dll"}, ntdll},
+        {{H64, heap64.size(), MemProt::ReadWrite, MemType::Private, MemState::Committed, ""}, heap64},
+    }, {{E32, exe.size(), "game.exe", "/w/game.exe", false}, {N64, ntdll.size(), "ntdll.dll", "/w/ntdll.dll", true}});
+    wow.wideBase = N64; wow.wideSize = ntdll.size();
+    PointerScanConfig wowCfg;
+    wowCfg.maxDepth = 1; wowCfg.maxOffset = 0x40;
+    PointerScanner wowScanner;
+    wowCfg.targetAddress = H64 + 0x20;
+    const auto widePaths = wowScanner.scan(wow, wowCfg);
+    wowCfg.targetAddress = H + 0x10;
+    const auto narrowPaths = wowScanner.scan(wow, wowCfg);
+    bool wowOk = widePaths.size() == 1 && widePaths[0].module == "ntdll.dll" && widePaths[0].baseOffset == 0x10 &&
+        PointerScanner::dereference(wow, widePaths[0]) == H64 + 0x20 &&
+        narrowPaths.size() == 1 && narrowPaths[0].module == "game.exe" && narrowPaths[0].baseOffset == 0x8 &&
+        PointerScanner::dereference(wow, narrowPaths[0]) == H + 0x10;
+    printf("  each region is read at the pointer width dereference uses: %s\n", wowOk ? "OK" : "FAILED");
+
+    // A big-endian target: the rescan compares the value in its byte order.
+    struct BigEndianFake : FakeProcessHandle {
+        using FakeProcessHandle::FakeProcessHandle;
+        TargetDescription targetDescription() override {
+            auto d = FakeProcessHandle::targetDescription();
+            d.host.byteOrder = d.program.byteOrder = ByteOrder::Big;
+            return d;
+        }
+    };
+    std::vector<uint8_t> beModule(0x100, 0), beHeap(0x100, 0);
+    for (int i = 0; i < 8; ++i) beModule[0x10 + i] = uint8_t(uint64_t(H) >> (56 - 8 * i));
+    const uint32_t beValue = 1337;
+    for (int i = 0; i < 4; ++i) beHeap[0x20 + i] = uint8_t(beValue >> (24 - 8 * i));
+    BigEndianFake be({
+        {{G, beModule.size(), MemProt::Read, MemType::Image, MemState::Committed, "/tmp/game"}, beModule},
+        {{H, beHeap.size(), MemProt::ReadWrite, MemType::Private, MemState::Committed, "[heap]"}, beHeap},
+    }, {{G, beModule.size(), "game", "/tmp/game", true}});
+    PointerPath bePath{"game", G, 0x10, {0x20}};
+    PointerScanConfig beCfg;
+    const auto beMap = buildPointerMap(be, beCfg);
+    bool beOk = PointerScanner::dereference(be, bePath) == H + 0x20 && beMap.resolve(bePath) == H + 0x20 &&
+        rescanPointerPathsByValue(be, {bePath}, 1337, 4).size() == 1 &&
+        rescanPointerPathsByValue(be, {bePath}, 0x39050000, 4).empty() &&
+        rescanPointerPathsByValueWithMap(be, beMap, {bePath}, 1337, 4).size() == 1 &&
+        rescanPointerPathsByValueWithMap(be, beMap, {bePath}, 0x39050000, 4).empty();
+    printf("  value rescans decode in the target's byte order: %s\n", beOk ? "OK" : "FAILED");
+
+    // A rescan can be cancelled and reports progress.
+    std::atomic<bool> stopRescan{true};
+    std::atomic<float> rescanProgress{0};
+    const bool rescanCancelOk = rescanPointerPaths(be, {bePath}, H + 0x20, &stopRescan, &rescanProgress).empty();
+    stopRescan = false;
+    const bool rescanRunOk = rescanPointerPaths(be, {bePath}, H + 0x20, &stopRescan, &rescanProgress).size() == 1 &&
+        rescanProgress.load() == 1.0f;
+    printf("  a rescan honours cancel and reports progress: %s\n", rescanCancelOk && rescanRunOk ? "OK" : "FAILED");
+}
+
 // 8-byte value written only by a sibling thread, to exercise a non-default
 // (8-byte) hardware watch size in find-what-writes.
 static volatile uint64_t g_cf_watched8 = 0;
@@ -9355,6 +9637,9 @@ static void test_autoassembler_review_fixes() {
 // own data; allocations in the child.
 alignas(16) static uint8_t g_aaDisable[64];
 extern "C" { __attribute__((used)) uint8_t cecore_aa_symbol_probe[16]; }
+extern "C" { __attribute__((used)) uint8_t cecore_aa_symbol_probe2[16]; }
+// A C++ name: the script writes it mangled, the symbol table lists it demangled.
+namespace cecore_aa { __attribute__((used)) uint8_t mangled_probe[16]; }
 static void test_autoassembler_disable_section(pid_t pid) {
     printf("\n── Test: Auto Assembler [DISABLE] section and undo ──\n");
     LinuxProcessHandle proc(getpid()), child(pid);
@@ -9467,8 +9752,27 @@ static void test_autoassembler_disable_section(pid_t pid) {
                ? "OK" : ("FAILED: " + localLabel.error).c_str());
     if (localLabel.success) aa.disable(proc, "", localLabel.disableInfo);
 
-    // Only a hook site is a target symbol. Data labels in a cave that share a
-    // libc name ("index:" used as index+4, "time:") stay labels in the cave.
+    // Two target symbols patched in a row: the second is its own address, not
+    // a label after the first patch. A syntax check cannot know and says so.
+    std::memset(cecore_aa_symbol_probe, 0, sizeof cecore_aa_symbol_probe);
+    std::memset(cecore_aa_symbol_probe2, 0, sizeof cecore_aa_symbol_probe2);
+    const std::string inRow = "[ENABLE]\ncecore_aa_symbol_probe:\ndb 5A\ncecore_aa_symbol_probe2:\ndb 6B\n";
+    auto rowPatched = aa.execute(proc, inRow);
+    const auto rowChecked = aa.check(inRow);
+    printf("  target symbols patched one after another are each their own address: %s\n",
+           rowPatched.success && cecore_aa_symbol_probe[0] == 0x5A && cecore_aa_symbol_probe[1] == 0 &&
+           cecore_aa_symbol_probe2[0] == 0x6B && rowChecked.success && logged(rowChecked, "Decided at inject time")
+               ? "OK" : ("FAILED: " + rowPatched.error + rowChecked.error).c_str());
+    if (rowPatched.success) aa.disable(proc, "", rowPatched.disableInfo);
+    std::memset(cecore_aa::mangled_probe, 0, sizeof cecore_aa::mangled_probe);
+    auto mangled = aa.execute(proc, "[ENABLE]\n" + hex(base + 48) + ":\ndb 01\n_ZN9cecore_aa13mangled_probeE:\ndb 5A\n");
+    printf("  a mangled C++ name is the target's symbol: %s\n",
+           mangled.success && cecore_aa::mangled_probe[0] == 0x5A && g_aaDisable[49] == 0
+               ? "OK" : ("FAILED: " + mangled.error).c_str());
+    if (mangled.success) aa.disable(proc, "", mangled.disableInfo);
+
+    // A name only the C runtime defines stays a label. Data labels in a cave
+    // that share a libc name ("index:" used as index+4, "time:") stay there.
     const std::string cave = "[ENABLE]\nalloc(ce_label_mem,64)\nce_label_mem:\ndq index+4\n"
                              "index:\ndq 0\ntime:\ndd 0\n[DISABLE]\ndealloc(ce_label_mem)\n";
     auto caveLabels = aa.execute(child, cave);
@@ -9487,9 +9791,10 @@ static void test_autoassembler_disable_section(pid_t pid) {
            !libcSite.success && libcSite.error.find("C library") != std::string::npos ? "OK" : ("FAILED: " + libcSite.error).c_str());
     if (libcSite.success) aa.disable(child, "", libcSite.disableInfo);
 
-    // The near address of an alloc and a jump to an allocation mark a hook
-    // site; [DISABLE] names the same address. The target is a copy of this
-    // program, whose main module has cecore_aa_symbol_probe.
+    // A hook site named as the alloc's near address, or written after the
+    // cave's code, is the target's function; [DISABLE] names the same
+    // address. The target is a copy of this program, whose main module has
+    // cecore_aa_symbol_probe.
     auto spawn = [] {
         const pid_t copy = fork();
         if (copy == 0) {
@@ -9519,9 +9824,25 @@ static void test_autoassembler_disable_section(pid_t pid) {
     auto jumped = aa.execute(copy, jumpHook);
     const uint8_t jumpByte = probeByte();
     if (jumped.success) aa.disable(copy, "", jumped.disableInfo);
-    printf("  a jump to an allocation after \"name:\" marks a hook site: %s\n",
+    printf("  a hook site after the cave's code is the target's function: %s\n",
            jumped.success && (jumpByte == 0xE9 || jumpByte == 0xFF) && probeByte() == 0
                ? "OK" : ("FAILED: " + jumped.error).c_str());
+    // Two hooks around one cave: the second jumps to a label inside it.
+    const auto probe2Address = reinterpret_cast<uintptr_t>(cecore_aa_symbol_probe2);
+    auto probe2Byte = [&] { uint8_t value = 0xAA; (void)copy.read(probe2Address, &value, 1); return value; };
+    (void)copy.write(probe2Address, &zero, 1);
+    const std::string twoHooks = "[ENABLE]\nalloc(ce_shared_cave,64,cecore_aa_symbol_probe)\nce_shared_cave:\nret\n"
+        "ce_second_entry:\nret\ncecore_aa_symbol_probe:\njmp ce_shared_cave\n"
+        "cecore_aa_symbol_probe2:\njmp ce_second_entry\n";
+    auto both = aa.execute(copy, twoHooks);
+    const uint8_t firstHook = probeByte(), secondHook = probe2Byte();
+    if (both.success) aa.disable(copy, "", both.disableInfo);
+    const auto entry = both.disableInfo.scriptSymbols.find("ce_second_entry");
+    printf("  a second hook that jumps into a shared cave patches its own function: %s\n",
+           both.success && (firstHook == 0xE9 || firstHook == 0xFF) && (secondHook == 0xE9 || secondHook == 0xFF) &&
+           entry != both.disableInfo.scriptSymbols.end() && !both.disableInfo.allocs.empty() &&
+           entry->second == both.disableInfo.allocs[0].address + 1 && probeByte() == 0 && probe2Byte() == 0
+               ? "OK" : ("FAILED: " + both.error).c_str());
 
     // A globalalloc block of another process (a game run that ended) does not
     // keep this process's writes at the same address from being undone. Two
@@ -13803,6 +14124,7 @@ int main(int argc, char* argv[]) {
 #endif
     test_pointer_rescan_by_value();
     test_pointer_map_reuse();
+    test_pointer_scan_search_limits();
     test_signature_generation();
     test_pe_exports();
     test_lua_symbol_info();

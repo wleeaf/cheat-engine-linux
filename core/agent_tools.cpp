@@ -1097,9 +1097,22 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             sortPointerPaths(s.paths, PointerSortKey::Depth);
             Value out = Value::object().set("count", Value::number(static_cast<uint64_t>(s.paths.size())))
                                        .set("paths", s.pathList(kMaxPaths));
-            if (scanner.truncated())
-                out.set("truncated", Value::string("stopped at " + std::to_string(config.maxResults) +
-                                                   " paths, so longer ones may be missing; a smaller max_offset finds them"));
+            switch (scanner.limitReached()) {
+                case PointerScanLimit::Results:
+                    out.set("truncated", Value::string("stopped at " + std::to_string(config.maxResults) +
+                                                       " paths, so longer ones may be missing; a smaller max_offset finds them"));
+                    break;
+                case PointerScanLimit::Work:
+                    out.set("truncated", Value::string("stopped at the work limit, so longer paths may be missing; "
+                                                       "a smaller max_offset or max_depth finds them"));
+                    break;
+                case PointerScanLimit::MapEntries:
+                    out.set("truncated", Value::string("memory held more pointer-like values than the scan keeps, "
+                                                       "so some paths may be missing"));
+                    break;
+                case PointerScanLimit::None:
+                    break;
+            }
             out.set("next", Value::string(s.paths.empty()
                 ? "No path found. Try a larger max_depth or max_offset."
                 : "Ask the user to make the value move (restart the level, or whatever reallocates it), find it again, "

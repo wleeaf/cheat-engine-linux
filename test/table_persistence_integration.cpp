@@ -214,8 +214,42 @@ int main() {
             t.entries[1].hotkeyKeys=="Ctrl+H" && has(t.entries[1].extraHotkeysXml,"<Action>Activate</Action>"),
             "an Activate hotkey fills the toggle slot when no plain toggle does");
         check(t.entries.size()==3 && t.entries[2].increaseHotkeyKeys=="F9" && t.entries[2].decreaseHotkeyKeys=="F8" &&
-            t.entries[2].hotkeyStep=="2" && t.entries[2].extraHotkeysXml.empty(),
+            t.entries[2].hotkeyStep=="2",
             "increase and decrease hotkeys with different steps both bind, with the first step");
+        // A save writes the hotkeys a slot borrowed as they were: the Activate
+        // stays Activate, and each step stays its own.
+        auto hotkeys=[](const std::string& disk,int record) {
+            size_t at=0;
+            for (int i=0;i<=record;++i) at=disk.find("<CheatEntry>",at+1);
+            const size_t end=disk.find("</CheatEntry>",at);
+            return disk.substr(at,end-at);
+        };
+        const auto disk=saveAndRead(t,"borrowed.CT");
+        CheatTable back;back.loadFromString(disk);
+        const auto first=hotkeys(disk,0),third=hotkeys(disk,2);
+        auto count=[](const std::string& text,const std::string& part) {
+            size_t n=0;for (size_t at=text.find(part);at!=std::string::npos;at=text.find(part,at+1)) ++n;return n;
+        };
+        check(!has(first,"Toggle Activation") && count(first,"<Action>Activate</Action>")==1 && count(first,"<Hotkey>")==2 &&
+            has(third,"<Action>Increase Value</Action>") && has(third,"<Value>2</Value>") &&
+            has(third,"<Action>Decrease Value</Action><Keys><Key>119</Key></Keys><Value>5</Value>") && count(third,"<Hotkey>")==2 &&
+            back.entries.size()==3 && back.entries[0].hotkeyKeys=="F6" && back.entries[2].decreaseHotkeyKeys=="F8" &&
+            back.entries[2].hotkeyStep=="2" && saveAndRead(back,"borrowed-again.CT")==disk,
+            "a save writes borrowed hotkeys with their own actions and steps, and a reload binds them the same way");
+        // A plain toggle and an Activate on the same keys both survive.
+        CheatTable same;
+        same.loadFromString(ceTable("<CheatEntry><ID>1</ID><Description>\"d\"</Description><VariableType>4 Bytes</VariableType><Address>400000</Address>"
+            "<Hotkeys><Hotkey><Action>Toggle Activation</Action><Keys><Key>117</Key></Keys><ID>0</ID></Hotkey>"
+            "<Hotkey><Action>Activate</Action><Keys><Key>117</Key></Keys><ID>1</ID></Hotkey></Hotkeys></CheatEntry>\n"));
+        const auto sameDisk=saveAndRead(same,"same-keys.CT");
+        check(same.entries.size()==1 && same.entries[0].hotkeyKeys=="F6" && count(sameDisk,"<Action>Toggle Activation</Action>")==1 &&
+            count(sameDisk,"<Action>Activate</Action>")==1 && count(sameDisk,"<Hotkey>")==2,
+            "a toggle and an Activate on the same keys are each written once");
+        // A key changed after loading is written as the slot's own action.
+        CheatTable edited=t;edited.entries[0].hotkeyKeys="F2";
+        const auto editedDisk=hotkeys(saveAndRead(edited,"edited.CT"),0);
+        check(has(editedDisk,"<Action>Toggle Activation</Action>") && has(editedDisk,"<Key>113</Key>"),
+            "a borrowed hotkey changed after loading is saved as the slot's own");
     }
     {
         // Saving keeps what an ordinary save keeps: a read-only table stays
@@ -257,6 +291,12 @@ int main() {
         for (const auto& path:{readOnly,linked,second,real,link,dangling}) std::filesystem::remove(path);
     }
     table.save((directory/"keep.ct").string());
+    // A hard-linked table is rewritten in place.
+    const auto inPlace=directory/"inplace.ct",inPlaceLink=directory/"inplace-link.ct";
+    table.save(inPlace.string());
+    std::filesystem::create_hard_link(inPlace,inPlaceLink);
+    const auto inPlaceBefore=readFile(inPlace);
+    CheatTable bigger=table;bigger.comment=std::string(65536,'x');
     rlimit previous{};struct sigaction ignored{},oldAction{};ignored.sa_handler=SIG_IGN;sigemptyset(&ignored.sa_mask);
     const bool haveLimit=getrlimit(RLIMIT_FSIZE,&previous)==0;
     const bool haveSignal=sigaction(SIGXFSZ,&ignored,&oldAction)==0;
@@ -264,10 +304,15 @@ int main() {
     rlimit limited=previous;limited.rlim_cur=64;
     limitReady=limitReady && setrlimit(RLIMIT_FSIZE,&limited)==0;
     const auto serializedSize=std::filesystem::file_size(directory/"table.json");
-    bool failedXml=false,failedJson=false,failedProtected=false;
+    bool failedXml=false,failedJson=false,failedProtected=false,failedInPlace=false;
     if(limitReady) {
         failedXml=!table.save((directory/"failure.ct").string()) && !table.save((directory/"keep.ct").string());
         failedJson=!table.saveJson((directory/"failure.json").string());
+        // Too little room for the new table: the old one stays whole.
+        limited.rlim_cur=inPlaceBefore.size()+16;
+        if(setrlimit(RLIMIT_FSIZE,&limited)==0)
+            failedInPlace=!bigger.save(inPlace.string()) && readFile(inPlace)==inPlaceBefore &&
+                std::filesystem::file_size(inPlace)==inPlaceBefore.size();
         // Let the JSON staging file succeed, then reject the larger encrypted
         // payload plus header. This exercises the protected output's own flush.
         limited.rlim_cur=serializedSize;
@@ -280,6 +325,10 @@ int main() {
     check(limitReady && failedXml,"XML reports actual buffered-write failure rather than successful serialization");
     check(limitReady && failedJson,"JSON reports actual buffered-write failure rather than successful serialization");
     check(limitReady && failedProtected,"protected-table saves report actual buffered-write failure");
+    check(limitReady && failedInPlace,"a failed in-place save leaves the previous table whole");
+    check(bigger.save(inPlace.string()) && readFile(inPlaceLink)==readFile(inPlace) && has(readFile(inPlace),"xxxx") &&
+        table.save(inPlace.string()) && readFile(inPlaceLink)==inPlaceBefore,
+        "an in-place save grows and shrinks the table through its hard link");
     check(restored,"the owned integration process restores its original file-size limit");
     {
         CheatTable kept;bool leftovers=false;

@@ -628,9 +628,21 @@ void scannerTests(const fs::path& root) {
         const auto other = pruneRoot / ("ce-scan-elsewhere.example-" + std::to_string(gone) + "-abcdef");
         const auto oldStyle = pruneRoot / ("ce-scan-" + std::to_string(gone) + "-abcdef");
         for (const auto& dir : {mine, live, other, oldStyle}) fs::create_directories(dir);
+        // Another host's directory a week old (this machine's own from before
+        // a hostname change) goes, unless it is kept; a recent one stays.
+        const auto renamed = pruneRoot / ("ce-scan-oldname.example-" + std::to_string(getpid()) + "-abcdef");
+        const auto renamedKept = pruneRoot / ("ce-scan-oldname.example-" + std::to_string(gone) + "-ghijkl");
+        const auto oldStyleStale = pruneRoot / ("ce-scan-" + std::to_string(gone) + "-mnopqr");
+        for (const auto& dir : {renamed, renamedKept, oldStyleStale}) fs::create_directories(dir);
+        { std::ofstream marker(renamedKept / ".kept"); }
+        const auto eightDaysAgo = fs::file_time_type::clock::now() - std::chrono::hours(24 * 8);
+        std::error_code aged;
+        for (const auto& dir : {renamed, renamedKept, oldStyleStale}) fs::last_write_time(dir, eightDaysAgo, aged);
         pruneStaleScanDirectories(pruneRoot);
         check(tag.empty() || (gone > 0 && !fs::exists(mine) && fs::exists(live) && fs::exists(other) && fs::exists(oldStyle)),
               "stale scan directories are pruned by pid only for this host");
+        check(!aged && !fs::exists(renamed) && !fs::exists(oldStyleStale) && fs::exists(renamedKept),
+              "another host's scan directories are pruned a week old unless kept");
         std::error_code ignored;
         fs::remove_all(pruneRoot, ignored);
     }

@@ -36,13 +36,33 @@ struct PointerScanConfig {
     // early misses the deeper ones; truncated() says so, and a smaller maxOffset
     // usually brings them back.
     size_t    maxResults = 100000;
+    // Stop the path search after examining this many candidate pointers in all.
+    // Their number grows as fanout^depth in a dense heap, so a large maxOffset
+    // and depth would otherwise run for hours. truncated() reports it.
+    uint64_t  maxVisits = uint64_t(1) << 32;
+    // Stop reading memory once the map holds this many pointer-like values
+    // (16 bytes each, plus a 4-byte index). truncated() reports it.
+    size_t    maxMapEntries = size_t(1) << 28;
+};
+
+/// The largest depth and offset the front ends (cescan, Lua) accept. The work
+/// grows as fanout^depth, so deeper scans rarely finish.
+inline constexpr int kPointerScanMaxDepth = 7;
+inline constexpr int kPointerScanMaxOffset = 1 << 20;
+
+/// Which limit cut a pointer scan short.
+enum class PointerScanLimit {
+    None,
+    Results,      // config.maxResults paths were found
+    Work,         // config.maxVisits candidates were examined
+    MapEntries,   // memory held more than config.maxMapEntries pointer-like values
 };
 
 /// Build one config per worker. Merged results are equivalent to a full scan.
 std::vector<PointerScanConfig> makePointerScanShards(const PointerScanConfig& base, size_t shardCount);
 
 /// A reusable snapshot of a process's pointer graph: every pointer-shaped value
-/// found in readable memory, indexed both by target (for a scan's reverse BFS)
+/// found in readable memory, indexed both by target (for a scan's reverse search)
 /// and by location (for resolving a saved path without touching the process).
 /// Building it is the expensive half of a pointer scan; reuse lets you scan
 /// several targets, or re-resolve a whole saved path set after a game restart,
@@ -56,6 +76,10 @@ public:
 
     bool   empty() const { return byTarget_.empty(); }
     size_t size()  const { return byTarget_.size(); }
+    /// buildPointerMap stopped at config.maxMapEntries, so some pointers are
+    /// missing. Not saved with the map.
+    bool   truncated() const { return truncated_; }
+    void   setTruncated(bool truncated) { truncated_ = truncated; }
     const std::vector<Entry>&      entriesByTarget() const { return byTarget_; }  // sorted by pointsTo
     const std::vector<ModuleInfo>& modules() const { return modules_; }
 
@@ -85,13 +109,16 @@ private:
     std::vector<Entry>       byTarget_;    // sorted by pointsTo
     std::vector<uint32_t>    byLocated_;   // indices into byTarget_, sorted by locatedAt
     std::vector<ModuleInfo>  modules_;
+    bool                     truncated_ = false;
     uintptr_t moduleBase(const std::string& name) const;
 };
 
 /// Build a PointerMap from a live process (the expensive read phase). Honors
-/// alignedOnly / useGpu / gpuMinRegionBytes from `config`. `cancel`, if set and
-/// flipped true, aborts and yields an empty map. `progress`, if set, is driven
-/// from 0.0 to `progressSpan` across the read.
+/// alignedOnly / useGpu / gpuMinRegionBytes / maxMapEntries from `config`. A
+/// value counts as a pointer when it points into readable memory. Each region
+/// is read with the pointer width and byte order that dereference() uses at its
+/// address. `cancel`, if set and flipped true, aborts and yields an empty map.
+/// `progress`, if set, is driven from 0.0 to `progressSpan` across the read.
 PointerMap buildPointerMap(ProcessHandle& proc, const PointerScanConfig& config,
                            std::atomic<bool>* cancel = nullptr,
                            std::atomic<float>* progress = nullptr,
@@ -101,7 +128,10 @@ class PointerScanner {
 public:
     PointerScanner() = default;
 
-    /// Run a pointer scan. Returns all found paths.
+    /// Run a pointer scan. Returns all found paths, shortest first. A module
+    /// whose name an earlier module already has (WoW64's two ntdll.dll, a library
+    /// loaded twice) is not used as a static base: a path names its module, and
+    /// the name resolves to the first one. Its slots count as plain memory.
     std::vector<PointerPath> scan(ProcessHandle& proc, const PointerScanConfig& config);
 
     /// Scan using a prebuilt PointerMap, skipping the memory-read phase. Lets you
@@ -126,13 +156,15 @@ public:
     void cancel() { cancelled_.store(true); }
     bool wasCancelled() const { return cancelled_.load(); }
 
-    /// The last scan stopped at config.maxResults.
-    bool truncated() const { return truncated_.load(); }
+    /// The last scan stopped at a limit (see limitReached()), so paths may be
+    /// missing.
+    bool truncated() const { return limitReached() != PointerScanLimit::None; }
+    PointerScanLimit limitReached() const { return static_cast<PointerScanLimit>(limit_.load()); }
 
 private:
     std::atomic<float> progress_{0};
     std::atomic<bool> cancelled_{false};
-    std::atomic<bool> truncated_{false};
+    std::atomic<int> limit_{0};
 };
 
 // ── Result-set persistence and post-processing ──
@@ -149,9 +181,11 @@ std::vector<PointerPath> loadPointerPaths(const std::string& path, std::string* 
 /// Walk every path against a (possibly different) target address; keep only
 /// those whose dereference resolves to `newTarget`. Useful when a game restarts
 /// and the target's runtime address changes — same module-relative chain may
-/// still work, others won't.
+/// still work, others won't. `cancel`, if set and flipped true, stops the walk
+/// and returns an empty list; `progress`, if set, goes from 0.0 to 1.0.
 std::vector<PointerPath>
-rescanPointerPaths(ProcessHandle& proc, const std::vector<PointerPath>& paths, uintptr_t newTarget);
+rescanPointerPaths(ProcessHandle& proc, const std::vector<PointerPath>& paths, uintptr_t newTarget,
+                   std::atomic<bool>* cancel = nullptr, std::atomic<float>* progress = nullptr);
 
 /// Like rescanPointerPaths, but filter by the VALUE the chain points to rather
 /// than a known new address. Keeps paths whose final dereferenced address holds

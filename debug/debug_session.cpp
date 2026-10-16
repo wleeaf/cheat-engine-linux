@@ -24,6 +24,20 @@ static bool isEventStop(int status, int event) {
     return WIFSTOPPED(status) && (status >> 8) == (SIGTRAP | (event << 8));
 }
 
+// Under PTRACE_SEIZE a job-control group-stop is an EVENT_STOP that carries
+// its stop signal (SIGSTOP, SIGTSTP, ...). Our own interrupt stops carry SIGTRAP.
+static bool isGroupStop(int status) {
+    return WIFSTOPPED(status) && (status >> 16) == PTRACE_EVENT_STOP && WSTOPSIG(status) != SIGTRAP;
+}
+
+// Removal failures after which no trap of ours can remain at the address: its
+// page was unmapped, or other code (a script, a JIT) replaced the trap.
+// Writing the saved bytes back would corrupt that code, so the record is
+// dropped instead of being retried forever.
+static bool trapGone(const Error& error) {
+    return error == std::errc::bad_address || error == std::errc::state_not_recoverable;
+}
+
 static std::optional<int> unreportedStopStatus(pid_t tid) {
     // A launcher thread can consume this owner's wait report without releasing
     // the ptrace stop. GETSIGINFO proves a real stop; ESRCH is also normal for
@@ -39,11 +53,17 @@ static std::optional<int> unreportedStopStatus(pid_t tid) {
     if (waited==tid) return reported;
     if (waited<0) return std::nullopt;
     int status=(info.si_signo<<8)|0x7f;
-    if (info.si_signo==SIGTRAP && info.si_code>0xff && (info.si_code&0xff)==SIGTRAP) {
+    if (info.si_code>0xff && (info.si_code&0xff)==info.si_signo) {
         const unsigned event=static_cast<unsigned>(info.si_code)>>8;
-        if ((event<PTRACE_EVENT_FORK || event>PTRACE_EVENT_SECCOMP) && event!=PTRACE_EVENT_STOP)
-            return std::nullopt;
-        status|=static_cast<int>(event<<16);
+        if (info.si_signo==SIGTRAP) {
+            if ((event<PTRACE_EVENT_FORK || event>PTRACE_EVENT_SECCOMP) && event!=PTRACE_EVENT_STOP)
+                return std::nullopt;
+            status|=static_cast<int>(event<<16);
+        } else if (event==PTRACE_EVENT_STOP) {
+            // A group-stop: rebuilding it as a delivery stop would redeliver
+            // its stop signal.
+            status|=static_cast<int>(event<<16);
+        }
     }
     return status;
 }
@@ -117,6 +137,7 @@ void DebugSession::detach() {
 bool DebugSession::seizeAllThreads() {
     traced_.clear(); stoppedTids_.clear(); pendingSignals_.clear(); pendingRewinds_.clear(); pendingHardwareSteps_.clear();
     pendingExitStops_.clear(); exitedDuringStop_.clear();
+    foreignStops_.clear(); deferredStops_.clear(); reportedPc_.clear(); groupStopped_.clear();
     // A thread not yet seized can clone while we work through the list; its
     // child is untraced (TRACECLONE applies once the parent is seized) and a
     // breakpoint it runs would kill the game. List again until a pass finds
@@ -201,54 +222,109 @@ static bool queuedTrap(pid_t tid) {
 }
 
 void DebugSession::stopOtherThreads(pid_t active) {
-    std::vector<pid_t> tids(traced_.begin(),traced_.end());
-    for (pid_t tid : tids) {
-        if (!traced_.contains(tid) || tid==active || stoppedTids_.contains(tid)) continue;
-        if (ptrace(PTRACE_INTERRUPT,tid,nullptr,nullptr)<0) {
-            if (errno!=ESRCH) { setError({errno,std::system_category()}); continue; }
-            // A dead thread may still have an unconsumed exit notification.
-            // Drain it so cleanup does not wait forever for an impossible stop.
-        }
-        int status=0;
-        if (!waitForStop(tid,status,false)) continue;
-        stoppedTids_.insert(tid);
-        if (isEventStop(status,PTRACE_EVENT_EXEC)) { handleExec(tid); break; }
-        if (isEventStop(status,PTRACE_EVENT_CLONE)) {
-            if (!adoptClonedThread(tid)) { hardwareRecovery_=true; recoveryPending_=true; }
-            continue;
-        }
-        // The interrupt can be reported before a breakpoint trap the thread had
-        // already taken: the SIGTRAP is still queued, with the thread one byte
-        // past the int3. Once that breakpoint is removed (Run to Cursor's, or
-        // all of them on detach) the trap would reach the game and kill it.
-        // Let it reach its delivery stop now, where it is rewound below.
-        for (int tries=0; tries<4 && isEventStop(status,PTRACE_EVENT_STOP) && queuedTrap(tid); ++tries) {
-            if (ptrace(PTRACE_CONT,tid,nullptr,nullptr)<0) break;
-            stoppedTids_.erase(tid);
-            if (!waitForStop(tid,status,false)) break;
-            stoppedTids_.insert(tid);
-        }
-        if (isSoftwareStop(tid,status)) {
-            auto context=os::readNativeContext(tid);
-            if (!context) { setError(context.error()); recoveryPending_=true; continue; }
-            uintptr_t address=os::nativeSoftwareBreakpointAddress(*context);
-            std::lock_guard lock(bpMutex_);
-            auto bp=softBreakpoints_.find(address);
-            if (bp!=softBreakpoints_.end() && bp->second.patch.installed) rewindSoftwareStop(tid,address);
-        } else if ((status>>16)==0) {
-            siginfo_t info{};
-            if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)==0) {
-                if (info.si_signo==SIGTRAP && info.si_code==TRAP_HWBKPT &&
-                    nativeTargetMachine().architecture==CpuArchitecture::Arm64 && !hwBreakpoints_.empty()) {
-                    auto context=os::readNativeContext(tid);
-                    if (context) pendingHardwareSteps_.at(tid)=context->instructionPointer();
-                    else { setError(context.error()); recoveryPending_=true; }
-                } else if (!(info.si_signo==SIGTRAP && (info.si_code==TRAP_TRACE || info.si_code==TRAP_HWBKPT)))
-                    pendingSignals_.at(tid)=WSTOPSIG(status);
+    const uint64_t generation=imageGeneration_;
+    // A clone adopted meanwhile adds a thread: pass again until every traced
+    // thread was asked once.
+    std::set<pid_t> attempted;
+    for (bool progress=true; progress && imageGeneration_==generation;) {
+        progress=false;
+        std::vector<pid_t> tids(traced_.begin(),traced_.end());
+        for (pid_t tid : tids) {
+            if (imageGeneration_!=generation) break;
+            if (!traced_.contains(tid) || tid==active || stoppedTids_.contains(tid) || !attempted.insert(tid).second) continue;
+            progress=true;
+            if (ptrace(PTRACE_INTERRUPT,tid,nullptr,nullptr)<0) {
+                if (errno!=ESRCH) { setError({errno,std::system_category()}); continue; }
+                // A dead thread may still have an unconsumed exit notification.
+                // Drain it so cleanup does not wait forever for an impossible stop.
             }
+            int status=0;
+            if (!waitForStop(tid,status,false)) continue;
+            if (!absorbStop(tid,status)) break;
         }
     }
+    absorbForeignStops();
     publishStoppedThreads();
+}
+
+bool DebugSession::absorbStop(pid_t tid,int status) {
+    const uint64_t generation=imageGeneration_;
+    stoppedTids_.insert(tid);
+    trackGroupStop(tid,status);
+    if (isEventStop(status,PTRACE_EVENT_EXEC)) { handleExec(tid); return false; }
+    if (isEventStop(status,PTRACE_EVENT_CLONE)) {
+        if (!adoptClonedThread(tid)) { hardwareRecovery_=true; recoveryPending_=true; }
+        return imageGeneration_==generation;
+    }
+    // The interrupt can be reported before a breakpoint trap the thread had
+    // already taken: the SIGTRAP is still queued, with the thread one byte
+    // past the int3. Once that breakpoint is removed (Run to Cursor's, or
+    // all of them on detach) the trap would reach the game and kill it.
+    // Let it reach its delivery stop now, where it is rewound below.
+    for (int tries=0; tries<4 && isEventStop(status,PTRACE_EVENT_STOP) && queuedTrap(tid); ++tries) {
+        if (ptrace(PTRACE_CONT,tid,nullptr,nullptr)<0) break;
+        stoppedTids_.erase(tid);
+        if (!waitForStop(tid,status,false)) return imageGeneration_==generation;
+        stoppedTids_.insert(tid);
+    }
+    if (isSoftwareStop(tid,status)) {
+        auto context=os::readNativeContext(tid);
+        if (!context) { setError(context.error()); recoveryPending_=true; return true; }
+        uintptr_t address=os::nativeSoftwareBreakpointAddress(*context);
+        std::lock_guard lock(bpMutex_);
+        auto bp=softBreakpoints_.find(address);
+        // Rewound but not reported: it executes the trap again when resumed
+        // and is reported then, instead of being stepped over and lost.
+        if (bp!=softBreakpoints_.end() && bp->second.patch.installed) { rewindSoftwareStop(tid,address); return true; }
+        // Not ours: the program's own INT3 or BRK, handled as a signal below.
+    }
+    if ((status>>16)!=0) return true;
+    siginfo_t info{};
+    if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)!=0) return true;
+    const int signal=WSTOPSIG(status);
+    if (info.si_signo==SIGTRAP && (info.si_code==TRAP_TRACE || info.si_code==TRAP_HWBKPT)) {
+        // An x86 watchpoint traps after the access and cannot recur: queue it
+        // for Continue to report. An ARM64 watchpoint stops before the access
+        // and simply traps again when the thread is resumed.
+        if (info.si_code==TRAP_HWBKPT && !hwBreakpoints_.empty() &&
+            nativeTargetMachine().architecture!=CpuArchitecture::Arm64)
+            deferredStops_.emplace_back(tid,status);
+        return true;
+    }
+    pendingSignals_.at(tid)=signal;
+    // An exception breakpoint must stop on this signal before it is delivered.
+    if (hasExceptionBreakpoint(signal)) deferredStops_.emplace_back(tid,status);
+    return true;
+}
+
+void DebugSession::absorbForeignStops() {
+    while (!foreignStops_.empty()) {
+        auto [tid,status]=foreignStops_.front();
+        foreignStops_.pop_front();
+        if (!traced_.contains(tid)) continue;
+        if (!absorbStop(tid,status)) return;   // exec cleared the queue
+    }
+}
+
+void DebugSession::trackGroupStop(pid_t tid,int status) {
+    if (!WIFSTOPPED(status)) return;
+    if (isGroupStop(status)) groupStopped_.insert(tid);
+    else groupStopped_.erase(tid);
+}
+
+bool DebugSession::resumeThread(pid_t tid) {
+    const int signal=pendingSignals_.at(tid);
+    reportedPc_.erase(tid);
+    // A job-control stop must outlast the debugger's own resume. LISTEN
+    // leaves the thread stopped until SIGCONT; the tracer hears about that.
+    if (!signal && groupStopped_.contains(tid) && ptrace(PTRACE_LISTEN,tid,nullptr,nullptr)==0) {
+        stoppedTids_.erase(tid);
+        return true;
+    }
+    if (ptrace(PTRACE_CONT,tid,nullptr,reinterpret_cast<void*>(intptr_t(signal)))<0) return false;
+    pendingSignals_.at(tid)=0;
+    stoppedTids_.erase(tid); groupStopped_.erase(tid);
+    return true;
 }
 
 // Snapshot the currently-stopped tids under contextMutex_ so stoppedThreads()
@@ -311,16 +387,24 @@ bool DebugSession::waitForStop(pid_t tid,int& status,bool cancellable) {
                 stoppedTids_.insert(waited);
                 if (!finishExitStop(waited)) return false;
             } else if (isEventStop(status,PTRACE_EVENT_EXEC)) { handleExec(waited); return false; }
-            else if (isEventStop(status,PTRACE_EVENT_STOP)) {
-                if (!traced_.contains(waited)) handleStop(waited,status);
-                else stoppedTids_.insert(waited);
-            } else { handleStop(waited,status,true); return false; }
+            else if (!traced_.contains(waited)) handleStop(waited,status);   // a new clone's first stop: recorded only
+            else if (WIFSTOPPED(status)) {
+                // Another thread stopped on its own (a breakpoint, a signal,
+                // a clone) while this one is awaited. Keep it frozen and let
+                // the all-stop classify it. Reporting it from here would
+                // nest a second stop inside the caller's and leave the
+                // active thread and the captured registers disagreeing.
+                stoppedTids_.insert(waited);
+                trackGroupStop(waited,status);
+                foreignStops_.emplace_back(waited,status);
+            }
             if (!traced_.contains(tid)) return false;
             continue;
         }
         if (waited==tid) {
             if (WIFSTOPPED(status)) {
                 stoppedTids_.insert(tid);
+                trackGroupStop(tid,status);
                 if (isEventStop(status,PTRACE_EVENT_EXIT)) { finishExitStop(tid); return false; }
                 return true;
             }
@@ -351,9 +435,18 @@ bool DebugSession::singleStepThread(pid_t tid) {
             setError({errno,std::system_category()}); return false;
         }
         pendingSignals_.at(tid)=0;
-        stoppedTids_.erase(tid);
+        stoppedTids_.erase(tid); reportedPc_.erase(tid);
+        // Its queued stop, if any, was seen by the user who now steps it.
+        std::erase_if(deferredStops_,[&](const auto& stop){ return stop.first==tid; });
         int status=0;
-        if (!waitForStop(tid,status) || !attached_) return false;
+        if (!waitForStop(tid,status)) return false;
+        if (!attached_) {
+            // Detach ends the step. A signal that stopped the thread instead
+            // of the step trap is kept, so detach still delivers it.
+            if (WIFSTOPPED(status) && (status>>16)==0 && WSTOPSIG(status)!=SIGTRAP)
+                pendingSignals_.at(tid)=WSTOPSIG(status);
+            return false;
+        }
         if (isEventStop(status,PTRACE_EVENT_EXEC)) { handleExec(tid); return false; }
         // An all-stop interrupt can race an already-pending breakpoint trap.
         // Its synthetic stop then precedes our requested single-step trap.
@@ -373,7 +466,12 @@ bool DebugSession::liftSoftBreakpoint(uintptr_t address) {
     auto bp=softBreakpoints_.find(address);
     if (bp==softBreakpoints_.end() || !bp->second.active) return true;
     auto restore=os::removeNativeSoftwareBreakpoint(stoppedMemoryThread(),bp->second.patch);
-    if (!restore) { setError(restore.error()); recoveryPending_=true; return false; }
+    if (!restore) {
+        setError(restore.error());
+        // Nothing of ours is left to lift: forget the breakpoint.
+        if (trapGone(restore.error())) { softBreakpoints_.erase(bp); return true; }
+        recoveryPending_=true; return false;
+    }
     return true;
 }
 
@@ -435,31 +533,39 @@ bool DebugSession::stepThreadOverBp(pid_t tid) {
 }
 
 bool DebugSession::resumeAllThreads() {
+    const uint64_t generation=imageGeneration_;
+    absorbForeignStops();
+    if (imageGeneration_!=generation) return false;   // an exec stopped and was reported
     log::trace(log::Cat::Debugger,"resume session: {} traced, {} stopped, recovery={}",traced_.size(),stoppedTids_.size(),recoveryPending_.load());
     if (recoveryPending_ || traced_.size()!=stoppedTids_.size()) return false;
     std::vector<pid_t> tids(traced_.begin(),traced_.end());
     for (pid_t tid : tids) {
         if (!traced_.contains(tid)) continue;
         if (pendingHardwareSteps_.at(tid) && !stepThreadOverWatchpoint(tid)) return false;
+        if (!traced_.contains(tid)) continue;
         auto context=os::readNativeContext(tid);
         if (!context) { setError(context.error()); return false; }
+        const uintptr_t pc=context->instructionPointer();
         bool atBreakpoint=false;
         {
             std::lock_guard lock(bpMutex_);
-            auto bp=softBreakpoints_.find(context->instructionPointer());
+            auto bp=softBreakpoints_.find(pc);
             atBreakpoint=bp!=softBreakpoints_.end() && bp->second.active;
         }
-        if (atBreakpoint && !stepThreadOverBp(tid)) return false;
+        // Step over a breakpoint only for a thread whose stop was reported
+        // here. Any other thread on a trap (rewound during the all-stop, or
+        // interrupted just before it) executes it and is reported then.
+        auto reported=reportedPc_.find(tid);
+        const bool seen=reported!=reportedPc_.end() && reported->second==pc;
+        if (atBreakpoint && seen && !stepThreadOverBp(tid)) return false;
     }
     for (pid_t tid : tids) {
         if (!traced_.contains(tid)) continue;
-        int signal=pendingSignals_.at(tid);
-        if (ptrace(PTRACE_CONT,tid,nullptr,reinterpret_cast<void*>(intptr_t(signal)))<0) {
+        if (!resumeThread(tid)) {
             setError({errno,std::system_category()}); stopOtherThreads(0); return false;
         }
-        pendingSignals_.at(tid)=0;
-        stoppedTids_.erase(tid);
     }
+    reportedPc_.clear();
     return true;
 }
 
@@ -530,7 +636,10 @@ bool DebugSession::recoverBreakpoints() {
         for (auto it=softBreakpoints_.begin();it!=softBreakpoints_.end();) {
             if (!it->second.active) {
                 auto restore=os::removeNativeSoftwareBreakpoint(stoppedMemoryThread(),it->second.patch);
-                if (!restore) { setError(restore.error()); return false; }
+                if (!restore) {
+                    setError(restore.error());
+                    if (!trapGone(restore.error())) return false;
+                }
                 it=softBreakpoints_.erase(it);
             } else ++it;
         }
@@ -553,19 +662,36 @@ void DebugSession::tracerCleanup() {
     stopOtherThreads(0);
     for (auto& [address,bp] : softBreakpoints_) bp.active=false;
     hwBreakpoints_.clear(); hardwareRecovery_=!savedHardware_.empty(); recoveryPending_=true;
-    while (!recoverBreakpoints()) {
+    deferredStops_.clear();
+    // Restoration normally completes at once, and a short failure (a thread
+    // that is briefly not stopped) is retried. One that keeps failing must
+    // not freeze the game and the detaching front end forever: after about
+    // five seconds, give up what is left and detach anyway.
+    constexpr int restoreAttempts=250, detachAttempts=250;
+    for (int attempt=0; !recoverBreakpoints(); ++attempt) {
+        if (attempt>=restoreAttempts) {
+            log::warn(log::Cat::Debugger,"detach: giving up breakpoint restoration: {}",lastError().message());
+            break;
+        }
         stopOtherThreads(0);
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     std::vector<pid_t> tids(traced_.begin(),traced_.end());
     for (pid_t tid : tids) {
         int signal=pendingSignals_.at(tid);
-        while (ptrace(PTRACE_DETACH,tid,nullptr,reinterpret_cast<void*>(intptr_t(signal)))<0) {
+        for (int attempt=0; ptrace(PTRACE_DETACH,tid,nullptr,reinterpret_cast<void*>(intptr_t(signal)))<0; ++attempt) {
             if (errno==ESRCH || errno==ECHILD) break;
             setError({errno,std::system_category()});
+            if (attempt>=detachAttempts) {
+                // The tracer thread's exit releases the task in the kernel.
+                log::warn(log::Cat::Debugger,"detach: tid {} refused PTRACE_DETACH: {}",tid,lastError().message());
+                break;
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
     }
+    softBreakpoints_.clear(); hwBreakpoints_.clear(); registerRecovery_.reset(); hardwareRecovery_=false;
+    foreignStops_.clear(); deferredStops_.clear(); reportedPc_.clear(); groupStopped_.clear();
     traced_.clear(); stoppedTids_.clear(); savedHardware_.clear(); pendingSignals_.clear(); pendingRewinds_.clear(); pendingHardwareSteps_.clear();
     pendingExitStops_.clear(); exitedDuringStop_.clear(); activeTid_=0;
     publishStoppedThreads();
@@ -604,13 +730,23 @@ long DebugSession::performCommand(const Command& cmd) {
     const bool mutation = cmd.type == CmdType::SetSoftBp || cmd.type == CmdType::RemoveSoftBp ||
                           cmd.type == CmdType::SetHwBp || cmd.type == CmdType::RemoveHwBp;
     const bool resume = mutation && !stopped_.load();
+    const uint64_t generation = imageGeneration_;
     if (resume) {
         stopOtherThreads(0);
-        stopped_ = true;
+        if (attached_) stopped_ = true;
+    }
+    if (resume && (imageGeneration_ != generation || !attached_)) {
+        // An exec (or the process's exit) happened while the target was
+        // stopping. Its event went out and the old breakpoints are gone:
+        // never plant this request in the new program, and leave the target
+        // stopped where the exec event reported it. A removal is complete.
+        setError(std::make_error_code(std::errc::operation_canceled));
+        publishThreadExits();
+        return cmd.type == CmdType::RemoveSoftBp || cmd.type == CmdType::RemoveHwBp ? 1 : -1;
     }
     long result = 0;
     switch (cmd.type) {
-        case CmdType::Continue:     doContinue(); break;
+        case CmdType::Continue:     result = doContinue() ? 1 : 0; break;
         case CmdType::Step:         doStep(cmd.stepMode, cmd.addr); break;
         case CmdType::SetSoftBp:    result = doSetSoftBp(cmd.addr); break;
         case CmdType::RemoveSoftBp: result = doRemoveSoftBp(cmd.id) ? 1 : 0; break;
@@ -620,7 +756,10 @@ long DebugSession::performCommand(const Command& cmd) {
         case CmdType::RemoveHwBp:   result = doRemoveHwBp(cmd.id) ? 1 : 0; break;
         case CmdType::RetryRecovery: result = recoverBreakpoints() ? 1 : 0; break;
     }
-    if (resume && !recoveryPending_) doContinue();
+    // The game was running before this command. Resume it, or, when that
+    // fails, report the stop so no front end keeps showing it as running.
+    // doContinue reports instead of resuming when a deferred hit is waiting.
+    if (resume && attached_ && stopped_ && (recoveryPending_ || !doContinue())) reportHeldStop(0);
     publishThreadExits();
     return result;
 }
@@ -691,7 +830,11 @@ bool DebugSession::doRemoveSoftBp(int id) {
         if (it->second.id!=id) continue;
         it->second.active=false;
         auto restore=os::removeNativeSoftwareBreakpoint(stoppedMemoryThread(),it->second.patch);
-        if (!restore) { setError(restore.error()); recoveryPending_=true; return false; }
+        if (!restore) {
+            setError(restore.error());
+            // A gone page or replaced code holds no trap of ours: removed.
+            if (!trapGone(restore.error())) { recoveryPending_=true; return false; }
+        }
         softBreakpoints_.erase(it); return true;
     }
     // A pending removal can complete in the automatic recovery loop before
@@ -785,14 +928,24 @@ bool DebugSession::disarmAllHwBreakpoints() {
     return restoreHardwareState();
 }
 
-void DebugSession::continueExecution() {
-    if (!attached_.load()) return;
-    postCommand({CmdType::Continue, StepMode::Into, 0, 0, nullptr});
+bool DebugSession::continueExecution() {
+    if (!attached_.load()) return false;
+    return postCommand({CmdType::Continue, StepMode::Into, 0, 0, nullptr}) == 1;
 }
 
-void DebugSession::doContinue() {
-    if (!stopped_.load()) return;
-    if (resumeAllThreads()) stopped_ = false;
+bool DebugSession::doContinue() {
+    if (!stopped_.load()) return true;
+    const uint64_t reports=reportCount_;
+    // A hit another thread took while the target was stopping for the last
+    // event is reported now, instead of being lost by resuming over it.
+    while (!deferredStops_.empty()) {
+        auto [tid,status]=deferredStops_.front();
+        deferredStops_.pop_front();
+        if (reportDeferredStop(tid,status)) return true;
+    }
+    if (resumeAllThreads()) { stopped_ = false; return true; }
+    // A stop met while stepping a thread over its breakpoint was reported.
+    return reportCount_!=reports;
 }
 
 void DebugSession::addExceptionBreakpoint(int signal) {
@@ -828,6 +981,19 @@ void DebugSession::tracerThread() {
     pid_t lastStopProbe=0;
     while (attached_.load()) {
         if (recoveryPending_) { recoverBreakpoints(); publishThreadExits(); }
+        // A stop recorded while another thread was awaited. All-stopped, it
+        // is classified like the rest; running, it is handled as if waitpid
+        // had just returned it.
+        if (!foreignStops_.empty()) {
+            if (stopped_) absorbForeignStops();
+            else {
+                auto [tid,status]=foreignStops_.front();
+                foreignStops_.pop_front();
+                if (traced_.contains(tid)) handleStop(tid,status,false);
+            }
+            publishThreadExits();
+            continue;
+        }
         // 1) Drain queued commands (safe: the target is all-stopped).
         Command cmd;
         bool haveCmd = false;
@@ -940,6 +1106,7 @@ void DebugSession::handleExec(pid_t tid,bool notify) {
     pendingExitStops_.clear(); exitedDuringStop_.clear();
     traced_={tid}; stoppedTids_={tid}; pendingSignals_.clear(); pendingRewinds_.clear(); pendingHardwareSteps_.clear();
     pendingSignals_.emplace(tid,0); pendingRewinds_.emplace(tid,0); pendingHardwareSteps_.emplace(tid,0);
+    foreignStops_.clear(); deferredStops_.clear(); reportedPc_.clear(); groupStopped_.clear();
     activeTid_=tid; stopped_=true;
     { std::lock_guard lock(contextMutex_); stopContext_={}; vectorRegisters_={}; xmmRegs_={}; }
     proc_->targetDescription();
@@ -951,6 +1118,8 @@ void DebugSession::handleExec(pid_t tid,bool notify) {
     DebugEvent event{DebugEventType::ProcessExecuted,tid,0,0,{}};
     event.generation=imageGeneration_;
     event.context=getStopContext(); event.address=event.context.instructionPointer();
+    reportedPc_[tid]=event.address;
+    ++reportCount_;
     if (eventCb_) eventCb_(event);
 }
 
@@ -959,6 +1128,9 @@ void DebugSession::retireThread(pid_t tid,int status) {
     if (stopped_ && traced_.size()>1) exitedDuringStop_.push_back(tid);
     traced_.erase(tid); stoppedTids_.erase(tid); savedHardware_.erase(tid); pendingExitStops_.erase(tid);
     pendingSignals_.erase(tid); pendingRewinds_.erase(tid); pendingHardwareSteps_.erase(tid);
+    reportedPc_.erase(tid); groupStopped_.erase(tid);
+    std::erase_if(foreignStops_,[&](const auto& stop){ return stop.first==tid; });
+    std::erase_if(deferredStops_,[&](const auto& stop){ return stop.first==tid; });
     if (registerRecovery_ && registerRecovery_->first==tid) registerRecovery_.reset();
     if (activeTid_==tid) {
         activeTid_=0;
@@ -1012,6 +1184,70 @@ void DebugSession::publishThreadExits() {
     }
 }
 
+bool DebugSession::holdAll(pid_t tid) {
+    const uint64_t generation=imageGeneration_;
+    stopOtherThreads(tid);
+    if (imageGeneration_!=generation || !attached_) return false;
+    stopped_=true;
+    return true;
+}
+
+void DebugSession::reportStop(pid_t tid,DebugEventType type,int signal,std::optional<uintptr_t> address,bool softwareHit) {
+    // The active thread changes only here, after the all-stop finished, so
+    // it always names the thread whose registers the event carries.
+    activeTid_=tid; stopped_=true;
+    captureRegs(tid); publishStoppedThreads();
+    DebugEvent event{type,tid,0,signal,getStopContext()};
+    event.address=address ? *address : event.context.instructionPointer();
+    event.generation=imageGeneration_;
+    reportedPc_[tid]=softwareHit ? event.address : event.context.instructionPointer();
+    ++reportCount_;
+    if (eventCb_) eventCb_(event);
+}
+
+void DebugSession::reportHeldStop(pid_t preferred) {
+    if (!attached_ || !stopped_) return;
+    std::vector<pid_t> candidates{preferred,activeTid_.load()};
+    candidates.insert(candidates.end(),stoppedTids_.begin(),stoppedTids_.end());
+    pid_t fallback=0;
+    for (pid_t tid : candidates) {
+        if (!tid || !stoppedTids_.contains(tid) || pendingExitStops_.contains(tid)) continue;
+        if (!fallback) fallback=tid;
+        if (!os::readNativeContext(tid)) continue;
+        reportStop(tid,DebugEventType::SignalReceived,0);
+        return;
+    }
+    if (fallback) reportStop(fallback,DebugEventType::SignalReceived,0);
+}
+
+std::optional<uintptr_t> DebugSession::takeX86WatchpointHit(pid_t tid) {
+    auto bank=os::readNativeHardwareBank(tid,false);
+    if (!bank) { setError(bank.error()); return std::nullopt; }
+    for (const auto& bp : hwBreakpoints_) {
+        if (!(bank->status & (UINT64_C(1)<<bp.reg))) continue;
+        auto cleared=os::clearNativeHardwareStatus(tid);
+        if (!cleared) { setError(cleared.error()); hardwareRecovery_=true; recoveryPending_=true; }
+        return bp.address;
+    }
+    return std::nullopt;
+}
+
+bool DebugSession::reportDeferredStop(pid_t tid,int status) {
+    if (!traced_.contains(tid) || !stoppedTids_.contains(tid)) return false;
+    const int signal=WSTOPSIG(status);
+    if (signal==SIGTRAP) {
+        if (hwBreakpoints_.empty()) return false;
+        auto address=takeX86WatchpointHit(tid);
+        if (!address) return false;
+        reportStop(tid,DebugEventType::BreakpointHit,signal,*address);
+        return true;
+    }
+    // The signal stays pending for delivery whether or not it still stops.
+    if (!hasExceptionBreakpoint(signal)) return false;
+    reportStop(tid,DebugEventType::ExceptionBreakpointHit,signal);
+    return true;
+}
+
 void DebugSession::handleStop(pid_t tid,int status,bool holdStop) {
     log::trace(log::Cat::Debugger,"session stop: tid={}, status={:#x}",tid,status);
     if (WIFEXITED(status) || WIFSIGNALED(status)) {
@@ -1026,8 +1262,9 @@ void DebugSession::handleStop(pid_t tid,int status,bool holdStop) {
         return;
     }
     stoppedTids_.insert(tid);
+    trackGroupStop(tid,status);
     if (isEventStop(status,PTRACE_EVENT_EXIT)) {
-        if (!finishExitStop(tid)) { stopOtherThreads(tid); stopped_=true; }
+        if (!finishExitStop(tid) && holdAll(tid)) reportHeldStop(0);
         return;
     }
     if (isEventStop(status,PTRACE_EVENT_CLONE)) {
@@ -1039,26 +1276,37 @@ void DebugSession::handleStop(pid_t tid,int status,bool holdStop) {
                 else { setError({errno,std::system_category()}); recoveryPending_=true; }
             }
         } else { hardwareRecovery_=true; recoveryPending_=true; }
-        if (recoveryPending_) { stopOtherThreads(tid); stopped_=true; return; }
+        if (recoveryPending_) {
+            if (holdAll(tid)) reportHeldStop(tid);
+            return;
+        }
         if (holdStop) {
-            stopOtherThreads(tid); stopped_=true; activeTid_=tid;
-            captureRegs(tid); publishStoppedThreads();
-            DebugEvent event{DebugEventType::SignalReceived,tid,0,0,getStopContext()};
-            event.address=event.context.instructionPointer(); event.generation=imageGeneration_;
-            if (eventCb_) eventCb_(event);
+            if (holdAll(tid)) reportStop(tid,DebugEventType::SignalReceived,0);
             return;
         }
         if (ptrace(PTRACE_CONT,tid,nullptr,nullptr)==0) stoppedTids_.erase(tid);
+        else { setError({errno,std::system_category()}); if (holdAll(tid)) reportHeldStop(tid); }
+        return;
+    }
+    // Job control stopped the game. PTRACE_CONT would defeat it; LISTEN
+    // keeps the thread stopped until SIGCONT, which the tracer then sees.
+    if (isGroupStop(status) && !holdStop && ptrace(PTRACE_LISTEN,tid,nullptr,nullptr)==0) {
+        stoppedTids_.erase(tid);
         return;
     }
     int signal=WSTOPSIG(status);
+    const bool delivery=(status>>16)==0;
     siginfo_t info{};
     bool haveInfo=ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)==0;
     auto context=os::readNativeContext(tid);
-    if (!context) { setError(context.error()); stopOtherThreads(tid); stopped_=true; return; }
+    if (!context) {
+        setError(context.error());
+        if (holdAll(tid)) reportHeldStop(tid);
+        return;
+    }
     uintptr_t address=context->instructionPointer();
-    bool breakpointHit=false;
-    if (signal==SIGTRAP && (status>>16)==0 && haveInfo && info.si_code==TRAP_HWBKPT && !hwBreakpoints_.empty()) {
+    bool breakpointHit=false, softwareHit=false;
+    if (signal==SIGTRAP && delivery && haveInfo && info.si_code==TRAP_HWBKPT && !hwBreakpoints_.empty()) {
         if (context->architecture==CpuArchitecture::Arm64) {
             uintptr_t access=reinterpret_cast<uintptr_t>(info.si_addr);
             uintptr_t closest=UINTPTR_MAX;
@@ -1068,17 +1316,13 @@ void DebugSession::handleStop(pid_t tid,int status,bool holdStop) {
                 if (distance<closest) { address=bp.address; closest=distance; }
             }
             breakpointHit=closest!=UINTPTR_MAX;
-            if (breakpointHit) pendingHardwareSteps_.at(tid)=context->instructionPointer();
-        } else {
-            auto bank=os::readNativeHardwareBank(tid,false);
-            if (bank) {
-                for (const auto& bp : hwBreakpoints_)
-                    if (bank->status & (UINT64_C(1)<<bp.reg)) { address=bp.address; breakpointHit=true; break; }
-            } else setError(bank.error());
-        }
-        if (breakpointHit) {
-            auto cleared=os::clearNativeHardwareStatus(tid);
-            if (!cleared) { setError(cleared.error()); hardwareRecovery_=true; recoveryPending_=true; }
+            if (breakpointHit) {
+                pendingHardwareSteps_.at(tid)=context->instructionPointer();
+                auto cleared=os::clearNativeHardwareStatus(tid);
+                if (!cleared) { setError(cleared.error()); hardwareRecovery_=true; recoveryPending_=true; }
+            }
+        } else if (auto hit=takeX86WatchpointHit(tid)) {
+            address=*hit; breakpointHit=true;
         }
     }
     if (!breakpointHit && isSoftwareStop(tid,status)) {
@@ -1087,41 +1331,64 @@ void DebugSession::handleStop(pid_t tid,int status,bool holdStop) {
         if (bp!=softBreakpoints_.end() && bp->second.active && bp->second.patch.installed) {
             address=bpAddress;
             rewindSoftwareStop(tid,address);
-            breakpointHit=true;
+            breakpointHit=softwareHit=true;
         }
     }
-    if (breakpointHit || hasExceptionBreakpoint(signal)) {
-        if (!breakpointHit && (status>>16)==0) pendingSignals_.at(tid)=signal;
-        activeTid_=tid; stopOtherThreads(tid); stopped_=true;
-        captureRegs(tid); publishStoppedThreads();
-        DebugEvent event{breakpointHit ? DebugEventType::BreakpointHit : DebugEventType::ExceptionBreakpointHit,
-                         tid,address,signal,getStopContext()};
-        event.generation=imageGeneration_;
-        if (eventCb_) eventCb_(event);
+    // Only ptrace events, our trace traps and our watchpoint traps belong to
+    // us. A genuine user SIGTRAP, the program's own BRK/INT3 and ordinary
+    // signal-delivery stops are the program's; only they meet exception
+    // breakpoints, so an interrupt stop (WSTOPSIG SIGTRAP) never does.
+    const bool ownStop=!delivery ||
+        (signal==SIGTRAP && haveInfo && (info.si_code==TRAP_TRACE || info.si_code==TRAP_HWBKPT));
+    const bool exception=!breakpointHit && !ownStop && hasExceptionBreakpoint(signal);
+    if (breakpointHit || exception) {
+        if (exception) pendingSignals_.at(tid)=signal;
+        if (holdAll(tid))
+            reportStop(tid,breakpointHit ? DebugEventType::BreakpointHit : DebugEventType::ExceptionBreakpointHit,
+                       signal,address,softwareHit);
         return;
     }
-    // Only ptrace events and trace traps belong to us. Preserve genuine user
-    // SIGTRAP, original program BRK/INT3, and ordinary signal-delivery stops.
-    int deliver=(status>>16)!=0 || (signal==SIGTRAP && haveInfo && info.si_code==TRAP_TRACE) ? 0 : signal;
+    int deliver=ownStop ? 0 : signal;
     if (holdStop) {
         pendingSignals_.at(tid)=deliver;
-        activeTid_=tid; stopOtherThreads(tid); stopped_=true;
-        captureRegs(tid); publishStoppedThreads();
-        DebugEvent event{DebugEventType::SignalReceived,tid,address,deliver,getStopContext()};
-        event.generation=imageGeneration_;
-        if (eventCb_) eventCb_(event);
+        if (holdAll(tid)) reportStop(tid,DebugEventType::SignalReceived,deliver,address);
         return;
     }
-    if (ptrace(PTRACE_CONT,tid,nullptr,reinterpret_cast<void*>(intptr_t(deliver)))==0) stoppedTids_.erase(tid);
-    else { setError({errno,std::system_category()}); stopOtherThreads(tid); stopped_=true; }
+    if (ptrace(PTRACE_CONT,tid,nullptr,reinterpret_cast<void*>(intptr_t(deliver)))==0) {
+        stoppedTids_.erase(tid); groupStopped_.erase(tid);
+    } else {
+        setError({errno,std::system_category()});
+        pendingSignals_.at(tid)=deliver;
+        if (holdAll(tid)) reportHeldStop(tid);
+    }
 }
 
-bool DebugSession::runToTempBreakpoint(pid_t tid,uintptr_t expected) {
+bool DebugSession::runToTempBreakpoint(pid_t tid,uintptr_t expected,FrameCheck frame,uintptr_t startSp) {
+    // Step Over waits for the call to return to this frame (the stack pointer
+    // is back where it started); Step Out for the caller's frame. x86 `ret`
+    // pops the return address, so the caller's SP is strictly above the
+    // entry SP; ARM `ret` leaves SP as it was at entry.
+    auto inFrame=[&](const CpuContext& context) {
+        const uintptr_t sp=context.stackPointer();
+        switch (frame) {
+            case FrameCheck::None: return true;
+            case FrameCheck::Over: return sp>=startSp;
+            case FrameCheck::Out:  return context.hasArmRegisters() ? sp>=startSp : sp>startSp;
+        }
+        return true;
+    };
+    bool listen=false;
     for (;;) {
-        if (ptrace(PTRACE_CONT,tid,nullptr,reinterpret_cast<void*>(intptr_t(pendingSignals_.at(tid))))<0) {
+        const int pending=pendingSignals_.at(tid);
+        // A job-control stop holds the step until SIGCONT instead of being
+        // overridden; LISTEN keeps the thread stopped and reports SIGCONT.
+        const bool listening=listen && !pending && ptrace(PTRACE_LISTEN,tid,nullptr,nullptr)==0;
+        listen=false;
+        if (!listening && ptrace(PTRACE_CONT,tid,nullptr,reinterpret_cast<void*>(intptr_t(pending)))<0) {
             setError({errno,std::system_category()}); return false;
         }
-        pendingSignals_.at(tid)=0; stoppedTids_.erase(tid);
+        pendingSignals_.at(tid)=0; stoppedTids_.erase(tid); reportedPc_.erase(tid);
+        std::erase_if(deferredStops_,[&](const auto& stop){ return stop.first==tid; });
         int status=0;
         if (!waitForStop(tid,status)) return false;
         if (!attached_) {
@@ -1146,23 +1413,35 @@ bool DebugSession::runToTempBreakpoint(pid_t tid,uintptr_t expected) {
             auto context=os::readNativeContext(tid);
             if (!context) { setError(context.error()); return false; }
             uintptr_t address=os::nativeSoftwareBreakpointAddress(*context);
-            if (address==expected) return rewindSoftwareStop(tid,address);
+            if (address==expected) {
+                if (!rewindSoftwareStop(tid,address)) return false;
+                if (inFrame(*context)) return true;
+                // A deeper, recursive frame reached the address first. Step
+                // it over the temporary trap and keep running.
+                if (!stepThreadOverBp(tid) || !attached_) return false;
+                continue;
+            }
             auto bp=softBreakpoints_.find(address);
-            if (bp!=softBreakpoints_.end() && bp->second.active) { handleStop(tid,status); return false; }
+            if (bp!=softBreakpoints_.end() && bp->second.active) { handleStop(tid,status,true); return false; }
         }
         if (isEventStop(status,PTRACE_EVENT_CLONE)) {
             if (!adoptClonedThread(tid)) return false;
             continue;
         }
+        if (isGroupStop(status)) { listen=true; continue; }
         siginfo_t info{};
         bool haveInfo=ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)==0;
         int signal=WSTOPSIG(status);
-        if (hasExceptionBreakpoint(signal) ||
-            (signal==SIGTRAP && haveInfo && info.si_code==TRAP_HWBKPT && !hwBreakpoints_.empty())) {
-            handleStop(tid,status); return false;
+        const bool delivery=(status>>16)==0;
+        // Interrupt and other ptrace event stops carry SIGTRAP too: only a
+        // real signal delivery meets an exception breakpoint.
+        const bool ownStop=!delivery ||
+            (signal==SIGTRAP && haveInfo && (info.si_code==TRAP_TRACE || info.si_code==TRAP_HWBKPT));
+        if ((!ownStop && hasExceptionBreakpoint(signal)) ||
+            (delivery && signal==SIGTRAP && haveInfo && info.si_code==TRAP_HWBKPT && !hwBreakpoints_.empty())) {
+            handleStop(tid,status,true); return false;
         }
-        pendingSignals_.at(tid)=(status>>16)!=0 ||
-            (signal==SIGTRAP && haveInfo && info.si_code==TRAP_TRACE) ? 0 : signal;
+        pendingSignals_.at(tid)=ownStop ? 0 : signal;
     }
 }
 
@@ -1189,22 +1468,31 @@ void DebugSession::doStep(StepMode mode,uintptr_t targetAddress) {
         if (pendingHardwareSteps_.at(tid)) return stepThreadOverWatchpoint(tid);
         return atBreakpoint ? stepThreadOverBp(tid) : singleStepThread(tid);
     };
-    auto runTo=[&](uintptr_t address) {
-        if (pendingHardwareSteps_.at(tid) && !stepThreadOverWatchpoint(tid)) return false;
+    const uintptr_t startSp=registers->stackPointer();
+    auto runTo=[&](uintptr_t address,FrameCheck frame) {
         uint64_t generation=imageGeneration_;
         auto existing=softBreakpoints_.find(address);
         bool created=existing==softBreakpoints_.end();
         int id=created ? static_cast<int>(doSetSoftBp(address)) : existing->second.id;
         if (id<0) return false;
-        if (atBreakpoint && !liftSoftBreakpoint(pc)) {
-            if (created) doRemoveSoftBp(id);
-            return false;
+        // Step off this instruction with only its own trap lifted, for that
+        // one instruction. A user breakpoint here then still fires if the
+        // run comes back to it (a recursive call).
+        const bool stepOff=pendingHardwareSteps_.at(tid) || atBreakpoint;
+        bool completed=true, arrived=false;
+        if (stepOff) {
+            completed=stepOne();
+            if (completed && imageGeneration_==generation && traced_.contains(tid)) {
+                auto now=os::readNativeContext(tid);
+                if (!now) { setError(now.error()); completed=false; }
+                // That one instruction already reached the target (a call to
+                // the next instruction, or a cursor right after it).
+                else arrived=now->instructionPointer()==address;
+            }
         }
-        bool completed=runToTempBreakpoint(tid,address);
-        if (imageGeneration_==generation && !traced_.empty()) {
-            if (created && !doRemoveSoftBp(id)) completed=false;
-            if (atBreakpoint && !rearmSoftBreakpoint(pc)) completed=false;
-        }
+        if (completed && !arrived && imageGeneration_==generation && attached_)
+            completed=runToTempBreakpoint(tid,address,frame,startSp);
+        if (imageGeneration_==generation && !traced_.empty() && created && !doRemoveSoftBp(id)) completed=false;
         return completed;
     };
     bool completed=false;
@@ -1221,7 +1509,7 @@ void DebugSession::doStep(StepMode mode,uintptr_t targetAddress) {
             if (!architecture) { setError(std::make_error_code(std::errc::not_supported)); return; }
             Disassembler decoder(*architecture);
             auto instruction=decoder.disassembleOne(pc,{bytes,count});
-            if (instruction && instruction->isCall) completed=runTo(pc+instruction->size);
+            if (instruction && instruction->isCall) completed=runTo(pc+instruction->size,FrameCheck::Over);
             else completed=stepOne();
             break;
         }
@@ -1240,21 +1528,16 @@ void DebugSession::doStep(StepMode mode,uintptr_t targetAddress) {
             // prologue it is local data. Never plant a trap outside code, where
             // it would overwrite data the target is using.
             auto region=returnAddress ? proc_->queryRegion(returnAddress) : std::nullopt;
-            if (returnAddress && region && (region->protection & MemProt::Exec)) completed=runTo(returnAddress);
+            if (returnAddress && region && (region->protection & MemProt::Exec)) completed=runTo(returnAddress,FrameCheck::Out);
             else setError(std::make_error_code(std::errc::bad_address));
             break;
         }
         case StepMode::RunToCursor:
-            if (targetAddress && pc!=targetAddress) completed=runTo(targetAddress);
+            if (targetAddress && pc!=targetAddress) completed=runTo(targetAddress,FrameCheck::None);
             break;
     }
     if (!completed || !attached_ || recoveryPending_) return;
-    activeTid_=tid; stopped_=true;
-    captureRegs(tid); publishStoppedThreads();
-    DebugEvent event{DebugEventType::SingleStep,tid,0,0,getStopContext()};
-    event.generation=imageGeneration_;
-    event.address=event.context.instructionPointer();
-    if (eventCb_) eventCb_(event);
+    reportStop(tid,DebugEventType::SingleStep,0);
 }
 
 CpuContext DebugSession::getStopContext() const {

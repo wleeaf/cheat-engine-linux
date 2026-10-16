@@ -35,6 +35,14 @@ __attribute__((noreturn)) extern void fixtureExitThread(void);
 extern void fixtureUserTrap(void), fixtureUserTrapSite(void), fixtureExecSite(void), fixtureSyscallSite(void);
 extern iptr fixtureExecThread(const char*,const char* const*,const char* const*), fixtureProbeSyscall(void);
 __attribute__((noreturn, used)) void fixtureThread(void);
+/* Recurses `depth` times through one call site; the base case jumps straight
+   to the return site, so deeper frames reach it before the stepping frame. */
+#if defined(__i386__)
+extern void fixtureRecurse(unsigned depth) __attribute__((regparm(1)));
+#else
+extern void fixtureRecurse(unsigned depth);
+#endif
+extern void fixtureRecurseCall(void), fixtureRecurseReturn(void);
 
 #if defined(__x86_64__)
 static iptr systemCallArgs(iptr nr, uptr a, uptr b, uptr c, uptr d, uptr e, uptr f) {
@@ -234,6 +242,11 @@ __attribute__((noreturn, used)) void fixtureMain(uptr* stack) {
             output("CE_CALL_DONE\n",13);
         }
         if (command == 'v') { fixtureVectorSeed(); output("CE_VECTORS\n", 11); }
+        if (command == 'Q') {
+            output("CE_RECURSE 0x",13); number((uptr)fixtureRecurseCall,16);
+            output(" 0x",3); number((uptr)fixtureRecurseReturn,16); output("\n",1);
+        }
+        if (command == 'R') { fixtureRecurse(2); output("CE_RECURSE_DONE\n",16); }
         if (command == 's') {
             spinning = 1;
             output("CE_SPIN 0x", 10); number((uptr)&spinning, 16); output("\n", 1);
@@ -465,6 +478,20 @@ __asm__(".global fixtureCaller,fixtureCallSite,fixtureAfterCall,fixtureReturnSit
         ".global fixtureSpawnOnStack\nfixtureSpawnThread:\nadrp x0,threadStack\nadd x0,x0,:lo12:threadStack\nadd x0,x0,#4,lsl #12\n"
         "fixtureSpawnOnStack:\nmov x1,x0\nmov x8,#220\nmov x0,#0xf00\nmovk x0,#5,lsl #16\n"
         "mov x2,#0\nmov x3,#0\nmov x4,#0\nsvc #0\ncbz x0,1f\nret\n1:\nb fixtureThread\n");
+#endif
+
+#if defined(__x86_64__)
+__asm__(".pushsection .text\n.global fixtureRecurse,fixtureRecurseCall,fixtureRecurseReturn\nfixtureRecurse:\nsub $8,%rsp\n"
+        "test %edi,%edi\njz fixtureRecurseReturn\ndec %edi\nfixtureRecurseCall:\ncall fixtureRecurse\n"
+        "fixtureRecurseReturn:\nadd $8,%rsp\nret\n.popsection\n");
+#elif defined(__i386__)
+__asm__(".pushsection .text\n.global fixtureRecurse,fixtureRecurseCall,fixtureRecurseReturn\nfixtureRecurse:\nsub $12,%esp\n"
+        "test %eax,%eax\njz fixtureRecurseReturn\ndec %eax\nfixtureRecurseCall:\ncall fixtureRecurse\n"
+        "fixtureRecurseReturn:\nadd $12,%esp\nret\n.popsection\n");
+#elif defined(__aarch64__)
+__asm__(".pushsection .text\n.global fixtureRecurse,fixtureRecurseCall,fixtureRecurseReturn\n.p2align 2\nfixtureRecurse:\n"
+        "stp x29,x30,[sp,#-16]!\ncbz w0,fixtureRecurseReturn\nsub w0,w0,#1\nfixtureRecurseCall:\nbl fixtureRecurse\n"
+        "fixtureRecurseReturn:\nldp x29,x30,[sp],#16\nret\n.popsection\n");
 #endif
 
 #if defined(__aarch64__)

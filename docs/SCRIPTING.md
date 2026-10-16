@@ -337,16 +337,21 @@ Function and variable names from the target's symbol tables (ELF `.symtab`,
 `alloc(newmem,256,UpdateHealth)` places the cave near the function,
 `define(hook,UpdateHealth)` then `hook:` patches it, and `[UpdateHealth+5]` or
 `UpdateHealth+0:` work as expressions. A plain undeclared `UpdateHealth:` line
-patches the function only where it is a hook site, as in Cheat Engine's
-templates: the name is an alloc's near address (`alloc(newmem,$1000,UpdateHealth)`),
-the next line jumps to an allocation (`jmp newmem`), or no address is set
-before it (`UpdateHealth:` then `db ...` at the top of `[DISABLE]`). The main
-executable's symbol wins over a library's, and the C library and the loader
-are never patched this way: use `define(hook,time)` and `hook:` for that. Any
-other undeclared name, and any name the script jumps to (`jmp exit`), is a
-local label, so a data label such as `index:` or `exit:` in a code cave never
-lands on a libc function. In `[DISABLE]` the name is the address `[ENABLE]`
-hooked. A syntax check, which has no target, applies the same rule.
+patches the function wherever it appears, as long as the function lives in the
+game or in a library other than the C runtime and the loader (libc, ld-linux,
+libm, libpthread, libdl, librt, libresolv), so a script can patch several
+functions in a row or hook several sites around one shared cave. Mangled C++
+names (`_ZN6Player12UpdateHealthEi:`) work the same way. The main executable's
+symbol wins over a library's. A name the script uses bare in an instruction or
+data line (`jmp exit`, `dq health`) stays a local label, and so does a name that only the C runtime or
+the loader defines, so a data label such as `index:`, `time:` or `exit:` in a
+code cave never lands on a libc function; to patch libc, write
+`define(hook,time)` and `hook:`. Such a name is refused instead when, as a
+label, it would have no address (`exit:` at the top of a section) or when it is
+the alloc's near address. In `[DISABLE]` the name is the address `[ENABLE]`
+hooked. A syntax check has no target: it parses an undeclared name as a label
+unless it is an alloc's near address, and lists the names that the target
+decides when the script is enabled.
 
 Instruction operands follow Cheat Engine's number rules: hex by default,
 including letter-first hex (`mov al,FF`, `[rax+C8]`), `#` for decimal

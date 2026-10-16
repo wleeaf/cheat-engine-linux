@@ -17,6 +17,7 @@
 #include <deque>
 #include <future>
 #include <memory>
+#include <optional>
 
 namespace ce {
 
@@ -70,8 +71,11 @@ public:
     /// Remove a hardware watchpoint by id.
     bool removeHardwareBreakpoint(int id);
 
-    /// Continue execution after a break.
-    void continueExecution();
+    /// Continue execution after a break. Returns false when the target could
+    /// not be resumed and no stop was reported instead (lastError() says why).
+    /// A hit another thread took while the target was stopping is reported
+    /// by this call rather than lost; the target then stays stopped.
+    bool continueExecution();
 
     /// Step (into, over, out, run to cursor).
     void step(StepMode mode, uintptr_t targetAddress = 0);
@@ -145,7 +149,7 @@ private:
     bool captureRegs(pid_t tid);  // native register banks on the tracer thread
     void tracerCleanup();
     // These run ONLY on the tracer thread.
-    void doContinue();
+    bool doContinue();
     void doStep(StepMode mode, uintptr_t targetAddress);
     long doSetSoftBp(uintptr_t address);
     bool doRemoveSoftBp(int id);
@@ -159,7 +163,11 @@ private:
     // the original instruction re-executes). If a user software breakpoint is
     // hit en route it is surfaced as a BreakpointHit and the step is abandoned
     // there; returns false in that case and on tracee exit, true on success.
-    bool runToTempBreakpoint(pid_t tid, uintptr_t expected);
+    // A frame check accepts the trap only in the starting frame or an outer
+    // one, so a recursive call reaching the same address does not end it.
+    enum class FrameCheck { None, Over, Out };
+    bool runToTempBreakpoint(pid_t tid, uintptr_t expected, FrameCheck frame = FrameCheck::None,
+                             uintptr_t startSp = 0);
     // ── All-stop multi-thread helpers (tracer thread only) ──
     // Seize every thread of the target with PTRACE_O_TRACECLONE and leave them
     // stopped. Populates traced_/stoppedTids_. Returns false if none seized.
@@ -174,6 +182,23 @@ private:
     // instruction with the breakpoint temporarily lifted. Returns true if it did.
     bool stepThreadOverBp(pid_t tid);
     bool stepThreadOverWatchpoint(pid_t tid);
+    // Record why a thread frozen for an all-stop stopped, without reporting
+    // it. Returns false when an exec replaced the image.
+    bool absorbStop(pid_t tid, int status);
+    void absorbForeignStops();
+    // Freeze every other thread for a stop of `tid`. False when an exec or
+    // the process's exit happened meanwhile (its own event already went out).
+    bool holdAll(pid_t tid);
+    // Emit a stop event for a stopped thread and make it the active one. No
+    // address means the thread's PC.
+    void reportStop(pid_t tid, DebugEventType type, int signal, std::optional<uintptr_t> address = std::nullopt,
+                    bool softwareHit = false);
+    // All-stopped after a failure with no stop of our own to show: report one.
+    void reportHeldStop(pid_t preferred);
+    bool reportDeferredStop(pid_t tid, int status);
+    bool resumeThread(pid_t tid);
+    void trackGroupStop(pid_t tid, int status);
+    std::optional<uintptr_t> takeX86WatchpointHit(pid_t tid);
     bool adoptClonedThread(pid_t parent);
     bool singleStepThread(pid_t tid);
     bool waitForStop(pid_t tid, int& status, bool cancellable = true);
@@ -209,6 +234,18 @@ private:
     std::unordered_map<pid_t, int> pendingSignals_;
     std::unordered_map<pid_t, uintptr_t> pendingRewinds_;
     std::unordered_map<pid_t, uintptr_t> pendingHardwareSteps_;
+    // Stops of other threads seen while waiting for one thread. They are
+    // classified by the all-stop, never reported from inside the wait.
+    std::deque<std::pair<pid_t, int>> foreignStops_;
+    // Hits that cannot recur when resumed (an x86 watchpoint, an exception
+    // breakpoint signal) taken by another thread during an all-stop. Continue
+    // reports them before it resumes anything.
+    std::deque<std::pair<pid_t, int>> deferredStops_;
+    // The PC each thread's last stop was reported at. Only such a thread is
+    // stepped over a breakpoint on resume; others re-trap and are reported.
+    std::unordered_map<pid_t, uintptr_t> reportedPc_;
+    std::set<pid_t> groupStopped_;      // last stop was a job-control group-stop
+    uint64_t reportCount_ = 0;          // stop events emitted (tracer thread only)
     std::optional<std::pair<pid_t, CpuContext>> registerRecovery_;
     std::atomic<uint64_t> imageGeneration_{0};
     os::NativeVectorContext vectorRegisters_{};

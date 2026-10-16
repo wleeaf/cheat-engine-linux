@@ -1056,14 +1056,17 @@ static void sessionRecovery(const char* path) {
         bool attached=session->attach(pid,&process);
         int bp=attached ? session->setSoftwareBreakpoint(code) : -1;
         bool replaced=bp>0 && readMemory(pid,code,conflict.data(),conflict.size())==ssize_t(conflict.size());
+        // Whole instructions: an ARM64 breakpoint is four bytes, so writing back
+        // one byte would leave the rest of the trap in place.
+        conflict=original;
         conflict[0]^=1;
-        replaced=replaced && forceWrite(pid,code,conflict.data(),1);
+        replaced=replaced && forceWrite(pid,code,conflict.data(),conflict.size());
         bool removed=replaced && session->removeSoftwareBreakpoint(bp);
         readMemory(pid,code,observed.data(),observed.size());
         check(removed && !session->hasPendingRecovery() && observed==conflict,
               "removing a breakpoint whose code was replaced forgets it and leaves the new code intact");
-        bool rearmed=forceWrite(pid,code,original.data(),1) && session->setSoftwareBreakpoint(code)>0 &&
-                     forceWrite(pid,code,conflict.data(),1);
+        bool rearmed=forceWrite(pid,code,original.data(),original.size()) && session->setSoftwareBreakpoint(code)>0 &&
+                     forceWrite(pid,code,conflict.data(),conflict.size());
         const auto started=std::chrono::steady_clock::now();
         session.reset();
         const auto elapsed=std::chrono::steady_clock::now()-started;
@@ -1071,7 +1074,7 @@ static void sessionRecovery(const char* path) {
         check(rearmed && elapsed<std::chrono::seconds(2) && observed==conflict && fixtureTracer(pid)==0,
               "detach drops a breakpoint whose code was replaced and releases the target promptly");
         char command='b';
-        check(forceWrite(pid,code,original.data(),1) && ::write(fixture.input,&command,1)==1 && fixture.line()=="123456790",
+        check(forceWrite(pid,code,original.data(),original.size()) && ::write(fixture.input,&command,1)==1 && fixture.line()=="123456790",
               "the target runs its restored code after the dropped breakpoint");
     }
     printf("DEBUG_RECOVERY_RESULT=%s\n",failures==failuresBefore ? "PASSED" : "FAILED");

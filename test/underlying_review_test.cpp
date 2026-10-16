@@ -606,12 +606,6 @@ void expressionTests() {
     check(wide.parse("7f0012345678") == uintptr_t(0x7f0012345678) && wide.parse("FFFFFFFC+8") == 4u,
           "a WoW64 process keeps addresses above 4 GiB and still wraps 32-bit arithmetic");
 
-    ValueIoOptions options;
-    options.pointerWidth = 8;
-    auto pointer = encodeTypedValue(ValueType::Pointer, "10000000", options);
-    uint64_t bits = 0;
-    if (pointer && pointer->size() == 8) std::memcpy(&bits, pointer->data(), 8);
-    check(bits == 0x10000000, "a pointer value is read back in hex, as it is shown");
     check(!encodeTypedValue(ValueType::Float, "+-5").has_value(), "a float value with two signs is rejected");
     check(json::Value::number(1.5).stringValue == "1.5", "JSON numbers do not depend on the locale");
 }

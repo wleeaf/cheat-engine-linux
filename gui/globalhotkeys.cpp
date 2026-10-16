@@ -7,6 +7,8 @@
 #include <QGuiApplication>
 #include <QDBusConnection>
 #include <QMetaObject>
+#include <QList>
+#include <algorithm>
 #endif
 
 #ifndef CECORE_HAVE_X11_HOTKEYS
@@ -20,16 +22,18 @@ GlobalHotkeyManager::GlobalHotkeyManager(QObject* parent) : QObject(parent) {
 #endif
 }
 GlobalHotkeyManager::~GlobalHotkeyManager() {}
-bool GlobalHotkeyManager::registerHotkey(int id, const QKeySequence& seq) {
+bool GlobalHotkeyManager::registerHotkey(int id, const QKeySequence& seq, const QString& name,
+                                         const QString& description) {
 #ifdef CECORE_HAVE_WAYLAND_HOTKEYS
-    if (tryRegisterWayland(id, seq)) return true;
+    if (tryRegisterWayland(id, seq, name, description)) return true;
 #else
-    (void)id; (void)seq;
+    (void)id; (void)seq; (void)name; (void)description;
 #endif
     return false;
 }
 void GlobalHotkeyManager::unregisterHotkey(int id) {
 #ifdef CECORE_HAVE_WAYLAND_HOTKEYS
+    waylandNames_.remove(id);
     if (waylandTriggers_.remove(id)) scheduleWaylandRebind();
 #else
     (void)id;
@@ -37,6 +41,7 @@ void GlobalHotkeyManager::unregisterHotkey(int id) {
 }
 void GlobalHotkeyManager::clear() {
 #ifdef CECORE_HAVE_WAYLAND_HOTKEYS
+    waylandNames_.clear();
     if (!waylandTriggers_.isEmpty()) { waylandTriggers_.clear(); scheduleWaylandRebind(); }
 #endif
 }
@@ -160,12 +165,15 @@ GlobalHotkeyManager::~GlobalHotkeyManager() {
         qGuiApp->removeNativeEventFilter(this);
 }
 
-bool GlobalHotkeyManager::registerHotkey(int id, const QKeySequence& seq) {
+bool GlobalHotkeyManager::registerHotkey(int id, const QKeySequence& seq, const QString& name,
+                                         const QString& description) {
     unregisterHotkey(id);
 #ifdef CECORE_HAVE_WAYLAND_HOTKEYS
     // On Wayland (wayland_ set) the portal is the only working path; take it and
     // skip the X11 grab entirely.
-    if (tryRegisterWayland(id, seq)) return true;
+    if (tryRegisterWayland(id, seq, name, description)) return true;
+#else
+    (void)name; (void)description;
 #endif
     Display* dpy = x11Display();
     if (!dpy || seq.isEmpty()) return false;
@@ -218,6 +226,7 @@ void GlobalHotkeyManager::ungrabOne(const Grab& g) {
 
 void GlobalHotkeyManager::unregisterHotkey(int id) {
 #ifdef CECORE_HAVE_WAYLAND_HOTKEYS
+    waylandNames_.remove(id);
     if (waylandTriggers_.remove(id)) scheduleWaylandRebind();
 #endif
     auto it = grabs_.find(id);
@@ -232,6 +241,7 @@ void GlobalHotkeyManager::unregisterHotkey(int id) {
 
 void GlobalHotkeyManager::clear() {
 #ifdef CECORE_HAVE_WAYLAND_HOTKEYS
+    waylandNames_.clear();
     if (!waylandTriggers_.isEmpty()) { waylandTriggers_.clear(); scheduleWaylandRebind(); }
 #endif
     for (const auto& g : grabs_) ungrabOne(g);
@@ -242,7 +252,14 @@ bool GlobalHotkeyManager::nativeEventFilter(const QByteArray& eventType,
                                             void* message, qintptr*) {
     if (eventType != "xcb_generic_event_t") return false;
     auto* ev = static_cast<xcb_generic_event_t*>(message);
-    if ((ev->response_type & ~0x80) != XCB_KEY_PRESS) return false;
+    const auto type = ev->response_type & ~0x80;
+    if (type == XCB_KEY_RELEASE) {
+        // Left for Qt; only noted, to tell a repeat from a new press.
+        auto* release = reinterpret_cast<xcb_key_release_event_t*>(ev);
+        if (held_.remove(release->detail)) lastRelease_.insert(release->detail, release->time);
+        return false;
+    }
+    if (type != XCB_KEY_PRESS) return false;
 
     auto* ke = reinterpret_cast<xcb_key_press_event_t*>(ev);
     // Strip the lock bits from the reported state before comparing.
@@ -252,8 +269,15 @@ bool GlobalHotkeyManager::nativeEventFilter(const QByteArray& eventType,
     QList<int> ids;
     for (auto it = grabs_.constBegin(); it != grabs_.constEnd(); ++it)
         if (ke->detail == it.value().keycode && state == it.value().modmask) ids.push_back(it.key());
-    for (int id : ids) emit activated(id);
-    return !ids.isEmpty();   // consume
+    if (ids.isEmpty()) return false;
+    // A held key repeats: as presses alone (detectable autorepeat), or as a
+    // release and a press with the same timestamp.
+    const auto released = lastRelease_.constFind(ke->detail);
+    const bool repeat = held_.contains(ke->detail) ||
+        (released != lastRelease_.constEnd() && released.value() == ke->time);
+    held_.insert(ke->detail);
+    for (int id : ids) emit activated(id, repeat);
+    return true;   // consume
 }
 
 #endif // CECORE_HAVE_X11_HOTKEYS
@@ -276,27 +300,40 @@ void GlobalHotkeyManager::initWayland() {
     if (!w->portalAvailable()) { delete w; return; }   // no portal: stay on fallback
     wayland_ = w;
 
-    // The portal reports fires by shortcut *name* ("ce_hotkey_<id>"); translate
-    // back to the integer id and re-emit our platform-neutral activated(int) so
-    // callers (MainWindow) need no Wayland-specific wiring.
+    // The portal reports fires by shortcut *name* (the registered name, or
+    // "ce_hotkey_<id>"); translate back to the integer id and re-emit our
+    // platform-neutral activated() so callers (MainWindow) need no
+    // Wayland-specific wiring. The portal fires once per press.
     connect(wayland_, &ce::gui::WaylandGlobalShortcuts::activated, this,
             [this](const QString& name) {
-                const QString prefix = QStringLiteral("ce_hotkey_");
-                if (!name.startsWith(prefix)) return;
-                bool ok = false;
-                const int id = name.mid(prefix.size()).toInt(&ok);
-                if (ok && waylandTriggers_.contains(id)) emit activated(id);   // not an unregistered one
+                QList<int> ids;   // an action may re-register every hotkey
+                for (auto it = waylandTriggers_.constBegin(); it != waylandTriggers_.constEnd(); ++it)
+                    if (waylandShortcutId(it.key()) == name) ids.push_back(it.key());
+                for (int id : ids) emit activated(id, false);
             });
     connect(wayland_, &ce::gui::WaylandGlobalShortcuts::sessionReady, this,
             [this] { waylandReady_ = true; rebindWayland(); });
     wayland_->createSession();
 }
 
-bool GlobalHotkeyManager::tryRegisterWayland(int id, const QKeySequence& seq) {
+// The portal shortcut id: the caller's stable name when it is a plain
+// identifier, else one built from the dispatch id.
+QString GlobalHotkeyManager::waylandShortcutId(int id) const {
+    const QString name = waylandNames_.value(id).name;
+    const bool plain = !name.isEmpty() && name.size() <= 64 && std::all_of(name.begin(), name.end(), [](QChar c) {
+        const char16_t u = c.unicode();
+        return (u >= 'a' && u <= 'z') || (u >= 'A' && u <= 'Z') || (u >= '0' && u <= '9') || u == '_';
+    });
+    return plain ? name : QStringLiteral("ce_hotkey_%1").arg(id);
+}
+
+bool GlobalHotkeyManager::tryRegisterWayland(int id, const QKeySequence& seq, const QString& name,
+                                             const QString& description) {
     if (!wayland_) return false;
     const QString trigger = ce::gui::keySequenceToPortalTrigger(seq);
     if (trigger.isEmpty()) return false;   // unmappable: let the caller fall back
     waylandTriggers_.insert(id, trigger);
+    waylandNames_.insert(id, {name, description});
     scheduleWaylandRebind();
     return true;
 }
@@ -318,9 +355,10 @@ void GlobalHotkeyManager::rebindWayland() {
     shortcuts.reserve(waylandTriggers_.size());
     for (auto it = waylandTriggers_.constBegin(); it != waylandTriggers_.constEnd(); ++it) {
         CePortalShortcut s;
-        s.id = QStringLiteral("ce_hotkey_%1").arg(it.key());
-        s.meta[QStringLiteral("description")] =
-            QStringLiteral("Cheat Engine hotkey %1").arg(it.key());
+        s.id = waylandShortcutId(it.key());
+        const QString description = waylandNames_.value(it.key()).description;
+        s.meta[QStringLiteral("description")] = description.isEmpty()
+            ? QStringLiteral("Cheat Engine hotkey %1").arg(s.id) : QStringLiteral("Cheat Engine: %1").arg(description);
         s.meta[QStringLiteral("preferred_trigger")] = it.value();
         shortcuts.push_back(s);
     }

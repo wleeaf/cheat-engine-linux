@@ -41,6 +41,7 @@
 #include <optional>
 
 class QDockWidget;
+namespace ce { class ExpressionParser; }
 
 namespace ce::gui {
 
@@ -86,7 +87,10 @@ public:
     /// Attach to a running process by pid (no dialog). `name` is display-only.
     /// Used by the process picker and by `--pid <N>` on the command line.
     void attachToPid(pid_t pid, const QString& name);
-    void autoAttach(pid_t pid, const QString& name);   // "Wait for process" hit
+    void autoAttach(pid_t pid, const QString& name, quint64 watch);   // "Wait for process" hit
+    // Ends a pending "Wait for process": hits it already queued are dropped.
+    void stopProcessWatch();
+    quint64 processWatch_ = 0;   // the current watch; a hit from an older one is stale
     void resetGuestScanSetup();   // undo a GDB guest's scan range and type
     bool guestScanSetup_ = false;
     bool attachToGdb(std::unique_ptr<ce::GdbProcessHandle> process,const QString& endpoint);
@@ -181,6 +185,10 @@ private:
     /// Resolve a scan-range field: hex, symbol, or module+offset expression.
     std::optional<uintptr_t> parseAddressExpr(const QString& text);
     void rebuildValueHotkeys();
+    // Row inserts and removals come in bursts (adding many results, deleting a
+    // selection): rebuild the hotkeys and the collapsed rows once afterwards.
+    void scheduleAddressListRefresh();
+    bool addressListRefreshQueued_ = false;
     // Run a scan on a worker thread while driving progressBar_ from
     // scanner_.progress(), keeping the UI responsive. Rethrows the scan's
     // exception on the caller thread; returns the result on success.
@@ -319,7 +327,8 @@ private:
     AddressListModel* addressListModel_;
     std::vector<QShortcut*> valueHotkeyShortcuts_;
     GlobalHotkeyManager* globalHotkeys_ = nullptr;     // system-wide (X11) hotkeys
-    QHash<int, std::function<void()>> hotkeyActions_;  // hotkey id -> action
+    struct HotkeyAction { std::function<void()> run; bool repeats = false; };
+    QHash<int, HotkeyAction> hotkeyActions_;  // hotkey id -> action
     OverlayWindow* overlayWindow_ = nullptr;
     QTimer* valueRefreshTimer_ = nullptr;   // address-list/results live refresh
     // Persistent disassembler comments (module-relative address expressions),
@@ -464,7 +473,7 @@ public:
                          const QString& step, const QString& setKeys, const QString& setValue);
     bool adjustEntryValue(int row, double delta);
     const std::vector<AddressEntry>& entries() const { return entries_; }
-    void toggleActive(int row);   // flip active state (hotkey target)
+    void toggleActive(int row);   // flip active state like the check box (hotkey target)
     bool toggleGroupCollapse(int row);  // flip a group header's collapsed flag; true if it was a group
     void setEntryValueTo(int row, const QString& value);  // set-value hotkey target
     bool setProcess(ce::ProcessHandle* proc);
@@ -575,7 +584,11 @@ private:
                             uint8_t pointerWidth = 0);
     // Re-resolve a pointer/expression record's target from its address expression so a
     // read/write acts on the current target, not the cached (up to ~500ms stale) address.
-    bool reresolveAddress(AddressEntry& e);   // false: the pointer path does not resolve
+    // A pass over many records shares one parser, so the module list is read once.
+    bool reresolveAddress(AddressEntry& e, const ce::ExpressionParser* parser = nullptr);   // false: the pointer path does not resolve
+    // Ends a value freeze before the record's value format changes; false if it
+    // cannot. `row` follows the record.
+    bool endFreezeForFormatChange(int& row);
     int allocId();
     std::vector<int> cleanupOrder() const;
 

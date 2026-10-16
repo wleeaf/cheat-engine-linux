@@ -138,7 +138,7 @@ def main():
                         raise RuntimeError(f"required x32 {marker} checks did not complete")
             if expected not in decoded:
                 raise RuntimeError(f"required x32 {suite} matrix did not complete")
-            if profile["checks"] != {"calls": 40, "image": 83, "exec": 475, "debug": 627}[suite]:
+            if profile["checks"] != {"calls": 42, "image": 83, "exec": 475, "debug": 627}[suite]:
                 raise RuntimeError(f"required x32 {suite} checks are incomplete")
             profile["passed"] = True
         report["passed"] = True

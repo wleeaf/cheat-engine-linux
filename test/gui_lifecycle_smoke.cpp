@@ -21,6 +21,10 @@
 #include <QScrollBar>
 #include <QScrollArea>
 #include <QStatusBar>
+#include <QSettings>
+#include <QShortcut>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <cstring>
 #include <sys/prctl.h>
 #include <sys/wait.h>
@@ -495,6 +499,133 @@ static bool visualInteractionChecks() {
     return ok;
 }
 
+// Counts module list reads: a refresh or freeze pass reads it once, not once per record.
+struct CountingProcess : ce::os::LinuxProcessHandle {
+    using LinuxProcessHandle::LinuxProcessHandle;
+    int moduleReads = 0;
+    std::vector<ce::ModuleInfo> modules() override { ++moduleReads; return LinuxProcessHandle::modules(); }
+};
+alignas(8) static int32_t reviewValues[3] = {5, 6, 7};
+
+// Main window runtime behaviour: one module list per pass, live values for
+// frozen records, format changes that end a freeze, group toggles and their
+// hotkeys, range removal, collapse after indenting, the display settings in
+// the lists, and stale "Wait for process" hits.
+static bool mainWindowRuntimeChecks(pid_t first, pid_t second) {
+    using namespace ce::gui;
+    CountingProcess process(getpid());
+    AddressListModel records;
+    records.setProcess(&process);
+    const auto modules = process.modules();
+    std::vector<int> ids;
+    for (auto& value : reviewValues) {
+        const auto where = ce::moduleOffsetString(modules, reinterpret_cast<uintptr_t>(&value));
+        ids.push_back(records.addEntry(0, ce::ValueType::Int32, "value", QString::fromStdString(where)));
+    }
+    process.moduleReads = 0;
+    records.updateValues(&process);
+    bool oneRead = process.moduleReads == 1 && records.entries()[0].currentValue == "5" &&
+        records.entries()[2].currentValue == "7";
+    records.setFreezeMode(0, ce::FreezeMode::IncreaseOnly);
+    for (int id : ids) oneRead = records.setActive(id, true) && oneRead;
+    process.moduleReads = 0;
+    records.freezeWrite(&process);
+    oneRead = oneRead && process.moduleReads == 1;
+
+    // An Increase Only record lets the value rise and shows it, but saves the frozen value.
+    reviewValues[0] = 30;
+    records.freezeWrite(&process);
+    records.updateValues(&process);
+    bool live = reviewValues[0] == 30 && records.entries()[0].currentValue == "30" &&
+        records.entries()[0].frozenValue == "5" && records.toJson()[0].toObject()["value"].toString() == "5";
+
+    // New byte order: the frozen text is not rewritten in it; the freeze ends.
+    records.setEntryBigEndian(1, true);
+    reviewValues[1] = 9;
+    records.freezeWrite(&process);
+    bool format = !records.entries()[1].active && reviewValues[1] == 9 && records.entries()[2].active;
+    format = format && records.setActive(ids[1], true);
+    records.setEntryBigEndian(1, true);   // unchanged order: the freeze stays
+    format = format && records.entries()[1].active;
+
+    // Toggling a group header reaches its children, as the check box does.
+    AddressListModel tree;
+    const int group = tree.createGroup("G");
+    const int inner = tree.createGroup("H");
+    tree.setIndent(inner, 1);
+    tree.toggleActive(tree.rowOfId(group));
+    bool groups = tree.entries()[0].active && tree.entries()[1].active;
+    tree.toggleActive(tree.rowOfId(group));
+    groups = groups && !tree.entries()[0].active && !tree.entries()[1].active;
+
+    // A group and its subtree go in one removal.
+    tree.createEntry(0x1000, ce::ValueType::Int32, "after");
+    int removals = 0;
+    QObject::connect(&tree, &QAbstractItemModel::rowsRemoved, [&] { ++removals; });
+    bool removed = tree.removeEntries({0}) && tree.rowCount() == 1 && removals == 1;
+
+    bool collapse = false, hotkeys = false, display = false, stale = false;
+    {
+        MainWindow main;
+        QTableView* table = nullptr;
+        for (auto* view : main.findChildren<QTableView*>())
+            if (qobject_cast<AddressListModel*>(view->model())) table = view;
+        auto* model = table ? qobject_cast<AddressListModel*>(table->model()) : nullptr;
+        if (model) {
+            const int g = model->createGroup("G");
+            model->setHotkeyKeys(model->rowOfId(g), "Ctrl+Shift+F9");
+            const int h = model->createGroup("H");
+            model->setIndent(h, 1);
+            const int r = model->createEntry(0xabc, ce::ValueType::Int32, "R");
+            model->setValueHotkeys(model->rowOfId(r), "Ctrl+Shift+F10", {}, "1", {}, {});
+            model->toggleGroupCollapse(model->rowOfId(g));
+            QApplication::processEvents();   // the queued hotkey rebuild
+            // Indenting into a collapsed group hides the row.
+            model->indentRows({model->rowOfId(r)});
+            collapse = table->isRowHidden(model->rowOfId(h)) && table->isRowHidden(model->rowOfId(r));
+            model->outdentRows({model->rowOfId(r)});
+            collapse = collapse && !table->isRowHidden(model->rowOfId(r));
+            // The group's toggle hotkey is registered and fires once per press;
+            // increase repeats while held.
+            QApplication::processEvents();
+            bool toggle = false, increase = false;
+            for (auto* shortcut : main.findChildren<QShortcut*>()) {
+                if (shortcut->key() == QKeySequence("Ctrl+Shift+F9") && !shortcut->autoRepeat()) {
+                    emit shortcut->activated();
+                    toggle = model->entries()[model->rowOfId(h)].active;
+                }
+                if (shortcut->key() == QKeySequence("Ctrl+Shift+F10")) increase = shortcut->autoRepeat();
+            }
+            hotkeys = toggle && increase;
+
+            QSettings().setValue("display/hexUpper", true);
+            QSettings().setValue("display/addressWidth", 0);
+            auto* settings = qobject_cast<SettingsDialog*>(main.openSettingsDialog("Display"));
+            QMetaObject::invokeMethod(settings, "onApply", Qt::DirectConnection);
+            display = model->data(model->index(model->rowOfId(r), 2), Qt::DisplayRole).toString() == "0x00000ABC";
+            settings->close();
+            QApplication::processEvents();
+            QSettings().setValue("display/hexUpper", false);
+            QSettings().setValue("display/addressWidth", 1);
+            settings = qobject_cast<SettingsDialog*>(main.openSettingsDialog("Display"));
+            QMetaObject::invokeMethod(settings, "onApply", Qt::DirectConnection);
+            display = display && model->data(model->index(model->rowOfId(r), 2), Qt::DisplayRole).toString() == "0x0000000000000abc";
+            settings->close();
+        }
+        // A hit from a watch that a manual attach ended does not replace that target.
+        const quint64 watch = main.processWatch_;
+        main.attachToPid(first, "manual");
+        main.autoAttach(second, "late", watch);
+        QApplication::processEvents();
+        stale = main.windowTitle().contains("manual") && !main.windowTitle().contains("late");
+    }
+    QApplication::processEvents();
+    const bool ok = oneRead && live && format && groups && removed && collapse && hotkeys && display && stale;
+    std::printf("GUI main window runtime: %s (modules=%d live=%d format=%d groups=%d removal=%d collapse=%d hotkeys=%d display=%d stale=%d)\n",
+        ok ? "OK" : "FAILED", oneRead, live, format, groups, removed, collapse, hotkeys, display, stale);
+    return ok;
+}
+
 #include "test/gui_target_checks.inc"
 
 int main(int argc, char** argv) {
@@ -569,7 +700,8 @@ int main(int argc, char** argv) {
         waitpid(first, nullptr, 0); waitpid(second, nullptr, 0);
         return result;
     }
-    bool usability = usabilityChecks() && allTypeModelChecks() && allTypeGuiScanChecks() && guiScanFormatChecks() && guiTableSaveChecks() && injectionTemplateChecks() && visualInteractionChecks();
+    bool usability = usabilityChecks() && allTypeModelChecks() && allTypeGuiScanChecks() && guiScanFormatChecks() && guiTableSaveChecks() && injectionTemplateChecks() && visualInteractionChecks() &&
+        mainWindowRuntimeChecks(first, second);
     bool windowsReleased = false, traceReleased = false, debuggerReleased = false;
     {
         ce::gui::MainWindow main;

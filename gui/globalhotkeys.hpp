@@ -8,6 +8,7 @@
 #include <QAbstractNativeEventFilter>
 #include <QKeySequence>
 #include <QHash>
+#include <QSet>
 
 #ifdef CECORE_HAVE_WAYLAND_HOTKEYS
 namespace ce::gui { class WaylandGlobalShortcuts; }
@@ -21,7 +22,10 @@ public:
 
     /// Grab `seq` system-wide and associate it with `id` (replacing any prior
     /// grab for `id`). Returns false if not on X11 or the key can't be mapped.
-    bool registerHotkey(int id, const QKeySequence& seq);
+    /// `name` is the stable portal shortcut id on Wayland (letters, digits and
+    /// '_'; "ce_hotkey_<id>" when empty), `description` what the desktop shows.
+    bool registerHotkey(int id, const QKeySequence& seq, const QString& name = {},
+                        const QString& description = {});
     void unregisterHotkey(int id);
     void clear();
 
@@ -29,12 +33,18 @@ public:
                            qintptr* result) override;
 
 signals:
-    void activated(int id);
+    /// `autoRepeat`: the key is held and this is a repeat of the press.
+    void activated(int id, bool autoRepeat);
 
 private:
     struct Grab { quint32 keycode = 0; quint32 modmask = 0; };
     QHash<int, Grab> grabs_;   // id -> grab
     void ungrabOne(const Grab& g);
+    // X11 autorepeat: keys pressed and not yet released, and the last release.
+    // Without detectable autorepeat, X sends a release and a press with the
+    // same timestamp for each repeat.
+    QSet<quint32> held_;
+    QHash<quint32, quint32> lastRelease_;   // keycode -> time
 
 #ifdef CECORE_HAVE_WAYLAND_HOTKEYS
     // Wayland path: under a Wayland session there is no XGrabKey, so hotkeys go
@@ -46,8 +56,11 @@ private:
     bool rebindQueued_ = false;      // a coalesced rebind is already scheduled
     bool waylandBound_ = false;      // the session holds shortcuts from a bind
     QHash<int, QString> waylandTriggers_;   // id -> "CTRL+SHIFT+G"
+    struct WaylandName { QString name, description; };
+    QHash<int, WaylandName> waylandNames_;   // id -> portal shortcut id and text
     void initWayland();
-    bool tryRegisterWayland(int id, const QKeySequence& seq);
+    QString waylandShortcutId(int id) const;
+    bool tryRegisterWayland(int id, const QKeySequence& seq, const QString& name, const QString& description);
     void scheduleWaylandRebind();
     void rebindWayland();
 #endif

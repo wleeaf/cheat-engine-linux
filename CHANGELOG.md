@@ -115,9 +115,7 @@ reimplementation of Cheat Engine).
 - Fixed: addresses and values. Module names in addresses now match without
   regard to case, as in Cheat Engine (a Windows table's "KERNEL32.DLL"+10
   under Wine), and `*` works (`game.exe+10*4`). In a WoW64 game, addresses of
-  64-bit modules and stacks above 4 GiB were cut to 32 bits. Typing a value
-  into a Pointer record read it as decimal although it is shown in hex, so
-  10000000 wrote 0x989680. A UTF-16 string with one bad character showed
+  64-bit modules and stacks above 4 GiB were cut to 32 bits. A UTF-16 string with one bad character showed
   every following character garbled, and a float typed as "+-5" was accepted.
 - Security: Lua. A table could open Cheat Engine's own process with
   `openProcess`, write its environment and so turn on the unsafe opt-in
@@ -170,6 +168,22 @@ reimplementation of Cheat Engine).
   "step over calls" stopped early in recursive code. "Find what addresses
   this instruction accesses" decoded ARM64 and WoW64 code as x86-64 and
   reported `fs:[28h]` as address 0x28; segment-relative operands are refused.
+- Fixed: main window. Every refresh and freeze tick rebuilt the game's module
+  list from `/proc` once per pointer or module-based record, which made large
+  tables stutter on Proton games; it is now read once per pass. A queued
+  "Wait for process" hit could replace a process the user had just opened.
+  Toggle hotkeys and Space did nothing on group headers. Holding a toggle
+  hotkey flipped the record (and enabled and disabled its script) many times
+  a second. Wayland portal shortcuts were named by row position, so deleting a
+  record moved its key to another one. Changing codec, byte order or pointer
+  size on a frozen record rewrote the game's value; the freeze now ends, as it
+  does for a type change. Adding or deleting many records rebuilt every
+  hotkey once per row, and indenting a record into a collapsed group left it
+  visible.
+- Changed: frozen records show the value memory holds (an Increase Only floor
+  or a broken pointer is visible), Space sets every selected record to one
+  state as in Cheat Engine, and the address and results lists follow the
+  Uppercase hexadecimal and Address width display settings.
 - Fixed: scanner. A first scan with Changed, Unchanged, Increased, Decreased,
   Increased/Decreased by or Same as first ran as an Exact scan on whatever the
   value box held; it now says a first scan is needed. "Increased by -5" never

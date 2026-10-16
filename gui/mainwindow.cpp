@@ -153,6 +153,23 @@ static QString foundLabelText(size_t count) {
     return QString("Found: %1").arg(QLocale().toString((qulonglong)count));
 }
 
+// Settings > Display "Uppercase hexadecimal" and "Address width", read like
+// the Memory Viewer reads them, for the address list and the scan results.
+struct AddressDisplay { bool upper = false; int digits = 16; };
+static AddressDisplay loadAddressDisplay() {
+    QSettings s;
+    return {s.value("display/hexUpper", false).toBool(), s.value("display/addressWidth", 1).toInt() == 0 ? 8 : 16};
+}
+static AddressDisplay& addressDisplay() {
+    static AddressDisplay display = loadAddressDisplay();
+    return display;
+}
+static QString formatListAddress(uintptr_t address) {
+    const auto& display = addressDisplay();
+    const QString digits = QString("%1").arg(address, display.digits, 16, QChar('0'));
+    return "0x" + (display.upper ? digits.toUpper() : digits);
+}
+
 // Accepts "," or "." decimals (Turkish comma-locale); defined lower down.
 static double parseUserDouble(const QString& s, bool* ok = nullptr);
 // Hex-aware integer field parse (shared ce::parseIntegerScalar); defined lower down.
@@ -805,14 +822,15 @@ void MainWindow::setupMenus() {
             "Name (or part of the name) of the program to wait for.\nCheat Engine opens it as soon as it starts:",
             QLineEdit::Normal, "", &ok);
         if (!ok || name.isEmpty()) return;
-        if (processWatcher_) processWatcher_->stop();
+        stopProcessWatch();
         processWatcher_ = std::make_unique<os::ProcessWatcher>();
         auto* status = statusBar();
         status->showMessage(QString("Watching for '%1'…").arg(name));
+        const quint64 watch = processWatch_;
         processWatcher_->start(name.toStdString(),
-            [this](pid_t pid, const std::string& procName) {
-                QMetaObject::invokeMethod(this, [this, pid, procName]() {
-                    autoAttach(pid, QString::fromStdString(procName));
+            [this, watch](pid_t pid, const std::string& procName) {
+                QMetaObject::invokeMethod(this, [this, pid, procName, watch]() {
+                    autoAttach(pid, QString::fromStdString(procName), watch);
                 }, Qt::QueuedConnection);
             });
     });
@@ -1926,9 +1944,8 @@ void MainWindow::setupUi() {
     connect(addressListModel_, &QAbstractItemModel::rowsRemoved, this, updateTableHint);
     // Row visibility (collapsed groups) is a view property that a model reset or a
     // structural change clears, so re-hide the collapsed children whenever that happens.
+    // Inserts and removals rebuild it once per burst (scheduleAddressListRefresh).
     connect(addressListModel_, &QAbstractItemModel::modelReset, this, &MainWindow::reapplyGroupCollapse);
-    connect(addressListModel_, &QAbstractItemModel::rowsInserted, this, &MainWindow::reapplyGroupCollapse);
-    connect(addressListModel_, &QAbstractItemModel::rowsRemoved, this, &MainWindow::reapplyGroupCollapse);
     connect(addressListModel_, &QAbstractItemModel::layoutChanged, this, &MainWindow::reapplyGroupCollapse);
     // Surface a reverted (protected) manual edit as a status-bar hint toward
     // find-what-writes, so "my edit doesn't stick" has an explanation.
@@ -1943,14 +1960,16 @@ void MainWindow::setupUi() {
     // System-wide hotkeys (X11): fire while the game is focused, like CE. The
     // dispatch map is keyed by the id we hand registerHotkey in rebuildValueHotkeys.
     globalHotkeys_ = new GlobalHotkeyManager(this);
-    connect(globalHotkeys_, &GlobalHotkeyManager::activated, this, [this](int id) {
+    connect(globalHotkeys_, &GlobalHotkeyManager::activated, this, [this](int id, bool autoRepeat) {
         auto it = hotkeyActions_.find(id);
-        if (it != hotkeyActions_.end()) (it.value())();
+        if (it == hotkeyActions_.end() || (autoRepeat && !it->repeats)) return;
+        const auto run = it->run;   // the action may rebuild the hotkeys
+        run();
     });
 
     connect(addressListModel_, &QAbstractItemModel::modelReset, this, &MainWindow::rebuildValueHotkeys);
-    connect(addressListModel_, &QAbstractItemModel::rowsInserted, this, &MainWindow::rebuildValueHotkeys);
-    connect(addressListModel_, &QAbstractItemModel::rowsRemoved, this, &MainWindow::rebuildValueHotkeys);
+    connect(addressListModel_, &QAbstractItemModel::rowsInserted, this, &MainWindow::scheduleAddressListRefresh);
+    connect(addressListModel_, &QAbstractItemModel::rowsRemoved, this, &MainWindow::scheduleAddressListRefresh);
     addressListView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     addressListView_->setFont(settingsMonospaceFont());
     addressListView_->verticalHeader()->setVisible(false);
@@ -2553,9 +2572,24 @@ void MainWindow::setupUi() {
     // table's default single-cell checkbox toggle, so there is no double-toggle.
     auto* spaceShortcut = new QShortcut(QKeySequence(Qt::Key_Space), addressListView_);
     spaceShortcut->setContext(Qt::WidgetShortcut);
+    // Like CE, every selected record takes the opposite of the current one's
+    // state: toggling each in turn would undo a group's cascade on a selected
+    // child. Rows are taken by id, since an activation can add or move records.
     connect(spaceShortcut, &QShortcut::activated, this, [this]() {
         const auto sel = addressListView_->selectionModel()->selectedRows();
-        for (const auto& idx : sel) addressListModel_->toggleActive(idx.row());
+        if (sel.isEmpty()) return;
+        const auto& ents = addressListModel_->entries();
+        int lead = addressListView_->currentIndex().row();
+        if (!addressListView_->selectionModel()->isRowSelected(lead, {})) lead = sel.first().row();
+        if (lead < 0 || lead >= (int)ents.size()) return;
+        const auto state = ents[lead].active ? Qt::Unchecked : Qt::Checked;
+        std::vector<int> ids;
+        for (const auto& idx : sel)
+            if (idx.row() >= 0 && idx.row() < (int)ents.size()) ids.push_back(ents[idx.row()].id);
+        for (int id : ids) {
+            const int row = addressListModel_->rowOfId(id);
+            if (row >= 0) addressListModel_->setData(addressListModel_->index(row, 0), state, Qt::CheckStateRole);
+        }
     });
 
     // ── Cheat-Engine-faithful layout ──
@@ -2843,10 +2877,14 @@ static void warnIfMemoryUnreadable(QWidget* parent, ce::ProcessHandle* p,
 // deletes its windows, which must not happen under a dialog or menu still on
 // the stack (a queued call runs inside their event loops): try again once it
 // has closed. Report success only when the attach happened.
-void MainWindow::autoAttach(pid_t pid, const QString& name) {
+// A hit from a watch that has since ended (another attach, a new watch, an
+// earlier hit that attached) is dropped, also while it waits for a dialog.
+void MainWindow::autoAttach(pid_t pid, const QString& name, quint64 watch) {
+    if (watch != processWatch_) return;
     if (::kill(pid, 0) != 0 && errno == ESRCH) return;   // gone before we got to it
-    if (QApplication::activeModalWidget() || QApplication::activePopupWidget()) {
-        QTimer::singleShot(250, this, [this, pid, name]() { autoAttach(pid, name); });
+    // A running scan also waits here, not in attachToPid, so the retry is checked too.
+    if (QApplication::activeModalWidget() || QApplication::activePopupWidget() || scanInProgress_) {
+        QTimer::singleShot(250, this, [this, pid, name, watch]() { autoAttach(pid, name, watch); });
         return;
     }
     // Through attachToPid so the old target's Debugger/views are torn down
@@ -2854,10 +2892,15 @@ void MainWindow::autoAttach(pid_t pid, const QString& name) {
     attachToPid(pid, name);
     if (process_ && currentPid_ == pid) {
         statusBar()->showMessage(QString("Auto-attached to %1 (pid %2)").arg(name).arg(pid), 4000);
-        if (processWatcher_) processWatcher_->stop();
+        stopProcessWatch();
     } else {
         statusBar()->showMessage(QString("Found %1 (pid %2) but could not open it").arg(name).arg(pid), 8000);
     }
+}
+
+void MainWindow::stopProcessWatch() {
+    if (processWatcher_) processWatcher_->stop();
+    ++processWatch_;
 }
 
 void MainWindow::attachToPid(pid_t pid, const QString& name) {
@@ -2872,7 +2915,7 @@ void MainWindow::attachToPid(pid_t pid, const QString& name) {
     process_ = std::make_unique<os::LinuxProcessHandle>(pid);
     // A target chosen now ends a pending "Wait for process": it would otherwise
     // switch to the next match whenever one starts, hours later.
-    if (processWatcher_) processWatcher_->stop();
+    stopProcessWatch();
     // Resolve a readable name so the header isn't "PID: 1234 - 1234" when we were
     // handed a bare pid (--pid, or a caller that didn't know the name): read the
     // process's own /proc/<pid>/comm (e.g. "sleep"), falling back to the number.
@@ -2949,7 +2992,7 @@ bool MainWindow::attachToGdb(std::unique_ptr<ce::GdbProcessHandle> process,const
     if (!releaseTargetUsers()) return false;
     process_.reset();ceserverClient_.reset();
     process_=std::move(process);currentPid_=0;
-    if (processWatcher_) processWatcher_->stop();   // see attachToPid
+    stopProcessWatch();   // see attachToPid
     luaEngine_.setProcess(process_.get());luaEngine_.setAddressList(addressListModel_);
     addressListModel_->setProcess(process_.get());resultsModel_->setProcess(process_.get());
     resultsModel_->clear();lastResult_.reset();undoResult_.reset();
@@ -3000,7 +3043,7 @@ void MainWindow::resetGuestScanSetup() {
 
 void MainWindow::onDisconnectProcess() {
     if (!releaseTargetUsers()) return;
-    if (processWatcher_) processWatcher_->stop();
+    stopProcessWatch();
     resetGuestScanSetup();
     process_.reset();ceserverClient_.reset();currentPid_=0;
     addressListModel_->setProcess(nullptr);resultsModel_->setProcess(nullptr);resultsModel_->clear();
@@ -3045,7 +3088,7 @@ bool MainWindow::adoptCeserver(CeserverConnection connection, const QString& hos
     process_.reset();
     ceserverClient_ = std::move(client);
     process_ = std::move(handle);
-    if (processWatcher_) processWatcher_->stop();   // see attachToPid
+    stopProcessWatch();   // see attachToPid
     luaEngine_.setProcess(process_.get());
     currentPid_ = pid;
     processLabel_->setText(QString("Remote process %1").arg((int)pid));
@@ -4165,8 +4208,6 @@ void MainWindow::rebuildValueHotkeys() {
     const auto& entries = addressListModel_->entries();
     for (int row = 0; row < (int)entries.size(); ++row) {
         const auto& entry = entries[row];
-        if (entry.isGroup)
-            continue;
 
         bool ok = false;
         // Accept a comma decimal separator like every other value field, so a "0,5"
@@ -4179,17 +4220,23 @@ void MainWindow::rebuildValueHotkeys() {
         // Register a hotkey system-wide (X11) so it fires while the game is
         // focused; if that fails (non-X11 / unmappable key), fall back to a
         // Qt::ApplicationShortcut that only works when cheatengine is focused.
-        auto addHotkey = [&](const QString& keys, std::function<void()> action) {
+        // Toggle and set-value act once per press; increase and decrease repeat
+        // while the key is held, as in CE. The portal name comes from the
+        // record id, not the row, so a desktop's binding stays with its record.
+        auto addHotkey = [&](const QString& keys, const char* slot, bool repeats, std::function<void()> action) {
             QKeySequence sequence(keys);
             if (sequence.isEmpty())
                 return;
             int id = nextId++;
-            if (globalHotkeys_ && globalHotkeys_->registerHotkey(id, sequence)) {
-                hotkeyActions_.insert(id, std::move(action));
+            const QString name = QStringLiteral("ce_%1_%2").arg(entry.id).arg(QLatin1String(slot));
+            const QString description = QStringLiteral("%1 (%2)").arg(entry.description, QLatin1String(slot));
+            if (globalHotkeys_ && globalHotkeys_->registerHotkey(id, sequence, name, description)) {
+                hotkeyActions_.insert(id, {std::move(action), repeats});
                 return;
             }
             auto* shortcut = new QShortcut(sequence, this);
             shortcut->setContext(Qt::ApplicationShortcut);
+            shortcut->setAutoRepeat(repeats);
             connect(shortcut, &QShortcut::activated, this, action);
             valueHotkeyShortcuts_.push_back(shortcut);
         };
@@ -4199,24 +4246,25 @@ void MainWindow::rebuildValueHotkeys() {
         // remove/reset, so a row-based capture would fire on the wrong entry. Resolve the
         // current row from the id each time the key is pressed.
         const int id = entry.id;
-        // Toggle-active hotkey (previously configured + saved but never wired,
-        // so it did nothing): flip the entry's active state.
-        addHotkey(entry.hotkeyKeys, [this, id]() {
+        // Toggle-active hotkey: flip the entry's active state. A group header
+        // carries one too (CE tables), and toggles its children with it.
+        addHotkey(entry.hotkeyKeys, "toggle", false, [this, id]() {
             int r = addressListModel_->rowOfId(id);
             if (r >= 0) addressListModel_->toggleActive(r);
         });
-        addHotkey(entry.increaseHotkeyKeys, [this, id, step]() {
+        if (entry.isGroup) continue;
+        addHotkey(entry.increaseHotkeyKeys, "increase", true, [this, id, step]() {
             int r = addressListModel_->rowOfId(id);
             if (r < 0 || !addressListModel_->adjustEntryValue(r, step * 1.0))
                 QApplication::beep();
         });
-        addHotkey(entry.decreaseHotkeyKeys, [this, id, step]() {
+        addHotkey(entry.decreaseHotkeyKeys, "decrease", true, [this, id, step]() {
             int r = addressListModel_->rowOfId(id);
             if (r < 0 || !addressListModel_->adjustEntryValue(r, step * -1.0))
                 QApplication::beep();
         });
         // Set-value hotkey: write a fixed value (e.g. bind a key to "health = 999").
-        addHotkey(entry.setValueHotkeyKeys, [this, id, val = entry.setValueHotkeyValue]() {
+        addHotkey(entry.setValueHotkeyKeys, "set", false, [this, id, val = entry.setValueHotkeyValue]() {
             int r = addressListModel_->rowOfId(id);
             if (r >= 0) addressListModel_->setEntryValueTo(r, val);
         });
@@ -4923,6 +4971,16 @@ void MainWindow::openMonoDissector() {
     w->show();
 }
 
+void MainWindow::scheduleAddressListRefresh() {
+    if (addressListRefreshQueued_) return;
+    addressListRefreshQueued_ = true;
+    QTimer::singleShot(0, this, [this] {
+        addressListRefreshQueued_ = false;
+        reapplyGroupCollapse();
+        rebuildValueHotkeys();
+    });
+}
+
 void MainWindow::reapplyGroupCollapse() {
     const auto& ents = addressListModel_->entries();
     std::vector<int> indents;
@@ -5033,6 +5091,7 @@ QDialog* MainWindow::openSettingsDialog(const QString& page) {
         }
         if (valueRefreshTimer_)
             valueRefreshTimer_->start(kValueRefreshMs);
+        addressDisplay() = loadAddressDisplay();   // repainted below
         const QFont font = settingsMonospaceFont();
         resultsView_->setFont(font);
         addressListView_->setFont(font);
@@ -5476,7 +5535,7 @@ QVariant ScanResultsModel::data(const QModelIndex& index, int role) const {
 QString ScanResultsModel::displayValueAt(size_t row, int column) const {
     if (!result_ || row >= result_->count() || column < 0 || column > 2) return {};
     if (column == 0) {
-        return QString("0x%1").arg(result_->address(row), 0, 16);
+        return formatListAddress(result_->address(row));
     }
 
     const size_t vs=valueSizeBytes();
@@ -5809,7 +5868,7 @@ static bool parseComparableValue(ValueType type, const QString& valStr, double& 
     }
 }
 
-bool AddressListModel::reresolveAddress(AddressEntry& e) {
+bool AddressListModel::reresolveAddress(AddressEntry& e, const ExpressionParser* parser) {
     if (e.addressExpr.isEmpty() || !proc_) return true;
     std::string expr = e.addressExpr.toStdString();
     // CE: an address starting with + or - is relative to the nearest ancestor
@@ -5826,7 +5885,7 @@ bool AddressListModel::reresolveAddress(AddressEntry& e) {
             --indent;
             const QString text = ancestor.addressExpr.trimmed();
             if (!text.isEmpty() && text != "0" && text != "0x0") {
-                if (!reresolveAddress(ancestor)) return false;
+                if (!reresolveAddress(ancestor, parser)) return false;
             } else if (!(text.isEmpty() && !ancestor.isGroup && ancestor.address)) {
                 continue;   // no address here: ask the next ancestor
             }
@@ -5837,14 +5896,17 @@ bool AddressListModel::reresolveAddress(AddressEntry& e) {
     }
     // Pass the shared resolver so a record can be addressed by a user-defined label
     // (or a module export) set in the Memory Viewer, not just a raw/module+offset expr.
-    ExpressionParser parser(proc_, symbolResolver_);
-    auto v = parser.parse(expr);
+    std::optional<ExpressionParser> own;
+    if (!parser) parser = &own.emplace(proc_, symbolResolver_);
+    auto v = parser->parse(expr);
     if (!v) return false;   // keep e.address for display, but nothing may write there:
     e.address = *v;         // the object it pointed into may be freed by now
     return true;
 }
 
 void AddressListModel::freezeWrite(ProcessHandle* proc) {
+    // One parser for the pass: it reads the module list once, when a record needs it.
+    const ExpressionParser parser(proc_, symbolResolver_);
     for (auto& e : entries_) {
         if (e.isGroup) continue;
         if (!e.active || (e.frozenValue.isEmpty() && e.type != ValueType::String && e.type != ValueType::UnicodeString)) continue;
@@ -5852,7 +5914,7 @@ void AddressListModel::freezeWrite(ProcessHandle* proc) {
         // Re-resolve pointer records so the freeze writes to the current target, not the
         // up-to-500ms-stale cached address (the value refresh runs slower than this 100ms
         // freeze); a moved pointer would otherwise clobber unrelated memory.
-        if (!reresolveAddress(e)) continue;   // a broken chain freezes nothing
+        if (!reresolveAddress(e, &parser)) continue;   // a broken chain freezes nothing
 
         if (e.freezeMode == FreezeMode::Normal) {
             (void)writeValueToProcess(proc, e.address, e.type, e.frozenValue, e.codec, e.bigEndian, e.showAsHex, e.byteCount, e.dataByteOrder, e.pointerWidth);
@@ -5882,7 +5944,8 @@ QJsonArray AddressListModel::toJson() const {
         if (!e.addressExpr.isEmpty()) obj["addressExpr"] = e.addressExpr;
         obj["type"] = typeToStr(e.type);
         if (e.byteCount > 0) obj["byteCount"] = (int)e.byteCount;   // AOB/string length
-        obj["value"] = e.currentValue;
+        // A frozen record saves the value it holds, as before the list showed live values.
+        obj["value"] = e.active && e.autoAsmScript.isEmpty() && !e.isGroup ? e.frozenValue : e.currentValue;
         obj["active"] = e.active;
         obj["asm"] = e.autoAsmScript;
         obj["color"] = e.color;
@@ -6067,8 +6130,21 @@ void AddressListModel::setFreezeMode(int row, FreezeMode mode) {
     emit dataChanged(index(row, 0), index(row, columnCount() - 1));
 }
 
+// A frozen value is text in the record's format: written with another type,
+// codec or byte order it would change what memory holds (100 frozen as 4 Bytes
+// written as the float 100.0, or as 8 bytes over the next field). The freeze
+// ends with the old format, as in setEntryType.
+bool AddressListModel::endFreezeForFormatChange(int& row) {
+    if (!entries_[row].active || !entries_[row].autoAsmScript.isEmpty() || entries_[row].isGroup) return true;
+    const int id = entries_[row].id;
+    if (!setEntryActive(row, false)) return false;
+    row = rowOfId(id);
+    return row >= 0;
+}
+
 void AddressListModel::setEntryCodec(int row, ce::ValueCodec codec) {
     if (row < 0 || row >= (int)entries_.size()) return;
+    if (entries_[row].codec.describe() != codec.describe() && !endFreezeForFormatChange(row)) return;
     entries_[row].codec = codec;
     entries_[row].currentValue.clear();   // force a re-read/reformat through the codec
     emit dataChanged(index(row, 4), index(row, 4), {Qt::DisplayRole, Qt::EditRole});
@@ -6081,6 +6157,8 @@ std::string AddressListModel::entryCodecSpec(int row) const {
 
 void AddressListModel::setEntryBigEndian(int row, bool bigEndian) {
     if (row < 0 || row >= (int)entries_.size()) return;
+    if (entries_[row].dataByteOrder != (bigEndian ? ByteOrder::Big : ByteOrder::Little) &&
+        !endFreezeForFormatChange(row)) return;
     entries_[row].bigEndian = bigEndian;
     entries_[row].dataByteOrder = bigEndian ? ByteOrder::Big : ByteOrder::Little;
     entries_[row].currentValue.clear();   // re-read/reformat in the new byte order
@@ -6090,6 +6168,8 @@ void AddressListModel::setEntryBigEndian(int row, bool bigEndian) {
 void AddressListModel::setEntryDataFormat(int row, ByteOrder order, uint8_t width) {
     if (row < 0 || row >= rowCount() || (width && width != 4 && width != 8) ||
         (order != ByteOrder::Unknown && order != ByteOrder::Little && order != ByteOrder::Big)) return;
+    if ((entries_[row].dataByteOrder != order || entries_[row].pointerWidth != width) &&
+        !endFreezeForFormatChange(row)) return;
     auto& entry = entries_[row];
     entry.dataByteOrder = order; entry.pointerWidth = width;
     entry.bigEndian = order == ByteOrder::Big;
@@ -6130,15 +6210,7 @@ void AddressListModel::setShowAsHex(int row, bool hex) {
 void AddressListModel::setEntryType(int row, ValueType t) {
     if (row < 0 || row >= (int)entries_.size()) return;
     if (entries_[row].isGroup || entries_[row].type == t) return;
-    // A frozen value is text of the old type: 100 frozen as 4 Bytes would be
-    // written as the float 100.0 (or as 8 bytes over the next field). The
-    // freeze ends with the old type.
-    if (entries_[row].active && entries_[row].autoAsmScript.isEmpty()) {
-        const int id = entries_[row].id;
-        if (!setEntryActive(row, false)) return;
-        row = rowOfId(id);
-        if (row < 0) return;
-    }
+    if (!endFreezeForFormatChange(row)) return;
     entries_[row].type = t;
     entries_[row].currentValue.clear();   // re-read and format with the new type
     emit dataChanged(index(row, 0), index(row, columnCount() - 1));
@@ -6262,6 +6334,8 @@ void AddressListModel::shiftIndentRows(QList<int> rows, int delta) {
     indents.reserve(entries_.size());
     for (const auto& e : entries_) indents.push_back(e.indent);
     int done = -1;   // rows below this were already shifted with their parent
+    // A layout change, so the view hides a row indented into a collapsed group.
+    emit layoutAboutToBeChanged();
     for (int row : rows) {
         if (row < 0 || row >= (int)entries_.size() || row < done) continue;
         const auto sub = ce::descendantRange(indents, static_cast<std::size_t>(row));
@@ -6277,6 +6351,7 @@ void AddressListModel::shiftIndentRows(QList<int> rows, int delta) {
             entries_[i].indent = std::max(0, entries_[i].indent + shift);
         done = static_cast<int>(sub.second);
     }
+    emit layoutChanged();
     emit dataChanged(index(rows.first(), 0), index(std::max(rows.last(), done - 1), columnCount() - 1));
 }
 
@@ -6298,9 +6373,11 @@ void AddressListModel::setAllActive(bool active) {
         emit dataChanged(index(0, 0), index((int)entries_.size() - 1, columnCount() - 1));
 }
 
+// The check box path, so a group header's toggle reaches its children when
+// the group says so.
 void AddressListModel::toggleActive(int row) {
-    if (row < 0 || row >= (int)entries_.size() || entries_[row].isGroup) return;
-    setEntryActive(row, !entries_[row].active);
+    if (row < 0 || row >= (int)entries_.size()) return;
+    setData(index(row, 0), entries_[row].active ? Qt::Unchecked : Qt::Checked, Qt::CheckStateRole);
 }
 
 bool AddressListModel::toggleGroupCollapse(int row) {
@@ -6432,11 +6509,14 @@ bool AddressListModel::removeEntries(QList<int> rows) {
     auto cleanup = expanded;
     std::stable_sort(cleanup.begin(), cleanup.end(), [&](auto a, auto b) { return entries_[a].autoAsmOrder > entries_[b].autoAsmOrder; });
     for (auto row : cleanup) if (!setEntryActive(static_cast<int>(row), false)) return false;
-    // Delete high-to-low so earlier indices stay valid as rows are removed.
-    for (auto it = expanded.rbegin(); it != expanded.rend(); ++it) {
-        const int row = static_cast<int>(*it);
-        beginRemoveRows({}, row, row);
-        entries_.erase(entries_.begin() + row);
+    // Delete high-to-low so earlier indices stay valid as rows are removed, a
+    // run of adjacent rows (a group and its subtree) at a time.
+    for (auto it = expanded.rbegin(); it != expanded.rend();) {
+        const int last = static_cast<int>(*it);
+        int first = last;
+        for (++it; it != expanded.rend() && static_cast<int>(*it) == first - 1; ++it) --first;
+        beginRemoveRows({}, first, last);
+        entries_.erase(entries_.begin() + first, entries_.begin() + last + 1);
         endRemoveRows();
     }
     return !expanded.empty();
@@ -6483,15 +6563,17 @@ static std::optional<QString> formatVariableLengthValue(ProcessHandle* proc, uin
 }
 
 void AddressListModel::updateValues(ProcessHandle* proc) {
+    const ExpressionParser parser(proc_, symbolResolver_);   // one module list per pass
     for (size_t i = 0; i < entries_.size(); ++i) {
         auto& e = entries_[i];
         if (e.isGroup) continue;
-        if (e.active) continue; // Don't overwrite display for frozen entries
         if (!e.autoAsmScript.isEmpty()) continue;   // a script has no value to read (it would show "??")
+        // Frozen records show what memory holds too (an Increase Only floor, a
+        // broken pointer); the freeze writes frozenValue, not this text.
 
         // Pointer records: re-evaluate the address expression so a moving pointer
         // chain is followed live (CE re-resolves every refresh).
-        if (!reresolveAddress(e)) { e.currentValue = QStringLiteral("??"); continue; }
+        if (!reresolveAddress(e, &parser)) { e.currentValue = QStringLiteral("??"); continue; }
 
         // Variable-length types: read the element (exact length if known) and format.
         if (auto fv = formatVariableLengthValue(proc, e.address, e.type, e.byteCount, e.bigEndian, e.dataByteOrder)) {
@@ -6595,7 +6677,7 @@ QVariant AddressListModel::data(const QModelIndex& index, int role) const {
             // Otherwise a plain hex address. Pointer records keep the "P->" prefix.
             std::string modOff = ce::moduleOffsetString(moduleCache_, e.address);
             QString addrStr = modOff.empty()
-                ? QString("0x%1").arg(e.address, 0, 16)
+                ? formatListAddress(e.address)
                 : QString::fromStdString(modOff);
             return e.addressExpr.isEmpty() ? addrStr : ("P->" + addrStr);
         }
@@ -6706,7 +6788,9 @@ void AddressListModel::moveEntryBlock(int srcRow, int destRow, int newRootIndent
     if (destRow >= srcRow && destRow <= srcRow + len) {
         if (newRootIndent < 0 || entries_[srcRow].indent == newRootIndent) return;
         const int delta = newRootIndent - entries_[srcRow].indent;
+        emit layoutAboutToBeChanged();   // see shiftIndentRows
         for (int i = srcRow; i < srcRow + len; ++i) entries_[i].indent = std::max(0, entries_[i].indent + delta);
+        emit layoutChanged();
         emit dataChanged(index(srcRow, 0), index(srcRow + len - 1, columnCount() - 1));
         return;
     }
@@ -7003,7 +7087,9 @@ bool AddressListModel::setIndent(int id, int indent) {
     if (scriptBusy_ || mutationBusy_) return false;
     int row = rowOfId(id);
     if (row < 0 || row >= (int)entries_.size()) return false;
+    emit layoutAboutToBeChanged();   // see shiftIndentRows
     entries_[row].indent = indent < 0 ? 0 : indent;
+    emit layoutChanged();
     emit dataChanged(index(row, 0), index(row, columnCount() - 1));
     return true;
 }

@@ -283,7 +283,7 @@ alongside official CE 7.7 Linux. Today each is materially short of the claim.
     session, maps each `QKeySequence` to the portal's `CTRL+SHIFT+G` preferred-
     trigger syntax (`keySequenceToPortalTrigger`, unit-tested), coalesces the
     register/clear burst into a single batch `BindShortcuts`, and funnels the
-    portal's `activated(name)` back into the same `activated(int)` signal callers
+    portal's `activated(name)` back into the same `activated(id, autoRepeat)` signal callers
     already use — so `MainWindow` needs no Wayland-specific code and the X11 path
     is unchanged. *Remaining:* true end-to-end behaviour against a real
     compositor's portal (not headlessly automatable — its bind-confirmation UI

@@ -489,10 +489,14 @@ void tut_field_value(int index, char* out, size_t size) {
 
 /* ── Time ── */
 
+/* The game decides teams by index, never by the team field the step asks you
+   to find: changing that field must not win the battle. */
+static int team_of(int i) { return i < 2 ? 1 : 2; }
+
 static int alive(int team) {
     int n = 0;
     for (int i = 0; i < 4; ++i)
-        if (players[i]->team == team && !player_out[i]) ++n;
+        if (team_of(i) == team && !player_out[i]) ++n;
     return n;
 }
 
@@ -511,7 +515,7 @@ static void battle_round(char* message, size_t size) {
     int target = opponent[attacker];
     if (player_out[target]) target = target ^ 1;   /* the other member of that team */
     if (player_out[target]) return;
-    const float damage = players[attacker]->team == 1 ? (float)rnd_range(10, 25) : (float)rnd_range(120, 150);
+    const float damage = team_of(attacker) == 1 ? (float)rnd_range(10, 25) : (float)rnd_range(120, 150);
     if (tutorial_take_damage(players[target], damage)) {
         player_out[target] = 1;
         snprintf(message, size, "%s hits %s for %.0f. %s is out.", player_names[attacker], player_names[target],

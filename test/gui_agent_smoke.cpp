@@ -1,11 +1,14 @@
 // The AI Assistant panel, offscreen, with a scripted model instead of an API:
 // a turn that scans, asks to write (allowed) and saves a record; a change the
-// user declines; Stop during a slow request; and the table handed to the
-// address list. Pass --screenshot FILE to render the panel after the first turn.
+// user declines; Stop during a slow request; the table handed to the address
+// list; what "Allow for this chat" covers; the questions the approvals ask;
+// a process the model opened staying open; and which API addresses a saved
+// key may go to. Pass --screenshot FILE to render the panel after the first turn.
 
 #include "gui/agent_panel.hpp"
 
 #include <QApplication>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QPushButton>
 #include <QThread>
@@ -58,6 +61,7 @@ int main(int argc, char** argv) {
 
     char address[32];
     std::snprintf(address, sizeof address, "0x%lx", static_cast<unsigned long>(reinterpret_cast<uintptr_t>(&g_health)));
+    const std::string decimal = std::to_string(reinterpret_cast<uintptr_t>(&g_health));
     auto health = [&] {
         int32_t v = 0;
         (void)ce::os::LinuxProcessHandle(child).read(reinterpret_cast<uintptr_t>(&g_health), &v, sizeof v);
@@ -74,6 +78,22 @@ int main(int argc, char** argv) {
         R"({"content":[{"type":"text","text":"Left it alone."}]})",
         R"({"content":[{"type":"tool_use","id":"e","name":"attach","input":{"target":")" + std::to_string(getpid()) + R"("}}]})",
         R"({"content":[{"type":"text","text":"Not opened."}]})",
+        // "Allow for this chat": a write with the address as a JSON number, a
+        // second write it covers, and an attach it does not.
+        R"({"content":[{"type":"tool_use","id":"f","name":"write","input":{"address":)" + decimal + R"(,"type":"i32","value":"777"}}]})",
+        R"({"content":[{"type":"tool_use","id":"g","name":"write","input":{"address":")" + std::string(address) + R"(","type":"i32","value":"778"}}]})",
+        R"({"content":[{"type":"tool_use","id":"h","name":"attach","input":{"target":")" + std::to_string(getpid()) + R"("}}]})",
+        R"({"content":[{"type":"text","text":"Done."}]})",
+        // The questions: freeze, breakpoint, disabling a script, saving.
+        R"({"content":[{"type":"tool_use","id":"i","name":"set_frozen","input":{"index":0,"frozen":true,"value":"5"}}]})",
+        R"({"content":[{"type":"tool_use","id":"j","name":"find_accessed_addresses","input":{"address":")" + std::string(address) + R"("}}]})",
+        R"({"content":[{"type":"tool_use","id":"k","name":"aa_disable","input":{"id":1}}]})",
+        R"({"content":[{"type":"tool_use","id":"l","name":"save_table","input":{"path":"smoke-table.CT"}}]})",
+        R"({"content":[{"type":"text","text":"Asked."}]})",
+        // With no process open in the main window, the model opens one itself.
+        R"({"content":[{"type":"tool_use","id":"m","name":"attach","input":{"target":")" + std::to_string(child) + R"("}}]})",
+        R"({"content":[{"type":"text","text":"Attached."}]})",
+        R"({"content":[{"type":"text","text":"Still attached."}]})",
     };
     std::atomic<size_t> next{0};
     std::atomic<bool> slow{false};
@@ -144,10 +164,71 @@ int main(int argc, char** argv) {
           panel->transcriptText().contains("attach target=" + QString::number(getpid()) + " \u2192 refused"),
           panel->transcriptText().right(300));
 
+    finished = false;
+    panel->send("Set it to 777, then 778.");
+    check("a write shows its address in 0x form", waitFor([&] { return panel->approvalPending(); }) &&
+          panel->approvalText().contains(QString(address) + " in agent-smoke-child (PID ") &&
+          !panel->approvalText().contains(QString::fromStdString(decimal)), panel->approvalText());
+    panel->answerApproval(true, true);
+    check("Allow for this chat covers the next write", waitFor([&] { return health() == 778; }), QString::number(health()));
+    check("Allow for this chat does not cover opening a process", waitFor([&] { return panel->approvalPending(); }) &&
+          panel->approvalText().contains("Let the assistant open"), panel->approvalText());
+    panel->answerApproval(false);
+    check("the turn with the grant finishes", waitFor([&] { return finished; }));
+
+    // A new target (here a new name) ends the grant.
+    panel->setTarget(child, "agent-smoke-renamed");
+    finished = false;
+    panel->send("Show me the questions.");
+    const bool freezeAsked = waitFor([&] { return panel->approvalPending(); });
+    const QString freeze = panel->approvalText();
+    check("a freeze asks again after the target changed, naming the record, type and address",
+          freezeAsked && freeze.startsWith("Freeze \"Health\" (4 Bytes at ") && freeze.contains(address) &&
+          freeze.contains(") at 5 in agent-smoke-renamed (PID "), freeze);
+    panel->answerApproval(false);
+    check("a breakpoint asks first", waitFor([&] { return panel->approvalPending() && panel->approvalText().startsWith("Put a breakpoint"); }) &&
+          panel->approvalText().contains(QString("Put a breakpoint at %1 in agent-smoke-renamed").arg(address)), panel->approvalText());
+    panel->answerApproval(false);
+    check("disabling a script asks first", waitFor([&] { return panel->approvalPending() && panel->approvalText().startsWith("Disable"); }) &&
+          panel->approvalText().contains("Disable script #1 in agent-smoke-renamed"), panel->approvalText());
+    panel->answerApproval(false);
+    check("saving shows the absolute path", waitFor([&] { return panel->approvalPending() && panel->approvalText().startsWith("Save"); }) &&
+          panel->approvalText().contains(QDir::currentPath() + "/smoke-table.CT"), panel->approvalText());
+    panel->answerApproval(false);
+    check("the questions turn finishes", waitFor([&] { return finished; }) && health() == 778);
+
     // Closing the process in the main window leaves it: the records go, so
     // there is nothing left to add to the address list.
     panel->setTarget(0, {});
     check("closing the process leaves it", waitFor([&] { return addButton && !addButton->isEnabled(); }));
+
+    // A process the model opened (with the user's Allow) stays open after the turn.
+    finished = false;
+    panel->send("Open it again.");
+    check("the model asks to open a process", waitFor([&] { return panel->approvalPending(); }));
+    panel->answerApproval(true);
+    check("the attach turn finishes", waitFor([&] { return finished; }) && finishedOk);
+    finished = false;
+    panel->send("Are you still attached?");
+    check("the model's process stays open across turns", waitFor([&] { return finished; }) &&
+          bodies.back().find("You are attached to PID " + std::to_string(child)) != std::string::npos);
+
+    std::printf("── API key origins ──\n");
+    using ce::gui::agentKeyRefusal;
+    using ce::gui::agentOrigin;
+    check("origins are normalized", agentOrigin(true, "HTTPS://API.OpenAI.com:443/v1/") == "https://api.openai.com" &&
+          agentOrigin(false, "") == "https://api.anthropic.com" && agentOrigin(true, "http://localhost:11434/v1") == "http://localhost:11434",
+          agentOrigin(true, "HTTPS://API.OpenAI.com:443/v1/"));
+    check("a key saved before origins were kept goes to the provider's own API",
+          agentKeyRefusal(false, "", "").isEmpty() && agentKeyRefusal(false, "https://api.anthropic.com/", "").isEmpty());
+    check("a key is not sent to another address",
+          agentKeyRefusal(false, "https://proxy.example.com", "").contains("is for https://api.anthropic.com") &&
+          !agentKeyRefusal(true, "http://127.0.0.1:11434/v1", "http://localhost:11434").isEmpty());
+    check("a key is not sent over plain http to another computer",
+          agentKeyRefusal(true, "http://example.com/v1", "http://example.com").contains("https"));
+    check("a key saved for a local server goes there",
+          agentKeyRefusal(true, "http://localhost:11434/v1", agentOrigin(true, "http://localhost:11434/v1")).isEmpty() &&
+          agentKeyRefusal(true, "http://[::1]:8080/v1", agentOrigin(true, "http://[::1]:8080")).isEmpty());
 
     delete panel;   // closes the worker thread cleanly
     kill(child, SIGKILL);

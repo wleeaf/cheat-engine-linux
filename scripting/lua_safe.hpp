@@ -9,6 +9,8 @@ extern "C" {
 #include <cstdlib>
 #include <exception>
 
+#include "core/secure_exec.hpp"
+
 namespace ce {
 
 // Default-deny: shell commands, native code, writing files on this computer
@@ -17,8 +19,10 @@ namespace ce {
 // it once, when the engine creates the state (markLuaUnsafeAllowed), so a
 // script that later changes cecore's environment gains nothing.
 inline constexpr const char* kLuaUnsafeKey = "ce_unsafe_allowed";
+// A secure-exec process (started with the ptrace capability) never honours it:
+// whoever starts the program is not trusted with native code in it.
 inline void markLuaUnsafeAllowed(lua_State* L) {
-    lua_pushboolean(L, std::getenv("CECORE_LUA_ALLOW_UNSAFE") != nullptr);
+    lua_pushboolean(L, std::getenv("CECORE_LUA_ALLOW_UNSAFE") != nullptr && !secureExecution());
     lua_setfield(L, LUA_REGISTRYINDEX, kLuaUnsafeKey);
 }
 inline bool luaUnsafeAllowed(lua_State* L) {

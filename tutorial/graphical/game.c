@@ -20,7 +20,11 @@ struct Body { float x, y, vx, vy; int32_t on_ground; };
 struct Physics { float gravity; float jump_power; float run_speed; };
 struct Bullet { float x, y; };
 
+/* The level's target: level 1 and 2 each have their own, so a value frozen in
+   level 1 cannot finish level 2. */
 static struct Target* target;
+static struct Target* target1;
+static struct Target* target2;
 static struct Gun* gun;
 static struct Body* body;
 /* Set when level 3 starts and read through LOAD, so it stays in writable
@@ -87,12 +91,14 @@ static void enter_level(int n) {
     fire_wait = 0;
     switch (n) {
     case 1:
-        if (!target) target = object(sizeof *target);
+        if (!target1) target1 = object(sizeof *target1);
+        target = target1;
         *target = (struct Target){1, 500, 500, 0, 0};
         break;
     case 2:
         if (!gun) gun = object(sizeof *gun);
-        if (!target) target = object(sizeof *target);
+        if (!target2) target2 = object(sizeof *target2);
+        target = target2;
         *gun = (struct Gun){0, 0, 0};
         *target = (struct Target){2, 120, 120, 0, 0};
         break;
@@ -263,14 +269,14 @@ void gt_view(GtView* v) {
         v->show_target = 1;
         v->target = target_rect;
         const float health = (float)LOAD(target->health) / (float)target->max_health;
-        v->target_health = health < 0 ? 0 : health > 1 ? 1 : health;
+        v->target_health = !(health > 0) ? 0 : health > 1 ? 1 : health;   /* NaN after a changed max_health */
         for (int i = 0; i < bullet_count; ++i) v->bullets[v->bullet_count++] = (GtRect){bullets[i].x - 2, bullets[i].y, 4, 10};
         v->ground[v->ground_count++] = floor_rect;
     }
     if (level == 2 && !finished) {
         v->show_heat = 1;
         const float heat = LOAD(gun->heat) / 100.0f;
-        v->heat = heat < 0 ? 0 : heat > 1 ? 1 : heat;
+        v->heat = !(heat > 0) ? 0 : heat > 1 ? 1 : heat;   /* the heat may be set to NaN */
         v->jammed = gun->jammed > 0;
     }
     if (level == 3 && !finished) {

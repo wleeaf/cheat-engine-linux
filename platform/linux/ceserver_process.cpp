@@ -54,13 +54,21 @@ MemType toMemType(uint32_t ceType) {
     return MemType::Private;
 }
 
+// Upstream VirtualQueryEx answers an address between mappings with a
+// PAGE_NOACCESS region of type 0 reaching the next mapping. That is free
+// address space, which the local handle does not report as a region at all.
+// (A real PROT_NONE mapping keeps its nonzero type.)
+bool isGap(const CeRegion& cr) {
+    return cr.size == 0 || (cr.protection == PAGE_NOACCESS && cr.type == 0);
+}
+
 MemoryRegion toMemoryRegion(const CeRegion& cr) {
     MemoryRegion r;
     r.base = cr.baseAddress;
     r.size = cr.size;
     r.protection = toMemProt(cr.protection);
     r.type = toMemType(cr.type);
-    r.state = cr.size > 0 ? MemState::Committed : MemState::Free;
+    r.state = isGap(cr) ? MemState::Free : MemState::Committed;
     return r;
 }
 
@@ -177,7 +185,8 @@ std::vector<MemoryRegion> RemoteProcessHandle::queryRegions() {
     if (!r) return {};
     std::vector<MemoryRegion> out;
     out.reserve(r->size());
-    for (const auto& cr : *r) out.push_back(toMemoryRegion(cr));
+    for (const auto& cr : *r)
+        if (!isGap(cr)) out.push_back(toMemoryRegion(cr));
     return out;
 }
 
@@ -185,7 +194,7 @@ std::optional<MemoryRegion> RemoteProcessHandle::queryRegion(uintptr_t address) 
     auto operation=client_->lockConnection();
     if (!connectionValid()) return std::nullopt;
     auto r = client_->virtualQueryEx(handle_, address);
-    if (!r || !r->has_value()) return std::nullopt;
+    if (!r || !r->has_value() || isGap(**r)) return std::nullopt;
     return toMemoryRegion(**r);
 }
 

@@ -13,6 +13,7 @@
 #include "core/json.hpp"
 
 #include <atomic>
+#include <cstddef>
 #include <functional>
 #include <string>
 #include <vector>
@@ -38,10 +39,15 @@ struct ChatHttpRequest {
     std::string body;
 };
 
+/// The largest reply AgentChat reads. A transport should stop reading a
+/// longer one and set `truncated`.
+constexpr size_t kMaxReplyBytes = 16 * 1024 * 1024;
+
 struct ChatHttpResponse {
     int status = 0;          // 0 when the request did not complete
     std::string body;
     std::string error;       // transport error (no connection, timeout, ...)
+    bool truncated = false;  // the reply was larger than kMaxReplyBytes
 };
 
 using ChatTransport = std::function<ChatHttpResponse(const ChatHttpRequest&)>;
@@ -64,14 +70,17 @@ public:
     /// Extra system text, for example which process the user has open.
     void setContext(std::string context) { context_ = std::move(context); }
     /// Asked before every tool call that changes the game (write, freeze,
-    /// enabling a script) or saves a file; returning false refuses the call. Without an
-    /// approver such calls are refused.
+    /// enabling or disabling a script, a breakpoint in its code), saves a file
+    /// or attaches; returning false refuses the call. Without an approver such
+    /// calls are refused.
     void setApprover(std::function<bool(const std::string& tool, const json::Value& arguments)> approver) {
         approver_ = std::move(approver);
     }
     void setEventSink(std::function<void(const ChatEvent&)> sink) { sink_ = std::move(sink); }
     /// Most model round trips in one turn before stopping to ask the user.
     void setMaxRounds(int rounds) { maxRounds_ = rounds; }
+    /// Most tool calls run from one reply; the rest are answered with an error.
+    static constexpr size_t kMaxCallsPerReply = 16;
 
     /// Run one user turn to completion (blocking). False when it stopped on an
     /// error or was cancelled; the events say why.

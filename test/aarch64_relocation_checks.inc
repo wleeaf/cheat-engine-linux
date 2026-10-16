@@ -84,33 +84,55 @@ static void aarch64RelocationTests() {
     auto failed=failing.execute(fault,"[ENABLE]\n0x11000:\ndb AB CD\nreassemble(0x10000)\ndb EF\n");
     check(!failed.success && failed.error.find("REASSEMBLE")!=std::string::npos && fault.bytes==faultBefore && fault.writes>=2,
           "A source becoming unreadable after sizing aborts REASSEMBLE and rolls back earlier writes instead of silently skipping it");
+    // The target itself rewrites the source once the script starts writing,
+    // after label sizing (the script's own writes cannot: REASSEMBLE reads the
+    // code from before them).
+    struct ChangingSource : TargetBuffer {
+        std::vector<uint8_t> replacement;
+        Result<size_t> read(uintptr_t address,void* buffer,size_t n) override {
+            if (address==base && writes>0 && !replacement.empty()) {
+                std::copy(replacement.begin(),replacement.end(),bytes.begin());
+                replacement.clear();
+            }
+            return TargetBuffer::read(address,buffer,n);
+        }
+    };
     bool changedSizes=true;
     for (bool grow:{false,true}) {
-        TargetBuffer changed;
+        ChangingSource changed;
         changed.description.host=changed.description.program=*parseElfTarget(elf(EM_AARCH64,true));
         const auto source=relocationWords({grow ? 0xd503201fu : 0x10000000u});
+        changed.replacement=relocationWords({grow ? 0x10000000u : 0xd503201fu});
         std::copy(source.begin(),source.end(),changed.bytes.begin());
-        const auto saved=changed.bytes;AutoAssembler checked;
-        const std::string replacement=grow ? "00 00 00 10" : "1F 20 03 D5";
-        auto result=checked.execute(changed,"[ENABLE]\nlabel(after)\n0x10000:\ndb "+replacement+
-            "\n0x11000:\ndd after\nreassemble(0x10000)\nafter:\ndb AB CD\n");
+        const std::vector<uint8_t> destination(changed.bytes.begin()+0x1000,changed.bytes.begin()+0x1020);
+        AutoAssembler checked;
+        auto result=checked.execute(changed,"[ENABLE]\nlabel(after)\n0x11000:\ndd after\nreassemble(0x10000)\nafter:\ndb AB CD\n");
         changedSizes &= !result.success && result.error.find("size changed after label sizing")!=std::string::npos &&
-            changed.bytes==saved && changed.writes==4;
+            std::equal(destination.begin(),destination.end(),changed.bytes.begin()+0x1000);
     }
-    check(changedSizes,"AArch64 REASSEMBLE growth and shrinkage after sizing cannot corrupt forward label references; earlier source/data writes roll back");
-    TargetBuffer changedX86;
+    check(changedSizes,"AArch64 REASSEMBLE growth and shrinkage after sizing cannot corrupt forward label references; earlier data writes roll back");
+    ChangingSource changedX86;
     changedX86.description.host=changedX86.description.program=*parseElfTarget(elf(EM_X86_64,true));
-    changedX86.bytes[0]=0x90;const auto savedX86=changedX86.bytes;AutoAssembler checkedX86;
-    auto changedX86Result=checkedX86.execute(changedX86,"[ENABLE]\nlabel(after)\n0x10000:\ndb B8 00 00 00 00\n0x11000:\nreassemble(0x10000)\nafter:\ndb AB CD\n");
-    check(!changedX86Result.success && changedX86Result.error.find("size changed after label sizing")!=std::string::npos && changedX86.bytes==savedX86,
-          "The REASSEMBLE size-change guard also protects variable-length x86 instructions and restores the modified source");
-    TargetBuffer sameSize;
-    sameSize.description.host=sameSize.description.program=*parseElfTarget(elf(EM_AARCH64,true));
-    const auto nop=relocationWords({0xd503201f});std::copy(nop.begin(),nop.end(),sameSize.bytes.begin());
-    const auto savedSame=sameSize.bytes;AutoAssembler checkedSame;
-    auto sameResult=checkedSame.execute(sameSize,"[ENABLE]\nlabel(after)\n0x10000:\ndb C0 03 5F D6\n0x11000:\nreassemble(0x10000)\nafter:\ndb AB CD\n");
-    bool sameOk=sameResult.success && relocationWord(sameSize.bytes,0x1000)==0xd65f03c0 && sameSize.bytes[0x1004]==0xab;
-    auto sameDisable=checkedSame.disable(sameSize,"[DISABLE]",sameResult.disableInfo);
-    check(sameOk && sameDisable.success && sameSize.bytes==savedSame,
-          "REASSEMBLE retains same-size source updates without invalidating following labels and disables cleanly");
+    changedX86.bytes[0]=0x90;changedX86.replacement={0xb8,0,0,0,0};
+    const std::vector<uint8_t> destinationX86(changedX86.bytes.begin()+0x1000,changedX86.bytes.begin()+0x1010);
+    AutoAssembler checkedX86;
+    auto changedX86Result=checkedX86.execute(changedX86,"[ENABLE]\nlabel(after)\n0x11000:\ndb 90\nreassemble(0x10000)\nafter:\ndb AB CD\n");
+    check(!changedX86Result.success && changedX86Result.error.find("size changed after label sizing")!=std::string::npos &&
+          std::equal(destinationX86.begin(),destinationX86.end(),changedX86.bytes.begin()+0x1000),
+          "The REASSEMBLE size-change guard also protects variable-length x86 instructions");
+    for (bool arm:{true,false}) {
+        TargetBuffer sameSize;
+        sameSize.description.host=sameSize.description.program=*parseElfTarget(elf(arm ? EM_AARCH64 : EM_X86_64,true));
+        const auto nop=arm ? relocationWords({0xd503201f}) : std::vector<uint8_t>{0x90};
+        std::copy(nop.begin(),nop.end(),sameSize.bytes.begin());
+        const auto savedSame=sameSize.bytes;AutoAssembler checkedSame;
+        auto sameResult=checkedSame.execute(sameSize,std::string("[ENABLE]\nlabel(after)\n0x10000:\ndb ")+(arm ? "C0 03 5F D6" : "C3")+
+                                                    "\n0x11000:\nreassemble(0x10000)\nafter:\ndb AB CD\n");
+        bool sameOk=sameResult.success && std::equal(nop.begin(),nop.end(),sameSize.bytes.begin()+0x1000) &&
+                    sameSize.bytes[0x1000+nop.size()]==0xab && sameSize.bytes[0]==(arm ? 0xc0 : 0xc3);
+        auto sameDisable=checkedSame.disable(sameSize,"[DISABLE]",sameResult.disableInfo);
+        check(sameOk && sameDisable.success && sameSize.bytes==savedSame,
+              arm ? "AArch64 REASSEMBLE relocates the source from before the script's own write to it and disables cleanly"
+                  : "x86 REASSEMBLE relocates the source from before the script's own write to it and disables cleanly");
+    }
 }

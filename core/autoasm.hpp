@@ -24,7 +24,11 @@ class SymbolResolver;
 
 /// Tracks state needed to disable (undo) an auto-assembler script.
 struct DisableInfo {
-    struct Ownership {std::mutex mutex;bool complete=false;};
+    struct Ownership {std::mutex mutex;bool complete=false;
+        // Bytes restored in place of the saved originals, applied in order:
+        // originals an older script handed over when it was disabled under
+        // this one's writes, and what this script's [DISABLE] section wrote.
+        std::vector<std::pair<uintptr_t, std::vector<uint8_t>>> restoreOverrides;};
     struct AllocEntry { std::string name; uintptr_t address; size_t size;
         std::shared_ptr<std::atomic<bool>> released;
         std::shared_ptr<Ownership> owner;
@@ -51,6 +55,13 @@ struct DisableInfo {
     std::vector<Protection> protections;
     std::shared_ptr<os::NativeMemoryImage> image;
     std::shared_ptr<Ownership> ownership;
+    // Allocation and label addresses of the [ENABLE] run, which the
+    // [DISABLE] section can name ("stop: dd 1").
+    std::unordered_map<std::string, uintptr_t> scriptSymbols;
+    // Set by a successful execute(): disable() runs the script's [DISABLE]
+    // section once before restoring. A failed activation's leftovers and a
+    // retried cleanup only restore.
+    bool runDisableSection = false;
 };
 
 /// Result of auto-assembler execution.
@@ -191,8 +202,30 @@ private:
     std::expected<std::vector<uint8_t>, std::string> assembleTarget(const std::string& code, uintptr_t address);
     struct NopPlan {std::vector<uint8_t> encoding;size_t size;};
     std::expected<NopPlan,std::string> planNops(uintptr_t address,size_t count);
-    std::expected<std::vector<uint8_t>, std::string> reassembleTarget(ProcessHandle& proc,uintptr_t source,uintptr_t destination);
+    // before: this run's saved originals, laid over the live bytes so the
+    // source is read as it was before the script wrote to it.
+    std::expected<std::vector<uint8_t>, std::string> reassembleTarget(ProcessHandle& proc,uintptr_t source,uintptr_t destination,
+        const std::vector<DisableInfo::OriginalBytes>* before = nullptr);
     AutoAsmResult cleanup(ProcessHandle& proc, const DisableInfo& info);
+    /// Assemble one section. With undo, it is the [DISABLE] section of that
+    /// activation: names from it resolve, it allocates nothing new, and its
+    /// writes are kept unless it fails.
+    AutoAsmResult run(ProcessHandle& proc, std::string code, const DisableInfo* undo);
+    std::expected<void, std::string> runDisableSection(ProcessHandle& proc, const std::string& script,
+        const DisableInfo& info, DisableInfo& saved, std::vector<std::string>& log);
+
+    // Scripts enabled through this assembler whose writes are not undone yet,
+    // oldest first. Disabling one hands its original bytes under a newer
+    // one's data writes to that newer one instead of writing them back.
+    struct LivePatch {
+        std::weak_ptr<DisableInfo::Ownership> owner;
+        std::weak_ptr<os::NativeMemoryImage> image;
+        pid_t pid = 0;
+        std::vector<std::pair<uintptr_t, size_t>> ranges;
+    };
+    std::vector<LivePatch> livePatches_;
+    struct Handover { std::shared_ptr<DisableInfo::Ownership> to; uintptr_t address; std::vector<uint8_t> bytes; };
+    std::vector<Handover> planHandovers(DisableInfo& info, pid_t pid);
 
     /// Preprocess conditionals and embedded Lua/C in source order, then anonymous
     /// labels, preprocessor hooks, struct definitions and postprocessor hooks. Both
@@ -200,7 +233,7 @@ private:
     /// a script that passes check() preprocesses byte-for-byte the same at
     /// execute() time.
     bool preprocessScript(std::string& code, std::vector<std::string>& log,
-                          std::string& error);
+                          std::string& error, const std::set<std::string>& knownNames = {});
 
     bool expandLuaBlocks(std::string& code, std::vector<std::string>& log,
                          std::string& error);

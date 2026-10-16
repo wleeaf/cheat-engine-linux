@@ -105,12 +105,15 @@ public:
     std::expected<void, std::string> closeHandle(int32_t handle);
 
     /// CMD_VIRTUALQUERYEX — region containing baseAddress.
-    /// Returns std::nullopt when the server reports `result==0`.
+    /// Returns std::nullopt when the server reports `result==0`. An upstream
+    /// server answers an address between mappings with result 1, protection
+    /// PAGE_NOACCESS and type 0, sized up to the next mapping.
     std::expected<std::optional<CeRegion>, std::string>
     virtualQueryEx(int32_t handle, uint64_t baseAddress);
 
     /// CMD_VIRTUALQUERYEXFULL — full region list.
-    /// `flags` mirrors upstream: bit 0 = include image regions, bit 1 = sub-regions.
+    /// `flags` mirrors upstream: 1 = VQE_PAGEDONLY (only resident pages),
+    /// 2 = VQE_DIRTYONLY (only dirty regions), 4 = VQE_NOSHARED (no shared mappings).
     std::expected<std::vector<CeRegion>, std::string>
     virtualQueryExFull(int32_t handle, uint8_t flags = 0);
 

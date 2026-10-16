@@ -16,6 +16,8 @@
 #include <filesystem>
 #include <regex>
 #include <string_view>
+#include <thread>
+#include <chrono>
 #include <utility>
 #include <vector>
 
@@ -393,21 +395,40 @@ static bool isSimpleLabelDefinition(const std::string& line) {
 // so mirror the anonymous-label mechanism: emit label() for every named
 // definition that is not already declared (via alloc/label/define/registersymbol/
 // globalalloc). Prepending these declarations makes the label known on pass 1.
-static void autoDeclareNamedLabels(std::string& code, const std::unordered_map<std::string,uintptr_t>& symbols,
-                                  const std::vector<ModuleInfo>& modules) {
+// known(name, jumpTarget) says a name is an address from outside the script
+// (a registered symbol, a module, a target function) rather than a label.
+// jumpTarget: an instruction or data line uses the bare name ("jmp exit"), as
+// code uses a local label; a directive ("alloc(newmem,$1000,UpdateHealth)")
+// or an offset ("UpdateHealth+5") uses an address.
+static void autoDeclareNamedLabels(std::string& code, const std::function<bool(const std::string&, bool)>& known) {
     auto firstArg = [](const std::string& line, size_t open) -> std::string {
         size_t end = line.find_first_of(",)", open);
         return trim(line.substr(open, end == std::string::npos ? std::string::npos : end - open));
     };
-    std::set<std::string> declared, defined;
-    for (const auto& [name,address] : symbols) declared.insert(name);
-    for (const auto& module : modules) if (!module.name.empty()) declared.insert(module.name);
+    std::set<std::string> declared, defined, jumpTargets;
     std::vector<std::string> order;   // preserve definition order for stable output
     std::istringstream ss(code);
     std::string raw;
     while (std::getline(ss, raw)) {
         std::string line = trim(raw);
         std::string upper = toUpper(line);
+        auto identifierEnd = [&](size_t at) {
+            while (at < line.size() && (std::isalnum(static_cast<unsigned char>(line[at])) || line[at] == '_')) ++at;
+            return at;
+        };
+        const size_t head = identifierEnd(0);
+        const bool directive = head && line.find_first_not_of(" \t", head) != std::string::npos &&
+                               line[line.find_first_not_of(" \t", head)] == '(';
+        const bool definition = isSimpleLabelDefinition(line) && head == line.size() - 1;
+        for (size_t at = 0; !directive && !definition && at < line.size();) {
+            if (!std::isalpha(static_cast<unsigned char>(line[at])) && line[at] != '_') { ++at; continue; }
+            const size_t end = identifierEnd(at);
+            const size_t next = line.find_first_not_of(" \t", end);
+            const bool offset = (next != std::string::npos && (line[next] == '+' || line[next] == '-')) ||
+                                (at && (line[at - 1] == '+' || line[at - 1] == '-'));
+            if (!offset) jumpTargets.insert(line.substr(at, end - at));
+            at = end;
+        }
         if (startsWith(upper, "ALLOC("))               declared.insert(firstArg(line, 6));
         else if (startsWith(upper, "GLOBALALLOC("))     declared.insert(firstArg(line, 12));
         else if (startsWith(upper, "KALLOC("))          declared.insert(firstArg(line, 7));
@@ -448,7 +469,7 @@ static void autoDeclareNamedLabels(std::string& code, const std::unordered_map<s
     }
     std::string preamble;
     for (const auto& name : order)
-        if (!declared.count(name)) preamble += "label(" + name + ")\n";
+        if (!declared.count(name) && !known(name, jumpTargets.count(name) != 0)) preamble += "label(" + name + ")\n";
     if (!preamble.empty()) code = preamble + code;
 }
 
@@ -646,6 +667,24 @@ static std::string stripBraceComments(const std::string& script) {
         ++i;
     }
     return out;
+}
+
+// The next "{$" at or after from that opens a directive. One in a // comment
+// or a quoted string ("// {$lua} was here", db '{$if}') is text.
+static size_t findDirective(const std::string& code, size_t from) {
+    char quote = 0;
+    for (size_t i = from; i + 1 < code.size(); ++i) {
+        const char c = code[i];
+        if (c == '\n') quote = 0;
+        else if (quote) { if (c == quote) quote = 0; }
+        else if (c == '"' || c == '\'') quote = c;
+        else if (c == '/' && code[i + 1] == '/') {
+            i = code.find('\n', i);
+            if (i == std::string::npos) return i;
+            --i;   // the loop steps onto the line break, which ends any quote
+        } else if (c == '{' && code[i + 1] == '$') return i;
+    }
+    return std::string::npos;
 }
 
 // "[ENABLE]", "[DISABLE] // comment" and the like: the upper-case header, or
@@ -1719,7 +1758,7 @@ void AutoAssembler::clearPostprocessorHooks() {
 // injection time and emit wrong/garbage code. Both call this single chain.
 bool AutoAssembler::preprocessScript(std::string& code,
                                      std::vector<std::string>& log,
-                                     std::string& error) {
+                                     std::string& error, const std::set<std::string>& knownNames) {
     if (!expandConditionalBlocks(code, log, error))
         return false;
     if (!resolveAnonymousLabels(code, log, error))
@@ -1727,7 +1766,16 @@ bool AutoAssembler::preprocessScript(std::string& code,
     // Auto-declare named labels so forward "jmp skip … skip:" works without an
     // explicit label(skip), matching CE. Runs after anonymous-label resolution so
     // the generated __anon_N labels are already declared and skipped.
-    autoDeclareNamedLabels(code, globalSymbols_, targetModules_);
+    autoDeclareNamedLabels(code, [&](const std::string& name, bool jumpTarget) {
+        if (globalSymbols_.contains(name) || knownNames.contains(name)) return true;
+        for (const auto& module : targetModules_)
+            if (module.name == name) return true;
+        // As in Cheat Engine, which tries a "name:" as a symbol before making
+        // it a label, "UpdateHealth:" is the target's function. Not for a name
+        // the code jumps to: "jmp exit ... exit:" keeps a local label rather
+        // than patching libc's exit.
+        return !jumpTarget && processSymbol(name) != 0;
+    });
 
     if (!runScriptHooks(preprocessorHooks_, code, log, error, "preprocessor"))
         return false;
@@ -1786,12 +1834,21 @@ std::expected<AutoAssembler::NopPlan,std::string> AutoAssembler::planNops(uintpt
 }
 
 std::expected<std::vector<uint8_t>,std::string> AutoAssembler::reassembleTarget(
-    ProcessHandle& proc,uintptr_t source,uintptr_t destination) {
+    ProcessHandle& proc,uintptr_t source,uintptr_t destination,const std::vector<DisableInfo::OriginalBytes>* before) {
     const auto machine=machineForCode(source);
     const bool a64=machine.architecture==CpuArchitecture::Arm64;
     uint8_t buffer[16];const size_t size=a64 ? 4 : sizeof(buffer);
     auto read=proc.read(source,buffer,size);
     if (!read || !*read || *read>size) return std::unexpected("REASSEMBLE source read failed");
+    // As readmem and assert do: relocate the instruction the script found, not
+    // its own hook written over it (the earliest write's original wins).
+    if (before)
+        for (auto patch=before->rbegin();patch!=before->rend();++patch) {
+            if (patch->bytes.empty() || patch->bytes.size()-1>UINTPTR_MAX-patch->address) continue;
+            const uintptr_t last=source+(*read-1),patchLast=patch->address+(patch->bytes.size()-1);
+            const uintptr_t lo=std::max(source,patch->address),hi=std::min(last,patchLast);
+            if (lo<=hi) std::copy_n(patch->bytes.data()+(lo-patch->address),hi-lo+1,buffer+(lo-source));
+        }
     auto architecture=disassemblerArchFor(machine);
     if (!architecture) return std::unexpected(architecture.error());
     Disassembler decoder(*architecture);
@@ -1817,35 +1874,167 @@ std::expected<std::vector<uint8_t>,std::string> AutoAssembler::reassembleTarget(
     return assembleTarget(decoded[0].mnemonic+" "+operands,destination);
 }
 
+static bool recordReleased(const auto& record) {
+    return record.allocationReleased && record.allocationReleased->load();
+}
+
+// Make bytes the value restored at address wherever saved originals cover it.
+static void overrideOriginals(std::vector<DisableInfo::OriginalBytes>& originals, uintptr_t address,
+                              const std::vector<uint8_t>& bytes) {
+    if (bytes.empty() || bytes.size() - 1 > UINTPTR_MAX - address) return;
+    const uintptr_t last = address + (bytes.size() - 1);
+    for (auto& patch : originals) {
+        if (patch.bytes.empty() || patch.bytes.size() - 1 > UINTPTR_MAX - patch.address) continue;
+        const uintptr_t lo = std::max(address, patch.address);
+        const uintptr_t hi = std::min(last, patch.address + (patch.bytes.size() - 1));
+        if (lo <= hi) std::copy_n(bytes.data() + (lo - address), hi - lo + 1, patch.bytes.data() + (lo - patch.address));
+    }
+}
+
+// Remove [first, last] from every saved range: nothing restores those bytes.
+static void dropRange(std::vector<DisableInfo::OriginalBytes>& originals, uintptr_t first, uintptr_t last) {
+    std::vector<DisableInfo::OriginalBytes> kept;
+    kept.reserve(originals.size());
+    for (auto& patch : originals) {
+        const uintptr_t end = patch.bytes.empty() ? patch.address : patch.address + (patch.bytes.size() - 1);
+        if (patch.bytes.empty() || last < patch.address || first > end) { kept.push_back(std::move(patch)); continue; }
+        auto piece = [&](uintptr_t from, uintptr_t to) {
+            const size_t offset = from - patch.address, count = to - from + 1;
+            DisableInfo::OriginalBytes part{from, {patch.bytes.begin() + offset, patch.bytes.begin() + offset + count}, {},
+                                            patch.executable, patch.allocationReleased, patch.verifyOwnership};
+            if (patch.written.size() == patch.bytes.size())
+                part.written.assign(patch.written.begin() + offset, patch.written.begin() + offset + count);
+            kept.push_back(std::move(part));
+        };
+        if (first > patch.address) piece(patch.address, first - 1);
+        if (last < end) piece(last + 1, end);
+    }
+    originals = std::move(kept);
+}
+
+// Code a saved patch can be gone (a library unloaded, a JIT method freed): its
+// bytes cannot be checked or restored, and insisting on it left the record
+// impossible to disable and its cave allocated for good. Patches and
+// protections over unmapped ranges are dropped.
+static DisableInfo withoutUnmapped(ProcessHandle& proc, const DisableInfo& saved, bool& dropped) {
+    DisableInfo pruned = saved;
+    dropped = false;
+    // Gone only when nothing of it can be read and no region holds it: a
+    // handle without a region map (a stub, a test double) reads fine.
+    auto mapped = [&](uintptr_t address, size_t size) {
+        uint8_t probe[64];
+        auto read = proc.read(address, probe, std::min<size_t>(size, sizeof probe));
+        if (read && *read) return true;
+        auto region = proc.queryRegion(address);
+        return region && address >= region->base && address - region->base < region->size;
+    };
+    if (!saved.image || saved.image->pid() == proc.pid()) {
+        std::erase_if(pruned.originals, [&](const auto& patch) {
+            return !patch.bytes.empty() && patch.bytes.size() - 1 <= UINTPTR_MAX - patch.address &&
+                   !mapped(patch.address, patch.bytes.size());
+        });
+        std::erase_if(pruned.protections, [&](const auto& protection) { return !mapped(protection.address, protection.size); });
+        dropped = pruned.originals.size() != saved.originals.size();
+    }
+    return pruned;
+}
+
+// Refuse to overwrite code replaced by the target or another patch owner.
+// Partial writes/undo and overlapping script lines may leave any byte in one
+// of this operation's saved states, so accept those states individually.
+// Ordinary data can legitimately change while a script is enabled.
+static std::string codeOwnershipConflict(ProcessHandle& proc, const DisableInfo& info) {
+    for (const auto& patch : info.originals) {
+        if (!patch.verifyOwnership || recordReleased(patch) || patch.written.size() != patch.bytes.size()) continue;
+        for (size_t offset = 0; offset < patch.bytes.size();) {
+            const size_t count = std::min<size_t>(65536, patch.bytes.size() - offset);
+            const uintptr_t address = patch.address + offset;
+            std::vector<uint8_t> actual(count), accepted(count);
+            auto read = info.image ? info.image->read(address, actual.data(), count) : proc.read(address, actual.data(), count);
+            if (!read || *read != count) return "Cannot inspect saved code ownership at " + formatHexLiteral(address);
+            for (const auto& state : info.originals) {
+                if (recordReleased(state) || state.bytes.empty()) continue;
+                for (size_t i = 0; i < count; ++i) {
+                    const uintptr_t at = address + i;
+                    if (at < state.address || at - state.address >= state.bytes.size()) continue;
+                    const size_t index = at - state.address;
+                    if (actual[i] == state.bytes[index] ||
+                        (index < state.written.size() && actual[i] == state.written[index])) accepted[i] = 1;
+                }
+            }
+            const auto conflict = std::find(accepted.begin(), accepted.end(), uint8_t(0));
+            if (conflict != accepted.end())
+                return "Code ownership changed at " + formatHexLiteral(address + (conflict - accepted.begin())) + "; saved undo retained";
+            offset += count;
+        }
+    }
+    return {};
+}
+
+// Data this script wrote that a newer, still enabled script of this assembler
+// wrote again: restoring it now would undo that script's write, and that
+// script would later restore this one's value. The newer script restores this
+// one's original instead; the ranges leave info. Code is not handed over: a
+// hook over a hook relocated the older jump, so its overlap stays refused.
+std::vector<AutoAssembler::Handover> AutoAssembler::planHandovers(DisableInfo& info, pid_t pid) {
+    std::vector<Handover> handovers;
+    std::erase_if(livePatches_, [](const LivePatch& live) { auto owner = live.owner.lock(); return !owner || owner->complete; });
+    if (!info.ownership) return handovers;
+    auto self = std::find_if(livePatches_.begin(), livePatches_.end(),
+                             [&](const LivePatch& live) { return live.owner.lock() == info.ownership; });
+    if (self == livePatches_.end()) return handovers;
+    std::vector<std::pair<std::shared_ptr<DisableInfo::Ownership>, const LivePatch*>> newer;
+    for (auto live = std::next(self); live != livePatches_.end(); ++live) {
+        if (live->pid != pid) continue;
+        if (auto image = live->image.lock(); image && !image->check()) continue;
+        if (auto owner = live->owner.lock()) newer.push_back({std::move(owner), &*live});
+    }
+    if (newer.empty()) return handovers;
+    // What this script restores at [first, last]: the earliest write's original.
+    auto originalAt = [&](uintptr_t first, uintptr_t last) {
+        std::vector<uint8_t> bytes(last - first + 1);
+        for (auto patch = info.originals.rbegin(); patch != info.originals.rend(); ++patch) {
+            if (patch->bytes.empty() || recordReleased(*patch)) continue;
+            const uintptr_t lo = std::max(first, patch->address);
+            const uintptr_t hi = std::min(last, patch->address + (patch->bytes.size() - 1));
+            if (lo <= hi) std::copy_n(patch->bytes.data() + (lo - patch->address), hi - lo + 1, bytes.data() + (lo - first));
+        }
+        return bytes;
+    };
+    std::vector<std::pair<uintptr_t, uintptr_t>> claimed;
+    for (const auto& patch : info.originals) {
+        // Writes inside allocations end with them; code keeps its ownership check.
+        if (patch.verifyOwnership || patch.allocationReleased || patch.bytes.empty()) continue;
+        std::vector<std::pair<uintptr_t, uintptr_t>> open{{patch.address, patch.address + (patch.bytes.size() - 1)}};
+        // The next newer script over a byte holds the value this one wrote there.
+        for (const auto& [owner, live] : newer) {
+            for (const auto& [address, size] : live->ranges) {
+                if (!size) continue;
+                std::vector<std::pair<uintptr_t, uintptr_t>> rest;
+                for (const auto& [first, last] : open) {
+                    const uintptr_t lo = std::max(first, address), hi = std::min(last, address + (size - 1));
+                    if (lo > hi) { rest.push_back({first, last}); continue; }
+                    handovers.push_back({owner, lo, originalAt(lo, hi)});
+                    claimed.push_back({lo, hi});
+                    if (first < lo) rest.push_back({first, lo - 1});
+                    if (hi < last) rest.push_back({hi + 1, last});
+                }
+                open = std::move(rest);
+            }
+        }
+    }
+    for (const auto& [first, last] : claimed) dropRange(info.originals, first, last);
+    return handovers;
+}
+
 AutoAsmResult AutoAssembler::cleanup(ProcessHandle& proc, const DisableInfo& saved) {
     AutoAsmResult result;
     result.disableInfo = saved;
-    // Code the script patched can be gone (a library unloaded, a JIT method
-    // freed): its bytes cannot be checked or restored, and insisting on it
-    // left the record impossible to disable and its cave allocated for good.
     // Patches and protections over unmapped ranges are dropped; the rest of
     // the cleanup (freeing allocations) goes on.
-    DisableInfo pruned = saved;
-    {
-        // Gone only when nothing of it can be read and no region holds it: a
-        // handle without a region map (a stub, a test double) reads fine.
-        auto mapped = [&](uintptr_t address, size_t size) {
-            uint8_t probe[64];
-            auto read = proc.read(address, probe, std::min<size_t>(size, sizeof probe));
-            if (read && *read) return true;
-            auto region = proc.queryRegion(address);
-            return region && address >= region->base && address - region->base < region->size;
-        };
-        if (!saved.image || saved.image->pid() == proc.pid()) {
-            std::erase_if(pruned.originals, [&](const auto& patch) {
-                return !patch.bytes.empty() && patch.bytes.size() - 1 <= UINTPTR_MAX - patch.address &&
-                       !mapped(patch.address, patch.bytes.size());
-            });
-            std::erase_if(pruned.protections, [&](const auto& protection) { return !mapped(protection.address, protection.size); });
-            if (pruned.originals.size() != saved.originals.size())
-                result.log.push_back("Patched code is no longer mapped; its original bytes were not restored");
-        }
-    }
+    bool dropped = false;
+    DisableInfo pruned = withoutUnmapped(proc, saved, dropped);
+    if (dropped) result.log.push_back("Patched code is no longer mapped; its original bytes were not restored");
     const DisableInfo& info = pruned;
     auto fail = [&](const std::string& error) {
         if (!result.error.empty()) result.error += "\n";
@@ -1856,6 +2045,7 @@ AutoAsmResult AutoAssembler::cleanup(ProcessHandle& proc, const DisableInfo& sav
         ownership=std::unique_lock(info.ownership->mutex,std::try_to_lock);
         if(!ownership.owns_lock()) {fail("This undo is already in progress");return result;}
         if(info.ownership->complete) {result.disableInfo={};result.success=true;return result;}
+        for (const auto& [address, bytes] : info.ownership->restoreOverrides) overrideOriginals(pruned.originals, address, bytes);
     }
     auto eraseSymbols=[&] {
         for(const auto& [name,address]:info.symbols) {
@@ -1882,59 +2072,25 @@ AutoAsmResult AutoAssembler::cleanup(ProcessHandle& proc, const DisableInfo& sav
     auto busy=[&](uintptr_t address,size_t size) {
         return os::memorySyscallService().threadStorageBusy(proc.pid(),address,size);
     };
-    auto released = [](const auto& record) {
-        return record.allocationReleased && record.allocationReleased->load();
-    };
     for (const auto& allocation : info.allocs) if ((!allocation.released || !allocation.released->load()) && busy(allocation.address,allocation.size)) {
         fail("Injected thread is still running; retain allocations and retry cleanup after it exits"); return result;
     }
-    for (const auto& patch : info.originals) if (!released(patch) && busy(patch.address,patch.bytes.size())) {
+    for (const auto& patch : info.originals) if (!recordReleased(patch) && busy(patch.address,patch.bytes.size())) {
         fail("Injected thread is still running; retain original bytes and retry cleanup after it exits"); return result;
     }
-    for (const auto& protection : info.protections) if (!released(protection) && busy(protection.address,protection.size)) {
+    for (const auto& protection : info.protections) if (!recordReleased(protection) && busy(protection.address,protection.size)) {
         fail("Injected thread is still running; retain page protections and retry cleanup after it exits"); return result;
     }
     for (const auto& patch : info.originals)
         if (!patch.bytes.empty() && patch.bytes.size() - 1 > UINTPTR_MAX - patch.address) {
             fail("Restoration range overflows the address space"); return result;
         }
-    // Refuse to overwrite code replaced by the target or another patch owner.
-    // Partial writes/undo and overlapping script lines may leave any byte in
-    // one of this operation's saved states, so accept those states individually.
-    // Ordinary data can legitimately change while a script is enabled.
-    for (const auto& patch : info.originals) {
-        if (!patch.verifyOwnership || released(patch) || patch.written.size() != patch.bytes.size()) continue;
-        for (size_t offset = 0; offset < patch.bytes.size();) {
-            const size_t count = std::min<size_t>(65536, patch.bytes.size() - offset);
-            const uintptr_t address = patch.address + offset;
-            std::vector<uint8_t> actual(count), accepted(count);
-            auto read = info.image ? info.image->read(address, actual.data(), count) : proc.read(address, actual.data(), count);
-            if (!read || *read != count) {
-                fail("Cannot inspect saved code ownership at " + formatHexLiteral(address));
-                return result;
-            }
-            for (const auto& state : info.originals) {
-                if (released(state) || state.bytes.empty()) continue;
-                for (size_t i = 0; i < count; ++i) {
-                    const uintptr_t at = address + i;
-                    if (at < state.address || at - state.address >= state.bytes.size()) continue;
-                    const size_t index = at - state.address;
-                    if (actual[i] == state.bytes[index] ||
-                        (index < state.written.size() && actual[i] == state.written[index])) accepted[i] = 1;
-                }
-            }
-            const auto conflict = std::find(accepted.begin(), accepted.end(), uint8_t(0));
-            if (conflict != accepted.end()) {
-                fail("Code ownership changed at " + formatHexLiteral(address + (conflict - accepted.begin())) + "; saved undo retained");
-                return result;
-            }
-            offset += count;
-        }
-    }
+    if (auto conflict = codeOwnershipConflict(proc, info); !conflict.empty()) { fail(conflict); return result; }
+    auto handovers = planHandovers(pruned, proc.pid());
     // Verify the final restored image; later saved ranges can overlap earlier ones.
     std::vector<std::pair<uintptr_t, uintptr_t>> ranges;
     for (const auto& patch : info.originals) {
-        if (patch.bytes.empty() || released(patch)) continue;
+        if (patch.bytes.empty() || recordReleased(patch)) continue;
         if (patch.bytes.size() - 1 > UINTPTR_MAX - patch.address) { fail("Restoration range overflows the address space"); return result; }
         ranges.push_back({patch.address, patch.address + patch.bytes.size() - 1});
     }
@@ -1954,7 +2110,7 @@ AutoAsmResult AutoAssembler::cleanup(ProcessHandle& proc, const DisableInfo& sav
                 std::vector<uint8_t> wanted(count), actual(count);
                 uintptr_t end = address + count - 1;
                 for (auto patch = info.originals.rbegin(); patch != info.originals.rend(); ++patch) {
-                    if (patch->bytes.empty() || released(*patch)) continue;
+                    if (patch->bytes.empty() || recordReleased(*patch)) continue;
                     uintptr_t patchEnd = patch->address + patch->bytes.size() - 1;
                     if (patchEnd < address || patch->address > end) continue;
                     uintptr_t from = std::max(address, patch->address), to = std::min(end, patchEnd);
@@ -1972,7 +2128,7 @@ AutoAsmResult AutoAssembler::cleanup(ProcessHandle& proc, const DisableInfo& sav
     // whose final original bytes are already correct and possibly read-only.
     if (firstMismatch()) {
         for (auto it = info.originals.rbegin(); it != info.originals.rend(); ++it) {
-            if(released(*it)) continue;
+            if(recordReleased(*it)) continue;
             const auto region=proc.queryRegion(it->address);
             auto written = info.image ? info.image->write(it->address,it->bytes,it->executable) : region && (region->protection & MemProt::Exec)
                 ? proc.writeCode(it->address,it->bytes.data(),it->bytes.size())
@@ -1985,11 +2141,17 @@ AutoAsmResult AutoAssembler::cleanup(ProcessHandle& proc, const DisableInfo& sav
     }
     if (!result.error.empty()) return result; // Keep allocations and symbols alive for retry.
     for (auto it = info.protections.rbegin(); it != info.protections.rend(); ++it) {
-        if(released(*it)) continue;
+        if(recordReleased(*it)) continue;
         auto restored = info.image ? info.image->protect(it->address,it->size,it->protection) : proc.protect(it->address, it->size, it->protection);
         if (!restored) fail("Cannot restore page protection at " + formatHexLiteral(it->address));
     }
     if (!result.error.empty()) return result;
+    // Restored: the newer scripts now hold the originals under their writes.
+    for (auto& handover : handovers) {
+        std::lock_guard lock(handover.to->mutex);
+        handover.to->restoreOverrides.emplace_back(handover.address, std::move(handover.bytes));
+    }
+    if (!handovers.empty()) result.log.push_back("Left bytes that a newer enabled script wrote over; it restores the originals");
     result.disableInfo.originals.clear(); result.disableInfo.protections.clear();
     std::vector<DisableInfo::AllocEntry> pending;
     for (const auto& a : info.allocs) {
@@ -2011,19 +2173,41 @@ AutoAsmResult AutoAssembler::cleanup(ProcessHandle& proc, const DisableInfo& sav
 }
 
 AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& script) {
+    auto enableCode = extractSection(script, "ENABLE");
+    // No sections: the entire script is the enable part. An empty [ENABLE]
+    // (with a [DISABLE]) enables nothing; it must not run the whole script.
+    if (!hasSectionHeaders(stripBraceComments(script))) enableCode = script;
+    return run(proc, std::move(enableCode), nullptr);
+}
+
+AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, const DisableInfo* undo) {
     AutoAsmResult result;
     result.success = false;
     // A failed target capture must not leave the previous target's modules
     // visible to subsequent resolution or syntax checking.
     targetModules_.clear();
     result.disableInfo.ownership=std::make_shared<DisableInfo::Ownership>();
-    auto image=os::pinNativeMemoryImage(proc);
-    if(!image) {result.error="Cannot pin original address space: "+image.error().message();return result;}
-    result.disableInfo.image=*image;
+    if (undo && undo->image) result.disableInfo.image = undo->image;   // the address space it undoes
+    else {
+        auto image=os::pinNativeMemoryImage(proc);
+        if(!image) {result.error="Cannot pin original address space: "+image.error().message();return result;}
+        result.disableInfo.image=*image;
+    }
 
+    // globalalloc blocks this run maps. A rollback frees them (with the rest
+    // of its allocations) and forgets the name; a success keeps them.
+    struct NewGlobalBlock { std::string name; uintptr_t address; std::optional<DisableInfo::AllocEntry> previous; bool wasGlobal; };
+    std::vector<NewGlobalBlock> newGlobalBlocks;
     auto rollback = [&]() -> AutoAsmResult {
         if (result.success) return result;
         auto restored = cleanup(proc, result.disableInfo);
+        for (const auto& block : newGlobalBlocks) {
+            // Not freed: the remaining undo still holds it and frees it later.
+            if (std::any_of(restored.disableInfo.allocs.begin(), restored.disableInfo.allocs.end(),
+                            [&](const auto& allocation) { return allocation.address == block.address; })) continue;
+            if (block.previous && !knownAllocations_.contains(block.name)) knownAllocations_[block.name] = *block.previous;
+            if (!block.wasGlobal) globalAllocations_.erase(block.name);
+        }
         if (!restored.success) {
             result.error += "\nRollback incomplete: " + restored.error;
             result.disableInfo = std::move(restored.disableInfo);
@@ -2049,13 +2233,20 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
     // persistent map kept unloaded/previous-image names and replaced symbol
     // ownership whenever a registered name happened to match a module.
 
-    // Extract ENABLE section
-    auto enableCode = extractSection(script, "ENABLE");
-    // No sections: the entire script is the enable part. An empty [ENABLE]
-    // (with a [DISABLE]) enables nothing; it must not run the whole script.
-    if (!hasSectionHeaders(stripBraceComments(script))) enableCode = script;
+    // A [DISABLE] section names what its [ENABLE] run allocated, labelled and
+    // registered ("INJECT: db ...", "stop: dd 1"), as in Cheat Engine. The
+    // activation's own values win over a same-named symbol another script
+    // registered since.
+    std::vector<std::pair<std::string, uintptr_t>> undoNames;
+    std::set<std::string> knownNames;
+    if (undo) {
+        for (const auto& [name, address] : undo->symbols) undoNames.push_back({name, address});
+        for (const auto& [name, address] : undo->scriptSymbols) undoNames.push_back({name, address});
+        for (const auto& allocation : undo->allocs) undoNames.push_back({allocation.name, allocation.address});
+        for (const auto& [name, address] : undoNames) knownNames.insert(name);
+    }
 
-    if (!preprocessScript(enableCode, result.log, result.error))
+    if (!preprocessScript(enableCode, result.log, result.error, knownNames))
         return rollback();
 
     // ── Phase 1: Parse directives ──
@@ -2071,9 +2262,32 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
         if (!parseLine(line, allocs, labels, defines, registeredSymbols, asmLines, result.log, &proc, result.error))
             return rollback();
     }
+    // After parsing, so the section's own declarations of a name come first.
+    for (const auto& undoName : undoNames) {
+        const std::string& name = undoName.first;
+        const uintptr_t address = undoName.second;
+        const bool declared = address == 0 ||
+            std::any_of(allocs.begin(), allocs.end(), [&](const Alloc& a) { return a.name == name; }) ||
+            std::any_of(labels.begin(), labels.end(), [&](const Label& l) { return l.name == name; }) ||
+            std::any_of(defines.begin(), defines.end(), [&](const Define& d) { return d.name == name; });
+        if (!declared) defines.push_back({name, formatHexLiteral(address)});
+    }
 
     // ── Phase 2: Allocate memory ──
     for (auto& a : allocs) {
+        // alloc() in a [DISABLE] section names the activation's memory, which
+        // its undo frees: nothing new is mapped while disabling.
+        if (undo && !a.global) {
+            auto prior = std::find_if(undo->allocs.begin(), undo->allocs.end(),
+                                      [&](const auto& allocation) { return allocation.name == a.name; });
+            auto named = undo->scriptSymbols.find(a.name);
+            a.address = prior != undo->allocs.end() ? prior->address : named != undo->scriptSymbols.end() ? named->second : 0;
+            if (!a.address) {
+                result.error = "[DISABLE] can only name memory that [ENABLE] allocated: " + a.name;
+                return rollback();
+            }
+            continue;
+        }
         // A globalalloc whose memory already exists (an earlier globalalloc of
         // this name, still registered) shares it.
         if (a.global) {
@@ -2126,11 +2340,13 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             // (like CE's global alloc names), so distinct scripts must use distinct
             // names; the address-matched erases below keep disable() from evicting a
             // different script's same-named entry.
-            knownAllocations_[a.name] = result.disableInfo.allocs.back();
             if (a.global) {
-                result.disableInfo.allocs.pop_back();   // never freed by a disable
+                std::optional<DisableInfo::AllocEntry> previous;
+                if (auto known = knownAllocations_.find(a.name); known != knownAllocations_.end()) previous = known->second;
+                newGlobalBlocks.push_back({a.name, a.address, std::move(previous), globalAllocations_.contains(a.name)});
                 globalAllocations_.insert(a.name);
             }
+            knownAllocations_[a.name] = result.disableInfo.allocs.back();
             result.log.push_back("Allocated " + a.name + " at 0x" +
                 ([&]{ char b[32]; snprintf(b, 32, "%lx", a.address); return std::string(b); })());
         } else {
@@ -2183,6 +2399,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
         int timeoutMs = 5000;
     };
     std::vector<DeferredThread> deferredThreads;
+    std::vector<std::string> deferredDeallocs, deferredUnregisters;
 
     auto allocationRelease = [&](uintptr_t address, size_t size) -> std::shared_ptr<std::atomic<bool>> {
         auto contains = [&](const auto& allocation) {
@@ -2223,21 +2440,41 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
         }
         return true;
     };
+    // A globalalloc block is shared code and data that other enabled scripts
+    // may use: writes into it are never undone (and a new block that a
+    // rollback frees needs no restoring either).
+    auto inGlobalBlock = [&](uintptr_t address, size_t size) {
+        for (const auto& name : globalAllocations_) {
+            auto known = knownAllocations_.find(name);
+            if (known != knownAllocations_.end() && address >= known->second.address &&
+                address - known->second.address < known->second.size &&
+                size <= known->second.size - (address - known->second.address)) return true;
+        }
+        return false;
+    };
     auto patchMemory = [&](uintptr_t addr, const std::vector<uint8_t>& bytes, bool mutableData = false) -> bool {
         if (!bytes.empty() && bytes.size() - 1 > UINTPTR_MAX - addr) {
             result.error = "Patch range overflows the address space"; return false;
         }
         auto region = proc.queryRegion(addr);
-        std::vector<uint8_t> orig(bytes.size());
-        auto rr = result.disableInfo.image ? result.disableInfo.image->read(addr,orig.data(),orig.size()) : proc.read(addr, orig.data(), orig.size());
-        if (!rr || *rr < orig.size()) {
-            result.error = "original-byte read failed at " + formatHexLiteral(addr);
-            return false;
-        }
         const bool executable=region && (region->protection & MemProt::Exec);
-        result.disableInfo.originals.push_back({addr, std::move(orig),bytes,executable,allocationRelease(addr,bytes.size()),executable && !mutableData});
+        if (!inGlobalBlock(addr, bytes.size())) {
+            std::vector<uint8_t> orig(bytes.size());
+            auto rr = result.disableInfo.image ? result.disableInfo.image->read(addr,orig.data(),orig.size()) : proc.read(addr, orig.data(), orig.size());
+            if (!rr || *rr < orig.size()) {
+                result.error = "original-byte read failed at " + formatHexLiteral(addr);
+                return false;
+            }
+            result.disableInfo.originals.push_back({addr, std::move(orig),bytes,executable,allocationRelease(addr,bytes.size()),executable && !mutableData});
+        }
         auto writeBytes=[&] {return result.disableInfo.image ? result.disableInfo.image->write(addr,bytes,executable) : executable ? proc.writeCode(addr,bytes.data(),bytes.size()) : proc.write(addr,bytes.data(),bytes.size());};
         auto wr = writeBytes();
+        // A running injected thread owns its cave, so the pinned image refuses
+        // writes there. A data value such as the stop flag it polls is written
+        // directly, while that image is still the live address space.
+        if (!wr && wr.error() == std::errc::device_or_resource_busy && mutableData && result.disableInfo.image &&
+            result.disableInfo.image->check())
+            wr = proc.write(addr, bytes.data(), bytes.size());
         if (!wr || *wr < bytes.size()) {
             if (executable && !machineForCode(addr).isX86()) {
                 result.error="Code write failed: "+(wr ? std::string("short transfer") : wr.error().message());
@@ -2417,58 +2654,28 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             result.log.push_back("ASSERT OK: " + addrExpr);
             continue;
         }
+        // unregistersymbol and dealloc take effect once every other line has
+        // succeeded, as in Cheat Engine: a script that fails later rolls back
+        // with its memory and symbols still in place.
         if (startsWith(trimmedLine, "__UNREGISTERSYMBOL__:")) {
-            auto args = trimmedLine.substr(21);
-            std::istringstream symbolStream(args);
-            std::string name;
-            while (std::getline(symbolStream, name, ',')) {
-                name = trim(name);
-                if (name.empty()) continue;
-                globalSymbols_.erase(name);
-                symbolOwners_.erase(name);
-                result.disableInfo.symbols.erase(name);
-                result.log.push_back("UNREGISTERSYMBOL: " + name);
-            }
+            std::istringstream symbolStream(trimmedLine.substr(21));
+            for (std::string name; std::getline(symbolStream, name, ',');)
+                if (!trim(name).empty()) deferredUnregisters.push_back(trim(name));
             continue;
         }
         if (startsWith(trimmedLine, "__DEALLOC__:")) {
-            auto args = trimmedLine.substr(12);
-            std::istringstream allocStream(args);
-            std::string name;
-            while (std::getline(allocStream, name, ',')) {
+            std::istringstream allocStream(trimmedLine.substr(12));
+            for (std::string name; std::getline(allocStream, name, ',');) {
                 name = trim(name);
                 if (name.empty()) continue;
-
-                auto it = knownAllocations_.find(name);
-                if (it == knownAllocations_.end()) {
-                    result.log.push_back("DEALLOC: " + name + " not tracked");
-                    continue;
-                }
-                if (it->second.image && it->second.image->pid()!=proc.pid()) {
-                    result.error="DEALLOC belongs to another process: "+name;
-                    return rollback();
-                }
-
-                std::unique_lock<std::mutex> allocationOwner;
-                if(it->second.owner) {
-                    allocationOwner=std::unique_lock(it->second.owner->mutex,std::try_to_lock);
-                    if(!allocationOwner.owns_lock()) {result.error="Allocation cleanup is already in progress";return rollback();}
-                }
-                auto live = it->second.image ? it->second.image->check() : Result<void>{};
-                auto freeResult = !live && live.error()==std::errc::operation_canceled ? Result<void>{}
-                    : !live ? live : it->second.image ? it->second.image->free(it->second.address,it->second.size) : proc.free(it->second.address,it->second.size);
-                if (!freeResult) {
-                    result.error = "DEALLOC failed for " + name + ": " + freeResult.error().message();
-                    if (allocationOwner.owns_lock()) allocationOwner.unlock();
-                    return rollback();
-                }
-
-                // Keep the released lease in saved undo records. Its byte and
-                // protection records must never follow address reuse.
-                result.log.push_back("DEALLOC: " + name);
-                if(it->second.released) it->second.released->store(true);
-                knownAllocations_.erase(it);
-                globalAllocations_.erase(name);   // a dealloc ends a globalalloc too
+                // While disabling, dealloc names only the activation's own
+                // memory (Cheat Engine looks it up in the undo), which the
+                // undo frees after restoring: another script's block of the
+                // same name ("newmem" in every template) is left alone.
+                if (!undo) deferredDeallocs.push_back(name);
+                else if (std::any_of(undo->allocs.begin(), undo->allocs.end(), [&](const auto& a) { return a.name == name; }))
+                    result.log.push_back("DEALLOC: " + name + " (freed with the script's undo)");
+                else result.log.push_back("DEALLOC: " + name + " not tracked");
             }
             continue;
         }
@@ -2581,7 +2788,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
             auto addrExpr = trimmedLine.substr(15);
             auto addr = resolveAddress(addrExpr, allocs, labels, defines);
             if (!addr) {result.error="Invalid REASSEMBLE target: "+addrExpr;return rollback();}
-            auto relocated=reassembleTarget(proc,addr,currentAddr);
+            auto relocated=reassembleTarget(proc,addr,currentAddr,&result.disableInfo.originals);
             if (!relocated || relocated->empty()) {
                 result.error="REASSEMBLE failed at "+addrExpr+": "+(relocated ? "empty instruction" : relocated.error());
                 return rollback();
@@ -2794,6 +3001,47 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
         }
     }
 
+    for (const auto& name : deferredDeallocs) {
+        auto it = knownAllocations_.find(name);
+        if (it == knownAllocations_.end()) {
+            result.log.push_back("DEALLOC: " + name + " not tracked");
+            continue;
+        }
+        if (it->second.image && it->second.image->pid()!=proc.pid()) {
+            result.error="DEALLOC belongs to another process: "+name;
+            return rollback();
+        }
+
+        std::unique_lock<std::mutex> allocationOwner;
+        if(it->second.owner) {
+            allocationOwner=std::unique_lock(it->second.owner->mutex,std::try_to_lock);
+            if(!allocationOwner.owns_lock()) {result.error="Allocation cleanup is already in progress";return rollback();}
+        }
+        auto live = it->second.image ? it->second.image->check() : Result<void>{};
+        auto freeResult = !live && live.error()==std::errc::operation_canceled ? Result<void>{}
+            : !live ? live : it->second.image ? it->second.image->free(it->second.address,it->second.size) : proc.free(it->second.address,it->second.size);
+        if (!freeResult) {
+            result.error = "DEALLOC failed for " + name + ": " + freeResult.error().message();
+            if (allocationOwner.owns_lock()) allocationOwner.unlock();
+            return rollback();
+        }
+
+        // Keep the released lease in saved undo records. Its byte and
+        // protection records must never follow address reuse.
+        result.log.push_back("DEALLOC: " + name);
+        if(it->second.released) it->second.released->store(true);
+        knownAllocations_.erase(it);
+        globalAllocations_.erase(name);   // a dealloc ends a globalalloc too
+    }
+    for (const auto& name : deferredUnregisters) {
+        // While disabling, the activation's own symbols go with its undo,
+        // which keeps a name another script registered since.
+        if (undo && undo->symbols.contains(name)) continue;
+        globalSymbols_.erase(name);
+        symbolOwners_.erase(name);
+        result.log.push_back("UNREGISTERSYMBOL: " + name);
+    }
+
     // ── Phase 4: Register symbols ──
     // globalalloc names are shared and outlive any one script: no owner, and
     // not part of this script's undo.
@@ -2801,10 +3049,29 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
         if (a.global && a.address) { globalSymbols_[a.name] = a.address; symbolOwners_.erase(a.name); }
     for (auto& sym : registeredSymbols) {
         uintptr_t addr = resolveAddress(sym, allocs, labels, defines);
-        if (addr) {
-            globalSymbols_[sym] = addr;
-            symbolOwners_[sym]=result.disableInfo.ownership;
-            result.disableInfo.symbols[sym] = addr;
+        if (!addr) continue;
+        globalSymbols_[sym] = addr;
+        if (undo) { symbolOwners_.erase(sym); continue; }   // registered by a [DISABLE] section: no undo removes it
+        symbolOwners_[sym]=result.disableInfo.ownership;
+        result.disableInfo.symbols[sym] = addr;
+    }
+
+    // New globalalloc blocks stay mapped when this script is disabled.
+    std::erase_if(result.disableInfo.allocs, [&](const auto& allocation) {
+        return std::any_of(newGlobalBlocks.begin(), newGlobalBlocks.end(),
+                           [&](const NewGlobalBlock& block) { return block.address == allocation.address; });
+    });
+    if (!undo) {
+        result.disableInfo.runDisableSection = true;
+        for (const auto& a : allocs) if (a.address) result.disableInfo.scriptSymbols[a.name] = a.address;
+        for (const auto& l : labels)
+            if (l.address && !startsWith(l.name, "__anon_")) result.disableInfo.scriptSymbols[l.name] = l.address;
+        if (!result.disableInfo.originals.empty()) {
+            LivePatch live{result.disableInfo.ownership, result.disableInfo.image, proc.pid(), {}};
+            for (const auto& patch : result.disableInfo.originals)
+                if (!patch.bytes.empty()) live.ranges.push_back({patch.address, patch.bytes.size()});
+            std::erase_if(livePatches_, [](const LivePatch& entry) { auto owner = entry.owner.lock(); return !owner || owner->complete; });
+            livePatches_.push_back(std::move(live));
         }
     }
 
@@ -2817,20 +3084,84 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
     }
 }
 
+// Whether the script has a [name] section header.
+static bool hasSection(const std::string& script, const std::string& name) {
+    const auto tag = toUpper("[" + name + "]");
+    std::istringstream ss(stripBraceComments(script));
+    for (std::string line; std::getline(ss, line);)
+        if (sectionHeader(line) == tag) return true;
+    return false;
+}
+
+std::expected<void, std::string> AutoAssembler::runDisableSection(ProcessHandle& proc, const std::string& script,
+    const DisableInfo& info, DisableInfo& saved, std::vector<std::string>& log) {
+    // Nothing to run, or nothing it may touch: an undo already completed, or
+    // an address space that is gone (cleanup discards that undo unwritten).
+    if (script.empty() || !hasSection(script, "DISABLE")) return {};
+    if (info.ownership && info.ownership->complete) return {};
+    if (info.image && (info.image->pid() != proc.pid() || !info.image->check())) return {};
+    // Code that another script hooked over since is refused before the section
+    // writes the original bytes back over that hook, as the restore refuses it.
+    {
+        bool dropped = false;
+        auto view = withoutUnmapped(proc, info, dropped);
+        if (info.ownership) {
+            std::lock_guard lock(info.ownership->mutex);
+            for (const auto& [address, bytes] : info.ownership->restoreOverrides) overrideOriginals(view.originals, address, bytes);
+        }
+        if (auto conflict = codeOwnershipConflict(proc, view); !conflict.empty()) return std::unexpected(conflict);
+    }
+    auto section = run(proc, extractSection(script, "DISABLE"), &info);
+    log.insert(log.end(), section.log.begin(), section.log.end());
+    if (!section.success) {
+        const auto& left = section.disableInfo;
+        if (!left.originals.empty() || !left.allocs.empty() || !left.protections.empty())
+            return std::unexpected("[DISABLE] failed and its own writes could not be undone: " + section.error);
+        // Its writes are undone; the saved bytes still restore the script.
+        log.push_back("[DISABLE] failed, restoring the saved bytes instead: " + section.error);
+        return {};
+    }
+    // What the section wrote is what the script leaves behind: the restore
+    // keeps it where it overlaps saved originals ("INJECT: db <original
+    // bytes>" restores exactly; "dd 0" over a patched value stays 0).
+    for (const auto& write : section.disableInfo.originals) {
+        if (!info.ownership) { overrideOriginals(saved.originals, write.address, write.written); continue; }
+        std::lock_guard lock(info.ownership->mutex);
+        info.ownership->restoreOverrides.emplace_back(write.address, write.written);
+    }
+    // A section that stops an injected thread ("stop: dd 1") gives it a moment
+    // to leave the memory the undo frees.
+    auto running = [&] {
+        for (const auto& allocation : info.allocs)
+            if ((!allocation.released || !allocation.released->load()) &&
+                os::memorySyscallService().threadStorageBusy(proc.pid(), allocation.address, allocation.size)) return true;
+        return false;
+    };
+    for (int wait = 0; wait < 100 && running(); ++wait) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    return {};
+}
+
 AutoAsmResult AutoAssembler::disable(ProcessHandle& proc, const std::string& script, const DisableInfo& info) {
-    auto result = cleanup(proc, info);
-    // The saved bytes undo what the script wrote; Cheat Engine also runs the
-    // [DISABLE] section, whose {$lua} blocks typically stop what [ENABLE]
-    // started (a timer, a hook in Lua). Run those after a successful restore;
-    // any assembly they would generate is not applied over the restored code.
-    if (!result.success || script.empty() || !luaEvaluator_) return result;
-    auto code = extractSection(script, "DISABLE");
-    auto lower = code;
-    for (auto& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    if (lower.find("{$lua}") == std::string::npos) return result;
-    std::string error;
-    if (!expandLuaBlocks(code, result.log, error))
-        result.log.push_back("[DISABLE] Lua did not complete: " + error);
+    // As in Cheat Engine, the [DISABLE] section runs as a script first, while
+    // the script's allocations and symbols still exist: its conditionals, Lua
+    // ({$lua} that stops a timer) and writes ("INJECT: db <original bytes>",
+    // a stop flag for an injected thread). The saved undo then restores what
+    // the section did not write, frees the allocations and drops the symbols.
+    // It runs once: a retried cleanup only restores.
+    std::vector<std::string> log;
+    DisableInfo saved = info;
+    saved.runDisableSection = false;
+    if (info.runDisableSection) {
+        if (auto ran = runDisableSection(proc, script, info, saved, log); !ran) {
+            AutoAsmResult failed;
+            failed.error = ran.error();
+            failed.disableInfo = info;
+            failed.log = std::move(log);
+            return failed;
+        }
+    }
+    auto result = cleanup(proc, saved);
+    result.log.insert(result.log.begin(), log.begin(), log.end());
     return result;
 }
 
@@ -2849,30 +3180,54 @@ AutoAsmResult AutoAssembler::check(const std::string& script) {
     else
         luaEvaluator_ = nullptr;
     AutoAsmResult result;
+    // An untrusted script runs nothing on this computer, in either section:
+    // the [DISABLE] Lua of a saved record would run later, unrestricted.
+    if (restricted_) {
+        const auto stripped = stripBraceComments(script);
+        for (size_t at = findDirective(stripped, 0); at != std::string::npos; at = findDirective(stripped, at + 2)) {
+            size_t end = at + 2;
+            while (end < stripped.size() && std::isalpha(static_cast<unsigned char>(stripped[end]))) ++end;
+            const auto name = toUpper(stripped.substr(at + 2, end - at - 2));
+            if (name == "LUA" || name == "CCODE" || name == "IF") {
+                auto lower = name;
+                for (auto& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                result.error = "{$" + lower + "} is not allowed in this script: it would run code on this computer";
+                return result;
+            }
+        }
+    }
     // Parse without a process — syntax check only
-    auto enableCode = extractSection(script, "ENABLE");
-    if (!hasSectionHeaders(stripBraceComments(script))) enableCode = script;
-
-    if (!preprocessScript(enableCode, result.log, result.error))
-        return result;
-
     std::vector<Alloc> allocs;
     std::vector<Label> labels;
     std::vector<Define> defines;
     std::vector<std::string> registeredSymbols;
     std::vector<std::string> asmLines;
-
-    std::istringstream ss(enableCode);
-    std::string line;
-    while (std::getline(ss, line)) {
-        if (!parseLine(line, allocs, labels, defines, registeredSymbols, asmLines, result.log, nullptr, result.error))
-            return result;
-    }
-
-    std::vector<std::string> selectedAsmLines;
-    if (!selectTryExceptBranches(asmLines, selectedAsmLines, allocs, labels, defines, nullptr, result.log, result.error))
+    auto validate = [&](std::string code) {
+        allocs.clear(); labels.clear(); defines.clear(); registeredSymbols.clear(); asmLines.clear();
+        if (!preprocessScript(code, result.log, result.error))
+            return false;
+        std::istringstream ss(code);
+        std::string line;
+        while (std::getline(ss, line)) {
+            if (!parseLine(line, allocs, labels, defines, registeredSymbols, asmLines, result.log, nullptr, result.error))
+                return false;
+        }
+        std::vector<std::string> selectedAsmLines;
+        if (!selectTryExceptBranches(asmLines, selectedAsmLines, allocs, labels, defines, nullptr, result.log, result.error))
+            return false;
+        asmLines = std::move(selectedAsmLines);
+        return true;
+    };
+    // The [DISABLE] section of an untrusted script is held to the same
+    // restrictions, since disabling runs it.
+    if (restricted_ && hasSection(script, "DISABLE") && !validate(extractSection(script, "DISABLE"))) {
+        result.error = "[DISABLE]: " + result.error;
         return result;
-    asmLines = std::move(selectedAsmLines);
+    }
+    auto enableCode = extractSection(script, "ENABLE");
+    if (!hasSectionHeaders(stripBraceComments(script))) enableCode = script;
+    if (!validate(std::move(enableCode)))
+        return result;
 
     // NOTE: check() validates preprocessing + structural parsing only. It does
     // NOT run the forward-label resolution or the Keystone assembly pass, and it
@@ -3102,7 +3457,7 @@ bool AutoAssembler::expandConditionalBlocks(std::string& code,
         return std::string::npos;
     };
     while (position < code.size()) {
-        auto open = code.find("{$", position);
+        auto open = findDirective(code, position);
         if (open == std::string::npos) {
             if (active) output.append(code, position, std::string::npos);
             break;

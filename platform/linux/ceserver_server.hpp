@@ -1,8 +1,11 @@
 #pragma once
 /// Minimal ceserver-protocol SERVER: exposes local process memory over TCP so a
 /// remote CEServerClient (or Cheat Engine itself) can attach and read/write. This
-/// is the "be a server, not just a client" side (P2 #24). It implements the core
-/// commands (GETVERSION / OPENPROCESS / CLOSEHANDLE / READ- / WRITEPROCESSMEMORY);
+/// is the "be a server, not just a client" side (P2 #24). It implements memory,
+/// region, process/module/thread listing and debugging commands, and answers
+/// the fixed-size commands it does not provide (thread context, speedhack,
+/// extension loading, symbol lists) with upstream's failure value so a Cheat
+/// Engine client keeps its connection. Other unknown commands close it.
 /// Process handles retain the opened Linux target identity for one connection.
 
 #include <cstdint>

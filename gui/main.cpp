@@ -1,3 +1,4 @@
+#include "core/secure_exec.hpp"
 #include "gui/mainwindow.hpp"
 #include "gui/memorybrowser.hpp"
 #include "core/log.hpp"
@@ -48,6 +49,8 @@ static void applyGnomeTextScaling() {
 }
 
 int main(int argc, char* argv[]) {
+    // Before Qt reads its plugin paths (see core/secure_exec.hpp).
+    ce::scrubSecureEnvironment();
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--version") == 0 || std::strcmp(argv[i], "-v") == 0) {
             std::printf("cheatengine (cheat-engine-linux) %s\n", CECORE_VERSION);

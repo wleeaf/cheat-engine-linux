@@ -344,10 +344,14 @@ QString agentKeyState(int provider, const QString& baseUrl) {
             return QString("Using %1 from the environment.").arg(kAgentEnv[provider]);
         // Not sent to another server, so a key for it is set here.
     }
-    const QString saved = QSettings().value(QString("agent/%1/keyStored").arg(kAgentAccounts[provider])).toString();
-    if (saved == "keyring") return "A key is saved in the system keyring.";
+    QSettings s;
+    const QString saved = s.value(QString("agent/%1/keyStored").arg(kAgentAccounts[provider])).toString();
+    // A key is only sent to the address it was saved for.
+    QString refusal = agentKeyRefusal(provider == 1, baseUrl, s.value(QString("agent/%1/keyOrigin").arg(kAgentAccounts[provider])).toString());
+    if (!refusal.isEmpty()) refusal.prepend(' ');
+    if (saved == "keyring") return "A key is saved in the system keyring." + refusal;
     if (SecretStore(kAgentAccounts[provider]).inMemory())
-        return "A key is set until Cheat Engine closes (no keyring was available).";
+        return "A key is set until Cheat Engine closes (no keyring was available)." + refusal;
     return provider == 0 ? "No key yet. Create one at console.anthropic.com." : "No key set; local servers usually need none.";
 }
 } // namespace
@@ -381,7 +385,8 @@ QWidget* SettingsDialog::buildAgentPage() {
     agentKeyStatus_ = hint(QString());
     form->addRow("", agentKeyStatus_);
     form->addRow("", hint("Keys are kept in the system keyring, never in Cheat Engine's settings file; "
-                          "ANTHROPIC_API_KEY or OPENAI_API_KEY in the environment take precedence. Your "
+                          "ANTHROPIC_API_KEY or OPENAI_API_KEY in the environment take precedence. A saved "
+                          "key is only sent to the API address it was entered with. Your "
                           "messages and what the tools find in the game are sent to this provider, and "
                           "every change to the game waits for your Allow."));
     connect(agentProviderCombo_, &QComboBox::currentIndexChanged, this, &SettingsDialog::showAgentProvider);
@@ -390,6 +395,7 @@ QWidget* SettingsDialog::buildAgentPage() {
         QString error;
         SecretStore(kAgentAccounts[provider]).remove(&error);
         QSettings().remove(QString("agent/%1/keyStored").arg(kAgentAccounts[provider]));
+        QSettings().remove(QString("agent/%1/keyOrigin").arg(kAgentAccounts[provider]));
         agentKeyStatus_->setText(error.isEmpty() ? agentKeyState(provider, agentUrlEdit_->text()) : "Could not remove the key: " + error);
     });
     agentProviderCombo_->setCurrentIndex(s.value("agent/provider", 0).toInt() == 1 ? 1 : 0);
@@ -459,6 +465,8 @@ void SettingsDialog::onApply() {
         SecretStore store(kAgentAccounts[provider]);
         QString error;
         store.store(key, &error);
+        // The key goes only to the address it was entered for.
+        s.setValue(QString("agent/%1/keyOrigin").arg(kAgentAccounts[provider]), agentOrigin(provider == 1, agentUrls_[provider]));
         // A key kept in memory dies with this run, so only the keyring is remembered.
         if (store.persisted()) s.setValue(QString("agent/%1/keyStored").arg(kAgentAccounts[provider]), "keyring");
         else s.remove(QString("agent/%1/keyStored").arg(kAgentAccounts[provider]));

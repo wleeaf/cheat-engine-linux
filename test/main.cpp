@@ -404,10 +404,57 @@ static void test_agent_chat() {
         printf("  object arguments are accepted: %s\n",
                objects.send("Read it.") && bodies.size() == 2 && bodies[1].find("arguments are not") == std::string::npos &&
                bodies[1].find(std::to_string(health())) != std::string::npos ? "OK" : "FAILED");
+        // A tool call without a function gets no result, so it must not stay in
+        // the conversation: the server would reject every later request.
+        bodies.clear();
+        bool firstCall = true;
+        ce::AgentChat broken(session, provider, "", [&](const ce::ChatHttpRequest& request) {
+            bodies.push_back(request.body);
+            if (!firstCall) return ce::ChatHttpResponse{200, R"({"choices":[{"message":{"role":"assistant","content":"ok"}}]})", {}};
+            firstCall = false;
+            return ce::ChatHttpResponse{200, R"({"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"x1","type":"function"},)"
+                R"({"id":"x2","type":"function","function":{"name":"target_info","arguments":"{}"}}]}}]})", {}};
+        });
+        printf("  tool calls without a function are dropped: %s\n",
+               broken.send("Look.") && bodies.size() == 2 && bodies[1].find("\"x1\"") == std::string::npos &&
+               bodies[1].find("\"tool_call_id\":\"x2\"") != std::string::npos ? "OK" : "FAILED");
+    }
+    // At most 16 tool calls run from one reply; every call still gets a result.
+    {
+        ce::AgentSession session;
+        std::string many = R"({"content":[)";
+        for (int i = 0; i < 18; ++i) many += std::string(i ? "," : "") + R"({"type":"tool_use","id":"m)" + std::to_string(i) + R"(","name":"target_info","input":{}})";
+        many += "]}";
+        std::vector<std::string> bodies;
+        ce::AgentChat chat(session, {}, "k", [&](const ce::ChatHttpRequest& request) {
+            bodies.push_back(request.body);
+            return ce::ChatHttpResponse{200, bodies.size() == 1 ? many : R"({"content":[{"type":"text","text":"ok"}]})", {}};
+        });
+        int ran = 0;
+        chat.setEventSink([&](const ce::ChatEvent& e) { if (e.type == ce::ChatEvent::Type::ToolCall) ++ran; });
+        size_t results = 0, refused = 0;
+        const bool ok = chat.send("Look a lot.");
+        if (bodies.size() == 2)
+            for (size_t at = 0; (at = bodies[1].find("\"tool_result\"", at)) != std::string::npos; ++at) ++results;
+        if (bodies.size() == 2)
+            for (size_t at = 0; (at = bodies[1].find("only 16 tool calls", at)) != std::string::npos; ++at) ++refused;
+        printf("  at most 16 tool calls run per reply: %s (%d ran, %zu results, %zu refused)\n",
+               ok && ran == 16 && results == 18 && refused == 2 ? "OK" : "FAILED", ran, results, refused);
+        std::string error;
+        ce::AgentChat huge(session, {}, "k", [](const ce::ChatHttpRequest&) {
+            ce::ChatHttpResponse response{200, "{}", {}};
+            response.truncated = true;
+            return response;
+        });
+        huge.setEventSink([&](const ce::ChatEvent& e) { if (e.type == ce::ChatEvent::Type::Error) error = e.text; });
+        printf("  a reply that is too large is refused: %s\n",
+               !huge.send("hi") && error.find("larger than 16 MiB") != std::string::npos && huge.messageCount() == 0 ? "OK" : "FAILED");
     }
     printf("  changes that need approval: %s\n",
            ce::AgentChat::needsApproval("write", ce::json::Value::object()) &&
            ce::AgentChat::needsApproval("aa_enable", ce::json::Value::object()) &&
+           ce::AgentChat::needsApproval("aa_disable", ce::json::Value::object()) &&
+           ce::AgentChat::needsApproval("find_accessed_addresses", ce::json::Value::object()) &&
            ce::AgentChat::needsApproval("save_table", ce::json::Value::object()) &&
            ce::AgentChat::needsApproval("attach", ce::json::Value::object()) &&
            ce::AgentChat::needsApproval("set_frozen", ce::json::Value::object().set("frozen", ce::json::Value::boolean(true))) &&
@@ -3724,10 +3771,11 @@ static void test_ceserver_memory_ops() {
                     uint32_t type = kRegionType;
                     uint64_t base = kRegionBase + i * kRegionSize;
                     uint64_t size = kRegionSize;
-                    ::send(client, &prot, 4, 0);
-                    ::send(client, &type, 4, 0);
+                    // Upstream RegionInfo order: base, size, protection, type.
                     ::send(client, &base, 8, 0);
                     ::send(client, &size, 8, 0);
+                    ::send(client, &prot, 4, 0);
+                    ::send(client, &type, 4, 0);
                 }
             } else if (cmd == 9) { // CMD_READPROCESSMEMORY
                 uint32_t h = 0, size = 0;
@@ -3910,7 +3958,7 @@ void runStubServer(StubFixture* fx) {
             int32_t count = 1; sendN(&count, 4);
             uint32_t prot = 0x40, type = 0x1000000;
             uint64_t base = 0x400000, size = 0x10000;
-            sendN(&prot, 4); sendN(&type, 4); sendN(&base, 8); sendN(&size, 8);
+            sendN(&base, 8); sendN(&size, 8); sendN(&prot, 4); sendN(&type, 4);   // upstream RegionInfo order
         } else if (cmd == 11) { // STARTDEBUG
             int32_t h = 0; recvN(&h, 4);
             int32_t r = (h == kStubHandle) ? 1 : 0; sendN(&r, 4);
@@ -9230,6 +9278,142 @@ static void test_autoassembler_review_fixes() {
            : ("FAILED: " + relocated.error).c_str());
 }
 
+// The [DISABLE] section runs as a script before the saved undo restores, and
+// the undo keeps what other enabled scripts wrote. Writes to this process's
+// own data; allocations in the child.
+alignas(16) static uint8_t g_aaDisable[64];
+extern "C" { __attribute__((used)) uint8_t cecore_aa_symbol_probe[16]; }
+static void test_autoassembler_disable_section(pid_t pid) {
+    printf("\n── Test: Auto Assembler [DISABLE] section and undo ──\n");
+    LinuxProcessHandle proc(getpid()), child(pid);
+    const auto base = reinterpret_cast<uintptr_t>(g_aaDisable);
+    auto hex = [](uintptr_t value) { char text[32]; snprintf(text, sizeof text, "%lx", static_cast<unsigned long>(value)); return std::string(text); };
+    auto value32 = [](size_t offset) { uint32_t value; std::memcpy(&value, g_aaDisable + offset, 4); return value; };
+    auto logged = [](const AutoAsmResult& result, const std::string& text) {
+        return std::any_of(result.log.begin(), result.log.end(), [&](const std::string& line) { return line.find(text) != std::string::npos; });
+    };
+    std::memset(g_aaDisable, 0, sizeof g_aaDisable);
+    std::vector<std::string> chunks;
+    AutoAssembler aa;
+    aa.setLuaEvaluator([&](const std::string& code) -> std::expected<std::string, std::string> {
+        chunks.push_back(code);
+        if (code.find("probe()") != std::string::npos)
+            chunks.push_back(aa.resolveSymbol("ce_disable_mem") ? "symbol live" : "symbol gone");
+        return std::string(code.starts_with("return (") ? "false" : "");   // every {$if} is false
+    });
+    auto ran = [&](const std::string& text) {
+        return std::any_of(chunks.begin(), chunks.end(), [&](const std::string& chunk) { return chunk.find(text) != std::string::npos; });
+    };
+
+    const std::string data = "[ENABLE]\n" + hex(base) + ":\ndd 5\n[DISABLE]\n" + hex(base) + ":\ndd 7\n";
+    auto enabled = aa.execute(proc, data);
+    const bool patched = enabled.success && value32(0) == 5;
+    auto disabled = enabled.success ? aa.disable(proc, data, enabled.disableInfo) : enabled;
+    printf("  the [DISABLE] section's writes are applied and kept: %s\n",
+           patched && disabled.success && value32(0) == 7 ? "OK" : ("FAILED: " + enabled.error + disabled.error).c_str());
+
+    chunks.clear();
+    const std::string named = "[ENABLE]\nalloc(ce_disable_mem,32)\nregistersymbol(ce_disable_mem)\nlabel(ce_stop)\n"
+        "ce_disable_mem:\ndd 0\nce_stop:\ndd 0\n"
+        "[DISABLE]\n{$lua}\nprobe()\n{$asm}\nce_stop:\ndd 1\ndealloc(ce_disable_mem)\nunregistersymbol(ce_disable_mem)\n";
+    enabled = aa.execute(child, named);
+    disabled = enabled.success ? aa.disable(child, named, enabled.disableInfo) : enabled;
+    printf("  [DISABLE] runs first: its Lua sees the symbols, its code names [ENABLE] labels: %s\n",
+           disabled.success && ran("symbol live") && !logged(disabled, "[DISABLE] failed") &&
+           aa.resolveSymbol("ce_disable_mem") == 0 ? "OK" : ("FAILED: " + enabled.error + disabled.error).c_str());
+
+    chunks.clear();
+    const std::string sectionless = "{$lua}\nonce()\n{$asm}\n" + hex(base + 12) + ":\ndd 3\n";
+    enabled = aa.execute(proc, sectionless);
+    const bool once = enabled.success && chunks.size() == 1 && value32(12) == 3;
+    disabled = enabled.success ? aa.disable(proc, sectionless, enabled.disableInfo) : enabled;
+    printf("  a script without sections runs nothing again when disabled: %s\n",
+           once && disabled.success && chunks.size() == 1 && value32(12) == 0 ? "OK" : ("FAILED: " + enabled.error + disabled.error).c_str());
+
+    chunks.clear();
+    const std::string conditional = "[ENABLE]\n[DISABLE]\n{$if FLAG}\n{$lua}\nskipped()\n{$asm}\n{$endif}\n";
+    enabled = aa.execute(proc, conditional);
+    disabled = enabled.success ? aa.disable(proc, conditional, enabled.disableInfo) : enabled;
+    printf("  {$if} selects what the [DISABLE] section runs: %s\n",
+           disabled.success && ran("FLAG") && !ran("skipped()") ? "OK" : ("FAILED: " + enabled.error + disabled.error).c_str());
+
+    chunks.clear();
+    const std::string commented = "[ENABLE]\n// {$lua} commented() {$asm}\n" + hex(base + 16) + ":\ndb '{$lua}'\n[DISABLE]\n";
+    enabled = aa.execute(proc, commented);
+    const bool asText = enabled.success && chunks.empty() && std::memcmp(g_aaDisable + 16, "{$lua}", 6) == 0;
+    if (enabled.success) aa.disable(proc, commented, enabled.disableInfo);
+    printf("  directives in // comments and strings are text: %s\n",
+           asText && aa.check("[ENABLE]\n// {$endif}\n[DISABLE]\n").success ? "OK" : ("FAILED: " + enabled.error).c_str());
+
+    // Two scripts writing the same value: disabling the older one keeps the
+    // newer one's value, and the newer one then restores the first original.
+    const std::string older = "[ENABLE]\n" + hex(base + 24) + ":\ndd 1\n", newer = "[ENABLE]\n" + hex(base + 24) + ":\ndd 2\n";
+    auto first = aa.execute(proc, older);
+    auto second = aa.execute(proc, newer);
+    auto firstUndo = first.success ? aa.disable(proc, older, first.disableInfo) : first;
+    const bool newerKept = firstUndo.success && value32(24) == 2;
+    auto secondUndo = second.success ? aa.disable(proc, newer, second.disableInfo) : second;
+    printf("  overlapping data patches undo in any order: %s\n",
+           newerKept && secondUndo.success && value32(24) == 0 ? "OK" : ("FAILED: " + first.error + second.error + firstUndo.error + secondUndo.error).c_str());
+
+    const std::string global = "[ENABLE]\nglobalalloc(ce_disable_global,64)\nce_disable_global:\ndd #4242\n[DISABLE]\n";
+    auto shared = aa.execute(child, global);
+    const uintptr_t block = shared.success ? aa.resolveSymbol("ce_disable_global") : 0;
+    auto sharedUndo = shared.success ? aa.disable(child, global, shared.disableInfo) : shared;
+    uint32_t sharedValue = 0;
+    auto sharedRead = block ? child.read(block, &sharedValue, sizeof sharedValue) : ce::Result<size_t>(0);
+    printf("  writes into a globalalloc block are not undone: %s\n",
+           sharedUndo.success && sharedRead && *sharedRead == 4 && sharedValue == 4242 ? "OK" : ("FAILED: " + shared.error + sharedUndo.error).c_str());
+
+    // A failing script frees the globalalloc block it made and has not yet
+    // run its dealloc or unregistersymbol.
+    auto owner = aa.execute(child, "[ENABLE]\nalloc(ce_keep_mem,16)\nregistersymbol(ce_keep_mem)\n");
+    const uintptr_t keep = owner.success ? aa.resolveSymbol("ce_keep_mem") : 0;
+    auto failing = aa.execute(child, "[ENABLE]\nglobalalloc(ce_failed_global,4096)\nunregistersymbol(ce_keep_mem)\n"
+                                    "dealloc(ce_keep_mem)\nce_failed_global:\nnot_an_instruction\n");
+    uintptr_t failedBlock = 0;
+    for (const auto& line : failing.log)
+        if (line.starts_with("Allocated ce_failed_global at 0x")) failedBlock = std::stoull(line.substr(32), nullptr, 16);
+    uint32_t probe = 0;
+    auto kept = keep ? child.read(keep, &probe, sizeof probe) : ce::Result<size_t>(0);
+    auto freed = failedBlock ? child.read(failedBlock, &probe, sizeof probe) : ce::Result<size_t>(4);
+    printf("  a failed script keeps its dealloc targets and frees its new globalalloc: %s\n",
+           !failing.success && kept && *kept == 4 && aa.resolveSymbol("ce_keep_mem") == keep && failedBlock &&
+           (!freed || *freed == 0) && aa.resolveSymbol("ce_failed_global") == 0 ? "OK" : "FAILED");
+    if (owner.success) aa.disable(child, "", owner.disableInfo);
+
+    // A target symbol written as "name:" is that address, not a new label.
+    std::memset(cecore_aa_symbol_probe, 0, sizeof cecore_aa_symbol_probe);
+    auto symbolTarget = aa.execute(proc, "[ENABLE]\ncecore_aa_symbol_probe:\ndb 5A\n");
+    printf("  \"symbol:\" addresses a target symbol: %s\n",
+           symbolTarget.success && cecore_aa_symbol_probe[0] == 0x5A ? "OK" : ("FAILED: " + symbolTarget.error).c_str());
+    if (symbolTarget.success) aa.disable(proc, "", symbolTarget.disableInfo);
+    auto localLabel = aa.execute(proc, "[ENABLE]\n" + hex(base + 40) + ":\njmp cecore_aa_symbol_probe\n"
+                                       "cecore_aa_symbol_probe:\ndb 90\n");
+    printf("  a name the code jumps to stays a local label: %s\n",
+           localLabel.success && cecore_aa_symbol_probe[0] == 0 && g_aaDisable[40] == 0xEB && g_aaDisable[42] == 0x90
+               ? "OK" : ("FAILED: " + localLabel.error).c_str());
+    if (localLabel.success) aa.disable(proc, "", localLabel.disableInfo);
+
+    // reassemble() relocates the instruction from before the script's writes.
+    g_aaDisable[32] = 0x90;
+    auto moved = aa.execute(proc, "[ENABLE]\n" + hex(base + 32) + ":\ndb C3\n" + hex(base + 48) + ":\nreassemble(" + hex(base + 32) + ")\n");
+    printf("  reassemble copies the instruction from before the script's writes: %s\n",
+           moved.success && g_aaDisable[32] == 0xC3 && g_aaDisable[48] == 0x90 ? "OK" : ("FAILED: " + moved.error).c_str());
+    if (moved.success) aa.disable(proc, "", moved.disableInfo);
+
+    // An untrusted script carries no Lua or C, nor a refused command, in
+    // either section: disabling a saved record runs its [DISABLE] section.
+    AutoAssembler restricted;
+    restricted.setRestricted(true);
+    const bool refused = !restricted.check("[ENABLE]\nnop\n[DISABLE]\n{$lua}\nos.exit()\n").success &&
+        !restricted.check("[ENABLE]\nnop\n[DISABLE]\n{$ccode}int x;{$endccode}\n").success &&
+        !restricted.check("[ENABLE]\nnop\n[DISABLE]\n{$if os.exit()}\n{$endif}\n").success &&
+        !restricted.check("[ENABLE]\nnop\n[DISABLE]\nloadlibrary(/tmp/x.so)\n").success;
+    printf("  a restricted check covers the [DISABLE] section: %s\n",
+           refused && restricted.check("[ENABLE]\nnop\n[DISABLE]\nnop\n").success ? "OK" : "FAILED");
+}
+
 static void test_autoassembler_nop_fillmem(pid_t pid) {
     printf("\n── Test: AutoAssembler nop/fillmem ──\n");
 
@@ -9686,6 +9870,36 @@ static void test_autoassembler_create_thread() {
     waitedAssembler.disable(proc, "", waited.disableInfo);
     asyncAssembler.disable(proc, "", async.disableInfo);
     printf("  createthread/andwait: %s\n", ok ? "OK" : "FAILED");
+
+    // A thread that runs until [DISABLE] sets its stop flag: the section runs
+    // before the undo, which waits for the thread to leave the cave.
+    AutoAssembler loopAssembler;
+    const std::string loop =
+        "[ENABLE]\n"
+        "alloc(loopcode, 512)\n"
+        "label(stop)\n"
+        "loopcode:\n"
+        "mov rax, stop\n"
+        "@@:\n"
+        "pause\n"
+        "cmp dword [rax], 0\n"
+        "je @B\n"
+        "xor eax, eax\n"
+        "ret\n"
+        "stop:\n"
+        "dd 0\n"
+        "createthread(loopcode)\n"
+        "[DISABLE]\n"
+        "stop:\n"
+        "dd 1\n";
+    auto looping = loopAssembler.execute(proc, loop);
+    auto stopped = looping.success ? loopAssembler.disable(proc, loop, looping.disableInfo) : looping;
+    if (!stopped.success) {
+        printf("  stop flag error: %s\n", stopped.error.c_str());
+        if (looping.success) loopAssembler.disable(proc, "", stopped.disableInfo);
+    }
+    printf("  [DISABLE] stops an injected thread before the undo frees its cave: %s\n",
+           looping.success && stopped.success ? "OK" : "FAILED");
 }
 
 static void test_autoassembler_ds(pid_t pid) {
@@ -13395,6 +13609,7 @@ int main(int argc, char* argv[]) {
     test_autoassembler_nop_fillmem(targetPid);
     test_autoassembler_globalalloc_shared(targetPid);
     test_autoassembler_review_fixes();
+    test_autoassembler_disable_section(targetPid);
     test_autoassembler_try_except(targetPid);
     test_autoassembler_forward_labels(targetPid);
     test_autoassembler_module_offset();

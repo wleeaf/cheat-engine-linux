@@ -184,6 +184,51 @@ reimplementation of Cheat Engine).
   or a broken pointer is visible), Space sets every selected record to one
   state as in Cheat Engine, and the address and results lists follow the
   Uppercase hexadecimal and Address width display settings.
+- Fixed: ceserver. Memory region lists had their fields in the wrong order on
+  both the client and the server (so they only worked with each other):
+  against an upstream ceserver every region came back scrambled and scans
+  found nothing. Remote module paths were opened on this machine for symbols,
+  so symbol names resolved to wrong addresses in the remote game. The server
+  kept a game stopped and traced if its client died during a debug-event wait,
+  a continue for a thread-exit notice resumed a newer breakpoint stop, a
+  compressed read got an uncompressed reply, and any command it did not know
+  closed the connection; the common ones Cheat Engine sends are answered now.
+  The GUI no longer makes a network round trip per refresh to check the link,
+  and says why a connection was refused while the current target is busy.
+- Fixed: Auto Assembler. Disabling a script never ran its [DISABLE] assembly,
+  only its Lua, after the memory was already freed; the [DISABLE] section now
+  runs first as in Cheat Engine, so a thread stop flag (`stop: dd 1`) works and
+  `db` restores land exactly. Disabling one script zeroed `globalalloc` code
+  another script still used, `UpdateHealth:` on a target function patched the
+  code cave instead of the function, `reassemble` copied the script's own jump
+  when the hook came first, two scripts patching the same data restored stale
+  bytes, `{$lua}` inside a `//` comment ran, and `dealloc`/`unregistersymbol`
+  took effect even when a later line failed. Scripts from the AI agent may not
+  carry `{$lua}`, `{$ccode}` or `{$if}` in either section.
+- Security: AI Assistant. Disabling a script and watching an instruction's
+  accesses (a breakpoint in game code) ran without asking; both now ask.
+  "Allow for this chat" also approved opening any other process, whose memory
+  would then go to the provider, and stayed in force after switching games; it
+  now covers only the process it was given for and never opening a process or
+  overwriting a file. A key saved for one API address was sent to any address
+  entered later, even over plain http; a key now belongs to its address.
+  Replies are capped at 16 MiB and tool calls at 16 per reply.
+- Fixed: AI Assistant. With no process open in the main window, every turn
+  ended by detaching from the process the model had opened, undoing the
+  scripts and freezes just approved. Write and freeze prompts now show the
+  resolved address (and the record's type and pointer path) instead of the
+  raw text the model sent.
+- Fixed: tutorials. A freeze from the graphical tutorial's first level
+  finished the second at once, editing the team field won step 9 of the text
+  tutorial without any injection, and a NaN health bar could crash the text
+  mode.
+- Security: the `.deb` gives `cheatengine` and `cescan` the ptrace capability
+  for every user on the computer. Qt, GTK, GIO, Mesa and the Vulkan loader
+  still load plugins from paths in the environment in such a process, and the
+  Lua unsafe opt-in opened `package.loadlib`, so any local user could run
+  their own code with the capability and read or write any process, root's
+  included. A capability-holding process now drops those variables first
+  thing and ignores the Lua opt-in.
 - Fixed: scanner. A first scan with Changed, Unchanged, Increased, Decreased,
   Increased/Decreased by or Same as first ran as an Exact scan on whatever the
   value box held; it now says a first scan is needed. "Increased by -5" never

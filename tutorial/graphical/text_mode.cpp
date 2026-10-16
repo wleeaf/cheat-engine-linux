@@ -25,6 +25,9 @@ void print(const std::string& text) {
 }
 
 std::string bar(float fraction) {
+    // A NaN or infinity converted to int is undefined.
+    if (!(fraction > 0.0f)) fraction = 0.0f;
+    if (fraction > 1.0f) fraction = 1.0f;
     const int filled = static_cast<int>(fraction * 20.0f + 0.5f);
     return "[" + std::string(filled, '#') + std::string(20 - filled, '.') + "]";
 }

@@ -20,12 +20,17 @@ on the process you have open.
   (GNOME Keyring, KWallet or any Secret Service), never in Cheat Engine's
   settings file. `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the environment
   takes precedence, but only for that provider's own API: it is never sent to
-  another server you enter as the API address. Without a keyring the key
-  lasts until Cheat Engine closes.
+  another server you enter as the API address. A saved key belongs to the API
+  address it was entered for: change the address and it is not sent until you
+  enter it again, and it is never sent over plain http except to this
+  machine. Without a keyring the key lasts until Cheat Engine closes.
 - **You approve every change.** Scanning, reading and disassembling run on
-  their own; writing a value, freezing, enabling a script, saving a file and
-  opening any process other than yours wait for your Allow in the panel (or
-  Allow for this chat). Stop ends a turn at any time.
+  their own; writing a value, freezing, enabling or disabling a script,
+  watching which addresses an instruction accesses (a breakpoint in the game's
+  code), saving a file and opening any process other than yours wait for your
+  Allow in the panel. Allow for this chat covers only the process it was given
+  for, and never opening another process or overwriting a file. Stop ends a
+  turn at any time.
 - **What leaves your computer.** Your messages and what the tools find in the
   game (process names, addresses, values, code) are sent to the provider you
   chose, and nothing else. With a local model nothing leaves your computer.

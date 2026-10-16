@@ -44,6 +44,14 @@ The `.deb` gives `cheatengine` and `cescan` the `cap_sys_ptrace` capability so
 they can read your own games under the default Yama `ptrace_scope=1`. That
 capability would reach every user's processes, so the tools refuse any process
 whose user and group ids differ from yours, unless they really run as root.
+
+Started with the capability, the program is a secure-exec process: before Qt
+or any other library starts, it drops the environment variables that would
+make a library load code from a path the user picks (Qt and QML plugin paths,
+GTK and GIO modules, GL, VA-API and Vulkan driver and layer paths, ALSA
+configuration), and the Lua `CECORE_LUA_ALLOW_UNSAFE` opt-in is ignored. glibc
+already ignores `LD_PRELOAD` and `LD_LIBRARY_PATH` there. Otherwise any user on
+the computer could run their own code with the capability, past these checks.
 `cescan ceserver` listens on 127.0.0.1 only and accepts connections only from
 programs of the user who started it: its protocol has no authentication.
 

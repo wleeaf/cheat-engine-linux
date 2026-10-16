@@ -446,6 +446,10 @@ DwarfRegistry::~DwarfRegistry() = default;
 int DwarfRegistry::loadFromProcess(ProcessHandle& proc) {
     clear();
     if (!DwarfInfo::available()) return 0;
+    // Remote module paths name files on the remote system (see
+    // SymbolResolver::loadProcess); never read a local namesake.
+    const auto transport = proc.targetDescription().transport;
+    if (transport == TargetTransport::CEServer || transport == TargetTransport::Gdb) return 0;
     auto mods = proc.modules();
     int loaded = 0;
     for (const auto& m : mods) {

@@ -257,7 +257,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         }
         // A ceserver connection closes on any error or timeout and never comes
         // back: say so, instead of showing "??" values against a dead link.
-        if (ceserverClient_ && !process_->targetDescription().live) {
+        // Ask the client directly: targetDescription() is a network round trip
+        // on the GUI thread for every tick.
+        if (ceserverClient_ && !ceserverClient_->isConnected()) {
             if (nestedLoop) return;
             onDisconnectProcess();
             processLabel_->setText("ceserver connection lost");
@@ -3084,7 +3086,8 @@ bool MainWindow::adoptCeserver(CeserverConnection connection, const QString& hos
     if (!connection.handle) return fail(connection.error);
     auto client = std::move(connection.client);
     auto handle = std::move(connection.handle);
-    if (!releaseTargetUsers()) return fail({});
+    if (!releaseTargetUsers())
+        return fail(tr("The current target is still in use: wait for the scan to finish or disable its scripts, then connect again."));
     process_.reset();
     ceserverClient_ = std::move(client);
     process_ = std::move(handle);

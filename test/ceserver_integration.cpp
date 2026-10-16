@@ -5,7 +5,13 @@
 #include "platform/linux/linux_process.hpp"
 #include "core/value_io.hpp"
 #include "core/expression.hpp"
+#include "platform/network_compression.hpp"
+#include "symbols/dwarf_symbols.hpp"
+#include "symbols/elf_symbols.hpp"
 #include <array>
+#include <optional>
+#include <string>
+#include <vector>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -169,6 +175,12 @@ static void live(const char* executable,unsigned width) {
     check(regionsMatch,"full remote region protections and types match the actual Linux mappings");
     check(!remote->modules().empty() && !remote->threads().empty(),
         "remote module and thread enumeration reaches the actual target");
+    // The remote paths exist here too (loopback), so only the transport check
+    // keeps them from being read as local files.
+    SymbolResolver localSymbols,remoteSymbols;DwarfRegistry remoteDwarf;
+    localSymbols.loadProcess(local);remoteSymbols.loadProcess(*remote);
+    check(localSymbols.count() && !remoteSymbols.count() && !remoteDwarf.loadFromProcess(*remote),
+        "remote module paths are never opened from the local filesystem for symbols");
     auto second=client.openProcess(target.pid);
     check(second && *second>0 && *second!=remote->serverHandle(),
         "two opens have independently closeable server handles");
@@ -339,10 +351,226 @@ static void malformed(unsigned mode) {
     check(disconnected,"a malformed reply retires the desynchronized connection");
     check(!version && !extra,"no subsequent command is sent on a rejected protocol stream");
 }
+// Upstream wire structures exactly as ceserver.h and api.h declare them.
+#pragma pack(push,1)
+struct UpstreamRegionInfo { uint64_t baseaddress,size; uint32_t protection,type; };
+struct UpstreamVqeOutput { uint8_t result; uint32_t protection,type; uint64_t baseaddress,size; };
+struct UpstreamModuleEntry { int32_t result; int64_t modulebase; int32_t modulepart,modulesize; uint32_t modulefileoffset; int32_t modulenamesize; };
+struct UpstreamProcessEntry { int32_t result,pid,processnamesize; };
+struct UpstreamDebugEvent { int32_t debugevent; int64_t threadid; uint64_t address; };
+#pragma pack(pop)
+static_assert(sizeof(UpstreamRegionInfo)==24 && sizeof(UpstreamVqeOutput)==25 && sizeof(UpstreamModuleEntry)==28 &&
+              sizeof(UpstreamProcessEntry)==12 && sizeof(UpstreamDebugEvent)==20);
+
+// The production client and process handle against a peer that answers with
+// upstream's packed structures, sent raw as upstream's server sends them.
+static void upstreamFrames() {
+    printf("CESERVER_UPSTREAM_FRAMES\n");
+    int listener=socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0);
+    sockaddr_in address{};address.sin_family=AF_INET;address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
+    socklen_t len=sizeof(address);
+    bool ready=listener>=0 && bind(listener,reinterpret_cast<sockaddr*>(&address),sizeof(address))==0 && listen(listener,1)==0 &&
+               getsockname(listener,reinterpret_cast<sockaddr*>(&address),&len)==0;
+    if (!ready) { if (listener>=0) close(listener);check(false,"upstream-frame peer starts");return; }
+    const UpstreamRegionInfo regions[2]={{0x400000,0x1000,0x02,0x1000000},{0x401000,0x2000,0x04,0x20000}};
+    std::thread peer([&] {
+        int fd=accept4(listener,nullptr,nullptr,SOCK_CLOEXEC);
+        if (fd<0) return;
+        timeval timeout{2,0};setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
+        for (uint8_t op=0;transfer(fd,&op,1,false);) {
+            int32_t handle=0;
+            if (op==3 || op==21 || op==7 || op==8 || op==31) transfer(fd,&handle,4,false);
+            if (op==3) { int32_t opened=7;transfer(fd,&opened,4,true); }
+            else if (op==21) { uint8_t arch=1;transfer(fd,&arch,1,true); }
+            else if (op==7) { int32_t closed=1;transfer(fd,&closed,4,true); }
+            else if (op==31) {
+                uint8_t flags=0;transfer(fd,&flags,1,false);
+                std::array<uint8_t,4+sizeof(regions)> frame{};
+                uint32_t count=2;std::memcpy(frame.data(),&count,4);std::memcpy(frame.data()+4,regions,sizeof(regions));
+                transfer(fd,frame.data(),frame.size(),true);
+            } else if (op==8) {
+                // api.c VirtualQueryEx: the page holding the address, up to the
+                // end of its mapping, or a PAGE_NOACCESS type 0 gap up to the next.
+                uint64_t at=0;transfer(fd,&at,8,false);
+                const uint64_t page=at & ~uint64_t(0xfff);
+                UpstreamVqeOutput out{};
+                if (at<0x400000) out={1,0x01,0,page,0x400000-page};
+                else if (at>=0x401000 && at<0x403000) out={1,0x04,0x20000,page,0x403000-page};
+                transfer(fd,&out,sizeof(out),true);
+            } else break;
+        }
+        shutdown(fd,SHUT_RDWR);close(fd);
+    });
+    os::CEServerClient client;std::string error;
+    client.connectTcp("127.0.0.1",ntohs(address.sin_port),error);
+    auto remote=os::RemoteProcessHandle::open(client,1234);
+    auto list=remote ? remote->queryRegions() : std::vector<MemoryRegion>{};
+    check(list.size()==2 && list[0].base==0x400000 && list[0].size==0x1000 && list[0].protection==MemProt::Read &&
+          list[0].type==MemType::Image && list[1].base==0x401000 && list[1].size==0x2000 &&
+          list[1].protection==MemProt::ReadWrite && list[1].type==MemType::Private &&
+          list[0].state==MemState::Committed && list[1].state==MemState::Committed,
+          "an upstream RegionInfo list (base, size, protection, type) decodes field by field");
+    auto gap=remote ? remote->queryRegion(0x3ff123) : std::nullopt;
+    auto inside=remote ? remote->queryRegion(0x402345) : std::nullopt;
+    check(remote && !gap && inside && inside->base==0x402000 && inside->size==0x1000 && inside->protection==MemProt::ReadWrite,
+          "an upstream PAGE_NOACCESS type 0 gap is free space, not a committed private region");
+    remote.reset();client.close();peer.join();close(listener);
+}
+
+// Upstream commands, sent and decoded as raw bytes, against the production server.
+class RawClient {
+public:
+    int fd=-1;
+    explicit RawClient(uint16_t port) {
+        fd=socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0);
+        sockaddr_in address{};address.sin_family=AF_INET;address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);address.sin_port=htons(port);
+        if (fd>=0 && connect(fd,reinterpret_cast<sockaddr*>(&address),sizeof(address))) { close(fd);fd=-1; }
+        timeval timeout{5,0};
+        if (fd>=0) setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
+    }
+    ~RawClient() { if (fd>=0) close(fd); }
+    template<class... T> bool send(const T&... fields) {
+        std::vector<uint8_t> frame;(append(frame,fields),...);
+        return fd>=0 && transfer(fd,frame.data(),frame.size(),true);
+    }
+    template<class T> std::optional<T> get() {
+        T value{};
+        if (fd<0 || !transfer(fd,&value,sizeof(value),false)) return std::nullopt;
+        return value;
+    }
+    std::optional<std::string> bytes(size_t size) {
+        std::string value(size,'\0');
+        if (fd<0 || (size && !transfer(fd,value.data(),size,false))) return std::nullopt;
+        return value;
+    }
+    bool alive() {
+        auto version=send(uint8_t(0)) ? get<int32_t>() : std::nullopt;
+        auto size=version ? get<uint8_t>() : std::nullopt;
+        return size && bytes(*size);
+    }
+private:
+    static void append(std::vector<uint8_t>& frame,const std::string& text) { frame.insert(frame.end(),text.begin(),text.end()); }
+    template<class T> static void append(std::vector<uint8_t>& frame,const T& value) {
+        auto* p=reinterpret_cast<const uint8_t*>(&value);frame.insert(frame.end(),p,p+sizeof(value));
+    }
+};
+static void upstreamServer(const char* executable) {
+    printf("CESERVER_UPSTREAM_SERVER\n");
+    Fixture target(executable);
+    os::CeserverServer server;auto port=server.start(0);
+    RawClient raw(port);
+    check(target.width==8 && port && raw.fd>=0,"a real target and a raw upstream-protocol connection start");
+    if (target.width!=8 || raw.fd<0) return;
+    os::LinuxProcessHandle local(target.pid);
+
+    // Commands a Cheat Engine client sends while connecting and listing.
+    auto abi=raw.send(uint8_t(33)) ? raw.get<uint8_t>() : std::nullopt;
+    auto android=raw.send(uint8_t(45)) ? raw.get<uint8_t>() : std::nullopt;
+    auto options=raw.send(uint8_t(37)) ? raw.get<uint16_t>() : std::nullopt;
+    const std::string name="Cheat Engine";
+    bool named=raw.send(uint8_t(34),uint32_t(name.size()),name);
+    auto suspended=raw.send(uint8_t(17),int32_t(1),int32_t(target.pid)) ? raw.get<int32_t>() : std::nullopt;
+    check(abi==1 && android==0 && options==0 && named && suspended==0 && raw.alive(),
+          "upstream connect-time and unsupported fixed-size commands are answered without dropping the connection");
+
+    auto snapshot=raw.send(uint8_t(35),uint32_t(2),uint32_t(0)) ? raw.get<int32_t>() : std::nullopt;
+    bool listed=false,ended=false;
+    for (unsigned i=0;snapshot && *snapshot>0 && i<(1u<<16);++i) {
+        auto entry=raw.send(uint8_t(i ? 6 : 5),uint32_t(*snapshot)) ? raw.get<UpstreamProcessEntry>() : std::nullopt;
+        if (!entry) break;
+        if (!entry->result) { ended=true;break; }
+        auto processName=raw.bytes(static_cast<size_t>(entry->processnamesize));
+        if (!processName) break;
+        listed=listed || (entry->pid==target.pid && processName->find("compatibility_fixture64")!=std::string::npos);
+    }
+    auto closedSnapshot=raw.send(uint8_t(7),int32_t(snapshot.value_or(0))) ? raw.get<int32_t>() : std::nullopt;
+    check(snapshot && *snapshot>0 && *snapshot<=0xffffff && listed && ended && closedSnapshot==1,
+          "a process snapshot lists the real target through PROCESS32FIRST/NEXT and closes");
+
+    auto modules=raw.send(uint8_t(4),uint32_t(8),uint32_t(target.pid)) ? raw.get<int32_t>() : std::nullopt;
+    auto first=modules && raw.send(uint8_t(22),uint32_t(*modules)) ? raw.get<UpstreamModuleEntry>() : std::nullopt;
+    auto firstName=first ? raw.bytes(static_cast<size_t>(first->modulenamesize)) : std::nullopt;
+    (void)(raw.send(uint8_t(7),int32_t(modules.value_or(0))) && raw.get<int32_t>());
+    check(first && first->result==1 && firstName && firstName->starts_with("/"),
+          "MODULE32FIRST names a module by its full path, as upstream does");
+
+    auto handle=raw.send(uint8_t(3),int32_t(target.pid)) ? raw.get<int32_t>() : std::nullopt;
+    if (!handle || *handle<=0) { check(false,"OPENPROCESS opens the real target");return; }
+    auto count=raw.send(uint8_t(31),*handle,uint8_t(0)) ? raw.get<uint32_t>() : std::nullopt;
+    auto localRegions=local.queryRegions();
+    bool sameRegions=count && *count==localRegions.size(),valueWritable=false;
+    for (uint32_t i=0;count && i<*count;++i) {
+        auto region=raw.get<UpstreamRegionInfo>();
+        if (!region) { sameRegions=false;break; }
+        const auto& expect=localRegions[i];
+        const uint32_t type=expect.type==MemType::Image ? 0x1000000 : expect.type==MemType::Mapped ? 0x40000 : 0x20000;
+        sameRegions=sameRegions && region->baseaddress==expect.base && region->size==expect.size && region->type==type;
+        if (target.value>=region->baseaddress && target.value<region->baseaddress+region->size)
+            valueWritable=region->protection==0x04;
+    }
+    check(sameRegions && valueWritable,"VIRTUALQUERYEXFULL sends upstream RegionInfo: base, size, protection, type");
+
+    std::optional<std::pair<uint64_t,uint64_t>> gap;
+    for (size_t i=0;!gap && i+1<localRegions.size();++i)
+        if (localRegions[i].base+localRegions[i].size<localRegions[i+1].base)
+            gap={localRegions[i].base+localRegions[i].size,localRegions[i+1].base};
+    auto between=gap && raw.send(uint8_t(8),*handle,uint64_t(gap->first+0x10)) ? raw.get<UpstreamVqeOutput>() : std::nullopt;
+    check(between && between->result==1 && between->protection==0x01 && between->type==0 &&
+          between->baseaddress==gap->first && between->size==gap->second-gap->first,
+          "VIRTUALQUERYEX answers an unmapped address with upstream's PAGE_NOACCESS gap");
+
+    uint32_t expected=0;(void)local.read(target.value,&expected,4);
+    auto sizes=raw.send(uint8_t(9),uint32_t(*handle),uint64_t(target.value),uint32_t(4),uint8_t(1)) ? raw.get<std::array<uint32_t,2>>() : std::nullopt;
+    auto packed=sizes ? raw.bytes((*sizes)[1]) : std::nullopt;
+    std::expected<std::vector<uint8_t>,std::string> unpacked=std::unexpected(std::string("no reply"));
+    if (packed) unpacked=net::decompressPayload(std::vector<uint8_t>(packed->begin(),packed->end()),4);
+    uint32_t value=0;if (unpacked && unpacked->size()==4) std::memcpy(&value,unpacked->data(),4);
+    check(sizes && (*sizes)[0]==4 && unpacked && value==expected && raw.alive(),
+          "a compressed READPROCESSMEMORY returns upstream's sizes and a zlib stream of the real bytes");
+
+    auto started=raw.send(uint8_t(11),*handle) ? raw.get<int32_t>() : std::nullopt;
+    auto early=raw.send(uint8_t(14),*handle,int32_t(target.pid),int32_t(0)) ? raw.get<int32_t>() : std::nullopt;
+    check(started==1 && early==0 && target.command('r') && target.line()==std::to_string(expected),
+          "a continue with no delivered stop is refused and the running target is unaffected");
+    auto set=raw.send(uint8_t(15),*handle,int32_t(0),int32_t(0),uint64_t(target.code),int32_t(0),int32_t(1)) ? raw.get<int32_t>() : std::nullopt;
+    std::optional<UpstreamDebugEvent> hit;
+    if (set==1 && target.command('b'))
+        for (unsigned i=0;!hit && i<30;++i) {
+            auto have=raw.send(uint8_t(13),*handle,int32_t(100)) ? raw.get<int32_t>() : std::nullopt;
+            if (!have) break;
+            if (!*have) continue;
+            auto event=raw.get<UpstreamDebugEvent>();
+            if (!event) break;
+            if (event->debugevent==SIGTRAP && event->address==target.code) hit=event;
+            else (void)(raw.send(uint8_t(14),*handle,int32_t(event->threadid),int32_t(0)) && raw.get<int32_t>());
+        }
+    auto wrongThread=hit && raw.send(uint8_t(14),*handle,int32_t(hit->threadid+1),int32_t(0)) ? raw.get<int32_t>() : std::nullopt;
+    auto removed=raw.send(uint8_t(16),*handle,uint32_t(0),uint32_t(0),uint32_t(0)) ? raw.get<int32_t>() : std::nullopt;
+    auto resumed=hit && raw.send(uint8_t(14),*handle,int32_t(hit->threadid),int32_t(0)) ? raw.get<int32_t>() : std::nullopt;
+    auto line=target.line();
+    auto repeated=raw.send(uint8_t(14),*handle,int32_t(target.pid),int32_t(0)) ? raw.get<int32_t>() : std::nullopt;
+    check(hit && hit->threadid==target.pid && wrongThread==0 && removed==1 && resumed==1 &&
+          line==std::to_string(expected+1) && repeated==0,
+          "a continue must name the delivered stop's thread, and a repeated continue is refused");
+
+    // The client dies during an unbounded wait: the server notices and detaches.
+    bool waiting=raw.send(uint8_t(13),*handle,int32_t(INT32_MAX));
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    close(raw.fd);raw.fd=-1;
+    auto until=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+    while (local.targetDescription().tracerPid && std::chrono::steady_clock::now()<until)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    check(waiting && !local.targetDescription().tracerPid && target.command('r') && target.line()==std::to_string(expected+1),
+          "a client that disconnects during a long debug-event wait releases and resumes its target");
+    server.stop();
+    check(target.finish(),"the target exits normally after the raw upstream-protocol session");
+}
+
 int main(int argc,char** argv) {
     alarm(120);signal(SIGPIPE,SIG_IGN);
     if (argc!=3) return 2;
     live(argv[1],8);live(argv[2],4);execTransition(argv[1],argv[2]);
+    upstreamFrames();upstreamServer(argv[1]);
     for (unsigned mode=0;mode<9;++mode) malformed(mode);
     os::CeserverServer server;
     for (unsigned i=0;i<16;++i) {

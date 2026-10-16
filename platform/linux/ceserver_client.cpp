@@ -285,15 +285,19 @@ CEServerClient::virtualQueryExFull(int32_t handle, uint8_t flags) {
         return std::unexpected("ceserver returned invalid region count");
     }
 
+    // Each entry is upstream's RegionInfo sent raw: { uint64_t baseaddress;
+    // uint64_t size; uint32_t protection; uint32_t type }. (The unused
+    // CeVirtualQueryExFullOutput declaration in ceserver.h lists them in
+    // another order; the server sends RegionInfo.)
     std::vector<CeRegion> regions;
     regions.reserve(static_cast<size_t>(count));
     for (int32_t i = 0; i < count; ++i) {
         uint32_t protection = 0, type = 0;
         uint64_t base = 0, size = 0;
-        if (!recvAll(&protection, sizeof(protection), error) ||
-            !recvAll(&type, sizeof(type), error) ||
-            !recvAll(&base, sizeof(base), error) ||
-            !recvAll(&size, sizeof(size), error))
+        if (!recvAll(&base, sizeof(base), error) ||
+            !recvAll(&size, sizeof(size), error) ||
+            !recvAll(&protection, sizeof(protection), error) ||
+            !recvAll(&type, sizeof(type), error))
             return std::unexpected(error);
         regions.push_back(CeRegion{base, size, protection, type});
     }

@@ -1,6 +1,7 @@
 /// cescan: Cheat Engine CLI for Linux
 /// Usage: cescan <command> [args...]
 
+#include "core/secure_exec.hpp"
 #include "core/log.hpp"
 #include <clocale>
 #include "platform/linux/linux_process.hpp"
@@ -2038,6 +2039,7 @@ static int cmd_gdb(int argc,char** argv) {
 }
 
 int main(int argc, char** argv) {
+    ce::scrubSecureEnvironment();   // before anything loads plugins (core/secure_exec.hpp)
     // Force the C locale so atof()/strtod() on scan values always use a '.'
     // decimal separator. cescan never calls setlocale(LC_ALL, "") so it is in the
     // C locale already, but pin it explicitly: this environment runs

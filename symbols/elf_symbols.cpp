@@ -55,6 +55,10 @@ static constexpr unsigned char kHostElfData = ELFDATA2LSB;
 void SymbolResolver::loadProcess(ProcessHandle& proc) {
     clear();
     const auto description = proc.targetDescription();
+    // Module paths of a ceserver or GDB target name files on the remote
+    // system. A local file at the same path is a different binary.
+    if (description.transport == TargetTransport::CEServer || description.transport == TargetTransport::Gdb)
+        return;
     std::string root;
     if (description.transport == TargetTransport::Local) {
         if (!description.live || proc.pid() <= 0) return;

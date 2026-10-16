@@ -50,12 +50,16 @@ std::vector<StructureDetectedField> autoDetectStructureFields(const std::vector<
 /// the N=2 case and delegates here.
 std::vector<StructureDetectedField> autoDetectStructureFieldsMulti(
     const std::vector<std::vector<uint8_t>>& snapshots);
+/// Follow each pointer field, decoding pointers with the target's width and
+/// byte order (nothing is followed when either is unknown).
 std::vector<StructurePointerChain> followStructurePointers(ProcessHandle& proc,
     uintptr_t baseAddress,
     const StructureDefinition& structure,
     size_t maxDepth = 2);
+/// Format a field from a snapshot of the structure. `order` is the target's
+/// byte order (Unknown: host order); a pointer uses the field's width.
 std::string formatStructureFieldValue(const StructureField& field,
-    const std::vector<uint8_t>& snapshot);
+    const std::vector<uint8_t>& snapshot, ByteOrder order = ByteOrder::Unknown);
 
 /// Build a structure-dissector definition from a resolved IL2CPP class layout:
 /// one field per INSTANCE field (statics/consts skipped), at its object offset,

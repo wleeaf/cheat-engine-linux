@@ -689,6 +689,21 @@ std::string AutoAssembler::extractSection(const std::string& script, const std::
 
 // ── Line parsing ──
 
+static std::string restrictedError(const std::string& command) {
+    return command + " is not allowed in this script: it would read a file from this computer or run code "
+                     "in the target directly";
+}
+
+// The command a restricted script may not use, or empty. Also matches the
+// internal "__LOADLIBRARY__:" form, which a script can write as a raw line.
+static std::string restrictedCommand(const std::string& upperLine) {
+    auto name = trim(upperLine.substr(0, upperLine.find_first_of("({ \t:")));
+    if (name.size() > 4 && startsWith(name, "__") && name.ends_with("__")) name = name.substr(2, name.size() - 4);
+    static const std::set<std::string> refused = {"LOADLIBRARY", "LOADBINARY", "INCLUDE", "CREATETHREAD",
+                                                  "CREATETHREADANDWAIT"};
+    return refused.count(name) ? name : std::string();
+}
+
 bool AutoAssembler::parseLine(const std::string& rawLine,
     std::vector<Alloc>& allocs, std::vector<Label>& labels,
     std::vector<Define>& defines, std::vector<std::string>& registeredSymbols,
@@ -703,6 +718,14 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
     if (line.empty()) return true;
 
     auto upper = toUpper(line);
+
+    // Checked after comment stripping: "loadlibrary{}(x)" is loadlibrary.
+    if (restricted_) {
+        if (auto command = restrictedCommand(upper); !command.empty()) {
+            error = restrictedError(command);
+            return false;
+        }
+    }
 
     if (upper == "{$TRY}") {
         asmLines.push_back("__TRY_BEGIN__");
@@ -2478,6 +2501,8 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
         }
 
         if (startsWith(trimmedLine, "__LOADBINARY__:")) {
+            // parseLine refuses it already; this keeps the step itself safe.
+            if (restricted_) { result.error = restrictedError("LOADBINARY"); return rollback(); }
             auto args = trimmedLine.substr(15);
             auto parts = splitArgs(args, 2);
             if (parts.size() != 2) {
@@ -2518,6 +2543,7 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
         }
 
         if (startsWith(trimmedLine, "__LOADLIBRARY__:")) {
+            if (restricted_) { result.error = restrictedError("LOADLIBRARY"); return rollback(); }
             auto path = stripOptionalQuotes(trimmedLine.substr(16));
             if (path.empty()) {
                 result.error = "LOADLIBRARY requires a shared library path";
@@ -2527,10 +2553,17 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
                 result.error = "LOADLIBRARY file not found: " + path;
                 return rollback();
             }
+            // dlopen runs in the target, with its own working directory and
+            // possibly another mount namespace: pass the name it sees this file by.
+            std::error_code absoluteError;
+            auto targetPath = std::filesystem::absolute(path, absoluteError).lexically_normal().string();
+            if (absoluteError) targetPath = path;
+            if (proc.targetDescription().transport == TargetTransport::Local)
+                if (auto task = os::processMemoryTask(proc.pid())) targetPath = os::targetVisiblePath(*task, targetPath);
 
             SymbolResolver resolver;
             resolver.loadProcess(proc);
-            auto injectResult = os::injectLibrary(proc, resolver, path,result.disableInfo.image);
+            auto injectResult = os::injectLibrary(proc, resolver, targetPath,result.disableInfo.image);
             if (!injectResult) {
                 result.error = "LOADLIBRARY failed for " + path + ": " + injectResult.error();
                 return rollback();
@@ -2718,6 +2751,10 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
         }
     }
 
+    if (!deferredThreads.empty() && restricted_) {
+        result.error = restrictedError("CREATETHREAD");
+        return rollback();
+    }
     if (!deferredThreads.empty()) {
         SymbolResolver resolver;
         resolver.loadProcess(proc);
@@ -2976,6 +3013,8 @@ bool AutoAssembler::expandLuaBlocks(std::string& code, std::vector<std::string>&
             error = "{$ccode} block has no matching {$endccode} terminator";
             return false;
         }
+        // C source can #include any file here, and a compile error quotes it.
+        if (restricted_) { error = restrictedError("{$ccode}"); return false; }
         std::string source = code.substr(bodyStart, closePos - bodyStart);
         size_t blockEnd = closePos + std::string("{$endccode}").size();
 

@@ -86,11 +86,13 @@
 #include <stdexcept>
 #include "core/mcp_server.hpp"
 #include "core/agent_chat.hpp"
+#include "arch/target_arch.hpp"
 #include "core/json.hpp"
 #include <unistd.h>
 #include <sys/wait.h>
 #include <csignal>
 #include <sys/prctl.h>
+#include <sys/ptrace.h>
 #include <sys/select.h>
 
 using namespace ce;
@@ -506,8 +508,11 @@ static void test_scan_review_fixes() {
 // must follow the pointer when the game switches objects.
 static int32_t g_agentObjects[2][4] = {{1, 5, 40, 9}, {2, 5, 40, 9}};
 static int32_t* volatile g_agentPointer = g_agentObjects[0];
+static uintptr_t g_agentChain[2];   // a two-level pointer path to g_agentObjects[0][3]
 static void test_agent_mcp() {
     printf("\n── Test: Agent tools over MCP ──\n");
+    g_agentChain[0] = reinterpret_cast<uintptr_t>(&g_agentChain[1]);
+    g_agentChain[1] = reinterpret_cast<uintptr_t>(&g_agentObjects[0][3]);
     {
         // JSON text is UTF-8: raw bytes from game memory must not break it.
         const std::string escaped = ce::json::escape(std::string("ok \xc3\xa9 \xff \xe2\x82 \xed\xa0\x80 end"));
@@ -563,6 +568,20 @@ static void test_agent_mcp() {
         auto unknown = rpc(readOnly, 3, "nope", "{}");
         printf("  unknown method -> error -32601: %s\n",
                unknown.get("error") && unknown.get("error")->getInt("code") == -32601 ? "OK" : "FAILED");
+        {
+            // A line over the 4 MiB cap is refused whole; the next message is still read.
+            std::istringstream in(std::string((4u << 20) + 1, 'x') + "\n{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"ping\"}\n");
+            std::ostringstream out;
+            ce::runMcpServer(in, out, readOnly, "test");
+            const std::string text = out.str();
+            const size_t newline = text.find('\n');
+            ce::json::Value refusedLong, pong;
+            const bool parsed = newline != std::string::npos && ce::json::parse(text.substr(0, newline), refusedLong) &&
+                                ce::json::parse(text.substr(newline + 1), pong);
+            printf("  an over-long MCP message gets -32600 and the next one an answer: %s\n",
+                   parsed && refusedLong.get("error") && refusedLong.get("error")->getInt("code") == -32600 &&
+                   pong.getInt("id") == 5 && pong.get("result") ? "OK" : "FAILED");
+        }
         bool error = false;
         tool(readOnly, "first_scan", "{\"type\":\"i32\",\"value\":\"4711\"}", &error);
         printf("  tools need an attached process: %s\n", error ? "OK" : "FAILED");
@@ -598,6 +617,16 @@ static void test_agent_mcp() {
                !error && undone.getInt("count") == scan.getInt("count") ? "OK" : "FAILED");
         tool(readOnly, "write", "{\"address\":\"" + std::string(hexAddress) + "\",\"type\":\"i32\",\"value\":\"1\"}", &error);
         printf("  write is refused without --allow-writes: %s\n", error ? "OK" : "FAILED");
+        {
+            // Both change the game's code: restoring a script, or a breakpoint.
+            bool disableRefused = false, watchRefused = false;
+            auto disabled = tool(readOnly, "aa_disable", "{\"id\":1}", &disableRefused);
+            auto watched = tool(readOnly, "find_accessed_addresses", "{\"address\":\"" + std::string(hexAddress) + "\"}", &watchRefused);
+            printf("  aa_disable and find_accessed_addresses need --allow-writes: %s\n",
+                   disableRefused && watchRefused &&
+                   disabled.getString("error").value_or("").find("--allow-writes") != std::string::npos &&
+                   watched.getString("error").value_or("").find("--allow-writes") != std::string::npos ? "OK" : "FAILED");
+        }
         // Unknown value that changes by a known amount.
         {
             ce::os::LinuxProcessHandle process(child);
@@ -657,12 +686,17 @@ static void test_agent_mcp() {
         printf("  save_table refuses a NUL in the path: %s\n",
                error && !std::filesystem::exists("/tmp/ce-agent-nul.sh") ? "OK" : "FAILED");
         // Library loads, threads and file reads would happen for real even in
-        // the dry run, so agent scripts may not use them.
+        // the dry run, so agent scripts may not use them, also when a {comment}
+        // splits the name from its arguments or the internal form is written.
         bool refusedAll = true;
         for (const char* directive : {"loadlibrary(/tmp/x.so)", "LoadBinary(0,/etc/passwd)", "include(/etc/passwd)",
-                                      "createthread(0)", "CREATETHREADANDWAIT(0)"}) {
+                                      "createthread(0)", "CREATETHREADANDWAIT(0)", "loadlibrary{}(/tmp/x.so)",
+                                      "include{ x }(/etc/passwd)", "createthread{}(0)", "__LOADLIBRARY__:/tmp/x.so",
+                                      "{$ccode}int x;{$endccode}"}) {
             auto checked = tool(session, "aa_check", std::string("{\"script\":\"[ENABLE]\\n") + directive + "\\n[DISABLE]\\n\"}", &error);
-            refusedAll = refusedAll && error && checked.getString("error").value_or("").find("not available to agent scripts") != std::string::npos;
+            const std::string message = checked.getString("error").value_or("");
+            refusedAll = refusedAll && error && message.find("is not allowed") != std::string::npos &&
+                         message.find("root:") == std::string::npos;
         }
         printf("  agent scripts cannot load files or start threads: %s\n", refusedAll ? "OK" : "FAILED");
         std::filesystem::remove(path);
@@ -690,6 +724,65 @@ static void test_agent_mcp() {
                pointerLoaded && pointerTable.entries.size() == 2 && pointerTable.entries[1].offsets == std::vector<int64_t>{8}
                    ? "OK" : "FAILED");
         std::filesystem::remove(path);
+
+        // Unfreezing writes nothing, so it works after the path stops resolving.
+        char chainPath[64];
+        std::snprintf(chainPath, sizeof chainPath, "[[0x%lx]+0]+0",
+                      static_cast<unsigned long>(reinterpret_cast<uintptr_t>(&g_agentChain[0])));
+        tool(session, "add_record", std::string("{\"address\":\"") + chainPath + "\",\"type\":\"i32\",\"description\":\"Chain\"}", &error);
+        bool chainError = error;
+        tool(session, "set_frozen", "{\"index\":2,\"frozen\":true}", &error);
+        chainError = chainError || error;
+        const uintptr_t unmapped = 0x10;
+        (void)process.write(reinterpret_cast<uintptr_t>(&g_agentChain[0]), &unmapped, sizeof unmapped);
+        auto unfrozen = tool(session, "set_frozen", "{\"index\":2,\"frozen\":false}", &error);
+        printf("  set_frozen false works when the path does not resolve: %s\n",
+               !chainError && !error && unfrozen.getBool("frozen") == false ? "OK" : "FAILED");
+
+        // A dry run sees the symbols that enabled scripts registered.
+        char mark[32];
+        std::snprintf(mark, sizeof mark, "%lx", static_cast<unsigned long>(reinterpret_cast<uintptr_t>(&g_agentObjects[0][3])));
+        auto registering = tool(session, "aa_enable", std::string("{\"description\":\"Mark\",\"script\":\"[ENABLE]\\ndefine(agentmark,") +
+                                mark + ")\\nregistersymbol(agentmark)\\n[DISABLE]\\nunregistersymbol(agentmark)\\n\"}", &error);
+        const bool registerError = error;
+        tool(session, "aa_check", "{\"script\":\"[ENABLE]\\nagentmark:\\ndd 9\\n[DISABLE]\\n\"}", &error);
+        printf("  aa_check resolves a symbol an enabled script registered: %s\n", !registerError && !error ? "OK" : "FAILED");
+        tool(session, "aa_disable", "{\"id\":" + std::to_string(registering.getInt("id").value_or(-1)) + "}", &error);
+
+        // Turning writes off ends every freeze.
+        session.setAllowWrites(false);
+        auto records = tool(session, "list_records", "{}", &error);
+        bool anyFrozen = false;
+        if (const auto* list = records.get("records"))
+            for (const auto& r : list->arrayValue) anyFrozen = anyFrozen || r.getBool("frozen").value_or(false);
+        const int32_t changed = 77;
+        (void)process.write(address, &changed, sizeof changed);
+        usleep(150000);
+        int32_t kept = 0;
+        (void)process.read(address, &kept, sizeof kept);
+        printf("  turning writes off ends freezes: %s (%d)\n", !error && !anyFrozen && kept == 77 ? "OK" : "FAILED", kept);
+        session.setAllowWrites(true);
+
+        // A debugger that cannot attach is an error, not "the instruction did
+        // not run": here this test traces the child already.
+        uintptr_t accessing = 0;
+        {
+            const auto code = reinterpret_cast<uintptr_t>(&test_scan_review_fixes);
+            uint8_t bytes[256];
+            auto arch = ce::disassemblerArchFor(process, code);
+            auto got = process.read(code, bytes, sizeof bytes);
+            if (arch && got && *got == sizeof bytes)
+                for (const auto& insn : ce::Disassembler(*arch).disassemble(code, {bytes, sizeof bytes}, 64))
+                    if (insn.memory.present) { accessing = insn.address; break; }
+        }
+        const bool seized = accessing && ptrace(PTRACE_SEIZE, child, nullptr, nullptr) == 0;
+        char accessingHex[32];
+        std::snprintf(accessingHex, sizeof accessingHex, "0x%lx", static_cast<unsigned long>(accessing));
+        auto attachFailed = tool(session, "find_accessed_addresses",
+                                 std::string("{\"address\":\"") + accessingHex + "\",\"seconds\":1}", &error);
+        printf("  find_accessed_addresses reports a failed attach: %s\n",
+               seized && error && attachFailed.getString("error").value_or("").find("could not watch") != std::string::npos
+                   ? "OK" : "FAILED");
     }
     kill(child, SIGKILL);
     waitpid(child, nullptr, 0);
@@ -719,6 +812,48 @@ static void test_recover_store() {
     // Empty/zero rip is a no-op (ok=false), so callers keep the original instruction.
     auto none = ce::recoverStoreInstruction(proc, resolver, 0, true);
     printf("  zero rip -> not recovered: %s\n", (!none.ok) ? "OK" : "FAILED");
+
+    // A trap after a branch stops at its target, where the instruction before
+    // did not run. caller: call callee (+0); mov [rax],edx (+5); int3 padding
+    // up to callee at +0x10: push rbp.
+    {
+        const uintptr_t fn = 0x500000, stack = 0x7f0000;
+        std::vector<uint8_t> text = {0xe8,0x0b,0x00,0x00,0x00, 0x89,0x10};
+        text.resize(0x10, 0xcc);
+        text.push_back(0x55);
+        std::vector<uint8_t> top(16, 0);
+        const uint64_t returnAddress = fn + 5;
+        std::memcpy(top.data(), &returnAddress, sizeof returnAddress);
+        FakeProcessHandle branchy({
+            {{fn, text.size(), MemProt::ReadExec, MemType::Image, MemState::Committed, "test"}, text},
+            {{stack, top.size(), MemProt::ReadWrite, MemType::Private, MemState::Committed, ""}, top},
+        }, {});
+        SymbolResolver names;
+        names.addUserSymbol(fn, "caller");
+        CpuContext atCallee{};
+        atCallee.architecture = CpuArchitecture::X86_64;
+        atCallee.rip = fn + 0x10;   // the call pushed onto a watched stack slot
+        atCallee.rsp = stack;
+        auto padding = ce::recoverStoreInstruction(branchy, names, fn + 0x10, true);
+        auto viaCall = ce::recoverHardwareAccess(branchy, names, atCallee);
+        printf("  trap at a call target names the call, not the padding: %s (got +0x%lx '%s')\n",
+               !padding.ok && viaCall.ok && viaCall.address == fn ? "OK" : "FAILED",
+               (unsigned long)(viaCall.address - fn), viaCall.text.c_str());
+
+        CpuContext afterReturn = atCallee;
+        afterReturn.rip = fn + 5;      // a ret read a watched return address
+        afterReturn.rsp = stack + 8;   // no call's return address on top
+        auto viaRet = ce::recoverHardwareAccess(branchy, names, afterReturn);
+        printf("  trap after a return is labelled, not blamed on the call: %s\n",
+               !viaRet.ok && viaRet.branched && !ce::recoverStoreInstruction(branchy, names, fn + 5, true).ok
+                   ? "OK" : "FAILED");
+
+        CpuContext afterStore = atCallee;
+        afterStore.rip = fn + 7;       // an ordinary store falls through
+        auto store = ce::recoverHardwareAccess(branchy, names, afterStore);
+        printf("  a store that falls through is kept: %s\n",
+               store.ok && !store.branched && store.address == fn + 5 ? "OK" : "FAILED");
+    }
 
     // Disassembler::setArch re-opens the decoder for a different architecture (used by
     // the CodeFinder/Tracer members once the target's bitness is known).
@@ -1333,6 +1468,37 @@ static void test_guest_view() {
     bool unkOk = snap.size() == sizeof(r2) && up.size() == 1
               && up[0].first == 0x08 && up[0].second == 120;
     printf("  unknown-value scan (snapshot + compare): %s\n", unkOk ? "OK" : "FAILED");
+
+    // An unreadable page inside guest RAM does not end the snapshot: offsets after
+    // it are still compared, offsets in it never are. Caps bound the snapshot and
+    // the hit lists.
+    const size_t page = 4096;
+    auto* ram3 = static_cast<uint8_t*>(::mmap(nullptr, 3 * page, PROT_READ | PROT_WRITE,
+                                              MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+    bool gapOk = ram3 != MAP_FAILED;
+    if (gapOk) {
+        std::memset(ram3, 0, 3 * page);
+        gapOk = ::mprotect(ram3 + page, page, PROT_NONE) == 0;
+        ce::GuestView gap{ &self, reinterpret_cast<uintptr_t>(ram3), 3 * page, /*bigEndian=*/false };
+        auto before = ce::guestSnapshotRegion(gap);
+        int32_t raised = 7;
+        std::memcpy(ram3 + 2 * page + 8, &raised, sizeof(raised));
+        auto after = ce::guestSnapshotRegion(gap);
+        auto inc = ce::guestCompareSnapshots<int32_t>(before, after, false, ce::GuestCompare::Increased, 4);
+        auto same = ce::guestCompareSnapshots<int32_t>(before, after, false, ce::GuestCompare::Unchanged, 4);
+        gapOk = gapOk && before.readable.size() == 2 && before.readableBytes() == 2 * page &&
+                !before.truncated && inc.size() == 1 && inc[0].first == 2 * page + 8 &&
+                same.size() == (2 * page) / 4 - 1;
+        bool hitsCut = false, cmpCut = false;
+        auto capped = ce::guestScanExact<int32_t>(gap, 0, 4, 3, &hitsCut);
+        auto cappedCmp = ce::guestCompareSnapshots<int32_t>(before, after, false, ce::GuestCompare::Unchanged,
+                                                            4, 5, &cmpCut);
+        auto small = ce::guestSnapshotRegion(gap, page);
+        gapOk = gapOk && capped.size() == 3 && hitsCut && cappedCmp.size() == 5 && cmpCut &&
+                small.truncated && small.bytes.size() == page;
+        ::munmap(ram3, 3 * page);
+    }
+    printf("  guest snapshot skips unreadable pages and caps its size and hits: %s\n", gapOk ? "OK" : "FAILED");
 }
 
 static void test_cheat_table_json() {
@@ -1574,7 +1740,7 @@ static void test_cheat_table_json() {
     }
     std::filesystem::remove(hkPath);
     hkOk = hkOk && savedXml.find("<Hotkey>") != std::string::npos &&
-                   savedXml.find("<Action>0</Action>") != std::string::npos &&
+                   savedXml.find("<Action>Toggle Activation</Action>") != std::string::npos &&
                    savedXml.find("<Key>17</Key>") != std::string::npos &&
                    savedXml.find("<Key>72</Key>") != std::string::npos;
 
@@ -2490,15 +2656,27 @@ static void test_trainer_generation() {
 
     auto outputPath = std::filesystem::temp_directory_path() /
         ("cecore-trainer-" + std::to_string(getpid()));
+    // The compiler input lives in a private directory: a user's own file
+    // named like "<output>.c" is neither overwritten nor deleted.
+    const auto userSource = outputPath.string() + ".c";
+    { std::ofstream mine(userSource); mine << "user source\n"; }
     auto error = generator.generateBinary(table, outputPath.string());
     bool binaryOk = error.empty() && std::filesystem::exists(outputPath);
+    std::string userText;
+    { std::ifstream mine(userSource); std::getline(mine, userText); }
+    bool keptUserSource = userText == "user source";
 
     std::filesystem::remove(outputPath);
-    std::filesystem::remove(outputPath.string() + ".c");
+    std::filesystem::remove(userSource);
+    bool keyLoopOk = source.find("read(0, &c, 1)") != std::string::npos &&
+                     source.find("getchar") == std::string::npos &&
+                     source.find("if (got == 0 ||") != std::string::npos;
 
     printf("  source escaping: %s\n", sourceOk ? "OK" : "FAILED");
     printf("  float/double comma-decimal emits valid C: %s\n", floatOk ? "OK" : "FAILED");
     printf("  binary compile: %s\n", binaryOk ? "OK" : "FAILED");
+    printf("  trainer build leaves <output>.c alone: %s\n", keptUserSource ? "OK" : "FAILED");
+    printf("  trainer key loop reads unbuffered and stops at end of input: %s\n", keyLoopOk ? "OK" : "FAILED");
     if (!error.empty())
         printf("    error: %s\n", error.c_str());
 }
@@ -2553,6 +2731,30 @@ static void test_code_analysis_references() {
         ripRelative[0].target == stringBase;
     bool assemblyOk = assembly.size() == 1 && assembly[0].address == codeBase + 14;
     bool cavesOk = caves.size() == 1 && caves[0].address == codeBase + 15 && caves[0].size == 20;
+
+    // Relative branches match away from module.base, where the pattern was
+    // assembled: the rel field must reach the same target from each candidate.
+    auto callHits = analyzer.findAssemblyPattern(proc, module, "call 0x3000");
+    auto jmpHits = analyzer.findAssemblyPattern(proc, module, "jmp 0x100f");
+    auto wrongTarget = analyzer.findAssemblyPattern(proc, module, "call 0x3001");
+    bool relativeOk = callHits.size() == 1 && callHits[0].address == codeBase + 7 &&
+        jmpHits.size() == 1 && jmpHits[0].address == codeBase + 12 && wrongTarget.empty();
+    printf("  assembly pattern matches relative branches by target: %s\n", relativeOk ? "OK" : "FAILED");
+
+    // 32-bit code: mov eax,[0x80001000] carries a disp32 that Capstone
+    // sign-extends; the reference must still resolve to the high address.
+    {
+        const uintptr_t hiBase = 0x80000000;
+        std::vector<uint8_t> code32 = {0x8B, 0x05, 0x00, 0x10, 0x00, 0x80, 0xC3};
+        ModuleInfo module32{hiBase, 0x2000, "game.exe", "/tmp/game.exe", false};
+        FakeProcessHandle proc32({
+            {{hiBase, code32.size(), MemProt::ReadExec, MemType::Image, MemState::Committed, module32.path}, code32},
+        }, {module32}, /*is64bit=*/false);
+        CodeAnalyzer analyzer32(Arch::X86_32);
+        auto refs32 = analyzer32.findRipRelativeInstructions(proc32, module32);
+        bool highOk = refs32.size() == 1 && refs32[0].address == hiBase && refs32[0].target == hiBase + 0x1000;
+        printf("  32-bit absolute reference above 2 GB resolves: %s\n", highOk ? "OK" : "FAILED");
+    }
 
     // Disassembler resolves the RIP-relative operand to its absolute address and
     // records it in Instruction::ripTarget (the lea at codeBase points to stringBase).
@@ -2847,6 +3049,15 @@ static void test_effective_address() {
     bool ok3 = !i3.empty() && !i3[0].memory.present &&
                computeEffectiveAddress(i3[0], CpuContext{}) == 0;
     printf("  no-memory instruction: %s\n", ok3 ? "OK" : "FAILED");
+
+    // mov rax, fs:[0x28] -> 64 48 8B 04 25 28 00 00 00: thread-local, and the
+    // context has no fs base, so no address rather than 0x28.
+    uint8_t code4[] = {0x64, 0x48, 0x8B, 0x04, 0x25, 0x28, 0x00, 0x00, 0x00};
+    auto i4 = dis.disassemble(0x1000, code4, 1);
+    CpuContext ctx4{}; ctx4.fs = 0x53;
+    bool ok4 = !i4.empty() && i4[0].memory.present && i4[0].memory.segmentReg == "fs" &&
+               computeEffectiveAddress(i4[0], ctx4) == 0;
+    printf("  fs-relative operand reports no address: %s\n", ok4 ? "OK" : "FAILED");
 }
 
 static void test_managed_runtime_detection() {
@@ -5064,6 +5275,76 @@ static void test_snapshot_engine() {
     bool roundtrip = reload && snapC.regionCount() == 1 && snapC.byteCount() == 4;
     printf("  round-trip save/load: %s\n", roundtrip ? "OK" : "FAILED");
 
+    // Snapshot files built by hand: {base, size, bytes} records.
+    auto writeSnapshotFile = [](const std::filesystem::path& path,
+                                const std::vector<std::pair<uint64_t, std::vector<uint8_t>>>& regions) {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        out.write("CESNAP01", 8);
+        const uint32_t count = (uint32_t)regions.size();
+        out.write(reinterpret_cast<const char*>(&count), sizeof(count));
+        for (const auto& [base, bytes] : regions) {
+            const uint64_t size = bytes.size();
+            const uint32_t prot = 3, byteCount = (uint32_t)bytes.size();
+            out.write(reinterpret_cast<const char*>(&base), sizeof(base));
+            out.write(reinterpret_cast<const char*>(&size), sizeof(size));
+            out.write(reinterpret_cast<const char*>(&prot), sizeof(prot));
+            out.write(reinterpret_cast<const char*>(&byteCount), sizeof(byteCount));
+            out.write(reinterpret_cast<const char*>(bytes.data()), (std::streamsize)bytes.size());
+        }
+    };
+
+    // A region that grew (heap growth) is still compared over the common range,
+    // and a capped diff keeps the count of every change.
+    auto tmpD = std::filesystem::temp_directory_path() / "cecore_snapD.bin";
+    writeSnapshotFile(tmpD, {{0x10000, {0xAA, 0x99, 0xCC, 0xDD, 0x11, 0x22, 0x33, 0x44}}});
+    Snapshot snapD;
+    uint64_t changed = 0;
+    bool grownOk = snapD.load(tmpD.string(), nullptr);
+    auto grown = snapA.diff(snapD);
+    grownOk = grownOk && grown.size() == 1 && grown[0].address == 0x10001;
+    auto capped = snapA.diff(snapB, 1, &changed);
+    bool cappedOk = capped.size() == 1 && capped[0].address == 0x10001 && changed == 2;
+    printf("  diff matches regions by overlap (grown region): %s\n", grownOk ? "OK" : "FAILED");
+    printf("  capped diff keeps the total count: %s\n", cappedOk ? "OK" : "FAILED");
+    std::filesystem::remove(tmpD);
+
+    // Restore writes only where memory is writable data now: a page that became
+    // read-only code and an unmapped page are skipped, the rest is restored.
+    const size_t page = 4096;
+    auto* mem = static_cast<uint8_t*>(::mmap(nullptr, 4 * page, PROT_READ | PROT_WRITE,
+                                             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+    bool restoreOk = mem != MAP_FAILED;
+    if (restoreOk) {
+        std::memset(mem, 0x11, 4 * page);
+        ::munmap(mem + 3 * page, page);
+        restoreOk = ::mprotect(mem + page, page, PROT_READ | PROT_EXEC) == 0;
+        const auto base = reinterpret_cast<uint64_t>(mem);
+        auto tmpE = std::filesystem::temp_directory_path() /
+            ("cecore_snapE-" + std::to_string(getpid()) + ".bin");
+        writeSnapshotFile(tmpE, {{base, std::vector<uint8_t>(4 * page, 0xAA)}});
+        Snapshot stale;
+        restoreOk = restoreOk && stale.load(tmpE.string(), nullptr);
+        std::filesystem::remove(tmpE);
+        ce::os::LinuxProcessHandle self(getpid());
+        const uint64_t written = restoreOk ? stale.restore(self) : 0;
+        restoreOk = restoreOk && written == 2 * page && mem[0] == 0xAA && mem[page - 1] == 0xAA &&
+                    mem[page] == 0x11 && mem[2 * page - 1] == 0x11 &&
+                    mem[2 * page] == 0xAA && mem[3 * page - 1] == 0xAA;
+        // A recapture reads only the ranges still mapped writable.
+        mem[2 * page + 5] = 0x55;
+        const Snapshot again = stale.recapture(self);
+        const auto changes = stale.diff(again);
+        const bool recaptureOk = again.byteCount() == 2 * page && changes.size() == 1 &&
+                                 changes[0].address == base + 2 * page + 5 && changes[0].after == 0x55;
+        printf("  recapture covers only still-writable ranges: %s\n", recaptureOk ? "OK" : "FAILED");
+        ::munmap(mem, 3 * page);
+
+        const Snapshot small = Snapshot::capture(self, 16);
+        printf("  capture reports a budget-truncated snapshot: %s\n",
+               small.truncated() && small.byteCount() == 16 ? "OK" : "FAILED");
+    }
+    printf("  restore skips code and unmapped pages: %s\n", restoreOk ? "OK" : "FAILED");
+
     std::filesystem::remove(tmpA);
     std::filesystem::remove(tmpB);
     std::filesystem::remove(tmpC);
@@ -5228,6 +5509,162 @@ static void test_break_and_trace_multithread() {
     printf("  break and trace on a child thread: %s (%zu entries, first=%s)\n",
            (hitStart && countOk) ? "OK" : "FAILED", entries.size(), hitStart ? "startAddr" : "no");
 }
+
+// Recursion for step-over-calls: the inner frames return to the same
+// instruction after the call before the frame that made the traced call does.
+static volatile int g_trace_recurse_sink = 0;
+__attribute__((noinline)) static int trace_recurse(int n) {
+    if (n <= 0) return g_trace_recurse_sink;
+    int r = trace_recurse(n - 1);
+    g_trace_recurse_sink = r;   // a volatile store after the call keeps it a real recursion
+    return r + 1;
+}
+static void test_break_and_trace_step_over_recursion() {
+    printf("\n── Test: Break and trace steps over a recursive call ──\n");
+    pid_t child = fork();
+    if (child == 0) {
+        prctl(PR_SET_PDEATHSIG, SIGKILL);
+        for (;;) { trace_recurse(6); usleep(1000); }   // idle between calls: the outer frame hits first
+        _exit(0);
+    }
+    if (child < 0) { printf("  step over a recursive call: FAILED\n"); return; }
+    usleep(50000);
+
+    LinuxProcessHandle proc(child);
+    LinuxDebugger dbg;
+    Tracer tracer;
+    TraceConfig config;
+    config.startAddress = reinterpret_cast<uintptr_t>(&trace_recurse);
+    config.maxSteps = 40;
+    config.stepOverCalls = true;
+    auto entries = tracer.trace(proc, dbg, config);
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
+
+    // After each stepped-over call the trace resumes in the same frame.
+    const uintptr_t fn = config.startAddress;
+    int recursiveCalls = 0;
+    bool sameFrame = true;
+    for (size_t i = 0; i + 1 < entries.size(); ++i) {
+        const auto& text = entries[i].instruction;
+        if (!text.starts_with("call") && !text.starts_with("bl ")) continue;
+        if (entries[i].address >= fn && entries[i].address < fn + 256) ++recursiveCalls;
+        if (entries[i + 1].context.stackPointer() != entries[i].context.stackPointer()) sameFrame = false;
+    }
+    printf("  step over a recursive call returns in the calling frame: %s (%zu entries, %d recursive calls)\n",
+           !entries.empty() && recursiveCalls > 0 && sameFrame ? "OK" : "FAILED", entries.size(), recursiveCalls);
+}
+
+// Several threads run the start address at once: the threads that trap
+// after the first one must not be left a SIGTRAP when the tracer lets go.
+__attribute__((noinline)) static void busy_trace_probe() {
+    static volatile int sink = 0;
+    sink = sink + 1;
+}
+static void busy_trace_worker() {
+    for (;;) busy_trace_probe();
+}
+static void test_break_and_trace_busy_threads() {
+    printf("\n── Test: Break and trace with several threads at the start ──\n");
+    pid_t child = fork();
+    if (child == 0) {
+        prctl(PR_SET_PDEATHSIG, SIGKILL);
+        for (int i = 0; i < 4; ++i) std::thread(busy_trace_worker).detach();
+        for (;;) usleep(100000);
+        _exit(0);
+    }
+    if (child < 0) { printf("  busy threads survive traces: FAILED\n"); return; }
+    usleep(80000);
+
+    LinuxProcessHandle proc(child);
+    LinuxDebugger dbg;
+    bool traced = true, alive = true;
+    for (int round = 0; round < 8 && traced && alive; ++round) {
+        Tracer tracer;
+        TraceConfig config;
+        config.startAddress = reinterpret_cast<uintptr_t>(&busy_trace_probe);
+        config.maxSteps = 3;
+        traced = !tracer.trace(proc, dbg, config).empty();
+        usleep(20000);
+        int status = 0;
+        alive = waitpid(child, &status, WNOHANG) == 0;
+    }
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
+    printf("  busy threads survive repeated traces: %s (traced=%d alive=%d)\n",
+           traced && alive ? "OK" : "FAILED", traced, alive);
+}
+
+// A software page guard on a thread's stack would leave the kernel no place
+// for a signal frame: refuse it rather than crash the target.
+static void test_codefinder_software_stack_refused() {
+    printf("\n── Test: find-what-writes refuses a software watch on a stack ──\n");
+    int fds[2];
+    if (pipe(fds) != 0) { printf("  software watch on a stack: FAILED\n"); return; }
+    pid_t child = fork();
+    if (child == 0) {
+        prctl(PR_SET_PDEATHSIG, SIGKILL);
+        close(fds[0]);
+        // Frame addresses: on the real stacks even when ASan moves locals.
+        static uintptr_t addresses[2];
+        addresses[0] = reinterpret_cast<uintptr_t>(__builtin_frame_address(0)) & ~uintptr_t{7};
+        std::thread([fd = fds[1]] {
+            addresses[1] = reinterpret_cast<uintptr_t>(__builtin_frame_address(0)) & ~uintptr_t{7};
+            (void)!write(fd, addresses, sizeof addresses);
+            for (;;) usleep(1000);
+        }).detach();
+        for (;;) usleep(1000);
+        _exit(0);
+    }
+    close(fds[1]);
+    if (child < 0) { close(fds[0]); printf("  software watch on a stack: FAILED\n"); return; }
+    uintptr_t addresses[2] = {};
+    bool received = read(fds[0], addresses, sizeof addresses) == sizeof addresses;
+    close(fds[0]);
+
+    LinuxProcessHandle proc(child);
+    LinuxDebugger dbg;
+    bool refused = received;
+    for (uintptr_t address : addresses) {
+        if (!received) break;
+        CodeFinder finder;
+        bool started = finder.start(proc, dbg, address, true, 4, /*software=*/true);
+        refused = refused && !started && finder.lastError() == softwareWatchOnStackError();
+        finder.stop();
+    }
+    usleep(20000);
+    int status = 0;
+    bool alive = waitpid(child, &status, WNOHANG) == 0;
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
+    printf("  software watch on the main and a thread stack is refused: %s (target %s)\n",
+           refused && alive ? "OK" : "FAILED", alive ? "alive" : "KILLED");
+}
+
+#ifdef __x86_64__
+extern "C" void cecore_fs_load();
+asm(".text\n.globl cecore_fs_load\n.type cecore_fs_load,@function\ncecore_fs_load:\n"
+    "    movq %fs:0x28, %rax\n    ret\n.size cecore_fs_load,.-cecore_fs_load\n");
+// fs:[0x28] is thread-local: without the fs base its address is unknown, so
+// "find what addresses this accesses" says so instead of tallying 0x28.
+static void test_instruction_access_segment() {
+    printf("\n── Test: find-what-addresses refuses an fs-relative operand ──\n");
+    pid_t child = fork();
+    if (child == 0) {
+        prctl(PR_SET_PDEATHSIG, SIGKILL);
+        for (;;) pause();
+        _exit(0);
+    }
+    if (child < 0) { printf("  fs-relative operand: FAILED\n"); return; }
+    LinuxProcessHandle proc(child);
+    std::string error;
+    auto accesses = findInstructionAccesses(proc, reinterpret_cast<uintptr_t>(&cecore_fs_load), 1, 100, {}, &error);
+    kill(child, SIGKILL);
+    waitpid(child, nullptr, 0);
+    printf("  fs-relative operand is refused with a reason: %s (%s)\n",
+           accesses.empty() && error.find("fs-relative") != std::string::npos ? "OK" : "FAILED", error.c_str());
+}
+#endif
 
 static void test_exception_breakpoint() {
     printf("\n── Test: Exception breakpoints ──\n");
@@ -6983,6 +7420,27 @@ static void test_signature_generation() {
     printf("  pattern: %s (unique=%d)\n", sig.pattern.c_str(), sig.unique ? 1 : 0);
     printf("  wildcards rip-disp + extends to unique (ends C3): %s\n",
            (sig.unique && startsRight && hasWildcards && endsRet) ? "OK" : "FAILED");
+
+    // The same bytes in another mapping of the module (a second executable
+    // segment) make the signature ambiguous for AOBScanModule: uniqueness is
+    // checked across every readable mapping of the file, not just one VMA.
+    const uintptr_t second = base + 0x10000;
+    FakeProcessHandle twoSegments({
+        {{base, code.size(), MemProt::ReadExec, MemType::Image, MemState::Committed, "/tmp/game"}, code},
+        {{second, code.size(), MemProt::ReadExec, MemType::Image, MemState::Committed, "/tmp/game"}, code},
+    }, {});
+    auto moduleSig = ce::makeSignature(twoSegments, base + targetOff, 64);
+    bool moduleOk = moduleSig.moduleWide && !moduleSig.unique && !moduleSig.incomplete;
+    printf("  uniqueness covers every mapping of the module: %s\n", moduleOk ? "OK" : "FAILED");
+
+    // A mapping that cannot be read in full cannot confirm uniqueness.
+    std::vector<uint8_t> head(code.begin(), code.begin() + 40);
+    FakeProcessHandle shortRead({
+        {{base, code.size(), MemProt::ReadExec, MemType::Image, MemState::Committed, "/tmp/game"}, head},
+    }, {});
+    auto partial = ce::makeSignature(shortRead, base + targetOff, 64);
+    bool partialOk = !partial.pattern.empty() && partial.incomplete && !partial.unique;
+    printf("  a short read leaves uniqueness unverified: %s\n", partialOk ? "OK" : "FAILED");
 }
 
 // Reusable PointerMap: build the pointer graph once, scan multiple targets and
@@ -7830,6 +8288,82 @@ static void test_injection_script_generation() {
     printf("  AOB injection script: %s\n", aobOk ? "OK" : "FAILED");
     printf("  short-read error: %s\n", tinyOk ? "OK" : "FAILED");
     printf("  AOB-without-module error: %s\n", noModuleOk ? "OK" : "FAILED");
+
+    // i386 PIC reads the return address of a call: a stolen call must see the
+    // original address, not one in the cave. Enable the scripts and read the cave.
+    struct Buffer32 final : ProcessHandle {
+        std::vector<uint8_t> bytes = std::vector<uint8_t>(0x10000);
+        pid_t pid() const override { return getpid(); }
+        bool is64bit() const override { return false; }
+        TargetDescription targetDescription() override { return ce::test::x86Target(false, true); }
+        Result<size_t> read(uintptr_t at, void* out, size_t n) override {
+            if (at > bytes.size() || n > bytes.size() - at) return std::unexpected(std::make_error_code(std::errc::bad_address));
+            std::memcpy(out, bytes.data() + at, n); return n;
+        }
+        Result<size_t> write(uintptr_t at, const void* in, size_t n) override {
+            if (at > bytes.size() || n > bytes.size() - at) return std::unexpected(std::make_error_code(std::errc::bad_address));
+            std::memcpy(bytes.data() + at, in, n); return n;
+        }
+        std::vector<MemoryRegion> queryRegions() override {
+            return {{0, bytes.size(), MemProt::All, MemType::Private, MemState::Committed, "game32.bin"}};
+        }
+        std::optional<MemoryRegion> queryRegion(uintptr_t at) override {
+            return at < bytes.size() ? std::optional<MemoryRegion>(queryRegions()[0]) : std::nullopt;
+        }
+        Result<uintptr_t> allocate(size_t, MemProt, uintptr_t) override { return uintptr_t(0x8000); }
+        Result<void> free(uintptr_t, size_t) override { return {}; }
+        Result<void> protect(uintptr_t, size_t, MemProt) override { return {}; }
+        std::vector<ModuleInfo> modules() override { return {{0x1000, 0x1000, "game32.bin", "", true}}; }
+        std::vector<ThreadInfo> threads() override { return {}; }
+    };
+    auto cave = [](Buffer32& target, uintptr_t at, size_t overwrite, std::string& script) {
+        std::string why;
+        script = generateInjectionScript(target, at, InjectionKind::Code, why, "", overwrite);
+        AutoAssembler assembler;
+        auto enabled = !script.empty() && assembler.execute(target, script).success;
+        if (!enabled) printf("    i386 call injection: %s\n", why.c_str());
+        return enabled ? std::vector<uint8_t>(target.bytes.begin() + 0x8000, target.bytes.begin() + 0x8010) : std::vector<uint8_t>{};
+    };
+    auto word = [](const std::vector<uint8_t>& b, size_t at) {
+        uint32_t v = 0; if (b.size() >= at + 4) std::memcpy(&v, b.data() + at, 4); return v;
+    };
+    Buffer32 thunkTarget;
+    const uint8_t thunkCall[] = {0xe8, 0xfb, 0x00, 0x00, 0x00, 0x81, 0xc3, 0x34, 0x12, 0x00, 0x00}; // call 0x1200; add ebx,0x1234
+    const uint8_t thunkBody[] = {0x8b, 0x1c, 0x24, 0xc3};                                        // mov ebx,[esp]; ret
+    std::memcpy(thunkTarget.bytes.data() + 0x1100, thunkCall, sizeof(thunkCall));
+    std::memcpy(thunkTarget.bytes.data() + 0x1200, thunkBody, sizeof(thunkBody));
+    std::string thunkScript;
+    auto thunkCave = cave(thunkTarget, 0x1100, 5, thunkScript);
+    bool thunkOk = thunkCave.size() == 16 && thunkCave[0] == 0xbb && word(thunkCave, 1) == 0x1105 &&
+        thunkScript.find("mov ebx, return") != std::string::npos;
+
+    Buffer32 nextTarget;
+    const uint8_t callNext[] = {0xe8, 0x00, 0x00, 0x00, 0x00, 0x58, 0x90, 0x90};                // call $+5; pop eax
+    std::memcpy(nextTarget.bytes.data() + 0x1300, callNext, sizeof(callNext));
+    std::string nextScript;
+    auto nextCave = cave(nextTarget, 0x1300, 6, nextScript);
+    bool nextOk = nextCave.size() == 16 && nextCave[0] == 0x68 && word(nextCave, 1) == 0x1305 && nextCave[5] == 0x58;
+
+    Buffer32 lastTarget;
+    const uint8_t lastCall[] = {0xe8, 0xfb, 0x00, 0x00, 0x00, 0x90, 0x90, 0x90};                // call 0x1500
+    const uint8_t callee[] = {0x31, 0xc0, 0xc3};                                                 // xor eax,eax; ret
+    std::memcpy(lastTarget.bytes.data() + 0x1400, lastCall, sizeof(lastCall));
+    std::memcpy(lastTarget.bytes.data() + 0x1500, callee, sizeof(callee));
+    std::string lastScript;
+    auto lastCave = cave(lastTarget, 0x1400, 5, lastScript);
+    bool lastOk = lastCave.size() == 16 && lastCave[0] == 0x68 && word(lastCave, 1) == 0x1405 &&
+        lastCave[5] == 0xe9 && 0x8005 + 5 + word(lastCave, 6) == 0x1500;
+
+    const std::vector<uint8_t> next64 = {0xe8, 0x00, 0x00, 0x00, 0x00, 0x58, 0x90, 0x90};
+    FakeProcessHandle nextProc({{region, next64}}, modules);
+    std::string next64Error;
+    bool next64Ok = generateInjectionScript(nextProc, addr, false, next64Error).empty() &&
+        next64Error.find("return address") != std::string::npos;
+
+    printf("  i386 get_pc thunk call becomes a mov of the original address: %s\n", thunkOk ? "OK" : "FAILED");
+    printf("  i386 call $+5 pushes the original address: %s\n", nextOk ? "OK" : "FAILED");
+    printf("  a final stolen call returns to the original code: %s\n", lastOk ? "OK" : "FAILED");
+    printf("  x86-64 call to the next instruction is refused: %s\n", next64Ok ? "OK" : "FAILED");
 }
 
 static void test_structure_tools() {
@@ -7865,7 +8399,23 @@ static void test_structure_tools() {
         cpp.find("int32_t health; // 0x0") != std::string::npos &&
         cpp.find("float mana_value; // 0x4") != std::string::npos &&
         cpp.find("Vector2 coords; // 0x8") != std::string::npos &&
-        cpp.find("uintptr_t target; // 0x10") != std::string::npos;
+        cpp.find("uint64_t target; // 0x10") != std::string::npos &&
+        cpp.find("#pragma pack(push, 1)") != std::string::npos &&
+        cpp.find("#pragma pack(pop)") != std::string::npos &&
+        cpp.find("static_assert(offsetof(Player_State, target) == 0x10);") != std::string::npos &&
+        cpp.find("static_assert(sizeof(Player_State) == 0x18);") != std::string::npos;
+    // A 32-bit target's pointer is 4 bytes; a size that does not fit the type
+    // becomes a byte array rather than shifting later offsets.
+    StructureDefinition narrow;
+    narrow.name = "Narrow";
+    narrow.fields.push_back({"next", 0, ValueType::Pointer, 4});
+    narrow.fields.push_back({"odd", 4, ValueType::Int32, 3});
+    narrow.fields.push_back({"tail", 7, ValueType::Byte, 1});
+    auto narrowCpp = generateCppStruct(narrow);
+    cppOk = cppOk && narrowCpp.find("uint32_t next; // 0x0") != std::string::npos &&
+        narrowCpp.find("uint8_t odd[3]; // 0x4") != std::string::npos &&
+        narrowCpp.find("static_assert(offsetof(Narrow, tail) == 0x7);") != std::string::npos &&
+        narrowCpp.find("static_assert(sizeof(Narrow) == 0x8);") != std::string::npos;
 
     std::vector<uint8_t> before(24, 0);
     std::vector<uint8_t> after = before;
@@ -7933,9 +8483,33 @@ static void test_structure_tools() {
         chains[0].addresses[0] == nodeA &&
         chains[0].addresses[1] == nodeB;
 
+    // A 32-bit target: 4-byte pointers, followed with the target's width.
+    {
+        const uintptr_t base32 = 0x10000;
+        std::vector<uint8_t> mem32(0x100, 0xEE);
+        auto put32 = [&](size_t at, uint32_t v) { std::memcpy(mem32.data() + at, &v, 4); };
+        put32(0x10, base32 + 0x40);     // field -> node
+        put32(0x40, base32 + 0x80);     // node -> next node
+        put32(0x80, 0);
+        FakeProcessHandle proc32({
+            {{base32, mem32.size(), MemProt::ReadWrite, MemType::Private, MemState::Committed, "[structure]"}, mem32},
+        }, {}, /*is64bit=*/false);
+        StructureDefinition s32;
+        s32.fields.push_back({"link", 0x10, ValueType::Pointer, 4});
+        auto chains32 = followStructurePointers(proc32, base32, s32, 3);
+        pointerOk = pointerOk && chains32.size() == 1 && chains32[0].addresses.size() == 2 &&
+            chains32[0].addresses[0] == base32 + 0x40 && chains32[0].addresses[1] == base32 + 0x80;
+    }
+
+    StructureField ptr4{"p", 0, ValueType::Pointer, 4};
+    const std::vector<uint8_t> ptrBytes = {0x12, 0x34, 0x56, 0x78, 0xFF, 0xFF, 0xFF, 0xFF};
+    StructureField be16{"v", 0, ValueType::Int16, 2};
     bool displayOk = formatStructureFieldValue(structure.fields[0], after) == "88 77 66 55" &&
         formatStructureFieldValue(structure.fields[1], after).find("12.5") == 0 &&
-        formatStructureFieldValue(structure.fields[2], memory).find("0x") == 0;
+        formatStructureFieldValue(structure.fields[2], memory).find("0x") == 0 &&
+        formatStructureFieldValue(ptr4, ptrBytes, ByteOrder::Little) == "0x78563412" &&
+        formatStructureFieldValue(ptr4, ptrBytes, ByteOrder::Big) == "0x12345678" &&
+        formatStructureFieldValue(be16, ptrBytes, ByteOrder::Big) == "4660";
 
     printf("  template save/load: %s\n", (saveOk && loadOk) ? "OK" : "FAILED");
     printf("  C++ struct export: %s\n", cppOk ? "OK" : "FAILED");
@@ -8069,7 +8643,8 @@ static void test_lua_memrec() {
     run("OnActivate fires on activation flip", R"(
         _G._mr_test_hits = 0
         local mr = getAddressList():getMemoryRecord(0)
-        mr.OnActivate = function(active) _G._mr_test_hits = _G._mr_test_hits + (active and 1 or 10) end
+        mr.OnActivate = function(sender, before, current) _G._mr_test_hits = _G._mr_test_hits + (current and 1 or 100) end
+        mr.OnDeactivate = function(sender, before, current) _G._mr_test_hits = _G._mr_test_hits + (current and 100 or 10) end
         mr.Active = true
         mr.Active = false
         assert(_G._mr_test_hits == 11, "expected 11, got " .. tostring(_G._mr_test_hits))
@@ -8219,9 +8794,9 @@ static void test_lua_headless_bindings() {
         if (err.empty()) err = e.execute("assert(not _G.fired, 'an OnActivate from the previous table ran for the new record')\n");
         if (err.empty()) err = e.execute(
             "local r=getAddressList():getMemoryRecord(0)\n"
-            "r.OnActivate=function() _G.fired=true end\n");
+            "r.OnDeactivate=function() _G.fired=true end\n");
         l.setActive(id, false);
-        if (err.empty()) err = e.execute("assert(_G.fired, 'OnActivate set after the load does not run')\n");
+        if (err.empty()) err = e.execute("assert(_G.fired, 'OnDeactivate set after the load does not run')\n");
         printf("  table load retires record handles and OnActivate: %s\n", err.empty() ? "OK" : "FAILED");
         if (!err.empty()) printf("    err: %s\n", err.c_str());
     }
@@ -12744,6 +13319,12 @@ int main(int argc, char* argv[]) {
     test_stack_trace_frame_walk();
     test_break_and_trace();
     test_break_and_trace_multithread();
+    test_break_and_trace_step_over_recursion();
+    test_break_and_trace_busy_threads();
+    test_codefinder_software_stack_refused();
+#ifdef __x86_64__
+    test_instruction_access_segment();
+#endif
 #ifndef __SANITIZE_ADDRESS__
     test_exception_breakpoint();   // deliberate bad-pointer fault trips UBSan (skip under ASan)
 #endif

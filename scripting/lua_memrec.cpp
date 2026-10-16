@@ -4,10 +4,12 @@
 /// fetched from LUA_REGISTRYINDEX["ce_addresslist"] on every call; if the list has been
 /// torn down the calls fail gracefully with nil.
 ///
-/// Property syntax (mr.Active = true, mr.Description = "x", mr.OnActivate = function(active) end)
-/// is handled through __index/__newindex metamethods, mapping CE property names to method calls.
-/// OnActivate is stored in LUA_REGISTRYINDEX["ce_memrec_callbacks"][id] and dispatched by the
-/// activation callback registered in LuaEngine::setAddressList.
+/// Property syntax (mr.Active = true, mr.Description = "x",
+/// mr.OnActivate = function(sender, before, currentstate) end) is handled through
+/// __index/__newindex metamethods, mapping CE property names to method calls.
+/// OnActivate and OnDeactivate are stored in
+/// LUA_REGISTRYINDEX["ce_memrec_callbacks"][id].OnActivate / .OnDeactivate and dispatched
+/// by the activation callback registered in LuaEngine::setAddressList.
 
 #include <charconv>
 #include "scripting/lua_memrec.hpp"
@@ -74,6 +76,26 @@ void pushMemRecCallbacks(lua_State* L) {
     lua_setfield(L, LUA_REGISTRYINDEX, MEMREC_CALLBACKS_KEY);
     lua_pushinteger(L, generation);
     lua_setfield(L, LUA_REGISTRYINDEX, "ce_memrec_callbacks_generation");
+}
+
+namespace {
+void pushMemRec(lua_State* L, int id);
+}
+
+int dispatchMemoryRecordActivation(lua_State* L) {
+    const int id = static_cast<int>(lua_tointeger(L, 1));
+    const bool active = lua_toboolean(L, 2);
+    pushMemRecCallbacks(L);
+    lua_rawgeti(L, -1, id);
+    if (!lua_istable(L, -1)) return 0;
+    lua_pushstring(L, active ? "OnActivate" : "OnDeactivate");
+    lua_rawget(L, -2);
+    if (!lua_isfunction(L, -1)) return 0;
+    pushMemRec(L, id);           // sender
+    lua_pushboolean(L, 0);       // before: the change has already happened
+    lua_pushboolean(L, active);  // currentstate
+    lua_call(L, 3, 0);
+    return 0;
 }
 
 namespace {
@@ -382,7 +404,7 @@ int l_mr_delete(lua_State* L) {
     auto* ref = checkMemRec(L, 1);
     auto* list = currentList(L);
     if (list) list->deleteById(ref->id);
-    // Clear any registered OnActivate callback for this id.
+    // Clear any registered OnActivate/OnDeactivate callbacks for this id.
     pushMemRecCallbacks(L);
     lua_pushnil(L);
     lua_rawseti(L, -2, ref->id);
@@ -476,7 +498,9 @@ int l_mr__index(lua_State* L) {
     lua_getfield(L, -1, "__methods");
     lua_getfield(L, -1, key);
     if (!lua_isnil(L, -1)) {
-        // Stack: ud, key, mt, methods, fn — return fn
+        // Stack: ud, key, mt, methods, fn. Return fn bound to the record so
+        // mr.getValue() works as well as mr:getValue().
+        bindMethod(L, 1);
         return 1;
     }
     lua_pop(L, 3);  // pop nil, methods, mt — back to ud, key
@@ -495,6 +519,15 @@ int l_mr__index(lua_State* L) {
     if (strcmp(key, "ShowAsHex") == 0) return l_mr_getShowAsHex(L);
     if (strcmp(key, "Indent") == 0) return l_mr_getIndent(L);
     if (strcmp(key, "Count") == 0) return l_mr_getChildCount(L);  // direct child count
+    if (strcmp(key, "OnActivate") == 0 || strcmp(key, "OnDeactivate") == 0) {
+        auto* ref = checkMemRec(L, 1);
+        pushMemRecCallbacks(L);
+        lua_rawgeti(L, -1, ref->id);
+        if (!lua_istable(L, -1)) { lua_pushnil(L); return 1; }
+        lua_pushvalue(L, 2);
+        lua_rawget(L, -2);
+        return 1;
+    }
 
     lua_pushnil(L);
     return 1;
@@ -512,13 +545,22 @@ int l_mr__newindex(lua_State* L) {
     if (keyLen >= sizeof(key)) return luaL_error(L, "unknown MemoryRecord property");
     std::memcpy(key, keyArg, keyLen + 1);
 
-    // OnActivate handler — store function in registry callbacks table keyed by id.
+    // OnActivate / OnDeactivate: each in its own slot of the record's entry in
+    // the registry callbacks table.
     if (strcmp(key, "OnActivate") == 0 || strcmp(key, "OnDeactivate") == 0) {
-        // Both share the same dispatch slot for now (real CE distinguishes — TODO).
+        if (!lua_isnil(L, 3)) luaL_checktype(L, 3, LUA_TFUNCTION);
         pushMemRecCallbacks(L);
+        lua_rawgeti(L, -1, ref->id);
+        if (!lua_istable(L, -1)) {
+            lua_pop(L, 1);
+            lua_newtable(L);
+            lua_pushvalue(L, -1);
+            lua_rawseti(L, -3, ref->id);
+        }
+        lua_pushvalue(L, 2);
         lua_pushvalue(L, 3);
-        lua_rawseti(L, -2, ref->id);
-        lua_pop(L, 1);
+        lua_rawset(L, -3);
+        lua_pop(L, 2);
         return 0;
     }
 
@@ -671,7 +713,7 @@ int l_al__index(lua_State* L) {
     luaL_getmetatable(L, ADDRLIST_MT);
     lua_getfield(L, -1, "__methods");
     lua_getfield(L, -1, key);
-    if (!lua_isnil(L, -1)) return 1;
+    if (!lua_isnil(L, -1)) { bindMethod(L, 1); return 1; }   // '.' and ':' calls
     lua_pop(L, 3);
 
     if (strcmp(key, "Count") == 0) return l_al_getCount(L);

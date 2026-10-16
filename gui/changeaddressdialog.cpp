@@ -230,8 +230,10 @@ QString ChangeAddressDialog::previewValueAt(unsigned long long addr) {
             return QString::fromStdString(ce::formatFloatScalar(d, true));
         }
         case ce::ValueType::Pointer: {
-            uint64_t p = 0; auto r = proc_->read((uintptr_t)addr, &p, 8);
-            if (!r || *r < 8) return {};
+            // A 32-bit target (i386, WoW64) stores 4-byte pointers.
+            const size_t w = proc_->pointerWidth((uintptr_t)addr) == 4 ? 4 : 8;
+            uint64_t p = 0; auto r = proc_->read((uintptr_t)addr, &p, w);
+            if (!r || *r < w) return {};
             return QStringLiteral("0x%1").arg(p, 0, 16);
         }
         default: return {};   // String / Array of byte / etc: address only

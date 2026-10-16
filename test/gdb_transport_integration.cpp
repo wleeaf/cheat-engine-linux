@@ -68,6 +68,30 @@ int main(int argc,char** argv) {
         (*opened)->disconnect();
         printf("GDB_ADAPTER_RESULT=%s mode=adapter-high\n",failures ? "FAILED" : "PASSED");return failures ? 1 : 0;
     }
+    if (mode=="adapter-bulk") {
+        // The stub serves 4080 bytes (byte i is i & 255) and answers a second
+        // '?' with an exit, so a stop query before targetDescription() would
+        // retire the transport and fail the read. The request is larger than
+        // the client's 16 MiB single-transfer cap, which once failed outright.
+        const uintptr_t base=0x1000;const size_t served=4080,asked=size_t(17)<<20;
+        ce::GdbProcessOptions options;
+        options.byteOrder=ce::ByteOrder::Little;
+        options.regions={{base,asked,ce::MemProt::ReadWrite,ce::MemType::Private,ce::MemState::Committed,{}}};
+        auto opened=ce::GdbProcessHandle::connect(host,port,options);check(bool(opened),"bulk guest transport connects");
+        if (!opened) return 1;
+        auto& process=**opened;bool cached=true;
+        for (int i=0;i<3;++i)
+            cached=cached && process.pointerWidth()==8 && process.byteOrder()==ce::ByteOrder::Little &&
+                   process.pointerWidth(base)==8 && process.byteOrder(base)==ce::ByteOrder::Little;
+        check(cached,"pointer width and byte order come from the connect-time description");
+        std::vector<uint8_t> buffer(asked);
+        auto read=process.read(base,buffer.data(),buffer.size());
+        bool same=read && *read==served;
+        for (size_t i=0;same && i<served;++i) same=buffer[i]==static_cast<uint8_t>(i);
+        check(same,"a read past the 16 MiB transfer cap is chunked and returns the bytes the target served");
+        check(!process.targetDescription().live,"no stop query was sent before the description was requested");
+        printf("GDB_ADAPTER_RESULT=%s mode=adapter-bulk\n",failures ? "FAILED" : "PASSED");return failures ? 1 : 0;
+    }
     if (mode=="adapter-width" || mode=="adapter-endian-conflict") {
         ce::GdbProcessOptions options;
         if (mode=="adapter-width") options.pointerWidth=4;

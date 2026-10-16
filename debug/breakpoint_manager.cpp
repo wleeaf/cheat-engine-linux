@@ -7,6 +7,7 @@ extern "C" {
 #include <lauxlib.h>
 #include <lualib.h>
 }
+#include "scripting/lua_sandbox.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -170,7 +171,9 @@ bool conditionMatches(const Breakpoint& bp, const BreakpointHit& hit, std::strin
     if (bp.condition.empty())
         return true;
 
-    std::unique_ptr<lua_State, LuaStateDeleter> L(luaL_newstate());
+    // Declared before the state so it outlives lua_close.
+    lua_sandbox::MemoryBudget memory{0, 16u << 20};
+    std::unique_ptr<lua_State, LuaStateDeleter> L(lua_newstate(lua_sandbox::budgetAlloc, &memory));
     if (!L) {
         error = "failed to create Lua state for breakpoint condition";
         return true;
@@ -202,6 +205,9 @@ bool conditionMatches(const Breakpoint& bp, const BreakpointHit& hit, std::strin
         lua_pushnil(L.get());
         lua_setglobal(L.get(), name);
     }
+    // pcall, setmetatable, the pattern functions and an unbounded string.rep
+    // would let a condition escape the limits below.
+    lua_sandbox::restrictLibraries(L.get());
     // TODO(security): for full isolation, run the chunk in a dedicated _ENV
     // sandbox rather than relying on global stripping.
     exposeConditionGlobals(L.get(), bp, hit);
@@ -209,10 +215,9 @@ bool conditionMatches(const Breakpoint& bp, const BreakpointHit& hit, std::strin
     // Bound execution: a condition from an untrusted CT file could otherwise loop
     // forever ("while true do end") and hang the debugger on every hit. A count
     // hook aborts the chunk after a generous instruction budget; the abort surfaces
-    // as an eval error and falls through to the fail-safe break below.
-    lua_sethook(L.get(), [](lua_State* s, lua_Debug*) {
-        luaL_error(s, "breakpoint condition exceeded instruction limit");
-    }, LUA_MASKCOUNT, 2000000);
+    // as an eval error and falls through to the fail-safe break below. The
+    // budget stays spent, so the retries below fail at once too.
+    lua_sandbox::armInstructionBudget(L.get(), 2000000);
 
     bool matched = true;
     if (runConditionChunk(L.get(), "return (" + bp.condition + ")", true, matched, error) ||

@@ -176,11 +176,13 @@ local function onMemoryRecordToggle(rec, active)
   end
 end
 
--- Wire OnActivate for every existing record so the helper above runs.
+-- Wire OnActivate and OnDeactivate for every existing record so the helper
+-- above runs. Handlers get (sender, before, currentstate), as in CE.
 for i = 0, addressList.Count - 1 do
   local rec = addressList:getMemoryRecord(i)
   if rec then
-    rec.OnActivate = function(active) onMemoryRecordToggle(rec, active) end
+    rec.OnActivate = function(sender, before, current) onMemoryRecordToggle(sender, current) end
+    rec.OnDeactivate = function(sender, before, current) onMemoryRecordToggle(sender, current) end
   end
 end
 )"

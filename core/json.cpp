@@ -1,5 +1,6 @@
 #include "core/json.hpp"
 
+#include <charconv>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -261,9 +262,11 @@ Value Value::number(double n) {
     Value v;
     v.type = Type::Number;
     if (!std::isfinite(n)) { v.type = Type::Null; return v; }   // JSON has no NaN/Inf
+    // to_chars is locale-independent (the GUI may run with a "1,5" locale)
+    // and gives the shortest text that reads back as the same double.
     char buffer[40];
-    std::snprintf(buffer, sizeof buffer, "%.17g", n);
-    v.stringValue = buffer;
+    auto written = std::to_chars(buffer, buffer + sizeof buffer, n);
+    v.stringValue.assign(buffer, written.ptr);
     return v;
 }
 

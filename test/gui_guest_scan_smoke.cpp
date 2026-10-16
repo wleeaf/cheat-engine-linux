@@ -10,6 +10,7 @@
 #include "core/target_profile.hpp"
 
 #include <QApplication>
+#include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QTableWidget>
@@ -62,6 +63,7 @@ int main(int argc, char** argv) {
     const bool wired2 = wired && newBtn && unknownBtn && increasedBtn;
 
     int firstRows = -1, nextRows = -1, incRows = -1;
+    bool snapshotStatus = false;
     if (wired2) {
         // 1) exact First Scan for the known value, then an exact Next Scan (unchanged).
         valueEdit->setText("12345");
@@ -77,6 +79,9 @@ int main(int argc, char** argv) {
         newBtn->click();
         unknownBtn->click();       // snapshots the region (value still 12345)
         app.processEvents();
+        // The status reports the snapshot (bounded and read past any gaps).
+        for (auto* label : dlg.findChildren<QLabel*>())
+            if (label->text().startsWith("Snapshot taken (")) snapshotStatus = true;
 
         ce::TargetProfile prof = ce::probeTarget(child);
         if (!prof.guestCandidates.empty()) {
@@ -94,8 +99,8 @@ int main(int argc, char** argv) {
     waitpid(child, &status, 0);
 
     const bool ok = wired2 && firstRows >= 1 && nextRows >= 1 && nextRows <= firstRows &&
-                    incRows >= 1;
-    printf("gui guest-scan smoke: %s (wired=%d firstRows=%d nextRows=%d incRows=%d)\n",
-           ok ? "OK" : "FAILED", wired2, firstRows, nextRows, incRows);
+                    incRows >= 1 && snapshotStatus;
+    printf("gui guest-scan smoke: %s (wired=%d firstRows=%d nextRows=%d incRows=%d snapshotStatus=%d)\n",
+           ok ? "OK" : "FAILED", wired2, firstRows, nextRows, incRows, snapshotStatus);
     return ok ? 0 : 1;
 }

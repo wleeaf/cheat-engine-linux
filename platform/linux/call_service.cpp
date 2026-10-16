@@ -58,10 +58,14 @@ struct NativeCallOwner::Impl {
         std::shared_ptr<NativeCallResult::WorkerState> workerState;
         std::optional<TargetProcessIdentity> workerIdentity;
         bool workerStarted=false,workerOwned=false;
+        // Background retries back off while no thread can be borrowed.
+        std::chrono::steady_clock::time_point prepareNotBefore{};
+        std::chrono::milliseconds prepareDelay{0};
         ~Call() { if (memoryFd>=0) close(memoryFd); }
     };
     std::map<Key,std::unique_ptr<Call>> calls;
     Leases leases;
+    bool periodic=false;
 
     Result<void> readBytes(Call& c,uintptr_t address,void* data,size_t size) {
         size_t offset=0;
@@ -509,6 +513,8 @@ struct NativeCallOwner::Impl {
         return {};
     }
     Result<void> prepare(Call& c,bool requireFunction=true) {
+        const auto busy=std::make_error_code(std::errc::resource_unavailable_try_again);
+        if (periodic && std::chrono::steady_clock::now()<c.prepareNotBefore) return std::unexpected(busy);
         std::vector<pid_t> tids{c.identity.pid};
         std::string taskPath="/proc/"+std::to_string(c.identity.pid)+"/task";
         DIR* directory=opendir(taskPath.c_str());
@@ -521,36 +527,65 @@ struct NativeCallOwner::Impl {
             }
         } catch (...) { closedir(directory); throw; }
         closedir(directory);
-        for (pid_t tid : tids) {
-            auto checked=image(c);
-            if (!checked) return checked;
-            auto identity=targetProcessIdentity(tid);
-            if (!identity) continue;
-            c.tid=tid; c.threadIdentity=*identity;
-            if (ce::seizeIfOwned(tid,PTRACE_O_TRACEEXEC)<0) continue;
-            c.seized=true;
-            // Rebind cleanup to the task actually seized, then reject a stale PID.
-            auto ownedIdentity=targetProcessIdentity(tid);
-            if (!ownedIdentity) return std::unexpected(ownedIdentity.error());
-            c.threadIdentity=*ownedIdentity;
-            if (*identity!=*ownedIdentity) return std::unexpected(std::make_error_code(std::errc::operation_canceled));
-            auto stopped=stop(c);
-            if (!stopped) return stopped;
-            auto checkedOwned=image(c);
-            if (!checkedOwned) return checkedOwned;
-            if (c.request.image) {
-                auto saved = c.request.image->check();
-                if (!saved) return saved;
+        // A running thread that is only briefly unsuitable (inside libc or an
+        // rseq section) is retried for up to 100 ms; background retries scan once.
+        bool transient=false;
+        for (unsigned pass=0;pass<(periodic ? 1u : 20u);++pass) {
+            if (pass) {
+                if (!transient) break;
+                transient=false;
+                usleep(5000);
             }
-            auto eligible=requireFunction ? checkStoppedFunctionAbi(tid,c.host) : Result<void>{};
-            if (eligible) {
-                c.affinityPending=true;
-                return bindMemory(c);
+            for (pid_t tid : tids) {
+                auto checked=image(c);
+                if (!checked) return checked;
+                // Stopping a thread blocked in the kernel can end its wait early
+                // (epoll_wait, semop and sigtimedwait return EINTR), and such a
+                // thread cannot host the call anyway. Only stop running threads.
+                auto state=taskSchedulerState(c.identity.pid,tid);
+                if (!state || *state!='R') continue;
+                auto identity=targetProcessIdentity(tid);
+                if (!identity) continue;
+                c.tid=tid; c.threadIdentity=*identity;
+                if (ce::seizeIfOwned(tid,PTRACE_O_TRACEEXEC)<0) continue;
+                c.seized=true;
+                // Rebind cleanup to the task actually seized, then reject a stale PID.
+                auto ownedIdentity=targetProcessIdentity(tid);
+                if (!ownedIdentity) return std::unexpected(ownedIdentity.error());
+                c.threadIdentity=*ownedIdentity;
+                if (*identity!=*ownedIdentity) return std::unexpected(std::make_error_code(std::errc::operation_canceled));
+                auto stopped=stop(c);
+                if (!stopped) {
+                    // The thread exited, or a signal or group stop came first:
+                    // hand that stop back and try the next thread. A thread
+                    // that never stopped stays owned until it can be released.
+                    if (!c.seized) continue;
+                    if (!c.stopped) return stopped;
+                    auto detached=detach(c);
+                    if (!detached) return detached;
+                    continue;
+                }
+                auto checkedOwned=image(c);
+                if (!checkedOwned) return checkedOwned;
+                if (c.request.image) {
+                    auto saved = c.request.image->check();
+                    if (!saved) return saved;
+                }
+                auto eligible=requireFunction ? checkStoppedFunctionAbi(tid,c.host) : Result<void>{};
+                if (eligible) eligible=checkStoppedCallSite(tid,requireFunction);
+                if (eligible) {
+                    c.prepareDelay=std::chrono::milliseconds(0);
+                    c.affinityPending=true;
+                    return bindMemory(c);
+                }
+                if (eligible.error()==busy) transient=true;
+                auto detached=detach(c);
+                if (!detached) return detached;
             }
-            auto detached=detach(c);
-            if (!detached) return detached;
         }
-        return std::unexpected(std::make_error_code(std::errc::resource_unavailable_try_again));
+        c.prepareDelay=std::clamp(c.prepareDelay*2,std::chrono::milliseconds(200),std::chrono::milliseconds(5000));
+        c.prepareNotBefore=std::chrono::steady_clock::now()+c.prepareDelay;
+        return std::unexpected(busy);
     }
     Result<void> run(Call& c) {
         auto prepared=prepare(c);
@@ -748,7 +783,9 @@ Result<void> NativeCallOwner::resume(const TargetProcessIdentity& identity,bool 
     return recover(identity);
 }
 
-void NativeCallOwner::recoverAll() {
+void NativeCallOwner::recoverAll(bool periodic) {
+    impl_->periodic=periodic;
+    struct Reset { bool& flag; ~Reset() { flag=false; } } reset{impl_->periodic};
     for (auto it=impl_->calls.begin();it!=impl_->calls.end();) {
         Result<void> result;
         try { result=impl_->finish(*it->second); }

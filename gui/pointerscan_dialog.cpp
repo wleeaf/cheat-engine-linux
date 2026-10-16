@@ -179,6 +179,9 @@ void PointerScanDialog::populateResults() {
                 std::memcpy(&raw, bytes, 4);
             resultsTable_->setItem(i, 2, new QTableWidgetItem(
                 (vr && *vr == 4) ? QString::number(static_cast<int32_t>(raw)) : QStringLiteral("??")));
+        } else {
+            // Rows are reused: an unresolved path must not keep the previous scan's value.
+            resultsTable_->setItem(i, 2, new QTableWidgetItem());
         }
     }
     bool have = !results_.empty();

@@ -14,7 +14,9 @@ namespace ce {
 struct SignatureResult {
     std::string pattern;   ///< CE AOB pattern, e.g. "48 8B 05 ?? ?? ?? ??"
     size_t      length = 0;///< bytes the pattern covers
-    bool        unique = false;  ///< matches exactly once in the region (at `address`)
+    bool        unique = false;  ///< matches exactly once in the searched memory (at `address`)
+    bool        moduleWide = false; ///< the search covered every readable mapping of the module's file
+    bool        incomplete = false; ///< part of the searched memory could not be read; `unique` is false
 };
 
 /// Build a signature for the code at `address`, extended instruction by
@@ -24,7 +26,9 @@ struct SignatureResult {
 SignatureResult makeSignature(ProcessHandle& proc, uintptr_t address,
                               uintptr_t regionBase, size_t regionSize, size_t maxBytes = 64);
 
-/// Convenience: unique within the process mapping that contains `address`.
+/// Convenience: unique across every readable mapping of the file that contains
+/// `address` (its module, so AOBScanModule finds exactly one match), or within
+/// the anonymous mapping that contains it. Not checked against the whole process.
 SignatureResult makeSignature(ProcessHandle& proc, uintptr_t address, size_t maxBytes = 64);
 
 } // namespace ce

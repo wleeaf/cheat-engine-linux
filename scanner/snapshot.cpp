@@ -6,13 +6,24 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
-#include <unordered_map>
 
 namespace ce {
 
 namespace {
 constexpr char kSnapshotMagic[8] = {'C','E','S','N','A','P','0','1'};
+
+// The overlap of [aBase, aBase+aLen) and [bBase, bBase+bLen), as [lo, hi).
+// Lengths are clamped so an end past the top of the address space cannot wrap.
+bool overlap(uint64_t aBase, uint64_t aLen, uint64_t bBase, uint64_t bLen,
+             uint64_t& lo, uint64_t& hi) {
+    constexpr uint64_t top = std::numeric_limits<uint64_t>::max();
+    const uint64_t aEnd = aBase + std::min(aLen, top - aBase);
+    const uint64_t bEnd = bBase + std::min(bLen, top - bBase);
+    lo = std::max(aBase, bBase);
+    hi = std::min(aEnd, bEnd);
+    return lo < hi;
 }
+} // namespace
 
 Snapshot Snapshot::capture(ProcessHandle& proc, uint64_t maxBytes) {
     Snapshot snap;
@@ -20,6 +31,7 @@ Snapshot Snapshot::capture(ProcessHandle& proc, uint64_t maxBytes) {
     for (const auto& r : proc.queryRegions()) {
         if (!(r.protection & MemProt::Write)) continue;
         if (r.size == 0) continue;
+        if (budget == 0) { snap.truncated_ = true; break; }
 
         SnapshotRegion saved;
         saved.base = r.base;
@@ -27,16 +39,37 @@ Snapshot Snapshot::capture(ProcessHandle& proc, uint64_t maxBytes) {
         saved.protection = (uint32_t)r.protection;
 
         uint64_t take = std::min<uint64_t>(r.size, budget);
-        if (take == 0) break;
+        if (take < r.size) snap.truncated_ = true;
         saved.bytes.resize((size_t)take);
         auto got = proc.read(r.base, saved.bytes.data(), (size_t)take);
         if (!got || *got == 0) continue;
         saved.bytes.resize(*got);
         budget -= (uint64_t)*got;
         snap.regions_.push_back(std::move(saved));
-        if (budget == 0) break;
     }
     return snap;
+}
+
+Snapshot Snapshot::recapture(ProcessHandle& proc) const {
+    Snapshot now;
+    const auto live = proc.queryRegions();
+    for (const auto& saved : regions_) {
+        for (const auto& r : live) {
+            if (!(r.protection & MemProt::Write) || r.size == 0) continue;
+            uint64_t lo = 0, hi = 0;
+            if (!overlap(saved.base, saved.bytes.size(), r.base, r.size, lo, hi)) continue;
+            SnapshotRegion part;
+            part.base = lo;
+            part.size = hi - lo;
+            part.protection = (uint32_t)r.protection;
+            part.bytes.resize((size_t)(hi - lo));
+            auto got = proc.read((uintptr_t)lo, part.bytes.data(), part.bytes.size());
+            if (!got || *got == 0) continue;
+            part.bytes.resize(*got);
+            now.regions_.push_back(std::move(part));
+        }
+    }
+    return now;
 }
 
 uint64_t Snapshot::byteCount() const {
@@ -45,39 +78,62 @@ uint64_t Snapshot::byteCount() const {
     return total;
 }
 
-std::vector<Snapshot::ByteDiff> Snapshot::diff(const Snapshot& later) const {
+std::vector<Snapshot::ByteDiff> Snapshot::diff(const Snapshot& later, size_t maxDiffs,
+                                               uint64_t* changedBytes) const {
     std::vector<ByteDiff> out;
-    // Index `later` by base for O(1) lookup; we only diff regions that share
-    // both base and size. (Region bases are unique, so base is a safe key and
-    // we confirm the size on lookup.)
-    std::unordered_map<uint64_t, const SnapshotRegion*> byBase;
-    byBase.reserve(later.regions_.size());
-    for (const auto& b : later.regions_)
-        byBase.emplace(b.base, &b);
-
-    for (const auto& a : regions_) {
-        auto it = byBase.find(a.base);
-        if (it == byBase.end()) continue;
-        const SnapshotRegion* matched = it->second;
-        if (matched->size != a.size) continue;
-        size_t n = std::min(a.bytes.size(), matched->bytes.size());
-        for (size_t i = 0; i < n; ++i) {
-            if (a.bytes[i] != matched->bytes[i])
-                out.push_back({a.base + i, a.bytes[i], matched->bytes[i]});
+    uint64_t changed = 0;
+    // Walk both region lists in address order and compare wherever they
+    // overlap, so [heap] growth or merged mappings do not hide a region.
+    auto sorted = [](const std::vector<SnapshotRegion>& regions) {
+        std::vector<const SnapshotRegion*> v;
+        v.reserve(regions.size());
+        for (const auto& r : regions) if (!r.bytes.empty()) v.push_back(&r);
+        std::sort(v.begin(), v.end(), [](const SnapshotRegion* a, const SnapshotRegion* b) {
+            return a->base < b->base;
+        });
+        return v;
+    };
+    const auto a = sorted(regions_), b = sorted(later.regions_);
+    auto endOf = [](const SnapshotRegion* r) {
+        return r->base + std::min<uint64_t>(r->bytes.size(),
+                                            std::numeric_limits<uint64_t>::max() - r->base);
+    };
+    for (size_t i = 0, j = 0; i < a.size() && j < b.size();) {
+        uint64_t lo = 0, hi = 0;
+        if (overlap(a[i]->base, a[i]->bytes.size(), b[j]->base, b[j]->bytes.size(), lo, hi)) {
+            const uint8_t* before = a[i]->bytes.data() + (lo - a[i]->base);
+            const uint8_t* after = b[j]->bytes.data() + (lo - b[j]->base);
+            for (uint64_t k = 0; k < hi - lo; ++k) {
+                if (before[k] == after[k]) continue;
+                ++changed;
+                if (out.size() < maxDiffs) out.push_back({lo + k, before[k], after[k]});
+            }
         }
+        if (endOf(a[i]) <= endOf(b[j])) ++i; else ++j;
     }
-    std::sort(out.begin(), out.end(), [](const ByteDiff& a, const ByteDiff& b) {
-        return a.address < b.address;
+    std::sort(out.begin(), out.end(), [](const ByteDiff& x, const ByteDiff& y) {
+        return x.address < y.address;
     });
+    if (changedBytes) *changedBytes = changed;
     return out;
 }
 
 uint64_t Snapshot::restore(ProcessHandle& proc) const {
+    // Only mappings that are writable data now. A snapshot loaded from a file,
+    // taken in another run or before a remap may cover code or unmapped pages;
+    // a write there could reach the code-patching path, so it is skipped.
+    std::vector<MemoryRegion> targets;
+    for (const auto& r : proc.queryRegions())
+        if ((r.protection & MemProt::Write) && !(r.protection & MemProt::Exec) && r.size)
+            targets.push_back(r);
     uint64_t total = 0;
-    for (const auto& r : regions_) {
-        if (r.bytes.empty()) continue;
-        auto w = proc.write(r.base, r.bytes.data(), r.bytes.size());
-        if (w) total += (uint64_t)*w;
+    for (const auto& saved : regions_) {
+        for (const auto& t : targets) {
+            uint64_t lo = 0, hi = 0;
+            if (!overlap(saved.base, saved.bytes.size(), t.base, t.size, lo, hi)) continue;
+            auto w = proc.write((uintptr_t)lo, saved.bytes.data() + (lo - saved.base), (size_t)(hi - lo));
+            if (w) total += (uint64_t)*w;
+        }
     }
     return total;
 }

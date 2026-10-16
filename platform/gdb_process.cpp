@@ -89,19 +89,45 @@ TargetDescription GdbProcessHandle::targetDescription() {
     }
     return description;
 }
+// The client caps one transfer; whole-region callers (snapshots, signatures)
+// are served in chunks, and a later chunk's failure returns the bytes so far.
+constexpr size_t kGdbTransferChunk=size_t(1)<<20;
 Result<size_t> GdbProcessHandle::read(uintptr_t address,void* buffer,size_t size) {
     std::lock_guard lock(mutex_);
     if (size && !buffer) return std::unexpected(std::make_error_code(std::errc::invalid_argument));
-    auto bytes=client_.readMemory(address,size);
-    if (!bytes) {error_=bytes.error();return std::unexpected(std::make_error_code(std::errc::io_error));}
-    if (!bytes->empty()) std::memcpy(buffer,bytes->data(),bytes->size());
-    return bytes->size();
+    if (size && size-1>UINTPTR_MAX-address) return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+    size_t done=0;
+    while (done<size) {
+        const size_t count=std::min(size-done,kGdbTransferChunk);
+        auto bytes=client_.readMemory(address+done,count);
+        if (!bytes) {
+            error_=bytes.error();
+            if (done) return done;
+            return std::unexpected(std::make_error_code(std::errc::io_error));
+        }
+        if (!bytes->empty()) std::memcpy(static_cast<uint8_t*>(buffer)+done,bytes->data(),bytes->size());
+        done+=bytes->size();
+        if (bytes->size()<count) break;
+    }
+    return done;
 }
 Result<size_t> GdbProcessHandle::write(uintptr_t address,const void* buffer,size_t size) {
     std::lock_guard lock(mutex_);
     if (size && !buffer) return std::unexpected(std::make_error_code(std::errc::invalid_argument));
-    auto written=client_.writeMemory(address,{static_cast<const uint8_t*>(buffer),size});
-    if (!written) {error_=written.error();return std::unexpected(std::make_error_code(std::errc::io_error));}return *written;
+    if (size && size-1>UINTPTR_MAX-address) return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+    size_t done=0;
+    while (done<size) {
+        const size_t count=std::min(size-done,kGdbTransferChunk);
+        auto written=client_.writeMemory(address+done,{static_cast<const uint8_t*>(buffer)+done,count});
+        if (!written) {
+            error_=written.error();
+            if (done) return done;
+            return std::unexpected(std::make_error_code(std::errc::io_error));
+        }
+        done+=*written;
+        if (*written<count) break;
+    }
+    return done;
 }
 std::vector<MemoryRegion> GdbProcessHandle::queryRegions() {std::lock_guard lock(mutex_);return client_.isConnected() ? regions_ : std::vector<MemoryRegion>{};}
 std::optional<MemoryRegion> GdbProcessHandle::queryRegion(uintptr_t address) {

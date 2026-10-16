@@ -90,8 +90,13 @@ std::vector<CodeRef> CodeAnalyzer::dissectModule(ProcessHandle& proc, const Modu
     auto dataTarget = [&](const Instruction& inst) -> std::optional<uintptr_t> {
         if (auto rip = parseRipRelativeTarget(inst)) return rip;
         const auto& m = inst.memory;
-        if (!m.present || m.ripRelative || !m.baseReg.empty() || !m.indexReg.empty() || m.disp <= 0) return std::nullopt;
-        const auto target = static_cast<uintptr_t>(m.disp);
+        if (!m.present || m.ripRelative || !m.baseReg.empty() || !m.indexReg.empty()) return std::nullopt;
+        // Capstone sign-extends disp32: in 32-bit code [0x80001000] arrives as a
+        // negative displacement, so take it as the unsigned 32-bit address.
+        const auto target = disasm_.arch() == Arch::X86_32
+            ? static_cast<uintptr_t>(static_cast<uint32_t>(m.disp))
+            : m.disp > 0 ? static_cast<uintptr_t>(m.disp) : uintptr_t(0);
+        if (!target) return std::nullopt;
         if (target < module.base || target - module.base >= module.size) return std::nullopt;
         return target;
     };
@@ -267,6 +272,47 @@ std::vector<CodeRef> CodeAnalyzer::findAssemblyPattern(ProcessHandle& proc, cons
     if (!assembler_) return {};
     auto assembled = assembler_->assemble(assembly, module.base);
     if (!assembled || assembled->empty()) return {};
+    const std::vector<uint8_t>& pattern = *assembled;
+
+    // The bytes were assembled at module.base, so a relative branch or a
+    // rip-relative operand only has those exact bytes there. Such fields are
+    // compared per candidate instead: the value that reaches the same target
+    // from the candidate's address.
+    struct RelField { size_t offset, size; int64_t valueAtBase; };
+    std::vector<RelField> fields;
+    std::vector<bool> wild(pattern.size(), false);
+    const Arch arch = disasm_.arch();
+    if (arch == Arch::X86_32 || arch == Arch::X86_64) {
+        for (const auto& in : disasm_.disassemble(module.base, {pattern.data(), pattern.size()})) {
+            const size_t at = in.address - module.base;
+            const bool branch = !in.mnemonic.empty() &&
+                (in.mnemonic[0] == 'j' || in.mnemonic == "call" || in.mnemonic.rfind("loop", 0) == 0 ||
+                 in.mnemonic == "xbegin") &&
+                parseDirectTarget(in.operands).has_value();
+            size_t offset = 0, size = 0;
+            if (in.ripTarget && in.dispSize) { offset = in.dispOffset; size = in.dispSize; }
+            else if (branch && in.immSize) { offset = in.immOffset; size = in.immSize; }
+            if (!size || size > 4 || at + offset + size > pattern.size()) continue;
+            uint64_t raw = 0;
+            for (size_t b = 0; b < size; ++b) raw |= uint64_t(pattern[at + offset + b]) << (8 * b);
+            const int shift = int(64 - 8 * size);
+            fields.push_back({at + offset, size, static_cast<int64_t>(raw << shift) >> shift});
+            for (size_t b = 0; b < size; ++b) wild[at + offset + b] = true;
+        }
+    }
+    // The relative value that reaches the same target from `candidate`; false
+    // when it does not fit the field (the code there would use another form).
+    auto fieldMatches = [&](const RelField& f, uintptr_t candidate, const uint8_t* bytes) {
+        uint64_t raw = 0;
+        for (size_t b = 0; b < f.size; ++b) raw |= uint64_t(bytes[f.offset + b]) << (8 * b);
+        const int shift = int(64 - 8 * f.size);
+        const int64_t value = static_cast<int64_t>(raw << shift) >> shift;
+        const uint64_t delta = uint64_t(module.base) - uint64_t(candidate);
+        if (arch == Arch::X86_32 && f.size == 4)   // 32-bit addresses wrap
+            return uint32_t(value) == uint32_t(uint64_t(f.valueAtBase) + delta);
+        const int64_t expected = static_cast<int64_t>(uint64_t(f.valueAtBase) + delta);
+        return value == expected;
+    };
 
     std::vector<CodeRef> matches;
     auto regions = proc.queryRegions();
@@ -277,11 +323,16 @@ std::vector<CodeRef> CodeAnalyzer::findAssemblyPattern(ProcessHandle& proc, cons
         size_t readLen = std::min<size_t>(r.size, kMaxAnalysisRegion);
         std::vector<uint8_t> buf(readLen);
         auto rr = proc.read(r.base, buf.data(), readLen);
-        if (!rr || *rr < assembled->size()) continue;
+        if (!rr || *rr < pattern.size()) continue;
 
-        for (size_t offset = 0; offset + assembled->size() <= *rr; ++offset) {
-            if (std::memcmp(buf.data() + offset, assembled->data(), assembled->size()) != 0)
-                continue;
+        for (size_t offset = 0; offset + pattern.size() <= *rr; ++offset) {
+            const uint8_t* bytes = buf.data() + offset;
+            bool match = true;
+            for (size_t i = 0; i < pattern.size() && match; ++i)
+                match = wild[i] || bytes[i] == pattern[i];
+            for (size_t i = 0; i < fields.size() && match; ++i)
+                match = fieldMatches(fields[i], r.base + offset, bytes);
+            if (!match) continue;
 
             CodeRef ref;
             ref.address = r.base + offset;

@@ -8,6 +8,7 @@
 #include "platform/process_api.hpp"
 #include "core/target_profile.hpp"
 #include "core/types.hpp"
+#include "core/guest_view.hpp"
 
 #include <QDialog>
 #include <cstdint>
@@ -66,7 +67,8 @@ private:
 
     // Frozen once a scan starts, so narrowing uses the same view.
     std::vector<std::pair<uint64_t, uint64_t>> candidates_;  // (guest addr, value bits at last scan)
-    std::vector<uint8_t> snapshot_;   // whole-region snapshot for an unknown-value scan
+    ce::GuestRegionSnapshot snapshot_;   // bounded region snapshot for an unknown-value scan
+    bool      resultsTruncated_ = false;   // the last scan stopped at ce::kGuestMaxHits
     bool      unknownMode_ = false;   // snapshot taken, no explicit candidates yet
     uintptr_t regionBase_ = 0;
     uintptr_t regionGuestBase_ = 0;   // console address of the region start (Dolphin), else 0

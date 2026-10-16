@@ -116,7 +116,8 @@ std::expected<std::vector<uint8_t>, std::string> encodeTypedValue(
     auto text = trim(value);
     if (integer(type)) {
         bool ok = false;
-        int64_t parsed = parseIntegerScalar(text, options.hex, ok);
+        // A pointer is shown in hex, so it is read back in hex too.
+        int64_t parsed = parseIntegerScalar(text, options.hex || type == ValueType::Pointer, ok);
         if (!ok) return std::unexpected("Enter a decimal integer or a hexadecimal value beginning with 0x");
         bits = static_cast<uint64_t>(parsed);
         bool negative = !text.empty() && text.front() == '-';
@@ -127,7 +128,10 @@ std::expected<std::vector<uint8_t>, std::string> encodeTypedValue(
     } else {
         for (auto& c : text) if (c == ',') c = '.';
         std::string_view token(text);
-        if (token.starts_with('+')) token.remove_prefix(1);
+        if (token.starts_with('+')) {
+            token.remove_prefix(1);
+            if (token.starts_with('-')) token = {};   // "+-5" is no number
+        }
         double number = 0;
         auto parsed = std::from_chars(token.data(), token.data() + token.size(), number);
         if (token.empty() || parsed.ec != std::errc{} || parsed.ptr != token.data() + token.size())

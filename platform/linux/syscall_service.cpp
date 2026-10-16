@@ -79,7 +79,14 @@ struct TargetSyscallService::Impl {
         if (stat(path.c_str(),&member)!=0) return std::unexpected(std::make_error_code(std::errc::operation_canceled));
         if (thread->executableDevice!=identity.executableDevice || thread->executableInode!=identity.executableInode)
             return std::unexpected(std::make_error_code(std::errc::operation_canceled));
-        return executeMemorySyscall(*task,host,operation,arguments,&*thread,image,savedImage);
+        // A thread inside an rseq critical section is refused before any change.
+        // Such sections are a few instructions long, so retry briefly.
+        for (unsigned attempt=0;;++attempt) {
+            auto result=executeMemorySyscall(*task,host,operation,arguments,&*thread,image,savedImage);
+            if (result || attempt==20 || result.error().code!=std::errc::resource_unavailable_try_again ||
+                result.error().recovery || result.error().completedValue) return result;
+            usleep(1000);
+        }
     }
 
     std::expected<void, std::error_code> retry(Pending& record) {
@@ -116,7 +123,7 @@ struct TargetSyscallService::Impl {
     }
 
     void recoverAll() {
-        calls.recoverAll();
+        calls.recoverAll(true);
         for (auto it=codeRecords.begin();it!=codeRecords.end();) {
             auto restored=it->second->restore();
             if (restored || gone(restored.error())) it=codeRecords.erase(it);

@@ -3,6 +3,7 @@
 #include "arch/target_arch.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <vector>
 
@@ -41,7 +42,7 @@ int countInBuffer(const std::vector<PatByte>& pat, const std::vector<uint8_t>& b
 // The same over [base, base + size) of the process, read in overlapping
 // chunks: for regions too large to keep in memory.
 int countMatches(ProcessHandle& proc, const std::vector<PatByte>& pat, uintptr_t base, size_t size,
-                 uintptr_t& first) {
+                 uintptr_t& first, bool& incomplete) {
     const size_t pl = pat.size();
     if (pl == 0 || pl > size) return 0;
     constexpr size_t kChunk = size_t(16) << 20;
@@ -51,6 +52,7 @@ int countMatches(ProcessHandle& proc, const std::vector<PatByte>& pat, uintptr_t
         const size_t want = std::min(kChunk + pl - 1, size - offset);
         buffer.resize(want);
         auto got = proc.read(base + offset, buffer.data(), want);
+        if (!got || *got < want) incomplete = true;
         if (!got || *got < pl) break;
         const size_t limit = *got - pl + 1;
         for (size_t p = 0; p < limit; ++p) {
@@ -83,18 +85,18 @@ std::string toAob(const std::vector<PatByte>& pat) {
     return s;
 }
 
-} // namespace
+struct SearchRange { uintptr_t base; size_t size; };
 
-SignatureResult makeSignature(ProcessHandle& proc, uintptr_t address,
-                              uintptr_t regionBase, size_t regionSize, size_t maxBytes) {
+// Build the signature for `address`, which lies in `codeRegion`, and check its
+// uniqueness across every range in `scope`.
+SignatureResult makeSignatureIn(ProcessHandle& proc, uintptr_t address, SearchRange codeRegion,
+                                const std::vector<SearchRange>& scope, size_t maxBytes) {
     SignatureResult out;
-    if (regionSize == 0 || address < regionBase || address >= regionBase + regionSize)
+    if (codeRegion.size == 0 || address < codeRegion.base || address - codeRegion.base >= codeRegion.size)
         return out;
 
-    // The code at the address; uniqueness is checked against the whole
-    // region, read in chunks (a large .text is hundreds of MB).
-    const size_t codeOff = static_cast<size_t>(address - regionBase);
-    std::vector<uint8_t> code(std::min<size_t>(regionSize - codeOff, maxBytes + 16));
+    const size_t codeOff = static_cast<size_t>(address - codeRegion.base);
+    std::vector<uint8_t> code(std::min<size_t>(codeRegion.size - codeOff, maxBytes + 16));
     auto rr = proc.read(address, code.data(), code.size());
     if (!rr || *rr == 0) return out;
     code.resize(*rr);
@@ -104,17 +106,33 @@ SignatureResult makeSignature(ProcessHandle& proc, uintptr_t address,
     Disassembler dis(*arch);
     auto insns = dis.disassemble(address, std::span<const uint8_t>(code.data(), code.size()), 0, /*emitDataBytes=*/true);
 
-    // A region of ordinary size is read once and searched in memory; a larger
-    // one is searched in chunks from the process.
-    std::vector<uint8_t> cached;
-    if (regionSize <= (size_t(128) << 20)) {
-        cached.resize(regionSize);
-        auto got = proc.read(regionBase, cached.data(), cached.size());
-        cached.resize(got ? *got : 0);
+    // Ranges of ordinary total size are read once and searched in memory;
+    // larger ones are searched in chunks from the process (a large .text is
+    // hundreds of MB). Any short read means uniqueness cannot be confirmed.
+    bool incomplete = false;
+    size_t total = 0;
+    for (const auto& r : scope) total += std::min(r.size, SIZE_MAX - total);
+    const bool useCache = total <= (size_t(128) << 20);
+    std::vector<std::vector<uint8_t>> cached(scope.size());
+    if (useCache) {
+        for (size_t i = 0; i < scope.size(); ++i) {
+            cached[i].resize(scope[i].size);
+            auto got = proc.read(scope[i].base, cached[i].data(), cached[i].size());
+            const size_t n = got ? std::min(*got, cached[i].size()) : 0;
+            if (n < cached[i].size()) incomplete = true;
+            cached[i].resize(n);
+        }
     }
     auto count = [&](const std::vector<PatByte>& pattern, uintptr_t& first) {
-        return !cached.empty() ? countInBuffer(pattern, cached, regionBase, first)
-                               : countMatches(proc, pattern, regionBase, regionSize, first);
+        int found = 0;
+        for (size_t i = 0; i < scope.size() && found < 2; ++i) {
+            uintptr_t at = 0;
+            const int c = useCache ? countInBuffer(pattern, cached[i], scope[i].base, at)
+                                   : countMatches(proc, pattern, scope[i].base, scope[i].size, at, incomplete);
+            if (c && !found) first = at;
+            found += c;
+        }
+        return found;
     };
 
     std::vector<PatByte> pat;
@@ -158,15 +176,39 @@ SignatureResult makeSignature(ProcessHandle& proc, uintptr_t address,
         uintptr_t first = 0;
         out.unique = (count(pat, first) == 1 && first == address);
     }
+    out.incomplete = incomplete;
+    if (incomplete) out.unique = false;
     out.pattern = toAob(pat);
     out.length = pat.size();
     return out;
 }
 
+} // namespace
+
+SignatureResult makeSignature(ProcessHandle& proc, uintptr_t address,
+                              uintptr_t regionBase, size_t regionSize, size_t maxBytes) {
+    if (regionSize == 0 || regionSize - 1 > UINTPTR_MAX - regionBase) return {};
+    const SearchRange region{regionBase, regionSize};
+    return makeSignatureIn(proc, address, region, {region}, maxBytes);
+}
+
 SignatureResult makeSignature(ProcessHandle& proc, uintptr_t address, size_t maxBytes) {
     auto region = proc.queryRegion(address);
     if (!region) return {};
-    return makeSignature(proc, address, region->base, region->size, maxBytes);
+    // A file-backed mapping is one piece of a module: the signature must be
+    // unique across all of its readable mappings, which is what AOBScanModule
+    // searches. Anonymous memory (JIT code) has only its own mapping.
+    std::vector<SearchRange> scope;
+    const bool fileBacked = !region->path.empty() && region->path.front() == '/';
+    if (fileBacked)
+        for (const auto& r : proc.queryRegions())
+            if (r.path == region->path && (r.protection & MemProt::Read) && r.size)
+                scope.push_back({r.base, r.size});
+    const bool moduleWide = !scope.empty();
+    if (!moduleWide) scope.push_back({region->base, region->size});
+    auto out = makeSignatureIn(proc, address, {region->base, region->size}, scope, maxBytes);
+    out.moduleWide = moduleWide;
+    return out;
 }
 
 } // namespace ce

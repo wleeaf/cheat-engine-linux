@@ -1831,8 +1831,12 @@ static int cmd_signature(pid_t pid, uintptr_t addr, size_t maxBytes) {
         return 1;
     }
     printf("%s\n", sig.pattern.c_str());
-    fprintf(stderr, "# %zu bytes, %s\n", sig.length,
-            sig.unique ? "unique in module" : "NOT unique within maxbytes (raise it)");
+    const char* verdict =
+        sig.incomplete ? "uniqueness NOT verified (part of the module could not be read)"
+        : !sig.unique  ? "NOT unique within maxbytes (raise it)"
+        : sig.moduleWide ? "unique in its module (not checked process-wide)"
+                         : "unique in its memory region (not checked process-wide)";
+    fprintf(stderr, "# %zu bytes, %s\n", sig.length, verdict);
     return 0;
 }
 
@@ -2352,6 +2356,7 @@ int main(int argc, char** argv) {
         uintptr_t target = parseAddress(argv[2], argv[3]);
         int depth = (argc >= 5) ? static_cast<int>(parseUInt(argv[4], "depth", 64)) : 4;
         int offset = (argc >= 6) ? static_cast<int>(parseUInt(argv[5], "offset", INT_MAX)) : 2048;
+        if (depth < 1) { fprintf(stderr, "pointerscan: depth must be at least 1\n"); return 1; }
         return cmd_pointerscan(pid, target, depth, offset);
     }
     else if (!strcmp(cmd, "deref") && argc >= 4) {

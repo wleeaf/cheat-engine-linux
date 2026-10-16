@@ -21,6 +21,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <signal.h>
+#include <chrono>
 #include <iconv.h>
 #if defined(__x86_64__)
 #include <immintrin.h>   // SIMD exact-match scanning (SSE2 baseline + runtime AVX2)
@@ -31,6 +33,7 @@ extern "C" {
 #include <lauxlib.h>
 #include <lualib.h>
 }
+#include "scripting/lua_sandbox.hpp"
 
 namespace ce {
 
@@ -204,6 +207,12 @@ std::string decodeStringBytes(const uint8_t* data, size_t len, const std::string
 
     char* inPtr = const_cast<char*>(reinterpret_cast<const char*>(data));
     size_t inLeft = len;
+    // A bad code unit is skipped whole: skipping one byte of a UTF-16 unit
+    // would misalign every character after it.
+    std::string upper = encoding;
+    for (auto& c : upper) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    const size_t unit = upper.find("32") != std::string::npos || upper.find("UCS-4") != std::string::npos ? 4
+                      : upper.find("16") != std::string::npos || upper.find("UCS-2") != std::string::npos ? 2 : 1;
     std::string out(len * 4 + 8, '\0');
     char* outPtr = out.data();
     size_t outLeft = out.size();
@@ -215,8 +224,18 @@ std::string decodeStringBytes(const uint8_t* data, size_t len, const std::string
             out.resize(out.size() * 2);
             outPtr = out.data() + used;
             outLeft = out.size() - used;
-        } else {                     // EILSEQ / EINVAL: drop the offending byte
-            ++inPtr; --inLeft;
+        } else {                     // EILSEQ / EINVAL: replace the offending unit
+            const size_t skip = std::min(unit, inLeft);
+            inPtr += skip; inLeft -= skip;
+            static constexpr char replacement[] = "\xEF\xBF\xBD";   // U+FFFD
+            if (outLeft < 3) {
+                size_t used = out.size() - outLeft;
+                out.resize(out.size() * 2 + 3);
+                outPtr = out.data() + used;
+                outLeft = out.size() - used;
+            }
+            std::memcpy(outPtr, replacement, 3);
+            outPtr += 3; outLeft -= 3;
         }
     }
     out.resize(out.size() - outLeft);
@@ -948,6 +967,14 @@ bool compareAllIntegerLiteral(const ScanConfig& config, int64_t current) {
         default: return false;
     }
 }
+// The 8-byte reading taken as unsigned: an exact value above INT64_MAX
+// (18446744073709551615) has no signed 8-byte reading to match.
+static bool matchesUnsigned64(const ScanConfig& config, uint64_t current) {
+    const auto& value = config.allIntegerValue;
+    return config.compareType == ScanCompare::Exact && value && !value->negative && !value->fractional &&
+           !value->outsideMagnitude && !value->unordered &&
+           value->magnitude > static_cast<uint64_t>(INT64_MAX) && value->magnitude == current;
+}
 uint8_t allCandidatesFitting(uint8_t mask,uintptr_t lastDistance) {
     for (size_t i=0;i<allCandidateWidths.size();++i)
         if (allCandidateWidths[i]-1>lastDistance) mask&=static_cast<uint8_t>(~(1u<<i));
@@ -983,6 +1010,7 @@ void scanBufferAllTypes(const uint8_t* buf,size_t bufSize,uintptr_t baseAddr,
                 // the single-type scans: 40000 is a 2-byte 0x9C40, -1 a byte 0xFF.
                 if (!matches && config.compareType==ScanCompare::Exact && sizeof(T)<8)
                     matches=compareAllIntegerLiteral(config,otherSignedness(current));
+                if (!matches && sizeof(T)==8) matches=matchesUnsigned64(config,static_cast<uint64_t>(current));
             }
             if (matches) mask|=static_cast<uint8_t>(1u<<bit);
         };
@@ -1330,8 +1358,7 @@ public:
         lua_rawgeti(L_, LUA_REGISTRYINDEX, chunkRef_);
         // A runaway formula (a loop that never ends) fails this candidate
         // instead of hanging the scan. Setting the hook restarts its count.
-        lua_sethook(L_, [](lua_State* L, lua_Debug*) { luaL_error(L, "formula ran too long"); },
-                    LUA_MASKCOUNT, 1000000);
+        lua_sandbox::armInstructionBudget(L_, 1000000);
         bool ok = false;
         if (lua_pcall(L_, 0, 1, 0) == LUA_OK) {
             if (lua_isboolean(L_, -1)) {
@@ -1351,18 +1378,15 @@ private:
         if (compiled_)
             return chunkRef_ != LUA_NOREF;
         compiled_ = true;
-        L_ = luaL_newstate();
+        L_ = lua_newstate(lua_sandbox::budgetAlloc, &memory_);
         if (!L_)
             return false;
         // Restricted library set: arithmetic only, no os/io.
         luaL_requiref(L_, "_G", luaopen_base, 1);   lua_pop(L_, 1);
         luaL_requiref(L_, "math", luaopen_math, 1);  lua_pop(L_, 1);
         luaL_requiref(L_, "string", luaopen_string, 1); lua_pop(L_, 1);
-        // The base library also loads files and code; a formula needs neither.
-        for (const char* name : {"dofile", "loadfile", "load", "require", "collectgarbage"}) {
-            lua_pushnil(L_);
-            lua_setglobal(L_, name);
-        }
+        // No loading files or code, and nothing that escapes the limits.
+        lua_sandbox::restrictLibraries(L_);
 
         if (luaL_loadstring(L_, formula_.c_str()) != LUA_OK) {
             lua_pop(L_, 1);
@@ -1374,6 +1398,7 @@ private:
     }
 
     std::string formula_;
+    lua_sandbox::MemoryBudget memory_{0, 16u << 20};   // outlives L_ (closed in the destructor body)
     lua_State* L_ = nullptr;
     int chunkRef_ = LUA_NOREF;
     bool compiled_ = false;
@@ -2087,6 +2112,7 @@ static uint8_t nextAllTypeCandidates(const ScanConfig& config,uint8_t candidates
             match=compareNextAllInteger(config,static_cast<int64_t>(value),static_cast<int64_t>(previous));
             if (!match && config.compareType==ScanCompare::Exact && sizeof(T)<8)   // see the first scan
                 match=compareNextAllInteger(config,otherSignedness(value),otherSignedness(previous));
+            if (!match && sizeof(T)==8) match=matchesUnsigned64(config,static_cast<uint64_t>(value));
         }
         if (match) kept|=static_cast<uint8_t>(1u<<bit);
     };
@@ -2363,11 +2389,71 @@ MemoryScanner::MemoryScanner(int threadCount)
     if (threadCount_ < 1) threadCount_ = 1;
 }
 
+// Scan directories are named ce-scan-<pid>-XXXXXX. Remove the ones whose
+// process is gone (a crash or kill skipped their cleanup), and kept ones (see
+// ScanResult::keepFiles) once they are a week old.
+static void pruneStaleScanDirs(const std::filesystem::path& root) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const auto weekAgo = fs::file_time_type::clock::now() - std::chrono::hours(24 * 7);
+    for (fs::directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+        const std::string name = it->path().filename().string();
+        if (!name.starts_with("ce-scan-") || !it->is_directory(ec)) continue;
+        std::error_code ignored;
+        if (fs::exists(it->path() / ".kept", ignored)) {
+            const auto written = fs::last_write_time(it->path() / ".kept", ignored);
+            if (!ignored && written < weekAgo) fs::remove_all(it->path(), ignored);
+            continue;
+        }
+        const char* digits = name.c_str() + 8;
+        char* after = nullptr;
+        const long pid = std::strtol(digits, &after, 10);
+        if (after == digits || *after != '-' || pid <= 0) continue;
+        if (::kill(static_cast<pid_t>(pid), 0) != 0 && errno == ESRCH) fs::remove_all(it->path(), ignored);
+    }
+}
+
+// Where scan results go. /tmp is RAM-backed (tmpfs) on many desktops, and an
+// unknown-initial-value scan writes several times the scanned memory, so the
+// default is the disk-backed cache directory. CE_SCAN_DIR, or an explicitly
+// set TMPDIR, still decide.
+static std::filesystem::path scanRoot() {
+    namespace fs = std::filesystem;
+    static std::once_flag pruned;
+    fs::path root;
+    if (const char* dir = std::getenv("CE_SCAN_DIR"); dir && *dir) root = dir;
+    else if (const char* tmp = std::getenv("TMPDIR"); tmp && *tmp) root = fs::temp_directory_path();
+    else {
+        fs::path cache;
+        if (const char* xdg = std::getenv("XDG_CACHE_HOME"); xdg && *xdg == '/') cache = xdg;
+        else if (const char* home = std::getenv("HOME"); home && *home == '/') cache = fs::path(home) / ".cache";
+        std::error_code ec;
+        if (!cache.empty()) {
+            // Results hold game memory: the directories are the user's alone.
+            const fs::path app = cache / "cheatengine";
+            fs::create_directories(app / "scans", ec);
+            if (!ec) {
+                fs::permissions(app, fs::perms::owner_all, ec);
+                fs::permissions(app / "scans", fs::perms::owner_all, ec);
+            }
+            if (!ec) root = app / "scans";
+        }
+        if (root.empty()) root = fs::temp_directory_path();
+    }
+    std::call_once(pruned, [&] { pruneStaleScanDirs(root); });
+    return root;
+}
+
 static std::filesystem::path makeScanDir() {
-    std::string pattern = (std::filesystem::temp_directory_path() / "ce-scan-XXXXXX").string();
+    std::string pattern = (scanRoot() / ("ce-scan-" + std::to_string(::getpid()) + "-XXXXXX")).string();
     if (!mkdtemp(pattern.data()))
         throw std::system_error(errno, std::generic_category(), "create scan directory");
     return pattern;
+}
+
+void ScanResult::keepFiles() {
+    if (!ownedRoot_.empty()) std::ofstream(ownedRoot_ / ".kept");
+    ownedRoot_.clear();
 }
 
 namespace {
@@ -2528,12 +2614,47 @@ static ScanConfig targetScanConfig(ProcessHandle& proc,const ScanConfig& request
         throw std::invalid_argument("Target pointer width is unknown; select the scan pointer width explicitly");
     for (auto& term:config.groupedTerms) if (term.valueType==ValueType::UnicodeString)
         term.byteArray=utf16Bytes(term.stringValue,config.byteOrder);
+    // "Increased by -5" is "decreased by 5" (new == old + value). The compares
+    // only take a non-negative amount, so a negative one never matched.
+    if (config.compareType==ScanCompare::IncreasedBy || config.compareType==ScanCompare::DecreasedBy) {
+        const auto flip=[&] {
+            config.compareType=config.compareType==ScanCompare::IncreasedBy ? ScanCompare::DecreasedBy : ScanCompare::IncreasedBy;
+        };
+        if (config.valueType==ValueType::Float || config.valueType==ValueType::Double) {
+            if (config.floatValue<0) { config.floatValue=-config.floatValue; flip(); }
+        } else if (config.intValue<0) {
+            if (config.intValue==std::numeric_limits<int64_t>::min())
+                throw std::invalid_argument("The amount changed by is out of range");
+            config.intValue=-config.intValue;
+            if (config.valueType==ValueType::All && config.floatValue<0) config.floatValue=-config.floatValue;
+            flip();
+        }
+    }
+    // A 4-byte pointer scan compares 32-bit values: a larger search value would
+    // be cut to its low 32 bits and find unrelated values.
+    if (config.valueType==ValueType::Pointer && config.pointerWidth==4) {
+        const auto fits=[](int64_t value) { return static_cast<uint64_t>(value)<=UINT32_MAX; };
+        const bool ordered=config.compareType==ScanCompare::Exact || config.compareType==ScanCompare::Greater ||
+                           config.compareType==ScanCompare::Less || config.compareType==ScanCompare::Between;
+        if (ordered && (!fits(config.intValue) || (config.compareType==ScanCompare::Between && !fits(config.intValue2))))
+            throw std::invalid_argument("The search value does not fit a 4-byte pointer (0 to 0xFFFFFFFF)");
+    }
     return config;
 }
 ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& requested) {
     bool gdbTarget=false;const ScanConfig config=targetScanConfig(proc,requested,gdbTarget);
     cancelled_.store(false);
     progress_.store(0);
+
+    // These compare against the previous scan's values. A first scan has none;
+    // they used to fall through to Exact on whatever the value box held.
+    switch (config.compareType) {
+        case ScanCompare::Changed: case ScanCompare::Unchanged: case ScanCompare::Increased:
+        case ScanCompare::Decreased: case ScanCompare::IncreasedBy: case ScanCompare::DecreasedBy:
+        case ScanCompare::SameAsFirst:
+            throw std::invalid_argument("This compare needs a previous scan: run a first scan (Exact or Unknown initial value) first");
+        default: break;
+    }
 
     if (config.valueType == ValueType::Grouped) {
         if (config.groupedTerms.empty())
@@ -2743,8 +2864,13 @@ ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& reque
         // missed. Aligned numeric scans (the default) satisfy this; unaligned or
         // wide-stride scans just read everything.
         long ps = sysconf(_SC_PAGESIZE);
-        bool cannotStraddle = ps > 0 && alignment >= maxMatchSize &&
-                              (static_cast<size_t>(ps) % alignment == 0);
+        // Text and byte patterns are matched at every byte whatever the
+        // configured alignment, so their real stride is 1.
+        const bool bytewise = config.valueType == ValueType::String || config.valueType == ValueType::UnicodeString ||
+                              config.valueType == ValueType::ByteArray || config.valueType == ValueType::Binary;
+        const size_t stride = bytewise ? 1 : alignment;
+        bool cannotStraddle = ps > 0 && stride >= maxMatchSize &&
+                              (static_cast<size_t>(ps) % stride == 0);
         if (!disabled && cannotStraddle && config.valueType != ValueType::Custom) {
             std::vector<uint8_t> zeroWindow(std::max<size_t>(maxMatchSize * 4, 64), 0);
             ScanResult probe(resultDir / "probe");
@@ -2899,6 +3025,17 @@ ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& reques
             config.compareType != ScanCompare::Unknown) {
             throw std::invalid_argument("ValueType::Custom next scan supports exact/changed/unchanged/samefirst/unknown");
         }
+    }
+
+    // Strings, byte arrays and binary values have no order or amount: a
+    // bigger/smaller/between or changed-by compare used to drop every row or
+    // act as another compare.
+    if (config.valueType == ValueType::String || config.valueType == ValueType::UnicodeString ||
+        config.valueType == ValueType::ByteArray || config.valueType == ValueType::Binary) {
+        if (config.compareType == ScanCompare::Greater || config.compareType == ScanCompare::Less ||
+            config.compareType == ScanCompare::Between || config.compareType == ScanCompare::IncreasedBy ||
+            config.compareType == ScanCompare::DecreasedBy)
+            throw std::invalid_argument("Text, byte array and binary scans support exact, changed, unchanged and same as first");
     }
 
     size_t valueSize = valueSizeForConfig(config);

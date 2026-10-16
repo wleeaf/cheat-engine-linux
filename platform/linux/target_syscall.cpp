@@ -10,8 +10,10 @@
 #include "core/log.hpp"
 #include <algorithm>
 #include <cerrno>
+#include <cctype>
 #include <cstring>
 #include <cstdio>
+#include <string_view>
 #include <limits>
 #include <cstdlib>
 #include <fstream>
@@ -412,6 +414,37 @@ pid_t waitStopped(pid_t tid, int& status) {
     pid_t waited;
     do { waited = waitpid(tid, &status, __WALL); } while (waited < 0 && errno == EINTR);
     return waited;
+}
+
+bool peekTarget(pid_t tid,uint64_t address,void* output,size_t size) {
+    auto* bytes=static_cast<uint8_t*>(output);
+    for (size_t offset=0;offset<size;offset+=sizeof(long)) {
+        errno=0;
+        long word=ptrace(PTRACE_PEEKDATA,tid,reinterpret_cast<void*>(static_cast<uintptr_t>(address+offset)),nullptr);
+        if (word==-1 && errno) return false;
+        std::memcpy(bytes+offset,&word,std::min(sizeof(long),size-offset));
+    }
+    return true;
+}
+// Running other code on a thread stopped inside an rseq critical section makes
+// the kernel clear rseq_cs on the next return to user mode, so the restored PC
+// would finish the section without its abort. Kernels before 5.13 cannot report
+// the rseq area; then the check is skipped.
+Result<void> checkRseqSection(pid_t tid,uintptr_t at) {
+    struct {
+        uint64_t area=0;
+        uint32_t size=0,signature=0,flags=0,pad=0;
+    } configuration;
+    if (ptrace(static_cast<enum __ptrace_request>(0x420f),tid,reinterpret_cast<void*>(sizeof(configuration)),&configuration)<0 ||
+        !configuration.area) return {};
+    uint64_t descriptor=0;
+    if (!peekTarget(tid,configuration.area+8,&descriptor,sizeof(descriptor)) || !descriptor) return {};
+    // struct rseq_cs: version, flags, start_ip, post_commit_offset, abort_ip.
+    std::array<uint64_t,3> section{};
+    const auto busy=std::make_error_code(std::errc::resource_unavailable_try_again);
+    if (!peekTarget(tid,descriptor,section.data(),sizeof(section))) return std::unexpected(busy);
+    if (at-section[1]<section[2]) return std::unexpected(busy);
+    return {};
 }
 
 std::expected<uintptr_t,std::error_code> existingSyscallInstruction(
@@ -1579,6 +1612,13 @@ std::expected<uint64_t, TargetSyscallFailure> executeMemorySyscallInternal(
         if (!identity) return std::unexpected(identity.error());
         if (expectedIdentity && *identity != *expectedIdentity)
             return std::unexpected(std::make_error_code(std::errc::operation_canceled));
+        if (!alreadyStopped) {
+            // Nothing is changed yet; the caller can retry once the section ends.
+            auto stoppedAt=getRegisters(tid);
+            if (!stoppedAt) return std::unexpected(stoppedAt.error());
+            auto outside=checkRseqSection(tid,pc(*stoppedAt));
+            if (!outside) return std::unexpected(outside.error());
+        }
         std::shared_ptr<NativeMemoryImage> ticketImage;
         if (expectedImage) {
             auto retained=expectedImage->retainImage(host);
@@ -2117,6 +2157,87 @@ std::expected<void,std::error_code> checkStoppedFunctionAbi(pid_t tid,const Targ
     (void)tid; (void)host;
     return unsupported();
 #endif
+}
+
+bool runtimeLockOwner(std::string_view path) {
+    auto slash=path.rfind('/');
+    auto name=slash==std::string_view::npos ? path : path.substr(slash+1);
+    auto versioned=[&](std::string_view prefix) {
+        return name.starts_with(prefix) && name.size()>prefix.size() && std::isdigit(static_cast<unsigned char>(name[prefix.size()]));
+    };
+    return name.starts_with("libc.so") || name.starts_with("libc.musl-") || name.starts_with("libpthread.so") ||
+        name.starts_with("libdl.so") || name.starts_with("ld-linux") || name.starts_with("ld-musl-") ||
+        name.starts_with("ld.so") || name.starts_with("ld64.so") ||
+        versioned("libc-") || versioned("libpthread-") || versioned("ld-");
+}
+
+std::expected<void,std::error_code> checkStoppedCallSite(pid_t tid,bool runsLibraryCode) {
+#if defined(__x86_64__) || defined(__aarch64__) || defined(__arm__)
+    auto registers=getRegisters(tid);
+    if (!registers) return std::unexpected(registers.error());
+    const uintptr_t at=pc(*registers);
+    auto outside=checkRseqSection(tid,at);
+    if (!outside) return outside;
+    if (!runsLibraryCode) return {};
+    std::ifstream maps("/proc/"+std::to_string(tid)+"/maps");
+    if (!maps) return std::unexpected(std::make_error_code(std::errc::no_such_process));
+    std::string line;
+    while (std::getline(maps,line)) {
+        unsigned long long start=0,end=0;
+        int name=0;
+        if (std::sscanf(line.c_str(),"%llx-%llx %*s %*s %*s %*s %n",&start,&end,&name)<2) continue;
+        if (at<start || at>=end) continue;
+        if (name>0 && static_cast<size_t>(name)<line.size() && runtimeLockOwner(std::string_view(line).substr(name)))
+            return std::unexpected(std::make_error_code(std::errc::resource_unavailable_try_again));
+        return {};
+    }
+    return {};
+#else
+    (void)tid; (void)runsLibraryCode;
+    return {};
+#endif
+}
+
+std::expected<char,std::error_code> taskSchedulerState(pid_t pid,pid_t tid) {
+    char path[96],state=0;
+    std::snprintf(path,sizeof(path),"/proc/%ld/task/%ld/stat",static_cast<long>(pid),static_cast<long>(tid));
+    auto birth=readTaskBirth(path,&state);
+    if (!birth) return std::unexpected(birth.error());
+    return state;
+}
+
+std::string targetVisiblePath(pid_t task,const std::string& path) {
+    struct stat source{};
+    if (path.empty() || path[0]!='/' || stat(path.c_str(),&source)<0 || !S_ISREG(source.st_mode)) return path;
+    const std::string root="/proc/"+std::to_string(task)+"/root";
+    auto matches=[&](const std::string& candidate) {
+        struct stat target{};
+        return stat((root+candidate).c_str(),&target)==0 && target.st_dev==source.st_dev && target.st_ino==source.st_ino;
+    };
+    if (matches(path)) return path;
+    const auto decode=[](const std::string& text) {
+        std::string result;
+        for (size_t i=0;i<text.size();++i) {
+            if (text[i]=='\\' && i+3<text.size() && text[i+1]>='0' && text[i+1]<='7' &&
+                text[i+2]>='0' && text[i+2]<='7' && text[i+3]>='0' && text[i+3]<='7') {
+                result+=char((text[i+1]-'0')*64+(text[i+2]-'0')*8+text[i+3]-'0');i+=3;
+            } else result+=text[i];
+        }
+        return result;
+    };
+    std::ifstream mounts("/proc/"+std::to_string(task)+"/mountinfo");
+    std::string line;
+    while (std::getline(mounts,line)) {
+        std::istringstream fields(line);
+        std::string id,parent,device,mountRoot,mountPoint;
+        if (!(fields>>id>>parent>>device>>mountRoot>>mountPoint)) continue;
+        mountRoot=decode(mountRoot); mountPoint=decode(mountPoint);
+        if (mountRoot=="/") continue;
+        if (path.size()<=mountRoot.size() || path.compare(0,mountRoot.size(),mountRoot)!=0 || path[mountRoot.size()]!='/') continue;
+        std::string candidate=(mountPoint=="/" ? std::string{} : mountPoint)+path.substr(mountRoot.size());
+        if (matches(candidate)) return candidate;
+    }
+    return path;
 }
 
 std::expected<uint64_t,TargetSyscallFailure> executeStoppedFunction(

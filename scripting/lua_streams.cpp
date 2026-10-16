@@ -373,7 +373,7 @@ int l_stream__index(lua_State* L) {
     luaL_getmetatable(L, STREAM_MT);
     lua_getfield(L, -1, "__methods");
     lua_getfield(L, -1, key);
-    if (!lua_isnil(L, -1)) return 1;
+    if (!lua_isnil(L, -1)) { bindMethod(L, 1); return 1; }   // '.' and ':' calls
     lua_pop(L, 3);
     // Property accessors
     if (!std::strcmp(key, "Position")) return l_stream_position(L);
@@ -413,7 +413,7 @@ int l_createMemoryStream(lua_State* L) {
 int l_createFileStream(lua_State* L) {
     const char* path = luaL_checkstring(L, 1);
     // Reading only, unless writing files is allowed (see guardFileWrite).
-    const bool unsafe = ce::luaUnsafeAllowed();
+    const bool unsafe = ce::luaUnsafeAllowed(L);
     const char* mode = luaL_optstring(L, 2, unsafe ? "rw" : "r");
     if (!unsafe && std::strpbrk(mode, "wa+"))
         return luaL_error(L, "createFileStream: writing files is blocked; launch with CECORE_LUA_ALLOW_UNSAFE=1 "
@@ -581,7 +581,7 @@ int l_sl__index(lua_State* L) {
     luaL_getmetatable(L, STRINGLIST_MT);
     lua_getfield(L, -1, "__methods");
     lua_getfield(L, -1, key);
-    if (!lua_isnil(L, -1)) return 1;
+    if (!lua_isnil(L, -1)) { bindMethod(L, 1); return 1; }   // '.' and ':' calls
     lua_pop(L, 3);
     if (!std::strcmp(key, "Count")) return l_sl_getCount(L);
     if (!std::strcmp(key, "Text"))  return l_sl_getText(L);

@@ -150,7 +150,21 @@ int main(int argc, char** argv) {
     horizontal = horizontal && hv.cursorAddress() == reinterpret_cast<uintptr_t>(g_buf) + 12;
     std::printf("GUI hex horizontal scrolling: %s\n", horizontal ? "OK" : "FAILED");
 
-    bool ok = horizontal && baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC && fillOk && typeMap && selBytes && ptrOk && shiftSel && shiftCollapse && homeEndOk && selectAllHex && stickyScroll;
+    // A planted breakpoint is never overwritten from the hex pane (removing it would
+    // then fail): the Memory Viewer's write check refuses a paste over it, all of it.
+    bool bpGuard = false;
+    {
+        ce::gui::MemoryBrowser mb(&proc);
+        const uintptr_t trap = reinterpret_cast<uintptr_t>(g_buf) + 0x41;
+        mb.setBreakpointQuery([trap]() { return std::set<uintptr_t>{trap}; });
+        g_buf[0x40] = g_buf[0x41] = g_buf[0x42] = 0x11;
+        const int over = mb.hexPasteForTest(trap - 1, "90 90 90");
+        const int beside = mb.hexPasteForTest(trap + 1, "90");
+        bpGuard = over == 0 && g_buf[0x40] == 0x11 && g_buf[0x41] == 0x11 && beside == 1 && g_buf[0x42] == 0x90;
+        std::printf("GUI hex write over a breakpoint refused: %s\n", bpGuard ? "OK" : "FAILED");
+    }
+
+    bool ok = bpGuard && horizontal && baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC && fillOk && typeMap && selBytes && ptrOk && shiftSel && shiftCollapse && homeEndOk && selectAllHex && stickyScroll;
     printf("gui hexview smoke: %s (baseline=%d afterOneFlip=%d afterNav=%d pasteWrote=%d pasteOk=%d "
            "ctrlV=%d ctrlC=%d filled=%d fillOk=%d typeMap=%d selBytes=%d ptrOk=%d shiftSel=%d shiftCollapse=%d homeEnd=%d selAll=%d stickyScroll=%d)\n",
            ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk, ctrlV, ctrlC, filled, fillOk, typeMap, selBytes, ptrOk, shiftSel, shiftCollapse, homeEndOk, selectAllHex, stickyScroll);

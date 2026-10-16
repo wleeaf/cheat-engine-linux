@@ -32,6 +32,7 @@
 #include <QSlider>
 #include <QShortcut>
 #include <QHash>
+#include <QJsonObject>
 #include <functional>
 #include "gui/globalhotkeys.hpp"
 #include <unordered_map>
@@ -185,6 +186,9 @@ private:
     // exception on the caller thread; returns the result on success.
     std::unique_ptr<ce::ScanResult> runScanWithProgress(
         const std::function<ce::ScanResult()>& scanFn);
+    // Run a snapshot capture, diff or restore on a worker thread the same way,
+    // with a busy progress bar. Rethrows the task's exception on the caller.
+    void runSnapshotTask(const std::function<void()>& task);
     ce::CheatTable buildCheatTable() const;
     // Install the persistent disassembler-comment store (module-relative, saved
     // with the table) into a freshly-created memory browser.
@@ -225,7 +229,8 @@ private:
     // Process — local (LinuxProcessHandle) or remote (RemoteProcessHandle).
     std::unique_ptr<ce::os::CEServerClient> ceserverClient_;  // Outlives the remote handle.
     std::unique_ptr<ce::ProcessHandle> process_;
-    std::unique_ptr<ce::Snapshot> snapshot_;  // Captured baseline for diff/restore.
+    // Captured baseline for diff/restore; shared so a worker reading it keeps it alive.
+    std::shared_ptr<ce::Snapshot> snapshot_;
     std::vector<QPair<qulonglong, qulonglong>> allocations_;  // (address,size) blocks we allocated.
     std::unique_ptr<ce::os::ProcessWatcher> processWatcher_;
     pid_t currentPid_ = 0;
@@ -383,7 +388,7 @@ struct AddressEntry {
     ce::DisableInfo autoAsmDisableInfo;
     uint64_t autoAsmOrder = 0;
     QString color;            // Hex color for display
-    QString dropdownList;     // "value:label;value:label" choices
+    QString dropdownList;     // "value:label" choices, one per line
     QString hotkeyKeys;       // Portable key sequence string
     QString increaseHotkeyKeys;
     QString decreaseHotkeyKeys;
@@ -396,6 +401,10 @@ struct AddressEntry {
     bool activateChildren = true;    // CE moActivateChildrenAsWell: toggling on cascades
     bool deactivateChildren = true;  // CE moDeactivateChildrenAsWell: toggling off cascades
     QString optionsXml;       // raw CE <Options .../> element, preserved verbatim on save
+    QString luaScript;        // the record's own <LuaScript>, kept for the save
+    // Cheat table fields the list does not use (CustomType, Async, unknown
+    // elements, extra hotkeys, ...), under their table JSON names, kept for the save.
+    QJsonObject tableFields;
     bool showAsHex = false;   // Display/edit the value in hexadecimal
     bool showAsSigned = true; // CE ShowAsSigned: integer values display signed vs unsigned
     QString addressExpr;      // If set, re-evaluated each refresh (pointer records)

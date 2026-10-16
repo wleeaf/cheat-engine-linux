@@ -14,13 +14,25 @@ namespace ce {
 
 std::vector<InstructionAccess> findInstructionAccesses(
     ProcessHandle& proc, uintptr_t instructionAddress, int maxHits, int timeoutMs,
-    const std::function<bool()>& cancelled) {
+    const std::function<bool()>& cancelled, std::string* error) {
 
-    if (unsupportedTargetOperation(proc, TargetFeature::Debugger)) return {};
+    if (error) error->clear();
+    auto failed = [&](std::string reason) {
+        if (error) *error = std::move(reason);
+        return std::vector<InstructionAccess>{};
+    };
+    if (auto reason = unsupportedTargetOperation(proc, TargetFeature::Debugger)) return failed(*reason);
+    // Decode with the instruction's own ISA (a WoW64 process runs both).
+    auto architecture = disassemblerArchFor(proc, instructionAddress);
+    if (!architecture) return failed(architecture.error());
+    // Effective addresses are computed from x86 operands only.
+    if (*architecture != Arch::X86_32 && *architecture != Arch::X86_64)
+        return failed("this works on x86 code only");
     DebugSession session;
-    Disassembler dis(proc.runs32BitCode() ? Arch::X86_32 : Arch::X86_64);
+    Disassembler dis(*architecture);
 
-    if (!session.attach(proc.pid(), &proc)) return {};
+    if (!session.attach(proc.pid(), &proc))
+        return failed(targetOperationError(proc, TargetFeature::Debugger, session.lastError()));
 
     // Decode the instruction ONCE from its original bytes, before the software
     // breakpoint overwrites byte 0 with int3 (0xCC) — reading it back afterwards
@@ -36,7 +48,11 @@ std::vector<InstructionAccess> findInstructionAccesses(
             if (!insns.empty() && insns[0].memory.present) { insn = insns[0]; haveInsn = true; }
         }
     }
-    if (!haveInsn) { session.detach(); return {}; }
+    if (!haveInsn) { session.detach(); return failed("the instruction has no memory operand"); }
+    if (insn.memory.segmentReg == "fs" || insn.memory.segmentReg == "gs") {
+        session.detach();
+        return failed("the operand is " + insn.memory.segmentReg + "-relative (thread-local); its address cannot be computed");
+    }
 
     std::mutex m;
     std::map<uintptr_t, InstructionAccess> recs;
@@ -58,7 +74,11 @@ std::vector<InstructionAccess> findInstructionAccesses(
         }
     });
 
-    session.setSoftwareBreakpoint(instructionAddress);
+    if (session.setSoftwareBreakpoint(instructionAddress) < 0) {
+        const auto code = session.lastError();
+        session.detach();
+        return failed("cannot set a breakpoint: " + (code ? code.message() : std::string("unknown error")));
+    }
     session.continueExecution();
 
     for (int i = 0; i < timeoutMs / 10 && hits.load() < maxHits && !(cancelled && cancelled()); ++i)

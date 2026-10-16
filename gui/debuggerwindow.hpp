@@ -171,6 +171,7 @@ private:
     QPushButton* outBtn_ = nullptr;
     QPushButton* rtcBtn_ = nullptr;
     QPushButton* detachBtn_ = nullptr;
+    QPushButton* rmBtn_ = nullptr;   // off during a step, whose command would block removal
 
     struct Bp {
         int id; uintptr_t addr; std::string condition;

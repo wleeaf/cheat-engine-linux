@@ -40,6 +40,7 @@
 #include "symbols/elf_symbols.hpp"
 #include "platform/linux/linux_process.hpp"
 #include "platform/linux/injector.hpp"
+#include "platform/linux/target_syscall.hpp"
 #include <climits>
 #include "platform/linux/ceserver_client.hpp"
 #include "platform/linux/ceserver_process.hpp"
@@ -238,6 +239,22 @@ static bool writeExact(ProcessHandle* proc, uintptr_t address, const void* data,
     return result && *result == size;
 }
 
+// The address argument at `index`: an integer, or a string such as
+// "game.exe+1234" or "[[base]+10]" resolved like readValue does (CE's
+// lua_toaddress). Raises for other types; false when a string does not
+// resolve, which the callers report as nil (reads) or false (writes).
+static bool checkAddress(lua_State* L, int index, ProcessHandle* process, uintptr_t& address) {
+    if (lua_type(L, index) != LUA_TSTRING) {
+        address = static_cast<uintptr_t>(luaL_checkinteger(L, index));
+        return true;
+    }
+    if (!process) return false;
+    auto parsed = ExpressionParser(process, getResolver(L)).parse(lua_tostring(L, index));
+    if (!parsed) return false;
+    address = *parsed;
+    return true;
+}
+
 template <typename T>
 static bool readTargetScalar(ProcessHandle* process, uintptr_t address, T& value) {
     std::array<uint8_t, sizeof(T)> bytes{};
@@ -327,19 +344,23 @@ static int l_resumePendingCallSignal(lua_State* L) {
 static int l_readByte(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); return 1; }
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    uintptr_t addr = 0;
+    if (!checkAddress(L, 1, p, addr)) { lua_pushnil(L); return 1; }
     uint8_t v = 0;
-    if (readTargetScalar(p, addr, v)) lua_pushinteger(L, v);
+    if (readTargetScalar(p, addr, v)) lua_pushinteger(L, lua_toboolean(L, 2) ? lua_Integer(int8_t(v)) : lua_Integer(v));
     else lua_pushnil(L);
     return 1;
 }
 
+// readByte, readSmallInteger and readInteger take an optional `signed` flag
+// and are unsigned without it, as in CE.
 static int l_readSmallInteger(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); return 1; }
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
-    int16_t v = 0;
-    if (readTargetScalar(p, addr, v)) lua_pushinteger(L, v);
+    uintptr_t addr = 0;
+    if (!checkAddress(L, 1, p, addr)) { lua_pushnil(L); return 1; }
+    uint16_t v = 0;
+    if (readTargetScalar(p, addr, v)) lua_pushinteger(L, lua_toboolean(L, 2) ? lua_Integer(int16_t(v)) : lua_Integer(v));
     else lua_pushnil(L);
     return 1;
 }
@@ -347,7 +368,8 @@ static int l_readSmallInteger(lua_State* L) {
 static int l_readQword(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); return 1; }
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    uintptr_t addr = 0;
+    if (!checkAddress(L, 1, p, addr)) { lua_pushnil(L); return 1; }
     int64_t v = 0;
     if (readTargetScalar(p, addr, v)) lua_pushinteger(L, v);
     else lua_pushnil(L);
@@ -357,7 +379,8 @@ static int l_readQword(lua_State* L) {
 static int l_readPointer(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); return 1; }
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    uintptr_t addr = 0;
+    if (!checkAddress(L, 1, p, addr)) { lua_pushnil(L); return 1; }
     size_t size = p->pointerWidth(addr);
     if (size != 4 && size != 8) { lua_pushnil(L); return 1; }
     uint8_t bytes[8]{};
@@ -370,7 +393,8 @@ static int l_readPointer(lua_State* L) {
 static int l_readDouble(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); return 1; }
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    uintptr_t addr = 0;
+    if (!checkAddress(L, 1, p, addr)) { lua_pushnil(L); return 1; }
     double v = 0;
     if (readTargetScalar(p, addr, v)) lua_pushnumber(L, v);
     else lua_pushnil(L);
@@ -380,26 +404,55 @@ static int l_readDouble(lua_State* L) {
 static int l_readString(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); return 1; }
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    uintptr_t addr = 0;
+    if (!checkAddress(L, 1, p, addr)) { lua_pushnil(L); return 1; }
     // Clamp as a lua_Integer: narrowing first turned 0x100000000 into 0 and
     // 0x80000000 into a negative length.
     const lua_Integer requested = luaL_optinteger(L, 2, 256);
     luaL_argcheck(L, requested >= 0, 2, "max length must be non-negative");
-    // Cap like readBytes: an unbounded maxLen could OOM.
+    // readString(address, maxLength, widechar): maxLength counts bytes in
+    // both forms, as in CE. Cap like readBytes: an unbounded maxLen could OOM.
+    const bool wide = lua_toboolean(L, 3);
     constexpr lua_Integer kMaxReadString = 1 << 24;  // 16 MB
-    const int maxLen = static_cast<int>(std::min(requested, kMaxReadString));
-    // Allocate under try/catch: a large maxLen can throw bad_alloc, which must
-    // not escape this C function into C-compiled Lua frames (UB).
-    try {
-        std::vector<char> buf(static_cast<size_t>(maxLen) + 1, 0);
-        auto r = p->read(addr, buf.data(), maxLen);
-        if (r) {
-            buf[*r] = 0;
-            lua_pushstring(L, buf.data());
-        } else lua_pushnil(L);
-    } catch (const std::exception& ex) {
-        throw;   // the firewall reports it outside this catch
+    const size_t maxLen = static_cast<size_t>(std::min(requested, kMaxReadString));
+    // Lua owns the buffer, so a raise below leaks nothing.
+    auto* buf = static_cast<unsigned char*>(lua_newuserdata(L, maxLen ? maxLen : 1));
+    auto r = p->read(addr, buf, maxLen);
+    if (!r) { lua_pushnil(L); return 1; }
+    const size_t got = std::min(*r, maxLen);
+    if (!wide) {
+        lua_pushlstring(L, reinterpret_cast<const char*>(buf), strnlen(reinterpret_cast<const char*>(buf), got));
+        return 1;
     }
+    // UTF-16 in the target's byte order, to UTF-8, up to a zero code unit.
+    const bool big = p->byteOrder(addr) == ByteOrder::Big;
+    auto unit = [&](size_t i) -> uint32_t {
+        return big ? (buf[2 * i] << 8) | buf[2 * i + 1] : buf[2 * i] | (buf[2 * i + 1] << 8);
+    };
+    luaL_Buffer out;
+    luaL_buffinit(L, &out);
+    const size_t units = got / 2;
+    for (size_t i = 0; i < units; ++i) {
+        uint32_t cp = unit(i);
+        if (cp == 0) break;
+        if (cp >= 0xD800 && cp <= 0xDBFF && i + 1 < units && unit(i + 1) >= 0xDC00 && unit(i + 1) <= 0xDFFF)
+            cp = 0x10000 + ((cp - 0xD800) << 10) + (unit(++i) - 0xDC00);
+        else if (cp >= 0xD800 && cp <= 0xDFFF)
+            cp = 0xFFFD;   // an unpaired surrogate
+        char utf8[4];
+        int n = 0;
+        if (cp < 0x80) utf8[n++] = char(cp);
+        else if (cp < 0x800) { utf8[n++] = char(0xC0 | (cp >> 6)); utf8[n++] = char(0x80 | (cp & 0x3F)); }
+        else if (cp < 0x10000) {
+            utf8[n++] = char(0xE0 | (cp >> 12)); utf8[n++] = char(0x80 | ((cp >> 6) & 0x3F));
+            utf8[n++] = char(0x80 | (cp & 0x3F));
+        } else {
+            utf8[n++] = char(0xF0 | (cp >> 18)); utf8[n++] = char(0x80 | ((cp >> 12) & 0x3F));
+            utf8[n++] = char(0x80 | ((cp >> 6) & 0x3F)); utf8[n++] = char(0x80 | (cp & 0x3F));
+        }
+        luaL_addlstring(&out, utf8, n);
+    }
+    luaL_pushresult(&out);
     return 1;
 }
 
@@ -408,7 +461,8 @@ static int l_readString(lua_State* L) {
 static int l_writeByte(lua_State* L) {
     auto* p = getProc(L);
     if (!p) return 0;
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    uintptr_t addr = 0;
+    if (!checkAddress(L, 1, p, addr)) { lua_pushboolean(L, 0); return 1; }
     uint8_t v = (uint8_t)luaL_checkinteger(L, 2);
     lua_pushboolean(L, writeTargetScalar(p, addr, v));
     return 1;
@@ -417,7 +471,8 @@ static int l_writeByte(lua_State* L) {
 static int l_writeSmallInteger(lua_State* L) {
     auto* p = getProc(L);
     if (!p) return 0;
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    uintptr_t addr = 0;
+    if (!checkAddress(L, 1, p, addr)) { lua_pushboolean(L, 0); return 1; }
     int16_t v = (int16_t)luaL_checkinteger(L, 2);
     lua_pushboolean(L, writeTargetScalar(p, addr, v));
     return 1;
@@ -426,7 +481,8 @@ static int l_writeSmallInteger(lua_State* L) {
 static int l_writeQword(lua_State* L) {
     auto* p = getProc(L);
     if (!p) return 0;
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    uintptr_t addr = 0;
+    if (!checkAddress(L, 1, p, addr)) { lua_pushboolean(L, 0); return 1; }
     int64_t v = luaL_checkinteger(L, 2);
     lua_pushboolean(L, writeTargetScalar(p, addr, v));
     return 1;
@@ -435,7 +491,8 @@ static int l_writeQword(lua_State* L) {
 static int l_writeDouble(lua_State* L) {
     auto* p = getProc(L);
     if (!p) return 0;
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    uintptr_t addr = 0;
+    if (!checkAddress(L, 1, p, addr)) { lua_pushboolean(L, 0); return 1; }
     double v = luaL_checknumber(L, 2);
     lua_pushboolean(L, writeTargetScalar(p, addr, v));
     return 1;
@@ -444,7 +501,8 @@ static int l_writeDouble(lua_State* L) {
 static int l_writeString(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushboolean(L, 0); return 1; }
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    uintptr_t addr = 0;
+    if (!checkAddress(L, 1, p, addr)) { lua_pushboolean(L, 0); return 1; }
     const char* s = luaL_checkstring(L, 2);
     // Return success like CE (and the other write* bindings).
     lua_pushboolean(L, writeExact(p, addr, s, strlen(s) + 1));
@@ -466,7 +524,8 @@ static void checkByteTable(lua_State* L, int idx, lua_Integer first, lua_Integer
 static int l_writeBytes(lua_State* L) {
     auto* p = getProc(L);
     if (!p) return 0;
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    uintptr_t addr = 0;
+    if (!checkAddress(L, 1, p, addr)) { lua_pushboolean(L, 0); return 1; }
     // CE accepts writeBytes(addr, {b1,b2,...}) or writeBytes(addr, b1, b2, ...).
     const bool table = lua_istable(L, 2);
     const int top = lua_gettop(L);
@@ -493,12 +552,13 @@ static int l_writeBytes(lua_State* L) {
 }
 
 // ── The four workhorse CE reads/writes for the opened process ──
-// readInteger(address[, signed])  — 4-byte int, signed by default.
+// readInteger(address[, signed]): 4-byte int, unsigned unless `signed` is true (CE).
 static int l_readInteger(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); return 1; }
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
-    bool isSigned = lua_isnoneornil(L, 2) ? true : lua_toboolean(L, 2);
+    uintptr_t addr = 0;
+    if (!checkAddress(L, 1, p, addr)) { lua_pushnil(L); return 1; }
+    bool isSigned = lua_toboolean(L, 2);
     int32_t v = 0;
     if (readTargetScalar(p, addr, v)) {
         if (isSigned) lua_pushinteger(L, v);
@@ -510,7 +570,8 @@ static int l_readInteger(lua_State* L) {
 static int l_writeInteger(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushboolean(L, 0); return 1; }
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    uintptr_t addr = 0;
+    if (!checkAddress(L, 1, p, addr)) { lua_pushboolean(L, 0); return 1; }
     int32_t v = (int32_t)luaL_checkinteger(L, 2);
     lua_pushboolean(L, writeTargetScalar(p, addr, v));
     return 1;
@@ -519,7 +580,8 @@ static int l_writeInteger(lua_State* L) {
 static int l_readFloat(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); return 1; }
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    uintptr_t addr = 0;
+    if (!checkAddress(L, 1, p, addr)) { lua_pushnil(L); return 1; }
     float v = 0;
     if (readTargetScalar(p, addr, v)) lua_pushnumber(L, v);
     else lua_pushnil(L);
@@ -529,7 +591,8 @@ static int l_readFloat(lua_State* L) {
 static int l_writeFloat(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushboolean(L, 0); return 1; }
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    uintptr_t addr = 0;
+    if (!checkAddress(L, 1, p, addr)) { lua_pushboolean(L, 0); return 1; }
     float v = (float)luaL_checknumber(L, 2);
     lua_pushboolean(L, writeTargetScalar(p, addr, v));
     return 1;
@@ -846,7 +909,8 @@ static int l_getCEVersion(lua_State* L) {
 
 static int l_readBytes(lua_State* L) {
     auto* p = getProc(L);
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    uintptr_t addr = 0;
+    if (!checkAddress(L, 1, p, addr)) { lua_pushnil(L); return 1; }
     lua_Integer requested = luaL_checkinteger(L, 2);
     // Cap the count so an accidental huge value (readBytes(addr, 1e9)) can't OOM
     // the process on the buf allocation below. 16 MB is far above any real read.
@@ -1341,7 +1405,7 @@ static int l_writeStringLocal(lua_State* L) {
 // env var a Lua table cannot set. read*Local only leaks memory, so it stays open.
 template <lua_CFunction Fn>
 static int guardLocalWrite(lua_State* L) {
-    if (!getenv("CECORE_LUA_ALLOW_UNSAFE"))
+    if (!luaUnsafeAllowed(L))
         return luaL_error(L,
             "write*Local blocked: it writes cecore's own memory, which an untrusted "
             ".CT could use to hijack cecore. Enable only for scripts you trust by "
@@ -1698,7 +1762,17 @@ static int l_injectLibrary(lua_State* L) {
         localResolver.loadProcess(*p);
         resolver=&localResolver;
     }
-    auto r = ce::os::injectLibrary(*p, *resolver, std::string(path,pathLength));
+    // dlopen runs in the target: a relative path would resolve against its
+    // working directory, and a sandboxed target sees its own filesystem.
+    std::string target(path,pathLength);
+    std::error_code pathError;
+    if (target.find('\0')==std::string::npos && std::filesystem::exists(target,pathError)) {
+        auto absolute=std::filesystem::absolute(target,pathError);
+        if (!pathError) target=absolute.lexically_normal().string();
+        if (p->targetDescription().transport==ce::TargetTransport::Local)
+            if (auto task=ce::os::processMemoryTask(p->pid())) target=ce::os::targetVisiblePath(*task,target);
+    }
+    auto r = ce::os::injectLibrary(*p, *resolver, target);
     if (!r) { lua_pushnil(L); lua_pushstring(L, r.error().c_str()); return 2; }
     lua_pushinteger(L, static_cast<lua_Integer>(*r));
     return 1;
@@ -2867,12 +2941,18 @@ static int l_debug_isBroken(lua_State* L) {
     return 1;
 }
 
+// The engine's debug session when one is already attached. Reading or setting
+// registers must not attach the debugger as a side effect.
+static ce::DebugSession* attachedDebugSession(lua_State* L) {
+    auto* eng = ce::LuaEngine::instanceFromState(L);
+    return eng && eng->debugAttached() ? eng->debugSession() : nullptr;
+}
+
 // debug_getRegisters([tid]) -> table of every register at the current stop
 // (RAX..R15, RIP, RSP, RBP, RSI, RDI, RFLAGS, segment + debug regs). Meaningful
-// only while broken at a breakpoint; returns nil if there is no debug session.
+// only while broken at a breakpoint; returns nil unless the debugger is attached.
 static int l_debug_getRegisters(lua_State* L) {
-    auto* eng  = ce::LuaEngine::instanceFromState(L);
-    auto* sess = eng ? eng->debugSession() : nullptr;
+    auto* sess = attachedDebugSession(L);
     if (!sess) { lua_pushnil(L); return 1; }
     if (lua_gettop(L) >= 1 && lua_isinteger(L, 1))
         sess->selectThread((pid_t)lua_tointeger(L, 1));
@@ -2892,8 +2972,7 @@ static int l_debug_getRegisters(lua_State* L) {
 static int l_debug_setRegister(lua_State* L) {
     const char* name = luaL_checkstring(L, 1);
     uint64_t val = (uint64_t)luaL_checkinteger(L, 2);
-    auto* eng  = ce::LuaEngine::instanceFromState(L);
-    auto* sess = eng ? eng->debugSession() : nullptr;
+    auto* sess = attachedDebugSession(L);
     if (!sess) { lua_pushboolean(L, 0); return 1; }
     if (lua_gettop(L) >= 3 && lua_isinteger(L, 3))
         sess->selectThread((pid_t)lua_tointeger(L, 3));
@@ -2910,8 +2989,7 @@ static int l_debug_setRegister(lua_State* L) {
 // tracks the target's bitness.
 static int l_debug_getStack(lua_State* L) {
     int count = (int)luaL_optinteger(L, 1, 16);
-    auto* eng  = ce::LuaEngine::instanceFromState(L);
-    auto* sess = eng ? eng->debugSession() : nullptr;
+    auto* sess = attachedDebugSession(L);
     auto* p    = getProc(L);
     if (!sess || !p) { lua_pushnil(L); return 1; }
     uint64_t rsp = sess->getStopContext().rsp;
@@ -3065,7 +3143,12 @@ static int l_saveTable(lua_State* L) {
     auto* list = eng ? eng->addressList() : nullptr;
     if (!list) { lua_pushboolean(L, 0); return 1; }
     ce::CheatTable table = buildCheatTableFromList(list);
-    lua_pushboolean(L, table.saveJson(path) ? 1 : 0);
+    // The format follows the name, as in the GUI: a .ct (any case) is Cheat
+    // Engine XML, anything else our JSON.
+    const std::string name = path;
+    const bool ct = name.size() >= 3 && name[name.size() - 3] == '.' &&
+        (name[name.size() - 2] | 0x20) == 'c' && (name[name.size() - 1] | 0x20) == 't';
+    lua_pushboolean(L, (ct ? table.save(path) : table.saveJson(path)) ? 1 : 0);
     return 1;
 }
 
@@ -3507,10 +3590,12 @@ static int l_findMonoFunction(lua_State* L) {
 }
 
 // createSignature(address [, maxBytes]) -> pattern, unique | nil, error
-// An array-of-bytes signature for the code at `address`, unique within its
-// module; rip-relative displacements and address-sized immediates are wildcarded
-// so it survives ASLR / minor rebuilds. `pattern` is CE AOB format usable with
-// AOBScan; `unique` says whether it resolved to exactly one location.
+// An array-of-bytes signature for the code at `address`; rip-relative
+// displacements and address-sized immediates are wildcarded so it survives
+// ASLR / minor rebuilds. `pattern` is CE AOB format. `unique` says it matched
+// exactly once across the readable mappings of its module (or its anonymous
+// mapping), as AOBScanModule searches; it is not checked process-wide, and is
+// false when part of the module could not be read.
 static int l_createSignature(lua_State* L) {
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); lua_pushstring(L, "no target process"); return 2; }
@@ -4063,17 +4148,28 @@ static int l_findIl2CppMethod(lua_State* L) {
 // pointerScan(target [, maxDepth [, maxOffset [, {negativeOffsets,staticOnly,alignedOnly}]]])
 //   -> array of { path, module, baseOffset, moduleBase, offsets={...} }
 static int l_pointerScan(lua_State* L) {
+    // Read every argument first: an option's __index can run Lua that closes
+    // the process (freeing the handle), and a raise must not skip the
+    // destructors of the C++ objects below.
+    const auto target = (uintptr_t)luaL_checkinteger(L, 1);
+    std::optional<int> maxDepth, maxOffset;
+    std::optional<bool> negativeOffsets, staticOnly, alignedOnly;
+    if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) maxDepth  = (int)luaL_checkinteger(L, 2);
+    if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) maxOffset = (int)luaL_checkinteger(L, 3);
+    if (lua_istable(L, 4)) {
+        lua_getfield(L, 4, "negativeOffsets"); if (lua_isboolean(L, -1)) negativeOffsets = lua_toboolean(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 4, "staticOnly");      if (lua_isboolean(L, -1)) staticOnly      = lua_toboolean(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 4, "alignedOnly");     if (lua_isboolean(L, -1)) alignedOnly     = lua_toboolean(L, -1); lua_pop(L, 1);
+    }
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); return 1; }
     ce::PointerScanConfig cfg;
-    cfg.targetAddress = (uintptr_t)luaL_checkinteger(L, 1);
-    if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) cfg.maxDepth  = (int)luaL_checkinteger(L, 2);
-    if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) cfg.maxOffset = (int)luaL_checkinteger(L, 3);
-    if (lua_istable(L, 4)) {
-        lua_getfield(L, 4, "negativeOffsets"); if (lua_isboolean(L, -1)) cfg.negativeOffsets = lua_toboolean(L, -1); lua_pop(L, 1);
-        lua_getfield(L, 4, "staticOnly");      if (lua_isboolean(L, -1)) cfg.staticOnly      = lua_toboolean(L, -1); lua_pop(L, 1);
-        lua_getfield(L, 4, "alignedOnly");     if (lua_isboolean(L, -1)) cfg.alignedOnly     = lua_toboolean(L, -1); lua_pop(L, 1);
-    }
+    cfg.targetAddress = target;
+    if (maxDepth) cfg.maxDepth = *maxDepth;
+    if (maxOffset) cfg.maxOffset = *maxOffset;
+    if (negativeOffsets) cfg.negativeOffsets = *negativeOffsets;
+    if (staticOnly) cfg.staticOnly = *staticOnly;
+    if (alignedOnly) cfg.alignedOnly = *alignedOnly;
     ce::PointerScanner scanner;
     auto paths = scanner.scan(*p, cfg);
     lua_newtable(L);
@@ -4209,18 +4305,28 @@ static int l_findWhatAccesses(lua_State* L) { return codeFinderImpl(L, false); }
 // breakAndTrace(startAddress [, maxSteps=100 [, {stepOverCalls,stayInModule,
 //   stopAddress,moduleBase,moduleEnd} ]]) -> array of { address, instruction, rip }.
 static int l_breakAndTrace(lua_State* L) {
+    // Options first, as in pointerScan: their __index may close the process.
+    const auto start = (uintptr_t)luaL_checkinteger(L, 1);
+    const int maxSteps = (int)luaL_optinteger(L, 2, 100);
+    std::optional<bool> stepOverCalls, stayInModule;
+    std::optional<uintptr_t> stopAddress, moduleBase, moduleEnd;
+    if (lua_istable(L, 3)) {
+        lua_getfield(L, 3, "stepOverCalls"); if (lua_isboolean(L, -1)) stepOverCalls = lua_toboolean(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 3, "stayInModule");  if (lua_isboolean(L, -1)) stayInModule  = lua_toboolean(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 3, "stopAddress");   if (lua_isinteger(L, -1)) stopAddress = (uintptr_t)lua_tointeger(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 3, "moduleBase");    if (lua_isinteger(L, -1)) moduleBase  = (uintptr_t)lua_tointeger(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 3, "moduleEnd");     if (lua_isinteger(L, -1)) moduleEnd   = (uintptr_t)lua_tointeger(L, -1); lua_pop(L, 1);
+    }
     auto* p = getProc(L);
     if (!p) { lua_pushnil(L); return 1; }
     ce::TraceConfig cfg;
-    cfg.startAddress = (uintptr_t)luaL_checkinteger(L, 1);
-    cfg.maxSteps = (int)luaL_optinteger(L, 2, 100);
-    if (lua_istable(L, 3)) {
-        lua_getfield(L, 3, "stepOverCalls"); if (lua_isboolean(L, -1)) cfg.stepOverCalls = lua_toboolean(L, -1); lua_pop(L, 1);
-        lua_getfield(L, 3, "stayInModule");  if (lua_isboolean(L, -1)) cfg.stayInModule  = lua_toboolean(L, -1); lua_pop(L, 1);
-        lua_getfield(L, 3, "stopAddress");   if (lua_isinteger(L, -1)) cfg.stopAddress = (uintptr_t)lua_tointeger(L, -1); lua_pop(L, 1);
-        lua_getfield(L, 3, "moduleBase");    if (lua_isinteger(L, -1)) cfg.moduleBase  = (uintptr_t)lua_tointeger(L, -1); lua_pop(L, 1);
-        lua_getfield(L, 3, "moduleEnd");     if (lua_isinteger(L, -1)) cfg.moduleEnd    = (uintptr_t)lua_tointeger(L, -1); lua_pop(L, 1);
-    }
+    cfg.startAddress = start;
+    cfg.maxSteps = maxSteps;
+    if (stepOverCalls) cfg.stepOverCalls = *stepOverCalls;
+    if (stayInModule) cfg.stayInModule = *stayInModule;
+    if (stopAddress) cfg.stopAddress = *stopAddress;
+    if (moduleBase) cfg.moduleBase = *moduleBase;
+    if (moduleEnd) cfg.moduleEnd = *moduleEnd;
     ce::os::LinuxDebugger dbg;
     ce::Tracer tracer;
     auto entries = tracer.trace(*p, dbg, cfg);
@@ -4572,11 +4678,29 @@ static int l_branchMap(lua_State* L) {
 
 // ── Additional CE-compatible functions ──
 
+// True for cecore itself or one of its threads (/proc/<tid> also opens the
+// thread group's memory).
+static bool isOwnProcess(pid_t pid) {
+    if (pid == getpid()) return true;
+    std::ifstream status("/proc/" + std::to_string(pid) + "/status");
+    std::string line;
+    while (std::getline(status, line))
+        if (line.rfind("Tgid:", 0) == 0) return std::strtol(line.c_str() + 5, nullptr, 10) == getpid();
+    return false;
+}
+
 static int l_openProcess(lua_State* L) {
     const char* nameOrPid = luaL_checkstring(L, 1);
     auto pid = parseProcessId(nameOrPid);
     if (pid <= 0)
         pid = findProcessIdByName(nameOrPid);
+    // A table that opens Cheat Engine itself could rewrite its own memory,
+    // environment included, and lift the default-deny rules.
+    if (pid > 0 && isOwnProcess(pid)) {
+        lua_pushnil(L);
+        lua_pushliteral(L, "openProcess: Cheat Engine cannot open itself from Lua");
+        return 2;
+    }
 
     if (pid > 0) {
         auto* engine = LuaEngine::instanceFromState(L);
@@ -4760,7 +4884,8 @@ static int l_getOpenedProcessID(lua_State* L) {
 static int l_writePointer(lua_State* L) {
     auto* p = getProc(L);
     if (!p) return 0;
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
+    uintptr_t addr = 0;
+    if (!checkAddress(L, 1, p, addr)) { lua_pushboolean(L, 0); return 1; }
     uintptr_t val = (uintptr_t)luaL_checkinteger(L, 2);
     size_t size = p->pointerWidth(addr);
     ByteOrder order = p->byteOrder(addr);
@@ -4879,11 +5004,11 @@ static int l_inputQuery(lua_State* L) {
 // non-NULL, NUL-terminated argument so the system() call itself is well-formed.
 // Default-DENY: shellExecute is arbitrary command execution, so loading a
 // malicious table would grant native RCE (usually as root). It now requires an
-// explicit, out-of-band opt-in the script itself cannot set — the process env
-// var CECORE_LUA_ALLOW_UNSAFE, read live (Lua's os library cannot change the
-// process environment, so an untrusted table cannot flip this).
+// explicit, out-of-band opt-in the script itself cannot set: the process env
+// var CECORE_LUA_ALLOW_UNSAFE, read once when the Lua state is created (see
+// luaUnsafeAllowed), so changing the environment later does not enable it.
 static int l_shellExecute(lua_State* L) {
-    if (!getenv("CECORE_LUA_ALLOW_UNSAFE"))
+    if (!luaUnsafeAllowed(L))
         return luaL_error(L,
             "shellExecute blocked: it runs arbitrary shell commands. Only enable for "
             "tables you trust by launching with CECORE_LUA_ALLOW_UNSAFE=1 (see SECURITY.md).");
@@ -4906,21 +5031,6 @@ static int l_getScreenHeight(lua_State* L) {
 
 static int l_inMainThread(lua_State* L) {
     lua_pushboolean(L, 1); // Simplified
-    return 1;
-}
-
-// Process-name camouflage. Mostly relevant for hiding cecore from single-
-// player anti-tamper string scans (/proc/<pid>/comm, ps output, etc.).
-// Does not defeat dedicated anti-cheat — see project policy notes.
-static int l_setProcessName(lua_State* L) {
-    const char* name = luaL_checkstring(L, 1);
-    if (!name || !*name) return 0;
-    // prctl PR_SET_NAME truncates to 15 chars; copy explicitly to keep
-    // behaviour predictable.
-    char buf[16] = {0};
-    std::strncpy(buf, name, sizeof(buf) - 1);
-    int rc = prctl(PR_SET_NAME, (unsigned long)buf, 0, 0, 0);
-    lua_pushboolean(L, rc == 0);
     return 1;
 }
 
@@ -5009,7 +5119,9 @@ static int l_AOBScan(lua_State* L) {
         // CE returns a StringList of ALL matches (0-indexed hex strings, .Count,
         // .destroy()); our previous impl returned only the first address as an
         // integer, silently dropping the rest and breaking result iteration.
+        // No match is nil, as in CE.
         size_t n = result.count();
+        if (n == 0) { lua_pushnil(L); return 1; }
         lua_newtable(L);
         for (size_t i = 0; i < n; ++i) {
             char hex[24];
@@ -5098,6 +5210,7 @@ static int l_AOBScanModule(lua_State* L) {
         MemoryScanner scanner;
         auto result = scanner.firstScan(*p, cfg);
         size_t n = result.count();
+        if (n == 0) { lua_pushnil(L); return 1; }   // like AOBScan
         lua_newtable(L);
         for (size_t i = 0; i < n; ++i) {
             char hex[24];
@@ -5550,35 +5663,34 @@ static bool pushCustomType(lua_State* L, const char* name) {
     return lua_istable(L, -1);
 }
 
-static std::string customBytesArg(lua_State* L, int index) {
+// Push the bytes argument (a string or a table of byte values) as a Lua
+// string. Lua owns every intermediate value, so the checks below may raise.
+static void pushCustomBytesArg(lua_State* L, int index) {
     // lua_isstring() is true for numbers; require a real string so a numeric arg
     // is rejected rather than silently converted to its decimal text ("5" -> 0x35).
     if (lua_type(L, index) == LUA_TSTRING) {
-        size_t len = 0;
-        const char* bytes = lua_tolstring(L, index, &len);
-        return std::string(bytes, len);
+        lua_pushvalue(L, index);
+        return;
     }
-
     luaL_checktype(L, index, LUA_TTABLE);
-    checkByteTable(L, index, 1, (lua_Integer)lua_rawlen(L, index), true);   // before the string exists
-    std::string bytes;
-    auto count = lua_rawlen(L, index);
-    bytes.reserve(count);
-    for (size_t i = 1; i <= count; ++i) {
-        lua_rawgeti(L, index, static_cast<int>(i));
-        int value = static_cast<int>(luaL_checkinteger(L, -1));
+    const auto count = (lua_Integer)lua_rawlen(L, index);
+    checkByteTable(L, index, 1, count, true);
+    luaL_Buffer bytes;
+    luaL_buffinit(L, &bytes);
+    for (lua_Integer i = 1; i <= count; ++i) {
+        lua_rawgeti(L, index, i);
+        const char value = static_cast<char>(lua_tointeger(L, -1));
         lua_pop(L, 1);
-        luaL_argcheck(L, value >= 0 && value <= 255, index, "byte values must be 0..255");
-        bytes.push_back(static_cast<char>(value));
+        luaL_addchar(&bytes, value);
     }
-    return bytes;
+    luaL_pushresult(&bytes);
 }
 
-static int pushByteTableFromString(lua_State* L, const std::string& bytes) {
-    lua_newtable(L);
-    for (size_t i = 0; i < bytes.size(); ++i) {
+static int pushByteTable(lua_State* L, const char* bytes, size_t length) {
+    lua_createtable(L, static_cast<int>(std::min<size_t>(length, INT_MAX)), 0);
+    for (size_t i = 0; i < length; ++i) {
         lua_pushinteger(L, static_cast<unsigned char>(bytes[i]));
-        lua_rawseti(L, -2, static_cast<int>(i + 1));
+        lua_rawseti(L, -2, static_cast<lua_Integer>(i + 1));
     }
     return 1;
 }
@@ -5639,7 +5751,7 @@ static int l_getCustomTypeSize(lua_State* L) {
 
 static int l_customTypeToValue(lua_State* L) {
     const char* name = luaL_checkstring(L, 1);
-    auto bytes = customBytesArg(L, 2);
+    pushCustomBytesArg(L, 2);
     if (!pushCustomType(L, name)) {
         lua_pop(L, 1);
         lua_pushnil(L);
@@ -5649,7 +5761,7 @@ static int l_customTypeToValue(lua_State* L) {
 
     lua_getfield(L, -1, "BytesToValue");
     lua_remove(L, -2);
-    lua_pushlstring(L, bytes.data(), bytes.size());
+    lua_insert(L, -2);   // BytesToValue(bytes)
     if (lua_pcall(L, 1, 1, 0) != LUA_OK)
         return lua_error(L);
     return 1;
@@ -5672,10 +5784,8 @@ static int l_customTypeToBytes(lua_State* L) {
 
     if (lua_isstring(L, -1)) {
         size_t len = 0;
-        const char* bytes = lua_tolstring(L, -1, &len);
-        std::string copy(bytes, len);
-        lua_pop(L, 1);
-        return pushByteTableFromString(L, copy);
+        const char* bytes = lua_tolstring(L, -1, &len);   // stays on the stack below the table
+        return pushByteTable(L, bytes, len);
     }
 
     luaL_checktype(L, -1, LUA_TTABLE);
@@ -5890,7 +6000,7 @@ void registerExtendedBindings(lua_State* L) {
     // Memory read
     lua_register(L, "readByte", l_readByte);
     lua_register(L, "readSmallInteger", l_readSmallInteger);
-    lua_register(L, "readShortInteger", l_readSmallInteger);   // CE alias (2-byte)
+    lua_register(L, "readShortInteger", l_readByte);   // CE alias: one byte, like readByte
     lua_register(L, "readInteger", l_readInteger);
     lua_register(L, "readQword", l_readQword);
     lua_register(L, "readPointer", l_readPointer);
@@ -5940,7 +6050,7 @@ void registerExtendedBindings(lua_State* L) {
     // Memory write
     lua_register(L, "writeByte", l_writeByte);
     lua_register(L, "writeSmallInteger", l_writeSmallInteger);
-    lua_register(L, "writeShortInteger", l_writeSmallInteger);  // CE alias (2-byte)
+    lua_register(L, "writeShortInteger", l_writeByte);  // CE alias: one byte, like writeByte
     lua_register(L, "writeInteger", l_writeInteger);
     lua_register(L, "writeQword", l_writeQword);
     lua_register(L, "writeFloat", l_writeFloat);
@@ -6171,7 +6281,6 @@ void registerExtendedBindings(lua_State* L) {
 
     // Misc
     lua_register(L, "inMainThread", l_inMainThread);
-    lua_register(L, "setProcessName", l_setProcessName);
     lua_register(L, "getProcessName", l_getProcessName);
 
     // CE Lua string extensions: printf global + startsWith/endsWith/split string methods.

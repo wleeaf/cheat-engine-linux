@@ -29,6 +29,7 @@
 #include <cerrno>
 #include <cstring>
 #include "core/log.hpp"
+#include "core/regular_file.hpp"
 #include "core/ns_attach.hpp"
 #include "core/target_capabilities.hpp"
 #include <sys/stat.h>
@@ -55,10 +56,9 @@ uint64_t processStartTime(pid_t pid) {
 }
 TargetMachine readElfMachine(const std::string& path) {
     // Only regular files: a mapped device (a GPU's /dev/dri/renderD128) can
-    // block a read forever.
-    std::error_code ec;
-    if (!fs::is_regular_file(path, ec)) return {};
-    std::ifstream f(path, std::ios::binary);
+    // block a read forever, and so can a FIFO swapped in after a check.
+    std::ifstream f;
+    if (!openRegularFile(f, path)) return {};
     std::array<uint8_t, 64> bytes{};
     f.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
     auto machine = parseElfTarget({bytes.data(), static_cast<size_t>(f.gcount())});
@@ -197,13 +197,23 @@ TargetDescription LinuxProcessHandle::targetDescription() {
 }
 
 TargetMachine LinuxProcessHandle::machineAt(uintptr_t address) {
-    auto description = targetDescription();
+    std::lock_guard lock(machineCacheMutex_);
+    const auto now = std::chrono::steady_clock::now();
+    if (!machineCacheValid_ || now - machineCacheTime_ > std::chrono::seconds(1)) {
+        machineCacheDescription_ = targetDescription();
+        machineCacheRanges_.clear();
+        if (machineCacheDescription_.runtime == TargetRuntime::Wine)
+            for (const auto& m : modules())
+                if (m.machine.architecture != CpuArchitecture::Unknown)
+                    machineCacheRanges_.push_back({m.base, m.size, m.machine});
+        machineCacheTime_ = now;
+        machineCacheValid_ = true;
+    }
+    const auto& description = machineCacheDescription_;
     if (description.runtime != TargetRuntime::Wine || address == 0) return description.program;
-    auto mods = modules();
-    const ModuleInfo* best = nullptr;
-    for (const auto& m : mods)
-        if (m.machine.architecture != CpuArchitecture::Unknown && address >= m.base && address - m.base < m.size &&
-            (!best || m.size < best->size)) best = &m;
+    const MachineRange* best = nullptr;
+    for (const auto& m : machineCacheRanges_)
+        if (address >= m.base && address - m.base < m.size && (!best || m.size < best->size)) best = &m;
     return best ? best->machine : description.program;
 }
 
@@ -482,9 +492,9 @@ std::vector<MemoryRegion> LinuxProcessHandle::queryRegions() {
             ++fields;
         }
         if (pos < line.size()) {
+            // Kept as is: the kernel pads before the path, never after it,
+            // so a trailing space belongs to the file name.
             r.path = line.substr(pos);
-            // Trim
-            while (!r.path.empty() && r.path.back() == ' ') r.path.pop_back();
         }
 
         // Shared mappings (memfd guest RAM, SysV shared memory, /dev/shm) are

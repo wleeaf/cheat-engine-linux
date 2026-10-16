@@ -32,6 +32,9 @@ struct RecoveredInstruction {
     uintptr_t address = 0;
     std::string text;   // "mnemonic operands"
     bool ok = false;
+    // recoverHardwareAccess: the trap stopped at a branch target (after a call,
+    // jmp [mem] or ret) and the accessing branch could not be identified.
+    bool branched = false;
 };
 
 /// An x86 hardware watchpoint traps AFTER the store retires, so `trapRip` (a hit's
@@ -41,9 +44,25 @@ struct RecoveredInstruction {
 /// disassembling FORWARD from the enclosing function (located via the symbol resolver)
 /// up to `trapRip` and returning the instruction that ends exactly there. It is not
 /// needed for software page-guard hits (those already stop on the store). Returns
-/// ok=false if it cannot be recovered (caller should keep the original instruction).
+/// ok=false if it cannot be recovered (caller should keep the original instruction),
+/// including when the instruction ending at `trapRip` could not have made the access
+/// and fallen through to it (a branch, a register-only instruction or padding):
+/// the trap then followed a branch (call [mem], jmp [mem], ret).
 RecoveredInstruction recoverStoreInstruction(ProcessHandle& proc, SymbolResolver& resolver,
                                              uintptr_t trapRip, bool is64);
+
+/// The x86 instruction behind a hardware watchpoint hit with registers `ctx`
+/// (taken at the trap). Like recoverStoreInstruction, and when the trap followed
+/// a branch, the call whose return address is on top of the stack if it called
+/// the trap address (a call through the watched pointer, or one that pushed onto
+/// a watched stack slot). Otherwise ok=false, with `branched` set when the trap
+/// followed a branch that cannot be identified (a ret, a jmp through memory).
+RecoveredInstruction recoverHardwareAccess(ProcessHandle& proc, SymbolResolver& resolver, const CpuContext& ctx);
+
+/// The error CodeFinder::start reports for a software watch on a page that
+/// holds a thread stack: a signal frame cannot be written there and the
+/// kernel would kill the target.
+Error softwareWatchOnStackError();
 
 class CodeFinder {
 public:

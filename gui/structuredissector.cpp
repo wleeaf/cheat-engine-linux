@@ -34,6 +34,7 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
     : QMainWindow(parent), proc_(proc), baseAddr_(baseAddr) {
 
     if (proc_) moduleCache_ = proc_->modules();   // for "-> module+offset" on pointer fields
+    updatePointerWidth();
     setWindowTitle("Structure Dissector");
     resize(750, 600);
 
@@ -184,7 +185,9 @@ void StructureDissector::onGotoAddress() {
 }
 
 uintptr_t StructureDissector::instanceBaseForColumn(int col) const {
-    // Columns are: 0 Offset, 1 Name, 2 Base value, 3.. one per compare instance.
+    // Without compare addresses every value column (2 Hex .. 6 Pointer?) shows the base.
+    if (compareAddrs_.empty()) return col >= 2 && col <= 6 ? baseAddr_ : 0;
+    // Compare mode: 0 Offset, 1 Name, 2 Base value, 3.. one per compare instance.
     if (col == 2) return baseAddr_;
     int j = col - 3;
     if (j >= 0 && j < (int)compareAddrs_.size()) return compareAddrs_[j];
@@ -195,9 +198,11 @@ bool StructureDissector::followPointerAt(int row, int col) {
     if (row < 0 || col < 2 || !proc_) return false;
     uintptr_t ibase = instanceBaseForColumn(col);
     if (!ibase) return false;
-    uintptr_t val = 0;
-    auto r = proc_->read(ibase + static_cast<uintptr_t>(row) * 8, &val, sizeof(val));
-    if (!r || *r < sizeof(val) || !looksLikePointer(val)) return false;
+    uint8_t bytes[8] = {};
+    auto r = proc_->read(ibase + static_cast<uintptr_t>(row) * 8, bytes, pointerWidth_);
+    if (!r || *r < pointerWidth_) return false;
+    const uintptr_t val = pointerAt(bytes);
+    if (!looksLikePointer(val)) return false;
     baseAddr_ = val;
     if (addressEdit_) addressEdit_->setText(QString("0x%1").arg(val, 0, 16));
     populateTable();
@@ -245,7 +250,7 @@ QString StructureDissector::formatValue(const uint8_t* data, int offset, const Q
         return QString::fromStdString(ce::formatFloatScalar(v, false));
     }
     if (type == "ptr") {
-        uintptr_t v; memcpy(&v, data, 8);
+        const uintptr_t v = pointerAt(data);
         if (looksLikePointer(v)) {
             // Show where the pointer lands (CE Dissect Data): module+offset when it is
             // inside a mapped module, else the raw address.
@@ -256,6 +261,18 @@ QString StructureDissector::formatValue(const uint8_t* data, int offset, const Q
         return "-";
     }
     return "?";
+}
+
+uintptr_t StructureDissector::pointerAt(const uint8_t* data) const {
+    if (pointerWidth_ == 4) { uint32_t v; std::memcpy(&v, data, 4); return v; }
+    uint64_t v; std::memcpy(&v, data, 8);
+    return static_cast<uintptr_t>(v);
+}
+
+void StructureDissector::updatePointerWidth() {
+    // A 32-bit target (i386, WoW64 under Proton) stores 4-byte pointers; reading
+    // 8 would glue the next field onto every pointer.
+    if (proc_) pointerWidth_ = proc_->pointerWidth() == 4 ? 4 : 8;
 }
 
 // Heuristically guess the most likely type of the 8 bytes at `offset`:
@@ -272,8 +289,7 @@ bool StructureDissector::looksLikePointer(uintptr_t p) const {
 
 ce::ValueType StructureDissector::guessType(const uint8_t* data, int offset) const {
     if (offset + 8 > validBytes_) return ce::ValueType::Int32;
-    uintptr_t p; std::memcpy(&p, data, 8);
-    if (looksLikePointer(p)) return ce::ValueType::Pointer;
+    if (looksLikePointer(pointerAt(data))) return ce::ValueType::Pointer;
     float f; std::memcpy(&f, data, 4);
     if (!std::isnan(f) && !std::isinf(f) && f != 0.0f &&
         std::abs(f) >= 1e-3f && std::abs(f) <= 1e7f &&
@@ -517,9 +533,9 @@ void StructureDissector::onTypeAsCStruct() {
 
 // Format the 8 bytes at `d` as a single value of the given guessed type, for the
 // side-by-side compare columns (one value per instance, like CE's Dissect Data).
-static QString fmtByType(const uint8_t* d, ce::ValueType t) {
+static QString fmtByType(const uint8_t* d, ce::ValueType t, uintptr_t pointer) {
     switch (t) {
-        case ce::ValueType::Pointer: { uintptr_t v; std::memcpy(&v, d, 8); return QString("0x%1").arg(v, 0, 16); }
+        case ce::ValueType::Pointer: return QString("0x%1").arg(pointer, 0, 16);
         case ce::ValueType::Float:   { float v; std::memcpy(&v, d, 4);
             if (std::isnan(v) || std::isinf(v)) return "NaN";
             return QString::fromStdString(ce::formatFloatScalar(v, false)); }
@@ -530,6 +546,7 @@ static QString fmtByType(const uint8_t* d, ce::ValueType t) {
 
 void StructureDissector::populateTable() {
     if (!proc_) return;
+    updatePointerWidth();
 
     cache_.resize(structSize_);
     auto r = proc_->read(baseAddr_, cache_.data(), structSize_);
@@ -600,9 +617,7 @@ void StructureDissector::populateTable() {
                     it->setForeground(changedFg);
                     if (c == 0) it->setData(Qt::UserRole + 1, true);   // test hook (Hex column)
                 } else if (c == 4) {   // Pointer? column: color a valid pointer teal
-                    uintptr_t pv;
-                    std::memcpy(&pv, d, sizeof(pv));
-                    if (off + 8 <= validBytes_ && looksLikePointer(pv)) {
+                    if (off + 8 <= validBytes_ && looksLikePointer(pointerAt(d))) {
                         it->setForeground(pointerFg);
                         it->setData(Qt::UserRole + 2, true);   // test hook (Pointer? column)
                     }
@@ -637,7 +652,8 @@ void StructureDissector::populateTable() {
         ce::ValueType vt;
         if (auto tit = fieldTypes_.find(off); tit != fieldTypes_.end()) vt = tit->second;
         else vt = guessType(base, off);
-        int width = (vt == ce::ValueType::Pointer || vt == ce::ValueType::Int64) ? 8 : 4;
+        int width = vt == ce::ValueType::Pointer ? static_cast<int>(pointerWidth_)
+                  : vt == ce::ValueType::Int64 ? 8 : 4;
 
         table_->setItem(i, 0, new QTableWidgetItem(QString("+0x%1").arg(off, 2, 16, QChar('0'))));
         auto nit = fieldNames_.find(off);
@@ -646,13 +662,13 @@ void StructureDissector::populateTable() {
         table_->setItem(i, 1, nameItem);
 
         const bool baseValid = off + width <= validBytes_;
-        table_->setItem(i, 2, new QTableWidgetItem(baseValid ? fmtByType(base, vt) : QStringLiteral("??")));
+        table_->setItem(i, 2, new QTableWidgetItem(baseValid ? fmtByType(base, vt, pointerAt(base)) : QStringLiteral("??")));
 
         for (size_t k = 0; k < compareAddrs_.size(); ++k) {
             int col = 3 + (int)k;
             const uint8_t* inst = compareCaches_[k].data() + off;
             const bool instValid = off + width <= compareValid[k];
-            auto* it = new QTableWidgetItem(instValid ? fmtByType(inst, vt) : QStringLiteral("??"));
+            auto* it = new QTableWidgetItem(instValid ? fmtByType(inst, vt, pointerAt(inst)) : QStringLiteral("??"));
             if (baseValid && instValid && std::memcmp(base, inst, width) != 0) {
                 it->setForeground(diffFg);
                 it->setData(Qt::UserRole + 1, true);   // marks a "differs from base" cell (test hook)
@@ -728,8 +744,8 @@ void StructureDissector::onCopyAsCpp() {
             case ce::ValueType::Byte:  f.size = 1; break;
             case ce::ValueType::Int16: f.size = 2; break;
             case ce::ValueType::Int64:
-            case ce::ValueType::Double:
-            case ce::ValueType::Pointer: f.size = 8; break;
+            case ce::ValueType::Double: f.size = 8; break;
+            case ce::ValueType::Pointer: f.size = pointerWidth_; break;
             default: f.size = 4; break;
         }
         def.fields.push_back(f);

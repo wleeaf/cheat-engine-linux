@@ -12,6 +12,8 @@
 #include <climits>
 #include <optional>
 #include <filesystem>
+#include <cstring>
+#include <unistd.h>
 
 namespace ce {
 namespace {
@@ -249,6 +251,7 @@ std::string TrainerGenerator::generateSource(const CheatTable& table) const {
     src << "#include <unistd.h>\n";
     src << "#include <sys/uio.h>\n";
     src << "#include <sys/select.h>\n";
+    src << "#include <errno.h>\n";
     src << "#include <signal.h>\n";
     src << "#include <termios.h>\n\n";
 
@@ -392,8 +395,15 @@ std::string TrainerGenerator::generateSource(const CheatTable& table) const {
     src << "    while (running) {\n";
     src << "        fd_set fds; FD_ZERO(&fds); FD_SET(0, &fds);\n";
     src << "        struct timeval tv = {0, 100000};\n";
-    src << "        if (select(1, &fds, NULL, NULL, &tv) > 0) {\n";
-    src << "            char c = getchar();\n";
+    src << "        int ready = select(1, &fds, NULL, NULL, &tv);\n";
+    src << "        if (ready < 0 && errno != EINTR) break;\n";
+    src << "        if (ready > 0) {\n";
+    // One unbuffered byte per wakeup: stdio would keep further keys out of
+    // select's sight, and a closed input must end the loop instead of spinning.
+    src << "            unsigned char c;\n";
+    src << "            ssize_t got = read(0, &c, 1);\n";
+    src << "            if (got == 0 || (got < 0 && errno != EINTR && errno != EAGAIN)) break;\n";
+    src << "            if (got < 0) continue;\n";
 
     keyIdx = 0;
     for (size_t i = 0; i < table.entries.size(); ++i) {
@@ -426,23 +436,34 @@ std::string TrainerGenerator::generateSource(const CheatTable& table) const {
 
 std::string TrainerGenerator::generateBinary(const CheatTable& table, const std::string& outputPath) const {
     auto source = generateSource(table);
-    auto srcPath = outputPath + ".c";
+    // Compile from a private directory: a file beside the output could be the
+    // user's own source or a symlink planted elsewhere.
+    std::error_code ec;
+    auto temporary = (std::filesystem::temp_directory_path(ec) / "cetrainer-XXXXXX").string();
+    if (ec) return "Failed to find a temporary directory: " + ec.message();
+    if (!mkdtemp(temporary.data())) return std::string("Failed to create a temporary directory: ") + std::strerror(errno);
+    const std::filesystem::path directory = temporary;
+    const auto srcPath = (directory / "trainer.c").string();
+    auto cleanup = [&] {
+        std::filesystem::remove(srcPath, ec);
+        std::filesystem::remove(directory, ec);
+    };
 
     std::ofstream f(srcPath);
-    if (!f) return "Failed to write source file";
     f << source;
     f.close();
+    if (!f) { cleanup(); return "Failed to write source file"; }
 
     auto cmd = "gcc -O2 -o " + shellQuote(outputPath) + " " + shellQuote(srcPath) + " 2>&1";
     auto* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) return "Failed to run gcc";
+    if (!pipe) { cleanup(); return "Failed to run gcc"; }
 
     char buf[256];
     std::string output;
     while (fgets(buf, sizeof(buf), pipe)) output += buf;
     int ret = pclose(pipe);
 
-    std::filesystem::remove(srcPath);
+    cleanup();
 
     if (ret != 0) return "Compilation failed: " + output;
     return {};

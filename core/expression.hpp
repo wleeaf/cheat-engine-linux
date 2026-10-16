@@ -34,6 +34,9 @@ private:
     SymbolResolver* resolver_;
     mutable std::optional<std::vector<ModuleInfo>> modules_;
     mutable std::optional<uintptr_t> mask_;   // address width of the target
+    // A 64-bit process running 32-bit code (WoW64 under Wine): its 32-bit
+    // code wraps at 4 GiB, but 64-bit modules and stacks live above it.
+    mutable bool mixedWidth_ = false;
 };
 
 } // namespace ce

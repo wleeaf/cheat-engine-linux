@@ -647,8 +647,15 @@ void HexView::paintEvent(QPaintEvent*) {
     }
 }
 
+bool HexView::writeAllowed(uintptr_t addr, size_t len) {
+    const QString reason = writeCheck_ ? writeCheck_(addr, len) : QString();
+    if (reason.isEmpty()) return true;
+    emit writeRefused(reason);
+    return false;
+}
+
 bool HexView::pokeByte(uintptr_t addr, uint8_t value) {
-    if (!proc_) return false;
+    if (!proc_ || !writeAllowed(addr, 1)) return false;
     auto r = proc_->write(addr, &value, 1);
     if (!r || *r < 1) {
         // r-x / read-only page — make it writable and retry (same as the disasm).
@@ -693,6 +700,7 @@ int HexView::pasteBytes(const QString& aob) {
     int lo = 0, hi = 0;   // paste at the selection's first byte
     const int first = selRange(lo, hi) ? lo : selectedOffset_;
     const uintptr_t start = address_ + static_cast<uintptr_t>(first >= 0 ? first : 0);
+    if (!writeAllowed(start, bytes.size())) return 0;   // all or nothing, not up to the breakpoint
     int n = 0;
     for (size_t i = 0; i < bytes.size(); ++i) {
         if (bytes[i] < 0) continue;   // wildcard: leave the existing byte in place
@@ -705,6 +713,7 @@ int HexView::pasteBytes(const QString& aob) {
 int HexView::fillSelection(uint8_t value) {
     int lo, hi;
     if (!proc_ || !selRange(lo, hi) || hi <= lo) return 0;   // needs a real multi-byte range
+    if (!writeAllowed(address_ + static_cast<uintptr_t>(lo), static_cast<size_t>(hi - lo + 1))) return 0;
     int n = 0;
     for (int i = lo; i <= hi; ++i)
         if (pokeByte(address_ + static_cast<uintptr_t>(i), value)) ++n;
@@ -1679,7 +1688,7 @@ void DisasmView::keyPressEvent(QKeyEvent* e) {
         else { selAnchorRow_ = -1; address_ = scrollBack(address_, 1); refresh(); }  // at top: scroll, keep selection at row 0
     } else if (e->key() == Qt::Key_PageDown && !instructions_.empty()) {
         int rows = visibleRows();
-        if ((int)instructions_.size() > rows)
+        if (rows > 0 && (int)instructions_.size() > rows)
             address_ = instructions_[rows - 1].address;
         refresh();
     } else if (e->key() == Qt::Key_PageUp) {
@@ -1749,6 +1758,7 @@ void MemoryBrowser::buildMenuBar() {
         // Prefer the owner's opener so the new viewer is tracked (and frozen on
         // target exit); the raw fallback is only for a browser opened standalone.
         if (newWindowOpener_) { newWindowOpener_(currentAddr_); return; }
+        if (!proc_) return;   // detached: a new window would have nothing to show
         auto* b = new MemoryBrowser(proc_, parentWidget());
         b->setAttribute(Qt::WA_DeleteOnClose);
         b->gotoAddress(currentAddr_);
@@ -1761,6 +1771,7 @@ void MemoryBrowser::buildMenuBar() {
     file->addAction("Load region from file…", this, [this]() { loadRegionFromFile(currentAddr_); });
 
     auto* search = mb->addMenu("&Search");
+    searchMenu_ = search;
     { auto* a = search->addAction("Find memory...", this, [this]() { findInMemory(false); });
       a->setShortcut(QKeySequence::Find); }
     { auto* a = search->addAction("Find next", this, [this]() { findInMemory(true); });
@@ -1769,13 +1780,13 @@ void MemoryBrowser::buildMenuBar() {
       a->setShortcut(QKeySequence("Shift+F3")); }
 
     viewMenu_ = mb->addMenu("&View");
-    viewMenu_->addAction("Disassembler preferences...", this, [this]() {
+    ownViewActions_.push_back(viewMenu_->addAction("Disassembler preferences...", this, [this]() {
         auto* dlg = new ce::gui::MemviewPreferences(this);
         connect(dlg, &ce::gui::MemviewPreferences::applied, this,
                 [this]() { disasmView_->reloadPreferences(); });
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         dlg->show();
-    });
+    }));
     viewMenu_->addSeparator();
 
     debugMenu_ = mb->addMenu("&Debug");
@@ -1892,6 +1903,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     // until the target is paused, and the "Debugger" button opens/raises that window.
     addToolBarBreak();
     auto* dbgBar = new QToolBar("Debug");
+    debugBar_ = dbgBar;
     dbgBar->setMovable(false);
     auto* bpAct = dbgBar->addAction("Toggle BP");
     bpAct->setToolTip("Toggle breakpoint at the selected instruction (F5)");
@@ -1943,6 +1955,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     dbgBar->addSeparator();
     // Disassembler Preferences (CE frmMemviewPreferencesUnit): font + colors.
     auto* prefsAct = dbgBar->addAction("Preferences");
+    ownViewActions_.push_back(prefsAct);
     prefsAct->setToolTip("Disassembler Preferences: font and colors");
     connect(prefsAct, &QAction::triggered, this, [this]() {
         auto* dlg = new ce::gui::MemviewPreferences(this);
@@ -1981,6 +1994,9 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     if (dtSaved < 0 || dtSaved > static_cast<int>(HexView::DisplayType::Double)) dtSaved = 0;
     hexView_->setDisplayType(static_cast<HexView::DisplayType>(dtSaved));
     hexView_->setProcess(proc);
+    hexView_->setWriteCheck([this](uintptr_t addr, size_t len) { return breakpointConflict(addr, len); });
+    connect(hexView_, &HexView::writeRefused, this,
+            [this](const QString& reason) { statusBar()->showMessage(reason, 5000); });
 
     // Cheat-Engine layout: the disassembler with a register panel on its right,
     // and the hex view below (CE's memory viewer). The register panel lists the
@@ -2064,6 +2080,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         registerPanel_->setVisible(showCpu);
         stacktracePanel_->setVisible(showCpu);
         auto* cpuAct = viewMenu_->addAction("CPU registers && stack panels");
+        ownViewActions_.push_back(cpuAct);
         cpuAct->setCheckable(true);
         cpuAct->setChecked(showCpu);
         connect(cpuAct, &QAction::toggled, this, [this](bool on) {
@@ -2076,6 +2093,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
 
     // Wire HexView signals.
     connect(hexView_, &HexView::requestFindWhatAccesses, this, [this](uintptr_t addr, bool writesOnly) {
+        if (!proc_) return;   // detached: the launcher is gone with the target
         if (cfLauncher_) cfLauncher_(addr, writesOnly);
         else QMessageBox::information(this, "Code finder unavailable",
             "No code-finder launcher is wired to this memory browser instance.");
@@ -2146,7 +2164,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         QString text = QInputDialog::getText(this, "Comment",
             QString("Comment for 0x%1 (blank to clear):").arg(addr, 0, 16),
             QLineEdit::Normal, cur, &ok);
-        if (ok) { disasmView_->setComment(addr, text.trimmed().toStdString()); persistComments(); }
+        if (ok) editComment(addr, text.trimmed().toStdString());
     });
     connect(disasmView_, &DisasmView::requestSetSymbol, this, [this](uintptr_t addr) {
         // Name (or clear the name of) an address. The label then shows in the
@@ -2166,7 +2184,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         else                 resolver_.addUserSymbol(addr, trimmed);
         // Mirror into the app-wide symbol table so the label resolves in records/Lua too.
         if (userSymbolCb_) userSymbolCb_(addr, trimmed);
-        persistComments();
+        saveAnnotation(addr, /*label=*/true, trimmed);
         onRefresh();
     });
     connect(disasmView_, &DisasmView::requestSaveRegion, this, [this](uintptr_t addr) {
@@ -2375,6 +2393,22 @@ void MemoryBrowser::detachFromTarget() {
     // stays on screen), not crash.
     if (disasmView_) disasmView_->setProcess(nullptr);
     if (hexView_)    hexView_->setProcess(nullptr);
+    // The owner's callbacks act on whichever process it has open now: in a
+    // frozen viewer F5 would plant a breakpoint in the next game at this
+    // game's address, and a comment would replace the next table's store.
+    bpSetter_ = {}; bpRemover_ = {}; bpQuery_ = {};
+    cfLauncher_ = {}; instrAccessLauncher_ = {}; addToList_ = {}; userSymbolCb_ = {};
+    debuggerLauncher_ = {}; stepIntoFn_ = {}; stepOverFn_ = {}; runFn_ = {}; runToCursorFn_ = {};
+    autoAssembleOpener_ = {}; dissectOpener_ = {}; newWindowOpener_ = {};
+    annotationSaver_ = {};
+    if (disasmView_) { disasmView_->setActiveBreakpoints({}); disasmView_->setCurrentInstruction(0); }
+    for (QMenu* menu : {searchMenu_, debugMenu_, toolsMenu_})
+        if (menu) for (QAction* a : menu->actions()) a->setEnabled(false);
+    auto needsTarget = [this](QAction* a) {
+        return std::find(ownViewActions_.begin(), ownViewActions_.end(), a) == ownViewActions_.end();
+    };
+    for (QWidget* host : {static_cast<QWidget*>(viewMenu_), static_cast<QWidget*>(debugBar_)})
+        if (host) for (QAction* a : host->actions()) if (needsTarget(a)) a->setEnabled(false);
     setWindowTitle("Memory Viewer (target exited)");
     statusBar()->showMessage("Target process exited; this view is frozen.", 0);
 }
@@ -2446,17 +2480,23 @@ void MemoryBrowser::refreshBreakpoints() {
     disasmView_->setActiveBreakpoints(bpQuery_());
 }
 
-bool MemoryBrowser::patchBytes(uintptr_t addr, const std::vector<uint8_t>& bytes, QString* error) {
-    if (!proc_ || bytes.empty()) return false;
+QString MemoryBrowser::breakpointConflict(uintptr_t addr, size_t len) const {
     // Over a planted debugger breakpoint the trap byte would be overwritten:
     // removing the breakpoint then finds neither the trap nor the original and
     // fails, and the debugger cannot be detached cleanly.
     if (bpQuery_)
         for (uintptr_t bp : bpQuery_())
-            if (bp >= addr && bp - addr < bytes.size()) {
-                if (error) *error = QString("A breakpoint is set at 0x%1: remove it before patching this code").arg(bp, 0, 16);
-                return false;
-            }
+            if (bp >= addr && bp - addr < len)
+                return QString("A breakpoint is set at 0x%1: remove it before changing these bytes").arg(bp, 0, 16);
+    return {};
+}
+
+bool MemoryBrowser::patchBytes(uintptr_t addr, const std::vector<uint8_t>& bytes, QString* error) {
+    if (!proc_ || bytes.empty()) return false;
+    if (QString conflict = breakpointConflict(addr, bytes.size()); !conflict.isEmpty()) {
+        if (error) *error = conflict;
+        return false;
+    }
     auto patched=ce::patchInstructionBytes(*proc_,addr,bytes);
     if (!patched && error) *error=QString::fromStdString(patched.error());
     return patched.has_value();
@@ -2779,6 +2819,10 @@ void MemoryBrowser::loadRegionFromFile(uintptr_t addr) {
             QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
         return;
     if (!proc_) return;   // detached while the dialog was open
+    if (QString conflict = breakpointConflict(addr, static_cast<size_t>(data.size())); !conflict.isEmpty()) {
+        QMessageBox::warning(this, "Load region", conflict);
+        return;
+    }
 
     auto w = proc_->write(addr, data.constData(), static_cast<size_t>(data.size()));
     if (!w || *w < static_cast<size_t>(data.size())) {
@@ -2820,25 +2864,18 @@ uintptr_t MemoryBrowser::exprToAddr(const std::string& expr) const {
     return (uintptr_t)strtoull(expr.c_str(), nullptr, 0);
 }
 
-void MemoryBrowser::persistComments() {
-    if (!annotationSaver_) return;
-    // Merge inline comments and user labels by module-relative address expression:
-    // an address may carry a comment, a label, or both.
-    std::map<std::string, ce::DisassemblerComment> byExpr;
-    for (const auto& [addr, text] : disasmView_->comments()) {
-        auto e = addrToExpr(addr);
-        byExpr[e].address = e;
-        byExpr[e].comment = text;
-    }
-    for (const auto& [addr, name] : resolver_.userSymbols()) {
-        auto e = addrToExpr(addr);
-        byExpr[e].address = e;
-        byExpr[e].label = name;
-    }
-    std::vector<ce::DisassemblerComment> out;
-    out.reserve(byExpr.size());
-    for (auto& [e, c] : byExpr) out.push_back(std::move(c));
-    annotationSaver_(std::move(out));
+void MemoryBrowser::saveAnnotation(uintptr_t addr, bool label, const std::string& text) {
+    if (!annotationSaver_ || !proc_) return;
+    annotationSaver_({addr, addrToExpr(addr), label, text});
+}
+
+void MemoryBrowser::editComment(uintptr_t addr, const std::string& text) {
+    disasmView_->setComment(addr, text);
+    saveAnnotation(addr, /*label=*/false, text);
+}
+
+void MemoryBrowser::setComment(uintptr_t addr, const std::string& text) {
+    if (disasmView_) disasmView_->setComment(addr, text);
 }
 
 void MemoryBrowser::replaceAnnotations(const std::vector<ce::DisassemblerComment>& previous,
@@ -2858,7 +2895,7 @@ void MemoryBrowser::replaceAnnotations(const std::vector<ce::DisassemblerComment
 
 void MemoryBrowser::setAnnotationStore(
     std::vector<ce::DisassemblerComment> initial,
-    std::function<void(std::vector<ce::DisassemblerComment>)> saver) {
+    std::function<void(const AnnotationChange&)> saver) {
     annotationSaver_ = std::move(saver);
     for (const auto& c : initial) {
         uintptr_t addr = exprToAddr(c.address);

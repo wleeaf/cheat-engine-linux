@@ -817,40 +817,67 @@ void MainWindow::setupMenus() {
             });
     });
     auto* snapshotMenu = tools->addMenu("Snapshot");
+    // Bounded so a large game cannot exhaust memory; a diff reads at most as
+    // much again.
+    static constexpr uint64_t kSnapshotBudget = uint64_t(1) << 30;
     snapshotMenu->addAction("Capture writable regions", this, [this]() {
         if (!process_) {
             QMessageBox::warning(this, "No process", "Open a process before capturing a snapshot.");
             return;
         }
-        snapshot_ = std::make_unique<Snapshot>(Snapshot::capture(*process_));
-        QMessageBox::information(this, "Snapshot captured",
-            QString("Captured %1 region(s), %2 bytes total.")
-                .arg(snapshot_->regionCount()).arg(snapshot_->byteCount()));
+        ProcessHandle* proc = process_.get();
+        std::shared_ptr<Snapshot> captured;
+        try {
+            runSnapshotTask([&] {
+                captured = std::make_shared<Snapshot>(Snapshot::capture(*proc, kSnapshotBudget));
+            });
+        } catch (const std::exception& e) {
+            QMessageBox::warning(this, "Snapshot failed", QString::fromStdString(e.what()));
+            return;
+        }
+        snapshot_ = std::move(captured);
+        QString text = QString("Captured %1 region(s), %2 total.")
+            .arg(snapshot_->regionCount()).arg(formatByteSize(snapshot_->byteCount()));
+        if (snapshot_->truncated())
+            text += QString("\n\nThe snapshot stopped at its %1 limit: writable memory "
+                            "after that point is not included.").arg(formatByteSize(kSnapshotBudget));
+        QMessageBox::information(this, "Snapshot captured", text);
     });
     snapshotMenu->addAction("Diff against current", this, [this]() {
         if (!process_ || !snapshot_) {
             QMessageBox::warning(this, "Need both", "Capture a baseline snapshot first, then open a process.");
             return;
         }
-        Snapshot now = Snapshot::capture(*process_);
-        auto diffs = snapshot_->diff(now);
-        if (diffs.empty()) {
+        constexpr size_t kShown = 200;
+        ProcessHandle* proc = process_.get();
+        std::shared_ptr<const Snapshot> baseline = snapshot_;
+        std::vector<Snapshot::ByteDiff> diffs;
+        uint64_t changed = 0;
+        try {
+            runSnapshotTask([&] {
+                const Snapshot now = baseline->recapture(*proc);
+                diffs = baseline->diff(now, kShown, &changed);
+            });
+        } catch (const std::exception& e) {
+            QMessageBox::warning(this, "Diff failed", QString::fromStdString(e.what()));
+            return;
+        }
+        if (changed == 0) {
             QMessageBox::information(this, "Diff", "No byte-level differences detected.");
             return;
         }
-        // Show the first 200 diffs in a simple dialog; full list can be saved.
+        // Only the first kShown differences are kept; the count covers all.
         QString text;
         text += QString("%1 byte%2 changed since the baseline.\n\n")
-            .arg(diffs.size()).arg(diffs.size() == 1 ? "" : "s");
-        int shown = (int)std::min<size_t>(200, diffs.size());
-        for (int i = 0; i < shown; ++i) {
+            .arg(changed).arg(changed == 1 ? "" : "s");
+        for (const auto& d : diffs) {
             text += QString("0x%1: 0x%2 -> 0x%3\n")
-                .arg(diffs[i].address, 16, 16, QChar('0'))
-                .arg(diffs[i].before, 2, 16, QChar('0'))
-                .arg(diffs[i].after,  2, 16, QChar('0'));
+                .arg(d.address, 16, 16, QChar('0'))
+                .arg(d.before, 2, 16, QChar('0'))
+                .arg(d.after,  2, 16, QChar('0'));
         }
-        if ((int)diffs.size() > shown)
-            text += QString("\n(%1 more not shown; use Save to dump full list.)").arg(diffs.size() - shown);
+        if (changed > diffs.size())
+            text += QString("\n(%1 more not shown.)").arg(changed - diffs.size());
 
         auto* dlg = new QDialog(this);
         dlg->setWindowTitle("Snapshot Diff");
@@ -872,15 +899,26 @@ void MainWindow::setupMenus() {
             return;
         }
         auto answer = QMessageBox::question(this, "Restore?",
-            QString("Write the baseline back into the process? This overwrites every "
-                    "writable region captured (%1 regions, %2 bytes).")
-                .arg(snapshot_->regionCount()).arg(snapshot_->byteCount()));
+            QString("Write the baseline back into the process? This overwrites the "
+                    "captured memory that is still mapped writable (%1 regions, %2).")
+                .arg(snapshot_->regionCount()).arg(formatByteSize(snapshot_->byteCount())));
         if (answer != QMessageBox::Yes) return;
         // Both go away if the process exits while the question is open.
         if (!process_ || !snapshot_) { QMessageBox::warning(this, "Restore", "The process is no longer open."); return; }
-        auto written = snapshot_->restore(*process_);
-        QMessageBox::information(this, "Restored",
-            QString("Wrote %1 bytes back into the process.").arg(written));
+        ProcessHandle* proc = process_.get();
+        std::shared_ptr<const Snapshot> baseline = snapshot_;
+        uint64_t written = 0;
+        try {
+            runSnapshotTask([&] { written = baseline->restore(*proc); });
+        } catch (const std::exception& e) {
+            QMessageBox::warning(this, "Restore failed", QString::fromStdString(e.what()));
+            return;
+        }
+        QString text = QString("Wrote %1 bytes back into the process.").arg(written);
+        if (written < baseline->byteCount())
+            text += QString("\n\n%1 bytes were skipped: that memory is no longer mapped, "
+                            "or is now read-only or executable.").arg(baseline->byteCount() - written);
+        QMessageBox::information(this, "Restored", text);
     });
     snapshotMenu->addAction("Save to file...", this, [this]() {
         if (!snapshot_) {
@@ -898,7 +936,7 @@ void MainWindow::setupMenus() {
         auto path = QFileDialog::getOpenFileName(this, "Load snapshot", "",
             "Snapshot (*.cesnap);;All (*)");
         if (path.isEmpty()) return;
-        auto loaded = std::make_unique<Snapshot>();
+        auto loaded = std::make_shared<Snapshot>();
         std::string err;
         if (!loaded->load(path.toStdString(), &err)) {
             QMessageBox::warning(this, "Load failed", QString::fromStdString(err));
@@ -972,7 +1010,11 @@ void MainWindow::setupMenus() {
                         label->setText("Inject failed: libspeedhack.so is not installed next to Cheat Engine.");
                         return;
                     }
-                    auto r = ce::os::injectLibrary(*process_, luaResolver_, so);
+                    // A containerised game (Flatpak, Steam runtime) may see
+                    // this file under another name; dlopen runs in its view.
+                    std::string targetSo = so;
+                    if (auto task = ce::os::processMemoryTask(pid)) targetSo = ce::os::targetVisiblePath(*task, so);
+                    auto r = ce::os::injectLibrary(*process_, luaResolver_, targetSo);
                     if (!r) {
                         label->setText(QString("Inject failed: %1")
                                            .arg(QString::fromStdString(r.error())));
@@ -2339,9 +2381,9 @@ void MainWindow::setupUi() {
                     QString v = QInputDialog::getMultiLineText(this, "Dropdown options",
                         "The values this entry can be set to from a dropdown, one per line,\n"
                         "as value:label or just value. For example:\n0:Off\n1:On",
-                        addressListModel_->dropdownList(firstRow).split(';').join('\n'), &ok);
+                        addressListModel_->dropdownList(firstRow), &ok);
                     if (ok)
-                        addressListModel_->setDropdownList(id, v.split('\n', Qt::SkipEmptyParts).join(';'));
+                        addressListModel_->setDropdownList(id, v.remove('\r').split('\n', Qt::SkipEmptyParts).join('\n'));
                 });
             }
             if (selected.size() == 1) {
@@ -3291,6 +3333,35 @@ std::unique_ptr<ScanResult> MainWindow::runScanWithProgress(
     return result;
 }
 
+void MainWindow::runSnapshotTask(const std::function<void()>& task) {
+    if (valueRefreshTimer_) valueRefreshTimer_->stop();
+    progressBar_->setRange(0, 0);   // busy: a capture reports no progress
+    progressBar_->setVisible(true);
+
+    std::exception_ptr err;
+    std::atomic<bool> done{false};
+    QScopedValueRollback scanning(scanInProgress_, true);
+    std::thread worker([&] {
+        try { task(); }
+        catch (...) { err = std::current_exception(); }
+        done.store(true, std::memory_order_release);
+    });
+    {
+        ScopedInputBlocker blocker;
+        while (!done.load(std::memory_order_acquire)) {
+            QApplication::processEvents(QEventLoop::AllEvents, 25);
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        }
+    }
+    worker.join();
+
+    progressBar_->setRange(0, 100);
+    progressBar_->setVisible(false);
+    if (valueRefreshTimer_)
+        valueRefreshTimer_->start(kValueRefreshMs);
+    if (err) std::rethrow_exception(err);
+}
+
 bool MainWindow::eventFilter(QObject* obj, QEvent* ev) {
     if (ev->type() == QEvent::Resize) {
         if (resultsEmptyHint_ && resultsView_ && obj == resultsView_->viewport())
@@ -3862,11 +3933,31 @@ MainWindow::~MainWindow() {
 // Build a ce::CheatTable from the current address list (shared by Save Table and
 // Create Trainer). Mirrors the JSON field mapping the .CT saver expects.
 void MainWindow::wireBrowserAnnotations(MemoryBrowser* browser) {
-    // Seed the browser with the stored comments and have it push changes back to
-    // the MainWindow-owned store (which is serialized with the cheat table).
+    // Seed the browser with the stored comments and have it push each edit back to
+    // the MainWindow-owned store (which is serialized with the cheat table). Edits
+    // merge one at a time, so two viewers never overwrite each other's comments.
     browser->setAnnotationStore(disasmAnnotations_,
-        [this](std::vector<ce::DisassemblerComment> v) {
-            disasmAnnotations_ = std::move(v);
+        [this](const MemoryBrowser::AnnotationChange& change) {
+            // A loaded table may spell the same address differently ("game+1234"),
+            // so match an entry by its key or by where it resolves.
+            ce::ExpressionParser parser(process_.get(), &luaResolver_);
+            auto sameAddress = [&](const ce::DisassemblerComment& c) {
+                if (c.address == change.expression) return true;
+                if (!process_ || !change.address) return false;
+                auto resolved = parser.parse(c.address);
+                return resolved && *resolved == change.address;
+            };
+            auto it = std::find_if(disasmAnnotations_.begin(), disasmAnnotations_.end(), sameAddress);
+            if (it == disasmAnnotations_.end() && !change.text.empty())
+                it = disasmAnnotations_.insert(disasmAnnotations_.end(), {change.expression, {}, {}});
+            if (it != disasmAnnotations_.end()) {
+                (change.label ? it->label : it->comment) = change.text;
+                if (it->comment.empty() && it->label.empty()) disasmAnnotations_.erase(it);
+            }
+            // Labels reach the other viewers through setUserSymbol; comments here.
+            if (!change.label)
+                for (const auto& viewer : memoryViewers_)
+                    if (viewer) viewer->setComment(change.address, change.text);
             rebuildDebuggerComments();   // keep an open debugger's inline comments in sync
         });
     // The browser's step buttons open the full Debugger (which owns the debug
@@ -3958,6 +4049,21 @@ ce::CheatTable MainWindow::buildCheatTable() const {
         e.address = obj["address"].toString().toULongLong(nullptr, 16);
         auto exprStr = obj["addressExpr"].toString();
         if (!exprStr.isEmpty()) e.addressString = exprStr.toStdString();
+        // A loaded pointer path is shown as one expression ("[[game.exe+1C]+8]+10");
+        // a table keeps it as a base and offsets. Split back only what
+        // buildPointerExpression made, so a hand-written expression stays as typed.
+        // A script record's table entry has an address but no offsets.
+        if (auto chain = ce::parsePointerExpression(e.addressString);
+            chain && obj["asm"].toString().isEmpty() &&
+            ce::buildPointerExpression(chain->base, chain->offsets) == e.addressString) {
+            e.addressString = chain->base;
+            e.offsets = chain->offsets;
+            // A numeric base is written the way Cheat Engine writes addresses.
+            QString base = QString::fromStdString(chain->base);
+            bool plain = false;
+            if (base.startsWith("0x")) (void)base.mid(2).toULongLong(&plain, 16);
+            if (plain) e.addressString = base.mid(2).toStdString();
+        }
         auto typeStr = obj["type"].toString().toStdString();
         if (typeStr == "byte") e.type = ce::ValueType::Byte;
         else if (typeStr == "i16") e.type = ce::ValueType::Int16;
@@ -3996,6 +4102,15 @@ ce::CheatTable MainWindow::buildCheatTable() const {
         e.activateChildren = obj["activateChildren"].toBool(true);
         e.deactivateChildren = obj["deactivateChildren"].toBool(true);
         e.optionsXml = obj["optionsXml"].toString().toStdString();
+        e.luaScript = obj["lua"].toString().toStdString();
+        e.customTypeName = obj["customType"].toString().toStdString();
+        e.asyncScript = obj["async"].toBool();
+        e.dropdownAttributes = obj["dropdownAttributes"].toString().toStdString();
+        e.unparsedAddress = obj["unparsedAddress"].toString().toStdString();
+        for (const auto& text : obj["unparsedOffsets"].toArray())
+            e.unparsedOffsets.push_back(text.toString().toStdString());
+        e.extraHotkeysXml = obj["extraHotkeys"].toString().toStdString();
+        e.extraXml = obj["extraXml"].toString().toStdString();
         const int parentRow=obj["parent"].toInt(-1);
         e.parentId=parentRow>=0 && parentRow<json.size()
             ? json[parentRow].toObject().value("id").toInt(parentRow) : -1;
@@ -4306,6 +4421,19 @@ static QJsonArray cheatEntriesToJson(const ce::CheatTable& table) {
         obj["activateChildren"] = e.activateChildren;
         obj["deactivateChildren"] = e.deactivateChildren;
         obj["optionsXml"] = QString::fromStdString(e.optionsXml);
+        obj["lua"] = QString::fromStdString(e.luaScript);
+        // Fields the list only keeps for the save, under the table JSON names.
+        if (!e.customTypeName.empty()) obj["customType"] = QString::fromStdString(e.customTypeName);
+        if (e.asyncScript) obj["async"] = true;
+        if (!e.dropdownAttributes.empty()) obj["dropdownAttributes"] = QString::fromStdString(e.dropdownAttributes);
+        if (!e.unparsedOffsets.empty()) {
+            QJsonArray texts;
+            for (const auto& text : e.unparsedOffsets) texts.append(QString::fromStdString(text));
+            obj["unparsedAddress"] = QString::fromStdString(e.unparsedAddress);
+            obj["unparsedOffsets"] = texts;
+        }
+        if (!e.extraHotkeysXml.empty()) obj["extraHotkeys"] = QString::fromStdString(e.extraHotkeysXml);
+        if (!e.extraXml.empty()) obj["extraXml"] = QString::fromStdString(e.extraXml);
         obj["parent"] = e.parentId;
         arr.append(obj);
     }
@@ -5527,9 +5655,17 @@ static ValueType strToType(const QString& s) {
     return ValueType::Int32;
 }
 
+// Cheat Engine keeps one dropdown choice per line; older tables of this program
+// put ';' between them.
+static QString normalizedDropdownList(QString list) {
+    list.remove('\r');
+    if (!list.contains('\n')) list.replace(';', '\n');
+    return list;
+}
+
 static QMap<QString, QString> parseDropdownList(const QString& dropdownList) {
     QMap<QString, QString> choices;
-    for (const auto& rawItem : dropdownList.split(';', Qt::SkipEmptyParts)) {
+    for (const auto& rawItem : normalizedDropdownList(dropdownList).split('\n', Qt::SkipEmptyParts)) {
         auto item = rawItem.trimmed();
         auto sep = item.indexOf(':');
         if (sep <= 0) continue;
@@ -5675,10 +5811,34 @@ static bool parseComparableValue(ValueType type, const QString& valStr, double& 
 
 bool AddressListModel::reresolveAddress(AddressEntry& e) {
     if (e.addressExpr.isEmpty() || !proc_) return true;
+    std::string expr = e.addressExpr.toStdString();
+    // CE: an address starting with + or - is relative to the nearest ancestor
+    // that has an address of its own (an address group header or a record).
+    auto chain = ce::parsePointerExpression(expr);
+    std::string base = chain ? chain->base : expr;
+    const auto first = base.find_first_not_of(" \t");
+    const auto row = &e - entries_.data();
+    if (first != std::string::npos && (base[first] == '+' || base[first] == '-') &&
+        row > 0 && row < static_cast<std::ptrdiff_t>(entries_.size())) {
+        for (auto r = row - 1, indent = static_cast<std::ptrdiff_t>(e.indent) - 1; r >= 0 && indent >= 0; --r) {
+            auto& ancestor = entries_[static_cast<size_t>(r)];
+            if (ancestor.indent != indent) continue;
+            --indent;
+            const QString text = ancestor.addressExpr.trimmed();
+            if (!text.isEmpty() && text != "0" && text != "0x0") {
+                if (!reresolveAddress(ancestor)) return false;
+            } else if (!(text.isEmpty() && !ancestor.isGroup && ancestor.address)) {
+                continue;   // no address here: ask the next ancestor
+            }
+            base = QString("0x%1").arg(ancestor.address, 0, 16).toStdString() + base.substr(first);
+            expr = chain ? ce::buildPointerExpression(base, chain->offsets) : base;
+            break;
+        }
+    }
     // Pass the shared resolver so a record can be addressed by a user-defined label
     // (or a module export) set in the Memory Viewer, not just a raw/module+offset expr.
     ExpressionParser parser(proc_, symbolResolver_);
-    auto v = parser.parse(e.addressExpr.toStdString());
+    auto v = parser.parse(expr);
     if (!v) return false;   // keep e.address for display, but nothing may write there:
     e.address = *v;         // the object it pointed into may be freed by now
     return true;
@@ -5739,6 +5899,8 @@ QJsonArray AddressListModel::toJson() const {
         obj["activateChildren"] = e.activateChildren;
         obj["deactivateChildren"] = e.deactivateChildren;
         if (!e.optionsXml.isEmpty()) obj["optionsXml"] = e.optionsXml;
+        if (!e.luaScript.isEmpty()) obj["lua"] = e.luaScript;
+        for (auto it = e.tableFields.begin(); it != e.tableFields.end(); ++it) obj[it.key()] = it.value();
         obj["showAsHex"] = e.showAsHex;
         obj["showAsSigned"] = e.showAsSigned;
         obj["freezeMode"] = (int)e.freezeMode;
@@ -5814,13 +5976,17 @@ bool AddressListModel::fromJson(const QJsonArray& arr, bool preserveExisting) {
         e.active = obj["active"].toBool();
         e.autoAsmScript = obj["asm"].toString();
         e.color = obj["color"].toString();
-        e.dropdownList = obj["dropdown"].toString();
+        e.dropdownList = normalizedDropdownList(obj["dropdown"].toString());
         e.hotkeyKeys = obj["hotkeys"].toString();
         e.increaseHotkeyKeys = obj["increaseHotkey"].toString();
         e.setValueHotkeyKeys = obj["setValueHotkey"].toString();
         e.setValueHotkeyValue = obj["setValueHotkeyValue"].toString();
         e.decreaseHotkeyKeys = obj["decreaseHotkey"].toString();
         e.hotkeyStep = obj["hotkeyStep"].toString("1");
+        e.luaScript = obj["lua"].toString();
+        for (const char* key : {"customType", "async", "dropdownAttributes", "unparsedAddress", "unparsedOffsets",
+                                "extraHotkeys", "extraXml"})
+            if (obj.contains(key)) e.tableFields[key] = obj[key];
         e.indent = std::max(0, obj.contains("indent")
             ? obj["indent"].toInt()
             : (obj["parent"].toInt(-1) >= 0 && obj["parent"].toInt(-1) < (int)parentIndentById.size()
@@ -6969,7 +7135,7 @@ bool AddressListModel::setColor(int id, const std::string& color) {
 bool AddressListModel::setDropdownList(int id, const QString& list) {
     int row = rowOfId(id);
     if (row < 0) return false;
-    entries_[row].dropdownList = list;
+    entries_[row].dropdownList = normalizedDropdownList(list);
     emit dataChanged(index(row, 1), index(row, columnCount() - 1));
     return true;
 }

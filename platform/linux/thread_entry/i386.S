@@ -31,7 +31,9 @@ dispatch:
  sub $12,%esp
  push 20(%ebx)
  call *16(%ebx)
- add $16,%esp
+ # A stdcall callee pops its own argument: rebuild esp from the entry value.
+ mov 32(%ebx),%esp
+ sub $12,%esp
  jmp finished
 cancel:
  xor %eax,%eax

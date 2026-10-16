@@ -106,9 +106,13 @@ ManagedKind detectManagedKind(ProcessHandle& proc) {
     for (const auto& m : proc.modules()) {
         std::string n = m.name;
         for (auto& ch : n) ch = static_cast<char>(std::tolower((unsigned char)ch));
-        // Any "mono" module: libmono-2.0 / libmonosgen / libmonobdwgc /
-        // libmono-native, or a statically-linked mono-sgen/mono executable.
-        if (n.find("mono") != std::string::npos) mono = true;
+        // The Mono runtime itself: libmono-2.0 / libmonosgen-2.0 /
+        // libmonobdwgc-2.0 (Linux), mono-2.0-bdwgc.dll / mono.dll (Unity under
+        // Proton), or a mono / mono-sgen executable. Not any name containing
+        // "mono": fonts such as DejaVuSansMono.ttf are mapped by most games.
+        if (n.starts_with("libmono-2.0") || n.starts_with("libmonosgen") || n.starts_with("libmonobdwgc") ||
+            n.starts_with("mono-2.0") || n == "mono.dll" || n == "mono" || n.starts_with("mono-sgen"))
+            mono = true;
         if (n.find("gameassembly") != std::string::npos || n.find("il2cpp") != std::string::npos)
             il2cpp = true;
     }

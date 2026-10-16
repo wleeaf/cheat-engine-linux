@@ -209,7 +209,7 @@ void GuestScanDialog::onFirstScan() {
         const T val = *parseValueT<T>(valStr);
         const uint64_t vb = valBits<T>(val);
         std::vector<std::pair<uint64_t, uint64_t>> out;
-        for (uint64_t a : ce::guestScanExact<T>(gv, val, sizeof(T)))
+        for (uint64_t a : ce::guestScanExact<T>(gv, val, sizeof(T), ce::kGuestMaxHits, &resultsTruncated_))
             out.emplace_back(a, vb);
         return out;
     });
@@ -221,8 +221,9 @@ void GuestScanDialog::onUnknownScan() {
     if (profile_.guestCandidates.empty()) return;
     beginScan();
     ce::GuestView gv{ proc_, regionBase_, regionSize_, scanBigEndian_ };
-    snapshot_ = ce::guestReadRegion(gv);
+    snapshot_ = ce::guestSnapshotRegion(gv);
     candidates_.clear();
+    resultsTruncated_ = false;
     unknownMode_ = true;
     refreshResults();
 }
@@ -256,9 +257,10 @@ void GuestScanDialog::narrowCompare(int opInt) {
     candidates_ = dispatchType(scanType_, [&]<class T>() {
         std::vector<std::pair<uint64_t, uint64_t>> out;
         if (unknownMode_) {
-            const auto live = ce::guestReadRegion(gv);
-            for (auto& [off, nv] : ce::guestCompareBuffers<T>(snapshot_, live, scanBigEndian_, op,
-                                                              align ? align : sizeof(T)))
+            const auto live = ce::guestSnapshotRegion(gv, snapshot_.bytes.size());
+            for (auto& [off, nv] : ce::guestCompareSnapshots<T>(snapshot_, live, scanBigEndian_, op,
+                                                                align ? align : sizeof(T),
+                                                                ce::kGuestMaxHits, &resultsTruncated_))
                 out.emplace_back(off, valBits<T>(nv));
         } else {
             std::vector<std::pair<uint64_t, T>> pairs;
@@ -269,13 +271,14 @@ void GuestScanDialog::narrowCompare(int opInt) {
         }
         return out;
     });
-    if (unknownMode_) { unknownMode_ = false; snapshot_.clear(); }  // now an explicit set
+    if (unknownMode_) { unknownMode_ = false; snapshot_ = {}; }  // now an explicit set
     refreshResults();
 }
 
 void GuestScanDialog::onNewScan() {
     candidates_.clear();
-    snapshot_.clear();
+    snapshot_ = {};
+    resultsTruncated_ = false;
     haveScan_ = false;
     unknownMode_ = false;
     resultsTable_->setRowCount(0);
@@ -298,13 +301,21 @@ void GuestScanDialog::refreshResults() {
                 resultsTable_->setItem((int)i, 2, new QTableWidgetItem(fmtBits<T>(candidates_[i].second)));
             }
         });
-        statusLabel_->setText(QString("%1 result(s)%2").arg(candidates_.size())
-            .arg(candidates_.size() > shown ? QString(" (showing first %1)").arg(shown) : QString()));
+        QString status = QString("%1 result(s)%2").arg(candidates_.size())
+            .arg(candidates_.size() > shown ? QString(" (showing first %1)").arg(shown) : QString());
+        if (resultsTruncated_)
+            status += QString(". The scan stopped at %1 results; try a less common value.")
+                          .arg(ce::kGuestMaxHits);
+        statusLabel_->setText(status);
     } else if (unknownMode_) {
         resultsTable_->setRowCount(0);
-        statusLabel_->setText(QString("Snapshot taken (%1 MB). Change the value in-game, then "
-                                      "narrow with Changed / Increased / Decreased / Unchanged.")
-                                  .arg(snapshot_.size() >> 20));
+        QString status = QString("Snapshot taken (%1 MB). Change the value in-game, then "
+                                 "narrow with Changed / Increased / Decreased / Unchanged.")
+                             .arg(snapshot_.readableBytes() >> 20);
+        if (snapshot_.truncated)
+            status += QString(" Only the first %1 MB of the %2 MB region is covered.")
+                          .arg(snapshot_.bytes.size() >> 20).arg(regionSize_ >> 20);
+        statusLabel_->setText(status);
     }
 
     // Button states for the current phase.

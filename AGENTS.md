@@ -60,7 +60,9 @@ QT_QPA_PLATFORM=offscreen ./build/gui_lifecycle_smoke   # the broadest GUI test
   has no Qt, so a target that links a library needs its own `find_package`.
 - Watch CI after pushing (`gh run list`, `gh run view <id>`); cancel superseded
   runs. Known intermittent checks under ASan: `mt soft bp` and "step-over at a
-  call breakpoint"; re-run the failed job once before investigating.
+  call breakpoint"; in the regression suite, "32-bit .so injected + mapped"
+  (dlopen timeout on a busy runner). Re-run the failed job once before
+  investigating.
 - `cmake --install build --prefix ~/.local` gives a self-contained app (RPATH
   `$ORIGIN`, bundled Capstone/Keystone, speedhack, docs, desktop file).
 - Release: bump the version, add a `CHANGELOG.md` section and an AppStream

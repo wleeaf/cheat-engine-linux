@@ -71,7 +71,8 @@ static bool targetProgresses(pid_t pid) {
 
 static bool trigger(QObject& window, const QString& text) {
     for (auto* action : window.findChildren<QAction*>()) {
-        if (action->text() == text) { action->trigger(); return true; }
+        // A viewer frozen on an earlier target keeps its tools, disabled.
+        if (action->text() == text && action->isEnabled()) { action->trigger(); return true; }
     }
     return false;
 }

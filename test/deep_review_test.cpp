@@ -6,6 +6,8 @@
 #include "core/autoasm.hpp"
 #include "core/injection_gen.hpp"
 #include "core/expression.hpp"
+#include "core/simple_address_list.hpp"
+#include "debug/breakpoint_manager.hpp"
 #include "debug/debug_session.hpp"
 #include "platform/linux/linux_process.hpp"
 #include "scanner/memory_scanner.hpp"
@@ -633,6 +635,166 @@ static void luaTests(const fs::path& root) {
     }
 }
 
+// Lua layer review: one check per fix.
+static void luaReviewTests() {
+    auto luaOk = [](LuaEngine& lua, const std::string& code) {
+        auto error = lua.execute(code);
+        if (!error.empty()) std::fprintf(stderr, "%s\n", error.c_str());
+        return error.empty();
+    };
+
+    // The opt-in is read when the engine starts; setting it later changes nothing.
+    {
+        const char* saved = getenv("CECORE_LUA_ALLOW_UNSAFE");
+        const std::string keep = saved ? saved : "";
+        unsetenv("CECORE_LUA_ALLOW_UNSAFE");
+        LuaEngine lua;
+        setenv("CECORE_LUA_ALLOW_UNSAFE", "1", 1);
+        const bool blocked = lua.execute("shellExecute('true')").find("blocked") != std::string::npos;
+        if (saved) setenv("CECORE_LUA_ALLOW_UNSAFE", keep.c_str(), 1); else unsetenv("CECORE_LUA_ALLOW_UNSAFE");
+        check(blocked, "the unsafe opt-in is read when the Lua engine starts, not on every use");
+    }
+    {
+        std::atomic<pid_t> tid{0};
+        std::atomic<bool> done{false};
+        std::thread thread([&] { tid = gettid(); while (!done) std::this_thread::sleep_for(std::chrono::milliseconds(1)); });
+        while (!tid) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        LuaEngine lua;
+        const bool refused = luaOk(lua,
+            "local pid, err = openProcess('" + std::to_string(getpid()) + "') assert(pid == nil and err:find('itself'))\n"
+            "assert(openProcess(" + std::to_string(tid.load()) + ") == nil)\n"
+            "assert(getOpenedProcessID() == 0)") && lua.process() == nullptr;
+        done = true; thread.join();
+        check(refused, "Lua openProcess refuses Cheat Engine's own process and threads");
+    }
+
+    // Options are read before the process: their __index may close it.
+    {
+        LuaEngine lua;
+        lua.setOwnedProcess(std::make_unique<BufferProcess>(0x100));
+        check(luaOk(lua, "local closing = setmetatable({}, {__index=function() disconnectProcess() end})\n"
+                         "assert(pointerScan(16, 1, 16, closing) == nil)") && lua.process() == nullptr,
+              "pointerScan reads its options before taking the process");
+        lua.setOwnedProcess(std::make_unique<BufferProcess>(0x100));
+        check(luaOk(lua, "local closing = setmetatable({}, {__index=function() disconnectProcess() end})\n"
+                         "assert(breakAndTrace(16, 1, closing) == nil)") && lua.process() == nullptr,
+              "breakAndTrace reads its options before taking the process");
+    }
+
+    // Breakpoint conditions and scan formulas cannot escape their limits.
+    {
+        CpuContext context{};
+        auto stops = [&](const char* condition) { return evaluateBreakpointCondition(condition, context, 0); };
+        // Each condition returns false only if it got past a limit; a contained
+        // condition fails and the breakpoint breaks.
+        check(!stops("1 == 2") &&
+              stops("(function() pcall(function() while true do end end) return false end)()") &&
+              stops("(function() local s = string.rep('x', 1 << 20) local t = {} "
+                    "for i = 1, 40 do t[i] = s .. i end return false end)()") &&
+              stops("#string.rep('ab', 1 << 21) < 0") &&
+              stops("string.find == nil and string.gsub == nil and setmetatable == nil and xpcall == nil"),
+              "breakpoint conditions have no pcall, a memory cap, a capped string.rep and no patterns");
+
+        long pageSize = sysconf(_SC_PAGESIZE);
+        void* page = mmap(nullptr, pageSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        bool contained = page != MAP_FAILED;
+        if (contained) {
+            std::memset(page, 0x55, pageSize);
+            os::LinuxProcessHandle self(getpid());
+            MemoryScanner scanner;
+            ScanConfig config;
+            config.valueType = ValueType::Custom;
+            config.compareType = ScanCompare::Exact;
+            config.customValueSize = 4;
+            config.alignment = 4;
+            config.startAddress = reinterpret_cast<uintptr_t>(page);
+            config.stopAddress = config.startAddress + 15;   // four candidates
+            auto matches = [&](const char* formula) { config.customFormula = formula; return scanner.firstScan(self, config).count(); };
+            contained = matches("return pcall == nil and xpcall == nil and setmetatable == nil and string.find == nil") == 4 &&
+                matches("return #string.rep('ab', 1 << 21) > 0") == 0 &&
+                matches("local s = string.rep('x', 1 << 20) local t = {} for i = 1, 40 do t[i] = s .. i end return true") == 0;
+            munmap(page, pageSize);
+        }
+        check(contained, "scan formulas have no pcall or patterns, a capped string.rep and a memory cap");
+    }
+
+    // AOBScan, typed addresses, signedness and wide strings.
+    {
+        auto owned = std::make_unique<BufferProcess>(0x200);
+        auto* process = owned.get();
+        process->allocationAddress = 1;   // report one region over the buffer
+        process->mappedModules = {{0, 0x200, "fixture.bin", "", true}};
+        const uint8_t pattern[] = {0xDE, 0xAD, 0xBE, 0xEF, 0x13, 0x57};
+        std::memcpy(process->bytes.data() + 0x40, pattern, sizeof(pattern));
+        std::memset(process->bytes.data() + 0x20, 0xFF, 4);
+        const char16_t wide[] = u"Hi世\U0001F600";
+        std::memcpy(process->bytes.data() + 0x80, wide, sizeof(wide));
+        SymbolResolver resolver; resolver.addUserSymbol(0x10, "value_slot");
+        LuaEngine lua; lua.setOwnedProcess(std::move(owned)); lua.setResolver(&resolver);
+        check(luaOk(lua, "local found = AOBScan('DE AD BE EF 13 57') assert(found and found.Count == 1)\n"
+                         "assert(AOBScan('DE AD BE EF 13 58') == nil)\n"
+                         "assert(AOBScanModule('fixture.bin', 'DE AD BE EF 13 58') == nil)"),
+              "AOBScan and AOBScanModule return nil when nothing matches");
+        check(luaOk(lua, "assert(writeInteger('value_slot+4', 1234))\n"
+                         "assert(readInteger('value_slot+4') == 1234 and readInteger(0x14) == 1234)\n"
+                         "assert(readBytes('value_slot+4', 2, true)[1] == 1234 & 0xff)\n"
+                         "assert(readInteger('no_such_symbol_zz') == nil and writeByte('no_such_symbol_zz', 1) == false)"),
+              "read and write functions accept address expressions");
+        check(luaOk(lua, "assert(readString(0x80, 64, true) == 'Hi世\U0001F600')\n"
+                         "assert(readString(0x80, 4, true) == 'Hi' and readString(0x80, 64) == 'H')"),
+              "readString decodes UTF-16 when widechar is true");
+        check(luaOk(lua, "assert(readByte(0x20) == 255 and readByte(0x20, true) == -1)\n"
+                         "assert(readSmallInteger(0x20) == 65535 and readSmallInteger(0x20, true) == -1)\n"
+                         "assert(readInteger(0x20) == 0xFFFFFFFF and readInteger(0x20, true) == -1)\n"
+                         "assert(readShortInteger(0x20) == 255 and writeShortInteger(0x20, 1) and readSmallInteger(0x20) == 0xFF01)"),
+              "readByte, readSmallInteger and readInteger are unsigned unless asked, as in CE");
+        check(luaOk(lua, "assert(setProcessName == nil)"), "setProcessName is not provided");
+    }
+
+    // Methods work with '.' as in CE, and OnActivate/OnDeactivate are separate.
+    {
+        SimpleAddressList list;
+        list.createEntry(0x10, ValueType::Int32, "x");
+        LuaEngine lua; lua.setAddressList(&list);
+        check(luaOk(lua, "local al = getAddressList()\n"
+                         "assert(al.getMemoryRecordByDescription('x').getDescription() == 'x')\n"
+                         "assert(al:getMemoryRecordByDescription('x'):getDescription() == 'x' and al.getCount() == 1)\n"
+                         "local s = createMemoryStream() s.write('abc') s.seek(0) assert(s.read(3) == 'abc')\n"
+                         "local l = createStringList() l.add('a') assert(l.getCount() == 1 and l:getString(0) == 'a')"),
+              "address list, memory record, stream and string list methods accept '.' calls");
+        check(luaOk(lua, "local mr = getAddressList().getMemoryRecordByDescription('x')\n"
+                         "local calls = {}\n"
+                         "mr.OnActivate = function(sender, before, current) calls[#calls+1] = {'on', sender.Description, before, current} end\n"
+                         "mr.OnDeactivate = function(sender, before, current) calls[#calls+1] = {'off', sender.Description, before, current} end\n"
+                         "assert(type(mr.OnActivate) == 'function')\n"
+                         "mr.Active = true mr.Active = false\n"
+                         "assert(#calls == 2)\n"
+                         "assert(calls[1][1] == 'on' and calls[1][2] == 'x' and calls[1][3] == false and calls[1][4] == true)\n"
+                         "assert(calls[2][1] == 'off' and calls[2][3] == false and calls[2][4] == false)"),
+              "OnActivate and OnDeactivate are separate and get (sender, before, currentstate)");
+        check(luaOk(lua, "registerCustomType('pair', 2, function(bytes) return #bytes end, function() return 'ab' end)\n"
+                         "assert(customTypeToValue('pair', {1, 2, 3}) == 3 and customTypeToValue('pair', 'ab') == 2)\n"
+                         "assert(not pcall(customTypeToValue, 'pair', {256}) and customTypeToBytes('pair', 0)[2] == 98)"),
+              "custom type conversions keep no C++ value alive across Lua errors");
+    }
+
+    // Register access does not attach the debugger.
+    {
+        pid_t child = fork();
+        if (!child) { prctl(PR_SET_PDEATHSIG, SIGKILL); for (;;) pause(); }
+        bool detached = child > 0;
+        if (detached) {
+            os::LinuxProcessHandle process(child);
+            LuaEngine lua; lua.setProcess(&process);
+            detached = luaOk(lua, "assert(debug_getRegisters() == nil and debug_setRegister('RAX', 1) == false and "
+                                  "debug_getStack() == nil)") && !lua.debugAttached();
+            lua.setProcess(nullptr);
+            kill(child, SIGKILL); waitpid(child, nullptr, 0);
+        }
+        check(detached, "debug register and stack reads do not attach the debugger");
+    }
+}
+
 static void guestTests() {
     constexpr size_t chunk = 1u << 20;
     BufferProcess proc(chunk + 16);
@@ -754,6 +916,7 @@ int main() {
     peTests(root);
     il2cppTests(root);
     luaTests(root);
+    luaReviewTests();
     guestTests();
     debuggerTests();
     failures += runUnderlyingReviewTests(root);

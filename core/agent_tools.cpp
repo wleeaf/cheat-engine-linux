@@ -22,7 +22,6 @@
 
 #include <charconv>
 #include <limits>
-#include <regex>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -343,7 +342,7 @@ struct AgentSession::State {
         std::string script;
         DisableInfo disable;
     };
-    AutoAssembler assembler;   // no Lua evaluator: agent scripts cannot run {$lua}
+    AutoAssembler assembler;   // restricted, no Lua evaluator: agent scripts cannot run {$lua}
     std::vector<ActiveScript> scripts;
     int nextScriptId = 1;
 
@@ -352,18 +351,14 @@ struct AgentSession::State {
     // write and allocation kept in an overlay: nothing in the game changes.
     DryRunResult dryRun(const std::string& script) {
         DryRunResult out;
-        // These read files from the user's disk into the game, or run code in
-        // it at once; no overlay can hold that, so agent scripts go without.
-        static const std::regex forbidden(R"(\b(loadlibrary|loadbinary|include|createthread|createthreadandwait)\s*\()",
-                                          std::regex::icase);
-        if (std::smatch match; std::regex_search(script, match, forbidden)) {
-            out.error = match[1].str() + " is not available to agent scripts: it would load a file from this computer "
-                        "or run code in the game";
-            return out;
-        }
+        // Both assemblers are restricted: loadlibrary, include, createthread and
+        // the like read files from the user's disk or run code in the game at
+        // once, which no overlay can hold, so agent scripts go without.
         if (auto checked = assembler.check(script); !checked.success) { out.error = "script error: " + checked.error; return out; }
         DryRunProcess dry(*process);
         AutoAssembler scratch;   // its own symbol table: a dry run registers nothing for real
+        scratch.setRestricted(true);
+        scratch.copySymbolsFrom(assembler);   // but it sees what enabled scripts registered
         auto result = scratch.execute(dry, script);
         if (!result.success) { out.error = "script error: " + result.error; return out; }
         out.ok = true;
@@ -491,7 +486,7 @@ struct AgentSession::State {
         std::unique_lock lock(mutex);
         while (!stopping) {
             wake.wait_for(lock, std::chrono::milliseconds(options.freezeIntervalMs));
-            if (stopping || !process) continue;
+            if (stopping || !process || !options.allowWrites) continue;
             for (auto& r : records)
                 if (r.frozen && refresh(r))
                     (void)writeTypedValue(*process, r.entry.address, r.entry.type, r.frozenValue,
@@ -502,6 +497,7 @@ struct AgentSession::State {
 
 AgentSession::AgentSession(AgentSessionOptions options) : state_(std::make_unique<State>()) {
     state_->options = options;
+    state_->assembler.setRestricted(true);
     state_->freezer = std::thread([s = state_.get()] { s->freezeLoop(); });
 }
 
@@ -541,6 +537,9 @@ std::vector<std::string> AgentSession::detach() {
 void AgentSession::setAllowWrites(bool allow) {
     std::lock_guard lock(state_->mutex);
     state_->options.allowWrites = allow;
+    // Freezes are writes: they end with the permission, not resume with it.
+    if (!allow)
+        for (auto& r : state_->records) r.frozen = false;
 }
 
 std::vector<CheatEntry> AgentSession::tableEntries() {
@@ -619,7 +618,8 @@ std::vector<AgentToolInfo> AgentSession::tools() {
                 {"address"})},
         {"find_accessed_addresses", "Watch one instruction (usually from find_what_writes) and list every address it reads or "
                                     "writes, with hit counts: shows whether code is shared by several objects (player and enemies). "
-                                    "Pauses the game briefly at each hit; ask the user to play during the given seconds.",
+                                    "Pauses the game briefly at each hit (a breakpoint in its code; needs writes enabled); "
+                                    "ask the user to play during the given seconds.",
          schema({{"address", address},
                  {"seconds", prop("integer", "How long to watch (default 4, at most 30)")}},
                 {"address"})},
@@ -653,7 +653,8 @@ std::vector<AgentToolInfo> AgentSession::tools() {
          schema({{"script", prop("string", "The full script with [ENABLE] and [DISABLE] sections")},
                  {"description", prop("string", "What the script does, e.g. Infinite health")}},
                 {"script", "description"})},
-        {"aa_disable", "Disable a script enabled with aa_enable: restores the original code and frees its memory.",
+        {"aa_disable", "Disable a script enabled with aa_enable: restores the original code and frees its memory "
+                       "(needs writes enabled).",
          schema({{"id", prop("integer", "Id returned by aa_enable")}}, {"id"})},
         {"aa_list", "List the scripts currently enabled in the game.", schema({}, {})},
         {"add_record", "Add an entry to the cheat table: a value (address and type) or a script (script), with a description the user will recognize. "
@@ -678,6 +679,14 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
     State& s = *state_;
     std::unique_lock lock(s.mutex);
     if (!args.isObject() && !args.isNull()) return fail("arguments must be an object");
+    // Long scans run unlocked so frozen records stay frozen meanwhile. Calls
+    // come one at a time (MCP, the panel's worker) and the freezer only reads
+    // the process and writes records, so what a scan uses stays valid.
+    auto unlocked = [&](auto&& work) {
+        lock.unlock();
+        struct Relock { std::unique_lock<std::mutex>& lock; ~Relock() { lock.lock(); } } relock{lock};
+        return work();
+    };
     try {
         if (name == "list_processes") {
             std::string filter = argString(args, "filter");
@@ -809,14 +818,15 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
                 return fail("string and aob scans need an exact value");
             if (first) {
                 if (auto problem = memoryAccessProblem(*s.process)) return fail("cannot read this process: " + *problem);
-                auto scanned = std::make_unique<ScanResult>(s.scanner.firstScan(*s.process, config));
+                auto scanned = std::make_unique<ScanResult>(unlocked([&] { return s.scanner.firstScan(*s.process, config); }));
                 if (scanned->hasWriteError()) return fail("the scan results could not be stored (is the temp folder full?)");
                 s.undo.reset();
                 s.result = std::move(scanned);
                 s.scanType = type;
                 s.scanValueSize = type == ValueType::String ? value.size() : std::max<size_t>(1, s.result->valueSize());
             } else {
-                auto narrowed = std::make_unique<ScanResult>(s.scanner.nextScan(*s.process, config, *s.result));
+                auto narrowed = std::make_unique<ScanResult>(
+                    unlocked([&] { return s.scanner.nextScan(*s.process, config, *s.result); }));
                 if (narrowed->hasWriteError()) return fail("the scan results could not be stored (is the temp folder full?)");
                 s.undo = std::move(s.result);
                 s.result = std::move(narrowed);
@@ -936,12 +946,10 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             Value list = Value::array();
             bool pointerHint = false;
             for (const auto& hit : finder.results()) {
-                uintptr_t at = hit.instructionAddress;
-                std::string text = hit.instructionText;
-                // A hardware trap stops after the store; recover the exact instruction.
-                auto recovered = recoverStoreInstruction(*s.process, s.resolver(), hit.firstContext.instructionPointer(),
-                                                         s.process->is64bit());
-                if (recovered.ok) { at = recovered.address; text = recovered.text; }
+                // CodeFinder already recovered the store a hardware trap stopped
+                // after, decoding with the hit's own architecture.
+                const uintptr_t at = hit.instructionAddress;
+                const std::string& text = hit.instructionText;
                 Value item = Value::object().set("address", Value::string(hex(at)));
                 std::string where = s.resolver().resolve(at);
                 if (where.empty()) where = s.location(at);
@@ -970,15 +978,20 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
         }
 
         if (name == "find_accessed_addresses") {
+            if (!s.options.allowWrites)
+                return fail("watching an instruction puts a breakpoint into the game's code; the user must start the "
+                            "server with --allow-writes");
             auto address = needAddress();
             if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
             const int seconds = static_cast<int>(std::clamp<int64_t>(args.getInt("seconds").value_or(4), 1, kMaxWatchSeconds));
             if (!s.memoryOperand(*address)) return fail("the instruction at " + hex(*address) + " does not access memory");
             lock.unlock();   // as in find_what_writes: frozen values stay frozen meanwhile
             auto stop = s.options.stopRequested;
+            std::string watchError;
             auto accesses = findInstructionAccesses(*s.process, *address, 4096, seconds * 1000,
-                                                    [stop] { return stop && stop(); });
+                                                    [stop] { return stop && stop(); }, &watchError);
             lock.lock();
+            if (!watchError.empty()) return fail("could not watch the instruction: " + watchError);
             Value list = Value::array();
             for (const auto& access : accesses) {
                 Value item = Value::object().set("address", Value::string(hex(access.address)))
@@ -1069,7 +1082,7 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             config.maxDepth = static_cast<int>(std::clamp<int64_t>(args.getInt("max_depth").value_or(4), 1, 6));
             config.maxOffset = static_cast<int>(std::clamp<int64_t>(args.getInt("max_offset").value_or(1024), 8, 1 << 20));
             PointerScanner scanner;
-            s.paths = scanner.scan(*s.process, config);
+            s.paths = unlocked([&] { return scanner.scan(*s.process, config); });
             sortPointerPaths(s.paths, PointerSortKey::Depth);
             Value out = Value::object().set("count", Value::number(static_cast<uint64_t>(s.paths.size())))
                                        .set("paths", s.pathList(kMaxPaths));
@@ -1088,7 +1101,7 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             auto address = needAddress();
             if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
             const size_t before = s.paths.size();
-            s.paths = rescanPointerPaths(*s.process, s.paths, *address);
+            s.paths = unlocked([&] { return rescanPointerPaths(*s.process, s.paths, *address); });
             return ok(Value::object().set("before", Value::number(static_cast<uint64_t>(before)))
                                      .set("count", Value::number(static_cast<uint64_t>(s.paths.size())))
                                      .set("paths", s.pathList(kMaxPaths)));
@@ -1154,6 +1167,9 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
         }
 
         if (name == "aa_disable") {
+            // Restoring the code and freeing the cave is a write to the game too.
+            if (!s.options.allowWrites)
+                return fail("disabling a script patches the game; the user must start the server with --allow-writes");
             auto id = args.getInt("id");
             auto it = std::find_if(s.scripts.begin(), s.scripts.end(), [&](const auto& a) { return id && a.id == *id; });
             if (it == s.scripts.end()) return fail("no enabled script with that id; see aa_list");
@@ -1254,7 +1270,9 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             if (!frozen) return fail("frozen must be true or false");
             auto& r = s.records[static_cast<size_t>(*index)];
             if (!r.entry.autoAsmScript.empty()) return fail("that record is a script; use aa_enable and aa_disable");
-            if (!s.refresh(r)) return fail("the record's pointer path does not lead anywhere right now");
+            // Unfreezing writes nothing, so it works even when the path leads nowhere.
+            const bool resolved = s.refresh(r);
+            if (*frozen && !resolved) return fail("the record's pointer path does not lead anywhere right now");
             if (*frozen) {
                 if (!s.options.allowWrites)
                     return fail("freezing writes to the game; the user must start the server with --allow-writes");
@@ -1268,7 +1286,7 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             }
             r.frozen = *frozen;
             return ok(Value::object().set("index", Value::number(*index)).set("frozen", Value::boolean(r.frozen))
-                                     .set("value", Value::string(s.readValue(r.entry.address, r.entry.type))));
+                                     .set("value", Value::string(resolved ? s.readValue(r.entry.address, r.entry.type) : "?")));
         }
 
         if (name == "save_table") {

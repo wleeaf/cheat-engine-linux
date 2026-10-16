@@ -220,11 +220,11 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     bl->addWidget(bpList_);
     auto* rmRow = new QHBoxLayout();
     rmRow->addStretch();
-    auto* rmBtn = new QPushButton("Remove");
-    rmBtn->setToolTip("Remove the selected breakpoint");
-    rmBtn->setEnabled(false);
-    connect(bpList_, &QListWidget::currentRowChanged, rmBtn, [rmBtn](int row) { rmBtn->setEnabled(row >= 0); });
-    rmRow->addWidget(rmBtn);
+    rmBtn_ = new QPushButton("Remove");
+    rmBtn_->setToolTip("Remove the selected breakpoint");
+    rmBtn_->setEnabled(false);
+    connect(bpList_, &QListWidget::currentRowChanged, rmBtn_, [this](int row) { rmBtn_->setEnabled(row >= 0 && !stepping_); });
+    rmRow->addWidget(rmBtn_);
     bl->addLayout(rmRow);
     rl->addWidget(bpGroup, 2);
     split->addWidget(right);
@@ -245,7 +245,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     connect(detachBtn_, &QPushButton::clicked, this, &DebuggerWindow::onDetach);
     connect(addBtn,     &QPushButton::clicked, this, &DebuggerWindow::onAddBreakpoint);
     connect(dataBpBtn,  &QPushButton::clicked, this, &DebuggerWindow::onAddDataBreakpoint);
-    connect(rmBtn,      &QPushButton::clicked, this, &DebuggerWindow::onRemoveBreakpoint);
+    connect(rmBtn_,     &QPushButton::clicked, this, &DebuggerWindow::onRemoveBreakpoint);
     connect(bpInput_,   &QLineEdit::returnPressed, this, &DebuggerWindow::onAddBreakpoint);
     // F5 toggles a breakpoint at the disassembly cursor (matching CE's debugger, which
     // already binds F7 step-into, F8 step-over, and F9 continue on the buttons above).
@@ -291,11 +291,13 @@ void DebuggerWindow::setRunningUi(bool running, bool exited) {
     threadCombo_->setEnabled(stopped && threadCombo_->count() > 0);
     bpInput_->setEnabled(stopped);
     regTable_->setEnabled(stopped);
+    // Removal works while running, but not during a step (see removeBreakpointRow).
+    rmBtn_->setEnabled(!stepping_ && bpList_->currentRow() >= 0);
     if (!stopped) emit resumed();   // running or exited: drop the current-line marker
 }
 
 void DebuggerWindow::onContinue() {
-    if (!session_->isAttached()) return;
+    if (!session_->isAttached() || stepping_) return;
     statusLabel_->setText("Running...");
     setRunningUi(true);
     session_->continueExecution();
@@ -320,6 +322,7 @@ void DebuggerWindow::runStep(ce::StepMode mode) {
 void DebuggerWindow::finishStep() {
     if (stepThread_.joinable()) stepThread_.join();
     stepping_ = false;
+    rmBtn_->setEnabled(bpList_->currentRow() >= 0);
     if (session_->isAttached() && session_->isStopped()) refreshStopped();
 }
 
@@ -425,14 +428,21 @@ void DebuggerWindow::setConditionalBreakpointAtCursor() {
 void DebuggerWindow::editBreakpointCondition() {
     int row = bpList_->currentRow();
     if (row < 0 || row >= static_cast<int>(bps_.size())) return;
+    // The dialog runs an event loop: a queued debug event (an exec) can clear or
+    // reorder bps_ meanwhile, so find the breakpoint again afterwards.
+    const uintptr_t addr = bps_[row].addr;
+    const bool hardware = bps_[row].hardware;
     bool ok = false;
     QString cur = QString::fromStdString(bps_[row].condition);
     QString cond = QInputDialog::getText(this, "Edit breakpoint condition",
         "Break only when this expression is true (empty = unconditional):",
         QLineEdit::Normal, cur, &ok);
     if (!ok) return;
-    bps_[row].condition = cond.trimmed().toStdString();
-    refreshBpRow(row);
+    auto it = std::find_if(bps_.begin(), bps_.end(),
+                           [&](const Bp& b) { return b.addr == addr && b.hardware == hardware; });
+    if (it == bps_.end()) { statusLabel_->setText("The breakpoint was removed while editing"); return; }
+    it->condition = cond.trimmed().toStdString();
+    refreshBpRow(static_cast<int>(it - bps_.begin()));
 }
 
 void DebuggerWindow::onRemoveBreakpoint() {
@@ -441,6 +451,14 @@ void DebuggerWindow::onRemoveBreakpoint() {
 
 bool DebuggerWindow::removeBreakpointRow(int row) {
     if (row < 0 || row >= static_cast<int>(bps_.size())) return false;
+    // A step runs on the tracer thread until it returns, and a removal queued
+    // behind it would block this thread for as long (forever for a call that
+    // never returns). Removal while running is fine: the session stops the
+    // target for it.
+    if (stepping_) {
+        statusLabel_->setText("Wait for the step to finish (or Detach) before removing a breakpoint");
+        return false;
+    }
     if (bps_[row].enabled) {
         bool removed=bps_[row].hardware ? session_->removeHardwareBreakpoint(bps_[row].id) :
                                          session_->removeSoftwareBreakpoint(bps_[row].id);

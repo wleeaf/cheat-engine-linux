@@ -132,7 +132,45 @@ int main(int argc, char** argv) {
                     spacing ? "OK" : "FAILED", spacedAll, selectAll);
     }
 
-    bool ok = spacing && horizontal && injectionSelection && single == 1 && rangeThree == 3 && rangeTwo == 2 && collapsed == 1
+    // PageDown with no whole row visible must not index before the first instruction.
+    // The view asks for 8 rows, but the viewer's splitter can collapse it below that.
+    dv.setMinimumHeight(0);
+    dv.resize(900, 1);
+    app.processEvents();
+    const uintptr_t beforePage = dv.currentAddress();
+    sendKey(&dv, Qt::Key_PageDown, Qt::NoModifier);
+    bool pageDownEmpty = dv.currentAddress() == beforePage;
+    std::printf("GUI disassembly PageDown with no visible rows: %s (viewport %d px)\n",
+                pageDownEmpty ? "OK" : "FAILED", dv.viewport()->height());
+
+    // Comments reach the owner's store one edit at a time (two viewers share it), and
+    // a viewer whose target went away saves nothing and no longer reaches the owner's
+    // breakpoint or run controls, which would act on the next target.
+    bool annotations = false;
+    {
+        ce::gui::MemoryBrowser mb(&proc);
+        std::vector<ce::gui::MemoryBrowser::AnnotationChange> changes;
+        mb.setAnnotationStore({}, [&](const ce::gui::MemoryBrowser::AnnotationChange& c) { changes.push_back(c); });
+        const uintptr_t at = reinterpret_cast<uintptr_t>(&decodeTarget);
+        mb.gotoAddress(at);
+        mb.setCommentForTest(at, "first");
+        const bool oneEdit = changes.size() == 1 && changes[0].address == at && !changes[0].label &&
+                             changes[0].text == "first" && changes[0].expression.find('+') != std::string::npos;
+        int bpSets = 0, runs = 0;
+        mb.setBreakpointSetter([&](uintptr_t, bool) { ++bpSets; });
+        mb.setStepControls([] {}, [] {}, [&] { ++runs; });
+        mb.triggerDebugActionForTest("Toggle breakpoint");
+        const bool wiredBefore = bpSets == 1;
+        mb.detachFromTarget();
+        mb.setCommentForTest(at, "after exit");
+        mb.triggerDebugActionForTest("Toggle breakpoint");
+        mb.triggerDebugActionForTest("Run");
+        annotations = oneEdit && wiredBefore && changes.size() == 1 && bpSets == 1 && runs == 0;
+        std::printf("GUI memory viewer single-edit comments and detach: %s (edit=%d wired=%d changes=%zu bp=%d run=%d)\n",
+                    annotations ? "OK" : "FAILED", oneEdit, wiredBefore, changes.size(), bpSets, runs);
+    }
+
+    bool ok = annotations && pageDownEmpty && spacing && horizontal && injectionSelection && single == 1 && rangeThree == 3 && rangeTwo == 2 && collapsed == 1
            && copiedLines == 3 && selectAll > 3
            && homeSel == 1 && shiftEndSel == selectAll && escSel == 1 && dblAssemble && disasmSticky;
     printf("gui disasm smoke: %s (single=%d range3=%d range2=%d collapsed=%d copiedLines=%d "

@@ -18,8 +18,8 @@ std::expected<NativeCallResult,std::string> invoke(ProcessHandle& process,Native
         // The call service only borrows a thread that is executing user code;
         // restarting a syscall-parked thread's wait could change its timing.
         if (result.error()==std::errc::resource_unavailable_try_again)
-            message="no thread is running user code to host the call (every thread is blocked in a system call); "
-                    "retry while the program is active";
+            message="no thread is running user code outside the C library to host the call (every thread is "
+                    "blocked in a system call or busy inside libc); retry while the program is active";
         if (hasPendingMemorySyscalls(identity->pid,identity->startTime))
             message+="; native call and private frame retained for recovery";
         return std::unexpected(std::move(message));

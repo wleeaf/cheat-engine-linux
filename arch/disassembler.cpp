@@ -116,6 +116,9 @@ static MemoryOperand extractMemoryOperand(const cs_insn& in, csh handle) {
         if (op.mem.index != X86_REG_INVALID) {
             if (const char* n = cs_reg_name(handle, op.mem.index)) m.indexReg = n;
         }
+        if (op.mem.segment != X86_REG_INVALID) {
+            if (const char* n = cs_reg_name(handle, op.mem.segment)) m.segmentReg = n;
+        }
         break; // first memory operand only
     }
     return m;
@@ -287,6 +290,9 @@ static uint64_t registerValueByName(const CpuContext& c, const std::string& name
 uintptr_t computeEffectiveAddress(const Instruction& inst, const CpuContext& ctx) {
     if (!inst.memory.present) return 0;
     if (inst.memory.ripRelative) return inst.ripTarget;  // pre-resolved
+    // fs:[0x28] is relative to the thread's segment base, which the context
+    // does not hold: report no address rather than a wrong one.
+    if (inst.memory.segmentReg == "fs" || inst.memory.segmentReg == "gs") return 0;
     int64_t ea = inst.memory.disp;
     if (!inst.memory.baseReg.empty())
         ea += static_cast<int64_t>(registerValueByName(ctx, inst.memory.baseReg));

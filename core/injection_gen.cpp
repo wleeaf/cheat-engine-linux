@@ -155,6 +155,32 @@ std::string generateInjectionScript(ProcessHandle& proc, uintptr_t address,
             try { target = std::stoull(operands, nullptr, 16); } catch (...) {
                 error = "Cannot resolve the original branch destination."; return {};
             }
+            // A call from the cave pushes a cave address. Code that reads its
+            // return address (i386 PIC: a get_pc thunk, or call $+5; pop) would
+            // then compute a wrong base, so give it the original address instead.
+            const uintptr_t next = insn.address + insn.size;
+            const std::string nextOperand = next == address + covered ? "return" : siteOffset(next, address);
+            if (operation == "call" && target == next) {
+                if (!is32) {
+                    error = "A stolen call reads its own return address (call to the next instruction). "
+                            "Choose another instruction to hook.";
+                    return {};
+                }
+                stolen.push_back({insn.address, "push " + nextOperand, insn.size, ""});
+                continue;
+            }
+            if (operation == "call" && is32) {
+                // __x86.get_pc_thunk.<reg>: mov <reg>, [esp]; ret
+                uint8_t thunk[4] = {};
+                auto thunkRead = proc.read(target, thunk, sizeof(thunk));
+                if (thunkRead && *thunkRead == sizeof(thunk) && thunk[0] == 0x8b && (thunk[1] & 0xc7) == 0x04 &&
+                    thunk[2] == 0x24 && thunk[3] == 0xc3 && ((thunk[1] >> 3) & 7) != 4) {
+                    static const char* const names[] = {"eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi"};
+                    stolen.push_back({insn.address, std::string("mov ") + names[(thunk[1] >> 3) & 7] + ", " + nextOperand,
+                                      insn.size, ""});
+                    continue;
+                }
+            }
             if (target >= address && target < address + covered) {
                 auto it = std::find_if(insns.begin(), insns.end(), [&](const auto& item) { return item.address == target; });
                 if (it == insns.end()) { error = "A branch enters the middle of a stolen instruction."; return {}; }
@@ -172,6 +198,10 @@ std::string generateInjectionScript(ProcessHandle& proc, uintptr_t address,
             operands.replace(begin + 1, end - begin - 1, "rel " + siteOffset(insn.ripTarget, address));
         }
         std::string text = insn.mnemonic + (operands.empty() ? "" : " " + operands);
+        // A final stolen call returns straight to the original code after the
+        // hook, so the callee sees its real return address.
+        if (relativeBranch && operation == "call" && is32 && i + 1 == insns.size())
+            text = "push return\n  jmp " + operands;
         // Unsupported position-independent instructions (e.g. CET endbr64) can
         // keep their encoding. Relative instructions must always be relocated.
         auto probe = assembler.assemble(insn.mnemonic + " " + insn.operands, insn.address);

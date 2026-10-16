@@ -8,6 +8,7 @@
 
 #include "platform/process_api.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -26,8 +27,17 @@ class Snapshot {
 public:
     /// Capture every writable region of `proc`. Optional `maxBytes` caps the
     /// total snapshot size by skipping regions once the budget runs out
-    /// (returned in the order /proc/PID/maps lists them).
+    /// (returned in the order /proc/PID/maps lists them); truncated() then
+    /// reports that writable memory was left out.
     static Snapshot capture(ProcessHandle& proc, uint64_t maxBytes = ~0ULL);
+
+    /// The current bytes of the ranges this snapshot holds, limited to what is
+    /// still mapped writable. Its size never exceeds this snapshot's, so a diff
+    /// against the live process costs no more memory than the baseline.
+    Snapshot recapture(ProcessHandle& proc) const;
+
+    /// Whether capture() stopped at its byte budget.
+    bool truncated() const { return truncated_; }
 
     /// Number of regions captured.
     size_t regionCount() const { return regions_.size(); }
@@ -39,13 +49,19 @@ public:
     const std::vector<SnapshotRegion>& regions() const { return regions_; }
 
     /// Compare against another snapshot; produces a sorted list of
-    /// (address, oldByte, newByte) tuples for every differing byte. Only
-    /// regions present in both snapshots at the same base+size are compared.
+    /// (address, oldByte, newByte) tuples for differing bytes. Regions are
+    /// matched by address overlap, so a region that grew, shrank or merged
+    /// with a neighbour is still compared over the range both hold. At most
+    /// `maxDiffs` entries are returned (the lowest addresses); `changedBytes`,
+    /// when given, receives the count of every differing byte.
     struct ByteDiff { uint64_t address; uint8_t before; uint8_t after; };
-    std::vector<ByteDiff> diff(const Snapshot& later) const;
+    std::vector<ByteDiff> diff(const Snapshot& later, size_t maxDiffs = SIZE_MAX,
+                               uint64_t* changedBytes = nullptr) const;
 
-    /// Write the snapshot's bytes back into the process. Returns the number
-    /// of bytes actually written (some pages may be unmapped / read-only).
+    /// Write the snapshot's bytes back into the process, but only where the
+    /// process currently has a writable, non-executable mapping: a loaded or
+    /// stale snapshot may name ranges that were since unmapped, remapped or
+    /// turned into code, and those are skipped. Returns the bytes written.
     uint64_t restore(ProcessHandle& proc) const;
 
     /// Serialise to a binary file. Format: magic "CESNAP01" + uint32 region
@@ -56,6 +72,7 @@ public:
 
 private:
     std::vector<SnapshotRegion> regions_;
+    bool truncated_ = false;
 };
 
 } // namespace ce

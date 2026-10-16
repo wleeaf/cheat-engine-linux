@@ -26,6 +26,10 @@ public:
     bool runs32BitCode() override {return target_.machine.instructionMode==InstructionMode::X86_32;}
     TargetDescription targetDescription() override;
     TargetMachine machineAt(uintptr_t) override {return target_.machine;}
+    // The machine is fixed at connect; answer without a '?' round trip (the
+    // hex view asks for the byte order on every refresh).
+    size_t pointerWidth(uintptr_t=0) override {return target_.machine.pointerWidth;}
+    ByteOrder byteOrder(uintptr_t=0) override {return target_.machine.byteOrder;}
     Result<size_t> read(uintptr_t address,void* buffer,size_t size) override;
     Result<size_t> write(uintptr_t address,const void* buffer,size_t size) override;
     std::vector<MemoryRegion> queryRegions() override;

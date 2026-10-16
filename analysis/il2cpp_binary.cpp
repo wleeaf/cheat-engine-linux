@@ -1,4 +1,5 @@
 #include "analysis/il2cpp_binary.hpp"
+#include "core/regular_file.hpp"
 #include "core/ns_attach.hpp"
 
 #include <algorithm>
@@ -20,7 +21,7 @@ namespace {
 // ELF, where virtual addresses already equal RVAs). A "segment" is a loadable
 // range mapping [rva, rva+vsize) to file bytes [fileOff, fileOff+fileSize).
 struct Image {
-    std::vector<uint8_t> buf;
+    MappedFile buf;
     uint64_t imageBase = 0;
     struct Segment { uint64_t rva, vsize; uint64_t fileOff, fileSize; };
     std::vector<Segment> segs;
@@ -232,11 +233,7 @@ Il2CppBinaryLayout resolveIl2CppLayout(const Il2CppMetadata& md, const std::stri
     if (!md.tablesDecoded) { out.error = "metadata tables not decoded (unsupported version)"; return out; }
 
     Image img;
-    {
-        std::ifstream in(binaryPath, std::ios::binary);
-        if (!in) { out.error = "cannot open binary: " + binaryPath; return out; }
-        img.buf.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-    }
+    if (!img.buf.open(binaryPath)) { out.error = "cannot open binary: " + binaryPath; return out; }
     if (img.buf.size() < 0x40) { out.error = "binary too small"; return out; }
     if (!loadPE(img) && !loadELF64(img)) {
         out.error = "unrecognized binary (need x86-64 PE32+ or ELF64 GameAssembly)";
@@ -547,11 +544,7 @@ resolveIl2CppMethods(const Il2CppMetadata& md, const std::string& binaryPath,
     if (imageName.empty()) return out;
 
     Image img;
-    {
-        std::ifstream in(binaryPath, std::ios::binary);
-        if (!in) return out;
-        img.buf.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-    }
+    if (!img.buf.open(binaryPath)) return out;
     if (!loadPE(img) && !loadELF64(img)) return out;
 
     auto arrVA = findCodeGenModules(img, md.images.size());
@@ -618,12 +611,11 @@ Il2CppBinaryLayout resolveIl2CppForProcess(ProcessHandle& proc) {
         out.error = *metaPath + " is not a metadata file of plausible size";
         return out;
     }
-    std::ifstream in(*metaPath, std::ios::binary);
-    if (!in) { out.error = "cannot open " + *metaPath; return out; }
+    MappedFile metadataFile;
+    if (!metadataFile.open(*metaPath)) { out.error = "cannot open " + *metaPath; return out; }
     std::optional<Il2CppMetadata> md;
     try {
-        std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        md = parseIl2CppMetadata(buf.data(), buf.size());
+        md = parseIl2CppMetadata(metadataFile.data(), metadataFile.size());
     } catch (const std::bad_alloc&) {
         out.error = "out of memory reading " + *metaPath;
         return out;

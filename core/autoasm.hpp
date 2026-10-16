@@ -107,7 +107,20 @@ public:
     using LuaEvaluator = std::function<std::expected<std::string, std::string>(const std::string& code)>;
     void setLuaEvaluator(LuaEvaluator eval) { luaEvaluator_ = std::move(eval); }
 
+    /// Refuse what reaches past the ProcessHandle: loadlibrary, loadbinary,
+    /// include, createthread, createthreadandwait and {$ccode} read files from
+    /// this computer or run code in the target directly. For scripts from an
+    /// untrusted author, such as the AI agent tools.
+    void setRestricted(bool restricted) { restricted_ = restricted; }
+
+    /// Take another assembler's registered symbols (registersymbol and
+    /// globalalloc names), so a scratch assembler resolves what enabled
+    /// scripts exported. Allocations are not shared, so it cannot free them.
+    void copySymbolsFrom(const AutoAssembler& other) { globalSymbols_ = other.globalSymbols_; }
+
 private:
+    bool restricted_ = false;
+
     // ── Internal types ──
     struct Alloc { std::string name; size_t size = 0; uintptr_t preferred = 0; uintptr_t address = 0;
                    std::string preferredExpr;   // 3rd alloc arg, resolved at alloc time (may be a symbol)

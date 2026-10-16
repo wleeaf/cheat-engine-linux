@@ -6,6 +6,8 @@
 #include <memory>
 #include <atomic>
 #include <mutex>
+#include <chrono>
+#include <vector>
 
 namespace ce::os {
 class NativeMemoryImage;
@@ -56,6 +58,14 @@ private:
     bool programKnown_ = false;
     bool wineHint_ = false;
     std::recursive_mutex metadataMutex_;
+    // machineAt() is called for every typed value read; under Wine it needs the
+    // PE module ranges, which are rebuilt from /proc at most once a second.
+    struct MachineRange { uintptr_t base = 0; size_t size = 0; TargetMachine machine; };
+    std::mutex machineCacheMutex_;
+    std::chrono::steady_clock::time_point machineCacheTime_{};
+    bool machineCacheValid_ = false;
+    TargetDescription machineCacheDescription_;
+    std::vector<MachineRange> machineCacheRanges_;
 
     MemProt parsePerms(const std::string& perms) const;
     bool sameProcess() const;

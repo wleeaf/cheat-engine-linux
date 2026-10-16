@@ -1,6 +1,9 @@
 #include "test_target.hpp"
 #include "core/simple_address_list.hpp"
 #include "core/simple_hook.hpp"
+#include "core/json.hpp"
+#include "core/value_io.hpp"
+#include "core/expression.hpp"
 #include "debug/breakpoint_manager.hpp"
 #include "debug/code_finder.hpp"
 #include "debug/debug_session.hpp"
@@ -13,6 +16,7 @@
 #include "platform/linux/ceserver_server.hpp"
 #include "platform/linux/ceserver_process.hpp"
 #include "scripting/lua_engine.hpp"
+#include "scanner/memory_scanner.hpp"
 
 extern "C" {
 #include <lua.h>
@@ -28,6 +32,7 @@ extern "C" {
 #include <thread>
 #include <sys/prctl.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <signal.h>
 #include <unistd.h>
 #include <elf.h>
@@ -425,7 +430,105 @@ void elfSymbolTests(const fs::path& root, int elfClass) {
     check(load().count() == 0, "unterminated ELF symbol names are rejected without inventing a terminator");
 }
 
+// A small 64-bit ELF built piece by piece: sections and program headers are
+// placed at fixed offsets, the payload is whatever the test writes.
+struct ElfImage {
+    std::vector<uint8_t> bytes = std::vector<uint8_t>(0x3000);
+    Elf64_Ehdr header{};
+    std::vector<Elf64_Shdr> sections{Elf64_Shdr{}};
+    std::vector<Elf64_Phdr> programs;
+    ElfImage() {
+        std::memcpy(header.e_ident, ELFMAG, SELFMAG);
+        header.e_ident[EI_CLASS] = ELFCLASS64; header.e_ident[EI_DATA] = ELFDATA2LSB;
+        header.e_ident[EI_VERSION] = EV_CURRENT; header.e_version = EV_CURRENT;
+        header.e_type = ET_DYN; header.e_ehsize = sizeof(header);
+    }
+    void put(size_t at, const void* data, size_t size) {
+        if (at + size > bytes.size()) bytes.resize(at + size);
+        std::memcpy(bytes.data() + at, data, size);
+    }
+    size_t addSection(uint32_t type, size_t offset, size_t size, uint32_t link = 0, size_t entsize = 0) {
+        Elf64_Shdr s{}; s.sh_type = type; s.sh_offset = offset; s.sh_size = size; s.sh_link = link; s.sh_entsize = entsize;
+        sections.push_back(s);
+        return sections.size() - 1;
+    }
+    void save(const fs::path& file) {
+        header.e_shoff = 0x100; header.e_shnum = sections.size(); header.e_shentsize = sizeof(Elf64_Shdr);
+        if (!programs.empty()) { header.e_phoff = 0x40; header.e_phnum = programs.size(); header.e_phentsize = sizeof(Elf64_Phdr); }
+        put(0, &header, sizeof(header));
+        if (!programs.empty()) put(0x40, programs.data(), programs.size() * sizeof(Elf64_Phdr));
+        put(0x100, sections.data(), sections.size() * sizeof(Elf64_Shdr));
+        std::ofstream out(file, std::ios::binary);
+        out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    }
+};
+
+Elf64_Sym elfSymbol(uint32_t name, uint64_t value) {
+    Elf64_Sym s{}; s.st_name = name; s.st_value = value; s.st_shndx = 1; s.st_info = ELF64_ST_INFO(STB_GLOBAL, STT_FUNC);
+    return s;
+}
+
+void elfLoaderLimitTests(const fs::path& root) {
+    const auto file = root / "limits.elf";
+    auto load = [&](uintptr_t base) { SymbolResolver r; r.loadModule(file.string(), "fixture", base); return r; };
+    {   // Overlapping symbol table headers: only one .symtab is read.
+        ElfImage elf;
+        elf.put(0x1000, "\0probe\0", 7);
+        const auto strtab = elf.addSection(SHT_STRTAB, 0x1000, 7);
+        Elf64_Sym syms[2] = {Elf64_Sym{}, elfSymbol(1, 0x10)};
+        elf.put(0x1100, syms, sizeof(syms));
+        elf.addSection(SHT_SYMTAB, 0x1100, sizeof(syms), strtab, sizeof(Elf64_Sym));
+        elf.addSection(SHT_SYMTAB, 0x1100 + sizeof(Elf64_Sym), sizeof(Elf64_Sym), strtab, sizeof(Elf64_Sym));
+        elf.save(file);
+        check(load(0x1000).count() == 1, "overlapping symbol table headers do not multiply the symbols");
+    }
+    {   // A name past the length cap is not copied per symbol.
+        ElfImage elf;
+        std::string longName(5000, 'n');
+        elf.put(0x1001, longName.c_str(), longName.size() + 1);
+        const auto strtab = elf.addSection(SHT_STRTAB, 0x1000, longName.size() + 2);
+        Elf64_Sym syms[2] = {Elf64_Sym{}, elfSymbol(1, 0x10)};
+        elf.put(0x3000, syms, sizeof(syms));
+        elf.addSection(SHT_SYMTAB, 0x3000, sizeof(syms), strtab, sizeof(Elf64_Sym));
+        elf.save(file);
+        check(load(0x1000).count() == 0, "symbol names longer than 4 KiB are skipped");
+    }
+    {   // glibc keeps compat versions under the same name: the default wins.
+        ElfImage elf;
+        elf.put(0x1000, "\0probe\0", 7);
+        const auto strtab = elf.addSection(SHT_STRTAB, 0x1000, 7);
+        Elf64_Sym syms[3] = {Elf64_Sym{}, elfSymbol(1, 0x100), elfSymbol(1, 0x200)};
+        elf.put(0x1100, syms, sizeof(syms));
+        const auto dynsym = elf.addSection(SHT_DYNSYM, 0x1100, sizeof(syms), strtab, sizeof(Elf64_Sym));
+        const uint16_t versions[3] = {0, 0x8002, 3};
+        elf.put(0x1200, versions, sizeof(versions));
+        elf.addSection(SHT_GNU_versym, 0x1200, sizeof(versions), dynsym, sizeof(uint16_t));
+        elf.save(file);
+        check(load(0x1000).lookup("probe") == 0x1200, "a symbol's default version wins over a hidden compat version");
+    }
+    {   // A library linked at a non-zero base: the lowest mapping is that base plus the bias.
+        ElfImage elf;
+        elf.put(0x1000, "\0probe\0", 7);
+        const auto strtab = elf.addSection(SHT_STRTAB, 0x1000, 7);
+        Elf64_Sym syms[2] = {Elf64_Sym{}, elfSymbol(1, 0x400123)};
+        elf.put(0x1100, syms, sizeof(syms));
+        elf.addSection(SHT_SYMTAB, 0x1100, sizeof(syms), strtab, sizeof(Elf64_Sym));
+        Elf64_Phdr segment{}; segment.p_type = PT_LOAD; segment.p_vaddr = 0x400000; segment.p_memsz = 0x2000;
+        elf.programs.push_back(segment);
+        elf.save(file);
+        check(load(0x7000000).lookup("probe") == 0x7000123, "symbols of an image linked at a non-zero base are rebased by the load bias");
+    }
+    check(isolated([&] {
+        const auto fifo = root / "module.fifo";
+        if (::mkfifo(fifo.c_str(), 0600) != 0) return false;
+        alarm(10);   // a blocking open would hang here
+        SymbolResolver r; r.loadModule(fifo.string(), "fifo", 0x1000);
+        return r.count() == 0;
+    }), "a FIFO named as a module is never opened for a blocking read");
+}
+
 void symbolTests(const fs::path& root) {
+    elfLoaderLimitTests(root);
     elfSymbolTests<Elf64_Ehdr, Elf64_Shdr, Elf64_Sym>(root, ELFCLASS64);
     elfSymbolTests<Elf32_Ehdr, Elf32_Shdr, Elf32_Sym>(root, ELFCLASS32);
     SymbolResolver resolver;
@@ -448,6 +551,69 @@ void symbolTests(const fs::path& root) {
         SymbolResolver r; r.loadModule(file.string(), "fixture", 0);
         return r.count() == 0;
     }), "ELF build-id notes reject wrapped name lengths before reading their contents");
+}
+
+void scannerTests(const fs::path& root) {
+    ModelProcess proc;
+    auto put = [&](size_t at, auto value) { std::memcpy(proc.bytes.data() + at, &value, sizeof(value)); };
+    // Results go where CE_SCAN_DIR says, in a directory named for this process.
+    const auto scanRootDir = root / "scans";
+    fs::create_directories(scanRootDir);
+    setenv("CE_SCAN_DIR", scanRootDir.c_str(), 1);
+    MemoryScanner scanner(1);
+    auto throws = [&](auto&& body) { try { body(); } catch (const std::invalid_argument&) { return true; } return false; };
+
+    ScanConfig changed; changed.valueType = ValueType::Int32; changed.compareType = ScanCompare::Changed;
+    check(throws([&] { scanner.firstScan(proc, changed); }), "a first scan refuses compares that need a previous scan");
+
+    put(0x400, int32_t(100));
+    ScanConfig exact; exact.valueType = ValueType::Int32; exact.intValue = 100;
+    auto first = scanner.firstScan(proc, exact);
+    bool named = first.count() == 1 && first.directory().string().starts_with(scanRootDir.string()) &&
+                 first.directory().string().find("ce-scan-" + std::to_string(getpid()) + "-") != std::string::npos;
+    check(named, "scan results go to CE_SCAN_DIR in a directory named for the scanning process");
+    put(0x400, int32_t(95));
+    ScanConfig by; by.valueType = ValueType::Int32; by.compareType = ScanCompare::IncreasedBy; by.intValue = -5;
+    check(scanner.nextScan(proc, by, first).count() == 1, "increased by a negative amount finds the decreased value");
+
+    ScanConfig pointer; pointer.valueType = ValueType::Pointer; pointer.pointerWidth = 4; pointer.intValue = 0x100001234;
+    check(throws([&] { scanner.firstScan(proc, pointer); }), "a 4-byte pointer scan refuses a value wider than 32 bits");
+
+    ScanConfig text; text.valueType = ValueType::String; text.stringValue = "abc"; text.alignment = 1;
+    std::memcpy(proc.bytes.data() + 0x800, "abc", 3);
+    auto texts = scanner.firstScan(proc, text);
+    ScanConfig greater = text; greater.compareType = ScanCompare::Greater;
+    check(throws([&] { scanner.nextScan(proc, greater, texts); }), "text next scans refuse ordered compares");
+
+    put(0xC00, uint64_t(UINT64_MAX));
+    ScanConfig all; all.valueType = ValueType::All; all.alignment = 8;
+    bool parsed = all.parseAllValues("18446744073709551615");
+    auto alls = scanner.firstScan(proc, all);
+    bool found = false;
+    for (size_t i = 0; i < alls.count(); ++i) found |= alls.address(i) == 0xC00;
+    check(parsed && found, "an All-type exact scan finds an 8-byte value above INT64_MAX");
+    unsetenv("CE_SCAN_DIR");
+}
+
+void expressionTests() {
+    ModelProcess proc;   // module "fixture" at 256
+    ExpressionParser parser(&proc);
+    check(parser.parse("FIXTURE+4") == 260u, "module names in expressions match without regard to case");
+    check(parser.parse("fixture+2*4") == 264u && parser.parse("2*3+1") == 7u && parser.parse("[fixture]*0+1") == 1u,
+          "expressions multiply, with '*' binding tighter than '+'");
+    struct Mixed : ModelProcess { bool runs32BitCode() override { return true; } } mixed;   // 64-bit process, 32-bit code
+    ExpressionParser wide(&mixed);
+    check(wide.parse("7f0012345678") == uintptr_t(0x7f0012345678) && wide.parse("FFFFFFFC+8") == 4u,
+          "a WoW64 process keeps addresses above 4 GiB and still wraps 32-bit arithmetic");
+
+    ValueIoOptions options;
+    options.pointerWidth = 8;
+    auto pointer = encodeTypedValue(ValueType::Pointer, "10000000", options);
+    uint64_t bits = 0;
+    if (pointer && pointer->size() == 8) std::memcpy(&bits, pointer->data(), 8);
+    check(bits == 0x10000000, "a pointer value is read back in hex, as it is shown");
+    check(!encodeTypedValue(ValueType::Float, "+-5").has_value(), "a float value with two signs is rejected");
+    check(json::Value::number(1.5).stringValue == "1.5", "JSON numbers do not depend on the locale");
 }
 
 void memoryTests() {
@@ -507,6 +673,8 @@ int runUnderlyingReviewTests(const fs::path& root) {
     engineTests(root);
     objectTests();
     memoryTests();
+    scannerTests(root);
+    expressionTests();
     watcherTests();
     debuggerLifecycleTests();
     breakpointTests();

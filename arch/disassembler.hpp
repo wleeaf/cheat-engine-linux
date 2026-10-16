@@ -24,6 +24,7 @@ struct MemoryOperand {
     int32_t     scale = 1;
     int64_t     disp  = 0;
     uint8_t     size  = 0;               // bytes accessed (0 = unknown)
+    std::string segmentReg;          // segment override, e.g. "fs"; empty if none
 };
 
 struct Instruction {
@@ -52,7 +53,8 @@ struct Instruction {
 /// Resolve the absolute address that `inst`'s memory operand refers to, given
 /// register state `ctx`. Returns 0 when the instruction has no memory operand.
 /// RIP-relative operands use the pre-resolved ripTarget; base/index/scale forms
-/// compute base + index*scale + disp from the 64-bit registers.
+/// compute base + index*scale + disp from the 64-bit registers. An fs: or gs:
+/// operand also returns 0: CpuContext carries no segment base to add.
 uintptr_t computeEffectiveAddress(const Instruction& inst, const CpuContext& ctx);
 
 enum class Arch { X86_32, X86_64, ARM32, ARM64, ARMThumb, ARM32_BE, ARMThumb_BE, RISCV32, RISCV64,

@@ -28,8 +28,8 @@ struct AgentToolResult {
 };
 
 struct AgentSessionOptions {
-    // Writing to the game (write, freezing) changes its memory; off unless the
-    // user starts the server with it enabled.
+    // Writing to the game (write, freezing, scripts, instruction breakpoints)
+    // changes its memory; off unless the user starts the server with it enabled.
     bool allowWrites = false;
     // How often frozen records are rewritten.
     int freezeIntervalMs = 100;
@@ -55,6 +55,7 @@ public:
     static std::string instructions();
 
     /// Allow or refuse changes to the game from now on (the GUI's switch).
+    /// Refusing also ends every freeze.
     void setAllowWrites(bool allow);
     /// The process the tools work on, or 0.
     pid_t attachedPid();

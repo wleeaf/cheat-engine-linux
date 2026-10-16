@@ -6,6 +6,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 #include <functional>
@@ -154,6 +155,18 @@ std::expected<void,TargetSyscallFailure> verifyStoppedMemoryImage(
 // restart stops may have syscallno=-1 with PC rewound onto SVC; they still need
 // a rendezvous adapter and must not be mistaken for ordinary user-mode stops.
 std::expected<void,std::error_code> checkStoppedFunctionAbi(pid_t tid,const TargetMachine& host);
+// Whether a stopped thread may be borrowed. Returns resource_unavailable_try_again
+// while it is inside an rseq critical section or, when the borrowed code calls
+// into the C library (dlopen, pthread_create, malloc), while its PC is inside
+// libc, libpthread or the dynamic loader, where it may hold a lock the call needs.
+std::expected<void,std::error_code> checkStoppedCallSite(pid_t tid,bool runsLibraryCode);
+// True for a mapping path of libc, libpthread, libdl or the dynamic loader.
+bool runtimeLockOwner(std::string_view path);
+// The one-letter scheduler state from /proc/<pid>/task/<tid>/stat ('R', 'S', ...).
+std::expected<char,std::error_code> taskSchedulerState(pid_t pid,pid_t tid);
+// The name under which a host file is visible in a task's mount namespace,
+// found through /proc/<task>/root and bind mounts; `path` itself otherwise.
+std::string targetVisiblePath(pid_t task,const std::string& path);
 
 // Integer/pointer System V i386/AMD64 and AAPCS64 calls. The caller supplies a
 // private executable code page and a private writable stack, aligned to 16 bytes

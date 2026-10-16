@@ -17,6 +17,11 @@
 #include <stdexcept>
 #include <type_traits>
 #include <string_view>
+#include <algorithm>
+#include <atomic>
+#include <cerrno>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 // Simple XML writer/reader (no external dependency)
@@ -86,6 +91,53 @@ static std::string makeSecureTempFile() {
     return std::string(buf.data());
 }
 
+// Replace the file at path with bytes so that it is never left truncated or half
+// written: write a temporary file in the same directory, flush it to disk and
+// rename it over the old one. A symlink is followed, so the link itself stays.
+static bool writeFileAtomically(const std::string& path, std::string_view bytes) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::path target(path);
+    if (fs::is_symlink(target, ec)) {
+        auto real = fs::canonical(target, ec);
+        if (!ec) target = real;
+    }
+    const fs::path dir = target.has_parent_path() ? target.parent_path() : fs::path(".");
+    struct stat old{};
+    const bool existed = ::stat(target.c_str(), &old) == 0;
+    static std::atomic<unsigned> counter{0};
+    std::string temp;
+    int fd = -1;
+    for (int attempt = 0; attempt < 100 && fd < 0; ++attempt) {
+        temp = (dir / ("." + target.filename().string() + ".tmp" + std::to_string(getpid()) + "-" +
+                       std::to_string(counter++))).string();
+        // 0666 less the umask, like any new file; an existing table keeps its mode.
+        fd = ::open(temp.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666);
+        if (fd < 0 && errno != EEXIST) return false;
+    }
+    if (fd < 0) return false;
+    bool ok = !existed || ::fchmod(fd, old.st_mode & 07777) == 0;
+    for (size_t done = 0; ok && done < bytes.size();) {
+        const ssize_t n = ::write(fd, bytes.data() + done, bytes.size() - done);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) ok = false;
+        else done += static_cast<size_t>(n);
+    }
+    ok = ok && ::fsync(fd) == 0;
+    ok = ::close(fd) == 0 && ok;
+    ok = ok && ::rename(temp.c_str(), target.c_str()) == 0;
+    if (!ok) {
+        ::unlink(temp.c_str());
+        return false;
+    }
+    // Make the rename itself durable.
+    if (int dirFd = ::open(dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC); dirFd >= 0) {
+        ::fsync(dirFd);
+        ::close(dirFd);
+    }
+    return true;
+}
+
 // ── XML writing helpers ──
 static std::string xmlEscape(const std::string& s) {
     std::string out;
@@ -116,6 +168,10 @@ static std::string xmlEscapeText(const std::string& s) {
     return out;
 }
 
+// The tag parsers, defined with the loader below.
+static std::string getTag(const std::string& xml, const std::string& tag);
+static std::vector<std::string> getTagBlocks(const std::string& xml, const std::string& tag);
+
 static std::string typeToStr(ValueType vt) {
     switch (vt) {
         case ValueType::Byte:    return "Byte";
@@ -132,6 +188,53 @@ static std::string typeToStr(ValueType vt) {
         case ValueType::Custom:  return "Custom";
         default: return "4 Bytes";
     }
+}
+
+// Our <Structures> format has no <Unicode> flag beside the type, so a wide
+// string field needs a name of its own.
+static std::string fieldTypeToStr(ValueType vt) {
+    return vt == ValueType::UnicodeString ? "Unicode String" : typeToStr(vt);
+}
+
+// CE's hotkey <Action> texts (MemRecHotkeyActionToText), indexed by its mrh* codes.
+static const char* const kHotkeyActions[] = {
+    "Toggle Activation", "Toggle Activation Allow Increase", "Toggle Activation Allow Decrease",
+    "Activate", "Deactivate", "Set Value", "Increase Value", "Decrease Value"};
+
+// An <Action> as CE writes it (text), or the numeric code older builds of this
+// port wrote. Anything else is a toggle, as in CE's TextToMemRecHotkeyAction.
+static int hotkeyActionFromText(const std::string& text) {
+    for (int i = 0; i < 8; ++i)
+        if (text == kHotkeyActions[i]) return i;
+    int code = 0;
+    const auto [stop, error] = std::from_chars(text.data(), text.data() + text.size(), code);
+    return error == std::errc() && stop == text.data() + text.size() && code >= 0 && code < 8 ? code : 0;
+}
+
+// CE <Color> is a Delphi TColor in hex: $00BBGGRR. Values with any high byte set
+// are system colors (clWindowText is 80000008) or clDefault/clNone: no color.
+// A leading '#' marks the RGB text older builds of this port wrote.
+static std::string colorFromCE(const std::string& text) {
+    if (text.empty() || text[0] == '#') return text;
+    uint32_t v = 0;
+    const auto [stop, error] = std::from_chars(text.data(), text.data() + text.size(), v, 16);
+    if (error != std::errc() || stop != text.data() + text.size() || (v & 0xFF000000u)) return {};
+    char rgb[8];
+    snprintf(rgb, sizeof(rgb), "%02X%02X%02X", v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF);
+    return rgb;
+}
+
+// Inverse of colorFromCE for "RRGGBB", "#rrggbb" or "#aarrggbb"; "" if unreadable.
+static std::string colorToCE(const std::string& color) {
+    std::string_view hex = color;
+    if (!hex.empty() && hex.front() == '#') hex.remove_prefix(1);
+    if (hex.size() == 8) hex.remove_prefix(2);   // drop Qt's alpha
+    uint32_t v = 0;
+    const auto [stop, error] = std::from_chars(hex.data(), hex.data() + hex.size(), v, 16);
+    if (hex.size() != 6 || error != std::errc() || stop != hex.data() + hex.size()) return {};
+    char bgr[8];
+    snprintf(bgr, sizeof(bgr), "%02X%02X%02X", v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF);
+    return bgr;
 }
 
 static std::string normalizedTypeName(const std::string& s) {
@@ -300,6 +403,7 @@ static ValueType strToType(const std::string& s) {
     if (type == "float" || type == "single") return ValueType::Float;
     if (type == "double") return ValueType::Double;
     if (type == "string" || type == "text") return ValueType::String;
+    if (type == "unicodestring" || type == "widestring") return ValueType::UnicodeString;
     if (type == "arrayofbyte" || type == "bytearray" || type == "aob") return ValueType::ByteArray;
     if (type == "binary" || type == "bits") return ValueType::Binary;
     if (type == "pointer") return ValueType::Pointer;
@@ -317,14 +421,85 @@ static bool validRecordFormats(const std::vector<CheatEntry>& entries) {
 }
 
 bool CheatTable::save(const std::string& path) const {
-    if (!validRecordFormats(entries)) return false;
-    std::ofstream f(path);
-    if (!f) return false;
-    bool success=writeTableXml(*this,f);
-    f.flush();
-    success=success && f.good();
-    f.close();
-    return success && !f.fail();
+    std::ostringstream xml;
+    return writeTableXml(*this, xml) && writeFileAtomically(path, xml.str());
+}
+
+// The end of the XML element whose '<' is at xml[at], past its close tag or
+// "/>", searching no further than limit; npos if it does not close in time.
+// Sets *name to the element's name.
+static size_t elementEnd(const std::string& xml, size_t at, size_t limit, std::string* name = nullptr) {
+    auto nameChar = [](char c) {
+        return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-' || c == '.' || c == ':';
+    };
+    size_t p = at + 1;
+    while (p < limit && nameChar(xml[p])) ++p;
+    if (p == at + 1 || p >= limit) return std::string::npos;
+    const std::string tag = xml.substr(at + 1, p - at - 1);
+    if (name) *name = tag;
+    const size_t gt = xml.find('>', p);
+    if (gt == std::string::npos || gt >= limit) return std::string::npos;
+    if (xml[gt - 1] == '/') return gt + 1;
+    const std::string open = "<" + tag, close = "</" + tag + ">";
+    int depth = 1;
+    size_t scan = gt + 1;
+    while (true) {
+        const size_t c = xml.find(close, scan);
+        if (c == std::string::npos || c + close.size() > limit) return std::string::npos;
+        size_t o = xml.find(open, scan);
+        while (o != std::string::npos && o < c && o + open.size() < xml.size() && nameChar(xml[o + open.size()]))
+            o = xml.find(open, o + 1);   // a longer name (<Offsets for <Offset)
+        if (o != std::string::npos && o < c) {
+            const size_t g = xml.find('>', o);
+            if (g == std::string::npos || g >= c) return std::string::npos;
+            if (xml[g - 1] != '/') ++depth;
+            scan = g + 1;
+        } else {
+            if (--depth == 0) return c + close.size();
+            scan = c + close.size();
+        }
+    }
+}
+
+// True when text is nothing but whole elements (and whitespace), only ones named
+// onlyName if given, and none of them a record or record list. Raw XML kept from
+// a table, or read from JSON, is written into the .CT as it is, so it must not
+// be able to close or open records there.
+static bool isElementSequence(const std::string& text, const char* onlyName = nullptr) {
+    for (const char* bad : {"<CheatEntr", "</CheatEntr", "<CheatTable", "</CheatTable"})
+        if (text.find(bad) != std::string::npos) return false;
+    for (size_t p = 0;;) {
+        p = text.find_first_not_of(" \t\r\n", p);
+        if (p == std::string::npos) return true;
+        std::string name;
+        const size_t end = text[p] == '<' ? elementEnd(text, p, text.size(), &name) : std::string::npos;
+        if (end == std::string::npos || (onlyName && name != onlyName)) return false;
+        p = end;
+    }
+}
+
+// A single self-closing <Options .../> element, as the loader keeps it.
+static bool isOptionsElement(const std::string& s) {
+    return s.rfind("<Options", 0) == 0 && s.size() >= 10 && s.compare(s.size() - 2, 2, "/>") == 0 &&
+        s.find('<', 1) == std::string::npos && s.find('>') == s.size() - 1;
+}
+
+// Attribute text kept from a start tag (name="value" pairs): nothing that could
+// end the tag early.
+static bool isAttributeText(const std::string& s) {
+    return s.find_first_of("<>") == std::string::npos && std::count(s.begin(), s.end(), '"') % 2 == 0;
+}
+
+static std::string trimmedXmlText(const std::string& s) {
+    const size_t a = s.find_first_not_of(" \t\r\n");
+    if (a == std::string::npos) return {};
+    return s.substr(a, s.find_last_not_of(" \t\r\n") - a + 1);
+}
+
+// The record keeps the <Address>/<Offsets> texts we could not parse, and nothing
+// has replaced the address since.
+static bool keepsUnparsedPointer(const CheatEntry& e) {
+    return !e.unparsedOffsets.empty() && e.offsets.empty() && e.addressString.rfind("(unsupported offset ", 0) == 0;
 }
 
 bool writeTableXml(const CheatTable& table,std::ostream& f) {
@@ -367,7 +542,7 @@ bool writeTableXml(const CheatTable& table,std::ostream& f) {
                 f << "        <Element>\n";
                 f << "          <Name>" << xmlEscape(field.name) << "</Name>\n";
                 f << "          <Offset>" << field.offset << "</Offset>\n";
-                f << "          <Type>" << typeToStr(field.type) << "</Type>\n";
+                f << "          <Type>" << fieldTypeToStr(field.type) << "</Type>\n";
                 f << "          <Size>" << field.size << "</Size>\n";
                 if (!field.displayMethod.empty())
                     f << "          <DisplayMethod>" << xmlEscape(field.displayMethod) << "</DisplayMethod>\n";
@@ -395,6 +570,53 @@ bool writeTableXml(const CheatTable& table,std::ostream& f) {
         f << "  </DisassemblerComments>\n";
     }
 
+    // <Address> and <Offsets> as CE writes them. The GUI and Lua keep a pointer
+    // path as one expression ("[[game.exe+1C]+8]+10"); CE wants it as a base and
+    // offsets, so one that is exactly what buildPointerExpression makes is split.
+    auto writeAddressAndOffsets = [&](const CheatEntry& e, bool numericFallback) {
+        if (keepsUnparsedPointer(e)) {
+            f << "      <Address>" << xmlEscapeText(e.unparsedAddress) << "</Address>\n";
+            f << "      <Offsets>\n";
+            for (const auto& text : e.unparsedOffsets)
+                f << "        <Offset>" << xmlEscapeText(text) << "</Offset>\n";
+            f << "      </Offsets>\n";
+            return;
+        }
+        std::string base = e.addressString;
+        std::vector<int64_t> offsets = e.offsets;
+        if (offsets.empty())
+            if (auto chain = parsePointerExpression(base); chain && buildPointerExpression(chain->base, chain->offsets) == base) {
+                base = chain->base;
+                offsets = chain->offsets;
+            }
+        // Data record. CE writes the address expression RAW (quotes and all);
+        // matching that keeps a module-relative base like "ac_client.exe"+X
+        // readable by CE and by our raw-reading loader. Escaping it (turning "
+        // into &quot;) double-encoded on the next load.
+        if (!base.empty()) {
+            f << "      <Address>" << xmlEscapeText(base) << "</Address>\n";
+        } else if (numericFallback) {
+            char addr[32];
+            snprintf(addr, sizeof(addr), "%lx", e.address);
+            f << "      <Address>" << addr << "</Address>\n";
+        }
+        if (!offsets.empty()) {
+            f << "      <Offsets>\n";
+            for (int64_t off : offsets) {
+                char ob[32];
+                // CE writes a negative offset as signed hex ("-60"). Emitting
+                // it as a 64-bit unsigned ("ffffffffffffffa0") overflowed the
+                // loader's stoll on reload and silently dropped the offset.
+                if (off < 0)
+                    snprintf(ob, sizeof(ob), "-%llx", static_cast<unsigned long long>(-off));
+                else
+                    snprintf(ob, sizeof(ob), "%llx", static_cast<unsigned long long>(off));
+                f << "        <Offset>" << ob << "</Offset>\n";
+            }
+            f << "      </Offsets>\n";
+        }
+    };
+
     // Write the inner fields of one <CheatEntry> (everything but the enclosing
     // tags and any nested child list).
     auto writeEntryFields = [&](const CheatEntry& e) {
@@ -407,6 +629,10 @@ bool writeTableXml(const CheatTable& table,std::ostream& f) {
             f << "      <GroupHeader>1</GroupHeader>\n";
             if (e.collapsed)
                 f << "      <Collapsed>1</Collapsed>\n";
+            // CE's address group header: children whose address starts with + or -
+            // are relative to it.
+            if (!e.addressString.empty() || !e.offsets.empty() || keepsUnparsedPointer(e))
+                writeAddressAndOffsets(e, false);
         } else if (!e.autoAsmScript.empty()) {
             // An entry carrying an AssemblerScript IS an "Auto Assembler Script"
             // record in CE (the two are equivalent). CE writes the type name and,
@@ -418,40 +644,18 @@ bool writeTableXml(const CheatTable& table,std::ostream& f) {
                 f << "      <Address>" << xmlEscapeText(e.addressString) << "</Address>\n";
             f << "      <VariableType>Auto Assembler Script</VariableType>\n";
         } else {
-            // Data record. CE writes the address expression RAW (quotes and all);
-            // matching that keeps a module-relative base like "ac_client.exe"+X
-            // readable by CE and by our raw-reading loader. Escaping it (turning "
-            // into &quot;) double-encoded on the next load.
-            if (!e.addressString.empty()) {
-                f << "      <Address>" << xmlEscapeText(e.addressString) << "</Address>\n";
-            } else {
-                char addr[32];
-                snprintf(addr, sizeof(addr), "%lx", e.address);
-                f << "      <Address>" << addr << "</Address>\n";
-            }
+            writeAddressAndOffsets(e, true);
             f << "      <VariableType>" << typeToStr(e.type) << "</VariableType>\n";
-            // CE stores a string/AoB element length in <Length>, and marks wide strings
-            // with <Unicode> (the VariableType stays "String").
+            // CE stores a string length in <Length> and marks wide strings with
+            // <Unicode> (the VariableType stays "String"); an array of byte has
+            // <ByteLength>.
             if (e.type == ValueType::String || e.type == ValueType::UnicodeString) {
                 if (e.length > 0) f << "      <Length>" << e.length << "</Length>\n";
                 f << "      <Unicode>" << (e.type == ValueType::UnicodeString ? 1 : 0) << "</Unicode>\n";
             } else if (e.type == ValueType::ByteArray && e.length > 0) {
-                f << "      <Length>" << e.length << "</Length>\n";
-            }
-            if (!e.offsets.empty()) {
-                f << "      <Offsets>\n";
-                for (int64_t off : e.offsets) {
-                    char ob[32];
-                    // CE writes a negative offset as signed hex ("-60"). Emitting
-                    // it as a 64-bit unsigned ("ffffffffffffffa0") overflowed the
-                    // loader's stoll on reload and silently dropped the offset.
-                    if (off < 0)
-                        snprintf(ob, sizeof(ob), "-%llx", static_cast<unsigned long long>(-off));
-                    else
-                        snprintf(ob, sizeof(ob), "%llx", static_cast<unsigned long long>(off));
-                    f << "        <Offset>" << ob << "</Offset>\n";
-                }
-                f << "      </Offsets>\n";
+                f << "      <ByteLength>" << e.length << "</ByteLength>\n";
+            } else if (e.type == ValueType::Custom && !e.customTypeName.empty()) {
+                f << "      <CustomType>" << xmlEscapeText(e.customTypeName) << "</CustomType>\n";
             }
             if (!e.value.empty())
                 f << "      <Value>" << xmlEscape(e.value) << "</Value>\n";
@@ -475,30 +679,38 @@ bool writeTableXml(const CheatTable& table,std::ostream& f) {
             f << "      <freezeMode>" << (int)e.freezeMode << "</freezeMode>\n";
 
         if (!e.autoAsmScript.empty()) {
-            f << "      <AssemblerScript>" << xmlEscape(e.autoAsmScript) << "</AssemblerScript>\n";
+            f << "      <AssemblerScript" << (e.asyncScript ? " Async=\"1\"" : "") << ">"
+              << xmlEscape(e.autoAsmScript) << "</AssemblerScript>\n";
         }
 
         if (!e.luaScript.empty()) {
             f << "      <LuaScript>" << xmlEscape(e.luaScript) << "</LuaScript>\n";
         }
 
-        if (!e.color.empty())
-            f << "      <Color>" << xmlEscapeText(e.color) << "</Color>\n";
+        if (auto color = colorToCE(e.color); !color.empty())
+            f << "      <Color>" << color << "</Color>\n";
 
         // Preserve an imported CE record's <Options> element verbatim so flags we do
         // not model survive a load+save; otherwise synthesize one for a group whose
         // cascade defaults were changed away from "on".
-        if (!e.optionsXml.empty())
+        if (isOptionsElement(e.optionsXml))
             f << "      " << e.optionsXml << "\n";
         else if (e.isGroup && (!e.activateChildren || !e.deactivateChildren))
             f << "      <Options moActivateChildrenAsWell=\"" << (e.activateChildren ? 1 : 0)
               << "\" moDeactivateChildrenAsWell=\"" << (e.deactivateChildren ? 1 : 0) << "\"/>\n";
 
-        if (!e.dropdownList.empty())
-            f << "      <DropDownList>" << xmlEscape(e.dropdownList) << "</DropDownList>\n";
+        if (!e.dropdownList.empty()) {
+            f << "      <DropDownList";
+            if (!e.dropdownAttributes.empty() && isAttributeText(e.dropdownAttributes))
+                f << " " << e.dropdownAttributes;
+            f << ">" << xmlEscape(e.dropdownList) << "</DropDownList>\n";
+        }
+
+        if (!e.extraXml.empty() && isElementSequence(e.extraXml))
+            f << "      " << e.extraXml << "\n";
 
         // Hotkeys in CE's nested form so Cheat Engine can read them: one <Hotkey> per
-        // binding with its mrh <Action>, a <Keys> list of VK codes, and an optional
+        // binding with its <Action> text, a <Keys> list of VK codes, and an optional
         // <Value> (set-value target, or the step for increase/decrease).
         struct HkOut { int action; const std::string* keys; const std::string* value; };
         const std::string empty;
@@ -507,12 +719,21 @@ bool writeTableXml(const CheatTable& table,std::ostream& f) {
         if (!e.setValueHotkeyKeys.empty())  hks.push_back({5, &e.setValueHotkeyKeys, &e.setValueHotkeyValue});
         if (!e.increaseHotkeyKeys.empty())  hks.push_back({6, &e.increaseHotkeyKeys, &e.hotkeyStep});
         if (!e.decreaseHotkeyKeys.empty())  hks.push_back({7, &e.decreaseHotkeyKeys, &e.hotkeyStep});
-        if (!hks.empty()) {
+        const bool extraHotkeys = !e.extraHotkeysXml.empty() && isElementSequence(e.extraHotkeysXml, "Hotkey");
+        if (!hks.empty() || extraHotkeys) {
             f << "      <Hotkeys>\n";
+            // Hotkey IDs are unique in a record: number ours after the kept ones.
             int hkId = 0;
+            if (extraHotkeys)
+                for (const auto& block : getTagBlocks(e.extraHotkeysXml, "ID")) {
+                    const std::string text = getTag(block, "ID");
+                    int id = -1;
+                    std::from_chars(text.data(), text.data() + text.size(), id);
+                    if (id >= hkId && id < std::numeric_limits<int>::max()) hkId = id + 1;
+                }
             for (const auto& hk : hks) {
                 f << "        <Hotkey>\n";
-                f << "          <Action>" << hk.action << "</Action>\n";
+                f << "          <Action>" << kHotkeyActions[hk.action] << "</Action>\n";
                 f << "          <Keys>\n";
                 for (int vk : keyStringToVKs(*hk.keys))
                     f << "            <Key>" << vk << "</Key>\n";
@@ -522,6 +743,8 @@ bool writeTableXml(const CheatTable& table,std::ostream& f) {
                 f << "          <ID>" << hkId++ << "</ID>\n";
                 f << "        </Hotkey>\n";
             }
+            if (extraHotkeys)
+                f << "        " << e.extraHotkeysXml << "\n";
             f << "      </Hotkeys>\n";
         }
     };
@@ -629,6 +852,73 @@ static std::vector<std::pair<size_t, size_t>> tagBlockRanges(const std::string& 
     return ranges;
 }
 
+// The text inside the first <tag> element of xml, which may carry attributes
+// (CE 7 writes <AssemblerScript Async="1">, <DropDownList DisplayValueAsItem="1">).
+// The attribute text, trimmed, goes to *attributes. "" when absent or <tag/>.
+static std::string getTagWithAttributes(const std::string& xml, const std::string& tag, std::string* attributes) {
+    if (attributes) attributes->clear();
+    const auto ranges = tagBlockRanges(xml, tag);
+    if (ranges.empty()) return {};
+    const auto [begin, end] = ranges.front();
+    const size_t gt = xml.find('>', begin);
+    if (gt == std::string::npos || gt >= end) return {};
+    const bool selfClosing = xml[gt - 1] == '/';
+    if (attributes) *attributes = trimmedXmlText(xml.substr(begin + 1 + tag.size(), gt - begin - 1 - tag.size() - selfClosing));
+    const std::string close = "</" + tag + ">";
+    if (selfClosing || end < gt + 1 + close.size() || xml.compare(end - close.size(), close.size(), close) != 0) return {};
+    return xml.substr(gt + 1, end - close.size() - gt - 1);
+}
+
+// The value of name="..." in a start tag's attribute text, "" if absent.
+static std::string attributeValue(const std::string& attributes, const std::string& name) {
+    for (size_t at = attributes.find(name); at != std::string::npos; at = attributes.find(name, at + 1)) {
+        if (at > 0 && !std::isspace(static_cast<unsigned char>(attributes[at - 1]))) continue;
+        size_t p = at + name.size();
+        while (p < attributes.size() && std::isspace(static_cast<unsigned char>(attributes[p]))) ++p;
+        if (p >= attributes.size() || attributes[p] != '=') continue;
+        ++p;
+        while (p < attributes.size() && std::isspace(static_cast<unsigned char>(attributes[p]))) ++p;
+        if (p >= attributes.size() || (attributes[p] != '"' && attributes[p] != '\'')) continue;
+        const size_t close = attributes.find(attributes[p], p + 1);
+        if (close == std::string::npos) return {};
+        return attributes.substr(p + 1, close - p - 1);
+    }
+    return {};
+}
+
+// Record elements the loader reads; anything else is kept verbatim in extraXml.
+static const std::set<std::string, std::less<>> kRecordElements = {
+    "ID", "Description", "Options", "DropDownList", "DropdownList", "ShowAsHex", "ShowAsSigned", "Color",
+    "GroupHeader", "Collapsed", "CheatEntries", "VariableType", "CustomType", "Length", "ByteLength",
+    "Unicode", "Address", "Offsets", "Hotkeys", "AssemblerScript", "LuaScript", "Value", "Activated",
+    "freezeMode", "LinuxDataByteOrder", "LinuxPointerWidth", "IncreaseHotkey", "SetValueHotkey",
+    "SetValueHotkeyValue", "DecreaseHotkey", "HotkeyStep"};
+
+// The direct child elements of a record (its own part, from "<CheatEntry>") that
+// kRecordElements does not name, joined for writing back as they were.
+static std::string unknownRecordElements(const std::string& own) {
+    std::string out;
+    size_t p = own.find('>');
+    if (p == std::string::npos) return out;
+    for (++p; (p = own.find('<', p)) != std::string::npos;) {
+        if (own.compare(p, 2, "</") == 0) break;   // </CheatEntry>
+        if (own.compare(p, 4, "<!--") == 0) {
+            p = own.find("-->", p);
+            if (p == std::string::npos) break;
+            continue;
+        }
+        std::string name;
+        const size_t end = elementEnd(own, p, own.size(), &name);
+        if (end == std::string::npos) break;
+        if (!kRecordElements.count(name)) {
+            if (!out.empty()) out += "\n      ";
+            out += own.substr(p, end - p);
+        }
+        p = end;
+    }
+    return out;
+}
+
 // Position of the "</tag>" that matches the "<tag>" opened at openPos, accounting
 // for nested <tag> pairs. npos if unbalanced. Needed because Cheat Engine nests a
 // group's children inside its own <CheatEntries>, so a naive find of the first
@@ -687,7 +977,10 @@ static void parseCheatEntriesBlock(const std::string& xml, size_t begin, size_t 
         // nested <CheatEntries> so getTag() reads the parent's fields, not a child's.
         size_t ownEnd = pos;
         size_t childBegin = 0, childEnd = 0;
-        auto nestedOpen = xml.find(LIST_OPEN, entryStart);
+        // Search this record only: a search to the end of the file for every
+        // record without children made loading quadratic.
+        size_t nestedOpen = std::string_view(xml).substr(entryStart, entryClose - entryStart).find(LIST_OPEN);
+        if (nestedOpen != std::string::npos) nestedOpen += entryStart;
         if (nestedOpen != std::string::npos && nestedOpen < entryClose) {
             ownEnd = nestedOpen;
             auto nestedClose = findMatchingClose(xml, nestedOpen, "CheatEntries");
@@ -717,44 +1010,59 @@ static void parseCheatEntriesBlock(const std::string& xml, size_t begin, size_t 
             e.description = e.description.substr(1, e.description.size() - 2);
         e.isGroup = (getTag(ownXml, "GroupHeader") == "1");
         e.collapsed = (getTag(ownXml, "Collapsed") == "1");
+        // A group can have an address too (CE's address group header): children
+        // whose address starts with + or - are relative to it.
+        auto addrStr = getTag(ownXml, "Address");
+        if (!addrStr.empty()) {
+            e.addressString = xmlUnescape(addrStr);
+            // Only a plain hex address is one; "game.exe+10" must not read as 0xBA.
+            uint64_t plain = 0;
+            const auto [stop, error] = std::from_chars(addrStr.data(), addrStr.data() + addrStr.size(), plain, 16);
+            e.address = error == std::errc() && stop == addrStr.data() + addrStr.size() ? plain : 0;
+        }
+        const auto offsetsXml = getTag(ownXml, "Offsets");
+        std::vector<std::string> offsetTexts;
+        bool offsetsParsed = true;
+        // CE may give an offset attributes (<Offset Interval="100">); skipping
+        // such an offset would follow a shorter chain to some other address.
+        for (const auto& [offBegin, offEnd] : tagBlockRanges(offsetsXml, "Offset")) {
+            const std::string offStr = trimmedXmlText(xmlUnescape(
+                getTagWithAttributes(offsetsXml.substr(offBegin, offEnd - offBegin), "Offset", nullptr)));
+            offsetTexts.push_back(offStr);
+            // The whole text must be hex (64-bit values wrap, as pointer math
+            // does). Anything else (a symbol, an expression) is kept as text and
+            // the record keeps no address at all.
+            const bool negative = !offStr.empty() && offStr[0] == '-';
+            const std::string digits = offStr.substr(negative ? 1 : 0);
+            uint64_t magnitude = 0;
+            const auto [stop, error] = std::from_chars(digits.data(), digits.data() + digits.size(), magnitude, 16);
+            const bool parsed = !digits.empty() && error == std::errc() && stop == digits.data() + digits.size();
+            if (parsed) e.offsets.push_back(static_cast<int64_t>(negative ? 0 - magnitude : magnitude));
+            else if (offsetsParsed) {
+                offsetsParsed = false;
+                e.addressString.swap(e.unparsedAddress);
+                e.addressString = "(unsupported offset " + offStr + ")";
+            }
+        }
+        if (!offsetsParsed) {
+            e.offsets.clear();
+            e.address = 0;
+            e.unparsedOffsets = std::move(offsetTexts);
+        }
         if (!e.isGroup) {
-            auto addrStr = getTag(ownXml, "Address");
-            if (!addrStr.empty()) {
-                e.addressString = xmlUnescape(addrStr);
-                // Only a plain hex address is one; "game.exe+10" must not read as 0xBA.
-                uint64_t plain = 0;
-                const auto [stop, error] = std::from_chars(addrStr.data(), addrStr.data() + addrStr.size(), plain, 16);
-                e.address = error == std::errc() && stop == addrStr.data() + addrStr.size() ? plain : 0;
-            }
-            auto offsetsXml = getTag(ownXml, "Offsets");
-            for (const auto& offBlock : getTagBlocks(offsetsXml, "Offset")) {
-                const std::string offStr = getTag(offBlock, "Offset");
-                // The whole text must be hex (64-bit values wrap, as pointer
-                // math does). Dropping or cutting one offset would follow a
-                // shorter chain to some other address, so a record with an
-                // offset we cannot read keeps no address at all.
-                const bool negative = !offStr.empty() && offStr[0] == '-';
-                const std::string digits = offStr.substr(negative ? 1 : 0);
-                uint64_t magnitude = 0;
-                const auto [stop, error] = std::from_chars(digits.data(), digits.data() + digits.size(), magnitude, 16);
-                const bool parsed = !digits.empty() && error == std::errc() && stop == digits.data() + digits.size();
-                if (parsed) e.offsets.push_back(static_cast<int64_t>(negative ? 0 - magnitude : magnitude));
-                if (!parsed) {
-                    e.offsets.clear();
-                    e.address = 0;
-                    e.addressString = "(unsupported offset " + xmlUnescape(offStr) + ")";
-                    break;
-                }
-            }
             e.type = strToType(getTag(ownXml, "VariableType"));
-            // CE String + <Unicode>1</Unicode> is our UnicodeString; <Length> is the
-            // element byte length for String / Array-of-byte records.
+            // CE String + <Unicode>1</Unicode> is our UnicodeString. The element
+            // length is <Length> for a string and <ByteLength> for an array of
+            // byte; older builds of this port wrote <Length> for both.
             if (e.type == ValueType::String && getTag(ownXml, "Unicode") == "1")
                 e.type = ValueType::UnicodeString;
-            if (auto ln = getTag(ownXml, "Length"); !ln.empty()) {
+            auto ln = getTag(ownXml, "ByteLength");
+            if (ln.empty()) ln = getTag(ownXml, "Length");
+            if (!ln.empty()) {
                 // Read on every refresh: a huge length would read that much each time.
                 try { e.length = std::clamp(std::stoi(ln), 0, 65536); } catch (...) {}
             }
+            if (e.type == ValueType::Custom) e.customTypeName = xmlUnescape(getTag(ownXml, "CustomType"));
             e.value = xmlUnescape(getTag(ownXml, "Value"));
         }
         e.active = (getTag(ownXml, "Activated") == "1");
@@ -768,14 +1076,20 @@ static void parseCheatEntriesBlock(const std::string& xml, size_t begin, size_t 
                     e.freezeMode = static_cast<FreezeMode>(mode);
             } catch (...) {}
         }
-        e.autoAsmScript = xmlUnescape(getTag(ownXml, "AssemblerScript"));
+        // CE 7 writes <AssemblerScript Async="1"> for a script that runs in the background.
+        std::string attributes;
+        e.autoAsmScript = xmlUnescape(getTagWithAttributes(ownXml, "AssemblerScript", &attributes));
+        e.asyncScript = attributeValue(attributes, "Async") == "1";
         e.luaScript = xmlUnescape(getTag(ownXml, "LuaScript"));
-        e.color = xmlUnescape(getTag(ownXml, "Color"));
-        // CE writes the PascalCase <DropDownList> (like every other tag); accept the
-        // mis-cased <DropdownList> older builds of this port wrote as a fallback.
-        e.dropdownList = xmlUnescape(getTag(ownXml, "DropDownList"));
+        e.color = colorFromCE(trimmedXmlText(xmlUnescape(getTag(ownXml, "Color"))));
+        // CE writes the PascalCase <DropDownList>, one choice per line, with
+        // attributes such as DisplayValueAsItem="1"; accept the mis-cased
+        // <DropdownList> older builds of this port wrote as a fallback.
+        e.dropdownList = xmlUnescape(getTagWithAttributes(ownXml, "DropDownList", &attributes));
+        e.dropdownAttributes = attributes;
         if (e.dropdownList.empty())
             e.dropdownList = xmlUnescape(getTag(ownXml, "DropdownList"));
+        e.dropdownList.erase(std::remove(e.dropdownList.begin(), e.dropdownList.end(), '\r'), e.dropdownList.end());
         // CE group <Options .../> is a self-closing element with attributes; preserve it
         // verbatim and read the two cascade flags. Absent element -> keep our defaults
         // (cascade on); present element -> an absent attribute reads as off (CE convention).
@@ -787,28 +1101,51 @@ static void parseCheatEntriesBlock(const std::string& xml, size_t begin, size_t 
                 e.deactivateChildren = e.optionsXml.find("moDeactivateChildrenAsWell=\"1\"") != std::string::npos;
             }
         }
-        // Hotkeys: CE uses a nested <Hotkeys><Hotkey><Action>N</Action><Keys><Key>vk
-        // </Key>...</Keys><Value>..</Value></Hotkey>...</Hotkeys>; older builds of this
-        // port wrote a flat "<Hotkeys>Ctrl+H</Hotkeys>" plus separate tags. Detect the
-        // nested form by the inner <Hotkey and map each action to our slot; else read flat.
+        e.extraXml = unknownRecordElements(ownXml);
+        // Hotkeys: CE uses a nested <Hotkeys><Hotkey><Action>Set Value</Action><Keys>
+        // <Key>vk</Key>...</Keys><Value>..</Value></Hotkey>...</Hotkeys>; older builds of
+        // this port wrote numeric actions, and before that a flat "<Hotkeys>Ctrl+H
+        // </Hotkeys>" plus separate tags. The first enabled hotkey of each kind fills
+        // our toggle/set/increase/decrease slot; every other one is kept as written.
         auto hkXml = getTag(hotkeysXml, "Hotkeys");
         if (hkXml.find("<Hotkey") != std::string::npos) {
-            for (const auto& hk : getTagBlocks(hkXml, "Hotkey")) {
-                int action = 0;
-                if (auto a = getTag(hk, "Action"); !a.empty()) {
-                    try { action = std::stoi(a); } catch (...) {}
-                }
+            bool stepTaken = false;
+            for (const auto& [hkBegin, hkEnd] : tagBlockRanges(hkXml, "Hotkey")) {
+                const std::string block = hkXml.substr(hkBegin, hkEnd - hkBegin);
+                std::string hkAttributes;
+                const std::string hk = getTagWithAttributes(block, "Hotkey", &hkAttributes);
+                const int action = hotkeyActionFromText(trimmedXmlText(xmlUnescape(getTag(hk, "Action"))));
                 std::vector<int> vks;
                 for (const auto& kb : getTagBlocks(getTag(hk, "Keys"), "Key")) {
                     try { vks.push_back(std::stoi(getTag(kb, "Key"))); } catch (...) {}
                 }
-                std::string keyStr = vksToKeyString(vks);
-                std::string val = xmlUnescape(getTag(hk, "Value"));
-                switch (action) {   // CE mrh* action codes
-                    case 5: e.setValueHotkeyKeys = keyStr; e.setValueHotkeyValue = val; break;  // SetValue
-                    case 6: e.increaseHotkeyKeys = keyStr; if (!val.empty()) e.hotkeyStep = val; break;  // Increase
-                    case 7: e.decreaseHotkeyKeys = keyStr; if (!val.empty()) e.hotkeyStep = val; break;  // Decrease
-                    default: if (e.hotkeyKeys.empty()) e.hotkeyKeys = keyStr; break;            // Toggle (0-4)
+                const std::string keyStr = vksToKeyString(vks);
+                const std::string val = xmlUnescape(getTag(hk, "Value"));
+                bool bound = false;
+                if (!keyStr.empty() && attributeValue(hkAttributes, "Active") != "0") {
+                    switch (action) {   // CE mrh* action codes
+                        case 0:   // Toggle Activation
+                            if ((bound = e.hotkeyKeys.empty())) e.hotkeyKeys = keyStr;
+                            break;
+                        case 5:   // Set Value
+                            if ((bound = e.setValueHotkeyKeys.empty())) { e.setValueHotkeyKeys = keyStr; e.setValueHotkeyValue = val; }
+                            break;
+                        case 6:   // Increase Value and Decrease Value share one step
+                        case 7: {
+                            auto& slot = action == 6 ? e.increaseHotkeyKeys : e.decreaseHotkeyKeys;
+                            if ((bound = slot.empty() && (!stepTaken || val == e.hotkeyStep))) {
+                                slot = keyStr;
+                                e.hotkeyStep = val;
+                                stepTaken = true;
+                            }
+                            break;
+                        }
+                        default: break;
+                    }
+                }
+                if (!bound && isElementSequence(block, "Hotkey")) {
+                    if (!e.extraHotkeysXml.empty()) e.extraHotkeysXml += "\n        ";
+                    e.extraHotkeysXml += block;
                 }
             }
         } else {
@@ -835,11 +1172,49 @@ static void parseCheatEntriesBlock(const std::string& xml, size_t begin, size_t 
     }
 }
 
+// A character reference (&#10; or &#x27;) at s[i] as UTF-8, advancing i to its
+// ';'. False, leaving i, when it is not a valid one.
+static bool appendCharacterReference(const std::string& s, size_t& i, std::string& out) {
+    if (s.compare(i, 2, "&#") != 0) return false;
+    const size_t semi = s.find(';', i);
+    if (semi == std::string::npos || semi - i > 12) return false;
+    const bool hex = i + 2 < s.size() && (s[i + 2] == 'x' || s[i + 2] == 'X');
+    const char* first = s.data() + i + (hex ? 3 : 2);
+    uint32_t cp = 0;
+    const auto [stop, error] = std::from_chars(first, s.data() + semi, cp, hex ? 16 : 10);
+    if (first == s.data() + semi || error != std::errc() || stop != s.data() + semi || cp == 0 || cp > 0x10FFFF ||
+        (cp >= 0xD800 && cp <= 0xDFFF))
+        return false;
+    if (cp < 0x80) out += static_cast<char>(cp);
+    else if (cp < 0x800) { out += static_cast<char>(0xC0 | (cp >> 6)); out += static_cast<char>(0x80 | (cp & 0x3F)); }
+    else if (cp < 0x10000) {
+        out += static_cast<char>(0xE0 | (cp >> 12));
+        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
+    } else {
+        out += static_cast<char>(0xF0 | (cp >> 18));
+        out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
+    }
+    i = semi;
+    return true;
+}
+
 static std::string xmlUnescape(const std::string& s) {
     std::string out;
     for (size_t i = 0; i < s.size(); ++i) {
+        // A CDATA section is literal text: nothing in it is a reference.
+        if (s.compare(i, 9, "<![CDATA[") == 0) {
+            const size_t close = s.find("]]>", i + 9);
+            out.append(s, i + 9, close == std::string::npos ? std::string::npos : close - i - 9);
+            if (close == std::string::npos) break;
+            i = close + 2;
+            continue;
+        }
         if (s[i] == '&') {
-            if (s.substr(i, 4) == "&lt;") { out += '<'; i += 3; }
+            if (appendCharacterReference(s, i, out)) {}
+            else if (s.substr(i, 4) == "&lt;") { out += '<'; i += 3; }
             else if (s.substr(i, 4) == "&gt;") { out += '>'; i += 3; }
             else if (s.substr(i, 5) == "&amp;") { out += '&'; i += 4; }
             else if (s.substr(i, 6) == "&quot;") { out += '"'; i += 5; }
@@ -1025,12 +1400,13 @@ TableFormat detectTableFormat(const std::string& path) {
                               head[i] == '\r' || head[i] == '\n'))
         ++i;
 
-    if ((i < head.size() && head[i] == '<') ||
-        head.find("<CheatTable") != std::string::npos ||
-        head.find("<CheatEntries") != std::string::npos)
-        return TableFormat::Xml;
+    // The first byte decides before any search: a JSON table whose text
+    // mentions "<CheatTable" is still JSON.
+    if (i < head.size() && head[i] == '<') return TableFormat::Xml;
     if (i < head.size() && (head[i] == '{' || head[i] == '['))
         return TableFormat::Json;
+    if (head.find("<CheatTable") != std::string::npos || head.find("<CheatEntries") != std::string::npos)
+        return TableFormat::Xml;
     return TableFormat::Unknown;
 }
 
@@ -1248,14 +1624,8 @@ std::optional<PointerExpr> parsePointerExpression(const std::string& expr) {
 // ── JSON format (our native format, simpler) ──
 
 bool CheatTable::saveJson(const std::string& path) const {
-    if (!validRecordFormats(entries)) return false;
-    std::ofstream f(path);
-    if (!f) return false;
-    bool success=writeTableJson(*this,f);
-    f.flush();
-    success=success && f.good();
-    f.close();
-    return success && !f.fail();
+    std::ostringstream json;
+    return writeTableJson(*this, json) && writeFileAtomically(path, json.str());
 }
 
 bool writeTableJson(const CheatTable& table,std::ostream& f) {
@@ -1320,19 +1690,30 @@ bool writeTableJson(const CheatTable& table,std::ostream& f) {
             f << ",\"addr\":\"" << addr << "\"";
             f << ",\"type\":" << (int)e.type;
             f << ",\"value\":\"" << jsonEscape(e.value) << "\"";
-            // Persist the fields the XML path round-trips too; otherwise a
-            // pointer chain / symbolic base / String-AoB length is lost through
-            // saveJson+loadJson (i.e. every .CETRAINER save/load).
-            if (!e.addressString.empty())
-                f << ",\"addrString\":\"" << jsonEscape(e.addressString) << "\"";
-            if (!e.offsets.empty()) {
-                f << ",\"offsets\":[";
-                for (size_t k = 0; k < e.offsets.size(); ++k)
-                    f << (k ? "," : "") << e.offsets[k];
-                f << "]";
-            }
             if (e.length > 0) f << ",\"length\":" << e.length;
+            if (!e.customTypeName.empty()) f << ",\"customType\":\"" << jsonEscape(e.customTypeName) << "\"";
         }
+        // Persist the fields the XML path round-trips too; otherwise a pointer
+        // chain / symbolic base is lost through saveJson+loadJson (i.e. every
+        // .CETRAINER save/load). A group can have an address as well.
+        if (!e.addressString.empty())
+            f << ",\"addrString\":\"" << jsonEscape(e.addressString) << "\"";
+        if (!e.offsets.empty()) {
+            f << ",\"offsets\":[";
+            for (size_t k = 0; k < e.offsets.size(); ++k)
+                f << (k ? "," : "") << e.offsets[k];
+            f << "]";
+        }
+        if (!e.unparsedOffsets.empty()) {
+            f << ",\"unparsedAddress\":\"" << jsonEscape(e.unparsedAddress) << "\",\"unparsedOffsets\":[";
+            for (size_t k = 0; k < e.unparsedOffsets.size(); ++k)
+                f << (k ? "," : "") << "\"" << jsonEscape(e.unparsedOffsets[k]) << "\"";
+            f << "]";
+        }
+        if (e.asyncScript) f << ",\"async\":true";
+        if (!e.dropdownAttributes.empty()) f << ",\"dropdownAttributes\":\"" << jsonEscape(e.dropdownAttributes) << "\"";
+        if (!e.extraHotkeysXml.empty()) f << ",\"extraHotkeys\":\"" << jsonEscape(e.extraHotkeysXml) << "\"";
+        if (!e.extraXml.empty()) f << ",\"extraXml\":\"" << jsonEscape(e.extraXml) << "\"";
         if (e.active) f << ",\"active\":true";
         if (e.showAsHex) f << ",\"showAsHex\":true";
         if (!e.showAsSigned) f << ",\"showAsSigned\":false";
@@ -1473,6 +1854,19 @@ static bool readTableJson(const JsonValue& root,CheatTable& table) {
         }
         if (getField(item,"activateChildren")) e.activateChildren=jsonBoolField(item,"activateChildren");
         if (getField(item,"deactivateChildren")) e.deactivateChildren=jsonBoolField(item,"deactivateChildren");
+        e.customTypeName = jsonStringField(item, "customType");
+        e.asyncScript = jsonBoolField(item, "async");
+        e.unparsedAddress = jsonStringField(item, "unparsedAddress");
+        if (auto* texts = getField(item, "unparsedOffsets")) {
+            if (texts->type != JsonValue::Type::Array) return false;
+            for (const auto& text : texts->arrayValue) {
+                if (text.type != JsonValue::Type::String) return false;
+                e.unparsedOffsets.push_back(text.stringValue);
+            }
+        }
+        e.extraHotkeysXml = jsonStringField(item, "extraHotkeys");
+        e.extraXml = jsonStringField(item, "extraXml");
+        e.dropdownAttributes = jsonStringField(item, "dropdownAttributes");
         e.color = jsonStringField(item, "color");
         e.dropdownList = jsonStringField(item, "dropdown");
         e.hotkeyKeys = jsonStringField(item, "hotkeys");
@@ -1512,34 +1906,13 @@ bool CheatTable::loadJsonFromString(const std::string& json) {
 }
 
 bool CheatTable::saveProtected(const std::string& path, const std::string& password) const {
-    auto tempPath = makeSecureTempFile();
-    if (tempPath.empty())
+    std::ostringstream json;
+    if (!writeTableJson(*this, json))
         return false;
-    std::error_code ec;
-    if (!saveJson(tempPath)) {
-        std::filesystem::remove(tempPath, ec);
-        return false;
-    }
-
-    std::ifstream in(tempPath, std::ios::binary);
-    std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    in.close();
-    std::filesystem::remove(tempPath, ec);
-    if (json.empty())
-        return false;
-
-    auto encrypted = xorCrypt(json, password);
-    std::ofstream out(path, std::ios::binary);
-    if (!out)
-        return false;
-
-    out << "CETRAINER1\n";
-    out << fnv1a(password) << "\n";
-    out.write(reinterpret_cast<const char*>(encrypted.data()), static_cast<std::streamsize>(encrypted.size()));
-    out.flush();
-    bool success=out.good();
-    out.close();
-    return success && !out.fail();
+    const auto encrypted = xorCrypt(json.str(), password);
+    std::string bytes = "CETRAINER1\n" + std::to_string(fnv1a(password)) + "\n";
+    bytes.append(encrypted.begin(), encrypted.end());
+    return writeFileAtomically(path, bytes);
 }
 
 bool CheatTable::loadProtected(const std::string& path, const std::string& password) {

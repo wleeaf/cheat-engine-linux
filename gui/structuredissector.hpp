@@ -92,6 +92,9 @@ private:
     void onCopyAsCpp();
     ce::ValueType guessType(const uint8_t* data, int offset) const;
     bool looksLikePointer(uintptr_t p) const;
+    // The pointer stored at `data`, pointerWidth_ bytes wide.
+    uintptr_t pointerAt(const uint8_t* data) const;
+    void updatePointerWidth();   // from the target: 4 for 32-bit code (i386, WoW64)
 
     std::map<int, QString> fieldNames_;       // offset -> user field name
     std::map<int, ce::ValueType> fieldTypes_; // offset -> type (from Type-as; else guessed)
@@ -99,6 +102,7 @@ private:
     uintptr_t baseAddr_ = 0;
     int structSize_ = 256;
     int validBytes_ = 0;
+    size_t pointerWidth_ = sizeof(uintptr_t);
     QLineEdit* addressEdit_;
     QLineEdit* compareEdit_ = nullptr;      // one or more compare struct addresses
     std::vector<uintptr_t> compareAddrs_;   // N instances to diff the base against

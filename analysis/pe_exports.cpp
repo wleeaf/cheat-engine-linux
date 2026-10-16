@@ -1,4 +1,5 @@
 #include "analysis/pe_exports.hpp"
+#include "core/regular_file.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -13,7 +14,7 @@ namespace {
 // A minimal PE reader: enough to map RVAs to file offsets and reach the export
 // directory. All reads are bounds-checked against the loaded buffer.
 struct Pe {
-    std::vector<uint8_t> buf;
+    MappedFile buf;
     struct Sec { uint32_t rva, vsize, fileOff, fileSize; };
     std::vector<Sec> secs;
     uint32_t headerSize = 0;
@@ -132,11 +133,7 @@ bool loadPe(Pe& pe, PeDirs& dirs) {
 std::vector<PEExport> parsePEExports(const std::string& path) {
     std::vector<PEExport> out;
     Pe pe;
-    {
-        std::ifstream in(path, std::ios::binary);
-        if (!in) return out;
-        pe.buf.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-    }
+    if (!pe.buf.open(path)) return out;
     PeDirs dirs;
     if (!loadPe(pe, dirs) || dirs.exportRva == 0) return out;
     const uint32_t edRva = dirs.exportRva, edSize = dirs.exportSize;
@@ -187,11 +184,7 @@ uint64_t peExportRva(const std::string& path, const std::string& name) {
 std::vector<PEImport> parsePEImports(const std::string& path) {
     std::vector<PEImport> out;
     Pe pe;
-    {
-        std::ifstream in(path, std::ios::binary);
-        if (!in) return out;
-        pe.buf.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-    }
+    if (!pe.buf.open(path)) return out;
     PeDirs dirs;
     if (!loadPe(pe, dirs) || dirs.importRva == 0) return out;
     const uint64_t hiBit = dirs.pe64 ? 0x8000000000000000ull : 0x80000000ull;

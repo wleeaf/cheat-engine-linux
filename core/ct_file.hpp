@@ -26,16 +26,20 @@ struct CheatEntry {
     std::string luaScript;      // Lua code
     int parentId = -1;          // -1 = root level
     std::vector<int> childIds;
-    bool isGroup = false;       // True = group header, no address
+    bool isGroup = false;       // Group header; CE lets one have an address its children are relative to
     bool collapsed = false;     // Group header whose children are hidden (CE Collapsed)
-    std::string color;          // Hex color for display
-    std::string dropdownList;   // Semicolon-separated choices
+    std::string color;          // Display color as RGB hex ("RRGGBB" or "#rrggbb"); .CT files hold CE's BGR
+    std::string dropdownList;   // Choices, one "value:label" per line as CE writes them (older tables: ';')
+    std::string dropdownAttributes; // Attributes of CE's <DropDownList> (DisplayValueAsItem="1" ...), kept as written
     std::string hotkeyKeys;     // Hotkey binding
     std::string increaseHotkeyKeys;
     std::string decreaseHotkeyKeys;
     std::string setValueHotkeyKeys;    // hotkey that sets the value to setValueHotkeyValue
     std::string setValueHotkeyValue;   // target value for the set-value hotkey
     std::string hotkeyStep;
+    // CE <Hotkey> elements that fit none of the slots above (Activate, Deactivate,
+    // a second toggle, a disabled one, ...), kept verbatim so a save writes them back.
+    std::string extraHotkeysXml;
     // CE group <Options>: whether toggling a group header cascades to its children.
     // Default on (our long-standing behavior and a sensible default when a table has
     // no <Options>); an imported CE table's explicit flags override these.
@@ -44,7 +48,17 @@ struct CheatEntry {
     // The record's raw "<Options .../>" element, preserved verbatim so CE flags we do
     // not model (moHideChildren, moRecursiveSetValue, ...) survive a load+save.
     std::string optionsXml;
-    int length = 0;   // element byte length for String / Array-of-byte (CE <Length>); 0 = unset
+    int length = 0;   // element byte length: CE <Length> for String, <ByteLength> for Array of byte; 0 = unset
+    std::string customTypeName;  // CE <CustomType> of a Custom record
+    bool asyncScript = false;    // CE <AssemblerScript Async="1">
+    // A pointer whose <Offset> is not plain hex (a symbol or an expression): its
+    // original <Address> and <Offset> texts, written back unchanged. The record has
+    // no usable address then: offsets is empty and addressString says why.
+    std::string unparsedAddress;
+    std::vector<std::string> unparsedOffsets;
+    // Record elements we do not model (CodePage, BitStart, DropDownListLink, ...),
+    // kept verbatim so a load and save does not drop them.
+    std::string extraXml;
 };
 
 struct StructureField {

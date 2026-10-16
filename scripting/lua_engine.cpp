@@ -166,108 +166,23 @@ void LuaEngine::setAddressList(IAddressList* list) {
     if (!list) return;
 
     // Subscribe a single C++ callback that fans out to the per-record Lua callbacks
-    // stored in LUA_REGISTRYINDEX[MEMREC_CALLBACKS_KEY] keyed by record id.
+    // stored in LUA_REGISTRYINDEX[MEMREC_CALLBACKS_KEY] keyed by record id. The
+    // whole lookup runs protected, so no Lua error can unwind through the list.
     list->setActivationCallback([this](int id, bool active) {
         if (!L_) return;
-        pushMemRecCallbacks(L_);   // empty if the table was replaced since
-        lua_rawgeti(L_, -1, id);
-        if (lua_isfunction(L_, -1)) {
-            lua_pushboolean(L_, active);
-            if (lua_pcall(L_, 1, 0, 0) != LUA_OK) {
-                const char* msg = lua_tostring(L_, -1);
-                std::string err = msg ? msg : "lua error";
-                lua_pop(L_, 1);
-                if (outputCb_) outputCb_("OnActivate error: " + err);
-            }
-        } else {
+        lua_pushcfunction(L_, dispatchMemoryRecordActivation);
+        lua_pushinteger(L_, id);
+        lua_pushboolean(L_, active);
+        if (lua_pcall(L_, 2, 0, 0) != LUA_OK) {
+            const char* msg = lua_tostring(L_, -1);
+            std::string err = msg ? msg : "lua error";
             lua_pop(L_, 1);
+            if (outputCb_) outputCb_(std::string(active ? "OnActivate" : "OnDeactivate") + " error: " + err);
         }
-        lua_pop(L_, 1); // pop callbacks table
     });
 }
 
 // ── Lua bindings ──
-
-static int l_readInteger(lua_State* L) {
-    lua_getfield(L, LUA_REGISTRYINDEX, "ce_proc");
-    auto* proc = (ProcessHandle*)lua_touserdata(L, -1);
-    lua_pop(L, 1);
-    if (!proc) { lua_pushnil(L); return 1; }
-
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
-    int32_t val = 0;
-    auto r = proc->read(addr, &val, sizeof(val));
-    if (r) lua_pushinteger(L, val);
-    else lua_pushnil(L);
-    return 1;
-}
-
-static int l_writeInteger(lua_State* L) {
-    lua_getfield(L, LUA_REGISTRYINDEX, "ce_proc");
-    auto* proc = (ProcessHandle*)lua_touserdata(L, -1);
-    lua_pop(L, 1);
-    if (!proc) return 0;
-
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
-    int32_t val = (int32_t)luaL_checkinteger(L, 2);
-    proc->write(addr, &val, sizeof(val));
-    return 0;
-}
-
-static int l_readFloat(lua_State* L) {
-    lua_getfield(L, LUA_REGISTRYINDEX, "ce_proc");
-    auto* proc = (ProcessHandle*)lua_touserdata(L, -1);
-    lua_pop(L, 1);
-    if (!proc) { lua_pushnil(L); return 1; }
-
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
-    float val = 0;
-    auto r = proc->read(addr, &val, sizeof(val));
-    if (r) lua_pushnumber(L, val);
-    else lua_pushnil(L);
-    return 1;
-}
-
-static int l_writeFloat(lua_State* L) {
-    lua_getfield(L, LUA_REGISTRYINDEX, "ce_proc");
-    auto* proc = (ProcessHandle*)lua_touserdata(L, -1);
-    lua_pop(L, 1);
-    if (!proc) return 0;
-
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
-    float val = (float)luaL_checknumber(L, 2);
-    proc->write(addr, &val, sizeof(val));
-    return 0;
-}
-
-static int l_readBytes(lua_State* L) {
-    lua_getfield(L, LUA_REGISTRYINDEX, "ce_proc");
-    auto* proc = (ProcessHandle*)lua_touserdata(L, -1);
-    lua_pop(L, 1);
-    if (!proc) { lua_pushnil(L); return 1; }
-
-    uintptr_t addr = (uintptr_t)luaL_checkinteger(L, 1);
-    int size = (int)luaL_checkinteger(L, 2);
-    luaL_argcheck(L, size >= 0, 2, "size must be non-negative");
-    // Allocate under try/catch: a large positive size can throw bad_alloc, which
-    // must not escape this C function into C-compiled Lua frames (UB).
-    try {
-        std::vector<uint8_t> buf(size);
-        auto r = proc->read(addr, buf.data(), size);
-        if (r) {
-            lua_newtable(L);
-            for (int i = 0; i < (int)*r; ++i) {
-                lua_pushinteger(L, buf[i]);
-                lua_rawseti(L, -2, i + 1);
-            }
-        } else {
-            lua_pushnil(L);
-        }
-    } catch (const std::exception& ex) {
-        return luaL_error(L, "%s", ex.what());
-    }
-    return 1;
-}
 
 static int l_getAddress(lua_State* L) {
     auto* resolver = luaSymbolResolver(L);
@@ -285,24 +200,6 @@ static int l_getAddress(lua_State* L) {
     }
     if (addr) lua_pushinteger(L, (lua_Integer)addr);
     else      lua_pushnil(L);
-    return 1;
-}
-
-static int l_getModuleBase(lua_State* L) {
-    lua_getfield(L, LUA_REGISTRYINDEX, "ce_proc");
-    auto* proc = (ProcessHandle*)lua_touserdata(L, -1);
-    lua_pop(L, 1);
-    if (!proc) { lua_pushnil(L); return 1; }
-
-    const char* name = luaL_checkstring(L, 1);
-    auto mods = proc->modules();
-    for (auto& m : mods) {
-        if (m.name == name) {
-            lua_pushinteger(L, (lua_Integer)m.base);
-            return 1;
-        }
-    }
-    lua_pushnil(L);
     return 1;
 }
 
@@ -347,7 +244,7 @@ static int l_loadText(lua_State* L) {
 // get no shell, no native code (package.loadlib), no debug library, no file
 // writes and no binary chunks. Reading files and the clock stay.
 static void openLibraries(lua_State* L) {
-    if (ce::luaUnsafeAllowed()) { luaL_openlibs(L); return; }
+    if (ce::luaUnsafeAllowed(L)) { luaL_openlibs(L); return; }
     const luaL_Reg libraries[] = {
         {"_G", luaopen_base}, {LUA_COLIBNAME, luaopen_coroutine}, {LUA_TABLIBNAME, luaopen_table},
         {LUA_STRLIBNAME, luaopen_string}, {LUA_MATHLIBNAME, luaopen_math}, {LUA_UTF8LIBNAME, luaopen_utf8},
@@ -391,6 +288,7 @@ static void openLibraries(lua_State* L) {
 
 LuaEngine::LuaEngine() {
     L_ = luaL_newstate();
+    markLuaUnsafeAllowed(L_);
     openLibraries(L_);
 
     // Store engine pointer
@@ -437,18 +335,13 @@ void LuaEngine::registerBindings() {
     });
     lua_setglobal(L_, "print");
 
-    // Core memory functions
-    lua_register(L_, "readInteger", l_readInteger);
-    lua_register(L_, "writeInteger", l_writeInteger);
-    lua_register(L_, "readFloat", l_readFloat);
-    lua_register(L_, "writeFloat", l_writeFloat);
-    lua_register(L_, "readBytes", l_readBytes);
+    // Core functions. The memory reads and writes are registered with the
+    // other CE bindings (registerExtendedBindings).
     lua_register(L_, "getAddress", l_getAddress);
     // CE's getAddressSafe returns nil on failure (getAddress throws). Our
     // getAddress already returns nil, so alias it — cheat-table scripts that call
     // getAddressSafe(...) then work unchanged.
     lua_register(L_, "getAddressSafe", l_getAddress);
-    lua_register(L_, "getModuleBase", l_getModuleBase);
     lua_register(L_, "getProcessID", l_getProcessId);
 
     // Store process and resolver pointers (updated when setProcess/setResolver called)
@@ -459,7 +352,7 @@ void LuaEngine::registerBindings() {
     lua_pushlightuserdata(L_, nullptr);
     lua_setfield(L_, LUA_REGISTRYINDEX, ADDRESSLIST_KEY);
 
-    // OnActivate callback dispatch table
+    // OnActivate/OnDeactivate callback dispatch table
     lua_newtable(L_);
     lua_setfield(L_, LUA_REGISTRYINDEX, MEMREC_CALLBACKS_KEY);
 

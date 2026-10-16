@@ -18,6 +18,8 @@
 #include <cstring>
 #include <set>
 #include <map>
+#include <optional>
+#include <string_view>
 #include <functional>
 #include <stdexcept>
 #include <array>
@@ -27,6 +29,17 @@
 #endif
 
 namespace ce {
+
+Error softwareWatchOnStackError() {
+    struct Category : std::error_category {
+        const char* name() const noexcept override { return "code finder"; }
+        std::string message(int) const override {
+            return "the page holds a thread stack, where a software watch would crash the target; use a hardware watchpoint";
+        }
+    };
+    static const Category category;
+    return {1, category};
+}
 
 bool CodeFinder::start(ProcessHandle& proc, Debugger& dbg, uintptr_t address, bool writesOnly, int watchSize, bool software, bool singleThread) {
     std::lock_guard lifecycle(lifecycleMutex_);
@@ -115,7 +128,7 @@ void CodeFinder::monitorLoop() {
         os::NativeHardwareBank original;
     };
     std::map<pid_t,Thread> threads;
-    uintptr_t scratch=0,pageStart=0,pageEnd=0;
+    uintptr_t scratch=0,pageStart=0,pageEnd=0,mappingStart=0,mappingEnd=0;
     size_t pageLength=0,pageSize=0;
     int originalProtection=0,guardProtection=0;
     bool guardChanged=false,guardActive=false,imageRetired=false;
@@ -200,13 +213,25 @@ void CodeFinder::monitorLoop() {
         }
         state.stopped=false; state.signal=0; state.signalInfo.reset(); state.guardStop=false; state.event=0; state.stepping=step; return true;
     };
+    // ARM64 reports the accessed address, which for a wider access covering
+    // the watched bytes (str x1,[x0] over an int at x0+4, stp, a q-register
+    // pair, dc zva) lies below them. Accept it within the widest access when
+    // no other watchpoint of the thread could explain the trap.
+    auto arm64WatchHit=[&](const Thread& state,uintptr_t address) {
+        const uintptr_t end=targetAddress_+watchSize_;
+        if (address>=targetAddress_ && address<end) return true;
+        constexpr uintptr_t widestAccess=2048;   // dc zva's largest block
+        const uintptr_t aligned=targetAddress_&~uintptr_t{7};
+        if (address>=end || address<(aligned>widestAccess ? aligned-widestAccess : 0)) return false;
+        for (unsigned i=0;i<state.original.count;++i)
+            if (i!=state.slot && (state.original.entries[i].control&1)) return false;
+        return true;
+    };
     auto ownsHardwareTrap=[&](pid_t tid,const siginfo_t& info) -> Result<bool> {
         auto& state=threads.at(tid);
         if (software_ || !state.armed || info.si_signo!=SIGTRAP || info.si_code!=TRAP_HWBKPT) return false;
-        if (host_.architecture==CpuArchitecture::Arm64) {
-            auto address=reinterpret_cast<uintptr_t>(info.si_addr);
-            return address>=targetAddress_ && address<targetAddress_+watchSize_;
-        }
+        if (host_.architecture==CpuArchitecture::Arm64)
+            return arm64WatchHit(state,reinterpret_cast<uintptr_t>(info.si_addr));
         auto bank=os::readNativeHardwareBank(tid,false);
         if (!bank) return std::unexpected(bank.error());
         return (bank->status&(uint64_t{1}<<state.slot))!=0;
@@ -270,7 +295,8 @@ void CodeFinder::monitorLoop() {
         pid_t tid=static_cast<pid_t>(child);
         threads.try_emplace(tid);
         // An automatic child stop may have arrived before its parent's event.
-        if (!threads.at(tid).stopped && !waitForStop(tid)) return pid_t{0};
+        // A child that already exited is adopted as gone, not as a failure.
+        if (!threads.at(tid).stopped && !waitForStop(tid)) return threads.at(tid).alive ? pid_t{0} : tid;
         threads.at(tid).signal=0;
         return tid;
     };
@@ -317,7 +343,24 @@ void CodeFinder::monitorLoop() {
     struct Cleanup { std::function<void()> action; ~Cleanup() { action(); } } cleanup{[&] {
         reportStartup(false);
         if (software_) {
-            for (;;) {
+            for (int attempt=0;;++attempt) {
+                // A target killed meanwhile leaves threads we consider stopped:
+                // reap them, or the restore below retries a dead thread forever.
+                for (auto& [tid,state] : threads) {
+                    if (!state.alive) continue;
+                    int status=0;
+                    pid_t reaped=waitpid(tid,&status,__WALL|__WNOTHREAD|WNOHANG);
+                    if (reaped==tid) consume(tid,status);
+                    else if (reaped<0 && (errno==ECHILD || errno==ESRCH)) state.alive=false;
+                }
+                if (std::none_of(threads.begin(),threads.end(),[](const auto& entry) { return entry.second.alive; })) {
+                    // Nothing to restore through; a live target still gets its
+                    // scratch page back (a failed seize leaves it allocated).
+                    guardChanged=false; guardActive=false;
+                    if (!releaseScratch()) scratch=0;
+                    break;
+                }
+                if (attempt==500) { setError(std::make_error_code(std::errc::timed_out)); break; }
                 if (!stopAll()) { recoveryPending_=true; usleep(20000); continue; }
                 if (imageRetired) { guardChanged=false; guardActive=false; scratch=0; break; }
                 for (auto& [tid,state] : threads) if (state.alive && guardFault(tid)) {
@@ -378,6 +421,8 @@ void CodeFinder::monitorLoop() {
             if (region.protection&MemProt::Read) originalProtection|=1;
             if (region.protection&MemProt::Write) originalProtection|=2;
             if (region.protection&MemProt::Exec) originalProtection|=4;
+            if (region.path.starts_with("[stack")) { setError(softwareWatchOnStackError()); return; }
+            mappingStart=region.base; mappingEnd=region.base+region.size;
             found=true; break;
         }
         if (!found) { setError(std::make_error_code(std::errc::bad_address)); return; }
@@ -387,34 +432,55 @@ void CodeFinder::monitorLoop() {
         if (!allocation) { setError(allocation.error()); return; }
         scratch=*allocation;
     }
-    std::vector<pid_t> tids;
+    std::vector<pid_t> single;
     if (singleThread_ && !software_) {
-        if (proc_->targetDescription().runtime==TargetRuntime::Wine) tids.push_back(proc_->pid());
+        if (proc_->targetDescription().runtime==TargetRuntime::Wine) single.push_back(proc_->pid());
         else {
             auto task=os::processMemoryTask(proc_->pid());
             if (!task) { setError(task.error()); return; }
-            tids.push_back(*task);
+            single.push_back(*task);
         }
     }
-    else for (const auto& thread : proc_->threads()) tids.push_back(thread.tid);
-    if (tids.empty()) tids.push_back(proc_->pid());
     unsigned options=PTRACE_O_TRACEEXEC|(singleThread_ && !software_ ? 0 : PTRACE_O_TRACECLONE);
-    for (pid_t tid : tids) {
-        if (stopRequested_) return;
-        if (threads.contains(tid)) continue;
-        threads.try_emplace(tid);
-        if (ce::seizeIfOwned(tid,static_cast<unsigned long>(options))<0) {
-            int failure=errno; threads.erase(tid);
-            if (failure==ESRCH) continue;
-            setError({failure,std::system_category()}); return;
+    // A thread not yet seized can clone while we work through the list, and
+    // its child would run untraced (a missed write, or a fatal guard fault).
+    // List again until a pass finds nothing new, as
+    // DebugSession::seizeAllThreads does.
+    std::set<pid_t> attempted;
+    for (int pass=0;pass<16;++pass) {
+        std::vector<pid_t> tids;
+        if (!single.empty()) { if (!pass) tids=single; }
+        else for (const auto& thread : proc_->threads()) if (attempted.insert(thread.tid).second) tids.push_back(thread.tid);
+        if (!pass && tids.empty() && attempted.insert(proc_->pid()).second) tids.push_back(proc_->pid());
+        if (tids.empty()) break;
+        for (pid_t tid : tids) {
+            if (stopRequested_) return;
+            if (threads.contains(tid)) continue;
+            threads.try_emplace(tid);
+            if (ce::seizeIfOwned(tid,static_cast<unsigned long>(options))<0) {
+                int failure=errno; threads.erase(tid);
+                if (failure==ESRCH) continue;
+                setError({failure,std::system_category()}); return;
+            }
+            if (ptrace(PTRACE_INTERRUPT,tid,nullptr,nullptr)<0) { setError({errno,std::system_category()}); return; }
+            if (!waitForStop(tid)) return;
+            if (threads.at(tid).event==PTRACE_EVENT_CLONE && !adopt(tid)) return;
+            if (stopRequested_) return;
         }
-        if (ptrace(PTRACE_INTERRUPT,tid,nullptr,nullptr)<0) { setError({errno,std::system_category()}); return; }
-        if (!waitForStop(tid)) return;
-        if (threads.at(tid).event==PTRACE_EVENT_CLONE && !adopt(tid)) return;
-        if (stopRequested_) return;
     }
     if (threads.empty()) { setError(std::make_error_code(std::errc::no_such_process)); return; }
     for (auto& [tid,state] : threads) if (state.alive && !arm(tid)) return;
+    if (software_) {
+        // A signal frame is written below the stack pointer; with that page
+        // guarded the kernel cannot write it and kills the target.
+        for (auto& [tid,state] : threads) {
+            if (!state.alive) continue;
+            auto context=os::readNativeContext(tid);
+            if (!context) continue;
+            const uintptr_t sp=context->stackPointer();
+            if (sp>=mappingStart && sp<mappingEnd) { setError(softwareWatchOnStackError()); return; }
+        }
+    }
     if (software_) {
         auto owner=std::find_if(threads.begin(),threads.end(),[](const auto& entry) { return entry.second.alive; });
         if (owner==threads.end()) return;
@@ -440,7 +506,7 @@ void CodeFinder::monitorLoop() {
         if (unknown) continue;
         if (state.event==PTRACE_EVENT_CLONE) {
             pid_t child=adopt(tid);
-            if (!child || !arm(child) || !resume(child) || !resume(tid)) return;
+            if (!child || (threads.at(child).alive && (!arm(child) || !resume(child))) || !resume(tid)) return;
             continue;
         }
         if (software_ && guardFault(tid)) {
@@ -477,8 +543,7 @@ void CodeFinder::monitorLoop() {
                 return;
             }
             bool own=info.si_code==TRAP_HWBKPT && (arm64 ?
-                reinterpret_cast<uintptr_t>(info.si_addr)>=targetAddress_ &&
-                reinterpret_cast<uintptr_t>(info.si_addr)<targetAddress_+watchSize_ :
+                arm64WatchHit(state,reinterpret_cast<uintptr_t>(info.si_addr)) :
                 context->debugRegistersValid && (context->dr6&(uint64_t{1}<<state.slot)));
             if (own) {
                 state.signal=0;
@@ -503,35 +568,117 @@ void CodeFinder::monitorLoop() {
     }
 }
 
-RecoveredInstruction recoverStoreInstruction(ProcessHandle& proc, SymbolResolver& resolver,
-                                             uintptr_t trapRip, bool is64) {
-    RecoveredInstruction out;
-    if (trapRip == 0) return out;
-    // Anchor the forward decode at the enclosing function so instruction boundaries are
-    // unambiguous; fall back to a bounded lookback when the address is unsymbolized.
-    uintptr_t anchor = (trapRip > 48) ? trapRip - 48 : 0;
-    std::string sym = resolver.resolve(trapRip - 1);
+namespace {
+
+// The x86 instruction that ends exactly at `end`, decoded forward from the
+// enclosing function so instruction boundaries are unambiguous; a bounded
+// lookback when the address is unsymbolized.
+std::optional<Instruction> instructionEndingAt(ProcessHandle& proc, SymbolResolver& resolver,
+                                               uintptr_t end, bool is64) {
+    if (end == 0) return std::nullopt;
+    uintptr_t anchor = (end > 48) ? end - 48 : 0;
+    std::string sym = resolver.resolve(end - 1);
     if (auto plus = sym.rfind("+0x"); plus != std::string::npos) {
         uintptr_t off = std::strtoull(sym.c_str() + plus + 3, nullptr, 16);
-        uintptr_t fstart = (trapRip - 1) - off;
-        if (fstart < trapRip && trapRip - fstart <= 4096) anchor = fstart;
+        uintptr_t fstart = (end - 1) - off;
+        if (fstart < end && end - fstart <= 4096) anchor = fstart;
     }
-    const size_t span = trapRip - anchor;
+    const size_t span = end - anchor;
     std::vector<uint8_t> buf(span + 16);
     auto r = proc.read(anchor, buf.data(), buf.size());
-    if (!r || *r < span) return out;
+    if (!r || *r < span) return std::nullopt;
     Disassembler dis(is64 ? Arch::X86_64 : Arch::X86_32);
     auto insns = dis.disassemble(anchor, {buf.data(), *r}, span + 4);
     for (auto& in : insns) {
-        if (in.address >= trapRip) break;
-        if (in.address + in.size == trapRip) {
-            out.address = in.address;
-            out.text = in.operands.empty() ? in.mnemonic : in.mnemonic + " " + in.operands;
-            out.ok = true;
-            return out;
-        }
+        if (in.address >= end) break;
+        if (in.address + in.size == end) return std::move(in);
     }
+    return std::nullopt;
+}
+
+// The operation without prefixes: "rep stosd" -> "stosd", "bnd jmp" -> "jmp".
+std::string_view operation(const Instruction& in) {
+    std::string_view m = in.mnemonic;
+    auto space = m.rfind(' ');
+    return space == std::string_view::npos ? m : m.substr(space + 1);
+}
+
+// A direct branch's target ("call 0x401000"), 0 for an indirect one.
+uintptr_t directTarget(const Instruction& in) {
+    if (!in.operands.starts_with("0x")) return 0;
+    char* stop = nullptr;
+    const unsigned long long target = std::strtoull(in.operands.c_str() + 2, &stop, 16);
+    return stop && !*stop ? static_cast<uintptr_t>(target) : 0;
+}
+
+// Could `in`, which ends at `rip`, have accessed memory and then fallen
+// through to `rip`? A branch stops at its target instead, and a register-only
+// instruction, lea or a nop touches no memory.
+bool accessFallsThrough(const Instruction& in, uintptr_t rip) {
+    const auto op = operation(in);
+    if (in.isCall) return directTarget(in) == rip;   // call $+5 pushes and falls through
+    if (op.starts_with('j') || op.starts_with("ret") || op.starts_with("iret") || op.starts_with("loop") ||
+        op == "int3" || op == "ud2" || op == "hlt")
+        return false;
+    if (in.memory.present) return op != "lea" && !op.starts_with("nop");
+    // Stack and string instructions access memory without a decoded operand.
+    return op.starts_with("push") || op.starts_with("pop") || op == "enter" || op == "leave" ||
+           op.starts_with("xlat") || op.starts_with("maskmov") || op.starts_with("movs") || op.starts_with("stos") ||
+           op.starts_with("lods") || op.starts_with("scas") || op.starts_with("cmps");
+}
+
+RecoveredInstruction recovered(const Instruction& in) {
+    RecoveredInstruction out;
+    out.address = in.address;
+    out.text = in.operands.empty() ? in.mnemonic : in.mnemonic + " " + in.operands;
+    out.ok = true;
     return out;
+}
+
+} // namespace
+
+RecoveredInstruction recoverStoreInstruction(ProcessHandle& proc, SymbolResolver& resolver,
+                                             uintptr_t trapRip, bool is64) {
+    auto in = instructionEndingAt(proc, resolver, trapRip, is64);
+    if (!in || !accessFallsThrough(*in, trapRip)) return {};
+    return recovered(*in);
+}
+
+RecoveredInstruction recoverHardwareAccess(ProcessHandle& proc, SymbolResolver& resolver, const CpuContext& ctx) {
+    const bool is64 = ctx.architecture == CpuArchitecture::X86_64;
+    const uintptr_t rip = ctx.instructionPointer();
+    auto before = instructionEndingAt(proc, resolver, rip, is64);
+    if (!before) {
+        // Unsymbolized dense code: the longest decode that ends at rip.
+        Disassembler dis(is64 ? Arch::X86_64 : Arch::X86_32);
+        const uintptr_t prev = dis.previousInstruction(rip, [&](uintptr_t a, uint8_t* b, size_t n) {
+            auto r = proc.read(a, b, n);
+            return r && *r >= n;
+        });
+        uint8_t bytes[16];
+        auto r = prev && prev < rip ? proc.read(prev, bytes, sizeof(bytes)) : Result<size_t>(0);
+        auto insns = r && *r ? dis.disassemble(prev, {bytes, std::min(*r, sizeof(bytes))}, 1) : std::vector<Instruction>{};
+        // Undecodable: keep the caller's own choice.
+        if (insns.empty() || insns[0].address + insns[0].size != rip) return {};
+        before = std::move(insns[0]);
+    }
+    if (accessFallsThrough(*before, rip)) return recovered(*before);
+
+    // The trap followed a branch. After a call, its return address is on top
+    // of the stack: the call itself pushed onto the watched slot or read the
+    // watched pointer. Accept a direct call only to rip, and an indirect one
+    // only when rip does not follow a call (where a ret would have landed).
+    RecoveredInstruction branched;
+    branched.branched = true;
+    uint64_t returnAddress = 0;
+    const size_t width = is64 ? 8 : 4;
+    auto read = proc.read(ctx.stackPointer(), &returnAddress, width);
+    if (!read || *read != width || !returnAddress) return branched;
+    auto call = instructionEndingAt(proc, resolver, returnAddress, is64);
+    if (!call || !call->isCall) return branched;
+    const uintptr_t target = directTarget(*call);
+    if (target ? target != rip : before->isCall) return branched;
+    return recovered(*call);
 }
 
 // A page fault reports where the access starts: a 16-byte copy at obj+8
@@ -565,6 +712,7 @@ bool CodeFinder::recordHit(pid_t tid, bool afterInstruction) {
     if (!disasm_) disasm_.emplace(*architecture);
     else disasm_->setArch(*architecture);
     uintptr_t instrAddr = rip;
+    bool afterBranch = false;   // x86: trapped at a branch target, accessor unknown
     // A REP string instruction traps between iterations with the instruction
     // pointer still on it: it is the writer, not the instruction before it.
     bool repAtRip = false;
@@ -592,8 +740,12 @@ bool CodeFinder::recordHit(pid_t tid, bool afterInstruction) {
             return r && *r >= n;
         });
         if (prev != 0 && prev < rip) instrAddr = prev;
-        auto exact=recoverStoreInstruction(*proc_,symbols_,rip,ctx.architecture==CpuArchitecture::X86_64);
-        if (exact.ok) instrAddr=exact.address;
+        // The forward recovery decodes x86 only.
+        if (ctx.architecture == CpuArchitecture::X86_64 || ctx.architecture == CpuArchitecture::X86_32) {
+            auto exact=recoverHardwareAccess(*proc_,symbols_,ctx);
+            if (exact.ok) instrAddr=exact.address;
+            else if (exact.branched) { instrAddr=rip; afterBranch=true; }
+        }
     }
     uint8_t instrBuf[16];
     auto readResult = proc_->read(instrAddr, instrBuf, sizeof(instrBuf));
@@ -602,7 +754,11 @@ bool CodeFinder::recordHit(pid_t tid, bool afterInstruction) {
     // An instruction that cannot be read or decoded (unmapped since, or bytes
     // the disassembler does not know) is still a hit: record it as "??"
     // rather than ending the whole monitoring session.
-    if (readResult && *readResult) {
+    if (afterBranch) {
+        // Keyed at the branch target: decoding there would name an instruction
+        // that has not run yet.
+        instrText = "?? (accessed by the branch or return to here)";
+    } else if (readResult && *readResult) {
         auto insns=disasm_->disassemble(instrAddr,{instrBuf,std::min(*readResult,sizeof(instrBuf))},1);
         if (!insns.empty()) {
             instrText=insns[0].mnemonic+" "+insns[0].operands;

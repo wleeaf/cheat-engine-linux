@@ -78,14 +78,22 @@ struct GuestView {
     }
 };
 
+// Bounds for whole-region work. A Switch or PS3 guest is several GB; an unknown
+// scan holds two snapshots, and a common value (0) matches almost every offset.
+constexpr uint64_t kGuestSnapshotMaxBytes = uint64_t(512) << 20;
+constexpr size_t   kGuestMaxHits = size_t(4) << 20;
+
 // Exact-value first scan over a guest region: returns the GUEST addresses whose
 // bytes equal `value` in the guest's byte order. `alignment` (1/2/4/8) restricts
 // matches to aligned offsets, as CE's fast scan does. Chunked so multi-GB guest RAM
 // streams, with a sizeof(T)-1 overlap so a value straddling a chunk boundary is not
-// missed and not double-counted.
+// missed and not double-counted. Stops after `maxHits` matches and sets
+// `*truncated` when it did.
 template <class T>
-std::vector<uint64_t> guestScanExact(const GuestView& gv, T value, size_t alignment = sizeof(T)) {
+std::vector<uint64_t> guestScanExact(const GuestView& gv, T value, size_t alignment = sizeof(T),
+                                     size_t maxHits = kGuestMaxHits, bool* truncated = nullptr) {
     std::vector<uint64_t> hits;
+    if (truncated) *truncated = false;
     if (gv.size < sizeof(T) || gv.size > SIZE_MAX || !gv.contains(0, gv.size)) return hits;
     if (alignment == 0) alignment = 1;
 
@@ -106,8 +114,13 @@ std::vector<uint64_t> guestScanExact(const GuestView& gv, T value, size_t alignm
         const size_t limit = std::min<size_t>(kStride, got - sizeof(T) + 1);
         const size_t remainder = off % alignment;
         for (size_t i = remainder ? alignment - remainder : 0; i < limit;) {
-            if (std::memcmp(buf.data() + i, np, sizeof(T)) == 0)
+            if (std::memcmp(buf.data() + i, np, sizeof(T)) == 0) {
+                if (hits.size() >= maxHits) {
+                    if (truncated) *truncated = true;
+                    return hits;
+                }
                 hits.push_back(off + i);
+            }
             if (alignment >= limit - i) break;
             i += alignment;
         }
@@ -154,32 +167,85 @@ std::vector<std::pair<uint64_t, T>> guestNextCompare(
     return out;
 }
 
-// Read the whole guest region into a buffer (chunked). The returned size is how
-// many bytes were actually readable (== size for a normal contiguous mapping);
-// reading stops at the first unreadable gap. Used to snapshot for an unknown-value
-// first scan.
-inline std::vector<uint8_t> guestReadRegion(const GuestView& gv) {
-    std::vector<uint8_t> buf;
-    if (gv.size > SIZE_MAX || !gv.contains(0, gv.size)) return buf;
-    buf.resize(gv.size);
-    uint64_t off = 0;
-    while (off < gv.size) {
-        const uint64_t want = std::min<uint64_t>(1u << 20, gv.size - off);
-        auto r = gv.proc->read(gv.toHost(off), buf.data() + off, want);
-        if (!r || *r == 0) { buf.resize(off); break; }
-        off += *r;
+// A snapshot of guest RAM for an unknown-value scan. `bytes` covers guest offsets
+// [0, bytes.size()); `readable` lists the [begin, end) offsets that were actually
+// read (unreadable gaps are left zero and never compared). `truncated` is set
+// when the region was larger than the byte cap and only its start was taken.
+struct GuestRegionSnapshot {
+    std::vector<uint8_t> bytes;
+    std::vector<std::pair<uint64_t, uint64_t>> readable;
+    bool truncated = false;
+
+    uint64_t readableBytes() const {
+        uint64_t n = 0;
+        for (const auto& [b, e] : readable) n += e - b;
+        return n;
     }
-    return buf;
+};
+
+// Snapshot up to `maxBytes` of the guest region in 1 MB reads. An unreadable
+// page is skipped and reading continues after it.
+inline GuestRegionSnapshot guestSnapshotRegion(const GuestView& gv,
+                                               uint64_t maxBytes = kGuestSnapshotMaxBytes) {
+    GuestRegionSnapshot snap;
+    if (gv.size > SIZE_MAX || !gv.contains(0, gv.size)) return snap;
+    const uint64_t n = std::min<uint64_t>(gv.size, maxBytes);
+    snap.truncated = n < gv.size;
+    snap.bytes.resize(n);
+    constexpr uint64_t kPage = 4096;
+    uint64_t off = 0;
+    while (off < n) {
+        const uint64_t want = std::min<uint64_t>(1u << 20, n - off);
+        auto r = gv.proc->read(gv.toHost(off), snap.bytes.data() + off, want);
+        const uint64_t got = r ? std::min<uint64_t>(*r, want) : 0;
+        if (got) {
+            if (!snap.readable.empty() && snap.readable.back().second == off)
+                snap.readable.back().second = off + got;
+            else
+                snap.readable.emplace_back(off, off + got);
+            off += got;
+            continue;
+        }
+        // Unreadable: step to the next host page.
+        off += kPage - gv.toHost(off) % kPage;
+    }
+    return snap;
+}
+
+// Read the whole guest region into a buffer (chunked, at most `maxBytes`). The
+// returned size is how many bytes were readable from the start; reading stops at
+// the first unreadable gap. guestSnapshotRegion keeps reading past gaps.
+inline std::vector<uint8_t> guestReadRegion(const GuestView& gv,
+                                            uint64_t maxBytes = kGuestSnapshotMaxBytes) {
+    auto snap = guestSnapshotRegion(gv, maxBytes);
+    const uint64_t prefix =
+        !snap.readable.empty() && snap.readable.front().first == 0 ? snap.readable.front().second : 0;
+    snap.bytes.resize(prefix);
+    return std::move(snap.bytes);
+}
+
+template <class T>
+bool guestCompareKeep(T o, T c, GuestCompare op) {
+    switch (op) {
+        case GuestCompare::Changed:   return c != o;
+        case GuestCompare::Unchanged: return c == o;
+        case GuestCompare::Increased: return c >  o;
+        case GuestCompare::Decreased: return c <  o;
+    }
+    return false;
 }
 
 // Compare two snapshots of the same region (old vs new) at aligned offsets and
 // return the (guest offset, current value) that match `op`. This is the first
 // narrowing of an unknown-value scan, where the candidate set was the whole region.
+// Stops after `maxHits` results and sets `*truncated` when it did.
 template <class T>
 std::vector<std::pair<uint64_t, T>> guestCompareBuffers(
         const std::vector<uint8_t>& oldB, const std::vector<uint8_t>& newB,
-        bool bigEndian, GuestCompare op, size_t alignment = sizeof(T)) {
+        bool bigEndian, GuestCompare op, size_t alignment = sizeof(T),
+        size_t maxHits = kGuestMaxHits, bool* truncated = nullptr) {
     std::vector<std::pair<uint64_t, T>> out;
+    if (truncated) *truncated = false;
     if (alignment == 0) alignment = 1;
     const size_t n = std::min(oldB.size(), newB.size());
     for (size_t off = 0; off + sizeof(T) <= n; off += alignment) {
@@ -187,14 +253,45 @@ std::vector<std::pair<uint64_t, T>> guestCompareBuffers(
         std::memcpy(&o, oldB.data() + off, sizeof(T));
         std::memcpy(&c, newB.data() + off, sizeof(T));
         if (bigEndian) { o = GuestView::byteswap(o); c = GuestView::byteswap(c); }
-        bool keep = false;
-        switch (op) {
-            case GuestCompare::Changed:   keep = c != o; break;
-            case GuestCompare::Unchanged: keep = c == o; break;
-            case GuestCompare::Increased: keep = c >  o; break;
-            case GuestCompare::Decreased: keep = c <  o; break;
+        if (!guestCompareKeep(o, c, op)) continue;
+        if (out.size() >= maxHits) {
+            if (truncated) *truncated = true;
+            break;
         }
-        if (keep) out.emplace_back(off, c);
+        out.emplace_back(off, c);
+    }
+    return out;
+}
+
+// The same over two guestSnapshotRegion results, comparing only the offsets that
+// were readable in both.
+template <class T>
+std::vector<std::pair<uint64_t, T>> guestCompareSnapshots(
+        const GuestRegionSnapshot& oldS, const GuestRegionSnapshot& newS,
+        bool bigEndian, GuestCompare op, size_t alignment = sizeof(T),
+        size_t maxHits = kGuestMaxHits, bool* truncated = nullptr) {
+    std::vector<std::pair<uint64_t, T>> out;
+    if (truncated) *truncated = false;
+    if (alignment == 0) alignment = 1;
+    const uint64_t n = std::min<uint64_t>(oldS.bytes.size(), newS.bytes.size());
+    size_t i = 0, j = 0;
+    while (i < oldS.readable.size() && j < newS.readable.size()) {
+        const uint64_t lo = std::max(oldS.readable[i].first, newS.readable[j].first);
+        const uint64_t hi = std::min({oldS.readable[i].second, newS.readable[j].second, n});
+        if (oldS.readable[i].second <= newS.readable[j].second) ++i; else ++j;
+        uint64_t off = lo + (alignment - lo % alignment) % alignment;
+        for (; hi >= sizeof(T) && off <= hi - sizeof(T); off += alignment) {
+            T o, c;
+            std::memcpy(&o, oldS.bytes.data() + off, sizeof(T));
+            std::memcpy(&c, newS.bytes.data() + off, sizeof(T));
+            if (bigEndian) { o = GuestView::byteswap(o); c = GuestView::byteswap(c); }
+            if (!guestCompareKeep(o, c, op)) continue;
+            if (out.size() >= maxHits) {
+                if (truncated) *truncated = true;
+                return out;
+            }
+            out.emplace_back(off, c);
+        }
     }
     return out;
 }

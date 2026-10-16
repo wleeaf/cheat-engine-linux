@@ -16,6 +16,7 @@
 
 #include <functional>
 #include <set>
+#include <vector>
 
 #ifdef CECORE_HAVE_DWARF
 extern "C" {
@@ -51,6 +52,27 @@ DwarfInfo::DwarfInfo(DwarfInfo&&) noexcept = default;
 DwarfInfo& DwarfInfo::operator=(DwarfInfo&&) noexcept = default;
 
 bool DwarfInfo::available() { return true; }
+
+// The load bias of an ET_DYN image whose lowest mapping is at moduleBase: the
+// first PT_LOAD is mapped at bias + its page-aligned p_vaddr, which is not zero
+// for a prelinked library or a PIE linked at a non-zero image base.
+template<class Header, class Phdr>
+static uintptr_t loadBiasFromFd(int fd, uintptr_t moduleBase) {
+    Header header{};
+    if (::pread(fd, &header, sizeof(header), 0) != (ssize_t)sizeof(header) ||
+        header.e_phentsize != sizeof(Phdr) || header.e_phnum == 0 || header.e_phnum > 256) return moduleBase;
+    std::vector<Phdr> phdrs(header.e_phnum);
+    const ssize_t want = static_cast<ssize_t>(phdrs.size() * sizeof(Phdr));
+    if (::pread(fd, phdrs.data(), want, static_cast<off_t>(header.e_phoff)) != want) return moduleBase;
+    uint64_t first = UINT64_MAX;
+    for (const auto& ph : phdrs)
+        if (ph.p_type == PT_LOAD && ph.p_vaddr < first) first = ph.p_vaddr;
+    if (first == UINT64_MAX) return moduleBase;
+    long page = sysconf(_SC_PAGESIZE);
+    if (page <= 0) page = 4096;
+    const uint64_t start = first & ~static_cast<uint64_t>(page - 1);
+    return start <= moduleBase ? moduleBase - static_cast<uintptr_t>(start) : moduleBase;
+}
 
 bool DwarfInfo::load(const std::string& elfPath, uintptr_t loadBase) {
     impl_->closeAll();
@@ -95,8 +117,13 @@ bool DwarfInfo::load(const std::string& elfPath, uintptr_t loadBase) {
     if (::pread(impl_->fd, &etype, sizeof(etype), 16) == (ssize_t)sizeof(etype) &&
         etype == ET_EXEC)
         impl_->loadBase = 0;
-    else
-        impl_->loadBase = loadBase;
+    else {
+        unsigned char ident[EI_NIDENT] = {};
+        const bool wide = ::pread(impl_->fd, ident, sizeof(ident), 0) == (ssize_t)sizeof(ident) &&
+                          ident[EI_CLASS] == ELFCLASS64;
+        impl_->loadBase = wide ? loadBiasFromFd<Elf64_Ehdr, Elf64_Phdr>(impl_->fd, loadBase)
+                               : loadBiasFromFd<Elf32_Ehdr, Elf32_Phdr>(impl_->fd, loadBase);
+    }
     return true;
 }
 

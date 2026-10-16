@@ -14,6 +14,9 @@
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QMenu>
+#include <QItemSelection>
+#include <optional>
+#include <set>
 
 namespace ce::gui {
 
@@ -183,6 +186,14 @@ void CodeFinderWindow::refresh() {
         QStringList{"Address","Instruction","Hits","Pointer path","EAX","EBX","ECX","EDX","EIP"} :
         QStringList{"Address","Instruction","Hits","Pointer path","RAX","RBX","RCX","RDX","RIP"});
 
+    // Rows re-sort by hit count on every refresh: remember the selection by result
+    // key and select the same results again afterwards, not the same row numbers.
+    std::set<qulonglong> selectedKeys;
+    for (const auto& idx : table_->selectionModel()->selectedRows())
+        if (auto* it = table_->item(idx.row(), 0)) selectedKeys.insert(it->data(Qt::UserRole).toULongLong());
+    std::optional<qulonglong> currentKey;
+    if (auto* it = table_->item(table_->currentRow(), 0)) currentKey = it->data(Qt::UserRole).toULongLong();
+
     table_->setRowCount(results.size());
     for (size_t i = 0; i < results.size(); ++i) {
         auto& r = results[i];
@@ -218,6 +229,17 @@ void CodeFinderWindow::refresh() {
         table_->setItem(i, 7, new QTableWidgetItem(hexQ(arm ? c.x[3] : c.rdx)));
         table_->setItem(i, 8, new QTableWidgetItem(hexQ(c.instructionPointer())));
     }
+    if (selectedKeys.empty() && !currentKey) return;
+    QItemSelection selection;
+    auto* model = table_->model();
+    for (int row = 0; row < table_->rowCount(); ++row) {
+        const qulonglong key = table_->item(row, 0)->data(Qt::UserRole).toULongLong();
+        if (currentKey && key == *currentKey)
+            table_->selectionModel()->setCurrentIndex(model->index(row, 0), QItemSelectionModel::NoUpdate);
+        if (selectedKeys.count(key))
+            selection.select(model->index(row, 0), model->index(row, model->columnCount() - 1));
+    }
+    table_->selectionModel()->select(selection, QItemSelectionModel::ClearAndSelect);
 }
 
 void CodeFinderWindow::onStop() {
@@ -315,6 +337,19 @@ void CodeFinderWindow::onContextMenu(const QPoint& pos) {
     if (row < 0) return;
     uintptr_t addr = addressOfRow(row);
     if (!addr) return;
+    // The menu's event loop lets refresh() re-sort the rows: act on the rows as
+    // they are now (the selection when the clicked row is in it, else that row),
+    // not on whatever rows hold those numbers afterwards.
+    std::vector<std::pair<uintptr_t, QString>> entries;
+    auto entryOf = [this](int r) {
+        QString text = table_->item(r, 1) ? table_->item(r, 1)->text() : QString();
+        if (text.startsWith("[NOP] ")) text = text.mid(6);
+        return std::pair{addressOfRow(r), text};
+    };
+    if (table_->selectionModel()->isRowSelected(row, {}))
+        for (const auto& idx : table_->selectionModel()->selectedRows()) entries.push_back(entryOf(idx.row()));
+    else
+        entries.push_back(entryOf(row));
 
     const bool isNopped = noppedOriginals_.count(addr) > 0;
     QMenu menu(this);
@@ -344,7 +379,10 @@ void CodeFinderWindow::onContextMenu(const QPoint& pos) {
             statusLabel_->setText(QString("Could not restore 0x%1.").arg(addr, 0, 16));
         }
     } else if (picked == addAct) {
-        onAddToList();
+        int added = 0;
+        for (const auto& [entryAddr, text] : entries)
+            if (entryAddr) { addToList_(entryAddr, text); ++added; }
+        statusLabel_->setText(QString("Added %1 instruction(s) to the address list.").arg(added));
     }
 }
 

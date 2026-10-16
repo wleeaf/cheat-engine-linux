@@ -278,6 +278,36 @@ is false by default. `unicode` follows `bigEndian`; `string` uses `encoding`
 (default UTF-8). Write values may be strings or numbers. Byte arrays contain
 concrete hex bytes separated by whitespace or commas.
 
+### Classic CE memory and table functions
+
+These follow Cheat Engine's own Lua API:
+
+- `readByte`, `readSmallInteger`, `readInteger`, `readQword`, `readPointer`,
+  `readFloat`, `readDouble`, `readString`, `readBytes` and the matching
+  `write*` functions take a number or an address expression such as
+  `"game+1234"` or `"[[base]+10]"`. An expression that does not resolve reads
+  as `nil` and writes as `false`.
+- `readByte`, `readSmallInteger` and `readInteger` are unsigned unless the
+  second argument is `true`. `readShortInteger`/`writeShortInteger` are CE's
+  one-byte aliases of `readByte`/`writeByte`.
+- `readString(address, maxLength, widechar)` decodes UTF-16 when `widechar`
+  is true. `maxLength` counts bytes in both forms.
+- `AOBScan` and `AOBScanModule` return `nil` when nothing matches.
+- Methods of address lists, memory records, streams and string lists work
+  with `:` and `.`: `getAddressList().getMemoryRecordByDescription("x")`.
+- `mr.OnActivate` and `mr.OnDeactivate` are separate handlers, called as
+  `handler(memoryrecord, before, currentstate)` after the record changed
+  (`before` is `false`; handlers cannot yet cancel a change).
+- `openProcess` refuses Cheat Engine's own process: a table could otherwise
+  rewrite Cheat Engine's memory and lift the default-deny rules. Those rules
+  read `CECORE_LUA_ALLOW_UNSAFE` once, when the Lua engine starts.
+
+Breakpoint conditions and custom scan formulas run in small separate Lua
+states with an instruction budget and a 16 MiB memory cap. They have no
+`pcall`, `xpcall`, `setmetatable` or string pattern functions
+(`find`, `match`, `gmatch`, `gsub`), and `string.rep` results are capped at
+1 MiB. Once the budget runs out, every further instruction fails.
+
 Auto Assembler supports nested `{$if expression}`, `{$else}`, and `{$endif}`
 blocks. Conditions use Lua truthiness, including truthy zero and empty strings.
 Inactive branches do not evaluate their conditions or execute embedded
@@ -499,7 +529,7 @@ Static helpers that read and disassemble the target without running its code.
 
 | Function | Returns |
 |---|---|
-| `createSignature(address[, maxBytes])` | `pattern, unique` — an AOB signature, wildcarded and grown until unique |
+| `createSignature(address[, maxBytes])` | `pattern, unique` — an AOB signature, wildcarded and grown until unique within its module (search it with `AOBScanModule`; not checked process-wide) |
 | `findReferences(address)` | `{ {address, target, type, text}, ... }` — static xrefs (calls, jumps, lea/mov rip-rel) |
 | `enumerateFunctions([module])` | `{ {address, references}, ... }` — candidate function entry points |
 | `buildCallGraph([module])` | `{ {caller, callee, callSite}, ... }` — static call edges |

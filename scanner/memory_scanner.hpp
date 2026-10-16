@@ -171,8 +171,10 @@ public:
     /// existing directory owns nothing.
     void adoptDirectory(const std::filesystem::path& root) { ownedRoot_ = root; }
     /// Leave the files on disk after this object is gone (the CLI prints the
-    /// directory for a later --previous scan).
-    void keepFiles() { ownedRoot_.clear(); }
+    /// directory for a later --previous scan). Kept directories are marked so
+    /// the stale-directory cleanup gives them a week instead of removing them
+    /// once this process exits.
+    void keepFiles();
 
     /// Each backing shard's directory and record count, in address order. A scan
     /// splits its output across worker shards and the result references them in

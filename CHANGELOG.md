@@ -15,6 +15,19 @@ reimplementation of Cheat Engine).
 
 ## Unreleased
 
+- Snapshots and memory analysis: the Snapshot menu runs off the UI thread with
+  a 1 GiB budget (and says when it cut the snapshot short); a diff compares
+  regions by overlap, so a grown heap is still diffed, and keeps a count past
+  the entries it shows. Restore writes only into memory that is still writable
+  data, never into code a stale or loaded snapshot happens to cover. Emulator
+  guest scans cap their snapshot (512 MB) and hit lists and read past
+  unreadable pages. GDB targets read and write more than 16 MiB in chunks and
+  answer pointer width and byte order without a round trip. Signatures are
+  checked for uniqueness across every mapping of their module (and are not
+  reported unique after a short read); assembly-pattern search matches
+  relative branches by target; 32-bit references above 2 GB are kept; C++
+  struct export is packed with `static_assert` offset checks and types chosen
+  by field size, and pointer following uses the target's width and byte order.
 - AI Assistant (Tools > AI Assistant, Ctrl+Shift+I): a chat panel where a
   model of your choice finds and changes values with the agent tools, on the
   process you have open. Anthropic or any OpenAI-compatible API (OpenAI,
@@ -53,6 +66,139 @@ reimplementation of Cheat Engine).
 - `cescan`: `scan --compare increasedby|decreasedby`, `accessed` (the
   addresses one instruction touches), and `freeze` follows a `[pointer]+offset`
   path on every write instead of resolving it once.
+- Fixed: cheat tables from Cheat Engine. Hotkey actions are text in CE
+  ("Set Value"), so every set, increase and decrease hotkey loaded as a toggle
+  and all but the first were lost; they load and save in CE's form now, and
+  hotkeys this program cannot bind are kept. Dropdown lists with attributes,
+  `<AssemblerScript Async="1">` scripts, `<ByteLength>` of byte arrays,
+  `<CustomType>`, group addresses with `+offset` children (now resolved
+  against the parent, as in CE), record colors (BGR in CE), numeric character
+  references and CDATA now load and save correctly. A symbolic pointer offset
+  no longer destroys the record on save, a GUI save keeps pointer chains as
+  base and offsets and keeps each record's own Lua, record settings this
+  program does not model (BitStart, ShowAsBinary and others) are kept, and a
+  large table loads in linear time instead of quadratic.
+- Fixed: saving a table wrote over the old file in place, so a failed write
+  left it truncated; saves now go to a temporary file that replaces the old one
+  only when complete. Lua `saveTable("x.CT")` wrote JSON; it now writes CE XML.
+- Security: AI agent tools. A script could hide `loadlibrary`, `include` or
+  `createthread` from the agent's check behind an empty `{}` comment, and its
+  dry run then loaded the library or started the thread in the real game, or
+  read a local file into the reply; the assembler now refuses these commands
+  (and `{$ccode}`) for the agent. Disabling a script and
+  `find_accessed_addresses` (a breakpoint in game code) now need
+  `--allow-writes`, freezes stop when writes are turned off, and MCP input
+  lines are capped at 4 MiB.
+- Fixed: AI agent tools. Unfreezing a record whose pointer path no longer
+  resolves failed and left it frozen; freezes stopped holding during long
+  scans; a script using a symbol another enabled script registered failed its
+  check; `find_what_writes` re-decoded 32-bit Wine code as 64-bit; and a
+  failed attach in `find_accessed_addresses` was reported as "the instruction
+  did not run". `cescan pointerscan` with depth 0 now fails instead of
+  reporting zero paths.
+- Fixed: debugger and Memory Viewer. Removing a breakpoint while a step was
+  still running froze Cheat Engine for good; it is now refused until the step
+  ends. Typing, pasting, filling or loading bytes in the hex view over a
+  breakpoint jammed the debug session; those writes are refused. A Memory
+  Viewer left open after its game exited still set breakpoints and ran tools
+  on the next game opened; its debug actions are now disabled. With two
+  viewers open, disassembler comments from one were lost, and editing a
+  breakpoint condition while the target called exec could write past the end
+  of the list.
+- Fixed: Code Finder "Add to the address list" from the context menu could
+  add a different instruction after the list re-sorted. Structure Dissect and
+  the Change Address preview read 8-byte pointers on 32-bit targets, and
+  double-clicking "Pointer?" without compare addresses opened rename instead
+  of following it. Mono Dissect could be re-entered during a long dissect,
+  PageDown in a collapsed disassembler read before its buffer, and pointer
+  scan results that no longer resolve kept an old value.
+- Fixed: addresses and values. Module names in addresses now match without
+  regard to case, as in Cheat Engine (a Windows table's "KERNEL32.DLL"+10
+  under Wine), and `*` works (`game.exe+10*4`). In a WoW64 game, addresses of
+  64-bit modules and stacks above 4 GiB were cut to 32 bits. Typing a value
+  into a Pointer record read it as decimal although it is shown in hex, so
+  10000000 wrote 0x989680. A UTF-16 string with one bad character showed
+  every following character garbled, and a float typed as "+-5" was accepted.
+- Security: Lua. A table could open Cheat Engine's own process with
+  `openProcess`, write its environment and so turn on the unsafe opt-in
+  (`shellExecute`); Lua now refuses its own process, and the opt-in is read
+  once when the engine starts. `pointerScan` and `breakAndTrace` could use a
+  freed process handle when their options table disconnected the process.
+  Breakpoint conditions and scan formulas could escape their instruction
+  limit with `pcall` or long-running string functions; their sandbox now has
+  a memory cap, a budget that stays spent, and no `pcall` or pattern
+  functions.
+- Fixed: Lua compatibility with Cheat Engine. `AOBScan` returns nil when
+  nothing matches, AddressList, MemoryRecord, Stream and StringList methods
+  work when called with a dot, `read*`/`write*` accept address strings such as
+  `"game.exe+1234"`, `readString(a, n, true)` reads UTF-16, OnActivate and
+  OnDeactivate are separate and get `(sender, before, currentstate)`, and the
+  `debug_getRegisters` family no longer attaches the debugger as a side
+  effect.
+- Changed: Lua `readByte`, `readSmallInteger` and `readInteger` return
+  unsigned values unless the second argument is true, as in Cheat Engine, and
+  `readShortInteger`/`writeShortInteger` are one byte as in CE.
+- Removed: Lua `setProcessName`, which existed to disguise the process name
+  from anti-tamper checks (detection evasion).
+- Fixed: injection and native calls. Picking a thread to run a call in
+  interrupted threads blocked in system calls, so a game waiting in
+  `epoll_wait` saw EINTR, and while a call's private memory waited to be freed
+  this repeated ten times a second in an idle game; only running threads are
+  borrowed now and the background retry backs off. A call (dlopen,
+  pthread_create) could run on a thread stopped inside libc or the loader and
+  deadlock it, or inside an rseq critical section; such threads are skipped.
+  The 32-bit thread wrapper crashed when a CREATETHREAD procedure returned
+  with `ret 4` (stdcall). LOADLIBRARY, Lua `injectLibrary` and the speedhack
+  now pass an absolute path as the target sees it (Proton's container).
+- Fixed: 32-bit injection templates moved a stolen `call` into the code cave,
+  so position-independent code computed its GOT from the cave address and
+  crashed; thunk calls and `call $+5` are rewritten to load the original
+  address.
+- Fixed: trainers. Building a trainer named `game` overwrote and then deleted
+  a `game.c` next to it; the source now goes to a private temporary directory.
+  The trainer's key loop lagged on fast or multi-byte keys and spun at full CPU
+  once its input closed.
+- Fixed: find what writes/accesses and break and trace. On ARM64 a wide
+  store covering the watched value (str, stp) was taken for a foreign trap
+  and killed the game. Threads started while the watch or trace attached were
+  never covered (in software mode they died on the guarded page). A hit made
+  by `call [mem]`, `jmp [GOT]` or `ret` was attributed to the wrong
+  instruction; it is now traced back to the call or labelled. The software
+  page guard is refused on a thread's stack page, where it killed the game at
+  the next signal, and its cleanup could hang forever if the game was killed
+  mid-stop. A queued start trap could kill the game when a trace detached, and
+  "step over calls" stopped early in recursive code. "Find what addresses
+  this instruction accesses" decoded ARM64 and WoW64 code as x86-64 and
+  reported `fs:[28h]` as address 0x28; segment-relative operands are refused.
+- Fixed: scanner. A first scan with Changed, Unchanged, Increased, Decreased,
+  Increased/Decreased by or Same as first ran as an Exact scan on whatever the
+  value box held; it now says a first scan is needed. "Increased by -5" never
+  matched (it now means decreased by 5), a 4-byte pointer search value wider
+  than 32 bits was cut to its low half, an All-type exact search for an 8-byte
+  value above 9223372036854775807 found nothing, and text, byte array and
+  binary next scans with bigger/smaller/between or changed-by compares emptied
+  the list or acted as another compare; they are now refused.
+- Changed: scan results are stored in `~/.cache/cheatengine/scans` instead of
+  `/tmp`, which is RAM-backed on many desktops (an Unknown initial value scan
+  writes several times the scanned memory). `CE_SCAN_DIR` or an explicit
+  `TMPDIR` still choose the place. Directories left by a crashed session are
+  removed on the next scan; ones `cescan` keeps for `--previous` stay a week.
+- Fixed: symbols. A library linked at a non-zero base (prelinked, or a PIE
+  with an image base) had every symbol and source line shifted by that base.
+  A name with several versions (glibc's `pthread_cond_wait`, `realpath`)
+  resolved to the old compat version instead of the default one. Fonts such as
+  DejaVuSansMono.ttf made Mono Dissect treat any game as a Mono game and
+  inject its agent. Under Wine, every value refresh rebuilt the module list
+  from `/proc` (now cached for a second), and PE and IL2CPP binaries were
+  copied into memory byte by byte (they are now mapped). A mapped path ending
+  in a space lost the space.
+- Security: a game could make Cheat Engine hang or run out of memory through
+  the files it maps: a module file swapped for a FIFO after the check blocked
+  the open forever, and a crafted ELF (one huge name shared by many symbols,
+  or thousands of overlapping symbol table headers) or IL2CPP metadata file
+  (a region of NUL bytes) grew to tens of gigabytes in memory. Files are now
+  opened without blocking and checked after opening, and names, tables and
+  totals are bounded.
 - Fixed: closing the Pointer Scan window right after pressing Scan could
   freeze Cheat Engine until the whole scan finished: a cancel that arrived
   before the scan started was cleared when it began.

@@ -221,6 +221,18 @@ int main(int argc, char** argv) {
     }
     bool ipHighlight = ipPixels > 200;
 
+    // Removing a breakpoint during a step is refused at once: the removal command
+    // would queue behind the step on the tracer thread and block this thread until
+    // the step returns (forever for a call that never does). Once it ends, removal works.
+    bool stepRemoveGuard = false;
+    if (hit && win.breakpointAddresses().count(hotAddr)) {
+        QMetaObject::invokeMethod(&win, "onStepInto");   // direct call: the step is now in flight
+        const bool refused = !win.removeBreakpointAt(hotAddr) && win.breakpointAddresses().count(hotAddr) &&
+                             win.statusTextForTest().contains("step");
+        for (int i = 0; i < 200 && !win.debugStopped(); ++i) { app.processEvents(); usleep(4000); }
+        stepRemoveGuard = refused && win.debugStopped() && win.removeBreakpointAt(hotAddr);
+    }
+
     // Detach before reaping: a ptrace tracee can only be waited on by its tracer
     // thread, so waitpid() from main would block until the session detaches.
     QMetaObject::invokeMethod(&win, "onDetach");
@@ -261,8 +273,8 @@ int main(int argc, char** argv) {
     }
     if (!blockedReason) printf("blocked target status: %s\n", qPrintable(blockedText));
 
-    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && memHl && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno && disasmSym && disasmData && disasmHl && disasmComment && disasmUnmasked && bpToggle && memViewStep && memViewRtc && blockedReason;
-    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d memhl=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d stackanno=%d disasmsym=%d disasmdata=%d disasmhl=%d disasmcomment=%d unmasked=%d bptoggle=%d memviewstep=%d memviewrtc=%d blocked=%d)\n",
-           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, memHl, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk, stackAnno, disasmSym, disasmData, disasmHl, disasmComment, disasmUnmasked, bpToggle, memViewStep, memViewRtc, blockedReason);
+    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && memHl && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno && disasmSym && disasmData && disasmHl && disasmComment && disasmUnmasked && bpToggle && memViewStep && memViewRtc && blockedReason && stepRemoveGuard;
+    printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d memhl=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d stackanno=%d disasmsym=%d disasmdata=%d disasmhl=%d disasmcomment=%d unmasked=%d bptoggle=%d memviewstep=%d memviewrtc=%d blocked=%d stepremove=%d)\n",
+           ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, memHl, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk, stackAnno, disasmSym, disasmData, disasmHl, disasmComment, disasmUnmasked, bpToggle, memViewStep, memViewRtc, blockedReason, stepRemoveGuard);
     return ok ? 0 : 1;
 }

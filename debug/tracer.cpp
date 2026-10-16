@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <functional>
 #include <map>
+#include <set>
 #include <stdexcept>
 #include <array>
 
@@ -159,6 +160,21 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
             if (pending[i].si_signo == SIGTRAP && pending[i].si_code == TRAP_HWBKPT) return true;
         return false;
     };
+    // INTERRUPT can win against the start-address breakpoint: its SIGTRAP is
+    // then still queued, and once the debug registers are restored and the
+    // thread detached it would kill the target. Let it reach its delivery
+    // stop, where consume() recognises it as ours (as the code finder's
+    // drainHardwareTraps does). Call while the start breakpoint is armed.
+    auto drainStartTraps = [&](pid_t tid) {
+        auto& state = threads.at(tid);
+        int status = 0;
+        for (int tries = 0; state.alive && state.armedAddress && tries < 4 && queuedHardwareTrap(tid); ++tries) {
+            const int observed = state.signal;   // an application signal already seen
+            state.signal = 0;
+            if (!resume(tid, PTRACE_CONT) || !waitThread(tid, status, false)) break;
+            if (!state.signal) state.signal = observed;
+        }
+    };
     struct Cleanup {
         std::function<void()> action;
         ~Cleanup() { action(); }
@@ -186,17 +202,7 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
                     threads.emplace(static_cast<pid_t>(child),ThreadState{});
                 }
             }
-            // INTERRUPT can win against the start-address breakpoint: its
-            // SIGTRAP is then still queued, and once the debug registers are
-            // restored and the thread detached it would kill the target. Let
-            // it reach its delivery stop, where consume() recognises it as ours
-            // (as the code finder's drainHardwareTraps does).
-            for (int tries = 0; state.armedAddress && tries < 4 && queuedHardwareTrap(tid); ++tries) {
-                const int observed = state.signal;   // an application signal already seen
-                state.signal = 0;
-                if (!resume(tid, PTRACE_CONT) || !waitThread(tid, status, false)) break;
-                if (!state.signal) state.signal = observed;
-            }
+            drainStartTraps(tid);
             if (!state.alive) continue;
             if (!restoreDebug(tid)) { usleep(20000); continue; }
             if (ptrace(PTRACE_DETACH,tid,nullptr,reinterpret_cast<void*>(static_cast<intptr_t>(state.signal)))<0 &&
@@ -209,28 +215,35 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
         ready_=false;
     }};
 
-    std::vector<pid_t> tids;
-    for (const auto& thread : proc.threads()) tids.push_back(thread.tid);
-    if (tids.empty()) tids.push_back(proc.pid());
-    for (pid_t tid : tids) {
-        if (cancelled_.load()) return entries;
-        // A clone event from an earlier parent can already own a listed child.
-        // Seizing it again would fail and lose the retained ownership record.
-        if (threads.contains(tid)) continue;
-        threads.emplace(tid, ThreadState{});
-        if (ce::seizeIfOwned(tid,PTRACE_O_TRACECLONE|PTRACE_O_TRACEEXEC)<0) {
-            int failure=errno;
-            threads.erase(tid);
-            if (failure==ESRCH) continue;
-            error({failure,std::system_category()}); return entries;
+    // A thread not yet seized can clone while we work through the list, and
+    // its child would run the start address untraced. List again until a
+    // pass finds nothing new, as DebugSession::seizeAllThreads does.
+    std::set<pid_t> attempted;
+    for (int pass = 0; pass < 16; ++pass) {
+        std::vector<pid_t> tids;
+        for (const auto& thread : proc.threads()) if (attempted.insert(thread.tid).second) tids.push_back(thread.tid);
+        if (pass == 0 && tids.empty() && attempted.insert(proc.pid()).second) tids.push_back(proc.pid());
+        if (tids.empty()) break;
+        for (pid_t tid : tids) {
+            if (cancelled_.load()) return entries;
+            // A clone event from an earlier parent can already own a listed child.
+            // Seizing it again would fail and lose the retained ownership record.
+            if (threads.contains(tid)) continue;
+            threads.emplace(tid, ThreadState{});
+            if (ce::seizeIfOwned(tid,PTRACE_O_TRACECLONE|PTRACE_O_TRACEEXEC)<0) {
+                int failure=errno;
+                threads.erase(tid);
+                if (failure==ESRCH) continue;
+                error({failure,std::system_category()}); return entries;
+            }
+            if (ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) < 0) {
+                error({errno,std::system_category()}); return entries;
+            }
+            int status = 0;
+            if (!waitThread(tid, status)) return entries;
+            if (threads.at(tid).event==PTRACE_EVENT_CLONE && !addClone(tid)) return entries;
+            if (threads.at(tid).event==PTRACE_EVENT_EXEC) return entries;
         }
-        if (ptrace(PTRACE_INTERRUPT, tid, nullptr, nullptr) < 0) {
-            error({errno,std::system_category()}); return entries;
-        }
-        int status = 0;
-        if (!waitThread(tid, status)) return entries;
-        if (threads.at(tid).event==PTRACE_EVENT_CLONE && !addClone(tid)) return entries;
-        if (threads.at(tid).event==PTRACE_EVENT_EXEC) return entries;
     }
     if (threads.empty()) return entries;
     pid_t traceTid = threads.contains(proc.pid()) ? proc.pid() : threads.begin()->first;
@@ -283,6 +296,9 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
                 if (!waitThread(tid, status)) return entries;
                 if ((status >> 16) == PTRACE_EVENT_CLONE && !addClone(tid)) return entries;
             }
+            // Another thread may have reached the start address too.
+            drainStartTraps(tid);
+            if (!state.alive) continue;
             if (!restoreDebug(tid)) return entries;
         }
     }
@@ -315,18 +331,24 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
 
         bool overCall = config.stepOverCalls && !instructions.empty() && instructions[0].isCall;
         uintptr_t next = overCall ? pc + instructions[0].size : 0;
+        // The call returns with the stack pointer back at (or, after a callee
+        // that pops its arguments, above) its value here. A recursive call
+        // reaching `next` in a deeper frame has a lower one and runs on.
+        const uint64_t callSp = ctx->stackPointer();
+        bool steppingPast = false;   // single-stepping a deeper frame past `next`
+        auto request = [&] { return overCall && !steppingPast ? PTRACE_CONT : PTRACE_SINGLESTEP; };
         if (overCall && !arm(traceTid, next)) break;
-        if (!resume(traceTid, overCall ? PTRACE_CONT : PTRACE_SINGLESTEP)) break;
+        if (!resume(traceTid, request())) break;
         for (;;) {
             int status = 0;
             if (!waitThread(traceTid, status)) return entries;
             if ((status >> 16) == PTRACE_EVENT_CLONE) {
-                if (!addClone(traceTid) || !resume(traceTid, overCall ? PTRACE_CONT : PTRACE_SINGLESTEP)) return entries;
+                if (!addClone(traceTid) || !resume(traceTid, request())) return entries;
                 continue;
             }
             if ((status>>16)==PTRACE_EVENT_EXEC) return entries;
             if ((status>>8)==(SIGTRAP|(PTRACE_EVENT_STOP<<8))) {
-                if (!resume(traceTid,overCall ? PTRACE_CONT : PTRACE_SINGLESTEP)) return entries;
+                if (!resume(traceTid, request())) return entries;
                 continue;
             }
             // An ordinary signal (a timer, SIGCHLD, a runtime's GC suspend
@@ -334,25 +356,35 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
             // a cut-short trace as complete. A fatal one ends the thread,
             // which the wait reports.
             if (WSTOPSIG(status) != SIGTRAP && (status >> 16) == 0) {
-                if (!resume(traceTid, overCall ? PTRACE_CONT : PTRACE_SINGLESTEP)) return entries;
+                if (!resume(traceTid, request())) return entries;
                 continue;
             }
             siginfo_t si{};
             if (WSTOPSIG(status) != SIGTRAP || (status >> 16) != 0 ||
                 ptrace(PTRACE_GETSIGINFO, traceTid, nullptr, &si) < 0) return entries;
-            if (!overCall && (si.si_code==TRAP_TRACE || os::isNativeSyscallStepTrap(traceTid,si))) {
+            if ((!overCall || steppingPast) && (si.si_code==TRAP_TRACE || os::isNativeSyscallStepTrap(traceTid,si))) {
                 threads.at(traceTid).signal=0;
-                break;
+                if (!overCall) break;
+                // Past the breakpoint: arm it again for the frame we wait for.
+                steppingPast = false;
+                if (!arm(traceTid, next) || !resume(traceTid, PTRACE_CONT)) return entries;
+                continue;
             }
             auto context = dbg.getContext(traceTid);
-            if (overCall && si.si_code == TRAP_HWBKPT && context && context->instructionPointer() == next) {
+            if (overCall && !steppingPast && si.si_code == TRAP_HWBKPT && context && context->instructionPointer() == next) {
                 if (!restoreDebug(traceTid)) return entries;
-                break;
+                if (context->stackPointer() >= callSp) break;
+                // A deeper frame of a recursive call returned here first. An
+                // armed execute breakpoint would trap again on arm64, so step
+                // it past with the breakpoint lifted.
+                steppingPast = true;
+                if (!resume(traceTid, PTRACE_SINGLESTEP)) return entries;
+                continue;
             }
             // Preserve genuine signals and unrelated traps for the target. A
             // trap that is not our step (the program's own int3) ends the
             // trace; say so rather than look finished.
-            if (!overCall) { error(std::make_error_code(std::errc::interrupted)); return entries; }
+            if (!overCall || steppingPast) { error(std::make_error_code(std::errc::interrupted)); return entries; }
             if (!resume(traceTid, PTRACE_CONT)) return entries;
         }
     }

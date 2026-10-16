@@ -1,6 +1,7 @@
 #include "platform/linux/linux_process.hpp"
 #include "platform/linux/injector.hpp"
 #include "platform/linux/syscall_service.hpp"
+#include "platform/linux/target_syscall.hpp"
 #include "core/ns_attach.hpp"
 #ifndef CECORE_NATIVE_CALL_EMBEDDED
 #include "scripting/lua_engine.hpp"
@@ -123,6 +124,11 @@ void leaderExitCalls(const char* path,const char* libraryPath) {
     check(thread && thread->completed && value(process,completed)==1 && value(process,running)==0 &&
           waitThreadGone(process,thread->tid),
           "native pthread creation and actual worker-exit ownership remain usable after leader exit");
+    // The console thread is the first live thread here, ahead of the running
+    // worker. Selecting a call thread must not stop it inside epoll_wait.
+    const auto interrupted=resolver.lookup("ce_call_wait_interrupted");
+    check(interrupted && value(process,interrupted)==0,
+          "native calls skip a thread blocked in epoll_wait instead of ending its wait with EINTR");
     auto storage=process.allocate(4096,MemProt::ReadWrite);
     unsigned word=42;
     bool memory=false;
@@ -460,6 +466,20 @@ int nativeCallIntegration(int argc,char** argv) {
     }
     printf("AUTOASM_THREAD_LIFETIME_RESULT=%s width=%u\n",failures==aaFailures ? "PASSED" : "FAILED",width);
 #endif
+    if (auto stdcallEntry=resolver.lookup("ce_call_stdcall_entry")) {
+        auto finished=value(process,completed);
+        auto stdcallThread=os::createRemoteThread(process,resolver,stdcallEntry,true,2000);
+        if (!stdcallThread) printf("stdcall thread error: %s\n",stdcallThread.error().c_str());
+        check(stdcallThread && stdcallThread->completed && value(process,completed)==finished+1 &&
+              waitThreadGone(process,stdcallThread->tid),
+              "an i386 stdcall thread entry that pops its own argument returns through the wrapper");
+    }
+    check(os::runtimeLockOwner("/usr/lib/x86_64-linux-gnu/libc.so.6") && os::runtimeLockOwner("/lib/ld-linux.so.2") &&
+          os::runtimeLockOwner("/lib64/ld-linux-x86-64.so.2") && os::runtimeLockOwner("/lib/libc-2.31.so") &&
+          os::runtimeLockOwner("/lib/ld-musl-x86_64.so.1") && os::runtimeLockOwner("/usr/lib/libpthread.so.0 (deleted)") &&
+          !os::runtimeLockOwner("/usr/lib/libc++.so.1") && !os::runtimeLockOwner("/usr/lib/libcrypto.so.3") &&
+          !os::runtimeLockOwner("/opt/game/ld-helper.so") && !os::runtimeLockOwner("[heap]") && !os::runtimeLockOwner(""),
+          "call threads stopped inside libc, libpthread or the loader are recognised by mapping name");
     char command='x';
     check(write(fixture.input,&command,1)==1 && fixture.line()=="CE_NATIVE_CALL_DONE",
           "the original application and blocked-read sibling finish normally after injection");

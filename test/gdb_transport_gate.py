@@ -40,6 +40,9 @@ class Peer:
         self.memory[:12] = bytes.fromhex("112233445566778899aabbcc")
         if mode == "cli-scan-subnormal":
             self.memory[:8] = bytes.fromhex("0000000000000001")
+        if mode == "adapter-bulk":
+            # Byte i is i & 255; the length ends mid-packet, so the last read is short.
+            self.memory = bytearray((bytes(range(256)) * 16)[:4080])
         self.writes = 0
         self.stops = 0
         self.registers = {"0": bytes.fromhex("e012341234567890"), "14": bytes.fromhex("e012341234567890")}
@@ -171,7 +174,7 @@ class Peer:
             self.stops += 1
             if self.mode == "adapter-bad-stop":
                 return b"Szz"
-            if self.mode in ("adapter-exited", "cli-exited") and self.stops>1:
+            if self.mode in ("adapter-exited", "cli-exited", "adapter-bulk") and self.stops>1:
                 return b"W00"
             return b"S05"
         if text == "D":
@@ -520,6 +523,7 @@ def main():
         cases += [("xml-dtd-default", "xml")]
         cases += [("adapter-exited", "adapter-dead")]
         cases += [("adapter-width", None), ("adapter-endian-conflict", None), ("adapter-high", None)]
+        cases += [("adapter-bulk", None)]
     for mode, driver_mode in cases:
         record = run_peer_case(driver, mode, driver_mode)
         records.append(record)

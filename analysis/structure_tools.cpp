@@ -1,7 +1,9 @@
 #include "analysis/structure_tools.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cctype>
+#include <cstdint>
 #include <cstring>
 #include <iomanip>
 #include <sstream>
@@ -28,18 +30,52 @@ std::string sanitizeIdentifier(const std::string& input, const std::string& fall
     return out;
 }
 
+// The C++ type for a field of `size` bytes. The type follows the size, so a
+// 4-byte pointer of a 32-bit target is uint32_t, not the host's uintptr_t, and
+// a size that does not fit the value type becomes a byte array.
 std::string cppTypeFor(ValueType type, size_t size) {
     switch (type) {
-        case ValueType::Byte: return "uint8_t";
-        case ValueType::Int16: return "int16_t";
-        case ValueType::Int32: return "int32_t";
-        case ValueType::Int64: return "int64_t";
-        case ValueType::Pointer: return "uintptr_t";
-        case ValueType::Float: return "float";
-        case ValueType::Double: return "double";
+        case ValueType::Byte:
+            if (size == 1) return "uint8_t";
+            break;
+        case ValueType::Int16:
+        case ValueType::Int32:
+        case ValueType::Int64:
+            if (size == 1) return "int8_t";
+            if (size == 2) return "int16_t";
+            if (size == 4) return "int32_t";
+            if (size == 8) return "int64_t";
+            break;
+        case ValueType::Pointer:
+            if (size == 4) return "uint32_t";
+            if (size == 8) return "uint64_t";
+            break;
+        case ValueType::Float:
+            if (size == 4) return "float";
+            break;
+        case ValueType::Double:
+            if (size == 8) return "double";
+            break;
         default:
-            return "uint8_t[" + std::to_string(std::max<size_t>(1, size)) + "]";
+            break;
     }
+    return "uint8_t[" + std::to_string(std::max<size_t>(1, size)) + "]";
+}
+
+ByteOrder hostByteOrder() {
+    return std::endian::native == std::endian::big ? ByteOrder::Big : ByteOrder::Little;
+}
+
+// A target pointer of `width` bytes in `order` at `address`.
+std::optional<uintptr_t> readTargetPointer(ProcessHandle& proc, uintptr_t address,
+                                           size_t width, ByteOrder order) {
+    uint8_t bytes[8] = {};
+    if (width != 4 && width != 8) return std::nullopt;
+    auto read = proc.read(address, bytes, width);
+    if (!read || *read != width) return std::nullopt;
+    auto value = decodeTargetUnsigned({bytes, width}, order);
+    if (!value) return std::nullopt;
+    return static_cast<uintptr_t>(*value);
 }
 
 size_t defaultSizeFor(ValueType type, size_t explicitSize) {
@@ -73,12 +109,12 @@ std::string lowerCopy(const std::string& value) {
     return out;
 }
 
-bool isReadablePointer(ProcessHandle& proc, uintptr_t address) {
+bool isReadablePointer(ProcessHandle& proc, uintptr_t address, size_t width) {
     auto region = proc.queryRegion(address);
     return region && (region->protection & MemProt::Read) &&
         address >= region->base &&
-        region->size >= sizeof(uintptr_t) &&
-        address <= region->base + region->size - sizeof(uintptr_t);
+        region->size >= width &&
+        address <= region->base + region->size - width;
 }
 
 template<typename T>
@@ -112,8 +148,12 @@ std::string generateCppStruct(const StructureDefinition& structure) {
 
     const std::string structName = sanitizeIdentifier(structure.name, "GeneratedStruct");
     std::ostringstream out;
-    out << "#include <cstdint>\n\n";
+    // Packed with explicit padding, so each member sits at its dissected offset
+    // whatever the compiler's alignment rules; the static_asserts check it.
+    out << "#include <cstddef>\n#include <cstdint>\n\n";
+    out << "#pragma pack(push, 1)\n";
     out << "struct " << structName << " {\n";
+    std::vector<std::pair<std::string, size_t>> placed;
 
     size_t cursor = 0;
     size_t padIndex = 0;
@@ -151,15 +191,22 @@ std::string generateCppStruct(const StructureDefinition& structure) {
                 << type.substr(arrayStart) << "; // 0x"
                 << std::hex << field.offset << std::dec << "\n";
         }
+        placed.emplace_back(name, field.offset);
         cursor = std::max(cursor, field.offset + fieldSize);
     }
 
     if (structure.size > cursor) {
         out << "    uint8_t _pad" << padIndex++ << "[0x"
             << std::hex << (structure.size - cursor) << std::dec << "];\n";
+        cursor = structure.size;
     }
 
     out << "};\n";
+    out << "#pragma pack(pop)\n\n";
+    for (const auto& [name, offset] : placed)
+        out << "static_assert(offsetof(" << structName << ", " << name << ") == 0x"
+            << std::hex << offset << std::dec << ");\n";
+    out << "static_assert(sizeof(" << structName << ") == 0x" << std::hex << cursor << std::dec << ");\n";
     return out.str();
 }
 
@@ -261,15 +308,24 @@ std::vector<StructurePointerChain> followStructurePointers(ProcessHandle& proc,
     std::vector<StructurePointerChain> chains;
     if (maxDepth == 0)
         return chains;
+    // Pointers are decoded as the target stores them; without a known width
+    // and byte order there is nothing safe to follow.
+    const size_t width = proc.pointerWidth();
+    const ByteOrder order = proc.byteOrder();
+    if ((width != 4 && width != 8) || width > sizeof(uintptr_t) || order == ByteOrder::Unknown)
+        return chains;
 
     for (const auto& field : structure.fields) {
         if (field.type != ValueType::Pointer)
             continue;
 
-        uintptr_t pointer = 0;
-        auto read = proc.read(baseAddress + field.offset, &pointer, sizeof(pointer));
-        if (!read || *read != sizeof(pointer) || pointer == 0)
+        // The field's own width when it names one (a 32-bit offset field in a
+        // 64-bit target), else the target's.
+        const size_t fieldWidth = field.size == 4 || field.size == 8 ? field.size : width;
+        auto first = readTargetPointer(proc, baseAddress + field.offset, fieldWidth, order);
+        if (!first || *first == 0)
             continue;
+        const uintptr_t pointer = *first;
 
         StructurePointerChain chain;
         chain.fieldName = field.name;
@@ -278,16 +334,15 @@ std::vector<StructurePointerChain> followStructurePointers(ProcessHandle& proc,
 
         uintptr_t current = pointer;
         for (size_t depth = 1; depth < maxDepth; ++depth) {
-            if (!isReadablePointer(proc, current))
+            if (!isReadablePointer(proc, current, width))
                 break;
 
-            uintptr_t next = 0;
-            auto nextRead = proc.read(current, &next, sizeof(next));
-            if (!nextRead || *nextRead != sizeof(next) || next == 0)
+            auto next = readTargetPointer(proc, current, width, order);
+            if (!next || *next == 0)
                 break;
 
-            chain.addresses.push_back(next);
-            current = next;
+            chain.addresses.push_back(*next);
+            current = *next;
         }
 
         chains.push_back(std::move(chain));
@@ -297,8 +352,9 @@ std::vector<StructurePointerChain> followStructurePointers(ProcessHandle& proc,
 }
 
 std::string formatStructureFieldValue(const StructureField& field,
-    const std::vector<uint8_t>& snapshot)
+    const std::vector<uint8_t>& snapshot, ByteOrder order)
 {
+    if (order == ByteOrder::Unknown) order = hostByteOrder();
     const size_t fieldSize = defaultSizeFor(field.type, field.size);
     if (fieldSize == 0 || field.offset >= snapshot.size())
         return {};
@@ -336,23 +392,34 @@ std::string formatStructureFieldValue(const StructureField& field,
     }
 
     if (method == "pointer") {
-        uintptr_t value = 0;
-        if (!readSnapshotValue(snapshot, field.offset, value))
+        // The field's width (a 32-bit target's pointer is 4 bytes), not the host's.
+        const size_t width = fieldSize == 4 ? 4 : 8;
+        if (available < width)
             return {};
-        out << "0x" << std::hex << value;
+        auto value = decodeTargetUnsigned({snapshot.data() + field.offset, width}, order);
+        if (!value)
+            return {};
+        out << "0x" << std::hex << *value;
         return out.str();
     }
+
+    // The numeric formats below read host-order values: put the field's bytes
+    // in host order first.
+    std::vector<uint8_t> local(snapshot.begin() + static_cast<std::ptrdiff_t>(field.offset),
+                               snapshot.begin() + static_cast<std::ptrdiff_t>(field.offset + available));
+    if (order != hostByteOrder())
+        std::reverse(local.begin(), local.end());
 
     if (method == "float") {
         if (field.type == ValueType::Double || fieldSize == sizeof(double)) {
             double value = 0;
-            if (!readSnapshotValue(snapshot, field.offset, value))
+            if (!readSnapshotValue(local, 0, value))
                 return {};
             out << value;
             return out.str();
         }
         float value = 0;
-        if (!readSnapshotValue(snapshot, field.offset, value))
+        if (!readSnapshotValue(local, 0, value))
             return {};
         out << value;
         return out.str();
@@ -361,7 +428,7 @@ std::string formatStructureFieldValue(const StructureField& field,
     if (method == "unsigned") {
         uint64_t value = 0;
         const size_t copySize = std::min(available, sizeof(value));
-        std::memcpy(&value, snapshot.data() + field.offset, copySize);
+        std::memcpy(&value, local.data(), copySize);
         out << value;
         return out.str();
     }
@@ -370,24 +437,24 @@ std::string formatStructureFieldValue(const StructureField& field,
     switch (std::min(available, sizeof(value))) {
         case 1: {
             int8_t v = 0;
-            std::memcpy(&v, snapshot.data() + field.offset, sizeof(v));
+            std::memcpy(&v, local.data(), sizeof(v));
             value = v;
             break;
         }
         case 2: {
             int16_t v = 0;
-            std::memcpy(&v, snapshot.data() + field.offset, sizeof(v));
+            std::memcpy(&v, local.data(), sizeof(v));
             value = v;
             break;
         }
         case 4: {
             int32_t v = 0;
-            std::memcpy(&v, snapshot.data() + field.offset, sizeof(v));
+            std::memcpy(&v, local.data(), sizeof(v));
             value = v;
             break;
         }
         default:
-            std::memcpy(&value, snapshot.data() + field.offset, std::min(available, sizeof(value)));
+            std::memcpy(&value, local.data(), std::min(available, sizeof(value)));
             break;
     }
     out << value;

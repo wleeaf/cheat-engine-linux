@@ -13,12 +13,24 @@ namespace ce {
 
 // Default-deny: shell commands, native code, writing files on this computer
 // and cecore's own memory need CECORE_LUA_ALLOW_UNSAFE=1 in the environment
-// Cheat Engine was started with. A script cannot set it.
-inline bool luaUnsafeAllowed() { return std::getenv("CECORE_LUA_ALLOW_UNSAFE") != nullptr; }
+// Cheat Engine was started with. A script cannot set it: each Lua state reads
+// it once, when the engine creates the state (markLuaUnsafeAllowed), so a
+// script that later changes cecore's environment gains nothing.
+inline constexpr const char* kLuaUnsafeKey = "ce_unsafe_allowed";
+inline void markLuaUnsafeAllowed(lua_State* L) {
+    lua_pushboolean(L, std::getenv("CECORE_LUA_ALLOW_UNSAFE") != nullptr);
+    lua_setfield(L, LUA_REGISTRYINDEX, kLuaUnsafeKey);
+}
+inline bool luaUnsafeAllowed(lua_State* L) {
+    lua_getfield(L, LUA_REGISTRYINDEX, kLuaUnsafeKey);
+    const bool allowed = lua_toboolean(L, -1);
+    lua_pop(L, 1);
+    return allowed;
+}
 
 template <lua_CFunction Fn>
 int guardFileWrite(lua_State* L) {
-    if (!luaUnsafeAllowed())
+    if (!luaUnsafeAllowed(L))
         return luaL_error(L, "writing files is blocked: a table could overwrite any of your files. Enable it only "
                              "for tables you trust by launching with CECORE_LUA_ALLOW_UNSAFE=1 (see SECURITY.md).");
     return Fn(L);
@@ -53,6 +65,27 @@ inline void setSafeLuaFunctions(lua_State* L, const luaL_Reg* functions, int upv
         pushSafeLuaFunction(L, f->func);
         lua_setfield(L, -2, f->name);
     }
+}
+
+// Methods fetched through __index come back bound to their object, so both
+// obj:method(x) and obj.method(x) work, as in CE. A call whose first argument
+// is the object itself is a ':' call and passes through unchanged.
+inline int boundMethodCall(lua_State* L) {
+    if (lua_gettop(L) == 0 || !lua_rawequal(L, 1, lua_upvalueindex(2))) {
+        lua_pushvalue(L, lua_upvalueindex(2));
+        lua_insert(L, 1);
+    }
+    lua_pushvalue(L, lua_upvalueindex(1));
+    lua_insert(L, 1);
+    lua_call(L, lua_gettop(L) - 1, LUA_MULTRET);
+    return lua_gettop(L);
+}
+
+// Replace the method on top of the stack with one bound to the object at `object`.
+inline void bindMethod(lua_State* L, int object) {
+    object = lua_absindex(L, object);
+    lua_pushvalue(L, object);
+    lua_pushcclosure(L, boundMethodCall, 2);
 }
 
 } // namespace ce

@@ -66,6 +66,9 @@ public:
     }
 
     void setProcess(ce::ProcessHandle* proc) { proc_ = proc; }
+    /// Asked before every edit: returns why [addr, addr + len) may not be written
+    /// (a planted breakpoint), or an empty string to allow it.
+    void setWriteCheck(std::function<QString(uintptr_t, size_t)> fn) { writeCheck_ = std::move(fn); }
     void setAddress(uintptr_t addr);
     uintptr_t currentAddress() const { return address_; }
     /// Address of the byte under the most recent cursor position, or `address_` if unknown.
@@ -115,6 +118,8 @@ signals:
     void requestGoto(uintptr_t addr);
     void requestAddToList(uintptr_t addr, ce::ValueType type);
     void cursorMoved(uintptr_t addr);
+    /// An edit was refused by the write check; `reason` says why.
+    void writeRefused(const QString& reason);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -176,6 +181,9 @@ private:
 
     /// Write a single byte to the target, making the page writable if needed.
     bool pokeByte(uintptr_t addr, uint8_t value);
+    /// Run the write check over [addr, addr + len); emits writeRefused on a refusal.
+    bool writeAllowed(uintptr_t addr, size_t len);
+    std::function<QString(uintptr_t, size_t)> writeCheck_;
 };
 
 // ── Disassembler View Widget ──
@@ -409,12 +417,21 @@ public:
     /// Persistent disassembler comments (saved with the cheat table). The store is
     /// owned by MainWindow and keyed by module-relative address EXPRESSION so it
     /// survives ASLR. setAnnotationStore installs the initial set (applied now) and
-    /// a saver called whenever a comment changes.
+    /// a saver called with each single edit, which the owner merges into its store
+    /// (several viewers edit the same store, so none may send a whole set).
+    struct AnnotationChange {
+        uintptr_t address = 0;    // in the current target
+        std::string expression;   // module-relative store key ("libgame.so+0x1234")
+        bool label = false;       // true: the user label; false: the inline comment
+        std::string text;         // empty removes it
+    };
     // Swap the table's comments and labels shown here for another table's.
     void replaceAnnotations(const std::vector<ce::DisassemblerComment>& previous,
                             const std::vector<ce::DisassemblerComment>& next);
     void setAnnotationStore(std::vector<ce::DisassemblerComment> initial,
-                            std::function<void(std::vector<ce::DisassemblerComment>)> saver);
+                            std::function<void(const AnnotationChange&)> saver);
+    /// Show a comment edited in another viewer (the owner fans each change out).
+    void setComment(uintptr_t addr, const std::string& text);
 
     /// Hook to open a script editor pre-loaded with a generated injection script
     /// (MainWindow owns the AutoAssembler and creates the editor).
@@ -437,6 +454,13 @@ public:
     /// Test helper: trigger a Debug-menu action whose text starts with `text`
     /// (e.g. "Step into"); returns false if there is no such action.
     bool triggerDebugActionForTest(const QString& text);
+
+    /// Test helper: paste an AOB at `addr` through the hex pane, as Ctrl+V does.
+    int hexPasteForTest(uintptr_t addr, const QString& aob) {
+        hexView_->setAddress(addr); hexView_->selectBytes(addr, 1); return hexView_->pasteBytes(aob);
+    }
+    /// Test helper: set a comment as OK in the Comment dialog does.
+    void setCommentForTest(uintptr_t addr, const QString& text) { editComment(addr, text.trimmed().toStdString()); }
 
     /// Test helper: invoke the run-to-cursor callback with an explicit target
     /// (bypasses disasm selection); returns false if no controller is wired.
@@ -479,6 +503,9 @@ private:
     void writeNop(uintptr_t addr, int size);
     void assembleAt(uintptr_t addr, int origSize, const QString& current);
     bool patchBytes(uintptr_t addr, const std::vector<uint8_t>& bytes, QString* error = nullptr);
+    /// Why [addr, addr + len) may not be written (it holds a planted debugger
+    /// breakpoint), or an empty string. Every write from this window checks it.
+    QString breakpointConflict(uintptr_t addr, size_t len) const;
     void showXrefs(uintptr_t addr);
     void saveRegionToFile(uintptr_t addr);
     void loadRegionFromFile(uintptr_t addr);
@@ -528,10 +555,17 @@ private:
     std::function<void(uintptr_t)> dissectOpener_;
     std::function<void(uintptr_t)> newWindowOpener_;
     // Persistent-comment plumbing (see setAnnotationStore).
-    std::function<void(std::vector<ce::DisassemblerComment>)> annotationSaver_;
+    std::function<void(const AnnotationChange&)> annotationSaver_;
     std::string addrToExpr(uintptr_t addr) const;   // absolute -> "module+0xoff"
     uintptr_t exprToAddr(const std::string& expr) const; // inverse (0 if unresolved)
-    void persistComments();                         // gather + call annotationSaver_
+    void saveAnnotation(uintptr_t addr, bool label, const std::string& text);   // one edit to the store
+    void editComment(uintptr_t addr, const std::string& text);   // show + save one comment
+    // Disabled by detachFromTarget: the Search menu and debug toolbar act on the
+    // target, and so do the owner's View/Tools/Debug items. ownViewActions_ (the
+    // preferences and panel toggles) need no target and stay enabled.
+    QMenu* searchMenu_ = nullptr;
+    QToolBar* debugBar_ = nullptr;
+    std::vector<QAction*> ownViewActions_;
 };
 
 } // namespace ce::gui

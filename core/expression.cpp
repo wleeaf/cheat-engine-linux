@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <string_view>
 
 namespace ce {
 
@@ -12,9 +13,25 @@ static std::string trim(const std::string& s) {
     return a == std::string::npos ? "" : s.substr(a, b - a + 1);
 }
 
+// Module names compare without case, as in Cheat Engine: a table made on
+// Windows says "KERNEL32.DLL" where Wine maps kernel32.dll.
+static bool sameNameIgnoringCase(std::string_view a, std::string_view b) {
+    return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](unsigned char x, unsigned char y) {
+        return std::tolower(x) == std::tolower(y);
+    });
+}
+
 const std::vector<ModuleInfo>& ExpressionParser::modules() const {
     if (!modules_) modules_ = proc_ ? proc_->modules() : std::vector<ModuleInfo>{};
     return *modules_;
+}
+
+// The base of the module named `name`: an exact match first, then one that
+// differs only in case.
+static std::optional<uintptr_t> moduleBase(const std::vector<ModuleInfo>& modules, const std::string& name) {
+    for (const auto& m : modules) if (m.name == name) return m.base;
+    for (const auto& m : modules) if (sameNameIgnoringCase(m.name, name)) return m.base;
+    return std::nullopt;
 }
 
 std::optional<uintptr_t> ExpressionParser::resolveToken(const std::string& token) const {
@@ -24,9 +41,7 @@ std::optional<uintptr_t> ExpressionParser::resolveToken(const std::string& token
         if (resolver_) {
             if (auto address = resolver_->lookup(name)) return address;
         }
-        if (proc_) {
-            for (const auto& m : modules()) if (m.name == name) return m.base;
-        }
+        if (proc_) return moduleBase(modules(), name);
         return std::nullopt;
     }
 
@@ -58,8 +73,7 @@ std::optional<uintptr_t> ExpressionParser::resolveToken(const std::string& token
         if (addr) return addr;
     }
     if (proc_) {
-        for (const auto& m : modules())
-            if (m.name == token) return m.base;
+        if (auto base = moduleBase(modules(), token)) return base;
     }
     // A lone hex letter remains symbol-first for CE compatibility.
     if (allHex) return number(token, 16);
@@ -79,26 +93,35 @@ std::optional<uintptr_t> ExpressionParser::parseImpl(const std::string& expr, in
     auto s = trim(expr);
     if (s.empty()) return std::nullopt;
 
-    // Split only at top-level operators. All arithmetic is evaluated left to
-    // right, including offsets after a dereference ("[base]-8-4").
-    // A 32-bit target's addresses wrap at 32 bits: "[p]+FFFFFFFC" is p-4
-    // there, not an address above 4 GiB.
-    if (!mask_) mask_ = proc_ && proc_->pointerWidth() == 4 ? uintptr_t(0xFFFFFFFFu) : UINTPTR_MAX;
-    const uintptr_t mask = *mask_;
-    uintptr_t result = 0;
-    bool subtract = false;
-    size_t pos = 0;
-    if (s[pos] == '+' || s[pos] == '-') {
-        subtract = s[pos] == '-';
-        ++pos;
+    // Split only at top-level operators. '*' binds tighter than '+' and '-',
+    // which are evaluated left to right, including offsets after a dereference
+    // ("[base]-8-4"). A 32-bit target's addresses wrap at 32 bits: "[p]+FFFFFFFC"
+    // is p-4 there, not an address above 4 GiB.
+    if (!mask_) {
+        const bool narrow = proc_ && proc_->pointerWidth() == 4;
+        mixedWidth_ = narrow && proc_->is64bit();
+        mask_ = narrow && !mixedWidth_ ? uintptr_t(0xFFFFFFFFu) : UINTPTR_MAX;
     }
+    const uintptr_t mask = *mask_;
+    // In a mixed-width process an address above 4 GiB is real (64-bit code and
+    // stacks), so only arithmetic on two 32-bit values that carries or borrows
+    // past 32 bits wraps.
+    auto combine = [&](uintptr_t left, uintptr_t right, char op) -> uintptr_t {
+        uintptr_t value = op == '-' ? left - right : op == '*' ? left * right : left + right;
+        value &= mask;
+        if (mixedWidth_ && left <= 0xFFFFFFFFu && right <= 0xFFFFFFFFu && value > 0xFFFFFFFFu)
+            value &= 0xFFFFFFFFu;
+        return value;
+    };
+    auto isSpace = [](char c) { return c == ' ' || c == '\t'; };
+    auto skipSpaces = [&](size_t& pos) { while (pos < s.size() && isSpace(s[pos])) ++pos; };
 
-    while (pos < s.size()) {
-        while (pos < s.size() && (s[pos] == ' ' || s[pos] == '\t')) ++pos;
-        if (pos == s.size() || s[pos] == '+' || s[pos] == '-') return std::nullopt;
+    // One operand: a [dereference], a quoted name, or a number, symbol or
+    // module name.
+    auto factor = [&](size_t& pos) -> std::optional<uintptr_t> {
+        skipSpaces(pos);
+        if (pos == s.size() || s[pos] == '+' || s[pos] == '-' || s[pos] == '*') return std::nullopt;
         const size_t start = pos;
-        std::optional<uintptr_t> val;
-
         if (s[pos] == '[') {
             int bracketDepth = 1;
             const size_t innerStart = ++pos;
@@ -117,49 +140,65 @@ std::optional<uintptr_t> ExpressionParser::parseImpl(const std::string& expr, in
             if (!r || *r != ptrSize) return std::nullopt;
             auto ptr = decodeTargetUnsigned({bytes, ptrSize}, proc_->byteOrder(*inner));
             if (!ptr || *ptr > UINTPTR_MAX) return std::nullopt;
-            val = static_cast<uintptr_t>(*ptr);
             ++pos;
-        } else if (s[pos] == '"' || s[pos] == '\'') {
+            return static_cast<uintptr_t>(*ptr);
+        }
+        if (s[pos] == '"' || s[pos] == '\'') {
             char quote = s[pos++];
             while (pos < s.size() && s[pos] != quote) ++pos;
             if (pos == s.size()) return std::nullopt;
             ++pos;
-            val = resolveToken(s.substr(start, pos - start));
-        } else {
-            // Preserve operators inside known module names, taking the longest match.
-            // A plain number ("1C", "0x10", "#16") is no module name: skip the list.
-            size_t tokenEnd = pos;
-            while (tokenEnd < s.size() && s[tokenEnd] != '+' && s[tokenEnd] != '-' &&
-                   s[tokenEnd] != ' ' && s[tokenEnd] != '\t') ++tokenEnd;
-            const std::string head = s.substr(pos, tokenEnd - pos);
-            const bool plainNumber = !head.empty() &&
-                (head[0] == '#' || std::all_of(head.begin() + (head.starts_with("0x") || head.starts_with("0X") ? 2 : 0),
-                                               head.end(), [](unsigned char c) { return std::isxdigit(c); }));
-            static const std::vector<ModuleInfo> none;
-            size_t modLen = 0;
-            for (const auto& m : plainNumber ? none : modules()) {
-                if (m.name.empty() || m.name.size() <= modLen ||
-                    s.compare(pos, m.name.size(), m.name) != 0) continue;
-                const size_t after = pos + m.name.size();
-                if (after == s.size() || s[after] == '+' || s[after] == '-' ||
-                    s[after] == ' ' || s[after] == '\t') modLen = m.name.size();
-            }
-            if (modLen) pos += modLen;
-            else while (pos < s.size() && s[pos] != '+' && s[pos] != '-') ++pos;
-            val = resolveToken(trim(s.substr(start, pos - start)));
+            return resolveToken(s.substr(start, pos - start));
         }
-        if (!val) return std::nullopt;
-        if (subtract) result -= *val;
-        else result += *val;
-        result &= mask;
+        // Preserve operators inside known module names, taking the longest match.
+        // A plain number ("1C", "0x10", "#16") is no module name: skip the list.
+        auto ends = [&](size_t at) { return at == s.size() || s[at] == '+' || s[at] == '-' || s[at] == '*' || isSpace(s[at]); };
+        size_t tokenEnd = pos;
+        while (!ends(tokenEnd)) ++tokenEnd;
+        const std::string head = s.substr(pos, tokenEnd - pos);
+        const bool plainNumber = !head.empty() &&
+            (head[0] == '#' || std::all_of(head.begin() + (head.starts_with("0x") || head.starts_with("0X") ? 2 : 0),
+                                           head.end(), [](unsigned char c) { return std::isxdigit(c); }));
+        static const std::vector<ModuleInfo> none;
+        size_t modLen = 0;
+        for (const auto& m : plainNumber ? none : modules()) {
+            if (m.name.empty() || m.name.size() <= modLen || pos + m.name.size() > s.size() ||
+                !sameNameIgnoringCase(std::string_view(s).substr(pos, m.name.size()), m.name)) continue;
+            if (ends(pos + m.name.size())) modLen = m.name.size();
+        }
+        if (modLen) pos += modLen;
+        else while (pos < s.size() && s[pos] != '+' && s[pos] != '-' && s[pos] != '*') ++pos;
+        return resolveToken(trim(s.substr(start, pos - start)));
+    };
+    // A product of factors.
+    auto term = [&](size_t& pos) -> std::optional<uintptr_t> {
+        auto value = factor(pos);
+        if (!value) return std::nullopt;
+        for (;;) {
+            size_t next = pos;
+            skipSpaces(next);
+            if (next == s.size() || s[next] != '*') return value;
+            pos = next + 1;
+            auto right = factor(pos);
+            if (!right) return std::nullopt;
+            value = combine(*value, *right, '*');
+        }
+    };
 
-        while (pos < s.size() && (s[pos] == ' ' || s[pos] == '\t')) ++pos;
+    uintptr_t result = 0;
+    char op = '+';
+    size_t pos = 0;
+    if (s[pos] == '+' || s[pos] == '-') op = s[pos++];
+    for (;;) {
+        auto value = term(pos);
+        if (!value) return std::nullopt;
+        result = combine(result, *value, op);
+        skipSpaces(pos);
         if (pos == s.size()) return result;
         if (s[pos] != '+' && s[pos] != '-') return std::nullopt;
-        subtract = s[pos++] == '-';
+        op = s[pos++];
         if (pos == s.size()) return std::nullopt;
     }
-    return std::nullopt;
 }
 
 } // namespace ce

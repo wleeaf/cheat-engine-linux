@@ -222,7 +222,12 @@ bool decodeTables(const uint8_t* data, size_t size, Il2CppMetadata& md,
                     if ((v >> 24) == 0x06 && (v & 0xFFFFFF) != 0) { tokenOff = o; break; }
                 }
                 if (tokenOff != static_cast<size_t>(-1)) {
-                    for (size_t k = 0; k < nTypes; ++k) {
+                    // Each method record is a few bytes but its name can be up
+                    // to 1 KiB: bound the total so a crafted file cannot turn
+                    // into a hundred times its size in memory.
+                    size_t nameBytes = 0;
+                    constexpr size_t kMaxMethodNameBytes = size_t(256) << 20;
+                    for (size_t k = 0; k < nTypes && nameBytes < kMaxMethodNameBytes; ++k) {
                         const uint8_t* trec = data + tdOff + k * L->typeDefSize;
                         const int32_t mStart = rdI32(trec + L->tdMethodStartOff);
                         const uint16_t mCount = rdU16(trec + L->tdMethodCountOff);
@@ -235,6 +240,7 @@ bool decodeTables(const uint8_t* data, size_t size, Il2CppMetadata& md,
                                 data + mOff + (static_cast<size_t>(mStart) + j) * recSize;
                             Il2CppMethodDef m;
                             m.name = stringAt(data, strOff, strSize, rdI32(mrec));  // nameIndex@0
+                            nameBytes += m.name.size();
                             m.token = rdU32(mrec + tokenOff);
                             md.types[k].methods.push_back(std::move(m));
                         }
@@ -358,11 +364,14 @@ std::optional<Il2CppMetadata> parseIl2CppMetadata(const uint8_t* data, size_t si
     const int32_t strOff = rdI32(data + kOffString);
     const int32_t strSize = rdI32(data + kOffStringSize);
     if (!regionValid(strOff, strSize, size)) return std::nullopt;
-    for (int32_t i = 0; i < strSize;) {
+    // Empty entries are skipped: a region of NUL bytes would otherwise become
+    // one std::string (32 bytes or more) per input byte.
+    constexpr size_t kMaxStrings = size_t(1) << 23;
+    for (int32_t i = 0; i < strSize && md.strings.size() < kMaxStrings;) {
         const char* s = reinterpret_cast<const char*>(data + strOff + i);
         const size_t maxLen = static_cast<size_t>(strSize - i);
         const size_t len = ::strnlen(s, maxLen);
-        md.strings.emplace_back(s, len);
+        if (len) md.strings.emplace_back(s, len);
         if (len == maxLen) break;      // unterminated tail: stop cleanly
         i += static_cast<int32_t>(len) + 1;  // step past the NUL
     }

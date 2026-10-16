@@ -1,5 +1,9 @@
 #include "core/ct_file.hpp"
+#include "core/simple_address_list.hpp"
+#include "scripting/lua_engine.hpp"
+#include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <signal.h>
@@ -8,6 +12,10 @@
 using namespace ce;
 static unsigned checks,failures;
 static void check(bool good,const char* label) {++checks;failures+=!good;printf("%s: %s\n",good ? "OK":"FAILED",label);fflush(stdout);}
+static std::string readFile(const std::filesystem::path& path) {std::ifstream f(path);return {std::istreambuf_iterator<char>(f),std::istreambuf_iterator<char>()};}
+static bool has(const std::string& text,const char* part) {return text.find(part)!=std::string::npos;}
+// One Cheat Engine record inside a whole table.
+static std::string ceTable(const std::string& records) {return "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<CheatTable CheatEngineTableVersion=\"45\">\n<CheatEntries>\n"+records+"</CheatEntries>\n</CheatTable>\n";}
 int main() {
     alarm(20);
     auto directory=std::filesystem::temp_directory_path()/std::string("ce-table-save-XXXXXX");
@@ -37,6 +45,159 @@ int main() {
         gui.entries[1].length==12 && gui.entries[1].addressString=="[game+10]",
         "the core reads GUI JSON addresses, pointer types, descriptions, expressions and lengths");
     check(gui.gameName=="GUI fixture" && gui.entries[1].parentId==10,"GUI parent rows become the correct stable parent IDs in the core model");
+    // Cheat Engine format fidelity: what CE writes loads, and a save writes it back.
+    auto saveAndRead=[&](const CheatTable& t,const char* name) {
+        const auto path=directory/name;
+        return t.save(path.string()) ? readFile(path) : std::string();
+    };
+    {
+        CheatTable t;
+        const bool loaded=t.loadFromString(ceTable(
+            "<CheatEntry><ID>1</ID><Description>\"hp\"</Description><VariableType>4 Bytes</VariableType><Address>400000</Address>"
+            "<Hotkeys>"
+            "<Hotkey><Action>Toggle Activation</Action><Keys><Key>17</Key><Key>72</Key></Keys><ID>0</ID></Hotkey>"
+            "<Hotkey><Action>Set Value</Action><Keys><Key>116</Key></Keys><Value>100</Value><ID>1</ID></Hotkey>"
+            "<Hotkey><Action>Activate</Action><Keys><Key>117</Key></Keys><ID>2</ID></Hotkey>"
+            "<Hotkey Active=\"0\"><Action>Toggle Activation</Action><Keys><Key>118</Key></Keys><Description>off</Description><ID>3</ID></Hotkey>"
+            "<Hotkey><Action>Decrease Value</Action><Keys><Key>119</Key></Keys><Value>5</Value><ID>4</ID></Hotkey>"
+            "</Hotkeys></CheatEntry>\n"
+            "<CheatEntry><ID>2</ID><Description>\"old\"</Description><VariableType>4 Bytes</VariableType><Address>400004</Address>"
+            "<Hotkeys><Hotkey><Action>6</Action><Keys><Key>120</Key></Keys><Value>2</Value></Hotkey></Hotkeys></CheatEntry>\n"));
+        const auto disk=saveAndRead(t,"hotkeys.CT");
+        CheatTable back;back.loadFromString(disk);
+        const auto& e=t.entries[0];
+        check(loaded && t.entries.size()==2 && e.hotkeyKeys=="Ctrl+H" && e.setValueHotkeyKeys=="F5" && e.setValueHotkeyValue=="100" &&
+            e.decreaseHotkeyKeys=="F8" && e.hotkeyStep=="5" && has(e.extraHotkeysXml,"<Action>Activate</Action>") &&
+            has(e.extraHotkeysXml,"<Description>off</Description>") && t.entries[1].increaseHotkeyKeys=="F9" &&
+            has(disk,"<Action>Set Value</Action>") && has(disk,"<Action>Decrease Value</Action>") && !has(disk,"<Action>5</Action>") &&
+            has(disk,"<Hotkey Active=\"0\">") && back.entries.size()==2 && back.entries[0].hotkeyKeys=="Ctrl+H" &&
+            back.entries[0].setValueHotkeyKeys=="F5" && back.entries[0].extraHotkeysXml==e.extraHotkeysXml,
+            "CE hotkey action texts load, and every hotkey is written back with CE's action text");
+    }
+    {
+        CheatTable t;
+        t.loadFromString(ceTable("<CheatEntry><ID>1</ID><Description>\"mode\"</Description><VariableType>4 Bytes</VariableType><Address>400000</Address>"
+            "<DropDownList DescriptionOnly=\"1\" DisplayValueAsItem=\"1\">0:Off\r\n1:On\r\n</DropDownList></CheatEntry>\n"));
+        const auto disk=saveAndRead(t,"dropdown.CT");
+        check(t.entries.size()==1 && t.entries[0].dropdownList=="0:Off\n1:On\n" &&
+            t.entries[0].dropdownAttributes=="DescriptionOnly=\"1\" DisplayValueAsItem=\"1\"" &&
+            has(disk,"<DropDownList DescriptionOnly=\"1\" DisplayValueAsItem=\"1\">0:Off\n1:On\n</DropDownList>"),
+            "a CE dropdown list with attributes loads one choice per line and saves with its attributes");
+    }
+    {
+        CheatTable t;
+        t.loadFromString(ceTable("<CheatEntry><ID>1</ID><Description>\"p\"</Description><VariableType>4 Bytes</VariableType>"
+            "<Address>\"game.exe\"+10</Address><Offsets><Offset>player_ofs</Offset><Offset Interval=\"100\">8</Offset></Offsets></CheatEntry>\n"
+            "<CheatEntry><ID>2</ID><Description>\"q\"</Description><VariableType>4 Bytes</VariableType>"
+            "<Address>game.exe+20</Address><Offsets><Offset>4</Offset><Offset Interval=\"100\">8</Offset></Offsets></CheatEntry>\n"));
+        const auto disk=saveAndRead(t,"offsets.CT");
+        check(t.entries.size()==2 && t.entries[0].address==0 && t.entries[0].offsets.empty() &&
+            t.entries[0].unparsedOffsets==std::vector<std::string>{"player_ofs","8"} &&
+            has(disk,"<Address>\"game.exe\"+10</Address>") && has(disk,"<Offset>player_ofs</Offset>") &&
+            t.entries[1].offsets==std::vector<int64_t>{4,8},
+            "a symbolic offset keeps the record's base and offsets for the save, and an offset with attributes is read");
+    }
+    {
+        CheatTable t;
+        t.loadFromString(ceTable("<CheatEntry><ID>1</ID><Description>\"god\"</Description><VariableType>Auto Assembler Script</VariableType>"
+            "<AssemblerScript Async=\"1\">[ENABLE]\nnop\n[DISABLE]\nnop\n</AssemblerScript></CheatEntry>\n"));
+        const auto disk=saveAndRead(t,"async.CT");
+        check(t.entries.size()==1 && t.entries[0].autoAsmScript=="[ENABLE]\nnop\n[DISABLE]\nnop\n" && t.entries[0].asyncScript &&
+            has(disk,"<AssemblerScript Async=\"1\">[ENABLE]") && has(disk,"<VariableType>Auto Assembler Script</VariableType>"),
+            "an Async Auto Assembler script loads as a script record and keeps Async on save");
+    }
+    {
+        CheatTable t;
+        t.loadFromString(ceTable(
+            "<CheatEntry><ID>1</ID><Description>\"sig\"</Description><VariableType>Array of byte</VariableType><ByteLength>6</ByteLength><Address>400000</Address></CheatEntry>\n"
+            "<CheatEntry><ID>2</ID><Description>\"old\"</Description><VariableType>Array of byte</VariableType><Length>4</Length><Address>400010</Address></CheatEntry>\n"
+            "<CheatEntry><ID>3</ID><Description>\"c\"</Description><VariableType>Custom</VariableType><CustomType>Float Big Endian</CustomType><Address>400020</Address></CheatEntry>\n"
+            "<CheatEntry><ID>4</ID><Description>\"b\"</Description><VariableType>Binary</VariableType><BitStart>3</BitStart><BitLength>2</BitLength><ShowAsBinary>1</ShowAsBinary><Address>400030</Address></CheatEntry>\n"
+            "<CheatEntry><ID>5</ID><Description>\"s\"</Description><VariableType>String</VariableType><Length>8</Length><Unicode>0</Unicode><CodePage>1</CodePage><ZeroTerminate>1</ZeroTerminate><Address>400040</Address></CheatEntry>\n"));
+        const auto disk=saveAndRead(t,"lengths.CT");
+        check(t.entries.size()==5 && t.entries[0].length==6 && t.entries[1].length==4 && t.entries[2].customTypeName=="Float Big Endian" &&
+            has(disk,"<ByteLength>6</ByteLength>") && has(disk,"<ByteLength>4</ByteLength>") &&
+            has(disk,"<CustomType>Float Big Endian</CustomType>") && has(disk,"<BitStart>3</BitStart>") &&
+            has(disk,"<ShowAsBinary>1</ShowAsBinary>") && has(disk,"<CodePage>1</CodePage>") && has(disk,"<ZeroTerminate>1</ZeroTerminate>"),
+            "ByteLength, CustomType and record elements we do not model survive a load and save");
+    }
+    {
+        CheatTable t;
+        t.loadFromString(ceTable("<CheatEntry><ID>1</ID><Description>\"player\"</Description><GroupHeader>1</GroupHeader>"
+            "<Address>game.exe+100</Address><Offsets><Offset>18</Offset></Offsets><CheatEntries>"
+            "<CheatEntry><ID>2</ID><Description>\"hp\"</Description><VariableType>4 Bytes</VariableType><Address>+10</Address></CheatEntry>"
+            "</CheatEntries></CheatEntry>\n"));
+        const auto disk=saveAndRead(t,"group.CT");
+        CheatTable back;back.loadFromString(disk);
+        check(t.entries.size()==2 && t.entries[0].isGroup && t.entries[0].addressString=="game.exe+100" &&
+            t.entries[0].offsets==std::vector<int64_t>{0x18} && t.entries[1].addressString=="+10" &&
+            back.entries.size()==2 && back.entries[0].addressString=="game.exe+100" && back.entries[0].offsets==t.entries[0].offsets &&
+            back.entries[1].parentId==back.entries[0].id && back.entries[1].addressString=="+10",
+            "an address group header keeps its address and offsets, and its child its relative address");
+    }
+    {
+        std::string records;
+        for (int i=0;i<20000;++i)
+            records+="<CheatEntry><ID>"+std::to_string(i)+"</ID><Description>\"r\"</Description><VariableType>4 Bytes</VariableType><Address>"+std::to_string(400000+i)+"</Address></CheatEntry>\n";
+        CheatTable t;
+        const auto start=std::chrono::steady_clock::now();
+        const bool loaded=t.loadFromString(ceTable(records));
+        const auto seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count();
+        check(loaded && t.entries.size()==20000 && seconds<5,"a table of 20000 flat records loads in linear time");
+    }
+    {
+        CheatTable t;CheatEntry e;e.id=1;e.type=ValueType::Int32;e.addressString="[[game.exe+1C]+8]+10";t.entries={e};
+        CheatTable back;back.loadFromString(saveAndRead(t,"chain.CT"));
+        check(back.entries.size()==1 && back.entries[0].addressString=="game.exe+1C" && back.entries[0].offsets==std::vector<int64_t>{0x10,0x8},
+            "a pointer path kept as one expression is saved as CE's base and offsets");
+    }
+    {
+        CheatTable t;
+        t.loadFromString(ceTable(
+            "<CheatEntry><ID>1</ID><Description>\"red\"</Description><Color>0000FF</Color><VariableType>4 Bytes</VariableType><Address>400000</Address></CheatEntry>\n"
+            "<CheatEntry><ID>2</ID><Description>\"sys\"</Description><Color>80000008</Color><VariableType>4 Bytes</VariableType><Address>400004</Address></CheatEntry>\n"));
+        CheatTable mine;CheatEntry e;e.id=1;e.type=ValueType::Int32;e.address=0x1000;e.color="#3366cc";mine.entries={e};
+        const auto disk=saveAndRead(mine,"color.CT");
+        check(t.entries.size()==2 && t.entries[0].color=="FF0000" && t.entries[1].color.empty() && has(disk,"<Color>CC6633</Color>"),
+            "CE colors convert from and to Delphi BGR, and system colors mean the default");
+    }
+    {
+        {std::ofstream f(directory/"mentions.json");f<<R"({"comment":"pasted <CheatTable> text","entries":[]})";}
+        check(detectTableFormat((directory/"mentions.json").string())==TableFormat::Json,"a JSON table that mentions <CheatTable> is still JSON");
+    }
+    {
+        CheatTable t;
+        t.loadFromString(ceTable("<CheatEntry><ID>1</ID><Description>\"a&#x27;b&#10;c\"</Description><VariableType>Auto Assembler Script</VariableType>"
+            "<AssemblerScript><![CDATA[[ENABLE]\nmov eax,[rbx+4] // a<b & c\n[DISABLE]\n]]></AssemblerScript></CheatEntry>\n"));
+        check(t.entries.size()==1 && t.entries[0].description=="a'b\nc" && t.entries[0].autoAsmScript=="[ENABLE]\nmov eax,[rbx+4] // a<b & c\n[DISABLE]\n",
+            "numeric character references and CDATA sections read as text");
+    }
+    {
+        CheatTable t;StructureDefinition s;s.name="S";s.size=16;s.fields.push_back({"name",0,ValueType::UnicodeString,16,"",""});t.structures={s};
+        CheatTable back;back.loadFromString(saveAndRead(t,"structure.CT"));
+        check(back.structures.size()==1 && back.structures[0].fields.size()==1 && back.structures[0].fields[0].type==ValueType::UnicodeString,
+            "a Unicode string structure field stays Unicode");
+    }
+    {
+        {std::ofstream f(directory/"options.json");f<<R"({"entries":[{"id":1,"desc":"g","group":true,"options":"<Options/></CheatEntry><CheatEntry>","extraXml":"</CheatEntries>"}]})";}
+        CheatTable t;
+        const bool loaded=t.loadJson((directory/"options.json").string());
+        const auto disk=saveAndRead(t,"options.CT");
+        CheatTable back;
+        check(loaded && back.loadFromString(disk) && back.entries.size()==1 && !has(disk,"<Options/></CheatEntry>") && !has(disk,"\n      </CheatEntries>"),
+            "raw XML from a JSON table cannot open or close records in the .CT");
+    }
+    {
+        setenv("CECORE_LUA_ALLOW_UNSAFE","1",1);   // saveTable writes a file
+        SimpleAddressList list;LuaEngine lua;lua.setAddressList(&list);
+        const auto path=(directory/"lua.CT").string();
+        const auto error=lua.execute("local r=createMemoryRecord(); r.Description='hp'; r.Address=0x1000; r.Type=2\n"
+            "assert(saveTable('"+path+"'))\n");
+        CheatTable back;
+        check(error.empty() && detectTableFormat(path)==TableFormat::Xml && back.load(path) && back.entries.size()==1,
+            "Lua saveTable writes Cheat Engine XML to a .CT name");
+    }
+    table.save((directory/"keep.ct").string());
     rlimit previous{};struct sigaction ignored{},oldAction{};ignored.sa_handler=SIG_IGN;sigemptyset(&ignored.sa_mask);
     const bool haveLimit=getrlimit(RLIMIT_FSIZE,&previous)==0;
     const bool haveSignal=sigaction(SIGXFSZ,&ignored,&oldAction)==0;
@@ -46,7 +207,7 @@ int main() {
     const auto serializedSize=std::filesystem::file_size(directory/"table.json");
     bool failedXml=false,failedJson=false,failedProtected=false;
     if(limitReady) {
-        failedXml=!table.save((directory/"failure.ct").string());
+        failedXml=!table.save((directory/"failure.ct").string()) && !table.save((directory/"keep.ct").string());
         failedJson=!table.saveJson((directory/"failure.json").string());
         // Let the JSON staging file succeed, then reject the larger encrypted
         // payload plus header. This exercises the protected output's own flush.
@@ -61,6 +222,12 @@ int main() {
     check(limitReady && failedJson,"JSON reports actual buffered-write failure rather than successful serialization");
     check(limitReady && failedProtected,"protected-table saves report actual buffered-write failure");
     check(restored,"the owned integration process restores its original file-size limit");
+    {
+        CheatTable kept;bool leftovers=false;
+        for (const auto& entry:std::filesystem::directory_iterator(directory)) leftovers|=entry.path().filename().string().rfind(".",0)==0;
+        check(limitReady && kept.load((directory/"keep.ct").string()) && kept.entries.size()==2 && !leftovers,
+            "a failed save leaves the previous table whole and no temporary file behind");
+    }
     std::filesystem::remove_all(directory);
     printf("TABLE_PERSISTENCE_RESULT=%s checks=%u failures=%u\n",failures ? "FAILED":"PASSED",checks,failures);
     return failures ? 1:0;

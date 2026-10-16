@@ -110,7 +110,14 @@ int main(int argc, char** argv) {
     // A non-pointer field (the int 7 at offset 0x28) must NOT follow.
     diss.resolveBaseForTest(QString("0x%1").arg(reinterpret_cast<uintptr_t>(g_a), 0, 16));
     bool noFollowInt = !diss.followPointerForTest(5 /*offset 0x28*/, 2);
-    bool followTestOk = followOk && noFollowInt;
+    // Without compare addresses the Pointer? cell (column 6) follows too, rather
+    // than being read as a compare column that does not exist.
+    diss.setCompareAddressesForTest({});
+    diss.resolveBaseForTest(QString("0x%1").arg(reinterpret_cast<uintptr_t>(g_a), 0, 16));
+    bool followSingle = diss.followPointerForTest(4 /*offset 0x20*/, 6 /*Pointer? column*/) &&
+                        diss.baseAddressForTest() == reinterpret_cast<uintptr_t>(g_b);
+    if (!followSingle) printf("single-mode Pointer? follow: FAILED\n");
+    bool followTestOk = followOk && noFollowInt && followSingle;
 
     // Save/load definition round-trip: a structure built in the UI (named + typed fields,
     // as the "Name field..." / "Set field type" context actions now do) must persist. Save

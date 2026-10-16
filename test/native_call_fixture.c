@@ -3,6 +3,8 @@
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <errno.h>
+#include <sys/epoll.h>
 #include <sys/prctl.h>
 #include <unistd.h>
 #include <string.h>
@@ -22,6 +24,8 @@ uint64_t ce_call_sum64(uint64_t a,uint64_t b,uint64_t c,uint64_t d,
 _Atomic unsigned ce_call_loaded, ce_call_completed, ce_call_running;
 _Atomic unsigned ce_call_release = 1, ce_call_stop;
 _Atomic unsigned ce_call_heartbeat;
+// epoll_wait returns EINTR after any stop, even without a signal handler.
+_Atomic unsigned ce_call_wait_interrupted;
 static pthread_t consoleThread;
 
 void* ce_call_entry(void* argument) {
@@ -32,6 +36,12 @@ void* ce_call_entry(void* argument) {
     atomic_fetch_sub(&ce_call_running, 1);
     return 0;
 }
+#if defined(__i386__)
+// A stdcall callee pops its own argument before returning to the wrapper.
+__attribute__((stdcall)) void* ce_call_stdcall_entry(void* argument) {
+    return ce_call_entry(argument);
+}
+#endif
 void* ce_call_detach_entry(void* argument) {
     pthread_detach(pthread_self());
     return ce_call_entry(argument);
@@ -49,9 +59,18 @@ int ce_call_create_delayed(pthread_t* thread,const pthread_attr_t* attributes,
 static void* console(void* argument) {
     (void)argument;
     char command;
-    while (read(0, &command, 1) == 1) {
-        if (command == 'x') break;
+    struct epoll_event event = {.events = EPOLLIN};
+    int poller = epoll_create1(EPOLL_CLOEXEC);
+    if (poller >= 0 && epoll_ctl(poller, EPOLL_CTL_ADD, 0, &event)) { close(poller); poller = -1; }
+    for (;;) {
+        if (poller >= 0) {
+            int ready = epoll_wait(poller, &event, 1, -1);
+            if (ready < 0 && errno == EINTR) { atomic_fetch_add(&ce_call_wait_interrupted, 1); continue; }
+            if (ready < 0) break;
+        }
+        if (read(0, &command, 1) != 1 || command == 'x') break;
     }
+    if (poller >= 0) close(poller);
     atomic_store(&ce_call_stop, 1);
     return 0;
 }

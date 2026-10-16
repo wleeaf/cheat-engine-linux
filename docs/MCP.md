@@ -54,8 +54,12 @@ settings, for example:
 ```
 
 Without `--allow-writes` the agent can look but not touch: scanning, reading
-and disassembling work, while writing values and freezing are refused. The
-server only talks to the client that started it; it opens no network port.
+and disassembling work, while writing values, freezing, enabling and
+disabling scripts, and `find_accessed_addresses` (which puts a breakpoint in
+the game's code) are refused. Turning writes off ends any freeze. Scripts
+checked or enabled by the agent cannot load libraries or binaries, include
+local files, start threads or compile C code. The server only talks to the
+client that started it; it opens no network port.
 
 ### Tools
 

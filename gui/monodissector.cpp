@@ -190,7 +190,9 @@ void MonoDissectorWindow::runDissect() {
             // statically from global-metadata.dat + the GameAssembly binary.
             status_->setText("IL2CPP target: locating metadata + GameAssembly…");
             QApplication::setOverrideCursor(Qt::WaitCursor);
-            QApplication::processEvents();
+            // Paint the status only: processing events here would let a second
+            // click, or the target's exit freeing proc_, run inside this call.
+            status_->repaint();
             auto layout = ce::resolveIl2CppForProcess(*proc_);
             QApplication::restoreOverrideCursor();
             if (!layout.ok) {
@@ -222,7 +224,7 @@ void MonoDissectorWindow::runDissect() {
     }
     status_->setText("Injecting agent and reading Mono layout…");
     QApplication::setOverrideCursor(Qt::WaitCursor);
-    QApplication::processEvents();
+    status_->repaint();   // no processEvents: see the IL2CPP case
     // A loaded resolver is needed so injection can find dlopen in the target.
     ce::SymbolResolver resolver;
     resolver.loadProcess(*proc_);

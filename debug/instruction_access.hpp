@@ -8,6 +8,7 @@
 #include "platform/process_api.hpp"
 #include "core/types.hpp"
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace ce {
@@ -22,11 +23,13 @@ struct InstructionAccess {
 /// to run, resolve the effective address of its first memory operand from the
 /// live registers and tally it. Runs until `maxHits` accesses are recorded or
 /// `timeoutMs` elapses, then detaches. Results are sorted by hit count (desc).
-/// Returns empty if the instruction has no memory operand or attach fails.
+/// Returns empty if the instruction has no memory operand or attach fails;
+/// `error`, when given, then says why (and stays empty when the watch ran).
 /// `cancelled`, polled while waiting, ends the watch early (Ctrl-C): the
 /// breakpoint is still removed before returning.
 std::vector<InstructionAccess> findInstructionAccesses(
     ProcessHandle& proc, uintptr_t instructionAddress,
-    int maxHits = 32, int timeoutMs = 4000, const std::function<bool()>& cancelled = {});
+    int maxHits = 32, int timeoutMs = 4000, const std::function<bool()>& cancelled = {},
+    std::string* error = nullptr);
 
 } // namespace ce

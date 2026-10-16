@@ -46,9 +46,15 @@ export QMAKE="$(command -v qmake6 || command -v qmake)"
 export VERSION
 export OUTPUT="$BUILD_DIR/CheatEngine-${VERSION}-x86_64.AppImage"
 
+# Help opens these offline from ../share/doc next to the binary.
+mkdir -p "$APPDIR/usr/share/doc/cheat-engine-linux"
+cp "$SCRIPT_DIR/../README.md" "$SCRIPT_DIR/../docs/SCRIPTING.md" "$APPDIR/usr/share/doc/cheat-engine-linux/"
+
 "$TOOLS/linuxdeploy" --appdir "$APPDIR" \
     --executable "$BUILD_DIR/cheatengine" \
     --executable "$BUILD_DIR/cescan" \
+    --executable "$BUILD_DIR/cetutorial" \
+    --executable "$BUILD_DIR/cegtutorial" \
     ${CECORE_LIB:+--library "$CECORE_LIB"} \
     --library "$BUILD_DIR/libcecore_mono_agent.so" \
     --library "$BUILD_DIR/libspeedhack.so" \

@@ -8,6 +8,22 @@ permissions:
   contents: write   # action-gh-release needs this to upload assets / create the release
 
 jobs:
+  # A tag must name the version the sources build: otherwise the release would
+  # publish files and binaries that report another version.
+  version:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Tag matches the project version
+        run: |
+          project=$(sed -n 's/^project(cecore VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          tag="${GITHUB_REF_NAME#v}"
+          echo "tag $tag, CMakeLists.txt $project"
+          test "$tag" = "$project"
+          grep -q "<release version=\"$tag\"" packaging/*.metainfo.xml
+          grep -q "^## v$tag\b" CHANGELOG.md
+
   arm32-compatibility:
     uses: ./.github/workflows/arm32-compatibility.yml
 
@@ -24,7 +40,7 @@ jobs:
     uses: ./.github/workflows/isa-compatibility.yml
 
   appimage:
-    needs: [wine-compatibility, arm64-compatibility, x32-compatibility, arm32-compatibility, isa-compatibility]
+    needs: [version, wine-compatibility, arm64-compatibility, x32-compatibility, arm32-compatibility, isa-compatibility]
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout

@@ -856,6 +856,10 @@ if(TARGET cheatengine)
     install(FILES README.md docs/SCRIPTING.md
             DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/cheat-engine-linux)
 endif()
+# Relocatable: the prefix is found from the .pc file's own directory, so an
+# install with --prefix other than the configured one still points at itself.
+file(RELATIVE_PATH CECORE_PC_PREFIX_FROM_PCDIR
+     "/prefix/${CMAKE_INSTALL_LIBDIR}/pkgconfig" "/prefix")
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/packaging/cecore.pc.in
                ${CMAKE_CURRENT_BINARY_DIR}/cecore.pc @ONLY)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/cecore.pc

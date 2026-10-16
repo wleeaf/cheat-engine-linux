@@ -229,6 +229,13 @@ reimplementation of Cheat Engine).
   their own code with the capability and read or write any process, root's
   included. A capability-holding process now drops those variables first
   thing and ignores the Lua opt-in.
+- Fixed: packaging. "Grant access" treated `/usr/local/lib` as a system
+  library directory, so on a `/usr/local` install the capability made the
+  program unable to find libcecore and it no longer started. The AppImage
+  lacked the tutorials (Help > Tutorial failed) and the offline help, the
+  installed `cecore.pc` pointed at the configure-time prefix instead of the
+  install prefix, and a release tag no longer publishes files under a version
+  the sources do not build. The AppStream metadata lists every release.
 - Fixed: scanner. A first scan with Changed, Unchanged, Increased, Decreased,
   Increased/Decreased by or Same as first ran as an Exact scan on whatever the
   value box held; it now says a first scan is needed. "Increased by -5" never

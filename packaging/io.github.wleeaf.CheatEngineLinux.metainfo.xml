@@ -52,6 +52,41 @@
         selection, live settings, and large form canvases.</p>
       </description>
     </release>
+    <release version="0.9.0" date="2026-09-29">
+      <description>
+        <p>Correctness, safety and portability fixes.</p>
+      </description>
+    </release>
+    <release version="0.8.0" date="2026-07-20">
+      <description>
+        <p>Cheat Engine parity sweep: global symbols, code pages and broader Lua support.</p>
+      </description>
+    </release>
+    <release version="0.7.0" date="2026-07-19">
+      <description>
+        <p>Emulator and sandboxed targets, obfuscated values, and scriptable find what writes.</p>
+      </description>
+    </release>
+    <release version="0.6.6" date="2026-07-18">
+      <description>
+        <p>Find what writes and code injection on Wine and Proton.</p>
+      </description>
+    </release>
+    <release version="0.6.5" date="2026-07-18">
+      <description>
+        <p>Whole-application interface overhaul and a deeper IL2CPP dissector.</p>
+      </description>
+    </release>
+    <release version="0.6.0" date="2026-07-16">
+      <description>
+        <p>Scanner performance overhaul.</p>
+      </description>
+    </release>
+    <release version="0.5.0" date="2026-07-14">
+      <description>
+        <p>Mono and Unity dissector, diagnostics, Lua table compatibility and debugger polish.</p>
+      </description>
+    </release>
     <release version="0.4.1" date="2026-07-13">
       <description>
         <p>Bug-fix release: light/dark theme applies live from Settings; the memory
@@ -83,6 +118,21 @@
     <release version="0.2.1" date="2026-07-10">
       <description>
         <p>AOB-injection fix, 32-bit/WoW64/Wine support, cheat-table inline editing.</p>
+      </description>
+    </release>
+    <release version="0.2.0" date="2026-07-06">
+      <description>
+        <p>Real-time results, Cheat Engine style scanning and a hardened core.</p>
+      </description>
+    </release>
+    <release version="0.1.1" date="2026-05-21">
+      <description>
+        <p>PortProton, Lutris and Heroic support.</p>
+      </description>
+    </release>
+    <release version="0.1.0" date="2026-05-08">
+      <description>
+        <p>First tagged release.</p>
       </description>
     </release>
   </releases>

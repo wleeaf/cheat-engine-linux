@@ -2780,7 +2780,7 @@ static bool capabilityKeepsLibrariesLoadable() {
     const QString dir = QFileInfo(library).absolutePath();
     if (dir == QFileInfo(exe).absolutePath()) return true;  // build tree: absolute run path
     static const QRegularExpression systemDir(
-        QStringLiteral("^/(usr/)?(local/)?lib(64|32)?(/[a-z0-9_]+-linux-gnu[a-z0-9_]*)?$"));
+        QStringLiteral("^/(usr/)?lib(64|32)?(/[a-z0-9_]+-linux-gnu[a-z0-9_]*)?$"));
     return systemDir.match(dir).hasMatch();
 }
 

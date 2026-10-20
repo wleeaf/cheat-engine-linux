@@ -165,15 +165,17 @@ private:
     // there; returns false in that case and on tracee exit, true on success.
     // A frame check accepts the trap only in the starting frame or an outer
     // one, so a recursive call reaching the same address does not end it.
-    // `reentry`, when set, holds a second temporary trap at the stepped call
-    // (or the entry of the function stepped out of): deeper frames passing it
-    // are counted, so a call that returns with a lower stack pointer is told
-    // apart from a deeper frame on x86.
+    // `reentry`, when set, is the instruction the step started on, under a
+    // one-shot temporary trap (`reentryOwned`) or a user breakpoint: while it
+    // has not run again, no deeper call has started, so on x86 a call that
+    // returns with a lower stack pointer is told apart from a deeper frame.
     enum class FrameCheck { None, Over, Out };
     bool runToTempBreakpoint(pid_t tid, uintptr_t expected, FrameCheck frame = FrameCheck::None,
-                             uintptr_t startSp = 0, uintptr_t reentry = 0);
+                             uintptr_t startSp = 0, uintptr_t reentry = 0, bool reentryOwned = false);
     // True when an x86 `ret` (or a pop) just took `address` off the stack.
     bool poppedReturnTo(const CpuContext& context, uintptr_t address) const;
+    // True when [low, high] is one stack: contiguous writable mappings.
+    bool sameStack(uintptr_t low, uintptr_t high) const;
     // ── All-stop multi-thread helpers (tracer thread only) ──
     // Seize every thread of the target with PTRACE_O_TRACECLONE and leave them
     // stopped. Populates traced_/stoppedTids_. Returns false if none seized.
@@ -240,6 +242,9 @@ private:
     std::unordered_map<pid_t, int> pendingSignals_;
     std::unordered_map<pid_t, uintptr_t> pendingRewinds_;
     std::unordered_map<pid_t, uintptr_t> pendingHardwareSteps_;
+    // Set while a step runs to a temporary trap: a single-step then holds
+    // one queued signal for delivery instead of stopping on it.
+    bool holdStepSignals_ = false;
     // Stops of other threads seen while waiting for one thread. They are
     // classified by the all-stop, never reported from inside the wait.
     std::deque<std::pair<pid_t, int>> foreignStops_;

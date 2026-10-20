@@ -1082,13 +1082,18 @@ static std::vector<ParsedHotkey> parseHotkeyBlocks(const std::string& xml) {
 static std::string withoutSlotMarks(std::string block) {
     for (const std::string name : {"LinuxSlotStep", "LinuxSlot"}) {
         for (size_t at = block.find(name); at != std::string::npos && at < block.find('>'); at = block.find(name, at)) {
+            // The same spellings attributeValue accepts: spaces around '='.
             size_t p = at + name.size();
-            if (!std::isspace(static_cast<unsigned char>(block[at - 1])) || p >= block.size() || block[p] != '=' ||
-                p + 1 >= block.size() || (block[p + 1] != '"' && block[p + 1] != '\'')) {
+            while (p < block.size() && std::isspace(static_cast<unsigned char>(block[p]))) ++p;
+            size_t q = p + 1;
+            while (q < block.size() && std::isspace(static_cast<unsigned char>(block[q]))) ++q;
+            if (at == 0 || !std::isspace(static_cast<unsigned char>(block[at - 1])) || p >= block.size() || block[p] != '=' ||
+                q >= block.size() || (block[q] != '"' && block[q] != '\'') ||
+                std::isalnum(static_cast<unsigned char>(block[at + name.size()]))) {
                 ++at;
                 continue;
             }
-            const size_t close = block.find(block[p + 1], p + 2);
+            const size_t close = block.find(block[q], q + 1);
             if (close == std::string::npos) break;
             block.erase(at - 1, close + 1 - (at - 1));
             at -= 1;

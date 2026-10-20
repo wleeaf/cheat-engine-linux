@@ -10036,7 +10036,7 @@ static void test_autoassembler_windows_runtime_labels() {
     bool allKept = true;
     std::string failures;
     for (const char* name : {"msvcrt.dll", "MSVCRT.DLL", "msvcrt", "ucrtbase.dll", "api-ms-win-crt-runtime-l1-1-0.dll",
-                             "msvcr120.dll", "msvcp140.dll", "vcruntime140_1.dll", "ntdll.dll", "msvcrt.dll.so", "ntdll.so"}) {
+                             "msvcr120.dll", "msvcp140.dll", "vcruntime140_1.dll", "msvcrt.dll.so"}) {
         FakeWine wine;
         wine.list = withModule(name);
         AutoAssembler aa;
@@ -10054,8 +10054,16 @@ static void test_autoassembler_windows_runtime_labels() {
                         (siteRefused ? "" : " (site: " + refused.error + ")");
         }
     }
-    printf("  \"exit:\" stays a cave label beside msvcrt, ucrtbase, msvcp, vcruntime, api-ms-win-crt and ntdll: %s%s\n",
+    printf("  \"exit:\" stays a cave label beside msvcrt, ucrtbase, msvcp, vcruntime and api-ms-win-crt: %s%s\n",
            allKept ? "OK" : "FAILED:", failures.c_str());
+
+    // ntdll is not a C runtime: its Nt*, Rtl* and Dbg* exports are hook sites.
+    FakeWine native;
+    native.list = withModule("ntdll.dll");
+    AutoAssembler nativeAa;
+    auto nativePatched = nativeAa.execute(native, site);
+    printf("  an ntdll export written as \"name:\" is that function: %s\n",
+           nativePatched.success && native.bytes[exitAddress] == 0x90 ? "OK" : ("FAILED: " + nativePatched.error).c_str());
 
     // A perf map entry of a JIT runtime is never a hook site for a label.
     const std::string map = "/tmp/perf-" + std::to_string(getpid()) + ".map";

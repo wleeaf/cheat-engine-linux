@@ -288,7 +288,7 @@ reimplementation of Cheat Engine).
   stopping (a regression in this release cycle).
 - Fixed: under Wine, an undeclared Auto Assembler label such as `exit:` could
   be assembled over the Windows C runtime's function of that name; the
-  Windows runtimes (msvcrt, ucrtbase, vcruntime, msvcp, ntdll) now count as C
+  Windows runtimes (msvcrt, ucrtbase, vcruntime, msvcp) now count as C
   runtime too. Clearing or changing a hotkey that came from a CE Activate or
   Deactivate key no longer brings the old key back on reload, scan folders of
   another live Cheat Engine on a shared home are not removed, and pointer scans

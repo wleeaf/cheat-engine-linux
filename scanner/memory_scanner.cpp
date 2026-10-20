@@ -1752,11 +1752,13 @@ ScanResult::~ScanResult() {
     if (offsetFd_ >= 0) close(offsetFd_);
     if (valueFd_ >= 0) close(valueFd_);
     if (firstValueFd_ >= 0) close(firstValueFd_);
+    // Unlock first: on NFS deleting an open file leaves a .nfsXXXX file behind,
+    // and the directory with it.
+    if (lockFd_ >= 0) { close(lockFd_); lockFd_ = -1; }
     if (!ownedRoot_.empty()) {
         std::error_code ignored;
         std::filesystem::remove_all(ownedRoot_, ignored);
     }
-    if (lockFd_ >= 0) close(lockFd_);
 }
 
 void ScanResult::swap(ScanResult& other) noexcept {

@@ -1016,16 +1016,17 @@ static void sessionRecovery(const char* path) {
         if (!line || magic!="CE_TARGET" || pid!=fixture.pid) return;
         char command='G';
         std::istringstream sites(::write(fixture.input,&command,1)==1 ? fixture.line() : std::string());
-        std::string tag; uintptr_t site=0,returnSite=0,helper=0,picSite=0,picNext=0;
-        sites>>tag>>std::hex>>site>>returnSite>>helper>>picSite>>picNext;
+        std::string tag; uintptr_t site=0,returnSite=0,helper=0,picSite=0,picNext=0,staleSite=0,staleTest=0;
+        sites>>tag>>std::hex>>site>>returnSite>>helper>>picSite>>picNext>>staleSite>>staleTest;
         check(sites && tag=="CE_LOWER","lower stack pointer fixture reports its call sites");
         if (!sites || tag!="CE_LOWER") return;
         LinuxProcessHandle process(pid);
         DebugSession session;
-        std::atomic<unsigned> hits{0},steps{0};
+        std::atomic<unsigned> hits{0},steps{0},signals{0};
         session.setEventCallback([&](const DebugEvent& event) {
             if (event.type==DebugEventType::BreakpointHit) ++hits;
             if (event.type==DebugEventType::SingleStep) ++steps;
+            if (event.type==DebugEventType::SignalReceived) ++signals;
         });
         bool attached=session.attach(pid,&process);
         int bp=attached ? session.setSoftwareBreakpoint(site) : -1;
@@ -1041,10 +1042,14 @@ static void sessionRecovery(const char* path) {
         const bool arm=start.hasArmRegisters();
         const uintptr_t lowered=arm ? 0 : 64;
         const uintptr_t pushed=arm ? 0 : start.architecture==CpuArchitecture::X86_32 ? 4 : 8;
+        // A signal queued while stopped (default-ignored SIGWINCH) is
+        // delivered as the step runs on; it does not end the step.
+        const bool queued=syscall(SYS_tgkill,pid,pid,SIGWINCH)==0;
         session.step(StepMode::Over);
         auto over=session.getStopContext();
-        check(steps==1 && hits==1 && over.instructionPointer()==returnSite && over.stackPointer()==start.stackPointer()-lowered,
-              "step-over ends after a call that returns with a lower stack pointer");
+        check(queued && steps==1 && hits==1 && signals==0 && over.instructionPointer()==returnSite &&
+              over.stackPointer()==start.stackPointer()-lowered,
+              "step-over ends after a call that returns with a lower stack pointer, past a queued signal");
         session.step(StepMode::Over);
         check(steps==2 && session.getStopContext().instructionPointer()==picSite,"stepping reaches the call to the next instruction");
         session.step(StepMode::Over);
@@ -1066,6 +1071,22 @@ static void sessionRecovery(const char* path) {
         check(steps==5 && out.instructionPointer()==returnSite && out.stackPointer()==again.stackPointer()-lowered,
               "step-out of a helper that returns with a lower stack pointer ends at its return site");
         check(session.continueExecution() && fixture.line()=="CE_LOWER_DONE","lower stack pointer fixture finishes again");
+        // A loop test right after the call: a deeper frame branches back to
+        // it at the SP where its own call left the return address just below.
+        // Only the stepping frame's return ends the step.
+        int staleBp=session.setSoftwareBreakpoint(staleSite);
+        command='J';
+        resumed=staleBp>0 && ::write(fixture.input,&command,1)==1;
+        hit=resumed && awaitState([&] { return hits.load()==3 && session.isStopped(); });
+        auto loopStart=session.getStopContext();
+        check(hit && loopStart.instructionPointer()==staleSite && session.removeSoftwareBreakpoint(staleBp),
+              "loop-test fixture stops at its outer call");
+        if (!hit) return;
+        session.step(StepMode::Over);
+        auto loopEnd=session.getStopContext();
+        check(steps==6 && loopEnd.instructionPointer()==staleTest && loopEnd.stackPointer()==loopStart.stackPointer(),
+              "step-over ignores a return address a deeper frame left below its stack pointer");
+        check(session.continueExecution() && fixture.line()=="CE_STALE_DONE","loop-test fixture finishes");
         session.detach();
         check(fixture.value(),"lower stack pointer fixture stays live after detach");
     }

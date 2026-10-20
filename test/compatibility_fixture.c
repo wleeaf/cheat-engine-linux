@@ -48,6 +48,14 @@ extern void fixtureRecurseCall(void), fixtureRecurseReturn(void);
    then a call to the next instruction (call/pop position-independent code). */
 extern void fixtureLowerCall(void), fixtureLowerSite(void), fixtureLowerReturn(void), fixtureLowerSp(void);
 extern void fixturePicSite(void), fixturePicNext(void);
+/* Recurses `depth` times; after its call a loop test branches back to
+   itself, at the SP where that frame's own call left the return address. */
+#if defined(__i386__)
+extern void fixtureStale(unsigned depth) __attribute__((regparm(1)));
+#else
+extern void fixtureStale(unsigned depth);
+#endif
+extern void fixtureStaleSite(void), fixtureStaleTest(void);
 
 #if defined(__x86_64__)
 static iptr systemCallArgs(iptr nr, uptr a, uptr b, uptr c, uptr d, uptr e, uptr f) {
@@ -257,9 +265,12 @@ __attribute__((noreturn, used)) void fixtureMain(uptr* stack) {
             output(" 0x",3); number((uptr)fixtureLowerReturn,16);
             output(" 0x",3); number((uptr)fixtureLowerSp,16);
             output(" 0x",3); number((uptr)fixturePicSite,16);
-            output(" 0x",3); number((uptr)fixturePicNext,16); output("\n",1);
+            output(" 0x",3); number((uptr)fixturePicNext,16);
+            output(" 0x",3); number((uptr)fixtureStaleSite,16);
+            output(" 0x",3); number((uptr)fixtureStaleTest,16); output("\n",1);
         }
         if (command == 'U') { fixtureLowerCall(); output("CE_LOWER_DONE\n",14); }
+        if (command == 'J') { fixtureStale(2); output("CE_STALE_DONE\n",14); }
         if (command == 's') {
             spinning = 1;
             output("CE_SPIN 0x", 10); number((uptr)&spinning, 16); output("\n", 1);
@@ -512,16 +523,25 @@ __asm__(".pushsection .text\n.global fixtureLowerCall,fixtureLowerSite,fixtureLo
         "fixtureLowerCall:\nfixtureLowerSite:\ncall fixtureLowerSp\nfixtureLowerReturn:\nadd $64,%rsp\n"
         "fixturePicSite:\ncall fixturePicNext\nfixturePicNext:\npop %rax\nret\n"
         "fixtureLowerSp:\npop %r11\nsub $64,%rsp\npush %r11\nret\n.popsection\n");
+__asm__(".pushsection .text\n.global fixtureStale,fixtureStaleSite,fixtureStaleTest\nfixtureStale:\ntest %edi,%edi\njz 1f\n"
+        "dec %edi\nfixtureStaleSite:\ncall fixtureStale\nfixtureStaleTest:\ntest %ecx,%ecx\njz 2f\ndec %ecx\n"
+        "jmp fixtureStaleTest\n1:\nmov $1,%ecx\n2:\nret\n.popsection\n");
 #elif defined(__i386__)
 __asm__(".pushsection .text\n.global fixtureLowerCall,fixtureLowerSite,fixtureLowerReturn,fixtureLowerSp,fixturePicSite,fixturePicNext\n"
         "fixtureLowerCall:\nfixtureLowerSite:\ncall fixtureLowerSp\nfixtureLowerReturn:\nadd $64,%esp\n"
         "fixturePicSite:\ncall fixturePicNext\nfixturePicNext:\npop %eax\nret\n"
         "fixtureLowerSp:\npop %ecx\nsub $64,%esp\npush %ecx\nret\n.popsection\n");
+__asm__(".pushsection .text\n.global fixtureStale,fixtureStaleSite,fixtureStaleTest\nfixtureStale:\ntest %eax,%eax\njz 1f\n"
+        "dec %eax\nfixtureStaleSite:\ncall fixtureStale\nfixtureStaleTest:\ntest %ecx,%ecx\njz 2f\ndec %ecx\n"
+        "jmp fixtureStaleTest\n1:\nmov $1,%ecx\n2:\nret\n.popsection\n");
 #elif defined(__aarch64__)
 __asm__(".pushsection .text\n.global fixtureLowerCall,fixtureLowerSite,fixtureLowerReturn,fixtureLowerSp,fixturePicSite,fixturePicNext\n"
         ".p2align 2\nfixtureLowerCall:\nstp x29,x30,[sp,#-16]!\nfixtureLowerSite:\nbl fixtureLowerSp\nfixtureLowerReturn:\nadd sp,sp,#0\n"
         "fixturePicSite:\nbl fixturePicNext\nfixturePicNext:\nldp x29,x30,[sp],#16\nret\n"
         "fixtureLowerSp:\nret\n.popsection\n");
+__asm__(".pushsection .text\n.global fixtureStale,fixtureStaleSite,fixtureStaleTest\n.p2align 2\nfixtureStale:\n"
+        "stp x29,x30,[sp,#-16]!\ncbz w0,1f\nsub w0,w0,#1\nfixtureStaleSite:\nbl fixtureStale\n"
+        "fixtureStaleTest:\ncbz w1,2f\nsub w1,w1,#1\nb fixtureStaleTest\n1:\nmov w1,#1\n2:\nldp x29,x30,[sp],#16\nret\n.popsection\n");
 #endif
 
 #if defined(__aarch64__)

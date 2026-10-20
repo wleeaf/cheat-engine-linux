@@ -7,6 +7,7 @@
 
 #include <sys/ptrace.h>
 #include <sys/wait.h>
+#include <sys/syscall.h>
 #include <signal.h>
 #include <cstring>
 #include <chrono>
@@ -429,6 +430,8 @@ bool DebugSession::waitForStop(pid_t tid,int& status,bool cancellable) {
 }
 
 bool DebugSession::singleStepThread(pid_t tid) {
+    int held=0;
+    siginfo_t heldInfo{};
     for (;;) {
         int signal=pendingSignals_.at(tid);
         if (ptrace(PTRACE_SINGLESTEP,tid,nullptr,reinterpret_cast<void*>(intptr_t(signal)))<0) {
@@ -445,6 +448,7 @@ bool DebugSession::singleStepThread(pid_t tid) {
             // of the step trap is kept, so detach still delivers it.
             if (WIFSTOPPED(status) && (status>>16)==0 && WSTOPSIG(status)!=SIGTRAP)
                 pendingSignals_.at(tid)=WSTOPSIG(status);
+            else if (held) pendingSignals_.at(tid)=held;
             return false;
         }
         if (isEventStop(status,PTRACE_EVENT_EXEC)) { handleExec(tid); return false; }
@@ -456,7 +460,27 @@ bool DebugSession::singleStepThread(pid_t tid) {
             ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)==0 &&
             (info.si_code==TRAP_TRACE || os::isNativeSyscallStepTrap(tid,info));
         log::trace(log::Cat::Debugger,"step stop: tid={}, status={:#x}, code={}, sender={}",tid,status,info.si_code,info.si_pid);
-        if (!stepTrap) { handleStop(tid,status,true); return false; }
+        const int stopSignal=WSTOPSIG(status);
+        // While a run steps off an instruction, one queued signal is held and
+        // the step retried; it is delivered, with its own siginfo, when the
+        // thread resumes from the step's stop. A second signal (or the same
+        // fault again) and an exception breakpoint stop as before.
+        if (!stepTrap && holdStepSignals_ && !held && (status>>16)==0 && stopSignal!=SIGTRAP &&
+            !hasExceptionBreakpoint(stopSignal) && ptrace(PTRACE_GETSIGINFO,tid,nullptr,&heldInfo)==0) {
+            held=stopSignal;
+            continue;
+        }
+        if (!stepTrap) {
+            // Queue a held signal again rather than lose it (its siginfo is).
+            if (held && held!=stopSignal) syscall(SYS_tgkill,pid_,tid,held);
+            handleStop(tid,status,true); return false;
+        }
+        if (held) {
+            // The step's own stop carries the held signal and its siginfo,
+            // so resuming with that signal keeps the original siginfo.
+            if (ptrace(PTRACE_SETSIGINFO,tid,nullptr,&heldInfo)<0) setError({errno,std::system_category()});
+            pendingSignals_.at(tid)=held;
+        }
         return true;
     }
 }
@@ -1375,7 +1399,24 @@ bool DebugSession::poppedReturnTo(const CpuContext& context,uintptr_t address) c
     return value && *value==address;
 }
 
-bool DebugSession::runToTempBreakpoint(pid_t tid,uintptr_t expected,FrameCheck frame,uintptr_t startSp,uintptr_t reentry) {
+bool DebugSession::sameStack(uintptr_t low,uintptr_t high) const {
+    // One writable mapping, or adjacent writable ones (a stack committed in
+    // pieces), from `low` up to `high`. Another thread's or fiber's stack
+    // lies across a gap or a guard page.
+    uintptr_t address=low;
+    for (int pieces=0;pieces<16;++pieces) {
+        auto region=proc_->queryRegion(address);
+        if (!region || region->base>address || !(region->protection & MemProt::Write)) return false;
+        const uintptr_t end=region->base+region->size;
+        if (high<end) return true;
+        if (end<=address) return false;
+        address=end;
+    }
+    return false;
+}
+
+bool DebugSession::runToTempBreakpoint(pid_t tid,uintptr_t expected,FrameCheck frame,uintptr_t startSp,uintptr_t reentry,
+                                       bool reentryOwned) {
     // Step Over waits for the call to return to this frame (the stack pointer
     // is back where it started); Step Out for the caller's frame. x86 `ret`
     // pops the return address, so the caller's SP is strictly above the
@@ -1389,22 +1430,22 @@ bool DebugSession::runToTempBreakpoint(pid_t tid,uintptr_t expected,FrameCheck f
         }
         return true;
     };
-    // Deeper frames that passed `reentry` and have not come back, by their
-    // SP there, innermost last. The list stays ordered, so it never grows
-    // past the recursion depth.
-    std::vector<uintptr_t> deeper;
     // Some calls return with SP below where it started: MSVC's 32-bit
     // __SEH_prolog4, __EH_prolog3 and _chkstk move the return address down
-    // and `ret` from there. Such a return is told from a deeper frame
-    // branching to the same address by the address `ret` left just below SP,
-    // and from a deeper frame's own return by no deeper frame being open.
-    // ARM returns through a register and keeps SP, so a lower SP there is
-    // always a deeper frame.
+    // and `ret` from there. Such a return is accepted only while nothing
+    // could have left that return address on a stack: `reentry` (the
+    // instruction the step started on, under our trap or a user breakpoint
+    // that ends the step) never ran again, so no deeper call started; `ret`
+    // has just taken the address off the stack; and SP is still on the stack
+    // the step started on (not another fiber's). Once `reentry` runs again
+    // its trap is removed, so it costs one stop, and the plain SP rule
+    // decides. ARM returns through a register and keeps
+    // SP, so a lower SP there is always a deeper frame.
+    bool reentered=false;
     auto ours=[&](const CpuContext& context) {
         if (returned(context,startSp)) return true;
-        bool popped=false;
-        while (!deeper.empty() && returned(context,deeper.back())) { deeper.pop_back(); popped=true; }
-        return !popped && deeper.empty() && poppedReturnTo(context,expected);
+        return reentry && !reentered && poppedReturnTo(context,expected) &&
+               sameStack(context.stackPointer(),startSp);
     };
     bool listen=false;
     for (;;) {
@@ -1450,14 +1491,11 @@ bool DebugSession::runToTempBreakpoint(pid_t tid,uintptr_t expected,FrameCheck f
                 if (!stepThreadOverBp(tid) || !attached_) return false;
                 continue;
             }
-            if (reentry && address==reentry) {
+            if (reentryOwned && !reentered && address==reentry) {
                 if (!rewindSoftwareStop(tid,address)) return false;
-                const uintptr_t sp=context->stackPointer();
-                // Frames at or above this SP have ended; below the stepping
-                // frame's SP it is a deeper one.
-                while (!deeper.empty() && deeper.back()<=sp) deeper.pop_back();
-                if (sp<startSp) deeper.push_back(sp);
-                if (!stepThreadOverBp(tid) || !attached_) return false;
+                reentered=true;
+                auto trap=softBreakpoints_.find(address);
+                if (trap!=softBreakpoints_.end() && !doRemoveSoftBp(trap->second.id)) return false;
                 continue;
             }
             auto bp=softBreakpoints_.find(address);
@@ -1521,6 +1559,10 @@ void DebugSession::doStep(StepMode mode,uintptr_t targetAddress) {
         // always steps off first, so it can trap this instruction again.
         const bool counted=x86 && frame!=FrameCheck::None;
         const bool stepOff=counted || pendingHardwareSteps_.at(tid) || atBreakpoint;
+        // A queued signal (a timer, SIGCHLD) is delivered as the run goes on
+        // instead of ending it.
+        holdStepSignals_=true;
+        struct Release { bool& flag; ~Release() { flag=false; } } release{holdStepSignals_};
         bool completed=true, arrived=false;
         if (stepOff) {
             completed=stepOne();
@@ -1532,18 +1574,21 @@ void DebugSession::doStep(StepMode mode,uintptr_t targetAddress) {
                 else arrived=now->instructionPointer()==address;
             }
         }
-        // On x86 a deeper frame passing this instruction again is counted
-        // (see runToTempBreakpoint). A user breakpoint here reports it instead.
+        // On x86 a one-shot trap here tells whether this instruction ran
+        // again during the run (see runToTempBreakpoint). A user breakpoint
+        // here reports that instead.
         int reentryId=-1;
+        bool watched=counted && atBreakpoint;
         if (completed && !arrived && counted && pc!=address &&
             imageGeneration_==generation && attached_ && !softBreakpoints_.contains(pc)) {
             reentryId=static_cast<int>(doSetSoftBp(pc));
+            watched=reentryId>=0;
             // Without it the step still ends, perhaps in a deeper frame; a
             // trap left half written must not run.
             if (reentryId<0 && recoveryPending_) completed=false;
         }
         if (completed && !arrived && imageGeneration_==generation && attached_)
-            completed=runToTempBreakpoint(tid,address,frame,startSp,reentryId>=0 ? pc : 0);
+            completed=runToTempBreakpoint(tid,address,frame,startSp,watched && pc!=address ? pc : 0,reentryId>=0);
         if (imageGeneration_==generation && !traced_.empty() && reentryId>=0 && !doRemoveSoftBp(reentryId)) completed=false;
         if (imageGeneration_==generation && !traced_.empty() && created && !doRemoveSoftBp(id)) completed=false;
         return completed;

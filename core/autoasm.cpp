@@ -1763,7 +1763,9 @@ static bool isCRuntimeModule(const std::string& module) {
     if (runtime.contains(name.substr(0, name.find_first_of(".-")))) return true;
     for (const char* suffix : {".so", ".dll"})
         if (name.ends_with(suffix)) name.resize(name.size() - std::strlen(suffix));
-    static const std::set<std::string> windows = {"msvcrt", "msvcrtd", "ucrtbase", "ucrtbased", "crtdll", "ntdll"};
+    // Not ntdll: its Nt*, Rtl* and Dbg* exports are common hook sites, and a
+    // cave label rarely shares a name with them.
+    static const std::set<std::string> windows = {"msvcrt", "msvcrtd", "ucrtbase", "ucrtbased", "crtdll"};
     if (windows.contains(name) || name.starts_with("api-ms-win-crt-")) return true;
     // Versioned runtimes: msvcr100, msvcp140, msvcp140_1, msvcp_win, vcruntime140_1.
     for (const std::string prefix : {"msvcr", "msvcp", "vcruntime"})

@@ -275,6 +275,16 @@ int main() {
         check(jsonOk && !has(hotkeys(viaJsonDisk,0),"<Action>Activate</Action>") && !has(viaJsonDisk,"LinuxSlot") &&
             !has(disk,"LinuxSlot") && !has(clearedDisk,"LinuxSlot"),
             "a slot cleared after a JSON round trip drops its borrowed hotkey, and no .CT carries the marks");
+        // A mark written with spaces around '=' in an input file is stripped
+        // too: it is not trusted, and it never reaches the saved file.
+        CheatTable spaced;
+        spaced.loadFromString(ceTable("<CheatEntry><ID>1</ID><Description>\"d\"</Description><VariableType>4 Bytes</VariableType><Address>400000</Address>"
+            "<Hotkeys><Hotkey><Action>Toggle Activation</Action><Keys><Key>117</Key></Keys><ID>0</ID></Hotkey>"
+            "<Hotkey LinuxSlot = \"1\"><Action>Activate</Action><Keys><Key>118</Key></Keys><ID>1</ID></Hotkey></Hotkeys></CheatEntry>\n"));
+        const auto spacedDisk=saveAndRead(spaced,"spaced-mark.CT");
+        check(spaced.entries.size()==1 && !has(spacedDisk,"LinuxSlot") && has(spacedDisk,"<Key>118</Key>") &&
+            count(spacedDisk,"<Hotkey>")==2,
+            "a spaced LinuxSlot mark from a file is stripped, so the hotkey it sits on is kept and the mark never saved");
     }
     {
         // Saving keeps what an ordinary save keeps: a read-only table stays

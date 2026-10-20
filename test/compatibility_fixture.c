@@ -114,9 +114,10 @@ static void fixtureRtHandler(int signal, void* info, void* context) {
 static void number(uptr n, unsigned base);
 static int fixtureRtInstall(void) {
     /* The kernel layout: three words, then an 8-byte mask (4-byte aligned
-       for 32-bit and x32 callers). SA_SIGINFO | SA_RESTORER. */
+       for 32-bit and x32 callers). SA_SIGINFO | SA_RESTORER | SA_RESTART:
+       an interrupted read of the next command resumes. */
     struct { uptr handler,flags,restorer; unsigned mask[2]; } action={
-        (uptr)fixtureRtHandler,0x04000004u,(uptr)fixtureSigReturn,{0,0}
+        (uptr)fixtureRtHandler,0x14000004u,(uptr)fixtureSigReturn,{0,0}
     };
     return systemCallArgs(__NR_rt_sigaction,40,(uptr)&action,0,8,0,0)==0;
 }
@@ -295,7 +296,10 @@ __attribute__((noreturn, used)) void fixtureMain(uptr* stack) {
         if (command == 'U') { fixtureLowerCall(); output("CE_LOWER_DONE\n",14); }
         if (command == 'J') { fixtureStale(2); output("CE_STALE_DONE\n",14); }
         if (command == 'T') fixtureFault();
-        if (command == 'k') { if (fixtureRtInstall()) output("CE_RT_READY\n",12); else output("CE_RT_FAILED\n",13); }
+        if (command == 'k') {
+            if (fixtureRtInstall()) { output("CE_RT_READY 0x",14); number((uptr)&rtCount,16); output("\n",1); }
+            else output("CE_RT_FAILED\n",13);
+        }
         if (command == 'h') {
             unsigned mask[2]={1,1};
             systemCallArgs(NR_SIGMASK,0,0,(uptr)mask,8,0,0);

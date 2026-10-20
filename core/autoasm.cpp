@@ -1762,14 +1762,18 @@ static bool isCRuntimeSymbol(const std::string& module, const std::string& symbo
     for (auto& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     static const std::set<std::string> runtime = {"libc", "ld", "libm", "libpthread", "libdl", "librt", "libresolv"};
     if (runtime.contains(name.substr(0, name.find_first_of(".-")))) return true;
+    const std::string full = name;   // lowercased, suffixes kept
     for (const char* suffix : {".so", ".dll"})
         if (name.ends_with(suffix)) name.resize(name.size() - std::strlen(suffix));
     if (name == "ntdll" || name == "ntdll.dll") {
-        for (const char* api : {"Nt", "Zw", "Rtl", "Ldr", "Dbg", "Ki", "Etw", "Tp", "Csr", "Wine"})
-            if (symbol.starts_with(api) && symbol.size() > std::strlen(api) &&
-                std::isupper(static_cast<unsigned char>(symbol[std::strlen(api)])))
-                return false;
-        return true;
+        // Wine's Unix-side ntdll.so exports no C library at all.
+        if (full.ends_with(".so") && !full.ends_with(".dll.so")) return false;
+        // Its C library exports are lowercase or start with '_' (log, floor,
+        // memcpy, _vsnprintf); its API and Wine's own exports are not C runtime
+        // (NtXxx, RtlpXxx, VerSetConditionMask, wine_server_call, vDbgPrintEx).
+        const unsigned char first = symbol.empty() ? 0 : static_cast<unsigned char>(symbol[0]);
+        const bool cLike = std::islower(first) || first == '_';
+        return cLike && !symbol.starts_with("wine_") && !symbol.starts_with("__wine_") && !symbol.starts_with("vDbg");
     }
     static const std::set<std::string> windows = {"msvcrt", "msvcrtd", "ucrtbase", "ucrtbased", "crtdll"};
     if (windows.contains(name) || name.starts_with("api-ms-win-crt-")) return true;

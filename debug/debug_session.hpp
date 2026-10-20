@@ -174,6 +174,9 @@ private:
                              uintptr_t startSp = 0, uintptr_t reentry = 0, bool reentryOwned = false);
     // True when an x86 `ret` (or a pop) just took `address` off the stack.
     bool poppedReturnTo(const CpuContext& context, uintptr_t address) const;
+    // Record a stop of `tid` and restore a signal mask a step left blocked.
+    void noteStopped(pid_t tid, int status);
+    bool applyMaskRestore(pid_t tid);
     // True unless `tid` stands on an instruction known not to be a system call.
     bool atSystemCall(pid_t tid) const;
     // True when [low, high] is one stack: contiguous writable mappings.
@@ -248,6 +251,9 @@ private:
     // asynchronous signals for its one instruction, so a queued one stays
     // pending instead of ending the step.
     bool holdStepSignals_ = false;
+    // Signal masks a step could not restore (the thread was not stopped),
+    // applied at the thread's next stop and before it is detached.
+    std::unordered_map<pid_t, uint64_t> pendingMaskRestores_;
     // Stops of other threads seen while waiting for one thread. They are
     // classified by the all-stop, never reported from inside the wait.
     std::deque<std::pair<pid_t, int>> foreignStops_;

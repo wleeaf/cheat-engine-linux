@@ -21,6 +21,7 @@
 #include <cerrno>
 #include <cstring>
 #include <fstream>
+#include <future>
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
@@ -1091,7 +1092,7 @@ static void sessionRecovery(const char* path) {
         // leaves both pending, and the game's handler gets both, in order,
         // with their own values, and its signal mask back.
         command='k';
-        const bool installed=::write(fixture.input,&command,1)==1 && fixture.line()=="CE_RT_READY";
+        const bool installed=::write(fixture.input,&command,1)==1 && fixture.line().starts_with("CE_RT_READY ");
         command='h';
         const std::string before=installed && ::write(fixture.input,&command,1)==1 ? fixture.line() : std::string();
         const std::string mask=before.starts_with("CE_RT 0 mask=") ? before.substr(13) : std::string("?");
@@ -1120,6 +1121,60 @@ static void sessionRecovery(const char* path) {
               "both real-time signals reach the handler in order with their values, and the mask is restored");
         session.detach();
         check(fixture.value(),"lower stack pointer fixture stays live after detach");
+    }
+    {
+        // A thread stopped inside a restartable system call (the fixture's
+        // read of its next command) re-runs it when stepped. The step must
+        // not block signals across it: a signal sent while the read waits
+        // still reaches the game's handler.
+        Fixture fixture(path);
+        std::istringstream line(fixture.line()); std::string magic;
+        pid_t pid=0; unsigned width=0; uintptr_t value=0,pointer=0,code=0;
+        line>>magic>>pid>>width>>std::hex>>value>>pointer>>code;
+        check(line && magic=="CE_TARGET" && pid==fixture.pid,"restarted system call fixture starts");
+        if (!line || magic!="CE_TARGET" || pid!=fixture.pid) return;
+        char command='k';
+        std::istringstream ready(::write(fixture.input,&command,1)==1 ? fixture.line() : std::string());
+        std::string tag; uintptr_t counter=0;
+        ready>>tag>>std::hex>>counter;
+        command='h';
+        const std::string before=ready && tag=="CE_RT_READY" && ::write(fixture.input,&command,1)==1 ? fixture.line() : std::string();
+        LinuxProcessHandle process(pid);
+        DebugSession session;
+        std::atomic<unsigned> steps{0};
+        session.setEventCallback([&](const DebugEvent& event) { if (event.type==DebugEventType::SingleStep) ++steps; });
+        bool attached=before.starts_with("CE_RT 0 mask=") && session.attach(pid,&process) &&
+                      awaitState([&] { return session.isStopped(); });
+        const uintptr_t waiting=attached ? session.getStopContext().instructionPointer() : 0;
+        // Run to Cursor steps off a breakpoint with signals held, so put one
+        // where the read stopped.
+        int bp=waiting ? session.setSoftwareBreakpoint(waiting) : -1;
+        check(attached && bp>0,"restarted system call fixture is stopped in its read with a handler");
+        if (bp<0) return;
+        auto stepping=std::async(std::launch::async,[&] { session.step(StepMode::RunToCursor,code); });
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        siginfo_t info{};
+        info.si_signo=40; info.si_code=SI_QUEUE; info.si_pid=getpid(); info.si_uid=getuid(); info.si_value.sival_int=7;
+        const bool sent=syscall(SYS_rt_sigqueueinfo,pid,40,&info)==0;
+        bool handled=false;
+        for (int attempt=0; sent && !handled && attempt<500; ++attempt) {
+            unsigned count=0;
+            handled=readMemory(pid,counter,&count,sizeof(count))==ssize_t(sizeof(count)) && count==1;
+            if (!handled) usleep(10000);
+        }
+        check(sent && handled,"a signal sent while a step re-runs an interrupted read reaches the handler");
+        // The next command reaches the cursor and ends the step.
+        command='b';
+        const bool ended=::write(fixture.input,&command,1)==1 &&
+                         stepping.wait_for(std::chrono::seconds(10))==std::future_status::ready;
+        check(ended && steps==1 && session.isStopped() && session.getStopContext().instructionPointer()==code,
+              "the step then ends at the cursor");
+        if (!ended) return;
+        command='h';
+        check(session.removeSoftwareBreakpoint(bp) && session.continueExecution() && fixture.line()=="123456790" &&
+              ::write(fixture.input,&command,1)==1 && fixture.line()=="CE_RT 1 7 mask="+before.substr(13),
+              "the handler ran once with its value and the signal mask is unchanged");
+        session.detach();
     }
     {
         // A fault raised by the instruction a step starts on is never held,

@@ -7,6 +7,7 @@
 
 #include <sys/ptrace.h>
 #include <sys/wait.h>
+#include <sys/user.h>
 #include <signal.h>
 #include <cstring>
 #include <chrono>
@@ -161,7 +162,7 @@ bool DebugSession::seizeAllThreads() {
             if (ptrace(PTRACE_INTERRUPT,tid,nullptr,nullptr)<0) continue;
             int status=0;
             if (waitForStop(tid,status,false)) {
-                stoppedTids_.insert(tid);
+                noteStopped(tid,status);
                 if (isEventStop(status,PTRACE_EVENT_CLONE) && !adoptClonedThread(tid)) {
                     tracerCleanup(); return false;
                 }
@@ -249,7 +250,7 @@ void DebugSession::stopOtherThreads(pid_t active) {
 
 bool DebugSession::absorbStop(pid_t tid,int status) {
     const uint64_t generation=imageGeneration_;
-    stoppedTids_.insert(tid);
+    noteStopped(tid,status);
     trackGroupStop(tid,status);
     if (isEventStop(status,PTRACE_EVENT_EXEC)) { handleExec(tid); return false; }
     if (isEventStop(status,PTRACE_EVENT_CLONE)) {
@@ -265,7 +266,7 @@ bool DebugSession::absorbStop(pid_t tid,int status) {
         if (ptrace(PTRACE_CONT,tid,nullptr,nullptr)<0) break;
         stoppedTids_.erase(tid);
         if (!waitForStop(tid,status,false)) return imageGeneration_==generation;
-        stoppedTids_.insert(tid);
+        noteStopped(tid,status);
     }
     if (isSoftwareStop(tid,status)) {
         auto context=os::readNativeContext(tid);
@@ -369,6 +370,24 @@ os::NativeVectorContext DebugSession::getVectorRegisters() const {
     return vectorRegisters_;
 }
 
+void DebugSession::noteStopped(pid_t tid,int status) {
+    stoppedTids_.insert(tid);
+    // An exec stop's TID may now be another thread's: never give the new
+    // image a mask saved for the old one (handleExec drops it).
+    if (!isEventStop(status,PTRACE_EVENT_EXEC)) applyMaskRestore(tid);
+}
+
+bool DebugSession::applyMaskRestore(pid_t tid) {
+    auto pending=pendingMaskRestores_.find(tid);
+    if (pending==pendingMaskRestores_.end()) return true;
+    if (ptrace(PTRACE_SETSIGMASK,tid,reinterpret_cast<void*>(sizeof(pending->second)),&pending->second)<0) {
+        if (errno==ESRCH && !traced_.contains(tid)) pendingMaskRestores_.erase(pending);
+        return false;
+    }
+    pendingMaskRestores_.erase(pending);
+    return true;
+}
+
 bool DebugSession::waitForStop(pid_t tid,int& status,bool cancellable) {
     bool interrupted=false;
     for (;;) {
@@ -384,7 +403,7 @@ bool DebugSession::waitForStop(pid_t tid,int& status,bool cancellable) {
         if (waited>0 && waited!=tid) {
             if (WIFEXITED(status) || WIFSIGNALED(status)) retireThread(waited,status);
             else if (isEventStop(status,PTRACE_EVENT_EXIT)) {
-                stoppedTids_.insert(waited);
+                noteStopped(waited,status);
                 if (!finishExitStop(waited)) return false;
             } else if (isEventStop(status,PTRACE_EVENT_EXEC)) { handleExec(waited); return false; }
             else if (!traced_.contains(waited)) handleStop(waited,status);   // a new clone's first stop: recorded only
@@ -394,7 +413,7 @@ bool DebugSession::waitForStop(pid_t tid,int& status,bool cancellable) {
                 // the all-stop classify it. Reporting it from here would
                 // nest a second stop inside the caller's and leave the
                 // active thread and the captured registers disagreeing.
-                stoppedTids_.insert(waited);
+                noteStopped(waited,status);
                 trackGroupStop(waited,status);
                 foreignStops_.emplace_back(waited,status);
             }
@@ -403,7 +422,7 @@ bool DebugSession::waitForStop(pid_t tid,int& status,bool cancellable) {
         }
         if (waited==tid) {
             if (WIFSTOPPED(status)) {
-                stoppedTids_.insert(tid);
+                noteStopped(tid,status);
                 trackGroupStop(tid,status);
                 if (isEventStop(status,PTRACE_EVENT_EXIT)) { finishExitStop(tid); return false; }
                 return true;
@@ -431,6 +450,16 @@ bool DebugSession::waitForStop(pid_t tid,int& status,bool cancellable) {
 bool DebugSession::atSystemCall(pid_t tid) const {
     auto context=os::readNativeContext(tid);
     if (!context) return true;
+#if defined(__x86_64__)
+    // A system call interrupted by this stop has IP past its instruction and
+    // its number in orig_rax (orig_eax for i386 and x32 callers): resuming
+    // re-runs it from IP-2. arm64 rewinds PC to the svc itself before the
+    // stop, so the instruction check below covers it.
+    if (context->architecture==CpuArchitecture::X86_32 || context->architecture==CpuArchitecture::X86_64) {
+        user_regs_struct registers{};
+        if (ptrace(PTRACE_GETREGS,tid,nullptr,&registers)<0 || uint32_t(registers.orig_rax)!=UINT32_MAX) return true;
+    }
+#endif
     std::array<uint8_t,4> bytes{};
     auto read=proc_->read(context->instructionPointer(),bytes.data(),bytes.size());
     if (!read || *read<bytes.size()) return true;
@@ -462,7 +491,7 @@ bool DebugSession::singleStepThread(pid_t tid) {
     // a signal being delivered by this step are not held.
     uint64_t savedMask=0;
     bool masked=false;
-    if (holdStepSignals_ && !pendingSignals_.at(tid) && !atSystemCall(tid) &&
+    if (holdStepSignals_ && applyMaskRestore(tid) && !pendingSignals_.at(tid) && !atSystemCall(tid) &&
         ptrace(PTRACE_GETSIGMASK,tid,reinterpret_cast<void*>(sizeof(savedMask)),&savedMask)==0) {
         uint64_t open=0;
         for (int signal : {SIGSEGV,SIGBUS,SIGILL,SIGFPE,SIGTRAP,SIGSYS,SIGKILL,SIGSTOP}) open|=uint64_t(1)<<(signal-1);
@@ -479,7 +508,10 @@ bool DebugSession::singleStepThread(pid_t tid) {
         if (!masked) return true;
         masked=false;
         if (ptrace(PTRACE_SETSIGMASK,tid,reinterpret_cast<void*>(sizeof(savedMask)),&savedMask)==0) return true;
+        // A live thread that is not stopped also fails (ESRCH): restore it
+        // at its next stop, or before it is detached.
         if (errno!=ESRCH) setError({errno,std::system_category()});
+        if (traced_.contains(tid)) pendingMaskRestores_[tid]=savedMask;
         return false;
     };
     for (;;) {
@@ -501,8 +533,15 @@ bool DebugSession::singleStepThread(pid_t tid) {
                 pendingSignals_.at(tid)=WSTOPSIG(status);
             return false;
         }
-        // An exec keeps the signal mask: give the new program its own.
-        if (isEventStop(status,PTRACE_EVENT_EXEC)) { restoreMask(); handleExec(tid); return false; }
+        // An exec keeps the signal mask: give the new program its own, when
+        // it is this thread that exec'd. Another thread's exec took over this
+        // (leader) TID, and the old leader's mask is not the new image's.
+        if (isEventStop(status,PTRACE_EVENT_EXEC)) {
+            unsigned long former=0;
+            if (ptrace(PTRACE_GETEVENTMSG,tid,nullptr,&former)==0 && pid_t(former)==tid) restoreMask();
+            else masked=false;
+            handleExec(tid); return false;
+        }
         // An all-stop interrupt can race an already-pending breakpoint trap.
         // Its synthetic stop then precedes our requested single-step trap.
         if (isEventStop(status,PTRACE_EVENT_STOP)) continue;
@@ -734,6 +773,8 @@ void DebugSession::tracerCleanup() {
     }
     std::vector<pid_t> tids(traced_.begin(),traced_.end());
     for (pid_t tid : tids) {
+        // A mask a step could not restore while the thread ran.
+        applyMaskRestore(tid);
         int signal=pendingSignals_.at(tid);
         for (int attempt=0; ptrace(PTRACE_DETACH,tid,nullptr,reinterpret_cast<void*>(intptr_t(signal)))<0; ++attempt) {
             if (errno==ESRCH || errno==ECHILD) break;
@@ -1144,6 +1185,8 @@ bool DebugSession::recoverRenamedExec() {
 }
 
 void DebugSession::handleExec(pid_t tid,bool notify) {
+    // Masks saved for the old image's threads never apply to the new one.
+    pendingMaskRestores_.clear();
     // A setuid program now runs in the process. A tracer with cap_sys_ptrace
     // (the .deb's) would keep tracing it with its new privileges: let it go,
     // and end the session as if the process had exited.
@@ -1184,7 +1227,7 @@ void DebugSession::retireThread(pid_t tid,int status) {
     if (stopped_ && traced_.size()>1) exitedDuringStop_.push_back(tid);
     traced_.erase(tid); stoppedTids_.erase(tid); savedHardware_.erase(tid); pendingExitStops_.erase(tid);
     pendingSignals_.erase(tid); pendingRewinds_.erase(tid); pendingHardwareSteps_.erase(tid);
-    reportedPc_.erase(tid); groupStopped_.erase(tid);
+    pendingMaskRestores_.erase(tid); reportedPc_.erase(tid); groupStopped_.erase(tid);
     std::erase_if(foreignStops_,[&](const auto& stop){ return stop.first==tid; });
     std::erase_if(deferredStops_,[&](const auto& stop){ return stop.first==tid; });
     if (registerRecovery_ && registerRecovery_->first==tid) registerRecovery_.reset();
@@ -1317,7 +1360,7 @@ void DebugSession::handleStop(pid_t tid,int status,bool holdStop) {
         traced_.insert(tid); stoppedTids_.insert(tid);
         return;
     }
-    stoppedTids_.insert(tid);
+    noteStopped(tid,status);
     trackGroupStop(tid,status);
     if (isEventStop(status,PTRACE_EVENT_EXIT)) {
         if (!finishExitStop(tid) && holdAll(tid)) reportHeldStop(0);

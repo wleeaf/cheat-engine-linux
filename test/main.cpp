@@ -10036,7 +10036,7 @@ static void test_autoassembler_windows_runtime_labels() {
     bool allKept = true;
     std::string failures;
     for (const char* name : {"msvcrt.dll", "MSVCRT.DLL", "msvcrt", "ucrtbase.dll", "api-ms-win-crt-runtime-l1-1-0.dll",
-                             "msvcr120.dll", "msvcp140.dll", "vcruntime140_1.dll", "msvcrt.dll.so", "ntdll.dll", "ntdll.so"}) {
+                             "msvcr120.dll", "msvcp140.dll", "vcruntime140_1.dll", "msvcrt.dll.so", "ntdll.dll", "ntdll.dll.so"}) {
         FakeWine wine;
         wine.list = withModule(name);
         AutoAssembler aa;
@@ -10066,6 +10066,14 @@ static void test_autoassembler_windows_runtime_labels() {
     auto nativePatched = nativeAa.execute(native, "[ENABLE]\nNtCeProbe:\ndb 90\n");
     printf("  an ntdll native API export written as \"name:\" is that function: %s\n",
            nativePatched.success && native.bytes[exitAddress] == 0x90 ? "OK" : ("FAILED: " + nativePatched.error).c_str());
+    // A private Rtlp export is API too, not a C library name.
+    writeSingleExportPe(ntPe, "RtlpCeProbe", 0x1234);
+    FakeWine privateApi;
+    privateApi.list = native.list;
+    AutoAssembler privateAa;
+    auto privatePatched = privateAa.execute(privateApi, "[ENABLE]\nRtlpCeProbe:\ndb 90\n");
+    printf("  a private ntdll export (RtlpXxx) written as \"name:\" is that function: %s\n",
+           privatePatched.success && privateApi.bytes[exitAddress] == 0x90 ? "OK" : ("FAILED: " + privatePatched.error).c_str());
     std::error_code ntRemoved;
     fs::remove(ntPe, ntRemoved);
 

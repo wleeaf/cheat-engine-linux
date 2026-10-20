@@ -56,6 +56,9 @@ extern void fixtureStale(unsigned depth) __attribute__((regparm(1)));
 extern void fixtureStale(unsigned depth);
 #endif
 extern void fixtureStaleSite(void), fixtureStaleTest(void);
+/* Loads from address 0: the instruction at fixtureFaultSite faults. */
+extern void fixtureFault(void), fixtureFaultSite(void), fixtureFaultNext(void);
+extern void fixtureSigReturn(void);
 
 #if defined(__x86_64__)
 static iptr systemCallArgs(iptr nr, uptr a, uptr b, uptr c, uptr d, uptr e, uptr f) {
@@ -100,6 +103,24 @@ static void output(const char* p, uptr n) {
         p += written; n -= written;
     }
 }
+/* Real-time signal 40 with SA_SIGINFO: records each si_value in order. */
+static volatile unsigned rtCount, rtValues[4];
+static void fixtureRtHandler(int signal, void* info, void* context) {
+    (void)signal; (void)context;
+    const unsigned value=*(const unsigned*)((const char*)info+(sizeof(uptr)==8 ? 24 : 20));
+    if (rtCount<4) rtValues[rtCount]=value;
+    ++rtCount;
+}
+static void number(uptr n, unsigned base);
+static int fixtureRtInstall(void) {
+    /* The kernel layout: three words, then an 8-byte mask (4-byte aligned
+       for 32-bit and x32 callers). SA_SIGINFO | SA_RESTORER. */
+    struct { uptr handler,flags,restorer; unsigned mask[2]; } action={
+        (uptr)fixtureRtHandler,0x04000004u,(uptr)fixtureSigReturn,{0,0}
+    };
+    return systemCallArgs(__NR_rt_sigaction,40,(uptr)&action,0,8,0,0)==0;
+}
+
 static void number(uptr n, unsigned base) {
     char buffer[32]; uptr count = 0;
     do { buffer[count++] = "0123456789abcdef"[n % base]; n /= base; } while (n);
@@ -267,10 +288,21 @@ __attribute__((noreturn, used)) void fixtureMain(uptr* stack) {
             output(" 0x",3); number((uptr)fixturePicSite,16);
             output(" 0x",3); number((uptr)fixturePicNext,16);
             output(" 0x",3); number((uptr)fixtureStaleSite,16);
-            output(" 0x",3); number((uptr)fixtureStaleTest,16); output("\n",1);
+            output(" 0x",3); number((uptr)fixtureStaleTest,16);
+            output(" 0x",3); number((uptr)fixtureFaultSite,16);
+            output(" 0x",3); number((uptr)fixtureFaultNext,16); output("\n",1);
         }
         if (command == 'U') { fixtureLowerCall(); output("CE_LOWER_DONE\n",14); }
         if (command == 'J') { fixtureStale(2); output("CE_STALE_DONE\n",14); }
+        if (command == 'T') fixtureFault();
+        if (command == 'k') { if (fixtureRtInstall()) output("CE_RT_READY\n",12); else output("CE_RT_FAILED\n",13); }
+        if (command == 'h') {
+            unsigned mask[2]={1,1};
+            systemCallArgs(NR_SIGMASK,0,0,(uptr)mask,8,0,0);
+            output("CE_RT ",6); number(rtCount,10);
+            for (unsigned i=0; i<rtCount && i<4; ++i) { output(" ",1); number(rtValues[i],10); }
+            output(" mask=",6); number(mask[0]|mask[1],16); output("\n",1);
+        }
         if (command == 's') {
             spinning = 1;
             output("CE_SPIN 0x", 10); number((uptr)&spinning, 16); output("\n", 1);
@@ -526,6 +558,9 @@ __asm__(".pushsection .text\n.global fixtureLowerCall,fixtureLowerSite,fixtureLo
 __asm__(".pushsection .text\n.global fixtureStale,fixtureStaleSite,fixtureStaleTest\nfixtureStale:\ntest %edi,%edi\njz 1f\n"
         "dec %edi\nfixtureStaleSite:\ncall fixtureStale\nfixtureStaleTest:\ntest %ecx,%ecx\njz 2f\ndec %ecx\n"
         "jmp fixtureStaleTest\n1:\nmov $1,%ecx\n2:\nret\n.popsection\n");
+__asm__(".pushsection .text\n.global fixtureFault,fixtureFaultSite,fixtureFaultNext,fixtureSigReturn\n"
+        "fixtureFault:\nfixtureFaultSite:\nmovl 0,%eax\nfixtureFaultNext:\nret\n"
+        "fixtureSigReturn:\nmov $" FIXTURE_STRING(__NR_rt_sigreturn) ",%eax\nsyscall\nud2\n.popsection\n");
 #elif defined(__i386__)
 __asm__(".pushsection .text\n.global fixtureLowerCall,fixtureLowerSite,fixtureLowerReturn,fixtureLowerSp,fixturePicSite,fixturePicNext\n"
         "fixtureLowerCall:\nfixtureLowerSite:\ncall fixtureLowerSp\nfixtureLowerReturn:\nadd $64,%esp\n"
@@ -534,6 +569,9 @@ __asm__(".pushsection .text\n.global fixtureLowerCall,fixtureLowerSite,fixtureLo
 __asm__(".pushsection .text\n.global fixtureStale,fixtureStaleSite,fixtureStaleTest\nfixtureStale:\ntest %eax,%eax\njz 1f\n"
         "dec %eax\nfixtureStaleSite:\ncall fixtureStale\nfixtureStaleTest:\ntest %ecx,%ecx\njz 2f\ndec %ecx\n"
         "jmp fixtureStaleTest\n1:\nmov $1,%ecx\n2:\nret\n.popsection\n");
+__asm__(".pushsection .text\n.global fixtureFault,fixtureFaultSite,fixtureFaultNext,fixtureSigReturn\n"
+        "fixtureFault:\nfixtureFaultSite:\nmovl 0,%eax\nfixtureFaultNext:\nret\n"
+        "fixtureSigReturn:\nmov $" FIXTURE_STRING(__NR_rt_sigreturn) ",%eax\nint $0x80\nud2\n.popsection\n");
 #elif defined(__aarch64__)
 __asm__(".pushsection .text\n.global fixtureLowerCall,fixtureLowerSite,fixtureLowerReturn,fixtureLowerSp,fixturePicSite,fixturePicNext\n"
         ".p2align 2\nfixtureLowerCall:\nstp x29,x30,[sp,#-16]!\nfixtureLowerSite:\nbl fixtureLowerSp\nfixtureLowerReturn:\nadd sp,sp,#0\n"
@@ -542,6 +580,9 @@ __asm__(".pushsection .text\n.global fixtureLowerCall,fixtureLowerSite,fixtureLo
 __asm__(".pushsection .text\n.global fixtureStale,fixtureStaleSite,fixtureStaleTest\n.p2align 2\nfixtureStale:\n"
         "stp x29,x30,[sp,#-16]!\ncbz w0,1f\nsub w0,w0,#1\nfixtureStaleSite:\nbl fixtureStale\n"
         "fixtureStaleTest:\ncbz w1,2f\nsub w1,w1,#1\nb fixtureStaleTest\n1:\nmov w1,#1\n2:\nldp x29,x30,[sp],#16\nret\n.popsection\n");
+__asm__(".pushsection .text\n.global fixtureFault,fixtureFaultSite,fixtureFaultNext,fixtureSigReturn\n.p2align 2\n"
+        "fixtureFault:\nmov x0,#0\nfixtureFaultSite:\nldr x0,[x0]\nfixtureFaultNext:\nret\n"
+        "fixtureSigReturn:\nmov x8,#" FIXTURE_STRING(__NR_rt_sigreturn) "\nsvc #0\nbrk #0\n.popsection\n");
 #endif
 
 #if defined(__aarch64__)

@@ -7,7 +7,6 @@
 
 #include <sys/ptrace.h>
 #include <sys/wait.h>
-#include <sys/syscall.h>
 #include <signal.h>
 #include <cstring>
 #include <chrono>
@@ -429,29 +428,81 @@ bool DebugSession::waitForStop(pid_t tid,int& status,bool cancellable) {
     }
 }
 
+bool DebugSession::atSystemCall(pid_t tid) const {
+    auto context=os::readNativeContext(tid);
+    if (!context) return true;
+    std::array<uint8_t,4> bytes{};
+    auto read=proc_->read(context->instructionPointer(),bytes.data(),bytes.size());
+    if (!read || *read<bytes.size()) return true;
+    switch (context->architecture) {
+        case CpuArchitecture::X86_32:
+        case CpuArchitecture::X86_64:
+            // int n, syscall, sysenter
+            return bytes[0]==0xCD || (bytes[0]==0x0F && (bytes[1]==0x05 || bytes[1]==0x34));
+        case CpuArchitecture::Arm64: {
+            const uint32_t word=bytes[0] | bytes[1]<<8 | bytes[2]<<16 | uint32_t(bytes[3])<<24;
+            return (word & 0xFFE0001Fu)==0xD4000001u;   // svc #n
+        }
+        default:
+            return true;
+    }
+}
+
 bool DebugSession::singleStepThread(pid_t tid) {
-    int held=0;
-    siginfo_t heldInfo{};
+    // While a run steps off an instruction (holdStepSignals_), a queued
+    // asynchronous signal (a timer, SIGCHLD, a Wine suspend) would end the
+    // step. The thread blocks every signal except faults, SIGKILL, SIGSTOP
+    // and exception breakpoint signals for this one instruction, so queued
+    // signals stay on their queues untouched (siginfo, order and count) and
+    // are delivered normally once the mask is restored. A signal that still
+    // stops the step (a fault, an exception breakpoint) ends it and is
+    // reported, as without holding; faults are never blocked, since the
+    // kernel resets a handler whose fault arrives blocked. A system call
+    // instruction (which can change the mask, block, or end the thread) and
+    // a signal being delivered by this step are not held.
+    uint64_t savedMask=0;
+    bool masked=false;
+    if (holdStepSignals_ && !pendingSignals_.at(tid) && !atSystemCall(tid) &&
+        ptrace(PTRACE_GETSIGMASK,tid,reinterpret_cast<void*>(sizeof(savedMask)),&savedMask)==0) {
+        uint64_t open=0;
+        for (int signal : {SIGSEGV,SIGBUS,SIGILL,SIGFPE,SIGTRAP,SIGSYS,SIGKILL,SIGSTOP}) open|=uint64_t(1)<<(signal-1);
+        {
+            std::lock_guard lock(exceptionMutex_);
+            for (int signal : exceptionBreakSignals_)
+                if (signal>0 && signal<=64) open|=uint64_t(1)<<(signal-1);
+        }
+        const uint64_t blocked=savedMask | ~open;
+        masked=blocked!=savedMask &&
+            ptrace(PTRACE_SETSIGMASK,tid,reinterpret_cast<void*>(sizeof(blocked)),&blocked)==0;
+    }
+    auto restoreMask=[&] {
+        if (!masked) return true;
+        masked=false;
+        if (ptrace(PTRACE_SETSIGMASK,tid,reinterpret_cast<void*>(sizeof(savedMask)),&savedMask)==0) return true;
+        if (errno!=ESRCH) setError({errno,std::system_category()});
+        return false;
+    };
     for (;;) {
         int signal=pendingSignals_.at(tid);
         if (ptrace(PTRACE_SINGLESTEP,tid,nullptr,reinterpret_cast<void*>(intptr_t(signal)))<0) {
-            setError({errno,std::system_category()}); return false;
+            setError({errno,std::system_category()}); restoreMask(); return false;
         }
         pendingSignals_.at(tid)=0;
         stoppedTids_.erase(tid); reportedPc_.erase(tid);
         // Its queued stop, if any, was seen by the user who now steps it.
         std::erase_if(deferredStops_,[&](const auto& stop){ return stop.first==tid; });
         int status=0;
-        if (!waitForStop(tid,status)) return false;
+        if (!waitForStop(tid,status)) { restoreMask(); return false; }
         if (!attached_) {
             // Detach ends the step. A signal that stopped the thread instead
             // of the step trap is kept, so detach still delivers it.
+            restoreMask();
             if (WIFSTOPPED(status) && (status>>16)==0 && WSTOPSIG(status)!=SIGTRAP)
                 pendingSignals_.at(tid)=WSTOPSIG(status);
-            else if (held) pendingSignals_.at(tid)=held;
             return false;
         }
-        if (isEventStop(status,PTRACE_EVENT_EXEC)) { handleExec(tid); return false; }
+        // An exec keeps the signal mask: give the new program its own.
+        if (isEventStop(status,PTRACE_EVENT_EXEC)) { restoreMask(); handleExec(tid); return false; }
         // An all-stop interrupt can race an already-pending breakpoint trap.
         // Its synthetic stop then precedes our requested single-step trap.
         if (isEventStop(status,PTRACE_EVENT_STOP)) continue;
@@ -460,28 +511,9 @@ bool DebugSession::singleStepThread(pid_t tid) {
             ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)==0 &&
             (info.si_code==TRAP_TRACE || os::isNativeSyscallStepTrap(tid,info));
         log::trace(log::Cat::Debugger,"step stop: tid={}, status={:#x}, code={}, sender={}",tid,status,info.si_code,info.si_pid);
-        const int stopSignal=WSTOPSIG(status);
-        // While a run steps off an instruction, one queued signal is held and
-        // the step retried; it is delivered, with its own siginfo, when the
-        // thread resumes from the step's stop. A second signal (or the same
-        // fault again) and an exception breakpoint stop as before.
-        if (!stepTrap && holdStepSignals_ && !held && (status>>16)==0 && stopSignal!=SIGTRAP &&
-            !hasExceptionBreakpoint(stopSignal) && ptrace(PTRACE_GETSIGINFO,tid,nullptr,&heldInfo)==0) {
-            held=stopSignal;
-            continue;
-        }
-        if (!stepTrap) {
-            // Queue a held signal again rather than lose it (its siginfo is).
-            if (held && held!=stopSignal) syscall(SYS_tgkill,pid_,tid,held);
-            handleStop(tid,status,true); return false;
-        }
-        if (held) {
-            // The step's own stop carries the held signal and its siginfo,
-            // so resuming with that signal keeps the original siginfo.
-            if (ptrace(PTRACE_SETSIGINFO,tid,nullptr,&heldInfo)<0) setError({errno,std::system_category()});
-            pendingSignals_.at(tid)=held;
-        }
-        return true;
+        const bool restored=restoreMask();
+        if (!stepTrap) { handleStop(tid,status,true); return false; }
+        return restored;
     }
 }
 

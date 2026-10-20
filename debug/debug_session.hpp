@@ -174,6 +174,8 @@ private:
                              uintptr_t startSp = 0, uintptr_t reentry = 0, bool reentryOwned = false);
     // True when an x86 `ret` (or a pop) just took `address` off the stack.
     bool poppedReturnTo(const CpuContext& context, uintptr_t address) const;
+    // True unless `tid` stands on an instruction known not to be a system call.
+    bool atSystemCall(pid_t tid) const;
     // True when [low, high] is one stack: contiguous writable mappings.
     bool sameStack(uintptr_t low, uintptr_t high) const;
     // ── All-stop multi-thread helpers (tracer thread only) ──
@@ -242,8 +244,9 @@ private:
     std::unordered_map<pid_t, int> pendingSignals_;
     std::unordered_map<pid_t, uintptr_t> pendingRewinds_;
     std::unordered_map<pid_t, uintptr_t> pendingHardwareSteps_;
-    // Set while a step runs to a temporary trap: a single-step then holds
-    // one queued signal for delivery instead of stopping on it.
+    // Set while a step runs to a temporary trap: a single-step then blocks
+    // asynchronous signals for its one instruction, so a queued one stays
+    // pending instead of ending the step.
     bool holdStepSignals_ = false;
     // Stops of other threads seen while waiting for one thread. They are
     // classified by the all-stop, never reported from inside the wait.

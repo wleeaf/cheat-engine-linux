@@ -1016,8 +1016,8 @@ static void sessionRecovery(const char* path) {
         if (!line || magic!="CE_TARGET" || pid!=fixture.pid) return;
         char command='G';
         std::istringstream sites(::write(fixture.input,&command,1)==1 ? fixture.line() : std::string());
-        std::string tag; uintptr_t site=0,returnSite=0,helper=0,picSite=0,picNext=0,staleSite=0,staleTest=0;
-        sites>>tag>>std::hex>>site>>returnSite>>helper>>picSite>>picNext>>staleSite>>staleTest;
+        std::string tag; uintptr_t site=0,returnSite=0,helper=0,picSite=0,picNext=0,staleSite=0,staleTest=0,faultSite=0,faultNext=0;
+        sites>>tag>>std::hex>>site>>returnSite>>helper>>picSite>>picNext>>staleSite>>staleTest>>faultSite>>faultNext;
         check(sites && tag=="CE_LOWER","lower stack pointer fixture reports its call sites");
         if (!sites || tag!="CE_LOWER") return;
         LinuxProcessHandle process(pid);
@@ -1087,8 +1087,82 @@ static void sessionRecovery(const char* path) {
         check(steps==6 && loopEnd.instructionPointer()==staleTest && loopEnd.stackPointer()==loopStart.stackPointer(),
               "step-over ignores a return address a deeper frame left below its stack pointer");
         check(session.continueExecution() && fixture.line()=="CE_STALE_DONE","loop-test fixture finishes");
+        // Two queued real-time signals with payloads while stopped: the step
+        // leaves both pending, and the game's handler gets both, in order,
+        // with their own values, and its signal mask back.
+        command='k';
+        const bool installed=::write(fixture.input,&command,1)==1 && fixture.line()=="CE_RT_READY";
+        command='h';
+        const std::string before=installed && ::write(fixture.input,&command,1)==1 ? fixture.line() : std::string();
+        const std::string mask=before.starts_with("CE_RT 0 mask=") ? before.substr(13) : std::string("?");
+        command='U';
+        resumed=installed && ::write(fixture.input,&command,1)==1;
+        hit=resumed && awaitState([&] { return hits.load()==4 && session.isStopped(); });
+        auto queuedAt=session.getStopContext();
+        auto queue=[&](int value) {
+            siginfo_t info{};
+            info.si_signo=40; info.si_code=SI_QUEUE; info.si_pid=getpid(); info.si_uid=getuid();
+            info.si_value.sival_int=value;
+            return syscall(SYS_rt_sigqueueinfo,pid,40,&info)==0;
+        };
+        const bool sent=hit && queue(0x1111) && queue(0x2222);
+        check(sent && queuedAt.instructionPointer()==site,"real-time signals are queued while stopped at the call");
+        if (!hit) return;
+        session.step(StepMode::Over);
+        auto past=session.getStopContext();
+        check(steps==7 && signals==0 && past.instructionPointer()==returnSite && past.stackPointer()==queuedAt.stackPointer()-lowered,
+              "step-over ends at the return site past two queued real-time signals");
+        command='h';
+        const bool finished=session.continueExecution() && fixture.line()=="CE_LOWER_DONE";
+        const std::string received=finished && ::write(fixture.input,&command,1)==1 ? fixture.line() : std::string();
+        if (received!="CE_RT 2 4369 8738 mask="+mask) printf("real-time signals: before '%s' after '%s'\n",before.c_str(),received.c_str());
+        check(finished && received=="CE_RT 2 4369 8738 mask="+mask,
+              "both real-time signals reach the handler in order with their values, and the mask is restored");
         session.detach();
         check(fixture.value(),"lower stack pointer fixture stays live after detach");
+    }
+    {
+        // A fault raised by the instruction a step starts on is never held,
+        // even while a queued signal is: it ends the step, is reported once,
+        // and reaches the target once.
+        Fixture fixture(path);
+        std::istringstream line(fixture.line()); std::string magic; pid_t pid=0;
+        line>>magic>>pid;
+        check(line && magic=="CE_TARGET" && pid==fixture.pid,"stepped fault fixture starts");
+        if (!line || magic!="CE_TARGET" || pid!=fixture.pid) return;
+        char command='G';
+        std::istringstream sites(::write(fixture.input,&command,1)==1 ? fixture.line() : std::string());
+        std::string tag; uintptr_t skip=0,faultSite=0,faultNext=0;
+        sites>>tag>>std::hex;
+        for (int i=0;i<7;++i) sites>>skip;
+        sites>>faultSite>>faultNext;
+        check(sites && tag=="CE_LOWER","stepped fault fixture reports its fault site");
+        if (!sites || tag!="CE_LOWER") return;
+        LinuxProcessHandle process(pid);
+        DebugSession session;
+        std::atomic<unsigned> hits{0},steps{0},faults{0},others{0};
+        std::atomic<int> exitSignal{0};
+        session.setEventCallback([&](const DebugEvent& event) {
+            if (event.type==DebugEventType::BreakpointHit) ++hits;
+            if (event.type==DebugEventType::SingleStep) ++steps;
+            if (event.type==DebugEventType::SignalReceived) ++(event.signal==SIGSEGV ? faults : others);
+            if (event.type==DebugEventType::ProcessExited) exitSignal=event.signal;
+        });
+        bool attached=session.attach(pid,&process);
+        int bp=attached ? session.setSoftwareBreakpoint(faultSite) : -1;
+        command='T';
+        bool resumed=bp>0 && ::write(fixture.input,&command,1)==1 && session.continueExecution();
+        bool hit=resumed && awaitState([&] { return hits.load()==1 && session.isStopped(); });
+        check(attached && bp>0 && hit && session.getStopContext().instructionPointer()==faultSite,"stepped fault fixture stops at the faulting load");
+        if (!hit) return;
+        const bool queued=syscall(SYS_tgkill,pid,pid,SIGWINCH)==0;
+        session.step(StepMode::RunToCursor,faultNext);
+        check(queued && steps==0 && faults==1 && others==0 && session.isStopped() &&
+              session.getStopContext().instructionPointer()==faultSite,
+              "a fault raised by the stepped instruction ends the step and is reported once, past a held signal");
+        session.continueExecution();
+        check(awaitState([&] { return exitSignal.load()==SIGSEGV && !session.isAttached(); }) && faults==1 && others==0,
+              "the reported fault reaches the target once");
     }
     {
         // Job control: SIGSTOP must keep a debugged game stopped until

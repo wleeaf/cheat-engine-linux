@@ -10036,7 +10036,7 @@ static void test_autoassembler_windows_runtime_labels() {
     bool allKept = true;
     std::string failures;
     for (const char* name : {"msvcrt.dll", "MSVCRT.DLL", "msvcrt", "ucrtbase.dll", "api-ms-win-crt-runtime-l1-1-0.dll",
-                             "msvcr120.dll", "msvcp140.dll", "vcruntime140_1.dll", "msvcrt.dll.so"}) {
+                             "msvcr120.dll", "msvcp140.dll", "vcruntime140_1.dll", "msvcrt.dll.so", "ntdll.dll", "ntdll.so"}) {
         FakeWine wine;
         wine.list = withModule(name);
         AutoAssembler aa;
@@ -10054,16 +10054,20 @@ static void test_autoassembler_windows_runtime_labels() {
                         (siteRefused ? "" : " (site: " + refused.error + ")");
         }
     }
-    printf("  \"exit:\" stays a cave label beside msvcrt, ucrtbase, msvcp, vcruntime and api-ms-win-crt: %s%s\n",
+    printf("  \"exit:\" stays a cave label beside msvcrt, ucrtbase, msvcp, vcruntime, api-ms-win-crt and ntdll's C exports: %s%s\n",
            allKept ? "OK" : "FAILED:", failures.c_str());
 
-    // ntdll is not a C runtime: its Nt*, Rtl* and Dbg* exports are hook sites.
+    // ntdll's native API (Nt*, Rtl*, Dbg*) is a hook site, unlike its C exports.
+    const fs::path ntPe = fs::temp_directory_path() / ("ce-nt-" + std::to_string(getpid()) + ".dll");
+    writeSingleExportPe(ntPe, "NtCeProbe", 0x1234);
     FakeWine native;
-    native.list = withModule("ntdll.dll");
+    native.list = {{0x1000, 0x1000, "game.exe", "", true, {}}, {0x4000, 0x2000, "ntdll.dll", ntPe.string(), true, {}}};
     AutoAssembler nativeAa;
-    auto nativePatched = nativeAa.execute(native, site);
-    printf("  an ntdll export written as \"name:\" is that function: %s\n",
+    auto nativePatched = nativeAa.execute(native, "[ENABLE]\nNtCeProbe:\ndb 90\n");
+    printf("  an ntdll native API export written as \"name:\" is that function: %s\n",
            nativePatched.success && native.bytes[exitAddress] == 0x90 ? "OK" : ("FAILED: " + nativePatched.error).c_str());
+    std::error_code ntRemoved;
+    fs::remove(ntPe, ntRemoved);
 
     // A perf map entry of a JIT runtime is never a hook site for a label.
     const std::string map = "/tmp/perf-" + std::to_string(getpid()) + ".map";

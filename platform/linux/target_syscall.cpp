@@ -2171,29 +2171,34 @@ bool runtimeLockOwner(std::string_view path) {
         versioned("libc-") || versioned("libpthread-") || versioned("ld-");
 }
 
-std::expected<void,std::error_code> checkStoppedCallSite(pid_t tid,bool runsLibraryCode) {
+std::expected<std::vector<TargetAddressRange>,std::error_code> runtimeLockRanges(pid_t pid) {
+    std::ifstream maps("/proc/"+std::to_string(pid)+"/maps");
+    if (!maps) return std::unexpected(std::make_error_code(std::errc::no_such_process));
+    std::vector<TargetAddressRange> ranges;
+    std::string line;
+    while (std::getline(maps,line)) {
+        unsigned long long start=0,end=0;
+        int name=0;
+        if (std::sscanf(line.c_str(),"%llx-%llx %*s %*s %*s %*s %n",&start,&end,&name)<2) continue;
+        if (name>0 && static_cast<size_t>(name)<line.size() && runtimeLockOwner(std::string_view(line).substr(name)))
+            ranges.push_back({start,end});
+    }
+    return ranges;
+}
+
+std::expected<void,std::error_code> checkStoppedCallSite(pid_t tid,std::span<const TargetAddressRange> runtimeLock) {
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__arm__)
     auto registers=getRegisters(tid);
     if (!registers) return std::unexpected(registers.error());
     const uintptr_t at=pc(*registers);
     auto outside=checkRseqSection(tid,at);
     if (!outside) return outside;
-    if (!runsLibraryCode) return {};
-    std::ifstream maps("/proc/"+std::to_string(tid)+"/maps");
-    if (!maps) return std::unexpected(std::make_error_code(std::errc::no_such_process));
-    std::string line;
-    while (std::getline(maps,line)) {
-        unsigned long long start=0,end=0;
-        int name=0;
-        if (std::sscanf(line.c_str(),"%llx-%llx %*s %*s %*s %*s %n",&start,&end,&name)<2) continue;
-        if (at<start || at>=end) continue;
-        if (name>0 && static_cast<size_t>(name)<line.size() && runtimeLockOwner(std::string_view(line).substr(name)))
+    for (const auto& range : runtimeLock)
+        if (at>=range.start && at<range.end)
             return std::unexpected(std::make_error_code(std::errc::resource_unavailable_try_again));
-        return {};
-    }
     return {};
 #else
-    (void)tid; (void)runsLibraryCode;
+    (void)tid; (void)runtimeLock;
     return {};
 #endif
 }

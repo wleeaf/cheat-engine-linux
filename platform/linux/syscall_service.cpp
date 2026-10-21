@@ -299,7 +299,7 @@ std::expected<void,std::error_code> TargetSyscallService::inspectThread(
     } catch (const std::bad_alloc&) { return std::unexpected(std::make_error_code(std::errc::not_enough_memory)); }
 }
 bool TargetSyscallService::threadStorageBusy(pid_t pid,uintptr_t address,size_t size) {
-    return impl_->submit([=,this] { impl_->calls.recoverAll(); return impl_->calls.busy(pid,address,size); });
+    return impl_->submit([=,this] { impl_->calls.recoverAll(true); return impl_->calls.busy(pid,address,size); });
 }
 
 std::expected<NativeCallResult,std::error_code> TargetSyscallService::invoke(

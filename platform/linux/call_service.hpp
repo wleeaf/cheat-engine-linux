@@ -50,9 +50,9 @@ public:
         const TargetProcessIdentity&,const TargetMachine&,NativeCallRequest);
     std::expected<void,std::error_code> recover(const TargetProcessIdentity&);
     std::expected<void,std::error_code> resume(const TargetProcessIdentity&,bool deliverSignal);
-    // periodic: the owner's 100 ms background retry, which backs off while
-    // no thread of the target can be borrowed.
-    void recoverAll(bool periodic=false);
+    // paced: the owner's 100 ms background retry and repeated storage queries.
+    // After a scan finds no thread to borrow they back off (200 ms up to 5 s).
+    void recoverAll(bool paced=false);
     bool pending(pid_t,uint64_t) const;
     bool empty() const;
     bool busy(pid_t,uintptr_t,size_t) const;

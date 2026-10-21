@@ -17,6 +17,7 @@
 #include <signal.h>
 #include <sstream>
 #include <sys/ptrace.h>
+#include <thread>
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -65,7 +66,7 @@ struct NativeCallOwner::Impl {
     };
     std::map<Key,std::unique_ptr<Call>> calls;
     Leases leases;
-    bool periodic=false;
+    bool paced=false;
 
     Result<void> readBytes(Call& c,uintptr_t address,void* data,size_t size) {
         size_t offset=0;
@@ -225,7 +226,8 @@ struct NativeCallOwner::Impl {
         auto restored=recovered(c);
         if (!restored) return restored;
         if (c.frame && !c.seized) {
-            auto selected=prepare(c);
+            // Unmapping the frame needs only a system call, not a function call.
+            auto selected=prepare(c,false);
             if (!selected) return selected;
         }
         if (c.frame) {
@@ -512,9 +514,13 @@ struct NativeCallOwner::Impl {
         c.affinityPending=false;
         return {};
     }
-    Result<void> prepare(Call& c,bool requireFunction=true) {
+    // Recovery scans the threads once; `paced` recovery also honours the back-off
+    // left by an earlier failed scan. Only a new call (`wait`) retries, briefly and
+    // with a growing pause, a running thread that is inside libc, the loader or an
+    // rseq section: this runs on the shared owner thread every frontend waits for.
+    Result<void> prepare(Call& c,bool requireFunction=true,bool wait=false) {
         const auto busy=std::make_error_code(std::errc::resource_unavailable_try_again);
-        if (periodic && std::chrono::steady_clock::now()<c.prepareNotBefore) return std::unexpected(busy);
+        if (paced && std::chrono::steady_clock::now()<c.prepareNotBefore) return std::unexpected(busy);
         std::vector<pid_t> tids{c.identity.pid};
         std::string taskPath="/proc/"+std::to_string(c.identity.pid)+"/task";
         DIR* directory=opendir(taskPath.c_str());
@@ -527,17 +533,18 @@ struct NativeCallOwner::Impl {
             }
         } catch (...) { closedir(directory); throw; }
         closedir(directory);
-        // A running thread that is only briefly unsuitable (inside libc, the
-        // loader or an rseq section) is retried for up to two seconds: a busy
-        // game thread spends much of its time in libc, and a program that has
-        // just started may still be in the loader. Background retries scan once.
-        bool transient=false;
-        for (unsigned pass=0;pass<(periodic ? 1u : 200u);++pass) {
-            if (pass) {
-                if (!transient) break;
-                transient=false;
-                usleep(10000);
-            }
+        // Read the C library and loader ranges before stopping any thread.
+        std::vector<TargetAddressRange> runtimeLock;
+        if (requireFunction) {
+            auto ranges=runtimeLockRanges(c.identity.pid);
+            if (!ranges) return std::unexpected(ranges.error());
+            runtimeLock=std::move(*ranges);
+        }
+        const auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(400);
+        auto pause=std::chrono::milliseconds(10);
+        for (;;) {
+            // Threads found only briefly unsuitable; only they are probed again.
+            std::vector<pid_t> transient;
             for (pid_t tid : tids) {
                 auto checked=image(c);
                 if (!checked) return checked;
@@ -574,23 +581,27 @@ struct NativeCallOwner::Impl {
                     if (!saved) return saved;
                 }
                 auto eligible=requireFunction ? checkStoppedFunctionAbi(tid,c.host) : Result<void>{};
-                if (eligible) eligible=checkStoppedCallSite(tid,requireFunction);
+                if (eligible) eligible=checkStoppedCallSite(tid,runtimeLock);
                 if (eligible) {
                     c.prepareDelay=std::chrono::milliseconds(0);
                     c.affinityPending=true;
                     return bindMemory(c);
                 }
-                if (eligible.error()==busy) transient=true;
+                if (eligible.error()==busy) transient.push_back(tid);
                 auto detached=detach(c);
                 if (!detached) return detached;
             }
+            if (!wait || transient.empty() || std::chrono::steady_clock::now()+pause>deadline) break;
+            std::this_thread::sleep_for(pause);
+            pause*=2;
+            tids=std::move(transient);
         }
         c.prepareDelay=std::clamp(c.prepareDelay*2,std::chrono::milliseconds(200),std::chrono::milliseconds(5000));
         c.prepareNotBefore=std::chrono::steady_clock::now()+c.prepareDelay;
         return std::unexpected(busy);
     }
     Result<void> run(Call& c) {
-        auto prepared=prepare(c);
+        auto prepared=prepare(c,true,true);
         if (!prepared) return prepared;
         auto page=sysconf(_SC_PAGESIZE);
         if (page<=0) return std::unexpected(error());
@@ -785,9 +796,9 @@ Result<void> NativeCallOwner::resume(const TargetProcessIdentity& identity,bool 
     return recover(identity);
 }
 
-void NativeCallOwner::recoverAll(bool periodic) {
-    impl_->periodic=periodic;
-    struct Reset { bool& flag; ~Reset() { flag=false; } } reset{impl_->periodic};
+void NativeCallOwner::recoverAll(bool paced) {
+    impl_->paced=paced;
+    struct Reset { bool& flag; ~Reset() { flag=false; } } reset{impl_->paced};
     for (auto it=impl_->calls.begin();it!=impl_->calls.end();) {
         Result<void> result;
         try { result=impl_->finish(*it->second); }

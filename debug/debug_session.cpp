@@ -463,8 +463,13 @@ bool DebugSession::atSystemCall(pid_t tid) const {
         if (ptrace(PTRACE_GETREGS,tid,nullptr,&registers)<0) return true;
         const int32_t result=int32_t(uint32_t(registers.rax));
         constexpr int32_t kRestartSys=-512,kRestartNoIntr=-513,kRestartNoHand=-514,kRestartBlock=-516;
+        // -EINTR too: epoll_pwait, epoll_pwait2 and io_pgetevents return it
+        // with their temporary signal mask still installed until the return to
+        // user space, and setting a mask here would drop it early.
+        constexpr int32_t kInterrupted=-4;
         if (uint32_t(registers.orig_rax)!=UINT32_MAX &&
-            (result==kRestartSys || result==kRestartNoIntr || result==kRestartNoHand || result==kRestartBlock))
+            (result==kRestartSys || result==kRestartNoIntr || result==kRestartNoHand || result==kRestartBlock ||
+             result==kInterrupted))
             return true;
     }
 #endif

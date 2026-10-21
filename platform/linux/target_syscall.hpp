@@ -5,6 +5,7 @@
 #include <expected>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -155,11 +156,14 @@ std::expected<void,TargetSyscallFailure> verifyStoppedMemoryImage(
 // restart stops may have syscallno=-1 with PC rewound onto SVC; they still need
 // a rendezvous adapter and must not be mistaken for ordinary user-mode stops.
 std::expected<void,std::error_code> checkStoppedFunctionAbi(pid_t tid,const TargetMachine& host);
+struct TargetAddressRange { uint64_t start=0,end=0; };
+// Mappings of libc, libpthread, libdl and the dynamic loader in /proc/<pid>/maps.
+// A thread stopped there may hold a lock that dlopen, pthread_create or malloc needs.
+std::expected<std::vector<TargetAddressRange>,std::error_code> runtimeLockRanges(pid_t pid);
 // Whether a stopped thread may be borrowed. Returns resource_unavailable_try_again
-// while it is inside an rseq critical section or, when the borrowed code calls
-// into the C library (dlopen, pthread_create, malloc), while its PC is inside
-// libc, libpthread or the dynamic loader, where it may hold a lock the call needs.
-std::expected<void,std::error_code> checkStoppedCallSite(pid_t tid,bool runsLibraryCode);
+// while it is inside an rseq critical section or its PC is inside `runtimeLock`
+// (empty when the borrowed code makes only system calls).
+std::expected<void,std::error_code> checkStoppedCallSite(pid_t tid,std::span<const TargetAddressRange> runtimeLock);
 // True for a mapping path of libc, libpthread, libdl or the dynamic loader.
 bool runtimeLockOwner(std::string_view path);
 // The one-letter scheduler state from /proc/<pid>/task/<tid>/stat ('R', 'S', ...).

@@ -96,6 +96,7 @@
 #include <sys/prctl.h>
 #include <sys/ptrace.h>
 #include <sys/select.h>
+#include <poll.h>
 
 using namespace ce;
 using namespace ce::os;
@@ -4917,12 +4918,14 @@ static void test_inject_library_32bit() {
     auto libC   = dir / "ce_inj32_lib.c";
     auto libSo  = dir / "libce_inj32.so";
 
-    // Target: allow any tracer (YAMA), then spin in USERSPACE so the injector can
-    // hijack a userspace thread (a thread parked in a syscall can't be used).
+    // Target: allow any tracer (YAMA), report readiness, then spin in USERSPACE
+    // so the injector can hijack a userspace thread (a thread parked in a
+    // syscall, or one still inside libc or the loader, can't be used).
     {
         std::ofstream o(tgtC);
-        o << "#include <sys/prctl.h>\n"
+        o << "#include <sys/prctl.h>\n#include <unistd.h>\n"
              "int main(){ prctl(PR_SET_PTRACER, -1L, 0, 0, 0);\n"
+             "  if (write(1, \"R\", 1) != 1) return 1;\n"
              "  for(volatile unsigned long i=0;;++i){} return 0; }\n";
     }
     { std::ofstream o(libC); o << "int ceInjected32(){ return 1; }\n"; }
@@ -4937,25 +4940,36 @@ static void test_inject_library_32bit() {
         return;
     }
 
-    pid_t child = fork();
+    int ready[2] = {-1, -1};
+    pid_t child = pipe(ready) == 0 ? fork() : -1;
     if (child == 0) {
+        dup2(ready[1], 1);
+        close(ready[0]); close(ready[1]);
         execl(tgtBin.c_str(), tgtBin.c_str(), (char*)nullptr);
         _exit(127);
     }
+    if (ready[1] >= 0) close(ready[1]);
 
     bool ok = false;
     std::string detail;
     if (child > 0) {
-        usleep(250 * 1000);   // let it exec, set the ptracer, and reach the spin
+        // Wait until it has exec'd, set the ptracer and left libc for its spin;
+        // a fixed delay is not enough on a busy runner.
+        pollfd fd{ready[0], POLLIN, 0};
+        char marker = 0;
+        bool reached = poll(&fd, 1, 10000) == 1 && read(ready[0], &marker, 1) == 1 && marker == 'R';
+        if (!reached) detail = "target did not reach its spin loop";
         LinuxProcessHandle proc(child);
         ce::SymbolResolver resolver;
         resolver.loadProcess(proc);
-        auto res = ce::os::injectLibrary(proc, resolver, libSo.string());
+        auto res = reached ? ce::os::injectLibrary(proc, resolver, libSo.string()) :
+            std::expected<uintptr_t, std::string>(std::unexpected(detail));
         ok = res.has_value();
         if (!res) detail = res.error();
         kill(child, SIGKILL);
         waitpid(child, nullptr, 0);
     }
+    if (ready[0] >= 0) close(ready[0]);
 
     if (ok) printf("  32-bit .so injected + mapped: OK\n");
     else     printf("  32-bit .so injected + mapped: FAILED (%s)\n", detail.c_str());

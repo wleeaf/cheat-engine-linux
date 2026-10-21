@@ -13,7 +13,25 @@ reimplementation of Cheat Engine).
 
 ---
 
-## Unreleased
+## v1.1.0: AI Assistant, tutorial games, and a deep correctness and security pass (2026-10-21)
+
+An AI Assistant panel and an MCP server (`cescan mcp`) that let a model find
+and change values with your approval, two tutorial games, and a review of
+nearly every subsystem: cheat table compatibility with Cheat Engine, the
+scanner, pointer scanner, Auto Assembler, debugger, injection, Lua, ceserver,
+the GUI windows and packaging, with about a hundred fixes and a dozen
+security fixes. Details below.
+
+Behaviour changes to note when upgrading:
+
+- Lua `readByte`, `readSmallInteger` and `readInteger` return unsigned values
+  unless the second argument is true, as in Cheat Engine.
+- Scan results are stored in `~/.cache/cheatengine/scans` instead of `/tmp`
+  (`CE_SCAN_DIR` or `TMPDIR` still choose).
+- Lua `setProcessName` and the kernel module's process hiding are removed;
+  the kernel module now only reads physical RAM.
+- An AI Assistant API key saved for a custom API address must be entered
+  again, because keys now belong to the address they were saved for.
 
 - Snapshots and memory analysis: the Snapshot menu runs off the UI thread with
   a 1 GiB budget (and says when it cut the snapshot short); a diff compares

@@ -32,6 +32,17 @@
   <url type="bugtracker">https://github.com/wleeaf/cheat-engine-linux/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.1.0" date="2026-10-21">
+      <description>
+        <p>An AI Assistant panel and an MCP server that let a model find and
+        change values with your approval, and two tutorial games that teach
+        scanning, pointers and code injection.</p>
+        <p>A review of nearly every part of the program: cheat tables from
+        Cheat Engine load and save faithfully, the scanner, pointer scanner,
+        Auto Assembler, debugger, injection and Lua received about a hundred
+        fixes, and a dozen security issues were closed.</p>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-10-13">
       <description>
         <p>First stable release. A redesigned, consistent interface in light and

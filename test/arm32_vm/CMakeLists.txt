@@ -4,7 +4,8 @@ get_filename_component(CECORE_SOURCE_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSO
 add_executable(register_init ../arm32_register_integration.cpp
     ../../platform/linux/target_debug.cpp ../../platform/linux/register_image.cpp ../../core/cpu_registers.cpp
     ../../platform/linux/target_syscall.cpp ../../platform/linux/memory_image.cpp
-    ../../platform/linux/arm64_vector_return.cpp ../../core/target_machine.cpp ../../core/log.cpp)
+    ../../platform/linux/arm64_vector_return.cpp ../../core/target_machine.cpp ../../core/log.cpp
+    ../../core/target_capabilities.cpp ../../arch/target_arch.cpp)
 set_target_properties(register_init PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON)
 target_include_directories(register_init PRIVATE "${CECORE_SOURCE_ROOT}")
 target_compile_options(register_init PRIVATE -O2 -ffunction-sections -fdata-sections)

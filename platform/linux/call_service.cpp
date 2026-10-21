@@ -232,7 +232,13 @@ struct NativeCallOwner::Impl {
         }
         if (c.frame) {
             auto freed=memory(c,MemorySyscall::Unmap,{c.frame,c.frameSize,0,0,0,0});
-            if (!freed) return freed;
+            if (!freed) {
+                // Nothing changed and nothing waits on this thread (a syscall
+                // site it cannot use): release it so the next scan picks
+                // another instead of holding this one stopped for good.
+                if (!c.recovery) (void)detach(c);
+                return freed;
+            }
         }
         auto detached=detach(c);
         if (!detached) return detached;
@@ -536,7 +542,10 @@ struct NativeCallOwner::Impl {
         // Read the C library and loader ranges before stopping any thread.
         std::vector<TargetAddressRange> runtimeLock;
         if (requireFunction) {
-            auto ranges=runtimeLockRanges(c.identity.pid);
+            // Through a live member: once the main thread has exited, the
+            // leader's maps file is empty and the libc guard would see nothing.
+            auto task=processMemoryTask(c.identity.pid);
+            auto ranges=runtimeLockRanges(task ? *task : c.identity.pid);
             if (!ranges) return std::unexpected(ranges.error());
             runtimeLock=std::move(*ranges);
         }

@@ -527,14 +527,16 @@ struct NativeCallOwner::Impl {
             }
         } catch (...) { closedir(directory); throw; }
         closedir(directory);
-        // A running thread that is only briefly unsuitable (inside libc or an
-        // rseq section) is retried for up to 100 ms; background retries scan once.
+        // A running thread that is only briefly unsuitable (inside libc, the
+        // loader or an rseq section) is retried for up to two seconds: a busy
+        // game thread spends much of its time in libc, and a program that has
+        // just started may still be in the loader. Background retries scan once.
         bool transient=false;
-        for (unsigned pass=0;pass<(periodic ? 1u : 20u);++pass) {
+        for (unsigned pass=0;pass<(periodic ? 1u : 200u);++pass) {
             if (pass) {
                 if (!transient) break;
                 transient=false;
-                usleep(5000);
+                usleep(10000);
             }
             for (pid_t tid : tids) {
                 auto checked=image(c);

@@ -137,6 +137,7 @@ void DebugSession::detach() {
 
 bool DebugSession::seizeAllThreads() {
     traced_.clear(); stoppedTids_.clear(); pendingSignals_.clear(); pendingRewinds_.clear(); pendingHardwareSteps_.clear();
+    pendingMaskRestores_.clear();
     pendingExitStops_.clear(); exitedDuringStop_.clear();
     foreignStops_.clear(); deferredStops_.clear(); reportedPc_.clear(); groupStopped_.clear();
     // A thread not yet seized can clone while we work through the list; its
@@ -451,13 +452,20 @@ bool DebugSession::atSystemCall(pid_t tid) const {
     auto context=os::readNativeContext(tid);
     if (!context) return true;
 #if defined(__x86_64__)
-    // A system call interrupted by this stop has IP past its instruction and
-    // its number in orig_rax (orig_eax for i386 and x32 callers): resuming
-    // re-runs it from IP-2. arm64 rewinds PC to the svc itself before the
-    // stop, so the instruction check below covers it.
+    // A system call interrupted by this stop and due to restart has IP past
+    // its instruction, its number in orig_rax (orig_eax for i386 and x32
+    // callers) and a restart code in rax: resuming re-runs it from IP-2. One
+    // that already finished (an -EINTR return, the step after a syscall) keeps
+    // orig_rax too but runs nothing again. arm64 rewinds PC to the svc itself
+    // before the stop, so the instruction check below covers it.
     if (context->architecture==CpuArchitecture::X86_32 || context->architecture==CpuArchitecture::X86_64) {
         user_regs_struct registers{};
-        if (ptrace(PTRACE_GETREGS,tid,nullptr,&registers)<0 || uint32_t(registers.orig_rax)!=UINT32_MAX) return true;
+        if (ptrace(PTRACE_GETREGS,tid,nullptr,&registers)<0) return true;
+        const int32_t result=int32_t(uint32_t(registers.rax));
+        constexpr int32_t kRestartSys=-512,kRestartNoIntr=-513,kRestartNoHand=-514,kRestartBlock=-516;
+        if (uint32_t(registers.orig_rax)!=UINT32_MAX &&
+            (result==kRestartSys || result==kRestartNoIntr || result==kRestartNoHand || result==kRestartBlock))
+            return true;
     }
 #endif
     std::array<uint8_t,4> bytes{};
@@ -790,6 +798,7 @@ void DebugSession::tracerCleanup() {
     softBreakpoints_.clear(); hwBreakpoints_.clear(); registerRecovery_.reset(); hardwareRecovery_=false;
     foreignStops_.clear(); deferredStops_.clear(); reportedPc_.clear(); groupStopped_.clear();
     traced_.clear(); stoppedTids_.clear(); savedHardware_.clear(); pendingSignals_.clear(); pendingRewinds_.clear(); pendingHardwareSteps_.clear();
+    pendingMaskRestores_.clear();
     pendingExitStops_.clear(); exitedDuringStop_.clear(); activeTid_=0;
     publishStoppedThreads();
     stopped_=false; recoveryPending_=false;

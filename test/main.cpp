@@ -10066,6 +10066,13 @@ static void test_autoassembler_windows_runtime_labels() {
     auto nativePatched = nativeAa.execute(native, "[ENABLE]\nNtCeProbe:\ndb 90\n");
     printf("  an ntdll native API export written as \"name:\" is that function: %s\n",
            nativePatched.success && native.bytes[exitAddress] == 0x90 ? "OK" : ("FAILED: " + nativePatched.error).c_str());
+    // Wine's Unix-side ntdll.so holds no C library: even "exit" there is a hook site.
+    FakeWine unixSide;
+    unixSide.list = withModule("ntdll.so");
+    AutoAssembler unixAa;
+    auto unixPatched = unixAa.execute(unixSide, site);
+    printf("  an export of Wine's Unix-side ntdll.so written as \"name:\" is that function: %s\n",
+           unixPatched.success && unixSide.bytes[exitAddress] == 0x90 ? "OK" : ("FAILED: " + unixPatched.error).c_str());
     // A private Rtlp export is API too, not a C library name.
     writeSingleExportPe(ntPe, "RtlpCeProbe", 0x1234);
     FakeWine privateApi;

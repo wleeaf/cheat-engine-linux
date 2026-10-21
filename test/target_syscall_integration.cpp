@@ -94,6 +94,26 @@ public:
         if(output>=0) close(output);
     }
 };
+// The PC of a fixture parked in its blocking read. After a reply the fixture
+// can still be on its way back to read() on a busy machine, so an older PC
+// may name a page it is not executing at that moment.
+static uintptr_t parkedPc(pid_t pid,uintptr_t fallback) {
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now()<deadline) {
+        std::ifstream file("/proc/"+std::to_string(pid)+"/syscall");
+        std::string text;
+        if (!std::getline(file,text)) return fallback;
+        std::istringstream fields(text);
+        long number=-1;
+        if (fields>>number && number>=0) {
+            std::string field,last;
+            while (fields>>field) last=field;
+            if (last.starts_with("0x")) return static_cast<uintptr_t>(std::stoull(last,nullptr,16));
+        }
+        usleep(1000);
+    }
+    return fallback;
+}
 static ssize_t readMemory(pid_t pid,uintptr_t address,void* buffer,size_t size) {
     iovec local{buffer,size},remote{reinterpret_cast<void*>(address),size};
     return process_vm_readv(pid,&local,1,&remote,1,0);
@@ -294,11 +314,13 @@ static void exercise(const char* path) {
     }
     auto invalid=executeMemorySyscall(pid,*machine,MemorySyscall::Protect,{1,size,1,0,0,0});
     check(!invalid && invalid.error().value()==EINVAL && fixture.value(),"kernel syscall errors preserve target liveness and report the actual errno");
-    uintptr_t instructionPage=syscall_test::originalPc();
+    uintptr_t instructionPage=parkedPc(pid,syscall_test::originalPc());
     instructionPage-=instructionPage%size;
     auto unsafe=executeMemorySyscall(pid,*machine,MemorySyscall::Unmap,{instructionPage,size,0,0,0,0});
     check(!unsafe && unsafe.error().value()==EPERM && fixture.value(),
           "unmapping the current syscall instruction is rejected before any mutation");
+    instructionPage=parkedPc(pid,instructionPage);
+    instructionPage-=instructionPage%size;
     auto unsafeProtection=executeMemorySyscall(pid,*machine,MemorySyscall::Protect,{instructionPage,size,0,0,0,0});
     check(!unsafeProtection && unsafeProtection.error().value()==EPERM && fixture.value(),
           "removing execute access from the current syscall page preserves liveness");

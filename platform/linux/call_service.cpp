@@ -227,7 +227,7 @@ struct NativeCallOwner::Impl {
         if (!restored) return restored;
         if (c.frame && !c.seized) {
             // Unmapping the frame needs only a system call, not a function call.
-            auto selected=prepare(c,false);
+            auto selected=prepare(c,false,false,true);
             if (!selected) return selected;
         }
         if (c.frame) {
@@ -524,7 +524,11 @@ struct NativeCallOwner::Impl {
     // left by an earlier failed scan. Only a new call (`wait`) retries, briefly and
     // with a growing pause, a running thread that is inside libc, the loader or an
     // rseq section: this runs on the shared owner thread every frontend waits for.
-    Result<void> prepare(Call& c,bool requireFunction=true,bool wait=false) {
+    // userCode: the thread must be stopped in user code, not in a system call,
+    // even when only a system call follows. Reclaiming a finished worker's frame
+    // needs no particular thread, and a compat thread parked in a restarted
+    // syscall would refuse the borrowed unmap.
+    Result<void> prepare(Call& c,bool requireFunction=true,bool wait=false,bool userCode=false) {
         const auto busy=std::make_error_code(std::errc::resource_unavailable_try_again);
         if (paced && std::chrono::steady_clock::now()<c.prepareNotBefore) return std::unexpected(busy);
         std::vector<pid_t> tids{c.identity.pid};
@@ -589,7 +593,7 @@ struct NativeCallOwner::Impl {
                     auto saved = c.request.image->check();
                     if (!saved) return saved;
                 }
-                auto eligible=requireFunction ? checkStoppedFunctionAbi(tid,c.host) : Result<void>{};
+                auto eligible=requireFunction || userCode ? checkStoppedFunctionAbi(tid,c.host) : Result<void>{};
                 if (eligible) eligible=checkStoppedCallSite(tid,runtimeLock);
                 if (eligible) {
                     c.prepareDelay=std::chrono::milliseconds(0);

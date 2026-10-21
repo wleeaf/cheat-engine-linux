@@ -140,8 +140,16 @@ void leaderExitCalls(const char* path,const char* libraryPath) {
         memory=written && protection && !denied && freed && !process.read(*storage,&word,sizeof(word));
     }
     check(memory,"leaderless glibc memory operations preserve protection and release the actual mapping");
-    const auto before=value(process,heartbeat); usleep(1000);
-    check(before!=UINT32_MAX && value(process,heartbeat)!=before && !process.targetDescription().pendingRecovery,
+    // A loaded machine may not schedule the sibling within a millisecond.
+    const auto before=value(process,heartbeat);
+    bool progressed=false;
+    for (unsigned attempt=0;attempt<2000 && !progressed;++attempt) {
+        usleep(1000);
+        progressed=value(process,heartbeat)!=before;
+    }
+    const bool pending=process.targetDescription().pendingRecovery;
+    if (!progressed || pending) printf("LEADERLESS_SIBLING_DIAGNOSTIC progressed=%d pending=%d\n",progressed,pending);
+    check(before!=UINT32_MAX && progressed && !pending,
           "surviving glibc siblings continue CPU work without residual native recovery");
     const char quit='x'; const bool sent=write(fixture.input,&quit,1)==1;
     const auto done=fixture.line(); int status=0; pid_t waited;
@@ -363,6 +371,9 @@ int nativeCallIntegration(int argc,char** argv) {
     check(selfDetached && selfDetached->completed && value(process,completed)==count+1,
           "a worker that calls pthread_detach on itself still completes by kernel thread identity");
     auto exited=os::createRemoteThread(process,resolver,selfExit,true,2000);
+    if (!exited || !exited->completed)
+        printf("PTHREAD_EXIT_DIAGNOSTIC error=%s completed=%d count=%u\n",exited ? "none" : exited.error().c_str(),
+               exited ? int(exited->completed) : -1,value(process,completed)-count);
     check(exited && exited->completed && value(process,completed)==count+2,
           "pthread_exit without returning through the wrapper releases ownership after kernel exit");
     auto delayedCreate=resolver.lookup("ce_call_create_delayed");

@@ -93,9 +93,14 @@ std::expected<RemoteThreadInfo,std::string> createRemoteThread(
         if (!identity) return std::unexpected(identity.error().message());
         auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(timeoutMs);
         do {
+            // Recovery also reclaims other calls' frames. Its errors decide the
+            // result only when this worker has not exited by the deadline.
             auto recovered=memorySyscallService().recover(*identity);
-            if (!recovered) return std::unexpected("pthread cleanup: "+recovered.error().message());
             if (created->worker->exited.load(std::memory_order_acquire)) { info.completed=true; return info; }
+            if (!recovered && (std::chrono::steady_clock::now()>=deadline ||
+                (recovered.error()!=std::errc::resource_unavailable_try_again && recovered.error()!=std::errc::timed_out &&
+                 recovered.error()!=std::errc::device_or_resource_busy)))
+                return std::unexpected("pthread cleanup: "+recovered.error().message());
             if (std::chrono::steady_clock::now()>=deadline) break;
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         } while (std::chrono::steady_clock::now()<deadline);

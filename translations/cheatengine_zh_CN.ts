@@ -434,42 +434,52 @@ Linux 只允许程序在获准 ptrace 另一个进程时读取其内存。当 ke
 <context>
     <name>SettingsDialog</name>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="107"/>
+        <location filename="../gui/settingsdialog.cpp" line="108"/>
         <source>byte</source>
         <translation>字节</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="108"/>
+        <location filename="../gui/settingsdialog.cpp" line="109"/>
         <source>bytes</source>
         <translation>字节</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="109"/>
+        <location filename="../gui/settingsdialog.cpp" line="110"/>
         <source>%1 %2</source>
         <translation>%1 %2</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="387"/>
+        <location filename="../gui/settingsdialog.cpp" line="131"/>
+        <source>Language</source>
+        <translation>语言</translation>
+    </message>
+    <message>
+        <location filename="../gui/settingsdialog.cpp" line="132"/>
+        <source>Cheat Engine could not restart itself. Start it again to apply the language.</source>
+        <translation>Cheat Engine 无法自行重启，请手动启动以应用新的语言。</translation>
+    </message>
+    <message>
+        <location filename="../gui/settingsdialog.cpp" line="405"/>
         <source>Using %1 from the environment.</source>
         <translation>使用环境变量中的 %1。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="397"/>
+        <location filename="../gui/settingsdialog.cpp" line="415"/>
         <source>A key is saved in the system keyring.</source>
         <translation>密钥已保存在系统密钥环中。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="399"/>
+        <location filename="../gui/settingsdialog.cpp" line="417"/>
         <source>A key is set until Cheat Engine closes (no keyring was available).</source>
         <translation>密钥仅在 Cheat Engine 关闭前有效（没有可用的密钥环）。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="402"/>
+        <location filename="../gui/settingsdialog.cpp" line="420"/>
         <source>No key yet. Create one at console.anthropic.com.</source>
         <translation>尚无密钥。请在 console.anthropic.com 创建。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="404"/>
+        <location filename="../gui/settingsdialog.cpp" line="422"/>
         <source>No key set; local servers usually need none.</source>
         <translation>未设置密钥；本地服务器通常不需要。</translation>
     </message>
@@ -7712,439 +7722,454 @@ or write an Auto Assembler script here.</source>
 <context>
     <name>ce::gui::SettingsDialog</name>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="120"/>
+        <location filename="../gui/settingsdialog.cpp" line="138"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="130"/>
-        <location filename="../gui/settingsdialog.cpp" line="190"/>
+        <location filename="../gui/settingsdialog.cpp" line="148"/>
+        <location filename="../gui/settingsdialog.cpp" line="208"/>
         <source>Scan</source>
         <translation>扫描</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="130"/>
-        <location filename="../gui/settingsdialog.cpp" line="235"/>
+        <location filename="../gui/settingsdialog.cpp" line="148"/>
+        <location filename="../gui/settingsdialog.cpp" line="253"/>
         <source>Display</source>
         <translation>显示</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="130"/>
-        <location filename="../gui/settingsdialog.cpp" line="270"/>
-        <location filename="../gui/settingsdialog.cpp" line="543"/>
+        <location filename="../gui/settingsdialog.cpp" line="148"/>
+        <location filename="../gui/settingsdialog.cpp" line="288"/>
+        <location filename="../gui/settingsdialog.cpp" line="566"/>
         <source>Language</source>
         <translation>语言</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="130"/>
-        <location filename="../gui/settingsdialog.cpp" line="287"/>
+        <location filename="../gui/settingsdialog.cpp" line="148"/>
+        <location filename="../gui/settingsdialog.cpp" line="305"/>
         <source>Memory View</source>
         <translation>内存查看</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="130"/>
-        <location filename="../gui/settingsdialog.cpp" line="315"/>
+        <location filename="../gui/settingsdialog.cpp" line="148"/>
+        <location filename="../gui/settingsdialog.cpp" line="333"/>
         <source>Debugger</source>
         <translation>调试器</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="131"/>
-        <location filename="../gui/settingsdialog.cpp" line="329"/>
+        <location filename="../gui/settingsdialog.cpp" line="149"/>
+        <location filename="../gui/settingsdialog.cpp" line="347"/>
         <source>Hotkeys</source>
         <translation>快捷键</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="131"/>
-        <location filename="../gui/settingsdialog.cpp" line="342"/>
+        <location filename="../gui/settingsdialog.cpp" line="149"/>
+        <location filename="../gui/settingsdialog.cpp" line="360"/>
         <source>Network</source>
         <translation>网络</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="131"/>
-        <location filename="../gui/settingsdialog.cpp" line="358"/>
+        <location filename="../gui/settingsdialog.cpp" line="149"/>
+        <location filename="../gui/settingsdialog.cpp" line="376"/>
         <source>Lua</source>
         <translation>Lua</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="131"/>
-        <location filename="../gui/settingsdialog.cpp" line="411"/>
+        <location filename="../gui/settingsdialog.cpp" line="149"/>
+        <location filename="../gui/settingsdialog.cpp" line="429"/>
         <source>AI Assistant</source>
         <translation>AI 助手</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="173"/>
+        <location filename="../gui/settingsdialog.cpp" line="191"/>
         <source>OK</source>
         <translation>确定</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="177"/>
+        <location filename="../gui/settingsdialog.cpp" line="195"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="179"/>
+        <location filename="../gui/settingsdialog.cpp" line="197"/>
         <source>Apply</source>
         <translation>应用</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="191"/>
+        <location filename="../gui/settingsdialog.cpp" line="209"/>
         <source>Defaults for a new scan. The main window&apos;s scan options start from these.</source>
         <translation>新扫描的默认设置。主窗口的扫描选项初始值来自这里。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="195"/>
+        <location filename="../gui/settingsdialog.cpp" line="213"/>
         <source>Byte</source>
         <translation>字节</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="195"/>
+        <location filename="../gui/settingsdialog.cpp" line="213"/>
         <source>2 Bytes</source>
         <translation>2 字节</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="195"/>
+        <location filename="../gui/settingsdialog.cpp" line="213"/>
         <source>4 Bytes</source>
         <translation>4 字节</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="195"/>
+        <location filename="../gui/settingsdialog.cpp" line="213"/>
         <source>8 Bytes</source>
         <translation>8 字节</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="196"/>
+        <location filename="../gui/settingsdialog.cpp" line="214"/>
         <source>Float</source>
         <translation>浮点数</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="196"/>
+        <location filename="../gui/settingsdialog.cpp" line="214"/>
         <source>Double</source>
         <translation>双精度浮点数</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="196"/>
+        <location filename="../gui/settingsdialog.cpp" line="214"/>
         <source>String</source>
         <translation>字符串</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="197"/>
+        <location filename="../gui/settingsdialog.cpp" line="215"/>
         <source>Array of byte</source>
         <translation>字节数组</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="197"/>
+        <location filename="../gui/settingsdialog.cpp" line="215"/>
         <source>Pointer</source>
         <translation>指针</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="199"/>
+        <location filename="../gui/settingsdialog.cpp" line="217"/>
         <source>Value type:</source>
         <translation>数值类型：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="203"/>
+        <location filename="../gui/settingsdialog.cpp" line="221"/>
         <source> bytes</source>
         <translation> 字节</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="205"/>
+        <location filename="../gui/settingsdialog.cpp" line="223"/>
         <source>Fast scan alignment:</source>
         <translation>快速扫描对齐：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="207"/>
+        <location filename="../gui/settingsdialog.cpp" line="225"/>
         <source>Fast scan (only aligned addresses)</source>
         <translation>快速扫描（仅对齐地址）</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="210"/>
+        <location filename="../gui/settingsdialog.cpp" line="228"/>
         <source>Only writable memory</source>
         <translation>仅可写内存</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="213"/>
+        <location filename="../gui/settingsdialog.cpp" line="231"/>
         <source>Only executable memory</source>
         <translation>仅可执行内存</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="219"/>
+        <location filename="../gui/settingsdialog.cpp" line="237"/>
         <source>Automatic (one per CPU)</source>
         <translation>自动（每个 CPU 一个）</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="221"/>
+        <location filename="../gui/settingsdialog.cpp" line="239"/>
         <source>Worker threads:</source>
         <translation>工作线程：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="226"/>
+        <location filename="../gui/settingsdialog.cpp" line="244"/>
         <source>Automatic</source>
         <translation>自动</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="228"/>
+        <location filename="../gui/settingsdialog.cpp" line="246"/>
         <source>Float tolerance:</source>
         <translation>浮点数容差：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="229"/>
+        <location filename="../gui/settingsdialog.cpp" line="247"/>
         <source>Used by the &quot;Extreme&quot; float rounding mode.</source>
         <translation>用于“极限”浮点舍入模式。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="236"/>
+        <location filename="../gui/settingsdialog.cpp" line="254"/>
         <source>Theme and the font used by tables, the disassembler and hex views.</source>
         <translation>主题，以及表格、反汇编器和十六进制视图使用的字体。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="241"/>
+        <location filename="../gui/settingsdialog.cpp" line="259"/>
         <source>Light</source>
         <translation>浅色</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="241"/>
+        <location filename="../gui/settingsdialog.cpp" line="259"/>
         <source>Dark</source>
         <translation>深色</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="243"/>
+        <location filename="../gui/settingsdialog.cpp" line="261"/>
         <source>Theme:</source>
         <translation>主题：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="248"/>
+        <location filename="../gui/settingsdialog.cpp" line="266"/>
         <source>Monospace font:</source>
         <translation>等宽字体：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="253"/>
+        <location filename="../gui/settingsdialog.cpp" line="271"/>
         <source> pt</source>
         <translation> pt</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="255"/>
+        <location filename="../gui/settingsdialog.cpp" line="273"/>
         <source>Font size:</source>
         <translation>字号：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="258"/>
+        <location filename="../gui/settingsdialog.cpp" line="276"/>
         <source>32-bit (8 hex digits)</source>
         <translation>32 位（8 位十六进制）</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="258"/>
+        <location filename="../gui/settingsdialog.cpp" line="276"/>
         <source>64-bit (16 hex digits)</source>
         <translation>64 位（16 位十六进制）</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="260"/>
+        <location filename="../gui/settingsdialog.cpp" line="278"/>
         <source>Address width:</source>
         <translation>地址宽度：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="262"/>
+        <location filename="../gui/settingsdialog.cpp" line="280"/>
         <source>Uppercase hexadecimal (0x7F3A, not 0x7f3a)</source>
         <translation>大写十六进制（0x7F3A，而非 0x7f3a）</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="271"/>
-        <source>Language of the interface. It applies after the next start.</source>
-        <translation>界面语言。下次启动后生效。</translation>
+        <location filename="../gui/settingsdialog.cpp" line="289"/>
+        <source>Language of the interface. A restart is offered when it changes.</source>
+        <translation>界面语言。更改时会提示重启。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="274"/>
+        <location filename="../gui/settingsdialog.cpp" line="292"/>
         <source>Follow system</source>
         <translation>跟随系统</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="280"/>
+        <location filename="../gui/settingsdialog.cpp" line="298"/>
         <source>Interface language:</source>
         <translation>界面语言：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="281"/>
+        <location filename="../gui/settingsdialog.cpp" line="299"/>
         <source>English and Simplified Chinese are available for now.</source>
         <translation>目前提供英文和简体中文。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="288"/>
+        <location filename="../gui/settingsdialog.cpp" line="306"/>
         <source>Layout and refresh of the hex dump in the Memory Viewer.</source>
         <translation>内存查看器中十六进制转储的布局与刷新。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="295"/>
+        <location filename="../gui/settingsdialog.cpp" line="313"/>
         <source>Bytes per row:</source>
         <translation>每行字节数：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="297"/>
+        <location filename="../gui/settingsdialog.cpp" line="315"/>
         <source>Refresh values while the view is open</source>
         <translation>视图打开时刷新数值</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="304"/>
+        <location filename="../gui/settingsdialog.cpp" line="322"/>
         <source> ms</source>
         <translation> ms</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="308"/>
+        <location filename="../gui/settingsdialog.cpp" line="326"/>
         <source>Refresh interval:</source>
         <translation>刷新间隔：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="309"/>
+        <location filename="../gui/settingsdialog.cpp" line="327"/>
         <source>Applies to Memory Viewer windows opened from now on.</source>
         <translation>对之后打开的内存查看器窗口生效。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="315"/>
+        <location filename="../gui/settingsdialog.cpp" line="333"/>
         <source>Defaults for hardware watchpoints.</source>
         <translation>硬件监视点的默认设置。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="319"/>
+        <location filename="../gui/settingsdialog.cpp" line="337"/>
         <source>Data breakpoint size:</source>
         <translation>数据断点大小：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="321"/>
+        <location filename="../gui/settingsdialog.cpp" line="339"/>
         <source>Find-what-writes size:</source>
         <translation>“查找写入”大小：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="322"/>
+        <location filename="../gui/settingsdialog.cpp" line="340"/>
         <source>How many bytes from the address a watchpoint covers. x86 watchpoints must be aligned to their size.</source>
         <translation>监视点覆盖地址起的多少字节。x86 监视点必须按其大小对齐。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="329"/>
+        <location filename="../gui/settingsdialog.cpp" line="347"/>
         <source>Hotkeys belong to cheat table entries: right-click an entry and choose Hotkeys.</source>
         <translation>快捷键属于表格条目：右键单击条目并选择“快捷键”。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="334"/>
+        <location filename="../gui/settingsdialog.cpp" line="352"/>
         <source>Default value step:</source>
         <translation>默认数值步长：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="335"/>
+        <location filename="../gui/settingsdialog.cpp" line="353"/>
         <source>How much an increase or decrease hotkey changes a value, until the entry sets its own step.</source>
         <translation>增加或减少快捷键每次改变多少数值，直到条目设置自己的步长。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="343"/>
+        <location filename="../gui/settingsdialog.cpp" line="361"/>
         <source>The ceserver that File &gt; Connect to ceserver offers by default.</source>
         <translation>“文件 &gt; 连接到 ceserver”默认提供的 ceserver。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="346"/>
+        <location filename="../gui/settingsdialog.cpp" line="364"/>
         <source>host name or IP address</source>
         <translation>主机名或 IP 地址</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="347"/>
+        <location filename="../gui/settingsdialog.cpp" line="365"/>
         <source>ceserver host:</source>
         <translation>ceserver 主机：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="352"/>
+        <location filename="../gui/settingsdialog.cpp" line="370"/>
         <source>ceserver port:</source>
         <translation>ceserver 端口：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="359"/>
+        <location filename="../gui/settingsdialog.cpp" line="377"/>
         <source>Scripts in the autorun folder run once at startup, like Cheat Engine&apos;s autorun.</source>
         <translation>autorun 文件夹中的脚本在启动时运行一次，与 Cheat Engine 的 autorun 相同。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="365"/>
+        <location filename="../gui/settingsdialog.cpp" line="383"/>
         <source>Open folder</source>
         <translation>打开文件夹</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="373"/>
+        <location filename="../gui/settingsdialog.cpp" line="391"/>
         <source>Autorun folder:</source>
         <translation>autorun 文件夹：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="374"/>
+        <location filename="../gui/settingsdialog.cpp" line="392"/>
         <source>Lua cannot run shell commands or write local files unless Cheat Engine was started with CECORE_LUA_ALLOW_UNSAFE=1 in its environment. A cheat table cannot turn this on by itself.</source>
         <translation>除非启动 Cheat Engine 时在环境中设置了 CECORE_LUA_ALLOW_UNSAFE=1，否则 Lua 无法执行 shell 命令或写入本地文件。作弊表本身无法开启此功能。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="412"/>
+        <location filename="../gui/settingsdialog.cpp" line="430"/>
         <source>The model behind Tools &gt; AI Assistant. You bring the API key, or run a model on your own computer.</source>
         <translation>“工具 &gt; AI 助手”使用的模型。你可以自带 API 密钥，也可以在本机运行模型。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="416"/>
+        <location filename="../gui/settingsdialog.cpp" line="434"/>
         <source>Anthropic (Claude)</source>
         <translation>Anthropic (Claude)</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="417"/>
+        <location filename="../gui/settingsdialog.cpp" line="435"/>
         <source>OpenAI-compatible (OpenAI, Ollama, LM Studio)</source>
         <translation>兼容 OpenAI（OpenAI、Ollama、LM Studio）</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="422"/>
+        <location filename="../gui/settingsdialog.cpp" line="440"/>
         <source>Provider:</source>
         <translation>提供商：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="424"/>
+        <location filename="../gui/settingsdialog.cpp" line="442"/>
         <source>Model:</source>
         <translation>模型：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="426"/>
+        <location filename="../gui/settingsdialog.cpp" line="444"/>
         <source>API address:</source>
         <translation>API 地址：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="429"/>
+        <location filename="../gui/settingsdialog.cpp" line="447"/>
         <source>Paste a new key to save it</source>
         <translation>粘贴新密钥以保存</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="430"/>
+        <location filename="../gui/settingsdialog.cpp" line="448"/>
         <source>Forget key</source>
         <translation>忘记密钥</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="435"/>
+        <location filename="../gui/settingsdialog.cpp" line="453"/>
         <source>API key:</source>
         <translation>API 密钥：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="438"/>
+        <location filename="../gui/settingsdialog.cpp" line="456"/>
         <source>Keys are kept in the system keyring, never in Cheat Engine&apos;s settings file; ANTHROPIC_API_KEY or OPENAI_API_KEY in the environment take precedence. A saved key is only sent to the API address it was entered with. Your messages and what the tools find in the game are sent to this provider, and every change to the game waits for your Allow.</source>
         <translation>密钥保存在系统密钥环中，而不是 Cheat Engine 的设置文件里；环境变量 ANTHROPIC_API_KEY 或 OPENAI_API_KEY 优先。已保存的密钥只会发送到输入它时使用的 API 地址。你的消息以及工具在游戏中发现的内容会发送给该提供商，而对游戏的每次更改都会等待你的允许。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="452"/>
+        <location filename="../gui/settingsdialog.cpp" line="470"/>
         <source>Could not remove the key: %1</source>
         <translation>无法删除密钥：%1</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="468"/>
+        <location filename="../gui/settingsdialog.cpp" line="486"/>
         <source>for example gpt-5 or qwen3</source>
         <translation>例如 gpt-5 或 qwen3</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="472"/>
+        <location filename="../gui/settingsdialog.cpp" line="490"/>
         <source>https://api.openai.com/v1 or http://localhost:11434/v1</source>
         <translation>https://api.openai.com/v1 或 http://localhost:11434/v1</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="539"/>
+        <location filename="../gui/settingsdialog.cpp" line="557"/>
         <source>Kept until Cheat Engine closes: %1</source>
         <translation>仅在 Cheat Engine 关闭前有效：%1</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="544"/>
+        <location filename="../gui/settingsdialog.cpp" line="567"/>
         <source>Restart Cheat Engine to apply the new interface language.</source>
         <translation>重启 Cheat Engine 以应用新的界面语言。</translation>
+    </message>
+    <message>
+        <location filename="../gui/settingsdialog.cpp" line="568"/>
+        <source>Save the table first if you need the current addresses and scan results.</source>
+        <translation>如需保留当前的地址列表和扫描结果，请先保存表格。</translation>
+    </message>
+    <message>
+        <location filename="../gui/settingsdialog.cpp" line="569"/>
+        <source>Restart now</source>
+        <translation>立即重启</translation>
+    </message>
+    <message>
+        <location filename="../gui/settingsdialog.cpp" line="570"/>
+        <source>Later</source>
+        <translation>稍后</translation>
     </message>
 </context>
 <context>

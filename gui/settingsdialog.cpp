@@ -13,6 +13,7 @@
 #include <QSettings>
 #include <QCoreApplication>
 #include <QMessageBox>
+#include <QProcess>
 
 #include "core/agent_chat.hpp"
 #include "gui/agent_panel.hpp"
@@ -113,6 +114,23 @@ QComboBox* sizeCombo(const QString& current) {
     }
     combo->setCurrentIndex(std::max(0, combo->findData(current)));
     return sized(combo);
+}
+
+// Relaunch the program so a new interface language takes effect without the user
+// restarting it by hand. Under an AppImage, the mount that applicationFilePath()
+// points into disappears when this process exits, so the AppImage file itself is
+// started again.
+void restartApplication(QWidget* parent) {
+    QStringList arguments = QCoreApplication::arguments();
+    if (!arguments.isEmpty()) arguments.removeFirst();
+    const QString appImage = qEnvironmentVariable("APPIMAGE");
+    const QString program = appImage.isEmpty() ? QCoreApplication::applicationFilePath() : appImage;
+    if (QProcess::startDetached(program, arguments, QDir::currentPath()))
+        QCoreApplication::quit();
+    else
+        QMessageBox::warning(parent, QCoreApplication::translate("SettingsDialog", "Language"),
+            QCoreApplication::translate("SettingsDialog",
+                "Cheat Engine could not restart itself. Start it again to apply the language."));
 }
 } // namespace
 
@@ -268,7 +286,7 @@ QWidget* SettingsDialog::buildDisplayPage() {
 QWidget* SettingsDialog::buildLanguagePage() {
     auto* w = new QWidget;
     auto* form = makePage(w, tr("Language"),
-        tr("Language of the interface. It applies after the next start."));
+        tr("Language of the interface. A restart is offered when it changes."));
 
     languageCombo_ = sized(new QComboBox);
     languageCombo_->addItem(tr("Follow system"), QString());
@@ -539,9 +557,20 @@ void SettingsDialog::onApply() {
             : tr("Kept until Cheat Engine closes: %1").arg(error));
     }
     emit settingsApplied();
-    if (languageChanged)
-        QMessageBox::information(this, tr("Language"),
-            tr("Restart Cheat Engine to apply the new interface language."));
+    if (languageChanged) {
+        // A new language needs a fresh start: every window builds its texts in its
+        // constructor, so offer the restart instead of leaving the choice to the
+        // next manual start. Unsaved table state is the user's call.
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Question);
+        box.setWindowTitle(tr("Language"));
+        box.setText(tr("Restart Cheat Engine to apply the new interface language."));
+        box.setInformativeText(tr("Save the table first if you need the current addresses and scan results."));
+        auto* restart = box.addButton(tr("Restart now"), QMessageBox::AcceptRole);
+        box.addButton(tr("Later"), QMessageBox::RejectRole);
+        box.exec();
+        if (box.clickedButton() == restart) restartApplication(this);
+    }
 }
 
 } // namespace ce::gui

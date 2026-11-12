@@ -3,6 +3,7 @@
 #include "gui/memorybrowser.hpp"
 #include "core/log.hpp"
 #include "gui/theme.hpp"
+#include "gui/i18n.hpp"
 #include <QFile>
 #include <QApplication>
 #include <QDialog>
@@ -19,9 +20,6 @@
 #include <QPixmap>
 #include <QDir>
 #include <QFileInfo>
-#include <QLocale>
-#include <QTranslator>
-#include <QLibraryInfo>
 #include <unistd.h>
 #include <QSettings>
 #include <QTimer>
@@ -100,47 +98,10 @@ int main(int argc, char* argv[]) {
     ce::gui::applyStoredTheme();
 
     // ── i18n ──
-    // Two translators: one for Qt's own strings (so dialogs etc. localise),
-    // and one for cecore's translations. The cecore .qm files live next to
-    // the binary under translations/cheatengine_<locale>.qm. Translations
-    // aren't shipped yet, but the load is best-effort and silently skips
-    // when no file matches — the wiring is ready for translators to drop
-    // .qm files in.
-    QLocale locale;
-    {
-        QString locName = qEnvironmentVariable("LANG", locale.name());
-        // Strip ".UTF-8" etc. — Qt only wants "en_US" or "tr_TR".
-        locName = locName.section('.', 0, 0);
-        if (!locName.isEmpty()) locale = QLocale(locName);
-    }
-    QLocale::setDefault(locale);
-
-    auto* qtTranslator = new QTranslator(&app);
-    if (qtTranslator->load(locale, "qt", "_",
-            QLibraryInfo::path(QLibraryInfo::TranslationsPath))) {
-        app.installTranslator(qtTranslator);
-    }
-    auto* ceTranslator = new QTranslator(&app);
-    {
-        // Search a few likely locations for cheatengine_<locale>.qm:
-        //   <exe-dir>/translations/, <exe-dir>/../translations/, current dir.
-        QStringList searchDirs;
-        char exeBufLocal[4096];
-        ssize_t exeLenLocal = readlink("/proc/self/exe", exeBufLocal, sizeof(exeBufLocal) - 1);
-        if (exeLenLocal > 0) {
-            exeBufLocal[exeLenLocal] = 0;
-            auto exeDir = QFileInfo(exeBufLocal).absolutePath();
-            searchDirs << (exeDir + "/translations")
-                       << (exeDir + "/../translations");
-        }
-        searchDirs << "translations";
-        for (const auto& dir : searchDirs) {
-            if (ceTranslator->load(locale, "cheatengine", "_", dir)) {
-                app.installTranslator(ceTranslator);
-                break;
-            }
-        }
-    }
+    // The interface language comes from Settings ("ui/language"), otherwise from
+    // the desktop locale. The catalogue is looked up beside the executable and in
+    // the built-in resources; see gui/i18n.cpp.
+    ce::gui::installTranslators(app);
 
     // Set application icon — resolve exe path via /proc/self/exe
     QIcon appIcon;

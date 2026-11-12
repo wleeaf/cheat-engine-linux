@@ -9,7 +9,7 @@
 namespace ce::gui {
 
 OverlayWindow::OverlayWindow(QWidget* parent) : QWidget(parent) {
-    setWindowTitle("CE Overlay");
+    setWindowTitle(tr("CE Overlay"));
     setWindowFlags(Qt::Tool | Qt::FramelessWindowHint |
         Qt::WindowStaysOnTopHint | Qt::BypassWindowManagerHint |
         Qt::WindowTransparentForInput);

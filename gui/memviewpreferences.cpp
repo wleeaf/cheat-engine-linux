@@ -44,7 +44,7 @@ QPushButton* MemviewPreferences::colorButton(const QString& key, const QColor& d
 }
 
 MemviewPreferences::MemviewPreferences(QWidget* parent) : QDialog(parent) {
-    setWindowTitle("Disassembler Preferences");
+    setWindowTitle(tr("Disassembler Preferences"));
     resize(500, 620);
     QSettings s;
     font_.fromString(s.value("disasm/font", QFont("Monospace", 10).toString()).toString());
@@ -59,9 +59,9 @@ MemviewPreferences::MemviewPreferences(QWidget* parent) : QDialog(parent) {
     root->addWidget(scroll, 1);
 
     // GroupBox2 "Disassembler": font + color group selector.
-    auto* gbDisasm = new QGroupBox("Disassembler");
+    auto* gbDisasm = new QGroupBox(tr("Disassembler"));
     auto* dl = new QFormLayout(gbDisasm);
-    fontBtn_ = new QPushButton("Change disassembler font");
+    fontBtn_ = new QPushButton(tr("Change disassembler font"));
     connect(fontBtn_, &QPushButton::clicked, this, [this]() {
         bool ok = false;
         QFont f = QFontDialog::getFont(&ok, font_, this);
@@ -69,8 +69,8 @@ MemviewPreferences::MemviewPreferences(QWidget* parent) : QDialog(parent) {
     });
     dl->addRow(fontBtn_);
     colorGroup_ = new QComboBox;
-    colorGroup_->addItems({"Normal"});
-    dl->addRow("Color group:", colorGroup_);
+    colorGroup_->addItems({tr("Normal")});
+    dl->addRow(tr("Color group:"), colorGroup_);
     v->addWidget(gbDisasm);
 
     // Default swatches follow the theme so they match the actual disassembler
@@ -80,34 +80,34 @@ MemviewPreferences::MemviewPreferences(QWidget* parent) : QDialog(parent) {
     auto def = [dark](QColor d, QColor l) { return dark ? d : l; };
 
     // GroupBox1 "Normal": text colors.
-    auto* gbNormal = new QGroupBox("Normal");
+    auto* gbNormal = new QGroupBox(tr("Normal"));
     auto* nl = new QFormLayout(gbNormal);
-    nl->addRow("Default color", colorButton("colorDefault", def(QColor(0xcd, 0xd6, 0xf4), QColor(0x00, 0x00, 0x00))));
-    nl->addRow("Register color", colorButton("colorRegister", def(QColor(0xcd, 0xd6, 0xf4), QColor(0x3a, 0x42, 0x52))));
-    nl->addRow("Symbol color", colorButton("colorSymbol", def(QColor(0xf9, 0xe2, 0xaf), QColor(0x80, 0x60, 0x00))));
-    nl->addRow("Hexadecimal color", colorButton("colorHex", def(QColor(0x89, 0xb4, 0xfa), QColor(0x00, 0x00, 0xc0))));
+    nl->addRow(tr("Default color"), colorButton("colorDefault", def(QColor(0xcd, 0xd6, 0xf4), QColor(0x00, 0x00, 0x00))));
+    nl->addRow(tr("Register color"), colorButton("colorRegister", def(QColor(0xcd, 0xd6, 0xf4), QColor(0x3a, 0x42, 0x52))));
+    nl->addRow(tr("Symbol color"), colorButton("colorSymbol", def(QColor(0xf9, 0xe2, 0xaf), QColor(0x80, 0x60, 0x00))));
+    nl->addRow(tr("Hexadecimal color"), colorButton("colorHex", def(QColor(0x89, 0xb4, 0xfa), QColor(0x00, 0x00, 0xc0))));
     v->addWidget(gbNormal);
 
     // GroupBox4 "Jumplines".
-    auto* gbJump = new QGroupBox("Jumplines");
+    auto* gbJump = new QGroupBox(tr("Jumplines"));
     auto* jl = new QFormLayout(gbJump);
-    jl->addRow("Conditional jump color", colorButton("colorCondJump", def(QColor(0xfa, 0xb3, 0x87), QColor(0xc0, 0x40, 0x00))));
-    jl->addRow("Unconditional jump color", colorButton("colorJump", def(QColor(0x89, 0xb4, 0xfa), QColor(0x00, 0x00, 0xc0))));
-    jl->addRow("Call color", colorButton("colorCall", def(QColor(0xcb, 0xa6, 0xf7), QColor(0x88, 0x39, 0xef))));
+    jl->addRow(tr("Conditional jump color"), colorButton("colorCondJump", def(QColor(0xfa, 0xb3, 0x87), QColor(0xc0, 0x40, 0x00))));
+    jl->addRow(tr("Unconditional jump color"), colorButton("colorJump", def(QColor(0x89, 0xb4, 0xfa), QColor(0x00, 0x00, 0xc0))));
+    jl->addRow(tr("Call color"), colorButton("colorCall", def(QColor(0xcb, 0xa6, 0xf7), QColor(0x88, 0x39, 0xef))));
     jlThickness_ = new QLineEdit(s.value("disasm/jlThickness", 1).toString());
-    jl->addRow("Thickness", jlThickness_);
+    jl->addRow(tr("Thickness"), jlThickness_);
     // Lanes default to one character apart, as the disassembler draws them.
     jlSpacing_ = new QLineEdit(s.value("disasm/jlSpacing", QFontMetrics(font_).horizontalAdvance('0')).toString());
-    jl->addRow("Spacing", jlSpacing_);
+    jl->addRow(tr("Spacing"), jlSpacing_);
     v->addWidget(gbJump);
 
     // GroupBox5 "Space between lines".
-    auto* gbSpace = new QGroupBox("Space between lines");
+    auto* gbSpace = new QGroupBox(tr("Space between lines"));
     auto* sl = new QFormLayout(gbSpace);
     spaceAbove_ = new QLineEdit(s.value("disasm/spaceAbove", 0).toString());
-    sl->addRow("Above", spaceAbove_);
+    sl->addRow(tr("Above"), spaceAbove_);
     spaceBelow_ = new QLineEdit(s.value("disasm/spaceBelow", 0).toString());
-    sl->addRow("Below", spaceBelow_);
+    sl->addRow(tr("Below"), spaceBelow_);
     v->addWidget(gbSpace);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Apply | QDialogButtonBox::Cancel);

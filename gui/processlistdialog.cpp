@@ -39,7 +39,7 @@ public:
 } // namespace
 
 ProcessListDialog::ProcessListDialog(QWidget* parent) : QDialog(parent) {
-    setWindowTitle("Open Process");
+    setWindowTitle(tr("Open Process"));
     resize(720, 520);
     setMinimumSize(560, 360);   // narrower clips the columns behind a horizontal scrollbar
 
@@ -50,13 +50,13 @@ ProcessListDialog::ProcessListDialog(QWidget* parent) : QDialog(parent) {
     // cannot be opened without elevated rights, so they are hidden by default.
     auto* filterRow = new QHBoxLayout;
     filterEdit_ = new QLineEdit;
-    filterEdit_->setPlaceholderText("Filter by process name, PID, or command");
-    filterEdit_->setAccessibleName("Filter processes");
+    filterEdit_->setPlaceholderText(tr("Filter by process name, PID, or command"));
+    filterEdit_->setAccessibleName(tr("Filter processes"));
     filterEdit_->setClearButtonEnabled(true);
     connect(filterEdit_, &QLineEdit::textChanged, this, &ProcessListDialog::onFilter);
     filterRow->addWidget(filterEdit_, 1);
-    mineOnly_ = new QCheckBox("Only my processes");
-    mineOnly_->setToolTip("Hide kernel threads and processes owned by other users");
+    mineOnly_ = new QCheckBox(tr("Only my processes"));
+    mineOnly_->setToolTip(tr("Hide kernel threads and processes owned by other users"));
     mineOnly_->setChecked(geteuid() != 0);
     connect(mineOnly_, &QCheckBox::toggled, this, [this]() { onFilter(filterEdit_->text()); });
     filterRow->addWidget(mineOnly_);
@@ -65,7 +65,7 @@ ProcessListDialog::ProcessListDialog(QWidget* parent) : QDialog(parent) {
 
     processList_ = new QTreeWidget;
     processList_->setColumnCount(4);
-    processList_->setHeaderLabels({"Name", "PID", "Memory", "Command"});
+    processList_->setHeaderLabels({tr("Name"), tr("PID"), tr("Memory"), tr("Command")});
     processList_->setRootIsDecorated(false);
     processList_->setUniformRowHeights(true);
     processList_->setAlternatingRowColors(true);
@@ -89,12 +89,12 @@ ProcessListDialog::ProcessListDialog(QWidget* parent) : QDialog(parent) {
 
     // Buttons: Refresh is a list action (left); Open/Cancel are the dialog actions (right).
     auto* btnLayout = new QHBoxLayout;
-    auto* openBtn = new QPushButton("Open");
+    auto* openBtn = new QPushButton(tr("Open"));
     openBtn_ = openBtn;
     openBtn_->setObjectName("primaryButton");
     openBtn->setDefault(true);
-    auto* cancelBtn = new QPushButton("Cancel");
-    auto* refreshBtn = new QPushButton("Refresh");
+    auto* cancelBtn = new QPushButton(tr("Cancel"));
+    auto* refreshBtn = new QPushButton(tr("Refresh"));
     refreshBtn->setShortcut(QKeySequence::Refresh);
     connect(openBtn, &QPushButton::clicked, this, &ProcessListDialog::onAccept);
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
@@ -154,7 +154,7 @@ void ProcessListDialog::refreshList() {
         const QString name = QString::fromStdString(p.name);
         const QString command = QString::fromStdString(p.path);
         auto* item = new ProcessItem;
-        item->setText(NameColumn, p.sandboxed ? name + QStringLiteral("  [sandboxed]") : name);
+        item->setText(NameColumn, p.sandboxed ? name + "  " + tr("[sandboxed]") : name);
         item->setText(PidColumn, QString::number(p.pid));
         item->setText(MemoryColumn, rss ? formatByteSize(rss) : QStringLiteral("-"));
         item->setText(CommandColumn, command);
@@ -171,8 +171,8 @@ void ProcessListDialog::refreshList() {
             p.sandboxed ? QStringLiteral("sandboxed") : QString()}.join('\n'));
         QString tip = command.isEmpty() ? name : command;
         if (p.sandboxed)
-            tip += QStringLiteral("\nSandboxed (Flatpak/Snap/container): attaching reaches into "
-                                  "its namespace; scan, edit and symbols work.");
+            tip += "\n" + tr("Sandboxed (Flatpak/Snap/container): attaching reaches into "
+                              "its namespace; scan, edit and symbols work.");
         for (int column = 0; column < processList_->columnCount(); ++column) item->setToolTip(column, tip);
         if (kernelThread || !known)
             for (int column = 0; column < processList_->columnCount(); ++column)
@@ -193,7 +193,7 @@ void ProcessListDialog::onAccept() {
     const pid_t pid = static_cast<pid_t>(item->data(NameColumn, PidRole).toLongLong());
     if (processStartTime(pid) != item->data(NameColumn, StartRole).toString()) {
         refreshList();
-        statusLabel_->setText("That process has exited; the list was refreshed.");
+        statusLabel_->setText(tr("That process has exited; the list was refreshed."));
         return;
     }
     selectedPid_ = item->data(NameColumn, PidRole).toLongLong();
@@ -217,8 +217,8 @@ void ProcessListDialog::onFilter(const QString& text) {
     auto* current = processList_->currentItem();
     if (!current || current->isHidden()) processList_->setCurrentItem(first);
     openBtn_->setEnabled(visible > 0 && processList_->currentItem());
-    statusLabel_->setText(visible ? QString("%1 %2").arg(visible).arg(visible == 1 ? "process" : "processes")
-                                : "No processes match this filter.");
+    statusLabel_->setText(visible ? tr("%1 %2").arg(visible).arg(visible == 1 ? tr("process") : tr("processes"))
+                                : tr("No processes match this filter."));
     if (auto* item = processList_->currentItem()) processList_->scrollToItem(item);
 }
 

@@ -59,6 +59,25 @@ example owned by root after a `sudo -E` run), scans fell back to `/tmp`, which
 is RAM-backed on many desktops, so a large scan really did fill it. The
 fallback is now the disk-backed `/var/tmp`.
 
+## Simplified Chinese interface and a translation pipeline: 12 November 2026
+
+The GUI is fully translatable and ships with a Simplified Chinese (zh_CN)
+catalogue. Every user-visible string in `gui/` is wrapped in `tr()` (or
+`QCoreApplication::translate` where there is no class context), Settings has a
+new Language page (follow the system, English, 简体中文), and the catalogue is
+embedded in the binary so the `.deb` and the AppImage carry it. A `.qm` dropped
+beside the executable or under `translations/` overrides the built-in copy, so a
+translation can be tested without rebuilding; the loader moved into
+`gui/i18n.cpp` so the screenshot smoke can use it too.
+
+The catalogue is generated with Qt's `lupdate`/`lrelease`; CI installs
+`qt6-tools-dev` and `qt6-l10n-tools` so the release build compiles it. English
+stays the source language, so with no catalogue the interface is unchanged.
+Deliberately out of scope: `cescan` terminal output, messages from the Qt-free
+`cecore` library, and the tutorial games, which quote exact code and step text.
+`docs/I18N.md` documents the workflow for translators; the screenshot review can
+render another language with `CE_LANG=zh_CN`.
+
 ## GUI polish from a full screenshot review: 13 October 2026
 
 `gui_lifecycle_smoke --screenshots DIR` now renders about 180 PNGs: every

@@ -100,6 +100,7 @@ See [AI agents](docs/MCP.md).
 
 - [Lua scripting reference](docs/SCRIPTING.md) and [examples](examples)
 - [Supported targets and features](docs/COMPATIBILITY.md)
+- [Translating the interface](docs/I18N.md)
 - [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)
 

@@ -150,7 +150,7 @@ constexpr int kValueRefreshMs = 500;
 static constexpr int kResultBatchSize = 1000;
 
 static QString foundLabelText(size_t count) {
-    return QString("Found: %1").arg(QLocale().toString((qulonglong)count));
+    return QString(QCoreApplication::translate("MainWindow", "Found: %1")).arg(QLocale().toString((qulonglong)count));
 }
 
 // The warning for a scan whose result files are unreliable. Name what failed:
@@ -159,12 +159,14 @@ static QString foundLabelText(size_t count) {
 static QString scanWriteErrorText(const ScanResult& result) {
     const auto& reason = result.writeErrorReason();
     QString text = reason.empty()
-        ? QString("A scan-result file could not be fully written or read.")
-        : QString("A scan-result file could not be fully written or read: %1.").arg(QString::fromStdString(reason));
+        ? QCoreApplication::translate("MainWindow", "A scan-result file could not be fully written or read.")
+        : QCoreApplication::translate("MainWindow",
+              "A scan-result file could not be fully written or read: %1.").arg(QString::fromStdString(reason));
     if (reason.find(std::strerror(ENOSPC)) != std::string::npos || reason.find(std::strerror(EDQUOT)) != std::string::npos)
-        text += QString(" The disk holding %1 is full; free space there or set CE_SCAN_DIR to a larger disk.")
+        text += QCoreApplication::translate("MainWindow",
+                    " The disk holding %1 is full; free space there or set CE_SCAN_DIR to a larger disk.")
                     .arg(QString::fromStdString(result.directory().parent_path().parent_path().string()));
-    return text + " Some results are unreliable; scan again.";
+    return text + QCoreApplication::translate("MainWindow", " Some results are unreliable; scan again.");
 }
 
 // Settings > Display "Uppercase hexadecimal" and "Address width", read like
@@ -240,8 +242,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     // selectFilePath(sender, setting) in a table's Lua opens a real file chooser.
     luaEngine_.setFilePicker([this](const std::string& setting) -> std::string {
-        QString title = setting.empty() ? QString("Select file")
-                                        : QString("Select file for %1").arg(QString::fromStdString(setting));
+        QString title = setting.empty() ? QString(tr("Select file"))
+                                        : QString(tr("Select file for %1")).arg(QString::fromStdString(setting));
         return QFileDialog::getOpenFileName(this, title).toStdString();
     });
 
@@ -264,9 +266,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (dynamic_cast<ce::GdbProcessHandle*>(process_.get()) && !process_->targetDescription().live) {
             if (nestedLoop) return;
             onDisconnectProcess();
-            processLabel_->setText("GDB target disconnected or exited");
+            processLabel_->setText(tr("GDB target disconnected or exited"));
             processDetail_->clear();
-            statusBar()->showMessage("GDB target disconnected or exited",5000);
+            statusBar()->showMessage(tr("GDB target disconnected or exited"),5000);
             return;
         }
         // A ceserver connection closes on any error or timeout and never comes
@@ -276,9 +278,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (ceserverClient_ && !ceserverClient_->isConnected()) {
             if (nestedLoop) return;
             onDisconnectProcess();
-            processLabel_->setText("ceserver connection lost");
+            processLabel_->setText(tr("ceserver connection lost"));
             processDetail_->setText(tr("Connect again with File > Connect to ceserver."));
-            statusBar()->showMessage("ceserver connection lost",5000);
+            statusBar()->showMessage(tr("ceserver connection lost"),5000);
             return;
         }
         // Detect target death: once the pid is gone, stop polling and clear state
@@ -292,9 +294,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             exitInfo.si_pid == currentPid_;
         if (exitedChild || (!ceserverClient_ && currentPid_ > 0 && ::kill(currentPid_, 0) != 0 && errno == ESRCH)) {
             if (nestedLoop) return;
-            processLabel_->setText(QString("Process %1 has exited").arg(currentPid_));
+            processLabel_->setText(QString(tr("Process %1 has exited")).arg(currentPid_));
             processDetail_->setText(tr("Open another process with Ctrl+O."));
-            statusBar()->showMessage("Target process exited", 5000);
+            statusBar()->showMessage(tr("Target process exited"), 5000);
             if (!releaseTargetUsers()) return;
             if (exitedChild) (void)::waitpid(currentPid_, nullptr, WNOHANG);   // reap it now that nothing traces it
             process_.reset();
@@ -368,52 +370,52 @@ void MainWindow::setupMenus() {
     // Tools, which CE leaves empty in the form and fills at runtime.
 
     // ── File ──
-    auto* file = menuBar()->addMenu("&File");
-    file->addAction("Clear scan results", this, [this]() {
+    auto* file = menuBar()->addMenu(tr("&File"));
+    file->addAction(tr("Clear scan results"), this, [this]() {
         resultsModel_->clear(); lastResult_.reset(); undoResult_.reset(); updateScanButtons();
     });
-    file->addAction("Open Process...", this, &MainWindow::onOpenProcess, QKeySequence("Ctrl+O"));
+    file->addAction(tr("Open Process..."), this, &MainWindow::onOpenProcess, QKeySequence("Ctrl+O"));
     file->addSeparator();
-    file->addAction("Save", this, &MainWindow::onSaveTable, QKeySequence("Ctrl+S"));
-    file->addAction("Save As...", this, &MainWindow::onSaveTableAs, QKeySequence("Ctrl+Shift+S"));
-    file->addAction("Load...", this, &MainWindow::onLoadTable, QKeySequence("Ctrl+L"));
-    recentMenu_ = file->addMenu("Load Recent"); // populated from QSettings below
+    file->addAction(tr("Save"), this, &MainWindow::onSaveTable, QKeySequence("Ctrl+S"));
+    file->addAction(tr("Save As..."), this, &MainWindow::onSaveTableAs, QKeySequence("Ctrl+Shift+S"));
+    file->addAction(tr("Load..."), this, &MainWindow::onLoadTable, QKeySequence("Ctrl+L"));
+    recentMenu_ = file->addMenu(tr("Load Recent")); // populated from QSettings below
     recentMenu_->setToolTipsVisible(true);      // show the full path on hover
     rebuildRecentMenu();
     file->addSeparator();
-    file->addAction("Save scan results...", this, &MainWindow::onSaveScanResults,
+    file->addAction(tr("Save scan results..."), this, &MainWindow::onSaveScanResults,
                     QKeySequence("Alt+Shift+S"));
     file->addSeparator();
-    file->addAction("Generate Trainer Lua Script...", this, &MainWindow::onCreateTrainer);
+    file->addAction(tr("Generate Trainer Lua Script..."), this, &MainWindow::onCreateTrainer);
     file->addSeparator();
-    file->addAction("Connect to ceserver...", this, &MainWindow::onConnectCeserver);  // Linux extra
-    file->addAction("Connect to GDB / QEMU...", this, &MainWindow::onConnectGdb);
-    file->addAction("Disconnect target", this, &MainWindow::onDisconnectProcess);
+    file->addAction(tr("Connect to ceserver..."), this, &MainWindow::onConnectCeserver);  // Linux extra
+    file->addAction(tr("Connect to GDB / QEMU..."), this, &MainWindow::onConnectGdb);
+    file->addAction(tr("Disconnect target"), this, &MainWindow::onDisconnectProcess);
     file->addSeparator();
-    file->addAction("Quit", this, &QWidget::close, QKeySequence("Ctrl+Q"));
+    file->addAction(tr("Quit"), this, &QWidget::close, QKeySequence("Ctrl+Q"));
 
     // ── Top-level menus in CE's order (D3D dropped — Windows-only, see below) ──
     // File · Edit · Process · Table · Tools · .Net · Network · Plugins ·
     // Languages · Help.
-    auto* edit = menuBar()->addMenu("&Edit");
-    auto* process = menuBar()->addMenu("&Process");
-    auto* table = menuBar()->addMenu("Table");
+    auto* edit = menuBar()->addMenu(tr("&Edit"));
+    auto* process = menuBar()->addMenu(tr("&Process"));
+    auto* table = menuBar()->addMenu(tr("Table"));
     // CE's "D3D" menu (Direct3D overlay/hook) is Windows-only and every item is
     // permanently disabled on Linux, so it's dropped here rather than shown as a
     // dead top-level menu. Graphics hooking is out of scope (see docs/DEVELOPMENT).
-    auto* tools = menuBar()->addMenu("&Tools");
-    auto* dotnet = menuBar()->addMenu(".Net");
+    auto* tools = menuBar()->addMenu(tr("&Tools"));
+    auto* dotnet = menuBar()->addMenu(tr(".Net"));
     // CE's .Net/Mono menu: dissect a Mono/IL2CPP runtime's classes and fields.
-    dotnet->addAction("Mono dissector...", this, &MainWindow::openMonoDissector);
+    dotnet->addAction(tr("Mono dissector..."), this, &MainWindow::openMonoDissector);
     // CE also has Network, Plugins and Languages menus. Their ceserver transfer
     // options, plugin loader and translations don't exist here, so the menus are
     // left out rather than shown full of disabled items (same call as D3D above).
 
     // ── Table (CE: Lua script + forms) ──
-    table->addAction("Show Cheat Table Lua Script", this, &MainWindow::showTableLuaScript,
+    table->addAction(tr("Show Cheat Table Lua Script"), this, &MainWindow::showTableLuaScript,
                      QKeySequence("Ctrl+Alt+L"));
     table->addSeparator();
-    table->addAction("Create Form...", this, [this]() {
+    table->addAction(tr("Create Form..."), this, [this]() {
         auto* fd = new FormDesigner(this); fd->setAttribute(Qt::WA_DeleteOnClose); fd->show();
     });
 
@@ -424,8 +426,8 @@ void MainWindow::setupMenus() {
     // Regions, Heap list, Module list, Referenced strings, Thread list, Stacktrace,
     // Registers, Breakpoint list, Debugger, Branch mapper, Break-and-trace, …) live
     // in ITS View/Debug menus — matching CE — populated by populateBrowserMenus().
-    tools->addAction("Memory Viewer...", this, &MainWindow::onMemoryView, QKeySequence("Ctrl+M"));
-    tools->addAction("AI Assistant", this, [this]() { showAgentPanel(); }, QKeySequence("Ctrl+Shift+I"));
+    tools->addAction(tr("Memory Viewer..."), this, &MainWindow::onMemoryView, QKeySequence("Ctrl+M"));
+    tools->addAction(tr("AI Assistant"), this, [this]() { showAgentPanel(); }, QKeySequence("Ctrl+Shift+I"));
     tools->addSeparator();
     // Analysis panels (also in the Memory Viewer's Tools menu) — surfaced here so
     // they're findable from the main window without opening the viewer first.
@@ -433,26 +435,26 @@ void MainWindow::setupMenus() {
     // Table > Auto Assemble... is the fuller version (it picks up the viewer's
     // selected instruction), so the Tools copy would only duplicate it.
     for (QAction* action : tools->actions())
-        if (action->text() == "Auto Assemble...") tools->removeAction(action);
+        if (action->text() == tr("Auto Assemble...")) tools->removeAction(action);
     tools->addSeparator();
     // Table-wide edits (the entry context menu keeps to the entry under the cursor).
     for (auto* button : findChildren<QPushButton*>())
-        if (button->text() == "Add Address")
-            edit->addAction("Add Address...", button, &QPushButton::click);
-    edit->addAction("Add Group", this, [this]() { addressListModel_->addGroup(); });
+        if (button->text() == tr("Add Address"))
+            edit->addAction(tr("Add Address..."), button, &QPushButton::click);
+    edit->addAction(tr("Add Group"), this, [this]() { addressListModel_->addGroup(); });
     edit->addSeparator();
-    edit->addAction("Enable all entries", this, [this]() { addressListModel_->setAllActive(true); });
-    edit->addAction("Disable all entries", this, [this]() { addressListModel_->setAllActive(false); });
+    edit->addAction(tr("Enable all entries"), this, [this]() { addressListModel_->setAllActive(true); });
+    edit->addAction(tr("Disable all entries"), this, [this]() { addressListModel_->setAllActive(false); });
     edit->addSeparator();
-    edit->addAction("Settings...", this, [this]() { openSettingsDialog(); });
+    edit->addAction(tr("Settings..."), this, [this]() { openSettingsDialog(); });
 
     // ── Process menu ──
-    process->addAction("Open Process...", this, &MainWindow::onOpenProcess);
+    process->addAction(tr("Open Process..."), this, &MainWindow::onOpenProcess);
     // CE formProcessInfo (Process/System Info) — Linux equivalents.
     // CE "Create Process" / frmopenfileasprocessdialogunit: launch an executable
     // and attach. As our own child it is ptrace-accessible under yama scope=1.
-    process->addAction("Create Process...", this, [this]() {
-        auto path = QFileDialog::getOpenFileName(this, "Open file as process", "", "Executables (*)");
+    process->addAction(tr("Create Process..."), this, [this]() {
+        auto path = QFileDialog::getOpenFileName(this, tr("Open file as process"), "", tr("Executables (*)"));
         if (path.isEmpty()) return;
         std::string p = path.toStdString();
         pid_t pid = fork();
@@ -461,15 +463,15 @@ void MainWindow::setupMenus() {
             execl(p.c_str(), p.c_str(), (char*)nullptr);
             _exit(127);
         }
-        if (pid < 0) { QMessageBox::warning(this, "Create Process", "fork() failed."); return; }
+        if (pid < 0) { QMessageBox::warning(this, tr("Create Process"), tr("fork() failed.")); return; }
         usleep(120000);   // let it map its image
         // Through attachToPid so the old target's Debugger/views are torn down
         // before process_ is replaced (they hold a raw handle).
         attachToPid(pid, QFileInfo(path).fileName());
     });
-    process->addAction("Process/System Info", this, [this]() {
+    process->addAction(tr("Process/System Info"), this, [this]() {
         QDialog dialog(this);
-        dialog.setWindowTitle("Process and System Info");
+        dialog.setWindowTitle(tr("Process and System Info"));
         auto* layout = new QVBoxLayout(&dialog);
         // One form for both sections so their label columns line up.
         auto* form = new QFormLayout;
@@ -489,37 +491,41 @@ void MainWindow::setupMenus() {
             label->setWordWrap(true);
             return label;
         };
-        auto* target = section("Process");
+        auto* target = section(tr("Process"));
         if (!process_) {
-            target->addRow(value("No process is open. Use File > Open Process."));
+            target->addRow(value(tr("No process is open. Use File > Open Process.")));
         } else {
             const auto modules = process_->modules();
             const auto description = process_->targetDescription();
-            target->addRow("Name:", value(currentProcessName_));
-            target->addRow("PID:", value(QString::number(currentPid_)));
-            target->addRow("Executable:", value(modules.empty() ? QString("(unknown)") : QString::fromStdString(modules.front().path)));
+            target->addRow(tr("Name:"), value(currentProcessName_));
+            target->addRow(tr("PID:"), value(QString::number(currentPid_)));
+            target->addRow(tr("Executable:"), value(modules.empty() ? QString(tr("(unknown)")) : QString::fromStdString(modules.front().path)));
             if (auto localPid = ce::localTargetPid(process_.get()))
-                target->addRow("Kind:", value(QString::fromStdString(ce::probeTarget(*localPid).summary())));
-            target->addRow("Program:", value(QString("%1, %2-byte pointers, %3")
+                target->addRow(tr("Kind:"), value(QString::fromStdString(ce::probeTarget(*localPid).summary())));
+            target->addRow(tr("Program:"), value(QString(tr("%1, %2-byte pointers, %3"))
                 .arg(ce::cpuArchitectureName(description.program.architecture)).arg(description.program.pointerWidth)
                 .arg(ce::byteOrderName(description.program.byteOrder))));
-            target->addRow("Modules:", value(QString::number(modules.size())));
-            target->addRow("Threads:", value(QString::number(process_->threads().size())));
+            target->addRow(tr("Modules:"), value(QString::number(modules.size())));
+            target->addRow(tr("Threads:"), value(QString::number(process_->threads().size())));
         }
-        auto* system = section("System");
+        auto* system = section(tr("System"));
         struct utsname uts{};
-        if (::uname(&uts) == 0) system->addRow("Kernel:", value(QString("%1 %2 (%3)").arg(uts.sysname, uts.release, uts.machine)));
-        system->addRow("CPUs:", value(QString::number(std::thread::hardware_concurrency())));
-        QString scope = "not present (Yama disabled)";
+        if (::uname(&uts) == 0) system->addRow(tr("Kernel:"), value(QString("%1 %2 (%3)").arg(uts.sysname, uts.release, uts.machine)));
+        system->addRow(tr("CPUs:"), value(QString::number(std::thread::hardware_concurrency())));
+        QString scope = tr("not present (Yama disabled)");
         if (QFile f("/proc/sys/kernel/yama/ptrace_scope"); f.open(QIODevice::ReadOnly)) {
             const QString level = QString::fromUtf8(f.readAll()).trimmed();
-            static const char* meaning[] = {"any process of the same user", "only child processes",
-                                            "administrators only", "no attaching"};
+            static const char* const meaning[] = {
+                QT_TRANSLATE_NOOP("MainWindow", "any process of the same user"),
+                QT_TRANSLATE_NOOP("MainWindow", "only child processes"),
+                QT_TRANSLATE_NOOP("MainWindow", "administrators only"),
+                QT_TRANSLATE_NOOP("MainWindow", "no attaching")};
             const int n = level.toInt();
-            scope = n >= 0 && n <= 3 ? QString("%1: %2").arg(level, meaning[n]) : level;
+            scope = n >= 0 && n <= 3 ? QString("%1: %2").arg(level,
+                QCoreApplication::translate("MainWindow", meaning[n])) : level;
         }
-        system->addRow("ptrace scope:", value(scope));
-        system->addRow("Qt:", value(qVersion()));
+        system->addRow(tr("ptrace scope:"), value(scope));
+        system->addRow(tr("Qt:"), value(qVersion()));
         layout->addStretch();
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close);
         connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
@@ -528,27 +534,27 @@ void MainWindow::setupMenus() {
         dialog.exec();
     });
     // "Pause the process" toggle (CE's pause-the-game) — SIGSTOP/SIGCONT the target.
-    auto* pauseAct = process->addAction("Pause the process");
+    auto* pauseAct = process->addAction(tr("Pause the process"));
     pauseAct->setCheckable(true);
     pauseAction_ = pauseAct;
     connect(pauseAct, &QAction::toggled, this, [this, pauseAct](bool checked) {
         auto pid=ce::localTargetPid(process_.get());
         if (!pid) {
             pauseAct->setChecked(false);
-            statusBar()->showMessage("Pause requires a live local process target",5000);return;
+            statusBar()->showMessage(tr("Pause requires a live local process target"),5000);return;
         }
         if (::kill(*pid, checked ? SIGSTOP : SIGCONT) != 0)
             pauseAct->setChecked(false);
     });
     // Optionally SIGSTOP the target for the duration of each scan (CE's "pause
     // while scanning") so values can't change mid-scan, then resume.
-    auto* pauseScanAct = process->addAction("Pause target while scanning");
+    auto* pauseScanAct = process->addAction(tr("Pause target while scanning"));
     pauseScanAct->setCheckable(true);
-    pauseScanAct->setToolTip("Suspend the target during each First/Next Scan so its "
-                             "memory is a consistent snapshot, then resume it.");
+    pauseScanAct->setToolTip(tr("Suspend the target during each First/Next Scan so its "
+                             "memory is a consistent snapshot, then resume it."));
     connect(pauseScanAct, &QAction::toggled, this, [this](bool on) { pauseWhileScanning_ = on; });
     // ── Table menu ──
-    table->addAction("Auto Assemble...", this, [this]() {
+    table->addAction(tr("Auto Assemble..."), this, [this]() {
         auto* editor = new ScriptEditor(process_.get(), &autoAsm_, this);
         for (auto it = memoryViewers_.rbegin(); it != memoryViewers_.rend(); ++it) {
             if (*it && (*it)->isVisible()) {
@@ -568,20 +574,20 @@ void MainWindow::setupMenus() {
         editor->setBeforeExecute([this]() { stopCodeFindersForInjection(); });
         editor->show();
     }, QKeySequence("Ctrl+A"));
-    tools->addAction("File Patcher...", this, [this]() {
+    tools->addAction(tr("File Patcher..."), this, [this]() {
         auto* dlg = new FilePatcher(this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         dlg->show();
     });
     // CE frmSaveMemoryRegionUnit (Save memoryregion): dump a From..To range to a file.
-    tools->addAction("Save Memory Region...", this, [this]() {
-        if (!process_) { QMessageBox::warning(this, "Save Memory Region", "Open a process first."); return; }
+    tools->addAction(tr("Save Memory Region..."), this, [this]() {
+        if (!process_) { QMessageBox::warning(this, tr("Save Memory Region"), tr("Open a process first.")); return; }
         auto* dlg = new QDialog(this);
-        dlg->setWindowTitle("Save Memory Region");
+        dlg->setWindowTitle(tr("Save Memory Region"));
         trackTargetWindow(dlg);   // closed when the target changes
         auto* v = new QVBoxLayout(dlg);
-        auto* intro = new QLabel("Save a range of the target's memory to a file (up to 64 MiB). "
-                                 "Addresses are hexadecimal; To is exclusive.");
+        auto* intro = new QLabel(tr("Save a range of the target's memory to a file (up to 64 MiB). "
+                                 "Addresses are hexadecimal; To is exclusive."));
         intro->setWordWrap(true);
         intro->setProperty("secondary", true);
         v->addWidget(intro);
@@ -592,10 +598,10 @@ void MainWindow::setupMenus() {
             edit->setFont(monospaceFont());
             edit->setMinimumWidth(240);
         }
-        fromEdit->setPlaceholderText("e.g. 7f3a00000000");
-        toEdit->setPlaceholderText("e.g. 7f3a00001000");
-        form->addRow("From:", fromEdit);
-        form->addRow("To:", toEdit);
+        fromEdit->setPlaceholderText(tr("e.g. 7f3a00000000"));
+        toEdit->setPlaceholderText(tr("e.g. 7f3a00001000"));
+        form->addRow(tr("From:"), fromEdit);
+        form->addRow(tr("To:"), toEdit);
         v->addLayout(form);
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
         v->addWidget(buttons);
@@ -603,46 +609,46 @@ void MainWindow::setupMenus() {
         connect(buttons, &QDialogButtonBox::accepted, this, [this, dlg, fromEdit, toEdit]() {
             uintptr_t from = fromEdit->text().trimmed().toULongLong(nullptr, 16);
             uintptr_t to = toEdit->text().trimmed().toULongLong(nullptr, 16);
-            if (to <= from) { QMessageBox::warning(dlg, "Save", "\"To\" must be greater than \"From\"."); return; }
+            if (to <= from) { QMessageBox::warning(dlg, tr("Save"), tr("\"To\" must be greater than \"From\".")); return; }
             // Cap like the Save Disassembly path: an unbounded range would throw
             // std::bad_alloc out of a Qt slot (terminate) and OOM.
             constexpr uintptr_t kMaxSave = 64ull * 1024 * 1024;  // 64 MiB
             if (to - from > kMaxSave) {
-                QMessageBox::warning(dlg, "Save", "Region too large (max 64 MiB).");
+                QMessageBox::warning(dlg, tr("Save"), tr("Region too large (max 64 MiB)."));
                 return;
             }
-            auto path = QFileDialog::getSaveFileName(dlg, "Save memory region", "region.bin");
+            auto path = QFileDialog::getSaveFileName(dlg, tr("Save memory region"), "region.bin");
             if (path.isEmpty()) return;
             // The process can have exited or been closed while this was open.
-            if (!process_) { QMessageBox::warning(dlg, "Save", "The process is no longer open."); return; }
+            if (!process_) { QMessageBox::warning(dlg, tr("Save"), tr("The process is no longer open.")); return; }
             std::vector<uint8_t> buf(to - from);
             auto r = process_->read(from, buf.data(), buf.size());
-            if (!r || *r == 0) { QMessageBox::warning(dlg, "Save", "Could not read that region."); return; }
+            if (!r || *r == 0) { QMessageBox::warning(dlg, tr("Save"), tr("Could not read that region.")); return; }
             std::ofstream f(path.toStdString(), std::ios::binary);
             f.write(reinterpret_cast<const char*>(buf.data()), (std::streamsize)*r);
-            if (!f) { QMessageBox::warning(dlg, "Save", QString("Could not write %1.").arg(path)); return; }
-            QMessageBox::information(dlg, "Saved", QString("Wrote %1 to %2.").arg(formatByteSize(*r), path));
+            if (!f) { QMessageBox::warning(dlg, tr("Save"), QString(tr("Could not write %1.")).arg(path)); return; }
+            QMessageBox::information(dlg, tr("Saved"), QString(tr("Wrote %1 to %2.")).arg(formatByteSize(*r), path));
             dlg->accept();
         });
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         dlg->show();
     });
     // CE frmMemoryAllocHandlerUnit (Memory Allocations): allocate + track blocks.
-    tools->addAction("Memory Allocations...", this, [this]() {
-        if (!process_) { QMessageBox::warning(this, "Memory Allocations", "Open a process first."); return; }
+    tools->addAction(tr("Memory Allocations..."), this, [this]() {
+        if (!process_) { QMessageBox::warning(this, tr("Memory Allocations"), tr("Open a process first.")); return; }
         auto* dlg = new QDialog(this);
-        dlg->setWindowTitle("Memory Allocations");
+        dlg->setWindowTitle(tr("Memory Allocations"));
         trackTargetWindow(dlg);
         dlg->resize(420, 320);
         auto* v = new QVBoxLayout(dlg);
-        auto* intro = new QLabel("Memory reserved in the target from here (readable, writable and "
-                                 "executable). Double-click a block to browse it.");
+        auto* intro = new QLabel(tr("Memory reserved in the target from here (readable, writable and "
+                                 "executable). Double-click a block to browse it."));
         intro->setWordWrap(true);
         intro->setProperty("secondary", true);
         v->addWidget(intro);
         auto* list = new QListWidget;
         list->setProperty("monospace", true);   // font from the theme sheet
-        setEmptyHint(list, "No blocks allocated yet.\nClick Allocate to reserve memory in the target.");
+        setEmptyHint(list, tr("No blocks allocated yet.\nClick Allocate to reserve memory in the target."));
         auto refill = [this, list]() {
             list->clear();
             for (const auto& a : allocations_)
@@ -651,22 +657,22 @@ void MainWindow::setupMenus() {
         refill();
         v->addWidget(list);
         auto* row = new QHBoxLayout;
-        auto* allocBtn = new QPushButton("Allocate");
-        auto* freeBtn = new QPushButton("Free");
-        freeBtn->setToolTip("Free the selected block");
+        auto* allocBtn = new QPushButton(tr("Allocate"));
+        auto* freeBtn = new QPushButton(tr("Free"));
+        freeBtn->setToolTip(tr("Free the selected block"));
         freeBtn->setEnabled(false);   // needs a selected block
         connect(list, &QListWidget::currentRowChanged, freeBtn, [freeBtn](int row) { freeBtn->setEnabled(row >= 0); });
-        auto* closeBtn = new QPushButton("Close");
+        auto* closeBtn = new QPushButton(tr("Close"));
         row->addWidget(allocBtn); row->addWidget(freeBtn); row->addStretch(); row->addWidget(closeBtn);
         v->addLayout(row);
         connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::accept);
         connect(allocBtn, &QPushButton::clicked, this, [this, dlg, refill]() {
             bool ok = false;
-            int size = QInputDialog::getInt(dlg, "Allocate", "Size (bytes):", 4096, 1, 1 << 30, 1, &ok);
+            int size = QInputDialog::getInt(dlg, tr("Allocate"), tr("Size (bytes):"), 4096, 1, 1 << 30, 1, &ok);
             if (!ok) return;
             auto r = process_->allocate(size, ce::MemProt::All, 0);
             if (!r) {
-                QMessageBox::warning(dlg, "Allocate", QString("Could not allocate %1 in the target: %2")
+                QMessageBox::warning(dlg, tr("Allocate"), QString(tr("Could not allocate %1 in the target: %2"))
                     .arg(formatByteSize(size), QString::fromStdString(r.error().message())));
                 return;
             }
@@ -677,7 +683,7 @@ void MainWindow::setupMenus() {
             int i = list->currentRow();
             if (i < 0 || i >= (int)allocations_.size()) return;
             if (auto freed = process_->free(allocations_[i].first, allocations_[i].second); !freed) {
-                QMessageBox::warning(dlg, "Free", QString("Could not free the block: %1")
+                QMessageBox::warning(dlg, tr("Free"), QString(tr("Could not free the block: %1"))
                     .arg(QString::fromStdString(freed.error().message())));
                 return;
             }
@@ -692,25 +698,25 @@ void MainWindow::setupMenus() {
         dlg->show();
     });
     // CE frmExeTrainerGeneratorUnit: compile a standalone trainer executable.
-    tools->addAction("Generate Trainer (executable)...", this, [this]() {
-        auto path = QFileDialog::getSaveFileName(this, "Generate Trainer executable", "trainer");
+    tools->addAction(tr("Generate Trainer (executable)..."), this, [this]() {
+        auto path = QFileDialog::getSaveFileName(this, tr("Generate Trainer executable"), "trainer");
         if (path.isEmpty()) return;
         try {
             ce::CheatTable table = buildCheatTable();
             ce::TrainerGenerator gen;
             std::string err = gen.generateBinary(table, path.toStdString());
             if (err.empty())
-                statusBar()->showMessage("Trainer executable written to " + path, 6000);
+                statusBar()->showMessage(tr("Trainer executable written to %1").arg(path), 6000);
             else
-                QMessageBox::critical(this, "Generate Trainer", QString::fromStdString(err));
+                QMessageBox::critical(this, tr("Generate Trainer"), QString::fromStdString(err));
         } catch (const std::exception& ex) {
-            QMessageBox::critical(this, "Generate Trainer", ex.what());
+            QMessageBox::critical(this, tr("Generate Trainer"), ex.what());
         }
     });
     // CE frmStringPointerScanUnit (Structure spider): find pointer paths to a target
     // and dissect the structure there.
-    tools->addAction("Structure Spider...", this, [this]() {
-        if (!process_) { QMessageBox::warning(this, "Structure Spider", "Open a process first."); return; }
+    tools->addAction(tr("Structure Spider..."), this, [this]() {
+        if (!process_) { QMessageBox::warning(this, tr("Structure Spider"), tr("Open a process first.")); return; }
         bool ok = false;
         // Start from the selected cheat-table entry, the usual thing to spider from.
         QString initial;
@@ -719,17 +725,17 @@ void MainWindow::setupMenus() {
             if (int r = rows.first().row(); r >= 0 && r < (int)entries.size() && !entries[r].isGroup)
                 initial = QString("0x%1").arg((qulonglong)entries[r].address, 0, 16);
         }
-        QString ts = QInputDialog::getText(this, "Structure Spider",
-                                           "Address of the value to find pointer paths to (hex):",
+        QString ts = QInputDialog::getText(this, tr("Structure Spider"),
+                                           tr("Address of the value to find pointer paths to (hex):"),
                                            QLineEdit::Normal, initial, &ok);
         if (!ok || ts.trimmed().isEmpty()) return;
         bool valid = false;
         uintptr_t target = ts.trimmed().toULongLong(&valid, 16);
         if (!valid || !target) {
-            QMessageBox::warning(this, "Structure Spider", QString("\"%1\" is not a hexadecimal address.").arg(ts.trimmed()));
+            QMessageBox::warning(this, tr("Structure Spider"), QString(tr("\"%1\" is not a hexadecimal address.")).arg(ts.trimmed()));
             return;
         }
-        if (!process_) { QMessageBox::warning(this, "Structure Spider", "The process is no longer open."); return; }
+        if (!process_) { QMessageBox::warning(this, tr("Structure Spider"), tr("The process is no longer open.")); return; }
         // The scan runs on a worker so the GUI keeps running; the window shows
         // its progress. Closing the window, or a target change (which deletes
         // target windows), cancels the scan and joins the worker.
@@ -743,13 +749,13 @@ void MainWindow::setupMenus() {
             std::string error;
         };
         auto* dlg = new QDialog(this);
-        dlg->setWindowTitle("Structure spider");
+        dlg->setWindowTitle(tr("Structure spider"));
         dlg->resize(520, 420);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         trackTargetWindow(dlg);
         auto* v = new QVBoxLayout(dlg);
         const QString targetText = QString("0x%1").arg((qulonglong)target, 0, 16);
-        auto* status = new QLabel(QString("Searching for pointer paths to %1...").arg(targetText));
+        auto* status = new QLabel(QString(tr("Searching for pointer paths to %1...")).arg(targetText));
         status->setWordWrap(true);
         v->addWidget(status);
         auto* list = new QListWidget;
@@ -762,12 +768,12 @@ void MainWindow::setupMenus() {
             // a huge target can run out of memory: report either in the window.
             try { job->paths = job->scanner.scan(*proc, cfg); }
             catch (const std::exception& e) { job->error = e.what(); }
-            catch (...) { job->error = "unexpected error"; }
+            catch (...) { job->error = tr("unexpected error").toStdString(); }
             job->done = true;
         });
         connect(dlg, &QDialog::finished, job, [job]() { job->scanner.cancel(); });
         auto* row = new QHBoxLayout;
-        auto* dissectBtn = new QPushButton("Dissect structure at target");
+        auto* dissectBtn = new QPushButton(tr("Dissect structure at target"));
         connect(dissectBtn, &QPushButton::clicked, this, [this, target]() {
             if (!process_) return;
             auto* sd = new StructureDissector(process_.get(), target, this);
@@ -779,11 +785,11 @@ void MainWindow::setupMenus() {
             sd->show();
         });
         // Cancel while the scan runs, Close afterwards.
-        auto* closeBtn = new QPushButton("Cancel");
+        auto* closeBtn = new QPushButton(tr("Cancel"));
         connect(closeBtn, &QPushButton::clicked, dlg, [dlg, job, status]() {
             if (job->done) { dlg->accept(); return; }
             job->scanner.cancel();
-            status->setText("Cancelling...");
+            status->setText(tr("Cancelling..."));
         });
         row->addWidget(dissectBtn); row->addStretch(); row->addWidget(closeBtn);
         v->addLayout(row);
@@ -791,20 +797,20 @@ void MainWindow::setupMenus() {
         connect(poll, &QTimer::timeout, dlg, [poll, job, status, list, closeBtn, targetText]() {
             if (!job->done) {
                 if (!job->scanner.wasCancelled())
-                    status->setText(QString("Searching for pointer paths to %1... %2%")
+                    status->setText(QString(tr("Searching for pointer paths to %1... %2%"))
                                         .arg(targetText).arg(int(job->scanner.progress() * 100)));
                 return;
             }
             poll->stop();
             job->worker.join();
-            closeBtn->setText("Close");
+            closeBtn->setText(tr("Close"));
             if (!job->error.empty()) {
-                status->setText(QString("The pointer scan failed: %1").arg(QString::fromStdString(job->error)));
+                status->setText(QString(tr("The pointer scan failed: %1")).arg(QString::fromStdString(job->error)));
                 return;
             }
-            if (job->scanner.wasCancelled()) { status->setText("Cancelled."); return; }
-            QString text = QString("%1 pointer path(s) to %2:").arg(job->paths.size()).arg(targetText);
-            if (job->scanner.truncated()) text += " (the scan stopped at a limit, so some paths may be missing)";
+            if (job->scanner.wasCancelled()) { status->setText(tr("Cancelled.")); return; }
+            QString text = QString(tr("%1 pointer path(s) to %2:")).arg(job->paths.size()).arg(targetText);
+            if (job->scanner.truncated()) text += " " + tr("(the scan stopped at a limit, so some paths may be missing)");
             status->setText(text);
             for (const auto& p : job->paths) list->addItem(QString::fromStdString(p.toString()));
         });
@@ -814,10 +820,10 @@ void MainWindow::setupMenus() {
     // CE frmgroupscanalgoritmgeneratorunit: build a grouped-scan pattern from the
     // selected scan results (offsets from the first, with each value), for finding
     // other instances of the same structure.
-    tools->addAction("Group Scan Generator...", this, [this]() {
-        if (!process_ || !lastResult_) { QMessageBox::warning(this, "Group Scan Generator", "Run a scan and select results first."); return; }
+    tools->addAction(tr("Group Scan Generator..."), this, [this]() {
+        if (!process_ || !lastResult_) { QMessageBox::warning(this, tr("Group Scan Generator"), tr("Run a scan and select results first.")); return; }
         auto sel = resultsView_->selectionModel()->selectedRows();
-        if (sel.size() < 2) { QMessageBox::information(this, "Group Scan Generator", "Select two or more addresses in the scan results first (Ctrl+click or Shift+click). The generator builds a pattern from their offsets and values."); return; }
+        if (sel.size() < 2) { QMessageBox::information(this, tr("Group Scan Generator"), tr("Select two or more addresses in the scan results first (Ctrl+click or Shift+click). The generator builds a pattern from their offsets and values.")); return; }
         std::vector<uintptr_t> addrs;
         for (const auto& idx : sel) addrs.push_back(resultsModel_->addressAt(idx.row()));
         std::sort(addrs.begin(), addrs.end());
@@ -830,15 +836,15 @@ void MainWindow::setupMenus() {
         }
         QString pattern = parts.join(' ');
         auto* dlg = new QDialog(this);
-        dlg->setWindowTitle("Group Scan Generator");
+        dlg->setWindowTitle(tr("Group Scan Generator"));
         auto* v = new QVBoxLayout(dlg);
-        v->addWidget(new QLabel("Grouped-scan pattern (offset:value, 4-byte):"));
+        v->addWidget(new QLabel(tr("Grouped-scan pattern (offset:value, 4-byte):")));
         auto* edit = new QPlainTextEdit(pattern); edit->setReadOnly(true);
         v->addWidget(edit);
         auto* row = new QHBoxLayout;
-        auto* copyBtn = new QPushButton("Copy");
+        auto* copyBtn = new QPushButton(tr("Copy"));
         connect(copyBtn, &QPushButton::clicked, this, [pattern]() { QApplication::clipboard()->setText(pattern); });
-        auto* closeBtn = new QPushButton("Close");
+        auto* closeBtn = new QPushButton(tr("Close"));
         connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::accept);
         row->addStretch(); row->addWidget(copyBtn); row->addWidget(closeBtn);
         v->addLayout(row);
@@ -846,50 +852,50 @@ void MainWindow::setupMenus() {
         dlg->show();
     });
     // CE savedisassemblyfrm: disassemble a From..To range to a text file.
-    tools->addAction("Save Disassembly...", this, [this]() {
-        if (!process_) { QMessageBox::warning(this, "Save Disassembly", "Open a process first."); return; }
+    tools->addAction(tr("Save Disassembly..."), this, [this]() {
+        if (!process_) { QMessageBox::warning(this, tr("Save Disassembly"), tr("Open a process first.")); return; }
         bool ok = false;
-        QString fromS = QInputDialog::getText(this, "Save Disassembly", "From (hex):",
+        QString fromS = QInputDialog::getText(this, tr("Save Disassembly"), tr("From (hex):"),
                                               QLineEdit::Normal, "0", &ok);
         if (!ok) return;
-        QString toS = QInputDialog::getText(this, "Save Disassembly", "To (hex):",
+        QString toS = QInputDialog::getText(this, tr("Save Disassembly"), tr("To (hex):"),
                                             QLineEdit::Normal, "0", &ok);
         if (!ok) return;
         uintptr_t from = fromS.toULongLong(nullptr, 16), to = toS.toULongLong(nullptr, 16);
         if (to <= from || to - from > (64u << 20)) {
-            QMessageBox::warning(this, "Save Disassembly", "Invalid or too-large range."); return;
+            QMessageBox::warning(this, tr("Save Disassembly"), tr("Invalid or too-large range.")); return;
         }
-        if (!process_) { QMessageBox::warning(this, "Save Disassembly", "The process is no longer open."); return; }
+        if (!process_) { QMessageBox::warning(this, tr("Save Disassembly"), tr("The process is no longer open.")); return; }
         std::vector<uint8_t> buf(to - from);
         auto r = process_->read(from, buf.data(), buf.size());
-        if (!r || *r == 0) { QMessageBox::warning(this, "Save Disassembly", "Could not read that range."); return; }
+        if (!r || *r == 0) { QMessageBox::warning(this, tr("Save Disassembly"), tr("Could not read that range.")); return; }
         auto architecture = ce::disassemblerArchFor(*process_, from);
         if (!architecture) {
-            QMessageBox::warning(this, "Save Disassembly", QString::fromStdString(architecture.error()));
+            QMessageBox::warning(this, tr("Save Disassembly"), QString::fromStdString(architecture.error()));
             return;
         }
         ce::Disassembler dis(*architecture);
         auto insns = dis.disassemble(from, {buf.data(), *r}, 1000000, /*emitDataBytes=*/true);
-        auto path = QFileDialog::getSaveFileName(this, "Save disassembly", "disasm.asm");
+        auto path = QFileDialog::getSaveFileName(this, tr("Save disassembly"), "disasm.asm");
         if (path.isEmpty()) return;
         std::ofstream f(path.toStdString());
         for (const auto& i : insns)
             f << std::hex << i.address << ": " << i.mnemonic
               << (i.operands.empty() ? "" : " ") << i.operands << "\n";
-        QMessageBox::information(this, "Saved", QString("Wrote %1 instructions to %2.")
+        QMessageBox::information(this, tr("Saved"), QString(tr("Wrote %1 instructions to %2."))
                                     .arg(insns.size()).arg(path));
     });
     // CE frmMemoryViewExUnit (Graphical Memory View): bytes as pixels.
-    process->addAction("Wait for process...", this, [this]() {
+    process->addAction(tr("Wait for process..."), this, [this]() {
         bool ok = false;
-        auto name = QInputDialog::getText(this, "Wait for process",
-            "Name (or part of the name) of the program to wait for.\nCheat Engine opens it as soon as it starts:",
+        auto name = QInputDialog::getText(this, tr("Wait for process"),
+            tr("Name (or part of the name) of the program to wait for.\nCheat Engine opens it as soon as it starts:"),
             QLineEdit::Normal, "", &ok);
         if (!ok || name.isEmpty()) return;
         stopProcessWatch();
         processWatcher_ = std::make_unique<os::ProcessWatcher>();
         auto* status = statusBar();
-        status->showMessage(QString("Watching for '%1'…").arg(name));
+        status->showMessage(QString(tr("Watching for '%1'…")).arg(name));
         const quint64 watch = processWatch_;
         processWatcher_->start(name.toStdString(),
             [this, watch](pid_t pid, const std::string& procName) {
@@ -898,13 +904,13 @@ void MainWindow::setupMenus() {
                 }, Qt::QueuedConnection);
             });
     });
-    auto* snapshotMenu = tools->addMenu("Snapshot");
+    auto* snapshotMenu = tools->addMenu(tr("Snapshot"));
     // Bounded so a large game cannot exhaust memory; a diff reads at most as
     // much again.
     static constexpr uint64_t kSnapshotBudget = uint64_t(1) << 30;
-    snapshotMenu->addAction("Capture writable regions", this, [this]() {
+    snapshotMenu->addAction(tr("Capture writable regions"), this, [this]() {
         if (!process_) {
-            QMessageBox::warning(this, "No process", "Open a process before capturing a snapshot.");
+            QMessageBox::warning(this, tr("No process"), tr("Open a process before capturing a snapshot."));
             return;
         }
         ProcessHandle* proc = process_.get();
@@ -914,20 +920,20 @@ void MainWindow::setupMenus() {
                 captured = std::make_shared<Snapshot>(Snapshot::capture(*proc, kSnapshotBudget));
             });
         } catch (const std::exception& e) {
-            QMessageBox::warning(this, "Snapshot failed", QString::fromStdString(e.what()));
+            QMessageBox::warning(this, tr("Snapshot failed"), QString::fromStdString(e.what()));
             return;
         }
         snapshot_ = std::move(captured);
-        QString text = QString("Captured %1 region(s), %2 total.")
+        QString text = QString(tr("Captured %1 region(s), %2 total."))
             .arg(snapshot_->regionCount()).arg(formatByteSize(snapshot_->byteCount()));
         if (snapshot_->truncated())
-            text += QString("\n\nThe snapshot stopped at its %1 limit: writable memory "
-                            "after that point is not included.").arg(formatByteSize(kSnapshotBudget));
-        QMessageBox::information(this, "Snapshot captured", text);
+            text += QString(tr("\n\nThe snapshot stopped at its %1 limit: writable memory "
+                            "after that point is not included.")).arg(formatByteSize(kSnapshotBudget));
+        QMessageBox::information(this, tr("Snapshot captured"), text);
     });
-    snapshotMenu->addAction("Diff against current", this, [this]() {
+    snapshotMenu->addAction(tr("Diff against current"), this, [this]() {
         if (!process_ || !snapshot_) {
-            QMessageBox::warning(this, "Need both", "Capture a baseline snapshot first, then open a process.");
+            QMessageBox::warning(this, tr("Need both"), tr("Capture a baseline snapshot first, then open a process."));
             return;
         }
         constexpr size_t kShown = 200;
@@ -941,17 +947,17 @@ void MainWindow::setupMenus() {
                 diffs = baseline->diff(now, kShown, &changed);
             });
         } catch (const std::exception& e) {
-            QMessageBox::warning(this, "Diff failed", QString::fromStdString(e.what()));
+            QMessageBox::warning(this, tr("Diff failed"), QString::fromStdString(e.what()));
             return;
         }
         if (changed == 0) {
-            QMessageBox::information(this, "Diff", "No byte-level differences detected.");
+            QMessageBox::information(this, tr("Diff"), tr("No byte-level differences detected."));
             return;
         }
         // Only the first kShown differences are kept; the count covers all.
         QString text;
-        text += QString("%1 byte%2 changed since the baseline.\n\n")
-            .arg(changed).arg(changed == 1 ? "" : "s");
+        text += changed == 1 ? tr("1 byte changed since the baseline.\n\n")
+                             : tr("%1 bytes changed since the baseline.\n\n").arg(changed);
         for (const auto& d : diffs) {
             text += QString("0x%1: 0x%2 -> 0x%3\n")
                 .arg(d.address, 16, 16, QChar('0'))
@@ -959,10 +965,10 @@ void MainWindow::setupMenus() {
                 .arg(d.after,  2, 16, QChar('0'));
         }
         if (changed > diffs.size())
-            text += QString("\n(%1 more not shown.)").arg(changed - diffs.size());
+            text += QString(tr("\n(%1 more not shown.)")).arg(changed - diffs.size());
 
         auto* dlg = new QDialog(this);
-        dlg->setWindowTitle("Snapshot Diff");
+        dlg->setWindowTitle(tr("Snapshot Diff"));
         dlg->resize(640, 480);
         auto* l = new QVBoxLayout(dlg);
         auto* edit = new QPlainTextEdit(text);
@@ -975,73 +981,73 @@ void MainWindow::setupMenus() {
         dlg->exec();
         dlg->deleteLater();
     });
-    snapshotMenu->addAction("Restore baseline", this, [this]() {
+    snapshotMenu->addAction(tr("Restore baseline"), this, [this]() {
         if (!process_ || !snapshot_) {
-            QMessageBox::warning(this, "Need both", "Capture a baseline snapshot first.");
+            QMessageBox::warning(this, tr("Need both"), tr("Capture a baseline snapshot first."));
             return;
         }
-        auto answer = QMessageBox::question(this, "Restore?",
-            QString("Write the baseline back into the process? This overwrites the "
-                    "captured memory that is still mapped writable (%1 regions, %2).")
+        auto answer = QMessageBox::question(this, tr("Restore?"),
+            QString(tr("Write the baseline back into the process? This overwrites the "
+                    "captured memory that is still mapped writable (%1 regions, %2)."))
                 .arg(snapshot_->regionCount()).arg(formatByteSize(snapshot_->byteCount())));
         if (answer != QMessageBox::Yes) return;
         // Both go away if the process exits while the question is open.
-        if (!process_ || !snapshot_) { QMessageBox::warning(this, "Restore", "The process is no longer open."); return; }
+        if (!process_ || !snapshot_) { QMessageBox::warning(this, tr("Restore"), tr("The process is no longer open.")); return; }
         ProcessHandle* proc = process_.get();
         std::shared_ptr<const Snapshot> baseline = snapshot_;
         uint64_t written = 0;
         try {
             runSnapshotTask([&] { written = baseline->restore(*proc); });
         } catch (const std::exception& e) {
-            QMessageBox::warning(this, "Restore failed", QString::fromStdString(e.what()));
+            QMessageBox::warning(this, tr("Restore failed"), QString::fromStdString(e.what()));
             return;
         }
-        QString text = QString("Wrote %1 bytes back into the process.").arg(written);
+        QString text = QString(tr("Wrote %1 bytes back into the process.")).arg(written);
         if (written < baseline->byteCount())
-            text += QString("\n\n%1 bytes were skipped: that memory is no longer mapped, "
-                            "or is now read-only or executable.").arg(baseline->byteCount() - written);
-        QMessageBox::information(this, "Restored", text);
+            text += QString(tr("\n\n%1 bytes were skipped: that memory is no longer mapped, "
+                            "or is now read-only or executable.")).arg(baseline->byteCount() - written);
+        QMessageBox::information(this, tr("Restored"), text);
     });
-    snapshotMenu->addAction("Save to file...", this, [this]() {
+    snapshotMenu->addAction(tr("Save to file..."), this, [this]() {
         if (!snapshot_) {
-            QMessageBox::warning(this, "No snapshot", "Capture a snapshot first.");
+            QMessageBox::warning(this, tr("No snapshot"), tr("Capture a snapshot first."));
             return;
         }
-        auto path = QFileDialog::getSaveFileName(this, "Save snapshot", "snapshot.cesnap",
-            "Snapshot (*.cesnap);;All (*)");
+        auto path = QFileDialog::getSaveFileName(this, tr("Save snapshot"), "snapshot.cesnap",
+            tr("Snapshot (*.cesnap);;All (*)"));
         if (path.isEmpty()) return;
         if (!snapshot_->save(path.toStdString())) {
-            QMessageBox::warning(this, "Save failed", "Could not write " + path);
+            QMessageBox::warning(this, tr("Save failed"), tr("Could not write %1").arg(path));
         }
     });
-    snapshotMenu->addAction("Load from file...", this, [this]() {
-        auto path = QFileDialog::getOpenFileName(this, "Load snapshot", "",
-            "Snapshot (*.cesnap);;All (*)");
+    snapshotMenu->addAction(tr("Load from file..."), this, [this]() {
+        auto path = QFileDialog::getOpenFileName(this, tr("Load snapshot"), "",
+            tr("Snapshot (*.cesnap);;All (*)"));
         if (path.isEmpty()) return;
         auto loaded = std::make_shared<Snapshot>();
         std::string err;
         if (!loaded->load(path.toStdString(), &err)) {
-            QMessageBox::warning(this, "Load failed", QString::fromStdString(err));
+            QMessageBox::warning(this, tr("Load failed"), QString::fromStdString(err));
             return;
         }
         snapshot_ = std::move(loaded);
-        QMessageBox::information(this, "Snapshot loaded",
-            QString("Loaded %1 region(s), %2 bytes.")
+        QMessageBox::information(this, tr("Snapshot loaded"),
+            QString(tr("Loaded %1 region(s), %2 bytes."))
                 .arg(snapshot_->regionCount()).arg(snapshot_->byteCount()));
     });
     tools->addSeparator();
-    tools->addAction("Overlay...", this, &MainWindow::showOverlayDialog);
-    tools->addAction("Speedhack...", this, [this]() {
+    tools->addAction(tr("Overlay..."), this, &MainWindow::showOverlayDialog);
+    tools->addAction(tr("Speedhack..."), this, [this]() {
         auto* dlg = new QDialog(this);
-        dlg->setWindowTitle("Speedhack");
+        dlg->setWindowTitle(tr("Speedhack"));
         auto* layout = new QVBoxLayout(dlg);
         layout->setSpacing(10);
-        auto* intro = new QLabel("Scales the time the game sees. Apply loads the speedhack "
-                                 "library into the process the first time.");
+        auto* intro = new QLabel(tr("Scales the time the game sees. Apply loads the speedhack "
+                                 "library into the process the first time."));
         intro->setWordWrap(true);
         intro->setProperty("secondary", true);
         auto* speedRow = new QHBoxLayout;
-        speedRow->addWidget(new QLabel("Speed"));
+        speedRow->addWidget(new QLabel(tr("Speed")));
         speedRow->addStretch();
         auto* speedValue = new QLabel("1.0×");
         speedValue->setStyleSheet(QString("font-size: %1pt; font-weight: 600;")
@@ -1060,10 +1066,10 @@ void MainWindow::setupMenus() {
             presets->addWidget(b);
         }
         // Status of the last Apply: injection errors or the speed now in effect.
-        auto* label = new QLabel(process_ ? "Not applied yet." : "Open a process first.");
+        auto* label = new QLabel(process_ ? tr("Not applied yet.") : tr("Open a process first."));
         label->setProperty("secondary", true);
         label->setWordWrap(true);
-        auto* applyBtn = new QPushButton("Apply");
+        auto* applyBtn = new QPushButton(tr("Apply"));
         applyBtn->setProperty("primary", true);
         applyBtn->setEnabled(process_ != nullptr);
         connect(applyBtn, &QPushButton::clicked, [this, slider, label]() {
@@ -1074,7 +1080,7 @@ void MainWindow::setupMenus() {
                 // The speedhack is injected locally and speaks through this
                 // machine's /dev/shm: a remote PID names some other process here.
                 const auto localPid = ce::localTargetPid(process_.get());
-                if (!localPid) { label->setText("The speedhack works on local processes only."); return; }
+                if (!localPid) { label->setText(tr("The speedhack works on local processes only.")); return; }
                 pid_t pid = *localPid;
                 bool loaded = false;
                 std::ifstream maps("/proc/" + std::to_string(pid) + "/maps");
@@ -1089,7 +1095,7 @@ void MainWindow::setupMenus() {
                     // directory), or next to the binary in a build tree.
                     const std::string so = ce::findCompanionLibrary("libspeedhack.so");
                     if (so.empty()) {
-                        label->setText("Inject failed: libspeedhack.so is not installed next to Cheat Engine.");
+                        label->setText(tr("Inject failed: libspeedhack.so is not installed next to Cheat Engine."));
                         return;
                     }
                     // A containerised game (Flatpak, Steam runtime) may see
@@ -1098,12 +1104,12 @@ void MainWindow::setupMenus() {
                     if (auto task = ce::os::processMemoryTask(pid)) targetSo = ce::os::targetVisiblePath(*task, so);
                     auto r = ce::os::injectLibrary(*process_, luaResolver_, targetSo);
                     if (!r) {
-                        label->setText(QString("Inject failed: %1")
+                        label->setText(QString(tr("Inject failed: %1"))
                                            .arg(QString::fromStdString(r.error())));
                         return;  // don't set a speed the plugin can't read
                     }
                 }
-                label->setText(QString("Active: the game runs at %1×.").arg(speed, 0, 'f', 1));
+                label->setText(QString(tr("Active: the game runs at %1×.")).arg(speed, 0, 'f', 1));
             }
             // Match the plugin side (plugins/speedhack.c): O_NOFOLLOW refuses a
             // symlink-swapped /dev/shm entry and mode 0600 keeps the channel
@@ -1137,13 +1143,13 @@ void MainWindow::setupMenus() {
     });
 
     // ── Help (CE verbatim) ──
-    auto* help = menuBar()->addMenu("&Help");
-    help->addAction("Cheat Engine Help", this, [this]() {
-        openHelpDoc("README.md", "Cheat Engine for Linux: Help",
+    auto* help = menuBar()->addMenu(tr("&Help"));
+    help->addAction(tr("Cheat Engine Help"), this, [this]() {
+        openHelpDoc("README.md", tr("Cheat Engine for Linux: Help"),
                     "https://github.com/wleeaf/cheat-engine-linux#readme");
     });
-    help->addAction("Lua documentation", this, [this]() {
-        openHelpDoc("docs/SCRIPTING.md", "Lua / Scripting documentation",
+    help->addAction(tr("Lua documentation"), this, [this]() {
+        openHelpDoc("docs/SCRIPTING.md", tr("Lua / Scripting documentation"),
                     "https://github.com/wleeaf/cheat-engine-linux/blob/main/docs/SCRIPTING.md");
     });
     help->addSeparator();
@@ -1151,22 +1157,22 @@ void MainWindow::setupMenus() {
     auto launchTutorial = [this](const QString& program) {
         const QString path = QCoreApplication::applicationDirPath() + "/" + program;
         if (!QProcess::startDetached(path, {}))
-            QMessageBox::warning(this, "Tutorial not found",
-                QString("Could not start %1. It is installed next to cheatengine.").arg(path));
+            QMessageBox::warning(this, tr("Tutorial not found"),
+                QString(tr("Could not start %1. It is installed next to cheatengine.")).arg(path));
     };
-    help->addAction("Cheat Engine Tutorial...", this, [launchTutorial]() { launchTutorial("cetutorial"); });
-    help->addAction("Graphical Tutorial...", this, [launchTutorial]() { launchTutorial("cegtutorial"); });
+    help->addAction(tr("Cheat Engine Tutorial..."), this, [launchTutorial]() { launchTutorial("cetutorial"); });
+    help->addAction(tr("Graphical Tutorial..."), this, [launchTutorial]() { launchTutorial("cegtutorial"); });
     help->addSeparator();
-    help->addAction("About", this, [this]() {
-        QMessageBox::about(this, "About Cheat Engine for Linux",
-            QString("<h2 style='margin-bottom:2px'>Cheat Engine for Linux</h2>"
+    help->addAction(tr("About"), this, [this]() {
+        QMessageBox::about(this, tr("About Cheat Engine for Linux"),
+            QString(tr("<h2 style='margin-bottom:2px'>Cheat Engine for Linux</h2>"
                     "<p style='margin-top:0'>Version %1</p>"
                     "<p>A memory scanner, debugger and code injection tool for native Linux, "
                     "Wine and Proton programs.</p>"
                     "<p>Built with Qt %2, Capstone, Keystone and Lua 5.3.<br>"
                     "Free and open source under the MIT license.</p>"
                     "<p><a href='https://github.com/wleeaf/cheat-engine-linux'>"
-                    "github.com/wleeaf/cheat-engine-linux</a></p>")
+                    "github.com/wleeaf/cheat-engine-linux</a></p>"))
                 .arg(CECORE_VERSION, qVersion()));
     });
 }
@@ -1207,11 +1213,11 @@ void MainWindow::openHelpDoc(const QString& relPath, const QString& title, const
     view->document()->setDocumentMargin(12);
     v->addWidget(view);
     auto* row = new QHBoxLayout;
-    auto* online = new QPushButton("Open on GitHub");
+    auto* online = new QPushButton(tr("Open on GitHub"));
     connect(online, &QPushButton::clicked, this, [url]() { QDesktopServices::openUrl(QUrl(url)); });
     row->addWidget(online);
     row->addStretch();
-    auto* closeBtn = new QPushButton("Close");
+    auto* closeBtn = new QPushButton(tr("Close"));
     row->addWidget(closeBtn);
     v->addLayout(row);
     connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::accept);
@@ -1223,18 +1229,18 @@ void MainWindow::openHelpDoc(const QString& relPath, const QString& title, const
 void MainWindow::showComments() {
     auto* dlg = new QDialog(this);
     tableTextWindows_.push_back(dlg);   // closed when another table loads
-    dlg->setWindowTitle("Table Comments");
+    dlg->setWindowTitle(tr("Table Comments"));
     dlg->resize(520, 400);
     auto* v = new QVBoxLayout(dlg);
     auto* memo = new QPlainTextEdit;                   // CE Memo1
     memo->setPlainText(tableComment_);
-    memo->setPlaceholderText("Notes about this cheat table: how to use it, what each entry does, "
-                             "which game version it was made for. They are saved with the table.");
+    memo->setPlaceholderText(tr("Notes about this cheat table: how to use it, what each entry does, "
+                             "which game version it was made for. They are saved with the table."));
     memo->document()->setDocumentMargin(6);
     v->addWidget(memo);
     auto* row = new QHBoxLayout;                        // CE Panel1
     row->addStretch();
-    auto* closeBtn = new QPushButton("Close");         // CE Button1
+    auto* closeBtn = new QPushButton(tr("Close"));         // CE Button1
     row->addWidget(closeBtn);
     v->addLayout(row);
     connect(memo, &QPlainTextEdit::textChanged, this,
@@ -1250,22 +1256,22 @@ void MainWindow::showComments() {
 void MainWindow::showTableLuaScript() {
     auto* dlg = new QDialog(this);
     tableTextWindows_.push_back(dlg);   // closed when another table loads
-    dlg->setWindowTitle("Cheat Table Lua Script");
+    dlg->setWindowTitle(tr("Cheat Table Lua Script"));
     dlg->resize(640, 460);
     auto* v = new QVBoxLayout(dlg);
     auto* memo = new CodeEditor;
     memo->setPlainText(tableLuaScript_);
-    memo->setPlaceholderText("-- Lua that runs when this table is opened; saved with the table.");
+    memo->setPlaceholderText(tr("-- Lua that runs when this table is opened; saved with the table."));
     v->addWidget(memo);
 
     auto* row = new QHBoxLayout;
-    auto* execBtn = new QPushButton("Execute script");
+    auto* execBtn = new QPushButton(tr("Execute script"));
     execBtn->setProperty("primary", true);
     row->addWidget(execBtn);
     auto* result = new QLabel;
     result->setWordWrap(true);
     row->addWidget(result, 1);
-    auto* closeBtn = new QPushButton("Close");
+    auto* closeBtn = new QPushButton(tr("Close"));
     row->addWidget(closeBtn);
     v->addLayout(row);
 
@@ -1280,8 +1286,8 @@ void MainWindow::showTableLuaScript() {
         auto res = luaEngine_.evalToString(memo->toPlainText().toStdString());
         const auto pal = editorPalette();
         result->setStyleSheet(QString("color: %1;").arg((res.has_value() ? pal.success : pal.error).name()));
-        result->setText(res.has_value() ? "Script executed."
-                                        : QString("Error: %1").arg(QString::fromStdString(res.error())));
+        result->setText(res.has_value() ? tr("Script executed.")
+                                        : QString(tr("Error: %1")).arg(QString::fromStdString(res.error())));
     });
     connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::accept);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
@@ -1305,20 +1311,20 @@ void MainWindow::showAdvancedOptions() {
 
 void MainWindow::showOverlayDialog() {
     QDialog dialog(this);
-    dialog.setWindowTitle("Overlay");
+    dialog.setWindowTitle(tr("Overlay"));
     auto* layout = new QVBoxLayout(&dialog);
     layout->setSpacing(10);
-    auto* intro = new QLabel("A transparent, click-through layer drawn over the whole screen, "
-                             "for use with a game in borderless or windowed mode.");
+    auto* intro = new QLabel(tr("A transparent, click-through layer drawn over the whole screen, "
+                             "for use with a game in borderless or windowed mode."));
     intro->setWordWrap(true);
     intro->setProperty("secondary", true);
     layout->addWidget(intro);
-    auto* osdCheck = new QCheckBox("Status text (process, active cheats, frame rate)");
-    auto* crosshairCheck = new QCheckBox("Crosshair in the centre of the screen");
-    auto* showButton = new QPushButton("Show Overlay");
+    auto* osdCheck = new QCheckBox(tr("Status text (process, active cheats, frame rate)"));
+    auto* crosshairCheck = new QCheckBox(tr("Crosshair in the centre of the screen"));
+    auto* showButton = new QPushButton(tr("Show Overlay"));
     showButton->setProperty("primary", true);
-    auto* hideButton = new QPushButton("Hide Overlay");
-    auto* closeButton = new QPushButton("Close");
+    auto* hideButton = new QPushButton(tr("Hide Overlay"));
+    auto* closeButton = new QPushButton(tr("Close"));
 
     osdCheck->setChecked(!overlayWindow_ || overlayWindow_->osdEnabled());
     crosshairCheck->setChecked(!overlayWindow_ || overlayWindow_->crosshairEnabled());
@@ -1387,7 +1393,7 @@ void MainWindow::updateOverlayStatus() {
             ++active;
     }
 
-    overlayWindow_->setStatusText(QString("%1 | Records %2/%3 active")
+    overlayWindow_->setStatusText(QString(tr("%1 | Records %2/%3 active"))
         .arg(processLabel_->text())
         .arg(active)
         .arg(total));
@@ -1411,7 +1417,7 @@ void MainWindow::setupUi() {
     auto* processBar = new QHBoxLayout;
     auto* openBtn = new QPushButton;
     openBtn->setFixedSize(38, 38);
-    openBtn->setToolTip("Open process");
+    openBtn->setToolTip(tr("Open process"));
     // Remove the default button padding so the icon fills the button instead of
     // being clipped by the frame.
     openBtn->setStyleSheet("QPushButton { padding: 0px; }");
@@ -1437,7 +1443,7 @@ void MainWindow::setupUi() {
     openBtn->setIcon(QIcon(btnIcon.scaled(24, 24, Qt::KeepAspectRatio, Qt::SmoothTransformation)));
     openBtn->setIconSize(QSize(24, 24));
     connect(openBtn, &QPushButton::clicked, this, &MainWindow::onOpenProcess);
-    processLabel_ = new QLabel("No process selected");
+    processLabel_ = new QLabel(tr("No process selected"));
     processLabel_->setObjectName("processLabel");
     processLabel_->setStyleSheet(QString("font-weight: 600; font-size: %1pt;")
         .arg(QApplication::font().pointSizeF() * 1.1, 0, 'f', 1));
@@ -1520,19 +1526,19 @@ void MainWindow::setupUi() {
         QMenu menu(this);
         // CE foundlistpopup order.
         auto* addAct = menu.addAction(sel.size() > 1
-            ? QString("Add %1 selected addresses to the address list").arg(sel.size())
-            : QString("Add selected address to the address list"));
-        auto* browseAct = menu.addAction("Browse this memory region");
-        auto* disasmAct = menu.addAction("Disassemble this memory region");
-        auto* copyAct = menu.addAction(sel.size() > 1 ? QString("Copy %1 addresses").arg(sel.size())
-                                                      : QString("Copy address"));
+            ? QString(tr("Add %1 selected addresses to the address list")).arg(sel.size())
+            : QString(tr("Add selected address to the address list")));
+        auto* browseAct = menu.addAction(tr("Browse this memory region"));
+        auto* disasmAct = menu.addAction(tr("Disassemble this memory region"));
+        auto* copyAct = menu.addAction(sel.size() > 1 ? QString(tr("Copy %1 addresses")).arg(sel.size())
+                                                      : QString(tr("Copy address")));
         copyAct->setShortcut(QKeySequence::Copy);
         auto* removeAct = menu.addAction(sel.size() > 1
-            ? QString("Remove %1 selected addresses from the results").arg(sel.size())
-            : QString("Remove selected address from the results"));
+            ? QString(tr("Remove %1 selected addresses from the results")).arg(sel.size())
+            : QString(tr("Remove selected address from the results")));
         menu.addSeparator();
-        auto* accAct = menu.addAction("Find out what accesses this address");
-        auto* wrAct  = menu.addAction("Find out what writes to this address");
+        auto* accAct = menu.addAction(tr("Find out what accesses this address"));
+        auto* wrAct  = menu.addAction(tr("Find out what writes to this address"));
         QAction* picked = menu.exec(resultsView_->viewport()->mapToGlobal(pos));
         if (!picked) return;
         const uintptr_t firstAddr = resultsModel_->addressAt(sel.first().row());
@@ -1562,7 +1568,7 @@ void MainWindow::setupUi() {
             std::unique_ptr<ce::ScanResult> pruned;
             try { pruned = ce::pruneScanResult(*lastResult_, lastResultValueSize_, mask); }
             catch (const std::exception& error) {
-                QMessageBox::warning(this, "Remove from results", QString::fromStdString(error.what()));
+                QMessageBox::warning(this, tr("Remove from results"), QString::fromStdString(error.what()));
                 return;
             }
             resultsModel_->setResult(pruned.get(), lastResultType_, lastResultValueSize_, resultsModel_->stringEncoding());
@@ -1595,27 +1601,27 @@ void MainWindow::setupUi() {
     leftLayout->addWidget(resultsView_);
 
     auto* foundRow = new QHBoxLayout;
-    foundLabel_ = new QLabel("Found: 0");
+    foundLabel_ = new QLabel(tr("Found: 0"));
     foundRow->addWidget(foundLabel_);
     foundRow->addStretch();
-    auto* resHexCheck = new QCheckBox("Hex");
-    resHexCheck->setToolTip("Show result values in hexadecimal");
+    auto* resHexCheck = new QCheckBox(tr("Hex"));
+    resHexCheck->setToolTip(tr("Show result values in hexadecimal"));
     connect(resHexCheck, &QCheckBox::toggled, this, [this](bool on) { resultsModel_->setDisplayHex(on); });
     foundRow->addWidget(resHexCheck);
     leftLayout->addLayout(foundRow);
 
     auto* leftBtns = new QHBoxLayout;
-    auto* memViewBtn = new QPushButton("Memory View");
+    auto* memViewBtn = new QPushButton(tr("Memory View"));
     memViewBtn->setObjectName("memoryViewButton");
-    memViewBtn->setToolTip("Browse the selected process's memory");
+    memViewBtn->setToolTip(tr("Browse the selected process's memory"));
     connect(memViewBtn, &QPushButton::clicked, this, &MainWindow::onMemoryView);
-    auto* addAddrBtn = new QPushButton("Add Address");
+    auto* addAddrBtn = new QPushButton(tr("Add Address"));
     connect(addAddrBtn, &QPushButton::clicked, this, [this]() {
         // CE uses formAddressChange for both add and edit.
         ce::gui::ChangeAddressDialog dlg("", mapValueType(valueTypeCombo_->currentIndex()),
                                          false, 1, this, /*showSigned=*/true, process_.get());
         openAddressDialog_ = &dlg;
-        dlg.setWindowTitle("Add address");
+        dlg.setWindowTitle(tr("Add address"));
         if (dlg.exec() != QDialog::Accepted) return;
         auto text = dlg.address();
         if (text.isEmpty()) return;
@@ -1633,11 +1639,11 @@ void MainWindow::setupUi() {
                             [](QChar c){ return std::isxdigit(c.toLatin1()); });
             QString expr = plainHex ? QString() : trimmed;
             // Every field of the dialog, as Add Address Manually applies them.
-            const int id = addressListModel_->addEntry(*addr, dlg.valueType(), "Manual entry", expr, (size_t)dlg.length());
+            const int id = addressListModel_->addEntry(*addr, dlg.valueType(), tr("Manual entry"), expr, (size_t)dlg.length());
             addressListModel_->setHexView(id, dlg.showHex());
             addressListModel_->setSigned(id, dlg.isSigned());
         } else
-            QMessageBox::warning(this, "Add Address", QString("Could not resolve \"%1\".").arg(text.trimmed()));
+            QMessageBox::warning(this, tr("Add Address"), QString(tr("Could not resolve \"%1\".")).arg(text.trimmed()));
     });
     leftBtns->addWidget(memViewBtn);
     leftBtns->addWidget(addAddrBtn);
@@ -1651,30 +1657,30 @@ void MainWindow::setupUi() {
 
     // Value input
     auto* valueLayout = new QHBoxLayout;
-    valueLayout->addWidget(new QLabel("Value:"));
+    valueLayout->addWidget(new QLabel(tr("Value:")));
     scanValueEdit_ = new QLineEdit;
     scanValueEdit_->setObjectName("scanValue");
     valueLayout->addWidget(scanValueEdit_);
     // Second bound, only shown for "Value between..." scans.
-    betweenAndLabel_ = new QLabel("and");
+    betweenAndLabel_ = new QLabel(tr("and"));
     betweenAndLabel_->setVisible(false);
     valueLayout->addWidget(betweenAndLabel_);
     scanValue2Edit_ = new QLineEdit;
     scanValue2Edit_->setObjectName("scanValueUpper");
     scanValue2Edit_->setVisible(false);
     valueLayout->addWidget(scanValue2Edit_);
-    hexCheck_ = new QCheckBox("Hex");
-    hexCheck_->setToolTip("Interpret integer scan values as hexadecimal");
+    hexCheck_ = new QCheckBox(tr("Hex"));
+    hexCheck_->setToolTip(tr("Interpret integer scan values as hexadecimal"));
     valueLayout->addWidget(hexCheck_);
     rightLayout->addLayout(valueLayout);
 
     // Scan type
     scanTypeCombo_ = new QComboBox;
     scanTypeCombo_->setObjectName("scanComparison");
-    scanTypeCombo_->addItems({"Exact Value", "Bigger than...", "Smaller than...",
-        "Value between...", "Unknown initial value", "Increased value",
-        "Decreased value", "Changed value", "Unchanged value", "Same as first scan",
-        "Increased value by...", "Decreased value by..."});
+    scanTypeCombo_->addItems({tr("Exact Value"), tr("Bigger than..."), tr("Smaller than..."),
+        tr("Value between..."), tr("Unknown initial value"), tr("Increased value"),
+        tr("Decreased value"), tr("Changed value"), tr("Unchanged value"), tr("Same as first scan"),
+        tr("Increased value by..."), tr("Decreased value by...")});
     rightLayout->addWidget(scanTypeCombo_);
 
     // Reveal the second value box only for a "Value between..." scan, and grey out
@@ -1710,20 +1716,20 @@ void MainWindow::setupUi() {
     // Names match the cheat-table Type column / Change-address dialog (ce::valueTypeName)
     // and CE, so a type reads the same in the scanner and the address list. mapValueType
     // keys on the index, not the text, so the labels are free to be canonical.
-    valueTypeCombo_->addItems({"Byte", "2 Bytes", "4 Bytes", "8 Bytes", "Float", "Double", "String", "Unicode String", "Array of byte", "Binary", "All", "Pointer", "Grouped", "Custom"});
+    valueTypeCombo_->addItems({tr("Byte"), tr("2 Bytes"), tr("4 Bytes"), tr("8 Bytes"), tr("Float"), tr("Double"), tr("String"), tr("Unicode String"), tr("Array of byte"), tr("Binary"), tr("All"), tr("Pointer"), tr("Grouped"), tr("Custom")});
     valueTypeCombo_->setCurrentIndex(2); // 4 Bytes default
     rightLayout->addWidget(valueTypeCombo_);
 
     auto* floatLayout = new QHBoxLayout;
     floatRoundingCombo_ = new QComboBox;
     floatRoundingCombo_->setObjectName("scanRounding");
-    floatRoundingCombo_->setToolTip("Exact uses stored precision. Rounded uses the precision of your input. Truncated compares integer parts. Extreme uses a tolerance.");
-    floatRoundingCombo_->addItems({"Exact", "Rounded", "Truncated", "Extreme"});
+    floatRoundingCombo_->setToolTip(tr("Exact uses stored precision. Rounded uses the precision of your input. Truncated compares integer parts. Extreme uses a tolerance."));
+    floatRoundingCombo_->addItems({tr("Exact"), tr("Rounded"), tr("Truncated"), tr("Extreme")});
     floatRoundingCombo_->setCurrentIndex(1);  // CE defaults float scans to Rounded
     floatToleranceEdit_ = new QLineEdit;
     floatToleranceEdit_->setObjectName("scanTolerance");
-    floatToleranceEdit_->setToolTip("Absolute difference allowed in Extreme mode. Leave blank or use 0 for automatic tolerance.");
-    floatToleranceEdit_->setPlaceholderText("Tolerance");
+    floatToleranceEdit_->setToolTip(tr("Absolute difference allowed in Extreme mode. Leave blank or use 0 for automatic tolerance."));
+    floatToleranceEdit_->setPlaceholderText(tr("Tolerance"));
     floatToleranceEdit_->setValidator(new QDoubleValidator(0.0, std::numeric_limits<double>::max(), 4096, floatToleranceEdit_));
     if (double tolerance = QSettings().value("scan/floatTolerance", 0.0).toDouble(); tolerance > 0)
         floatToleranceEdit_->setText(QString::number(tolerance, 'g', 12));
@@ -1739,16 +1745,16 @@ void MainWindow::setupUi() {
         floatRoundingCombo_->setVisible(isFloat);
         floatToleranceEdit_->setVisible(isFloat && floatRoundingCombo_->currentIndex() == 3);
         // Type-aware placeholder to guide what to type (AOB wildcards, etc.).
-        const char* ph = "e.g. 100";
+        QString ph = tr("e.g. 100");
         switch (vt) {
             case ValueType::Float:
-            case ValueType::Double:        ph = "e.g. 3.14"; break;
+            case ValueType::Double:        ph = tr("e.g. 3.14"); break;
             case ValueType::String:
-            case ValueType::UnicodeString: ph = "text to find"; break;
-            case ValueType::ByteArray:     ph = "e.g. 48 8B ?? 05"; break;
-            case ValueType::Binary:        ph = "e.g. 0110??01"; break;
-            case ValueType::Pointer:       ph = "e.g. 0x7fabc000"; break;
-            default:                       ph = "e.g. 100"; break;
+            case ValueType::UnicodeString: ph = tr("text to find"); break;
+            case ValueType::ByteArray:     ph = tr("e.g. 48 8B ?? 05"); break;
+            case ValueType::Binary:        ph = tr("e.g. 0110??01"); break;
+            case ValueType::Pointer:       ph = tr("e.g. 0x7fabc000"); break;
+            default:                       ph = tr("e.g. 100"); break;
         }
         scanValueEdit_->setPlaceholderText(ph);
     };
@@ -1760,13 +1766,13 @@ void MainWindow::setupUi() {
 
     // Buttons
     auto* btnLayout = new QHBoxLayout;
-    firstScanBtn_ = new QPushButton("First Scan");
+    firstScanBtn_ = new QPushButton(tr("First Scan"));
     // Accent "primary action" styling comes from the theme (QPushButton#primaryButton).
     firstScanBtn_->setObjectName("primaryButton");
-    nextScanBtn_ = new QPushButton("Next Scan");
+    nextScanBtn_ = new QPushButton(tr("Next Scan"));
     nextScanBtn_->setObjectName("nextScanButton");
     nextScanBtn_->setEnabled(false);
-    undoScanBtn_ = new QPushButton("Undo Scan");
+    undoScanBtn_ = new QPushButton(tr("Undo Scan"));
     undoScanBtn_->setEnabled(false);
     connect(firstScanBtn_, &QPushButton::clicked, this, &MainWindow::onFirstScan);
     connect(nextScanBtn_, &QPushButton::clicked, this, &MainWindow::onNextScan);
@@ -1785,14 +1791,14 @@ void MainWindow::setupUi() {
     rightLayout->addWidget(undoScanBtn_);
 
     // Scan options group
-    auto* optGroup = new QGroupBox("Memory Scan Options");
+    auto* optGroup = new QGroupBox(tr("Memory Scan Options"));
     auto* optLayout = new QGridLayout(optGroup);
-    optLayout->addWidget(new QLabel("From:"), 0, 0);
+    optLayout->addWidget(new QLabel(tr("From:")), 0, 0);
     fromAddressEdit_ = new QLineEdit("0000000000");
     fromAddressEdit_->setObjectName("scanFrom");
     fromAddressEdit_->setFont(monospaceFont());
     optLayout->addWidget(fromAddressEdit_, 0, 1);
-    optLayout->addWidget(new QLabel("To:"), 1, 0);
+    optLayout->addWidget(new QLabel(tr("To:")), 1, 0);
     toAddressEdit_ = new QLineEdit(QString::number(UINTPTR_MAX,16));
     toAddressEdit_->setObjectName("scanTo");
     toAddressEdit_->setFont(monospaceFont());
@@ -1800,19 +1806,19 @@ void MainWindow::setupUi() {
     // Tri-state like CE: checked = must have the protection, unchecked = must NOT,
     // partial (grey) = don't care. Writable defaults to "must" (values live in
     // writable memory); Executable defaults to "don't care".
-    writableCheck_ = new QCheckBox("Writable");
+    writableCheck_ = new QCheckBox(tr("Writable"));
     writableCheck_->setTristate(true);
     writableCheck_->setCheckState(Qt::Checked);
-    writableCheck_->setToolTip("Checked: only writable regions. Unchecked: only "
-                               "non-writable. Grey: any (don't care).");
+    writableCheck_->setToolTip(tr("Checked: only writable regions. Unchecked: only "
+                               "non-writable. Grey: any (don't care)."));
     optLayout->addWidget(writableCheck_, 2, 0, 1, 2);
-    executableCheck_ = new QCheckBox("Executable");
+    executableCheck_ = new QCheckBox(tr("Executable"));
     executableCheck_->setTristate(true);
     executableCheck_->setCheckState(Qt::PartiallyChecked);
-    executableCheck_->setToolTip("Checked: only executable regions. Unchecked: only "
-                                 "non-executable. Grey: any (don't care).");
+    executableCheck_->setToolTip(tr("Checked: only executable regions. Unchecked: only "
+                                 "non-executable. Grey: any (don't care)."));
     optLayout->addWidget(executableCheck_, 3, 0, 1, 2);
-    fastScanCheck_ = new QCheckBox("Fast Scan");
+    fastScanCheck_ = new QCheckBox(tr("Fast Scan"));
     fastScanCheck_->setChecked(true);
     optLayout->addWidget(fastScanCheck_, 4, 0);
     alignEdit_ = new QLineEdit("4");
@@ -1845,7 +1851,7 @@ void MainWindow::setupUi() {
             valueTypeCombo_->setCurrentIndex(kSettingsToScanner[dvt]);
     }
 
-    percentCheck_ = new QCheckBox("Compare by %");
+    percentCheck_ = new QCheckBox(tr("Compare by %"));
     optLayout->addWidget(percentCheck_, 5, 0);
     percentValueEdit_ = new QLineEdit("10");
     percentValueEdit_->setFixedWidth(68);
@@ -1853,7 +1859,7 @@ void MainWindow::setupUi() {
     percentValueEdit_->setValidator(new QDoubleValidator(0.0, 1000000.0, 4, percentValueEdit_));
     optLayout->addWidget(percentValueEdit_, 5, 1);
 
-    auto* percent2Label = new QLabel("Percent max:");
+    auto* percent2Label = new QLabel(tr("Percent max:"));
     optLayout->addWidget(percent2Label, 6, 0);
     percentValue2Edit_ = new QLineEdit("20");
     percentValue2Edit_->setFixedWidth(68);
@@ -1861,7 +1867,7 @@ void MainWindow::setupUi() {
     percentValue2Edit_->setValidator(new QDoubleValidator(0.0, 1000000.0, 4, percentValue2Edit_));
     optLayout->addWidget(percentValue2Edit_, 6, 1);
 
-    caseSensitiveCheck_ = new QCheckBox("Case sensitive (text)");
+    caseSensitiveCheck_ = new QCheckBox(tr("Case sensitive (text)"));
     caseSensitiveCheck_->setChecked(true);   // string scans default to case-sensitive
     optLayout->addWidget(caseSensitiveCheck_, 8, 0, 1, 2);
 
@@ -1874,14 +1880,14 @@ void MainWindow::setupUi() {
         auto* memRow = new QWidget;
         auto* memLayout = new QHBoxLayout(memRow);
         memLayout->setContentsMargins(0, 0, 0, 0);
-        memPrivateCheck_ = new QCheckBox("Private");
-        memPrivateCheck_->setToolTip("Scan MEM_PRIVATE regions (anonymous heap, stack, private maps)");
+        memPrivateCheck_ = new QCheckBox(tr("Private"));
+        memPrivateCheck_->setToolTip(tr("Scan MEM_PRIVATE regions (anonymous heap, stack, private maps)"));
         memPrivateCheck_->setChecked(s.value("scan/memPrivate", true).toBool());
-        memImageCheck_ = new QCheckBox("Image");
-        memImageCheck_->setToolTip("Scan MEM_IMAGE regions (loaded executable modules)");
+        memImageCheck_ = new QCheckBox(tr("Image"));
+        memImageCheck_->setToolTip(tr("Scan MEM_IMAGE regions (loaded executable modules)"));
         memImageCheck_->setChecked(s.value("scan/memImage", true).toBool());
-        memMappedCheck_ = new QCheckBox("Mapped");
-        memMappedCheck_->setToolTip("Scan MEM_MAPPED regions (other file-backed maps)");
+        memMappedCheck_ = new QCheckBox(tr("Mapped"));
+        memMappedCheck_->setToolTip(tr("Scan MEM_MAPPED regions (other file-backed maps)"));
         memMappedCheck_->setChecked(s.value("scan/memMapped", true).toBool());
         memLayout->addWidget(memPrivateCheck_);
         memLayout->addWidget(memImageCheck_);
@@ -1899,29 +1905,29 @@ void MainWindow::setupUi() {
         persist("scan/memMapped", memMappedCheck_);
     }
 
-    auto* textEncodingLabel = new QLabel("Text encoding:");
+    auto* textEncodingLabel = new QLabel(tr("Text encoding:"));
     optLayout->addWidget(textEncodingLabel, 7, 0);
     stringEncodingCombo_ = new QComboBox;
     stringEncodingCombo_->addItems({"UTF-8", "ISO-8859-1", "CP1252"});
     optLayout->addWidget(stringEncodingCombo_, 7, 1);
 
-    auto* orderLabel = new QLabel("Data order:");
+    auto* orderLabel = new QLabel(tr("Data order:"));
     scanByteOrderCombo_ = new QComboBox;
     scanByteOrderCombo_->setObjectName("scanByteOrder");
-    scanByteOrderCombo_->addItem("Auto (target)", static_cast<int>(ce::ByteOrder::Unknown));
-    scanByteOrderCombo_->addItem("Little-endian", static_cast<int>(ce::ByteOrder::Little));
-    scanByteOrderCombo_->addItem("Big-endian", static_cast<int>(ce::ByteOrder::Big));
-    scanByteOrderCombo_->setToolTip("Choose the encoding of the data being scanned. Auto uses the selected target's data order.");
+    scanByteOrderCombo_->addItem(tr("Auto (target)"), static_cast<int>(ce::ByteOrder::Unknown));
+    scanByteOrderCombo_->addItem(tr("Little-endian"), static_cast<int>(ce::ByteOrder::Little));
+    scanByteOrderCombo_->addItem(tr("Big-endian"), static_cast<int>(ce::ByteOrder::Big));
+    scanByteOrderCombo_->setToolTip(tr("Choose the encoding of the data being scanned. Auto uses the selected target's data order."));
     orderLabel->setBuddy(scanByteOrderCombo_);
     optLayout->addWidget(orderLabel, 10, 0);
     optLayout->addWidget(scanByteOrderCombo_, 10, 1);
-    auto* widthLabel = new QLabel("Pointer size:");
+    auto* widthLabel = new QLabel(tr("Pointer size:"));
     scanPointerWidthCombo_ = new QComboBox;
     scanPointerWidthCombo_->setObjectName("scanPointerWidth");
-    scanPointerWidthCombo_->addItem("Auto (target)", 0);
-    scanPointerWidthCombo_->addItem("4 bytes", 4);
-    scanPointerWidthCombo_->addItem("8 bytes", 8);
-    scanPointerWidthCombo_->setToolTip("Size of encoded pointers for Pointer, Grouped and Custom scans. A different saved record size requires a New Scan.");
+    scanPointerWidthCombo_->addItem(tr("Auto (target)"), 0);
+    scanPointerWidthCombo_->addItem(tr("4 bytes"), 4);
+    scanPointerWidthCombo_->addItem(tr("8 bytes"), 8);
+    scanPointerWidthCombo_->setToolTip(tr("Size of encoded pointers for Pointer, Grouped and Custom scans. A different saved record size requires a New Scan."));
     widthLabel->setBuddy(scanPointerWidthCombo_);
     optLayout->addWidget(widthLabel, 11, 0);
     optLayout->addWidget(scanPointerWidthCombo_, 11, 1);
@@ -2016,9 +2022,9 @@ void MainWindow::setupUi() {
     connect(addressListModel_, &AddressListModel::valueReverted, this,
         [this](uintptr_t addr, const QString& wrote, const QString& now) {
             statusBar()->showMessage(
-                QString("Value at 0x%1 was reverted (wrote %2, now %3). It looks protected: "
+                QString(tr("Value at 0x%1 was reverted (wrote %2, now %3). It looks protected: "
                         "right-click the entry and choose \"Find what writes\" to locate the "
-                        "code that overwrites it.").arg(addr, 0, 16).arg(wrote).arg(now), 9000);
+                        "code that overwrites it.")).arg(addr, 0, 16).arg(wrote).arg(now), 9000);
         });
     updateTableHint();
     // System-wide hotkeys (X11): fire while the game is focused, like CE. The
@@ -2115,12 +2121,12 @@ void MainWindow::setupUi() {
             // "Edit script..." for a single auto-assembler entry — it has no
             // address to edit, so this opens the script in the AA editor.
             if (selected.size() == 1 && addressListModel_->isScriptEntry(firstRow)) {
-                menu.addAction("Edit script...", [this, first]() { if (first.row() >= 0) editScriptEntry(first.row()); });
+                menu.addAction(tr("Edit script..."), [this, first]() { if (first.row() >= 0) editScriptEntry(first.row()); });
                 menu.addSeparator();
             } else if (selected.size() == 1 && firstRow < (int)addressListModel_->entries().size()
                        && !addressListModel_->entries()[firstRow].isGroup) {
                 // CE "Change address" (formAddressChangeUnit): edit address/type/flags.
-                menu.addAction("Change address...", [this, first]() {
+                menu.addAction(tr("Change address..."), [this, first]() {
                     const int firstRow = first.row();
                     if (firstRow < 0 || firstRow >= (int)addressListModel_->entries().size()) return;
                     // The dialog's event loop runs table scripts that can add or
@@ -2155,71 +2161,71 @@ void MainWindow::setupUi() {
             }
 
             // CE PopupMenu2: Cut / Copy / Paste (PasteTableentryFRM).
-            menu.addAction("Cut", this, [this]() { onCopyAddresses(); onDeleteAddresses(); }, QKeySequence::Cut);
-            menu.addAction("Copy", this, &MainWindow::onCopyAddresses, QKeySequence::Copy);
+            menu.addAction(tr("Cut"), this, [this]() { onCopyAddresses(); onDeleteAddresses(); }, QKeySequence::Cut);
+            menu.addAction(tr("Copy"), this, &MainWindow::onCopyAddresses, QKeySequence::Copy);
             // The same paste as Ctrl+V: every field, groups, scripts and CE XML.
-            menu.addAction("Paste", this, &MainWindow::onPasteAddresses, QKeySequence::Paste);
+            menu.addAction(tr("Paste"), this, &MainWindow::onPasteAddresses, QKeySequence::Paste);
             // Copy an individual field of the first selected entry to the clipboard.
             if (firstRow >= 0 && firstRow < (int)ents0.size()) {
                 const auto& fe = ents0[firstRow];
-                auto* copyMenu = menu.addMenu("Copy field");
-                copyMenu->addAction("Description", [fe]() {
+                auto* copyMenu = menu.addMenu(tr("Copy field"));
+                copyMenu->addAction(tr("Description"), [fe]() {
                     QApplication::clipboard()->setText(fe.description);
                 });
                 if (!fe.isGroup && fe.autoAsmScript.isEmpty()) {
-                    copyMenu->addAction("Address", [fe]() {
+                    copyMenu->addAction(tr("Address"), [fe]() {
                         QApplication::clipboard()->setText(
                             fe.addressExpr.isEmpty() ? QString("0x%1").arg(fe.address, 0, 16)
                                                      : fe.addressExpr);
                     });
-                    copyMenu->addAction("Value", [fe]() {
+                    copyMenu->addAction(tr("Value"), [fe]() {
                         QApplication::clipboard()->setText(fe.currentValue);
                     });
                 }
                 if (!fe.autoAsmScript.isEmpty())
-                    copyMenu->addAction("Script", [fe]() {
+                    copyMenu->addAction(tr("Script"), [fe]() {
                         QApplication::clipboard()->setText(fe.autoAsmScript);
                     });
             }
-            menu.addAction("Delete", this, &MainWindow::onDeleteAddresses, QKeySequence::Delete);
+            menu.addAction(tr("Delete"), this, &MainWindow::onDeleteAddresses, QKeySequence::Delete);
 
             menu.addSeparator();
             // Rarely used items sit in submenus so the menu stays one column at
             // large text sizes (it wrapped into two at 130 DPI).
-            QMenu* arrangeMenu = menu.addMenu("Arrange");
-            arrangeMenu->addAction("Indent", [this, selected]() {
+            QMenu* arrangeMenu = menu.addMenu(tr("Arrange"));
+            arrangeMenu->addAction(tr("Indent"), [this, selected]() {
                 QList<int> rows;
                 for (const auto& idx : selected) if (idx.row() >= 0) rows.append(idx.row());
                 addressListModel_->indentRows(rows);
             });
-            arrangeMenu->addAction("Outdent", [this, selected]() {
+            arrangeMenu->addAction(tr("Outdent"), [this, selected]() {
                 QList<int> rows;
                 for (const auto& idx : selected) if (idx.row() >= 0) rows.append(idx.row());
                 addressListModel_->outdentRows(rows);
             });
             // CE "Add the selected records to a new group": wrap the selection under a
             // fresh group header (prompts for its name, like CE's group description).
-            arrangeMenu->addAction("Add to new group...", [this, selected]() {
+            arrangeMenu->addAction(tr("Add to new group..."), [this, selected]() {
                 QList<int> rows;
                 for (const auto& idx : selected) if (idx.row() >= 0) rows.append(idx.row());
                 if (rows.isEmpty()) return;
                 bool ok = false;
-                QString name = QInputDialog::getText(this, "New group",
-                    "Group name:", QLineEdit::Normal, "New group", &ok);
+                QString name = QInputDialog::getText(this, tr("New group"),
+                    tr("Group name:"), QLineEdit::Normal, tr("New group"), &ok);
                 if (!ok) return;
-                if (name.isEmpty()) name = "New group";
+                if (name.isEmpty()) name = tr("New group");
                 addressListModel_->groupSelectedRows(rows, name);
             });
             if (selected.size() == 1) {
-                auto* up = arrangeMenu->addAction("Move Up", [this, first]() { if (first.row() >= 0) moveSelectedEntry(first.row(), -1); });
+                auto* up = arrangeMenu->addAction(tr("Move Up"), [this, first]() { if (first.row() >= 0) moveSelectedEntry(first.row(), -1); });
                 up->setShortcut(QKeySequence("Ctrl+Up"));
-                auto* down = arrangeMenu->addAction("Move Down", [this, first]() { if (first.row() >= 0) moveSelectedEntry(first.row(), +1); });
+                auto* down = arrangeMenu->addAction(tr("Move Down"), [this, first]() { if (first.row() >= 0) moveSelectedEntry(first.row(), +1); });
                 down->setShortcut(QKeySequence("Ctrl+Down"));
             }
 
             menu.addSeparator();
             // Set the value of ALL selected entries at once (CE's batch set value).
-            menu.addAction("Set value...", [this, selected]() {
+            menu.addAction(tr("Set value..."), [this, selected]() {
                 // Pre-fill with the first selected entry's current value (in its display
                 // format), like CE, so the user edits from the existing value not a blank.
                 QString initial;
@@ -2233,9 +2239,10 @@ void MainWindow::setupUi() {
                     }
                 }
                 bool ok = false;
-                QString v = QInputDialog::getText(this, "Set value",
-                    QString("New value for %1 selected entr%2:")
-                        .arg(selected.size()).arg(selected.size() == 1 ? "y" : "ies"),
+                const QString valuePrompt = selected.size() == 1
+                    ? tr("New value for 1 selected entry:")
+                    : tr("New value for %1 selected entries:").arg(selected.size());
+                QString v = QInputDialog::getText(this, tr("Set value"), valuePrompt,
                     QLineEdit::Normal, initial, &ok);
                 if (!ok) return;
                 // A group header has no value of its own, so setting a group applies the
@@ -2261,36 +2268,36 @@ void MainWindow::setupUi() {
             });
 
             menu.addSeparator();
-            auto* freezeMenu = menu.addMenu("Freeze Mode");
-            freezeMenu->addAction("Normal", [this, selected]() {
+            auto* freezeMenu = menu.addMenu(tr("Freeze Mode"));
+            freezeMenu->addAction(tr("Normal"), [this, selected]() {
                 for (auto& idx : selected) addressListModel_->setFreezeMode(idx.row(), FreezeMode::Normal);
             });
-            freezeMenu->addAction("Increase Only", [this, selected]() {
+            freezeMenu->addAction(tr("Increase Only"), [this, selected]() {
                 for (auto& idx : selected) addressListModel_->setFreezeMode(idx.row(), FreezeMode::IncreaseOnly);
             });
-            freezeMenu->addAction("Decrease Only", [this, selected]() {
+            freezeMenu->addAction(tr("Decrease Only"), [this, selected]() {
                 for (auto& idx : selected) addressListModel_->setFreezeMode(idx.row(), FreezeMode::DecreaseOnly);
             });
-            freezeMenu->addAction("Never Increase", [this, selected]() {
+            freezeMenu->addAction(tr("Never Increase"), [this, selected]() {
                 for (auto& idx : selected) addressListModel_->setFreezeMode(idx.row(), FreezeMode::NeverIncrease);
             });
-            freezeMenu->addAction("Never Decrease", [this, selected]() {
+            freezeMenu->addAction(tr("Never Decrease"), [this, selected]() {
                 for (auto& idx : selected) addressListModel_->setFreezeMode(idx.row(), FreezeMode::NeverDecrease);
             });
 
             // Obfuscated values: declare a codec so the value is displayed decoded and
             // edited/frozen by its logical value (block 6). Reuses ce::ValueCodec::parse.
             // How the entry is shown and decoded: format, colour, dropdown, codec.
-            QMenu* encodingMenu = menu.addMenu("Display");
-            encodingMenu->addAction("Set value codec...", [this, selected]() {
+            QMenu* encodingMenu = menu.addMenu(tr("Display"));
+            encodingMenu->addAction(tr("Set value codec..."), [this, selected]() {
                 if (selected.isEmpty() || selected.first().row() < 0) return;
                 QString cur = QString::fromStdString(
                     addressListModel_->entryCodecSpec(selected.first().row()));
                 bool ok = false;
-                QString spec = QInputDialog::getText(this, "Value codec",
-                    "How the game obfuscates this value in memory:\n"
+                QString spec = QInputDialog::getText(this, tr("Value codec"),
+                    tr("How the game obfuscates this value in memory:\n"
                     "none, xor:0xKEY, add:N, rol:N or ror:N (e.g. xor:0x5A).\n\n"
-                    "The list shows the decoded value; edits and freezes are encoded back.",
+                    "The list shows the decoded value; edits and freezes are encoded back."),
                     QLineEdit::Normal, cur, &ok);
                 if (!ok) return;
                 spec = spec.trimmed();
@@ -2298,8 +2305,8 @@ void MainWindow::setupUi() {
                 if (!spec.isEmpty() && spec.compare("none", Qt::CaseInsensitive) != 0) {
                     auto c = ce::ValueCodec::parse(spec.toStdString());
                     if (!c) {
-                        QMessageBox::warning(this, "Invalid codec",
-                            "Use none, xor:0xKEY, add:N, rol:N, or ror:N.");
+                        QMessageBox::warning(this, tr("Invalid codec"),
+                            tr("Use none, xor:0xKEY, add:N, rol:N, or ror:N."));
                         return;
                     }
                     codec = *c;
@@ -2307,10 +2314,10 @@ void MainWindow::setupUi() {
                 for (auto& idx : selected) addressListModel_->setEntryCodec(idx.row(), codec);
             });
 
-            auto* orderMenu = encodingMenu->addMenu("Data order");
-            for (auto choice : {std::pair{"Auto (target)", ByteOrder::Unknown},
-                                std::pair{"Little-endian", ByteOrder::Little},
-                                std::pair{"Big-endian", ByteOrder::Big}}) {
+            auto* orderMenu = encodingMenu->addMenu(tr("Data order"));
+            for (auto choice : {std::pair{tr("Auto (target)"), ByteOrder::Unknown},
+                                std::pair{tr("Little-endian"), ByteOrder::Little},
+                                std::pair{tr("Big-endian"), ByteOrder::Big}}) {
                 auto* action = orderMenu->addAction(choice.first);
                 action->setCheckable(true);
                 const auto& entry = addressListModel_->entries()[selected.first().row()];
@@ -2323,8 +2330,8 @@ void MainWindow::setupUi() {
                     }
                 });
             }
-            auto* widthMenu = encodingMenu->addMenu("Pointer size");
-            for (auto choice : {std::pair{"Auto (target)", 0}, std::pair{"4 bytes", 4}, std::pair{"8 bytes", 8}}) {
+            auto* widthMenu = encodingMenu->addMenu(tr("Pointer size"));
+            for (auto choice : {std::pair{tr("Auto (target)"), 0}, std::pair{tr("4 bytes"), 4}, std::pair{tr("8 bytes"), 8}}) {
                 auto* action = widthMenu->addAction(choice.first); action->setCheckable(true);
                 action->setChecked(addressListModel_->entries()[selected.first().row()].pointerWidth == choice.second);
                 connect(action, &QAction::triggered, this, [this, selected, width=choice.second] {
@@ -2337,12 +2344,12 @@ void MainWindow::setupUi() {
             }
 
             menu.addSeparator();
-            auto* typeMenu = menu.addMenu("Change type");
-            const std::pair<const char*, ValueType> typeChoices[] = {
-                {"Byte", ValueType::Byte}, {"2 Bytes", ValueType::Int16},
-                {"4 Bytes", ValueType::Int32}, {"8 Bytes", ValueType::Int64},
-                {"Float", ValueType::Float}, {"Double", ValueType::Double},
-                {"Pointer", ValueType::Pointer},
+            auto* typeMenu = menu.addMenu(tr("Change type"));
+            const std::pair<QString, ValueType> typeChoices[] = {
+                {tr("Byte"), ValueType::Byte}, {tr("2 Bytes"), ValueType::Int16},
+                {tr("4 Bytes"), ValueType::Int32}, {tr("8 Bytes"), ValueType::Int64},
+                {tr("Float"), ValueType::Float}, {tr("Double"), ValueType::Double},
+                {tr("Pointer"), ValueType::Pointer},
             };
             for (const auto& [label, vt] : typeChoices) {
                 typeMenu->addAction(label, [this, selected, vt]() {
@@ -2356,7 +2363,7 @@ void MainWindow::setupUi() {
             bool firstHex = !selected.isEmpty() && selected.first().row() < (int)ents.size()
                             && ents[selected.first().row()].showAsHex;
             encodingMenu->addSeparator();
-            auto* hexAct = encodingMenu->addAction("Show as hexadecimal");
+            auto* hexAct = encodingMenu->addAction(tr("Show as hexadecimal"));
             hexAct->setCheckable(true);
             hexAct->setChecked(firstHex);
             connect(hexAct, &QAction::triggered, this, [this, selected, firstHex]() {
@@ -2368,7 +2375,7 @@ void MainWindow::setupUi() {
             // (PIE/ASLR) on the next launch. Only meaningful with a process attached
             // (module bases known); leaves pointer/expression records untouched.
             if (process_) {
-                menu.addAction("Convert to module+offset", [this, selected]() {
+                menu.addAction(tr("Convert to module+offset"), [this, selected]() {
                     if (!process_) return;
                     const auto modules = process_->modules();   // by value: hold it, don't dangle
                     const auto& entries = addressListModel_->entries();
@@ -2384,10 +2391,11 @@ void MainWindow::setupUi() {
                         addressListModel_->setAddressExpression(e.id, expr);
                         ++converted;
                     }
-                    statusBar()->showMessage(
-                        QString("Converted %1 address%2 to module+offset%3")
-                            .arg(converted).arg(converted == 1 ? "" : "es")
-                            .arg(skipped ? QString(" (%1 skipped)").arg(skipped) : QString()), 4000);
+                    const QString skippedText = skipped ? QString(" ") + tr("(%1 skipped)").arg(skipped) : QString();
+                    const QString convertedText = converted == 1
+                        ? tr("Converted 1 address to module+offset%1").arg(skippedText)
+                        : tr("Converted %1 addresses to module+offset%2").arg(converted).arg(skippedText);
+                    statusBar()->showMessage(convertedText, 4000);
                 });
             }
 
@@ -2396,7 +2404,7 @@ void MainWindow::setupUi() {
             // have no address.
             if (firstRow >= 0 && firstRow < (int)ents0.size()
                 && !ents0[firstRow].isGroup && ents0[firstRow].autoAsmScript.isEmpty()) {
-                menu.addAction("Browse this memory region", [this, selected]() {
+                menu.addAction(tr("Browse this memory region"), [this, selected]() {
                     if (!process_ || selected.isEmpty()) return;
                     auto& entries = addressListModel_->entries();
                     int row = selected.first().row();
@@ -2404,18 +2412,18 @@ void MainWindow::setupUi() {
                         openMemoryView(entries[row].address);   // full-featured viewer
                 });
             }
-            menu.addAction("Find what accesses this address", [this, selected]() {
+            menu.addAction(tr("Find what accesses this address"), [this, selected]() {
                 if (!selected.isEmpty())
                     startCodeFinder(selected.first().row(), false);
             });
-            menu.addAction("Find what writes to this address", [this, selected]() {
+            menu.addAction(tr("Find what writes to this address"), [this, selected]() {
                 if (!selected.isEmpty())
                     startCodeFinder(selected.first().row(), true);
             });
             // CE "Pointer scan for this address".
             if (firstRow >= 0 && firstRow < (int)ents0.size()
                 && !ents0[firstRow].isGroup && ents0[firstRow].autoAsmScript.isEmpty()) {
-                menu.addAction("Pointer scan for this address", [this, selected]() {
+                menu.addAction(tr("Pointer scan for this address"), [this, selected]() {
                     if (!process_ || selected.isEmpty()) return;
                     const int row = selected.first().row();
                     const auto& entries = addressListModel_->entries();
@@ -2437,7 +2445,7 @@ void MainWindow::setupUi() {
                 });
             }
             // CE "Change Color" — per-record display color.
-            encodingMenu->addAction("Change Color...", [this, selected]() {
+            encodingMenu->addAction(tr("Change Color..."), [this, selected]() {
                 if (selected.isEmpty()) return;
                 // The dialog runs an event loop in which table scripts may add or
                 // remove records: keep IDs, not rows or a reference into the list.
@@ -2450,20 +2458,20 @@ void MainWindow::setupUi() {
                     for (const auto& idx : selected)
                         if (idx.row() >= 0 && idx.row() < (int)entries.size()) ids.push_back(entries[idx.row()].id);
                 }
-                QColor c = QColorDialog::getColor(initial, this, "Change record color");
+                QColor c = QColorDialog::getColor(initial, this, tr("Change record color"));
                 if (!c.isValid()) return;
                 for (int id : ids) addressListModel_->setColor(id, c.name().toStdString());
             });
             // CE "Set/Change dropdown selection options".
             if (selected.size() == 1) {
-                encodingMenu->addAction("Dropdown options...", [this, first]() {
+                encodingMenu->addAction(tr("Dropdown options..."), [this, first]() {
                     const int firstRow = first.row();
                     if (firstRow < 0 || firstRow >= (int)addressListModel_->entries().size()) return;
                     const int id = addressListModel_->entries()[firstRow].id;   // rows can move during the dialog
                     bool ok = false;
-                    QString v = QInputDialog::getMultiLineText(this, "Dropdown options",
-                        "The values this entry can be set to from a dropdown, one per line,\n"
-                        "as value:label or just value. For example:\n0:Off\n1:On",
+                    QString v = QInputDialog::getMultiLineText(this, tr("Dropdown options"),
+                        tr("The values this entry can be set to from a dropdown, one per line,\n"
+                        "as value:label or just value. For example:\n0:Off\n1:On"),
                         addressListModel_->dropdownList(firstRow), &ok);
                     if (ok)
                         addressListModel_->setDropdownList(id, v.remove('\r').split('\n', Qt::SkipEmptyParts).join('\n'));
@@ -2471,23 +2479,23 @@ void MainWindow::setupUi() {
             }
             if (selected.size() == 1) {
                 menu.addSeparator();
-                QMenu* hotkeyMenu = menu.addMenu("Hotkeys");
-                hotkeyMenu->addAction("Toggle hotkey...", [this, selected]() {
+                QMenu* hotkeyMenu = menu.addMenu(tr("Hotkeys"));
+                hotkeyMenu->addAction(tr("Toggle hotkey..."), [this, selected]() {
                     int row = selected.first().row();
                     const auto& entries = addressListModel_->entries();
                     if (row < 0 || row >= (int)entries.size()) return;
 
                     QDialog dialog(this);
-                    dialog.setWindowTitle("Configure Hotkey");
+                    dialog.setWindowTitle(tr("Configure Hotkey"));
                     auto* layout = new QVBoxLayout(&dialog);
                     auto* label = new QLabel(entries[row].description, &dialog);
                     label->setObjectName("pageTitle");
                     auto* editor = new QKeySequenceEdit(QKeySequence(entries[row].hotkeyKeys), &dialog);
                     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-                    auto* clearButton = buttons->addButton("Clear", QDialogButtonBox::ResetRole);
+                    auto* clearButton = buttons->addButton(tr("Clear"), QDialogButtonBox::ResetRole);
 
-                    auto* note = new QLabel("Press the key combination that turns this entry on and off. "
-                                            "It works while the game has focus.", &dialog);
+                    auto* note = new QLabel(tr("Press the key combination that turns this entry on and off. "
+                                            "It works while the game has focus."), &dialog);
                     note->setProperty("secondary", true);
                     note->setWordWrap(true);
                     editor->setMinimumWidth(280);
@@ -2508,13 +2516,13 @@ void MainWindow::setupUi() {
                         rebuildValueHotkeys();   // grab the new key (and release a cleared one) now
                     }
                 });
-                hotkeyMenu->addAction("Value hotkeys...", [this, selected]() {
+                hotkeyMenu->addAction(tr("Value hotkeys..."), [this, selected]() {
                     int row = selected.first().row();
                     const auto& entries = addressListModel_->entries();
                     if (row < 0 || row >= (int)entries.size()) return;
 
                     QDialog dialog(this);
-                    dialog.setWindowTitle("Configure Value Hotkeys");
+                    dialog.setWindowTitle(tr("Configure Value Hotkeys"));
                     auto* layout = new QGridLayout(&dialog);
                     auto* label = new QLabel(entries[row].description, &dialog);
                     label->setObjectName("pageTitle");
@@ -2527,21 +2535,21 @@ void MainWindow::setupUi() {
                     stepEdit->setValidator(new QDoubleValidator(stepEdit));
                     auto* setEditor = new QKeySequenceEdit(QKeySequence(entries[row].setValueHotkeyKeys), &dialog);
                     auto* setValueEdit = new QLineEdit(entries[row].setValueHotkeyValue, &dialog);
-                    setValueEdit->setPlaceholderText("value to set");
+                    setValueEdit->setPlaceholderText(tr("value to set"));
                     for (QWidget* field : std::initializer_list<QWidget*>{increaseEditor, decreaseEditor, stepEdit, setEditor, setValueEdit})
                         field->setMinimumWidth(220);
                     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
 
                     layout->addWidget(label, 0, 0, 1, 2);
-                    layout->addWidget(new QLabel("Increase", &dialog), 1, 0);
+                    layout->addWidget(new QLabel(tr("Increase"), &dialog), 1, 0);
                     layout->addWidget(increaseEditor, 1, 1);
-                    layout->addWidget(new QLabel("Decrease", &dialog), 2, 0);
+                    layout->addWidget(new QLabel(tr("Decrease"), &dialog), 2, 0);
                     layout->addWidget(decreaseEditor, 2, 1);
-                    layout->addWidget(new QLabel("Step", &dialog), 3, 0);
+                    layout->addWidget(new QLabel(tr("Step"), &dialog), 3, 0);
                     layout->addWidget(stepEdit, 3, 1);
-                    layout->addWidget(new QLabel("Set value hotkey", &dialog), 4, 0);
+                    layout->addWidget(new QLabel(tr("Set value hotkey"), &dialog), 4, 0);
                     layout->addWidget(setEditor, 4, 1);
-                    layout->addWidget(new QLabel("Set to value", &dialog), 5, 0);
+                    layout->addWidget(new QLabel(tr("Set to value"), &dialog), 5, 0);
                     layout->addWidget(setValueEdit, 5, 1);
                     layout->addWidget(buttons, 6, 0, 1, 2);
                     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
@@ -2564,7 +2572,7 @@ void MainWindow::setupUi() {
         }
 
         menu.addSeparator();
-        menu.addAction("Add Address Manually...", [this]() {
+        menu.addAction(tr("Add Address Manually..."), [this]() {
             // CE's "Add Address Manually" opens the same formAddressChangeUnit as
             // "Change address", so a new entry gets its type, flags, length, and an
             // optional structured pointer in one dialog.
@@ -2579,30 +2587,30 @@ void MainWindow::setupUi() {
             int id;
             if (numeric && !a.contains('[') && !a.contains('+') && !a.contains(' ')) {
                 id = addressListModel_->addEntry((uintptr_t)v, dlg.valueType(),
-                                                 "No description", QString(), (size_t)dlg.length());
+                                                 tr("No description"), QString(), (size_t)dlg.length());
             } else {
                 // Symbolic / module+offset / pointer chain: store the expression so it
                 // re-resolves live, seeding the initial numeric address if resolvable.
                 uintptr_t addr0 = 0;
                 if (auto r = parseAddressExpr(a)) addr0 = *r;
                 id = addressListModel_->addEntry(addr0, dlg.valueType(),
-                                                 "No description", a, (size_t)dlg.length());
+                                                 tr("No description"), a, (size_t)dlg.length());
             }
             addressListModel_->setHexView(id, dlg.showHex());
             addressListModel_->setSigned(id, dlg.isSigned());
         });
-        menu.addAction("Add Group", [this]() {
+        menu.addAction(tr("Add Group"), [this]() {
             addressListModel_->addGroup();
         });
         // With entries selected, Paste is already in the edit group above.
-        if (selected.isEmpty()) menu.addAction("Paste", this, &MainWindow::onPasteAddresses, QKeySequence::Paste);
+        if (selected.isEmpty()) menu.addAction(tr("Paste"), this, &MainWindow::onPasteAddresses, QKeySequence::Paste);
 
         menu.addSeparator();
         // Whole-table actions only on empty space: with an entry under the cursor the
         // menu is about that entry, and it has to fit one column on a 1080p screen.
         if (selected.isEmpty()) {
-            menu.addAction("Enable all", [this]() { addressListModel_->setAllActive(true); });
-            menu.addAction("Disable all", [this]() { addressListModel_->setAllActive(false); });
+            menu.addAction(tr("Enable all"), [this]() { addressListModel_->setAllActive(true); });
+            menu.addAction(tr("Disable all"), [this]() { addressListModel_->setAllActive(false); });
         }
 
         menu.exec(addressListView_->viewport()->mapToGlobal(pos));
@@ -2722,7 +2730,7 @@ void MainWindow::setupUi() {
     scanForm->setHorizontalSpacing(6);
     scanForm->setVerticalSpacing(6);
     scanForm->setColumnStretch(1, 1);
-    scanForm->addWidget(new QLabel("Scan Value"), 0, 0, Qt::AlignRight | Qt::AlignVCenter);
+    scanForm->addWidget(new QLabel(tr("Scan Value")), 0, 0, Qt::AlignRight | Qt::AlignVCenter);
     auto* valRow = new QHBoxLayout;
     valRow->setSpacing(4);
     valRow->addWidget(scanValueEdit_, 1);
@@ -2730,16 +2738,16 @@ void MainWindow::setupUi() {
     valRow->addWidget(scanValue2Edit_, 1);
     valRow->addWidget(hexCheck_);
     scanForm->addLayout(valRow, 0, 1);
-    scanForm->addWidget(new QLabel("Scan Type"), 1, 0, Qt::AlignRight | Qt::AlignVCenter);
+    scanForm->addWidget(new QLabel(tr("Scan Type")), 1, 0, Qt::AlignRight | Qt::AlignVCenter);
     scanForm->addWidget(scanTypeCombo_, 1, 1);
-    scanForm->addWidget(new QLabel("Value Type"), 2, 0, Qt::AlignRight | Qt::AlignVCenter);
+    scanForm->addWidget(new QLabel(tr("Value Type")), 2, 0, Qt::AlignRight | Qt::AlignVCenter);
     scanForm->addWidget(valueTypeCombo_, 2, 1);
     auto* floatRow2 = new QHBoxLayout;
     floatRow2->setSpacing(4);
     floatRow2->addWidget(floatRoundingCombo_);
     floatRow2->addWidget(floatToleranceEdit_);
     floatRow2->addStretch();
-    auto* roundingLabel = new QLabel("Rounding");
+    auto* roundingLabel = new QLabel(tr("Rounding"));
     roundingLabel->setBuddy(floatRoundingCombo_);
     scanForm->addWidget(roundingLabel, 3, 0, Qt::AlignRight | Qt::AlignVCenter);
     scanForm->addLayout(floatRow2, 3, 1);
@@ -2802,11 +2810,11 @@ void MainWindow::setupUi() {
     addressListView_->setMinimumHeight(140);
 
     auto* bottomBar = new QHBoxLayout;
-    auto* advBtn = new QPushButton("Advanced Options");
+    auto* advBtn = new QPushButton(tr("Advanced Options"));
     // CE "Advanced Options" = the Code list (AdvancedOptionsUnit): a persistent
     // list of code addresses from find-what-writes, with disassemble/NOP/restore.
     connect(advBtn, &QPushButton::clicked, this, &MainWindow::showAdvancedOptions);
-    auto* extrasBtn = new QPushButton("Table Extras");
+    auto* extrasBtn = new QPushButton(tr("Table Extras"));
     // CE "Table Extras" opens the table notes (Comments) — a free-text memo saved
     // with the table. (Save/Load now live in the File menu.)
     connect(extrasBtn, &QPushButton::clicked, this, &MainWindow::showComments);
@@ -2857,10 +2865,10 @@ static void grantPtraceAccess(QWidget* parent) {
         args = {QStringLiteral("/bin/sh"), QStringLiteral("-c"),
                 QStringLiteral("echo 0 > /proc/sys/kernel/yama/ptrace_scope")};
         followup = isAppImage
-            ? QObject::tr("Access granted for this session; re-open the process.\n"
+            ? QCoreApplication::translate("MainWindow", "Access granted for this session; re-open the process.\n"
                           "(This resets on reboot. Install the .deb, or re-run the "
                           "command, to make it permanent.)")
-            : QObject::tr("Access granted for this session; re-open the process.\n"
+            : QCoreApplication::translate("MainWindow", "Access granted for this session; re-open the process.\n"
                           "(This resets on reboot. A capability on this install would "
                           "stop it from finding its libraries, because it is outside the "
                           "system library directories.)");
@@ -2872,15 +2880,15 @@ static void grantPtraceAccess(QWidget* parent) {
                 QStringLiteral("setcap cap_sys_ptrace+ep \"$1\" || exit 1; "
                                "if [ -x \"$2\" ]; then setcap cap_sys_ptrace+ep \"$2\" || exit 1; fi"),
                 QStringLiteral("sh"), bin, cescan};
-        followup = QObject::tr("Access granted. Restart Cheat Engine for it to take effect.");
+        followup = QCoreApplication::translate("MainWindow", "Access granted. Restart Cheat Engine for it to take effect.");
     }
 
     int rc = QProcess::execute(QStringLiteral("pkexec"), args);
     if (rc == 0)
-        QMessageBox::information(parent, QObject::tr("Access granted"), followup);
+        QMessageBox::information(parent, QCoreApplication::translate("MainWindow", "Access granted"), followup);
     else
-        QMessageBox::warning(parent, QObject::tr("Could not grant access"),
-            QObject::tr("The privileged command was cancelled or failed (pkexec exit %1). "
+        QMessageBox::warning(parent, QCoreApplication::translate("MainWindow", "Could not grant access"),
+            QCoreApplication::translate("MainWindow", "The privileged command was cancelled or failed (pkexec exit %1). "
                         "You can still grant access manually from a terminal.").arg(rc));
 }
 
@@ -2910,15 +2918,15 @@ static void warnIfMemoryUnreadable(QWidget* parent, ce::ProcessHandle* p,
 
     QMessageBox box(parent);
     box.setIcon(QMessageBox::Warning);
-    box.setWindowTitle(QObject::tr("Process memory not readable"));
-    box.setText(QObject::tr(
+    box.setWindowTitle(QCoreApplication::translate("MainWindow", "Process memory not readable"));
+    box.setText(QCoreApplication::translate("MainWindow",
         "Cannot read the memory of PID %1 (%2).\n\n"
         "Linux only lets a program read another process's memory if it is allowed "
         "to ptrace it. With kernel.yama.ptrace_scope = %3, that means the target "
         "must be a child of Cheat Engine, or Cheat Engine must run with elevated "
         "rights. Scanning, memory browsing and debugging this process will not work "
         "until that is granted.").arg(pid).arg(name).arg(scope));
-    box.setInformativeText(QObject::tr(
+    box.setInformativeText(QCoreApplication::translate("MainWindow",
         "\"Grant access\" will ask for your password (via pkexec) and set it up for "
         "you. Or do it manually:\n"
         "  • Persistent, per-binary:  sudo setcap cap_sys_ptrace+ep %1\n"
@@ -2929,7 +2937,7 @@ static void warnIfMemoryUnreadable(QWidget* parent, ce::ProcessHandle* p,
     QPushButton* grantBtn = nullptr;
     const bool havePkexec = !QStandardPaths::findExecutable(QStringLiteral("pkexec")).isEmpty();
     if (havePkexec)
-        grantBtn = box.addButton(QObject::tr("Grant access…"), QMessageBox::AcceptRole);
+        grantBtn = box.addButton(QCoreApplication::translate("MainWindow", "Grant access…"), QMessageBox::AcceptRole);
     box.addButton(QMessageBox::Close);
     box.exec();
 
@@ -2955,10 +2963,10 @@ void MainWindow::autoAttach(pid_t pid, const QString& name, quint64 watch) {
     // before process_ is replaced (they hold a raw handle).
     attachToPid(pid, name);
     if (process_ && currentPid_ == pid) {
-        statusBar()->showMessage(QString("Auto-attached to %1 (pid %2)").arg(name).arg(pid), 4000);
+        statusBar()->showMessage(QString(tr("Auto-attached to %1 (pid %2)")).arg(name).arg(pid), 4000);
         stopProcessWatch();
     } else {
-        statusBar()->showMessage(QString("Found %1 (pid %2) but could not open it").arg(name).arg(pid), 8000);
+        statusBar()->showMessage(QString(tr("Found %1 (pid %2) but could not open it")).arg(name).arg(pid), 8000);
     }
 }
 
@@ -3020,13 +3028,13 @@ void MainWindow::attachToPid(pid_t pid, const QString& name) {
         ce::TargetProfile prof = ce::probeTarget(pid);
         processDetail_->setText(QString("PID %1  ·  %2").arg(pid).arg(QString::fromStdString(prof.summary())));
         statusBar()->showMessage(
-            QString("Attached to %1: %2").arg(label, QString::fromStdString(prof.summary())), 8000);
+            QString(tr("Attached to %1: %2")).arg(label, QString::fromStdString(prof.summary())), 8000);
         // The summary + every note live on the process label's tooltip (persistent,
         // non-intrusive; hover to read).
         QString tip = QString::fromStdString(prof.summary());
         for (const auto& n : prof.notes) tip += "\n\n• " + QString::fromStdString(n);
         auto target = process_->targetDescription();
-        tip += QString("\n\nProgram: %1, %2-byte pointers, %3\nHost ABI: %4")
+        tip += QString(tr("\n\nProgram: %1, %2-byte pointers, %3\nHost ABI: %4"))
             .arg(ce::cpuArchitectureName(target.program.architecture)).arg(target.program.pointerWidth)
             .arg(ce::byteOrderName(target.program.byteOrder)).arg(ce::targetAbiName(target.host.abi));
         for (const auto& c : ce::targetCapabilities(target))
@@ -3037,7 +3045,7 @@ void MainWindow::attachToPid(pid_t pid, const QString& name) {
         // The one note that means nothing will work at all (attach/watch/inject all
         // fail) is worth an explicit dialog: the target is already being traced.
         if (prof.tracerPid != 0 && !prof.notes.empty())
-            QMessageBox::warning(this, "Target already being traced",
+            QMessageBox::warning(this, tr("Target already being traced"),
                 QString::fromStdString(prof.notes.front()));
     }
 }
@@ -3061,14 +3069,14 @@ bool MainWindow::attachToGdb(std::unique_ptr<ce::GdbProcessHandle> process,const
     addressListModel_->setProcess(process_.get());resultsModel_->setProcess(process_.get());
     resultsModel_->clear();lastResult_.reset();undoResult_.reset();
     lastResultType_=undoResultType_=ValueType::Int32;lastResultValueSize_=undoResultValueSize_=0;
-    foundLabel_->setText("Found: 0");
+    foundLabel_->setText(tr("Found: 0"));
     const QString dataOrder=description.program.byteOrder==ce::ByteOrder::Unknown
-        ? "data order unknown" : QString("%1 data").arg(ce::byteOrderName(description.program.byteOrder));
+        ? tr("data order unknown") : QString(tr("%1 data")).arg(ce::byteOrderName(description.program.byteOrder));
     const QString pointers=description.program.pointerWidth
-        ? QString("%1-bit pointers").arg(description.program.pointerWidth*8) : "pointer width unknown";
-    processLabel_->setText(QString("GDB: %1").arg(endpoint));
+        ? QString(tr("%1-bit pointers")).arg(description.program.pointerWidth*8) : tr("pointer width unknown");
+    processLabel_->setText(QString(tr("GDB: %1")).arg(endpoint));
     processDetail_->setText(QString("%1  ·  %2  ·  %3").arg(architecture,dataOrder,pointers));
-    QString tip=QString("Guest CPU: %1\nData order: %2\nProgram pointers: %3\nTransport: GDB")
+    QString tip=QString(tr("Guest CPU: %1\nData order: %2\nProgram pointers: %3\nTransport: GDB"))
         .arg(architecture).arg(ce::byteOrderName(description.program.byteOrder)).arg(pointers);
     for (const auto& capability:ce::targetCapabilities(description))
         if (capability.state!=ce::CapabilityState::Available)
@@ -3083,7 +3091,7 @@ bool MainWindow::attachToGdb(std::unique_ptr<ce::GdbProcessHandle> process,const
     valueTypeCombo_->setCurrentIndex(8); // ByteArray, see mapValueType.
     guestScanSetup_ = true;
     updateScanButtons();
-    statusBar()->showMessage(regions.empty() ? "Connected to GDB; no memory map. Reconnect with a known scan range." : "Connected to GDB target",8000);
+    statusBar()->showMessage(regions.empty() ? tr("Connected to GDB; no memory map. Reconnect with a known scan range.") : tr("Connected to GDB target"),8000);
     return true;
 }
 void MainWindow::onConnectGdb() {
@@ -3094,7 +3102,7 @@ void MainWindow::onConnectGdb() {
 // target must not inherit that (First Scan on a native process searched only
 // the old guest range and found nothing).
 void MainWindow::resetGuestScanSetup() {
-    if (foundLabel_) foundLabel_->setText("Found: 0");
+    if (foundLabel_) foundLabel_->setText(tr("Found: 0"));
     if (!guestScanSetup_) return;
     guestScanSetup_ = false;
     fromAddressEdit_->setText("0000000000");
@@ -3112,8 +3120,8 @@ void MainWindow::onDisconnectProcess() {
     process_.reset();ceserverClient_.reset();currentPid_=0;
     addressListModel_->setProcess(nullptr);resultsModel_->setProcess(nullptr);resultsModel_->clear();
     lastResult_.reset();undoResult_.reset();lastResultType_=undoResultType_=ValueType::Int32;
-    lastResultValueSize_=undoResultValueSize_=0;foundLabel_->setText("Found: 0");
-    processLabel_->setText("No process selected");processLabel_->setToolTip({});processDetail_->setText(tr("Press Ctrl+O or click the magnifier to choose a process."));currentProcessName_.clear();updateWindowTitle();updateScanButtons();
+    lastResultValueSize_=undoResultValueSize_=0;foundLabel_->setText(tr("Found: 0"));
+    processLabel_->setText(tr("No process selected"));processLabel_->setToolTip({});processDetail_->setText(tr("Press Ctrl+O or click the magnifier to choose a process."));currentProcessName_.clear();updateWindowTitle();updateScanButtons();
 }
 
 // The network half of attaching to a ceserver target: no GUI state, so the
@@ -3124,17 +3132,17 @@ MainWindow::CeserverConnection MainWindow::connectCeserver(const QString& host, 
     c.client = std::make_unique<ce::os::CEServerClient>();
     std::string err;
     if (!c.client->connectTcp(host.toStdString(), port, err)) {
-        c.error = QString("Connect failed: %1").arg(QString::fromStdString(err));
+        c.error = QString(tr("Connect failed: %1")).arg(QString::fromStdString(err));
         return c;
     }
     auto version = c.client->getVersion();
     if (!version) {
-        c.error = QString("Handshake failed: %1").arg(QString::fromStdString(version.error()));
+        c.error = QString(tr("Handshake failed: %1")).arg(QString::fromStdString(version.error()));
         return c;
     }
     c.version = QString::fromStdString(version->versionString);
     c.handle = ce::os::RemoteProcessHandle::open(*c.client, pid);
-    if (!c.handle) c.error = QString("Server refused PID %1").arg((int)pid);
+    if (!c.handle) c.error = QString(tr("Server refused PID %1")).arg((int)pid);
     return c;
 }
 
@@ -3156,7 +3164,7 @@ bool MainWindow::adoptCeserver(CeserverConnection connection, const QString& hos
     stopProcessWatch();   // see attachToPid
     luaEngine_.setProcess(process_.get());
     currentPid_ = pid;
-    processLabel_->setText(QString("Remote process %1").arg((int)pid));
+    processLabel_->setText(QString(tr("Remote process %1")).arg((int)pid));
     processDetail_->setText(QString("ceserver %1:%2  ·  %3").arg(host).arg(port).arg(connection.version));
     currentProcessName_ = QString("ceserver %1:%2").arg(host).arg(port);
     updateWindowTitle();
@@ -3178,38 +3186,38 @@ bool MainWindow::adoptCeserver(CeserverConnection connection, const QString& hos
 void MainWindow::onConnectCeserver() {
     QSettings settings;
     auto* dlg = new QDialog(this);
-    dlg->setWindowTitle("Connect to ceserver");
+    dlg->setWindowTitle(tr("Connect to ceserver"));
     auto* form = new QFormLayout(dlg);
-    auto* intro = new QLabel("Attach to a process on another machine (or in a container) "
-                             "through a running ceserver.");
+    auto* intro = new QLabel(tr("Attach to a process on another machine (or in a container) "
+                             "through a running ceserver."));
     intro->setWordWrap(true);
     intro->setProperty("secondary", true);
     form->addRow(intro);
 
     auto* hostEdit = new QLineEdit(settings.value("network/ceserverHost", "127.0.0.1").toString());
-    form->addRow("Host:", hostEdit);
+    form->addRow(tr("Host:"), hostEdit);
 
     auto* portSpin = new QSpinBox;
     portSpin->setRange(1, 65535);
     portSpin->setValue(settings.value("network/ceserverPort", 52736).toInt());
-    form->addRow("Port:", portSpin);
+    form->addRow(tr("Port:"), portSpin);
 
     auto* pidEdit = new QLineEdit;
-    pidEdit->setPlaceholderText("process ID on the remote machine");
+    pidEdit->setPlaceholderText(tr("process ID on the remote machine"));
     pidEdit->setValidator(new QIntValidator(1, std::numeric_limits<int>::max(), pidEdit));
     portSpin->setGroupSeparatorShown(false);
     hostEdit->setMinimumWidth(240);
-    form->addRow("PID:", pidEdit);
+    form->addRow(tr("PID:"), pidEdit);
 
     auto* statusLabel = new QLabel;
     statusLabel->setWordWrap(true);
     form->addRow(statusLabel);
 
     auto* btnRow = new QHBoxLayout;
-    auto* connectBtn = new QPushButton("Connect");
+    auto* connectBtn = new QPushButton(tr("Connect"));
     connectBtn->setProperty("primary", true);
     connectBtn->setDefault(true);
-    auto* cancelBtn = new QPushButton("Cancel");
+    auto* cancelBtn = new QPushButton(tr("Cancel"));
     btnRow->addStretch();
     btnRow->addWidget(connectBtn);
     btnRow->addWidget(cancelBtn);
@@ -3221,12 +3229,12 @@ void MainWindow::onConnectCeserver() {
         bool ok = false;
         pid_t pid = pidEdit->text().toInt(&ok);
         if (!ok || pid <= 0) {
-            statusLabel->setText("Enter a valid remote PID.");
+            statusLabel->setText(tr("Enter a valid remote PID."));
             return;
         }
         const QString host = hostEdit->text();
         const auto port = static_cast<uint16_t>(portSpin->value());
-        statusLabel->setText(QString("Connecting to %1:%2...").arg(host).arg(port));
+        statusLabel->setText(QString(tr("Connecting to %1:%2...")).arg(host).arg(port));
         connectBtn->setEnabled(false);
         // Off the GUI thread; Cancel closes the dialog and the late result is
         // dropped (its connection closes with it).
@@ -3500,21 +3508,21 @@ void MainWindow::onFirstScan() {
         resultsModel_->clear();
         lastResult_.reset();
         undoResult_.reset();
-        foundLabel_->setText("Found: 0");
+        foundLabel_->setText(tr("Found: 0"));
         // Changed, Increased and the like compare with a previous scan, which
         // a first scan does not have: start again from Exact Value, as CE does.
         if (scanNeedsPreviousResult(mapScanType(scanTypeCombo_->currentIndex())))
             scanTypeCombo_->setCurrentIndex(0);
-        statusBar()->showMessage("New scan: pick a value type and value, then First Scan.", 4000);
+        statusBar()->showMessage(tr("New scan: pick a value type and value, then First Scan."), 4000);
         updateScanButtons();
         return;
     }
     if (!process_) {
-        statusBar()->showMessage("No process attached; open one first (Ctrl+O) to scan.", 4000);
+        statusBar()->showMessage(tr("No process attached; open one first (Ctrl+O) to scan."), 4000);
         return;
     }
     if (auto problem = ce::memoryAccessProblem(*process_)) {
-        QMessageBox::warning(this, "Cannot read the process", QString::fromStdString(*problem));
+        QMessageBox::warning(this, tr("Cannot read the process"), QString::fromStdString(*problem));
         return;
     }
 
@@ -3530,15 +3538,15 @@ void MainWindow::onFirstScan() {
     auto fromExpr = parseAddressExpr(fromAddressEdit_->text());
     auto toExpr = parseAddressExpr(toAddressEdit_->text());
     if (!fromExpr || !toExpr) {
-        QMessageBox::warning(this, "Scan range",
-            "From/To must be a hex address, symbol, or module+offset (e.g. target2, target2+0x5000).");
+        QMessageBox::warning(this, tr("Scan range"),
+            tr("From/To must be a hex address, symbol, or module+offset (e.g. target2, target2+0x5000)."));
         return;
     }
     config.startAddress = *fromExpr;
     config.stopAddress = *toExpr;
     if (config.startAddress > config.stopAddress) {
-        QMessageBox::warning(this, "Scan range",
-            "The From address must not be greater than the To address.");
+        QMessageBox::warning(this, tr("Scan range"),
+            tr("The From address must not be greater than the To address."));
         return;
     }
     auto toMatch = [](Qt::CheckState s) {
@@ -3566,7 +3574,7 @@ void MainWindow::onFirstScan() {
         // parseAOB returns false for an empty pattern OR a token that isn't hex
         // or a wildcard (a typo like "8Z") — reject both instead of scanning wrong.
         if (!config.parseAOB(text.toStdString())) {
-            QMessageBox::warning(this, "Array of byte scan", "Enter a valid AOB pattern (e.g. \"7F 45 ?? 46\").");
+            QMessageBox::warning(this, tr("Array of byte scan"), tr("Enter a valid AOB pattern (e.g. \"7F 45 ?? 46\")."));
             return;
         }
         config.alignment = 1;
@@ -3574,14 +3582,14 @@ void MainWindow::onFirstScan() {
         config.parseBinary(text.toStdString());
         // parseBinary returns void; an empty pattern means nothing was parsed.
         if (config.byteArray.empty()) {
-            QMessageBox::warning(this, "Binary scan", "Enter a valid binary pattern (e.g. \"0110??01\").");
+            QMessageBox::warning(this, tr("Binary scan"), tr("Enter a valid binary pattern (e.g. \"0110??01\")."));
             return;
         }
         config.alignment = 1;
     } else if (config.valueType == ValueType::Grouped) {
         std::string error;
         if (!config.parseGrouped(text.toStdString(), &error)) {
-            QMessageBox::warning(this, "Grouped scan", QString::fromStdString(error));
+            QMessageBox::warning(this, tr("Grouped scan"), QString::fromStdString(error));
             return;
         }
         config.alignment = 1;
@@ -3591,7 +3599,7 @@ void MainWindow::onFirstScan() {
         config.alignment = 1;
     } else if (config.valueType == ValueType::Float || config.valueType == ValueType::Double) {
         if (!config.parseFloatingValues(text.toStdString(), scanValue2Edit_->text().toStdString())) {
-            QMessageBox::warning(this, "Floating scan", "Enter valid numeric values for the selected comparison.");return;
+            QMessageBox::warning(this, tr("Floating scan"), tr("Enter valid numeric values for the selected comparison."));return;
         }
     } else if (config.valueType == ValueType::Pointer) {
         auto value = scanIntegerInput(text, intBase == 16, /*pointer=*/true);
@@ -3599,7 +3607,7 @@ void MainWindow::onFirstScan() {
         config.intValue = value.value_or(0);
     } else if (config.valueType == ValueType::All) {
         if (!config.parseAllValues(text.toStdString(), scanValue2Edit_->text().toStdString(), intBase == 16)) {
-            QMessageBox::warning(this, "All scan", "Enter valid numeric values for the selected comparison.");return;
+            QMessageBox::warning(this, tr("All scan"), tr("Enter valid numeric values for the selected comparison."));return;
         }
     } else {
         auto value = scanIntegerInput(text, intBase == 16);
@@ -3619,7 +3627,7 @@ void MainWindow::onFirstScan() {
         }
     }
     if (!applyFloatOptions(config, floatRoundingCombo_, floatToleranceEdit_)) {
-        QMessageBox::warning(this, "Floating tolerance", "Enter a finite nonnegative tolerance.");return;
+        QMessageBox::warning(this, tr("Floating tolerance"), tr("Enter a finite nonnegative tolerance."));return;
     }
     size_t resultValueSize = resultValueSizeForConfig(config);
 
@@ -3632,24 +3640,24 @@ void MainWindow::onFirstScan() {
         // The scanner refused these settings and says why; the advice below
         // is about running out of memory and does not apply.
         firstScanBtn_->setEnabled(true);
-        QMessageBox::warning(this, "Scan failed", QString("The scan could not start: %1").arg(e.what()));
+        QMessageBox::warning(this, tr("Scan failed"), QString(tr("The scan could not start: %1")).arg(e.what()));
         return;
     } catch (const std::exception& e) {
         // A huge target (e.g. an emulator mapping many GB of guest RAM) can
         // exhaust memory during the scan/merge. Report it instead of letting
         // the exception escape the Qt event handler and std::terminate.
         firstScanBtn_->setEnabled(true);
-        QMessageBox::warning(this, "Scan failed",
-            QString("The scan could not complete: %1\n\n"
+        QMessageBox::warning(this, tr("Scan failed"),
+            QString(tr("The scan could not complete: %1\n\n"
                     "Try narrowing the From/To range, enabling Fast Scan, or "
-                    "choosing a more specific value type.").arg(e.what()));
+                    "choosing a more specific value type.")).arg(e.what()));
         return;
     }
     firstScanBtn_->setEnabled(true);
 
     foundLabel_->setText(foundLabelText(result->count()));
     if (result->hasWriteError())
-        QMessageBox::warning(this, "Scan results truncated", scanWriteErrorText(*result));
+        QMessageBox::warning(this, tr("Scan results truncated"), scanWriteErrorText(*result));
     if (result->valueSize()) resultValueSize = result->valueSize();
     resultsModel_->setResult(result.get(), config.valueType, resultValueSize, config.stringEncoding);
 
@@ -3660,17 +3668,17 @@ void MainWindow::onFirstScan() {
     lastResultType_ = config.valueType;
     lastResultValueSize_ = resultValueSize;
     updateScanButtons();
-    statusBar()->showMessage(lastResult_->hasWriteError() ? QStringLiteral("Scan results are incomplete.") :
-        QStringLiteral("First scan complete. %1").arg(foundLabelText(lastResult_->count())), 4000);
+    statusBar()->showMessage(lastResult_->hasWriteError() ? tr("Scan results are incomplete.") :
+        tr("First scan complete. %1").arg(foundLabelText(lastResult_->count())), 4000);
 }
 
 void MainWindow::onNextScan() {
     if (!process_) {
-        statusBar()->showMessage("No process attached; open one first (Ctrl+O) to scan.", 4000);
+        statusBar()->showMessage(tr("No process attached; open one first (Ctrl+O) to scan."), 4000);
         return;
     }
     if (!lastResult_) {
-        statusBar()->showMessage("Run a First Scan before a Next Scan.", 4000);
+        statusBar()->showMessage(tr("Run a First Scan before a Next Scan."), 4000);
         return;
     }
 
@@ -3695,7 +3703,7 @@ void MainWindow::onNextScan() {
         // parseAOB returns false for an empty pattern OR a token that isn't hex
         // or a wildcard (a typo like "8Z") — reject both instead of scanning wrong.
         if (!config.parseAOB(text.toStdString())) {
-            QMessageBox::warning(this, "Array of byte scan", "Enter a valid AOB pattern (e.g. \"7F 45 ?? 46\").");
+            QMessageBox::warning(this, tr("Array of byte scan"), tr("Enter a valid AOB pattern (e.g. \"7F 45 ?? 46\")."));
             return;
         }
         config.alignment = 1;
@@ -3703,14 +3711,14 @@ void MainWindow::onNextScan() {
         config.parseBinary(text.toStdString());
         // parseBinary returns void; an empty pattern means nothing was parsed.
         if (config.byteArray.empty()) {
-            QMessageBox::warning(this, "Binary scan", "Enter a valid binary pattern (e.g. \"0110??01\").");
+            QMessageBox::warning(this, tr("Binary scan"), tr("Enter a valid binary pattern (e.g. \"0110??01\")."));
             return;
         }
         config.alignment = 1;
     } else if (config.valueType == ValueType::Grouped) {
         std::string error;
         if (!config.parseGrouped(text.toStdString(), &error)) {
-            QMessageBox::warning(this, "Grouped scan", QString::fromStdString(error));
+            QMessageBox::warning(this, tr("Grouped scan"), QString::fromStdString(error));
             return;
         }
         config.alignment = 1;
@@ -3721,7 +3729,7 @@ void MainWindow::onNextScan() {
         config.alignment = 1;
     } else if (config.valueType == ValueType::Float || config.valueType == ValueType::Double) {
         if (!config.parseFloatingValues(text.toStdString(), scanValue2Edit_->text().toStdString())) {
-            QMessageBox::warning(this, "Floating scan", "Enter valid numeric values for the selected comparison.");return;
+            QMessageBox::warning(this, tr("Floating scan"), tr("Enter valid numeric values for the selected comparison."));return;
         }
     } else if (config.valueType == ValueType::Pointer) {
         auto value = scanIntegerInput(text, intBase == 16, /*pointer=*/true);
@@ -3729,7 +3737,7 @@ void MainWindow::onNextScan() {
         config.intValue = value.value_or(0);
     } else if (config.valueType == ValueType::All) {
         if (!config.parseAllValues(text.toStdString(), scanValue2Edit_->text().toStdString(), intBase == 16)) {
-            QMessageBox::warning(this, "All scan", "Enter valid numeric values for the selected comparison.");return;
+            QMessageBox::warning(this, tr("All scan"), tr("Enter valid numeric values for the selected comparison."));return;
         }
     } else {
         auto value = scanIntegerInput(text, intBase == 16);
@@ -3748,7 +3756,7 @@ void MainWindow::onNextScan() {
         }
     }
     if (!applyFloatOptions(config, floatRoundingCombo_, floatToleranceEdit_)) {
-        QMessageBox::warning(this, "Floating tolerance", "Enter a finite nonnegative tolerance.");return;
+        QMessageBox::warning(this, tr("Floating tolerance"), tr("Enter a finite nonnegative tolerance."));return;
     }
 
     if (percentCheck_->isChecked()) {
@@ -3777,15 +3785,15 @@ void MainWindow::onNextScan() {
         // Guard the same way as onFirstScan: a bad_alloc (or a rejected
         // next-scan, e.g. a changed value-size stride) must not terminate.
         nextScanBtn_->setEnabled(true);
-        QMessageBox::warning(this, "Scan failed",
-            QString("The next scan could not complete: %1").arg(e.what()));
+        QMessageBox::warning(this, tr("Scan failed"),
+            QString(tr("The next scan could not complete: %1")).arg(e.what()));
         return;
     }
     nextScanBtn_->setEnabled(true);
 
     foundLabel_->setText(foundLabelText(result->count()));
     if (result->hasWriteError())
-        QMessageBox::warning(this, "Scan results truncated", scanWriteErrorText(*result));
+        QMessageBox::warning(this, tr("Scan results truncated"), scanWriteErrorText(*result));
     if (result->valueSize()) resultValueSize = result->valueSize();
     resultsModel_->setResult(result.get(), config.valueType, resultValueSize, config.stringEncoding);
 
@@ -3796,8 +3804,8 @@ void MainWindow::onNextScan() {
     lastResultType_ = config.valueType;
     lastResultValueSize_ = resultValueSize;
     updateScanButtons();
-    statusBar()->showMessage(lastResult_->hasWriteError() ? QStringLiteral("Scan results are incomplete.") :
-        QStringLiteral("Next scan complete. %1").arg(foundLabelText(lastResult_->count())), 4000);
+    statusBar()->showMessage(lastResult_->hasWriteError() ? tr("Scan results are incomplete.") :
+        tr("Next scan complete. %1").arg(foundLabelText(lastResult_->count())), 4000);
 }
 
 void MainWindow::onUndoScan() {
@@ -3819,7 +3827,7 @@ void MainWindow::onResultDoubleClicked(const QModelIndex& index) {
     size_t size = type == ValueType::All ? lastResult_->allTypeValueSize(index.row()) : lastResultValueSize_;
     if (type == ValueType::All || type == ValueType::Grouped || type == ValueType::Custom || type == ValueType::Binary)
         type = ValueType::ByteArray;
-    int id = addressListModel_->addEntry(addr, type, "No description", "", size);
+    int id = addressListModel_->addEntry(addr, type, tr("No description"), "", size);
     if (lastResult_->hasDataFormat())
         addressListModel_->setEntryDataFormat(addressListModel_->rowOfId(id), lastResult_->byteOrder(), lastResult_->pointerWidth());
 }
@@ -3938,8 +3946,8 @@ bool MainWindow::maybeSaveTable() {
         tableLuaScript_.isEmpty() && disasmAnnotations_.empty())
         return true;
     if (tableFingerprint() == savedTableFingerprint_) return true;
-    const auto answer = QMessageBox::question(this, "Unsaved changes",
-        "The cheat table has changes that are not saved. Save them?",
+    const auto answer = QMessageBox::question(this, tr("Unsaved changes"),
+        tr("The cheat table has changes that are not saved. Save them?"),
         QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Save);
     if (answer == QMessageBox::Discard) return true;
     if (answer != QMessageBox::Save) return false;
@@ -4146,9 +4154,9 @@ void MainWindow::editScriptEntry(int row) {
     auto* editor = new ScriptEditor(process_.get(), &autoAsm_, this);
     trackTargetWindow(editor);
     editor->setAttribute(Qt::WA_DeleteOnClose);
-    editor->setWindowTitle("Auto Assembler: " + desc);
+    editor->setWindowTitle(tr("Auto Assembler: %1").arg(desc));
     editor->setDefaultDescription(desc);
-    editor->setTableButtonText("Save to Table");
+    editor->setTableButtonText(tr("Save to Table"));
     editor->setScript(script.toStdString());
     // Save back to THIS entry (found by stable id, so it survives reordering)
     // instead of appending a duplicate row.
@@ -4247,8 +4255,8 @@ ce::CheatTable MainWindow::buildCheatTable() const {
 }
 
 void MainWindow::onCreateTrainer() {
-    auto path = QFileDialog::getSaveFileName(this, "Create Trainer (C source)",
-        "trainer.c", "C source (*.c);;All Files (*)");
+    auto path = QFileDialog::getSaveFileName(this, tr("Create Trainer (C source)"),
+        "trainer.c", tr("C source (*.c);;All Files (*)"));
     if (path.isEmpty()) return;
     try {
         ce::CheatTable table = buildCheatTable();
@@ -4256,15 +4264,15 @@ void MainWindow::onCreateTrainer() {
         std::string src = gen.generateSource(table);
         QFile f(path);
         if (!f.open(QIODevice::WriteOnly)) {
-            QMessageBox::warning(this, "Create Trainer", "Could not write the trainer source file.");
+            QMessageBox::warning(this, tr("Create Trainer"), tr("Could not write the trainer source file."));
             return;
         }
         f.write(src.data(), (qint64)src.size());
         statusBar()->showMessage(
-            QString("Trainer C source written to %1 (compile with gcc)").arg(path), 6000);
+            QString(tr("Trainer C source written to %1 (compile with gcc)")).arg(path), 6000);
     } catch (const std::exception& ex) {
-        QMessageBox::critical(this, "Create Trainer",
-            QString("Trainer generation failed:\n%1").arg(ex.what()));
+        QMessageBox::critical(this, tr("Create Trainer"),
+            QString(tr("Trainer generation failed:\n%1")).arg(ex.what()));
     }
 }
 
@@ -4355,12 +4363,12 @@ void MainWindow::rebuildValueHotkeys() {
 }
 
 void MainWindow::onSaveScanResults() {
-    if (!resultsModel_ || !resultsModel_->resultCount()) { statusBar()->showMessage("No scan results to save.", 4000); return; }
-    const QString path = QFileDialog::getSaveFileName(this, "Save all current scan results",
-        "scanresults.txt", "Text (*.txt);;CSV (*.csv);;All files (*)");
+    if (!resultsModel_ || !resultsModel_->resultCount()) { statusBar()->showMessage(tr("No scan results to save."), 4000); return; }
+    const QString path = QFileDialog::getSaveFileName(this, tr("Save all current scan results"),
+        "scanresults.txt", tr("Text (*.txt);;CSV (*.csv);;All files (*)"));
     if (path.isEmpty()) return;
     const size_t rows = resultsModel_->resultCount();
-    if (!rows) { statusBar()->showMessage("No scan results to save.", 4000); return; }
+    if (!rows) { statusBar()->showMessage(tr("No scan results to save."), 4000); return; }
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         statusBar()->showMessage(file.errorString(), 4000); return;
@@ -4371,7 +4379,7 @@ void MainWindow::onSaveScanResults() {
         if (csv) return QString('"') + text.replace("\"", "\"\"") + '"';
         return text.replace("\t", "\\t").replace("\r", "\\r").replace("\n", "\\n");
     };
-    QProgressDialog progress("Saving all scan results...", "Cancel", 0, 1000, this);
+    QProgressDialog progress(tr("Saving all scan results..."), tr("Cancel"), 0, 1000, this);
     progress.setWindowModality(Qt::WindowModal);
     bool changed = false;
     connect(resultsModel_, &QAbstractItemModel::modelReset, &progress, [&] { changed = true; });
@@ -4383,7 +4391,7 @@ void MainWindow::onSaveScanResults() {
             QCoreApplication::processEvents();
             if (changed || progress.wasCanceled()) {
                 file.cancelWriting();
-                statusBar()->showMessage(changed ? "Scan results changed; export canceled." : "Export canceled.", 4000);
+                statusBar()->showMessage(changed ? tr("Scan results changed; export canceled.") : tr("Export canceled."), 4000);
                 return;
             }
         }
@@ -4392,9 +4400,9 @@ void MainWindow::onSaveScanResults() {
     }
     output.flush();
     if (output.status() != QTextStream::Ok || !file.flush() || !file.commit()) {
-        statusBar()->showMessage("Could not save scan results: " + file.errorString(), 6000); return;
+        statusBar()->showMessage(tr("Could not save scan results: %1").arg(file.errorString()), 6000); return;
     }
-    statusBar()->showMessage(QString("Saved %1 results to %2").arg(qulonglong(rows)).arg(QFileInfo(path).fileName()), 6000);
+    statusBar()->showMessage(QString(tr("Saved %1 results to %2")).arg(qulonglong(rows)).arg(QFileInfo(path).fileName()), 6000);
 }
 
 namespace {
@@ -4434,23 +4442,25 @@ void MainWindow::onSaveTable() {
 
 // Cheat Engine writes ".CT"; GTK's file chooser matches patterns case-sensitively,
 // so list both spellings or a user's existing tables would be hidden.
-static const char* kTableFileFilter =
-    "Cheat Tables (*.ct *.CT);;JSON Tables (*.json *.JSON);;All Files (*)";
+static QString tableFileFilter() {
+    return QCoreApplication::translate("MainWindow",
+        "Cheat Tables (*.ct *.CT);;JSON Tables (*.json *.JSON);;All Files (*)");
+}
 
 void MainWindow::onSaveTableAs() {
     QString filter;
-    auto path=QFileDialog::getSaveFileName(this,"Save Cheat Table",currentTablePath_,kTableFileFilter,&filter);
+    auto path=QFileDialog::getSaveFileName(this,tr("Save Cheat Table"),currentTablePath_,tableFileFilter(),&filter);
     if (path.isEmpty()) return;
     // Native choosers don't add an extension; take it from the chosen file type,
     // since saveTableToPath picks the format from the name.
     if (QFileInfo(path).suffix().isEmpty())
-        path += filter.startsWith("JSON") ? ".json" : ".CT";
+        path += filter.contains("*.json") ? ".json" : ".CT";
     saveTableToPath(path);
 }
 
 bool MainWindow::saveTableToPath(const QString& path) {
     auto fail=[&](const QString& reason) {
-        QMessageBox::critical(this,"Save Cheat Table",QString("Could not save %1:\n%2").arg(path,reason));
+        QMessageBox::critical(this,tr("Save Cheat Table"),QString(tr("Could not save %1:\n%2")).arg(path,reason));
         return false;
     };
     try {
@@ -4461,7 +4471,7 @@ bool MainWindow::saveTableToPath(const QString& path) {
         if (path.endsWith(".ct",Qt::CaseInsensitive)) {
             auto table=buildCheatTable();
             TableDeviceBuffer buffer(file);std::ostream output(&buffer);
-            if (!ce::writeTableXml(table,output)) {file.cancelWriting();return fail("Invalid table data or incomplete write.");}
+            if (!ce::writeTableXml(table,output)) {file.cancelWriting();return fail(tr("Invalid table data or incomplete write."));}
         } else {
             // Keep the GUI's richer native records (including codecs), while
             // serializing shared table metadata through the core JSON writer.
@@ -4470,7 +4480,7 @@ bool MainWindow::saveTableToPath(const QString& path) {
             metadata.comment=tableComment_.toStdString();metadata.luaScript=tableLuaScript_.toStdString();
             metadata.disassemblerComments=disasmAnnotations_;
             std::ostringstream output;
-            if (!ce::writeTableJson(metadata,output)) {file.cancelWriting();return fail("Invalid table metadata.");}
+            if (!ce::writeTableJson(metadata,output)) {file.cancelWriting();return fail(tr("Invalid table metadata."));}
             auto root=QJsonDocument::fromJson(QByteArray::fromStdString(output.str())).object();
             root["process"]=processLabel_->text();root["entries"]=addressListModel_->toJson();
             const auto bytes=QJsonDocument(root).toJson();
@@ -4481,16 +4491,16 @@ bool MainWindow::saveTableToPath(const QString& path) {
         if (!file.flush()) {const auto error=file.errorString();file.cancelWriting();return fail(error);}
         if (!file.commit()) return fail(file.errorString());
         addRecentTable(path);
-        statusBar()->showMessage(QString("Saved table to %1").arg(QFileInfo(path).fileName()),4000);
+        statusBar()->showMessage(QString(tr("Saved table to %1")).arg(QFileInfo(path).fileName()),4000);
         return true;
     } catch (const std::exception& ex) {return fail(QString::fromUtf8(ex.what()));}
-      catch (...) {return fail("Unknown save error.");}
+      catch (...) {return fail(tr("Unknown save error."));}
 }
 
 void MainWindow::onLoadTable() {
     if (!maybeSaveTable()) return;
-    auto path = QFileDialog::getOpenFileName(this, "Load Cheat Table",
-        currentTablePath_.isEmpty() ? QString() : QFileInfo(currentTablePath_).absolutePath(), kTableFileFilter);
+    auto path = QFileDialog::getOpenFileName(this, tr("Load Cheat Table"),
+        currentTablePath_.isEmpty() ? QString() : QFileInfo(currentTablePath_).absolutePath(), tableFileFilter());
     if (path.isEmpty()) return;
     loadTableFromPath(path);
 }
@@ -4609,10 +4619,10 @@ bool MainWindow::loadCheatTableModel(const ce::CheatTable& table,const QJsonArra
     // loaded, so it can define trainer functions/hooks and reference records.
     if (!table.luaScript.empty()) {
         // CE asktorunluascript: never auto-run an untrusted table's Lua, ask first.
-        auto answer = QMessageBox::question(this, "Execute this lua script?",
-            "This cheat table contains a Lua script.\n\n"
+        auto answer = QMessageBox::question(this, tr("Execute this lua script?"),
+            tr("This cheat table contains a Lua script.\n\n"
             "Only execute scripts from tables you trust, a table's Lua can hook "
-            "and manipulate the target. Execute it?",
+            "and manipulate the target. Execute it?"),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (answer == QMessageBox::Yes) {
             luaEngine_.setProcess(process_.get());
@@ -4620,7 +4630,7 @@ bool MainWindow::loadCheatTableModel(const ce::CheatTable& table,const QJsonArra
             auto res = luaEngine_.evalToString(table.luaScript);
             if (!res.has_value())
                 statusBar()->showMessage(
-                    QString("Table Lua error: %1").arg(QString::fromStdString(res.error())), 8000);
+                    QString(tr("Table Lua error: %1")).arg(QString::fromStdString(res.error())), 8000);
         }
     }
     // Open Memory Viewers hold the previous table's comments and labels; their
@@ -4678,7 +4688,7 @@ void MainWindow::rebuildRecentMenu() {
     recentMenu_->clear();
     const QStringList recent = QSettings().value("recentTables").toStringList();
     if (recent.isEmpty()) {
-        recentMenu_->addAction("(no recent tables)")->setEnabled(false);
+        recentMenu_->addAction(tr("(no recent tables)"))->setEnabled(false);
         return;
     }
     for (const QString& p : recent) {
@@ -4686,12 +4696,12 @@ void MainWindow::rebuildRecentMenu() {
         // (it stays listed so the user can see what went away, like CE).
         const bool exists = QFileInfo::exists(p);
         auto* a = recentMenu_->addAction(QFileInfo(p).fileName());
-        a->setToolTip(exists ? p : p + "  (missing)");
+        a->setToolTip(exists ? p : p + "  " + tr("(missing)"));
         a->setEnabled(exists);
         if (exists) connect(a, &QAction::triggered, this, [this, p]() { if (maybeSaveTable()) loadTableFromPath(p); });
     }
     recentMenu_->addSeparator();
-    connect(recentMenu_->addAction("Clear list"), &QAction::triggered, this, [this]() {
+    connect(recentMenu_->addAction(tr("Clear list")), &QAction::triggered, this, [this]() {
         QSettings().remove("recentTables");
         rebuildRecentMenu();
     });
@@ -4705,14 +4715,14 @@ void MainWindow::loadTableFromPath(const QString& path) {
     const ce::TableFormat fmt = ce::detectTableFormat(path.toStdString());
     if (fmt == ce::TableFormat::Protected) {
         bool ok = false;
-        QString pw = QInputDialog::getText(this, "Protected Cheat Table",
-            "This table is password-protected (.CETRAINER).\nEnter its password:",
+        QString pw = QInputDialog::getText(this, tr("Protected Cheat Table"),
+            tr("This table is password-protected (.CETRAINER).\nEnter its password:"),
             QLineEdit::Password, QString(), &ok);
         if (!ok) return;
         CheatTable table;
         if (!table.loadProtected(path.toStdString(), pw.toStdString())) {
-            QMessageBox::warning(this, "Load Cheat Table",
-                "Could not decrypt the table (wrong password or corrupt file).");
+            QMessageBox::warning(this, tr("Load Cheat Table"),
+                tr("Could not decrypt the table (wrong password or corrupt file)."));
             return;
         }
         if (!loadCheatTableModel(table)) return;
@@ -4722,23 +4732,23 @@ void MainWindow::loadTableFromPath(const QString& path) {
     if (fmt != ce::TableFormat::Json) {
         // CE XML .CT format (Xml, or Unknown which load() self-validates).
         CheatTable table;
-        if (!table.load(path.toStdString())) {QMessageBox::warning(this,"Load Cheat Table","Could not read a valid cheat table.");return;}
+        if (!table.load(path.toStdString())) {QMessageBox::warning(this,tr("Load Cheat Table"),tr("Could not read a valid cheat table."));return;}
         if (!loadCheatTableModel(table)) return;
         addRecentTable(path);
     } else {
         QFile f(path);
-        if (!f.open(QIODevice::ReadOnly)) {QMessageBox::warning(this,"Load Cheat Table",f.errorString());return;}
+        if (!f.open(QIODevice::ReadOnly)) {QMessageBox::warning(this,tr("Load Cheat Table"),f.errorString());return;}
         const auto bytes=f.readAll();
-        if (f.error()!=QFileDevice::NoError) {QMessageBox::warning(this,"Load Cheat Table",f.errorString());return;}
+        if (f.error()!=QFileDevice::NoError) {QMessageBox::warning(this,tr("Load Cheat Table"),f.errorString());return;}
         QJsonParseError parseError;auto doc=QJsonDocument::fromJson(bytes,&parseError);
         if (!doc.isObject() || !doc.object()["entries"].isArray()) {
-            QMessageBox::warning(this,"Load Cheat Table","Invalid JSON cheat table.");return;
+            QMessageBox::warning(this,tr("Load Cheat Table"),tr("Invalid JSON cheat table."));return;
         }
         for (const auto& value:doc.object()["entries"].toArray()) if (!value.isObject()) {
-            QMessageBox::warning(this,"Load Cheat Table","Invalid JSON record.");return;
+            QMessageBox::warning(this,tr("Load Cheat Table"),tr("Invalid JSON record."));return;
         }
         CheatTable parsed;
-        if (!parsed.loadJsonFromString(bytes.toStdString())) {QMessageBox::warning(this,"Load Cheat Table","Invalid JSON record data.");return;}
+        if (!parsed.loadJsonFromString(bytes.toStdString())) {QMessageBox::warning(this,tr("Load Cheat Table"),tr("Invalid JSON record data."));return;}
         // Use the exact validated common fields for either JSON schema. Only
         // GUI codec/presentation settings come from Qt's parsed representation.
         const auto original=doc.object()["entries"].toArray();
@@ -4748,10 +4758,10 @@ void MainWindow::loadTableFromPath(const QString& path) {
   } catch (const std::exception& ex) {
     // A parse/load path (e.g. ct_file) may throw; never let it escape the slot
     // into std::terminate.
-    QMessageBox::critical(this, "Load Cheat Table",
-        QString("Failed to load table:\n%1").arg(ex.what()));
+    QMessageBox::critical(this, tr("Load Cheat Table"),
+        QString(tr("Failed to load table:\n%1")).arg(ex.what()));
   } catch (...) {
-    QMessageBox::critical(this, "Load Cheat Table", "Failed to load table (unknown error).");
+    QMessageBox::critical(this, tr("Load Cheat Table"), tr("Failed to load table (unknown error)."));
   }
 }
 
@@ -4832,7 +4842,7 @@ void MainWindow::showInstructionAccesses(uintptr_t instructionAddr) {
     // Runs synchronously: plant an execute breakpoint on the instruction, resolve the
     // data address of its memory operand from the live registers on each hit, until
     // 32 hits or a 4s timeout. Usually fast for a hot instruction; brief wait otherwise.
-    statusBar()->showMessage(QString("Monitoring the instruction at 0x%1…").arg(instructionAddr, 0, 16));
+    statusBar()->showMessage(QString(tr("Monitoring the instruction at 0x%1…")).arg(instructionAddr, 0, 16));
     QApplication::setOverrideCursor(Qt::WaitCursor);
     QApplication::processEvents();
     auto results = ce::findInstructionAccesses(*process_, instructionAddr);
@@ -4840,21 +4850,21 @@ void MainWindow::showInstructionAccesses(uintptr_t instructionAddr) {
 
     if (results.empty()) {
         statusBar()->clearMessage();
-        QMessageBox::information(this, "What this instruction accesses",
-            QString("No data accesses were recorded for the instruction at 0x%1.\n\nIt may not have "
-                    "run during the sample window, or it has no memory operand.").arg(instructionAddr, 0, 16));
+        QMessageBox::information(this, tr("What this instruction accesses"),
+            QString(tr("No data accesses were recorded for the instruction at 0x%1.\n\nIt may not have "
+                    "run during the sample window, or it has no memory operand.")).arg(instructionAddr, 0, 16));
         return;
     }
 
     auto* dlg = new QDialog(this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    dlg->setWindowTitle(QString("Addresses accessed by 0x%1").arg(instructionAddr, 0, 16));
+    dlg->setWindowTitle(QString(tr("Addresses accessed by 0x%1")).arg(instructionAddr, 0, 16));
     dlg->resize(440, 360);
     auto* lay = new QVBoxLayout(dlg);
-    lay->addWidget(new QLabel(QString("%1 distinct address(es) accessed (double-click to add to the list):")
+    lay->addWidget(new QLabel(QString(tr("%1 distinct address(es) accessed (double-click to add to the list):"))
         .arg(results.size())));
     auto* table = new QTableWidget((int)results.size(), 2, dlg);
-    table->setHorizontalHeaderLabels({"Address", "Hits"});
+    table->setHorizontalHeaderLabels({tr("Address"), tr("Hits")});
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     for (int i = 0; i < (int)results.size(); ++i) {
@@ -4870,14 +4880,14 @@ void MainWindow::showInstructionAccesses(uintptr_t instructionAddr) {
     connect(table, &QTableWidget::cellDoubleClicked, this, [this, table](int row, int) {
         if (auto* it = table->item(row, 0))
             addressListModel_->addEntry((uintptr_t)it->data(Qt::UserRole).toULongLong(),
-                                        ce::ValueType::Int32, "Accessed address");
+                                        ce::ValueType::Int32, tr("Accessed address"));
     });
     lay->addWidget(table);
-    auto* close = new QPushButton("Close");
+    auto* close = new QPushButton(tr("Close"));
     connect(close, &QPushButton::clicked, dlg, &QDialog::accept);
     lay->addWidget(close, 0, Qt::AlignRight);
     dlg->show();
-    statusBar()->showMessage(QString("%1 address(es) accessed by 0x%2")
+    statusBar()->showMessage(QString(tr("%1 address(es) accessed by 0x%2"))
         .arg(results.size()).arg(instructionAddr, 0, 16), 5000);
 }
 
@@ -4899,11 +4909,11 @@ int MainWindow::runAutorunScripts() {
         ++ran;
         if (!err.empty()) {
             ++failed;
-            statusBar()->showMessage(QString("autorun %1: %2").arg(f, QString::fromStdString(err)), 8000);
+            statusBar()->showMessage(QString(tr("autorun %1: %2")).arg(f, QString::fromStdString(err)), 8000);
         }
     }
     if (ran > 0 && failed == 0)
-        statusBar()->showMessage(QString("Ran %1 autorun script(s).").arg(ran), 4000);
+        statusBar()->showMessage(QString(tr("Ran %1 autorun script(s).")).arg(ran), 4000);
     return ran;
 }
 
@@ -4934,12 +4944,12 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly, int 
     else if (modeOverride == "st") { software = false; singleThread = true;  }
 
     if (wine && !codeFinderNoPrompt_ && !software) {
-        auto r = QMessageBox::information(this, "Wine / Proton game",
-            "This is a Wine/Proton (Windows) game. Cheat Engine will watch the game's "
+        auto r = QMessageBox::information(this, tr("Wine / Proton game"),
+            tr("This is a Wine/Proton (Windows) game. Cheat Engine will watch the game's "
             "main thread for writes, which is where gameplay values (money, HP, …) are "
             "usually changed.\n\n"
             "If nothing shows up, the value may be written by a background thread; "
-            "tell me and it can be widened. Start monitoring?",
+            "tell me and it can be widened. Start monitoring?"),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
         if (r != QMessageBox::Yes) return;
     }
@@ -4953,7 +4963,7 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly, int 
         watchSize = QSettings().value("codefinder/watchSize", "4").toInt();
     if (watchSize != 1 && watchSize != 2 && watchSize != 4 && watchSize != 8) watchSize = 4;
     if (!finder->start(*process_, *debugger, addr, writesOnly, watchSize, software, singleThread)) {
-        QMessageBox::warning(this, "Code finder unavailable", QString::fromStdString(ce::targetOperationError(*process_,
+        QMessageBox::warning(this, tr("Code finder unavailable"), QString::fromStdString(ce::targetOperationError(*process_,
             software ? ce::TargetFeature::SoftwareWatchpoint : ce::TargetFeature::HardwareWatchpoint, finder->lastError())));
         return;
     }
@@ -4962,7 +4972,7 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly, int 
     codeFinderDebuggers_.push_back(std::move(debugger));
     codeFinders_.push_back(std::move(finder));
 
-    auto title = writesOnly ? "Find what writes" : "Find what accesses";
+    auto title = writesOnly ? tr("Find what writes") : tr("Find what accesses");
     auto* window = new CodeFinderWindow(finderPtr,
         QString("%1 0x%2").arg(title).arg(addr, 0, 16), process_.get(), this);
     trackTargetWindow(window);
@@ -4975,7 +4985,7 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly, int 
     // (the Code list), where they can be disassembled / NOP'd / restored.
     window->setAddToList([this](uintptr_t a, const QString& desc) {
         showAdvancedOptions();
-        advancedOptions_->addCode(a, desc.isEmpty() ? QString("code 0x%1").arg(a, 0, 16) : desc);
+        advancedOptions_->addCode(a, desc.isEmpty() ? QString(tr("code 0x%1")).arg(a, 0, 16) : desc);
     });
     // CE: "Show this address in the disassembler" jumps the Memory Viewer to the
     // writing/accessing instruction (the found row's recovered address).
@@ -4985,7 +4995,7 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly, int 
 
 void MainWindow::onMemoryView() {
     if (!process_) {
-        statusBar()->showMessage("No process attached; open one first (Ctrl+O) to view memory.", 4000);
+        statusBar()->showMessage(tr("No process attached; open one first (Ctrl+O) to view memory."), 4000);
         return;
     }
     openMemoryView(0);
@@ -4993,7 +5003,7 @@ void MainWindow::onMemoryView() {
 
 void MainWindow::showDebugger() {
     if (AutoAsmUiOperation::retiring(&autoAsm_)) return;
-    if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
+    if (!process_) { QMessageBox::warning(this, tr("No process"), tr("Open a process first.")); return; }
     // Reuse the existing window: it holds the ptrace attachment, so a second one
     // would fail to attach. Just raise it if it is already open.
     if (debuggerWindow_) {
@@ -5027,7 +5037,7 @@ void MainWindow::trackStructDissector(StructureDissector* sd) {
 }
 
 void MainWindow::openMonoDissector() {
-    if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
+    if (!process_) { QMessageBox::warning(this, tr("No process"), tr("Open a process first.")); return; }
     auto* w = new ce::gui::MonoDissectorWindow(process_.get(), this);
     trackTargetWindow(w);
     w->setAttribute(Qt::WA_DeleteOnClose);
@@ -5037,9 +5047,9 @@ void MainWindow::openMonoDissector() {
             [this](quint32 offset, int valueType, const QString& label, bool isStatic) {
         bool ok = false;
         // A static field's offset is into the class's static data, not an object.
-        QString base = QInputDialog::getText(this, "Add Mono field",
-            QString("%1 for '%2' (field at +0x%3):")
-                .arg(isStatic ? "Static data address of the class" : "Object base address")
+        QString base = QInputDialog::getText(this, tr("Add Mono field"),
+            QString(tr("%1 for '%2' (field at +0x%3):"))
+                .arg(isStatic ? tr("Static data address of the class") : tr("Object base address"))
                 .arg(label).arg(offset, 0, 16),
             QLineEdit::Normal, "", &ok);
         if (!ok || base.trimmed().isEmpty()) return;
@@ -5094,13 +5104,21 @@ void MainWindow::rebuildDebuggerComments() {
 
 QWidget* MainWindow::openPanelByName(const QString& name) {
     auto tryIn = [this, &name](QWidget* host) -> QWidget* {
+        // The --panel argument is an English menu name; with a translation
+        // catalogue installed the actions carry the translated text.
+        QStringList candidates{name};
+        const QString translated = QCoreApplication::translate("ce::gui::MainWindow", name.toUtf8().constData());
+        if (!translated.isEmpty() && translated != name) candidates << translated;
         QSet<QWidget*> before;
         for (auto* w : QApplication::topLevelWidgets()) before.insert(w);
         bool matched = false;
         for (QAction* a : host->findChildren<QAction*>()) {
             if (a->menu() || a->isSeparator()) continue;
             QString t = a->text(); t.remove('&');
-            if (t.contains(name, Qt::CaseInsensitive)) { a->trigger(); matched = true; break; }
+            bool hit = false;
+            for (const QString& candidate : candidates)
+                if (t.contains(candidate, Qt::CaseInsensitive)) { hit = true; break; }
+            if (hit) { a->trigger(); matched = true; break; }
         }
         if (!matched) return nullptr;
         QApplication::processEvents();
@@ -5117,7 +5135,7 @@ QWidget* MainWindow::openPanelByName(const QString& name) {
 
 AgentPanel* MainWindow::showAgentPanel() {
     if (!agentPanel_) {
-        agentDock_ = new QDockWidget("AI Assistant", this);
+        agentDock_ = new QDockWidget(tr("AI Assistant"), this);
         agentDock_->setObjectName("aiAssistantDock");
         agentPanel_ = new AgentPanel(agentDock_);
         agentDock_->setWidget(agentPanel_);
@@ -5152,6 +5170,11 @@ QDialog* MainWindow::openSettingsDialog(const QString& page) {
         if (name.isEmpty()) return;
         if (auto* nav = dialog->findChild<QListWidget*>("settingsNav")) {
             auto matches = nav->findItems(name, Qt::MatchContains);
+            // Nav labels are translated; page names stay English identifiers, so
+            // fall back to the translated label when the English one does not match.
+            if (matches.isEmpty())
+                matches = nav->findItems(QCoreApplication::translate("ce::gui::SettingsDialog",
+                    name.toUtf8().constData()), Qt::MatchContains);
             if (!matches.isEmpty()) nav->setCurrentItem(matches.first());
         }
     };
@@ -5201,20 +5224,20 @@ MemoryBrowser* MainWindow::openMemoryView(uintptr_t addr) {
     browser->setBreakpointSetter([this](uintptr_t addr, bool hardware) {
         if (!debuggerWindow_) showDebugger();
         if (!debuggerWindow_ || !debuggerWindow_->debugAttached()) {
-            statusBar()->showMessage("The debugger could not attach; no breakpoint was set.", 5000);
+            statusBar()->showMessage(tr("The debugger could not attach; no breakpoint was set."), 5000);
             return;
         }
         if (!debuggerWindow_->debugStopped()) {
-            statusBar()->showMessage("Pause the target in the debugger to set a breakpoint.", 5000);
+            statusBar()->showMessage(tr("Pause the target in the debugger to set a breakpoint."), 5000);
             return;
         }
         debuggerWindow_->addBreakpointAt(addr);
         if (hardware)
-            statusBar()->showMessage("Execute breakpoints are software breakpoints in this debugger.", 5000);
+            statusBar()->showMessage(tr("Execute breakpoints are software breakpoints in this debugger."), 5000);
     });
     browser->setBreakpointRemover([this](uintptr_t addr) {
         if (debuggerWindow_ && !debuggerWindow_->removeBreakpointAt(addr))
-            statusBar()->showMessage("Could not remove the breakpoint; see the debugger window.", 5000);
+            statusBar()->showMessage(tr("Could not remove the breakpoint; see the debugger window."), 5000);
     });
     browser->setBreakpointQuery([this]() {
         return debuggerWindow_ ? debuggerWindow_->breakpointAddresses() : std::set<uintptr_t>{};
@@ -5227,7 +5250,7 @@ MemoryBrowser* MainWindow::openMemoryView(uintptr_t addr) {
     });
     browser->setAddToList([this](uintptr_t addr, ce::ValueType type) {
         addressListModel_->addEntry(addr, type);
-        statusBar()->showMessage(QString("Added 0x%1 to the cheat table").arg(addr, 0, 16), 3000);
+        statusBar()->showMessage(QString(tr("Added 0x%1 to the cheat table")).arg(addr, 0, 16), 3000);
     });
     // Global user-defined symbols: a label set in one Memory Viewer must resolve
     // everywhere (records, Lua, other views). Seed this view with the app-wide labels,
@@ -5280,7 +5303,7 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
     auto needProc = [this]() { return process_ != nullptr; };
 
     // ── View: navigable info windows ──
-    view->addAction("Memory Regions", this, [this, openAt]() {
+    view->addAction(tr("Memory Regions"), this, [this, openAt]() {
         if (!process_) return;
         auto* w = new MemoryRegionsWindow(process_.get(), this);
         trackTargetWindow(w);
@@ -5288,7 +5311,7 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
         connect(w, &MemoryRegionsWindow::navigateTo, this, [openAt](uintptr_t a){ openAt(a); });
         w->show();
     });
-    view->addAction("Heap list", this, [this, openAt]() {
+    view->addAction(tr("Heap list"), this, [this, openAt]() {
         if (!process_) return;
         auto* w = new HeapRegionsWindow(process_.get(), this);
         trackTargetWindow(w);
@@ -5296,7 +5319,7 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
         connect(w, &HeapRegionsWindow::navigateTo, this, [openAt](uintptr_t a){ openAt(a); });
         w->show();
     });
-    view->addAction("Module list", this, [this, openAt]() {
+    view->addAction(tr("Module list"), this, [this, openAt]() {
         if (!process_) return;
         auto* w = new ModuleListWindow(process_.get(), this);
         trackTargetWindow(w);
@@ -5304,7 +5327,7 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
         connect(w, &ModuleListWindow::navigateTo, this, [openAt](uintptr_t a){ openAt(a); });
         w->show();
     });
-    view->addAction("Referenced strings / functions", this, [this, openAt]() {
+    view->addAction(tr("Referenced strings / functions"), this, [this, openAt]() {
         if (!process_) return;
         auto* w = new CodeReferencesWindow(process_.get(), this);
         trackTargetWindow(w);
@@ -5312,19 +5335,19 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
         connect(w, &CodeReferencesWindow::navigateTo, this, [openAt](uintptr_t a){ openAt(a); });
         w->show();
     });
-    view->addAction("Thread list", this, [this]() {
+    view->addAction(tr("Thread list"), this, [this]() {
         if (!process_) return;
         auto* w = new ThreadListWindow(process_.get(), this);
         trackTargetWindow(w);
         w->setAttribute(Qt::WA_DeleteOnClose); w->show();
     });
-    view->addAction("Stacktrace", this, [this]() {
+    view->addAction(tr("Stacktrace"), this, [this]() {
         if (!process_) return;
         auto* w = new StackViewWindow(process_.get(), this);
         trackTargetWindow(w);
         w->setAttribute(Qt::WA_DeleteOnClose); w->show();
     });
-    view->addAction("Graphical memory view", this, [this]() {
+    view->addAction(tr("Graphical memory view"), this, [this]() {
         if (!process_) return;
         auto* w = new ce::gui::GraphicalMemoryView(process_.get(), this);
         trackTargetWindow(w);
@@ -5335,7 +5358,7 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
     QMenu* dbg = b->debugMenu();
     if (dbg) {
         dbg->addSeparator();
-        dbg->addAction("Registers", this, [this]() {
+        dbg->addAction(tr("Registers"), this, [this]() {
             if (!process_) return;
             auto* w = new RegisterEditorWindow(process_.get(), this);
             trackTargetWindow(w);
@@ -5343,16 +5366,16 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
         });
         // The debugger window holds the breakpoints that are actually armed
         // (set there, or from the Memory Viewer); its list is the real one.
-        dbg->addAction("Breakpoint list", this, [this]() { showDebugger(); });
-        dbg->addAction("Full debugger", this, [this]() { showDebugger(); });
-        dbg->addAction("Break and trace", this, [this]() {
+        dbg->addAction(tr("Breakpoint list"), this, [this]() { showDebugger(); });
+        dbg->addAction(tr("Full debugger"), this, [this]() { showDebugger(); });
+        dbg->addAction(tr("Break and trace"), this, [this]() {
             if (!process_) return;
             auto* tw = new TracerWindow(process_.get(),
                 [this]() { return createDebuggerForCurrentProcess(); }, this);
             trackTargetWindow(tw);
             tw->setAttribute(Qt::WA_DeleteOnClose); tw->show();
         });
-        dbg->addAction("Branch mapper (LBR)", this, [this]() {
+        dbg->addAction(tr("Branch mapper (LBR)"), this, [this]() {
             if (!process_) return;
             auto* bm = new BranchMapper(process_.get(), this);
             trackTargetWindow(bm);
@@ -5367,13 +5390,13 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
     addAnalysisToolsMenu(tools);
     for (QAction* action : tools->actions())
         if (!own.contains(action) &&
-            (action->text() == "Auto Assemble..." || action->text() == "Dissect data/structures..."))
+            (action->text() == tr("Auto Assemble...") || action->text() == tr("Dissect data/structures...")))
             tools->removeAction(action);
     (void)needProc;
 }
 
 void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
-    tools->addAction("Auto Assemble...", this, [this]() {
+    tools->addAction(tr("Auto Assemble..."), this, [this]() {
         auto* editor = new ScriptEditor(process_.get(), &autoAsm_, this);
         trackTargetWindow(editor);
         editor->setAttribute(Qt::WA_DeleteOnClose);
@@ -5381,7 +5404,7 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
         editor->setBeforeExecute([this]() { stopCodeFindersForInjection(); });
         editor->show();
     });
-    tools->addAction("Pointer scan...", this, [this]() {
+    tools->addAction(tr("Pointer scan..."), this, [this]() {
         if (!process_) return;
         auto* dlg = new PointerScanDialog(process_.get(), this);
         trackTargetWindow(dlg);
@@ -5392,8 +5415,8 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
                 });
         dlg->setAttribute(Qt::WA_DeleteOnClose); dlg->show();
     });
-    tools->addAction("Emulator guest scan...", this, [this]() {
-        if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
+    tools->addAction(tr("Emulator guest scan..."), this, [this]() {
+        if (!process_) { QMessageBox::warning(this, tr("No process"), tr("Open a process first.")); return; }
         auto* dlg = new GuestScanDialog(process_.get(), this);
         trackTargetWindow(dlg);
         connect(dlg, &GuestScanDialog::addressSelected, this,
@@ -5403,7 +5426,7 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
                 });
         dlg->setAttribute(Qt::WA_DeleteOnClose); dlg->show();
     });
-    tools->addAction("Dissect data/structures...", this, [this]() {
+    tools->addAction(tr("Dissect data/structures..."), this, [this]() {
         if (!process_) return;
         auto* sd = new StructureDissector(process_.get(), 0, this);
         sd->setAttribute(Qt::WA_DeleteOnClose);
@@ -5411,14 +5434,14 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
         trackStructDissector(sd);
         sd->show();
     });
-    tools->addAction("Find static addresses...", this, [this]() {
-        if (!process_) { QMessageBox::warning(this, "No process", "Open a process first."); return; }
+    tools->addAction(tr("Find static addresses..."), this, [this]() {
+        if (!process_) { QMessageBox::warning(this, tr("No process"), tr("Open a process first.")); return; }
         auto* w = new FindStaticsWindow(process_.get(), this);
         trackTargetWindow(w);
         w->setAttribute(Qt::WA_DeleteOnClose); w->show();
     });
-    tools->addAction("Mono dissector...", this, &MainWindow::openMonoDissector);
-    tools->addAction("Lua Engine...", this, [this]() {
+    tools->addAction(tr("Mono dissector..."), this, &MainWindow::openMonoDissector);
+    tools->addAction(tr("Lua Engine..."), this, [this]() {
         luaEngine_.setProcess(process_.get());
         luaEngine_.setAddressList(addressListModel_);   // so getMemoryRecord etc. work
         if (process_) { luaResolver_.loadProcess(*process_); luaEngine_.setResolver(&luaResolver_); }
@@ -5429,7 +5452,7 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
         luaConsole_ = console;
         console->setAttribute(Qt::WA_DeleteOnClose); console->show();
     });
-    tools->addAction("ELF Inspector...", this, [this]() {
+    tools->addAction(tr("ELF Inspector..."), this, [this]() {
         QString initial;
         // Only a local target's module path names a file readelf can open here
         // (modules() already maps a sandboxed target's paths through /proc).
@@ -5456,7 +5479,7 @@ void MainWindow::updateScanButtons() {
     // CE-style: once a scan session is open, "First Scan" becomes "New Scan" (a
     // reset). Ordinary typed scans lock the value type; All scans permit
     // selection of a surviving numeric type. A fresh state allows any type.
-    firstScanBtn_->setText(scanActive ? "New Scan" : "First Scan");
+    firstScanBtn_->setText(scanActive ? tr("New Scan") : tr("First Scan"));
     nextScanBtn_->setEnabled(hasResults);
     undoScanBtn_->setEnabled(undoResult_ != nullptr);
     if (valueTypeCombo_) valueTypeCombo_->setEnabled(!scanActive || lastResultType_ == ValueType::All);
@@ -5572,9 +5595,9 @@ int ScanResultsModel::columnCount(const QModelIndex& parent) const { return pare
 QVariant ScanResultsModel::headerData(int section, Qt::Orientation o, int role) const {
     if (role != Qt::DisplayRole || o != Qt::Horizontal) return {};
     switch (section) {
-        case 0:  return "Address";
-        case 1:  return "Value";       // current (live) value
-        default: return "Previous";    // value captured at scan time
+        case 0:  return tr("Address");
+        case 1:  return tr("Value");       // current (live) value
+        default: return tr("Previous");    // value captured at scan time
     }
 }
 
@@ -5686,10 +5709,10 @@ void AddressListModel::addScriptEntry(const QString& desc, const QString& script
     beginInsertRows({}, entries_.size(), entries_.size());
     AddressEntry entry;
     entry.id = allocId();
-    entry.description = desc.isEmpty() ? "Auto Assembler script" : desc;
+    entry.description = desc.isEmpty() ? tr("Auto Assembler script") : desc;
     entry.autoAsmScript = script;   // toggling the checkbox runs [ENABLE]/[DISABLE]
     entry.type = ValueType::Int32;
-    entry.currentValue = "(Auto Assembler script)";
+    entry.currentValue = tr("(Auto Assembler script)");
     entries_.push_back(std::move(entry));
     endInsertRows();
 }
@@ -5875,9 +5898,9 @@ static bool scanTakesValue(ScanCompare compare) {
 }
 
 static void warnBadScanValue(QWidget* parent, const QString& text) {
-    QMessageBox::warning(parent, "Scan value", text.trimmed().isEmpty()
-        ? QString("Enter a value for this scan.")
-        : QString("\"%1\" is not a number (or does not fit in 64 bits).").arg(text.trimmed()));
+    QMessageBox::warning(parent, QCoreApplication::translate("MainWindow", "Scan value"), text.trimmed().isEmpty()
+        ? QString(QCoreApplication::translate("MainWindow", "Enter a value for this scan."))
+        : QString(QCoreApplication::translate("MainWindow", "\"%1\" is not a number (or does not fit in 64 bits).")).arg(text.trimmed()));
 }
 
 // "40000" -> int16 fits, matching how CE accepts either sign for a fixed width.
@@ -6080,7 +6103,7 @@ bool AddressListModel::fromJson(const QJsonArray& arr, bool preserveExisting) {
     if (scriptBusy_ || mutationBusy_ || AutoAsmUiOperation::retiring(autoAsm_)) return false;
     QScopedValueRollback mutation(mutationBusy_, true);
     if (!validRecordFormats(arr)) {
-        reportActivationError("Table format", "Invalid record data order or pointer size."); return false;
+        reportActivationError(tr("Table format"), tr("Invalid record data order or pointer size.")); return false;
     }
     std::unordered_set<int> reserved,assigned;
     int largest=0;
@@ -6354,7 +6377,7 @@ bool AddressListModel::adjustEntryValue(int row, double delta) {
                 const QString nextText = QString::fromStdString(
                     ce::formatIntegerScalar(bits, ce::scalarWidth(e.type), e.showAsSigned, e.showAsHex));
                 auto written = writeValueToProcess(proc_, e.address, e.type, nextText, e.codec, e.bigEndian, e.showAsHex, 0, e.dataByteOrder, e.pointerWidth);
-                if (!written) { reportActivationError("Value edit failed", QString::fromStdString(written.error())); return false; }
+                if (!written) { reportActivationError(tr("Value edit failed"), QString::fromStdString(written.error())); return false; }
                 e.currentValue = nextText;
                 if (e.active) e.frozenValue = nextText;
                 emit dataChanged(index(row, 4), index(row, 4), {Qt::DisplayRole, Qt::EditRole});
@@ -6399,7 +6422,7 @@ bool AddressListModel::adjustEntryValue(int row, double delta) {
     }
 
     auto written = writeValueToProcess(proc_, e.address, e.type, nextText, e.codec, e.bigEndian, e.showAsHex, 0, e.dataByteOrder, e.pointerWidth);
-    if (!written) { reportActivationError("Value edit failed", QString::fromStdString(written.error())); return false; }
+    if (!written) { reportActivationError(tr("Value edit failed"), QString::fromStdString(written.error())); return false; }
     e.currentValue = nextText;
     if (e.active) e.frozenValue = nextText;
     emit dataChanged(index(row, 4), index(row, 4), {Qt::DisplayRole, Qt::EditRole});
@@ -6490,8 +6513,8 @@ bool AddressListModel::setEntryActive(int row, bool active) {
     const QString script = entries_[row].autoAsmScript;
     if (!script.isEmpty() || pending) {
         if (!proc_ || !autoAsm_) {
-            reportActivationError("Process required",
-                "Open a process before activating this auto-assembler record.");
+            reportActivationError(tr("Process required"),
+                tr("Open a process before activating this auto-assembler record."));
             return false;
         }
 
@@ -6516,7 +6539,7 @@ bool AddressListModel::setEntryActive(int row, bool active) {
         if (!result.success) {
             if (hasSavedUndo(entries_[row].autoAsmDisableInfo)) entries_[row].active = true;
             emit dataChanged(index(row, 0), index(row, columnCount() - 1));
-            reportActivationError(active ? "Auto-assembler activation failed" : "Auto-assembler deactivation failed",
+            reportActivationError(active ? tr("Auto-assembler activation failed") : tr("Auto-assembler deactivation failed"),
                 QString::fromStdString(result.error));
             return false;
         }
@@ -6538,7 +6561,7 @@ bool AddressListModel::setEntryActive(int row, bool active) {
         const bool text = entries_[row].type == ValueType::String || entries_[row].type == ValueType::UnicodeString;
         // An empty string is a value a String record can hold (and freeze).
         if (current == QStringLiteral("??") || current == QStringLiteral("?") || (current.isEmpty() && !text)) {
-            reportActivationError("Freeze failed", "The value cannot be read right now, so there is nothing to freeze.");
+            reportActivationError(tr("Freeze failed"), tr("The value cannot be read right now, so there is nothing to freeze."));
             return false;
         }
     }
@@ -6702,11 +6725,11 @@ int AddressListModel::columnCount(const QModelIndex&) const { return 5; }
 QVariant AddressListModel::headerData(int section, Qt::Orientation o, int role) const {
     if (role != Qt::DisplayRole || o != Qt::Horizontal) return {};
     switch (section) {
-        case 0: return "Active";
-        case 1: return "Description";
-        case 2: return "Address";
-        case 3: return "Type";
-        case 4: return "Value";
+        case 0: return tr("Active");
+        case 1: return tr("Description");
+        case 2: return tr("Address");
+        case 3: return tr("Type");
+        case 4: return tr("Value");
         default: return {};
     }
 }
@@ -7051,15 +7074,15 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
             options.pointerWidth = e.pointerWidth ? e.pointerWidth : proc_ ? proc_->pointerWidth(e.address) : sizeof(uintptr_t);
             if (proc_) {
                 if (!reresolveAddress(e)) {
-                    reportActivationError("Value edit failed", "The pointer path does not resolve right now.");
+                    reportActivationError(tr("Value edit failed"), tr("The pointer path does not resolve right now."));
                     return false;
                 }
                 auto resolved = ce::valueOptionsForTarget(*proc_, e.address, e.type, options);
-                if (!resolved) { reportActivationError("Value edit failed", QString::fromStdString(resolved.error())); return false; }
+                if (!resolved) { reportActivationError(tr("Value edit failed"), QString::fromStdString(resolved.error())); return false; }
                 options = *resolved;
             }
             auto bytes = ce::encodeTypedValue(e.type, rawValue.toStdString(), options);
-            if (!bytes) { reportActivationError("Value edit failed", QString::fromStdString(bytes.error())); return false; }
+            if (!bytes) { reportActivationError(tr("Value edit failed"), QString::fromStdString(bytes.error())); return false; }
             size_t nextByteCount = bytes->size();
             if (e.type == ValueType::String || e.type == ValueType::UnicodeString) {
                 size_t capacity = e.byteCount;
@@ -7072,11 +7095,11 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
             }
             if (proc_) {
                 if (!reresolveAddress(e)) {
-                    reportActivationError("Value edit failed", "The pointer path does not resolve right now.");
+                    reportActivationError(tr("Value edit failed"), tr("The pointer path does not resolve right now."));
                     return false;
                 }
                 auto written = ce::writeTypedValue(*proc_, e.address, e.type, rawValue.toStdString(), options);
-                if (!written) { reportActivationError("Value edit failed", QString::fromStdString(written.error())); return false; }
+                if (!written) { reportActivationError(tr("Value edit failed"), QString::fromStdString(written.error())); return false; }
                 if (!e.active) scheduleEditVerify(e.address, e.type, rawValue, e.codec, e.bigEndian, e.showAsSigned, e.dataByteOrder, e.pointerWidth);
             }
             if (e.type == ValueType::String || e.type == ValueType::UnicodeString || e.type == ValueType::ByteArray)

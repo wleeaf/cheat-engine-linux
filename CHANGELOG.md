@@ -36,6 +36,14 @@ reimplementation of Cheat Engine).
   jump range of the hook. The Auto Assembler now says so instead of reporting
   an out-of-range operand or a bare allocation failure. Wine 11.0, legacy Wine
   and Proton are unaffected.
+- The GUI is translated with Qt's translation tools and ships with a Simplified
+  Chinese (zh_CN) catalogue: every menu, dialog, label and message is marked for
+  translation, Settings > Language offers follow the system / English / 简体中文,
+  and the catalogue is embedded in the binaries. A `.qm` file beside the
+  executable or under `translations/` overrides the built-in copy. English
+  remains the source language, so nothing changes without a catalogue. The
+  terminal (`cescan`), messages from the Qt-free core library, and the tutorial
+  games stay in English. See `docs/I18N.md`.
 
 ---
 

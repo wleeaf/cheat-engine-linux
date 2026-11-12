@@ -14,14 +14,14 @@ namespace ce::gui {
 
 FindStaticsWindow::FindStaticsWindow(ProcessHandle* proc, QWidget* parent)
     : QMainWindow(parent), proc_(proc) {
-    setWindowTitle("Find Statics");
+    setWindowTitle(tr("Find Statics"));
     resize(720, 540);
 
     auto* central = new QWidget;
     auto* layout = new QVBoxLayout(central);
 
     auto* row = new QHBoxLayout;
-    row->addWidget(new QLabel("Module:"));
+    row->addWidget(new QLabel(tr("Module:")));
     moduleCombo_ = new QComboBox;
     if (proc_) {
         modules_ = proc_->modules();
@@ -31,17 +31,17 @@ FindStaticsWindow::FindStaticsWindow(ProcessHandle* proc, QWidget* parent)
         }
     }
     row->addWidget(moduleCombo_, 1);
-    scanBtn_ = new QPushButton("Scan");
+    scanBtn_ = new QPushButton(tr("Scan"));
     connect(scanBtn_, &QPushButton::clicked, this, &FindStaticsWindow::onScan);
     row->addWidget(scanBtn_);
     layout->addLayout(row);
 
-    statusLabel_ = new QLabel("Pick a module and click Scan.");
+    statusLabel_ = new QLabel(tr("Pick a module and click Scan."));
     layout->addWidget(statusLabel_);
 
     table_ = new QTableWidget;
     table_->setColumnCount(3);
-    table_->setHorizontalHeaderLabels({"Static address", "Symbol", "References"});
+    table_->setHorizontalHeaderLabels({tr("Static address"), tr("Symbol"), tr("References")});
     // Fit the address and symbol columns to content; References (last) takes the rest.
     auto* hh = table_->horizontalHeader();
     hh->setStretchLastSection(true);
@@ -49,7 +49,7 @@ FindStaticsWindow::FindStaticsWindow(ProcessHandle* proc, QWidget* parent)
     hh->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     styleDataTable(table_);
-    setEmptyHint(table_, "Static addresses in the module's data, and the code that references them, appear here.");
+    setEmptyHint(table_, tr("Static addresses in the module's data, and the code that references them, appear here."));
     table_->setProperty("monospace", true);   // font from the theme sheet
     layout->addWidget(table_, 1);
 
@@ -64,7 +64,7 @@ void FindStaticsWindow::onScan() {
     const auto& mods = modules_;
     if (idx < 0 || idx >= (int)mods.size()) return;
 
-    statusLabel_->setText("Scanning…");
+    statusLabel_->setText(tr("Scanning…"));
     scanBtn_->setEnabled(false);
     QApplication::processEvents();
 
@@ -95,7 +95,7 @@ void FindStaticsWindow::onScan() {
         table_->setItem((int)i, 1, new QTableWidgetItem(sym));
         table_->setItem((int)i, 2, new QTableWidgetItem(QString::number(s.references)));
     }
-    statusLabel_->setText(QString("Done: %1 static addresses found.").arg(statics.size()));
+    statusLabel_->setText(tr("Done: %1 static addresses found.").arg(statics.size()));
     scanBtn_->setEnabled(true);
 }
 

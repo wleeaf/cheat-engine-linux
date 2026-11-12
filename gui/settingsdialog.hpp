@@ -27,6 +27,7 @@ private slots:
 private:
     QWidget* buildScanPage();
     QWidget* buildDisplayPage();
+    QWidget* buildLanguagePage();
     QWidget* buildMemoryViewPage();
     QWidget* buildDebuggerPage();
     QWidget* buildHotkeysPage();
@@ -50,6 +51,9 @@ private:
     QSpinBox* fontSizeSpin_;
     QCheckBox* hexUpperCheck_;
     QComboBox* addressWidthCombo_;
+
+    // Language
+    QComboBox* languageCombo_;
 
     // Memory View
     QSpinBox* bytesPerRowSpin_;

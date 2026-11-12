@@ -11,7 +11,7 @@ namespace ce::gui {
 
 ThreadListWindow::ThreadListWindow(ProcessHandle* proc, QWidget* parent)
     : QMainWindow(parent), proc_(proc) {
-    setWindowTitle("Thread List");
+    setWindowTitle(tr("Thread List"));
     resize(520, 360);
 
     auto* central = new QWidget;
@@ -19,7 +19,7 @@ ThreadListWindow::ThreadListWindow(ProcessHandle* proc, QWidget* parent)
 
     table_ = new QTableWidget;
     table_->setColumnCount(3);
-    table_->setHorizontalHeaderLabels({"TID", "Name", "State"});
+    table_->setHorizontalHeaderLabels({tr("TID"), tr("Name"), tr("State")});
     // TID and State are short and fixed; let the thread Name column take the slack.
     auto* hh = table_->horizontalHeader();
     hh->setStretchLastSection(false);
@@ -69,7 +69,7 @@ void ThreadListWindow::populate() {
         }
         table_->setItem(i, 2, new QTableWidgetItem(QString::fromStdString(state)));
     }
-    setWindowTitle(QString("Thread List: %1 threads").arg(threads.size()));
+    setWindowTitle(tr("Thread List: %1 threads").arg(threads.size()));
 }
 
 } // namespace ce::gui

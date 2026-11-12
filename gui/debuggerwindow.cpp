@@ -1,6 +1,7 @@
 #include "gui/debuggerwindow.hpp"
 #include "core/local_target.hpp"
 #include <QSettings>
+#include <QCoreApplication>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include "core/target_capabilities.hpp"
@@ -45,7 +46,7 @@ static QString hex(uintptr_t v) { return QStringLiteral("0x%1").arg(v, 0, 16); }
 
 DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     : QMainWindow(parent), proc_(proc), session_(std::make_unique<ce::DebugSession>()) {
-    setWindowTitle("Debugger");
+    setWindowTitle(tr("Debugger"));
     resize(1080, 720);
 
     auto* central = new QWidget(this);
@@ -53,29 +54,32 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
 
     // ── control row ──
     auto* controls = new QHBoxLayout();
-    contBtn_   = new QPushButton("Continue");     contBtn_->setShortcut(Qt::Key_F9);
-    intoBtn_   = new QPushButton("Step Into");    intoBtn_->setShortcut(Qt::Key_F7);
-    overBtn_   = new QPushButton("Step Over");    overBtn_->setShortcut(Qt::Key_F8);
-    outBtn_    = new QPushButton("Step Out");
-    rtcBtn_    = new QPushButton("Run to Cursor"); rtcBtn_->setShortcut(Qt::Key_F4);
-    detachBtn_ = new QPushButton("Detach");
+    contBtn_   = new QPushButton(tr("Continue"));     contBtn_->setShortcut(Qt::Key_F9);
+    intoBtn_   = new QPushButton(tr("Step Into"));    intoBtn_->setShortcut(Qt::Key_F7);
+    overBtn_   = new QPushButton(tr("Step Over"));    overBtn_->setShortcut(Qt::Key_F8);
+    outBtn_    = new QPushButton(tr("Step Out"));
+    rtcBtn_    = new QPushButton(tr("Run to Cursor")); rtcBtn_->setShortcut(Qt::Key_F4);
+    detachBtn_ = new QPushButton(tr("Detach"));
     for (auto* b : {contBtn_, intoBtn_, overBtn_, outBtn_, rtcBtn_, detachBtn_})
         controls->addWidget(b);
 
     // Break on exceptions (CE's exception breakpoints): a checkable menu of the
     // common CPU-trap signals. Toggling one arms/disarms addExceptionBreakpoint.
     auto* excBtn = new QToolButton();
-    excBtn->setText("Break on exceptions");
+    excBtn->setText(tr("Break on exceptions"));
     excBtn->setPopupMode(QToolButton::InstantPopup);
     auto* excMenu = new QMenu(excBtn);
     struct SigEntry { const char* name; int sig; };
     static const SigEntry kSigs[] = {
-        {"SIGSEGV (segfault)", SIGSEGV}, {"SIGILL (illegal instruction)", SIGILL},
-        {"SIGFPE (FP / divide-by-zero)", SIGFPE}, {"SIGBUS (bus error)", SIGBUS},
-        {"SIGABRT (abort)", SIGABRT}, {"SIGTRAP", SIGTRAP},
+        {QT_TRANSLATE_NOOP("ce::gui::DebuggerWindow", "SIGSEGV (segfault)"), SIGSEGV},
+        {QT_TRANSLATE_NOOP("ce::gui::DebuggerWindow", "SIGILL (illegal instruction)"), SIGILL},
+        {QT_TRANSLATE_NOOP("ce::gui::DebuggerWindow", "SIGFPE (FP / divide-by-zero)"), SIGFPE},
+        {QT_TRANSLATE_NOOP("ce::gui::DebuggerWindow", "SIGBUS (bus error)"), SIGBUS},
+        {QT_TRANSLATE_NOOP("ce::gui::DebuggerWindow", "SIGABRT (abort)"), SIGABRT},
+        {"SIGTRAP", SIGTRAP},   // bare signal name; nothing to translate
     };
     for (const auto& s : kSigs) {
-        auto* a = excMenu->addAction(s.name);
+        auto* a = excMenu->addAction(tr(s.name));
         a->setCheckable(true);
         int sig = s.sig;
         connect(a, &QAction::toggled, this, [this, sig](bool on) {
@@ -90,7 +94,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     controls->addStretch();
     root->addLayout(controls);
 
-    statusLabel_ = new QLabel("Not attached");
+    statusLabel_ = new QLabel(tr("Not attached"));
     root->addWidget(statusLabel_);
 
     const QFont mono = monospaceFont();
@@ -103,7 +107,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     disasmView_->setReadOnly(true);
     disasmView_->setFont(mono);
     disasmView_->setLineWrapMode(QPlainTextEdit::NoWrap);
-    disasmView_->setPlaceholderText("The disassembly around the stopped thread's instruction pointer appears here.");
+    disasmView_->setPlaceholderText(tr("The disassembly around the stopped thread's instruction pointer appears here."));
     disasmView_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(disasmView_, &QPlainTextEdit::customContextMenuRequested,
             this, &DebuggerWindow::onDisasmContextMenu);
@@ -112,14 +116,14 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     stackView_->setReadOnly(true);
     stackView_->setFont(mono);
     stackView_->setLineWrapMode(QPlainTextEdit::NoWrap);
-    stackView_->setPlaceholderText("Stack of the stopped thread");
+    stackView_->setPlaceholderText(tr("Stack of the stopped thread"));
     leftSplit->addWidget(stackView_);
 
     auto* memWidget = new QWidget();
     auto* memLayout = new QVBoxLayout(memWidget);
     memLayout->setContentsMargins(0, 0, 0, 0);
     memAddrInput_ = new QLineEdit();
-    memAddrInput_->setPlaceholderText("memory address (hex), then Enter");
+    memAddrInput_->setPlaceholderText(tr("memory address (hex), then Enter"));
     memLayout->addWidget(memAddrInput_);
     memView_ = new QTextEdit();
     memView_->setReadOnly(true);
@@ -127,8 +131,8 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     memView_->setLineWrapMode(QTextEdit::NoWrap);
     // A read-only QTextEdit does not paint its placeholder, so start with a dim hint
     // that the first dump replaces.
-    memView_->setHtml(QString("<span style=\"color:%1\">Type an address above and press Enter "
-                              "to dump memory here.</span>").arg(ce::gui::editorPalette().dim.name()));
+    memView_->setHtml(tr("<span style=\"color:%1\">Type an address above and press Enter "
+                         "to dump memory here.</span>").arg(ce::gui::editorPalette().dim.name()));
     memLayout->addWidget(memView_);
     leftSplit->addWidget(memWidget);
 
@@ -140,7 +144,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     auto* right = new QWidget();
     auto* rl = new QVBoxLayout(right);
     auto* threadRow = new QHBoxLayout();
-    threadRow->addWidget(new QLabel("Thread:"));
+    threadRow->addWidget(new QLabel(tr("Thread:")));
     threadCombo_ = new QComboBox();
     threadRow->addWidget(threadCombo_, 1);
     rl->addLayout(threadRow);
@@ -153,29 +157,29 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     regTable_->verticalHeader()->setDefaultSectionSize(QFontMetrics(mono).height() + 8);
     regTable_->setShowGrid(false);
     regTable_->setAlternatingRowColors(true);
-    regTable_->setToolTip("Double-click a value to edit the register while the thread is stopped");
+    regTable_->setToolTip(tr("Double-click a value to edit the register while the thread is stopped"));
     rl->addWidget(regTable_, 3);
 
     // Decoded CPU flags under the register table (RFLAGS shows only the raw hex).
-    flagsLabel_ = new QLabel(QStringLiteral("Flags:"));
+    flagsLabel_ = new QLabel(tr("Flags:"));
     flagsLabel_->setFont(mono);
-    flagsLabel_->setToolTip("Status flags of the currently stopped thread");
+    flagsLabel_->setToolTip(tr("Status flags of the currently stopped thread"));
     rl->addWidget(flagsLabel_);
 
-    auto* bpGroup = new QGroupBox("Breakpoints");
+    auto* bpGroup = new QGroupBox(tr("Breakpoints"));
     auto* bl = new QVBoxLayout(bpGroup);
     auto* addRow = new QHBoxLayout();
     bpInput_ = new QLineEdit();
-    bpInput_->setPlaceholderText("address (hex), then Add");
-    auto* addBtn = new QPushButton("Add");
-    auto* dataBpBtn = new QPushButton("Data BP...");
-    dataBpBtn->setToolTip("Hardware watchpoint: break when an address is written or accessed");
+    bpInput_->setPlaceholderText(tr("address (hex), then Add"));
+    auto* addBtn = new QPushButton(tr("Add"));
+    auto* dataBpBtn = new QPushButton(tr("Data BP..."));
+    dataBpBtn->setToolTip(tr("Hardware watchpoint: break when an address is written or accessed"));
     addRow->addWidget(bpInput_);
     addRow->addWidget(addBtn);
     addRow->addWidget(dataBpBtn);
     bl->addLayout(addRow);
     bpList_ = new QListWidget();
-    bpList_->setToolTip("Check to enable/disable · double-click to set/edit its condition");
+    bpList_->setToolTip(tr("Check to enable/disable · double-click to set/edit its condition"));
     connect(bpList_, &QListWidget::itemDoubleClicked, this,
             [this](QListWidgetItem*) { editBreakpointCondition(); });
     // Checkbox toggles enable/disable: unchecking removes the planted breakpoint
@@ -188,7 +192,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
         if (!session_->isAttached() || !paused()) {
             QSignalBlocker block(bpList_);
             it->setCheckState(bps_[row].enabled ? Qt::Checked : Qt::Unchecked);
-            statusLabel_->setText("Stop the target to enable/disable breakpoints");
+            statusLabel_->setText(tr("Stop the target to enable/disable breakpoints"));
             return;
         }
         if (wantEnabled) {
@@ -198,7 +202,7 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
             if (id <= 0) {
                 QSignalBlocker block(bpList_);
                 it->setCheckState(Qt::Unchecked);
-                statusLabel_->setText("Could not enable breakpoint");
+                statusLabel_->setText(tr("Could not enable breakpoint"));
                 return;
             }
             bps_[row].id = id;
@@ -209,19 +213,20 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
             if (!removed) {
                 QSignalBlocker block(bpList_);
                 it->setCheckState(Qt::Checked);
-                statusLabel_->setText("Breakpoint cleanup pending: "+QString::fromStdString(session_->lastError().message()));
+                statusLabel_->setText(tr("Breakpoint cleanup pending: %1")
+                    .arg(QString::fromStdString(session_->lastError().message())));
                 return;
             }
             bps_[row].enabled = false;
         }
         if (paused()) updateDisassembly(session_->getStopContext());
     });
-    setEmptyHint(bpList_, "No breakpoints yet.\nAdd one above, or press F5\non a line of code.");
+    setEmptyHint(bpList_, tr("No breakpoints yet.\nAdd one above, or press F5\non a line of code."));
     bl->addWidget(bpList_);
     auto* rmRow = new QHBoxLayout();
     rmRow->addStretch();
-    rmBtn_ = new QPushButton("Remove");
-    rmBtn_->setToolTip("Remove the selected breakpoint");
+    rmBtn_ = new QPushButton(tr("Remove"));
+    rmBtn_->setToolTip(tr("Remove the selected breakpoint"));
     rmBtn_->setEnabled(false);
     connect(bpList_, &QListWidget::currentRowChanged, rmBtn_, [this](int row) { rmBtn_->setEnabled(row >= 0 && !stepping_); });
     rmRow->addWidget(rmBtn_);
@@ -269,8 +274,10 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
         prevGp_.clear(); prevVectors_ = {}; shownGp_.clear(); shownVectors_ = {};   // fresh session: don't flag the first stop's registers
         refreshStopped();   // target is all-stopped right after attach
     } else {
-        statusLabel_->setText(proc_ ? "Attach failed: " + QString::fromStdString(
-            ce::targetOperationError(*proc_, ce::TargetFeature::Debugger, session_->lastError())) : "No process attached");
+        statusLabel_->setText(proc_
+            ? tr("Attach failed: %1").arg(QString::fromStdString(
+                  ce::targetOperationError(*proc_, ce::TargetFeature::Debugger, session_->lastError())))
+            : tr("No process attached"));
         setRunningUi(false, true);
     }
 }
@@ -298,13 +305,14 @@ void DebuggerWindow::setRunningUi(bool running, bool exited) {
 
 void DebuggerWindow::onContinue() {
     if (!session_->isAttached() || stepping_) return;
-    statusLabel_->setText("Running...");
+    statusLabel_->setText(tr("Running..."));
     setRunningUi(true);
     // Continue can leave the target stopped without reporting a stop: show
     // it as stopped, with the reason, instead of "Running...".
     if (!session_->continueExecution() && session_->isAttached() && session_->isStopped()) {
         refreshStopped();
-        statusLabel_->setText("Continue failed, still stopped: "+QString::fromStdString(session_->lastError().message()));
+        statusLabel_->setText(tr("Continue failed, still stopped: %1")
+            .arg(QString::fromStdString(session_->lastError().message())));
     }
 }
 
@@ -317,7 +325,7 @@ void DebuggerWindow::runStep(ce::StepMode mode) {
     if (stepThread_.joinable()) stepThread_.join();   // a finished step not yet collected
     stepping_ = true;
     setRunningUi(true);
-    statusLabel_->setText("Stepping... (Detach ends a step that does not return)");
+    statusLabel_->setText(tr("Stepping... (Detach ends a step that does not return)"));
     stepThread_ = std::thread([this, mode] {
         try { session_->step(mode); } catch (...) {}   // a detach can abandon the command
         QMetaObject::invokeMethod(this, [this] { finishStep(); }, Qt::QueuedConnection);
@@ -340,7 +348,8 @@ void DebuggerWindow::runToAddress(uintptr_t addr) {
     if (!addr) return;
     // One run-to-cursor at a time: a previous one that stopped short is dropped.
     if (!clearRunToCursor()) {
-        statusLabel_->setText("Run-to-cursor cleanup pending: "+QString::fromStdString(session_->lastError().message()));
+        statusLabel_->setText(tr("Run-to-cursor cleanup pending: %1")
+            .arg(QString::fromStdString(session_->lastError().message())));
         return;
     }
     // If an armed user breakpoint already sits there, just continue to it.
@@ -355,7 +364,7 @@ void DebuggerWindow::runToAddress(uintptr_t addr) {
 
 void DebuggerWindow::onDetach() {
     if (session_->isAttached()) session_->detach();
-    statusLabel_->setText("Detached");
+    statusLabel_->setText(tr("Detached"));
     setRunningUi(false, true);
 }
 
@@ -364,14 +373,14 @@ void DebuggerWindow::onAddBreakpoint() {
     if (text.startsWith("0x") || text.startsWith("0X")) text = text.mid(2);
     bool ok = false;
     uintptr_t addr = text.toULongLong(&ok, 16);
-    if (!ok || !addr) { statusLabel_->setText("Invalid breakpoint address"); return; }
+    if (!ok || !addr) { statusLabel_->setText(tr("Invalid breakpoint address")); return; }
     addBreakpointAt(addr);
     bpInput_->clear();
 }
 
 void DebuggerWindow::addBreakpointAt(uintptr_t addr, const QString& condition) {
     if (!session_->isAttached() || !paused()) {
-        statusLabel_->setText("Stop the target before setting a breakpoint");
+        statusLabel_->setText(tr("Stop the target before setting a breakpoint"));
         return;
     }
     for (size_t i = 0; i < bps_.size(); ++i) if (bps_[i].addr == addr) {  // already set — update condition
@@ -384,7 +393,7 @@ void DebuggerWindow::addBreakpointAt(uintptr_t addr, const QString& condition) {
     auto read = proc_ ? proc_->read(addr, original.data(), original.size()) : ce::Result<size_t>{std::unexpected(std::make_error_code(std::errc::bad_address))};
     if (!read || *read != original.size()) original.clear();
     int id = session_->setSoftwareBreakpoint(addr);
-    if (id <= 0) { statusLabel_->setText("Failed to set breakpoint at " + hex(addr)); return; }
+    if (id <= 0) { statusLabel_->setText(tr("Failed to set breakpoint at %1").arg(hex(addr))); return; }
     Bp bp; bp.id = id; bp.addr = addr; bp.condition = condition.toStdString();
     bp.original = std::move(original);
     bps_.push_back(bp);
@@ -394,13 +403,16 @@ void DebuggerWindow::addBreakpointAt(uintptr_t addr, const QString& condition) {
 }
 
 QString DebuggerWindow::bpLabel(uintptr_t addr, const QString& condition) {
-    return condition.isEmpty() ? hex(addr) : hex(addr) + "  if " + condition;
+    // static member function: name the context explicitly for lupdate/runtime.
+    return condition.isEmpty() ? hex(addr)
+                               : hex(addr) + "  " +
+                                     QCoreApplication::translate("DebuggerWindow", "if %1").arg(condition);
 }
 
 QString DebuggerWindow::bpRowText(const Bp& b) const {
     QString base = b.hardware ? bpDataLabel(b.addr, b.hwType, b.hwSize)
                               : bpLabel(b.addr, QString::fromStdString(b.condition));
-    if (b.hitCount > 0) base += QStringLiteral("  (hits: %1)").arg(b.hitCount);
+    if (b.hitCount > 0) base += "  " + tr("(hits: %1)").arg(b.hitCount);
     return base;
 }
 
@@ -422,9 +434,9 @@ void DebuggerWindow::setConditionalBreakpointAtCursor() {
     const auto architecture = session_->getStopContext().architecture;
     const QString example = architecture == ce::CpuArchitecture::Arm64 ? "X0 == 5" :
                             architecture == ce::CpuArchitecture::X86_32 ? "EAX == 5" : "RAX == 5";
-    QString cond = QInputDialog::getText(this, "Conditional breakpoint",
-        "Break only when this expression is true\n"
-        "(Lua; register names accept either case, also available in ctx, e.g. \"" + example + "\"):",
+    QString cond = QInputDialog::getText(this, tr("Conditional breakpoint"),
+        tr("Break only when this expression is true\n"
+           "(Lua; register names accept either case, also available in ctx, e.g. \"%1\"):").arg(example),
         QLineEdit::Normal, QString(), &ok);
     if (!ok) return;
     addBreakpointAt(addr, cond.trimmed());
@@ -439,13 +451,13 @@ void DebuggerWindow::editBreakpointCondition() {
     const bool hardware = bps_[row].hardware;
     bool ok = false;
     QString cur = QString::fromStdString(bps_[row].condition);
-    QString cond = QInputDialog::getText(this, "Edit breakpoint condition",
-        "Break only when this expression is true (empty = unconditional):",
+    QString cond = QInputDialog::getText(this, tr("Edit breakpoint condition"),
+        tr("Break only when this expression is true (empty = unconditional):"),
         QLineEdit::Normal, cur, &ok);
     if (!ok) return;
     auto it = std::find_if(bps_.begin(), bps_.end(),
                            [&](const Bp& b) { return b.addr == addr && b.hardware == hardware; });
-    if (it == bps_.end()) { statusLabel_->setText("The breakpoint was removed while editing"); return; }
+    if (it == bps_.end()) { statusLabel_->setText(tr("The breakpoint was removed while editing")); return; }
     it->condition = cond.trimmed().toStdString();
     refreshBpRow(static_cast<int>(it - bps_.begin()));
 }
@@ -461,14 +473,15 @@ bool DebuggerWindow::removeBreakpointRow(int row) {
     // never returns). Removal while running is fine: the session stops the
     // target for it.
     if (stepping_) {
-        statusLabel_->setText("Wait for the step to finish (or Detach) before removing a breakpoint");
+        statusLabel_->setText(tr("Wait for the step to finish (or Detach) before removing a breakpoint"));
         return false;
     }
     if (bps_[row].enabled) {
         bool removed=bps_[row].hardware ? session_->removeHardwareBreakpoint(bps_[row].id) :
                                          session_->removeSoftwareBreakpoint(bps_[row].id);
         if (!removed) {
-            statusLabel_->setText("Breakpoint cleanup pending: "+QString::fromStdString(session_->lastError().message()));
+            statusLabel_->setText(tr("Breakpoint cleanup pending: %1")
+                .arg(QString::fromStdString(session_->lastError().message())));
             return false;
         }
     }
@@ -496,27 +509,28 @@ QString DebuggerWindow::bpDataLabel(uintptr_t addr, int type, int size) {
 
 void DebuggerWindow::onAddDataBreakpoint() {
     if (!session_->isAttached() || !paused()) {
-        statusLabel_->setText("Stop the target before setting a breakpoint");
+        statusLabel_->setText(tr("Stop the target before setting a breakpoint"));
         return;
     }
     // One dialog for the whole watchpoint: address, trigger and size.
     QDialog dialog(this);
-    dialog.setWindowTitle("Data breakpoint");
+    dialog.setWindowTitle(tr("Data breakpoint"));
     auto* form = new QFormLayout(&dialog);
     auto* addrEdit = new QLineEdit(bpInput_->text().trimmed(), &dialog);
-    addrEdit->setPlaceholderText("address (hex)");
+    addrEdit->setPlaceholderText(tr("address (hex)"));
     addrEdit->setMinimumWidth(220);
     auto* typeCombo = new QComboBox(&dialog);
-    typeCombo->addItem("Writes", 1);
-    typeCombo->addItem("Reads or writes", 3);
+    typeCombo->addItem(tr("Writes"), 1);
+    typeCombo->addItem(tr("Reads or writes"), 3);
     auto* sizeCombo = new QComboBox(&dialog);
-    for (int size : {1, 2, 4, 8}) sizeCombo->addItem(QString("%1 %2").arg(size).arg(size == 1 ? "byte" : "bytes"), size);
+    for (int size : {1, 2, 4, 8})
+        sizeCombo->addItem(size == 1 ? tr("%1 byte").arg(size) : tr("%1 bytes").arg(size), size);
     sizeCombo->setCurrentIndex(std::max(0, sizeCombo->findData(QSettings().value("debug/bpSize", "4").toInt())));
-    form->addRow("Address:", addrEdit);
-    form->addRow("Break on:", typeCombo);
-    form->addRow("Size:", sizeCombo);
+    form->addRow(tr("Address:"), addrEdit);
+    form->addRow(tr("Break on:"), typeCombo);
+    form->addRow(tr("Size:"), sizeCombo);
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    buttons->button(QDialogButtonBox::Ok)->setText("Set");
+    buttons->button(QDialogButtonBox::Ok)->setText(tr("Set"));
     form->addRow(buttons);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
@@ -527,14 +541,14 @@ void DebuggerWindow::onAddDataBreakpoint() {
     uintptr_t addr = addrStr.startsWith("0x", Qt::CaseInsensitive)
         ? addrStr.mid(2).toULongLong(&ok, 16)
         : addrStr.toULongLong(&ok, 16);
-    if (!ok || !addr) { statusLabel_->setText("Invalid address"); return; }
+    if (!ok || !addr) { statusLabel_->setText(tr("Invalid address")); return; }
     const int type = typeCombo->currentData().toInt();   // 1=write, 3=access
     const int size = sizeCombo->currentData().toInt();
 
     for (auto& b : bps_) if (b.hardware && b.addr == addr) return;   // already watched
     int id = session_->setHardwareBreakpoint(addr, type, size);
     if (id <= 0) {
-        statusLabel_->setText("No free debug register (max 4 hardware breakpoints)");
+        statusLabel_->setText(tr("No free debug register (max 4 hardware breakpoints)"));
         return;
     }
     Bp bp; bp.id = id; bp.addr = addr; bp.hardware = true; bp.hwType = type; bp.hwSize = size;
@@ -546,7 +560,7 @@ void DebuggerWindow::onAddDataBreakpoint() {
 void DebuggerWindow::onDebugEvent(int type) {
     if (type == static_cast<int>(ce::DebugEventType::ThreadExiting)) {
         refreshStopped();
-        statusLabel_->setText(QStringLiteral("Thread is exiting; stopped on tid %1")
+        statusLabel_->setText(tr("Thread is exiting; stopped on tid %1")
                                  .arg(static_cast<int>(session_->activeThread())));
         return;
     }
@@ -556,11 +570,11 @@ void DebuggerWindow::onDebugEvent(int type) {
         pendingRtcId_=-1; pendingRtcAddr_=0;
         prevGp_.clear(); prevVectors_={}; shownGp_.clear(); shownVectors_={};
         refreshStopped();
-        statusLabel_->setText("Process executed a new program; previous breakpoints cleared");
+        statusLabel_->setText(tr("Process executed a new program; previous breakpoints cleared"));
         return;
     }
     if (type == static_cast<int>(ce::DebugEventType::ProcessExited)) {
-        statusLabel_->setText("Process exited");
+        statusLabel_->setText(tr("Process exited"));
         setRunningUi(false, true);
         return;
     }
@@ -580,8 +594,8 @@ void DebuggerWindow::onDebugEvent(int type) {
                 setRunningUi(true);
                 if (!session_->continueExecution() && session_->isAttached() && session_->isStopped()) {
                     refreshStopped();
-                    statusLabel_->setText("Continue failed, still stopped: "+
-                                          QString::fromStdString(session_->lastError().message()));
+                    statusLabel_->setText(tr("Continue failed, still stopped: %1")
+                        .arg(QString::fromStdString(session_->lastError().message())));
                 }
                 return;
             }
@@ -594,7 +608,8 @@ void DebuggerWindow::onDebugEvent(int type) {
     // target, and also on a stop anywhere else, so it never fires later.
     if (!clearRunToCursor()) {
         refreshStopped();
-        statusLabel_->setText("Run-to-cursor cleanup pending: "+QString::fromStdString(session_->lastError().message()));
+        statusLabel_->setText(tr("Run-to-cursor cleanup pending: %1")
+            .arg(QString::fromStdString(session_->lastError().message())));
         return;
     }
     refreshStopped();
@@ -618,7 +633,7 @@ void DebuggerWindow::refreshStopped() {
     updateDisassembly(ctx);
     updateStack(ctx);
     if (lastMemAddr_) updateMemoryView(lastMemAddr_);   // keep the hex pane current
-    statusLabel_->setText(QStringLiteral("Stopped at %1 (tid %2)")
+    statusLabel_->setText(tr("Stopped at %1 (tid %2)")
                               .arg(hex(ctx.instructionPointer())).arg(static_cast<int>(session_->activeThread())));
     setRunningUi(false);
     emit stopped(ctx.instructionPointer());
@@ -676,7 +691,7 @@ void DebuggerWindow::updateMemoryView(uintptr_t addr) {
     uint8_t buf[128];
     auto r = proc_->read(addr, buf, sizeof(buf));
     size_t n = (r && *r) ? *r : 0;
-    if (n == 0) { memView_->setPlainText("  <unreadable at " + hex(addr) + ">"); memChanged_.clear(); return; }
+    if (n == 0) { memView_->setPlainText("  " + tr("<unreadable at %1>").arg(hex(addr))); memChanged_.clear(); return; }
 
     // Flag bytes that changed since the previous dump at the SAME address, so stepping
     // shows what the code just wrote (like the standalone hex pane). A new address resets.
@@ -819,8 +834,8 @@ void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
     if (flagsLabel_) {
         // Show every status flag's 0/1 state (CE-style), not just the set ones, so a
         // clear flag next to a conditional jump is still readable.
-        flagsLabel_->setText(QStringLiteral("Flags: ") +
-                             (kGp ? QString::fromStdString(ce::describeCpuStatusFlags(c)) : QStringLiteral("Unavailable")));
+        flagsLabel_->setText(tr("Flags: %1") +
+                             (kGp ? QString::fromStdString(ce::describeCpuStatusFlags(c)) : tr("Unavailable")));
     }
     // Show all architectural SIMD registers, preserving unavailable reads.
     for (int r = 0; r < vectorCount; ++r) {
@@ -831,7 +846,7 @@ void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
                 int byte = std::endian::native == std::endian::little ? 15 - b : b;
                 s += QString::asprintf("%02x", vectors.registers[r][byte]);
             }
-        } else s = "Unavailable";
+        } else s = tr("Unavailable");
         it->setText(s);
         it->setForeground(hasPrev && r < static_cast<int>(vectors.count) &&
                           r < static_cast<int>(prevVectors_.count) && vectors.registers[r] != prevVectors_.registers[r] ? changedFg : normalFg);
@@ -840,7 +855,7 @@ void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
         auto* it = cell(kGp + vectorCount + i, false);
         uint32_t value = i ? vectors.status : vectors.control;
         uint32_t previous = i ? prevVectors_.status : prevVectors_.control;
-        it->setText(vectors.count ? QStringLiteral("0x%1").arg(value, 8, 16, QLatin1Char('0')) : QStringLiteral("Unavailable"));
+        it->setText(vectors.count ? QStringLiteral("0x%1").arg(value, 8, 16, QLatin1Char('0')) : tr("Unavailable"));
         it->setForeground(hasPrev && vectors.count && prevVectors_.count && value != previous ? changedFg : normalFg);
     }
     registerArchitecture_ = c.architecture;
@@ -875,15 +890,16 @@ void DebuggerWindow::onRegisterEdited(QTableWidgetItem* item) {
         auto registers = ce::cpuRegisterValues(ctx);
         if (item->row() < 0 || item->row() >= static_cast<int>(registers.size())) return;
         if (!ce::setCpuRegisterValue(ctx, item->row(), v)) {
-            statusLabel_->setText(QStringLiteral("%1 needs a %2-bit hexadecimal value")
+            statusLabel_->setText(tr("%1 needs a %2-bit hexadecimal value")
                                  .arg(QString::fromStdString(registers[item->row()].name)).arg(registers[item->row()].bits));
         } else if (session_->setStopContext(ctx)) {
             refreshStopped();
             return;
         } else {
-            statusLabel_->setText("Register edit failed: " + QString::fromStdString(session_->lastError().message()));
+            statusLabel_->setText(tr("Register edit failed: %1")
+                .arg(QString::fromStdString(session_->lastError().message())));
         }
-    } else statusLabel_->setText("Invalid hexadecimal register value");
+    } else statusLabel_->setText(tr("Invalid hexadecimal register value"));
     updateRegisters(session_->getStopContext());
 }
 
@@ -918,7 +934,7 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
     else if (c.architecture == ce::CpuArchitecture::X86_32) disasm_.setArch(ce::Arch::X86_32);
     else if (c.architecture == ce::CpuArchitecture::X86_64) disasm_.setArch(ce::Arch::X86_64);
     else {
-        disasmView_->setPlainText("  <instruction architecture unavailable>");
+        disasmView_->setPlainText("  " + tr("<instruction architecture unavailable>"));
         disasmView_->setExtraSelections({});
         return;
     }
@@ -1019,7 +1035,7 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
                     ce::conditionalArm64JumpTaken(in.mnemonic, c.pstate) :
                     ce::conditionalJumpTaken(in.mnemonic, c.rflags);
                 if (jt)
-                    anno += *jt ? QStringLiteral("   (will jump)") : QStringLiteral("   (no jump)");
+                    anno += "   " + (*jt ? tr("(will jump)") : tr("(no jump)"));
             }
             // User comment (set in the Memory Viewer): show it inline too, so annotated
             // code reads the same while debugging.
@@ -1032,7 +1048,7 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
             disasmLineAddrs_.push_back(in.address);
         }
     } else {
-        out = "  <unable to read code at " + hex(ip) + ">";
+        out = "  " + tr("<unable to read code at %1>").arg(hex(ip));
     }
     disasmView_->setPlainText(out);
 
@@ -1073,7 +1089,7 @@ void DebuggerWindow::updateStack(const ce::CpuContext& c) {
     const auto order = c.architecture == ce::CpuArchitecture::Arm64 ?
         proc_->targetDescription().host.byteOrder : ce::ByteOrder::Little;
     if (!width || order == ce::ByteOrder::Unknown) {
-        stackView_->setPlainText("  <stack register format unavailable>");
+        stackView_->setPlainText("  " + tr("<stack register format unavailable>"));
         return;
     }
     for (int i = 0; i < 16; ++i) {
@@ -1165,21 +1181,21 @@ void DebuggerWindow::nopInstructionAtCursor() {
     // sits inside it.
     uint8_t buf[16];
     auto rr = proc_->read(addr, buf, sizeof(buf));
-    if (!rr || *rr == 0) { statusLabel_->setText("Cannot read the instruction at " + hex(addr)); return; }
+    if (!rr || *rr == 0) { statusLabel_->setText(tr("Cannot read the instruction at %1").arg(hex(addr))); return; }
     for (const auto& b : bps_) {
         if (b.hardware || b.addr < addr || b.addr - addr >= *rr) continue;
         const size_t offset = b.addr - addr;
         std::copy_n(b.original.begin(), std::min(b.original.size(), *rr - offset), buf + offset);
     }
     auto insns = disasm_.disassemble(addr, {buf, *rr}, 1);
-    if (insns.empty() || insns[0].size == 0) { statusLabel_->setText("No instruction at " + hex(addr)); return; }
+    if (insns.empty() || insns[0].size == 0) { statusLabel_->setText(tr("No instruction at %1").arg(hex(addr))); return; }
     for (const auto& b : bps_)
         if (!b.hardware && b.enabled && b.addr >= addr && b.addr - addr < insns[0].size) {
-            statusLabel_->setText("Remove the breakpoint on this instruction before replacing it with NOPs");
+            statusLabel_->setText(tr("Remove the breakpoint on this instruction before replacing it with NOPs"));
             return;
         }
     if (ce::nopInstruction(*proc_, addr).empty())
-        statusLabel_->setText("Could not replace the instruction at " + hex(addr) + " with NOPs");
+        statusLabel_->setText(tr("Could not replace the instruction at %1 with NOPs").arg(hex(addr)));
     updateDisassembly(session_->getStopContext());   // show the NOPs
 }
 
@@ -1191,13 +1207,13 @@ void DebuggerWindow::onDisasmContextMenu(const QPoint& pos) {
     const int block = disasmView_->textCursor().blockNumber();
     const bool onLine = block >= 0 && block < static_cast<int>(disasmLineAddrs_.size());
     QMenu menu(this);
-    for (QAction* a : {menu.addAction("Set breakpoint here", this, &DebuggerWindow::setBreakpointAtCursor),
-                       menu.addAction("Set conditional breakpoint...", this, &DebuggerWindow::setConditionalBreakpointAtCursor),
-                       menu.addAction("Replace with NOPs",  this, &DebuggerWindow::nopInstructionAtCursor)})
+    for (QAction* a : {menu.addAction(tr("Set breakpoint here"), this, &DebuggerWindow::setBreakpointAtCursor),
+                       menu.addAction(tr("Set conditional breakpoint..."), this, &DebuggerWindow::setConditionalBreakpointAtCursor),
+                       menu.addAction(tr("Replace with NOPs"),  this, &DebuggerWindow::nopInstructionAtCursor)})
         a->setEnabled(onLine);
     menu.addSeparator();
     // Run to this line (CE's F4): only meaningful while the target is paused.
-    QAction* rtc = menu.addAction("Run to cursor", this, &DebuggerWindow::onRunToCursor);
+    QAction* rtc = menu.addAction(tr("Run to cursor"), this, &DebuggerWindow::onRunToCursor);
     rtc->setEnabled(onLine && paused());
     menu.exec(disasmView_->viewport()->mapToGlobal(pos));
 }

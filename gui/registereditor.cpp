@@ -34,7 +34,7 @@ QString bytesToHex(const uint8_t* data, size_t size) {
 
 RegisterEditorWindow::RegisterEditorWindow(ProcessHandle* proc, QWidget* parent)
     : QMainWindow(parent), proc_(proc) {
-    setWindowTitle("Register Editor");
+    setWindowTitle(tr("Register Editor"));
     resize(820, 680);
 
     auto* central = new QWidget;
@@ -42,16 +42,16 @@ RegisterEditorWindow::RegisterEditorWindow(ProcessHandle* proc, QWidget* parent)
 
     // Thread picker and the two actions on one row.
     auto* buttons = new QHBoxLayout;
-    buttons->addWidget(new QLabel("Thread:"));
+    buttons->addWidget(new QLabel(tr("Thread:")));
     threadCombo_ = new QComboBox;
     threadCombo_->setObjectName("registerEditorThreads");
     threadCombo_->setMinimumWidth(220);
     buttons->addWidget(threadCombo_, 1);
-    auto* refreshButton = new QPushButton("Refresh");
+    auto* refreshButton = new QPushButton(tr("Refresh"));
     refreshButton->setObjectName("registerEditorRefresh");
-    applyButton_ = new QPushButton("Apply changes");
+    applyButton_ = new QPushButton(tr("Apply changes"));
     applyButton_->setObjectName("registerEditorApply");
-    applyButton_->setToolTip("Apply only edited values to the thread’s current register state");
+    applyButton_->setToolTip(tr("Apply only edited values to the thread’s current register state"));
     applyButton_->setProperty("primary", true);
     buttons->addSpacing(8);
     buttons->addWidget(refreshButton);
@@ -67,24 +67,24 @@ RegisterEditorWindow::RegisterEditorWindow(ProcessHandle* proc, QWidget* parent)
 
     table_ = new QTableWidget;
     table_->setColumnCount(2);
-    table_->setHorizontalHeaderLabels({"Register", "Value"});
+    table_->setHorizontalHeaderLabels({tr("Register"), tr("Value")});
     table_->horizontalHeader()->setStretchLastSection(true);
     styleDataTable(table_);
     // Values are edited in place; Apply writes the edited ones back.
     table_->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed |
                             QAbstractItemView::AnyKeyPressed);
-    table_->setToolTip("Double-click a value to edit it, then press Apply changes");
+    table_->setToolTip(tr("Double-click a value to edit it, then press Apply changes"));
     table_->setObjectName("registerEditorGeneral");
     table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     layout->addWidget(table_);
 
-    auto* fpLabel = new QLabel("Floating point / SIMD registers");
+    auto* fpLabel = new QLabel(tr("Floating point / SIMD registers"));
     fpLabel->setObjectName("registerEditorVectorLabel");
     layout->addWidget(fpLabel);
 
     fpTable_ = new QTableWidget;
     fpTable_->setColumnCount(3);
-    fpTable_->setHorizontalHeaderLabels({"Register", "XMM low 128", "YMM high 128"});
+    fpTable_->setHorizontalHeaderLabels({tr("Register"), tr("XMM low 128"), tr("YMM high 128")});
     // Fit both 128-bit value columns so YMM values remain accessible when narrowed.
     fpTable_->horizontalHeader()->setStretchLastSection(false);
     fpTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
@@ -96,22 +96,22 @@ RegisterEditorWindow::RegisterEditorWindow(ProcessHandle* proc, QWidget* parent)
 
     setCentralWidget(central);
     if (auto* guest=dynamic_cast<GdbProcessHandle*>(proc_)) {
-        setWindowTitle("GDB Register Editor");
-        threadCombo_->addItem("CPU selected by the GDB stub");threadCombo_->setEnabled(false);
+        setWindowTitle(tr("GDB Register Editor"));
+        threadCombo_->addItem(tr("CPU selected by the GDB stub"));threadCombo_->setEnabled(false);
         fpLabel->hide();fpTable_->hide();table_->setSelectionBehavior(QAbstractItemView::SelectRows);
         table_->setSelectionMode(QAbstractItemView::ExtendedSelection);
-        table_->setHorizontalHeaderLabels({"XML register", "Target-order hexadecimal bytes"});
+        table_->setHorizontalHeaderLabels({tr("XML register"), tr("Target-order hexadecimal bytes")});
         table_->setRowCount(static_cast<int>(guest->registerDescription().registers.size()));
         for (size_t row=0;row<guest->registerDescription().registers.size();++row) {
             const auto& reg=guest->registerDescription().registers[row];
             auto* name=new QTableWidgetItem(QString::fromStdString(reg.name));
             name->setFlags(name->flags() & ~Qt::ItemIsEditable);
-            name->setToolTip(QString("%1 bits; register %2; %3").arg(reg.bits).arg(reg.number).arg(QString::fromStdString(reg.type)));
-            auto* value=new QTableWidgetItem("Select this row and press Refresh");
+            name->setToolTip(tr("%1 bits; register %2; %3").arg(reg.bits).arg(reg.number).arg(QString::fromStdString(reg.type)));
+            auto* value=new QTableWidgetItem(tr("Select this row and press Refresh"));
             value->setFlags(value->flags() & ~Qt::ItemIsEditable);
             table_->setItem(static_cast<int>(row),0,name);table_->setItem(static_cast<int>(row),1,value);
         }
-        applyButton_->setToolTip("Write only edited XML registers; values are raw bytes in the target's register order");
+        applyButton_->setToolTip(tr("Write only edited XML registers; values are raw bytes in the target's register order"));
         if (table_->rowCount()) table_->selectRow(0);
         refreshGdbRegisters();return;
     }
@@ -142,14 +142,14 @@ void RegisterEditorWindow::refreshRegisters() {
     table_->setEnabled(false);
     applyButton_->setEnabled(false);
     if (!proc_ || threadCombo_->currentIndex() < 0) {
-        statusLabel_->setText("No thread selected");
+        statusLabel_->setText(tr("No thread selected"));
         return;
     }
     const auto tid = static_cast<pid_t>(threadCombo_->currentData().toLongLong());
     auto snapshot = ce::inspectThread(*proc_, tid);
     if (!snapshot) { statusLabel_->setText(QString::fromStdString(snapshot.error())); return; }
     displaySnapshot(std::move(*snapshot));
-    statusLabel_->setText(QString("Registers of thread %1. Double-click a value to edit it, then Apply changes.").arg(tid));
+    statusLabel_->setText(tr("Registers of thread %1. Double-click a value to edit it, then Apply changes.").arg(tid));
 }
 
 void RegisterEditorWindow::displaySnapshot(ThreadSnapshot snapshot) {
@@ -167,16 +167,16 @@ void RegisterEditorWindow::displaySnapshot(ThreadSnapshot snapshot) {
     const bool arm = snapshot_->context.architecture == CpuArchitecture::Arm64;
     const unsigned count = arm ? 32 : snapshot_->context.architecture == CpuArchitecture::X86_32 ? 8 : 16;
     fpTable_->setColumnHidden(2, arm);
-    fpTable_->setHorizontalHeaderLabels({"Register", arm ? "128-bit value" : "XMM low 128", "YMM high 128"});
+    fpTable_->setHorizontalHeaderLabels({tr("Register"), arm ? tr("128-bit value") : tr("XMM low 128"), tr("YMM high 128")});
     fpTable_->setRowCount(count + (arm ? 2 : 1));
     const QString unavailable = snapshot_->vectorError ?
-        QString("unavailable: %1").arg(QString::fromStdString(snapshot_->vectorError.message())) : "unavailable";
+        tr("unavailable: %1").arg(QString::fromStdString(snapshot_->vectorError.message())) : tr("unavailable");
     for (unsigned row = 0; row < count; ++row) {
         fpTable_->setItem(row, 0, new QTableWidgetItem(QString(arm ? "V%1" : "XMM%1/YMM%1").arg(row)));
         fpTable_->setItem(row, 1, new QTableWidgetItem(row < snapshot_->vectors.count ?
             bytesToHex(snapshot_->vectors.registers[row].data(), 16) : unavailable));
         fpTable_->setItem(row, 2, new QTableWidgetItem(row < snapshot_->ymmCount ?
-            bytesToHex(snapshot_->ymmHigh[row].data(), 16) : "unavailable"));
+            bytesToHex(snapshot_->ymmHigh[row].data(), 16) : tr("unavailable")));
     }
     for (unsigned row = count; row < static_cast<unsigned>(fpTable_->rowCount()); ++row) {
         const bool control = !arm || row == count;
@@ -198,13 +198,13 @@ void RegisterEditorWindow::applyRegisters() {
     for (size_t row = 0; row < registers.size(); ++row) {
         bool ok = false;
         const auto value = table_->item(row, 1)->text().toULongLong(&ok, 16);
-        if (!ok) { statusLabel_->setText(QString("Invalid %1 value").arg(QString::fromStdString(registers[row].name))); return; }
+        if (!ok) { statusLabel_->setText(tr("Invalid %1 value").arg(QString::fromStdString(registers[row].name))); return; }
         values.push_back(value);
         changed |= value != registers[row].value;
     }
     auto valid = mergeCpuRegisterEdits(snapshot_->context, snapshot_->context, values);
     if (!valid) { statusLabel_->setText(QString::fromStdString(valid.error())); return; }
-    if (!changed) { statusLabel_->setText("No register values changed"); return; }
+    if (!changed) { statusLabel_->setText(tr("No register values changed")); return; }
     auto applied = ce::inspectThread(*proc_, tid, false, &*snapshot_, values);
     if (!applied) {
         statusLabel_->setText(QString::fromStdString(applied.error()));
@@ -212,13 +212,13 @@ void RegisterEditorWindow::applyRegisters() {
         return;
     }
     displaySnapshot(std::move(*applied));
-    statusLabel_->setText(QString("Applied changes to TID %1").arg(tid));
+    statusLabel_->setText(tr("Applied changes to TID %1").arg(tid));
 }
 
 void RegisterEditorWindow::refreshGdbRegisters() {
     auto* guest=dynamic_cast<GdbProcessHandle*>(proc_);if (!guest) return;
     if (!guest->targetDescription().live) {
-        statusLabel_->setText("GDB target is disconnected or exited");table_->setEnabled(false);applyButton_->setEnabled(false);return;
+        statusLabel_->setText(tr("GDB target is disconnected or exited"));table_->setEnabled(false);applyButton_->setEnabled(false);return;
     }
     table_->setEnabled(true);
     auto rows=table_->selectionModel()->selectedRows();
@@ -228,7 +228,7 @@ void RegisterEditorWindow::refreshGdbRegisters() {
         auto* value=table_->item(row.row(),1);
         auto bytes=guest->readRegister(guest->registerDescription().registers[row.row()].name);
         if (!bytes) {
-            lastError=QString::fromStdString(bytes.error());value->setText("Unavailable: "+lastError);
+            lastError=QString::fromStdString(bytes.error());value->setText(tr("Unavailable: %1").arg(lastError));
             value->setData(Qt::UserRole,{});value->setFlags(value->flags() & ~Qt::ItemIsEditable);
             if (!guest->targetDescription().live) {table_->setEnabled(false);break;}
         } else {
@@ -238,7 +238,7 @@ void RegisterEditorWindow::refreshGdbRegisters() {
         }
     }
     applyButton_->setEnabled(table_->isEnabled());
-    statusLabel_->setText(lastError.isEmpty() ? QString("Read %1 selected register(s). Select other rows and Refresh to read them.").arg(count) : lastError);
+    statusLabel_->setText(lastError.isEmpty() ? tr("Read %1 selected register(s). Select other rows and Refresh to read them.").arg(count) : lastError);
 }
 void RegisterEditorWindow::applyGdbRegisters() {
     auto* guest=dynamic_cast<GdbProcessHandle*>(proc_);if (!guest) return;
@@ -247,23 +247,23 @@ void RegisterEditorWindow::applyGdbRegisters() {
         auto* item=table_->item(row,1);if (!item->data(Qt::UserRole).isValid()) continue;
         const auto text=item->text().trimmed().toLatin1();const auto original=item->data(Qt::UserRole).toByteArray();
         if (text.size()!=original.size()*2 || !std::all_of(text.begin(),text.end(),[](unsigned char c){return (c>='0' && c<='9') || (c>='a' && c<='f') || (c>='A' && c<='F');})) {
-            statusLabel_->setText(QString("%1 requires %2 hexadecimal byte pairs").arg(table_->item(row,0)->text()).arg(original.size()));return;
+            statusLabel_->setText(tr("%1 requires %2 hexadecimal byte pairs").arg(table_->item(row,0)->text()).arg(original.size()));return;
         }
         auto bytes=QByteArray::fromHex(text);if (bytes!=original) edits.push_back({row,std::move(bytes)});
     }
-    if (edits.empty()) {statusLabel_->setText("No register values changed");return;}
-    if (!guest->targetDescription().live) {table_->setEnabled(false);applyButton_->setEnabled(false);statusLabel_->setText("GDB target is disconnected or exited");return;}
+    if (edits.empty()) {statusLabel_->setText(tr("No register values changed"));return;}
+    if (!guest->targetDescription().live) {table_->setEnabled(false);applyButton_->setEnabled(false);statusLabel_->setText(tr("GDB target is disconnected or exited"));return;}
     size_t completed=0;
     for (const auto& edit:edits) {
         const auto& reg=guest->registerDescription().registers[edit.row];
         auto result=guest->writeRegister(reg.name,{reinterpret_cast<const uint8_t*>(edit.bytes.constData()),static_cast<size_t>(edit.bytes.size())});
         if (!result) {
-            statusLabel_->setText(QString("Applied %1 of %2 register edits. %3: %4. Refresh before retrying.").arg(completed).arg(edits.size()).arg(QString::fromStdString(reg.name),QString::fromStdString(result.error())));
+            statusLabel_->setText(tr("Applied %1 of %2 register edits. %3: %4. Refresh before retrying.").arg(completed).arg(edits.size()).arg(QString::fromStdString(reg.name),QString::fromStdString(result.error())));
             applyButton_->setEnabled(false);return;
         }
         table_->item(edit.row,1)->setData(Qt::UserRole,edit.bytes);++completed;
     }
-    statusLabel_->setText(QString("Applied %1 register edit(s)").arg(completed));
+    statusLabel_->setText(tr("Applied %1 register edit(s)").arg(completed));
 }
 
 } // namespace ce::gui

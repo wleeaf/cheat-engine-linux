@@ -5,6 +5,7 @@
 #include <QPushButton>
 #include <QClipboard>
 #include <QApplication>
+#include <QCoreApplication>
 #include <QMessageBox>
 #include "analysis/structure_tools.hpp"
 #include "core/expression.hpp"
@@ -35,7 +36,7 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
 
     if (proc_) moduleCache_ = proc_->modules();   // for "-> module+offset" on pointer fields
     updatePointerWidth();
-    setWindowTitle("Structure Dissector");
+    setWindowTitle(tr("Structure Dissector"));
     resize(750, 600);
 
     auto* central = new QWidget;
@@ -43,17 +44,17 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
 
     // Address bar
     auto* addrRow = new QHBoxLayout;
-    addrRow->addWidget(new QLabel("Base Address:"));
+    addrRow->addWidget(new QLabel(tr("Base Address:")));
     addressEdit_ = new QLineEdit(QString("0x%1").arg(baseAddr, 0, 16));
     addressEdit_->setFont(monospaceFont());
     addressEdit_->setMinimumWidth(150);
     connect(addressEdit_, &QLineEdit::returnPressed, this, &StructureDissector::onGotoAddress);
     addrRow->addWidget(addressEdit_);
-    auto* goBtn = new QPushButton("Go");
+    auto* goBtn = new QPushButton(tr("Go"));
     connect(goBtn, &QPushButton::clicked, this, &StructureDissector::onGotoAddress);
     addrRow->addWidget(goBtn);
 
-    addrRow->addWidget(new QLabel("Bytes:"));
+    addrRow->addWidget(new QLabel(tr("Bytes:")));
     sizeSpin_ = new QSpinBox;
     sizeSpin_->setRange(8, 8192);
     sizeSpin_->setSingleStep(64);
@@ -68,15 +69,15 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
     // base in ANY instance are highlighted. With one address this is CE's
     // "compare two structures"; with several it is the N-instance dissector,
     // surfacing the fields that discriminate between instances (e.g. team id).
-    addrRow->addWidget(new QLabel("Compare:"));
+    addrRow->addWidget(new QLabel(tr("Compare:")));
     compareEdit_ = new QLineEdit;
     compareEdit_->setFont(monospaceFont());
     compareEdit_->setMinimumWidth(180);
-    compareEdit_->setPlaceholderText("0x…, 0x… (optional, comma/space separated)");
+    compareEdit_->setPlaceholderText(tr("0x…, 0x… (optional, comma/space separated)"));
     compareEdit_->setToolTip(
-        "Enter one or more struct addresses to compare against the base. Rows whose "
-        "bytes differ in any instance are highlighted, so the fields that vary "
-        "between instances stand out. Press Enter to apply.");
+        tr("Enter one or more struct addresses to compare against the base. Rows whose "
+           "bytes differ in any instance are highlighted, so the fields that vary "
+           "between instances stand out. Press Enter to apply."));
     connect(compareEdit_, &QLineEdit::returnPressed, this, [this]() { applyCompareAddresses(); });
     addrRow->addWidget(compareEdit_, 1);
     layout->addLayout(addrRow);
@@ -84,35 +85,36 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
     // Second row: definition / export actions, so the address row above stays
     // uncrowded (the single-row layout squeezed the Base/Compare edits to nothing).
     auto* actionRow = new QHBoxLayout;
-    auto* saveBtn = new QPushButton("Save Definition…");
-    saveBtn->setToolTip("Save this structure definition (named fields + size)");
+    auto* saveBtn = new QPushButton(tr("Save Definition…"));
+    saveBtn->setToolTip(tr("Save this structure definition (named fields + size)"));
     connect(saveBtn, &QPushButton::clicked, this, &StructureDissector::onSaveDefinition);
     actionRow->addWidget(saveBtn);
-    auto* loadBtn = new QPushButton("Load Definition…");
-    loadBtn->setToolTip("Load a previously saved structure definition");
+    auto* loadBtn = new QPushButton(tr("Load Definition…"));
+    loadBtn->setToolTip(tr("Load a previously saved structure definition"));
     connect(loadBtn, &QPushButton::clicked, this, &StructureDissector::onLoadDefinition);
     actionRow->addWidget(loadBtn);
-    auto* cppBtn = new QPushButton("Copy as C++");
-    cppBtn->setToolTip("Copy the current layout to the clipboard as a C++ struct");
+    auto* cppBtn = new QPushButton(tr("Copy as C++"));
+    cppBtn->setToolTip(tr("Copy the current layout to the clipboard as a C++ struct"));
     connect(cppBtn, &QPushButton::clicked, this, &StructureDissector::onCopyAsCpp);
     actionRow->addWidget(cppBtn);
-    auto* il2cppBtn = new QPushButton("Type as IL2CPP…");
-    il2cppBtn->setToolTip("Label these bytes with a Unity IL2CPP class's fields "
-                          "(names + offsets from global-metadata.dat + GameAssembly)");
+    auto* il2cppBtn = new QPushButton(tr("Type as IL2CPP…"));
+    il2cppBtn->setToolTip(tr("Label these bytes with a Unity IL2CPP class's fields "
+                             "(names + offsets from global-metadata.dat + GameAssembly)"));
     connect(il2cppBtn, &QPushButton::clicked, this, &StructureDissector::onTypeAsIl2Cpp);
     actionRow->addWidget(il2cppBtn);
-    auto* cstructBtn = new QPushButton("Type as C struct…");
-    cstructBtn->setToolTip("Label these bytes with a native struct from the target's DWARF debug info");
+    auto* cstructBtn = new QPushButton(tr("Type as C struct…"));
+    cstructBtn->setToolTip(tr("Label these bytes with a native struct from the target's DWARF debug info"));
     connect(cstructBtn, &QPushButton::clicked, this, &StructureDissector::onTypeAsCStruct);
     actionRow->addWidget(cstructBtn);
-    auto* addAllBtn = new QPushButton("Add All to List");
-    addAllBtn->setToolTip("Add every named field (base+offset, name, guessed type) to the cheat table");
+    auto* addAllBtn = new QPushButton(tr("Add All to List"));
+    addAllBtn->setToolTip(tr("Add every named field (base+offset, name, guessed type) to the cheat table"));
     connect(addAllBtn, &QPushButton::clicked, this, [this]() {
         int n = addAllFieldsToList();
-        statusBar()->showMessage(n > 0 ? QString("Added %1 field%2 to the cheat table")
-                                             .arg(n).arg(n == 1 ? "" : "s")
-                                       : QStringLiteral("No named fields to add (double-click a row, or Type as…)"),
-                                 4000);
+        statusBar()->showMessage(
+            n > 0 ? (n == 1 ? tr("Added %1 field to the cheat table").arg(n)
+                            : tr("Added %1 fields to the cheat table").arg(n))
+                  : tr("No named fields to add (double-click a row, or Type as…)"),
+            4000);
     });
     actionRow->addWidget(addAllBtn);
     actionRow->addStretch(1);
@@ -121,7 +123,7 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
     // Table
     table_ = new QTableWidget;
     table_->setColumnCount(7);
-    table_->setHorizontalHeaderLabels({"Offset", "Name", "Hex", "Int8", "Int32", "Float", "Pointer?"});
+    table_->setHorizontalHeaderLabels({tr("Offset"), tr("Name"), tr("Hex"), tr("Int8"), tr("Int32"), tr("Float"), tr("Pointer?")});
     // Fit the numeric/offset columns to content, give field names a fixed,
     // resizable column, and let the pointer column (often a long symbol) take
     // the slack, so an unnamed structure doesn't open as a wide empty column.
@@ -135,7 +137,7 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
     table_->setProperty("monospace", true);   // font from the theme sheet
     table_->setShowGrid(false);
     table_->setWordWrap(false);
-    setEmptyHint(table_, "Enter the address of a structure above and press Go to see its fields.");
+    setEmptyHint(table_, tr("Enter the address of a structure above and press Go to see its fields."));
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->verticalHeader()->setVisible(false);
     table_->setAlternatingRowColors(true);
@@ -149,8 +151,8 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
         int off = row * 8;
         bool ok = false;
         QString cur = fieldNames_.count(off) ? fieldNames_[off] : QString();
-        QString name = QInputDialog::getText(this, "Name field",
-            QString("Name for offset +0x%1:").arg(off, 0, 16), QLineEdit::Normal, cur, &ok);
+        QString name = QInputDialog::getText(this, tr("Name field"),
+            tr("Name for offset +0x%1:").arg(off, 0, 16), QLineEdit::Normal, cur, &ok);
         if (!ok) return;
         if (name.trimmed().isEmpty()) fieldNames_.erase(off);
         else                          fieldNames_[off] = name.trimmed();
@@ -224,7 +226,7 @@ void StructureDissector::onRefresh() {
 void StructureDissector::detachFromTarget() {
     if (refreshTimer_) refreshTimer_->stop();
     proc_ = nullptr;   // populateTable()/onRefresh() both bail on a null proc_
-    setWindowTitle("Structure Dissector (target exited)");
+    setWindowTitle(tr("Structure Dissector (target exited)"));
 }
 
 QString StructureDissector::formatValue(const uint8_t* data, int offset, const QString& type) const {
@@ -306,46 +308,50 @@ void StructureDissector::onContextMenu(const QPoint& pos) {
     // Prefer the field's declared type (set via naming / "Type as C struct") over the
     // byte-pattern guess, matching what "Add all fields" uses.
     ce::ValueType guessed = resolveFieldType(off);
-    auto typeName = [](ce::ValueType t) {
+    auto typeName = [](ce::ValueType t) -> QString {
         switch (t) {
-            case ce::ValueType::Pointer: return "Pointer";
-            case ce::ValueType::Float:   return "Float";
-            case ce::ValueType::Int64:   return "8 Bytes";
-            default:                     return "4 Bytes";
+            case ce::ValueType::Pointer: return QCoreApplication::translate("StructureDissector", "Pointer");
+            case ce::ValueType::Float:   return QCoreApplication::translate("StructureDissector", "Float");
+            case ce::ValueType::Int64:   return QCoreApplication::translate("StructureDissector", "8 Bytes");
+            default:                     return QCoreApplication::translate("StructureDissector", "4 Bytes");
         }
     };
 
     QMenu menu(this);
-    menu.addAction(QString("Offset +0x%1  (0x%2)").arg(off, 2, 16, QChar('0')).arg(addr, 0, 16))
+    menu.addAction(tr("Offset +0x%1  (0x%2)").arg(off, 2, 16, QChar('0')).arg(addr, 0, 16))
         ->setEnabled(false);
     menu.addSeparator();
-    auto* addGuess = menu.addAction(QString("Add to address list as %1 (auto)").arg(typeName(guessed)));
-    auto* add4  = menu.addAction("Add as 4 Bytes");
-    auto* add8  = menu.addAction("Add as 8 Bytes");
-    auto* addF  = menu.addAction("Add as Float");
-    auto* addP  = menu.addAction("Add as Pointer");
+    auto* addGuess = menu.addAction(tr("Add to address list as %1 (auto)").arg(typeName(guessed)));
+    auto* add4  = menu.addAction(tr("Add as 4 Bytes"));
+    auto* add8  = menu.addAction(tr("Add as 8 Bytes"));
+    auto* addF  = menu.addAction(tr("Add as Float"));
+    auto* addP  = menu.addAction(tr("Add as Pointer"));
 
     // Build the structure in place (CE's "Change element"): name a field and pin its
     // type, so the value column reinterprets it and save/load persists the definition.
     menu.addSeparator();
-    auto* nameAct = menu.addAction("Name field...");
-    auto* typeMenu = menu.addMenu("Set field type");
+    auto* nameAct = menu.addAction(tr("Name field..."));
+    auto* typeMenu = menu.addMenu(tr("Set field type"));
     const std::pair<const char*, ce::ValueType> typeOpts[] = {
-        {"Byte", ce::ValueType::Byte}, {"2 Bytes", ce::ValueType::Int16},
-        {"4 Bytes", ce::ValueType::Int32}, {"8 Bytes", ce::ValueType::Int64},
-        {"Float", ce::ValueType::Float}, {"Double", ce::ValueType::Double},
-        {"Pointer", ce::ValueType::Pointer}, {"String", ce::ValueType::String},
+        {QT_TRANSLATE_NOOP("StructureDissector", "Byte"), ce::ValueType::Byte},
+        {QT_TRANSLATE_NOOP("StructureDissector", "2 Bytes"), ce::ValueType::Int16},
+        {QT_TRANSLATE_NOOP("StructureDissector", "4 Bytes"), ce::ValueType::Int32},
+        {QT_TRANSLATE_NOOP("StructureDissector", "8 Bytes"), ce::ValueType::Int64},
+        {QT_TRANSLATE_NOOP("StructureDissector", "Float"), ce::ValueType::Float},
+        {QT_TRANSLATE_NOOP("StructureDissector", "Double"), ce::ValueType::Double},
+        {QT_TRANSLATE_NOOP("StructureDissector", "Pointer"), ce::ValueType::Pointer},
+        {QT_TRANSLATE_NOOP("StructureDissector", "String"), ce::ValueType::String},
     };
     QList<QAction*> typeActs;
     for (const auto& [label, vt] : typeOpts) {
-        auto* a = typeMenu->addAction(label);
+        auto* a = typeMenu->addAction(QCoreApplication::translate("StructureDissector", label));
         a->setData(static_cast<int>(vt));
         a->setCheckable(true);
         if (fieldTypes_.count(off) && fieldTypes_[off] == vt) a->setChecked(true);
         typeActs.append(a);
     }
     typeMenu->addSeparator();
-    auto* autoTypeAct = typeMenu->addAction("Auto (guess)");
+    auto* autoTypeAct = typeMenu->addAction(tr("Auto (guess)"));
 
     QAction* picked = menu.exec(table_->viewport()->mapToGlobal(pos));
     if (!picked) return;
@@ -354,8 +360,8 @@ void StructureDissector::onContextMenu(const QPoint& pos) {
     if (picked == nameAct) {
         bool ok = false;
         QString cur = fieldNames_.count(off) ? fieldNames_[off] : QString();
-        QString name = QInputDialog::getText(this, "Name field",
-            QString("Name for offset +0x%1:").arg(off, 0, 16), QLineEdit::Normal, cur, &ok);
+        QString name = QInputDialog::getText(this, tr("Name field"),
+            tr("Name for offset +0x%1:").arg(off, 0, 16), QLineEdit::Normal, cur, &ok);
         if (!ok) return;
         if (name.trimmed().isEmpty()) fieldNames_.erase(off);
         else                          fieldNames_[off] = name.trimmed();
@@ -393,7 +399,7 @@ void StructureDissector::addFieldToList(int offset, ce::ValueType type) {
     // Carry the field's name (if it has one) to the cheat-table description.
     auto nit = fieldNames_.find(offset);
     QString desc = (nit != fieldNames_.end() && !nit->second.isEmpty())
-        ? nit->second : QString("Dissect +0x%1").arg(offset, 0, 16);
+        ? nit->second : tr("Dissect +0x%1").arg(offset, 0, 16);
     addToListCb_(baseAddr_ + offset, type, desc);
 }
 
@@ -436,27 +442,27 @@ bool StructureDissector::loadDefinition(const QString& path) {
 }
 
 void StructureDissector::onSaveDefinition() {
-    auto path = QFileDialog::getSaveFileName(this, "Save structure definition",
-        "structure.json", "Structure def (*.json);;All (*)");
+    auto path = QFileDialog::getSaveFileName(this, tr("Save structure definition"),
+        "structure.json", tr("Structure def (*.json);;All (*)"));
     if (path.isEmpty()) return;
     if (!saveDefinition(path))
-        QMessageBox::warning(this, "Save failed", "Could not write the definition file.");
+        QMessageBox::warning(this, tr("Save failed"), tr("Could not write the definition file."));
 }
 
 void StructureDissector::onLoadDefinition() {
-    auto path = QFileDialog::getOpenFileName(this, "Load structure definition",
-        "", "Structure def (*.json);;All (*)");
+    auto path = QFileDialog::getOpenFileName(this, tr("Load structure definition"),
+        "", tr("Structure def (*.json);;All (*)"));
     if (path.isEmpty()) return;
     if (!loadDefinition(path))
-        QMessageBox::warning(this, "Load failed",
-            "Could not read the file or it is not a valid structure definition.");
+        QMessageBox::warning(this, tr("Load failed"),
+            tr("Could not read the file or it is not a valid structure definition."));
 }
 
 void StructureDissector::onTypeAsIl2Cpp() {
-    if (!proc_) { QMessageBox::information(this, "IL2CPP", "No target process."); return; }
+    if (!proc_) { QMessageBox::information(this, "IL2CPP", tr("No target process.")); return; }
     bool ok = false;
-    QString cls = QInputDialog::getText(this, "Type as IL2CPP class",
-        "Class name (e.g. UnityEngine.Vector3 or Player):", QLineEdit::Normal, "", &ok);
+    QString cls = QInputDialog::getText(this, tr("Type as IL2CPP class"),
+        tr("Class name (e.g. UnityEngine.Vector3 or Player):"), QLineEdit::Normal, "", &ok);
     if (!ok || cls.trimmed().isEmpty()) return;
 
     QApplication::setOverrideCursor(Qt::WaitCursor);
@@ -472,7 +478,7 @@ void StructureDissector::onTypeAsIl2Cpp() {
     if (!found)
         for (const auto& c : layout.classes) if (c.name == want) { found = &c; break; }
     if (!found) {
-        QMessageBox::warning(this, "IL2CPP", "Class not found: " + cls);
+        QMessageBox::warning(this, "IL2CPP", tr("Class not found: %1").arg(cls));
         return;
     }
 
@@ -496,14 +502,14 @@ void StructureDissector::onTypeAsIl2Cpp() {
 }
 
 void StructureDissector::onTypeAsCStruct() {
-    if (!proc_) { QMessageBox::information(this, "DWARF", "No target process."); return; }
+    if (!proc_) { QMessageBox::information(this, "DWARF", tr("No target process.")); return; }
     if (!ce::DwarfInfo::available()) {
-        QMessageBox::information(this, "DWARF", "This build has no libdw (DWARF) support.");
+        QMessageBox::information(this, "DWARF", tr("This build has no libdw (DWARF) support."));
         return;
     }
     bool ok = false;
-    QString name = QInputDialog::getText(this, "Type as C struct",
-        "Struct name (from the target's debug info):", QLineEdit::Normal, "", &ok);
+    QString name = QInputDialog::getText(this, tr("Type as C struct"),
+        tr("Struct name (from the target's debug info):"), QLineEdit::Normal, "", &ok);
     if (!ok || name.trimmed().isEmpty()) return;
 
     QApplication::setOverrideCursor(Qt::WaitCursor);
@@ -512,7 +518,7 @@ void StructureDissector::onTypeAsCStruct() {
     auto st = reg.structByName(name.trimmed().toStdString());
     QApplication::restoreOverrideCursor();
     if (!st) {
-        QMessageBox::warning(this, "DWARF", "Struct not found (needs debug info): " + name);
+        QMessageBox::warning(this, "DWARF", tr("Struct not found (needs debug info): %1").arg(name));
         return;
     }
     ce::StructureDefinition def = ce::dwarfStructToStructure(*st);
@@ -591,7 +597,7 @@ void StructureDissector::populateTable() {
         // Single-struct dissection: one row per 8 bytes, all display types shown.
         // Compare mode with four instances also has seven columns: check the
         // headers, not just the count, when switching back.
-        const QStringList headers{"Offset", "Name", "Hex", "Int8", "Int32", "Float", "Pointer?"};
+        const QStringList headers{tr("Offset"), tr("Name"), tr("Hex"), tr("Int8"), tr("Int32"), tr("Float"), tr("Pointer?")};
         if (table_->columnCount() != 7 || headerLabels() != headers) {
             table_->setColumnCount(7);
             table_->setHorizontalHeaderLabels(headers);
@@ -633,7 +639,7 @@ void StructureDissector::populateTable() {
     // offset is coloured (same = default, different = red), so the fields that
     // discriminate between the instances stand out.
     const int cols = 3 + (int)compareAddrs_.size();
-    QStringList headers; headers << "Offset" << "Name" << "Base";
+    QStringList headers; headers << tr("Offset") << tr("Name") << tr("Base");
     for (auto a : compareAddrs_) headers << QString("0x%1").arg(a, 0, 16);
     if (table_->columnCount() != cols || headerLabels() != headers) {   // new addresses, same count
         table_->setColumnCount(cols);
@@ -725,8 +731,8 @@ bool StructureDissector::pointerColoredForTest(int row) const {
 
 void StructureDissector::onCopyAsCpp() {
     if (fieldNames_.empty()) {
-        QMessageBox::information(this, "Copy as C++",
-            "Name some fields first (double-click a row to name the offset).");
+        QMessageBox::information(this, tr("Copy as C++"),
+            tr("Name some fields first (double-click a row to name the offset)."));
         return;
     }
     ce::StructureDefinition def;
@@ -752,8 +758,8 @@ void StructureDissector::onCopyAsCpp() {
     }
     QString cpp = QString::fromStdString(ce::generateCppStruct(def));
     QApplication::clipboard()->setText(cpp);
-    QMessageBox::information(this, "Copy as C++",
-        "C++ struct copied to clipboard:\n\n" + cpp);
+    QMessageBox::information(this, tr("Copy as C++"),
+        tr("C++ struct copied to clipboard:\n\n%1").arg(cpp));
 }
 
 } // namespace ce::gui

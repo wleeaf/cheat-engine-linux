@@ -1,6 +1,7 @@
 #include "gui/theme.hpp"
 
 #include <QApplication>
+#include <QCoreApplication>
 #include <QPalette>
 #include <QFontInfo>
 #include <QStyleHints>
@@ -510,7 +511,9 @@ QString threadName(int pid, int tid) {
 QString threadLabel(int pid, int tid) {
     if (pid <= 0) return QString::number(tid);
     const QString name = threadName(pid, tid);
-    if (tid == pid) return name.isEmpty() ? QString("%1  (main)").arg(tid) : QString("%1  %2 (main)").arg(tid).arg(name);
+    if (tid == pid)
+        return name.isEmpty() ? QCoreApplication::translate("Theme", "%1  (main)").arg(tid)
+                              : QCoreApplication::translate("Theme", "%1  %2 (main)").arg(tid).arg(name);
     return name.isEmpty() ? QString::number(tid) : QString("%1  %2").arg(tid).arg(name);
 }
 

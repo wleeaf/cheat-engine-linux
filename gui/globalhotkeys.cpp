@@ -358,7 +358,7 @@ void GlobalHotkeyManager::rebindWayland() {
         s.id = waylandShortcutId(it.key());
         const QString description = waylandNames_.value(it.key()).description;
         s.meta[QStringLiteral("description")] = description.isEmpty()
-            ? QStringLiteral("Cheat Engine hotkey %1").arg(s.id) : QStringLiteral("Cheat Engine: %1").arg(description);
+            ? tr("Cheat Engine hotkey %1").arg(s.id) : tr("Cheat Engine: %1").arg(description);
         s.meta[QStringLiteral("preferred_trigger")] = it.value();
         shortcuts.push_back(s);
     }

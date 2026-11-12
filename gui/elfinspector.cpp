@@ -18,18 +18,18 @@
 namespace ce::gui {
 
 ElfInspector::ElfInspector(const QString& initialPath, QWidget* parent) : QDialog(parent) {
-    setWindowTitle("ELF Inspector");
+    setWindowTitle(tr("ELF Inspector"));
     resize(900, 640);
 
     auto* root = new QVBoxLayout(this);
 
     auto* row = new QHBoxLayout;
-    row->addWidget(new QLabel("ELF file:"));
+    row->addWidget(new QLabel(tr("ELF file:")));
     pathEdit_ = new QLineEdit;
     pathEdit_->setText(initialPath);
     row->addWidget(pathEdit_, /*stretch=*/1);
-    auto* browseBtn = new QPushButton("Browse…");
-    auto* loadBtn   = new QPushButton("Load");
+    auto* browseBtn = new QPushButton(tr("Browse…"));
+    auto* loadBtn   = new QPushButton(tr("Load"));
     row->addWidget(browseBtn);
     row->addWidget(loadBtn);
     root->addLayout(row);
@@ -38,7 +38,7 @@ ElfInspector::ElfInspector(const QString& initialPath, QWidget* parent) : QDialo
     connect(loadBtn,   &QPushButton::clicked, this, &ElfInspector::onLoad);
 
     tabs_ = new QTabWidget;
-    auto makePane = [&](const char* title) {
+    auto makePane = [&](const QString& title) {
         auto* edit = new QPlainTextEdit;
         edit->setReadOnly(true);
         edit->setFont(monospaceFont(-1));
@@ -46,18 +46,18 @@ ElfInspector::ElfInspector(const QString& initialPath, QWidget* parent) : QDialo
         tabs_->addTab(edit, title);
         return edit;
     };
-    headerView_  = makePane("Header");
-    sectionView_ = makePane("Sections");
-    programView_ = makePane("Segments");
-    dynamicView_ = makePane("Dynamic");
-    symbolView_  = makePane("Symbols");
-    notesView_   = makePane("Notes");
+    headerView_  = makePane(tr("Header"));
+    sectionView_ = makePane(tr("Sections"));
+    programView_ = makePane(tr("Segments"));
+    dynamicView_ = makePane(tr("Dynamic"));
+    symbolView_  = makePane(tr("Symbols"));
+    notesView_   = makePane(tr("Notes"));
 
     root->addWidget(tabs_, 1);
 
     auto* btnRow = new QHBoxLayout;
     btnRow->addStretch();
-    auto* closeBtn = new QPushButton("Close");
+    auto* closeBtn = new QPushButton(tr("Close"));
     connect(closeBtn, &QPushButton::clicked, this, &QDialog::accept);
     btnRow->addWidget(closeBtn);
     root->addLayout(btnRow);
@@ -66,8 +66,8 @@ ElfInspector::ElfInspector(const QString& initialPath, QWidget* parent) : QDialo
 }
 
 void ElfInspector::onBrowse() {
-    auto path = QFileDialog::getOpenFileName(this, "Choose ELF file",
-        pathEdit_->text(), "All Files (*)");
+    auto path = QFileDialog::getOpenFileName(this, tr("Choose ELF file"),
+        pathEdit_->text(), tr("All Files (*)"));
     if (!path.isEmpty()) pathEdit_->setText(path);
 }
 
@@ -76,12 +76,12 @@ void ElfInspector::runReadelf(QPlainTextEdit* sink, const QStringList& args) {
     // (cecore commonly runs as root) cannot substitute a malicious binary.
     static const QString readelfPath = QStandardPaths::findExecutable("readelf");
     if (readelfPath.isEmpty()) {
-        sink->setPlainText("readelf not found in PATH (install binutils).");
+        sink->setPlainText(tr("readelf not found in PATH (install binutils)."));
         return;
     }
     // Asynchronous: six runs on a large library took up to a minute on the GUI
     // thread. Output of a load that a newer one replaced is dropped.
-    sink->setPlainText("Running readelf...");
+    sink->setPlainText(tr("Running readelf..."));
     const int generation = loadGeneration_;
     auto* process = new QProcess(this);
     QPointer<QPlainTextEdit> out(sink);
@@ -89,16 +89,16 @@ void ElfInspector::runReadelf(QPlainTextEdit* sink, const QStringList& args) {
     connect(process, &QProcess::finished, this, [this, process, out, generation, timedOut]() {
         process->deleteLater();
         if (!out || generation != loadGeneration_) return;
-        if (*timedOut) { out->setPlainText("readelf took longer than 60 seconds and was stopped."); return; }
+        if (*timedOut) { out->setPlainText(tr("readelf took longer than 60 seconds and was stopped.")); return; }
         QString text = QString::fromUtf8(process->readAllStandardOutput());
         const QByteArray err = process->readAllStandardError();
-        if (!err.isEmpty()) text += "\n--- stderr ---\n" + QString::fromUtf8(err);
-        out->setPlainText(text.isEmpty() ? QStringLiteral("(readelf produced no output)") : text);
+        if (!err.isEmpty()) text += QStringLiteral("\n") + tr("--- stderr ---") + QStringLiteral("\n") + QString::fromUtf8(err);
+        out->setPlainText(text.isEmpty() ? tr("(readelf produced no output)") : text);
     });
     connect(process, &QProcess::errorOccurred, this, [this, process, out, generation](QProcess::ProcessError error) {
         if (error != QProcess::FailedToStart) return;   // a crash or kill still emits finished
         process->deleteLater();
-        if (out && generation == loadGeneration_) out->setPlainText("readelf could not be started.");
+        if (out && generation == loadGeneration_) out->setPlainText(tr("readelf could not be started."));
     });
     QTimer::singleShot(60'000, process, [process, timedOut]() { *timedOut = true; process->kill(); });
     process->start(readelfPath, args);

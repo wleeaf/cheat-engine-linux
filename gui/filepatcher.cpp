@@ -10,6 +10,7 @@
 #include <QFormLayout>
 #include <QPushButton>
 #include <QLabel>
+#include <QCoreApplication>
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QFile>
@@ -19,7 +20,7 @@
 namespace ce::gui {
 
 FilePatcher::FilePatcher(QWidget* parent) : QDialog(parent) {
-    setWindowTitle("File Patcher");
+    setWindowTitle(tr("File Patcher"));
     resize(540, 420);
 
     auto* root = new QVBoxLayout(this);
@@ -28,31 +29,31 @@ FilePatcher::FilePatcher(QWidget* parent) : QDialog(parent) {
 
     auto* pathRow = new QHBoxLayout;
     pathEdit_ = new QLineEdit;
-    pathEdit_->setPlaceholderText("/path/to/file");
-    auto* browseBtn = new QPushButton("Browse…");
+    pathEdit_->setPlaceholderText(tr("/path/to/file"));
+    auto* browseBtn = new QPushButton(tr("Browse…"));
     connect(browseBtn, &QPushButton::clicked, this, &FilePatcher::onChooseFile);
     pathRow->addWidget(pathEdit_);
     pathRow->addWidget(browseBtn);
-    form->addRow("File:", pathRow);
+    form->addRow(tr("File:"), pathRow);
 
     offsetEdit_ = new QLineEdit;
-    offsetEdit_->setPlaceholderText("0x0 (hex with 0x prefix, decimal otherwise)");
-    form->addRow("Offset:", offsetEdit_);
+    offsetEdit_->setPlaceholderText(tr("0x0 (hex with 0x prefix, decimal otherwise)"));
+    form->addRow(tr("Offset:"), offsetEdit_);
 
     auto* readRow = new QHBoxLayout;
     readSizeSpin_ = new QSpinBox;
     readSizeSpin_->setRange(1, 1024);
     readSizeSpin_->setValue(16);
-    auto* readBtn = new QPushButton("Read current bytes");
+    auto* readBtn = new QPushButton(tr("Read current bytes"));
     connect(readBtn, &QPushButton::clicked, this, &FilePatcher::onReadBytes);
     readRow->addWidget(readSizeSpin_);
     readRow->addWidget(readBtn);
     readRow->addStretch();
-    form->addRow("Inspect:", readRow);
+    form->addRow(tr("Inspect:"), readRow);
 
     root->addLayout(form);
 
-    root->addWidget(new QLabel("Hex bytes to write (whitespace ignored):"));
+    root->addWidget(new QLabel(tr("Hex bytes to write (whitespace ignored):")));
     hexEdit_ = new QPlainTextEdit;
     hexEdit_->setFont(monospaceFont());
     hexEdit_->setPlaceholderText("DE AD BE EF\n90 90 90");
@@ -60,9 +61,9 @@ FilePatcher::FilePatcher(QWidget* parent) : QDialog(parent) {
 
     auto* btnRow = new QHBoxLayout;
     btnRow->addStretch();
-    auto* applyBtn = new QPushButton("Apply Patch");
+    auto* applyBtn = new QPushButton(tr("Apply Patch"));
     applyBtn->setProperty("primary", true);
-    auto* closeBtn = new QPushButton("Close");
+    auto* closeBtn = new QPushButton(tr("Close"));
     connect(applyBtn, &QPushButton::clicked, this, &FilePatcher::onApply);
     connect(closeBtn, &QPushButton::clicked, this, &QDialog::accept);
     btnRow->addWidget(applyBtn);
@@ -71,8 +72,8 @@ FilePatcher::FilePatcher(QWidget* parent) : QDialog(parent) {
 }
 
 void FilePatcher::onChooseFile() {
-    auto path = QFileDialog::getOpenFileName(this, "Choose file to patch",
-        pathEdit_->text(), "All Files (*)");
+    auto path = QFileDialog::getOpenFileName(this, tr("Choose file to patch"),
+        pathEdit_->text(), tr("All Files (*)"));
     if (!path.isEmpty()) pathEdit_->setText(path);
 }
 
@@ -80,7 +81,7 @@ static QByteArray parseHexBytes(const QString& text, QString* err) {
     QString clean = text;
     clean.replace(QRegularExpression(R"(\s+)"), "");
     if (clean.size() % 2 != 0) {
-        if (err) *err = "Hex byte sequence has odd length.";
+        if (err) *err = QCoreApplication::translate("FilePatcher", "Hex byte sequence has odd length.");
         return {};
     }
     QByteArray out;
@@ -89,7 +90,7 @@ static QByteArray parseHexBytes(const QString& text, QString* err) {
         bool ok = false;
         uint8_t b = (uint8_t)QStringView(clean).mid(i, 2).toUInt(&ok, 16);
         if (!ok) {
-            if (err) *err = QString("Not a hex byte: '%1'").arg(clean.mid(i, 2));
+            if (err) *err = QCoreApplication::translate("FilePatcher", "Not a hex byte: '%1'").arg(clean.mid(i, 2));
             return {};
         }
         out.append((char)b);
@@ -109,21 +110,21 @@ static bool parseFileOffset(const QString& text, qint64& offset) {
 
 void FilePatcher::onReadBytes() {
     if (pathEdit_->text().isEmpty()) {
-        QMessageBox::warning(this, "Pick a file", "Choose a file first.");
+        QMessageBox::warning(this, tr("Pick a file"), tr("Choose a file first."));
         return;
     }
     qint64 offset = 0;
     if (!parseFileOffset(offsetEdit_->text(), offset)) {
-        QMessageBox::warning(this, "Bad offset", "Enter a non-negative offset: 0x-prefixed hex or decimal.");
+        QMessageBox::warning(this, tr("Bad offset"), tr("Enter a non-negative offset: 0x-prefixed hex or decimal."));
         return;
     }
     QFile f(pathEdit_->text());
     if (!f.open(QIODevice::ReadOnly)) {
-        QMessageBox::warning(this, "Open failed", f.errorString());
+        QMessageBox::warning(this, tr("Open failed"), f.errorString());
         return;
     }
     if (!f.seek(offset)) {
-        QMessageBox::warning(this, "Seek failed", "Offset is past end of file.");
+        QMessageBox::warning(this, tr("Seek failed"), tr("Offset is past end of file."));
         return;
     }
     QByteArray buf = f.read(readSizeSpin_->value());
@@ -137,51 +138,52 @@ void FilePatcher::onReadBytes() {
 
 void FilePatcher::onApply() {
     if (pathEdit_->text().isEmpty()) {
-        QMessageBox::warning(this, "Pick a file", "Choose a file first.");
+        QMessageBox::warning(this, tr("Pick a file"), tr("Choose a file first."));
         return;
     }
     qint64 offset = 0;
     if (!parseFileOffset(offsetEdit_->text(), offset)) {
-        QMessageBox::warning(this, "Bad offset", "Enter a non-negative offset: 0x-prefixed hex or decimal.");
+        QMessageBox::warning(this, tr("Bad offset"), tr("Enter a non-negative offset: 0x-prefixed hex or decimal."));
         return;
     }
     QString err;
     auto bytes = parseHexBytes(hexEdit_->toPlainText(), &err);
     if (bytes.isEmpty()) {
-        QMessageBox::warning(this, "Bad hex", err.isEmpty() ? "Provide at least one hex byte." : err);
+        QMessageBox::warning(this, tr("Bad hex"), err.isEmpty() ? tr("Provide at least one hex byte.") : err);
         return;
     }
-    auto answer = QMessageBox::question(this, "Confirm patch",
-        QString("Write %1 byte%2 to %3 at offset 0x%4?\nThis modifies the file in place.")
-            .arg(bytes.size()).arg(bytes.size() == 1 ? "" : "s")
-            .arg(pathEdit_->text()).arg(offset, 0, 16));
+    const QString question = bytes.size() == 1
+        ? tr("Write %1 byte to %2 at offset 0x%3?\nThis modifies the file in place.")
+        : tr("Write %1 bytes to %2 at offset 0x%3?\nThis modifies the file in place.");
+    auto answer = QMessageBox::question(this, tr("Confirm patch"),
+        question.arg(bytes.size()).arg(pathEdit_->text()).arg(offset, 0, 16));
     if (answer != QMessageBox::Yes) return;
 
     QFile f(pathEdit_->text());
     if (!f.open(QIODevice::ReadWrite)) {
-        QMessageBox::warning(this, "Open failed", f.errorString());
+        QMessageBox::warning(this, tr("Open failed"), f.errorString());
         return;
     }
     // ReadWrite seek-past-EOF succeeds and would grow the file (sparse hole)
     // rather than patch in place; confirm before extending.
     if (offset + (qint64)bytes.size() > f.size()) {
-        auto extend = QMessageBox::question(this, "Extend file?",
-            QString("The patch ends at offset 0x%1 but the file is only 0x%2 bytes.\n"
-                    "Applying it will grow the file (zero-filling the gap). Continue?")
+        auto extend = QMessageBox::question(this, tr("Extend file?"),
+            tr("The patch ends at offset 0x%1 but the file is only 0x%2 bytes.\n"
+               "Applying it will grow the file (zero-filling the gap). Continue?")
                 .arg(offset + (qint64)bytes.size(), 0, 16).arg(f.size(), 0, 16));
         if (extend != QMessageBox::Yes) return;
     }
     if (!f.seek(offset)) {
-        QMessageBox::warning(this, "Seek failed", "Offset is past end of file.");
+        QMessageBox::warning(this, tr("Seek failed"), tr("Offset is past end of file."));
         return;
     }
     qint64 written = f.write(bytes);
     if (written != bytes.size()) {
-        QMessageBox::warning(this, "Write failed", f.errorString());
+        QMessageBox::warning(this, tr("Write failed"), f.errorString());
         return;
     }
-    QMessageBox::information(this, "Patched",
-        QString("Wrote %1 bytes at 0x%2.").arg(written).arg(offset, 0, 16));
+    QMessageBox::information(this, tr("Patched"),
+        tr("Wrote %1 bytes at 0x%2.").arg(written).arg(offset, 0, 16));
 }
 
 } // namespace ce::gui

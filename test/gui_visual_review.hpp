@@ -108,7 +108,7 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
             QAction* chosen = nullptr;
             std::function<void(QMenu*)> find = [&](QMenu* m) {
                 for (auto* a : m->actions()) {
-                    if (a->text() == actionText) chosen = a;
+                    if (uiTextIs(a->text(), actionText)) chosen = a;
                     else if (a->menu()) find(a->menu());
                 }
             };
@@ -134,7 +134,7 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
         pump();
     };
     auto clickText = [](QWidget& w, const QString& text) {
-        for (auto* b : w.findChildren<QPushButton*>()) if (b->text() == text && b->isEnabled()) { b->click(); return true; }
+        for (auto* b : w.findChildren<QPushButton*>()) if (uiTextIs(b->text(), text) && b->isEnabled()) { b->click(); return true; }
         return false;
     };
     // Wait (pumping events) until `done` holds or the timeout passes.
@@ -177,7 +177,11 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
             model->addGroup("Player settings");
             main.findChild<ScanResultsModel*>()->setResult(&results, ce::ValueType::Int32, 4);
             model->updateValues(&process);
-            for (auto* label : main.findChildren<QLabel*>()) if (label->text() == "Found: 0") label->setText("Found: 24");
+            const QString foundZero = QCoreApplication::translate("MainWindow", "Found: %1").arg(0);
+            const QString foundTwentyFour = QCoreApplication::translate("MainWindow", "Found: %1").arg(24);
+            for (auto* label : main.findChildren<QLabel*>())
+                if (uiTextIs(label->text(), "Found: 0") || label->text() == foundZero)
+                    label->setText(foundTwentyFour);
             capture(main, prefix + "main-populated", {1000, 780});
             // The README picture (docs/screenshot.png): CE_README_GAME names a build of
             // test/readme_game.c, which prints the addresses of its health, ammo, gold
@@ -197,7 +201,7 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
                     table->groupSelectedRows({0, 1, 2, 3}, "Player");
                     readme.findChild<QLineEdit*>("scanValue")->setText("100");
                     for (auto* button : readme.findChildren<QPushButton*>())
-                        if (button->text() == "First Scan") button->click();
+                        if (uiTextIs(button->text(), "First Scan")) button->click();
                     readme.resize(1100, 760);
                     readme.show();
                     // Let the scan finish and the address list's live values refresh.
@@ -227,14 +231,14 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
             // Scan-option states: float rounding + tolerance, a range scan, text.
             auto* valueType = main.findChild<QComboBox*>("scanValueType");
             auto* comparison = main.findChild<QComboBox*>("scanComparison");
-            valueType->setCurrentText("Float");
-            main.findChild<QComboBox*>("scanRounding")->setCurrentText("Extreme");
-            comparison->setCurrentText("Value between...");
+            uiSelect(valueType, "Float", "MainWindow");
+            uiSelect(main.findChild<QComboBox*>("scanRounding"), "Extreme", "MainWindow");
+            uiSelect(comparison, "Value between...", "MainWindow");
             capture(main, prefix + "main-float-between", {1000, 780});
-            valueType->setCurrentText("String");
-            comparison->setCurrentText("Exact Value");
+            uiSelect(valueType, "String", "MainWindow");
+            uiSelect(comparison, "Exact Value", "MainWindow");
             capture(main, prefix + "main-string", {1000, 780});
-            valueType->setCurrentText("4 Bytes");
+            uiSelect(valueType, "4 Bytes", "MainWindow");
             auto* progress = main.findChild<QProgressBar*>();
             progress->setValue(42); progress->setVisible(true);
             capture(main, prefix + "main-scanning", {1000, 780});
@@ -258,11 +262,11 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
                      {"Pointer scan for this address", "entry-pointer-scan"}})
                 captureMenuAction(entryMenu, action, prefix + "dialog-" + name);
             // A real First Scan, so the results list and its menu show live data.
-            main.findChild<QComboBox*>("scanValueType")->setCurrentText("4 Bytes");
-            main.findChild<QComboBox*>("scanComparison")->setCurrentText("Exact Value");
+            uiSelect(main.findChild<QComboBox*>("scanValueType"), "4 Bytes", "MainWindow");
+            uiSelect(main.findChild<QComboBox*>("scanComparison"), "Exact Value", "MainWindow");
             main.findChild<QLineEdit*>("scanValue")->setText("0");
             for (auto* button : main.findChildren<QPushButton*>())
-                if (button->text() == "First Scan") button->click();
+                if (uiTextIs(button->text(), "First Scan")) button->click();
             pump(40);
             capture(main, prefix + "main-after-scan", {1000, 780});
             main.show();
@@ -276,7 +280,7 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
             auto openAction = [&](const QString& text) {
                 return [&main, text] {
                     for (auto* action : main.findChildren<QAction*>())
-                        if (action->text() == text) { action->trigger(); return; }
+                        if (uiTextIs(action->text(), text)) { action->trigger(); return; }
                     std::printf("visual review: no action %s\n", qPrintable(text));
                 };
             };
@@ -302,9 +306,9 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
                 pump();
             }
             for (auto* button : main.findChildren<QPushButton*>()) {
-                if (button->text() == "Add Address") captureNew([button] { button->click(); }, prefix + "dialog-add-address");
-                if (button->text() == "Table Extras") captureNew([button] { button->click(); }, prefix + "dialog-comments");
-                if (button->text() == "Advanced Options") captureNew([button] { button->click(); }, prefix + "dialog-advanced-options");
+                if (uiTextIs(button->text(), "Add Address")) captureNew([button] { button->click(); }, prefix + "dialog-add-address");
+                if (uiTextIs(button->text(), "Table Extras")) captureNew([button] { button->click(); }, prefix + "dialog-comments");
+                if (uiTextIs(button->text(), "Advanced Options")) captureNew([button] { button->click(); }, prefix + "dialog-advanced-options");
             }
         }
         {

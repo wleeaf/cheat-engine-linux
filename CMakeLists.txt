@@ -368,6 +368,7 @@ if(Qt6_FOUND)
         gui/resources.qrc
         gui/main.cpp
         gui/theme.cpp
+        gui/i18n.cpp
         gui/mainwindow.cpp
         gui/processlistdialog.cpp
         gui/gdbconnectiondialog.cpp
@@ -632,6 +633,28 @@ if(Qt6_FOUND)
         endif()
     else()
         message(STATUS "Global hotkeys: Wayland portal backend disabled (Qt6::DBus not found)")
+    endif()
+
+    # ── Translations ──
+    # English is the source language; the catalogue below is embedded in the
+    # binary. A .qm dropped next to the executable or under translations/
+    # overrides the built-in copy, so a translation can be tried without a
+    # rebuild. LinguistTools comes from qt6-tools-dev and qt6-l10n-tools on
+    # Debian/Ubuntu; without them the build still works, in English.
+    find_package(Qt6 COMPONENTS LinguistTools QUIET)
+    if(Qt6LinguistTools_FOUND)
+        # The include path lets lupdate resolve the headers, so member tr()
+        # calls get the namespaced context moc uses at runtime
+        # (ce::gui::MainWindow, not MainWindow).
+        qt_add_translations(cheatengine TS_FILES translations/cheatengine_zh_CN.ts
+            INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR})
+        if(TARGET gui_lifecycle_smoke)
+            # The screenshots run honours CE_LANG, so the .qm has to exist.
+            add_dependencies(gui_lifecycle_smoke cheatengine_lrelease)
+        endif()
+        message(STATUS "Translations: enabled (zh_CN)")
+    else()
+        message(STATUS "Translations: disabled (Qt6 LinguistTools not found)")
     endif()
 else()
     message(STATUS "Qt6 not found — skipping GUI build")

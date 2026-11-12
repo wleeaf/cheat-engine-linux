@@ -1,4 +1,5 @@
 #include "gui/graphicalmemoryview.hpp"
+#include <QCoreApplication>
 
 #include <QPainter>
 #include <QVBoxLayout>
@@ -27,7 +28,8 @@ void MemPixelView::paintEvent(QPaintEvent* event) {
         p.fillRect(rect(), palette().color(QPalette::Window));
         p.setPen(palette().color(QPalette::Text));
         p.drawText(rect().adjusted(16, 16, -16, -16), Qt::AlignCenter | Qt::TextWordWrap,
-                   "Enter an address and press Fetch to visualize memory.");
+                   QCoreApplication::translate("ce::gui::MemPixelView",
+                       "Enter an address and press Fetch to visualize memory."));
         return;
     }
     p.fillRect(event->rect(), Qt::black);
@@ -54,7 +56,7 @@ void MemPixelView::paintEvent(QPaintEvent* event) {
 
 GraphicalMemoryView::GraphicalMemoryView(ce::ProcessHandle* proc, QWidget* parent)
     : QMainWindow(parent), proc_(proc) {
-    setWindowTitle("Graphical Memory View");
+    setWindowTitle(tr("Graphical Memory View"));
     resize(680, 620);
 
     auto* central = new QWidget;
@@ -62,30 +64,30 @@ GraphicalMemoryView::GraphicalMemoryView(ce::ProcessHandle* proc, QWidget* paren
     auto* v = new QVBoxLayout(central);
 
     auto* controls = new QHBoxLayout;
-    controls->addWidget(new QLabel("Address:"));
+    controls->addWidget(new QLabel(tr("Address:")));
     addrEdit_ = new QLineEdit;
-    addrEdit_->setPlaceholderText("address (hex)");
+    addrEdit_->setPlaceholderText(tr("address (hex)"));
     addrEdit_->setMinimumWidth(220);
     controls->addWidget(addrEdit_, 1);
-    auto* fetchBtn = new QPushButton("Fetch");
+    auto* fetchBtn = new QPushButton(tr("Fetch"));
     fetchBtn->setObjectName("primaryButton");
-    fetchBtn->setToolTip("Read and visualize memory at this address");
+    fetchBtn->setToolTip(tr("Read and visualize memory at this address"));
     controls->addWidget(fetchBtn);
     v->addLayout(controls);
     auto* dimensions = new QHBoxLayout;
-    dimensions->addWidget(new QLabel("Pixels per line:"));
+    dimensions->addWidget(new QLabel(tr("Pixels per line:")));
     perLineSpin_ = new QSpinBox;
     perLineSpin_->setRange(1, 4096);
     perLineSpin_->setValue(256);
     dimensions->addWidget(perLineSpin_);
-    dimensions->addWidget(new QLabel("Rows:"));
+    dimensions->addWidget(new QLabel(tr("Rows:")));
     rowsSpin_ = new QSpinBox;
     rowsSpin_->setRange(1, 4096);
     rowsSpin_->setValue(256);
     dimensions->addWidget(rowsSpin_);
     dimensions->addStretch();
     v->addLayout(dimensions);
-    statusLabel_ = new QLabel("No memory loaded.");
+    statusLabel_ = new QLabel(tr("No memory loaded."));
     statusLabel_->setProperty("secondary", true);
     statusLabel_->setWordWrap(true);
     v->addWidget(statusLabel_);
@@ -120,7 +122,7 @@ void GraphicalMemoryView::fetch() {
     bool valid = false;
     uintptr_t addr = addrEdit_->text().trimmed().toULongLong(&valid, 16);
     if (!valid) {
-        statusLabel_->setText("Enter a valid hexadecimal address.");
+        statusLabel_->setText(tr("Enter a valid hexadecimal address."));
         addrEdit_->setFocus(); addrEdit_->selectAll();
         return;
     }
@@ -132,12 +134,12 @@ void GraphicalMemoryView::fetch() {
     // One byte per pixel, darker = smaller value. Say when the readable memory
     // ended early, so a short image isn't mistaken for a rendering fault.
     if (!got)
-        statusLabel_->setText(QString("Could not read memory at 0x%1.").arg(addr, 0, 16));
+        statusLabel_->setText(tr("Could not read memory at 0x%1.").arg(addr, 0, 16));
     else if (got < count)
-        statusLabel_->setText(QString("Showing %1 bytes from 0x%2; the memory after 0x%3 is not readable.")
+        statusLabel_->setText(tr("Showing %1 bytes from 0x%2; the memory after 0x%3 is not readable.")
             .arg(got).arg(addr, 0, 16).arg(addr + got, 0, 16));
     else
-        statusLabel_->setText(QString("Showing %1 bytes from 0x%2, one byte per pixel (black = 00, white = FF).")
+        statusLabel_->setText(tr("Showing %1 bytes from 0x%2, one byte per pixel (black = 00, white = FF).")
             .arg(got).arg(addr, 0, 16));
     buf.resize(got);
     view_->setPerLine(perLine);

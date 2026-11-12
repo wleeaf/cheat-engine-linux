@@ -5,6 +5,7 @@
 #include "gui/tracerwindow.hpp"
 #include "gui/debuggerwindow.hpp"
 #include "gui/scripteditor.hpp"
+#include "gui/i18n.hpp"
 #include "core/expression.hpp"
 #include <QInputDialog>
 #include <QMessageBox>
@@ -353,6 +354,57 @@ static bool injectionTemplateChecks() {
 }
 
 #include <QTreeWidget>
+#include <QComboBox>
+
+// ── Interface-language helpers for the screenshot review ──
+// The review drives windows by their English source text. When a catalogue is
+// loaded (CE_LANG) the widgets show the translation, so match the English source
+// against the translated string too. kUiContexts lists every context that
+// carries user-visible strings (see translations/cheatengine_zh_CN.ts).
+static const char* const kUiContexts[] = {
+    // Member tr() calls use the namespaced context moc records at runtime.
+    "ce::gui::AddressListModel", "ce::gui::AdvancedOptionsWindow", "ce::gui::AgentPanel",
+    "ce::gui::BranchMapper", "ce::gui::BreakpointListWindow", "ce::gui::ChangeAddressDialog",
+    "ce::gui::CodeFinderWindow", "ce::gui::CodeReferencesWindow", "ce::gui::DebuggerWindow",
+    "ce::gui::DisasmView", "ce::gui::ElfInspector", "ce::gui::FilePatcher",
+    "ce::gui::FindStaticsWindow", "ce::gui::FormDesigner", "ce::gui::GraphicalMemoryView",
+    "ce::gui::GuestScanDialog", "ce::gui::HeapRegionsWindow", "ce::gui::HexView",
+    "ce::gui::LuaConsole", "ce::gui::MainWindow", "ce::gui::MemPixelView",
+    "ce::gui::MemoryBrowser", "ce::gui::MemoryFillDialog", "ce::gui::MemoryRegionsWindow",
+    "ce::gui::MemviewPreferences", "ce::gui::ModuleListWindow", "ce::gui::MonoDissectorWindow",
+    "ce::gui::OverlayWindow", "ce::gui::PointerScanDialog", "ce::gui::ProcessListDialog",
+    "ce::gui::RegisterEditorWindow", "ce::gui::ScanResultsModel", "ce::gui::ScriptEditor",
+    "ce::gui::SettingsDialog", "ce::gui::StackViewWindow", "ce::gui::StructureDissector",
+    "ce::gui::ThreadListWindow", "ce::gui::TracerWindow",
+    // Free functions and classes without Q_OBJECT pass their context explicitly.
+    "AgentPanel", "CodeFinderWindow", "DebuggerWindow", "FilePatcher", "FormDesigner",
+    "GdbConnectionDialog", "GlobalHotkeyManager", "HeapRegionsWindow", "MainWindow",
+    "MonoDissectorWindow", "QObject", "SecretStore", "SettingsDialog", "StructureDissector",
+    "Theme", "TraceTableModel", "TracerWindow",
+};
+
+static bool uiTextIs(const QString& actual, const char* source) {
+    if (actual == QLatin1String(source)) return true;
+    for (const char* context : kUiContexts) {
+        const QString translated = QCoreApplication::translate(context, source);
+        if (translated != QLatin1String(source) && actual == translated) return true;
+    }
+    return false;
+}
+
+static bool uiTextIs(const QString& actual, const QString& source) {
+    return uiTextIs(actual, source.toUtf8().constData());
+}
+
+// Select a combo item by its English source text, falling back to its translation.
+static void uiSelect(QComboBox* combo, const char* source, const char* context) {
+    if (!combo) return;
+    const QString english = QString::fromLatin1(source);
+    if (combo->findText(english) >= 0) { combo->setCurrentText(english); return; }
+    const QString translated = QCoreApplication::translate(context, source);
+    if (combo->findText(translated) >= 0) combo->setCurrentText(translated);
+}
+
 #include "test/gui_visual_review.hpp"
 
 static bool visualInteractionChecks() {
@@ -693,6 +745,9 @@ int main(int argc, char** argv) {
     QApplication app(argc, argv);
     app.setOrganizationName("cecore-test");
     app.setApplicationName("gui-lifecycle");
+    // The screenshot review can render another interface language: CE_LANG=zh_CN.
+    if (const QString language = qEnvironmentVariable("CE_LANG"); !language.isEmpty())
+        ce::gui::installTranslators(app, language);
     if (argc == 3 && QString::fromLocal8Bit(argv[1]) == "--screenshots") {
         alarm(300);
         int result = renderGuiReview(QString::fromLocal8Bit(argv[2]), first, reinterpret_cast<uintptr_t>(&watched));

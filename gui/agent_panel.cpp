@@ -3,6 +3,7 @@
 #include "gui/secret_store.hpp"
 
 #include <QApplication>
+#include <QCoreApplication>
 #include <QEvent>
 #include <QEventLoop>
 #include <QFile>
@@ -67,7 +68,7 @@ QString describeCall(const std::string& tool, const Value& arguments) {
         for (const auto& key : arguments.objectOrder) {
             const Value& v = arguments.objectValue.at(key);
             QString shown;
-            if (key == "script") shown = QString("(%1 lines)").arg(text(v.stringValue).count('\n') + 1);
+            if (key == "script") shown = QCoreApplication::translate("AgentPanel", "(%1 lines)").arg(text(v.stringValue).count('\n') + 1);
             else if (v.isArray()) shown = QString("[%1]").arg(v.arrayValue.size());
             else if (key == "address") shown = addressArgument(&v);
             else shown = scalar(v);
@@ -78,17 +79,17 @@ QString describeCall(const std::string& tool, const Value& arguments) {
 }
 
 QString describeResult(const Value& result, bool isError) {
-    if (isError) return "refused: " + text(result.getString("error").value_or("error"));
-    if (auto count = result.getInt("count")) return QString("%1 found").arg(*count);
-    if (auto attached = result.getString("attached")) return "attached to " + text(*attached);
-    if (const Value* list = result.get("instructions"); list && list->isArray()) return QString("%1 instruction(s)").arg(list->arrayValue.size());
-    if (const Value* list = result.get("addresses"); list && list->isArray()) return QString("%1 address(es)").arg(list->arrayValue.size());
-    if (auto saved = result.getString("saved")) return "saved to " + text(*saved);
-    if (auto value = result.getString("value_now")) return "now " + text(*value);
-    if (auto value = result.getString("value")) return "value " + text(*value);
-    if (result.get("disabled")) return "disabled";
-    if (result.get("id")) return "enabled";
-    return "done";
+    if (isError) return QCoreApplication::translate("AgentPanel", "refused: %1").arg(text(result.getString("error").value_or("error")));
+    if (auto count = result.getInt("count")) return QCoreApplication::translate("AgentPanel", "%1 found").arg(*count);
+    if (auto attached = result.getString("attached")) return QCoreApplication::translate("AgentPanel", "attached to %1").arg(text(*attached));
+    if (const Value* list = result.get("instructions"); list && list->isArray()) return QCoreApplication::translate("AgentPanel", "%1 instruction(s)").arg(list->arrayValue.size());
+    if (const Value* list = result.get("addresses"); list && list->isArray()) return QCoreApplication::translate("AgentPanel", "%1 address(es)").arg(list->arrayValue.size());
+    if (auto saved = result.getString("saved")) return QCoreApplication::translate("AgentPanel", "saved to %1").arg(text(*saved));
+    if (auto value = result.getString("value_now")) return QCoreApplication::translate("AgentPanel", "now %1").arg(text(*value));
+    if (auto value = result.getString("value")) return QCoreApplication::translate("AgentPanel", "value %1").arg(text(*value));
+    if (result.get("disabled")) return QCoreApplication::translate("AgentPanel", "disabled");
+    if (result.get("id")) return QCoreApplication::translate("AgentPanel", "enabled");
+    return QCoreApplication::translate("AgentPanel", "done");
 }
 
 } // namespace
@@ -100,7 +101,7 @@ AgentConfig loadAgentConfig() {
     config.provider.kind = openAi ? ChatProviderKind::OpenAiCompatible : ChatProviderKind::Anthropic;
     config.account = openAi ? "openai-compatible" : "anthropic";
     config.envVar = openAi ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY";
-    config.name = openAi ? "OpenAI-compatible server" : "Anthropic";
+    config.name = openAi ? QCoreApplication::translate("AgentPanel", "OpenAI-compatible server") : "Anthropic";
     config.provider.model = s.value("agent/" + config.account + "/model").toString().trimmed().toStdString();
     config.provider.baseUrl = s.value("agent/" + config.account + "/baseUrl").toString().trimmed().toStdString();
     config.keyOrigin = s.value("agent/" + config.account + "/keyOrigin").toString();
@@ -137,11 +138,11 @@ QString agentKeyRefusal(bool openAi, const QString& baseUrl, const QString& keyO
     const QString origin = agentOrigin(openAi, baseUrl);
     const QUrl url(origin);
     if (url.scheme() != "https" && !(url.scheme() == "http" && loopbackHost(url.host())))
-        return QString("The API key is not sent to %1: use an https address (plain http is only for a server on "
+        return QCoreApplication::translate("AgentPanel", "The API key is not sent to %1: use an https address (plain http is only for a server on "
                        "this computer).").arg(origin);
     const QString saved = keyOrigin.isEmpty() ? agentOrigin(openAi, {}) : keyOrigin;
     if (saved != origin)
-        return QString("The saved API key is for %1, so it is not sent to %2. Enter the key again in Settings, "
+        return QCoreApplication::translate("AgentPanel", "The saved API key is for %1, so it is not sent to %2. Enter the key again in Settings, "
                        "AI Assistant to use it there.").arg(saved, origin);
     return {};
 }
@@ -182,8 +183,8 @@ AgentPanel::AgentPanel(QWidget* parent) : QWidget(parent) {
     provider_->setWordWrap(true);
     transcript_ = new QTextBrowser;
     transcript_->setOpenLinks(false);
-    transcript_->setPlaceholderText("Describe what to change in the game, for example:\n\n"
-                                    "My health shows 100. Find it and keep it at 100.");
+    transcript_->setPlaceholderText(tr("Describe what to change in the game, for example:\n\n"
+                                    "My health shows 100. Find it and keep it at 100."));
 
     approvalBar_ = new QFrame;
     approvalBar_->setFrameShape(QFrame::StyledPanel);
@@ -191,11 +192,11 @@ AgentPanel::AgentPanel(QWidget* parent) : QWidget(parent) {
     approvalText_ = new QLabel;
     approvalText_->setWordWrap(true);
     approvalText_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    auto* allow = new QPushButton("Allow");
+    auto* allow = new QPushButton(tr("Allow"));
     allow->setProperty("primary", true);
-    allowForChatButton_ = new QPushButton("Allow for this chat");
-    allowForChatButton_->setToolTip("Allow later changes in this process without asking, until the chat or the process changes");
-    auto* decline = new QPushButton("Decline");
+    allowForChatButton_ = new QPushButton(tr("Allow for this chat"));
+    allowForChatButton_->setToolTip(tr("Allow later changes in this process without asking, until the chat or the process changes"));
+    auto* decline = new QPushButton(tr("Decline"));
     connect(allow, &QPushButton::clicked, this, [this] { answerApproval(true); });
     connect(allowForChatButton_, &QPushButton::clicked, this, [this] { answerApproval(true, true); });
     connect(decline, &QPushButton::clicked, this, [this] { answerApproval(false); });
@@ -217,17 +218,17 @@ AgentPanel::AgentPanel(QWidget* parent) : QWidget(parent) {
     approvalBar_->hide();
 
     input_ = new QPlainTextEdit;
-    input_->setPlaceholderText("Message the assistant (Enter sends, Shift+Enter adds a line)");
+    input_->setPlaceholderText(tr("Message the assistant (Enter sends, Shift+Enter adds a line)"));
     input_->setMaximumHeight(input_->fontMetrics().lineSpacing() * 5);
     input_->installEventFilter(this);
 
-    send_ = new QPushButton("Send");
+    send_ = new QPushButton(tr("Send"));
     send_->setProperty("primary", true);
-    stop_ = new QPushButton("Stop");
-    newChat_ = new QPushButton("New chat");
-    addToTable_ = new QPushButton("Add to address list");
-    addToTable_->setToolTip("Copy the values and scripts the assistant saved into the address list");
-    auto* settings = new QPushButton("Settings...");
+    stop_ = new QPushButton(tr("Stop"));
+    newChat_ = new QPushButton(tr("New chat"));
+    addToTable_ = new QPushButton(tr("Add to address list"));
+    addToTable_->setToolTip(tr("Copy the values and scripts the assistant saved into the address list"));
+    auto* settings = new QPushButton(tr("Settings..."));
     connect(send_, &QPushButton::clicked, this, [this] { send(input_->toPlainText()); });
     connect(stop_, &QPushButton::clicked, this, &AgentPanel::stop);
     connect(newChat_, &QPushButton::clicked, this, [this] {
@@ -240,7 +241,9 @@ AgentPanel::AgentPanel(QWidget* parent) : QWidget(parent) {
         if (!tableSink_) return;
         const auto entries = session_->tableEntries();
         tableSink_(entries);
-        status_->setText(QString("Added %1 entr%2 to the address list.").arg(entries.size()).arg(entries.size() == 1 ? "y" : "ies"));
+        status_->setText(entries.size() == 1
+                             ? tr("Added %1 entry to the address list.").arg(entries.size())
+                             : tr("Added %1 entries to the address list.").arg(entries.size()));
     });
     connect(settings, &QPushButton::clicked, this, &AgentPanel::settingsRequested);
 
@@ -304,7 +307,7 @@ bool AgentPanel::eventFilter(QObject* watched, QEvent* event) {
 void AgentPanel::reloadSettings() {
     const AgentConfig config = loadAgentConfig();
     const QString model = text(config.provider.modelName());
-    provider_->setText(QString("%1%2. Your messages and what the tools find in the game are sent there.")
+    provider_->setText(tr("%1%2. Your messages and what the tools find in the game are sent there.")
                            .arg(config.name, model.isEmpty() ? QString() : ", " + model));
     // send() compares the settings with the ones the chat was made with, so a
     // change applies to the next message, even one sent while a turn runs.
@@ -322,7 +325,7 @@ void AgentPanel::stop() {
     }
     if (chat_) chat_->cancel();
     approvalChanged_.notify_all();
-    if (busy_) status_->setText("Stopping...");
+    if (busy_) status_->setText(tr("Stopping..."));
 }
 
 void AgentPanel::setTarget(pid_t pid, const QString& name) {
@@ -398,7 +401,7 @@ void AgentPanel::send(const QString& message) {
         chat_.reset();
         allowForChatPid_ = 0;
         if (!transcript_->document()->isEmpty())
-            addLine(QString("<span style='color:%1'>The AI Assistant settings changed, so this message starts a new "
+            addLine(tr("<span style='color:%1'>The AI Assistant settings changed, so this message starts a new "
                             "conversation.</span>").arg(palette().color(QPalette::PlaceholderText).name()), 16);
     }
     if (!chat_) {
@@ -409,7 +412,7 @@ void AgentPanel::send(const QString& message) {
             auto found = agentApiKey(config, &source, &error, &refused);
             if (!found && config.provider.kind == ChatProviderKind::Anthropic) {
                 addLine(QString("<span style='color:#d9534f'>%1</span>").arg(!refused.isEmpty() ? refused.toHtmlEscaped()
-                            : QString("Add your Anthropic API key in Settings, AI Assistant%1.")
+                            : tr("Add your Anthropic API key in Settings, AI Assistant%1.")
                                   .arg(error.isEmpty() ? QString() : " (" + error.toHtmlEscaped() + ")")), 8);
                 busy_ = false;
                 updateState();
@@ -418,7 +421,7 @@ void AgentPanel::send(const QString& message) {
             }
             // A local server usually needs no key, so the chat goes on without it.
             if (!refused.isEmpty())
-                addLine(QString("<span style='color:%1'>%2 Continuing without a key.</span>")
+                addLine(tr("<span style='color:%1'>%2 Continuing without a key.</span>")
                             .arg(palette().color(QPalette::PlaceholderText).name(), refused.toHtmlEscaped()), 8);
             key = found.value_or(QString()).toStdString();
             transport = [this](const ChatHttpRequest& request) { return post(request); };
@@ -431,14 +434,14 @@ void AgentPanel::send(const QString& message) {
         chat_->setApprover([this](const std::string& tool, const Value& arguments) { return approve(tool, arguments); });
     }
 
-    addLine(QString("<b>You</b><br>%1").arg(trimmed.toHtmlEscaped().replace("\n", "<br>")), transcript_->document()->isEmpty() ? 0 : 16);
+    addLine(tr("<b>You</b><br>%1").arg(trimmed.toHtmlEscaped().replace("\n", "<br>")), transcript_->document()->isEmpty() ? 0 : 16);
     input_->clear();
     {
         std::lock_guard lock(approvalMutex_);
         stopping_ = false;
     }
     chat_->clearCancel();   // before the worker starts, so an early Stop counts
-    status_->setText("Working...");
+    status_->setText(tr("Working..."));
     turnPid_ = targetPid_;
     turnName_ = targetName_;
     const pid_t pid = targetPid_;
@@ -499,7 +502,7 @@ void AgentPanel::finishTurn(bool ok) {
     busy_ = false;
     approvalBar_->hide();
     // A failure is explained in the transcript; the status only marks a Stop.
-    status_->setText(!ok && stopping_ ? QString("Stopped.") : QString());
+    status_->setText(!ok && stopping_ ? tr("Stopped.") : QString());
     updateState();
     syncSession();
     input_->setFocus();
@@ -531,7 +534,7 @@ bool AgentPanel::approve(const std::string& tool, const Value& arguments) {
             QFile comm(QString("/proc/%1/comm").arg(attached));
             if (comm.open(QIODevice::ReadOnly)) name = QString::fromUtf8(comm.readAll()).trimmed();
         }
-        in = name.isEmpty() ? QString(" in PID %1").arg(attached) : QString(" in %1 (PID %2)").arg(name).arg(attached);
+        in = name.isEmpty() ? tr(" in PID %1").arg(attached) : tr(" in %1 (PID %2)").arg(name).arg(attached);
     }
     // Values may come as JSON numbers as well as strings.
     auto field = [&](const char* key) {
@@ -555,21 +558,21 @@ bool AgentPanel::approve(const std::string& tool, const Value& arguments) {
     };
     QString description, detail;
     if (tool == "write") {
-        description = QString("Write %1 (%2) to %3%4?").arg(field("value"), field("type"), address(), in);
+        description = tr("Write %1 (%2) to %3%4?").arg(field("value"), field("type"), address(), in);
     } else if (tool == "save_table") {
         // The tool makes a relative path absolute the same way.
         QString path = field("path");
         std::error_code error;
         const auto absolute = std::filesystem::absolute(path.toStdString(), error);
         if (!error && !path.isEmpty() && path != "?") path = QString::fromStdString(absolute.string());
-        description = overwrite ? QString("Save the table to %1, replacing that file if it exists?").arg(path)
-                                : QString("Save the table to %1?").arg(path);
+        description = overwrite ? tr("Save the table to %1, replacing that file if it exists?").arg(path)
+                                : tr("Save the table to %1?").arg(path);
     } else if (tool == "attach") {
-        description = QString("Let the assistant open \"%1\"? It can then read that program's memory, and what it reads "
+        description = tr("Let the assistant open \"%1\"? It can then read that program's memory, and what it reads "
                               "is sent to the model's provider.").arg(field("target"));
     } else if (tool == "set_frozen") {
         const QString value = scalar(arguments.get("value") ? *arguments.get("value") : Value());
-        QString record = "record " + field("index");
+        QString record = tr("record %1").arg(field("index"));
         if (auto index = arguments.getInt("index"); index && *index >= 0) {
             const auto listed = session_->call("list_records", Value::object());
             const Value* records = listed.content.get("records");
@@ -581,20 +584,21 @@ bool AgentPanel::approve(const std::string& tool, const Value& arguments) {
                 if (at.isEmpty()) break;   // a script record; the tool refuses it
                 QString where;
                 if (auto pointsTo = r.getString("points_to")) {
-                    where = *pointsTo == "unresolved" ? at + ", which leads nowhere now" : at + ", now " + text(*pointsTo);
+                    where = *pointsTo == "unresolved" ? at + tr(", which leads nowhere now")
+                                                      : at + tr(", now %1").arg(text(*pointsTo));
                 } else {
                     const auto entries = session_->tableEntries();
                     const QString resolved = i < entries.size() ? hexText(entries[i].address) : QString();
                     where = resolved.isEmpty() || resolved == at ? at : at + " = " + resolved;
                 }
-                record += QString(" (%1 at %2)").arg(text(r.getString("type").value_or("?")), where);
+                record += tr(" (%1 at %2)").arg(text(r.getString("type").value_or("?")), where);
                 break;
             }
         }
-        description = QString("Freeze %1 at %2%3?").arg(record, value.isEmpty() ? QString("its current value") : value, in);
+        description = tr("Freeze %1 at %2%3?").arg(record, value.isEmpty() ? tr("its current value") : value, in);
     } else if (tool == "find_accessed_addresses") {
         const auto seconds = std::clamp<int64_t>(arguments.getInt("seconds").value_or(4), 1, 30);
-        description = QString("Put a breakpoint at %1%2 for %3 s to see which addresses that instruction accesses? "
+        description = tr("Put a breakpoint at %1%2 for %3 s to see which addresses that instruction accesses? "
                               "The game pauses briefly each time it runs.").arg(address(), in, QString::number(seconds));
     } else if (tool == "aa_disable") {
         const QString id = field("id");
@@ -603,9 +607,9 @@ bool AgentPanel::approve(const std::string& tool, const Value& arguments) {
         if (const Value* enabled = listed.content.get("enabled"); enabled && enabled->isArray())
             for (const auto& script : enabled->arrayValue)
                 if (script.getInt("id") == arguments.getInt("id")) name = " \"" + text(script.getString("description").value_or("")) + "\"";
-        description = QString("Disable script #%1%2%3? Its [DISABLE] section runs and restores the game's code.").arg(id, name, in);
+        description = tr("Disable script #%1%2%3? Its [DISABLE] section runs and restores the game's code.").arg(id, name, in);
     } else {
-        description = QString("Enable the script \"%1\"%2?").arg(text(arguments.getString("description").value_or("")), in);
+        description = tr("Enable the script \"%1\"%2?").arg(text(arguments.getString("description").value_or("")), in);
         detail = text(arguments.getString("script").value_or(""));
     }
     {
@@ -634,7 +638,7 @@ void AgentPanel::showApproval(const QString& description, const QString& detail,
     approvalDetail_->setVisible(!detail.isEmpty());
     allowForChatButton_->setVisible(forChat);
     approvalBar_->show();
-    status_->setText("Waiting for your answer...");
+    status_->setText(tr("Waiting for your answer..."));
 }
 
 bool AgentPanel::approvalPending() const {
@@ -656,13 +660,13 @@ void AgentPanel::answerApproval(bool allow, bool forChat) {
     }
     approvalChanged_.notify_all();
     approvalBar_->hide();
-    status_->setText("Working...");
+    status_->setText(tr("Working..."));
 }
 
 // Runs on the worker thread.
 ChatHttpResponse AgentPanel::post(const ChatHttpRequest& request) {
     ChatHttpResponse response;
-    if (!network_) { response.error = "closing"; return response; }
+    if (!network_) { response.error = tr("closing").toStdString(); return response; }
     QNetworkRequest http(QUrl(QString::fromStdString(request.url)));
     // Never follow a redirect to another host: it would carry the API key there.
     http.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::SameOriginRedirectPolicy);
@@ -692,13 +696,13 @@ ChatHttpResponse AgentPanel::post(const ChatHttpRequest& request) {
     checkSize();
     if (tooLarge) {
         response.truncated = true;
-        response.error = "the reply is too large";
+        response.error = tr("the reply is too large").toStdString();
         delete reply;
         return response;
     }
     response.status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     response.body = reply->readAll().toStdString();
-    if (response.status == 0) response.error = stopping_ ? "stopped" : reply->errorString().toStdString();
+    if (response.status == 0) response.error = stopping_ ? tr("stopped").toStdString() : reply->errorString().toStdString();
     delete reply;
     return response;
 }

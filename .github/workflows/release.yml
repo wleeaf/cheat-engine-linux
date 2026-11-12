@@ -59,6 +59,8 @@ jobs:
             qemu-system-arm \
             mono-runtime-sgen mono-mcs libmonosgen-2.0-1 \
             qt6-base-dev \
+            qt6-tools-dev \
+            qt6-l10n-tools \
             libcapstone-dev \
             zlib1g-dev \
             libdw-dev \

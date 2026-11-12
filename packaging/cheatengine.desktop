@@ -2,6 +2,7 @@
 Type=Application
 Name=Cheat Engine
 Comment=Memory scanner and debugger for Linux
+Comment[zh_CN]=Linux 内存扫描器与调试器
 Exec=cheatengine %f
 Icon=cheatengine
 Categories=Development;Debugger;

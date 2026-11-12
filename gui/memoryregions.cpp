@@ -9,7 +9,7 @@ namespace ce::gui {
 
 MemoryRegionsWindow::MemoryRegionsWindow(ProcessHandle* proc, QWidget* parent)
     : QMainWindow(parent), proc_(proc) {
-    setWindowTitle("Memory Regions");
+    setWindowTitle(tr("Memory Regions"));
     resize(800, 500);
 
     auto* central = new QWidget;
@@ -17,7 +17,7 @@ MemoryRegionsWindow::MemoryRegionsWindow(ProcessHandle* proc, QWidget* parent)
 
     table_ = new QTableWidget;
     table_->setColumnCount(5);
-    table_->setHorizontalHeaderLabels({"Start", "End", "Size", "Perm", "Path"});
+    table_->setHorizontalHeaderLabels({tr("Start"), tr("End"), tr("Size"), tr("Perm"), tr("Path")});
     // Fit the fixed-width columns (16-digit hex addresses, size, perms) to their
     // content so the addresses aren't clipped, and let Path (variable) take the rest.
     auto* hh = table_->horizontalHeader();
@@ -25,13 +25,13 @@ MemoryRegionsWindow::MemoryRegionsWindow(ProcessHandle* proc, QWidget* parent)
     for (int c = 0; c < 4; ++c)
         hh->setSectionResizeMode(c, QHeaderView::ResizeToContents);
     styleDataTable(table_);
-    table_->setToolTip("Double-click a region to browse it");
+    table_->setToolTip(tr("Double-click a region to browse it"));
     connect(table_, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
         bool ok;
         uintptr_t addr = table_->item(row, 0)->text().toULongLong(&ok, 16);
         if (ok) emit navigateTo(addr);
     });
-    layout->addWidget(makeTableFilter(table_, "Filter by address, permissions or path"));
+    layout->addWidget(makeTableFilter(table_, tr("Filter by address, permissions or path")));
     layout->addWidget(table_);
     setCentralWidget(central);
     populate();
@@ -47,7 +47,7 @@ void MemoryRegionsWindow::populate() {
         table_->setItem(i, 0, new QTableWidgetItem(QString("%1").arg(r.base, 16, 16, QChar('0'))));
         table_->setItem(i, 1, new QTableWidgetItem(QString("%1").arg(r.base + r.size, 16, 16, QChar('0'))));
         table_->setItem(i, 2, new QTableWidgetItem(formatByteSize(r.size)));
-        table_->item(i, 2)->setToolTip(QString("%1 bytes (0x%2)").arg(r.size).arg(r.size, 0, 16));
+        table_->item(i, 2)->setToolTip(tr("%1 bytes (0x%2)").arg(r.size).arg(r.size, 0, 16));
         table_->item(i, 2)->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         char perms[4] = "---";
         if (r.protection & MemProt::Read) perms[0] = 'r';
@@ -58,7 +58,7 @@ void MemoryRegionsWindow::populate() {
         table_->item(i, 4)->setToolTip(table_->item(i, 4)->text());
         if (r.protection & MemProt::Read) totalReadable += r.size;
     }
-    setWindowTitle(QString("Memory Regions: %1 regions, %2 readable")
+    setWindowTitle(tr("Memory Regions: %1 regions, %2 readable")
         .arg(regions.size()).arg(formatByteSize(totalReadable)));
 }
 

@@ -4,6 +4,7 @@
 #include "core/module_files.hpp"
 
 #include <QApplication>
+#include <QCoreApplication>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
@@ -33,7 +34,9 @@ static ce::MonoDissection il2cppToMonoDissection(const ce::Il2CppBinaryLayout& l
             idx = d.images.size();
             imageIndex[c.image] = idx;
             ce::MonoImageInfo mi;
-            mi.name = c.image.empty() ? "<unknown>" : c.image;
+            mi.name = c.image.empty()
+                ? QCoreApplication::translate("MonoDissectorWindow", "<unknown>").toStdString()
+                : c.image;
             d.images.push_back(std::move(mi));
         } else {
             idx = it->second;
@@ -93,18 +96,18 @@ static constexpr int kStaticRole = Qt::UserRole + 5;   // the field lives in the
 
 MonoDissectorWindow::MonoDissectorWindow(ce::ProcessHandle* proc, QWidget* parent)
     : QMainWindow(parent), proc_(proc) {
-    setWindowTitle("Mono Dissector");
+    setWindowTitle(tr("Mono Dissector"));
     resize(720, 640);
 
     auto* bar = new QToolBar;
     bar->setMovable(false);
-    auto* dissectAct = bar->addAction("Dissect (inject agent)");
-    dissectAct->setToolTip("Inject the Mono agent and read the target's class/field layout");
+    auto* dissectAct = bar->addAction(tr("Dissect (inject agent)"));
+    dissectAct->setToolTip(tr("Inject the Mono agent and read the target's class/field layout"));
     connect(dissectAct, &QAction::triggered, this, &MonoDissectorWindow::runDissect);
     bar->addSeparator();
-    bar->addWidget(new QLabel(" Filter: "));
+    bar->addWidget(new QLabel(QStringLiteral(" ") + tr("Filter:") + QStringLiteral(" ")));
     filter_ = new QLineEdit;
-    filter_->setPlaceholderText("class or field name…");
+    filter_->setPlaceholderText(tr("class or field name…"));
     filter_->setClearButtonEnabled(true);
     connect(filter_, &QLineEdit::textChanged, this, &MonoDissectorWindow::applyFilter);
     bar->addWidget(filter_);
@@ -114,10 +117,10 @@ MonoDissectorWindow::MonoDissectorWindow(ce::ProcessHandle* proc, QWidget* paren
     auto* v = new QVBoxLayout(central);
     tree_ = new QTreeWidget;
     tree_->setColumnCount(3);
-    tree_->setHeaderLabels({"Name", "Offset", "Type"});
+    tree_->setHeaderLabels({tr("Name"), tr("Offset"), tr("Type")});
     tree_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     tree_->setAlternatingRowColors(true);
-    setEmptyHint(tree_, "Click Dissect to load the target's Mono assemblies, classes and fields.");
+    setEmptyHint(tree_, tr("Click Dissect to load the target's Mono assemblies, classes and fields."));
     // Double-click a field row -> request it be added to the address list.
     connect(tree_, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* it, int) {
         if (!it || it->data(0, kKindRole).toString() != "fld") return;
@@ -127,7 +130,7 @@ MonoDissectorWindow::MonoDissectorWindow(ce::ProcessHandle* proc, QWidget* paren
                                it->data(0, kStaticRole).toBool());
     });
     v->addWidget(tree_);
-    status_ = new QLabel("Not dissected yet.");
+    status_ = new QLabel(tr("Not dissected yet."));
     v->addWidget(status_);
     setCentralWidget(central);
 }
@@ -147,7 +150,8 @@ void MonoDissectorWindow::setDissection(const ce::MonoDissection& d) {
             auto* clsItem = new QTreeWidgetItem(imgItem, {clsLabel});
             clsItem->setData(0, kKindRole, "cls");
             for (const auto& f : c.fields) {
-                QString name = QString::fromStdString(f.name) + (f.isStatic ? " (static)" : "");
+                QString name = QString::fromStdString(f.name);
+                if (f.isStatic) name += QStringLiteral(" ") + tr("(static)");
                 auto* fldItem = new QTreeWidgetItem(clsItem, {
                     name,
                     QString("0x%1").arg(f.offset, 0, 16),
@@ -168,22 +172,22 @@ void MonoDissectorWindow::setDissection(const ce::MonoDissection& d) {
                 auto* mItem = new QTreeWidgetItem(clsItem, {
                     QString::fromStdString(m.name) + "()",
                     m.address ? QString("0x%1").arg(m.address, 0, 16) : QString(),
-                    QStringLiteral("method"),
+                    tr("method"),
                 });
                 mItem->setData(0, kKindRole, "method");
             }
         }
     }
-    status_->setText(QString("%1 %2 · %3 classes · %4 fields%5")
-        .arg(d.images.size()).arg(d.images.size() == 1 ? "assembly" : "assemblies")
+    status_->setText(tr("%1 %2 · %3 classes · %4 fields%5")
+        .arg(d.images.size()).arg(d.images.size() == 1 ? tr("assembly") : tr("assemblies"))
         .arg(d.classCount()).arg(fieldCount)
-        .arg(d.ready ? QString() : QString("  (incomplete%1)")
-            .arg(d.error.empty() ? QString() : ": " + QString::fromStdString(d.error))));
+        .arg(d.ready ? QString() : QStringLiteral("  ") + tr("(incomplete%1)")
+            .arg(d.error.empty() ? QString() : QStringLiteral(": ") + QString::fromStdString(d.error))));
     applyFilter(filter_->text());
 }
 
 void MonoDissectorWindow::runDissect() {
-    if (!proc_) { status_->setText("No target process."); return; }
+    if (!proc_) { status_->setText(tr("No target process.")); return; }
     // Both paths read this machine's files: the IL2CPP metadata and
     // GameAssembly, or the Mono agent loaded into the target.
     if (!ce::moduleFilesAreLocal(*proc_)) {
@@ -195,7 +199,7 @@ void MonoDissectorWindow::runDissect() {
         case ce::ManagedKind::Il2Cpp: {
             // IL2CPP has no live runtime to query; resolve the class layout
             // statically from global-metadata.dat + the GameAssembly binary.
-            status_->setText("IL2CPP target: locating metadata + GameAssembly…");
+            status_->setText(tr("IL2CPP target: locating metadata + GameAssembly…"));
             QApplication::setOverrideCursor(Qt::WaitCursor);
             // Paint the status only: processing events here would let a second
             // click, or the target's exit freeing proc_, run inside this call.
@@ -203,7 +207,7 @@ void MonoDissectorWindow::runDissect() {
             auto layout = ce::resolveIl2CppForProcess(*proc_);
             QApplication::restoreOverrideCursor();
             if (!layout.ok) {
-                status_->setText("IL2CPP: " + QString::fromStdString(layout.error));
+                status_->setText(tr("IL2CPP: %1").arg(QString::fromStdString(layout.error)));
                 return;
             }
             // GameAssembly runtime base, so method RVAs become live addresses.
@@ -219,17 +223,17 @@ void MonoDissectorWindow::runDissect() {
             return;
         }
         case ce::ManagedKind::None:
-            status_->setText("No Mono runtime detected in this process.");
+            status_->setText(tr("No Mono runtime detected in this process."));
             return;
         case ce::ManagedKind::Mono:
             break;
     }
     std::string agent = ce::findMonoAgentPath();
     if (agent.empty()) {
-        status_->setText("libcecore_mono_agent.so not found next to the binary.");
+        status_->setText(tr("libcecore_mono_agent.so not found next to the binary."));
         return;
     }
-    status_->setText("Injecting agent and reading Mono layout…");
+    status_->setText(tr("Injecting agent and reading Mono layout…"));
     QApplication::setOverrideCursor(Qt::WaitCursor);
     status_->repaint();   // no processEvents: see the IL2CPP case
     // A loaded resolver is needed so injection can find dlopen in the target.
@@ -237,7 +241,7 @@ void MonoDissectorWindow::runDissect() {
     resolver.loadProcess(*proc_);
     auto d = ce::dissectMono(*proc_, resolver, agent);
     QApplication::restoreOverrideCursor();
-    if (!d) { status_->setText("Agent injection failed (see CE_LOG=general:debug)."); return; }
+    if (!d) { status_->setText(tr("Agent injection failed (see CE_LOG=general:debug).")); return; }
     setDissection(*d);
 }
 

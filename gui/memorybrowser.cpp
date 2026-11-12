@@ -259,38 +259,38 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
     uintptr_t selAddr = selCount > 0 ? address_ + (uintptr_t)selLo : addr;
 
     QMenu menu(this);
-    menu.addAction(QString("Address: 0x%1").arg(addr, 16, 16, QChar('0')))->setEnabled(false);
+    menu.addAction(tr("Address: 0x%1").arg(addr, 16, 16, QChar('0')))->setEnabled(false);
     menu.addSeparator();
 
-    auto* copyAddr = menu.addAction("Copy address");
+    auto* copyAddr = menu.addAction(tr("Copy address"));
     auto* copyByte = haveByte
-        ? menu.addAction(QString("Copy byte (0x%1)").arg(selByte, 2, 16, QChar('0')))
+        ? menu.addAction(tr("Copy byte (0x%1)").arg(selByte, 2, 16, QChar('0')))
         : nullptr;
     // Selection-based copy appears only for a real multi-byte range (a drag or
     // shift-click); a single byte keeps the fixed "Copy 16 bytes" shortcut.
     QAction* copySelAob = selCount > 1
-        ? menu.addAction(QString("Copy selection as AOB (%1 bytes)").arg(selCount)) : nullptr;
+        ? menu.addAction(tr("Copy selection as AOB (%1 bytes)").arg(selCount)) : nullptr;
     QAction* copySelHex = selCount > 1
-        ? menu.addAction("Copy selection (hex, no spaces)") : nullptr;
+        ? menu.addAction(tr("Copy selection (hex, no spaces)")) : nullptr;
     QAction* fillSel = selCount > 1
-        ? menu.addAction(QString("Fill selection (%1 bytes) with…").arg(selCount)) : nullptr;
-    auto* copyAob = menu.addAction("Copy 16 bytes as AOB");
-    auto* gotoAct = menu.addAction("Goto…");
-    auto* followPtr = menu.addAction("Follow pointer here (qword)");
-    auto* addToList = menu.addAction("Add address to the list");
+        ? menu.addAction(tr("Fill selection (%1 bytes) with…").arg(selCount)) : nullptr;
+    auto* copyAob = menu.addAction(tr("Copy 16 bytes as AOB"));
+    auto* gotoAct = menu.addAction(tr("Goto…"));
+    auto* followPtr = menu.addAction(tr("Follow pointer here (qword)"));
+    auto* addToList = menu.addAction(tr("Add address to the list"));
     // Paste an AOB from the clipboard into memory at the cursor (patch), CE-style.
     const auto clipAob = parseAob(QApplication::clipboard()->text());
     QAction* pasteAct = clipAob.empty() ? nullptr
-        : menu.addAction(QString("Paste %1 bytes here").arg(clipAob.size()));
+        : menu.addAction(tr("Paste %1 bytes here").arg(clipAob.size()));
 
     menu.addSeparator();
-    auto* findWrites = menu.addAction("Find what writes this address");
-    auto* findAccesses = menu.addAction("Find what accesses this address");
+    auto* findWrites = menu.addAction(tr("Find what writes this address"));
+    auto* findAccesses = menu.addAction(tr("Find what accesses this address"));
 
     // Bytes-per-row display option (CE's memory-view width). bytesPerRow_
     // parameterizes paint/hit-testing/refresh, so changing it adapts everything.
     menu.addSeparator();
-    auto* bprMenu = menu.addMenu("Bytes per row");
+    auto* bprMenu = menu.addMenu(tr("Bytes per row"));
     // 64 divides by every display-type group size (1/2/4/8), so grouping stays valid.
     for (int n : {8, 16, 32, 64}) {
         auto* a = bprMenu->addAction(QString::number(n));
@@ -306,14 +306,17 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
     }
 
     // Display type (CE's "Display as"): interpret the grid as byte/word/dword/etc.
-    auto* dtMenu = menu.addMenu("Display type");
+    auto* dtMenu = menu.addMenu(tr("Display type"));
     const std::pair<const char*, DisplayType> dtChoices[] = {
-        {"Byte", DisplayType::Byte}, {"Word (2)", DisplayType::Word},
-        {"Dword (4)", DisplayType::Dword}, {"Qword (8)", DisplayType::Qword},
-        {"Float", DisplayType::Float}, {"Double", DisplayType::Double},
+        {QT_TRANSLATE_NOOP("ce::gui::HexView", "Byte"), DisplayType::Byte},
+        {QT_TRANSLATE_NOOP("ce::gui::HexView", "Word (2)"), DisplayType::Word},
+        {QT_TRANSLATE_NOOP("ce::gui::HexView", "Dword (4)"), DisplayType::Dword},
+        {QT_TRANSLATE_NOOP("ce::gui::HexView", "Qword (8)"), DisplayType::Qword},
+        {QT_TRANSLATE_NOOP("ce::gui::HexView", "Float"), DisplayType::Float},
+        {QT_TRANSLATE_NOOP("ce::gui::HexView", "Double"), DisplayType::Double},
     };
     for (auto& [name, dt] : dtChoices) {
-        auto* a = dtMenu->addAction(name);
+        auto* a = dtMenu->addAction(tr(name));
         a->setCheckable(true);
         a->setChecked(displayType_ == dt);
         connect(a, &QAction::triggered, this, [this, dt]() {
@@ -359,7 +362,7 @@ void HexView::contextMenuEvent(QContextMenuEvent* e) {
     } else if (fillSel && picked == fillSel) {
         // Fill the selected range with one byte value (patch), CE-style.
         bool ok = false;
-        QString v = QInputDialog::getText(this, "Fill selection", "Fill byte (hex):",
+        QString v = QInputDialog::getText(this, tr("Fill selection"), tr("Fill byte (hex):"),
                                           QLineEdit::Normal, "00", &ok);
         bool hok = false;
         int b = v.trimmed().toInt(&hok, 16);
@@ -1070,49 +1073,50 @@ void DisasmView::contextMenuEvent(QContextMenuEvent* e) {
     for (const auto& in : selInsts) selTotalBytes += (int)in.size;
 
     QMenu menu(this);
-    menu.addAction(QString("Address: 0x%1").arg(inst.address, 16, 16, QChar('0')))->setEnabled(false);
+    menu.addAction(tr("Address: 0x%1").arg(inst.address, 16, 16, QChar('0')))->setEnabled(false);
     menu.addSeparator();
 
-    auto* copyAddr = menu.addAction("Copy address");
-    auto* copyBytes = menu.addAction(multi ? QString("Copy bytes (%1 instructions)").arg(selInsts.size())
-                                           : QString("Copy bytes"));
-    auto* copyLine = menu.addAction(multi ? QString("Copy lines (%1)").arg(selInsts.size())
-                                          : QString("Copy line"));
+    auto* copyAddr = menu.addAction(tr("Copy address"));
+    auto* copyBytes = menu.addAction(multi ? tr("Copy bytes (%1 instructions)").arg(selInsts.size())
+                                           : tr("Copy bytes"));
+    auto* copyLine = menu.addAction(multi ? tr("Copy lines (%1)").arg(selInsts.size())
+                                          : tr("Copy line"));
     menu.addSeparator();
 
     QAction* followAct = nullptr;
     bool isBranch = inst.mnemonic == "call" || inst.mnemonic == "jmp" ||
                     (inst.mnemonic.size() > 1 && inst.mnemonic[0] == 'j');
     if ((isBranch && parseImmediate(inst.operands)) || ripEffectiveAddress(inst))
-        followAct = menu.addAction("Follow operand");
+        followAct = menu.addAction(tr("Follow operand"));
 
     bool haveBp = breakpoints_.count(inst.address) > 0;
     QAction* setSwBp = nullptr;
     QAction* setHwBp = nullptr;
     QAction* removeBp = nullptr;
     if (haveBp) {
-        removeBp = menu.addAction("Remove breakpoint");
+        removeBp = menu.addAction(tr("Remove breakpoint"));
     } else {
-        setSwBp = menu.addAction("Set software breakpoint");
-        setHwBp = menu.addAction("Set hardware exec breakpoint");
+        setSwBp = menu.addAction(tr("Set software breakpoint"));
+        setHwBp = menu.addAction(tr("Set hardware exec breakpoint"));
     }
 
     menu.addSeparator();
-    auto* labelAct = menu.addAction("Label this address…");
-    auto* commentAct = menu.addAction("Set comment…");
-    auto* addListAct = menu.addAction("Add this address to the list");
-    auto* xrefAct = menu.addAction("Find references to this address");
-    auto* accessAct = menu.addAction("Find out what addresses this instruction accesses");
-    auto* asmAct = menu.addAction("Assemble instruction…");
+    auto* labelAct = menu.addAction(tr("Label this address…"));
+    auto* commentAct = menu.addAction(tr("Set comment…"));
+    auto* addListAct = menu.addAction(tr("Add this address to the list"));
+    auto* xrefAct = menu.addAction(tr("Find references to this address"));
+    auto* accessAct = menu.addAction(tr("Find out what addresses this instruction accesses"));
+    auto* asmAct = menu.addAction(tr("Assemble instruction…"));
     auto* nopAct = menu.addAction(multi
-        ? QString("NOP %1 instructions (%2 bytes)").arg(selInsts.size()).arg(selTotalBytes)
-        : QString("NOP this instruction (%1 byte%2)").arg(inst.size).arg(inst.size == 1 ? "" : "s"));
+        ? tr("NOP %1 instructions (%2 bytes)").arg(selInsts.size()).arg(selTotalBytes)
+        : inst.size == 1 ? tr("NOP this instruction (%1 byte)").arg(inst.size)
+                         : tr("NOP this instruction (%1 bytes)").arg(inst.size));
     // Auto Assemble injection templates, pre-filled for the pointed-at instruction.
-    auto* aaMenu = menu.addMenu("Auto Assemble");
-    auto* codeInjAct = aaMenu->addAction("Create code injection here");
-    auto* aobInjAct = aaMenu->addAction("Create AOB injection here");
-    auto* saveAct = menu.addAction("Save region to file…");
-    auto* loadAct = menu.addAction("Load region from file…");
+    auto* aaMenu = menu.addMenu(tr("Auto Assemble"));
+    auto* codeInjAct = aaMenu->addAction(tr("Create code injection here"));
+    auto* aobInjAct = aaMenu->addAction(tr("Create AOB injection here"));
+    auto* saveAct = menu.addAction(tr("Save region to file…"));
+    auto* loadAct = menu.addAction(tr("Load region from file…"));
 
     QAction* picked = menu.exec(e->globalPos());
     if (!picked) return;
@@ -1218,11 +1222,11 @@ void DisasmView::refresh() {
         const bool denied = !r && (r.error() == std::errc::operation_not_permitted ||
                                    r.error() == std::errc::permission_denied);
         emptyReason_ = denied
-            ? QStringLiteral("Cannot read this process's memory (permission denied).\n"
-                             "Run Cheat Engine with ptrace rights: sudo setcap "
-                             "cap_sys_ptrace+ep <cheatengine>, run as root, or set "
-                             "kernel.yama.ptrace_scope=0.")
-            : QStringLiteral("No readable memory at this address.");
+            ? tr("Cannot read this process's memory (permission denied).\n"
+                 "Run Cheat Engine with ptrace rights: sudo setcap "
+                 "cap_sys_ptrace+ep <cheatengine>, run as root, or set "
+                 "kernel.yama.ptrace_scope=0.")
+            : tr("No readable memory at this address.");
         viewport()->update();
         return;
     }
@@ -1321,7 +1325,7 @@ void DisasmView::paintEvent(QPaintEvent*) {
         p.setPen(mv.ascii);
         p.drawText(viewport()->rect().adjusted(24, 24, -24, -24),
                    Qt::AlignCenter | Qt::TextWordWrap,
-                   emptyReason_.isEmpty() ? QStringLiteral("No data at this address.")
+                   emptyReason_.isEmpty() ? tr("No data at this address.")
                                           : emptyReason_);
         return;
     }
@@ -1564,7 +1568,7 @@ void DisasmView::paintEvent(QPaintEvent*) {
             // Conditional branch: will it be taken given the flags?
             if (inst.mnemonic != "jmp") {
                 if (auto jt = ce::conditionalJumpTaken(inst.mnemonic, currentCtx_.rflags))
-                    annotation += *jt ? QStringLiteral("  (will jump)") : QStringLiteral("  (no jump)");
+                    annotation += QStringLiteral("  ") + (*jt ? tr("(will jump)") : tr("(no jump)"));
             }
         }
 
@@ -1753,8 +1757,8 @@ void DisasmView::wheelEvent(QWheelEvent* e) {
 void MemoryBrowser::buildMenuBar() {
     auto* mb = menuBar();
 
-    auto* file = mb->addMenu("&File");
-    file->addAction("New window", this, [this]() {
+    auto* file = mb->addMenu(tr("&File"));
+    file->addAction(tr("New window"), this, [this]() {
         // Prefer the owner's opener so the new viewer is tracked (and frozen on
         // target exit); the raw fallback is only for a browser opened standalone.
         if (newWindowOpener_) { newWindowOpener_(currentAddr_); return; }
@@ -1767,20 +1771,20 @@ void MemoryBrowser::buildMenuBar() {
     file->addSeparator();
     // CE keeps Save/Load memory region in the File menu too (also on the right-click);
     // these act at the address currently in view.
-    file->addAction("Save region to file…", this, [this]() { saveRegionToFile(currentAddr_); });
-    file->addAction("Load region from file…", this, [this]() { loadRegionFromFile(currentAddr_); });
+    file->addAction(tr("Save region to file…"), this, [this]() { saveRegionToFile(currentAddr_); });
+    file->addAction(tr("Load region from file…"), this, [this]() { loadRegionFromFile(currentAddr_); });
 
-    auto* search = mb->addMenu("&Search");
+    auto* search = mb->addMenu(tr("&Search"));
     searchMenu_ = search;
-    { auto* a = search->addAction("Find memory...", this, [this]() { findInMemory(false); });
+    { auto* a = search->addAction(tr("Find memory..."), this, [this]() { findInMemory(false); });
       a->setShortcut(QKeySequence::Find); }
-    { auto* a = search->addAction("Find next", this, [this]() { findInMemory(true); });
+    { auto* a = search->addAction(tr("Find next"), this, [this]() { findInMemory(true); });
       a->setShortcut(QKeySequence("F3")); }
-    { auto* a = search->addAction("Find previous", this, [this]() { findInMemory(true, /*backward=*/true); });
+    { auto* a = search->addAction(tr("Find previous"), this, [this]() { findInMemory(true, /*backward=*/true); });
       a->setShortcut(QKeySequence("Shift+F3")); }
 
-    viewMenu_ = mb->addMenu("&View");
-    ownViewActions_.push_back(viewMenu_->addAction("Disassembler preferences...", this, [this]() {
+    viewMenu_ = mb->addMenu(tr("&View"));
+    ownViewActions_.push_back(viewMenu_->addAction(tr("Disassembler preferences..."), this, [this]() {
         auto* dlg = new ce::gui::MemviewPreferences(this);
         connect(dlg, &ce::gui::MemviewPreferences::applied, this,
                 [this]() { disasmView_->reloadPreferences(); });
@@ -1789,35 +1793,35 @@ void MemoryBrowser::buildMenuBar() {
     }));
     viewMenu_->addSeparator();
 
-    debugMenu_ = mb->addMenu("&Debug");
+    debugMenu_ = mb->addMenu(tr("&Debug"));
     // Triggers the toolbar's Toggle BP (below), which owns F5: two actions with
     // the same key in one window make Qt run neither.
-    toggleBreakpointMenu_ = debugMenu_->addAction("Toggle breakpoint\tF5");   // the hint only
+    toggleBreakpointMenu_ = debugMenu_->addAction(tr("Toggle breakpoint\tF5"));   // the hint only
     debugMenu_->addSeparator();
     // Step / run controls (CE parity: the Memory Viewer drives the debug session).
     // Each delegates to the Debugger window that owns the session; a no-op when the
     // target is not paused. The current line re-highlights via MainWindow on stop.
-    { auto* a = debugMenu_->addAction("Run", this, [this]() { if (runFn_) runFn_(); });
+    { auto* a = debugMenu_->addAction(tr("Run"), this, [this]() { if (runFn_) runFn_(); });
       a->setShortcut(QKeySequence("F9")); }
-    { auto* a = debugMenu_->addAction("Step into", this, [this]() { if (stepIntoFn_) stepIntoFn_(); });
+    { auto* a = debugMenu_->addAction(tr("Step into"), this, [this]() { if (stepIntoFn_) stepIntoFn_(); });
       a->setShortcut(QKeySequence("F7")); }
-    { auto* a = debugMenu_->addAction("Step over", this, [this]() { if (stepOverFn_) stepOverFn_(); });
+    { auto* a = debugMenu_->addAction(tr("Step over"), this, [this]() { if (stepOverFn_) stepOverFn_(); });
       a->setShortcut(QKeySequence("F8")); }
-    { auto* a = debugMenu_->addAction("Run to cursor", this, [this]() {
+    { auto* a = debugMenu_->addAction(tr("Run to cursor"), this, [this]() {
           uintptr_t addr = disasmView_->selectedAddress();
           if (!addr) addr = currentAddr_;
           if (addr && runToCursorFn_) runToCursorFn_(addr);
       });
       a->setShortcut(QKeySequence("F4")); }
 
-    toolsMenu_ = mb->addMenu("&Tools");
-    toolsMenu_->addAction("Auto Assemble...", this, [this]() {
+    toolsMenu_ = mb->addMenu(tr("&Tools"));
+    toolsMenu_->addAction(tr("Auto Assemble..."), this, [this]() {
         if (autoAssembleOpener_) {
             auto [address, size] = injectionSelection();
             autoAssembleOpener_(QString(), address, size);
         }
     });
-    toolsMenu_->addAction("Dissect data/structures...", this, [this]() {
+    toolsMenu_->addAction(tr("Dissect data/structures..."), this, [this]() {
         if (dissectOpener_) dissectOpener_(currentAddr_);          // at the current address
     });
 }
@@ -1848,7 +1852,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     : QMainWindow(parent), proc_(proc) {
 
     if (proc_) modules_ = proc_->modules();   // for module+offset in the status bar
-    setWindowTitle("Memory Viewer");
+    setWindowTitle(tr("Memory Viewer"));
     resize(900, 600);
     buildMenuBar();   // CE keeps the memory/debug tools in this window's menu bar
 
@@ -1856,15 +1860,15 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     auto* toolbar = new QToolBar;
     toolbar->setMovable(false);
     backAct_ = toolbar->addAction("◀");
-    backAct_->setToolTip("Back (Alt+Left)");
+    backAct_->setToolTip(tr("Back (Alt+Left)"));
     backAct_->setEnabled(false);
     connect(backAct_, &QAction::triggered, this, &MemoryBrowser::goBack);
     fwdAct_ = toolbar->addAction("▶");
-    fwdAct_->setToolTip("Forward (Alt+Right)");
+    fwdAct_->setToolTip(tr("Forward (Alt+Right)"));
     fwdAct_->setEnabled(false);
     connect(fwdAct_, &QAction::triggered, this, &MemoryBrowser::goForward);
     toolbar->addSeparator();
-    toolbar->addWidget(new QLabel(" Address: "));
+    toolbar->addWidget(new QLabel(tr(" Address: ")));
     addressEdit_ = new QLineEdit;
     addressEdit_->setFont(monospaceFont());
     addressEdit_->setMinimumWidth(220);
@@ -1873,22 +1877,22 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     connect(addressEdit_, &QLineEdit::returnPressed, this, &MemoryBrowser::onGotoAddress);
     toolbar->addWidget(addressEdit_);
 
-    auto* goBtn = new QPushButton("Go");
+    auto* goBtn = new QPushButton(tr("Go"));
     connect(goBtn, &QPushButton::clicked, this, &MemoryBrowser::onGotoAddress);
     toolbar->addWidget(goBtn);
 
     toolbar->addSeparator();
-    auto* refreshBtn = new QPushButton("Refresh");
+    auto* refreshBtn = new QPushButton(tr("Refresh"));
     connect(refreshBtn, &QPushButton::clicked, this, &MemoryBrowser::onRefresh);
     toolbar->addWidget(refreshBtn);
 
     toolbar->addSeparator();
     auto* bmToggleBtn = new QPushButton("★");
-    bmToggleBtn->setToolTip("Toggle bookmark at current address (Ctrl+B)");
+    bmToggleBtn->setToolTip(tr("Toggle bookmark at current address (Ctrl+B)"));
     connect(bmToggleBtn, &QPushButton::clicked, this, &MemoryBrowser::toggleBookmark);
     toolbar->addWidget(bmToggleBtn);
     auto* bmBtn = new QToolButton;
-    bmBtn->setText("Bookmarks");
+    bmBtn->setText(tr("Bookmarks"));
     bmBtn->setPopupMode(QToolButton::InstantPopup);
     bookmarksMenu_ = new QMenu(bmBtn);
     bmBtn->setMenu(bookmarksMenu_);
@@ -1902,11 +1906,11 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     // window owns (CE parity: the Memory Viewer controls stepping); each is a no-op
     // until the target is paused, and the "Debugger" button opens/raises that window.
     addToolBarBreak();
-    auto* dbgBar = new QToolBar("Debug");
+    auto* dbgBar = new QToolBar(tr("Debug"));
     debugBar_ = dbgBar;
     dbgBar->setMovable(false);
-    auto* bpAct = dbgBar->addAction("Toggle BP");
-    bpAct->setToolTip("Toggle breakpoint at the selected instruction (F5)");
+    auto* bpAct = dbgBar->addAction(tr("Toggle BP"));
+    bpAct->setToolTip(tr("Toggle breakpoint at the selected instruction (F5)"));
     bpAct->setShortcut(QKeySequence("F5"));
     if (toggleBreakpointMenu_) connect(toggleBreakpointMenu_, &QAction::triggered, bpAct, &QAction::trigger);
     connect(bpAct, &QAction::triggered, this, [this]() {
@@ -1926,17 +1930,17 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     // Step / run the paused target from the Memory Viewer (F9/F7/F8). These delegate
     // to the debug session in the Debugger window; the current line re-highlights
     // here on each stop. Harmless no-ops when nothing is paused.
-    { auto* a = dbgBar->addAction("Run");
-      a->setToolTip("Continue the paused target (F9)");
+    { auto* a = dbgBar->addAction(tr("Run"));
+      a->setToolTip(tr("Continue the paused target (F9)"));
       connect(a, &QAction::triggered, this, [this]() { if (runFn_) runFn_(); }); }
-    { auto* a = dbgBar->addAction("Step");
-      a->setToolTip("Step into one instruction (F7)");
+    { auto* a = dbgBar->addAction(tr("Step"));
+      a->setToolTip(tr("Step into one instruction (F7)"));
       connect(a, &QAction::triggered, this, [this]() { if (stepIntoFn_) stepIntoFn_(); }); }
-    { auto* a = dbgBar->addAction("Step over");
-      a->setToolTip("Step over one instruction (F8)");
+    { auto* a = dbgBar->addAction(tr("Step over"));
+      a->setToolTip(tr("Step over one instruction (F8)"));
       connect(a, &QAction::triggered, this, [this]() { if (stepOverFn_) stepOverFn_(); }); }
-    { auto* a = dbgBar->addAction("Run to cursor");
-      a->setToolTip("Continue until the selected instruction (F4)");
+    { auto* a = dbgBar->addAction(tr("Run to cursor"));
+      a->setToolTip(tr("Continue until the selected instruction (F4)"));
       connect(a, &QAction::triggered, this, [this]() {
           uintptr_t addr = disasmView_->selectedAddress();
           if (!addr) addr = currentAddr_;
@@ -1945,8 +1949,8 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     dbgBar->addSeparator();
     // The full Debugger window owns the debug session; this opens/raises it at the
     // selected address so breakpoints, watches, and the register view are available.
-    auto* dbgAct = dbgBar->addAction("Debugger");
-    dbgAct->setToolTip("Open the Debugger here to run, step, and set breakpoints");
+    auto* dbgAct = dbgBar->addAction(tr("Debugger"));
+    dbgAct->setToolTip(tr("Open the Debugger here to run, step, and set breakpoints"));
     connect(dbgAct, &QAction::triggered, this, [this]() {
         uintptr_t addr = disasmView_->selectedAddress();
         if (!addr) addr = currentAddr_;
@@ -1954,9 +1958,9 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     });
     dbgBar->addSeparator();
     // Disassembler Preferences (CE frmMemviewPreferencesUnit): font + colors.
-    auto* prefsAct = dbgBar->addAction("Preferences");
+    auto* prefsAct = dbgBar->addAction(tr("Preferences"));
     ownViewActions_.push_back(prefsAct);
-    prefsAct->setToolTip("Disassembler Preferences: font and colors");
+    prefsAct->setToolTip(tr("Disassembler Preferences: font and colors"));
     connect(prefsAct, &QAction::triggered, this, [this]() {
         auto* dlg = new ce::gui::MemviewPreferences(this);
         connect(dlg, &ce::gui::MemviewPreferences::applied, this,
@@ -2019,7 +2023,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         registerPanel_->setItem(i, 1, new QTableWidgetItem(QStringLiteral("-")));
     }
     registerPanel_->resizeColumnsToContents();
-    registerPanel_->setToolTip("Registers (populated at a debug breakpoint)");
+    registerPanel_->setToolTip(tr("Registers (populated at a debug breakpoint)"));
 
     auto* topSplit = new QSplitter(Qt::Horizontal);
     topSplit->setObjectName("memTopSplit");   // persisted across runs
@@ -2038,13 +2042,13 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     stacktracePanel_ = new QTableWidget;
     stacktracePanel_->setColumnCount(3);
     stacktracePanel_->setHorizontalHeaderLabels(
-        {"Address", is32 ? "DWORD" : "QWORD", "Value"});
+        {tr("Address"), is32 ? "DWORD" : "QWORD", tr("Value")});
     stacktracePanel_->verticalHeader()->setVisible(false);
     stacktracePanel_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     stacktracePanel_->setSelectionBehavior(QAbstractItemView::SelectRows);
     stacktracePanel_->setProperty("monospace", true);   // font from the theme sheet
     stacktracePanel_->horizontalHeader()->setStretchLastSection(true);
-    stacktracePanel_->setToolTip("Call stack (populated at a debug breakpoint)");
+    stacktracePanel_->setToolTip(tr("Call stack (populated at a debug breakpoint)"));
     // Double-clicking a stack entry follows its return address in the disassembler.
     connect(stacktracePanel_, &QTableWidget::cellDoubleClicked, this,
             [this](int row, int) {
@@ -2079,7 +2083,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         bool showCpu = QSettings().value("memview/cpuPanels", false).toBool();
         registerPanel_->setVisible(showCpu);
         stacktracePanel_->setVisible(showCpu);
-        auto* cpuAct = viewMenu_->addAction("CPU registers && stack panels");
+        auto* cpuAct = viewMenu_->addAction(tr("CPU registers && stack panels"));
         ownViewActions_.push_back(cpuAct);
         cpuAct->setCheckable(true);
         cpuAct->setChecked(showCpu);
@@ -2095,8 +2099,8 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     connect(hexView_, &HexView::requestFindWhatAccesses, this, [this](uintptr_t addr, bool writesOnly) {
         if (!proc_) return;   // detached: the launcher is gone with the target
         if (cfLauncher_) cfLauncher_(addr, writesOnly);
-        else QMessageBox::information(this, "Code finder unavailable",
-            "No code-finder launcher is wired to this memory browser instance.");
+        else QMessageBox::information(this, tr("Code finder unavailable"),
+            tr("No code-finder launcher is wired to this memory browser instance."));
     });
     connect(hexView_, &HexView::requestAddToList, this, [this](uintptr_t addr, ce::ValueType type) {
         if (addToList_) addToList_(addr, type);
@@ -2119,7 +2123,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         QString head = modOff.empty()
             ? QString("0x%1  ").arg(addr, 0, 16)
             : QString("%1  (0x%2)  ").arg(QString::fromStdString(modOff)).arg(addr, 0, 16);
-        if (got < 1) { statusBar()->showMessage(head + "<unreadable>"); return; }
+        if (got < 1) { statusBar()->showMessage(head + tr("<unreadable>")); return; }
         QString msg = head;
         int8_t i8; std::memcpy(&i8, b, 1);
         msg += QString("i8=%1  u8=%2").arg(i8).arg((unsigned)b[0]);
@@ -2161,8 +2165,8 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     connect(disasmView_, &DisasmView::requestSetComment, this, [this](uintptr_t addr) {
         bool ok = false;
         QString cur = QString::fromStdString(disasmView_->comment(addr));
-        QString text = QInputDialog::getText(this, "Comment",
-            QString("Comment for 0x%1 (blank to clear):").arg(addr, 0, 16),
+        QString text = QInputDialog::getText(this, tr("Comment"),
+            tr("Comment for 0x%1 (blank to clear):").arg(addr, 0, 16),
             QLineEdit::Normal, cur, &ok);
         if (ok) editComment(addr, text.trimmed().toStdString());
     });
@@ -2175,8 +2179,8 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         const auto label = labels.find(addr);
         std::string existing = label != labels.end() ? label->second : std::string();
         bool ok = false;
-        QString name = QInputDialog::getText(this, "Label address",
-            QString("Name for 0x%1 (blank to clear):").arg(addr, 0, 16),
+        QString name = QInputDialog::getText(this, tr("Label address"),
+            tr("Name for 0x%1 (blank to clear):").arg(addr, 0, 16),
             QLineEdit::Normal, QString::fromStdString(existing), &ok);
         if (!ok) return;
         const std::string trimmed = name.trimmed().toStdString();
@@ -2198,8 +2202,9 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         std::string err;
         std::string script = ce::generateInjectionScript(*proc_, addr, aob, err, size);
         if (script.empty()) {
-            QMessageBox::warning(this, "Auto Assemble",
-                QString::fromStdString(err.empty() ? "Could not generate a template here." : err));
+            QMessageBox::warning(this, tr("Auto Assemble"),
+                err.empty() ? tr("Could not generate a template here.")
+                            : QString::fromStdString(err));
             return;
         }
         // Hand the pre-filled script to MainWindow, which opens a script editor
@@ -2224,8 +2229,8 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     auto* gotoShortcut = new QShortcut(QKeySequence("Ctrl+G"), this);
     connect(gotoShortcut, &QShortcut::activated, this, [this]() {
         bool ok;
-        auto text = QInputDialog::getText(this, "Goto Address",
-            "Address, symbol, or expression (e.g. worker, target2+0x100):",
+        auto text = QInputDialog::getText(this, tr("Goto Address"),
+            tr("Address, symbol, or expression (e.g. worker, target2+0x100):"),
             QLineEdit::Normal, addressEdit_->text(), &ok);
         if (ok && !text.isEmpty()) {
             addressEdit_->setText(text);
@@ -2409,8 +2414,8 @@ void MemoryBrowser::detachFromTarget() {
     };
     for (QWidget* host : {static_cast<QWidget*>(viewMenu_), static_cast<QWidget*>(debugBar_)})
         if (host) for (QAction* a : host->actions()) if (needsTarget(a)) a->setEnabled(false);
-    setWindowTitle("Memory Viewer (target exited)");
-    statusBar()->showMessage("Target process exited; this view is frozen.", 0);
+    setWindowTitle(tr("Memory Viewer (target exited)"));
+    statusBar()->showMessage(tr("Target process exited; this view is frozen."), 0);
 }
 
 void MemoryBrowser::addUserSymbols(const std::map<uintptr_t, std::string>& syms) {
@@ -2437,7 +2442,7 @@ void MemoryBrowser::toggleBookmark() {
 void MemoryBrowser::rebuildBookmarksMenu() {
     bookmarksMenu_->clear();
     if (bookmarks_.empty()) {
-        bookmarksMenu_->addAction("(no bookmarks; Ctrl+B to add)")->setEnabled(false);
+        bookmarksMenu_->addAction(tr("(no bookmarks; Ctrl+B to add)"))->setEnabled(false);
         return;
     }
     for (uintptr_t a : bookmarks_) {
@@ -2447,7 +2452,7 @@ void MemoryBrowser::rebuildBookmarksMenu() {
         bookmarksMenu_->addAction(label, this, [this, a]() { navigateTo(a); });
     }
     bookmarksMenu_->addSeparator();
-    bookmarksMenu_->addAction("Clear all bookmarks", this, [this]() {
+    bookmarksMenu_->addAction(tr("Clear all bookmarks"), this, [this]() {
         bookmarks_.clear();
         rebuildBookmarksMenu();
     });
@@ -2466,7 +2471,7 @@ void MemoryBrowser::onGotoAddress() {
     bool ok;
     uintptr_t addr = text.toULongLong(&ok, 16);
     if (ok) gotoAddress(addr);
-    else QMessageBox::warning(this, "Goto", QString("Could not resolve \"%1\".").arg(text));
+    else QMessageBox::warning(this, tr("Goto"), tr("Could not resolve \"%1\".").arg(text));
 }
 
 void MemoryBrowser::onRefresh() {
@@ -2487,7 +2492,7 @@ QString MemoryBrowser::breakpointConflict(uintptr_t addr, size_t len) const {
     if (bpQuery_)
         for (uintptr_t bp : bpQuery_())
             if (bp >= addr && bp - addr < len)
-                return QString("A breakpoint is set at 0x%1: remove it before changing these bytes").arg(bp, 0, 16);
+                return tr("A breakpoint is set at 0x%1: remove it before changing these bytes").arg(bp, 0, 16);
     return {};
 }
 
@@ -2508,9 +2513,10 @@ void MemoryBrowser::writeNop(uintptr_t addr, int size) {
     QString error;
     if (!nops) error=QString::fromStdString(nops.error());
     if (!nops || !patchBytes(addr, *nops, &error)) {
-        QMessageBox::warning(this, "NOP failed",
-            QString("Could not write %1 NOP byte%2 to 0x%3.\n%4")
-                .arg(size).arg(size == 1 ? "" : "s").arg(addr, 0, 16).arg(error));
+        QMessageBox::warning(this, tr("NOP failed"),
+            size == 1
+                ? tr("Could not write %1 NOP byte to 0x%2.\n%3").arg(size).arg(addr, 0, 16).arg(error)
+                : tr("Could not write %1 NOP bytes to 0x%2.\n%3").arg(size).arg(addr, 0, 16).arg(error));
         return;
     }
     onRefresh();
@@ -2519,39 +2525,39 @@ void MemoryBrowser::writeNop(uintptr_t addr, int size) {
 void MemoryBrowser::assembleAt(uintptr_t addr, int origSize, const QString& current) {
     if (!proc_) return;
     bool ok = false;
-    QString text = QInputDialog::getText(this, "Assemble",
-        QString("Instruction to assemble at 0x%1:").arg(addr, 0, 16),
+    QString text = QInputDialog::getText(this, tr("Assemble"),
+        tr("Instruction to assemble at 0x%1:").arg(addr, 0, 16),
         QLineEdit::Normal, current, &ok);
     if (!ok || text.trimmed().isEmpty()) return;
     if (!proc_) return;   // detached while the dialog was open
 
     auto architecture = ce::disassemblerArchFor(*proc_, addr);
     if (!architecture) {
-        QMessageBox::warning(this, "Assemble failed", QString::fromStdString(architecture.error()));
+        QMessageBox::warning(this, tr("Assemble failed"), QString::fromStdString(architecture.error()));
         return;
     }
     auto assemblerArch = ce::assemblerArchFor(*architecture);
     if (!assemblerArch) {
-        QMessageBox::warning(this, "Assemble failed", QString::fromStdString(assemblerArch.error()));
+        QMessageBox::warning(this, tr("Assemble failed"), QString::fromStdString(assemblerArch.error()));
         return;
     }
     ce::Assembler asmr(*assemblerArch);
     auto res = asmr.assemble(text.toStdString(), addr);
     if (!res) {
-        QMessageBox::warning(this, "Assemble failed",
-            QString("Could not assemble \"%1\":\n%2").arg(text, QString::fromStdString(res.error())));
+        QMessageBox::warning(this, tr("Assemble failed"),
+            tr("Could not assemble \"%1\":\n%2").arg(text, QString::fromStdString(res.error())));
         return;
     }
     std::vector<uint8_t> bytes = *res;
     if (bytes.empty()) {
-        QMessageBox::warning(this, "Assemble failed",
-            QString("\"%1\" assembled to no bytes; not writing.").arg(text));
+        QMessageBox::warning(this, tr("Assemble failed"),
+            tr("\"%1\" assembled to no bytes; not writing.").arg(text));
         return;
     }
     if ((int)bytes.size() > origSize) {
-        auto ans = QMessageBox::question(this, "Longer instruction",
-            QString("The new instruction is %1 bytes but the original was %2. Writing it will "
-                    "overwrite the following instruction(s). Continue?")
+        auto ans = QMessageBox::question(this, tr("Longer instruction"),
+            tr("The new instruction is %1 bytes but the original was %2. Writing it will "
+               "overwrite the following instruction(s). Continue?")
                 .arg(bytes.size()).arg(origSize),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (ans != QMessageBox::Yes) return;
@@ -2569,7 +2575,7 @@ void MemoryBrowser::assembleAt(uintptr_t addr, int origSize, const QString& curr
         }
         if (boundary > bytes.size()) {
             auto nops = ce::nopBytesFor(*proc_, addr + bytes.size(), boundary - bytes.size());
-            if (!nops) { QMessageBox::warning(this, "Assemble failed", QString::fromStdString(nops.error())); return; }
+            if (!nops) { QMessageBox::warning(this, tr("Assemble failed"), QString::fromStdString(nops.error())); return; }
             bytes.insert(bytes.end(), nops->begin(), nops->end());
         }
     } else {
@@ -2578,15 +2584,15 @@ void MemoryBrowser::assembleAt(uintptr_t addr, int origSize, const QString& curr
         if ((int)bytes.size()<origSize) {
             auto nops=ce::nopBytesFor(*proc_,addr+bytes.size(),static_cast<size_t>(origSize)-bytes.size());
             if (!nops) {
-                QMessageBox::warning(this,"Assemble failed",QString::fromStdString(nops.error()));return;
+                QMessageBox::warning(this,tr("Assemble failed"),QString::fromStdString(nops.error()));return;
             }
             bytes.insert(bytes.end(),nops->begin(),nops->end());
         }
     }
     QString error;
     if (!patchBytes(addr, bytes, &error)) {
-        QMessageBox::warning(this, "Write failed",
-            QString("Assembled %1 bytes but could not write to 0x%2.\n%3").arg(bytes.size()).arg(addr, 0, 16).arg(error));
+        QMessageBox::warning(this, tr("Write failed"),
+            tr("Assembled %1 bytes but could not write to 0x%2.\n%3").arg(bytes.size()).arg(addr, 0, 16).arg(error));
         return;
     }
     onRefresh();
@@ -2652,8 +2658,8 @@ void MemoryBrowser::findInMemory(bool findNext, bool backward) {
         mask = lastSearchMask_;
     } else {
         bool ok = false;
-        QString s = QInputDialog::getText(this, "Find in memory",
-            "Bytes (e.g. 48 8B ?? 05) or \"text\":", QLineEdit::Normal, "", &ok);
+        QString s = QInputDialog::getText(this, tr("Find in memory"),
+            tr("Bytes (e.g. 48 8B ?? 05) or \"text\":"), QLineEdit::Normal, "", &ok);
         if (!ok || s.trimmed().isEmpty()) return;
         s = s.trimmed();
         if (s.startsWith('"') && s.endsWith('"') && s.size() >= 2) {
@@ -2663,8 +2669,8 @@ void MemoryBrowser::findInMemory(bool findNext, bool backward) {
             // AOB with optional "??" wildcards (48 8B ?? 05 / 488b??05).
             auto bytes = parseAob(s);
             if (bytes.empty()) {
-                QMessageBox::warning(this, "Find",
-                    "Enter hex bytes (48 8B 05), a wildcard AOB (48 8B ?? 05), or a quoted \"string\".");
+                QMessageBox::warning(this, tr("Find"),
+                    tr("Enter hex bytes (48 8B 05), a wildcard AOB (48 8B ?? 05), or a quoted \"string\"."));
                 return;
             }
             for (int b : bytes) {
@@ -2682,9 +2688,9 @@ void MemoryBrowser::findInMemory(bool findNext, bool backward) {
         navigateTo(hit);
         if (hexView_) hexView_->selectBytes(hit, static_cast<int>(pat.size()));  // highlight the match
     } else {
-        QMessageBox::information(this, "Find",
-            backward ? "Not found searching backward from the current address."
-                     : "Not found searching forward from the current address.");
+        QMessageBox::information(this, tr("Find"),
+            backward ? tr("Not found searching backward from the current address.")
+                     : tr("Not found searching forward from the current address."));
     }
 }
 
@@ -2697,14 +2703,14 @@ void MemoryBrowser::showXrefs(uintptr_t addr) {
         if (addr >= m.base && addr < m.base + m.size) { mod = m; found = true; break; }
     }
     if (!found) {
-        QMessageBox::information(this, "References",
-            "This address is not inside a known module, so its references can't be scanned.");
+        QMessageBox::information(this, tr("References"),
+            tr("This address is not inside a known module, so its references can't be scanned."));
         return;
     }
 
     auto architecture = ce::disassemblerArchFor(*proc_, mod.base);
     if (!architecture) {
-        QMessageBox::warning(this, "References", QString::fromStdString(architecture.error()));
+        QMessageBox::warning(this, tr("References"), QString::fromStdString(architecture.error()));
         return;
     }
     QApplication::setOverrideCursor(Qt::WaitCursor);
@@ -2714,23 +2720,23 @@ void MemoryBrowser::showXrefs(uintptr_t addr) {
 
     auto* dlg = new QDialog(this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    dlg->setWindowTitle(QString("References to 0x%1: %2 found").arg(addr, 0, 16).arg(refs.size()));
+    dlg->setWindowTitle(tr("References to 0x%1: %2 found").arg(addr, 0, 16).arg(refs.size()));
     dlg->resize(640, 360);
     auto* lay = new QVBoxLayout(dlg);
     auto* table = new QTableWidget(dlg);
     table->setColumnCount(3);
-    table->setHorizontalHeaderLabels({"From", "Type", "Instruction"});
+    table->setHorizontalHeaderLabels({tr("From"), tr("Type"), tr("Instruction")});
     table->horizontalHeader()->setStretchLastSection(true);
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setRowCount((int)refs.size());
-    auto typeName = [](ce::RefType t) -> QString {
+    auto typeName = [this](ce::RefType t) -> QString {
         switch (t) {
-            case ce::RefType::Call: return "call";
-            case ce::RefType::Jump: return "jump";
-            case ce::RefType::String: return "string";
-            case ce::RefType::RipRelative: return "data";
-            default: return "ref";
+            case ce::RefType::Call: return tr("call");
+            case ce::RefType::Jump: return tr("jump");
+            case ce::RefType::String: return tr("string");
+            case ce::RefType::RipRelative: return tr("data");
+            default: return tr("ref");
         }
     };
     for (int i = 0; i < (int)refs.size(); ++i) {
@@ -2757,54 +2763,54 @@ void MemoryBrowser::showXrefs(uintptr_t addr) {
 void MemoryBrowser::saveRegionToFile(uintptr_t addr) {
     if (!proc_) return;
     bool ok = false;
-    int size = QInputDialog::getInt(this, "Save region", "Bytes to save:", 4096, 1, 1 << 28, 1, &ok);
+    int size = QInputDialog::getInt(this, tr("Save region"), tr("Bytes to save:"), 4096, 1, 1 << 28, 1, &ok);
     if (!ok) return;
-    auto path = QFileDialog::getSaveFileName(this, "Save region",
-        QString("region_%1_%2.bin").arg(addr, 0, 16).arg(size), "Binary (*.bin);;All (*)");
+    auto path = QFileDialog::getSaveFileName(this, tr("Save region"),
+        QString("region_%1_%2.bin").arg(addr, 0, 16).arg(size), tr("Binary (*.bin);;All (*)"));
     if (path.isEmpty()) return;
     if (!proc_) return;   // detached while the dialog was open
 
     std::vector<uint8_t> buf(size);
     auto r = proc_->read(addr, buf.data(), size);
     if (!r) {
-        QMessageBox::warning(this, "Read failed",
-            QString("Could not read %1 bytes at 0x%2.").arg(size).arg(addr, 0, 16));
+        QMessageBox::warning(this, tr("Read failed"),
+            tr("Could not read %1 bytes at 0x%2.").arg(size).arg(addr, 0, 16));
         return;
     }
     const qint64 got = (qint64)std::min<size_t>(*r, buf.size());
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly)) {
-        QMessageBox::warning(this, "Save failed", f.errorString());
+        QMessageBox::warning(this, tr("Save failed"), f.errorString());
         return;
     }
     if (f.write(reinterpret_cast<const char*>(buf.data()), got) != got || !f.flush()) {
-        QMessageBox::warning(this, "Save failed", f.errorString());
+        QMessageBox::warning(this, tr("Save failed"), f.errorString());
         return;
     }
     // The region can end inside the request (an unmapped page): say the file
     // is shorter than asked rather than leave the user to find out.
     if (got < size)
-        QMessageBox::information(this, "Save region",
-            QString("Only %1 of %2 bytes at 0x%3 were readable; the file holds those %1 bytes.")
+        QMessageBox::information(this, tr("Save region"),
+            tr("Only %1 of %2 bytes at 0x%3 were readable; the file holds those %1 bytes.")
                 .arg(got).arg(size).arg(addr, 0, 16));
 }
 
 void MemoryBrowser::loadRegionFromFile(uintptr_t addr) {
     if (!proc_) return;
-    auto path = QFileDialog::getOpenFileName(this, "Load region into memory", QString(),
-                                             "Binary (*.bin);;All (*)");
+    auto path = QFileDialog::getOpenFileName(this, tr("Load region into memory"), QString(),
+                                             tr("Binary (*.bin);;All (*)"));
     if (path.isEmpty()) return;
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) {
-        QMessageBox::warning(this, "Load failed", f.errorString());
+        QMessageBox::warning(this, tr("Load failed"), f.errorString());
         return;
     }
     // Cap the load like the save side (256 MB) so a huge/wrong file can't exhaust memory
     // or blanket-overwrite the target before the confirmation.
     constexpr qint64 kMaxLoad = 1 << 28;
     if (f.size() > kMaxLoad) {
-        QMessageBox::warning(this, "File too large",
-            QString("The file is %1 bytes; the maximum region load is %2 bytes.")
+        QMessageBox::warning(this, tr("File too large"),
+            tr("The file is %1 bytes; the maximum region load is %2 bytes.")
                 .arg(f.size()).arg((qint64)kMaxLoad));
         return;
     }
@@ -2813,21 +2819,21 @@ void MemoryBrowser::loadRegionFromFile(uintptr_t addr) {
 
     // Writing to the target's memory is destructive, so confirm the byte count and
     // destination before patching (CE-style "are you sure").
-    if (QMessageBox::question(this, "Load region",
-            QString("Write %1 bytes from\n%2\nto 0x%3?")
+    if (QMessageBox::question(this, tr("Load region"),
+            tr("Write %1 bytes from\n%2\nto 0x%3?")
                 .arg(data.size()).arg(path).arg(addr, 0, 16),
             QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
         return;
     if (!proc_) return;   // detached while the dialog was open
     if (QString conflict = breakpointConflict(addr, static_cast<size_t>(data.size())); !conflict.isEmpty()) {
-        QMessageBox::warning(this, "Load region", conflict);
+        QMessageBox::warning(this, tr("Load region"), conflict);
         return;
     }
 
     auto w = proc_->write(addr, data.constData(), static_cast<size_t>(data.size()));
     if (!w || *w < static_cast<size_t>(data.size())) {
-        QMessageBox::warning(this, "Write failed",
-            QString("Wrote %1 of %2 bytes at 0x%3 (memory may be protected).")
+        QMessageBox::warning(this, tr("Write failed"),
+            tr("Wrote %1 of %2 bytes at 0x%3 (memory may be protected).")
                 .arg(w ? (qulonglong)*w : 0).arg(data.size()).arg(addr, 0, 16));
     }
     if (hexView_) hexView_->refresh();       // re-read so the patched bytes show now

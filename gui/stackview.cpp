@@ -18,19 +18,19 @@ namespace ce::gui {
 
 StackViewWindow::StackViewWindow(ProcessHandle* proc, QWidget* parent)
     : QMainWindow(parent), proc_(proc) {
-    setWindowTitle("Stack Trace");
+    setWindowTitle(tr("Stack Trace"));
     resize(850, 560);
 
     auto* central = new QWidget;
     auto* layout = new QVBoxLayout(central);
 
     auto* threadRow = new QHBoxLayout;
-    threadRow->addWidget(new QLabel("Thread:"));
+    threadRow->addWidget(new QLabel(tr("Thread:")));
     threadCombo_ = new QComboBox;
     threadCombo_->setObjectName("stackViewThreads");
     threadCombo_->setMinimumWidth(220);
     threadRow->addWidget(threadCombo_, 1);
-    auto* refreshButton = new QPushButton("Refresh");
+    auto* refreshButton = new QPushButton(tr("Refresh"));
     connect(refreshButton, &QPushButton::clicked, this, &StackViewWindow::refreshStack);
     threadRow->addSpacing(8);
     threadRow->addWidget(refreshButton);
@@ -46,25 +46,25 @@ StackViewWindow::StackViewWindow(ProcessHandle* proc, QWidget* parent)
     stackTable_ = new QTableWidget;
     stackTable_->setObjectName("stackViewRaw");
     stackTable_->setColumnCount(3);
-    stackTable_->setHorizontalHeaderLabels({"Address", "Value", "Offset"});
+    stackTable_->setHorizontalHeaderLabels({tr("Address"), tr("Value"), tr("Offset")});
     // Address and Value are 16-digit hex; fit them so they aren't clipped, let
     // the Offset column take the slack.
     stackTable_->horizontalHeader()->setStretchLastSection(true);
     stackTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     stackTable_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     styleDataTable(stackTable_);
-    tabs_->addTab(stackTable_, "Raw Stack");
+    tabs_->addTab(stackTable_, tr("Raw Stack"));
 
     traceTable_ = new QTableWidget;
     traceTable_->setObjectName("stackViewFrames");
     traceTable_->setColumnCount(5);
-    traceTable_->setHorizontalHeaderLabels({"Frame", "Instruction", "Return", "Frame Pointer", "Symbol"});
+    traceTable_->setHorizontalHeaderLabels({tr("Frame"), tr("Instruction"), tr("Return"), tr("Frame Pointer"), tr("Symbol")});
     // Fit the frame/address columns to content; Symbol (last) takes the slack.
     traceTable_->horizontalHeader()->setStretchLastSection(true);
     for (int c = 0; c < 4; ++c)
         traceTable_->horizontalHeader()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
     styleDataTable(traceTable_);
-    tabs_->addTab(traceTable_, "Stack Trace");
+    tabs_->addTab(traceTable_, tr("Stack Trace"));
 
     layout->addWidget(tabs_);
 
@@ -92,7 +92,7 @@ void StackViewWindow::refreshStack() {
     stackTable_->setRowCount(0);
     traceTable_->setRowCount(0);
     if (!proc_ || threadCombo_->currentIndex() < 0) {
-        statusLabel_->setText("No thread selected");
+        statusLabel_->setText(tr("No thread selected"));
         return;
     }
 
@@ -129,7 +129,7 @@ void StackViewWindow::refreshStack() {
         traceTable_->setItem(row, 4, new QTableWidgetItem(QString::fromStdString(frame.symbol)));
     }
 
-    statusLabel_->setText(QString("Thread %1    %2 0x%3    %4 0x%5    %6 frames")
+    statusLabel_->setText(tr("Thread %1    %2 0x%3    %4 0x%5    %6 frames")
         .arg(tid)
         .arg(context.architecture == CpuArchitecture::Arm64 ? "SP" : digits == 8 ? "ESP" : "RSP")
         .arg(context.stackPointer(), 0, 16)

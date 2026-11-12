@@ -14,14 +14,14 @@ namespace ce::gui {
 
 PointerScanDialog::PointerScanDialog(ProcessHandle* proc, QWidget* parent)
     : QDialog(parent), proc_(proc) {
-    setWindowTitle("Pointer Scanner");
+    setWindowTitle(tr("Pointer Scanner"));
     resize(820, 500);
 
     auto* layout = new QVBoxLayout(this);
 
     // Give address expressions a full row; keep options and actions together below.
     auto* configRow = new QHBoxLayout;
-    configRow->addWidget(new QLabel("Target Address:"));
+    configRow->addWidget(new QLabel(tr("Target Address:")));
     targetEdit_ = new QLineEdit;
     targetEdit_->setFont(monospaceFont());
     targetEdit_->setPlaceholderText("0x7f1234");
@@ -29,13 +29,13 @@ PointerScanDialog::PointerScanDialog(ProcessHandle* proc, QWidget* parent)
     layout->addLayout(configRow);
     auto* optionsRow = new QHBoxLayout;
 
-    optionsRow->addWidget(new QLabel("Depth:"));
+    optionsRow->addWidget(new QLabel(tr("Depth:")));
     depthSpin_ = new QSpinBox;
     depthSpin_->setRange(1, 7);
     depthSpin_->setValue(4);
     optionsRow->addWidget(depthSpin_);
 
-    optionsRow->addWidget(new QLabel("Max Offset:"));
+    optionsRow->addWidget(new QLabel(tr("Max Offset:")));
     offsetSpin_ = new QSpinBox;
     offsetSpin_->setRange(64, 65536);
     offsetSpin_->setValue(2048);
@@ -43,36 +43,36 @@ PointerScanDialog::PointerScanDialog(ProcessHandle* proc, QWidget* parent)
     optionsRow->addWidget(offsetSpin_);
     optionsRow->addStretch();
 
-    scanBtn_ = new QPushButton("Scan");
+    scanBtn_ = new QPushButton(tr("Scan"));
     scanBtn_->setObjectName("primaryButton");
     connect(scanBtn_, &QPushButton::clicked, this, &PointerScanDialog::onScan);
     optionsRow->addWidget(scanBtn_);
 
     // Rescan filters the current paths against a new target address (after the
     // dynamic value has moved) — the key to finding a stable pointer path.
-    rescanBtn_ = new QPushButton("Rescan…");
-    rescanBtn_->setToolTip("Filter current paths to those that still point at a new target address");
+    rescanBtn_ = new QPushButton(tr("Rescan…"));
+    rescanBtn_->setToolTip(tr("Filter current paths to those that still point at a new target address"));
     rescanBtn_->setEnabled(false);
     connect(rescanBtn_, &QPushButton::clicked, this, &PointerScanDialog::onRescan);
     optionsRow->addWidget(rescanBtn_);
 
-    saveBtn_ = new QPushButton("Save…");
+    saveBtn_ = new QPushButton(tr("Save…"));
     saveBtn_->setEnabled(false);
     connect(saveBtn_, &QPushButton::clicked, this, &PointerScanDialog::onSave);
     optionsRow->addWidget(saveBtn_);
 
-    loadBtn_ = new QPushButton("Load…");
+    loadBtn_ = new QPushButton(tr("Load…"));
     connect(loadBtn_, &QPushButton::clicked, this, &PointerScanDialog::onLoad);
     optionsRow->addWidget(loadBtn_);
     layout->addLayout(optionsRow);
 
-    statusLabel_ = new QLabel("Ready");
+    statusLabel_ = new QLabel(tr("Ready"));
     layout->addWidget(statusLabel_);
 
     // Results table
     resultsTable_ = new QTableWidget;
     resultsTable_->setColumnCount(3);
-    resultsTable_->setHorizontalHeaderLabels({"Path", "Current Address", "Value"});
+    resultsTable_->setHorizontalHeaderLabels({tr("Path"), tr("Current Address"), tr("Value")});
     // The pointer path is the long, variable-length column, so let it absorb the
     // slack. Size the address/value columns to their contents (and never narrower
     // than the header text, so "Current Address" isn't clipped to "Current Addres").
@@ -85,7 +85,7 @@ PointerScanDialog::PointerScanDialog(ProcessHandle* proc, QWidget* parent)
     resultsTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     resultsTable_->setProperty("monospace", true);   // font from the theme sheet
     styleDataTable(resultsTable_);
-    setEmptyHint(resultsTable_, "Enter the address of a value and click Scan to find pointer paths that lead to it.");
+    setEmptyHint(resultsTable_, tr("Enter the address of a value and click Scan to find pointer paths that lead to it."));
     connect(resultsTable_, &QTableWidget::cellDoubleClicked, this, &PointerScanDialog::onResultDoubleClicked);
     layout->addWidget(resultsTable_);
 }
@@ -102,16 +102,16 @@ void PointerScanDialog::onScan() {
     if (worker_.joinable()) {   // the button reads Cancel while a scan or rescan runs
         if (job_ == Job::Scan) scanner_->cancel();
         else rescanCancel_ = true;
-        statusLabel_->setText("Cancelling...");
+        statusLabel_->setText(tr("Cancelling..."));
         return;
     }
     if (!proc_) return;
 
     bool ok;
     uintptr_t target = targetEdit_->text().toULongLong(&ok, 16);
-    if (!ok) { statusLabel_->setText("Invalid address"); return; }
+    if (!ok) { statusLabel_->setText(tr("Invalid address")); return; }
 
-    statusLabel_->setText("Scanning...");
+    statusLabel_->setText(tr("Scanning..."));
     resultsTable_->setRowCount(0);
 
     PointerScanConfig config;
@@ -131,13 +131,13 @@ void PointerScanDialog::startJob(Job job, std::function<void()> work) {
     rescanBtn_->setEnabled(false);
     saveBtn_->setEnabled(false);
     loadBtn_->setEnabled(false);
-    scanBtn_->setText("Cancel");
+    scanBtn_->setText(tr("Cancel"));
     worker_ = std::thread([this, work = std::move(work)] {
         // A scan throws for a target of unknown pointer width, or when memory
         // runs out: report it instead of terminating the application.
         try { work(); }
         catch (const std::exception& e) { jobError_ = e.what(); }
-        catch (...) { jobError_ = "unexpected error"; }
+        catch (...) { jobError_ = tr("unexpected error").toStdString(); }
         scanDone_ = true;
     });
     if (!scanPoll_) {
@@ -145,9 +145,9 @@ void PointerScanDialog::startJob(Job job, std::function<void()> work) {
         connect(scanPoll_, &QTimer::timeout, this, [this] {
             if (!scanDone_) {
                 if (job_ == Job::Scan)
-                    statusLabel_->setText(QString("Scanning... %1%").arg(int(scanner_->progress() * 100)));
+                    statusLabel_->setText(tr("Scanning... %1%").arg(int(scanner_->progress() * 100)));
                 else
-                    statusLabel_->setText(QString("Rescanning... %1%").arg(int(rescanProgress_ * 100)));
+                    statusLabel_->setText(tr("Rescanning... %1%").arg(int(rescanProgress_ * 100)));
                 return;
             }
             scanPoll_->stop();
@@ -163,7 +163,7 @@ void PointerScanDialog::finishJob() {
     job_ = Job::None;
     if (job == Job::Scan) finishScan();
     else finishRescan();
-    scanBtn_->setText("Scan");
+    scanBtn_->setText(tr("Scan"));
     loadBtn_->setEnabled(true);
 }
 
@@ -171,21 +171,21 @@ void PointerScanDialog::finishScan() {
     const bool cancelled = scanner_->wasCancelled();
     results_ = std::move(scanned_);
     populateResults();
-    QString status = results_.size() > 1000 ? QString("Found %1 paths (showing first 1000)").arg(results_.size())
-                                            : QString("Found %1 paths").arg(results_.size());
+    QString status = results_.size() > 1000 ? tr("Found %1 paths (showing first 1000)").arg(results_.size())
+                                            : tr("Found %1 paths").arg(results_.size());
     if (!jobError_.empty())
-        status = QString("Scan failed: %1").arg(QString::fromStdString(jobError_));
+        status = tr("Scan failed: %1").arg(QString::fromStdString(jobError_));
     else if (cancelled)
-        status = QString("Cancelled; %1 paths found so far").arg(results_.size());
+        status = tr("Cancelled; %1 paths found so far").arg(results_.size());
     else switch (scanner_->limitReached()) {
         case ce::PointerScanLimit::Results:
-            status += ". The scan stopped at its path limit, so longer paths may be missing: lower Max offset and scan again.";
+            status += tr(". The scan stopped at its path limit, so longer paths may be missing: lower Max offset and scan again.");
             break;
         case ce::PointerScanLimit::Work:
-            status += ". The scan stopped at its work limit, so longer paths may be missing: lower Depth or Max offset and scan again.";
+            status += tr(". The scan stopped at its work limit, so longer paths may be missing: lower Depth or Max offset and scan again.");
             break;
         case ce::PointerScanLimit::MapEntries:
-            status += ". Memory held more pointer-like values than the scan keeps, so some paths may be missing.";
+            status += tr(". Memory held more pointer-like values than the scan keeps, so some paths may be missing.");
             break;
         case ce::PointerScanLimit::None:
             break;
@@ -193,7 +193,7 @@ void PointerScanDialog::finishScan() {
     // The map can be cut as well as the search.
     if (jobError_.empty() && !cancelled && scanner_->mapTruncated() &&
         scanner_->limitReached() != ce::PointerScanLimit::MapEntries)
-        status += " Memory also held more pointer-like values than the scan keeps.";
+        status += " " + tr("Memory also held more pointer-like values than the scan keeps.");
     statusLabel_->setText(status);
 }
 
@@ -203,14 +203,14 @@ void PointerScanDialog::finishRescan() {
         // Keep the paths the rescan started from.
         rescanBtn_->setEnabled(!results_.empty());
         saveBtn_->setEnabled(!results_.empty());
-        statusLabel_->setText(jobError_.empty() ? QString("Rescan cancelled; the paths are unchanged")
-            : QString("Rescan failed: %1").arg(QString::fromStdString(jobError_)));
+        statusLabel_->setText(jobError_.empty() ? tr("Rescan cancelled; the paths are unchanged")
+            : tr("Rescan failed: %1").arg(QString::fromStdString(jobError_)));
         return;
     }
     results_ = std::move(rescanned_);
     targetEdit_->setText(QString("0x%1").arg(rescanTarget_, 0, 16));
     populateResults();
-    statusLabel_->setText(QString("Rescan: %1 → %2 paths still reach 0x%3")
+    statusLabel_->setText(tr("Rescan: %1 → %2 paths still reach 0x%3")
         .arg(before).arg(results_.size()).arg(rescanTarget_, 0, 16));
 }
 
@@ -249,12 +249,12 @@ void PointerScanDialog::populateResults() {
 void PointerScanDialog::onRescan() {
     if (!proc_ || results_.empty() || worker_.joinable()) return;
     bool ok = false;
-    QString text = QInputDialog::getText(this, "Rescan pointer paths",
-        "New target address (hex) the paths should now resolve to:",
+    QString text = QInputDialog::getText(this, tr("Rescan pointer paths"),
+        tr("New target address (hex) the paths should now resolve to:"),
         QLineEdit::Normal, targetEdit_->text(), &ok);
     if (!ok) return;
     uintptr_t newTarget = text.toULongLong(&ok, 16);
-    if (!ok || !newTarget) { statusLabel_->setText("Invalid address"); return; }
+    if (!ok || !newTarget) { statusLabel_->setText(tr("Invalid address")); return; }
     rescanTo(newTarget);
 }
 
@@ -264,7 +264,7 @@ void PointerScanDialog::rescanTo(uintptr_t newTarget) {
     rescanCancel_ = false;
     rescanProgress_ = 0;
     rescanned_.clear();
-    statusLabel_->setText("Rescanning...");
+    statusLabel_->setText(tr("Rescanning..."));
     // The worker walks its own copy: the table keeps showing (and double-click
     // keeps reading) results_ meanwhile.
     startJob(Job::Rescan, [this, paths = results_, newTarget] {
@@ -274,28 +274,28 @@ void PointerScanDialog::rescanTo(uintptr_t newTarget) {
 
 void PointerScanDialog::onSave() {
     if (results_.empty()) return;
-    auto path = QFileDialog::getSaveFileName(this, "Save pointer paths", "pointers.ptr",
-        "Pointer scan (*.ptr);;All (*)");
+    auto path = QFileDialog::getSaveFileName(this, tr("Save pointer paths"), "pointers.ptr",
+        tr("Pointer scan (*.ptr);;All (*)"));
     if (path.isEmpty()) return;
     if (!ce::savePointerPaths(path.toStdString(), results_))
-        QMessageBox::warning(this, "Save failed", "Could not write the pointer paths.");
+        QMessageBox::warning(this, tr("Save failed"), tr("Could not write the pointer paths."));
     else
-        statusLabel_->setText(QString("Saved %1 paths").arg(results_.size()));
+        statusLabel_->setText(tr("Saved %1 paths").arg(results_.size()));
 }
 
 void PointerScanDialog::onLoad() {
-    auto path = QFileDialog::getOpenFileName(this, "Load pointer paths", "",
-        "Pointer scan (*.ptr);;All (*)");
+    auto path = QFileDialog::getOpenFileName(this, tr("Load pointer paths"), "",
+        tr("Pointer scan (*.ptr);;All (*)"));
     if (path.isEmpty()) return;
     std::string err;
     auto loaded = ce::loadPointerPaths(path.toStdString(), &err);
     if (loaded.empty() && !err.empty()) {
-        QMessageBox::warning(this, "Load failed", QString::fromStdString(err));
+        QMessageBox::warning(this, tr("Load failed"), QString::fromStdString(err));
         return;
     }
     results_ = std::move(loaded);
     populateResults();
-    statusLabel_->setText(QString("Loaded %1 paths").arg(results_.size()));
+    statusLabel_->setText(tr("Loaded %1 paths").arg(results_.size()));
 }
 
 void PointerScanDialog::onResultDoubleClicked(int row, int) {

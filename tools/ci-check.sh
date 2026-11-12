@@ -56,6 +56,10 @@ step "coverage matrix (docs/compatibility-matrix.json) in sync"
 python3 tools/coverage_matrix.py --check
 ok "coverage table current"
 
+step "translation catalogues complete (translations/*.ts)"
+python3 tools/check-translations.py
+ok "translations complete"
+
 # ── Job 1: sanitizers (ASan+UBSan, NO Qt) — the one that catches portability gaps ──
 step "sanitizers job (ASan, no-GUI): configure"
 # Reconfigure the existing tree so repeated checks can reuse compiled dependencies.

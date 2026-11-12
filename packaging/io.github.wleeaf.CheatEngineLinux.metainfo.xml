@@ -4,7 +4,9 @@
   <metadata_license>MIT</metadata_license>
   <project_license>MIT</project_license>
   <name>Cheat Engine for Linux</name>
+  <name xml:lang="zh_CN">Cheat Engine for Linux</name>
   <summary>Memory scanner, debugger, and injector for modding games and apps</summary>
+  <summary xml:lang="zh_CN">用于修改游戏和应用的内存扫描器、调试器与注入器</summary>
   <developer id="io.github.wleeaf">
     <name>wleeaf</name>
   </developer>
@@ -17,6 +19,13 @@
     <p>
       Focused on single-player game modding and reverse engineering. It does not
       target multiplayer anti-cheat.
+    </p>
+    <p xml:lang="zh_CN">
+      Cheat Engine 的 Linux 原生重写版本，使用 C++ 和 Qt6 构建：内存扫描、指针扫描、
+      自动汇编器、交互式多线程调试器、结构分析、作弊表以及 Lua 脚本。
+    </p>
+    <p xml:lang="zh_CN">
+      面向单机游戏修改和逆向工程，不针对多人在线游戏的反作弊。
     </p>
   </description>
   <launchable type="desktop-id">cheatengine.desktop</launchable>

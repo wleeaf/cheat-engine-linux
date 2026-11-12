@@ -9,7 +9,7 @@ namespace ce::gui {
 
 BreakpointListWindow::BreakpointListWindow(BreakpointManager* mgr, QWidget* parent)
     : QMainWindow(parent), mgr_(mgr) {
-    setWindowTitle("Breakpoint List");
+    setWindowTitle(tr("Breakpoint List"));
     resize(700, 300);
 
     auto* central = new QWidget;
@@ -17,18 +17,19 @@ BreakpointListWindow::BreakpointListWindow(BreakpointManager* mgr, QWidget* pare
 
     table_ = new QTableWidget;
     table_->setColumnCount(6);
-    table_->setHorizontalHeaderLabels({"ID", "Address", "Type", "Action", "Hits", "Enabled"});
+    table_->setHorizontalHeaderLabels(
+        {"ID", tr("Address"), tr("Type"), tr("Action"), tr("Hits"), tr("Enabled")});
     table_->horizontalHeader()->setStretchLastSection(true);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setProperty("monospace", true);   // font from the theme sheet
     styleDataTable(table_);
-    setEmptyHint(table_, "No breakpoints. Set one in the Memory Viewer (F5) or the Debugger.");
+    setEmptyHint(table_, tr("No breakpoints. Set one in the Memory Viewer (F5) or the Debugger."));
     layout->addWidget(table_);
 
     auto* btnRow = new QHBoxLayout;
-    auto* removeBtn = new QPushButton("Remove");
+    auto* removeBtn = new QPushButton(tr("Remove"));
     connect(removeBtn, &QPushButton::clicked, this, &BreakpointListWindow::onRemove);
-    auto* toggleBtn = new QPushButton("Enable/Disable");
+    auto* toggleBtn = new QPushButton(tr("Enable/Disable"));
     connect(toggleBtn, &QPushButton::clicked, this, &BreakpointListWindow::onToggle);
     btnRow->addWidget(removeBtn);
     btnRow->addWidget(toggleBtn);
@@ -53,24 +54,24 @@ void BreakpointListWindow::refresh() {
 
         QString type;
         switch (bp.type) {
-            case BpType::Execute: type = "Execute"; break;
-            case BpType::Write:   type = "Write"; break;
-            case BpType::Read:    type = "Read"; break;
-            case BpType::Access:  type = "Access"; break;
+            case BpType::Execute: type = tr("Execute"); break;
+            case BpType::Write:   type = tr("Write"); break;
+            case BpType::Read:    type = tr("Read"); break;
+            case BpType::Access:  type = tr("Access"); break;
         }
         table_->setItem(i, 2, new QTableWidgetItem(type));
 
         QString action;
         switch (bp.action) {
-            case BpAction::Break:      action = "Break"; break;
-            case BpAction::FindCode:   action = "Find Code"; break;
-            case BpAction::FindAccess: action = "Find Access"; break;
-            case BpAction::Trace:      action = "Trace"; break;
+            case BpAction::Break:      action = tr("Break"); break;
+            case BpAction::FindCode:   action = tr("Find Code"); break;
+            case BpAction::FindAccess: action = tr("Find Access"); break;
+            case BpAction::Trace:      action = tr("Trace"); break;
             default: action = "?"; break;
         }
         table_->setItem(i, 3, new QTableWidgetItem(action));
         table_->setItem(i, 4, new QTableWidgetItem(QString::number(bp.hitCount)));
-        table_->setItem(i, 5, new QTableWidgetItem(bp.enabled ? "Yes" : "No"));
+        table_->setItem(i, 5, new QTableWidgetItem(bp.enabled ? tr("Yes") : tr("No")));
     }
 }
 

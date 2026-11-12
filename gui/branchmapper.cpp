@@ -16,7 +16,7 @@ namespace ce::gui {
 
 BranchMapper::BranchMapper(ProcessHandle* proc, QWidget* parent)
     : QMainWindow(parent), proc_(proc) {
-    setWindowTitle("Branch Mapper (LBR)");
+    setWindowTitle(tr("Branch Mapper (LBR)"));
     resize(900, 600);
 
     auto* central = new QWidget;
@@ -33,18 +33,18 @@ BranchMapper::BranchMapper(ProcessHandle* proc, QWidget* parent)
     }
     tidSpin_->setMaximumWidth(160);
     tidSpin_->setGroupSeparatorShown(false);
-    form->addRow("Thread ID:", tidSpin_);
+    form->addRow(tr("Thread ID:"), tidSpin_);
 
     auto* btnRow = new QHBoxLayout;
-    startBtn_ = new QPushButton("Start sampling");
+    startBtn_ = new QPushButton(tr("Start sampling"));
     startBtn_->setObjectName("branchMapperStart");
-    stopBtn_  = new QPushButton("Stop");
+    stopBtn_  = new QPushButton(tr("Stop"));
     stopBtn_->setEnabled(false);
-    clearBtn_ = new QPushButton("Clear");
+    clearBtn_ = new QPushButton(tr("Clear"));
     const bool local=ce::localTargetPid(proc_).has_value();
-    statusLabel_ = new QLabel(!local ? "Branch sampling requires a live local process target" :
-        LbrTracer::available() ? "Idle" :
-        "Branch-stack sampling unavailable; requires kernel perf permission and a supported CPU/PMU.");
+    statusLabel_ = new QLabel(!local ? tr("Branch sampling requires a live local process target") :
+        LbrTracer::available() ? tr("Idle") :
+        tr("Branch-stack sampling unavailable; requires kernel perf permission and a supported CPU/PMU."));
     statusLabel_->setObjectName("branchMapperStatus");statusLabel_->setWordWrap(true);
     if (!local) {startBtn_->setEnabled(false);tidSpin_->setEnabled(false);}
     btnRow->addWidget(startBtn_);
@@ -58,12 +58,13 @@ BranchMapper::BranchMapper(ProcessHandle* proc, QWidget* parent)
 
     table_ = new QTableWidget;
     table_->setColumnCount(6);
-    table_->setHorizontalHeaderLabels({"From", "From symbol", "To", "To symbol", "Hits", "% of total"});
+    table_->setHorizontalHeaderLabels(
+        {tr("From"), tr("From symbol"), tr("To"), tr("To symbol"), tr("Hits"), tr("% of total")});
     table_->horizontalHeader()->setStretchLastSection(true);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setProperty("monospace", true);   // font from the theme sheet
     styleDataTable(table_);
-    setEmptyHint(table_, "Click Start sampling to record the branches this thread takes.");
+    setEmptyHint(table_, tr("Click Start sampling to record the branches this thread takes."));
     layout->addWidget(table_);
 
     setCentralWidget(central);
@@ -82,12 +83,12 @@ BranchMapper::~BranchMapper() {
 
 void BranchMapper::onStart() {
     if (!ce::localTargetPid(proc_)) {
-        statusLabel_->setText("Branch sampling requires a live local process target");
+        statusLabel_->setText(tr("Branch sampling requires a live local process target"));
         startBtn_->setEnabled(false);tidSpin_->setEnabled(false);return;
     }
     pid_t tid = (pid_t)tidSpin_->value();
     if (!tracer_.start(tid)) {
-        QMessageBox::warning(this, "Start failed",
+        QMessageBox::warning(this, tr("Start failed"),
             QString::fromStdString(tracer_.lastError()));
         return;
     }
@@ -99,7 +100,7 @@ void BranchMapper::onStart() {
     startBtn_->setEnabled(false);
     stopBtn_->setEnabled(true);
     tidSpin_->setEnabled(false);
-    statusLabel_->setText("Sampling…");
+    statusLabel_->setText(tr("Sampling…"));
     pollTimer_->start(250);
 }
 
@@ -110,14 +111,14 @@ void BranchMapper::onStop() {
     startBtn_->setEnabled(local);
     stopBtn_->setEnabled(false);
     tidSpin_->setEnabled(local);
-    statusLabel_->setText(QString("Stopped. %1 samples total.").arg(totalSamples_));
+    statusLabel_->setText(tr("Stopped. %1 samples total.").arg(totalSamples_));
 }
 
 void BranchMapper::onClear() {
     counts_.clear();
     totalSamples_ = 0;
     table_->setRowCount(0);
-    statusLabel_->setText(ce::localTargetPid(proc_) ? "Cleared." : "Branch sampling requires a live local process target");
+    statusLabel_->setText(ce::localTargetPid(proc_) ? tr("Cleared.") : tr("Branch sampling requires a live local process target"));
 }
 
 void BranchMapper::onPoll() {
@@ -156,7 +157,7 @@ void BranchMapper::onPoll() {
         double pct = totalSamples_ ? (100.0 * r.hits / totalSamples_) : 0.0;
         table_->setItem((int)i, 5, new QTableWidgetItem(QString::number(pct, 'f', 2) + "%"));
     }
-    statusLabel_->setText(QString("Sampling… %1 total / %2 unique pairs")
+    statusLabel_->setText(tr("Sampling… %1 total / %2 unique pairs")
         .arg(totalSamples_).arg(flat.size()));
 }
 

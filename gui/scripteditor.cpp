@@ -146,52 +146,52 @@ private:
 ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget* parent)
     : QMainWindow(parent), proc_(proc), autoAsm_(autoAsm) {
 
-    setWindowTitle("Auto Assembler");
+    setWindowTitle(tr("Auto Assembler"));
     resize(860, 600);   // wide enough for the whole toolbar, Templates included
 
     // Toolbar
     auto* toolbar = new QToolBar;
     toolbar->setMovable(false);
-    executeBtn_ = new QAction("Execute", this);
+    executeBtn_ = new QAction(tr("Execute"), this);
     executeBtn_->setEnabled(proc_ && autoAsm_);
     executeBtn_->setObjectName("primaryButton");
-    executeBtn_->setToolTip("Enable the script in the selected process");
+    executeBtn_->setToolTip(tr("Enable the script in the selected process"));
     connect(executeBtn_, &QAction::triggered, this, &ScriptEditor::onExecute);
 
-    disableBtn_ = new QAction("Disable", this);
+    disableBtn_ = new QAction(tr("Disable"), this);
     disableBtn_->setEnabled(false);
     connect(disableBtn_, &QAction::triggered, this, &ScriptEditor::onDisable);
 
-    auto* checkBtn = new QAction("Syntax Check", this);
+    auto* checkBtn = new QAction(tr("Syntax Check"), this);
     connect(checkBtn, &QAction::triggered, this, &ScriptEditor::onCheck);
 
-    auto* addTableBtn = new QAction("Add to Cheat Table", this);
+    auto* addTableBtn = new QAction(tr("Add to Cheat Table"), this);
     addTableBtn_ = addTableBtn;
     addTableBtn_->setEnabled(false);
-    addTableBtn->setToolTip("Save this script as a cheat-table entry whose checkbox "
-                            "enables/disables it.");
+    addTableBtn->setToolTip(tr("Save this script as a cheat-table entry whose checkbox "
+                            "enables/disables it."));
     connect(addTableBtn, &QAction::triggered, this, &ScriptEditor::onAddToTable);
 
-    auto* loadBtn = new QAction("Load", this);
+    auto* loadBtn = new QAction(tr("Load"), this);
     connect(loadBtn, &QAction::triggered, this, [this]() {
         QPointer<ScriptEditor> self(this);
-        auto path = QFileDialog::getOpenFileName(this, "Load Script", "", "CE Scripts (*.cea *.CEA *.asm);;All Files (*)");
+        auto path = QFileDialog::getOpenFileName(this, tr("Load Script"), "", tr("CE Scripts (*.cea *.CEA *.asm);;All Files (*)"));
         if (!self || path.isEmpty()) return;
         QFile f(path);
         if (f.open(QIODevice::ReadOnly)) {
             editor_->setPlainText(QTextStream(&f).readAll());
-        } else QMessageBox::warning(this, "Load failed", f.errorString());
+        } else QMessageBox::warning(this, tr("Load failed"), f.errorString());
     });
 
-    auto* saveBtn = new QAction("Save", this);
+    auto* saveBtn = new QAction(tr("Save"), this);
     connect(saveBtn, &QAction::triggered, this, [this]() {
         QPointer<ScriptEditor> self(this);
-        auto path = QFileDialog::getSaveFileName(this, "Save Script", "", "CE Scripts (*.cea *.CEA);;All Files (*)");
+        auto path = QFileDialog::getSaveFileName(this, tr("Save Script"), "", tr("CE Scripts (*.cea *.CEA);;All Files (*)"));
         if (!self || path.isEmpty()) return;
         QSaveFile file(path);
         const QByteArray bytes = editor_->toPlainText().toUtf8();
         if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.flush() || !file.commit())
-            QMessageBox::warning(this, "Save failed", file.errorString());
+            QMessageBox::warning(this, tr("Save failed"), file.errorString());
     });
 
     toolbar->setMovable(false);
@@ -234,8 +234,8 @@ ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget*
         QString name = label;
         connect(action, &QAction::triggered, this, [this, body, name]() {
             if (!editor_->toPlainText().trimmed().isEmpty()) {
-                auto answer = QMessageBox::question(this, "Insert template?",
-                    QString("Replace the current script with the '%1' template?\n"
+                auto answer = QMessageBox::question(this, tr("Insert template?"),
+                    tr("Replace the current script with the '%1' template?\n"
                             "Click No to insert at the cursor instead.").arg(name),
                     QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel,
                     QMessageBox::Yes);
@@ -248,9 +248,9 @@ ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget*
             editor_->insertPlainText(body);
         });
     }
-    auto* templateAction = toolbar->addAction("Templates");
+    auto* templateAction = toolbar->addAction(tr("Templates"));
     templateAction->setMenu(templateMenu);
-    templateAction->setToolTip("Generate a template for the selected instruction (Ctrl+I)");
+    templateAction->setToolTip(tr("Generate a template for the selected instruction (Ctrl+I)"));
     if (auto* button = qobject_cast<QToolButton*>(toolbar->widgetForAction(templateAction)))
         button->setPopupMode(QToolButton::InstantPopup);
 
@@ -262,15 +262,15 @@ ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget*
     editor_ = new CodeEditor;
     editor_->setTabStopDistance(QFontMetricsF(editor_->font()).horizontalAdvance(' ') * 4);
     new AaHighlighter(editor_->document());   // syntax coloring
-    editor_->setPlaceholderText("Choose Templates to generate an injection at the selected instruction,\n"
-                                "or write an Auto Assembler script here.");
+    editor_->setPlaceholderText(tr("Choose Templates to generate an injection at the selected instruction,\n"
+                                "or write an Auto Assembler script here."));
     splitter->addWidget(editor_);
 
     output_ = new QTextEdit;
     output_->setReadOnly(true);
     output_->setFont(monospaceFont(-1));
     output_->document()->setDocumentMargin(6);
-    output_->setPlaceholderText("Messages from Execute and Syntax Check appear here.");
+    output_->setPlaceholderText(tr("Messages from Execute and Syntax Check appear here."));
     output_->setMaximumHeight(150);
     // The console paints its own line colors, so it can't inherit the app
     // stylesheet; give it the theme's editor background/text (was hardcoded dark,
@@ -313,7 +313,7 @@ void ScriptEditor::onExecute() {
     if (busy_ || enabled_) return;
     if (!proc_ || !autoAsm_) {
         output_->setTextColor(ce::gui::editorPalette().error);
-        output_->append("No process selected!");
+        output_->append(tr("No process selected!"));
         return;
     }
 
@@ -331,7 +331,7 @@ void ScriptEditor::onExecute() {
     if (!self) return;
     output_->clear();
     output_->setTextColor(ce::gui::editorPalette().text);
-    output_->append("Executing...");
+    output_->append(tr("Executing..."));
 
     auto result = assembler->execute(*process, script);
     if (!self) {
@@ -346,21 +346,21 @@ void ScriptEditor::onExecute() {
 
     if (result.success) {
         output_->setTextColor(ce::gui::editorPalette().success);
-        output_->append("Script executed successfully.");
+        output_->append(tr("Script executed successfully."));
         lastDisableInfo_ = result.disableInfo;
         enabledScript_ = script;
         enabled_ = true;
         enableOrder_ = AutoAsmUiOperation::nextOrder();
     } else {
         output_->setTextColor(ce::gui::editorPalette().error);
-        output_->append("FAILED: " + QString::fromStdString(result.error));
+        output_->append(tr("FAILED: %1").arg(QString::fromStdString(result.error)));
         if (result.disableInfo.ownership || result.disableInfo.image || !result.disableInfo.symbols.empty() ||
             !result.disableInfo.originals.empty() || !result.disableInfo.allocs.empty() || !result.disableInfo.protections.empty()) {
             lastDisableInfo_ = std::move(result.disableInfo);
             enabledScript_ = script;
             enabled_ = true;
             enableOrder_ = AutoAsmUiOperation::nextOrder();
-            output_->append("Cleanup is still pending. Use Disable to retry restoration.");
+            output_->append(tr("Cleanup is still pending. Use Disable to retry restoration."));
         }
     }
 }
@@ -389,7 +389,7 @@ bool ScriptEditor::cleanupInjection(bool report) {
     if (self && report) {
         output_->clear();
         output_->setTextColor(ce::gui::editorPalette().text);
-        output_->append("Disabling...");
+        output_->append(tr("Disabling..."));
     }
 
     auto result = assembler->disable(*process, script, undo);
@@ -401,7 +401,7 @@ bool ScriptEditor::cleanupInjection(bool report) {
     if (result.success) {
         if (report) {
             output_->setTextColor(ce::gui::editorPalette().success);
-            output_->append("Script disabled.");
+            output_->append(tr("Script disabled."));
         }
         enabled_ = false;
         enabledScript_.clear();
@@ -409,8 +409,8 @@ bool ScriptEditor::cleanupInjection(bool report) {
     } else {
         if (report) {
             output_->setTextColor(ce::gui::editorPalette().error);
-            output_->append("Cleanup incomplete: " + QString::fromStdString(result.error));
-            output_->append("Recovery state retained. Use Disable to retry.");
+            output_->append(tr("Cleanup incomplete: %1").arg(QString::fromStdString(result.error)));
+            output_->append(tr("Recovery state retained. Use Disable to retry."));
         }
     }
     return result.success;
@@ -423,11 +423,11 @@ void ScriptEditor::onGenerateCodeInjection() {
 void ScriptEditor::onGenerateInjection(ce::InjectionKind kind) {
     QPointer<ScriptEditor> self(this);
     if (!proc_) {
-        QMessageBox::warning(this, "No process", "Attach to a process first.");
+        QMessageBox::warning(this, tr("No process"), tr("Attach to a process first."));
         return;
     }
     if (enabled_) {
-        QMessageBox::information(this, "Injection template", "Disable the current script before generating another injection.");
+        QMessageBox::information(this, tr("Injection template"), tr("Disable the current script before generating another injection."));
         return;
     }
     QString initial;
@@ -441,19 +441,19 @@ void ScriptEditor::onGenerateInjection(ce::InjectionKind kind) {
         }
     }
     bool ok = false;
-    QString text = QInputDialog::getText(this, "Injection template",
-        "Address or expression to inject at:", QLineEdit::Normal, initial, &ok);
+    QString text = QInputDialog::getText(this, tr("Injection template"),
+        tr("Address or expression to inject at:"), QLineEdit::Normal, initial, &ok);
     if (!self || !ok || text.trimmed().isEmpty()) return;
     ce::SymbolResolver symbols;
     symbols.loadProcess(*proc_);
     auto address = ce::ExpressionParser(proc_, &symbols).parse(text.trimmed().toStdString());
     if (!address || !*address) {
-        QMessageBox::warning(this, "Bad address", "Enter a valid address, module offset, or symbol expression.");
+        QMessageBox::warning(this, tr("Bad address"), tr("Enter a valid address, module offset, or symbol expression."));
         return;
     }
     std::string pointerRegister;
     if (kind == ce::InjectionKind::Pointer) {
-        QString reg = QInputDialog::getText(this, "Pointer injection", "Register holding the pointer:",
+        QString reg = QInputDialog::getText(this, tr("Pointer injection"), tr("Register holding the pointer:"),
             QLineEdit::Normal, proc_->runs32BitCode() ? "eax" : "rax", &ok);
         if (!self || !ok || reg.trimmed().isEmpty()) return;
         pointerRegister = reg.trimmed().toStdString();
@@ -462,12 +462,12 @@ void ScriptEditor::onGenerateInjection(ce::InjectionKind kind) {
     size_t size = *address == injectionAddress_ ? injectionSize_ : 5;
     std::string script = ce::generateInjectionScript(*proc_, *address, kind, genErr, pointerRegister, size);
     if (script.empty()) {
-        QMessageBox::warning(this, "Injection template", QString::fromStdString(genErr));
+        QMessageBox::warning(this, tr("Injection template"), QString::fromStdString(genErr));
         return;
     }
     if (!editor_->toPlainText().trimmed().isEmpty()) {
-        auto answer = QMessageBox::question(this, "Replace script?",
-            "Replace the current script with the generated injection?",
+        auto answer = QMessageBox::question(this, tr("Replace script?"),
+            tr("Replace the current script with the generated injection?"),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
         if (!self || answer != QMessageBox::Yes) return;
     }
@@ -476,29 +476,29 @@ void ScriptEditor::onGenerateInjection(ce::InjectionKind kind) {
     editor_->setPlainText(QString::fromStdString(script));
     output_->clear();
     output_->setTextColor(ce::gui::editorPalette().success);
-    output_->append(QString("Generated injection at 0x%1. Edit the code in newmem.").arg(QString::number(*address, 16)));
+    output_->append(tr("Generated injection at 0x%1. Edit the code in newmem.").arg(QString::number(*address, 16)));
 }
 
 void ScriptEditor::onAddToTable() {
     QPointer<ScriptEditor> self(this);
     auto script = editor_->toPlainText();
     if (script.trimmed().isEmpty()) {
-        QMessageBox::information(this, "Add to Cheat Table", "The script is empty.");
+        QMessageBox::information(this, tr("Add to Cheat Table"), tr("The script is empty."));
         return;
     }
     if (!addToTable_) {
-        QMessageBox::warning(this, "Add to Cheat Table",
-            "This editor isn't connected to a cheat table.");
+        QMessageBox::warning(this, tr("Add to Cheat Table"),
+            tr("This editor isn't connected to a cheat table."));
         return;
     }
     bool ok = false;
-    QString desc = QInputDialog::getText(this, "Add to Cheat Table",
-        "Description for the table entry:", QLineEdit::Normal,
+    QString desc = QInputDialog::getText(this, tr("Add to Cheat Table"),
+        tr("Description for the table entry:"), QLineEdit::Normal,
         defaultDescription_, &ok);
     if (!self || !ok) return;
     addToTable_(desc, script);
     output_->setTextColor(ce::gui::editorPalette().success);
-    output_->append("Saved to the cheat table. Toggle its checkbox to enable/disable.");
+    output_->append(tr("Saved to the cheat table. Toggle its checkbox to enable/disable."));
 }
 
 void ScriptEditor::onCheck() {
@@ -518,10 +518,10 @@ void ScriptEditor::onCheck() {
 
     if (result.success) {
         output_->setTextColor(ce::gui::editorPalette().success);
-        output_->append("Syntax check passed.");
+        output_->append(tr("Syntax check passed."));
     } else {
         output_->setTextColor(ce::gui::editorPalette().error);
-        output_->append("Syntax check failed: " + QString::fromStdString(result.error));
+        output_->append(tr("Syntax check failed: %1").arg(QString::fromStdString(result.error)));
     }
 }
 

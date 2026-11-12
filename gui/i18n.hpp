@@ -1,0 +1,20 @@
+#pragma once
+/// Interface language: translator setup shared by the application and the GUI
+/// smoke test.
+
+#include <QString>
+
+class QApplication;
+
+namespace ce::gui {
+
+/// The interface language stored in Settings ("ui/language"), or empty when the
+/// interface follows the desktop locale.
+QString configuredUiLanguage();
+
+/// Installs the Qt and Cheat Engine translators and returns the locale that was
+/// chosen. explicitLocale, when non-empty, wins over Settings and the desktop
+/// locale (used by tests and screenshot runs).
+QString installTranslators(QApplication& app, const QString& explicitLocale = {});
+
+} // namespace ce::gui

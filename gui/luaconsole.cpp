@@ -19,7 +19,7 @@ static void appendColored(QPlainTextEdit* out, const QString& text, const QColor
 LuaConsole::LuaConsole(LuaEngine* engine, QWidget* parent)
     : QMainWindow(parent), engine_(engine) {
 
-    setWindowTitle("Lua Console");
+    setWindowTitle(tr("Lua Console"));
     resize(600, 400);
 
     auto* central = new QWidget;
@@ -30,8 +30,8 @@ LuaConsole::LuaConsole(LuaEngine* engine, QWidget* parent)
     output_->setFont(monospaceFont());
     output_->document()->setDocumentMargin(6);
     // The banner reads as a comment (dim), like the echoed commands.
-    appendColored(output_, "-- Cheat Engine Lua Console --", editorPalette().dim);
-    appendColored(output_, "-- Functions: readInteger(addr), writeInteger(addr, val), getModuleBase(name), ...",
+    appendColored(output_, tr("-- Cheat Engine Lua Console --"), editorPalette().dim);
+    appendColored(output_, tr("-- Functions: readInteger(addr), writeInteger(addr, val), getModuleBase(name), ..."),
                   editorPalette().dim);
     layout->addWidget(output_);
 
@@ -40,22 +40,22 @@ LuaConsole::LuaConsole(LuaEngine* engine, QWidget* parent)
     auto* inputRow = new QHBoxLayout;
     input_ = new QLineEdit;
     input_->setFont(monospaceFont());
-    input_->setPlaceholderText("Enter Lua code, then press Run or Enter…");
+    input_->setPlaceholderText(tr("Enter Lua code, then press Run or Enter…"));
     connect(input_, &QLineEdit::returnPressed, this, &LuaConsole::onExecute);
     input_->installEventFilter(this);   // Up/Down recall previous commands (REPL history)
     inputRow->addWidget(input_, 1);
 
-    auto* runBtn = new QPushButton("Run");
+    auto* runBtn = new QPushButton(tr("Run"));
     runBtn->setProperty("primary", true);
-    runBtn->setToolTip("Execute the Lua code (Enter)");
+    runBtn->setToolTip(tr("Execute the Lua code (Enter)"));
     connect(runBtn, &QPushButton::clicked, this, &LuaConsole::onExecute);
     inputRow->addWidget(runBtn);
 
-    auto* clearBtn = new QPushButton("Clear");
-    clearBtn->setToolTip("Clear the console output");
+    auto* clearBtn = new QPushButton(tr("Clear"));
+    clearBtn->setToolTip(tr("Clear the console output"));
     connect(clearBtn, &QPushButton::clicked, this, [this]() {
         output_->clear();
-        appendColored(output_, "-- Cheat Engine Lua Console --", editorPalette().dim);
+        appendColored(output_, tr("-- Cheat Engine Lua Console --"), editorPalette().dim);
     });
     inputRow->addWidget(clearBtn);
     layout->addLayout(inputRow);
@@ -110,7 +110,7 @@ void LuaConsole::onExecute() {
     auto err = engine_->execute(code.toStdString());
     if (!err.empty())
         // Errors in red (legible on both the light and dark themes).
-        appendColored(output_, "ERROR: " + QString::fromStdString(err), editorPalette().error);
+        appendColored(output_, tr("ERROR: %1").arg(QString::fromStdString(err)), editorPalette().error);
 }
 
 void LuaConsole::abandonLine() {

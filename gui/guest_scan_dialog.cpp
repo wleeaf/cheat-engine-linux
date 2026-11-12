@@ -84,7 +84,7 @@ std::optional<T> parseValueT(const QString& text) {
 
 GuestScanDialog::GuestScanDialog(ce::ProcessHandle* proc, QWidget* parent)
     : QDialog(parent), proc_(proc) {
-    setWindowTitle("Emulator guest scan");
+    setWindowTitle(tr("Emulator guest scan"));
     resize(600, 520);
     if (proc_) if (auto localPid = ce::localTargetPid(proc_)) profile_ = ce::probeTarget(*localPid);   // local /proc only
 
@@ -92,11 +92,11 @@ GuestScanDialog::GuestScanDialog(ce::ProcessHandle* proc, QWidget* parent)
 
     QString emu = QString::fromStdString(profile_.emulator);
     auto* header = new QLabel(profile_.guestCandidates.empty()
-        ? QString("<b>No emulator guest RAM detected.</b> Attach to a recognized "
-                  "emulator (Dolphin, PCSX2, RPCS3, DuckStation, …) first.")
-        : QString("<b>%1</b> guest memory. Scan by value, or Unknown Scan then narrow by "
-                  "how the value changed. Enable big-endian for PS3 / Wii / GameCube.")
-              .arg(emu.isEmpty() ? "Emulator" : emu));
+        ? tr("<b>No emulator guest RAM detected.</b> Attach to a recognized "
+             "emulator (Dolphin, PCSX2, RPCS3, DuckStation, …) first.")
+        : tr("<b>%1</b> guest memory. Scan by value, or Unknown Scan then narrow by "
+             "how the value changed. Enable big-endian for PS3 / Wii / GameCube.")
+              .arg(emu.isEmpty() ? tr("Emulator") : emu));
     header->setWordWrap(true);
     layout->addWidget(header);
 
@@ -104,50 +104,50 @@ GuestScanDialog::GuestScanDialog(ce::ProcessHandle* proc, QWidget* parent)
     regionCombo_ = new QComboBox;
     for (const auto& g : profile_.guestCandidates)
         regionCombo_->addItem(QString("0x%1  (%2 MB)").arg(g.base, 0, 16).arg(g.size >> 20));
-    form->addRow("Guest RAM region:", regionCombo_);
+    form->addRow(tr("Guest RAM region:"), regionCombo_);
 
     typeCombo_ = new QComboBox;
-    typeCombo_->addItems({"Byte", "2 Bytes", "4 Bytes", "8 Bytes", "Float", "Double"});
+    typeCombo_->addItems({tr("Byte"), tr("2 Bytes"), tr("4 Bytes"), tr("8 Bytes"), tr("Float"), tr("Double")});
     typeCombo_->setCurrentIndex(2);
-    form->addRow("Value type:", typeCombo_);
+    form->addRow(tr("Value type:"), typeCombo_);
 
     valueEdit_ = new QLineEdit;
-    valueEdit_->setPlaceholderText("value to find (decimal or 0x…)");
-    form->addRow("Value:", valueEdit_);
+    valueEdit_->setPlaceholderText(tr("value to find (decimal or 0x…)"));
+    form->addRow(tr("Value:"), valueEdit_);
 
-    bigEndianCheck_ = new QCheckBox("Big-endian (PS3 / Wii / GameCube)");
+    bigEndianCheck_ = new QCheckBox(tr("Big-endian (PS3 / Wii / GameCube)"));
     form->addRow("", bigEndianCheck_);
     layout->addLayout(form);
 
     auto* btnRow = new QHBoxLayout;
-    firstBtn_   = new QPushButton("First Scan");
-    unknownBtn_ = new QPushButton("Unknown Scan");
-    nextBtn_    = new QPushButton("Next Scan");
-    newBtn_     = new QPushButton("New Scan");
+    firstBtn_   = new QPushButton(tr("First Scan"));
+    unknownBtn_ = new QPushButton(tr("Unknown Scan"));
+    nextBtn_    = new QPushButton(tr("Next Scan"));
+    newBtn_     = new QPushButton(tr("New Scan"));
     for (auto* b : {firstBtn_, unknownBtn_, nextBtn_, newBtn_}) btnRow->addWidget(b);
     layout->addLayout(btnRow);
 
     auto* cmpRow = new QHBoxLayout;
-    changedBtn_   = new QPushButton("Changed");
-    unchangedBtn_ = new QPushButton("Unchanged");
-    increasedBtn_ = new QPushButton("Increased");
-    decreasedBtn_ = new QPushButton("Decreased");
+    changedBtn_   = new QPushButton(tr("Changed"));
+    unchangedBtn_ = new QPushButton(tr("Unchanged"));
+    increasedBtn_ = new QPushButton(tr("Increased"));
+    decreasedBtn_ = new QPushButton(tr("Decreased"));
     for (auto* b : {changedBtn_, unchangedBtn_, increasedBtn_, decreasedBtn_}) cmpRow->addWidget(b);
     cmpRow->addStretch();
-    auto* addBtn = new QPushButton("Add to Address List");
+    auto* addBtn = new QPushButton(tr("Add to Address List"));
     cmpRow->addWidget(addBtn);
     layout->addLayout(cmpRow);
 
-    statusLabel_ = new QLabel("Ready.");
+    statusLabel_ = new QLabel(tr("Ready."));
     layout->addWidget(statusLabel_);
 
     resultsTable_ = new QTableWidget(0, 3);
-    resultsTable_->setHorizontalHeaderLabels({"Guest address", "Host address", "Value"});
+    resultsTable_->setHorizontalHeaderLabels({tr("Guest address"), tr("Host address"), tr("Value")});
     resultsTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     resultsTable_->horizontalHeader()->setStretchLastSection(true);
     resultsTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     styleDataTable(resultsTable_);
-    setEmptyHint(resultsTable_, "Guest RAM scan results appear here.");
+    setEmptyHint(resultsTable_, tr("Guest RAM scan results appear here."));
     layout->addWidget(resultsTable_);
 
     connect(firstBtn_,   &QPushButton::clicked, this, &GuestScanDialog::onFirstScan);
@@ -200,7 +200,7 @@ void GuestScanDialog::onFirstScan() {
     if (profile_.guestCandidates.empty()) return;
     const QString valStr = valueEdit_->text();
     if (!dispatchType(selectedType(), [&]<class T>() { return parseValueT<T>(valStr).has_value(); })) {
-        statusLabel_->setText("Enter a value that fits the selected type.");
+        statusLabel_->setText(tr("Enter a value that fits the selected type."));
         return;
     }
     beginScan();
@@ -232,7 +232,7 @@ void GuestScanDialog::onNextScan() {
     if (!haveScan_ || unknownMode_) return;
     const QString valStr = valueEdit_->text();
     if (!dispatchType(scanType_, [&]<class T>() { return parseValueT<T>(valStr).has_value(); })) {
-        statusLabel_->setText("Enter a value that fits the selected type.");   // keep the results
+        statusLabel_->setText(tr("Enter a value that fits the selected type."));   // keep the results
         return;
     }
     ce::GuestView gv{ proc_, regionBase_, regionSize_, scanBigEndian_ };
@@ -282,7 +282,7 @@ void GuestScanDialog::onNewScan() {
     haveScan_ = false;
     unknownMode_ = false;
     resultsTable_->setRowCount(0);
-    statusLabel_->setText("Ready.");
+    statusLabel_->setText(tr("Ready."));
     refreshResults();
 }
 
@@ -301,19 +301,20 @@ void GuestScanDialog::refreshResults() {
                 resultsTable_->setItem((int)i, 2, new QTableWidgetItem(fmtBits<T>(candidates_[i].second)));
             }
         });
-        QString status = QString("%1 result(s)%2").arg(candidates_.size())
-            .arg(candidates_.size() > shown ? QString(" (showing first %1)").arg(shown) : QString());
+        QString status = candidates_.size() > shown
+            ? tr("%1 result(s) (showing first %2)").arg(candidates_.size()).arg(shown)
+            : tr("%1 result(s)").arg(candidates_.size());
         if (resultsTruncated_)
-            status += QString(". The scan stopped at %1 results; try a less common value.")
+            status += tr(". The scan stopped at %1 results; try a less common value.")
                           .arg(ce::kGuestMaxHits);
         statusLabel_->setText(status);
     } else if (unknownMode_) {
         resultsTable_->setRowCount(0);
-        QString status = QString("Snapshot taken (%1 MB). Change the value in-game, then "
+        QString status = tr("Snapshot taken (%1 MB). Change the value in-game, then "
                                  "narrow with Changed / Increased / Decreased / Unchanged.")
                              .arg(snapshot_.readableBytes() >> 20);
         if (snapshot_.truncated)
-            status += QString(" Only the first %1 MB of the %2 MB region is covered.")
+            status += " " + tr("Only the first %1 MB of the %2 MB region is covered.")
                           .arg(snapshot_.bytes.size() >> 20).arg(regionSize_ >> 20);
         statusLabel_->setText(status);
     }
@@ -346,7 +347,7 @@ void GuestScanDialog::onAddToList() {
         if (row < 0 || row >= (int)candidates_.size()) continue;
         const uint64_t g = candidates_[row].first;
         emit addressSelected(gv.toHost(g), scanType_, scanBigEndian_,
-                             QString("guest 0x%1").arg(regionGuestBase_ + g, 0, 16));
+                             tr("guest 0x%1").arg(regionGuestBase_ + g, 0, 16));
     }
 }
 

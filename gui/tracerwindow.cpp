@@ -3,6 +3,7 @@
 #include "gui/tracerwindow.hpp"
 #include "gui/theme.hpp"
 #include <QDialogButtonBox>
+#include <QCoreApplication>
 #include "core/target_capabilities.hpp"
 
 #include <QVBoxLayout>
@@ -42,12 +43,20 @@ QVariant TraceTableModel::data(const QModelIndex& index, int role) const {
 QVariant TraceTableModel::headerData(int section, Qt::Orientation orientation, int role) const {
     if (orientation != Qt::Horizontal || role != Qt::DisplayRole || section < 0 || section >= 8) return {};
     const auto architecture = entries_->empty() ? ce::CpuArchitecture::Unknown : entries_->front().context.architecture;
-    static const char* x64[] = {"#", "Address", "Instruction", "RAX", "RBX", "RCX", "RDX", "RIP"};
-    static const char* x86[] = {"#", "Address", "Instruction", "EAX", "EBX", "ECX", "EDX", "EIP"};
-    static const char* a64[] = {"#", "Address", "Instruction", "X0", "X1", "X2", "X3", "PC"};
+    // "Address" and "Instruction" are column headers; the per-architecture
+    // register mnemonics are technical names and stay untranslated.
+    static const char* x64[] = {"#", QT_TRANSLATE_NOOP("TraceTableModel", "Address"),
+                                QT_TRANSLATE_NOOP("TraceTableModel", "Instruction"),
+                                "RAX", "RBX", "RCX", "RDX", "RIP"};
+    static const char* x86[] = {"#", QT_TRANSLATE_NOOP("TraceTableModel", "Address"),
+                                QT_TRANSLATE_NOOP("TraceTableModel", "Instruction"),
+                                "EAX", "EBX", "ECX", "EDX", "EIP"};
+    static const char* a64[] = {"#", QT_TRANSLATE_NOOP("TraceTableModel", "Address"),
+                                QT_TRANSLATE_NOOP("TraceTableModel", "Instruction"),
+                                "X0", "X1", "X2", "X3", "PC"};
     const char** names = architecture == ce::CpuArchitecture::Arm64 ? a64
                        : architecture == ce::CpuArchitecture::X86_32 ? x86 : x64;
-    return QString::fromLatin1(names[section]);
+    return QCoreApplication::translate("TraceTableModel", names[section]);
 }
 
 static QString fullRegisterDump(const ce::CpuContext& c) {
@@ -82,7 +91,7 @@ static QString fullRegisterDump(const ce::CpuContext& c) {
 
 TracerWindow::TracerWindow(ProcessHandle* proc, DebuggerFactory factory, QWidget* parent)
     : QMainWindow(parent), proc_(proc), debuggerFactory_(std::move(factory)) {
-    setWindowTitle("Break and Trace");
+    setWindowTitle(tr("Break and Trace"));
     resize(1100, 600);
     buildUi();
 }
@@ -102,37 +111,37 @@ void TracerWindow::buildUi() {
     auto* form = new QGridLayout;
     int row = 0;
 
-    form->addWidget(new QLabel("Start address (hex):"), row, 0);
+    form->addWidget(new QLabel(tr("Start address (hex):")), row, 0);
     startAddressEdit_ = new QLineEdit;
-    startAddressEdit_->setPlaceholderText("0x0000000000000000, leave blank to start at the instruction pointer");
+    startAddressEdit_->setPlaceholderText(tr("0x0000000000000000, leave blank to start at the instruction pointer"));
     form->addWidget(startAddressEdit_, row, 1, 1, 3);
     ++row;
 
-    form->addWidget(new QLabel("Max steps:"), row, 0);
+    form->addWidget(new QLabel(tr("Max steps:")), row, 0);
     maxStepsSpin_ = new QSpinBox;
     maxStepsSpin_->setRange(1, 1'000'000);
     maxStepsSpin_->setValue(1000);
     form->addWidget(maxStepsSpin_, row, 1);
 
-    stepOverCheck_ = new QCheckBox("Step over calls");
+    stepOverCheck_ = new QCheckBox(tr("Step over calls"));
     form->addWidget(stepOverCheck_, row, 2);
 
-    stayInModuleCheck_ = new QCheckBox("Stay in module");
+    stayInModuleCheck_ = new QCheckBox(tr("Stay in module"));
     form->addWidget(stayInModuleCheck_, row, 3);
     ++row;
 
-    form->addWidget(new QLabel("Module start (hex):"), row, 0);
+    form->addWidget(new QLabel(tr("Module start (hex):")), row, 0);
     moduleStartEdit_ = new QLineEdit;
-    moduleStartEdit_->setPlaceholderText("0x... (only if Stay in module)");
+    moduleStartEdit_->setPlaceholderText(tr("0x... (only if Stay in module)"));
     form->addWidget(moduleStartEdit_, row, 1);
-    form->addWidget(new QLabel("end:"), row, 2);
+    form->addWidget(new QLabel(tr("end:")), row, 2);
     moduleEndEdit_ = new QLineEdit;
     form->addWidget(moduleEndEdit_, row, 3);
     ++row;
 
-    form->addWidget(new QLabel("Stop address (hex, optional):"), row, 0);
+    form->addWidget(new QLabel(tr("Stop address (hex, optional):")), row, 0);
     stopAddressEdit_ = new QLineEdit;
-    stopAddressEdit_->setPlaceholderText("Trace stops when this address is reached");
+    stopAddressEdit_->setPlaceholderText(tr("Trace stops when this address is reached"));
     form->addWidget(stopAddressEdit_, row, 1, 1, 3);
     ++row;
 
@@ -140,14 +149,14 @@ void TracerWindow::buildUi() {
 
     // Buttons + progress
     auto* btnRow = new QHBoxLayout;
-    startBtn_ = new QPushButton("Start Trace");
-    cancelBtn_ = new QPushButton("Cancel");
+    startBtn_ = new QPushButton(tr("Start Trace"));
+    cancelBtn_ = new QPushButton(tr("Cancel"));
     cancelBtn_->setEnabled(false);
-    saveBtn_ = new QPushButton("Save…");
+    saveBtn_ = new QPushButton(tr("Save…"));
     saveBtn_->setEnabled(false);
     progressBar_ = new QProgressBar;
     progressBar_->setRange(0, 100);
-    statusLabel_ = new QLabel("Idle");
+    statusLabel_ = new QLabel(tr("Idle"));
     btnRow->addWidget(startBtn_);
     btnRow->addWidget(cancelBtn_);
     btnRow->addWidget(saveBtn_);
@@ -167,12 +176,12 @@ void TracerWindow::buildUi() {
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setProperty("monospace", true);   // font from the theme sheet
     styleDataTable(table_);
-    setEmptyHint(table_, "Traced instructions appear here.");
+    setEmptyHint(table_, tr("Traced instructions appear here."));
     connect(table_, &QTableView::doubleClicked, this, [this](const QModelIndex& index) {
         if (!index.isValid() || index.row() >= (int)entries_.size()) return;
         const auto& e = entries_[index.row()];
         auto* dlg = new QDialog(this);
-        dlg->setWindowTitle(QString("Step %1 @ 0x%2").arg(index.row()).arg(e.address, 0, 16));
+        dlg->setWindowTitle(tr("Step %1 @ 0x%2").arg(index.row()).arg(e.address, 0, 16));
         dlg->resize(500, 320);
         auto* dl = new QVBoxLayout(dlg);
         auto* hdr = new QLabel(QString("<b>%1</b>").arg(QString::fromStdString(e.instruction)));
@@ -206,7 +215,7 @@ void TracerWindow::buildUi() {
 
 void TracerWindow::onStart() {
     if (!proc_) {
-        QMessageBox::warning(this, "No process", "Open a process before tracing.");
+        QMessageBox::warning(this, tr("No process"), tr("Open a process before tracing."));
         return;
     }
     if (worker_.joinable()) return;
@@ -218,7 +227,7 @@ void TracerWindow::onStart() {
         bool ok=false;
         auto value=text.toULongLong(&ok,16);
         if (!ok || value>UINTPTR_MAX) {
-            statusLabel_->setText("Invalid hexadecimal address");
+            statusLabel_->setText(tr("Invalid hexadecimal address"));
             edit->setFocus(); edit->selectAll(); return false;
         }
         result=static_cast<uintptr_t>(value); return true;
@@ -230,20 +239,20 @@ void TracerWindow::onStart() {
     if (cfg.stayInModule) {
         if (!address(moduleStartEdit_,cfg.moduleBase) || !address(moduleEndEdit_,cfg.moduleEnd)) return;
         if (!cfg.moduleEnd || cfg.moduleEnd<=cfg.moduleBase) {
-            statusLabel_->setText("Module end must be greater than its start"); return;
+            statusLabel_->setText(tr("Module end must be greater than its start")); return;
         }
     }
 
     debugger_ = debuggerFactory_ ? debuggerFactory_() : std::make_unique<os::LinuxDebugger>();
     if (!debugger_) {
-        QMessageBox::warning(this, "No debugger",
-            "No debugger could be constructed for the attached process.");
+        QMessageBox::warning(this, tr("No debugger"),
+            tr("No debugger could be constructed for the attached process."));
         return;
     }
     entries_.clear();
     model_->reload();
     progressBar_->setValue(0);
-    statusLabel_->setText("Tracing…");
+    statusLabel_->setText(tr("Tracing…"));
     startBtn_->setEnabled(false);
     cancelBtn_->setEnabled(true);
     saveBtn_->setEnabled(false);
@@ -260,7 +269,7 @@ void TracerWindow::onStart() {
 
 void TracerWindow::onCancel() {
     tracer_.cancel();
-    statusLabel_->setText("Cancelling…");
+    statusLabel_->setText(tr("Cancelling…"));
 }
 
 void TracerWindow::onTraceFinished() {
@@ -268,11 +277,13 @@ void TracerWindow::onTraceFinished() {
 
     model_->reload();   // headers follow the trace's architecture
     progressBar_->setValue(100);
-    statusLabel_->setText(QString("%1 steps recorded%2")
-        .arg(entries_.size())
-        .arg(entries_.size() == 0 ? " (check start address / module range)" : ""));
+    if (entries_.empty())
+        statusLabel_->setText(tr("%1 steps recorded (check start address / module range)")
+                                  .arg(entries_.size()));
+    else
+        statusLabel_->setText(tr("%1 steps recorded").arg(entries_.size()));
     if (auto error=tracer_.lastError())
-        statusLabel_->setText(QString("%1 steps recorded: %2").arg(entries_.size()).arg(QString::fromStdString(
+        statusLabel_->setText(tr("%1 steps recorded: %2").arg(entries_.size()).arg(QString::fromStdString(
             proc_ ? ce::targetOperationError(*proc_, ce::TargetFeature::Trace, error) : error.message())));
     startBtn_->setEnabled(true);
     cancelBtn_->setEnabled(false);
@@ -280,11 +291,11 @@ void TracerWindow::onTraceFinished() {
 }
 
 void TracerWindow::onSave() {
-    auto path = QFileDialog::getSaveFileName(this, "Save trace", "trace.txt", "Text (*.txt)");
+    auto path = QFileDialog::getSaveFileName(this, tr("Save trace"), "trace.txt", tr("Text (*.txt)"));
     if (path.isEmpty()) return;
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QMessageBox::warning(this, "Save failed", f.errorString());
+        QMessageBox::warning(this, tr("Save failed"), f.errorString());
         return;
     }
     QTextStream out(&f);

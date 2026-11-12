@@ -1,5 +1,6 @@
 #include "gui/secret_store.hpp"
 
+#include <QCoreApplication>
 #include <QDBusArgument>
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
@@ -125,8 +126,8 @@ bool runPrompt(const QDBusObjectPath& prompt, QString* error) {
     if (failed(call(prompt.path(), kPromptInterface, "Prompt", {QString()}, error), 0)) return false;
     if (!waiter.done) loop.exec();
     bus.disconnect(kService, prompt.path(), kPromptInterface, "Completed", &waiter, SLOT(completed(bool,QDBusVariant)));
-    if (!waiter.done) { if (error) *error = "the keyring did not answer"; return false; }
-    if (waiter.dismissed) { if (error) *error = "the keyring prompt was dismissed"; return false; }
+    if (!waiter.done) { if (error) *error = QCoreApplication::translate("SecretStore", "the keyring did not answer"); return false; }
+    if (waiter.dismissed) { if (error) *error = QCoreApplication::translate("SecretStore", "the keyring prompt was dismissed"); return false; }
     return true;
 }
 
@@ -193,7 +194,7 @@ bool SecretStore::store(const QString& value, QString* error) {
     }
     ++changes;
     persisted_ = false;
-    if (!available()) { if (error) *error = "no keyring service is running"; return false; }
+    if (!available()) { if (error) *error = QCoreApplication::translate("SecretStore", "no keyring service is running"); return false; }
     auto session = openSession(error);
     if (!session) return false;
     const SessionCloser closer{*session};
@@ -201,12 +202,13 @@ bool SecretStore::store(const QString& value, QString* error) {
     if (failed(alias, 1)) return false;
     const auto collection = alias.arguments().at(0).value<QDBusObjectPath>();
     if (collection.path().isEmpty() || collection.path() == "/") {
-        if (error) *error = "the keyring has no default collection";
+        if (error) *error = QCoreApplication::translate("SecretStore", "the keyring has no default collection");
         return false;
     }
     if (!unlock({collection}, error)) return false;
     QVariantMap properties;
-    properties["org.freedesktop.Secret.Item.Label"] = QString("Cheat Engine for Linux: %1 API key").arg(account_);
+    properties["org.freedesktop.Secret.Item.Label"] =
+        QCoreApplication::translate("SecretStore", "Cheat Engine for Linux: %1 API key").arg(account_);
     properties["org.freedesktop.Secret.Item.Attributes"] = QVariant::fromValue(attributesFor(account_));
     const Secret secret{*session, {}, value.toUtf8(), "text/plain"};
     auto created = call(collection.path(), "org.freedesktop.Secret.Collection", "CreateItem",

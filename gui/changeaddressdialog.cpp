@@ -13,6 +13,7 @@
 #include <QCheckBox>
 #include <QPushButton>
 #include <QDialogButtonBox>
+#include <QCoreApplication>
 #include <QSignalBlocker>
 
 #include <algorithm>
@@ -21,22 +22,22 @@ namespace ce::gui {
 
 // CE cbvarType order (formAddressChangeUnit).
 static const struct { const char* label; ce::ValueType type; } kTypes[] = {
-    {"Byte", ce::ValueType::Byte},
-    {"2 Bytes", ce::ValueType::Int16},
-    {"4 Bytes", ce::ValueType::Int32},
-    {"8 Bytes", ce::ValueType::Int64},
-    {"Float", ce::ValueType::Float},
-    {"Double", ce::ValueType::Double},
-    {"String", ce::ValueType::String},
-    {"Array of byte", ce::ValueType::ByteArray},
-    {"Pointer", ce::ValueType::Pointer},
+    {QT_TRANSLATE_NOOP("ce::gui::ChangeAddressDialog", "Byte"), ce::ValueType::Byte},
+    {QT_TRANSLATE_NOOP("ce::gui::ChangeAddressDialog", "2 Bytes"), ce::ValueType::Int16},
+    {QT_TRANSLATE_NOOP("ce::gui::ChangeAddressDialog", "4 Bytes"), ce::ValueType::Int32},
+    {QT_TRANSLATE_NOOP("ce::gui::ChangeAddressDialog", "8 Bytes"), ce::ValueType::Int64},
+    {QT_TRANSLATE_NOOP("ce::gui::ChangeAddressDialog", "Float"), ce::ValueType::Float},
+    {QT_TRANSLATE_NOOP("ce::gui::ChangeAddressDialog", "Double"), ce::ValueType::Double},
+    {QT_TRANSLATE_NOOP("ce::gui::ChangeAddressDialog", "String"), ce::ValueType::String},
+    {QT_TRANSLATE_NOOP("ce::gui::ChangeAddressDialog", "Array of byte"), ce::ValueType::ByteArray},
+    {QT_TRANSLATE_NOOP("ce::gui::ChangeAddressDialog", "Pointer"), ce::ValueType::Pointer},
 };
 
 ChangeAddressDialog::ChangeAddressDialog(const QString& address, ce::ValueType type,
                                          bool showHex, int length, QWidget* parent,
                                          bool showSigned, ce::ProcessHandle* proc)
     : QDialog(parent), proc_(proc) {
-    setWindowTitle("Change address");
+    setWindowTitle(tr("Change address"));
 
     auto* v = new QVBoxLayout(this);
     auto* form = new QFormLayout;
@@ -55,12 +56,12 @@ ChangeAddressDialog::ChangeAddressDialog(const QString& address, ce::ValueType t
     };
     addrEdit_ = new QLineEdit(address);          // CE editAddress
     addrEdit_->setMinimumWidth(240);
-    form->addRow(label("Address:"), addrEdit_);
+    form->addRow(label(tr("Address:")), addrEdit_);
 
     typeCombo_ = new QComboBox;                   // CE cbvarType
     int sel = 2;                                  // default 4 Bytes
     for (int i = 0; i < (int)(sizeof(kTypes) / sizeof(kTypes[0])); ++i) {
-        typeCombo_->addItem(kTypes[i].label);
+        typeCombo_->addItem(tr(kTypes[i].label));
         if (kTypes[i].type == type) sel = i;
     }
     // CE has no separate "Unicode String" type: a Unicode string is the String type
@@ -70,21 +71,21 @@ ChangeAddressDialog::ChangeAddressDialog(const QString& address, ce::ValueType t
         for (int i = 0; i < (int)(sizeof(kTypes) / sizeof(kTypes[0])); ++i)
             if (kTypes[i].type == ce::ValueType::String) { sel = i; break; }
     typeCombo_->setCurrentIndex(sel);
-    form->addRow(label("Type:"), typeCombo_);
+    form->addRow(label(tr("Type:")), typeCombo_);
 
     lengthEdit_ = new QLineEdit(QString::number(length > 0 ? length : 1));  // CE edtSize
-    lengthLabel_ = label("Length:");
+    lengthLabel_ = label(tr("Length:"));
     lengthLabel_->setBuddy(lengthEdit_);
     form->addRow(lengthLabel_, lengthEdit_);
     v->addLayout(form);
 
     auto* flags = new QHBoxLayout;
-    pointerCheck_ = new QCheckBox("Pointer");      // CE cbPointer
-    hexCheck_     = new QCheckBox("Hexadecimal");  // CE cbHex
+    pointerCheck_ = new QCheckBox(tr("Pointer"));      // CE cbPointer
+    hexCheck_     = new QCheckBox(tr("Hexadecimal"));  // CE cbHex
     hexCheck_->setChecked(showHex);
-    signedCheck_  = new QCheckBox("Signed");       // CE cbSigned
+    signedCheck_  = new QCheckBox(tr("Signed"));       // CE cbSigned
     signedCheck_->setChecked(showSigned);
-    unicodeCheck_ = new QCheckBox("Unicode");      // CE cbunicode
+    unicodeCheck_ = new QCheckBox(tr("Unicode"));      // CE cbunicode
     unicodeCheck_->setChecked(startUnicode);
     flags->addWidget(pointerCheck_);
     flags->addWidget(hexCheck_);
@@ -108,13 +109,13 @@ ChangeAddressDialog::ChangeAddressDialog(const QString& address, ce::ValueType t
     auto* pv = new QVBoxLayout(pointerBox_);
     pv->setContentsMargins(0, 0, 0, 0);
     auto* baseRow = new QHBoxLayout;
-    baseRow->addWidget(label("Base:"));
+    baseRow->addWidget(label(tr("Base:")));
     pointerBaseEdit_ = new QLineEdit;
     baseRow->addWidget(pointerBaseEdit_);
     pv->addLayout(baseRow);
     offsetsLayout_ = new QVBoxLayout;
     pv->addLayout(offsetsLayout_);
-    auto* addOffBtn = new QPushButton("Add offset");
+    auto* addOffBtn = new QPushButton(tr("Add offset"));
     auto* addRow = new QHBoxLayout;
     addRow->addSpacing(labelWidth_ + addRow->spacing());
     addRow->addWidget(addOffBtn);
@@ -197,7 +198,7 @@ void ChangeAddressDialog::updatePreview() {
     ce::ExpressionParser parser(proc_, nullptr);
     auto addr = parser.parse(expr);
     if (!addr || !*addr) {
-        previewLabel_->setText(QStringLiteral("→ ?? (does not resolve)"));
+        previewLabel_->setText(tr("→ ?? (does not resolve)"));
         return;
     }
     QString txt = QStringLiteral("→ 0x%1").arg(*addr, 0, 16);
@@ -248,14 +249,14 @@ void ChangeAddressDialog::addOffsetRow(long long value) {
     auto* row = new QWidget;
     auto* h = new QHBoxLayout(row);
     h->setContentsMargins(0, 0, 0, 0);
-    auto* label = new QLabel("Offset:");
+    auto* label = new QLabel(tr("Offset:"));
     label->setFixedWidth(labelWidth_);
     h->addWidget(label);
     auto* edit = new QLineEdit;
     edit->setText(value < 0 ? "-" + QString::number(-value, 16) : QString::number(value, 16));
     h->addWidget(edit);
     auto* rm = new QPushButton("−");
-    rm->setToolTip("Remove this offset");
+    rm->setToolTip(tr("Remove this offset"));
     rm->setStyleSheet("QPushButton { padding: 0; }");
     rm->setFixedSize(30, edit->sizeHint().height());
     h->addWidget(rm);

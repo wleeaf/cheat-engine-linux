@@ -22,6 +22,7 @@
 #include <QShortcut>
 #include <QKeySequence>
 #include <QApplication>
+#include <QCoreApplication>
 #include <QClipboard>
 #include <QCheckBox>
 #include <QGroupBox>
@@ -32,8 +33,22 @@
 
 namespace ce::gui {
 
+// A palette entry's widget type is stored, serialized and switched on in English
+// (a saved layout must load in any language); only the label shown to the user is
+// translated. The item list shows the same label.
+static QString formTypeLabel(const QString& type) {
+    if (type == QStringLiteral("Button"))   return QCoreApplication::translate("FormDesigner", "Button");
+    if (type == QStringLiteral("Label"))    return QCoreApplication::translate("FormDesigner", "Label");
+    if (type == QStringLiteral("Edit"))     return QCoreApplication::translate("FormDesigner", "Edit");
+    if (type == QStringLiteral("CheckBox")) return QCoreApplication::translate("FormDesigner", "CheckBox");
+    if (type == QStringLiteral("Memo"))     return QCoreApplication::translate("FormDesigner", "Memo");
+    if (type == QStringLiteral("GroupBox")) return QCoreApplication::translate("FormDesigner", "GroupBox");
+    if (type == QStringLiteral("Panel"))    return QCoreApplication::translate("FormDesigner", "Panel");
+    return type;
+}
+
 FormDesigner::FormDesigner(QWidget* parent) : QMainWindow(parent) {
-    setWindowTitle("Form Designer");
+    setWindowTitle(tr("Form Designer"));
     resize(1100, 720);
 
     auto* central = new QWidget;
@@ -41,19 +56,30 @@ FormDesigner::FormDesigner(QWidget* parent) : QMainWindow(parent) {
 
     // ── Palette pane (left) ──
     auto* paletteCol = new QVBoxLayout;
-    paletteCol->addWidget(new QLabel("<b>Palette</b>"));
+    paletteCol->addWidget(new QLabel(tr("<b>Palette</b>")));
     paletteList_ = new QListWidget;
-    paletteList_->addItems({"Button", "Label", "Edit", "CheckBox", "Memo", "GroupBox", "Panel"});
+    // The type travels in the item data so the label can be translated.
+    auto addPaletteItem = [&](const QString& label, const char* type) {
+        auto* item = new QListWidgetItem(label, paletteList_);
+        item->setData(Qt::UserRole, QString::fromLatin1(type));
+    };
+    addPaletteItem(tr("Button"),   "Button");
+    addPaletteItem(tr("Label"),    "Label");
+    addPaletteItem(tr("Edit"),     "Edit");
+    addPaletteItem(tr("CheckBox"), "CheckBox");
+    addPaletteItem(tr("Memo"),     "Memo");
+    addPaletteItem(tr("GroupBox"), "GroupBox");
+    addPaletteItem(tr("Panel"),    "Panel");
     paletteList_->setCurrentRow(0);
     paletteCol->addWidget(paletteList_);
-    auto* addBtn = new QPushButton("Add to form");
+    auto* addBtn = new QPushButton(tr("Add to form"));
     connect(addBtn, &QPushButton::clicked, this, &FormDesigner::onAddWidget);
     paletteCol->addWidget(addBtn);
 
-    paletteCol->addWidget(new QLabel("<b>Items</b>"));
+    paletteCol->addWidget(new QLabel(tr("<b>Items</b>")));
     itemList_ = new QListWidget;
     paletteCol->addWidget(itemList_, 1);
-    auto* delBtn = new QPushButton("Delete");
+    auto* delBtn = new QPushButton(tr("Delete"));
     connect(delBtn, &QPushButton::clicked, this, &FormDesigner::onDelete);
     paletteCol->addWidget(delBtn);
     connect(itemList_, &QListWidget::currentRowChanged, this, &FormDesigner::onItemSelected);
@@ -81,7 +107,7 @@ FormDesigner::FormDesigner(QWidget* parent) : QMainWindow(parent) {
     canvas_->setFixedSize(formWidth_, formHeight_);
     auto* canvasWrap = new QWidget;
     auto* canvasLayout = new QVBoxLayout(canvasWrap);
-    auto* canvasHint = new QLabel("<b>Canvas</b>: click a widget on the canvas or in the Items list to select it");
+    auto* canvasHint = new QLabel(tr("<b>Canvas</b>: click a widget on the canvas or in the Items list to select it"));
     canvasHint->setWordWrap(true);
     canvasLayout->addWidget(canvasHint);
     auto* canvasScroll = new QScrollArea;
@@ -95,8 +121,8 @@ FormDesigner::FormDesigner(QWidget* parent) : QMainWindow(parent) {
     auto* luaWrap = new QWidget;
     auto* luaLayout = new QVBoxLayout(luaWrap);
     auto* luaHeader = new QHBoxLayout;
-    luaHeader->addWidget(new QLabel("<b>Generated Lua</b>"));
-    auto* regenBtn = new QPushButton("Refresh");
+    luaHeader->addWidget(new QLabel(tr("<b>Generated Lua</b>")));
+    auto* regenBtn = new QPushButton(tr("Refresh"));
     connect(regenBtn, &QPushButton::clicked, this, &FormDesigner::onGenerateLua);
     luaHeader->addStretch();
     luaHeader->addWidget(regenBtn);
@@ -112,7 +138,7 @@ FormDesigner::FormDesigner(QWidget* parent) : QMainWindow(parent) {
 
     // ── Properties pane (right) ──
     auto* propsCol = new QVBoxLayout;
-    propsCol->addWidget(new QLabel("<b>Form</b>"));
+    propsCol->addWidget(new QLabel(tr("<b>Form</b>")));
     {
         auto* form = new QFormLayout;
         auto* fw = new QSpinBox; fw->setObjectName("formWidth"); fw->setRange(1, QWIDGETSIZE_MAX); fw->setValue(formWidth_);
@@ -123,12 +149,12 @@ FormDesigner::FormDesigner(QWidget* parent) : QMainWindow(parent) {
         connect(fh, qOverload<int>(&QSpinBox::valueChanged), this, [this, fh](int v) {
             formHeight_ = v; canvas_->setFixedSize(formWidth_, formHeight_); redrawCanvas(); onGenerateLua();
         });
-        form->addRow("Width:", fw);
-        form->addRow("Height:", fh);
+        form->addRow(tr("Width:"), fw);
+        form->addRow(tr("Height:"), fh);
         propsCol->addLayout(form);
     }
 
-    propsCol->addWidget(new QLabel("<b>Selected widget</b>"));
+    propsCol->addWidget(new QLabel(tr("<b>Selected widget</b>")));
     auto* propForm = new QFormLayout;
     nameEdit_ = new QLineEdit;
     captionEdit_ = new QLineEdit;
@@ -139,12 +165,12 @@ FormDesigner::FormDesigner(QWidget* parent) : QMainWindow(parent) {
     ySpin_ = new QSpinBox; ySpin_->setRange(0, QWIDGETSIZE_MAX);
     wSpin_ = new QSpinBox; wSpin_->setRange(1, QWIDGETSIZE_MAX); wSpin_->setValue(100);
     hSpin_ = new QSpinBox; hSpin_->setRange(1, QWIDGETSIZE_MAX); hSpin_->setValue(24);
-    propForm->addRow("Name:",    nameEdit_);
-    propForm->addRow("Caption:", captionEdit_);
-    propForm->addRow("X:",       xSpin_);
-    propForm->addRow("Y:",       ySpin_);
-    propForm->addRow("Width:",   wSpin_);
-    propForm->addRow("Height:",  hSpin_);
+    propForm->addRow(tr("Name:"),    nameEdit_);
+    propForm->addRow(tr("Caption:"), captionEdit_);
+    propForm->addRow(tr("X:"),       xSpin_);
+    propForm->addRow(tr("Y:"),       ySpin_);
+    propForm->addRow(tr("Width:"),   wSpin_);
+    propForm->addRow(tr("Height:"),  hSpin_);
     propsCol->addLayout(propForm);
 
     for (auto* w : std::vector<QWidget*>{nameEdit_, captionEdit_, xSpin_, ySpin_, wSpin_, hSpin_}) {
@@ -156,9 +182,9 @@ FormDesigner::FormDesigner(QWidget* parent) : QMainWindow(parent) {
     }
 
     propsCol->addStretch();
-    auto* saveBtn = new QPushButton("Save layout (.json)…");
-    auto* loadBtn = new QPushButton("Load layout (.json)…");
-    auto* exportBtn = new QPushButton("Copy Lua to clipboard");
+    auto* saveBtn = new QPushButton(tr("Save layout (.json)…"));
+    auto* loadBtn = new QPushButton(tr("Load layout (.json)…"));
+    auto* exportBtn = new QPushButton(tr("Copy Lua to clipboard"));
     connect(saveBtn, &QPushButton::clicked, this, &FormDesigner::onSave);
     connect(loadBtn, &QPushButton::clicked, this, &FormDesigner::onLoad);
     connect(exportBtn, &QPushButton::clicked, this, [this]() {
@@ -325,7 +351,7 @@ void FormDesigner::onAddWidget() {
     auto* sel = paletteList_->currentItem();
     if (!sel) return;
     FormItem it;
-    it.type = sel->text();
+    it.type = sel->data(Qt::UserRole).toString();
     // Unique even after deletes (button2 must not appear twice).
     for (size_t n = items_.size() + 1;; ++n) {
         it.name = QString("%1%2").arg(it.type.toLower()).arg(n);
@@ -336,7 +362,7 @@ void FormDesigner::onAddWidget() {
     if (it.type == "GroupBox") { it.w = 200; it.h = 100; }
     if (it.type == "Panel")   { it.w = 200; it.h = 100; }
     items_.push_back(it);
-    itemList_->addItem(QString("%1: %2").arg(it.type).arg(it.name));
+    itemList_->addItem(QString("%1: %2").arg(formTypeLabel(it.type)).arg(it.name));
     itemList_->setCurrentRow(itemList_->count() - 1);
     redrawCanvas();
     onGenerateLua();
@@ -384,13 +410,13 @@ void FormDesigner::onPropertyChanged() {
     it.caption = captionEdit_->text();
     it.x = xSpin_->value(); it.y = ySpin_->value();
     it.w = wSpin_->value(); it.h = hSpin_->value();
-    itemList_->item(selected_)->setText(QString("%1: %2").arg(it.type).arg(it.name));
+    itemList_->item(selected_)->setText(QString("%1: %2").arg(formTypeLabel(it.type)).arg(it.name));
     redrawCanvas();
     onGenerateLua();
 }
 
 void FormDesigner::onSave() {
-    auto path = QFileDialog::getSaveFileName(this, "Save form layout", "form.json", "JSON (*.json)");
+    auto path = QFileDialog::getSaveFileName(this, tr("Save form layout"), "form.json", tr("JSON (*.json)"));
     if (path.isEmpty()) return;
     QJsonObject root;
     root["formWidth"] = formWidth_;
@@ -408,23 +434,23 @@ void FormDesigner::onSave() {
     root["items"] = arr;
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly)) {
-        QMessageBox::warning(this, "Save failed", f.errorString());
+        QMessageBox::warning(this, tr("Save failed"), f.errorString());
         return;
     }
     f.write(QJsonDocument(root).toJson());
 }
 
 void FormDesigner::onLoad() {
-    auto path = QFileDialog::getOpenFileName(this, "Load form layout", "", "JSON (*.json)");
+    auto path = QFileDialog::getOpenFileName(this, tr("Load form layout"), "", tr("JSON (*.json)"));
     if (path.isEmpty()) return;
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) {
-        QMessageBox::warning(this, "Load failed", f.errorString());
+        QMessageBox::warning(this, tr("Load failed"), f.errorString());
         return;
     }
     auto doc = QJsonDocument::fromJson(f.readAll());
     if (!doc.isObject()) {
-        QMessageBox::warning(this, "Load failed", "Not a valid form layout file.");
+        QMessageBox::warning(this, tr("Load failed"), tr("Not a valid form layout file."));
         return;
     }
     auto root = doc.object();
@@ -451,7 +477,7 @@ void FormDesigner::onLoad() {
         it.w = std::clamp(o.value("w").toInt(100), 1, QWIDGETSIZE_MAX);
         it.h = std::clamp(o.value("h").toInt(24), 1, QWIDGETSIZE_MAX);
         items_.push_back(it);
-        itemList_->addItem(QString("%1: %2").arg(it.type).arg(it.name));
+        itemList_->addItem(QString("%1: %2").arg(formTypeLabel(it.type)).arg(it.name));
     }
     redrawCanvas();
     onGenerateLua();

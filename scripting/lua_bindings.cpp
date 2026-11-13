@@ -2553,7 +2553,7 @@ static int l_createMemScan(lua_State* L) {
             if (!p) { lua_pushboolean(L, 0); return 1; }
             try {
                 auto result=std::make_unique<ScanResult>(sd->scanner.firstScan(*p, cfg));
-                if (result->hasWriteError()) throw std::runtime_error("Incomplete scan result files");
+                if (result->hasWriteError()) throw std::runtime_error("Incomplete scan result files: " + result->writeErrorReason());
                 sd->encoding=cfg.stringEncoding;sd->valueType=cfg.valueType;sd->result=std::move(result);
                 lua_pushboolean(L, 1);
                 lua_pushnil(L);
@@ -2578,7 +2578,7 @@ static int l_createMemScan(lua_State* L) {
             if (!p || !sd->result) { lua_pushboolean(L, 0); return 1; }
             try {
                 auto result=std::make_unique<ScanResult>(sd->scanner.nextScan(*p, cfg, *sd->result));
-                if (result->hasWriteError()) throw std::runtime_error("Incomplete scan result files");
+                if (result->hasWriteError()) throw std::runtime_error("Incomplete scan result files: " + result->writeErrorReason());
                 sd->encoding=cfg.stringEncoding;sd->valueType=cfg.valueType;sd->result=std::move(result);
                 lua_pushboolean(L, 1);
                 lua_pushnil(L);

@@ -13,6 +13,22 @@ reimplementation of Cheat Engine).
 
 ---
 
+## Unreleased
+
+- A next scan over many results no longer fails with "A scan-result file could
+  not be fully written (the disk may be full)" on CPUs with many threads
+  ([#7](https://github.com/wleeaf/cheat-engine-linux/issues/7)). Each scan
+  thread held the files of every part of the previous results open at once,
+  threads squared times two to four descriptors, which passes the usual limit
+  of 1024 from about 20 threads. A thread now opens only the part it reads.
+  The fault only showed above 65,536 results, where the next scan starts using
+  several threads.
+- A failed scan now says what failed, for example
+  `write values.bin: No space left on device`, instead of always suggesting a
+  full disk. The GUI, `cescan`, Lua and the AI Assistant tools all report it.
+
+---
+
 ## v1.1.0: AI Assistant, tutorial games, and a deep correctness and security pass (2026-10-21)
 
 An AI Assistant panel and an MCP server (`cescan mcp`) that let a model find

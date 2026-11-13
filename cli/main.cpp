@@ -1069,7 +1069,11 @@ static int cmd_scan(pid_t pid, int argc, char** argv) {
             printf("Scanning PID %d...\n",pid);
             result=std::make_unique<ScanResult>(scanner.firstScan(proc,config));
         }
-        if (result->hasWriteError()) {fprintf(stderr,"Incomplete scan result files\n");return 1;}
+        if (result->hasWriteError()) {
+            fprintf(stderr,"Incomplete scan result files%s%s\n",result->writeErrorReason().empty() ? "" : ": ",
+                    result->writeErrorReason().c_str());
+            return 1;
+        }
         result->keepFiles();   // for a later --previous scan
         writeScanMeta(result->directory(), config.valueType, pid);
         printf("Found: %zu results\nResults: %s\n",result->count(),result->directory().c_str());

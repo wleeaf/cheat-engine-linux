@@ -16,6 +16,23 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Next scans on many-core CPUs: 14 November 2026
+
+Issue #7 reported "A scan-result file could not be fully written (the disk may
+be full)" on every large scan. The disk was not the cause. A multithreaded
+next scan gave each worker a `ShardReader` that opened offsets, values, first
+values and (for All) candidates of every shard of the previous result, and a
+result has one shard per thread, so descriptors grew with the thread count
+squared: about 1,700 for 24 threads against the default soft limit of 1024.
+An open failure marked the result unreliable, and the GUI blamed the disk.
+Next scans with fewer than 65,536 results run on one thread, which is why
+small scans worked. Reproduced on workhorse with `ulimit -n 64` and 6
+threads. `ShardReader` now opens only the shard it is reading (a worker's
+slice is contiguous), and `cecore_deep_test` runs a 32-thread next scan over
+32 shards under a lowered `RLIMIT_NOFILE`. `ScanResult` also records the first
+failure (`writeErrorReason()`, such as `write values.bin: No space left on
+device`), which the GUI, `cescan`, Lua and the agent tools now show.
+
 ## GUI polish from a full screenshot review: 13 October 2026
 
 `gui_lifecycle_smoke --screenshots DIR` now renders about 180 PNGs: every

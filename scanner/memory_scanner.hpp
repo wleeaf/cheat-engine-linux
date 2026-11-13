@@ -10,6 +10,7 @@
 #include <memory>
 #include <vector>
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace ce {
@@ -139,6 +140,9 @@ public:
     /// True if backing files could not be opened, read or fully written, or their
     /// persisted layout is invalid. Consumers must treat the result as unreliable.
     bool hasWriteError() const { return writeError_; }
+    /// What failed first ("write values.bin: No space left on device"), or
+    /// empty when nothing recorded a cause.
+    const std::string& writeErrorReason() const { return writeErrorReason_; }
     bool hasDataFormat() const { return hasDataFormat_; }
     /// All-type candidates: bits 0..5 select Byte, Int16, Int32, Int64,
     /// Float and Double. Each row retains only types surviving every scan.
@@ -152,9 +156,11 @@ public:
     uint8_t pointerWidth() const { return pointerWidth_; }
     // Persist the sample format without changing their raw target byte layout.
     void setDataFormat(ByteOrder order, uint8_t pointerWidth);
-    /// Mark the result truncated/unreliable (used by the merge path when a
-    /// concatenation write was short).
-    void markWriteError() { writeError_ = true; }
+    /// Mark the result truncated/unreliable, keeping the first reason given.
+    void markWriteError(const std::string& reason = {}) {
+        writeError_ = true;
+        if (writeErrorReason_.empty()) writeErrorReason_ = reason;
+    }
 
     /// Read address at index i.
     uintptr_t address(size_t i) const;
@@ -227,6 +233,8 @@ private:
     void loadDataFormat();
 
     bool writeError_ = false;   // a backing-file write was short/failed
+    std::string writeErrorReason_;
+    void failFile(const char* what, const char* file, int err);
     bool storeFirst_ = true;    // write a separate first_values stream
     bool finalized_ = true;
     void swap(ScanResult& other) noexcept;

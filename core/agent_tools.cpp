@@ -830,7 +830,7 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             if (first) {
                 if (auto problem = memoryAccessProblem(*s.process)) return fail("cannot read this process: " + *problem);
                 auto scanned = std::make_unique<ScanResult>(unlocked([&] { return s.scanner.firstScan(*s.process, config); }));
-                if (scanned->hasWriteError()) return fail("the scan results could not be stored (is the temp folder full?)");
+                if (scanned->hasWriteError()) return fail("the scan results could not be stored: " + scanned->writeErrorReason());
                 s.undo.reset();
                 s.result = std::move(scanned);
                 s.scanType = type;
@@ -838,7 +838,7 @@ AgentToolResult AgentSession::call(const std::string& name, const json::Value& a
             } else {
                 auto narrowed = std::make_unique<ScanResult>(
                     unlocked([&] { return s.scanner.nextScan(*s.process, config, *s.result); }));
-                if (narrowed->hasWriteError()) return fail("the scan results could not be stored (is the temp folder full?)");
+                if (narrowed->hasWriteError()) return fail("the scan results could not be stored: " + narrowed->writeErrorReason());
                 s.undo = std::move(s.result);
                 s.result = std::move(narrowed);
             }

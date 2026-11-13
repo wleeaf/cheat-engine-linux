@@ -26,6 +26,7 @@
 #include <optional>
 #include <set>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <sys/prctl.h>
@@ -53,9 +54,10 @@ public:
     std::vector<uint8_t> bytes;
     std::vector<ModuleInfo> mappedModules;
     bool wide = true;
-    bool shortRead = false, shortWrite = false;
+    bool shortRead = false, shortWrite = false, concurrent = false;
     uintptr_t allocationAddress = 0;
     explicit BufferProcess(size_t n) : bytes(n) {}
+    bool supportsConcurrentReads() const override { return concurrent; }
     pid_t pid() const override { return getpid(); }
     bool is64bit() const override { return wide; }
     TargetDescription targetDescription() override { return ce::test::x86Target(is64bit(), runs32BitCode()); }
@@ -462,6 +464,8 @@ static void scanTests(const fs::path& root) {
     failed.addResult(0x1000, &v, 4);
     failed.finalize();
     check(failed.hasWriteError(), "backing-file open failures mark scan output unreliable");
+    check(failed.writeErrorReason().starts_with("create values.bin: "),
+          "a scan-file failure names the file and the error");
     ScanResult widths(root / "widths");
     widths.addResult(0x1000, &v, 4);
     widths.addResult(0x1008, &values[1], 8);
@@ -482,6 +486,36 @@ static void scanTests(const fs::path& root) {
     check((permissions & (fs::perms::group_all | fs::perms::others_all)) == fs::perms::none,
           "scan directories keep process memory private");
     fs::remove_all(empty.directory().parent_path());
+
+    // Issue #7: each next-scan worker opened every previous shard's files at
+    // once, workers x shards x 2-4 descriptors, so a many-core CPU passed the
+    // usual 1024 limit and every large next scan was reported as a write error.
+    {
+        BufferProcess many(4u << 20);
+        many.allocationAddress = 1;
+        many.concurrent = true;
+        for (size_t at = 0; at + 4 <= many.bytes.size(); at += 4) put(many.bytes, at, 1);
+        setenv("CE_SCAN_CHUNK_KB", "64", 1);
+        ScanConfig config;
+        config.valueType = ValueType::Int32;
+        config.compareType = ScanCompare::Exact;
+        config.intValue = 1;
+        config.alignment = 4;
+        MemoryScanner scanner(32);
+        auto first = scanner.firstScan(many, config);
+        unsetenv("CE_SCAN_CHUNK_KB");
+        rlimit saved{};
+        getrlimit(RLIMIT_NOFILE, &saved);
+        rlimit lowered = saved;
+        lowered.rlim_cur = std::min<rlim_t>(saved.rlim_cur, countFds() + 512);
+        setrlimit(RLIMIT_NOFILE, &lowered);
+        config.compareType = ScanCompare::Unchanged;
+        std::optional<ScanResult> next;
+        try { next.emplace(scanner.nextScan(many, config, first)); } catch (...) {}
+        setrlimit(RLIMIT_NOFILE, &saved);
+        check(first.shardLayout().size() == 32 && next && !next->hasWriteError() && next->count() == (4u << 20) / 4,
+              "a 32-thread next scan over 32 shards stays within the descriptor limit");
+    }
 }
 
 static std::vector<uint8_t> peFixture() {

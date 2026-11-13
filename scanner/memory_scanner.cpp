@@ -1771,6 +1771,7 @@ void ScanResult::swap(ScanResult& other) noexcept {
     swap(hasDataFormat_,other.hasDataFormat_);swap(byteOrder_,other.byteOrder_);swap(pointerWidth_,other.pointerWidth_);
     swap(hasAllTypes_,other.hasAllTypes_);swap(allTypeBuf_,other.allTypeBuf_);swap(allTypeFd_,other.allTypeFd_);
     swap(writeError_, other.writeError_);
+    swap(writeErrorReason_, other.writeErrorReason_);
     swap(storeFirst_, other.storeFirst_);
     swap(finalized_, other.finalized_);
     swap(offsetBuf_, other.offsetBuf_);
@@ -1816,29 +1817,38 @@ ScanResult::ScanResult(const std::filesystem::path& dir, bool storeFirst)
         valueBuf_.reserve(8192 * 8);
         if (storeFirst_) firstValueBuf_.reserve(8192 * 8);
         offsetFd_ = open(offPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (offsetFd_ < 0) failFile("create", "offsets.bin", errno);
         valueFd_ = open(valPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (valueFd_ < 0) failFile("create", "values.bin", errno);
         // A first scan (storeFirst == false) has firstValue == value, so it does
         // not write first_values.bin at all; firstValue(i) falls back to value(i).
         firstValueFd_ = storeFirst_
             ? open(firstValPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644) : -1;
-        writeError_ = offsetFd_ < 0 || valueFd_ < 0 || (storeFirst_ && firstValueFd_ < 0);
+        if (storeFirst_ && firstValueFd_ < 0) failFile("create", "first_values.bin", errno);
     }
+}
+
+void ScanResult::failFile(const char* what, const char* file, int err) {
+    writeError_ = true;
+    if (!writeErrorReason_.empty()) return;
+    writeErrorReason_ = std::string(what) + " " + file;
+    if (err) writeErrorReason_ += std::string(": ") + std::strerror(err);
 }
 
 void ScanResult::setDataFormat(ByteOrder order,uint8_t width) {
     if ((order!=ByteOrder::Unknown && order!=ByteOrder::Little && order!=ByteOrder::Big) ||
-        (width!=0 && width!=4 && width!=8)) {writeError_=true;return;}
+        (width!=0 && width!=4 && width!=8)) {markWriteError("invalid data format");return;}
     hasDataFormat_=true;byteOrder_=order;pointerWidth_=width;
     std::ofstream file(dir_/"format.txt",std::ios::trunc);
     file<<"CE_SCAN_FORMAT 1 "<<static_cast<unsigned>(order)<<" "<<static_cast<unsigned>(width)<<"\n";
-    file.close();if (!file) writeError_=true;
+    file.close();if (!file) failFile("write","format.txt",errno);
 }
 void ScanResult::enableAllTypeCandidates() {
     if (hasAllTypes_) return;
-    if (finalized_ || count_) {writeError_=true;return;}
+    if (finalized_ || count_) {markWriteError("all-type candidates enabled after results were added");return;}
     hasAllTypes_=true;allTypeBuf_.reserve(8192);
     allTypeFd_=open((dir_/"all_types.bin").c_str(),O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW,0644);
-    if (allTypeFd_<0) writeError_=true;
+    if (allTypeFd_<0) failFile("create","all_types.bin",errno);
 }
 static int openAllTypeCandidates(const std::filesystem::path& directory,size_t count,bool validate=false) {
     int fd=open((directory/"all_types.bin").c_str(),O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
@@ -1872,18 +1882,18 @@ void ScanResult::addAllTypeResult(uintptr_t addr,const void* value,uint8_t mask)
 }
 void ScanResult::addAllTypeResult(uintptr_t addr,const void* value,const void* firstValue,uint8_t mask) {
     enableAllTypeCandidates();
-    if (!mask || (mask&0xc0) || finalized_ || writeError_) {writeError_=true;return;}
+    if (!mask || (mask&0xc0) || finalized_ || writeError_) {markWriteError("invalid all-type candidate");return;}
     allTypeBuf_.push_back(mask);addResult(addr,value,firstValue,8);
 }
 void ScanResult::loadDataFormat() {
     const auto path=dir_/"format.txt";
     int fd=open(path.c_str(),O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
-    if (fd<0) {if (errno!=ENOENT) writeError_=true;return;}
+    if (fd<0) {if (errno!=ENOENT) failFile("open","format.txt",errno);return;}
     struct stat info{};char bytes[65]{};
     const bool bounded=!fstat(fd,&info) && S_ISREG(info.st_mode) && info.st_size>0 && info.st_size<=64;
     ssize_t size=-1;if (bounded) do {size=pread(fd,bytes,static_cast<size_t>(info.st_size),0);} while (size<0 && errno==EINTR);
     close(fd);
-    if (!bounded || size!=info.st_size) {writeError_=true;return;}
+    if (!bounded || size!=info.st_size) {markWriteError("invalid format.txt");return;}
     std::istringstream input(std::string(bytes,static_cast<size_t>(size)));
     std::string magic,versionToken,orderToken,widthToken,extra;unsigned version=0,order=0,width=0;
     auto number=[](const std::string& token,unsigned& value) {
@@ -1893,7 +1903,7 @@ void ScanResult::loadDataFormat() {
     if (!(input>>magic>>versionToken>>orderToken>>widthToken) || magic!="CE_SCAN_FORMAT" ||
         !number(versionToken,version) || !number(orderToken,order) || !number(widthToken,width) || version!=1 ||
         order>static_cast<unsigned>(ByteOrder::Big) || (width!=0 && width!=4 && width!=8) || (input>>extra)) {
-        writeError_=true;return;
+        markWriteError("invalid format.txt");return;
     }
     hasDataFormat_=true;byteOrder_=static_cast<ByteOrder>(order);pointerWidth_=static_cast<uint8_t>(width);
 }
@@ -1972,22 +1982,22 @@ void ScanResult::loadShards() {
         // the actual offsets/frames/values/first_values files (written once by
         // the scan workers — never copied into a merged file).
         std::ifstream in(manifestPath);
-        if (!in) writeError_ = true;
+        if (!in) failFile("open", "shards.txt", errno);
         std::string line;
         while (std::getline(in, line)) {
             if (line.empty()) continue;
             size_t sp = line.find(' ');
-            if (sp == std::string::npos || sp + 1 == line.size()) { writeError_ = true; break; }
+            if (sp == std::string::npos || sp + 1 == line.size()) { markWriteError("invalid shards.txt"); break; }
             size_t c = 0;
             auto parsed = std::from_chars(line.data(), line.data() + sp, c);
-            if (parsed.ec != std::errc{} || parsed.ptr != line.data() + sp) { writeError_ = true; break; }
+            if (parsed.ec != std::errc{} || parsed.ptr != line.data() + sp) { markWriteError("invalid shards.txt"); break; }
             std::filesystem::path sdir(line.substr(sp + 1));
-            if (!addShard(sdir, c)) { writeError_ = true; break; }
+            if (!addShard(sdir, c)) { markWriteError("inconsistent result files in " + sdir.filename().string()); break; }
         }
-        if (in.bad()) writeError_ = true;
+        if (in.bad()) failFile("read", "shards.txt", errno);
     } else if (std::filesystem::exists(dir_ / "offsets.bin", ec)) {
         // Single result directory: it is the one shard.
-        if (!addShard(dir_, std::nullopt)) writeError_ = true;
+        if (!addShard(dir_, std::nullopt)) markWriteError("inconsistent result files");
     }
     if (writeError_) { shards_.clear(); count_ = 0; valueSize_ = 0; }
 }
@@ -2038,7 +2048,7 @@ void ScanResult::addResult(uintptr_t addr, const void* value, const void* firstV
     if (finalized_ || writeError_ || !value || (storeFirst_ && !firstValue) ||
         !valueSize || (valueSize_ && valueSize != valueSize_) ||
         (hasAllTypes_ && (valueSize!=8 || allTypeBuf_.size()!=offsetBuf_.size()+1))) {
-        writeError_ = true;
+        markWriteError("inconsistent result record");
         return;
     }
     // Encode the address as a 4-byte offset from the current frame base. Matches
@@ -2079,7 +2089,7 @@ static bool writeAll(int fd, const void* data, size_t len) {
     while (len > 0) {
         ssize_t n = ::write(fd, p, len);
         if (n < 0) { if (errno == EINTR) continue; return false; }
-        if (n == 0) return false;
+        if (n == 0) { errno = EIO; return false; }
         p += n;
         len -= static_cast<size_t>(n);
     }
@@ -2097,66 +2107,104 @@ static ScanResult assembleShardedResult(const std::filesystem::path& mergedDir,
     std::filesystem::create_directories(mergedDir);
     int fd = open((mergedDir / "shards.txt").c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
     bool writeError = (fd < 0);
+    std::string reason;
+    if (fd < 0) reason = std::string("create shards.txt: ") + std::strerror(errno);
+    for (auto& tr : parts) {
+        if (!tr.hasWriteError()) continue;
+        writeError = true;
+        if (reason.empty()) reason = tr.writeErrorReason();
+    }
     if (fd >= 0) {
         for (auto& tr : parts) {
-            if (tr.hasWriteError()) writeError = true;
             std::string line = std::to_string(tr.count()) + " " + tr.directory().string() + "\n";
-            if (!writeAll(fd, line.data(), line.size())) writeError = true;
+            if (!writeAll(fd, line.data(), line.size())) {
+                if (!writeError) reason = std::string("write shards.txt: ") + std::strerror(errno);
+                writeError = true;
+            }
         }
         close(fd);
     }
     ScanResult merged(mergedDir); // loads the manifest (read mode)
     if (!parts.empty() && parts.front().hasDataFormat()) {
         merged.setDataFormat(parts.front().byteOrder(),parts.front().pointerWidth());
-        for (const auto& part:parts) if (!part.hasDataFormat() || part.byteOrder()!=merged.byteOrder() || part.pointerWidth()!=merged.pointerWidth()) writeError=true;
+        for (const auto& part:parts) if (!part.hasDataFormat() || part.byteOrder()!=merged.byteOrder() || part.pointerWidth()!=merged.pointerWidth()) {
+            if (!writeError) reason = "worker results disagree on the data format";
+            writeError=true;
+        }
     }
-    if (writeError) merged.markWriteError();
+    if (writeError) merged.markWriteError(reason);
     return merged;
 }
 
 // Reads a global record range from a (possibly sharded) previous result. Each
 // nextScan worker builds its own so positional reads don't share a file offset.
-// Holds every shard's three files open (few shards → few fds).
+// Only the shard being read has its files open: every worker reading every
+// shard would hold workers x shards x 4 descriptors, which on a 32-thread CPU
+// passes the usual 1024 limit, and a worker's slice is contiguous anyway, so it
+// moves through one or two shards.
 struct ShardReader {
     struct S {
-        int ofd = -1, vfd = -1, ffd = -1;
-        int candidatesFd = -1;
+        std::filesystem::path dir;
         size_t count = 0, cum = 0;
         std::vector<ScanResult::Frame> frames;
     };
     std::vector<S> shards;
     std::vector<uint32_t> offTmp; // scratch for decoding a batch's offsets
     bool ok = true;
+    std::string error;            // why a read failed, for the result's reason
+    bool all = false;
+    size_t openIndex = SIZE_MAX;  // the shard whose files are open
+    int ofd = -1, vfd = -1, ffd = -1, candidatesFd = -1;
 
-    explicit ShardReader(const std::vector<ScanResult::ShardInfo>& layout,bool all=false) {
+    explicit ShardReader(const std::vector<ScanResult::ShardInfo>& layout,bool all=false) : all(all) {
         size_t cum = 0;
         for (const auto& si : layout) {
             S s;
+            s.dir = si.dir;
             s.count = si.count;
             s.cum = cum;
             cum += si.count;
-            s.ofd = open((si.dir / "offsets.bin").c_str(), O_RDONLY);
-            s.vfd = open((si.dir / "values.bin").c_str(), O_RDONLY);
-            s.ffd = open((si.dir / "first_values.bin").c_str(), O_RDONLY);
-            if (s.ffd < 0 && errno != ENOENT) ok = false;
-            if (all) {s.candidatesFd=openAllTypeCandidates(si.dir,si.count);if (s.candidatesFd<0) ok=false;}
             s.frames = ScanResult::loadFrames(si.dir);
-            if (s.ofd < 0 || s.vfd < 0) ok = false;
             if (s.count && (s.frames.empty() || s.frames.back().start > s.count ||
-                           s.frames.back().count != s.count - s.frames.back().start)) ok = false;
+                           s.frames.back().count != s.count - s.frames.back().start)) {
+                fail("invalid frames.bin in " + si.dir.filename().string(), 0);
+            }
             shards.push_back(std::move(s));
         }
     }
-    ~ShardReader() {
-        for (auto& s : shards) {
-            if (s.ofd >= 0) close(s.ofd);
-            if (s.vfd >= 0) close(s.vfd);
-            if (s.ffd >= 0) close(s.ffd);
-            if (s.candidatesFd>=0) close(s.candidatesFd);
-        }
-    }
+    ~ShardReader() { closeShard(); }
     ShardReader(const ShardReader&) = delete;
     ShardReader& operator=(const ShardReader&) = delete;
+
+    void fail(const std::string& what, int err) {
+        ok = false;
+        if (error.empty()) error = err ? what + ": " + std::strerror(err) : what;
+    }
+    void closeShard() {
+        for (int* fd : {&ofd, &vfd, &ffd, &candidatesFd})
+            if (*fd >= 0) { close(*fd); *fd = -1; }
+        openIndex = SIZE_MAX;
+    }
+    bool openShard(size_t index) {
+        if (openIndex == index) return true;
+        closeShard();
+        const auto& dir = shards[index].dir;
+        auto openFile = [&](const char* name, int& fd) {
+            fd = open((dir / name).c_str(), O_RDONLY | O_CLOEXEC);
+            if (fd < 0) fail(std::string("open ") + name, errno);
+            return fd >= 0;
+        };
+        if (!openFile("offsets.bin", ofd) || !openFile("values.bin", vfd)) { closeShard(); return false; }
+        // A first scan writes no first_values.bin; first values are its values.
+        ffd = open((dir / "first_values.bin").c_str(), O_RDONLY | O_CLOEXEC);
+        if (ffd < 0 && errno != ENOENT) { fail("open first_values.bin", errno); closeShard(); return false; }
+        if (all) {
+            candidatesFd = openAllTypeCandidates(dir, shards[index].count);
+            if (candidatesFd < 0) { fail("open all_types.bin", errno); closeShard(); return false; }
+        }
+        openIndex = index;
+        return true;
+    }
 
     // Read n records at global [begin, begin+n) into the buffers (addresses +
     // old values + first values), spanning shard boundaries as needed. Addresses
@@ -2165,39 +2213,58 @@ struct ShardReader {
     // Returns true iff every read succeeded.
     bool read(size_t begin, size_t n, uintptr_t* addrs, uint8_t* oldVals,
               uint8_t* firstVals, size_t valueSize,uint8_t* candidates=nullptr) {
+        if (!ok) return false;
         size_t got = 0;
         while (got < n) {
             size_t gi = begin + got;
-            S* sh = nullptr;
-            for (auto& s : shards)
-                if (gi >= s.cum && gi < s.cum + s.count) { sh = &s; break; }
-            if (!sh) return false;
+            size_t index = 0;
+            while (index < shards.size() && !(gi >= shards[index].cum && gi < shards[index].cum + shards[index].count))
+                ++index;
+            if (index == shards.size()) { fail("record index past the previous results", 0); return false; }
+            if (!openShard(index)) return false;
+            S* sh = &shards[index];
             size_t local = gi - sh->cum;
             size_t take = std::min(sh->count - local, n - got);
-            if (offTmp.size() < take) offTmp.resize(take);
-            if (!preadFull(sh->ofd, offTmp.data(), take * sizeof(uint32_t),
-                           (off_t)(local * sizeof(uint32_t))))
+            auto readFailed = [&](const char* name) {
+                // preadFull leaves errno at 0 when the file ends early.
+                if (errno) fail(std::string("read ") + name, errno);
+                else fail(std::string(name) + " is shorter than its record count", 0);
                 return false;
+            };
+            if (offTmp.size() < take) offTmp.resize(take);
+            errno = 0;
+            if (!preadFull(ofd, offTmp.data(), take * sizeof(uint32_t),
+                           (off_t)(local * sizeof(uint32_t))))
+                return readFailed("offsets.bin");
             // Reconstruct addr = frameBase + offset, advancing the frame as the
             // local index crosses frame boundaries (frames are contiguous ranges).
             size_t fi = 0;
             for (size_t j = 0; j < take; ++j) {
                 size_t li = local + j;
                 while (fi < sh->frames.size() && li >= sh->frames[fi].start + sh->frames[fi].count) ++fi;
-                if (fi == sh->frames.size() || offTmp[j] > UINTPTR_MAX - sh->frames[fi].base)
+                if (fi == sh->frames.size() || offTmp[j] > UINTPTR_MAX - sh->frames[fi].base) {
+                    fail("invalid frames.bin in " + sh->dir.filename().string(), 0);
                     return false;
+                }
                 addrs[got + j] = static_cast<uintptr_t>(sh->frames[fi].base) + offTmp[j];
             }
-            if (!preadFull(sh->vfd, oldVals + got * valueSize, take * valueSize,
+            errno = 0;
+            if (!preadFull(vfd, oldVals + got * valueSize, take * valueSize,
                            (off_t)(local * valueSize)))
-                return false;
-            if (sh->ffd < 0)
+                return readFailed("values.bin");
+            errno = 0;
+            if (ffd < 0)
                 std::memcpy(firstVals + got * valueSize, oldVals + got * valueSize, take * valueSize);
-            else if (!preadFull(sh->ffd, firstVals + got * valueSize, take * valueSize,
-                                (off_t)(local * valueSize))) return false;
-            if (candidates && (sh->candidatesFd<0 ||
-                !preadFull(sh->candidatesFd,candidates+got,take,static_cast<off_t>(local)) ||
-                std::any_of(candidates+got,candidates+got+take,[](uint8_t mask){return !mask || (mask&0xc0);}))) return false;
+            else if (!preadFull(ffd, firstVals + got * valueSize, take * valueSize,
+                                (off_t)(local * valueSize))) return readFailed("first_values.bin");
+            errno = 0;
+            if (candidates && (candidatesFd<0 ||
+                !preadFull(candidatesFd,candidates+got,take,static_cast<off_t>(local))))
+                return readFailed("all_types.bin");
+            if (candidates && std::any_of(candidates+got,candidates+got+take,[](uint8_t mask){return !mask || (mask&0xc0);})) {
+                fail("invalid all_types.bin in " + sh->dir.filename().string(), 0);
+                return false;
+            }
             got += take;
         }
         return true;
@@ -2361,13 +2428,13 @@ void ScanResult::flush() {
     // A short/failed write (e.g. ENOSPC) truncates the backing file below count_,
     // so mark the result unreliable rather than silently reading back zeroes later.
     if (offsetFd_ >= 0 && !writeAll(offsetFd_, offsetBuf_.data(), offsetBuf_.size() * sizeof(uint32_t)))
-        writeError_ = true;
+        failFile("write", "offsets.bin", errno);
     if (valueFd_ >= 0 && !writeAll(valueFd_, valueBuf_.data(), valueBuf_.size()))
-        writeError_ = true;
+        failFile("write", "values.bin", errno);
     if (firstValueFd_ >= 0 && !writeAll(firstValueFd_, firstValueBuf_.data(), firstValueBuf_.size()))
-        writeError_ = true;
+        failFile("write", "first_values.bin", errno);
     if (hasAllTypes_ && (allTypeFd_<0 || allTypeBuf_.size()!=offsetBuf_.size() ||
-        !writeAll(allTypeFd_,allTypeBuf_.data(),allTypeBuf_.size()))) writeError_=true;
+        !writeAll(allTypeFd_,allTypeBuf_.data(),allTypeBuf_.size()))) failFile("write","all_types.bin",allTypeFd_<0 ? 0 : errno);
     offsetBuf_.clear();
     valueBuf_.clear();
     firstValueBuf_.clear();
@@ -2388,10 +2455,10 @@ void ScanResult::finalize() {
         for (const auto& fr : frames_) { raw.push_back(fr.first); raw.push_back(fr.second); }
         int ffd = open((dir_ / "frames.bin").c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (ffd >= 0) {
-            if (!writeAll(ffd, raw.data(), raw.size() * sizeof(uint64_t))) writeError_ = true;
+            if (!writeAll(ffd, raw.data(), raw.size() * sizeof(uint64_t))) failFile("write", "frames.bin", errno);
             close(ffd);
         } else {
-            writeError_ = true;
+            failFile("create", "frames.bin", errno);
         }
     }
     if (offsetFd_ >= 0) { close(offsetFd_); offsetFd_ = -1; }
@@ -2715,7 +2782,7 @@ std::unique_ptr<ScanResult> pruneScanResult(const ScanResult& src, size_t valueS
     if (all) out->enableAllTypeCandidates();
     const size_t n=src.count();
     if (src.hasWriteError() || (n && (!valueSize || src.recordStride()!=valueSize))) {
-        out->markWriteError();out->finalize();return out;
+        out->markWriteError("the results to prune are incomplete");out->finalize();return out;
     }
     ShardReader reader(src.shardLayout(),all);
     const size_t batch=std::max<size_t>(1,std::min<size_t>(4096,65536/std::max<size_t>(1,valueSize)));
@@ -2724,7 +2791,7 @@ std::unique_ptr<ScanResult> pruneScanResult(const ScanResult& src, size_t valueS
     for (size_t begin=0;begin<n;) {
         const size_t count=std::min(batch,n-begin);
         if (!reader.ok || !reader.read(begin,count,addresses.data(),values.data(),first.data(),valueSize,all ? masks.data() : nullptr)) {
-            out->markWriteError();break;
+            out->markWriteError("previous results: " + reader.error);break;
         }
         for (size_t j=0;j<count;++j) {
             if (begin+j<remove.size() && remove[begin+j]) continue;
@@ -3296,7 +3363,7 @@ ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& reques
         if (all) res.enableAllTypeCandidates();
         ShardReader reader(layout,previous.hasAllTypeCandidates()); // own fds → positional reads don't collide
         if (!reader.ok) {
-            res.markWriteError();
+            res.markWriteError("previous results: " + reader.error);
             res.finalize();
             return;
         }
@@ -3328,7 +3395,7 @@ ScanResult MemoryScanner::nextScan(ProcessHandle& proc, const ScanConfig& reques
             // matches.
             if (!reader.read(idx,n,addrs.data(),oldVals.data(),firstVals.data(),inputSize,
                              previous.hasAllTypeCandidates() ? previousCandidates.data() : nullptr)) {
-                res.markWriteError();
+                res.markWriteError("previous results: " + reader.error);
                 break;
             }
 

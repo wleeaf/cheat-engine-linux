@@ -153,6 +153,20 @@ static QString foundLabelText(size_t count) {
     return QString("Found: %1").arg(QLocale().toString((qulonglong)count));
 }
 
+// The warning for a scan whose result files are unreliable. Name what failed:
+// "the disk may be full" was the only explanation shown, also when a read of
+// the previous results or a file open failed for another reason.
+static QString scanWriteErrorText(const ScanResult& result) {
+    const auto& reason = result.writeErrorReason();
+    QString text = reason.empty()
+        ? QString("A scan-result file could not be fully written or read.")
+        : QString("A scan-result file could not be fully written or read: %1.").arg(QString::fromStdString(reason));
+    if (reason.find(std::strerror(ENOSPC)) != std::string::npos || reason.find(std::strerror(EDQUOT)) != std::string::npos)
+        text += QString(" The disk holding %1 is full; free space there or set CE_SCAN_DIR to a larger disk.")
+                    .arg(QString::fromStdString(result.directory().parent_path().parent_path().string()));
+    return text + " Some results are unreliable; scan again.";
+}
+
 // Settings > Display "Uppercase hexadecimal" and "Address width", read like
 // the Memory Viewer reads them, for the address list and the scan results.
 struct AddressDisplay { bool upper = false; int digits = 16; };
@@ -3635,9 +3649,7 @@ void MainWindow::onFirstScan() {
 
     foundLabel_->setText(foundLabelText(result->count()));
     if (result->hasWriteError())
-        QMessageBox::warning(this, "Scan results truncated",
-            "A scan-result file could not be fully written (the disk may be full). "
-            "Some results are unreliable; free space and scan again.");
+        QMessageBox::warning(this, "Scan results truncated", scanWriteErrorText(*result));
     if (result->valueSize()) resultValueSize = result->valueSize();
     resultsModel_->setResult(result.get(), config.valueType, resultValueSize, config.stringEncoding);
 
@@ -3773,9 +3785,7 @@ void MainWindow::onNextScan() {
 
     foundLabel_->setText(foundLabelText(result->count()));
     if (result->hasWriteError())
-        QMessageBox::warning(this, "Scan results truncated",
-            "A scan-result file could not be fully written (the disk may be full). "
-            "Some results are unreliable; free space and scan again.");
+        QMessageBox::warning(this, "Scan results truncated", scanWriteErrorText(*result));
     if (result->valueSize()) resultValueSize = result->valueSize();
     resultsModel_->setResult(result.get(), config.valueType, resultValueSize, config.stringEncoding);
 

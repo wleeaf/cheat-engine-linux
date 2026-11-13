@@ -2684,7 +2684,14 @@ static std::filesystem::path scanRoot() {
             }
             if (!ec) root = app / "scans";
         }
-        if (root.empty()) root = fs::temp_directory_path();
+        // The cache directory can be unusable, for example owned by root after
+        // one run under sudo -E. Prefer the disk-backed /var/tmp then: a large
+        // scan in a RAM-backed /tmp fails as if the disk were full.
+        if (root.empty()) {
+            std::error_code ignored;
+            root = fs::is_directory("/var/tmp", ignored) && ::access("/var/tmp", W_OK | X_OK) == 0
+                ? fs::path("/var/tmp") : fs::temp_directory_path();
+        }
     }
     std::call_once(pruned, [&] { pruneStaleScanDirectories(root); });
     return root;

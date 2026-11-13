@@ -683,6 +683,26 @@ void scannerTests(const fs::path& root) {
         check(decodeStringBytes(bad, sizeof(bad), "CP932") == "\xEF\xBF\xBD" "ABC",
               "a code page whose name holds 32 is decoded one byte at a time");
     }
+    {
+        // An unusable cache directory (here a file where the directory goes)
+        // falls back to the disk-backed /var/tmp, not a RAM-backed /tmp.
+        const auto blocked = root / "blocked-cache";
+        fs::create_directories(blocked);
+        { std::ofstream file(blocked / "cheatengine"); }
+        const char* savedTmp = std::getenv("TMPDIR");
+        const std::string tmp = savedTmp ? savedTmp : "";
+        const char* savedXdg = std::getenv("XDG_CACHE_HOME");
+        const std::string xdg = savedXdg ? savedXdg : "";
+        unsetenv("CE_SCAN_DIR");
+        unsetenv("TMPDIR");
+        setenv("XDG_CACHE_HOME", blocked.c_str(), 1);
+        auto fallback = scanner.firstScan(proc, exact);
+        const std::string expected = access("/var/tmp", W_OK | X_OK) == 0 ? "/var/tmp/" : fs::temp_directory_path().string();
+        check(fallback.directory().string().starts_with(expected),
+              "scans fall back to /var/tmp when the cache directory is unusable");
+        if (savedTmp) setenv("TMPDIR", tmp.c_str(), 1);
+        if (savedXdg) setenv("XDG_CACHE_HOME", xdg.c_str(), 1); else unsetenv("XDG_CACHE_HOME");
+    }
     unsetenv("CE_SCAN_DIR");
 }
 

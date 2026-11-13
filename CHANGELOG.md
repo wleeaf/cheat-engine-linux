@@ -26,6 +26,9 @@ reimplementation of Cheat Engine).
 - A failed scan now says what failed, for example
   `write values.bin: No space left on device`, instead of always suggesting a
   full disk. The GUI, `cescan`, Lua and the AI Assistant tools all report it.
+- When `~/.cache/cheatengine` cannot be used, scan results go to the
+  disk-backed `/var/tmp` instead of `/tmp`, which is RAM-backed on many
+  desktops and filled up on large scans.
 
 ---
 

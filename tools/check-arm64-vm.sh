@@ -10,7 +10,7 @@ report_suffix=""
 case "$page_size" in
     4096)
         kernel_sha256=06196d2cf51e9a2bac421564bb64c63a8b7146c9a22755dd22a713e337023013
-        kernel_url=https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/aarch64/netboot/vmlinuz-virt
+        kernel_url=https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/aarch64/netboot-3.23.6/vmlinuz-virt
         kernel_path="${CECORE_VM_KERNEL:-$vm_build/vmlinuz-virt}"
         if [ ! -f "$kernel_path" ]; then
             curl --fail --location --retry 3 --output "$kernel_path.tmp" "$kernel_url"

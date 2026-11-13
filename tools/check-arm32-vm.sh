@@ -16,8 +16,8 @@ fetch_kernel() {
     fi
     printf '%s  %s\n' "$kernel_hash" "$kernel_path" | sha256sum --check
 }
-fetch_kernel "$arm_kernel" https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/armv7/netboot/vmlinuz-lts "$arm_hash"
-fetch_kernel "$compat_kernel" https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/aarch64/netboot/vmlinuz-virt "$compat_hash"
+fetch_kernel "$arm_kernel" https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/armv7/netboot-3.23.6/vmlinuz-lts "$arm_hash"
+fetch_kernel "$compat_kernel" https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/aarch64/netboot-3.23.6/vmlinuz-virt "$compat_hash"
 arm_cc="${CECORE_ARM32_CC:-arm-linux-gnueabihf-gcc}"
 arm_cxx="${CECORE_ARM32_CXX:-arm-linux-gnueabihf-g++}"
 compat_cc="${CECORE_ARM64_CC:-aarch64-linux-gnu-gcc}"

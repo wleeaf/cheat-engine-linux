@@ -3935,9 +3935,6 @@ QByteArray MainWindow::tableFingerprint() const {
 
 void MainWindow::markTableSaved() { savedTableFingerprint_ = tableFingerprint(); }
 
-// Before the table is replaced or the window closes: Save, Discard or Cancel
-// when it has changes no file holds. Nothing tracked this, so edits were
-// dropped without a word.
 void MainWindow::restartAfterLanguageChange() {
     // closeEvent() offers to save the table and releases the target users
     // (breakpoints, injected code) before the process goes away. Start the new
@@ -3950,6 +3947,9 @@ void MainWindow::restartAfterLanguageChange() {
     QCoreApplication::quit();
 }
 
+// Before the table is replaced or the window closes: Save, Discard or Cancel
+// when it has changes no file holds. Nothing tracked this, so edits were
+// dropped without a word.
 bool MainWindow::maybeSaveTable() {
     // Headless (the offscreen test platform): nobody can answer a prompt.
     const auto platform = QGuiApplication::platformName();

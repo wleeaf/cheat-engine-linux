@@ -1460,8 +1460,9 @@ private:
     // the state, lua_close included, runs armed, so the jump always has a
     // target; the exit only keeps this function from returning.
     static int panic(lua_State* L) {
-        CustomFormulaEvaluator* self = nullptr;
-        std::memcpy(&self, lua_getextraspace(L), sizeof self);
+        void* raw = nullptr;   // the extra space holds the evaluator's address
+        std::memcpy(&raw, lua_getextraspace(L), sizeof raw);  // NOLINT(bugprone-multi-level-implicit-pointer-conversion): a pointer's bytes
+        auto* self = static_cast<CustomFormulaEvaluator*>(raw);
         if (self && self->panicArmed_) std::longjmp(self->panicJump_, 1);
         std::_Exit(70);
     }
@@ -1490,8 +1491,8 @@ private:
             L_ = lua_newstate(lua_sandbox::budgetAlloc, &memory_);   // protected inside
             if (!L_)
                 return false;
-            CustomFormulaEvaluator* self = this;
-            std::memcpy(lua_getextraspace(L_), &self, sizeof self);
+            void* raw = this;
+            std::memcpy(lua_getextraspace(L_), &raw, sizeof raw);  // NOLINT(bugprone-multi-level-implicit-pointer-conversion): a pointer's bytes
             lua_atpanic(L_, &panic);
         }
         SetupCall call{&formula_};

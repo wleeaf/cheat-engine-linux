@@ -570,6 +570,7 @@ std::vector<StructureCompareMatch> compareStructureGroups(ProcessHandle& proc,
         const size_t n1 = group1.size();
         for (size_t offset = 0; offset + element <= common && out.size() < options.maxResults; offset += element) {
             std::vector<uint64_t> values;
+            values.reserve(blocks.size());
             for (const auto& block : blocks) values.push_back(value(block, offset, element));
             const bool group1Same = std::all_of(values.begin(), values.begin() + n1, [&](uint64_t v) { return v == values[0]; });
             bool match = !options.sameOnly || group1Same;

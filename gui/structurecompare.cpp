@@ -119,6 +119,7 @@ void StructureCompareWindow::addToGroup(int group, uintptr_t address) {
 
 std::vector<uintptr_t> StructureCompareWindow::groupAddresses(int group) const {
     std::vector<uintptr_t> out;
+    out.reserve(static_cast<size_t>(groups_[group]->count()));
     for (int i = 0; i < groups_[group]->count(); ++i)
         out.push_back(static_cast<uintptr_t>(groups_[group]->item(i)->data(kAddressRole).toULongLong()));
     return out;

@@ -50,8 +50,9 @@ bool GlobalHotkeyManager::nativeEventFilter(const QByteArray&, void*, qintptr*) 
 
 #else
 
-#include <QGuiApplication>
-#include <QList>
+// Also included above when Wayland hotkeys are built; needed here without them.
+#include <QGuiApplication>  // NOLINT(readability-duplicate-include)
+#include <QList>            // NOLINT(readability-duplicate-include)
 
 // Qt's X11 native interface (display() = Xlib Display*, connection() = xcb).
 #include <QtGui/qguiapplication_platform.h>

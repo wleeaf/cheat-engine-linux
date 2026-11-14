@@ -394,6 +394,12 @@ if(Qt6_FOUND)
         gui/monodissector.cpp
         gui/luaconsole.cpp
         gui/breakpointlist.cpp
+        gui/mainwindow_menus.cpp
+        gui/mainwindow_process.cpp
+        gui/mainwindow_scan.cpp
+        gui/mainwindow_table.cpp
+        gui/scanresults_model.cpp
+        gui/addresslist_model.cpp
         gui/codefinder.cpp
         gui/codereferences.cpp
         gui/advancedoptions.cpp

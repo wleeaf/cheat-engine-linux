@@ -5,6 +5,14 @@
 #include <QDialogButtonBox>
 #include <QCoreApplication>
 #include "core/target_capabilities.hpp"
+#include "core/cpu_registers.hpp"
+#include <cctype>
+
+extern "C" {
+#include <lua.h>
+#include <lauxlib.h>
+#include <lualib.h>
+}
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -19,6 +27,54 @@
 
 namespace ce::gui {
 
+RegisterCondition::~RegisterCondition() {
+    if (lua_) lua_close(lua_);
+}
+
+std::string RegisterCondition::compile(const std::string& expression) {
+    if (lua_) lua_close(lua_);
+    lua_ = luaL_newstate();
+    if (!lua_) return "out of memory";
+    // Only the math and string libraries: a condition reads registers, nothing more.
+    luaL_requiref(lua_, "_G", luaopen_base, 1);
+    luaL_requiref(lua_, LUA_MATHLIBNAME, luaopen_math, 1);
+    luaL_requiref(lua_, LUA_STRLIBNAME, luaopen_string, 1);
+    lua_settop(lua_, 0);
+    for (const char* unsafe : {"dofile", "loadfile", "load", "require", "collectgarbage"}) {
+        lua_pushnil(lua_);
+        lua_setglobal(lua_, unsafe);
+    }
+    const std::string chunk = "return (" + expression + ")";
+    if (luaL_loadstring(lua_, chunk.c_str()) != LUA_OK) {
+        std::string message = lua_tostring(lua_, -1);
+        lua_close(lua_);
+        lua_ = nullptr;
+        return message;
+    }
+    function_ = luaL_ref(lua_, LUA_REGISTRYINDEX);
+    return {};
+}
+
+bool RegisterCondition::operator()(const ce::CpuContext& context) {
+    if (!lua_) return false;
+    for (const auto& reg : ce::cpuRegisterValues(context)) {
+        lua_pushinteger(lua_, static_cast<lua_Integer>(reg.value));
+        lua_setglobal(lua_, reg.name.c_str());
+        // A 64-bit register also answers to its 32-bit name (RAX and EAX).
+        if (reg.name.size() == 3 && reg.name[0] == 'R' && std::isalpha(static_cast<unsigned char>(reg.name[1])) &&
+            reg.bits == 64) {
+            std::string low = "E" + reg.name.substr(1);
+            lua_pushinteger(lua_, static_cast<lua_Integer>(reg.value & 0xffffffffu));
+            lua_setglobal(lua_, low.c_str());
+        }
+    }
+    lua_rawgeti(lua_, LUA_REGISTRYINDEX, function_);
+    if (lua_pcall(lua_, 0, 1, 0) != LUA_OK) { lua_pop(lua_, 1); return false; }
+    const bool result = lua_toboolean(lua_, -1);
+    lua_pop(lua_, 1);
+    return result;
+}
+
 QString TracerWindow::hexQ(uint64_t v) { return QString("0x%1").arg(v, 0, 16); }
 
 QVariant TraceTableModel::data(const QModelIndex& index, int role) const {
@@ -30,7 +86,8 @@ QVariant TraceTableModel::data(const QModelIndex& index, int role) const {
     switch (index.column()) {
         case 0: return QString::number(index.row());
         case 1: return TracerWindow::hexQ(e.address);
-        case 2: return QString::fromStdString(e.instruction);
+        case 2: return e.memoryNote.empty() ? QString::fromStdString(e.instruction)
+                                            : QString::fromStdString(e.instruction + "   ; " + e.memoryNote);
         case 3: return TracerWindow::hexQ(arm ? c.x[0] : c.rax);
         case 4: return TracerWindow::hexQ(arm ? c.x[1] : c.rbx);
         case 5: return TracerWindow::hexQ(arm ? c.x[2] : c.rcx);
@@ -145,6 +202,29 @@ void TracerWindow::buildUi() {
     form->addWidget(stopAddressEdit_, row, 1, 1, 3);
     ++row;
 
+    form->addWidget(new QLabel(tr("Start condition (optional, Lua):")), row, 0);
+    startConditionEdit_ = new QLineEdit;
+    startConditionEdit_->setPlaceholderText(tr("e.g. RCX == 0x10; the trace starts at the first hit where it is true (x86)"));
+    form->addWidget(startConditionEdit_, row, 1, 1, 3);
+    ++row;
+
+    form->addWidget(new QLabel(tr("Stop condition (optional, Lua):")), row, 0);
+    stopConditionEdit_ = new QLineEdit;
+    stopConditionEdit_->setPlaceholderText(tr("e.g. RAX == 0; the trace ends at the first step where it is true"));
+    form->addWidget(stopConditionEdit_, row, 1, 1, 3);
+    ++row;
+
+    stepOverRepCheck_ = new QCheckBox(tr("Step over rep instructions"));
+    form->addWidget(stepOverRepCheck_, row, 0);
+    skipSystemCheck_ = new QCheckBox(tr("Skip system modules"));
+    skipSystemCheck_->setToolTip(tr("Step over calls into system libraries (the C library, Wine's DLLs)"));
+    form->addWidget(skipSystemCheck_, row, 1);
+    dereferenceCheck_ = new QCheckBox(tr("Dereference Addresses (Slows down)"));
+    form->addWidget(dereferenceCheck_, row, 2);
+    saveStackCheck_ = new QCheckBox(tr("Save stack snapshots (Eats memory)"));
+    form->addWidget(saveStackCheck_, row, 3);
+    ++row;
+
     layout->addLayout(form);
 
     // Buttons + progress
@@ -186,7 +266,18 @@ void TracerWindow::buildUi() {
         auto* dl = new QVBoxLayout(dlg);
         auto* hdr = new QLabel(QString("<b>%1</b>").arg(QString::fromStdString(e.instruction)));
         dl->addWidget(hdr);
-        auto* dump = new QPlainTextEdit(fullRegisterDump(e.context));
+        QString details = fullRegisterDump(e.context);
+        if (!e.memoryNote.empty()) details += "\n" + QString::fromStdString(e.memoryNote) + "\n";
+        if (!e.stack.empty()) {
+            details += "\n" + tr("Stack:") + "\n";
+            for (size_t offset = 0; offset < e.stack.size(); offset += 16) {
+                QStringList bytes;
+                for (size_t i = offset; i < std::min(offset + 16, e.stack.size()); ++i)
+                    bytes << QString("%1").arg(e.stack[i], 2, 16, QChar('0'));
+                details += QString("+%1  %2\n").arg(offset, 3, 16, QChar('0')).arg(bytes.join(' '));
+            }
+        }
+        auto* dump = new QPlainTextEdit(details);
         dump->setReadOnly(true);
         dump->setFont(monospaceFont(-1));
         dl->addWidget(dump);
@@ -242,6 +333,32 @@ void TracerWindow::onStart() {
             statusLabel_->setText(tr("Module end must be greater than its start")); return;
         }
     }
+
+    cfg.stepOverRep = stepOverRepCheck_->isChecked();
+    cfg.skipSystemModules = skipSystemCheck_->isChecked();
+    cfg.dereferenceAddresses = dereferenceCheck_->isChecked();
+    cfg.stackBytes = saveStackCheck_->isChecked() ? 256 : 0;
+    // Each condition gets its own Lua state, used only on the trace thread.
+    auto condition = [this](QLineEdit* edit, std::shared_ptr<RegisterCondition>& slot) {
+        slot.reset();
+        const QString text = edit->text().trimmed();
+        if (text.isEmpty()) return true;
+        auto compiled = std::make_shared<RegisterCondition>();
+        if (const std::string error = compiled->compile(text.toStdString()); !error.empty()) {
+            statusLabel_->setText(tr("Invalid condition: %1").arg(QString::fromStdString(error)));
+            edit->setFocus();
+            return false;
+        }
+        slot = std::move(compiled);
+        return true;
+    };
+    if (!condition(startConditionEdit_, startCondition_) || !condition(stopConditionEdit_, stopCondition_)) return;
+    if (startCondition_ && !cfg.startAddress) {
+        statusLabel_->setText(tr("A start condition needs a start address"));
+        return;
+    }
+    if (startCondition_) cfg.startCondition = [c = startCondition_](const ce::CpuContext& ctx) { return (*c)(ctx); };
+    if (stopCondition_) cfg.stopCondition = [c = stopCondition_](const ce::CpuContext& ctx) { return (*c)(ctx); };
 
     debugger_ = debuggerFactory_ ? debuggerFactory_() : std::make_unique<os::LinuxDebugger>();
     if (!debugger_) {
@@ -302,7 +419,9 @@ void TracerWindow::onSave() {
     for (size_t i = 0; i < entries_.size(); ++i) {
         const auto& e = entries_[i];
         out << QString("%1\t").arg(i) << hexQ(e.address) << '\t'
-            << QString::fromStdString(e.instruction) << '\n' << fullRegisterDump(e.context) << '\n';
+            << QString::fromStdString(e.instruction);
+        if (!e.memoryNote.empty()) out << "\t; " << QString::fromStdString(e.memoryNote);
+        out << '\n' << fullRegisterDump(e.context) << '\n';
     }
 }
 

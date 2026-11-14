@@ -20,6 +20,10 @@
 #include <algorithm>
 #include <thread>
 #include <atomic>
+#include <memory>
+#include <string>
+
+extern "C" { struct lua_State; }
 
 namespace ce::gui {
 
@@ -39,6 +43,25 @@ public:
 
 private:
     const std::vector<ce::TraceEntry>* entries_;
+};
+
+/// A Lua expression on the registers (RAX, EAX, RIP, X0, ...), as Cheat
+/// Engine's trace conditions are written: "RAX == 5 and RCX > 0x100".
+/// Evaluated on one thread at a time; its own Lua state, nothing else in it.
+class RegisterCondition {
+public:
+    RegisterCondition() = default;
+    RegisterCondition(const RegisterCondition&) = delete;
+    RegisterCondition& operator=(const RegisterCondition&) = delete;
+    ~RegisterCondition();
+    /// Compiles `expression`; returns the error text, or an empty string.
+    std::string compile(const std::string& expression);
+    /// True when the expression is true for `context` (an error counts as false).
+    bool operator()(const ce::CpuContext& context);
+
+private:
+    lua_State* lua_ = nullptr;
+    int function_ = -1;
 };
 
 class TracerWindow : public QMainWindow {
@@ -71,6 +94,7 @@ private:
     std::unique_ptr<ce::Debugger> debugger_;
     std::thread worker_;
     std::vector<ce::TraceEntry> entries_;
+    std::shared_ptr<RegisterCondition> startCondition_, stopCondition_;
 
     // Inputs
     QLineEdit* startAddressEdit_;
@@ -80,6 +104,12 @@ private:
     QLineEdit* moduleStartEdit_;
     QLineEdit* moduleEndEdit_;
     QLineEdit* stopAddressEdit_;
+    QLineEdit* startConditionEdit_;
+    QLineEdit* stopConditionEdit_;
+    QCheckBox* stepOverRepCheck_;
+    QCheckBox* skipSystemCheck_;
+    QCheckBox* dereferenceCheck_;
+    QCheckBox* saveStackCheck_;
 
     // Controls
     QPushButton* startBtn_;

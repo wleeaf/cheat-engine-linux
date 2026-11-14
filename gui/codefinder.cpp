@@ -14,6 +14,9 @@
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QMenu>
+#include "debug/instruction_access.hpp"
+#include <QClipboard>
+#include <QApplication>
 #include <QItemSelection>
 #include <QCoreApplication>
 #include <optional>
@@ -359,7 +362,14 @@ void CodeFinderWindow::onContextMenu(const QPoint& pos) {
                        ? menu.addAction(tr("Replace with code that does nothing (NOP)")) : nullptr;
     QAction* restoreAct = proc_ && isNopped ? menu.addAction(tr("Restore with original code")) : nullptr;
     QAction* addAct  = addToList_ ? menu.addAction(tr("Add to the address list")) : nullptr;
-    if (menu.isEmpty()) return;
+    QAction* infoAct = menu.addAction(tr("More Info"));
+    menu.addSeparator();
+    QAction* accessesAct = findAccesses_ ? menu.addAction(tr("Find out what addresses this code accesses")) : nullptr;
+    QAction* othersAct = proc_ ? menu.addAction(tr("Check if found opcodes also access other addresses (max 8)")) : nullptr;
+    menu.addSeparator();
+    QAction* selectAllAct = menu.addAction(tr("Select all"));
+    menu.addSeparator();
+    QAction* copyAct = menu.addAction(tr("Copy selection to clipboard"));
 
     QAction* picked = menu.exec(table_->viewport()->mapToGlobal(pos));
     if (!picked) return;
@@ -379,6 +389,44 @@ void CodeFinderWindow::onContextMenu(const QPoint& pos) {
         } else {
             statusLabel_->setText(tr("Could not restore 0x%1.").arg(addr, 0, 16));
         }
+    } else if (picked == infoAct) {
+        if (auto* item = table_->item(row, 0)) emit table_->itemDoubleClicked(item);
+    } else if (picked == accessesAct) {
+        onStop();   // one tracer at a time
+        findAccesses_(addr);
+    } else if (picked == othersAct) {
+        // Each found instruction is watched briefly for the data addresses it
+        // touches; the finder stops first, as only one tracer can hold the game.
+        onStop();
+        QApplication::setOverrideCursor(Qt::WaitCursor);
+        QStringList report;
+        int checked = 0;
+        for (const auto& [entryAddr, text] : entries) {
+            if (!entryAddr || checked++ == 8) continue;
+            std::string error;
+            const auto accesses = ce::findInstructionAccesses(*proc_, entryAddr, 64, 1500, {}, &error);
+            QStringList where;
+            for (const auto& access : accesses) where << QString("0x%1 (%2)").arg(access.address, 0, 16).arg(access.hitCount);
+            report << QString("0x%1  %2\n    %3").arg(entryAddr, 0, 16).arg(text,
+                          !error.empty() ? QString::fromStdString(error)
+                          : where.isEmpty() ? tr("no access recorded") : where.join(", "));
+        }
+        QApplication::restoreOverrideCursor();
+        QMessageBox box(QMessageBox::Information, tr("Addresses accessed by the found opcodes"),
+                        report.join("\n\n"), QMessageBox::Close, this);
+        box.setTextInteractionFlags(Qt::TextSelectableByMouse);
+        box.exec();
+    } else if (picked == selectAllAct) {
+        table_->selectAll();
+    } else if (picked == copyAct) {
+        QStringList lines;
+        for (const auto& index : table_->selectionModel()->selectedRows()) {
+            QStringList cells;
+            for (int c = 0; c < table_->columnCount(); ++c)
+                cells << (table_->item(index.row(), c) ? table_->item(index.row(), c)->text() : QString());
+            lines << cells.join('\t');
+        }
+        QApplication::clipboard()->setText(lines.join('\n'));
     } else if (picked == addAct) {
         int added = 0;
         for (const auto& [entryAddr, text] : entries)

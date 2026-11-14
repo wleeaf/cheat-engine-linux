@@ -29,6 +29,15 @@ public:
     // Returns the number of fields added.
     int addAllFieldsToList();
 
+    /// Compare the base structure with these (Changed Addresses' "Open dissect
+    /// data with selected addresses").
+    void setCompareAddresses(const std::vector<uintptr_t>& addrs) {
+        QStringList text;
+        for (uintptr_t a : addrs) text << QString("0x%1").arg(static_cast<qulonglong>(a), 0, 16);
+        compareEdit_->setText(text.join(", "));
+        applyCompareAddresses();
+    }
+
     // Test helpers (offscreen smoke): drive compare mode and inspect the result.
     void setCompareAddressesForTest(std::vector<uintptr_t> addrs) {
         compareAddrs_ = std::move(addrs); if (baseAddr_) populateTable();

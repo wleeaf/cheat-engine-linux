@@ -1,4 +1,8 @@
 #pragma once
+#include "gui/exceptionlists.hpp"
+#include "gui/changeregisters.hpp"
+#include <QSet>
+#include <QHash>
 #include <set>
 // Interactive step-debugger window: attach, software breakpoints, and
 // continue/step-into/over/out/run-to-cursor over a live (multi-threaded) target,
@@ -32,6 +36,9 @@ namespace ce::gui {
 class DebuggerWindow : public QMainWindow {
     Q_OBJECT
 public:
+    /// Cheat Engine's "Change register at this location": a breakpoint at
+    /// `address` that sets the chosen registers and flags on every hit and runs on.
+    void changeRegistersAt(uintptr_t address);
     explicit DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent = nullptr);
     ~DebuggerWindow() override;
 
@@ -110,6 +117,7 @@ private slots:
     void onContinue();
     void onStepInto();
     void onStepOver();
+    void changeRegistersAtCursor();
     void onStepOut();
     void onRunToCursor();
     void onDetach();
@@ -181,6 +189,7 @@ private:
         int hitCount = 0;
         bool enabled = true;
         std::vector<uint8_t> original;   // full native trap width, for unmasked disassembly
+        RegisterChanges registerChanges; // set on every hit, then run on (Change register here)
     };
     std::vector<Bp> bps_;
     QString bpRowText(const Bp& b) const;      // list text incl. condition + hit count
@@ -211,6 +220,12 @@ private:
     // session commands, which would otherwise queue behind the step and block.
     bool paused() const { return session_ && session_->isStopped() && !stepping_; }
     int pendingRtcId_ = -1;
+    // Exception lists (Break on exceptions menu).
+    void applySignalBreaks();
+    QHash<int, QAction*> signalActions_;
+    bool breakOnAllSignals_ = false;
+    QSet<int> ignoredSignals_ = defaultIgnoredSignals();
+    QList<AddressRange> exceptionRegions_;
 };
 
 } // namespace ce::gui

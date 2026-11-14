@@ -2,6 +2,10 @@
 #include <cstring>
 #include <optional>
 #include "gui/theme.hpp"
+#include <QRegularExpression>
+#include <QGridLayout>
+#include <QGroupBox>
+#include <QCheckBox>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -66,6 +70,42 @@ PointerScanDialog::PointerScanDialog(ProcessHandle* proc, QWidget* parent)
     optionsRow->addWidget(loadBtn_);
     layout->addLayout(optionsRow);
 
+    advancedCheck_ = new QCheckBox(tr("Show advanced options"));
+    layout->addWidget(advancedCheck_);
+    advancedBox_ = new QGroupBox;
+    auto* advanced = new QGridLayout(advancedBox_);
+    staticOnlyCheck_ = new QCheckBox(tr("Only find paths with a static address"));
+    staticOnlyCheck_->setChecked(true);
+    alignedCheck_ = new QCheckBox(tr("Addresses must be pointer aligned"));
+    alignedCheck_->setChecked(true);
+    negativeCheck_ = new QCheckBox(tr("Also scan for negative offsets"));
+    advanced->addWidget(staticOnlyCheck_, 0, 0, 1, 2);
+    advanced->addWidget(alignedCheck_, 0, 2, 1, 2);
+    advanced->addWidget(negativeCheck_, 1, 0, 1, 2);
+    advanced->addWidget(new QLabel(tr("Maximum paths:")), 1, 2);
+    maxResultsSpin_ = new QSpinBox;
+    maxResultsSpin_->setRange(1, 10'000'000);
+    maxResultsSpin_->setValue(100000);
+    maxResultsSpin_->setSingleStep(10000);
+    advanced->addWidget(maxResultsSpin_, 1, 3);
+    baseRangeCheck_ = new QCheckBox(tr("Base address must be in specific range"));
+    baseFromEdit_ = new QLineEdit;
+    baseFromEdit_->setPlaceholderText(tr("From"));
+    baseToEdit_ = new QLineEdit;
+    baseToEdit_->setPlaceholderText(tr("To"));
+    advanced->addWidget(baseRangeCheck_, 2, 0, 1, 2);
+    advanced->addWidget(baseFromEdit_, 2, 2);
+    advanced->addWidget(baseToEdit_, 2, 3);
+    endOffsetsCheck_ = new QCheckBox(tr("Pointers must end with specific offsets"));
+    endOffsetsEdit_ = new QLineEdit;
+    endOffsetsEdit_->setPlaceholderText(tr("hex, last offset last: 10 8"));
+    advanced->addWidget(endOffsetsCheck_, 3, 0, 1, 2);
+    advanced->addWidget(endOffsetsEdit_, 3, 2, 1, 2);
+    for (QLineEdit* edit : {baseFromEdit_, baseToEdit_, endOffsetsEdit_}) edit->setFont(monospaceFont());
+    advancedBox_->setVisible(false);
+    connect(advancedCheck_, &QCheckBox::toggled, advancedBox_, &QWidget::setVisible);
+    layout->addWidget(advancedBox_);
+
     statusLabel_ = new QLabel(tr("Ready"));
     layout->addWidget(statusLabel_);
 
@@ -118,6 +158,34 @@ void PointerScanDialog::onScan() {
     config.targetAddress = target;
     config.maxDepth = depthSpin_->value();
     config.maxOffset = offsetSpin_->value();
+    config.staticOnly = staticOnlyCheck_->isChecked();
+    config.alignedOnly = alignedCheck_->isChecked();
+    config.negativeOffsets = negativeCheck_->isChecked();
+    config.maxResults = static_cast<size_t>(maxResultsSpin_->value());
+    filter_ = {};
+    if (baseRangeCheck_->isChecked()) {
+        bool fromOk = false, toOk = false;
+        filter_.baseFrom = baseFromEdit_->text().trimmed().toULongLong(&fromOk, 16);
+        filter_.baseTo = baseToEdit_->text().trimmed().toULongLong(&toOk, 16);
+        if (!fromOk || !toOk || filter_.baseTo < filter_.baseFrom) {
+            statusLabel_->setText(tr("The base address range needs two hexadecimal addresses, From not above To"));
+            return;
+        }
+    }
+    if (endOffsetsCheck_->isChecked()) {
+        for (const QString& part : endOffsetsEdit_->text().split(QRegularExpression("[\\s,]+"), Qt::SkipEmptyParts)) {
+            QString digits = part;
+            const bool negative = digits.startsWith('-');
+            if (negative) digits.remove(0, 1);
+            bool ok = false;
+            const long long value = digits.toLongLong(&ok, 16);
+            if (!ok || value > INT32_MAX) {
+                statusLabel_->setText(tr("Invalid offset: %1").arg(part));
+                return;
+            }
+            filter_.endOffsets.push_back(static_cast<int32_t>(negative ? -value : value));
+        }
+    }
 
     scanner_ = std::make_unique<PointerScanner>();
     scanned_.clear();
@@ -169,7 +237,7 @@ void PointerScanDialog::finishJob() {
 
 void PointerScanDialog::finishScan() {
     const bool cancelled = scanner_->wasCancelled();
-    results_ = std::move(scanned_);
+    results_ = ce::filterPointerPaths(std::move(scanned_), filter_);
     populateResults();
     QString status = results_.size() > 1000 ? tr("Found %1 paths (showing first 1000)").arg(results_.size())
                                             : tr("Found %1 paths").arg(results_.size());

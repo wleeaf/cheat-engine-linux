@@ -5,14 +5,26 @@
 // memory, so no fork/ptrace is needed. Exit 0 on success.
 
 #include "gui/codefinder.hpp"
+#include "gui/changedaddresses.hpp"
 #include "debug/code_finder.hpp"
 #include "platform/linux/linux_process.hpp"
 
 #include <QApplication>
+#include <QRegularExpression>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
 #include <unistd.h>
+#include <csignal>
+#include <sys/wait.h>
+
+#ifdef __x86_64__
+// One instruction with a memory operand at a known address: the Changed
+// Addresses window watches it touch three different integers.
+extern "C" void cf_touch(volatile int* p);
+asm(".text\n.globl cf_touch\n.type cf_touch,@function\ncf_touch:\n  addl $1, (%rdi)\n  ret\n");
+static volatile int g_touched[3];
+#endif
 
 // A decodable instruction to patch: `mov eax, 1` (B8 01 00 00 00, 5 bytes), then filler.
 alignas(16) static uint8_t g_code[32];
@@ -51,9 +63,45 @@ int main(int argc, char** argv) {
                          g_code[3] == 0x00 && g_code[4] == 0x00 && g_code[5] == 0xCC);
     bool restoreOk = restored && restoreBytes;
 
-    bool ok = showOk && nopOk && restoreOk;
-    printf("gui codefinder smoke: %s (show=%d nopped=%d nopBytes=%d restored=%d restoreBytes=%d)\n",
+    // Changed Addresses: a child runs cf_touch on three integers; the window
+    // lists all three with their values, and the Commonality scanner finds the
+    // register (RDI) that tells one of them from another.
+    bool changedOk = true;
+#ifdef __x86_64__
+    {
+        const pid_t child = fork();
+        if (child == 0) {
+            for (unsigned i = 0;; ++i) { cf_touch(&g_touched[i % 3]); usleep(2000); }
+        }
+        ce::os::LinuxProcessHandle target(child);
+        const auto instruction = reinterpret_cast<uintptr_t>(&cf_touch);
+        auto* changed = new ce::gui::ChangedAddressesWindow(&target, instruction);
+        const bool listed = changed->waitForAddressesForTest(3, 8000);
+        const bool rows = changed->rowCountForTest() == 3;
+        bool values = rows;
+        for (int row = 0; values && row < 3; ++row) {
+            bool number = false;
+            changed->valueTextForTest(row).toLongLong(&number);
+            values = number;
+        }
+        const auto a = reinterpret_cast<uintptr_t>(&g_touched[0]);
+        const auto b = reinterpret_cast<uintptr_t>(&g_touched[1]);
+        const QStringList common = changed->commonalitiesForTest({a}, {b});
+        const bool commonality = common.filter(QRegularExpression("^RDI ")).size() == 1;
+        changed->stop();
+        delete changed;
+        kill(child, SIGKILL);
+        waitpid(child, nullptr, 0);
+        changedOk = listed && rows && values && commonality;
+        printf("gui changed addresses: %s (listed=%d rows=%d values=%d commonality=%d [%s])\n",
+               changedOk ? "OK" : "FAILED", listed, rows, values, commonality,
+               common.join(", ").toUtf8().constData());
+    }
+#endif
+
+    bool ok = showOk && nopOk && restoreOk && changedOk;
+    printf("gui codefinder smoke: %s (show=%d nopped=%d nopBytes=%d restored=%d restoreBytes=%d changed=%d)\n",
            ok ? "OK" : "FAILED", (int)showOk, (int)nopped, (int)nopBytes,
-           (int)restored, (int)restoreBytes);
+           (int)restored, (int)restoreBytes, (int)changedOk);
     return ok ? 0 : 1;
 }

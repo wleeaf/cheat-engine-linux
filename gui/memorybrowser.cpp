@@ -1129,6 +1129,7 @@ void DisasmView::contextMenuEvent(QContextMenuEvent* e) {
     auto* addListAct = menu.addAction(tr("Add this address to the list"));
     auto* xrefAct = menu.addAction(tr("Find references to this address"));
     auto* accessAct = menu.addAction(tr("Find out what addresses this instruction accesses"));
+    auto* registersAct = menu.addAction(tr("Change register at this location..."));
     auto* asmAct = menu.addAction(tr("Assemble instruction…"));
     auto* nopAct = menu.addAction(multi
         ? tr("NOP %1 instructions (%2 bytes)").arg(selInsts.size()).arg(selTotalBytes)
@@ -1187,6 +1188,8 @@ void DisasmView::contextMenuEvent(QContextMenuEvent* e) {
         emit requestXrefs(inst.address);
     } else if (picked == accessAct) {
         emit requestInstructionAccess(inst.address);
+    } else if (picked == registersAct) {
+        emit requestChangeRegisters(inst.address);
     } else if (picked == asmAct) {
         emit requestAssemble(inst.address, (int)inst.size,
             QString::fromStdString(inst.operands.empty() ? inst.mnemonic
@@ -1830,6 +1833,8 @@ void MemoryBrowser::buildMenuBar() {
       a->setShortcut(QKeySequence("F7")); }
     { auto* a = debugMenu_->addAction(tr("Step over"), this, [this]() { if (stepOverFn_) stepOverFn_(); });
       a->setShortcut(QKeySequence("F8")); }
+    { auto* a = debugMenu_->addAction(tr("Execute till return"), this, [this]() { if (stepOutFn_) stepOutFn_(); });
+      a->setShortcut(QKeySequence("Shift+F8")); }
     { auto* a = debugMenu_->addAction(tr("Run to cursor"), this, [this]() {
           uintptr_t addr = disasmView_->selectedAddress();
           if (!addr) addr = currentAddr_;
@@ -1962,6 +1967,9 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     { auto* a = dbgBar->addAction(tr("Step over"));
       a->setToolTip(tr("Step over one instruction (F8)"));
       connect(a, &QAction::triggered, this, [this]() { if (stepOverFn_) stepOverFn_(); }); }
+    { auto* a = dbgBar->addAction(tr("Execute till return"));
+      a->setToolTip(tr("Run until the current function returns (Shift+F8)"));
+      connect(a, &QAction::triggered, this, [this]() { if (stepOutFn_) stepOutFn_(); }); }
     { auto* a = dbgBar->addAction(tr("Run to cursor"));
       a->setToolTip(tr("Continue until the selected instruction (F4)"));
       connect(a, &QAction::triggered, this, [this]() {
@@ -2185,6 +2193,8 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         [this](uintptr_t addr) { showXrefs(addr); });
     connect(disasmView_, &DisasmView::requestInstructionAccess, this,
         [this](uintptr_t addr) { if (instrAccessLauncher_) instrAccessLauncher_(addr); });
+    connect(disasmView_, &DisasmView::requestChangeRegisters, this,
+        [this](uintptr_t addr) { if (changeRegistersLauncher_) changeRegistersLauncher_(addr); });
     connect(disasmView_, &DisasmView::requestSetComment, this, [this](uintptr_t addr) {
         bool ok = false;
         QString cur = QString::fromStdString(disasmView_->comment(addr));
@@ -2425,8 +2435,8 @@ void MemoryBrowser::detachFromTarget() {
     // frozen viewer F5 would plant a breakpoint in the next game at this
     // game's address, and a comment would replace the next table's store.
     bpSetter_ = {}; bpRemover_ = {}; bpQuery_ = {};
-    cfLauncher_ = {}; instrAccessLauncher_ = {}; addToList_ = {}; userSymbolCb_ = {};
-    debuggerLauncher_ = {}; stepIntoFn_ = {}; stepOverFn_ = {}; runFn_ = {}; runToCursorFn_ = {};
+    cfLauncher_ = {}; instrAccessLauncher_ = {}; changeRegistersLauncher_ = {}; addToList_ = {}; userSymbolCb_ = {};
+    debuggerLauncher_ = {}; stepIntoFn_ = {}; stepOverFn_ = {}; runFn_ = {}; stepOutFn_ = {}; runToCursorFn_ = {};
     autoAssembleOpener_ = {}; dissectOpener_ = {}; newWindowOpener_ = {};
     annotationSaver_ = {};
     if (disasmView_) { disasmView_->setActiveBreakpoints({}); disasmView_->setCurrentInstruction(0); }

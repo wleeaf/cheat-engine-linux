@@ -1,4 +1,5 @@
 #include "gui/structuredissector.hpp"
+#include "gui/structuredissectorconfig.hpp"
 #include "gui/theme.hpp"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -33,6 +34,7 @@ namespace ce::gui {
 StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, QWidget* parent)
     : QMainWindow(parent), proc_(proc), baseAddr_(baseAddr) {
 
+    structSize_ = StructureDissectorOptions::load().defaultSize / 8 * 8;
     if (proc_) moduleCache_ = proc_->modules();   // for "-> module+offset" on pointer fields
     updatePointerWidth();
     setWindowTitle(tr("Structure Dissector"));
@@ -63,6 +65,13 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
         if (baseAddr_) populateTable();
     });
     addrRow->addWidget(sizeSpin_);
+    auto* configBtn = new QPushButton(tr("Config…"));
+    configBtn->setToolTip(tr("Colors of compared values and defaults for new structures"));
+    connect(configBtn, &QPushButton::clicked, this, [this]() {
+        StructureDissectorConfigDialog dialog(this);
+        if (dialog.exec() == QDialog::Accepted && baseAddr_) populateTable();
+    });
+    addrRow->addWidget(configBtn);
 
     // Compare: one or more struct addresses; rows whose 8 bytes differ from the
     // base in ANY instance are highlighted. With one address this is CE's
@@ -587,7 +596,8 @@ void StructureDissector::populateTable() {
     }
     prevCache_ = cache_;
     prevBaseForChange_ = baseAddr_;
-    const QColor changedFg = ce::gui::isDarkTheme() ? QColor(0xf3, 0x8b, 0xa8) : QColor(0xc0, 0x00, 0x00);
+    const StructureDissectorOptions options = StructureDissectorOptions::load();
+    const QColor changedFg = options.different;
     // Valid-pointer fields paint teal (CE Dissect Data colors pointers so the eye
     // catches which offsets are references). Change-red wins when a row also changed.
     const QColor pointerFg = ce::gui::isDarkTheme() ? QColor(0x94, 0xe2, 0xd5) : QColor(0x0b, 0x72, 0x85);
@@ -649,7 +659,8 @@ void StructureDissector::populateTable() {
         hh->setSectionResizeMode(1, QHeaderView::Stretch);
     }
     table_->setRowCount(rows);
-    const QColor diffFg = ce::gui::isDarkTheme() ? QColor(0xf3, 0x8b, 0xa8) : QColor(0xc0, 0x00, 0x00);
+    const StructureDissectorOptions compareOptions = StructureDissectorOptions::load();
+    const QColor diffFg = compareOptions.different;
     for (int i = 0; i < rows; ++i) {
         int off = i * 8;
         const uint8_t* base = cache_.data() + off;
@@ -669,6 +680,7 @@ void StructureDissector::populateTable() {
         const bool baseValid = off + width <= validBytes_;
         table_->setItem(i, 2, new QTableWidgetItem(baseValid ? fmtByType(base, vt, pointerAt(base)) : QStringLiteral("??")));
 
+        bool rowEqual = baseValid;
         for (size_t k = 0; k < compareAddrs_.size(); ++k) {
             int col = 3 + (int)k;
             const uint8_t* inst = compareCaches_[k].data() + off;
@@ -677,9 +689,16 @@ void StructureDissector::populateTable() {
             if (baseValid && instValid && std::memcmp(base, inst, width) != 0) {
                 it->setForeground(diffFg);
                 it->setData(Qt::UserRole + 1, true);   // marks a "differs from base" cell (test hook)
+                rowEqual = false;
+            } else if (!instValid) {
+                rowEqual = false;
             }
             table_->setItem(i, col, it);
         }
+        // A value the same in every instance takes the Equal colour, when one is set.
+        if (rowEqual && compareOptions.equal.isValid())
+            for (int col = 2; col < 3 + static_cast<int>(compareAddrs_.size()); ++col)
+                if (auto* it = table_->item(i, col)) it->setForeground(compareOptions.equal);
     }
 }
 

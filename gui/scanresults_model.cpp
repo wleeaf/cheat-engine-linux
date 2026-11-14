@@ -82,6 +82,7 @@
 #include <exception>
 
 #include "gui/mainwindow_internal.hpp"
+#include <QFont>
 namespace ce::gui {
 using namespace mainwindow_detail;
 // Load rows as the user scrolls, keeping large first scans responsive.
@@ -91,7 +92,10 @@ static constexpr int kResultBatchSize = 1000;
 // ScanResultsModel
 // ═══════════════════════════════════════════════════════════════
 
-ScanResultsModel::ScanResultsModel(QObject* parent) : QAbstractTableModel(parent) {}
+ScanResultsModel::ScanResultsModel(QObject* parent) : QAbstractTableModel(parent) {
+    // Unset colours follow the theme.
+    onApplicationPaletteChange(this, [this]() { reloadPreferences(); });
+}
 
 size_t ScanResultsModel::valueSizeBytes() const {
     switch (valueType_) {
@@ -218,17 +222,27 @@ QVariant ScanResultsModel::data(const QModelIndex& index, int role) const {
     if (!index.isValid() || index.row() >= shownRows_ || !result_) return {};
     // Red foreground on the Value column when it changed since the last refresh.
     if (role == Qt::ForegroundRole) {
+        // Colours from the Foundlist Customizer (theme-aware defaults).
         if (index.column() == 1) {
             auto it = changed_.find(index.row());
-            if (it != changed_.end() && it->second)
-                return QBrush(ce::gui::editorPalette().error);  // theme-aware red (was low-contrast pink on white)
-        } else if (index.column() == 0 && !modules_.empty()) {
-            // Green address = "static": lives inside a loaded module, so it keeps
-            // the same module+offset across restarts (CE's green cue).
-            if (!ce::moduleOffsetString(modules_, result_->address(index.row())).empty())
-                return QBrush(ce::gui::editorPalette().success);  // theme-aware green
+            if (it != changed_.end() && it->second) return QBrush(options_.changed);
+        } else if (index.column() == 0) {
+            // A static address lives inside a loaded module, so it keeps the
+            // same module+offset across restarts (CE's green cue).
+            const bool isStatic = !modules_.empty() &&
+                !ce::moduleOffsetString(modules_, result_->address(index.row())).empty();
+            if (isStatic) return QBrush(options_.staticAddress);
+            if (options_.dynamicAddress.isValid()) return QBrush(options_.dynamicAddress);
+            return {};
         }
-        return {};
+        return options_.normal.isValid() ? QVariant(QBrush(options_.normal)) : QVariant();
+    }
+    if (role == Qt::BackgroundRole)
+        return options_.background.isValid() ? QVariant(QBrush(options_.background)) : QVariant();
+    if (role == Qt::FontRole && options_.fontSize > 0) {
+        QFont font;
+        font.setPointSize(options_.fontSize);
+        return font;
     }
     // Hovering a static address reveals its module+offset (the durable identity).
     if (role == Qt::ToolTipRole && index.column() == 0 && !modules_.empty()) {
@@ -243,6 +257,10 @@ QVariant ScanResultsModel::data(const QModelIndex& index, int role) const {
 QString ScanResultsModel::displayValueAt(size_t row, int column) const {
     if (!result_ || row >= result_->count() || column < 0 || column > 2) return {};
     if (column == 0) {
+        if (options_.staticNotation && !modules_.empty()) {
+            const std::string modOff = ce::moduleOffsetString(modules_, result_->address(row));
+            if (!modOff.empty()) return QString::fromStdString(modOff);
+        }
         return formatListAddress(result_->address(row));
     }
 
@@ -265,6 +283,11 @@ QString ScanResultsModel::displayValueAt(size_t row, int column) const {
         result_->value(row, buf.data(), vs);
     }
     return formatScanValue(valueType_, displayHex_, buf.data(), shownSize, stringEncoding_, result_->hasDataFormat() ? result_->byteOrder() : valueType_==ValueType::UnicodeString ? ce::ByteOrder::Little : std::endian::native==std::endian::big ? ce::ByteOrder::Big : ce::ByteOrder::Little);
+}
+
+void ScanResultsModel::reloadPreferences() {
+    options_ = FoundListOptions::load();
+    if (shownRows_ > 0) emit dataChanged(index(0, 0), index(shownRows_ - 1, columnCount() - 1));
 }
 
 uintptr_t ScanResultsModel::addressAt(int row) const {

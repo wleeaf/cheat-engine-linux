@@ -1,5 +1,6 @@
 // Live kernel ptrace through the real Qt debugger. Runs on x86-64 and ARM64.
 #include "gui/debuggerwindow.hpp"
+#include "gui/changeregisters.hpp"
 #include "gui/registereditor.hpp"
 #include "gui/stackview.hpp"
 #include "debug/thread_inspection.hpp"
@@ -98,6 +99,21 @@ int main(int argc, char** argv) {
     auto check = [&](bool ok, const char* message) {
         std::printf("%s: %s\n", ok ? "OK" : "FAILED", message); failures += !ok;
     };
+    {
+        // Change register at this location: named registers and flags change,
+        // everything else stays.
+        ce::CpuContext context{};
+        context.architecture = ce::nativeTargetMachine().architecture;
+        ce::gui::RegisterChanges changes;
+        const bool x86 = context.architecture == ce::CpuArchitecture::X86_64;
+        changes.registers = {{x86 ? "RAX" : "X0", 0x1234}};
+        if (x86) { context.rflags = 0x40; context.rbx = 7; changes.flags[0] = 1; changes.flags[3] = 0; }
+        const bool applied = changes.applyTo(context);
+        const bool registersOk = x86 ? context.rax == 0x1234 && context.rbx == 7 && (context.rflags & 1) && !(context.rflags & 0x40)
+                                     : context.x[0] == 0x1234;
+        check(applied && registersOk && !changes.empty() && !changes.summary().isEmpty(),
+              "a change-register breakpoint sets the chosen registers and flags and leaves the rest");
+    }
     const bool leaderExit=getenv("CECORE_GUI_LEADER_EXIT") && std::strcmp(getenv("CECORE_GUI_LEADER_EXIT"),"1")==0;
     auto* shared=mmap(nullptr,4096,PROT_READ|PROT_WRITE,MAP_SHARED|MAP_ANONYMOUS,-1,0);
     if (shared==MAP_FAILED) { std::perror("mmap"); return 1; }

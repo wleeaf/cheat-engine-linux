@@ -396,6 +396,7 @@ if(Qt6_FOUND)
         gui/i18n.cpp
         gui/mainwindow.cpp
         gui/mainwindow_menus.cpp
+        gui/aboutdialog.cpp
         gui/mainwindow_process.cpp
         gui/mainwindow_scan.cpp
         gui/mainwindow_table.cpp
@@ -413,6 +414,15 @@ if(Qt6_FOUND)
         gui/luaconsole.cpp
         gui/breakpointlist.cpp
         gui/codefinder.cpp
+        gui/changedaddresses.cpp
+        gui/changeregisters.cpp
+        gui/codefilter.cpp
+        gui/exceptionlists.cpp
+        gui/foundlistprefs.cpp
+        gui/hotkeysdialog.cpp
+        gui/peinfo.cpp
+        gui/structurecompare.cpp
+        gui/structuredissectorconfig.cpp
         gui/codereferences.cpp
         gui/advancedoptions.cpp
         gui/changeaddressdialog.cpp
@@ -485,7 +495,7 @@ if(Qt6_FOUND)
     if(CECORE_BUILD_TESTS)
         if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64|aarch64|arm64)$")
             qt_add_executable(gui_register_smoke test/gui_register_smoke.cpp
-                gui/debuggerwindow.cpp gui/registereditor.cpp gui/stackview.cpp gui/theme.cpp)
+                gui/debuggerwindow.cpp gui/exceptionlists.cpp gui/changeregisters.cpp gui/registereditor.cpp gui/stackview.cpp gui/theme.cpp)
             target_include_directories(gui_register_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
             target_link_libraries(gui_register_smoke PRIVATE cecore Qt6::Widgets)
             target_link_options(gui_register_smoke PRIVATE -rdynamic)
@@ -509,6 +519,8 @@ if(Qt6_FOUND)
         qt_add_executable(gui_debugger_smoke
             test/gui_debugger_smoke.cpp
             gui/debuggerwindow.cpp
+            gui/exceptionlists.cpp
+            gui/changeregisters.cpp
             gui/memorybrowser.cpp      # current-instruction highlight is verified here
             gui/memviewpreferences.cpp # (memorybrowser dependency)
             gui/theme.cpp   # debuggerwindow now uses ce::gui::editorPalette()
@@ -530,6 +542,7 @@ if(Qt6_FOUND)
         qt_add_executable(gui_structdissect_smoke
             test/gui_structdissect_smoke.cpp
             gui/structuredissector.cpp
+            gui/structuredissectorconfig.cpp
             gui/theme.cpp
         )
         target_include_directories(gui_structdissect_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
@@ -581,6 +594,7 @@ if(Qt6_FOUND)
         qt_add_executable(gui_codefinder_smoke
             test/gui_codefinder_smoke.cpp
             gui/codefinder.cpp
+            gui/changedaddresses.cpp
             gui/theme.cpp   # shared table style and empty-state hints
         )
         target_include_directories(gui_codefinder_smoke PRIVATE ${CMAKE_SOURCE_DIR} ${LUA_DIR})
@@ -879,6 +893,10 @@ endif()
 install(TARGETS speedhack LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(FILES third_party/tinyxml2/LICENSE.txt
     DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/cheat-engine-linux/tinyxml2)
+install(FILES third_party/lua/LICENSE
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/cheat-engine-linux/lua)
+install(FILES LICENSE
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/cheat-engine-linux)
 set_target_properties(cecore PROPERTIES
     VERSION ${PROJECT_VERSION}
     SOVERSION ${PROJECT_VERSION_MAJOR})

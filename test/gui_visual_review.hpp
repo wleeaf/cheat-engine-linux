@@ -255,7 +255,7 @@ static int renderGuiReview(const QString& directory, pid_t pid, uintptr_t valueA
             auto entryMenu = [&] { emit table->customContextMenuRequested(table->visualRect(model->index(0, 1)).center()); };
             for (const auto& [action, name] : std::vector<std::pair<QString, QString>>{
                      {"Change address...", "entry-change-address"}, {"Set value...", "entry-set-value"},
-                     {"Toggle hotkey...", "entry-hotkey"}, {"Value hotkeys...", "entry-value-hotkeys"},
+                     {"Set/Change hotkeys...", "entry-hotkeys"},
                      {"Set value codec...", "entry-codec"}, {"Dropdown options...", "entry-dropdown"},
                      {"Add to new group...", "entry-group"}, {"Change Color...", "entry-color"},
                      {"Find what writes to this address", "entry-find-writes"},

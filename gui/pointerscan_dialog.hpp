@@ -8,6 +8,8 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QTimer>
+class QCheckBox;
+class QGroupBox;
 
 #include <atomic>
 #include <functional>
@@ -52,6 +54,19 @@ private:
     QLineEdit* targetEdit_;
     QSpinBox* depthSpin_;
     QSpinBox* offsetSpin_;
+    // Advanced options (Cheat Engine's "Show advanced options").
+    QCheckBox* advancedCheck_ = nullptr;
+    QGroupBox* advancedBox_ = nullptr;
+    QCheckBox* staticOnlyCheck_ = nullptr;
+    QCheckBox* alignedCheck_ = nullptr;
+    QCheckBox* negativeCheck_ = nullptr;
+    QSpinBox* maxResultsSpin_ = nullptr;
+    QCheckBox* baseRangeCheck_ = nullptr;
+    QLineEdit* baseFromEdit_ = nullptr;
+    QLineEdit* baseToEdit_ = nullptr;
+    QCheckBox* endOffsetsCheck_ = nullptr;
+    QLineEdit* endOffsetsEdit_ = nullptr;
+    ce::PointerPathFilter filter_;   // applied to the paths a scan finds
     QPushButton* scanBtn_;
     QPushButton* rescanBtn_;
     QPushButton* saveBtn_;

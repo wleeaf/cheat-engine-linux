@@ -1,4 +1,5 @@
 #include "gui/debuggerwindow.hpp"
+#include "gui/exceptionlists.hpp"
 #include "core/local_target.hpp"
 #include <QSettings>
 #include <QCoreApplication>
@@ -82,12 +83,32 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
         auto* a = excMenu->addAction(tr(s.name));
         a->setCheckable(true);
         int sig = s.sig;
+        signalActions_.insert(sig, a);
         connect(a, &QAction::toggled, this, [this, sig](bool on) {
             if (!session_->isAttached()) return;
             if (on) session_->addExceptionBreakpoint(sig);
-            else    session_->removeExceptionBreakpoint(sig);
+            else if (!breakOnAllSignals_ || ignoredSignals_.contains(sig)) session_->removeExceptionBreakpoint(sig);
         });
     }
+    excMenu->addSeparator();
+    // Cheat Engine's "break on all exceptions" with its ignore list, and its
+    // region list, for signals.
+    auto* allSignals = excMenu->addAction(tr("Break on all signals (except the ignore list)"));
+    allSignals->setCheckable(true);
+    connect(allSignals, &QAction::toggled, this, [this](bool on) {
+        breakOnAllSignals_ = on;
+        applySignalBreaks();
+    });
+    excMenu->addAction(tr("Exception ignore list..."), this, [this]() {
+        ExceptionIgnoreListDialog dialog(ignoredSignals_, this);
+        if (dialog.exec() != QDialog::Accepted) return;
+        ignoredSignals_ = dialog.ignored();
+        applySignalBreaks();
+    });
+    excMenu->addAction(tr("Exception region list..."), this, [this]() {
+        ExceptionRegionListDialog dialog(exceptionRegions_, this);
+        if (dialog.exec() == QDialog::Accepted) exceptionRegions_ = dialog.regions();
+    });
     excBtn->setMenu(excMenu);
     controls->addWidget(excBtn);
 
@@ -412,6 +433,7 @@ QString DebuggerWindow::bpLabel(uintptr_t addr, const QString& condition) {
 QString DebuggerWindow::bpRowText(const Bp& b) const {
     QString base = b.hardware ? bpDataLabel(b.addr, b.hwType, b.hwSize)
                               : bpLabel(b.addr, QString::fromStdString(b.condition));
+    if (!b.registerChanges.empty()) base += "  [" + b.registerChanges.summary() + "]";
     if (b.hitCount > 0) base += "  " + tr("(hits: %1)").arg(b.hitCount);
     return base;
 }
@@ -440,6 +462,28 @@ void DebuggerWindow::setConditionalBreakpointAtCursor() {
         QLineEdit::Normal, QString(), &ok);
     if (!ok) return;
     addBreakpointAt(addr, cond.trimmed());
+}
+
+void DebuggerWindow::changeRegistersAtCursor() {
+    if (const uintptr_t addr = currentCursorAddress()) changeRegistersAt(addr);
+}
+
+void DebuggerWindow::changeRegistersAt(uintptr_t addr) {
+    if (!session_->isAttached() || !paused()) {
+        statusLabel_->setText(tr("Stop the target before setting a breakpoint"));
+        return;
+    }
+    RegisterChanges current;
+    for (const auto& b : bps_) if (!b.hardware && b.addr == addr) current = b.registerChanges;
+    ChangeRegistersDialog dialog(addr, session_->getStopContext(), current, this);
+    if (dialog.exec() != QDialog::Accepted) return;
+    const RegisterChanges changes = dialog.changes();
+    addBreakpointAt(addr, QString());
+    for (size_t i = 0; i < bps_.size(); ++i)
+        if (!bps_[i].hardware && bps_[i].addr == addr) {
+            bps_[i].registerChanges = changes;
+            refreshBpRow(static_cast<int>(i));
+        }
 }
 
 void DebuggerWindow::editBreakpointCondition() {
@@ -557,6 +601,16 @@ void DebuggerWindow::onAddDataBreakpoint() {
     refreshBpRow(static_cast<int>(bps_.size()) - 1);
 }
 
+void DebuggerWindow::applySignalBreaks() {
+    if (!session_->isAttached()) return;
+    for (int signal : breakableSignals()) {
+        const QAction* own = signalActions_.value(signal);
+        const bool wanted = (own && own->isChecked()) || (breakOnAllSignals_ && !ignoredSignals_.contains(signal));
+        if (wanted) session_->addExceptionBreakpoint(signal);
+        else session_->removeExceptionBreakpoint(signal);
+    }
+}
+
 void DebuggerWindow::onDebugEvent(int type) {
     if (type == static_cast<int>(ce::DebugEventType::ThreadExiting)) {
         refreshStopped();
@@ -577,6 +631,18 @@ void DebuggerWindow::onDebugEvent(int type) {
         statusLabel_->setText(tr("Process exited"));
         setRunningUi(false, true);
         return;
+    }
+    // Exception region list: a signal raised outside every listed region is
+    // passed on without stopping.
+    if (type == static_cast<int>(ce::DebugEventType::ExceptionBreakpointHit) && !exceptionRegions_.isEmpty()) {
+        const quint64 pc = lastEvtAddr_.load();
+        const bool inside = std::any_of(exceptionRegions_.begin(), exceptionRegions_.end(),
+                                        [pc](const AddressRange& r) { return pc >= r.first && pc <= r.second; });
+        if (!inside) {
+            setRunningUi(true);
+            if (!session_->continueExecution() && session_->isAttached() && session_->isStopped()) refreshStopped();
+            return;
+        }
     }
     // Conditional breakpoints: if the breakpoint that stopped us carries a
     // condition and it evaluates false for the current register state, resume
@@ -601,6 +667,18 @@ void DebuggerWindow::onDebugEvent(int type) {
             }
             bps_[i].hitCount++;
             refreshBpRow(static_cast<int>(i));
+            // Change register at this location: set them and run on.
+            if (!bps_[i].registerChanges.empty() && !bps_[i].hardware) {
+                bps_[i].registerChanges.applyTo(ctx);
+                setRunningUi(true);
+                if (!session_->setStopContext(ctx) ||
+                    (!session_->continueExecution() && session_->isAttached() && session_->isStopped())) {
+                    refreshStopped();
+                    statusLabel_->setText(tr("Could not change the registers at %1: %2").arg(hex(bps_[i].addr))
+                        .arg(QString::fromStdString(session_->lastError().message())));
+                }
+                return;
+            }
             break;
         }
     }
@@ -1215,6 +1293,7 @@ void DebuggerWindow::onDisasmContextMenu(const QPoint& pos) {
     QMenu menu(this);
     for (QAction* a : {menu.addAction(tr("Set breakpoint here"), this, &DebuggerWindow::setBreakpointAtCursor),
                        menu.addAction(tr("Set conditional breakpoint..."), this, &DebuggerWindow::setConditionalBreakpointAtCursor),
+                       menu.addAction(tr("Change register at this location..."), this, &DebuggerWindow::changeRegistersAtCursor),
                        menu.addAction(tr("Replace with NOPs"),  this, &DebuggerWindow::nopInstructionAtCursor)})
         a->setEnabled(onLine);
     menu.addSeparator();

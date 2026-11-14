@@ -710,6 +710,37 @@ void AddressListModel::setHotkeyKeys(int row, const QString& keys) {
     emit dataChanged(index(row, 0), index(row, columnCount() - 1));
 }
 
+std::vector<ce::CheatHotkey> AddressListModel::hotkeysOf(int row) const {
+    if (row < 0 || row >= (int)entries_.size()) return {};
+    const auto& e = entries_[row];
+    ce::CheatEntry record;
+    record.hotkeyKeys = e.hotkeyKeys.toStdString();
+    record.increaseHotkeyKeys = e.increaseHotkeyKeys.toStdString();
+    record.decreaseHotkeyKeys = e.decreaseHotkeyKeys.toStdString();
+    record.setValueHotkeyKeys = e.setValueHotkeyKeys.toStdString();
+    record.setValueHotkeyValue = e.setValueHotkeyValue.toStdString();
+    record.hotkeyStep = e.hotkeyStep.toStdString();
+    record.extraHotkeysXml = e.tableFields.value("extraHotkeys").toString().toStdString();
+    return ce::recordHotkeys(record);
+}
+
+void AddressListModel::setHotkeys(int row, const std::vector<ce::CheatHotkey>& hotkeys) {
+    if (row < 0 || row >= (int)entries_.size()) return;
+    auto& e = entries_[row];
+    ce::CheatEntry record;
+    record.extraHotkeysXml = e.tableFields.value("extraHotkeys").toString().toStdString();
+    ce::setRecordHotkeys(record, hotkeys);
+    e.hotkeyKeys = QString::fromStdString(record.hotkeyKeys);
+    e.increaseHotkeyKeys = QString::fromStdString(record.increaseHotkeyKeys);
+    e.decreaseHotkeyKeys = QString::fromStdString(record.decreaseHotkeyKeys);
+    e.setValueHotkeyKeys = QString::fromStdString(record.setValueHotkeyKeys);
+    e.setValueHotkeyValue = QString::fromStdString(record.setValueHotkeyValue);
+    e.hotkeyStep = record.hotkeyStep.empty() ? QStringLiteral("1") : QString::fromStdString(record.hotkeyStep);
+    if (record.extraHotkeysXml.empty()) e.tableFields.remove("extraHotkeys");
+    else e.tableFields["extraHotkeys"] = QString::fromStdString(record.extraHotkeysXml);
+    emit dataChanged(index(row, 0), index(row, columnCount() - 1));
+}
+
 void AddressListModel::setValueHotkeys(int row, const QString& increaseKeys, const QString& decreaseKeys,
                                        const QString& step, const QString& setKeys, const QString& setValue) {
     if (row < 0 || row >= (int)entries_.size()) return;

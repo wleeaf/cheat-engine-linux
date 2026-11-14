@@ -35,6 +35,7 @@
 #include <QJsonObject>
 #include <functional>
 #include "gui/globalhotkeys.hpp"
+#include "gui/foundlistprefs.hpp"
 #include <unordered_map>
 #include <vector>
 #include <cstdint>
@@ -371,6 +372,8 @@ public:
         if (rowCount() > 0) emit dataChanged(index(0, 1), index(rowCount() - 1, 1), {Qt::DisplayRole});
     }
 
+    /// Re-read the Foundlist Customizer's colours, font and notation.
+    void reloadPreferences();
 private:
     size_t valueSizeBytes() const;
 
@@ -381,6 +384,7 @@ private:
     int shownRows_ = 0;
     std::string stringEncoding_ = "UTF-8";   // decode String results from this code page
     ce::ProcessHandle* proc_ = nullptr;
+    FoundListOptions options_ = FoundListOptions::load();
     std::vector<ce::ModuleInfo> modules_;                      // cached for static-address (green) coloring
     std::unordered_map<int, std::vector<uint8_t>> liveValues_; // row -> current bytes (empty = unreadable)
     std::unordered_map<int, bool> changed_;                    // row -> value changed on last refresh
@@ -472,6 +476,10 @@ public:
     void setShowAsHex(int row, bool hex);
     void setEntryType(int row, ce::ValueType t);
     void setHotkeyKeys(int row, const QString& keys);
+    /// Every hotkey of a record (its four slots and the kept extra ones), and
+    /// replacing them all (the Set/Change hotkeys window).
+    std::vector<ce::CheatHotkey> hotkeysOf(int row) const;
+    void setHotkeys(int row, const std::vector<ce::CheatHotkey>& hotkeys);
     void setValueHotkeys(int row, const QString& increaseKeys, const QString& decreaseKeys,
                          const QString& step, const QString& setKeys, const QString& setValue);
     bool adjustEntryValue(int row, double delta);

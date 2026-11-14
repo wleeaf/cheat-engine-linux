@@ -247,6 +247,7 @@ signals:
     void requestAssemble(uintptr_t addr, int size, const QString& current);
     void requestXrefs(uintptr_t addr);
     void requestInstructionAccess(uintptr_t addr);   // "what addresses does this instr access"
+    void requestChangeRegisters(uintptr_t addr);     // "change register at this location"
     void requestSetSymbol(uintptr_t addr);
     void requestSetComment(uintptr_t addr);
     void requestAddToList(uintptr_t addr, ce::ValueType type);   // add the instruction addr
@@ -385,6 +386,8 @@ public:
     void setInstructionAccessLauncher(std::function<void(uintptr_t)> fn) {
         instrAccessLauncher_ = std::move(fn);
     }
+    /// "Change register at this location" (CE): MainWindow sets it in the Debugger.
+    void setChangeRegistersLauncher(std::function<void(uintptr_t)> fn) { changeRegistersLauncher_ = std::move(fn); }
     /// Add an address (from the hex view's context menu) to the cheat table.
     void setAddToList(std::function<void(uintptr_t, ce::ValueType)> fn) { addToList_ = std::move(fn); }
 
@@ -416,6 +419,8 @@ public:
         stepOverFn_ = std::move(stepOver);
         runFn_ = std::move(run);
     }
+    /// Execute till return (Shift+F8): run until the current function returns.
+    void setStepOut(std::function<void()> fn) { stepOutFn_ = std::move(fn); }
     /// Run-to-cursor (F4): continue until the *viewer's* selected instruction. Takes
     /// the target address so it runs to this window's cursor, not the Debugger's.
     void setRunToCursor(std::function<void(uintptr_t)> fn) { runToCursorFn_ = std::move(fn); }
@@ -553,8 +558,9 @@ private:
     BpQuery bpQuery_;
     CodeFinderLauncher cfLauncher_;
     std::function<void(uintptr_t)> instrAccessLauncher_;
+    std::function<void(uintptr_t)> changeRegistersLauncher_;
     DebuggerLauncher debuggerLauncher_;
-    std::function<void()> stepIntoFn_, stepOverFn_, runFn_;   // delegate to the debug session
+    std::function<void()> stepIntoFn_, stepOverFn_, runFn_, stepOutFn_;   // delegate to the debug session
     std::function<void(uintptr_t)> runToCursorFn_;            // run to the viewer's selected line
 
     std::function<void(const QString&, uintptr_t, size_t)> autoAssembleOpener_;

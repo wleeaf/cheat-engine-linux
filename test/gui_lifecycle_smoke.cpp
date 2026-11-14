@@ -1,4 +1,5 @@
 #include "gui/mainwindow.hpp"
+#include "gui/aboutdialog.hpp"
 #include "gui/memorybrowser.hpp"
 #include "gui/codefinder.hpp"
 #include "gui/graphicalmemoryview.hpp"
@@ -218,9 +219,14 @@ static bool usabilityChecks() {
     arranged.indentRows({arranged.rowOfId(g)});
     arrange = arrange && arranged.entries()[arranged.rowOfId(g)].indent == 1 &&
               arranged.entries()[arranged.rowOfId(a)].indent == 2;
-    std::printf("gui usability: rows=%d export=%d validation=%d UTF8=%d clear=%d bytes=%d arrange=%d\n",
-        incremental, allValues, validation, unicode, cleared, arrayValidation, arrange);
-    return incremental && allValues && validation && unicode && cleared && arrayValidation && arrange;
+    // Help > About names its version and credits Cheat Engine and the libraries.
+    ce::gui::AboutDialog about;
+    const QString credits = about.creditsTextForTest();
+    const bool aboutOk = about.windowTitle().contains("Cheat Engine") && credits.contains("Dark Byte") &&
+                         credits.contains("Keystone") && credits.contains("Capstone") && credits.contains("Lua");
+    std::printf("gui usability: rows=%d export=%d validation=%d UTF8=%d clear=%d bytes=%d arrange=%d about=%d\n",
+        incremental, allValues, validation, unicode, cleared, arrayValidation, arrange, aboutOk);
+    return incremental && allValues && validation && unicode && cleared && arrayValidation && arrange && aboutOk;
 }
 
 static bool allTypeGuiScanChecks(const QString& screenshot = {}) {

@@ -71,6 +71,43 @@ reimplementation of Cheat Engine).
 - The project's own code builds without compiler warnings, and CI now fails on
   a new one (`-DCECORE_WARNINGS_AS_ERRORS=ON`; off by default, since other
   compilers warn differently).
+- Every window Cheat Engine has that this port only partly had is now complete
+  (see `docs/GUI_PARITY.md`):
+  - **Changed Addresses** ("Find out what addresses this instruction accesses")
+    is a live window until Stop, with each address's value and hit count, the
+    registers of its first hit, value editing, browsing, dissecting the
+    selected structures, copying, filtering, and the **Commonality scanner**,
+    which names the registers that tell two groups of addresses apart.
+  - **Code Filter**: one-shot breakpoints on every CALL (or every instruction)
+    of a module, or on addresses from a file; keep the ones that did or did
+    not execute between game actions.
+  - **Structure Compare**: the offsets, following pointers, whose value is the
+    same in every group 1 structure and different in every group 2 one.
+  - **PE Info**: the headers, sections, data directories, imports, exports and
+    base relocations of a Windows module, from its file or from memory.
+  - **Set/Change hotkeys**: any number of hotkeys per record with every Cheat
+    Engine action (toggle, freeze allowing an increase or a decrease, freeze,
+    unfreeze, set, increase, decrease) and a description. Activate and
+    Deactivate hotkeys from Cheat Engine tables now work.
+  - **Change register at this location**: a breakpoint that sets registers and
+    flags each time execution gets there, then runs on.
+  - The debugger can **break on every signal** except an **ignore list**, and
+    only for signals raised inside an **exception region list**.
+  - **Break and Trace** takes start and stop conditions (Lua on the
+    registers), steps over `rep` instructions and calls into system
+    libraries, and can record each memory operand and a stack snapshot.
+  - The **pointer scanner** has its advanced options: static-only, aligned,
+    negative offsets, a path limit, a base address range and required ending
+    offsets.
+  - **Dissect Data Config** (colours, default size, hexadecimal fields) and the
+    **Foundlist Customizer** (result colours, font size, module+offset
+    addresses).
+  - Find what accesses/writes results offer More Info, Find out what addresses
+    this code accesses, the other addresses each found opcode touches, Select
+    all and Copy.
+  - The Memory Viewer has Execute till return (Shift+F8).
+  - Help > About credits Cheat Engine and lists each library with its license.
+    Lua's license and the project's own are installed with the others.
 
 ---
 

@@ -120,6 +120,12 @@
 #include <charconv>
 #include <exception>
 #include "gui/mainwindow_internal.hpp"
+#include "gui/hotkeysdialog.hpp"
+#include "gui/changedaddresses.hpp"
+#include "gui/codefilter.hpp"
+#include "gui/peinfo.hpp"
+#include "gui/structurecompare.hpp"
+#include "gui/structuredissectorconfig.hpp"
 #include <QItemSelectionModel>
 #include <QAction>
 
@@ -453,8 +459,15 @@ void MainWindow::setupUi() {
         menu.addSeparator();
         auto* accAct = menu.addAction(tr("Find out what accesses this address"));
         auto* wrAct  = menu.addAction(tr("Find out what writes to this address"));
+        menu.addSeparator();
+        auto* customizeAct = menu.addAction(tr("Change Foundlist settings..."));
         QAction* picked = menu.exec(resultsView_->viewport()->mapToGlobal(pos));
         if (!picked) return;
+        if (picked == customizeAct) {
+            FoundListPreferencesDialog dialog(this);
+            if (dialog.exec() == QDialog::Accepted) resultsModel_->reloadPreferences();
+            return;
+        }
         const uintptr_t firstAddr = resultsModel_->addressAt(sel.first().row());
         if (picked == addAct) {
             for (auto& idx : sel)
@@ -1393,94 +1406,27 @@ void MainWindow::setupUi() {
             }
             if (selected.size() == 1) {
                 menu.addSeparator();
-                QMenu* hotkeyMenu = menu.addMenu(tr("Hotkeys"));
-                hotkeyMenu->addAction(tr("Toggle hotkey..."), [this, selected]() {
+                // Cheat Engine's Set/Change hotkey window: every hotkey of the
+                // record, each with its action, value and description.
+                menu.addAction(tr("Set/Change hotkeys..."), [this, selected]() {
                     int row = selected.first().row();
                     const auto& entries = addressListModel_->entries();
                     if (row < 0 || row >= (int)entries.size()) return;
-
-                    QDialog dialog(this);
-                    dialog.setWindowTitle(tr("Configure Hotkey"));
-                    auto* layout = new QVBoxLayout(&dialog);
-                    auto* label = new QLabel(entries[row].description, &dialog);
-                    label->setObjectName("pageTitle");
-                    auto* editor = new QKeySequenceEdit(QKeySequence(entries[row].hotkeyKeys), &dialog);
-                    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-                    auto* clearButton = buttons->addButton(tr("Clear"), QDialogButtonBox::ResetRole);
-
-                    auto* note = new QLabel(tr("Press the key combination that turns this entry on and off. "
-                                            "It works while the game has focus."), &dialog);
-                    note->setProperty("secondary", true);
-                    note->setWordWrap(true);
-                    editor->setMinimumWidth(280);
-                    layout->addWidget(label);
-                    layout->addWidget(note);
-                    layout->addWidget(editor);
-                    layout->addWidget(buttons);
-                    connect(clearButton, &QPushButton::clicked, editor, &QKeySequenceEdit::clear);
-                    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-                    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-
+                    QList<HotkeyBinding> bindings;
+                    for (const auto& hotkey : addressListModel_->hotkeysOf(row))
+                        bindings.push_back({hotkey.action, QString::fromStdString(hotkey.keys),
+                                            QString::fromStdString(hotkey.value), QString::fromStdString(hotkey.description)});
                     const int id = entries[row].id;   // rows can move during the dialog
-                    if (dialog.exec() == QDialog::Accepted) {
-                        row = addressListModel_->rowOfId(id);
-                        if (row < 0) return;
-                        addressListModel_->setHotkeyKeys(row,
-                            editor->keySequence().toString(QKeySequence::PortableText));
-                        rebuildValueHotkeys();   // grab the new key (and release a cleared one) now
-                    }
-                });
-                hotkeyMenu->addAction(tr("Value hotkeys..."), [this, selected]() {
-                    int row = selected.first().row();
-                    const auto& entries = addressListModel_->entries();
-                    if (row < 0 || row >= (int)entries.size()) return;
-
-                    QDialog dialog(this);
-                    dialog.setWindowTitle(tr("Configure Value Hotkeys"));
-                    auto* layout = new QGridLayout(&dialog);
-                    auto* label = new QLabel(entries[row].description, &dialog);
-                    label->setObjectName("pageTitle");
-                    auto* increaseEditor = new QKeySequenceEdit(QKeySequence(entries[row].increaseHotkeyKeys), &dialog);
-                    auto* decreaseEditor = new QKeySequenceEdit(QKeySequence(entries[row].decreaseHotkeyKeys), &dialog);
-                    // A record without value hotkeys yet starts from the Settings > Hotkeys step.
-                    const QString defaultStep = QSettings().value("hotkeys/valueStep", "1").toString();
-                    const bool configured = !entries[row].increaseHotkeyKeys.isEmpty() || !entries[row].decreaseHotkeyKeys.isEmpty();
-                    auto* stepEdit = new QLineEdit(configured && !entries[row].hotkeyStep.isEmpty() ? entries[row].hotkeyStep : defaultStep, &dialog);
-                    stepEdit->setValidator(new QDoubleValidator(stepEdit));
-                    auto* setEditor = new QKeySequenceEdit(QKeySequence(entries[row].setValueHotkeyKeys), &dialog);
-                    auto* setValueEdit = new QLineEdit(entries[row].setValueHotkeyValue, &dialog);
-                    setValueEdit->setPlaceholderText(tr("value to set"));
-                    for (QWidget* field : std::initializer_list<QWidget*>{increaseEditor, decreaseEditor, stepEdit, setEditor, setValueEdit})
-                        field->setMinimumWidth(220);
-                    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-
-                    layout->addWidget(label, 0, 0, 1, 2);
-                    layout->addWidget(new QLabel(tr("Increase"), &dialog), 1, 0);
-                    layout->addWidget(increaseEditor, 1, 1);
-                    layout->addWidget(new QLabel(tr("Decrease"), &dialog), 2, 0);
-                    layout->addWidget(decreaseEditor, 2, 1);
-                    layout->addWidget(new QLabel(tr("Step"), &dialog), 3, 0);
-                    layout->addWidget(stepEdit, 3, 1);
-                    layout->addWidget(new QLabel(tr("Set value hotkey"), &dialog), 4, 0);
-                    layout->addWidget(setEditor, 4, 1);
-                    layout->addWidget(new QLabel(tr("Set to value"), &dialog), 5, 0);
-                    layout->addWidget(setValueEdit, 5, 1);
-                    layout->addWidget(buttons, 6, 0, 1, 2);
-                    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-                    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-
-                    const int id = entries[row].id;   // rows can move during the dialog
-                    if (dialog.exec() == QDialog::Accepted) {
-                        row = addressListModel_->rowOfId(id);
-                        if (row < 0) return;
-                        addressListModel_->setValueHotkeys(row,
-                            increaseEditor->keySequence().toString(QKeySequence::PortableText),
-                            decreaseEditor->keySequence().toString(QKeySequence::PortableText),
-                            stepEdit->text().isEmpty() ? defaultStep : stepEdit->text(),
-                            setEditor->keySequence().toString(QKeySequence::PortableText),
-                            setValueEdit->text());
-                        rebuildValueHotkeys();
-                    }
+                    HotkeysDialog dialog(entries[row].description, bindings, this);
+                    if (dialog.exec() != QDialog::Accepted) return;
+                    row = addressListModel_->rowOfId(id);
+                    if (row < 0) return;
+                    std::vector<ce::CheatHotkey> hotkeys;
+                    for (const auto& binding : dialog.hotkeys())
+                        hotkeys.push_back({binding.action, binding.keys.toStdString(), binding.value.toStdString(),
+                                           binding.description.toStdString()});
+                    addressListModel_->setHotkeys(row, hotkeys);
+                    rebuildValueHotkeys();   // grab the new keys (and release cleared ones) now
                 });
             }
         }
@@ -2033,6 +1979,10 @@ void MainWindow::wireBrowserAnnotations(MemoryBrowser* browser) {
                        QMetaObject::invokeMethod(debuggerWindow_, "onStepOver"); },
         [this]() { if (debuggerWindow_ && debuggerWindow_->debugStopped())
                        QMetaObject::invokeMethod(debuggerWindow_, "onContinue"); });
+    browser->setStepOut([this]() {
+        if (debuggerWindow_ && debuggerWindow_->debugStopped())
+            QMetaObject::invokeMethod(debuggerWindow_, "onStepOut");
+    });
     // Run to cursor (F4): run to the viewer's own selected line, not the Debugger's.
     browser->setRunToCursor([this](uintptr_t addr) {
         if (addr && debuggerWindow_ && debuggerWindow_->debugStopped())
@@ -2175,28 +2125,56 @@ void MainWindow::rebuildValueHotkeys() {
         // remove/reset, so a row-based capture would fire on the wrong entry. Resolve the
         // current row from the id each time the key is pressed.
         const int id = entry.id;
-        // Toggle-active hotkey: flip the entry's active state. A group header
-        // carries one too (CE tables), and toggles its children with it.
-        addHotkey(entry.hotkeyKeys, "toggle", false, [this, id]() {
-            int r = addressListModel_->rowOfId(id);
-            if (r >= 0) addressListModel_->toggleActive(r);
-        });
-        if (entry.isGroup) continue;
-        addHotkey(entry.increaseHotkeyKeys, "increase", true, [this, id, step]() {
-            int r = addressListModel_->rowOfId(id);
-            if (r < 0 || !addressListModel_->adjustEntryValue(r, step * 1.0))
-                QApplication::beep();
-        });
-        addHotkey(entry.decreaseHotkeyKeys, "decrease", true, [this, id, step]() {
-            int r = addressListModel_->rowOfId(id);
-            if (r < 0 || !addressListModel_->adjustEntryValue(r, step * -1.0))
-                QApplication::beep();
-        });
-        // Set-value hotkey: write a fixed value (e.g. bind a key to "health = 999").
-        addHotkey(entry.setValueHotkeyKeys, "set", false, [this, id, val = entry.setValueHotkeyValue]() {
-            int r = addressListModel_->rowOfId(id);
-            if (r >= 0) addressListModel_->setEntryValueTo(r, val);
-        });
+        // Every hotkey of the record, with Cheat Engine's actions. The first of
+        // each slot keeps the slot's portal name, so a desktop's binding stays.
+        int extra = 0;
+        QSet<QString> named;
+        for (const auto& hotkey : addressListModel_->hotkeysOf(row)) {
+            const int action = hotkey.action;
+            if (entry.isGroup && action > 4) continue;   // a group header has no value
+            static const char* const slotNames[] = {"toggle", "toggle", "toggle", "toggle", "toggle", "set", "increase", "decrease"};
+            QString slot = QLatin1String(slotNames[action]);
+            if (named.contains(slot)) slot = QStringLiteral("hotkey%1").arg(++extra);
+            named.insert(slot);
+            const QByteArray slotName = slot.toLatin1();
+            const QString keys = QString::fromStdString(hotkey.keys);
+            const QString value = QString::fromStdString(hotkey.value);
+            switch (action) {
+                case 0: case 1: case 2:   // toggle; 1 and 2 freeze allowing an increase / a decrease
+                    addHotkey(keys, slotName.constData(), false, [this, id, action]() {
+                        int r = addressListModel_->rowOfId(id);
+                        if (r < 0) return;
+                        if (action != 0 && !addressListModel_->entries()[r].active)
+                            addressListModel_->setFreezeMode(r, action == 1 ? ce::FreezeMode::IncreaseOnly
+                                                                            : ce::FreezeMode::DecreaseOnly);
+                        addressListModel_->toggleActive(r);
+                    });
+                    break;
+                case 3: case 4:           // activate, deactivate
+                    addHotkey(keys, slotName.constData(), false, [this, id, on = action == 3]() {
+                        int r = addressListModel_->rowOfId(id);
+                        if (r >= 0 && addressListModel_->entries()[r].active != on) addressListModel_->setActive(id, on);
+                    });
+                    break;
+                case 5:                   // set value
+                    addHotkey(keys, slotName.constData(), false, [this, id, value]() {
+                        int r = addressListModel_->rowOfId(id);
+                        if (r >= 0) addressListModel_->setEntryValueTo(r, value);
+                    });
+                    break;
+                default: {                // 6 increase, 7 decrease: repeat while held, as in CE
+                    bool ok = false;
+                    double amount = QString(value).replace(',', '.').toDouble(&ok);
+                    if (!ok || amount == 0.0) amount = step;
+                    const double delta = action == 6 ? amount : -amount;
+                    addHotkey(keys, slotName.constData(), true, [this, id, delta]() {
+                        int r = addressListModel_->rowOfId(id);
+                        if (r < 0 || !addressListModel_->adjustEntryValue(r, delta)) QApplication::beep();
+                    });
+                    break;
+                }
+            }
+        }
     }
 }
 
@@ -2256,57 +2234,29 @@ void MainWindow::showInstructionAccesses(uintptr_t instructionAddr) {
     // ptrace-traced, and the instruction-access monitor's SEIZE would then fail.
     for (auto& f : codeFinders_)
         if (f) f->stop();
-
-    // Runs synchronously: plant an execute breakpoint on the instruction, resolve the
-    // data address of its memory operand from the live registers on each hit, until
-    // 32 hits or a 4s timeout. Usually fast for a hot instruction; brief wait otherwise.
-    statusBar()->showMessage(QString(tr("Monitoring the instruction at 0x%1…")).arg(instructionAddr, 0, 16));
-    QApplication::setOverrideCursor(Qt::WaitCursor);
-    QApplication::processEvents();
-    auto results = ce::findInstructionAccesses(*process_, instructionAddr);
-    QApplication::restoreOverrideCursor();
-
-    if (results.empty()) {
-        statusBar()->clearMessage();
-        QMessageBox::information(this, tr("What this instruction accesses"),
-            QString(tr("No data accesses were recorded for the instruction at 0x%1.\n\nIt may not have "
-                    "run during the sample window, or it has no memory operand.")).arg(instructionAddr, 0, 16));
-        return;
-    }
-
-    auto* dlg = new QDialog(this);
-    dlg->setAttribute(Qt::WA_DeleteOnClose);
-    dlg->setWindowTitle(QString(tr("Addresses accessed by 0x%1")).arg(instructionAddr, 0, 16));
-    dlg->resize(440, 360);
-    auto* lay = new QVBoxLayout(dlg);
-    lay->addWidget(new QLabel(QString(tr("%1 distinct address(es) accessed (double-click to add to the list):"))
-        .arg(results.size())));
-    auto* table = new QTableWidget((int)results.size(), 2, dlg);
-    table->setHorizontalHeaderLabels({tr("Address"), tr("Hits")});
-    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    for (int i = 0; i < (int)results.size(); ++i) {
-        std::string modOff = ce::moduleOffsetString(process_->modules(), results[i].address);
-        QString label = modOff.empty() ? QString("0x%1").arg(results[i].address, 0, 16)
-            : QString("%1 (0x%2)").arg(QString::fromStdString(modOff)).arg(results[i].address, 0, 16);
-        auto* a = new QTableWidgetItem(label);
-        a->setData(Qt::UserRole, (qulonglong)results[i].address);
-        table->setItem(i, 0, a);
-        table->setItem(i, 1, new QTableWidgetItem(QString::number(results[i].hitCount)));
-    }
-    table->resizeColumnsToContents();
-    connect(table, &QTableWidget::cellDoubleClicked, this, [this, table](int row, int) {
-        if (auto* it = table->item(row, 0))
-            addressListModel_->addEntry((uintptr_t)it->data(Qt::UserRole).toULongLong(),
-                                        ce::ValueType::Int32, tr("Accessed address"));
+    // Cheat Engine's Changed Addresses: a live list until Stop, with the value
+    // and hit count of every address the instruction touches.
+    auto* window = new ChangedAddressesWindow(process_.get(), instructionAddr, this);
+    trackTargetWindow(window);
+    connect(window, &ChangedAddressesWindow::browseRequested, this, [this](quint64 address) {
+        openMemoryView(static_cast<uintptr_t>(address));
     });
-    lay->addWidget(table);
-    auto* close = new QPushButton(tr("Close"));
-    connect(close, &QPushButton::clicked, dlg, &QDialog::accept);
-    lay->addWidget(close, 0, Qt::AlignRight);
-    dlg->show();
-    statusBar()->showMessage(QString(tr("%1 address(es) accessed by 0x%2"))
-        .arg(results.size()).arg(instructionAddr, 0, 16), 5000);
+    connect(window, &ChangedAddressesWindow::dissectRequested, this, [this](QList<quint64> addresses) {
+        if (!process_ || addresses.isEmpty()) return;
+        auto* sd = new StructureDissector(process_.get(), static_cast<uintptr_t>(addresses.front()), this);
+        sd->setAttribute(Qt::WA_DeleteOnClose);
+        trackStructDissector(sd);
+        std::vector<uintptr_t> others;
+        for (qsizetype i = 1; i < addresses.size(); ++i) others.push_back(static_cast<uintptr_t>(addresses[i]));
+        if (!others.empty()) sd->setCompareAddresses(others);
+        sd->show();
+    });
+    connect(window, &ChangedAddressesWindow::addToAddressListRequested, this, [this](quint64 address, int type) {
+        addressListModel_->addEntry(static_cast<uintptr_t>(address), static_cast<ce::ValueType>(type),
+                                    tr("Accessed address"));
+    });
+    window->show();
+    statusBar()->showMessage(QString(tr("Monitoring the instruction at 0x%1…")).arg(instructionAddr, 0, 16), 5000);
 }
 
 int MainWindow::runAutorunScripts() {
@@ -2408,6 +2358,7 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly, int 
     // CE: "Show this address in the disassembler" jumps the Memory Viewer to the
     // writing/accessing instruction (the found row's recovered address).
     window->setShowInDisassembler([this](uintptr_t a) { openMemoryView(a); });
+    window->setFindWhatCodeAccesses([this](uintptr_t a) { showInstructionAccesses(a); });
     window->show();
 }
 
@@ -2450,6 +2401,12 @@ void MainWindow::showDebugger() {
 }
 
 void MainWindow::trackStructDissector(StructureDissector* sd) {
+    // Fields go to the address list in hexadecimal when Dissect Data Config says so.
+    sd->setAddToListCallback([this](uintptr_t a, ce::ValueType t, const QString& d) {
+        const int id = addressListModel_->addEntry(a, t, d);
+        if (StructureDissectorOptions::load().hexFields && (ce::isIntegerScalar(t) || t == ce::ValueType::Pointer))
+            addressListModel_->setHexView(id, true);
+    });
     std::erase_if(structDissectors_, [](const QPointer<StructureDissector>& p) { return p.isNull(); });
     structDissectors_.push_back(sd);
 }
@@ -2670,6 +2627,10 @@ MemoryBrowser* MainWindow::openMemoryView(uintptr_t addr) {
     browser->setInstructionAccessLauncher([this](uintptr_t addr) {
         showInstructionAccesses(addr);
     });
+    browser->setChangeRegistersLauncher([this](uintptr_t addr) {
+        showDebugger();   // the Debugger owns the session the breakpoint lives in
+        if (debuggerWindow_) debuggerWindow_->changeRegistersAt(addr);
+    });
     browser->setAddToList([this](uintptr_t addr, ce::ValueType type) {
         addressListModel_->addEntry(addr, type);
         statusBar()->showMessage(QString(tr("Added 0x%1 to the cheat table")).arg(addr, 0, 16), 3000);
@@ -2873,6 +2834,26 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
         auto* console = new LuaConsole(&luaEngine_, this);
         luaConsole_ = console;
         console->setAttribute(Qt::WA_DeleteOnClose); console->show();
+    });
+    tools->addAction(tr("Structure Compare..."), this, [this]() {
+        if (!process_) { QMessageBox::warning(this, tr("No process"), tr("Open a process first.")); return; }
+        auto* w = new StructureCompareWindow(process_.get(), this);
+        trackTargetWindow(w);
+        w->show();
+    });
+    tools->addAction(tr("Code Filter..."), this, [this]() {
+        if (!process_) { QMessageBox::warning(this, tr("No process"), tr("Open a process first.")); return; }
+        auto* w = new CodeFilterWindow(process_.get(), this);
+        trackTargetWindow(w);
+        connect(w, &CodeFilterWindow::showInDisassembler, this, [this](quint64 address) {
+            openMemoryView(static_cast<uintptr_t>(address));
+        });
+        w->show();
+    });
+    tools->addAction(tr("PE Info..."), this, [this]() {
+        auto* w = new PEInfoWindow(process_.get(), this);
+        if (process_) trackTargetWindow(w);
+        w->show();
     });
     tools->addAction(tr("ELF Inspector..."), this, [this]() {
         QString initial;

@@ -30,6 +30,9 @@ public:
     /// "Show this address in the disassembler"). MainWindow wires it to openMemoryView.
     using ShowFn = std::function<void(uintptr_t addr)>;
     void setShowInDisassembler(ShowFn fn) { showInDisasm_ = std::move(fn); }
+    /// Hook for "Find out what addresses this code accesses" (MainWindow opens
+    /// the Changed Addresses window on the instruction).
+    void setFindWhatCodeAccesses(ShowFn fn) { findAccesses_ = std::move(fn); }
 
     // Test hooks (headless): NOP the instruction at `addr` (returns true if patched);
     // restore its original bytes; fire the show hook; read a row's displayed address.
@@ -61,6 +64,7 @@ private:
     QTimer* refreshTimer_;
     AddToListFn addToList_;
     ShowFn showInDisasm_;
+    ShowFn findAccesses_;
     std::map<uintptr_t, std::vector<uint8_t>> noppedOriginals_;  // NOPped addr -> original bytes
 };
 

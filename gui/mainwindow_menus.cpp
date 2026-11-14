@@ -108,6 +108,7 @@
 #include <exception>
 
 #include "gui/mainwindow_internal.hpp"
+#include "gui/aboutdialog.hpp"
 #include <QItemSelectionModel>
 #include <QAction>
 namespace ce::gui {
@@ -915,16 +916,9 @@ void MainWindow::setupMenus() {
     help->addAction(tr("Graphical Tutorial..."), this, [launchTutorial]() { launchTutorial("cegtutorial"); });
     help->addSeparator();
     help->addAction(tr("About"), this, [this]() {
-        QMessageBox::about(this, tr("About Cheat Engine for Linux"),
-            QString(tr("<h2 style='margin-bottom:2px'>Cheat Engine for Linux</h2>"
-                    "<p style='margin-top:0'>Version %1</p>"
-                    "<p>A memory scanner, debugger and code injection tool for native Linux, "
-                    "Wine and Proton programs.</p>"
-                    "<p>Built with Qt %2, Capstone, Keystone and Lua 5.3.<br>"
-                    "Free and open source under the MIT license.</p>"
-                    "<p><a href='https://github.com/wleeaf/cheat-engine-linux'>"
-                    "github.com/wleeaf/cheat-engine-linux</a></p>"))
-                .arg(CECORE_VERSION, qVersion()));
+        auto* dialog = new AboutDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
     });
 }
 

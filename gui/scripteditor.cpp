@@ -232,7 +232,7 @@ ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget*
             continue;
         }
         QString body = QString::fromStdString(t.body);
-        QString name = label;
+        const QString& name = label;
         connect(action, &QAction::triggered, this, [this, body, name]() {
             if (!editor_->toPlainText().trimmed().isEmpty()) {
                 auto answer = QMessageBox::question(this, tr("Insert template?"),

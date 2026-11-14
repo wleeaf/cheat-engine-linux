@@ -251,7 +251,7 @@ std::string decodeStringBytes(const uint8_t* data, size_t len, const std::string
                 outPtr = out.data() + used;
                 outLeft = out.size() - used;
             }
-            std::memcpy(outPtr, replacement, 3);
+            std::memcpy(outPtr, replacement, 3);  // NOLINT(bugprone-not-null-terminated-result): bytes, not a C string
             outPtr += 3; outLeft -= 3;
         }
     }
@@ -1460,7 +1460,8 @@ private:
     // the state, lua_close included, runs armed, so the jump always has a
     // target; the exit only keeps this function from returning.
     static int panic(lua_State* L) {
-        auto* self = *static_cast<CustomFormulaEvaluator**>(lua_getextraspace(L));
+        CustomFormulaEvaluator* self = nullptr;
+        std::memcpy(&self, lua_getextraspace(L), sizeof self);
         if (self && self->panicArmed_) std::longjmp(self->panicJump_, 1);
         std::_Exit(70);
     }
@@ -1489,7 +1490,8 @@ private:
             L_ = lua_newstate(lua_sandbox::budgetAlloc, &memory_);   // protected inside
             if (!L_)
                 return false;
-            *static_cast<CustomFormulaEvaluator**>(lua_getextraspace(L_)) = this;
+            CustomFormulaEvaluator* self = this;
+            std::memcpy(lua_getextraspace(L_), &self, sizeof self);
             lua_atpanic(L_, &panic);
         }
         SetupCall call{&formula_};
@@ -2539,7 +2541,7 @@ void ScanResult::firstValue(size_t i, void* buf, size_t valueSize) const {
     close(fd);
 }
 
-void ScanResult::forEach(std::function<void(uintptr_t, const void*, size_t)> callback, size_t valueSize) const {
+void ScanResult::forEach(const std::function<void(uintptr_t, const void*, size_t)>& callback, size_t valueSize) const {
     if (writeError_ || !valueSize || valueSize > valueSize_) return;
     constexpr size_t BATCH = 4096;
     if (valueSize_ > SIZE_MAX / BATCH) return;

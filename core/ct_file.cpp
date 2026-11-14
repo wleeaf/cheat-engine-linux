@@ -1137,7 +1137,7 @@ static std::string unknownRecordElements(const std::string& own) {
         std::string name;
         const size_t end = elementEnd(own, p, own.size(), &name);
         if (end == std::string::npos) break;
-        if (!kRecordElements.count(name)) {
+        if (!kRecordElements.contains(name)) {
             if (!out.empty()) out += "\n      ";
             out += own.substr(p, end - p);
         }
@@ -1417,7 +1417,7 @@ static void parseCheatEntriesBlock(const std::string& xml, size_t begin, size_t 
         if (!hasId || !usedIds.insert(e.id).second) {
             if (usedIds.empty()) e.id = 1;
             else if (*usedIds.rbegin() < std::numeric_limits<int>::max()) e.id = *usedIds.rbegin() + 1;
-            else for (e.id = 1; usedIds.count(e.id); ++e.id) {}   // INT_MAX is taken: the first gap
+            else for (e.id = 1; usedIds.contains(e.id); ++e.id) {}   // INT_MAX is taken: the first gap
             usedIds.insert(e.id);
         }
         int myId = e.id;

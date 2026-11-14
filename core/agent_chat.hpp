@@ -105,7 +105,7 @@ public:
 private:
     struct ToolCall { std::string id, name; json::Value arguments; };
     bool parseReply(const std::string& body, std::string& text, std::vector<ToolCall>& calls, std::string& error);
-    void report(ChatEvent event) { if (sink_) sink_(event); }
+    void report(const ChatEvent& event) { if (sink_) sink_(event); }
     std::string systemPrompt() const;
 
     AgentSession& session_;

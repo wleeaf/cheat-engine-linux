@@ -131,7 +131,8 @@ std::optional<SimpleHook> installSimpleHook(ProcessHandle& proc, uintptr_t addre
     }
     hook.codecave = *cave;
     auto freeCave = [&] {
-        return hook.image ? hook.image->free(*cave,64+patchLen) : proc.free(*cave,64+patchLen);
+        // Best effort: the caller is already reporting the failure that led here.
+        (void)(hook.image ? hook.image->free(*cave,64+patchLen) : proc.free(*cave,64+patchLen));
     };
     if (64 + patchLen > UINTPTR_MAX - *cave ||
         (code32 && *cave > UINT32_MAX - (64 + patchLen))) {

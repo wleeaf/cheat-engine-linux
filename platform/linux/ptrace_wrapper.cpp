@@ -17,7 +17,7 @@ Error LinuxDebugger::errFromErrno() {
 }
 
 LinuxDebugger::~LinuxDebugger() {
-    if (attached_) detach();
+    if (attached_) (void)detach();
 }
 
 Result<void> LinuxDebugger::attach(pid_t pid) {

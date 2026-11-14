@@ -21,7 +21,7 @@ namespace ce {
 class CudaSearch {
 public:
     CudaSearch() = default;
-    ~CudaSearch();
+    ~CudaSearch() = default;
 
     /// Cheap probe — is the build's CUDA path compiled in AND is a CUDA-
     /// capable device usable from the current process?

@@ -537,7 +537,7 @@ static int l_writeBytes(lua_State* L) {
     } else {
         for (int i = 2; i <= top; ++i) bytes.push_back((uint8_t)lua_tointeger(L, i));
     }
-    p->write(addr, bytes.data(), bytes.size());
+    (void)p->write(addr, bytes.data(), bytes.size());
     return 0;
 }
 

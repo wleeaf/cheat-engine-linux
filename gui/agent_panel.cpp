@@ -148,7 +148,7 @@ QString agentKeyRefusal(bool openAi, const QString& baseUrl, const QString& keyO
 }
 
 std::optional<QString> agentApiKey(const AgentConfig& config, QString* source, QString* error, QString* refused) {
-    const QString fromEnvironment = qEnvironmentVariable(config.envVar.toUtf8().constData()).trimmed();
+    QString fromEnvironment = qEnvironmentVariable(config.envVar.toUtf8().constData()).trimmed();
     const bool openAi = config.provider.kind == ChatProviderKind::OpenAiCompatible;
     const QString baseUrl = QString::fromStdString(config.provider.baseUrl);
     if (!fromEnvironment.isEmpty() && agentEnvKeyApplies(openAi, baseUrl)) {
@@ -544,7 +544,7 @@ bool AgentPanel::approve(const std::string& tool, const Value& arguments) {
     // The address the tool will use: resolved now the same way (a read of one
     // byte), shown as 0x... with the expression it came from.
     auto address = [&] {
-        const QString given = addressArgument(arguments.get("address"));
+        QString given = addressArgument(arguments.get("address"));
         if (given.isEmpty()) return QString("?");
         const auto read = session_->call("read", Value::object().set("address", Value::string(given.toStdString()))
                                                                 .set("type", Value::string("byte")));

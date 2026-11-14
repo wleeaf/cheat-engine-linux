@@ -1,6 +1,7 @@
 // The graphical tutorial without a window: the same game, ticking 60 times a
 // second, with typed commands that hold keys. The tests drive it this way.
 
+#include <cmath>
 #include "tutorial/graphical/text_mode.hpp"
 
 #include "tutorial/graphical/game.h"
@@ -28,7 +29,7 @@ std::string bar(float fraction) {
     // A NaN or infinity converted to int is undefined.
     if (!(fraction > 0.0f)) fraction = 0.0f;
     if (fraction > 1.0f) fraction = 1.0f;
-    const int filled = static_cast<int>(fraction * 20.0f + 0.5f);
+    const int filled = static_cast<int>(std::lround(fraction * 20.0f));
     return "[" + std::string(filled, '#') + std::string(20 - filled, '.') + "]";
 }
 

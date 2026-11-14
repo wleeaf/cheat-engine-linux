@@ -6,7 +6,6 @@
 
 namespace ce {
 
-CudaSearch::~CudaSearch() = default;
 bool CudaSearch::available() { return false; }
 std::vector<size_t> CudaSearch::searchU64Range(
     const uint8_t*, size_t, uint64_t, uint64_t) { return {}; }

@@ -1,0 +1,61 @@
+# clang-tidy configuration for cecore's own code (not third_party/).
+#
+# The checks below are the ones the code is kept clean against. Declined
+# checks, and why:
+#   bugprone-easily-swappable-parameters  (address, size) pairs are everywhere
+#   bugprone-narrowing-conversions, bugprone-implicit-widening-of-multiplication-result,
+#   bugprone-signed-char-misuse            byte and register arithmetic is the domain
+#   bugprone-reserved-identifier           C plugin and ABI names
+#   bugprone-switch-missing-default-case, bugprone-branch-clone,
+#   bugprone-assignment-in-if-condition    style, not defects
+#   bugprone-empty-catch                   best-effort cleanup during teardown
+#   bugprone-unchecked-optional-access     flow-insensitive, many false positives
+#   performance-no-int-to-ptr              target addresses are integers by design
+#   performance-enum-size, performance-avoid-endl  no measurable effect
+#   performance-inefficient-string-concatenation  short messages and paths built
+#                                          in loops off the hot paths; a + b reads better
+#   bugprone-misplaced-widening-cast       flags (lua_Integer)(base + rva) and
+#                                          similar 64-bit sums cast on purpose
+#                                          (Lua integers are two's complement 64-bit)
+#
+# clang 18 with GCC 13's libstdc++ only sees std::expected when told that
+# concepts are complete; run it as:
+#   run-clang-tidy-18 -p build -extra-arg=-Wno-builtin-macro-redefined \
+#     -extra-arg=-U__cpp_concepts -extra-arg=-D__cpp_concepts=202002L
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-reserved-identifier,
+  -bugprone-signed-char-misuse,
+  -bugprone-switch-missing-default-case,
+  -bugprone-branch-clone,
+  -bugprone-assignment-in-if-condition,
+  -bugprone-empty-catch,
+  -bugprone-unchecked-optional-access,
+  performance-*,
+  -performance-no-int-to-ptr,
+  -performance-enum-size,
+  -performance-avoid-endl,
+  -performance-inefficient-string-concatenation,
+  -bugprone-misplaced-widening-cast,
+  clang-analyzer-*,
+  -clang-analyzer-optin.*,
+  -clang-analyzer-security.insecureAPI.*,
+  misc-redundant-expression,
+  misc-misplaced-const,
+  misc-unused-using-decls,
+  misc-definitions-in-headers,
+  modernize-use-override,
+  readability-misleading-indentation,
+  readability-duplicate-include,
+  readability-redundant-string-cstr,
+  readability-container-contains
+CheckOptions:
+  # A (void) cast marks a result deliberately ignored (best-effort cleanup).
+  bugprone-unused-return-value.AllowCastToVoid: true
+  # std::ios::openmode is a bitmask whose zero value is not an enumerator.
+  bugprone-non-zero-enum-to-bool-conversion.EnumIgnoreList: 'std::_Ios_Openmode'
+HeaderFilterRegex: '/(core|scanner|platform|debug|analysis|gui|scripting|symbols|arch|cli|plugins|kernel)/'

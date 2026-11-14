@@ -454,7 +454,7 @@ il2cppObjectFieldLayout(const Il2CppBinaryLayout& layout, const std::string& cla
     std::vector<const Il2CppClassLayout*> chain;
     std::unordered_map<std::string, bool> seen;
     for (const Il2CppClassLayout* c = it->second; c; ) {
-        if (seen.count(c->fullName())) break;   // cycle guard
+        if (seen.contains(c->fullName())) break;   // cycle guard
         seen[c->fullName()] = true;
         chain.push_back(c);
         if (chain.size() > 64) break;           // depth guard

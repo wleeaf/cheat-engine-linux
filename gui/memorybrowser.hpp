@@ -434,7 +434,7 @@ public:
     // Swap the table's comments and labels shown here for another table's.
     void replaceAnnotations(const std::vector<ce::DisassemblerComment>& previous,
                             const std::vector<ce::DisassemblerComment>& next);
-    void setAnnotationStore(std::vector<ce::DisassemblerComment> initial,
+    void setAnnotationStore(const std::vector<ce::DisassemblerComment>& initial,
                             std::function<void(const AnnotationChange&)> saver);
     /// Show a comment edited in another viewer (the owner fans each change out).
     void setComment(uintptr_t addr, const std::string& text);

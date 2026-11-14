@@ -214,7 +214,7 @@ void CodeFinderWindow::refresh() {
                                                    r.firstContext.architecture==ce::CpuArchitecture::X86_64);
             if (rec.ok) { insAddr = rec.address; insText = QString::fromStdString(rec.text); }
         }
-        if (noppedOriginals_.count(insAddr)) insText = "[NOP] " + insText;   // patched to NOPs
+        if (noppedOriginals_.contains(insAddr)) insText = "[NOP] " + insText;   // patched to NOPs
         auto* addrItem = new QTableWidgetItem(hexQ(insAddr));
         // Results are re-sorted by hit count on every fetch, so a row index names
         // a different result a moment later: key the row by its result.
@@ -237,7 +237,7 @@ void CodeFinderWindow::refresh() {
         const qulonglong key = table_->item(row, 0)->data(Qt::UserRole).toULongLong();
         if (currentKey && key == *currentKey)
             table_->selectionModel()->setCurrentIndex(model->index(row, 0), QItemSelectionModel::NoUpdate);
-        if (selectedKeys.count(key))
+        if (selectedKeys.contains(key))
             selection.select(model->index(row, 0), model->index(row, model->columnCount() - 1));
     }
     table_->selectionModel()->select(selection, QItemSelectionModel::ClearAndSelect);
@@ -352,7 +352,7 @@ void CodeFinderWindow::onContextMenu(const QPoint& pos) {
     else
         entries.push_back(entryOf(row));
 
-    const bool isNopped = noppedOriginals_.count(addr) > 0;
+    const bool isNopped = noppedOriginals_.contains(addr);
     QMenu menu(this);
     QAction* showAct = showInDisasm_ ? menu.addAction(tr("Show in the disassembler")) : nullptr;
     QAction* nopAct  = proc_ && !isNopped

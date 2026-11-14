@@ -671,7 +671,7 @@ Result<void> TargetSyscallRecovery::State::restoreContext() {
 #if defined(__aarch64__) || defined(__arm__)
         if (!actual || !equalRegisters(*actual,expected)) restored=false;
 #else
-        if (!actual || std::memcmp(&*actual,&expected,sizeof(expected))) restored=false;
+        if (!actual || std::memcmp(&*actual,&expected,sizeof(expected)) != 0) restored=false;
 #endif
     }
 #if defined(__aarch64__)
@@ -840,7 +840,7 @@ Result<void> TargetSyscallRecovery::State::progressRestartAbi(pid_t notified,int
         if (!saved.stopStatus) {
             auto actual=getRegisters(tid);
             if (!actual) return std::unexpected(actual.error());
-            if (std::memcmp(&*actual,&original,sizeof(original)))
+            if (std::memcmp(&*actual,&original,sizeof(original)) != 0)
                 return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
             saved.phase=RestartAbi::StopWait;stopped=false;
             if (ptrace(PTRACE_CONT,tid,nullptr,reinterpret_cast<void*>(SIGSTOP))<0)
@@ -890,7 +890,7 @@ Result<void> TargetSyscallRecovery::State::progressRestartAbi(pid_t notified,int
         if ((*saved.stopStatus>>16)!=PTRACE_EVENT_STOP || WSTOPSIG(*saved.stopStatus)!=SIGTRAP) return unexpected();
         auto actual=getRegisters(tid);
         if (!actual) return std::unexpected(actual.error());
-        if (std::memcmp(&*actual,&original,sizeof(original)))
+        if (std::memcmp(&*actual,&original,sizeof(original)) != 0)
             return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
         saved.phase=RestartAbi::Begin;restartEvent=0;
     }
@@ -935,7 +935,7 @@ Result<void> TargetSyscallRecovery::State::progressRestartAbi(pid_t notified,int
         if (!setRegisters(tid,entry)) return std::unexpected(currentError());
         auto actual=getRegisters(tid);
         if (!actual) return std::unexpected(actual.error());
-        if (std::memcmp(&*actual,&entry,sizeof(entry))) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+        if (std::memcmp(&*actual,&entry,sizeof(entry)) != 0) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
         saved.phase=RestartAbi::Entering;
         stopped=false;
         // SYSEMU enters the original kernel ABI without executing the syscall
@@ -981,7 +981,7 @@ Result<void> TargetSyscallRecovery::State::progressRestartAbi(pid_t notified,int
         if (!setRegisters(tid,original)) return std::unexpected(currentError());
         auto actual=getRegisters(tid);
         if (!actual) return std::unexpected(actual.error());
-        if (std::memcmp(&*actual,&original,sizeof(original))) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+        if (std::memcmp(&*actual,&original,sizeof(original)) != 0) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
         saved.phase=RestartAbi::Interrupt;
     }
     if (saved.phase==RestartAbi::Interrupt) {
@@ -994,7 +994,7 @@ Result<void> TargetSyscallRecovery::State::progressRestartAbi(pid_t notified,int
         if (!saved.stopStatus) {
             auto actual=getRegisters(tid);
             if (!actual) return std::unexpected(actual.error());
-            if (std::memcmp(&*actual,&original,sizeof(original))) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+            if (std::memcmp(&*actual,&original,sizeof(original)) != 0) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
             saved.phase=RestartAbi::Waiting;stopped=false;
             if (ptrace(PTRACE_CONT,tid,nullptr,nullptr)<0) return std::unexpected(currentError());
         }
@@ -1008,7 +1008,7 @@ Result<void> TargetSyscallRecovery::State::progressRestartAbi(pid_t notified,int
                 info.si_pid==saved.emulatedStopInfo->si_pid && info.si_uid==saved.emulatedStopInfo->si_uid) {
                 auto actual=getRegisters(tid);
                 if (!actual) return std::unexpected(actual.error());
-                if (std::memcmp(&*actual,&original,sizeof(original)))
+                if (std::memcmp(&*actual,&original,sizeof(original)) != 0)
                     return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
                 if (ptrace(PTRACE_CONT,tid,nullptr,nullptr)<0) return std::unexpected(currentError());
                 stopped=false;
@@ -1018,7 +1018,7 @@ Result<void> TargetSyscallRecovery::State::progressRestartAbi(pid_t notified,int
         if ((*saved.stopStatus>>16)!=PTRACE_EVENT_STOP || WSTOPSIG(*saved.stopStatus)!=SIGTRAP) return unexpected();
         auto actual=getRegisters(tid);
         if (!actual) return std::unexpected(actual.error());
-        if (std::memcmp(&*actual,&original,sizeof(original))) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
+        if (std::memcmp(&*actual,&original,sizeof(original)) != 0) return std::unexpected(std::make_error_code(std::errc::state_not_recoverable));
         saved.phase=RestartAbi::Done;
     }
     auto info=x86SyscallInfo(tid);

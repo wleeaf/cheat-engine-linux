@@ -64,7 +64,7 @@ std::expected<std::unique_ptr<GdbProcessHandle>,std::string> GdbProcessHandle::c
                 return std::unexpected("Invalid GDB memory map range");
             region.size=length;region.state=MemState::Committed;region.protection=MemProt::Read;
             const char* type=memory->Attribute("type");
-            if (!type || (std::strcmp(type,"ram") && std::strcmp(type,"rom") && std::strcmp(type,"flash")))
+            if (!type || (std::strcmp(type,"ram") != 0 && std::strcmp(type,"rom") != 0 && std::strcmp(type,"flash") != 0))
                 return std::unexpected("Unknown GDB memory map type");
             if (!std::strcmp(type,"ram")) region.protection=MemProt::ReadWrite;
             if (!validRegion(region) || handle->regions_.size()>=4096) return std::unexpected("Invalid or excessive GDB memory map");

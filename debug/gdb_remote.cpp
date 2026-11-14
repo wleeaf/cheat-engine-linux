@@ -96,7 +96,7 @@ void GdbRemoteClient::setTimeout(std::chrono::milliseconds timeout) {
     std::lock_guard lock(mutex_); timeout_=std::clamp(timeout,std::chrono::milliseconds(1),std::chrono::milliseconds(60000));
 }
 void GdbRemoteClient::setCancellation(std::stop_token token) {
-    std::lock_guard lock(mutex_);cancellation_=token;
+    std::lock_guard lock(mutex_);cancellation_=std::move(token);
 }
 bool GdbRemoteClient::connectTcp(const std::string& host,uint16_t port,std::string& error) {
     std::lock_guard lock(mutex_); close(); error.clear();

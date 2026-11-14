@@ -149,7 +149,7 @@ StructureDissector::StructureDissector(ProcessHandle* proc, uintptr_t baseAddr, 
         if (followPointerAt(row, col)) return;
         int off = row * 8;
         bool ok = false;
-        QString cur = fieldNames_.count(off) ? fieldNames_[off] : QString();
+        QString cur = fieldNames_.contains(off) ? fieldNames_[off] : QString();
         QString name = QInputDialog::getText(this, tr("Name field"),
             tr("Name for offset +0x%1:").arg(off, 0, 16), QLineEdit::Normal, cur, &ok);
         if (!ok) return;
@@ -346,7 +346,7 @@ void StructureDissector::onContextMenu(const QPoint& pos) {
         auto* a = typeMenu->addAction(QCoreApplication::translate("StructureDissector", label));
         a->setData(static_cast<int>(vt));
         a->setCheckable(true);
-        if (fieldTypes_.count(off) && fieldTypes_[off] == vt) a->setChecked(true);
+        if (fieldTypes_.contains(off) && fieldTypes_[off] == vt) a->setChecked(true);
         typeActs.append(a);
     }
     typeMenu->addSeparator();
@@ -358,7 +358,7 @@ void StructureDissector::onContextMenu(const QPoint& pos) {
     // Field name / type edits need no add-to-list callback.
     if (picked == nameAct) {
         bool ok = false;
-        QString cur = fieldNames_.count(off) ? fieldNames_[off] : QString();
+        QString cur = fieldNames_.contains(off) ? fieldNames_[off] : QString();
         QString name = QInputDialog::getText(this, tr("Name field"),
             tr("Name for offset +0x%1:").arg(off, 0, 16), QLineEdit::Normal, cur, &ok);
         if (!ok) return;

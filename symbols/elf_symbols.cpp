@@ -170,11 +170,11 @@ void SymbolResolver::parsePeExports(const std::string& path, const std::string& 
     for (const auto& e : ce::parsePEExports(path)) {
         if (e.name.empty() || e.rva == 0 || e.rva > UINTPTR_MAX - baseAddr) continue;   // skip ordinal-only / forwarders
         uintptr_t addr = baseAddr + e.rva;
-        if (addrIndex_.count(addr)) continue;          // first name at an address wins
+        if (addrIndex_.contains(addr)) continue;          // first name at an address wins
         size_t idx = symbols_.size();
         symbols_.push_back(Symbol{e.name, addr, 0, moduleName});
         addrIndex_[addr] = idx;
-        if (!nameIndex_.count(e.name)) nameIndex_[e.name] = addr;
+        if (!nameIndex_.contains(e.name)) nameIndex_[e.name] = addr;
     }
 }
 
@@ -608,7 +608,7 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
                 if (slot > UINTPTR_MAX - baseAddr) continue;
                 slot += baseAddr;
             }
-            if (addrIndex_.count(slot)) continue;   // don't shadow a real symbol
+            if (addrIndex_.contains(slot)) continue;   // don't shadow a real symbol
 
             Symbol s;
             s.name = base + "@got";
@@ -616,7 +616,7 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
             s.size = sizeof(uintptr_t);   // a GOT slot is one pointer wide
             s.module = moduleName;
             size_t idx = symbols_.size();
-            if (!nameIndex_.count(s.name)) nameIndex_[s.name] = slot;  // navigable by name
+            if (!nameIndex_.contains(s.name)) nameIndex_[s.name] = slot;  // navigable by name
             symbols_.push_back(std::move(s));
             addrIndex_[slot] = idx;
         }
@@ -676,14 +676,14 @@ void SymbolResolver::parseElfSymbols(const std::string& path, const std::string&
                                     if (stub > UINTPTR_MAX - baseAddr) continue;
                                     stub += baseAddr;
                                 }
-                                if (!addrIndex_.count(stub)) {
+                                if (!addrIndex_.contains(stub)) {
                                     Symbol s;
                                     s.name = it->second + "@plt";
                                     s.address = stub;
                                     s.size = entsz;
                                     s.module = moduleName;
                                     size_t idx = symbols_.size();
-                                    if (!nameIndex_.count(s.name)) nameIndex_[s.name] = stub;
+                                    if (!nameIndex_.contains(s.name)) nameIndex_[s.name] = stub;
                                     symbols_.push_back(std::move(s));
                                     addrIndex_[stub] = idx;
                                 }

@@ -1009,7 +1009,7 @@ void DisasmView::mousePressEvent(QMouseEvent* e) {
     if (e->button() == Qt::LeftButton && e->position().toPoint().x() < gutterW_) {
         // Click in gutter — toggle SW BP.
         uintptr_t addr = instructions_[row].address;
-        if (breakpoints_.count(addr))
+        if (breakpoints_.contains(addr))
             emit requestRemoveBreakpoint(addr);
         else
             emit requestSetSoftBreakpoint(addr);
@@ -1112,7 +1112,7 @@ void DisasmView::contextMenuEvent(QContextMenuEvent* e) {
     if ((isBranch && parseImmediate(inst.operands)) || ripEffectiveAddress(inst))
         followAct = menu.addAction(tr("Follow operand"));
 
-    bool haveBp = breakpoints_.count(inst.address) > 0;
+    bool haveBp = breakpoints_.contains(inst.address);
     QAction* setSwBp = nullptr;
     QAction* setHwBp = nullptr;
     QAction* removeBp = nullptr;
@@ -1481,7 +1481,7 @@ void DisasmView::paintEvent(QPaintEvent*) {
 
         // Breakpoint glyph in the gutter. Breakpoint red, but brighter on the dark
         // theme and deeper on the light theme so it reads clearly on either ground.
-        if (breakpoints_.count(inst.address)) {
+        if (breakpoints_.contains(inst.address)) {
             int margin = 3;
             p.setBrush(mv.bg.lightness() < 128 ? QColor(0xf3, 0x8b, 0xa8) : QColor(0xd2, 0x0f, 0x39));
             p.setPen(Qt::NoPen);
@@ -1942,7 +1942,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         if (!a) return;
         // Actually toggle: remove an existing breakpoint at this address, else add
         // one. Previously it only ever added, so the button just re-enabled.
-        if (bpQuery_ && bpQuery_().count(a)) {
+        if (bpQuery_ && bpQuery_().contains(a)) {
             if (bpRemover_) bpRemover_(a);
         } else if (bpSetter_) {
             bpSetter_(a, /*hardware=*/false);
@@ -2753,7 +2753,7 @@ void MemoryBrowser::showXrefs(uintptr_t addr) {
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setRowCount((int)refs.size());
-    auto typeName = [this](ce::RefType t) -> QString {
+    auto typeName = [](ce::RefType t) -> QString {
         switch (t) {
             case ce::RefType::Call: return tr("call");
             case ce::RefType::Jump: return tr("jump");
@@ -2923,7 +2923,7 @@ void MemoryBrowser::replaceAnnotations(const std::vector<ce::DisassemblerComment
 }
 
 void MemoryBrowser::setAnnotationStore(
-    std::vector<ce::DisassemblerComment> initial,
+    const std::vector<ce::DisassemblerComment>& initial,
     std::function<void(const AnnotationChange&)> saver) {
     annotationSaver_ = std::move(saver);
     for (const auto& c : initial) {

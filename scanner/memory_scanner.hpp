@@ -172,7 +172,7 @@ public:
     void firstValue(size_t i, void* buf, size_t valueSize) const;
 
     /// Iterate all results.
-    void forEach(std::function<void(uintptr_t addr, const void* value, size_t valueSize)> callback, size_t valueSize) const;
+    void forEach(const std::function<void(uintptr_t addr, const void* value, size_t valueSize)>& callback, size_t valueSize) const;
 
     const std::filesystem::path& directory() const { return dir_; }
 

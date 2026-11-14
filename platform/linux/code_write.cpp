@@ -66,7 +66,7 @@ std::expected<void,std::error_code> CodeWriteRecovery::verify(std::span<const ui
         do {read=pread(fd_,actual.data(),count,static_cast<off_t>(address_+offset));} while (read<0 && errno==EINTR);
         if (read<0) return std::unexpected(error());
         if (!read) return std::unexpected(std::make_error_code(std::errc::operation_canceled));
-        if (static_cast<size_t>(read)!=count || std::memcmp(actual.data(),bytes.data()+offset,count))
+        if (static_cast<size_t>(read)!=count || std::memcmp(actual.data(),bytes.data()+offset,count) != 0)
             return std::unexpected(std::make_error_code(std::errc::io_error));
         offset+=count;
     }

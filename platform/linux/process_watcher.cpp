@@ -49,7 +49,7 @@ void ProcessWatcher::stop() {
     if (toJoin.joinable()) toJoin.join();
 }
 
-void ProcessWatcher::watchLoop(std::string target, Callback callback, int pollMs, std::set<pid_t> known) {
+void ProcessWatcher::watchLoop(std::string target, const Callback& callback, int pollMs, std::set<pid_t> known) {
     auto lower = [](unsigned char c) { return static_cast<char>(std::tolower(c)); };
     std::transform(target.begin(), target.end(), target.begin(), lower);
     try {
@@ -68,7 +68,7 @@ void ProcessWatcher::watchLoop(std::string target, Callback callback, int pollMs
                 auto parsed = std::from_chars(name.data(), name.data() + name.size(), pid);
                 if (parsed.ec != std::errc{} || parsed.ptr != name.data() + name.size()) continue;
                 observed.insert(pid);
-                if (known.count(pid)) continue;
+                if (known.contains(pid)) continue;
                 std::string comm;
                 std::ifstream in("/proc/" + name + "/comm");
                 if (!std::getline(in, comm) || comm.empty()) continue;
@@ -88,7 +88,7 @@ void ProcessWatcher::watchLoop(std::string target, Callback callback, int pollMs
             }
             // Keep unmatched new PIDs eligible after exec or a name change, and
             // remove vanished PIDs so their future reuse is treated as new.
-            if (!ec) std::erase_if(known, [&](pid_t pid) { return !observed.count(pid); });
+            if (!ec) std::erase_if(known, [&](pid_t pid) { return !observed.contains(pid); });
         }
     } catch (const std::exception& error) {
         ce::log::warn(ce::log::Cat::General, "process watcher stopped: {}", error.what());

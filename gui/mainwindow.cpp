@@ -2314,7 +2314,7 @@ void MainWindow::setupUi() {
             });
 
             auto* orderMenu = encodingMenu->addMenu(tr("Data order"));
-            for (auto choice : {std::pair{tr("Auto (target)"), ByteOrder::Unknown},
+            for (const auto& choice : {std::pair{tr("Auto (target)"), ByteOrder::Unknown},
                                 std::pair{tr("Little-endian"), ByteOrder::Little},
                                 std::pair{tr("Big-endian"), ByteOrder::Big}}) {
                 auto* action = orderMenu->addAction(choice.first);
@@ -2330,7 +2330,7 @@ void MainWindow::setupUi() {
                 });
             }
             auto* widthMenu = encodingMenu->addMenu(tr("Pointer size"));
-            for (auto choice : {std::pair{tr("Auto (target)"), 0}, std::pair{tr("4 bytes"), 4}, std::pair{tr("8 bytes"), 8}}) {
+            for (const auto& choice : {std::pair{tr("Auto (target)"), 0}, std::pair{tr("4 bytes"), 4}, std::pair{tr("8 bytes"), 8}}) {
                 auto* action = widthMenu->addAction(choice.first); action->setCheckable(true);
                 action->setChecked(addressListModel_->entries()[selected.first().row()].pointerWidth == choice.second);
                 connect(action, &QAction::triggered, this, [this, selected, width=choice.second] {
@@ -6607,7 +6607,7 @@ bool AddressListModel::removeEntry(int row) {
     return removeEntries({row});
 }
 
-bool AddressListModel::removeEntries(QList<int> rows) {
+bool AddressListModel::removeEntries(const QList<int>& rows) {
     if (scriptBusy_ || mutationBusy_ || AutoAsmUiOperation::retiring(autoAsm_)) return false;
     QScopedValueRollback mutation(mutationBusy_, true);
     // Deleting a group header takes its whole subtree with it (CE: a group carries its
@@ -6926,7 +6926,7 @@ void AddressListModel::moveEntryBlock(int srcRow, int destRow, int newRootIndent
     endResetModel();
 }
 
-void AddressListModel::groupSelectedRows(QList<int> rows, const QString& desc) {
+void AddressListModel::groupSelectedRows(const QList<int>& rows, const QString& desc) {
     if (scriptBusy_ || mutationBusy_) return;
     const int n = (int)entries_.size();
     std::vector<int> indents;

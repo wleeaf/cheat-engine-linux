@@ -80,7 +80,7 @@ RemoteDebugger::~RemoteDebugger() {
     auto operation=client_->lockConnection();
     if (attached_ && connectionValid()) {
         // Best-effort detach so the remote target isn't left in a debug state.
-        client_->stopDebug(handle_);
+        (void)client_->stopDebug(handle_);
     }
 }
 

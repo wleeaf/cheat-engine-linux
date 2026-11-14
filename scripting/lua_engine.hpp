@@ -103,7 +103,7 @@ public:
     void setTimerCallback(int id, int cbRef);   // luaL_ref value; replaces+frees any prior
     void setTimerEnabled(int id, bool enabled);
     void destroyTimer(int id);
-    bool isTimer(int id) const { return timers_.count(id) != 0; }
+    bool isTimer(int id) const { return timers_.contains(id); }
     /// Fire every enabled timer whose interval has elapsed. Safe to call often.
     void pumpTimers();
 
@@ -116,14 +116,14 @@ public:
     void stringlistSet(int id, int index, const std::string& s);
     void stringlistRemove(int id, int index);
     void stringlistClear(int id);
-    bool isStringlist(int id) const { return stringlists_.count(id) != 0; }
+    bool isStringlist(int id) const { return stringlists_.contains(id); }
     void destroyStringlist(int id) { stringlists_.erase(id); }
 
     // ── createSimpleHook / removeSimpleHook registry ──
     int addHook(const SimpleHook& h) { int id = nextObjectId_++; hooks_[id] = h; return id; }
     const SimpleHook* hook(int id) const { auto it = hooks_.find(id); return it == hooks_.end() ? nullptr : &it->second; }
     void eraseHook(int id) { hooks_.erase(id); }
-    bool isHook(int id) const { return hooks_.count(id) != 0; }
+    bool isHook(int id) const { return hooks_.contains(id); }
 
     /// Host hook for selectFilePath(sender, settingName): opens a file chooser and
     /// returns the chosen path (empty = cancelled). Unset (headless) => returns "".

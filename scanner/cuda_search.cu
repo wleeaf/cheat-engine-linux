@@ -46,7 +46,6 @@ __global__ void scanRangeKernel(const uint64_t* __restrict__ data,
 
 } // namespace
 
-CudaSearch::~CudaSearch() = default;
 
 bool CudaSearch::available() {
     int count = 0;

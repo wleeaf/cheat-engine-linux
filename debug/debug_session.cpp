@@ -352,7 +352,7 @@ bool DebugSession::selectThread(pid_t tid) {
 // Tracer thread only (via performCommand): switch the active thread and refresh
 // the cached context so register read/write/step target it.
 bool DebugSession::doSelectThread(pid_t tid) {
-    if (stoppedTids_.count(tid) == 0) return false;
+    if (!stoppedTids_.contains(tid)) return false;
     if (!captureRegs(tid)) return false;
     activeTid_ = tid;
     return true;
@@ -1352,7 +1352,7 @@ bool DebugSession::reportDeferredStop(pid_t tid,int status) {
         if (hwBreakpoints_.empty()) return false;
         auto address=takeX86WatchpointHit(tid);
         if (!address) return false;
-        reportStop(tid,DebugEventType::BreakpointHit,signal,*address);
+        reportStop(tid,DebugEventType::BreakpointHit,signal,address);
         return true;
     }
     // The signal stays pending for delivery whether or not it still stops.

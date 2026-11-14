@@ -199,7 +199,7 @@ private:
             if (!consume(':')) return false;
             Value value;
             if (!parseValue(value)) return false;
-            if (!out.objectValue.count(key.stringValue)) out.objectOrder.push_back(key.stringValue);
+            if (!out.objectValue.contains(key.stringValue)) out.objectOrder.push_back(key.stringValue);
             out.objectValue.insert_or_assign(std::move(key.stringValue), std::move(value));
             skipWs();
             if (pos_ < input_.size() && input_[pos_] == '}') {
@@ -278,7 +278,7 @@ const Value* Value::get(const std::string& key) const {
 
 Value& Value::set(const std::string& key, Value value) {
     type = Type::Object;
-    if (!objectValue.count(key)) objectOrder.push_back(key);
+    if (!objectValue.contains(key)) objectOrder.push_back(key);
     objectValue.insert_or_assign(key, std::move(value));
     return *this;
 }

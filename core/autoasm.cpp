@@ -502,7 +502,7 @@ static void autoDeclareNamedLabels(std::string& code,
     }
     std::string preamble;
     for (const auto& name : order)
-        if (!declared.count(name) &&
+        if (!declared.contains(name) &&
             !known(name, {jumpTargets.contains(name), nearNames.contains(name), firstAddress.contains(name)}))
             preamble += "label(" + name + ")\n";
     if (!preamble.empty()) code = preamble + code;
@@ -775,7 +775,7 @@ static std::string restrictedCommand(const std::string& upperLine) {
     if (name.size() > 4 && startsWith(name, "__") && name.ends_with("__")) name = name.substr(2, name.size() - 4);
     static const std::set<std::string> refused = {"LOADLIBRARY", "LOADBINARY", "INCLUDE", "CREATETHREAD",
                                                   "CREATETHREADANDWAIT"};
-    return refused.count(name) ? name : std::string();
+    return refused.contains(name) ? name : std::string();
 }
 
 bool AutoAssembler::parseLine(const std::string& rawLine,
@@ -1207,7 +1207,7 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
     // "nop eax" (0f 1f c0) is a register, though it reads like a hex count.
     static const std::set<std::string> nopRegisters = {"AX", "BX", "CX", "DX", "EAX", "EBX", "ECX", "EDX"};
     const bool nopCount = nopOperand.empty() ||
-        (!nopRegisters.count(nopOperand) &&
+        (!nopRegisters.contains(nopOperand) &&
          std::all_of(nopOperand.begin(), nopOperand.end(), [](unsigned char c) { return std::isxdigit(c) || c == 'X'; }));
     if ((upper == "NOP" || startsWith(upper, "NOP ")) && nopCount) {
         auto count = trim(line.size() > 3 ? line.substr(3) : "1");
@@ -3139,6 +3139,8 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
             }
 
             std::vector<os::NativeThreadRange> storage;
+            storage.reserve(result.disableInfo.allocs.size() + result.disableInfo.originals.size() +
+                            result.disableInfo.protections.size());
             for (const auto& allocation : result.disableInfo.allocs) storage.push_back({allocation.address,allocation.size});
             for (const auto& patch : result.disableInfo.originals) if (!patch.bytes.empty()) storage.push_back({patch.address,patch.bytes.size()});
             for (const auto& protection : result.disableInfo.protections) if (protection.size) storage.push_back({protection.address,protection.size});

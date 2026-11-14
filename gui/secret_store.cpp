@@ -233,7 +233,7 @@ std::optional<QString> SecretStore::lookup(QString* error) {
     auto reply = call(items->first().path(), kItemInterface, "GetSecret", {QVariant::fromValue(*session)}, error);
     if (failed(reply, 1)) return std::nullopt;
     const auto secret = qdbus_cast<Secret>(reply.arguments().at(0).value<QDBusArgument>());
-    const QString value = QString::fromUtf8(secret.value);
+    QString value = QString::fromUtf8(secret.value);
     QMutexLocker lock(&memoryLock);
     memory()[account_] = value;
     return value;

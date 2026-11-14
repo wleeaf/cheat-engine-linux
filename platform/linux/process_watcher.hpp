@@ -22,7 +22,7 @@ public:
     bool running() const { return running_.load(); }
 
 private:
-    void watchLoop(std::string target, Callback callback, int pollMs, std::set<pid_t> knownPids);
+    void watchLoop(std::string target, const Callback& callback, int pollMs, std::set<pid_t> knownPids);
     std::atomic<bool> running_{false};
     std::atomic<bool> stopRequested_{false};
     std::thread thread_;

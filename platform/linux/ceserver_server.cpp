@@ -455,7 +455,8 @@ void CeserverServer::serveClient(ClientState& client) {
                 break;
             }
             case CMD_SETOPTIONVALUE: {
-                if (!discardString16(fd) || !discardString16(fd)) return;
+                // Two strings in a row (the option name, then its value).
+                if (!discardString16(fd) || !discardString16(fd)) return;  // NOLINT(misc-redundant-expression)
                 break;
             }
             case CMD_GETCESERVERPATH: {

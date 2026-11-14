@@ -451,7 +451,7 @@ public:
     void setEntryAddress(int row, uintptr_t addr, const QString& expr = {});
     void setEntryDescription(int row, const QString& desc);
     bool removeEntry(int row);
-    bool removeEntries(QList<int> rows);
+    bool removeEntries(const QList<int>& rows);
     /// Swap the entry at `row` with its neighbour `delta` rows away (-1 up, +1
     /// down). Returns the entry's new row, or `row` if it couldn't move.
     int moveEntry(int row, int delta);
@@ -460,7 +460,7 @@ public:
     void outdentRows(QList<int> rows);
     /// CE "add the selected records to a new group": wrap `rows` under a new group
     /// header inserted at the earliest selected row (via ce::groupSelection).
-    void groupSelectedRows(QList<int> rows, const QString& desc = "New group");
+    void groupSelectedRows(const QList<int>& rows, const QString& desc = "New group");
     void setFreezeMode(int row, ce::FreezeMode mode);
     // Obfuscation codec for an entry: value is stored as encode(logical) in memory.
     void setEntryCodec(int row, ce::ValueCodec codec);

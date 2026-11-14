@@ -559,7 +559,7 @@ LinuxProcessHandle::residentRanges(uintptr_t base, size_t size) {
     // reading /proc/pid/pagemap (8 bytes per page: bit 63 = present, bit 62 =
     // swapped). Any failure falls back to the whole range so a scan never
     // silently drops readable memory.
-    const std::vector<std::pair<uintptr_t, uintptr_t>> whole = {{base, base + size}};
+    std::vector<std::pair<uintptr_t, uintptr_t>> whole = {{base, base + size}};
     long ps = sysconf(_SC_PAGESIZE);
     if (ps <= 0 || size == 0) return whole;
     size_t pageSize = static_cast<size_t>(ps);
@@ -1121,7 +1121,7 @@ static bool isWineLikeComm(const std::string& comm) {
     return false;
 }
 
-static std::string basenameOfBackslashOrSlash(std::string p) {
+static std::string basenameOfBackslashOrSlash(const std::string& p) {
     auto slash = p.find_last_of("/\\");
     return slash == std::string::npos ? p : p.substr(slash + 1);
 }

@@ -594,7 +594,7 @@ Result<void> patchCodeBytes(pid_t tid,const NativeSoftwareBreakpoint& breakpoint
     }
     auto verify=readCodeWord(tid,base);
     if (!verify) return std::unexpected(verify.error());
-    if (std::memcmp(reinterpret_cast<const uint8_t*>(&*verify)+(breakpoint.address-base),bytes.data(),breakpoint.size))
+    if (std::memcmp(reinterpret_cast<const uint8_t*>(&*verify)+(breakpoint.address-base),bytes.data(),breakpoint.size) != 0)
         return std::unexpected(std::make_error_code(std::errc::io_error));
     return {};
 }
@@ -690,7 +690,7 @@ Result<void> removeNativeSoftwareBreakpoint(pid_t tid,NativeSoftwareBreakpoint& 
                                       std::make_error_code(std::errc::bad_address) : word.error());
     auto bytes=reinterpret_cast<const uint8_t*>(&*word)+(breakpoint.address-base);
     if (!std::memcmp(bytes,breakpoint.original.data(),breakpoint.size)) { breakpoint.installed=false; return {}; }
-    if (std::memcmp(bytes,breakpoint.trap.data(),breakpoint.size)) return std::unexpected(brokenRestore());
+    if (std::memcmp(bytes,breakpoint.trap.data(),breakpoint.size) != 0) return std::unexpected(brokenRestore());
     auto restore=patchCodeBytes(tid,breakpoint,true);
     if (restore) breakpoint.installed=false;
     return restore;

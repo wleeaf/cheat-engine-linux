@@ -735,7 +735,7 @@ bool DebuggerWindow::memViewChangeHighlightForTest(uintptr_t addr) {
     if (auto w = proc_->write(addr, &nb, 1); !w || *w < 1) return false;
     updateMemoryView(addr);                                  // one byte changed
     const int after = memViewChangedByteCountForTest();
-    proc_->write(addr, &orig, 1);                            // restore
+    (void)proc_->write(addr, &orig, 1);                      // restore
     updateMemoryView(addr);
     return base == 0 && after == 1;
 }
@@ -789,6 +789,7 @@ void DebuggerWindow::updateRegisters(const ce::CpuContext& c) {
     // that caused it). Compare against the previous distinct stop, not the
     // last render, or the second render clears every highlight.
     std::vector<uint64_t> values;
+    values.reserve(registers.size());
     for (const auto& value : registers) values.push_back(value.value);
     auto sameVectors = [](const auto& a, const auto& b) {
         return a.count == b.count && a.control == b.control && a.status == b.status && a.registers == b.registers;

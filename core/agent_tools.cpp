@@ -66,13 +66,13 @@ AgentToolResult ok(Value content) { return {false, std::move(content)}; }
 Value prop(const char* type, const char* description) {
     return Value::object().set("type", Value::string(type)).set("description", Value::string(description));
 }
-Value enumProp(std::vector<const char*> values, const char* description) {
+Value enumProp(const std::vector<const char*>& values, const char* description) {
     Value list = Value::array();
     for (const char* v : values) list.push(Value::string(v));
     return Value::object().set("type", Value::string("string")).set("enum", list)
                           .set("description", Value::string(description));
 }
-Value schema(std::vector<std::pair<const char*, Value>> properties, std::vector<const char*> required) {
+Value schema(std::vector<std::pair<const char*, Value>> properties, const std::vector<const char*>& required) {
     Value props = Value::object();
     for (auto& [name, p] : properties) props.set(name, std::move(p));
     Value req = Value::array();
@@ -507,7 +507,7 @@ struct AgentSession::State {
 };
 
 AgentSession::AgentSession(AgentSessionOptions options) : state_(std::make_unique<State>()) {
-    state_->options = options;
+    state_->options = std::move(options);
     state_->assembler.setRestricted(true);
     state_->freezer = std::thread([s = state_.get()] { s->freezeLoop(); });
 }

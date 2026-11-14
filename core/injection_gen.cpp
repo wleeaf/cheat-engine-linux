@@ -45,7 +45,7 @@ std::size_t shortestUniqueAobLen(const std::vector<uint8_t>& mod,
     if (minLen > maxLen) return 0;
     size_t required = minLen;
     for (size_t i = 0; i <= mod.size() - minLen; ++i) {
-        if (i == targetOffset || std::memcmp(mod.data() + i, mod.data() + targetOffset, minLen)) continue;
+        if (i == targetOffset || std::memcmp(mod.data() + i, mod.data() + targetOffset, minLen) != 0) continue;
         size_t common = minLen;
         while (common < maxLen && common < mod.size() - i && mod[i + common] == mod[targetOffset + common]) ++common;
         required = std::max(required, common + 1);
@@ -85,7 +85,7 @@ std::string uniqueAobSignature(ProcessHandle& proc, const ModuleInfo& m,
             window.insert(window.end(), chunk.begin(), chunk.begin() + *r);
             if (window.size() >= minLen) {
                 for (size_t i = 0; i <= window.size() - minLen; ++i) {
-                    if (std::memcmp(window.data() + i, candidate.data(), minLen)) continue;
+                    if (std::memcmp(window.data() + i, candidate.data(), minLen) != 0) continue;
                     if (windowBase + i == address) { foundSite = true; continue; }
                     size_t common = minLen;
                     while (common < candidate.size() && common < window.size() - i && window[i + common] == candidate[common]) ++common;

@@ -707,7 +707,10 @@ endif()
 
 # ── Test programs ──
 if(CECORE_BUILD_TESTS)
-    add_executable(cecore_test test/main.cpp)
+    add_executable(cecore_test test/main.cpp
+        test/cecore_test_core.cpp test/cecore_test_remote.cpp test/cecore_test_debugger.cpp
+        test/cecore_test_symbols.cpp test/cecore_test_autoassembler.cpp test/cecore_test_lua_scans.cpp
+        test/cecore_test_stub.cpp)
     target_link_libraries(cecore_test PRIVATE cecore)
     add_executable(cecore_deep_test test/deep_review_test.cpp test/underlying_review_test.cpp)
     target_link_libraries(cecore_deep_test PRIVATE cecore)

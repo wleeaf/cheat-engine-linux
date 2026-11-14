@@ -11,7 +11,9 @@ parity with Cheat Engine on Windows.
 - `cecore`: the Qt-free backend shared library (`core/`, `scanner/`, `debug/`,
   `scripting/`, `arch/`, `symbols/`, `analysis/`, `platform/`).
 - `cheatengine`: the Qt GUI (`gui/`). `cescan`: the CLI and `cescan lua`.
-- Tests: `cecore_test` (main regression suite), `cecore_deep_test`, and the
+- Tests: `cecore_test` (main regression suite: `test/main.cpp` runs, in order,
+  the tests of `test/cecore_test_*.cpp`, declared in `test/cecore_test.hpp`; a new
+  test goes in the file of its area and in that list), `cecore_deep_test`, and the
   offscreen GUI smokes (`gui_*_smoke`). Live-target gates are `test/*_gate.py`.
 - Agent tools: `core/agent_tools` (Qt-free tool set for AI agents) and
   `core/mcp_server` (MCP over stdio, `cescan mcp`); see `docs/MCP.md`. New

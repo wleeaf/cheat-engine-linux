@@ -29,7 +29,6 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <cerrno>
-#include <cstring>
 #include "core/log.hpp"
 #include "core/regular_file.hpp"
 #include "core/ns_attach.hpp"

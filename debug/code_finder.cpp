@@ -461,7 +461,7 @@ void CodeFinder::monitorLoop() {
     std::set<pid_t> attempted;
     for (int pass=0;pass<16;++pass) {
         std::vector<pid_t> tids;
-        if (!single.empty()) { if (!pass) tids=single; }
+        if (!single.empty()) { if (!pass) tids.insert(tids.end(),single.begin(),single.end()); }
         else for (const auto& thread : proc_->threads()) if (attempted.insert(thread.tid).second) tids.push_back(thread.tid);
         if (!pass && tids.empty() && attempted.insert(proc_->pid()).second) tids.push_back(proc_->pid());
         if (tids.empty()) break;

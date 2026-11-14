@@ -8,16 +8,16 @@
 /// SoundTouch's time-stretching engine (SOLA-class), preserving pitch.
 ///
 /// Use together with libspeedhack.so:
-///     CE_SPEED=2.0 \
-///     LD_PRELOAD="$PWD/build/libspeedhack.so $PWD/build/libcecore_audiohack.so" \
-///     ./game
+///     CE_SPEED=2.0 LD_PRELOAD="$PWD/build/libspeedhack.so $PWD/build/libcecore_audiohack.so" ./game
 ///
 /// SoundTouch dep is gated. When libsoundtouch-dev isn't installed at
 /// configure time, this library compiles with the path that just sample-
 /// rate-converts (pitches the audio up/down without correction) — better
 /// than nothing for users who can't install soundtouch.
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <cerrno>
 #include <charconv>
 #include <string>

@@ -54,6 +54,23 @@ reimplementation of Cheat Engine).
   remains the source language, so nothing changes without a catalogue. The
   terminal (`cescan`), messages from the Qt-free core library, and the tutorial
   games stay in English. See `docs/I18N.md`.
+- The speedhack library keeps its check for a program that calls
+  `gettimeofday` with no time value (asking only for the time zone). glibc
+  declares that argument non-null, so GCC was free to drop the check, and such
+  a call could crash the program.
+- Editing bytes of a read-only data page in the Memory Viewer's hex view no
+  longer leaves the page writable and executable: it gets its old protection
+  back after the write.
+- The Group Scan Generator says which address it could not read instead of
+  using 0 for that value in the pattern.
+- The Mono Dissector's Find instances menu and messages are translated into
+  Simplified Chinese, and the dissector is called 剖析器 there like the
+  Structure Dissector.
+- Building the GUI needs Qt 6.4 or newer, now checked when configuring (the
+  code already relied on Qt 6.3). Deprecated Qt calls were replaced.
+- The project's own code builds without compiler warnings, and CI now fails on
+  a new one (`-DCECORE_WARNINGS_AS_ERRORS=ON`; off by default, since other
+  compilers warn differently).
 
 ---
 

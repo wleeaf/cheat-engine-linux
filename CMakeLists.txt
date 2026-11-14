@@ -170,10 +170,20 @@ target_compile_options(lua_static PRIVATE -w)
 
 # ── First-party hardening & warnings ──
 # Applied only to cecore's own targets (declared below this point); the
-# fetched/system Capstone & Keystone targets above are unaffected. No -Werror:
-# warnings are surfaced but never fail the build. _FORTIFY_SOURCE needs an
-# optimized build, so it is only added for optimized configs.
-add_compile_options(-Wall -Wextra -fstack-protector-strong)
+# fetched/system Capstone & Keystone targets above are unaffected. Warnings
+# fail the build only with CECORE_WARNINGS_AS_ERRORS, which CI turns on for its
+# GCC so a new warning is caught where it appears; other compilers and versions
+# warn differently, so a source build never fails on one. _FORTIFY_SOURCE needs
+# an optimized build, so it is only added for optimized configs.
+# Partial aggregate and designated initializers leave the other members at
+# their declared defaults on purpose, so that -Wextra check stays off.
+option(CECORE_WARNINGS_AS_ERRORS "Fail the build on a warning in cecore's own code" OFF)
+add_compile_options(-Wall -Wextra -Wno-missing-field-initializers -fstack-protector-strong)
+if(CECORE_WARNINGS_AS_ERRORS)
+    # GCC's -Wmaybe-uninitialized reports std::expected payloads after
+    # inlining at -O3 that are always set; it stays a warning.
+    add_compile_options(-Werror -Wno-error=maybe-uninitialized)
+endif()
 add_link_options(-Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack)
 if(CMAKE_BUILD_TYPE MATCHES "Release|RelWithDebInfo|MinSizeRel")
     add_compile_definitions(_FORTIFY_SOURCE=2)

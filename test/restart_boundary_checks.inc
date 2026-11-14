@@ -44,7 +44,7 @@ static void restartBoundaryBackend(const char* path) {
         auto extended=owned ? captureNativeExtendedContext(fixture.pid) :
             std::expected<NativeExtendedContext,std::error_code>(std::unexpected(std::make_error_code(std::errc::io_error)));
         std::array<uint8_t,32> savedScratch{};
-        require(owned && extended && readMemory(fixture.pid,*scratch,savedScratch.data(),savedScratch.size())==savedScratch.size(),
+        require(owned && extended && readMemory(fixture.pid,*scratch,savedScratch.data(),savedScratch.size())==static_cast<ssize_t>(savedScratch.size()),
             "the original stop supplies independently captured full GP, extended state and private instructions");
         if (!owned || !extended) return;
         const bool compat=host.architecture==CpuArchitecture::X86_32;
@@ -54,7 +54,7 @@ static void restartBoundaryBackend(const char* path) {
         prepared.rax=userCode ? static_cast<uint64_t>(-512) : number;
         if (compat) {prepared.rbx=0;prepared.rcx=buffer;prepared.rdx=1;}
         else {prepared.rdi=0;prepared.rsi=buffer;prepared.rdx=1;}
-        require(writeMemory(fixture.pid,edge,code.data(),code.size())==code.size() &&
+        require(writeMemory(fixture.pid,edge,code.data(),code.size())==static_cast<ssize_t>(code.size()) &&
             ptrace(PTRACE_SETREGS,fixture.pid,nullptr,&prepared)==0,
             "actual SYSCALL or INT 80 ends at the page boundary beside a mapped owned return trap");
         user_regs_struct parked{};bool ready=false;
@@ -94,7 +94,7 @@ static void restartBoundaryBackend(const char* path) {
             "destructive memory operations cannot destroy the preceding page needed by the kernel restart");
         user_regs_struct observed{};std::array<uint8_t,3> observedCode{};uint8_t trap=0;
         const bool bytes=completed || userCode ? readMemory(fixture.pid,after,&trap,1)==1 && trap==0xcc :
-            readMemory(fixture.pid,edge,observedCode.data(),observedCode.size())==observedCode.size() && observedCode==code &&
+            readMemory(fixture.pid,edge,observedCode.data(),observedCode.size())==static_cast<ssize_t>(observedCode.size()) && observedCode==code &&
             boundaryPermissions(fixture.pid,*storage)==permissions;
         require(boundaryContextExact(fixture.pid,parked,*extended,*scratch,savedScratch,bytes,variant,"RESTART_BOUNDARY"),
             "the operation returns exact GP, syscall restart metadata, extended state and original private instructions");

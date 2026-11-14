@@ -2558,7 +2558,6 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
 
     // ── Phase 3: Assemble and inject ──
     uintptr_t currentAddr = 0;
-    std::string currentLabel;
     struct DeferredThread {
         std::string addressExpr;
         bool wait = false;

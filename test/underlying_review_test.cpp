@@ -48,7 +48,7 @@ int tracePipe = -1;
 __attribute__((noinline)) void traceAfterCancel() { asm volatile("nop" ::: "memory"); }
 __attribute__((noinline)) void traceBlockingCall() {
     char token = 0;
-    (void)::read(tracePipe, &token, 1);
+    (void)!::read(tracePipe, &token, 1);
     asm volatile("nop" ::: "memory");
 }
 __attribute__((noinline)) void traceCaller() {
@@ -276,7 +276,7 @@ void debuggerLifecycleTests() {
         pid_t child = fork();
         if (!child) {
             prctl(PR_SET_PDEATHSIG, SIGKILL); close(fds[1]);
-            char token; (void)::read(fds[0], &token, 1);
+            char token; (void)!::read(fds[0], &token, 1);
             for (int i = 0; i < 200; ++i) {
                 asm volatile("pxor %%xmm0, %%xmm0\n\tmovdqu %%xmm0, (%0)" :: "r"(object) : "xmm0", "memory");
                 usleep(2000);
@@ -319,7 +319,7 @@ void debuggerLifecycleTests() {
         pid_t child = fork();
         if (!child) {
             prctl(PR_SET_PDEATHSIG, SIGKILL); close(fds[1]);
-            char token; (void)::read(fds[0], &token, 1);
+            char token; (void)!::read(fds[0], &token, 1);
             traceAfterCancel(); _exit(0);
         }
         if (child < 0) return false;
@@ -330,7 +330,7 @@ void debuggerLifecycleTests() {
         std::thread cancel([&] { usleep(100000); tracer.cancel(); });
         auto entries = tracer.trace(proc, debugger, TraceConfig{.startAddress=reinterpret_cast<uintptr_t>(&traceAfterCancel), .maxSteps=10});
         cancel.join();
-        char token = 'x'; (void)::write(fds[1], &token, 1); close(fds[1]);
+        char token = 'x'; (void)!::write(fds[1], &token, 1); close(fds[1]);
         int targetStatus = 0, otherStatus = 0;
         bool target = waitpid(child, &targetStatus, 0) == child && WIFEXITED(targetStatus) && WEXITSTATUS(targetStatus) == 0;
         bool other = waitpid(unrelated, &otherStatus, 0) == unrelated && WIFEXITED(otherStatus) && WEXITSTATUS(otherStatus) == 37;
@@ -352,7 +352,7 @@ void debuggerLifecycleTests() {
         std::thread cancel([&] { usleep(300000); tracer.cancel(); });
         auto entries = tracer.trace(proc, debugger, TraceConfig{.startAddress=reinterpret_cast<uintptr_t>(&traceCaller), .maxSteps=1000, .stepOverCalls=true});
         cancel.join();
-        char token = 'x'; (void)::write(fds[1], &token, 1); close(fds[1]);
+        char token = 'x'; (void)!::write(fds[1], &token, 1); close(fds[1]);
         int status = 0;
         bool resumed = waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0;
         alarm(0);

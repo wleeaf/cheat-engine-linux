@@ -19,7 +19,6 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonDocument>
-#include <QMessageBox>
 #include <QFileDialog>
 #include <QFont>
 #include <QStringList>

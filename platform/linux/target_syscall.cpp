@@ -130,7 +130,8 @@ std::expected<pid_t,std::error_code> processMemoryTask(pid_t pid) {
     std::snprintf(path,sizeof(path),"/proc/%ld/task",static_cast<long>(pid));
     DIR* directory=opendir(path);
     if (!directory) return std::unexpected(currentError());
-    std::unique_ptr<DIR,decltype(&closedir)> owned(directory,&closedir);
+    struct CloseDirectory { void operator()(DIR* d) const { closedir(d); } };
+    std::unique_ptr<DIR,CloseDirectory> owned(directory);
     while (auto* entry=readdir(directory)) {
         char* end=nullptr; errno=0;
         const long candidate=std::strtol(entry->d_name,&end,10);

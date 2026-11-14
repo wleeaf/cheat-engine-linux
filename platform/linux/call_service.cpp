@@ -120,7 +120,8 @@ struct NativeCallOwner::Impl {
         auto path="/proc/"+std::to_string(c.identity.pid)+"/task";
         DIR* directory=opendir(path.c_str());
         if (!directory) return std::unexpected(error());
-        std::unique_ptr<DIR,decltype(&closedir)> owned(directory,&closedir);
+        struct CloseDirectory { void operator()(DIR* d) const { closedir(d); } };
+        std::unique_ptr<DIR,CloseDirectory> owned(directory);
         while (auto* entry=readdir(directory)) {
             char* end=nullptr;
             long visibleTid=strtol(entry->d_name,&end,10);

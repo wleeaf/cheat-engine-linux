@@ -290,7 +290,7 @@ Result<NativeVectorContext> readNativeVectors(pid_t tid) {
     return result;
 }
 
-Result<NativeHardwareBank> readNativeHardwareBank(pid_t tid, bool execution) {
+Result<NativeHardwareBank> readNativeHardwareBank(pid_t tid, [[maybe_unused]] bool execution) {
     NativeHardwareBank bank;
 #if defined(__x86_64__)
     auto control=readDr(tid,7), status=readDr(tid,6);
@@ -312,7 +312,7 @@ Result<NativeHardwareBank> readNativeHardwareBank(pid_t tid, bool execution) {
     return bank;
 }
 
-Result<void> restoreNativeHardwareBank(pid_t tid,bool execution,const NativeHardwareBank& saved) {
+Result<void> restoreNativeHardwareBank(pid_t tid,[[maybe_unused]] bool execution,const NativeHardwareBank& saved) {
 #if defined(__x86_64__)
     if (saved.count!=4) return std::unexpected(invalid());
     auto write=writeDr(tid,7,0);
@@ -422,7 +422,7 @@ Result<void> setNativeHardwareBreakpoint(pid_t tid,unsigned slot,uintptr_t addre
 #endif
 }
 
-Result<void> removeNativeHardwareBreakpoint(pid_t tid,unsigned slot,bool execution) {
+Result<void> removeNativeHardwareBreakpoint(pid_t tid,unsigned slot,[[maybe_unused]] bool execution) {
 #if defined(__x86_64__)
     if (slot>=4) return std::unexpected(invalid());
     auto control=readDr(tid,7);
@@ -507,7 +507,7 @@ Result<void> writeSharedMappingBacking(pid_t pid,uintptr_t address,std::span<con
     DIR* directory=opendir(fds.c_str());
     if (!directory) return std::unexpected(std::error_code(errno,std::system_category()));
     int writable=-1;
-    size_t block=0;
+    [[maybe_unused]] size_t block=0;
     while (auto* entry=readdir(directory)) {
         if (entry->d_name[0]=='.') continue;
         const std::string path=fds+"/"+entry->d_name;

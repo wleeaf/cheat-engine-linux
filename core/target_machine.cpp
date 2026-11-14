@@ -104,6 +104,17 @@ TargetMachine nativeTargetMachine() {
     return machine;
 }
 
+namespace {
+// A little-endian field at a checked offset of a PE header or load config. Unlike
+// decodeTargetUnsigned it builds no std::expected<..., std::string>, whose
+// inlined destructor GCC misreports as freeing a non-heap object.
+uint64_t littleEndianAt(std::span<const uint8_t> h, size_t offset, size_t width) {
+    uint64_t value = 0;
+    for (size_t i = width; i-- > 0;) value = (value << 8) | h[offset + i];
+    return value;
+}
+} // namespace
+
 std::expected<uint64_t, std::string> decodeTargetUnsigned(std::span<const uint8_t> bytes, ByteOrder order) {
     if (bytes.empty() || bytes.size() > 8 || order == ByteOrder::Unknown)
         return std::unexpected("Invalid integer width or unknown target byte order");
@@ -169,11 +180,11 @@ std::expected<TargetMachine, std::string> parseElfTarget(std::span<const uint8_t
 
 std::expected<TargetMachine, std::string> parsePeTarget(std::span<const uint8_t> h) {
     if (h.size() < 0x40 || h[0] != 'M' || h[1] != 'Z') return std::unexpected("Missing DOS header");
-    size_t pe = *decodeTargetUnsigned(h.subspan(0x3c, 4), ByteOrder::Little);
+    size_t pe = littleEndianAt(h, 0x3c, 4);
     if (pe < 0x40 || pe > h.size() || h.size() - pe < 26 ||
         h[pe] != 'P' || h[pe + 1] != 'E' || h[pe + 2] || h[pe + 3])
         return std::unexpected("Truncated or invalid PE header");
-    auto machine = *decodeTargetUnsigned(h.subspan(pe + 4, 2), ByteOrder::Little);
+    auto machine = littleEndianAt(h, pe + 4, 2);
     // .NET ReadyToRun images for a non-Windows OS store the machine XORed with
     // an OS constant (Linux, Apple, FreeBSD, NetBSD, SunOS); decode it so their
     // code is not mistaken for an unknown architecture.
@@ -182,10 +193,10 @@ std::expected<TargetMachine, std::string> parsePeTarget(std::span<const uint8_t>
         if (auto native = machine ^ os; native == 0x14c || native == 0x8664 || native == 0x1c4 || native == 0xaa64) {
             machine = native; readyToRunOverride = true; break;
         }
-    auto optionalSize = *decodeTargetUnsigned(h.subspan(pe + 20, 2), ByteOrder::Little);
+    auto optionalSize = littleEndianAt(h, pe + 20, 2);
     if (optionalSize < 60 || optionalSize > h.size() - pe - 24)
         return std::unexpected("Truncated PE optional header");
-    auto magic = *decodeTargetUnsigned(h.subspan(pe + 24, 2), ByteOrder::Little);
+    auto magic = littleEndianAt(h, pe + 24, 2);
     if (magic != 0x10b && magic != 0x20b) return std::unexpected("Unknown PE optional header");
     TargetMachine m;
     m.pointerWidth = magic == 0x20b ? 8 : 4;
@@ -221,15 +232,15 @@ std::expected<TargetMachine, std::string> parsePeTarget(std::span<const uint8_t>
 
 std::optional<std::pair<uint32_t, uint32_t>> peLoadConfigDirectory(std::span<const uint8_t> h) {
     if (h.size() < 0x40) return std::nullopt;
-    size_t pe = *decodeTargetUnsigned(h.subspan(0x3c, 4), ByteOrder::Little);
+    size_t pe = littleEndianAt(h, 0x3c, 4);
     if (pe < 0x40 || pe > h.size() || h.size() - pe < 24 + 200) return std::nullopt;
-    auto optionalSize = *decodeTargetUnsigned(h.subspan(pe + 20, 2), ByteOrder::Little);
-    if (*decodeTargetUnsigned(h.subspan(pe + 24, 2), ByteOrder::Little) != 0x20b || optionalSize < 200)
+    auto optionalSize = littleEndianAt(h, pe + 20, 2);
+    if (littleEndianAt(h, pe + 24, 2) != 0x20b || optionalSize < 200)
         return std::nullopt;
     // PE32+ data directories start at optional-header offset 112; load config is entry 10.
-    auto entry = h.subspan(pe + 24 + 112 + 10 * 8, 8);
-    auto rva = static_cast<uint32_t>(*decodeTargetUnsigned(entry.first(4), ByteOrder::Little));
-    auto size = static_cast<uint32_t>(*decodeTargetUnsigned(entry.subspan(4, 4), ByteOrder::Little));
+    const size_t entry = pe + 24 + 112 + 10 * 8;
+    auto rva = static_cast<uint32_t>(littleEndianAt(h, entry, 4));
+    auto size = static_cast<uint32_t>(littleEndianAt(h, entry + 4, 4));
     if (!rva || !size) return std::nullopt;
     return std::pair{rva, size};
 }
@@ -238,8 +249,8 @@ TargetMachine withPeHybridMetadata(TargetMachine machine, std::span<const uint8_
     // IMAGE_LOAD_CONFIG_DIRECTORY64: Size at 0, CHPEMetadataPointer at 200.
     constexpr size_t chpe = 200;
     if (machine.pointerWidth != 8 || loadConfig.size() < chpe + 8) return machine;
-    auto declared = *decodeTargetUnsigned(loadConfig.first(4), ByteOrder::Little);
-    if (declared < chpe + 8 || !*decodeTargetUnsigned(loadConfig.subspan(chpe, 8), ByteOrder::Little)) return machine;
+    auto declared = littleEndianAt(loadConfig, 0, 4);
+    if (declared < chpe + 8 || !littleEndianAt(loadConfig, chpe, 8)) return machine;
     if (machine.architecture == CpuArchitecture::X86_64) {
         machine.architecture = CpuArchitecture::Arm64EC; machine.abi = TargetAbi::WindowsArm64EC;
         machine.instructionMode = InstructionMode::Unknown;

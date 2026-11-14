@@ -4943,7 +4943,7 @@ static void test_elf32_symbols() {
 // the target so it is a genuine i386 process, then inject the .so via the i386
 // ptrace path (int 0x80 / mmap2 / cdecl __libc_dlopen_mode) and confirm it maps.
 // Skips gracefully without a 32-bit toolchain.
-static void test_inject_library_32bit() {
+[[maybe_unused]] static void test_inject_library_32bit() {
     printf("\n── Test: 32-bit library injection ──\n");
 
     auto dir = std::filesystem::temp_directory_path();
@@ -5835,7 +5835,7 @@ static void test_instruction_access_segment() {
 }
 #endif
 
-static void test_exception_breakpoint() {
+[[maybe_unused]] static void test_exception_breakpoint() {
     printf("\n── Test: Exception breakpoints ──\n");
 
     int fds[2];
@@ -5848,9 +5848,11 @@ static void test_exception_breakpoint() {
     if (child == 0) {
         close(fds[1]);
         char token = 0;
-        (void)read(fds[0], &token, 1);
+        (void)!read(fds[0], &token, 1);
         close(fds[0]);
-        volatile int* bad = reinterpret_cast<volatile int*>(uintptr_t{0x1});
+        uintptr_t badAddress = 0x1;
+        asm volatile("" : "+r"(badAddress));  // opaque, so the fault is not folded away
+        volatile int* bad = reinterpret_cast<volatile int*>(badAddress);
         (void)*bad;
         _exit(0);
     }
@@ -5875,7 +5877,7 @@ static void test_exception_breakpoint() {
     session.addExceptionBreakpoint(SIGSEGV);
 
     bool attached = session.attach(child, &proc);
-    write(fds[1], "x", 1);
+    (void)!write(fds[1], "x", 1);
     close(fds[1]);
     if (attached)
         session.continueExecution();
@@ -5910,7 +5912,7 @@ static void test_software_breakpoint(uintptr_t marker = reinterpret_cast<uintptr
     if (child == 0) {
         close(fds[1]);
         char token = 0;
-        (void)read(fds[0], &token, 1);
+        (void)!read(fds[0], &token, 1);
         close(fds[0]);
         for (int i = 0; i < 5; ++i) reinterpret_cast<void(*)()>(marker)();
         _exit(0);
@@ -5931,7 +5933,7 @@ static void test_software_breakpoint(uintptr_t marker = reinterpret_cast<uintptr
 
     bool attached = session.attach(child, &proc);
     int bpId = attached ? session.setSoftwareBreakpoint(marker) : -1;
-    write(fds[1], "x", 1);            // release the child now the bp is armed
+    (void)!write(fds[1], "x", 1);            // release the child now the bp is armed
     close(fds[1]);
     if (attached) session.continueExecution();
 
@@ -5980,7 +5982,7 @@ static void test_multithread_watchpoint() {
         std::thread t1(cf_writer), t2(cf_writer);
         t1.detach();
         t2.detach();
-        write(fds[1], "x", 1);            // signal that the workers exist
+        (void)!write(fds[1], "x", 1);            // signal that the workers exist
         for (;;) usleep(100000);          // keep the process alive
         _exit(0);
     }
@@ -5988,7 +5990,7 @@ static void test_multithread_watchpoint() {
     if (child < 0) { close(fds[0]); printf("  sibling-thread watchpoint: FAILED\n"); return; }
 
     char tok = 0;
-    (void)read(fds[0], &tok, 1);          // wait until the worker threads are up
+    (void)!read(fds[0], &tok, 1);          // wait until the worker threads are up
     close(fds[0]);
 
     LinuxProcessHandle proc(child);
@@ -6049,13 +6051,13 @@ static bool run_mt_soft_bp_once() {
         std::thread(bp_hot_worker).detach();       // two workers hit the bp
         std::thread(bp_hot_worker).detach();
         std::thread(free_counter_worker).detach();  // a third only bumps the counter
-        write(fds[1], "x", 1);
+        (void)!write(fds[1], "x", 1);
         for (;;) usleep(100000);
         _exit(0);
     }
     close(fds[1]);
     if (child < 0) { close(fds[0]); printf("  mt soft bp: fork FAILED\n"); return false; }
-    char tok = 0; (void)read(fds[0], &tok, 1); close(fds[0]);
+    char tok = 0; (void)!read(fds[0], &tok, 1); close(fds[0]);
     usleep(80000);   // let all four threads spin up before attaching
 
     LinuxProcessHandle proc(child);
@@ -6542,13 +6544,13 @@ static void test_instruction_access() {
     if (child == 0) {
         close(fds[0]);
         std::thread(ifa_worker).detach();
-        write(fds[1], "x", 1);
+        (void)!write(fds[1], "x", 1);
         for (;;) usleep(100000);
         _exit(0);
     }
     close(fds[1]);
     if (child < 0) { close(fds[0]); printf("  accessed address: FAILED (fork)\n"); return; }
-    char tok = 0; (void)read(fds[0], &tok, 1); close(fds[0]);
+    char tok = 0; (void)!read(fds[0], &tok, 1); close(fds[0]);
     usleep(80000);
 
     LinuxProcessHandle proc(child);
@@ -6578,13 +6580,13 @@ static void test_debug_register_edit() {
     if (child == 0) {
         close(fds[0]);
         std::thread(bp_hot_worker).detach();   // repeatedly calls bp_child_hot
-        write(fds[1], "x", 1);
+        (void)!write(fds[1], "x", 1);
         for (;;) usleep(100000);
         _exit(0);
     }
     close(fds[1]);
     if (child < 0) { close(fds[0]); printf("  register edit: FAILED (fork)\n"); return; }
-    char tok = 0; (void)read(fds[0], &tok, 1); close(fds[0]);
+    char tok = 0; (void)!read(fds[0], &tok, 1); close(fds[0]);
     usleep(80000);
 
     LinuxProcessHandle proc(child);
@@ -6635,13 +6637,13 @@ static void test_debug_thread_switch() {
         std::thread(bp_hot_worker).detach();        // hits the breakpoint
         std::thread(free_counter_worker).detach();  // never hits it (frozen at all-stop)
         std::thread(free_counter_worker).detach();
-        write(fds[1], "x", 1);
+        (void)!write(fds[1], "x", 1);
         for (;;) usleep(100000);
         _exit(0);
     }
     close(fds[1]);
     if (child < 0) { close(fds[0]); printf("  thread switch: FAILED (fork)\n"); return; }
-    char tok = 0; (void)read(fds[0], &tok, 1); close(fds[0]);
+    char tok = 0; (void)!read(fds[0], &tok, 1); close(fds[0]);
     usleep(80000);
 
     LinuxProcessHandle proc(child);
@@ -6700,13 +6702,13 @@ static void test_debug_xmm() {
     if (child == 0) {
         close(fds[0]);
         std::thread(xmm_probe_worker).detach();
-        write(fds[1], "x", 1);
+        (void)!write(fds[1], "x", 1);
         for (;;) usleep(100000);
         _exit(0);
     }
     close(fds[1]);
     if (child < 0) { close(fds[0]); printf("  xmm capture: FAILED (fork)\n"); return; }
-    char tok = 0; (void)read(fds[0], &tok, 1); close(fds[0]);
+    char tok = 0; (void)!read(fds[0], &tok, 1); close(fds[0]);
     usleep(80000);
 
     LinuxProcessHandle proc(child);
@@ -6750,13 +6752,13 @@ static void test_lua_real_breakpoint() {
     if (child == 0) {
         close(fds[0]);
         std::thread(bp_hot_worker).detach();
-        write(fds[1], "x", 1);
+        (void)!write(fds[1], "x", 1);
         for (;;) usleep(100000);
         _exit(0);
     }
     close(fds[1]);
     if (child < 0) { close(fds[0]); printf("  lua breakpoint: FAILED (fork)\n"); return; }
-    char tok = 0; (void)read(fds[0], &tok, 1); close(fds[0]);
+    char tok = 0; (void)!read(fds[0], &tok, 1); close(fds[0]);
     usleep(80000);
 
     LinuxProcessHandle proc(child);
@@ -6832,13 +6834,13 @@ static void test_lua_breakpoint_regwrite() {
     if (child == 0) {
         close(fds[0]);
         std::thread(obs_worker).detach();
-        write(fds[1], "x", 1);
+        (void)!write(fds[1], "x", 1);
         for (;;) usleep(100000);
         _exit(0);
     }
     close(fds[1]);
     if (child < 0) { close(fds[0]); printf("  reg edit: FAILED (fork)\n"); return; }
-    char tok = 0; (void)read(fds[0], &tok, 1); close(fds[0]);
+    char tok = 0; (void)!read(fds[0], &tok, 1); close(fds[0]);
     usleep(80000);
 
     LinuxProcessHandle proc(child);
@@ -6888,13 +6890,13 @@ static void test_lua_hw_breakpoint() {
     if (child == 0) {
         close(fds[0]);
         std::thread(hw_worker).detach();
-        write(fds[1], "x", 1);
+        (void)!write(fds[1], "x", 1);
         for (;;) usleep(100000);
         _exit(0);
     }
     close(fds[1]);
     if (child < 0) { close(fds[0]); printf("  hw watchpoint: FAILED (fork)\n"); return; }
-    char tok = 0; (void)read(fds[0], &tok, 1); close(fds[0]);
+    char tok = 0; (void)!read(fds[0], &tok, 1); close(fds[0]);
     usleep(80000);
 
     LinuxProcessHandle proc(child);
@@ -6991,13 +6993,13 @@ static void test_ceserver_debug() {
     if (child == 0) {
         close(fds[0]);
         std::thread(bp_hot_worker).detach();
-        write(fds[1], "x", 1);
+        (void)!write(fds[1], "x", 1);
         for (;;) usleep(100000);
         _exit(0);
     }
     close(fds[1]);
     if (child < 0) { close(fds[0]); printf("  ceserver debug: FAILED (fork)\n"); return; }
-    char tok = 0; (void)read(fds[0], &tok, 1); close(fds[0]);
+    char tok = 0; (void)!read(fds[0], &tok, 1); close(fds[0]);
     usleep(80000);
 
     ce::os::CeserverServer server;
@@ -7999,7 +8001,7 @@ static void test_codefinder_watch_size() {
         _exit(0);
     }
     close(fds[1]);
-    char tk = 0; (void)read(fds[0], &tk, 1); close(fds[0]);
+    char tk = 0; (void)!read(fds[0], &tk, 1); close(fds[0]);
 
     LinuxProcessHandle proc(child);
     LinuxDebugger dbg;
@@ -9182,10 +9184,10 @@ static void test_lua_memrec_groups() {
 // dissector; g_lb_player is a static pointer for the pointer scanner; lb_bump
 // writes g_lb_counter for find-what-writes and is the trace/breakpoint target.
 struct LbEntity { int hp; int mana; int team; };
-static LbEntity  g_lb_ents[2];
-static LbEntity* g_lb_player = nullptr;
+[[maybe_unused]] static LbEntity  g_lb_ents[2];
+[[maybe_unused]] static LbEntity* g_lb_player = nullptr;
 static volatile int g_lb_counter = 0;
-__attribute__((noinline)) static void lb_bump() { g_lb_counter++; asm volatile("nop" ::: "memory"); }
+[[maybe_unused]] __attribute__((noinline)) static void lb_bump() { g_lb_counter = g_lb_counter + 1; asm volatile("nop" ::: "memory"); }
 
 // Step 5 of the CLI-parity plan: exercise the headless Lua tool bindings end to
 // end against live forked children, so "does everything work?" is an automated
@@ -10814,7 +10816,7 @@ static void test_autoassembler_loadbinary(pid_t pid) {
     printf("  loadbinary: %s\n", ok ? "OK" : "FAILED");
 }
 
-static void test_autoassembler_loadlibrary() {
+[[maybe_unused]] static void test_autoassembler_loadlibrary() {
     printf("\n── Test: AutoAssembler loadlibrary ──\n");
 
     auto exePath = std::filesystem::read_symlink("/proc/self/exe");

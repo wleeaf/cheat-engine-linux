@@ -12,7 +12,7 @@ static bool boundaryContextExact(pid_t tid,const user_regs_struct& expected,Nati
     user_regs_struct actual{};std::array<uint8_t,32> actualScratch{};
     const bool gp=ptrace(PTRACE_GETREGS,tid,nullptr,&actual)==0 && !std::memcmp(&expected,&actual,sizeof(actual));
     const bool fp=verifyNativeExtendedContext(tid,extended).has_value();
-    const bool bytes=readMemory(tid,scratch,actualScratch.data(),actualScratch.size())==actualScratch.size() && actualScratch==expectedScratch;
+    const bool bytes=readMemory(tid,scratch,actualScratch.data(),actualScratch.size())==static_cast<ssize_t>(actualScratch.size()) && actualScratch==expectedScratch;
     if (!(code && gp && fp && bytes)) {
         std::printf("%s_CONTEXT variant=%u code=%d gp=%d extended=%d scratch=%d\n",suite,variant,code,gp,fp,bytes);
         if (!gp) {
@@ -57,14 +57,14 @@ static void returnBoundaryBackend(const char* path) {
     require(stopped && ptrace(PTRACE_GETREGS,fixture.pid,nullptr,&original)==0,"the original application supplies a full real register bank under its ptrace owner");
     if (!stopped) return;
     auto extended=captureNativeExtendedContext(fixture.pid);std::array<uint8_t,32> savedScratch{};
-    require(extended && readMemory(fixture.pid,*scratch,savedScratch.data(),savedScratch.size())==savedScratch.size(),
+    require(extended && readMemory(fixture.pid,*scratch,savedScratch.data(),savedScratch.size())==static_cast<ssize_t>(savedScratch.size()),
         "the boundary owner independently snapshots the original extended state and private code");
     if (!extended) return;
     for (unsigned variant=0;variant<4;++variant) {
         const bool shortInstruction=variant==3;const uintptr_t base=storage[variant],edge=base+page-1,endpoint=base+64;
         const std::array<uint8_t,6> program{0xb8,0x78,0x56,0x34,0x12,0xcc};const uint8_t ret=0xc3;
         const uintptr_t stack=base+3*page-16;
-        bool written=writeMemory(fixture.pid,shortInstruction ? endpoint : edge,program.data(),program.size())==program.size();
+        bool written=writeMemory(fixture.pid,shortInstruction ? endpoint : edge,program.data(),program.size())==static_cast<ssize_t>(program.size());
         if (shortInstruction) {
             const uint64_t destination=endpoint;
             written=written && writeMemory(fixture.pid,edge,&ret,1)==1 &&
@@ -94,7 +94,7 @@ static void returnBoundaryBackend(const char* path) {
         }
         user_regs_struct observed{};std::array<uint8_t,6> code{};uint8_t afterRet=0;
         const bool bytes=shortInstruction ? readMemory(fixture.pid,edge,&afterRet,1)==1 && afterRet==ret :
-            readMemory(fixture.pid,edge,code.data(),code.size())==code.size() && code==program && boundaryPermissions(fixture.pid,base+page)==permissions;
+            readMemory(fixture.pid,edge,code.data(),code.size())==static_cast<ssize_t>(code.size()) && code==program && boundaryPermissions(fixture.pid,base+page)==permissions;
         require(boundaryContextExact(fixture.pid,prepared,*extended,*scratch,savedScratch,bytes,variant,"RETURN_BOUNDARY"),
             "the page-boundary operation preserves exact code, GP, extended state and private instructions");
         const bool resumed=ptrace(PTRACE_CONT,fixture.pid,nullptr,nullptr)==0 && waitpid(fixture.pid,&status,__WALL)==fixture.pid && WIFSTOPPED(status);

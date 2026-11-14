@@ -29,7 +29,6 @@
 #include <QScrollArea>
 #include <QSignalBlocker>
 #include <algorithm>
-#include <QPushButton>
 
 namespace ce::gui {
 

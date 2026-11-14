@@ -46,7 +46,8 @@ public:
         const ce::gui::EditorPalette pal = ce::gui::editorPalette();
         auto fmt = [](const QColor& c, bool bold = false) {
             QTextCharFormat f; f.setForeground(c);
-            if (bold) f.setFontWeight(QFont::Bold); return f;
+            if (bold) f.setFontWeight(QFont::Bold);
+            return f;
         };
         commentFmt_ = fmt(pal.comment);
         QTextCharFormat directive = fmt(pal.directive, true);

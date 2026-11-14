@@ -24,7 +24,8 @@ static void completedImageGuardBackend(const char* path) {
                 while(std::chrono::steady_clock::now()<until) {
                     auto found=waitpid(pid,&status,__WALL|__WNOTHREAD|WNOHANG);
                     if(found==pid) {pid=-1;return WIFSIGNALED(status) && WTERMSIG(status)==SIGKILL;}
-                    if(found<0 && errno!=EINTR) break;usleep(1000);
+                    if(found<0 && errno!=EINTR) break;
+                    usleep(1000);
                 }return false;
             }
             ~Peer() {if(pid>0 && !cleanup()) {++failures;std::fprintf(stderr,"FAILED: completed-image peer cleanup\n");}}
@@ -85,7 +86,8 @@ static void completedImageGuardBackend(const char* path) {
                 exited=found==fixture.pid && WIFSIGNALED(status) && WTERMSIG(status)==SIGKILL;if(!exited) usleep(1000);
             }
             require(exited && (*image)->check() && kill(peer,0)==0,"the real original task dies while its untraced peer keeps the pinned mm alive");
-            if(!exited) return;fixture.pid=-1;selected=peer;
+            if(!exited) return;
+            fixture.pid=-1;selected=peer;
             owned=ptrace(PTRACE_SEIZE,peer,nullptr,reinterpret_cast<void*>(PTRACE_O_TRACESYSGOOD))==0 &&
                 ptrace(PTRACE_INTERRUPT,peer,nullptr,nullptr)==0 && restartBoundaryStop(peer,status);
             require(owned,"the same controller explicitly owns the surviving peer's actual interrupted kernel wait");if(!owned) return;

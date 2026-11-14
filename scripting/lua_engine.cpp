@@ -19,7 +19,6 @@ extern "C" {
 #include <exception>
 #include <utility>
 
-#include "scripting/lua_safe.hpp"
 
 #undef lua_pushcfunction
 #define lua_pushcfunction(L, f) ce::pushSafeLuaFunction((L), (f))

@@ -50,7 +50,7 @@ int main(int argc, char** argv) {
         _exit(0);
     }
     close(fds[1]);
-    char t = 0; (void)read(fds[0], &t, 1); close(fds[0]);
+    char t = 0; (void)!read(fds[0], &t, 1); close(fds[0]);
     usleep(80000);   // let the threads spin up
 
     QApplication app(argc, argv);

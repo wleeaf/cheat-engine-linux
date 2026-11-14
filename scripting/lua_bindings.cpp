@@ -87,17 +87,6 @@ extern "C" {
 namespace ce {
 
 // Helper: get process handle from registry
-// Locale-independent double parse (atof/strtod honour Qt's comma-decimal C
-// locale); accept both ',' and '.'.
-static double parseLocaleDouble(const char* s) {
-    if (!s) return 0.0;
-    std::string t(s);
-    for (auto& c : t) if (c == ',') c = '.';
-    double v = 0;
-    auto [ptr, ec] = std::from_chars(t.data(), t.data() + t.size(), v);
-    (void)ptr;
-    return ec == std::errc() ? v : 0.0;
-}
 
 static ProcessHandle* getProc(lua_State* L) {
     lua_getfield(L, LUA_REGISTRYINDEX, "ce_proc");

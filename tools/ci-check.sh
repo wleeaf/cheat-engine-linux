@@ -142,7 +142,7 @@ fi
 
 # ── Job 2: ubuntu-build (full, with GUI) ──
 step "ubuntu-build job (full, GUI): configure"
-cmake -S . -B build "${GEN[@]}" -DCMAKE_BUILD_TYPE=Release >/dev/null
+cmake -S . -B build "${GEN[@]}" -DCMAKE_BUILD_TYPE=Release -DCECORE_WARNINGS_AS_ERRORS=ON >/dev/null
 ok "configured"
 if [ "$MODE" != "--config" ]; then
     step "ubuntu-build job: build"

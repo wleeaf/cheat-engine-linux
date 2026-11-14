@@ -766,7 +766,7 @@ static void fullSession(const char* path) {
     int software=session.setSoftwareBreakpoint(code);
     check(software>0,"full session installs its native software breakpoint");
     if (software<0) return;
-    command='b'; ::write(fixture.input,&command,1);
+    command='b'; (void)!::write(fixture.input,&command,1);
     bool resumed=session.continueExecution();
     bool hit=awaitState([&]{return hits.load()==1 && session.isStopped();});
     context=session.getStopContext();
@@ -788,7 +788,7 @@ static void fullSession(const char* path) {
     check(hardware>0,"full session arms a data watchpoint while the target is running");
     if (hardware<0) return;
     for (unsigned cycle=0;cycle<3;++cycle) {
-        command='b'; ::write(fixture.input,&command,1);
+        command='b'; (void)!::write(fixture.input,&command,1);
         hit=awaitState([&]{return hits.load()==cycle+2 && session.isStopped();});
         check(hit && address==value && hitThread==pid,"full session attributes the actual native hardware watchpoint");
         if (!hit) return;
@@ -797,7 +797,7 @@ static void fullSession(const char* path) {
         check(output==std::to_string(123456791+cycle),"continuing a native watchpoint executes its store without retrapping or losing liveness");
         if (output.empty()) return;
     }
-    command='t'; ::write(fixture.input,&command,1);
+    command='t'; (void)!::write(fixture.input,&command,1);
     hit=awaitState([&]{return hits.load()==5 && session.isStopped();});
     if (!hit || hitThread==pid || address!=value || session.stoppedThreads().size()<2)
         printf("clone stop: hits=%u tid=%d main=%d address=%lx watched=%lx threads=%zu attached=%d stopped=%d pending=%d error=%s\n",
@@ -815,7 +815,7 @@ static void fullSession(const char* path) {
 
     unsigned priorHits=hits;
     int callBp=session.setSoftwareBreakpoint(call);
-    command='c'; ::write(fixture.input,&command,1);
+    command='c'; (void)!::write(fixture.input,&command,1);
     hit=awaitState([&]{return hits.load()>priorHits && session.isStopped();});
     check(callBp>0 && hit && address==call,"full session stops at the real native call instruction");
     if (!hit) return;
@@ -829,7 +829,7 @@ static void fullSession(const char* path) {
 
     priorHits=hits;
     software=session.setSoftwareBreakpoint(code);
-    command='c'; ::write(fixture.input,&command,1);
+    command='c'; (void)!::write(fixture.input,&command,1);
     hit=awaitState([&]{return hits.load()>priorHits && session.isStopped();});
     if (!hit) { check(false,"native callee entry breakpoint for step-out"); return; }
     priorSteps=steps;
@@ -842,7 +842,7 @@ static void fullSession(const char* path) {
 
     priorHits=hits;
     callBp=session.setSoftwareBreakpoint(call);
-    command='c'; ::write(fixture.input,&command,1);
+    command='c'; (void)!::write(fixture.input,&command,1);
     hit=awaitState([&]{return hits.load()>priorHits && session.isStopped();});
     if (!hit) { check(false,"native call breakpoint for run-to-cursor"); return; }
     priorSteps=steps;
@@ -854,7 +854,7 @@ static void fullSession(const char* path) {
     check(fixture.line()=="123456797","native return instruction executes after temporary breakpoint cleanup");
 
     software=session.setSoftwareBreakpoint(code);
-    command='x'; ::write(fixture.input,&command,1);
+    command='x'; (void)!::write(fixture.input,&command,1);
     bool executed=awaitState([&]{return execs.load()==1 && session.isStopped();});
     check(executed && session.removeSoftwareBreakpoint(software) &&
           readMemory(pid,code,restored.data(),restored.size())==ssize_t(restored.size()) && original==restored,
@@ -862,11 +862,11 @@ static void fullSession(const char* path) {
     if (!executed) return;
     session.continueExecution();
     check(fixture.line().starts_with("CE_TARGET "),"replacement program starts after the full debugger exec stop");
-    command='b'; ::write(fixture.input,&command,1);
+    command='b'; (void)!::write(fixture.input,&command,1);
     check(fixture.line()=="123456790","replacement program runs with no residual old-image breakpoint");
     session.detach();
     check(!session.isAttached() && !session.hasPendingRecovery(),"full session detach drains restoration on its original owner thread");
-    command='r'; ::write(fixture.input,&command,1);
+    command='r'; (void)!::write(fixture.input,&command,1);
     check(fixture.line()=="123456790","target remains live after full session detach and exec transition");
     printf("DEBUG_SESSION_RESULT=%s architecture=%s\n",failures==failuresBefore ? "PASSED" : "FAILED",cpuArchitectureName(expected));
 }
@@ -3053,7 +3053,7 @@ static void sessionThreadExitBackend(const char* path) {
             pid_t waited=-1;
             if (triggered && reaperMode!=7) do { waited=waitpid(departing,&status,__WALL); } while (waited<0 && errno==EINTR);
             const unsigned event=reaperMode==4 ? 0 : reaperMode==5 ? PTRACE_EVENT_CLONE : reaperMode==6 ? PTRACE_EVENT_EXEC : PTRACE_EVENT_EXIT;
-            const bool expectedStop=triggered && (reaperMode==7 || (waited==departing && WIFSTOPPED(status) && (status>>8)==(SIGTRAP|(event<<8))));
+            const bool expectedStop=triggered && (reaperMode==7 || (waited==departing && WIFSTOPPED(status) && (status>>8)==static_cast<int>(SIGTRAP|(event<<8))));
             if (!expectedStop) std::printf("LAUNCHER_STOP_DIAGNOSTIC mode=%u triggered=%d tid=%d waited=%d status=%x expectedEvent=%u errno=%d initial=%s\n",
                 reaperMode,triggered,departing,waited,status,event,errno,initialOutput.c_str());
             check(expectedStop,

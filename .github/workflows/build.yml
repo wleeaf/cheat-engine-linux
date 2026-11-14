@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+# A newer push to the same pull request replaces the run in progress. Pushes
+# to main get a group of their own (the commit), so none waits or is dropped.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
 jobs:
   arm64-compatibility:
     uses: ./.github/workflows/arm64-compatibility.yml
@@ -74,10 +83,18 @@ jobs:
             cecore-deps-${{ runner.os }}-
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCECORE_REQUIRE_NATIVE_CALL_I386=ON
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCECORE_REQUIRE_NATIVE_CALL_I386=ON -DCECORE_WARNINGS_AS_ERRORS=ON
 
       - name: Build
         run: cmake --build build -j"$(nproc)"
+
+      # The catalogue check above sees only strings already in the .ts files;
+      # merging the sources in first makes a new tr() string without a
+      # translation fail here too.
+      - name: Check every interface string is translated
+        run: |
+          cmake --build build --target update_translations
+          python3 tools/check-translations.py
 
       - name: Run regression suite
         timeout-minutes: 15   # fail fast on a hang instead of burning the whole job
@@ -88,14 +105,6 @@ jobs:
           ./build/table_persistence_integration
           python3 test/table_json_gate.py build --report build/compatibility-evidence/table-json.json
           python3 test/ceserver_compatibility_gate.py build --report build/compatibility-evidence/ceserver.json
-      # The catalogue check above sees only strings already in the .ts files;
-      # merging the sources in first makes a new tr() string without a
-      # translation fail here too.
-      - name: Check every interface string is translated
-        run: |
-          cmake --build build --target update_translations
-          python3 tools/check-translations.py
-
           python3 test/gdb_transport_gate.py build --require-qemu --report build/compatibility-evidence/gdb-transport.json
           python3 test/elf_debug_gate.py build --require-i386 --report build/compatibility-evidence/elf-debug.json
           python3 test/autoasm_module_gate.py build --report build/compatibility-evidence/autoasm-modules.json

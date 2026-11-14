@@ -711,8 +711,8 @@ Legend: ✅ solid · 🟡 partial/weak · ❌ absent · ❔ unknown/unverified
 
 ### 4. Where cecore is genuinely ahead
 
-1. **Open, modern, hackable codebase.** C++20/23 + native Qt6, ~40k lines, 229-assertion
-   test suite. Their Linux source isn't even published. For anyone who wants to *read,
+1. **Open, modern, hackable codebase.** C++20/23 + native Qt6, about 117k lines
+   (tests included) and a test suite that gates CI. Their Linux source isn't even published. For anyone who wants to *read,
    fork, embed, or extend* a Linux memory tool, we're the only option.
 2. **Linux-first, Proton-aware.** The WoW64 / Wine-PE / 32-bit-injection work targets the
    *actual* Linux gaming reality (Proton). CE treats Linux as a port target, not home.

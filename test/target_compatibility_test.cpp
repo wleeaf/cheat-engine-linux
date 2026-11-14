@@ -761,7 +761,7 @@ static void lifecycleTests() {
     int pipefd[2];
     if (pipe(pipefd)) { check(false, "lifecycle pipe"); return; }
     pid_t child = fork();
-    if (!child) { close(pipefd[1]); char c; (void)::read(pipefd[0], &c, 1); _exit(0); }
+    if (!child) { close(pipefd[1]); char c; (void)!::read(pipefd[0], &c, 1); _exit(0); }
     close(pipefd[0]);
     if (child < 0) { close(pipefd[1]); check(false, "lifecycle child"); return; }
     os::LinuxProcessHandle process(child);

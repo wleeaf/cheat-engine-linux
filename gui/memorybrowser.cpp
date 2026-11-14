@@ -818,7 +818,8 @@ void HexView::keyPressEvent(QKeyEvent* e) {
         case Qt::Key_Up: case Qt::Key_Down: case Qt::Key_PageUp: case Qt::Key_PageDown:
             selAnchor_ = -1; break;
         case Qt::Key_Left: case Qt::Key_Right: case Qt::Key_Home: case Qt::Key_End:
-            if (!shift) selAnchor_ = -1; break;
+            if (!shift) selAnchor_ = -1;
+            break;
         default: break;
     }
     if (e->key() == Qt::Key_Left)  { if (selectedOffset_ > 0) { if (shift) ensureAnchor(); --selectedOffset_; editNibble_ = 0; viewport()->update(); } }

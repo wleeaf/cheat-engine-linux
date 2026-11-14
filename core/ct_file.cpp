@@ -153,7 +153,9 @@ static bool writeFileInPlace(const std::filesystem::path& target, std::string_vi
         const int reserved = ::posix_fallocate(fd, 0, static_cast<off_t>(bytes.size()));
         if (reserved != 0 && reserved != EOPNOTSUPP && reserved != ENOSYS) {
             // posix_fallocate may have grown the file with zeros before failing.
-            if (haveOld) (void)::ftruncate(fd, static_cast<off_t>(old.size()));
+            if (haveOld && ::ftruncate(fd, static_cast<off_t>(old.size())) != 0) {
+                // Best effort: the allocation failure is the error reported.
+            }
             return fail(reserved);
         }
     }
@@ -439,16 +441,25 @@ static std::string vksToKeyString(const std::vector<int>& vks) {
 // Inverse of vkToKeyToken: a Qt key token -> Windows VK code (0 if unknown), so we can
 // write CE's <Hotkey><Keys> from our stored key-sequence strings.
 static int keyTokenToVK(const std::string& t) {
-    if (t == "Ctrl") return 17;  if (t == "Alt") return 18;   if (t == "Shift") return 16;
+    if (t == "Ctrl") return 17;
+    if (t == "Alt") return 18;
+    if (t == "Shift") return 16;
     if (t == "Meta") return 91;
-    if (t == "Backspace") return 8;  if (t == "Tab") return 9;
+    if (t == "Backspace") return 8;
+    if (t == "Tab") return 9;
     if (t == "Return" || t == "Enter") return 13;
-    if (t == "Esc") return 27;   if (t == "Space") return 32;
-    if (t == "PgUp") return 33;   if (t == "PgDown") return 34;
-    if (t == "End") return 35;    if (t == "Home") return 36;
-    if (t == "Left") return 37;   if (t == "Up") return 38;
-    if (t == "Right") return 39;  if (t == "Down") return 40;
-    if (t == "Ins") return 45;    if (t == "Del") return 46;
+    if (t == "Esc") return 27;
+    if (t == "Space") return 32;
+    if (t == "PgUp") return 33;
+    if (t == "PgDown") return 34;
+    if (t == "End") return 35;
+    if (t == "Home") return 36;
+    if (t == "Left") return 37;
+    if (t == "Up") return 38;
+    if (t == "Right") return 39;
+    if (t == "Down") return 40;
+    if (t == "Ins") return 45;
+    if (t == "Del") return 46;
     if (t.size() == 1 && t[0] >= '0' && t[0] <= '9') return static_cast<unsigned char>(t[0]);  // 48-57
     if (t.size() == 1 && t[0] >= 'A' && t[0] <= 'Z') return static_cast<unsigned char>(t[0]);  // 65-90
     if (t.size() >= 2 && t[0] == 'F') {
@@ -1554,6 +1565,7 @@ template<class T> static std::optional<T> jsonInteger(const JsonValue& value) {
             if (token.size()>SIZE_MAX-20) return {};
             const size_t bound=token.size()+20;
             for (;pos<token.size();++pos) {
+                if (token[pos]<'0' || token[pos]>'9') return {};
                 const unsigned digit=token[pos]-'0';
                 if (exponent>(bound-digit)/10) return {};
                 exponent=exponent*10+digit;
@@ -1565,7 +1577,6 @@ template<class T> static std::optional<T> jsonInteger(const JsonValue& value) {
             remove=fractional+exponent;
         } else if (exponent>=fractional) append=exponent-fractional;
         else remove=fractional-exponent;
-                if (token[pos]<'0' || token[pos]>'9') return {};
         if (remove>digits.size() || append>20) return {};
         const size_t end=digits.size()-remove;
         for (size_t i=end;i<digits.size();++i) if (digits[i]!='0') return {};

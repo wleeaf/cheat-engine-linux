@@ -107,7 +107,6 @@
 #include <QKeySequenceEdit>
 #include <QPushButton>
 #include <QTimer>
-#include <QFileInfo>
 #include <cerrno>
 #include <QBrush>
 #include <QFont>
@@ -138,7 +137,6 @@
 #include <QMap>
 #include <cmath>
 #include <charconv>
-#include <cstring>
 #include <exception>
 
 namespace ce::gui {
@@ -189,8 +187,6 @@ static QString formatListAddress(uintptr_t address) {
 
 // Accepts "," or "." decimals (Turkish comma-locale); defined lower down.
 static double parseUserDouble(const QString& s, bool* ok = nullptr);
-// Hex-aware integer field parse (shared ce::parseIntegerScalar); defined lower down.
-static long long parseIntField(const QString& valStr, bool hex);
 static std::optional<long long> scanIntegerInput(const QString& text, bool hex, bool pointer = false);
 static bool scanTakesValue(ScanCompare compare);
 static void warnBadScanValue(QWidget* parent, const QString& text);
@@ -5922,14 +5918,6 @@ static void warnBadScanValue(QWidget* parent, const QString& text) {
         : QString(QCoreApplication::translate("MainWindow", "\"%1\" is not a number (or does not fit in 64 bits).")).arg(text.trimmed()));
 }
 
-// "40000" -> int16 fits, matching how CE accepts either sign for a fixed width.
-static long long parseIntField(const QString& valStr, bool hex = false) {
-    // In hex-display mode a bare token is hex (CE); a "0x" prefix is always hex.
-    bool ok = false;
-    long long v = ce::parseIntegerScalar(valStr.toStdString(), hex, ok);
-    return ok ? v : 0;
-}
-
 // Adapt a GUI value to shared typed I/O, terminating shortened strings within
 // their known capacity.
 static std::expected<size_t, std::string> writeValueToProcess(
@@ -7074,7 +7062,7 @@ bool AddressListModel::setData(const QModelIndex& index, const QVariant& value, 
             auto rawValue = e.dropdownList.isEmpty()
                 ? value.toString()
                 : resolveDropdownInput(value.toString(), e.dropdownList);
-            // Keep the display form: a hex entry stays "0x..." and parseIntField
+            // Keep the display form: a hex entry stays "0x..." and the integer parser
             // reads the 0x prefix as hex. Pre-converting to a bare decimal here and
             // still passing showHex=true re-read "255" as 0x255 (wrong value), and
             // the decimal frozenValue was then written the same wrong way.

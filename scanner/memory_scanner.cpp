@@ -691,8 +691,13 @@ void scanRoundedFloatAVX(const uint8_t* buf, size_t nLanes, uintptr_t base,
             __m256 v = _mm256_loadu_ps(reinterpret_cast<const float*>(buf + i * L));
             __m256 m = _mm256_and_ps(_mm256_cmp_ps(v, vlo, _CMP_GE_OQ), _mm256_cmp_ps(v, vhi, _CMP_LE_OQ));
             unsigned mask = static_cast<unsigned>(_mm256_movemask_ps(m));
-            while (mask) { unsigned b = (unsigned)__builtin_ctz(mask); T c; std::memcpy(&c, buf + (i + b) * L, L);
-                          if (verify(c)) emitAt<T>(buf, (i + b) * L, base, res); mask &= mask - 1; }
+            while (mask) {
+                unsigned b = (unsigned)__builtin_ctz(mask);
+                T c;
+                std::memcpy(&c, buf + (i + b) * L, L);
+                if (verify(c)) emitAt<T>(buf, (i + b) * L, base, res);
+                mask &= mask - 1;
+            }
         }
     } else {
         constexpr size_t W = 4;
@@ -701,8 +706,13 @@ void scanRoundedFloatAVX(const uint8_t* buf, size_t nLanes, uintptr_t base,
             __m256d v = _mm256_loadu_pd(reinterpret_cast<const double*>(buf + i * L));
             __m256d m = _mm256_and_pd(_mm256_cmp_pd(v, vlo, _CMP_GE_OQ), _mm256_cmp_pd(v, vhi, _CMP_LE_OQ));
             unsigned mask = static_cast<unsigned>(_mm256_movemask_pd(m));
-            while (mask) { unsigned b = (unsigned)__builtin_ctz(mask); T c; std::memcpy(&c, buf + (i + b) * L, L);
-                          if (verify(c)) emitAt<T>(buf, (i + b) * L, base, res); mask &= mask - 1; }
+            while (mask) {
+                unsigned b = (unsigned)__builtin_ctz(mask);
+                T c;
+                std::memcpy(&c, buf + (i + b) * L, L);
+                if (verify(c)) emitAt<T>(buf, (i + b) * L, base, res);
+                mask &= mask - 1;
+            }
         }
     }
     roundedFloatScalarTail<T>(buf, i, nLanes, base, verify, res);
@@ -720,8 +730,13 @@ void scanRoundedFloatSSE(const uint8_t* buf, size_t nLanes, uintptr_t base,
             __m128 v = _mm_loadu_ps(reinterpret_cast<const float*>(buf + i * L));
             __m128 m = _mm_and_ps(_mm_cmpge_ps(v, vlo), _mm_cmple_ps(v, vhi));
             unsigned mask = static_cast<unsigned>(_mm_movemask_ps(m));
-            while (mask) { unsigned b = (unsigned)__builtin_ctz(mask); T c; std::memcpy(&c, buf + (i + b) * L, L);
-                          if (verify(c)) emitAt<T>(buf, (i + b) * L, base, res); mask &= mask - 1; }
+            while (mask) {
+                unsigned b = (unsigned)__builtin_ctz(mask);
+                T c;
+                std::memcpy(&c, buf + (i + b) * L, L);
+                if (verify(c)) emitAt<T>(buf, (i + b) * L, base, res);
+                mask &= mask - 1;
+            }
         }
     } else {
         constexpr size_t W = 2;
@@ -730,8 +745,13 @@ void scanRoundedFloatSSE(const uint8_t* buf, size_t nLanes, uintptr_t base,
             __m128d v = _mm_loadu_pd(reinterpret_cast<const double*>(buf + i * L));
             __m128d m = _mm_and_pd(_mm_cmpge_pd(v, vlo), _mm_cmple_pd(v, vhi));
             unsigned mask = static_cast<unsigned>(_mm_movemask_pd(m));
-            while (mask) { unsigned b = (unsigned)__builtin_ctz(mask); T c; std::memcpy(&c, buf + (i + b) * L, L);
-                          if (verify(c)) emitAt<T>(buf, (i + b) * L, base, res); mask &= mask - 1; }
+            while (mask) {
+                unsigned b = (unsigned)__builtin_ctz(mask);
+                T c;
+                std::memcpy(&c, buf + (i + b) * L, L);
+                if (verify(c)) emitAt<T>(buf, (i + b) * L, base, res);
+                mask &= mask - 1;
+            }
         }
     }
     roundedFloatScalarTail<T>(buf, i, nLanes, base, verify, res);

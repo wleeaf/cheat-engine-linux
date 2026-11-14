@@ -70,7 +70,7 @@ static void mixedAbiRestartBackend(const char* path,bool groupOnly=false,unsigne
         const size_t page=sysconf(_SC_PAGESIZE);
         auto scratch=process.allocate(page,MemProt::All);
         auto storage=executeMemorySyscall(fixture.pid,host,MemorySyscall::Map,
-            {0,3*page,PROT_READ|PROT_WRITE|PROT_EXEC,MAP_PRIVATE|MAP_ANONYMOUS|(mixed ? MAP_32BIT : 0),UINT64_MAX,0});
+            {0,3*page,PROT_READ|PROT_WRITE|PROT_EXEC,static_cast<uint64_t>(MAP_PRIVATE|MAP_ANONYMOUS|(mixed ? MAP_32BIT : 0)),UINT64_MAX,0});
         require(scratch && storage && (!compat || *storage+3*page<=UINT32_MAX),
             "real code pair and timer data use valid syscall-ABI addresses beside separate private scratch");
         if (!scratch || !storage) return;
@@ -89,7 +89,7 @@ static void mixedAbiRestartBackend(const char* path,bool groupOnly=false,unsigne
         auto extended=owned ? captureNativeExtendedContext(fixture.pid) :
             std::expected<NativeExtendedContext,std::error_code>(std::unexpected(std::make_error_code(std::errc::io_error)));
         std::array<uint8_t,32> savedScratch{};
-        require(configured && extended && readMemory(fixture.pid,*scratch,savedScratch.data(),savedScratch.size())==savedScratch.size(),
+        require(configured && extended && readMemory(fixture.pid,*scratch,savedScratch.data(),savedScratch.size())==static_cast<ssize_t>(savedScratch.size()),
             "caller captures complete original GP, extended state, signal mask and scratch bytes");
         if (!configured || !extended) return;
         std::shared_ptr<NativeMemoryImage> retained;
@@ -106,7 +106,7 @@ static void mixedAbiRestartBackend(const char* path,bool groupOnly=false,unsigne
         const uint64_t number=compat ? 162 : 35|(host.abi==TargetAbi::LinuxX32 ? 0x40000000 : 0);
         auto prepared=original;prepared.rip=edge;prepared.orig_rax=UINT64_MAX;prepared.rax=number;
         if (compat) {prepared.rbx=buffer;prepared.rcx=0;} else {prepared.rdi=buffer;prepared.rsi=0;}
-        require(writeMemory(fixture.pid,edge,code.data(),code.size())==code.size() &&
+        require(writeMemory(fixture.pid,edge,code.data(),code.size())==static_cast<ssize_t>(code.size()) &&
             (compat ? writeMemory(fixture.pid,buffer,duration32.data(),sizeof(duration32))==sizeof(duration32) :
                 writeMemory(fixture.pid,buffer,duration64.data(),sizeof(duration64))==sizeof(duration64)) &&
             ptrace(PTRACE_SETREGS,fixture.pid,nullptr,&prepared)==0,
@@ -137,7 +137,7 @@ static void mixedAbiRestartBackend(const char* path,bool groupOnly=false,unsigne
         boundaryContextExact(fixture.pid,parked,*extended,*scratch,savedScratch,true,variant,"MIXED_ABI_BEFORE");
         extended=captureNativeExtendedContext(fixture.pid);
         require(editedBank &&
-            ptrace(static_cast<enum __ptrace_request>(0x420e),fixture.pid,reinterpret_cast<void*>(sizeof(before)),&before)>=sizeof(before) &&
+            ptrace(static_cast<enum __ptrace_request>(0x420e),fixture.pid,reinterpret_cast<void*>(sizeof(before)),&before)>=static_cast<long>(sizeof(before)) &&
             before.architecture==(compat ? 0x40000003u : 0xc000003eu) && (!mixed || parked.cs==0x33) && extended,
             "actual kernel entry ABI is independent of CS and the zero-extended stopped EAX edit");
         if (!extended) return;
@@ -296,10 +296,10 @@ static void mixedAbiRestartBackend(const char* path,bool groupOnly=false,unsigne
                 }
                 const bool sharedPrepared=!shared ||
                     (writeMemory(fixture.pid,buffer+384,"--replacement",14)==14 &&
-                    writeMemory(fixture.pid,buffer+416,peerText.c_str(),peerText.size()+1)==peerText.size()+1 &&
+                    writeMemory(fixture.pid,buffer+416,peerText.c_str(),peerText.size()+1)==static_cast<ssize_t>(peerText.size()+1) &&
                     writeMemory(fixture.pid,buffer+448,identical ? "1" : "0",2)==2 &&
-                    writeMemory(fixture.pid,buffer+512,execCode.data(),execCode.size())==execCode.size());
-                bool launched=ready && (shared || header) && sharedPrepared && writeMemory(fixture.pid,pathAddress,executable.c_str(),executable.size()+1)==executable.size()+1 &&
+                    writeMemory(fixture.pid,buffer+512,execCode.data(),execCode.size())==static_cast<ssize_t>(execCode.size()));
+                bool launched=ready && (shared || header) && sharedPrepared && writeMemory(fixture.pid,pathAddress,executable.c_str(),executable.size()+1)==static_cast<ssize_t>(executable.size()+1) &&
                     writeMemory(fixture.pid,argvAddress,argv.data(),sizeof(argv))==sizeof(argv) &&
                     ptrace(PTRACE_SETREGS,fixture.pid,nullptr,&exec)==0 && ptrace(PTRACE_CONT,fixture.pid,nullptr,nullptr)==0;
                 bool prepared=false;unsigned interrupts=0;
@@ -330,7 +330,7 @@ static void mixedAbiRestartBackend(const char* path,bool groupOnly=false,unsigne
                         {*scratch,page,7,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,UINT64_MAX,0}) :
                         std::expected<uint64_t,TargetSyscallFailure>(std::unexpected(std::make_error_code(std::errc::io_error)));
                     require(replacementReady && read && *read==recreatedBytes.size() && recreated && *recreated==*scratch &&
-                        writeMemory(fixture.pid,scratchSite,recreatedBytes.data(),recreatedBytes.size())==recreatedBytes.size(),
+                        writeMemory(fixture.pid,scratchSite,recreatedBytes.data(),recreatedBytes.size())==static_cast<ssize_t>(recreatedBytes.size()),
                         "an identical same-file replacement owns identical private scratch bytes at the same address ending at a page boundary");
                     if (!recreated) return;
                 }
@@ -372,7 +372,7 @@ static void mixedAbiRestartBackend(const char* path,bool groupOnly=false,unsigne
                 }
                 if (identical) {
                     std::array<uint8_t,2> actual{};
-                    require(readMemory(fixture.pid,scratchSite,actual.data(),actual.size())==actual.size() && actual==recreatedBytes,
+                    require(readMemory(fixture.pid,scratchSite,actual.data(),actual.size())==static_cast<ssize_t>(actual.size()) && actual==recreatedBytes,
                         "identity checking leaves identical replacement scratch bytes untouched");
                     const uint8_t clear=0;
                     replacementReady=replacementReady && writeMemory(fixture.pid,0x31000008,&clear,1)==1;
@@ -455,11 +455,11 @@ static void mixedAbiRestartBackend(const char* path,bool groupOnly=false,unsigne
             restored=protectedPage && freed && boundaryPermissions(fixture.pid,allocation).empty();
         }
         require(restored && ptrace(PTRACE_GETREGS,fixture.pid,nullptr,&observed)==0 && !std::memcmp(&parked,&observed,sizeof(parked)) &&
-            ptrace(static_cast<enum __ptrace_request>(0x420e),fixture.pid,reinterpret_cast<void*>(sizeof(observedInfo)),&observedInfo)>=sizeof(observedInfo) &&
+            ptrace(static_cast<enum __ptrace_request>(0x420e),fixture.pid,reinterpret_cast<void*>(sizeof(observedInfo)),&observedInfo)>=static_cast<long>(sizeof(observedInfo)) &&
             observedInfo.architecture==before.architecture,
             "normal completion and retry restore the full visible bank and actual kernel syscall-entry ABI");
         uint64_t actualMask=0;std::array<uint8_t,3> actualCode{};
-        const bool codeExact=readMemory(fixture.pid,edge,actualCode.data(),actualCode.size())==actualCode.size() && actualCode==code;
+        const bool codeExact=readMemory(fixture.pid,edge,actualCode.data(),actualCode.size())==static_cast<ssize_t>(actualCode.size()) && actualCode==code;
         const bool contextExact=boundaryContextExact(fixture.pid,parked,*extended,*scratch,savedScratch,codeExact,variant,"MIXED_ABI_AFTER");
         const bool maskExact=ptrace(PTRACE_GETSIGMASK,fixture.pid,reinterpret_cast<void*>(sizeof(actualMask)),&actualMask)==0 && actualMask==mask;
         if (!maskExact) std::printf("MIXED_ABI_MASK variant=%u expected=%llx actual=%llx\n",variant,

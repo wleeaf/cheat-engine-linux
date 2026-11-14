@@ -275,6 +275,17 @@ add_library(cecore SHARED
     $<$<NOT:$<BOOL:${CECORE_HAVE_CUDA}>>:scanner/cuda_search_stub.cpp>
     scripting/lua_engine.cpp
     scripting/lua_bindings.cpp
+    scripting/lua_bindings_memory.cpp
+    scripting/lua_bindings_process.cpp
+    scripting/lua_bindings_assembler.cpp
+    scripting/lua_bindings_utility.cpp
+    scripting/lua_bindings_scan.cpp
+    scripting/lua_bindings_debug.cpp
+    scripting/lua_bindings_addresslist.cpp
+    scripting/lua_bindings_runtimes.cpp
+    scripting/lua_bindings_analysis.cpp
+    scripting/lua_bindings_compat.cpp
+    scripting/lua_bindings_threads.cpp
     scripting/lua_memrec.cpp
     scripting/lua_streams.cpp
     scripting/lua_snapshot.cpp
@@ -383,6 +394,12 @@ if(Qt6_FOUND)
         gui/theme.cpp
         gui/i18n.cpp
         gui/mainwindow.cpp
+        gui/mainwindow_menus.cpp
+        gui/mainwindow_process.cpp
+        gui/mainwindow_scan.cpp
+        gui/mainwindow_table.cpp
+        gui/scanresults_model.cpp
+        gui/addresslist_model.cpp
         gui/processlistdialog.cpp
         gui/gdbconnectiondialog.cpp
         gui/memorybrowser.cpp
@@ -394,12 +411,6 @@ if(Qt6_FOUND)
         gui/monodissector.cpp
         gui/luaconsole.cpp
         gui/breakpointlist.cpp
-        gui/mainwindow_menus.cpp
-        gui/mainwindow_process.cpp
-        gui/mainwindow_scan.cpp
-        gui/mainwindow_table.cpp
-        gui/scanresults_model.cpp
-        gui/addresslist_model.cpp
         gui/codefinder.cpp
         gui/codereferences.cpp
         gui/advancedoptions.cpp

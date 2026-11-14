@@ -400,6 +400,16 @@ missing targets or agents return `nil` and a message. The default timeout is
 returns the runtime's native JIT address for that exact method, or `nil` when
 unavailable. Negative parameter count `-1` accepts any overload. Long CLR names
 are preserved rather than truncated to a fixed 255-byte field.
+`findMonoInstances(namespace, class[, limit])` returns a list of the class's live
+objects and its vtable address: every Mono object starts with its class's
+vtable, so the pointer-aligned words in private writable memory holding it are
+the objects (at most `limit`, default 10000; another reference to the vtable,
+such as the runtime's own class data, is a possible false positive). It returns
+`nil` and a message when the class is not found or cannot have objects of its
+own (an interface, an abstract or static class, a generic definition). Verified
+on plain Mono; a Unity player that keeps objects in another domain is not
+covered yet. The Mono Dissector's class menu offers the same as
+"Find instances".
 
 Initial injection requires the native loader/call backend and ptrace permission.
 Native Mono `.exe` assemblies retain their Unix pointer and execution ABI.

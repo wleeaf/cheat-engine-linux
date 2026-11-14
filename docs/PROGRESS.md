@@ -16,7 +16,7 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
-## Memory from Wine itself: 14 November 2026
+## Memory from Wine itself, and Mono Find instances: 14 November 2026
 
 Issue #9: under Wine 11.20 the code cave and every 32-bit allocation now come
 from Wine. `platform/linux/wine_memory.cpp` generates a PE32+ helper (code at
@@ -37,6 +37,16 @@ the wow64 gate both fixtures inject again and the 32-bit allocation checks run;
 `VirtualAllocEx` makes Wine run an APC on a target thread, which returns a
 32-bit thread through its 32-bit context, so the register check compares the
 state a 32-bit program can see in that case.
+
+Issue #6: the Mono agent answers `CE_MONO_VTABLE` with `mono_class_vtable` for
+a class, and `findMonoInstances` scans private writable memory, pointer
+aligned, for that vtable: every object starts with it. The Mono Dissector's
+class menu lists the objects under the class; selecting one makes it the base
+offered for the fields added to the address list, and double-clicking opens it
+in the Memory Viewer. Lua has `findMonoInstances(namespace, class[, limit])`.
+`mono_integration` checks the vtable against the pinned fixture object's
+header and finds that object from C++ and Lua (the full phases now have 23 and
+22 checks).
 
 ## Wine 11.20 leaves no room for code caves: 14 November 2026
 

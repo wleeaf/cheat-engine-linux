@@ -8,6 +8,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QToolBar>
 #include <QTreeWidget>
 #include <QVBoxLayout>
@@ -91,8 +92,19 @@ ce::ValueType monoTypeToValueType(const QString& t) {
 static constexpr int kOffsetRole = Qt::UserRole + 1;
 static constexpr int kTypeRole   = Qt::UserRole + 2;
 static constexpr int kLabelRole  = Qt::UserRole + 3;
-static constexpr int kKindRole   = Qt::UserRole + 4;   // "img" / "cls" / "fld"
+static constexpr int kKindRole   = Qt::UserRole + 4;   // "img" / "cls" / "fld" / "instances" / "inst"
 static constexpr int kStaticRole = Qt::UserRole + 5;   // the field lives in the class's static data
+static constexpr int kNamespaceRole = Qt::UserRole + 6;   // a class item's namespace and name, for the agent
+static constexpr int kClassRole     = Qt::UserRole + 7;
+static constexpr int kAddressRole   = Qt::UserRole + 8;   // an object found by Find instances
+static constexpr int kChosenRole    = Qt::UserRole + 9;   // a class item's chosen object, the default field base
+
+// The class item an item belongs to (itself, a field, or a found object).
+static QTreeWidgetItem* classItemOf(QTreeWidgetItem* item) {
+    for (; item; item = item->parent())
+        if (item->data(0, kKindRole).toString() == "cls") return item;
+    return nullptr;
+}
 
 MonoDissectorWindow::MonoDissectorWindow(ce::ProcessHandle* proc, QWidget* parent)
     : QMainWindow(parent), proc_(proc) {
@@ -121,14 +133,32 @@ MonoDissectorWindow::MonoDissectorWindow(ce::ProcessHandle* proc, QWidget* paren
     tree_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     tree_->setAlternatingRowColors(true);
     setEmptyHint(tree_, tr("Click Dissect to load the target's Mono assemblies, classes and fields."));
-    // Double-click a field row -> request it be added to the address list.
+    // Double-click a field row -> request it be added to the address list, at
+    // the class's chosen object when one was picked from Find instances.
     connect(tree_, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* it, int) {
-        if (!it || it->data(0, kKindRole).toString() != "fld") return;
+        if (!it) return;
+        const QString kind = it->data(0, kKindRole).toString();
+        if (kind == "inst") {
+            emit instanceActivated(it->data(0, kAddressRole).toULongLong());
+            return;
+        }
+        if (kind != "fld") return;
+        const bool isStatic = it->data(0, kStaticRole).toBool();
+        QString base;
+        if (auto* cls = classItemOf(it); cls && !isStatic && cls->data(0, kChosenRole).isValid())
+            base = QStringLiteral("0x%1").arg(cls->data(0, kChosenRole).toULongLong(), 0, 16);
         emit addFieldRequested(it->data(0, kOffsetRole).toUInt(),
                                it->data(0, kTypeRole).toInt(),
                                it->data(0, kLabelRole).toString(),
-                               it->data(0, kStaticRole).toBool());
+                               isStatic, base);
     });
+    // Selecting a found object makes it its class's field base.
+    connect(tree_, &QTreeWidget::currentItemChanged, this, [](QTreeWidgetItem* it, QTreeWidgetItem*) {
+        if (!it || it->data(0, kKindRole).toString() != "inst") return;
+        if (auto* cls = classItemOf(it)) cls->setData(0, kChosenRole, it->data(0, kAddressRole));
+    });
+    tree_->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(tree_, &QTreeWidget::customContextMenuRequested, this, &MonoDissectorWindow::showContextMenu);
     v->addWidget(tree_);
     status_ = new QLabel(tr("Not dissected yet."));
     v->addWidget(status_);
@@ -149,6 +179,8 @@ void MonoDissectorWindow::setDissection(const ce::MonoDissection& d) {
                 clsLabel += " : " + QString::fromStdString(c.parentName);
             auto* clsItem = new QTreeWidgetItem(imgItem, {clsLabel});
             clsItem->setData(0, kKindRole, "cls");
+            clsItem->setData(0, kNamespaceRole, QString::fromStdString(c.namespaceName));
+            clsItem->setData(0, kClassRole, QString::fromStdString(c.name));
             for (const auto& f : c.fields) {
                 QString name = QString::fromStdString(f.name);
                 if (f.isStatic) name += QStringLiteral(" ") + tr("(static)");
@@ -187,6 +219,7 @@ void MonoDissectorWindow::setDissection(const ce::MonoDissection& d) {
 }
 
 void MonoDissectorWindow::runDissect() {
+    liveMono_ = false;
     if (!proc_) { status_->setText(tr("No target process.")); return; }
     // Both paths read this machine's files: the IL2CPP metadata and
     // GameAssembly, or the Mono agent loaded into the target.
@@ -243,6 +276,64 @@ void MonoDissectorWindow::runDissect() {
     QApplication::restoreOverrideCursor();
     if (!d) { status_->setText(tr("Agent injection failed (see CE_LOG=general:debug).")); return; }
     setDissection(*d);
+    liveMono_ = d->ready;
+}
+
+void MonoDissectorWindow::showContextMenu(const QPoint& position) {
+    QTreeWidgetItem* cls = classItemOf(tree_->itemAt(position));
+    if (!cls) return;
+    QMenu menu(this);
+    QAction* find = menu.addAction(tr("Find instances"));
+    // IL2CPP layouts come from the game's files; without a Mono runtime in the
+    // process there is no vtable to look for.
+    find->setEnabled(liveMono_ && proc_);
+    if (!liveMono_) find->setToolTip(tr("Needs a Mono target dissected with the agent"));
+    menu.setToolTipsVisible(true);
+    if (menu.exec(tree_->viewport()->mapToGlobal(position)) == find) findInstances(cls);
+}
+
+void MonoDissectorWindow::findInstances(QTreeWidgetItem* cls) {
+    if (!cls || !proc_ || !liveMono_) return;
+    const QString ns = cls->data(0, kNamespaceRole).toString(), name = cls->data(0, kClassRole).toString();
+    const QString full = ns.isEmpty() ? name : ns + "." + name;
+    std::string agent = ce::findMonoAgentPath();
+    if (agent.empty()) { status_->setText(tr("libcecore_mono_agent.so not found next to the binary.")); return; }
+    status_->setText(tr("Finding objects of %1…").arg(full));
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    status_->repaint();   // no processEvents: see runDissect
+    ce::SymbolResolver resolver;
+    resolver.loadProcess(*proc_);
+    const uintptr_t vtable = ce::findMonoClassVTable(*proc_, resolver, agent, ns.toStdString(), name.toStdString());
+    constexpr size_t kLimit = 10000;
+    std::vector<uintptr_t> instances = vtable ? ce::findMonoInstances(*proc_, vtable, kLimit) : std::vector<uintptr_t>{};
+    QApplication::restoreOverrideCursor();
+    for (int i = cls->childCount() - 1; i >= 0; --i)
+        if (cls->child(i)->data(0, kKindRole).toString() == "instances") delete cls->takeChild(i);
+    cls->setData(0, kChosenRole, QVariant());
+    if (!vtable) {
+        // The agent creates a vtable on request, so none means the class cannot
+        // have objects of its own or the lookup failed.
+        status_->setText(tr("No vtable for %1: an interface, abstract or static class or a generic definition has no "
+                            "objects of its own, or the runtime refused the lookup.").arg(full));
+        return;
+    }
+    auto* group = new QTreeWidgetItem({tr("Instances (%1%2)").arg(instances.size())
+        .arg(instances.size() >= kLimit ? QStringLiteral("+") : QString()),
+        QString(), QStringLiteral("0x%1").arg(vtable, 0, 16)});
+    group->setData(0, kKindRole, "instances");
+    group->setToolTip(2, tr("The class's vtable: the first word of each of its objects"));
+    cls->insertChild(0, group);
+    for (uintptr_t address : instances) {
+        auto* row = new QTreeWidgetItem(group, {QStringLiteral("0x%1").arg(address, 0, 16)});
+        row->setData(0, kKindRole, "inst");
+        row->setData(0, kAddressRole, QVariant::fromValue<qulonglong>(address));
+    }
+    cls->setExpanded(true);
+    group->setExpanded(true);
+    status_->setText(instances.empty()
+        ? tr("No objects of %1 found.").arg(full)
+        : tr("%1 objects of %2. Select one to use it as the base of the fields you add; double-click to browse it.")
+              .arg(instances.size()).arg(full));
 }
 
 void MonoDissectorWindow::applyFilter(const QString& text) {

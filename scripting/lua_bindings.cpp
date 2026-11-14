@@ -3590,6 +3590,40 @@ static int l_findMonoFunction(lua_State* L) {
     return 1;
 }
 
+// findMonoInstances(namespace, class [, limit]) -> {addresses}, vtable | nil, error
+// The class's live objects: pointer-aligned words in private writable memory
+// that hold its MonoVTable (the first word of every object of the class).
+static int l_findMonoInstances(lua_State* L) {
+    const char* ns  = luaL_optstring(L, 1, "");
+    const char* cls = luaL_checkstring(L, 2);
+    const lua_Integer limit = luaL_optinteger(L, 3, 10000);
+    if (limit <= 0) return luaL_argerror(L, 3, "limit must be positive");
+    auto* p = getProc(L);
+    if (!p) { lua_pushnil(L); lua_pushliteral(L, "no process is open"); return 2; }
+    if (ce::detectManagedKind(*p) != ce::ManagedKind::Mono) {
+        lua_pushnil(L); lua_pushliteral(L, "the target has no Mono runtime"); return 2;
+    }
+    std::string agent = ce::findMonoAgentPath();
+    if (agent.empty()) { lua_pushnil(L); lua_pushliteral(L, "libcecore_mono_agent.so not found"); return 2; }
+    ce::SymbolResolver resolver;
+    resolver.loadProcess(*p);
+    const uintptr_t vtable = ce::findMonoClassVTable(*p, resolver, agent, ns, cls);
+    if (!vtable) {
+        lua_pushnil(L);
+        lua_pushliteral(L, "no vtable: class not found, an interface, abstract or static class or generic definition, "
+                           "or the runtime refused the lookup");
+        return 2;
+    }
+    auto instances = ce::findMonoInstances(*p, vtable, static_cast<size_t>(limit));
+    lua_createtable(L, static_cast<int>(std::min<size_t>(instances.size(), INT_MAX)), 0);
+    for (size_t i = 0; i < instances.size(); ++i) {
+        lua_pushinteger(L, static_cast<lua_Integer>(instances[i]));
+        lua_rawseti(L, -2, static_cast<lua_Integer>(i + 1));
+    }
+    lua_pushinteger(L, static_cast<lua_Integer>(vtable));
+    return 2;
+}
+
 // createSignature(address [, maxBytes]) -> pattern, unique | nil, error
 // An array-of-bytes signature for the code at `address`; rip-relative
 // displacements and address-sized immediates are wildcarded so it survives
@@ -6200,6 +6234,7 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "getManagedRuntimes", l_getManagedRuntimes);
     lua_register(L, "monoDissect", l_monoDissect);
     lua_register(L, "findMonoFunction", l_findMonoFunction);
+    lua_register(L, "findMonoInstances", l_findMonoInstances);
     lua_register(L, "executeCode", l_executeCode);
     lua_register(L, "createSignature", l_createSignature);
     lua_register(L, "getIl2CppMetadataPath", l_getIl2CppMetadataPath);

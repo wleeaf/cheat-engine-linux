@@ -272,7 +272,7 @@ def main():
             report["phases"].append(profile)
             marker = re.search(r"^MONO_INTEGRATION_RESULT=PASSED phase=(\w+) checks=(\d+) failures=0$",
                                result.stdout, re.MULTILINE)
-            expected = 21 if phase == "loaded" else 20
+            expected = 23 if phase == "loaded" else 22
             if result.returncode or "FAILED:" in result.stdout or not marker or marker[1] != phase or int(marker[2]) != expected:
                 raise RuntimeError(f"required Mono {phase} integration checks failed")
             profile["checks"] = expected

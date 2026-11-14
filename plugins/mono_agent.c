@@ -75,6 +75,8 @@ typedef char*       (*fn_type_get_name)(MonoType*);
 typedef void*       (*fn_class_from_name)(MonoImage*, const char*, const char*);
 typedef void*       (*fn_get_method_from_name)(MonoClass*, const char*, int);
 typedef void*       (*fn_compile_method)(void* /*MonoMethod*/);
+typedef void*       (*fn_class_vtable)(MonoDomain*, MonoClass*);
+typedef uint32_t    (*fn_class_get_flags)(MonoClass*);
 
 static struct {
     fn_get_root_domain     get_root_domain;
@@ -98,6 +100,8 @@ static struct {
     fn_class_from_name      class_from_name;
     fn_get_method_from_name get_method_from_name;
     fn_compile_method       compile_method;
+    fn_class_vtable         class_vtable;
+    fn_class_get_flags      class_get_flags;
 } mono;
 
 static FILE* g_out;
@@ -231,6 +235,9 @@ static const char* resolve_rest(void) {
     OPTIONAL(class_from_name,      "mono_class_from_name");
     OPTIONAL(get_method_from_name, "mono_class_get_method_from_name");
     OPTIONAL(compile_method,       "mono_compile_method");
+    // For finding a class's instances: every object starts with its vtable.
+    OPTIONAL(class_vtable,         "mono_class_vtable");
+    OPTIONAL(class_get_flags,      "mono_class_get_flags");
     #undef REQUIRE
     #undef OPTIONAL
     return NULL;
@@ -258,6 +265,23 @@ static void* resolve_method(const char* ns, const char* cls, const char* meth, i
     void* m = mono.get_method_from_name(g_foundClass, meth, paramCount);
     if (!m) return NULL;
     return mono.compile_method(m);
+}
+
+#define TYPE_ATTRIBUTE_INTERFACE 0x20
+#define TYPE_ATTRIBUTE_ABSTRACT  0x80
+/* The class's vtable in `domain`: the first word of each of its objects. A
+ * class that has objects already has one; for one without, it is created
+ * (mono_class_vtable does not run the class constructor). Interfaces,
+ * abstract and static classes and open generic definitions ("List`1") have
+ * no objects of their own, and some runtimes assert on a generic definition,
+ * so they are refused before the call. Needs mono_class_get_flags to tell. */
+static void* resolve_vtable(MonoDomain* domain, const char* ns, const char* cls) {
+    if (!mono.class_from_name || !mono.class_vtable || !mono.class_get_flags || strchr(cls, '`')) return NULL;
+    g_reqNs = ns; g_reqCls = cls; g_foundClass = NULL;
+    mono.assembly_foreach(find_class_cb, NULL);
+    if (!g_foundClass) return NULL;
+    if (mono.class_get_flags(g_foundClass) & (TYPE_ATTRIBUTE_INTERFACE | TYPE_ATTRIBUTE_ABSTRACT)) return NULL;
+    return mono.class_vtable(domain, g_foundClass);
 }
 
 static void dump_class(MonoClass* klass) {
@@ -373,6 +397,9 @@ static void* runtime_request(void* data) {
             g_out=stream;
             mono.assembly_foreach(on_assembly,NULL);
             fprintf(stream,"# done\n");g_out=NULL;
+        } else if (job->command==CE_MONO_VTABLE) {
+            void* vtable=resolve_vtable(job->domain,job->ns,job->cls);
+            fprintf(stream,"%zx\n",(size_t)vtable);
         } else {
             void* address=resolve_method(job->ns,job->cls,job->method,job->count);
             fprintf(stream,"%zx\n",(size_t)address);
@@ -393,7 +420,7 @@ static void serve_request(int fd) {
     for (unsigned i=0;i<6;++i) header[i]=ntohl(header[i]);
     uint64_t length=(uint64_t)header[2]+header[3]+header[4];
     if (header[0]!=CE_MONO_MAGIC || length>CE_MONO_MAX_REQUEST ||
-        (header[1]!=CE_MONO_DUMP && header[1]!=CE_MONO_METHOD) ||
+        (header[1]!=CE_MONO_DUMP && header[1]!=CE_MONO_METHOD && header[1]!=CE_MONO_VTABLE) ||
         (header[1]==CE_MONO_DUMP && length) ||
         (header[1]==CE_MONO_METHOD && header[5]>INT32_MAX && header[5]!=UINT32_MAX)) {
         respond(fd,CE_MONO_ERROR,"Invalid Mono request",20);return;

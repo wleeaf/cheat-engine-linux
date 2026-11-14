@@ -93,4 +93,20 @@ uintptr_t findMonoFunction(ProcessHandle& proc, SymbolResolver& resolver,
                            const std::string& methodName, int paramCount = -1,
                            int timeoutMs = 12000);
 
+/// The class's MonoVTable address in the target's root domain, from the
+/// resident agent (injected first when needed). Every object of the class
+/// starts with it. 0 when the class is not found or the runtime has no
+/// mono_class_vtable.
+uintptr_t findMonoClassVTable(ProcessHandle& proc, SymbolResolver& resolver,
+                              const std::string& agentSoPath,
+                              const std::string& nameSpace, const std::string& className,
+                              int timeoutMs = 12000);
+
+/// Candidate objects of a class: the pointer-aligned addresses in the target's
+/// private writable memory whose first word is `vtable`, at most `limit` of
+/// them. Cheat Engine for Windows finds instances the same way; another
+/// reference to the vtable (the runtime's own class data) is a possible false
+/// positive.
+std::vector<uintptr_t> findMonoInstances(ProcessHandle& proc, uintptr_t vtable, size_t limit = 10000);
+
 } // namespace ce

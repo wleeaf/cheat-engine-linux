@@ -4,6 +4,7 @@
 #include "core/ns_attach.hpp"
 #include "platform/linux/target_syscall.hpp"
 #include "plugins/mono_protocol.h"
+#include "scanner/memory_scanner.hpp"
 #include <arpa/inet.h>
 #include <cerrno>
 #include <climits>
@@ -303,6 +304,43 @@ std::optional<MonoDissection> dissectMono(ProcessHandle& proc, SymbolResolver& r
         MonoDissection result;result.error=response.error();return result;
     }
     return parseMonoDump(*response);
+}
+
+uintptr_t findMonoClassVTable(ProcessHandle& proc, SymbolResolver& resolver,
+                              const std::string& agentSoPath, const std::string& ns,
+                              const std::string& className, int timeoutMs) {
+    auto response=requestMono(proc,resolver,agentSoPath,CE_MONO_VTABLE,ns,className,{},-1,timeoutMs);
+    if (!response) {
+        ce::log::warn(ce::log::Cat::General,"Mono vtable lookup: {}",response.error());return 0;
+    }
+    std::string_view hex=*response;
+    if (!hex.empty() && hex.back()=='\n') hex.remove_suffix(1);
+    uintptr_t address=0;
+    auto parsed=std::from_chars(hex.data(),hex.data()+hex.size(),address,16);
+    if (parsed.ec!=std::errc{} || parsed.ptr!=hex.data()+hex.size()) return 0;
+    return address;
+}
+
+std::vector<uintptr_t> findMonoInstances(ProcessHandle& proc, uintptr_t vtable, size_t limit) {
+    std::vector<uintptr_t> instances;
+    const unsigned width=proc.targetDescription().program.pointerWidth;
+    if (!vtable || (width!=4 && width!=8) || (width==4 && vtable>UINT32_MAX)) return instances;
+    ScanConfig config;
+    config.valueType=ValueType::Pointer;
+    config.pointerWidth=static_cast<uint8_t>(width);
+    config.compareType=ScanCompare::Exact;
+    config.intValue=static_cast<int64_t>(vtable);
+    config.alignment=width;
+    // Managed objects live in the GC heap: private memory, never a file image.
+    config.scanImage=false;
+    config.scanMapped=false;
+    config.writableMatch=ProtMatch::Yes;
+    MemoryScanner scanner;
+    auto result=scanner.firstScan(proc,config);
+    if (result.hasWriteError()) return instances;
+    for (size_t i=0;i<result.count() && instances.size()<limit;++i)
+        if (uintptr_t address=result.address(i)) instances.push_back(address);
+    return instances;
 }
 
 uintptr_t findMonoFunction(ProcessHandle& proc, SymbolResolver& resolver,

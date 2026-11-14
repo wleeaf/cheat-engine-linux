@@ -105,6 +105,28 @@ int main(int argc,char** argv) {
     auto restore=process.write(data,&restored,4);
     check(write && *write==4 && read && *read==4 && observed==edited && restore && *restore==4,
           "managed field read/write restores the exact original value");
+    // Find instances: every object starts with its class's vtable, so the
+    // pinned Player is among the words in the GC heap that hold it.
+    const uintptr_t vtable=findMonoClassVTable(process,resolver,agent,"Compatibility","Player",2000);
+    uint64_t header=0;
+    auto headerRead=object ? process.read(object,&header,sizeof(void*)) : Result<size_t>(std::unexpected(std::make_error_code(std::errc::bad_address)));
+    // Classes without objects of their own are refused before the runtime is
+    // asked (some Mono builds assert on a generic definition); the runtime
+    // must keep answering afterwards.
+    bool refused=!findMonoClassVTable(process,resolver,agent,"Compatibility","Missing",2000);
+    for (auto [ns,name] : {std::pair{"System","IDisposable"},{"System.IO","Stream"},{"System","Math"},
+                           {"System.Collections.Generic","List`1"}})
+        refused=refused && !findMonoClassVTable(process,resolver,agent,ns,name,2000);
+    check(vtable && headerRead && *headerRead==sizeof(void*) && header==vtable && refused &&
+          findMonoClassVTable(process,resolver,agent,"Compatibility","Player",2000)==vtable,
+          "a class's vtable is the first word of its real object; interfaces, abstract and generic definitions have none");
+    auto instances=findMonoInstances(process,vtable);
+    LuaEngine finder;finder.setProcess(&process);
+    auto listed=finder.evalToString("local list, vtable = findMonoInstances('Compatibility', 'Player'); "
+        "assert(list and vtable == "+std::to_string(vtable)+"); "
+        "for _, address in ipairs(list) do if address == "+std::to_string(object)+" then return 'found' end end; return 'missing'");
+    check(std::find(instances.begin(),instances.end(),object)!=instances.end() && listed && *listed=="found",
+          "Find instances returns the real object from C++ and Lua");
     auto second=dissectMono(process,resolver,agent,1200);
     check(second && second->ready && second->findClass("Compatibility.Player"),
           "refresh returns fresh metadata from the already resident agent");

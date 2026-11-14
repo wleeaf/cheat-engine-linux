@@ -39,6 +39,13 @@ reimplementation of Cheat Engine).
   with the game's own Wine and prefix, commits the block, and Wine releases it
   again on disable. Inside a Proton or Flatpak container this is not available
   yet, and the Auto Assembler then names the cause.
+- Mono Dissector: right-click a class and choose **Find instances** to list its
+  live objects ([#6](https://github.com/wleeaf/cheat-engine-linux/issues/6)).
+  Every Mono object starts with its class's vtable, which the injected agent now
+  reports; selecting an object makes it the base of the fields you add to the
+  address list, and double-clicking it opens it in the Memory Viewer. Lua has the
+  same as `findMonoInstances(namespace, class[, limit])`. Verified on plain Mono;
+  Unity players are not checked yet.
 - The GUI is translated with Qt's translation tools and ships with a Simplified
   Chinese (zh_CN) catalogue: every menu, dialog, label and message is marked for
   translation, Settings > Language offers follow the system / English / 简体中文,

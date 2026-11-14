@@ -9,7 +9,9 @@
 #ifndef CE_MONO_MAX_RESPONSE
 #define CE_MONO_MAX_RESPONSE (64u * 1024u * 1024u)
 #endif
-enum { CE_MONO_DUMP = 1, CE_MONO_METHOD = 2 };
+enum { CE_MONO_DUMP = 1, CE_MONO_METHOD = 2, CE_MONO_VTABLE = 3 };
 enum { CE_MONO_OK = 0, CE_MONO_ERROR = 1 };
 /* Request: magic, command, namespace bytes, class bytes, method bytes, paramCount.
- * Response: magic, status, payload bytes; then the dump, hex address or error. */
+ * Response: magic, status, payload bytes; then the dump, hex address or error.
+ * CE_MONO_VTABLE answers the class's MonoVTable address in the root domain (the
+ * first word of every object of that class), or 0; it ignores method/paramCount. */

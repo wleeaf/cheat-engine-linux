@@ -2354,7 +2354,9 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
         nearHint = " No free memory is within 2 GiB of " + formatHexLiteral(preferred) + ".";
         if (proc.targetDescription().runtime == TargetRuntime::Wine)
             nearHint += " This Wine version reserves the address space around the program's code for its own "
-                        "allocations, so a code cave cannot be placed next to the hook yet "
+                        "allocations, and asking Wine for memory there failed. Wine runs that request on one of "
+                        "the program's own threads, so the program must not be stopped, and it works only for a "
+                        "program in this user's own mount namespace, not inside a Proton or Flatpak container "
                         "(https://github.com/wleeaf/cheat-engine-linux/issues/9).";
     };
     auto rollback = [&]() -> AutoAsmResult {

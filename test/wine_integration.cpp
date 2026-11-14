@@ -255,27 +255,18 @@ static void exercise(const char* wine, const char* path, unsigned width, bool re
     AutoAssembler assembler;
     auto injected = assembler.execute(process, script);
     if (!injected.success) printf("Wine injection error: %s %s\n", error.c_str(), injected.error.c_str());
-    if (!injected.success && before && !script.empty() && noFreeGapNear(pid, code, width) &&
-        injected.error.find("issues/9") != std::string::npos) {
-        // Known limitation, reported with its cause; the program and the
-        // checks after this one must be unaffected.
-        printf("WINE_KNOWN_LIMITATION=no-code-cave-near-hook programWidth=%u\n", width);
-        auto read = process.read(code, restored.data(), restored.size());
-        check(read && *read == restored.size() && restored == original,
-              "a refused injection leaves the Windows function unchanged");
-        check(fixture.value('b', 31415927) && fixture.value('b', 31415928),
-              "the Windows target keeps executing after a refused injection");
-    } else {
-        check(before && !script.empty() && injected.success, "injection activates at the real Windows function");
-        if (!injected.success) return;
-        check(fixture.value('b', 31415927), "Windows instructions execute correctly through the relocated injection");
-        auto disabled = assembler.disable(process, script, injected.disableInfo);
-        auto read = process.read(code, restored.data(), restored.size());
-        auto finalRegion = process.queryRegion(code);
-        check(disabled.success && read && *read == restored.size() && restored == original && originalRegion && finalRegion &&
-              originalRegion->protection == finalRegion->protection, "Wine cleanup restores exact bytes and page permissions");
-        check(fixture.value('b', 31415928), "Windows target keeps executing after injection cleanup");
-    }
+    // Wine 11.20 leaves no free gap near the hook; the cave then comes from
+    // Wine itself (issue #9). Recorded so the evidence shows which path ran.
+    if (noFreeGapNear(pid, code, width)) printf("WINE_NOTE=code-cave-from-wine programWidth=%u\n", width);
+    check(before && !script.empty() && injected.success, "injection activates at the real Windows function");
+    if (!injected.success) return;
+    check(fixture.value('b', 31415927), "Windows instructions execute correctly through the relocated injection");
+    auto disabled = assembler.disable(process, script, injected.disableInfo);
+    auto read = process.read(code, restored.data(), restored.size());
+    auto finalRegion = process.queryRegion(code);
+    check(disabled.success && read && *read == restored.size() && restored == original && originalRegion && finalRegion &&
+          originalRegion->protection == finalRegion->protection, "Wine cleanup restores exact bytes and page permissions");
+    check(fixture.value('b', 31415928), "Windows target keeps executing after injection cleanup");
     for (int cycle = 0; cycle < 3; ++cycle) {
         os::LinuxDebugger debugger;
         CodeFinder finder;
@@ -401,16 +392,11 @@ static void exercise(const char* wine, const char* path, unsigned width, bool re
               "a page-rounded allocation wider than Windows pointers is rejected before target mutation");
     }
     // Wine 11.20 reserves all of the low 4 GiB of a WoW64 process (issue #9):
-    // nothing a 32-bit program can address is left to map, so an allocation
-    // must fail cleanly instead of returning memory the program cannot use.
+    // a 32-bit program's memory then comes from Wine, and a released block
+    // goes back to Wine's reservation instead of disappearing.
     const bool lowSpaceReserved=width==4 && noFreeGapIn(pid,0x10000,UINT64_C(1)<<32);
-    if (lowSpaceReserved) {
-        printf("WINE_KNOWN_LIMITATION=no-free-memory-below-4gib programWidth=%u\n",width);
-        auto refused=process.allocate(page,MemProt::ReadWrite);
-        check(!refused && refused.error()==std::errc::not_enough_memory && noFreeGapIn(pid,0x10000,UINT64_C(1)<<32),
-              "a 32-bit allocation with no free low memory fails without mapping anything");
-    }
-    for (unsigned cycle=0;cycle<3 && !lowSpaceReserved;++cycle) {
+    if (lowSpaceReserved) printf("WINE_NOTE=low-memory-from-wine programWidth=%u\n",width);
+    for (unsigned cycle=0;cycle<3;++cycle) {
         auto allocation=process.allocate(page,MemProt::ReadWrite);
         if (!allocation) printf("Wine busy allocation error: %s\n",allocation.error().message().c_str());
         check(allocation && (width==8 || *allocation<=UINT32_MAX-page),
@@ -426,8 +412,14 @@ static void exercise(const char* wine, const char* path, unsigned width, bool re
         check(protectedPage && process_vm_writev(pid,&local,1,&remote,1,0)<0,
               "busy Wine protection really removes direct kernel write access");
         auto freed=process.free(*allocation,page);
-        check(freed && !process.queryRegion(*allocation),"busy Wine cleanup removes the real allocation");
+        auto left=process.queryRegion(*allocation);
+        check(freed && (!left || (lowSpaceReserved && left->protection==MemProt::None)),
+              "busy Wine cleanup removes the real allocation");
     }
+    // With Wine holding all of the low 4 GiB there is no MAP_32BIT window
+    // left to exhaust; the check after it still applies.
+    if (width==4 && description.host.pointerWidth==8 && lowSpaceReserved)
+        printf("WINE_NOTE=low-window-exhaustion-not-applicable programWidth=%u\n",width);
     if (width==4 && description.host.pointerWidth==8 && !lowSpaceReserved) {
         // Reserve only holes in MAP_32BIT's search window. PROT_NONE mappings
         // do not populate pages, so this tests address exhaustion without
@@ -459,6 +451,8 @@ static void exercise(const char* wine, const char* path, unsigned width, bool re
         for (const auto& [address,size] : reservations)
             releasedReservations=process.free(address,size).has_value() && releasedReservations;
         check(releasedReservations,"the pressure test removes every temporary allocation and reservation");
+    }
+    if (width==4 && description.host.pointerWidth==8) {
         auto modules=process.modules();
         auto loader=std::find_if(modules.begin(),modules.end(),[](const auto& module) {
             return module.machine.abi==TargetAbi::LinuxX86_64 && module.base>UINT32_MAX;
@@ -483,11 +477,30 @@ static void exercise(const char* wine, const char* path, unsigned width, bool re
         waitpid(pid,&status,__WALL)==pid && WIFSTOPPED(status);
     auto restoredContext=debugger.getContext(pid);
     bool releasedAgain=ptrace(PTRACE_DETACH,pid,nullptr,nullptr)==0;
-    auto stableRegisters=[](const CpuContext& state) {
-        return std::array{state.rax,state.rbx,state.rcx,state.rdx,state.rsi,state.rdi,state.rbp,state.rsp,
+    // When Wine committed the memory (Wine 11.20, issue #9), VirtualAllocEx
+    // makes Wine itself interrupt a thread of the target, and a 32-bit thread
+    // returns through its 32-bit context: the upper halves of rax..rsp and
+    // r8..r15, which compatibility mode cannot see, need not survive. Our own
+    // native operations must preserve every register.
+    const bool wineInterrupted=lowSpaceReserved;
+    auto stableRegisters=[wineInterrupted](const CpuContext& state) {
+        auto all=std::array{state.rax,state.rbx,state.rcx,state.rdx,state.rsi,state.rdi,state.rbp,state.rsp,
             state.r8,state.r9,state.r10,state.r11,state.r12,state.r13,state.r14,state.r15,
             state.cs,state.ss,state.ds,state.es,state.fs,state.gs};
+        if (wineInterrupted) {
+            for (size_t i=0;i<8;++i) all[i]&=UINT32_MAX;
+            for (size_t i=8;i<16;++i) all[i]=0;
+        }
+        return all;
     };
+    if (context && restoredContext && stableRegisters(*restoredContext)!=stableRegisters(*context)) {
+        static const char* names[]={"rax","rbx","rcx","rdx","rsi","rdi","rbp","rsp","r8","r9","r10","r11","r12","r13","r14","r15",
+                                    "cs","ss","ds","es","fs","gs"};
+        const auto before=stableRegisters(*context),after=stableRegisters(*restoredContext);
+        for (size_t i=0;i<before.size();++i) if (before[i]!=after[i])
+            printf("Wine register changed: %s %llx -> %llx\n",names[i],static_cast<unsigned long long>(before[i]),
+                   static_cast<unsigned long long>(after[i]));
+    }
     check(stoppedAgain && releasedAgain && context && restoredContext &&
           restoredContext->architecture==context->architecture &&
           restoredContext->instructionPointer()>=code-0x300 && restoredContext->instructionPointer()<code &&

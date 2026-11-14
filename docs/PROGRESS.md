@@ -16,6 +16,28 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Memory from Wine itself: 14 November 2026
+
+Issue #9: under Wine 11.20 the code cave and every 32-bit allocation now come
+from Wine. `platform/linux/wine_memory.cpp` generates a PE32+ helper (code at
+`0x401000`, parameters and result at `0x402000`, kernel32 imports at
+`0x403000`) and runs it with the target's own Wine loader (the sibling of its
+`wine-preloader`), environment (minus `WINESERVERSOCKET`, `WINELOADERNOEXEC`
+and `WINEPRELOADRESERVE`) and user; it calls `OpenProcess` and
+`VirtualAllocEx`, searching outward from the preferred address in 64 KiB steps,
+or `VirtualFreeEx`. The Windows process id comes from a TEB: a page-aligned
+page whose `+0x30` holds its own address, with `ClientId` at `+0x40`. The
+machine code is embedded because the file is also built by the VM tests
+without Keystone; `cecore_test` reassembles the source kept beside it and
+checks the image layout. `LinuxProcessHandle` uses it only when the near or low
+gap search fails for a Wine target on an x86-64 host, and keeps Wine-owned
+blocks in a process-wide registry so a free from any handle goes back to Wine.
+A target in another mount namespace (Proton, Flatpak) is not handled yet. In
+the wow64 gate both fixtures inject again and the 32-bit allocation checks run;
+`VirtualAllocEx` makes Wine run an APC on a target thread, which returns a
+32-bit thread through its 32-bit context, so the register check compares the
+state a 32-bit program can see in that case.
+
 ## Wine 11.20 leaves no room for code caves: 14 November 2026
 
 Fedora 44 moved from Wine 11.0 to Wine 11.20 (Staging), and the `wow64-wine`

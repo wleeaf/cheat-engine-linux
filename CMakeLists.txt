@@ -225,6 +225,7 @@ add_library(cecore SHARED
     platform/linux/mono_debugger_client.cpp
     platform/linux/kernel_driver.cpp
     platform/linux/linux_process.cpp
+    platform/linux/wine_memory.cpp
     platform/linux/target_syscall.cpp
     platform/linux/syscall_service.cpp
     platform/linux/code_write.cpp platform/linux/memory_image.cpp
@@ -751,7 +752,7 @@ if(CECORE_BUILD_TESTS)
         target_compile_definitions(cecore_test PRIVATE CE_NATIVE_CALL_FIXTURE="$<TARGET_FILE:native_call_fixture>")
         add_executable(target_syscall_integration test/target_syscall_integration.cpp
             test/syscall_faults.cpp platform/linux/target_syscall.cpp platform/linux/syscall_service.cpp platform/linux/code_write.cpp platform/linux/memory_image.cpp platform/linux/call_service.cpp platform/linux/thread_entry.cpp
-            platform/linux/linux_process.cpp platform/process_api.cpp core/target_machine.cpp
+            platform/linux/linux_process.cpp platform/linux/wine_memory.cpp platform/process_api.cpp core/target_machine.cpp
             core/target_capabilities.cpp arch/target_arch.cpp core/log.cpp platform/linux/ns_attach.cpp
             platform/linux/target_debug.cpp platform/linux/register_image.cpp platform/linux/arm64_vector_return.cpp platform/linux/ptrace_wrapper.cpp
             debug/debug_session.cpp debug/tracer.cpp debug/code_finder.cpp debug/stack_trace.cpp

@@ -29,13 +29,16 @@ reimplementation of Cheat Engine).
 - When `~/.cache/cheatengine` cannot be used, scan results go to the
   disk-backed `/var/tmp` instead of `/tmp`, which is RAM-backed on many
   desktops and filled up on large scans.
-- Known limitation: under Wine 11.20 code injection does not work yet
+- Code injection and memory allocation work again under Wine 11.20
   ([#9](https://github.com/wleeaf/cheat-engine-linux/issues/9)). That Wine
   reserves the address space around a program's code (and, for 32-bit
-  programs, everything below 4 GiB), so no code cave can be placed within
-  jump range of the hook. The Auto Assembler now says so instead of reporting
-  an out-of-range operand or a bare allocation failure. Wine 11.0, legacy Wine
-  and Proton are unaffected.
+  programs, everything below 4 GiB) for its own allocations, so no code cave
+  fit within jump range of a hook. When that happens Cheat Engine now asks Wine
+  itself for the memory, as Cheat Engine for Windows does with
+  `VirtualAllocEx`: a small Windows program, generated on the fly and started
+  with the game's own Wine and prefix, commits the block, and Wine releases it
+  again on disable. Inside a Proton or Flatpak container this is not available
+  yet, and the Auto Assembler then names the cause.
 - The GUI is translated with Qt's translation tools and ships with a Simplified
   Chinese (zh_CN) catalogue: every menu, dialog, label and message is marked for
   translation, Settings > Language offers follow the system / English / 简体中文,

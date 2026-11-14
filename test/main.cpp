@@ -11,6 +11,7 @@
 #include "platform/network_compression.hpp"
 #include "platform/vulkan_overlay_injector.hpp"
 #include "platform/linux/injector.hpp"
+#include "platform/linux/wine_memory.hpp"
 #include "platform/linux/memory_image.hpp"
 #ifdef CE_HAVE_VULKAN
 #include <vulkan/vulkan.h>
@@ -1975,6 +1976,39 @@ static void test_free_without_size() {
            unknown && sized ? "OK" : "FAILED");
     kill(child, SIGKILL);
     waitpid(child, nullptr, 0);
+}
+
+// The Wine memory helper's machine code is embedded (its file must build
+// without Keystone); it has to stay the assembly of the source kept beside it.
+static void test_wine_memory_helper() {
+    printf("\n── Test: Wine memory helper image ──\n");
+    ce::Assembler assembler(ce::AsmArch::X86_64);
+    auto assembled = assembler.assemble(std::string(ce::os::wineHelperSource()), 0x401000);
+    const auto code = ce::os::wineHelperCode();
+    bool same = assembled && assembled->size() == code.size() && std::equal(code.begin(), code.end(), assembled->begin());
+    printf("  embedded helper code is the assembly of its source: %s\n", same ? "OK" : "FAILED");
+    ce::os::WineHelperRequest request;
+    request.operation = 1; request.windowsPid = 0x124; request.preferred = 0x400000; request.low = 0x10000;
+    request.high = 0x7fff0000; request.size = 0x1000; request.protection = 0x40;
+    auto image = ce::os::wineHelperImage(request);
+    auto u32 = [&](size_t at) { uint32_t v = 0; std::memcpy(&v, image.data() + at, 4); return v; };
+    auto u64 = [&](size_t at) { uint64_t v = 0; std::memcpy(&v, image.data() + at, 8); return v; };
+    bool headers = image.size() == 0x1800 && image[0] == 'M' && image[1] == 'Z' && u32(0x3c) == 0x80 &&
+        std::memcmp(image.data() + 0x80, "PE\0\0", 4) == 0 && u32(0x98 + 16) == 0x1000 && u64(0x98 + 24) == 0x400000;
+    bool code0 = std::equal(code.begin(), code.end(), image.begin() + 0x400);
+    bool data = u64(0x1400) == 1 && u64(0x1408) == 0x124 && u64(0x1410) == 0x400000 && u64(0x1428) == 0x1000 &&
+        u64(0x1430) == 0x40 && std::memcmp(image.data() + 0x1440, "CEWINEAL", 8) == 0;
+    // Import address table slot i must name the i-th function the code calls.
+    const char* names[] = {"GetStdHandle", "WriteFile", "ExitProcess", "OpenProcess", "VirtualAllocEx", "VirtualFreeEx", "GetLastError"};
+    bool imports = std::strcmp(reinterpret_cast<const char*>(image.data() + 0x1640), "kernel32.dll") == 0;
+    for (size_t i = 0; i < std::size(names) && imports; ++i) {
+        const uint64_t hint = u64(0x1600 + 0x140 + i * 8);
+        imports = hint >= 0x3080 && hint < 0x3100 && u64(0x1600 + 0x100 + i * 8) == hint &&
+            std::strcmp(reinterpret_cast<const char*>(image.data() + 0x1600 + (hint - 0x3000) + 2), names[i]) == 0;
+    }
+    imports = imports && u64(0x1600 + 0x140 + std::size(names) * 8) == 0;
+    printf("  helper PE32+ headers, code, parameters and imports are laid out: %s\n",
+           headers && code0 && data && imports ? "OK" : "FAILED");
 }
 
 static void test_perf_map_symbols() {
@@ -14186,6 +14220,7 @@ int main(int argc, char* argv[]) {
     test_perf_map_symbols();
     test_wx_double_mapped_code();
     test_free_without_size();
+    test_wine_memory_helper();
     test_ct_load_from_string();
     test_ct_review_fixes();
     test_ct_format_detection();

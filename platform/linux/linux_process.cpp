@@ -3,6 +3,8 @@
 #include "platform/linux/target_debug.hpp"
 #include "platform/linux/syscall_service.hpp"
 #include "platform/linux/runtime_probe.hpp"
+#include "platform/linux/wine_memory.hpp"
+#include <tuple>
 
 #include <fstream>
 #include <charconv>
@@ -649,6 +651,14 @@ Result<void> LinuxProcessHandle::resumePendingCallSignal(bool deliverSignal) {
     return memorySyscallService().resumeCall(*identity,deliverSignal);
 }
 
+// Blocks Wine committed for us (see wine_memory.hpp), by process and start
+// time: they must go back through Wine, from whichever handle frees them (a
+// NativeMemoryImage opens a handle per call).
+namespace {
+std::mutex wineBlocksMutex;
+std::map<std::tuple<pid_t, uint64_t, uintptr_t>, size_t> wineBlocks;
+}
+
 Result<uintptr_t> LinuxProcessHandle::allocate(size_t size, MemProt protection, uintptr_t preferredBase) {
     return allocateInImage(size,protection,preferredBase,nullptr);
 }
@@ -710,6 +720,23 @@ Result<uintptr_t> LinuxProcessHandle::allocateInImage(size_t size,MemProt protec
         }
         return std::unexpected(std::make_error_code(std::errc::not_enough_memory));
     };
+    // Wine 11.20 reserves the address space around a program's code, and all
+    // of the low 4 GiB of a WoW64 process, for its own allocations: no gap is
+    // left there for a mapping of ours, but Wine itself can still commit
+    // memory in its reservation (issue #9).
+    auto allocateThroughWine = [&](uintptr_t preferred, uintptr_t minimum, uintptr_t maximum) -> Result<uintptr_t> {
+        if (description.runtime != TargetRuntime::Wine || description.host.architecture != CpuArchitecture::X86_64)
+            return std::unexpected(std::make_error_code(std::errc::not_enough_memory));
+        auto block = wineVirtualAlloc(pid_, *allocSize, protection, preferred, minimum, maximum);
+        if (!block) {
+            ce::log::warn(ce::log::Cat::Memory, "Wine could not commit {:#x} bytes in [{:#x}, {:#x}]: {}",
+                          *allocSize, minimum, maximum, block.error().message());
+            return std::unexpected(std::make_error_code(std::errc::not_enough_memory));
+        }
+        std::lock_guard lock(wineBlocksMutex);
+        wineBlocks[{pid_, startTime_, *block}] = *allocSize;
+        return block;
+    };
     // A 32-bit program cannot use a block that ends above 4 GiB. Accepted
     // blocks are remembered so free(address, 0) knows their size.
     auto accept = [&](Result<uintptr_t> base) -> Result<uintptr_t> {
@@ -729,7 +756,12 @@ Result<uintptr_t> LinuxProcessHandle::allocateInImage(size_t size,MemProt protec
         std::ifstream limit("/proc/sys/vm/mmap_min_addr");
         uintptr_t configured = 0;
         if (limit >> configured) minimum = std::max(minimum, configured);
-        return allocateInGaps(minimum, UINT32_MAX - *allocSize + 1, UINT64_C(0x80000000));
+        auto low = allocateInGaps(minimum, UINT32_MAX - *allocSize + 1, UINT64_C(0x80000000));
+        if (!low && low.error() == std::errc::not_enough_memory) {
+            auto wine = allocateThroughWine(0, minimum, UINT32_MAX - *allocSize + 1);
+            if (wine) return wine;
+        }
+        return low;
     };
     if (preferredBase) {
         constexpr uintptr_t maxDistance = 0x7fff0000;
@@ -738,6 +770,10 @@ Result<uintptr_t> LinuxProcessHandle::allocateInImage(size_t size,MemProt protec
         if (allocationMachine.pointerWidth == 4)
             maximum = std::min<uintptr_t>(maximum, UINT32_MAX - *allocSize + 1);
         auto nearby = allocateInGaps(minimum, maximum, preferredBase);
+        if (!nearby && nearby.error() == std::errc::not_enough_memory) {
+            auto wine = allocateThroughWine(preferredBase, minimum, maximum);
+            if (wine) return accept(wine);
+        }
         if (nearby || nearby.error() != std::errc::not_enough_memory) return accept(nearby);
     }
     int lowAddressFlag = 0;
@@ -763,6 +799,23 @@ Result<void> LinuxProcessHandle::free(uintptr_t address, size_t size) {
 }
 Result<void> LinuxProcessHandle::freeInImage(uintptr_t address,size_t size,const NativeMemoryImage* image) {
     if(image) {if(image->pid()!=pid_) return std::unexpected(std::make_error_code(std::errc::invalid_argument));auto live=image->check();if(!live) return std::unexpected(live.error());}
+    {
+        // A block Wine committed is released by Wine, which keeps the range
+        // reserved for its own later allocations.
+        std::unique_lock lock(wineBlocksMutex);
+        if (auto block = wineBlocks.find({pid_, startTime_, address}); block != wineBlocks.end()) {
+            const size_t blockSize = block->second;
+            lock.unlock();
+            auto released = wineVirtualFree(pid_, address);
+            if (!released) return std::unexpected(released.error());
+            lock.lock();
+            wineBlocks.erase({pid_, startTime_, address});
+            lock.unlock();
+            std::lock_guard allocationLock(allocationsMutex_);
+            forgetAllocations(address, blockSize);
+            return {};
+        }
+    }
     if (!size) {
         // No size (Lua deAlloc(address)): the whole block allocate() returned there.
         std::lock_guard lock(allocationsMutex_);

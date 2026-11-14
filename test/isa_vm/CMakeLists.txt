@@ -19,7 +19,7 @@ target_include_directories(isa_lua PUBLIC "${ROOT}/third_party/lua/src")
 target_compile_options(isa_lua PRIVATE -O2 -w)
 
 add_library(isa_core STATIC
-    ${ROOT}/platform/linux/linux_process.cpp ${ROOT}/platform/process_api.cpp
+    ${ROOT}/platform/linux/linux_process.cpp ${ROOT}/platform/linux/wine_memory.cpp ${ROOT}/platform/process_api.cpp
     ${ROOT}/platform/linux/target_syscall.cpp ${ROOT}/platform/linux/syscall_service.cpp
     ${ROOT}/platform/linux/memory_image.cpp ${ROOT}/platform/linux/call_service.cpp
     ${ROOT}/platform/linux/code_write.cpp ${ROOT}/platform/linux/thread_entry.cpp

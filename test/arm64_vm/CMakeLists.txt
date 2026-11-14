@@ -13,7 +13,7 @@ get_filename_component(CECORE_VM_SOURCE_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." A
 add_library(vm_core OBJECT
     ../../platform/linux/injector.cpp ../../platform/linux/thread_entry.cpp
     ../../platform/linux/target_syscall.cpp ../../platform/linux/syscall_service.cpp ../../platform/linux/code_write.cpp ../../platform/linux/memory_image.cpp ../../platform/linux/call_service.cpp
-    ../../platform/linux/linux_process.cpp ../../platform/process_api.cpp
+    ../../platform/linux/linux_process.cpp ../../platform/linux/wine_memory.cpp ../../platform/process_api.cpp
     ../../core/target_machine.cpp ../../core/target_capabilities.cpp ../../arch/target_arch.cpp
     ../../core/log.cpp ../../platform/linux/ns_attach.cpp
     ../../platform/linux/target_debug.cpp ../../platform/linux/register_image.cpp

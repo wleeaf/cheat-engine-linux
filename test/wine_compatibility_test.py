@@ -87,6 +87,10 @@ def main():
                     command.append("--require-legacy-wine32")
                 result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=150)
                 report["output"] = result.stdout
+                # Recorded, not hidden: e.g. no code cave can be placed near the
+                # hook under Wine 11.20 (issue #9).
+                report["knownLimitations"] = [line.split("=", 1)[1] for line in result.stdout.splitlines()
+                                              if line.startswith("WINE_KNOWN_LIMITATION=")]
                 report["stderr"] = result.stderr
                 print(result.stdout, end="", flush=True)
                 if result.stderr:

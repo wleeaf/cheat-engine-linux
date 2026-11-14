@@ -20,6 +20,7 @@
 #include <array>
 #include <algorithm>
 #include <chrono>
+#include <cinttypes>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -102,6 +103,36 @@ public:
         }
     }
 };
+// Whether the target has no unmapped range of at least 64 KiB within rel32
+// reach of `address` (below 4 GiB for a 32-bit program). Wine 11.20 reserves
+// that space as PROT_NONE mappings of its own, so a code cave cannot be placed
+// next to the hook (issue #9).
+static bool noFreeGapIn(pid_t pid, uint64_t low, uint64_t high) {
+    constexpr uint64_t minimum = 0x10000;
+    std::ifstream maps("/proc/" + std::to_string(pid) + "/maps");
+    std::string line;
+    uint64_t previousEnd = 0x10000;
+    auto gapFits = [&](uint64_t from, uint64_t to) {
+        from = std::max(from, low);
+        to = std::min(to, high);
+        return to > from && to - from >= minimum;
+    };
+    while (std::getline(maps, line)) {
+        uint64_t start = 0, end = 0;
+        if (std::sscanf(line.c_str(), "%" SCNx64 "-%" SCNx64, &start, &end) != 2) return false;
+        if (gapFits(previousEnd, start)) return false;
+        previousEnd = std::max(previousEnd, end);
+        if (previousEnd >= high) return true;
+    }
+    return !gapFits(previousEnd, high);
+}
+static bool noFreeGapNear(pid_t pid, uintptr_t address, unsigned width) {
+    constexpr uint64_t reach = 0x7fff0000;
+    uint64_t high = address + reach;
+    if (width == 4) high = std::min<uint64_t>(high, UINT64_C(1) << 32);
+    return noFreeGapIn(pid, address > reach ? address - reach : 0x10000, high);
+}
+
 static pid_t findTarget(pid_t launcher, const char* executable) {
     auto name = std::filesystem::path(executable).filename().string();
     for (const auto& entry : std::filesystem::directory_iterator("/proc")) {
@@ -224,15 +255,27 @@ static void exercise(const char* wine, const char* path, unsigned width, bool re
     AutoAssembler assembler;
     auto injected = assembler.execute(process, script);
     if (!injected.success) printf("Wine injection error: %s %s\n", error.c_str(), injected.error.c_str());
-    check(before && !script.empty() && injected.success, "injection activates at the real Windows function");
-    if (!injected.success) return;
-    check(fixture.value('b', 31415927), "Windows instructions execute correctly through the relocated injection");
-    auto disabled = assembler.disable(process, script, injected.disableInfo);
-    auto read = process.read(code, restored.data(), restored.size());
-    auto finalRegion = process.queryRegion(code);
-    check(disabled.success && read && *read == restored.size() && restored == original && originalRegion && finalRegion &&
-          originalRegion->protection == finalRegion->protection, "Wine cleanup restores exact bytes and page permissions");
-    check(fixture.value('b', 31415928), "Windows target keeps executing after injection cleanup");
+    if (!injected.success && before && !script.empty() && noFreeGapNear(pid, code, width) &&
+        injected.error.find("issues/9") != std::string::npos) {
+        // Known limitation, reported with its cause; the program and the
+        // checks after this one must be unaffected.
+        printf("WINE_KNOWN_LIMITATION=no-code-cave-near-hook programWidth=%u\n", width);
+        auto read = process.read(code, restored.data(), restored.size());
+        check(read && *read == restored.size() && restored == original,
+              "a refused injection leaves the Windows function unchanged");
+        check(fixture.value('b', 31415927) && fixture.value('b', 31415928),
+              "the Windows target keeps executing after a refused injection");
+    } else {
+        check(before && !script.empty() && injected.success, "injection activates at the real Windows function");
+        if (!injected.success) return;
+        check(fixture.value('b', 31415927), "Windows instructions execute correctly through the relocated injection");
+        auto disabled = assembler.disable(process, script, injected.disableInfo);
+        auto read = process.read(code, restored.data(), restored.size());
+        auto finalRegion = process.queryRegion(code);
+        check(disabled.success && read && *read == restored.size() && restored == original && originalRegion && finalRegion &&
+              originalRegion->protection == finalRegion->protection, "Wine cleanup restores exact bytes and page permissions");
+        check(fixture.value('b', 31415928), "Windows target keeps executing after injection cleanup");
+    }
     for (int cycle = 0; cycle < 3; ++cycle) {
         os::LinuxDebugger debugger;
         CodeFinder finder;
@@ -357,7 +400,17 @@ static void exercise(const char* wine, const char* path, unsigned width, bool re
         check(!tooWide && tooWide.error()==std::errc::invalid_argument,
               "a page-rounded allocation wider than Windows pointers is rejected before target mutation");
     }
-    for (unsigned cycle=0;cycle<3;++cycle) {
+    // Wine 11.20 reserves all of the low 4 GiB of a WoW64 process (issue #9):
+    // nothing a 32-bit program can address is left to map, so an allocation
+    // must fail cleanly instead of returning memory the program cannot use.
+    const bool lowSpaceReserved=width==4 && noFreeGapIn(pid,0x10000,UINT64_C(1)<<32);
+    if (lowSpaceReserved) {
+        printf("WINE_KNOWN_LIMITATION=no-free-memory-below-4gib programWidth=%u\n",width);
+        auto refused=process.allocate(page,MemProt::ReadWrite);
+        check(!refused && refused.error()==std::errc::not_enough_memory && noFreeGapIn(pid,0x10000,UINT64_C(1)<<32),
+              "a 32-bit allocation with no free low memory fails without mapping anything");
+    }
+    for (unsigned cycle=0;cycle<3 && !lowSpaceReserved;++cycle) {
         auto allocation=process.allocate(page,MemProt::ReadWrite);
         if (!allocation) printf("Wine busy allocation error: %s\n",allocation.error().message().c_str());
         check(allocation && (width==8 || *allocation<=UINT32_MAX-page),
@@ -375,7 +428,7 @@ static void exercise(const char* wine, const char* path, unsigned width, bool re
         auto freed=process.free(*allocation,page);
         check(freed && !process.queryRegion(*allocation),"busy Wine cleanup removes the real allocation");
     }
-    if (width==4 && description.host.pointerWidth==8) {
+    if (width==4 && description.host.pointerWidth==8 && !lowSpaceReserved) {
         // Reserve only holes in MAP_32BIT's search window. PROT_NONE mappings
         // do not populate pages, so this tests address exhaustion without
         // consuming a gigabyte of the developer machine's physical memory.

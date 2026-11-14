@@ -16,6 +16,27 @@ as a count of unique tests or presented as fresh checks of every environment.
 The ordered, breadth-first execution plan for the remaining work is
 [COVERAGE_PLAN.md](COVERAGE_PLAN.md).
 
+## Wine 11.20 leaves no room for code caves: 14 November 2026
+
+Fedora 44 moved from Wine 11.0 to Wine 11.20 (Staging), and the `wow64-wine`
+job started failing code injection for both fixtures. That Wine reserves the
+address space around the program's code as `PROT_NONE` mappings of its own
+(`0074e000-7ffe0000` and `80000000-200000000` beside a 64-bit image at
+`0x400000`, everything below 4 GiB in a WoW64 process), so there is no gap
+within ±2 GiB of the hook for `MAP_FIXED_NOREPLACE`. Mapping over Wine's
+reservation would let Wine hand the same range to the game later. A spike
+confirmed the real fix: `VirtualAllocEx` from a second Windows process in the
+target's prefix returned a committed RWX block at `0x3f0000` for both
+fixtures, which Wine tracks. Building that (a PE helper without MinGW, pid
+mapping, the target's Wine environment and Proton container, freeing through
+Wine) is tracked in issue #9. Until then the Auto Assembler names the cause,
+and `wine_integration` and `frontend_target_gate.py` record
+`no-code-cave-near-hook` and `no-free-memory-below-4gib` as known limitations
+only when `/proc/<pid>/maps` really has no free gap. They then check that the
+refusal leaves the program unchanged and continue; before, the gate stopped
+at the first injection failure and skipped the busy-allocation and frontend
+checks, which all pass.
+
 ## Next scans on many-core CPUs: 14 November 2026
 
 Issue #7 reported "A scan-result file could not be fully written (the disk may

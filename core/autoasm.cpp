@@ -2345,8 +2345,21 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
     // of its allocations) and forgets the name; a success keeps them.
     struct NewGlobalBlock { std::string name; uintptr_t address; std::optional<DisableInfo::AllocEntry> previous; bool wasGlobal; };
     std::vector<NewGlobalBlock> newGlobalBlocks;
+    // Set when an alloc(name,size,near) could not be placed within jump reach
+    // of `near`: the failure that follows (an out-of-range operand, or no
+    // memory at all) is reported with this cause.
+    std::string nearHint;
+    auto noteUnreachedNear = [&](uintptr_t preferred) {
+        if (!nearHint.empty()) return;
+        nearHint = " No free memory is within 2 GiB of " + formatHexLiteral(preferred) + ".";
+        if (proc.targetDescription().runtime == TargetRuntime::Wine)
+            nearHint += " This Wine version reserves the address space around the program's code for its own "
+                        "allocations, so a code cave cannot be placed next to the hook yet "
+                        "(https://github.com/wleeaf/cheat-engine-linux/issues/9).";
+    };
     auto rollback = [&]() -> AutoAsmResult {
         if (result.success) return result;
+        if (!nearHint.empty() && result.error.find(nearHint) == std::string::npos) result.error += nearHint;
         auto restored = cleanup(proc, result.disableInfo);
         for (const auto& block : newGlobalBlocks) {
             // Not freed: the remaining undo still holds it and frees it later.
@@ -2473,6 +2486,8 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
         auto r = result.disableInfo.image ? result.disableInfo.image->allocate(a.size,MemProt::All,a.preferred) : proc.allocate(a.size, MemProt::All, a.preferred);
         if (r) {
             a.address = *r;
+            if (a.preferred && (a.address > a.preferred ? a.address - a.preferred : a.preferred - a.address) >= 0x7fff0000)
+                noteUnreachedNear(a.preferred);
             cleanedAllocations_.erase({a.address, a.size});
             codeAllocations_.push_back({a.address, a.size, a.preferred ? machineForCode(a.preferred) : programMachine_});
             size_t mappedSize = a.size;
@@ -2519,6 +2534,7 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
                     }
                 }
             }
+            if (a.preferred) noteUnreachedNear(a.preferred);
             result.error = "Failed to allocate memory for " + a.name + ": " +
                            r.error().message() +
                            (hint.empty()

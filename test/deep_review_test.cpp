@@ -23,6 +23,9 @@
 #include <chrono>
 #include <thread>
 #include <mutex>
+#include "scanner/pointer_scanner.hpp"
+#include "analysis/structure_tools.hpp"
+#include "platform/linux/wine_memory.hpp"
 #include <optional>
 #include <set>
 #include <sys/mman.h>
@@ -305,6 +308,71 @@ static void injectionTemplateTests() {
         "unregistering a shadowing symbol restores bare module-name injection");
 }
 
+static void structureCompareTests() {
+    struct Inner { int32_t team; int32_t pad; };
+    struct Outer { int32_t kind; int32_t hp; Inner* inner; };
+    static Inner innerA{7, 1}, innerB{7, 2}, innerC{9, 3};
+    static Outer a{1, 100, &innerA}, b{1, 250, &innerB}, c{2, 100, &innerC};
+    os::LinuxProcessHandle self(getpid());
+    StructureCompareOptions options;
+    options.structSize = sizeof(Outer);
+    options.elementSize = 4;
+    options.maxLevel = 1;
+    const auto matches = compareStructureGroups(self, {reinterpret_cast<uintptr_t>(&a), reinterpret_cast<uintptr_t>(&b)},
+                                                {reinterpret_cast<uintptr_t>(&c)}, options);
+    auto has = [&](std::vector<int32_t> offsets) {
+        return std::any_of(matches.begin(), matches.end(), [&](const StructureCompareMatch& m) { return m.offsets == offsets; });
+    };
+    // hp is 100 in a and c: not a match. kind and inner->team tell the groups apart.
+    check(has({0}) && has({8, 0}) && !has({4}) && formatStructureComparePath({8, 0}) == "[base+8]+0",
+          "structure compare finds the offsets and pointer paths that tell two groups apart");
+}
+
+static void hotkeyListTests(const fs::path& root) {
+    // Every hotkey action survives the slots, the kept elements and both
+    // table formats.
+    const std::vector<CheatHotkey> hotkeys = {
+        {0, "Ctrl+T", "", ""}, {3, "F2", "", "Turn on"}, {5, "F3", "100", ""}, {6, "F4", "5", ""},
+        {7, "F5", "5", ""}, {6, "F6", "10", ""}, {4, "F7", "", ""}, {1, "F8", "", ""}};
+    auto sorted = [](std::vector<CheatHotkey> list) {
+        std::sort(list.begin(), list.end(), [](const CheatHotkey& a, const CheatHotkey& b) { return a.keys < b.keys; });
+        return list;
+    };
+    CheatTable table;
+    CheatEntry entry;
+    entry.id = 1;
+    entry.description = "health";
+    entry.address = 0x1000;
+    setRecordHotkeys(entry, hotkeys);
+    const bool slots = entry.hotkeyKeys == "Ctrl+T" && entry.setValueHotkeyKeys == "F3" &&
+                       entry.increaseHotkeyKeys == "F4" && entry.decreaseHotkeyKeys == "F5" && entry.hotkeyStep == "5";
+    table.entries.push_back(entry);
+    const auto ct = root / "hotkeys.CT";
+    const auto json = root / "hotkeys.json";
+    CheatTable fromCt, fromJson;
+    const bool saved = table.save(ct.string()) && fromCt.load(ct.string()) && table.saveJson(json.string()) &&
+                       fromJson.loadJson(json.string()) && fromCt.entries.size() == 1 && fromJson.entries.size() == 1;
+    check(slots && sorted(recordHotkeys(entry)) == sorted(hotkeys) && saved &&
+          sorted(recordHotkeys(fromCt.entries[0])) == sorted(hotkeys) &&
+          sorted(recordHotkeys(fromJson.entries[0])) == sorted(hotkeys),
+          "a record's hotkeys keep every action, value and description through the slots and both table formats");
+}
+
+static void pointerFilterTests() {
+    auto path = [](uintptr_t base, uintptr_t offset, std::vector<int32_t> offsets) {
+        return PointerPath{"game", base, offset, std::move(offsets)};
+    };
+    std::vector<PointerPath> paths = {path(0x400000, 0x10, {0x20, 0x8}), path(0x400000, 0x20, {0x30, 0x10}),
+                                      path(0x900000, 0x10, {0x8}), path(0x400000, 0x40, {-0x8})};
+    auto ending = filterPointerPaths(paths, PointerPathFilter{.endOffsets = {0x8}});
+    auto ranged = filterPointerPaths(paths, PointerPathFilter{.baseFrom = 0x400000, .baseTo = 0x400030});
+    auto both = filterPointerPaths(paths, PointerPathFilter{.baseFrom = 0x400000, .baseTo = 0x400030, .endOffsets = {0x20, 0x8}});
+    auto negative = filterPointerPaths(paths, PointerPathFilter{.endOffsets = {-0x8}});
+    check(ending.size() == 2 && ranged.size() == 2 && both.size() == 1 && both[0].baseOffset == 0x10 &&
+          negative.size() == 1 && negative[0].baseOffset == 0x40 && filterPointerPaths(paths, {}).size() == 4,
+          "pointer path filters keep the paths whose base is in range and that end with the given offsets");
+}
+
 static void usabilityTests() {
     BufferProcess process(256);
     ValueIoOptions options;
@@ -543,6 +611,20 @@ static void peTests(const fs::path& root) {
     auto b = peFixture(); writeFile(file, b);
     check(parsePEExports(file.string()).size() == 1 && parsePEImports(file.string()).size() == 1,
           "valid PE exports and imports still parse");
+    {
+        // The PE Info window's header view: the generated Wine helper has three
+        // sections and its entry point at the start of .text.
+        const auto helper = os::wineHelperImage({});
+        const auto info = parsePEHeaderInfo(helper);
+        auto helperFile = root / "helper.exe";
+        writeFile(helperFile, helper);
+        check(info && info->pe32Plus && info->machine == 0x8664 && info->sections.size() == 3 &&
+              info->sections[0].name == ".text" && info->entryPoint == info->sections[0].rva &&
+              info->imageBase == 0x400000 && info->directories.size() >= 2 && info->directories[1].first != 0 &&
+              parsePEImports(helperFile.string()).size() == 7 && !parsePEHeaderInfo(std::span(helper).first(0x40)) &&
+              parsePERelocations(helperFile.string()).empty(),
+              "PE header info lists the sections, entry point, image base and data directories");
+    }
     BufferProcess proc(0);
     proc.mappedModules = {{0x10000, b.size(), "fixture.dll", file.string(), true}};
     SymbolResolver resolver;
@@ -1043,6 +1125,9 @@ int main() {
     fs::path root(dir);
     injectionTemplateTests();
     usabilityTests();
+    pointerFilterTests();
+    structureCompareTests();
+    hotkeyListTests(root);
     scanTests(root);
     peTests(root);
     il2cppTests(root);

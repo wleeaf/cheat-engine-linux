@@ -1,6 +1,7 @@
 #include "core/target_capabilities.hpp"
 #include "arch/target_arch.hpp"
 #include "debug/tracer.hpp"
+#include "core/cpu_registers.hpp"
 #include "platform/linux/target_debug.hpp"
 
 #include <sys/ptrace.h>
@@ -15,8 +16,43 @@
 #include <set>
 #include <stdexcept>
 #include <array>
+#include <cstdlib>
+#include <cstdio>
+#include <cctype>
 
 namespace ce {
+
+bool isSystemModulePath(const std::string& path) {
+    std::string lower = path;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    for (const char* prefix : {"/lib/", "/lib64/", "/lib32/", "/usr/lib/", "/usr/lib64/", "/usr/lib32/"})
+        if (lower.starts_with(prefix)) return true;
+    return lower.find("/windows/system32/") != std::string::npos ||
+           lower.find("/windows/syswow64/") != std::string::npos ||
+           lower.find("/lib/wine/") != std::string::npos;
+}
+
+namespace {
+// Where a call instruction goes: a direct target, a register, or a pointer in
+// memory. 0 when it cannot be worked out.
+uintptr_t callTarget(ProcessHandle& proc, const Instruction& call, const CpuContext& context) {
+    if (call.memory.present) {
+        const uintptr_t slot = computeEffectiveAddress(call, context);
+        if (!slot) return 0;
+        uint64_t value = 0;
+        const size_t width = proc.targetDescription().program.pointerWidth == 4 ? 4 : 8;
+        auto read = proc.read(slot, &value, width);
+        return read && *read == width ? static_cast<uintptr_t>(value) : 0;
+    }
+    std::string operand = call.operands;
+    operand.erase(0, operand.find_first_not_of(' '));
+    if (operand.starts_with("0x")) return static_cast<uintptr_t>(std::strtoull(operand.c_str() + 2, nullptr, 16));
+    std::transform(operand.begin(), operand.end(), operand.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    for (const auto& reg : cpuRegisterValues(context))
+        if (reg.name == operand) return static_cast<uintptr_t>(reg.value);
+    return 0;
+}
+} // namespace
 
 std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const TraceConfig& config) {
     std::unique_lock traceLock(traceMutex_,std::try_to_lock);
@@ -40,7 +76,21 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
     if (config.maxSteps<=0 || (config.stayInModule && config.moduleEnd<=config.moduleBase)) {
         error(std::make_error_code(std::errc::invalid_argument)); progress_.store(1); return entries;
     }
+    if (config.startCondition) {
+        auto architecture = disassemblerArchFor(proc, config.startAddress);
+        if (!config.startAddress || !architecture || (*architecture != Arch::X86_32 && *architecture != Arch::X86_64)) {
+            error(std::make_error_code(std::errc::not_supported)); progress_.store(1); return entries;
+        }
+    }
     entries.reserve(std::min(config.maxSteps, 10000));
+    std::vector<std::pair<uintptr_t, uintptr_t>> systemRanges;
+    if (config.skipSystemModules)
+        for (const auto& module : proc.modules())
+            if (isSystemModulePath(module.path)) systemRanges.emplace_back(module.base, module.base + module.size);
+    auto inSystemModule = [&](uintptr_t address) {
+        return std::any_of(systemRanges.begin(), systemRanges.end(),
+                           [&](const auto& range) { return address >= range.first && address < range.second; });
+    };
 
     struct ThreadState {
         bool stopped = false;
@@ -276,7 +326,8 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
                     siginfo_t si{};
                     auto ctx = dbg.getContext(tid);
                     if (ptrace(PTRACE_GETSIGINFO, tid, nullptr, &si) == 0 &&
-                        si.si_code == TRAP_HWBKPT && ctx && ctx->instructionPointer() == config.startAddress) {
+                        si.si_code == TRAP_HWBKPT && ctx && ctx->instructionPointer() == config.startAddress &&
+                        (!config.startCondition || config.startCondition(*ctx))) {
                         traceTid = tid; hit = true; break;
                     }
                 }
@@ -325,11 +376,34 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
         if (instructions.empty()) { error(std::make_error_code(std::errc::illegal_byte_sequence)); break; }
         std::string text = instructions[0].mnemonic + " " + instructions[0].operands;
         entries.push_back({pc, text, *ctx});
+        if (config.dereferenceAddresses && instructions[0].memory.present) {
+            if (const uintptr_t at = computeEffectiveAddress(instructions[0], *ctx)) {
+                uint64_t value = 0;
+                const size_t width = std::min<size_t>(instructions[0].memory.size ? instructions[0].memory.size : 8, 8);
+                auto got = proc.read(at, &value, width);
+                char note[64];
+                if (got && *got == width)
+                    std::snprintf(note, sizeof note, "[%llx]=%llx", static_cast<unsigned long long>(at),
+                                  static_cast<unsigned long long>(value));
+                else
+                    std::snprintf(note, sizeof note, "[%llx]=??", static_cast<unsigned long long>(at));
+                entries.back().memoryNote = note;
+            }
+        }
+        if (config.stackBytes) {
+            entries.back().stack.resize(config.stackBytes);
+            auto got = proc.read(ctx->stackPointer(), entries.back().stack.data(), config.stackBytes);
+            entries.back().stack.resize(got ? *got : 0);
+        }
+        if (config.stopCondition && config.stopCondition(*ctx)) break;
         if ((config.stopAddress && pc == config.stopAddress) ||
             (config.stayInModule &&
              (pc < config.moduleBase || pc >= config.moduleEnd))) break;
 
-        bool overCall = config.stepOverCalls && !instructions.empty() && instructions[0].isCall;
+        const auto& current = instructions[0];
+        const bool repeated = config.stepOverRep && current.mnemonic.starts_with("rep");
+        const bool systemCall = !systemRanges.empty() && current.isCall && inSystemModule(callTarget(proc, current, *ctx));
+        bool overCall = (config.stepOverCalls && current.isCall) || repeated || systemCall;
         uintptr_t next = overCall ? pc + instructions[0].size : 0;
         // The call returns with the stack pointer back at (or, after a callee
         // that pops its arguments, above) its value here. A recursive call

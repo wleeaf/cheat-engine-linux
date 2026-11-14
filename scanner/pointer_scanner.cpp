@@ -85,6 +85,16 @@ private:
 
 } // namespace
 
+std::vector<PointerPath> filterPointerPaths(std::vector<PointerPath> paths, const PointerPathFilter& filter) {
+    std::erase_if(paths, [&](const PointerPath& path) {
+        const uintptr_t base = path.moduleBase + path.baseOffset;
+        if (filter.baseTo && (base < filter.baseFrom || base > filter.baseTo)) return true;
+        if (filter.endOffsets.size() > path.offsets.size()) return true;
+        return !std::equal(filter.endOffsets.rbegin(), filter.endOffsets.rend(), path.offsets.rbegin());
+    });
+    return paths;
+}
+
 std::vector<PointerScanConfig> makePointerScanShards(const PointerScanConfig& base, size_t shardCount) {
     if (shardCount == 0)
         throw std::invalid_argument("pointer scan shard count must be greater than zero");

@@ -14,7 +14,8 @@ namespace ce {
 
 std::vector<InstructionAccess> findInstructionAccesses(
     ProcessHandle& proc, uintptr_t instructionAddress, int maxHits, int timeoutMs,
-    const std::function<bool()>& cancelled, std::string* error) {
+    const std::function<bool()>& cancelled, std::string* error,
+    const std::function<void(const InstructionAccess&)>& onAccess) {
 
     if (error) error->clear();
     auto failed = [&](std::string reason) {
@@ -63,13 +64,16 @@ std::vector<InstructionAccess> findInstructionAccesses(
             // e.context is captured after the rip rewind, i.e. the register state
             // right before the instruction runs — exactly what its address needs.
             uintptr_t ea = computeEffectiveAddress(insn, e.context);
+            InstructionAccess snapshot;
             {
                 std::lock_guard lk(m);
                 auto& rec = recs[ea];
                 if (rec.hitCount == 0) { rec.address = ea; rec.firstContext = e.context; }
                 rec.hitCount++;
+                snapshot = rec;
             }
             hits.fetch_add(1);
+            if (onAccess) onAccess(snapshot);
             session.continueExecution();   // runs inline on the tracer thread
         }
     });
@@ -81,7 +85,8 @@ std::vector<InstructionAccess> findInstructionAccesses(
     }
     session.continueExecution();
 
-    for (int i = 0; i < timeoutMs / 10 && hits.load() < maxHits && !(cancelled && cancelled()); ++i)
+    for (int i = 0; (timeoutMs <= 0 || i < timeoutMs / 10) && (maxHits <= 0 || hits.load() < maxHits) &&
+                    !(cancelled && cancelled()); ++i)
         usleep(10000);
 
     session.detach();

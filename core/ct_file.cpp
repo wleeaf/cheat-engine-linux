@@ -2224,4 +2224,72 @@ bool CheatTable::loadProtected(const std::string& path, const std::string& passw
     return loaded;
 }
 
+std::vector<CheatHotkey> recordHotkeys(const CheatEntry& e) {
+    std::vector<CheatHotkey> out;
+    const auto kept = !e.extraHotkeysXml.empty() && isElementSequence(e.extraHotkeysXml, "Hotkey")
+                          ? parseHotkeyBlocks(e.extraHotkeysXml) : std::vector<ParsedHotkey>{};
+    auto description = [](const ParsedHotkey& h) { return trimmedXmlText(xmlUnescape(getTag(h.block, "Description"))); };
+    // A slot shows the element it was loaded from, while it still holds its keys.
+    struct Slot { int action; const std::string* keys; const std::string* value; };
+    const Slot slots[] = {{0, &e.hotkeyKeys, nullptr}, {5, &e.setValueHotkeyKeys, &e.setValueHotkeyValue},
+                          {6, &e.increaseHotkeyKeys, &e.hotkeyStep}, {7, &e.decreaseHotkeyKeys, &e.hotkeyStep}};
+    for (const auto& slot : slots) {
+        if (slot.keys->empty()) continue;
+        CheatHotkey hotkey{slot.action, *slot.keys, slot.value ? *slot.value : std::string(), {}};
+        for (const auto& h : kept)
+            if (h.slotBound && h.usable && hotkeySlot(h.action) == hotkeySlot(slot.action) && h.keys == *slot.keys) {
+                hotkey.action = h.action;
+                hotkey.description = description(h);
+                break;
+            }
+        out.push_back(std::move(hotkey));
+    }
+    for (const auto& h : kept)
+        if (!h.slotBound && h.usable) out.push_back({h.action, h.keys, h.value, description(h)});
+    return out;
+}
+
+void setRecordHotkeys(CheatEntry& e, const std::vector<CheatHotkey>& hotkeys) {
+    e.hotkeyKeys.clear();
+    e.setValueHotkeyKeys.clear();
+    e.setValueHotkeyValue.clear();
+    e.increaseHotkeyKeys.clear();
+    e.decreaseHotkeyKeys.clear();
+    // Kept elements that are not usable hotkeys (disabled, keyless) stay.
+    std::string xml;
+    if (!e.extraHotkeysXml.empty() && isElementSequence(e.extraHotkeysXml, "Hotkey"))
+        for (const auto& h : parseHotkeyBlocks(e.extraHotkeysXml))
+            if (!h.usable && !h.slotBound) xml += (xml.empty() ? "" : "\n        ") + h.block;
+    bool stepSet = false;
+    int id = 0;
+    for (const auto& hotkey : hotkeys) {
+        if (hotkey.keys.empty() || hotkey.action < 0 || hotkey.action > 7) continue;
+        const bool plain = hotkey.description.empty();
+        if (plain && hotkey.action == 0 && e.hotkeyKeys.empty()) { e.hotkeyKeys = hotkey.keys; continue; }
+        if (plain && hotkey.action == 5 && e.setValueHotkeyKeys.empty()) {
+            e.setValueHotkeyKeys = hotkey.keys;
+            e.setValueHotkeyValue = hotkey.value;
+            continue;
+        }
+        if (plain && (hotkey.action == 6 || hotkey.action == 7)) {
+            auto& slot = hotkey.action == 6 ? e.increaseHotkeyKeys : e.decreaseHotkeyKeys;
+            if (slot.empty() && (!stepSet || hotkey.value == e.hotkeyStep)) {
+                slot = hotkey.keys;
+                if (!stepSet) { e.hotkeyStep = hotkey.value; stepSet = true; }
+                continue;
+            }
+        }
+        std::string block = "<Hotkey>\n          <Action>" + std::string(kHotkeyActions[hotkey.action]) +
+                            "</Action>\n          <Keys>\n";
+        for (int vk : keyStringToVKs(hotkey.keys)) block += "            <Key>" + std::to_string(vk) + "</Key>\n";
+        block += "          </Keys>\n";
+        if (!hotkey.value.empty()) block += "          <Value>" + xmlEscape(hotkey.value) + "</Value>\n";
+        if (!hotkey.description.empty())
+            block += "          <Description>" + xmlEscape(hotkey.description) + "</Description>\n";
+        block += "          <ID>" + std::to_string(1000 + id++) + "</ID>\n        </Hotkey>";
+        xml += (xml.empty() ? "" : "\n        ") + block;
+    }
+    e.extraHotkeysXml = xml;
+}
+
 } // namespace ce

@@ -34,6 +34,28 @@ struct StructurePointerChain {
     std::vector<uintptr_t> addresses;
 };
 
+/// Structure Compare (Cheat Engine's frmStructureCompare): a path of offsets
+/// from each structure base, following pointers, whose element is the same in
+/// every group 1 structure and different in every group 2 structure.
+struct StructureCompareOptions {
+    size_t structSize = 4096;   // bytes looked at in each structure, at every level
+    size_t elementSize = 4;     // compared element: 1, 2, 4 or 8 bytes
+    int maxLevel = 2;           // pointers followed below a structure
+    bool sameOnly = true;       // group 1 must agree on one value (else: only differ from group 2)
+    size_t maxResults = 10000;
+    size_t maxBlocks = 20000;   // structure blocks read in all (the search stops there)
+};
+struct StructureCompareMatch {
+    std::vector<int32_t> offsets;          // the last one is the element; the others are dereferenced
+    std::vector<uint64_t> group1Values;    // the element in each group 1 structure
+    std::vector<uint64_t> group2Values;
+};
+std::vector<StructureCompareMatch> compareStructureGroups(ProcessHandle& proc,
+    const std::vector<uintptr_t>& group1, const std::vector<uintptr_t>& group2,
+    const StructureCompareOptions& options);
+/// "[[+10]+8]+4" for a match's offsets.
+std::string formatStructureComparePath(const std::vector<int32_t>& offsets);
+
 bool saveStructureTemplate(const StructureDefinition& structure, const std::string& path);
 std::optional<StructureDefinition> loadStructureTemplate(const std::string& path);
 std::string generateCppStruct(const StructureDefinition& structure);

@@ -58,6 +58,16 @@ enum class PointerScanLimit {
     MapEntries,   // memory held more than config.maxMapEntries pointer-like values
 };
 
+/// Cheat Engine's path filters for a scan's results: the base address (module
+/// base + offset) within [baseFrom, baseTo] when baseTo is set, and the path
+/// ending in `endOffsets` (the last offsets, in order) when given.
+struct PointerPathFilter {
+    uintptr_t baseFrom = 0;
+    uintptr_t baseTo = 0;
+    std::vector<int32_t> endOffsets;
+};
+std::vector<PointerPath> filterPointerPaths(std::vector<PointerPath> paths, const PointerPathFilter& filter);
+
 /// Build one config per worker. Merged results are equivalent to a full scan.
 std::vector<PointerScanConfig> makePointerScanShards(const PointerScanConfig& base, size_t shardCount);
 

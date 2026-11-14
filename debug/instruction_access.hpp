@@ -26,10 +26,14 @@ struct InstructionAccess {
 /// Returns empty if the instruction has no memory operand or attach fails;
 /// `error`, when given, then says why (and stays empty when the watch ran).
 /// `cancelled`, polled while waiting, ends the watch early (Ctrl-C): the
-/// breakpoint is still removed before returning.
+/// breakpoint is still removed before returning. `maxHits` <= 0 sets no hit
+/// limit and `timeoutMs` <= 0 no time limit (then only `cancelled` ends it).
+/// `onAccess`, when given, runs on the tracer thread after every hit with that
+/// address's record so far (a live view; the target thread waits meanwhile).
 std::vector<InstructionAccess> findInstructionAccesses(
     ProcessHandle& proc, uintptr_t instructionAddress,
     int maxHits = 32, int timeoutMs = 4000, const std::function<bool()>& cancelled = {},
-    std::string* error = nullptr);
+    std::string* error = nullptr,
+    const std::function<void(const InstructionAccess&)>& onAccess = {});
 
 } // namespace ce

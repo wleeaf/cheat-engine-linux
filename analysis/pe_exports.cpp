@@ -75,6 +75,7 @@ struct PeDirs {
     bool     pe64 = false;
     uint32_t exportRva = 0, exportSize = 0;   // DataDirectory[0]
     uint32_t importRva = 0, importSize = 0;   // DataDirectory[1]
+    uint32_t relocRva = 0, relocSize = 0;     // DataDirectory[5]
 };
 
 // Load headers + section table + `dirs`. Returns false if not a valid PE.
@@ -107,6 +108,10 @@ bool loadPe(Pe& pe, PeDirs& dirs) {
     if (directoryCount > 1) {
         dirs.importRva = pe.u32(dataDir + 8);
         dirs.importSize = pe.u32(dataDir + 12);
+    }
+    if (directoryCount > 5) {
+        dirs.relocRva = pe.u32(dataDir + 40);
+        dirs.relocSize = pe.u32(dataDir + 44);
     }
 
     size_t secTbl = opt + optSize;
@@ -229,6 +234,82 @@ std::vector<PEImport> parsePEImports(const std::string& path) {
             }
             out.push_back(std::move(im));
         }
+    }
+    return out;
+}
+
+std::optional<PEHeaderInfo> parsePEHeaderInfo(std::span<const uint8_t> image) {
+    auto has = [&](size_t offset, size_t size) { return offset <= image.size() && size <= image.size() - offset; };
+    auto u16 = [&](size_t offset) { uint16_t v = 0; std::memcpy(&v, image.data() + offset, 2); return v; };
+    auto u32 = [&](size_t offset) { uint32_t v = 0; std::memcpy(&v, image.data() + offset, 4); return v; };
+    auto u64 = [&](size_t offset) { uint64_t v = 0; std::memcpy(&v, image.data() + offset, 8); return v; };
+    if (!has(0, 0x40) || image[0] != 'M' || image[1] != 'Z') return std::nullopt;
+    const size_t pe = u32(0x3c);
+    if (!has(pe, 24) || std::memcmp(image.data() + pe, "PE\0\0", 4) != 0) return std::nullopt;
+    PEHeaderInfo info;
+    const size_t coff = pe + 4;
+    info.machine = u16(coff);
+    const uint16_t sectionCount = u16(coff + 2);
+    info.timestamp = u32(coff + 4);
+    const uint16_t optionalSize = u16(coff + 16);
+    info.characteristics = u16(coff + 18);
+    const size_t optional = coff + 20;
+    if (!has(optional, optionalSize) || optionalSize < 0x60) return std::nullopt;
+    const uint16_t magic = u16(optional);
+    if (magic != 0x10b && magic != 0x20b) return std::nullopt;
+    info.pe32Plus = magic == 0x20b;
+    info.entryPoint = u32(optional + 16);
+    info.imageBase = info.pe32Plus ? u64(optional + 24) : u32(optional + 28);
+    info.sizeOfImage = u32(optional + 56);
+    info.sizeOfHeaders = u32(optional + 60);
+    info.checksum = u32(optional + 64);
+    info.subsystem = u16(optional + 68);
+    info.dllCharacteristics = u16(optional + 70);
+    const size_t directoryStart = optional + (info.pe32Plus ? 0x70 : 0x60);
+    if (directoryStart - optional > optionalSize) return std::nullopt;
+    const uint32_t declared = u32(directoryStart - 4);
+    const size_t directories = std::min<size_t>({declared, 16, (optional + optionalSize - directoryStart) / 8});
+    for (size_t i = 0; i < directories; ++i)
+        info.directories.emplace_back(u32(directoryStart + i * 8), u32(directoryStart + i * 8 + 4));
+    const size_t table = optional + optionalSize;
+    if (sectionCount > 96 || !has(table, static_cast<size_t>(sectionCount) * 40)) return std::nullopt;
+    for (uint16_t k = 0; k < sectionCount; ++k) {
+        const size_t at = table + static_cast<size_t>(k) * 40;
+        PESection section;
+        const char* name = reinterpret_cast<const char*>(image.data() + at);
+        section.name.assign(name, strnlen(name, 8));
+        section.virtualSize = u32(at + 8);
+        section.rva = u32(at + 12);
+        section.rawSize = u32(at + 16);
+        section.rawOffset = u32(at + 20);
+        section.characteristics = u32(at + 36);
+        info.sections.push_back(std::move(section));
+    }
+    return info;
+}
+
+std::vector<PERelocation> parsePERelocations(const std::string& path, size_t limit) {
+    std::vector<PERelocation> out;
+    Pe pe;
+    if (!pe.buf.open(path)) return out;
+    PeDirs dirs;
+    if (!loadPe(pe, dirs) || dirs.relocRva == 0 || dirs.relocSize < 8) return out;
+    // IMAGE_BASE_RELOCATION blocks: page rva, block size, then 16-bit entries
+    // (type in the top 4 bits, page offset in the low 12).
+    uint64_t at = dirs.relocRva;
+    const uint64_t end = uint64_t(dirs.relocRva) + dirs.relocSize;
+    while (at + 8 <= end && out.size() < limit) {
+        const auto page = pe.u32AtRva(at);
+        const auto blockSize = pe.u32AtRva(at + 4);
+        if (!page || !blockSize || *blockSize < 8 || at + *blockSize > end) break;
+        for (uint64_t entry = at + 8; entry + 2 <= at + *blockSize && out.size() < limit; entry += 2) {
+            const auto value = pe.u16AtRva(entry);
+            if (!value) return out;
+            const uint8_t type = static_cast<uint8_t>(*value >> 12);
+            if (type == 0) continue;   // IMAGE_REL_BASED_ABSOLUTE: padding
+            out.push_back({*page + (*value & 0xfffu), type});
+        }
+        at += *blockSize;
     }
     return out;
 }

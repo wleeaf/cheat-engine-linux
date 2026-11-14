@@ -4,6 +4,7 @@
 #include "core/json.hpp"
 #include "core/value_io.hpp"
 #include "core/expression.hpp"
+#include "debug/code_filter.hpp"
 #include "debug/breakpoint_manager.hpp"
 #include "debug/code_finder.hpp"
 #include "debug/debug_session.hpp"
@@ -55,6 +56,24 @@ __attribute__((noinline)) void traceCaller() {
     traceBlockingCall();
     asm volatile("nop" ::: "memory");
 }
+} // namespace
+#ifdef __x86_64__
+// A string instruction, a memory read and a known register sequence for the
+// trace options: rep runs as one step, the read is dereferenced, and RAX
+// reaches 7 just before the ret. RSI (the second argument) marks the call.
+extern "C" void traceOptionsTarget(long unused, long marker);
+asm(".text\n.globl traceOptionsTarget\n.type traceOptionsTarget,@function\ntraceOptionsTarget:\n"
+    "  push %rdi\n  sub $64, %rsp\n  mov %rsp, %rdi\n  mov $64, %ecx\n  xor %eax, %eax\n  rep stosb\n"
+    "  mov (%rsp), %rax\n  mov $5, %eax\n  mov $7, %eax\n  add $64, %rsp\n  pop %rdi\n  ret\n");
+// Two calls, of which only the first runs (RDI is 0): the Code Filter's
+// "has been executed" keeps the first and "has not been executed" the second.
+extern "C" void codeFilterTarget(long take);
+extern "C" char codeFilterEnd[];
+asm(".text\ncodeFilterLeaf:\n  ret\n.globl codeFilterTarget\n.type codeFilterTarget,@function\ncodeFilterTarget:\n"
+    "  call codeFilterLeaf\n  test %rdi, %rdi\n  jz 1f\n  call codeFilterLeaf\n1:\n  ret\n"
+    ".globl codeFilterEnd\ncodeFilterEnd:\n  nop\n");
+#endif
+namespace {
 void check(bool ok, const char* name) {
     std::printf("%s: %s\n", ok ? "OK" : "FAILED", name);
     if (!ok) ++failures;
@@ -358,6 +377,83 @@ void debuggerLifecycleTests() {
         alarm(0);
         return !entries.empty() && resumed;
     }), "cancelling a trace inside a blocked call removes its temporary breakpoint and resumes safely");
+#ifdef __x86_64__
+    check(isolated([] {
+        alarm(10);
+        pid_t child = fork();
+        if (!child) {
+            prctl(PR_SET_PDEATHSIG, SIGKILL);
+            for (long i = 0;; ++i) { traceOptionsTarget(0, i % 3); usleep(20000); }
+        }
+        if (child < 0) return false;
+        os::LinuxProcessHandle proc(child); os::LinuxDebugger debugger; Tracer tracer;
+        TraceConfig config;
+        config.startAddress = reinterpret_cast<uintptr_t>(&traceOptionsTarget);
+        config.maxSteps = 200;
+        config.stepOverRep = true;
+        config.dereferenceAddresses = true;
+        config.stackBytes = 32;
+        config.startCondition = [](const CpuContext& context) { return context.rsi == 2; };
+        config.stopCondition = [](const CpuContext& context) { return (context.rax & 0xffffffff) == 7; };
+        auto entries = tracer.trace(proc, debugger, config);
+        kill(child, SIGKILL);
+        waitpid(child, nullptr, 0);
+        alarm(0);
+        const bool started = !entries.empty() && entries.front().context.rsi == 2;
+        const auto reps = std::count_if(entries.begin(), entries.end(),
+                                        [](const TraceEntry& e) { return e.instruction.starts_with("rep"); });
+        const bool stopped = !entries.empty() && entries.back().instruction.find("add") != std::string::npos;
+        const bool noted = std::any_of(entries.begin(), entries.end(), [](const TraceEntry& e) {
+            return e.instruction.starts_with("mov rax") && e.memoryNote.starts_with("[");
+        });
+        const bool stacked = !entries.empty() && entries.front().stack.size() == 32;
+        if (!(started && reps == 1 && stopped && noted && stacked))
+            std::printf("trace options: started=%d reps=%ld stopped=%d noted=%d stacked=%d steps=%zu last=%s\n",
+                        started, static_cast<long>(reps), stopped, noted, stacked, entries.size(),
+                        entries.empty() ? "" : entries.back().instruction.c_str());
+        return started && reps == 1 && stopped && noted && stacked;
+    }), "trace options: start and stop conditions, rep as one step, dereferenced operands and stack snapshots");
+    check(isolated([] {
+        alarm(10);
+        pid_t child = fork();
+        if (!child) {
+            prctl(PR_SET_PDEATHSIG, SIGKILL);
+            for (;;) { codeFilterTarget(0); usleep(2000); }
+        }
+        if (child < 0) return false;
+        os::LinuxProcessHandle proc(child);
+        const auto begin = reinterpret_cast<uintptr_t>(&codeFilterTarget);
+        const auto end = reinterpret_cast<uintptr_t>(codeFilterEnd);
+        const auto calls = CodeFilter::codeAddresses(proc, begin, end - begin, true);
+        CodeFilter executedFilter;
+        executedFilter.setAddresses(calls);
+        auto planted = executedFilter.start(proc);
+        usleep(300000);
+        executedFilter.stop();
+        const auto executed = executedFilter.executed();
+        CodeFilter keepRan, keepIdle;
+        keepRan.setAddresses(calls);
+        keepIdle.setAddresses(calls);
+        auto ran = keepRan.start(proc);
+        usleep(300000);
+        keepRan.stop();
+        keepRan.filter(true);
+        auto idle = keepIdle.start(proc);
+        usleep(300000);
+        keepIdle.stop();
+        keepIdle.filter(false);
+        kill(child, SIGKILL);
+        waitpid(child, nullptr, 0);
+        alarm(0);
+        const bool ok = calls.size() == 2 && planted && *planted == 2 && executed.size() == 1 &&
+                        executed[0] == calls[0] && ran && idle && keepRan.addresses() == std::vector{calls[0]} &&
+                        keepIdle.addresses() == std::vector{calls[1]};
+        if (!ok)
+            std::printf("code filter: calls=%zu planted=%zu executed=%zu\n", calls.size(),
+                        planted ? *planted : size_t(0), executed.size());
+        return ok;
+    }), "the code filter finds the CALLs in a range and tells executed from not executed ones");
+#endif
     ModelProcess proc; os::LinuxDebugger debugger; Tracer tracer;
     check(tracer.trace(proc, debugger, TraceConfig{.maxSteps=-1}).empty(), "negative trace lengths return without allocating or attaching");
 }

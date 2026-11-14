@@ -1,4 +1,6 @@
 #include "analysis/structure_tools.hpp"
+#include <cstdio>
+#include <functional>
 
 #include <algorithm>
 #include <bit>
@@ -524,6 +526,89 @@ StructureDefinition dwarfStructToStructure(const DwarfStruct& s) {
         def.size = last.offset + (last.size ? last.size : 1);
     }
     return def;
+}
+
+std::string formatStructureComparePath(const std::vector<int32_t>& offsets) {
+    std::string out = "base";
+    for (size_t i = 0; i < offsets.size(); ++i) {
+        char part[32];
+        std::snprintf(part, sizeof part, "+%x", static_cast<unsigned>(offsets[i]));
+        out = i + 1 < offsets.size() ? "[" + out + part + "]" : out + part;
+    }
+    return out;
+}
+
+std::vector<StructureCompareMatch> compareStructureGroups(ProcessHandle& proc,
+    const std::vector<uintptr_t>& group1, const std::vector<uintptr_t>& group2,
+    const StructureCompareOptions& options) {
+    std::vector<StructureCompareMatch> out;
+    const size_t element = options.elementSize;
+    if (group1.empty() || (element != 1 && element != 2 && element != 4 && element != 8) ||
+        options.structSize < element || options.maxLevel < 0)
+        return out;
+    const size_t pointerWidth = proc.targetDescription().program.pointerWidth == 4 ? 4 : 8;
+    size_t blocksRead = 0;
+    auto value = [](const std::vector<uint8_t>& block, size_t offset, size_t width) {
+        uint64_t v = 0;
+        std::memcpy(&v, block.data() + offset, width);   // little endian targets
+        return v;
+    };
+    // One level: the structures of both groups (group 1 first), the path so far.
+    std::function<void(const std::vector<uintptr_t>&, std::vector<int32_t>&, int)> visit =
+        [&](const std::vector<uintptr_t>& bases, std::vector<int32_t>& path, int level) {
+        std::vector<std::vector<uint8_t>> blocks;
+        for (uintptr_t base : bases) {
+            if (blocksRead++ >= options.maxBlocks) return;
+            std::vector<uint8_t> block(options.structSize);
+            auto read = proc.read(base, block.data(), block.size());
+            if (!read || *read < element) return;   // every structure must be readable
+            block.resize(*read);
+            blocks.push_back(std::move(block));
+        }
+        size_t common = options.structSize;
+        for (const auto& block : blocks) common = std::min(common, block.size());
+        const size_t n1 = group1.size();
+        for (size_t offset = 0; offset + element <= common && out.size() < options.maxResults; offset += element) {
+            std::vector<uint64_t> values;
+            for (const auto& block : blocks) values.push_back(value(block, offset, element));
+            const bool group1Same = std::all_of(values.begin(), values.begin() + n1, [&](uint64_t v) { return v == values[0]; });
+            bool match = !options.sameOnly || group1Same;
+            for (size_t j = n1; match && j < values.size(); ++j)
+                match = std::find(values.begin(), values.begin() + n1, values[j]) == values.begin() + n1;
+            if (match && (group2.empty() ? group1Same && n1 > 1 : true)) {
+                StructureCompareMatch result;
+                result.offsets = path;
+                result.offsets.push_back(static_cast<int32_t>(offset));
+                result.group1Values.assign(values.begin(), values.begin() + n1);
+                result.group2Values.assign(values.begin() + n1, values.end());
+                out.push_back(std::move(result));
+            }
+        }
+        if (level >= options.maxLevel) return;
+        // Follow the offsets that hold a readable pointer in every structure.
+        for (size_t offset = 0; offset + pointerWidth <= common && out.size() < options.maxResults; offset += pointerWidth) {
+            std::vector<uintptr_t> next;
+            bool pointers = true;
+            for (const auto& block : blocks) {
+                const uint64_t target = value(block, offset, pointerWidth);
+                if (target < 0x10000) { pointers = false; break; }
+                next.push_back(static_cast<uintptr_t>(target));
+            }
+            if (!pointers) continue;
+            uint8_t probe = 0;
+            auto readable = proc.read(next.front(), &probe, 1);
+            if (!readable || *readable != 1) continue;
+            path.push_back(static_cast<int32_t>(offset));
+            visit(next, path, level + 1);
+            path.pop_back();
+            if (blocksRead >= options.maxBlocks) return;
+        }
+    };
+    std::vector<uintptr_t> bases = group1;
+    bases.insert(bases.end(), group2.begin(), group2.end());
+    std::vector<int32_t> path;
+    visit(bases, path, 0);
+    return out;
 }
 
 } // namespace ce

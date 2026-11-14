@@ -63,6 +63,25 @@ struct CheatEntry {
     std::string extraXml;
 };
 
+/// One hotkey of a record, whichever way the table stores it (one of the four
+/// slots of CheatEntry, or a kept <Hotkey> element). `action` is Cheat
+/// Engine's code: 0 toggle, 1 toggle allowing increase, 2 toggle allowing
+/// decrease, 3 activate, 4 deactivate, 5 set value, 6 increase, 7 decrease.
+struct CheatHotkey {
+    int action = 0;
+    std::string keys;          // "Ctrl+H"
+    std::string value;         // the value to set, or the increase/decrease step
+    std::string description;
+    bool operator==(const CheatHotkey&) const = default;
+};
+/// Every usable hotkey of `entry`: the slots (with the action of the element a
+/// slot was loaded from) followed by the other kept elements.
+std::vector<CheatHotkey> recordHotkeys(const CheatEntry& entry);
+/// Store `hotkeys` in `entry`: the first plain toggle, set value, increase and
+/// decrease fill the slots (an increase or decrease with another step than the
+/// slot's does not); every other one becomes a kept <Hotkey> element.
+void setRecordHotkeys(CheatEntry& entry, const std::vector<CheatHotkey>& hotkeys);
+
 struct StructureField {
     std::string name;
     size_t offset = 0;

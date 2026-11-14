@@ -22,6 +22,9 @@ public:
     explicit SettingsDialog(QWidget* parent = nullptr);
 signals:
     void settingsApplied();
+    /// The user accepted a restart after changing the interface language. The
+    /// main window closes itself (saving and releasing the target) first.
+    void restartRequested();
 private slots:
     void onApply();
 private:

@@ -17,4 +17,10 @@ QString configuredUiLanguage();
 /// locale (used by tests and screenshot runs).
 QString installTranslators(QApplication& app, const QString& explicitLocale = {});
 
+/// Starts a new instance of the program with the same arguments, for the restart
+/// offered after an interface-language change. Under an AppImage the AppImage
+/// file itself is started, not the mount path that disappears with this process.
+/// Returns false when the new process could not be started.
+bool launchRestart();
+
 } // namespace ce::gui

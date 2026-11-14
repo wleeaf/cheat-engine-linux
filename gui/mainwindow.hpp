@@ -133,6 +133,9 @@ private slots:
     void onSaveScanResults();   // export the current found-address list to txt/csv
     void onCreateTrainer();
     void onFreezeTimer();
+    /// Settings accepted a restart after an interface-language change: close the
+    /// window (save prompt, release target users), then start the new instance.
+    void restartAfterLanguageChange();
 
 protected:
     // Keeps the empty-results hint sized to the results viewport.

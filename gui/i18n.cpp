@@ -1,10 +1,13 @@
 #include "gui/i18n.hpp"
 
 #include "core/log.hpp"
+#include "core/secure_exec.hpp"
 #include <QApplication>
+#include <QDir>
 #include <QFileInfo>
 #include <QLibraryInfo>
 #include <QLocale>
+#include <QProcess>
 #include <QSettings>
 #include <QStringList>
 #include <QTranslator>
@@ -60,14 +63,20 @@ QString installTranslators(QApplication& app, const QString& explicitLocale) {
     }
 
     // A catalogue dropped next to the executable wins over the built-in one, so
-    // translators can test a .qm without rebuilding.
+    // translators can test a .qm without rebuilding. A binary holding a file
+    // capability (the .deb grants cap_sys_ptrace) is a secure-exec process: the
+    // person who starts it must not be able to replace the interface strings of
+    // its confirmation dialogs, so only the built-in catalogue is used then.
     auto* ceTranslator = new QTranslator(&app);
     QString loadedFrom;
-    const QStringList dirs = translationSearchDirs();
-    for (const QString& dir : dirs) {
-        if (ceTranslator->load(uiLocale, QStringLiteral("cheatengine"), QStringLiteral("_"), dir)) {
-            loadedFrom = dir;
-            break;
+    const bool secure = ce::secureExecution();
+    if (!secure) {
+        const QStringList dirs = translationSearchDirs();
+        for (const QString& dir : dirs) {
+            if (ceTranslator->load(uiLocale, QStringLiteral("cheatengine"), QStringLiteral("_"), dir)) {
+                loadedFrom = dir;
+                break;
+            }
         }
     }
     if (loadedFrom.isEmpty()) {
@@ -77,10 +86,19 @@ QString installTranslators(QApplication& app, const QString& explicitLocale) {
     }
     if (!loadedFrom.isEmpty()) app.installTranslator(ceTranslator);
 
-    ce::log::info(ce::log::Cat::Gui, "interface language {} (catalogue: {})",
+    ce::log::info(ce::log::Cat::Gui, "interface language {} (catalogue: {}){}",
                   uiLocale.name().toStdString(),
-                  loadedFrom.isEmpty() ? std::string("none") : loadedFrom.toStdString());
+                  loadedFrom.isEmpty() ? std::string("none") : loadedFrom.toStdString(),
+                  secure ? " (secure-exec: built-in only)" : "");
     return uiLocale.name();
+}
+
+bool launchRestart() {
+    QStringList arguments = QCoreApplication::arguments();
+    if (!arguments.isEmpty()) arguments.removeFirst();
+    const QString appImage = qEnvironmentVariable("APPIMAGE");
+    const QString program = appImage.isEmpty() ? QCoreApplication::applicationFilePath() : appImage;
+    return QProcess::startDetached(program, arguments, QDir::currentPath());
 }
 
 } // namespace ce::gui

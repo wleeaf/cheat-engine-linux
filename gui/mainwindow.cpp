@@ -2198,8 +2198,16 @@ void MainWindow::stopCodeFindersForInjection() {
     // monitor is running, it holds that trace, so an injection's attach fails
     // (surfacing as a mmap "Cannot allocate memory"). Stop the monitors, which
     // detach, freeing the target for the injection.
+    releaseTraceHolders();
+}
+
+void MainWindow::releaseTraceHolders() {
     for (auto& f : codeFinders_)
         if (f) f->stop();
+    for (auto& monitor : accessMonitors_)
+        if (monitor) monitor->stop();
+    for (auto& filter : codeFilters_)
+        if (filter) filter->stop();
 }
 
 std::unique_ptr<Debugger> MainWindow::createDebuggerForCurrentProcess() {
@@ -2230,14 +2238,15 @@ static bool targetLooksLikeWine(pid_t pid) {
 
 void MainWindow::showInstructionAccesses(uintptr_t instructionAddr) {
     if (!process_) return;
-    // Release any active find-what-writes monitor first: it holds the target thread
-    // ptrace-traced, and the instruction-access monitor's SEIZE would then fail.
-    for (auto& f : codeFinders_)
-        if (f) f->stop();
+    // Release any active monitor first: it holds the target thread ptrace-traced,
+    // and the instruction-access monitor's SEIZE would then fail.
+    releaseTraceHolders();
     // Cheat Engine's Changed Addresses: a live list until Stop, with the value
     // and hit count of every address the instruction touches.
     auto* window = new ChangedAddressesWindow(process_.get(), instructionAddr, this);
     trackTargetWindow(window);
+    std::erase_if(accessMonitors_, [](const QPointer<ChangedAddressesWindow>& p) { return p.isNull(); });
+    accessMonitors_.push_back(window);
     connect(window, &ChangedAddressesWindow::browseRequested, this, [this](quint64 address) {
         openMemoryView(static_cast<uintptr_t>(address));
     });
@@ -2292,8 +2301,7 @@ void MainWindow::startCodeFinderForAddress(uintptr_t addr, bool writesOnly, int 
     // ptrace-traced. A new one's PTRACE_SEIZE of the same thread would then fail, so
     // the second attempt would silently find nothing. Stop finished finders first to
     // release the trace (and the debug register).
-    for (auto& f : codeFinders_)
-        if (f) f->stop();
+    releaseTraceHolders();
 
     // Watchpoint backend selection. On a Wine/Proton game we must NOT seize the
     // whole thread group (that deadlocks the game against wineserver / esync-fsync /
@@ -2381,6 +2389,7 @@ void MainWindow::showDebugger() {
         debuggerWindow_->activateWindow();
         return;
     }
+    releaseTraceHolders();   // the Debugger attaches as it opens
     auto* w = new ce::gui::DebuggerWindow(process_.get(), this);
     w->setAttribute(Qt::WA_DeleteOnClose);
     debuggerWindow_ = w;   // QPointer auto-nulls on close
@@ -2753,6 +2762,7 @@ void MainWindow::populateBrowserMenus(MemoryBrowser* b) {
         dbg->addAction(tr("Full debugger"), this, [this]() { showDebugger(); });
         dbg->addAction(tr("Break and trace"), this, [this]() {
             if (!process_) return;
+            releaseTraceHolders();   // the trace attaches when it starts
             auto* tw = new TracerWindow(process_.get(),
                 [this]() { return createDebuggerForCurrentProcess(); }, this);
             trackTargetWindow(tw);
@@ -2845,6 +2855,9 @@ void MainWindow::addAnalysisToolsMenu(QMenu* tools) {
         if (!process_) { QMessageBox::warning(this, tr("No process"), tr("Open a process first.")); return; }
         auto* w = new CodeFilterWindow(process_.get(), this);
         trackTargetWindow(w);
+        std::erase_if(codeFilters_, [](const QPointer<CodeFilterWindow>& p) { return p.isNull(); });
+        codeFilters_.push_back(w);
+        w->setBeforeStart([this]() { releaseTraceHolders(); });
         connect(w, &CodeFilterWindow::showInDisassembler, this, [this](quint64 address) {
             openMemoryView(static_cast<uintptr_t>(address));
         });

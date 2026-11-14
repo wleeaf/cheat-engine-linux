@@ -224,9 +224,24 @@ static bool usabilityChecks() {
     const QString credits = about.creditsTextForTest();
     const bool aboutOk = about.windowTitle().contains("Cheat Engine") && credits.contains("Dark Byte") &&
                          credits.contains("Keystone") && credits.contains("Capstone") && credits.contains("Lua");
-    std::printf("gui usability: rows=%d export=%d validation=%d UTF8=%d clear=%d bytes=%d arrange=%d about=%d\n",
-        incremental, allValues, validation, unicode, cleared, arrayValidation, arrange, aboutOk);
-    return incremental && allValues && validation && unicode && cleared && arrayValidation && arrange && aboutOk;
+    // Break and Trace conditions: Lua on the registers, 64-bit names with
+    // their 32-bit aliases; a syntax error is reported, not run.
+    ce::CpuContext context{};
+    context.architecture = ce::CpuArchitecture::X86_64;
+    context.rax = 0x100000005;
+    context.rcx = 16;
+    ce::gui::RegisterCondition condition;
+    const bool compiled = condition.compile("EAX == 5 and RCX > 0x8 and RAX ~= 5").empty();
+    const bool trueCase = compiled && condition(context);
+    context.rcx = 1;
+    const bool falseCase = !condition(context);
+    ce::gui::RegisterCondition broken;
+    const bool rejected = !broken.compile("RAX ==").empty() && !broken(context);
+    const bool conditionOk = trueCase && falseCase && rejected;
+    std::printf("gui usability: rows=%d export=%d validation=%d UTF8=%d clear=%d bytes=%d arrange=%d about=%d condition=%d\n",
+        incremental, allValues, validation, unicode, cleared, arrayValidation, arrange, aboutOk, conditionOk);
+    return incremental && allValues && validation && unicode && cleared && arrayValidation && arrange && aboutOk &&
+           conditionOk;
 }
 
 static bool allTypeGuiScanChecks(const QString& screenshot = {}) {

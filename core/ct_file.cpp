@@ -1384,10 +1384,12 @@ static void parseCheatEntriesBlock(const std::string& xml, size_t begin, size_t 
                 const auto& h = parsed[index];
                 const bool otherAction = slot == 0 && h.action != 0;
                 const bool otherStep = slot >= 2 && h.value != e.hotkeyStep;
+                // A slot holds no description: an element with one is kept.
+                const bool described = !trimmedXmlText(xmlUnescape(getTag(h.block, "Description"))).empty();
                 const bool shared = std::any_of(parsed.begin(), parsed.end(), [&](const ParsedHotkey& other) {
                     return keep[&other - parsed.data()] && other.usable && hotkeySlot(other.action) == slot && other.keys == h.keys;
                 });
-                if (otherAction || otherStep || shared) keep[index] = true;
+                if (otherAction || otherStep || shared || described) keep[index] = true;
             }
             // A kept element that fills a slot is marked, so the save can tell
             // whether the slot still holds what was loaded.

@@ -333,7 +333,8 @@ static void hotkeyListTests(const fs::path& root) {
     // table formats.
     const std::vector<CheatHotkey> hotkeys = {
         {0, "Ctrl+T", "", ""}, {3, "F2", "", "Turn on"}, {5, "F3", "100", ""}, {6, "F4", "5", ""},
-        {7, "F5", "5", ""}, {6, "F6", "10", ""}, {4, "F7", "", ""}, {1, "F8", "", ""}};
+        {7, "F5", "5", ""}, {6, "F6", "10", ""}, {4, "F7", "", ""}, {1, "F8", "", ""},
+        {0, "F9", "", "God mode"}, {5, "F10", "999", "Full health"}};
     auto sorted = [](std::vector<CheatHotkey> list) {
         std::sort(list.begin(), list.end(), [](const CheatHotkey& a, const CheatHotkey& b) { return a.keys < b.keys; });
         return list;
@@ -347,14 +348,24 @@ static void hotkeyListTests(const fs::path& root) {
     const bool slots = entry.hotkeyKeys == "Ctrl+T" && entry.setValueHotkeyKeys == "F3" &&
                        entry.increaseHotkeyKeys == "F4" && entry.decreaseHotkeyKeys == "F5" && entry.hotkeyStep == "5";
     table.entries.push_back(entry);
+    // A record whose only toggle has a description: the loader binds it to the
+    // toggle slot and must keep the element that holds the description.
+    const std::vector<CheatHotkey> described = {{0, "F11", "", "Toggle with words"}};
+    CheatEntry other;
+    other.id = 2;
+    other.description = "mana";
+    other.address = 0x2000;
+    setRecordHotkeys(other, described);
+    table.entries.push_back(other);
     const auto ct = root / "hotkeys.CT";
     const auto json = root / "hotkeys.json";
     CheatTable fromCt, fromJson;
     const bool saved = table.save(ct.string()) && fromCt.load(ct.string()) && table.saveJson(json.string()) &&
-                       fromJson.loadJson(json.string()) && fromCt.entries.size() == 1 && fromJson.entries.size() == 1;
+                       fromJson.loadJson(json.string()) && fromCt.entries.size() == 2 && fromJson.entries.size() == 2;
     check(slots && sorted(recordHotkeys(entry)) == sorted(hotkeys) && saved &&
           sorted(recordHotkeys(fromCt.entries[0])) == sorted(hotkeys) &&
-          sorted(recordHotkeys(fromJson.entries[0])) == sorted(hotkeys),
+          sorted(recordHotkeys(fromJson.entries[0])) == sorted(hotkeys) &&
+          recordHotkeys(fromCt.entries[1]) == described && recordHotkeys(fromJson.entries[1]) == described,
           "a record's hotkeys keep every action, value and description through the slots and both table formats");
 }
 

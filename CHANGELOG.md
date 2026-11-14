@@ -71,8 +71,8 @@ reimplementation of Cheat Engine).
 - The project's own code builds without compiler warnings, and CI now fails on
   a new one (`-DCECORE_WARNINGS_AS_ERRORS=ON`; off by default, since other
   compilers warn differently).
-- Every window Cheat Engine has that this port only partly had is now complete
-  (see `docs/GUI_PARITY.md`):
+- The windows this port only partly had now have Cheat Engine's features,
+  apart from the omissions `docs/GUI_PARITY.md` lists for each:
   - **Changed Addresses** ("Find out what addresses this instruction accesses")
     is a live window until Stop, with each address's value and hit count, the
     registers of its first hit, value editing, browsing, dissecting the

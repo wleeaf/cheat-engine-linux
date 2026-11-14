@@ -87,14 +87,20 @@ int main(int argc, char** argv) {
         const auto a = reinterpret_cast<uintptr_t>(&g_touched[0]);
         const auto b = reinterpret_cast<uintptr_t>(&g_touched[1]);
         const QStringList common = changed->commonalitiesForTest({a}, {b});
+        // The live refresh keeps a multi-row selection (the group, dissect
+        // and copy actions work on it).
+        changed->selectAllForTest();
+        changed->refreshForTest();
+        changed->refreshForTest();
+        const bool selectionKept = changed->selectedCountForTest() == 3;
         const bool commonality = common.filter(QRegularExpression("^RDI ")).size() == 1;
         changed->stop();
         delete changed;
         kill(child, SIGKILL);
         waitpid(child, nullptr, 0);
-        changedOk = listed && rows && values && commonality;
-        printf("gui changed addresses: %s (listed=%d rows=%d values=%d commonality=%d [%s])\n",
-               changedOk ? "OK" : "FAILED", listed, rows, values, commonality,
+        changedOk = listed && rows && values && commonality && selectionKept;
+        printf("gui changed addresses: %s (listed=%d rows=%d values=%d commonality=%d selection=%d [%s])\n",
+               changedOk ? "OK" : "FAILED", listed, rows, values, commonality, selectionKept,
                common.join(", ").toUtf8().constData());
     }
 #endif

@@ -68,6 +68,11 @@ public:
     // thread's register now holds it. Row order matches the table:
     // Defined by cpuRegisterValues for the active stopped thread's architecture.
     bool pokeRegisterForTest(int row, uint64_t value);
+    // Change register at this location without the dialog.
+    void addRegisterChangesForTest(uintptr_t addr, const RegisterChanges& changes);
+    // Break on all signals (except the ignore list), and what the session breaks on.
+    void setBreakOnAllSignalsForTest(bool on) { breakOnAllSignals_ = on; applySignalBreaks(); }
+    bool breaksOnSignalForTest(int signal) const;
     // Thread switcher automation: number of threads in the dropdown, and a helper
     // that picks a different one via the combo (as the user would) and reports
     // whether the session's active thread followed.

@@ -34,6 +34,10 @@ __attribute__((noinline)) void smoke_worker() {
     }
 }
 static void smoke_counter() { for (;;) { g_smoke_counter = g_smoke_counter + 1; usleep(50); } }
+// The change-register breakpoint rewrites RDI (the argument) at smoke_store's entry.
+static volatile long g_smoke_store = 0;
+__attribute__((noinline)) void smoke_store(long value) { g_smoke_store = value; }
+static void smoke_storer() { for (;;) { smoke_store(1); usleep(200); } }
 
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -45,6 +49,7 @@ int main(int argc, char** argv) {
         close(fds[0]);
         std::thread(smoke_worker).detach();
         std::thread(smoke_counter).detach();
+        std::thread(smoke_storer).detach();
         ssize_t wr = write(fds[1], "x", 1); (void)wr;
         for (;;) usleep(100000);
         _exit(0);
@@ -233,6 +238,37 @@ int main(int argc, char** argv) {
         stepRemoveGuard = refused && win.debugStopped() && win.removeBreakpointAt(hotAddr);
     }
 
+    // Break on all signals sets a break for every signal except the ignore list.
+    win.setBreakOnAllSignalsForTest(true);
+    const bool signalsAll = win.breaksOnSignalForTest(SIGUSR1) && win.breaksOnSignalForTest(SIGSEGV) &&
+                            !win.breaksOnSignalForTest(SIGCHLD) && !win.breaksOnSignalForTest(SIGALRM);
+    win.setBreakOnAllSignalsForTest(false);
+    const bool signalsOff = !win.breaksOnSignalForTest(SIGUSR1);
+
+    // Change register at this location: the breakpoint sets RDI on every hit
+    // and the target runs on, so smoke_store writes 0x77, not 1.
+    bool regChange = false;
+    if (hit) {
+        for (int i = 0; i < 200 && !win.debugStopped(); ++i) { app.processEvents(); usleep(4000); }
+        for (uintptr_t address : win.breakpointAddresses()) win.removeBreakpointAt(address);
+        ce::gui::RegisterChanges changes;
+        changes.registers = {{"RDI", 0x77}};
+        const auto storeAddr = reinterpret_cast<uintptr_t>(&smoke_store);
+        win.addRegisterChangesForTest(storeAddr, changes);
+        QMetaObject::invokeMethod(&win, "onContinue");
+        for (int i = 0; i < 400 && !regChange; ++i) {
+            app.processEvents();
+            usleep(5000);
+            long stored = 0;
+            proc.read(reinterpret_cast<uintptr_t>(&g_smoke_store), &stored, sizeof(stored));
+            regChange = stored == 0x77;
+        }
+        for (int i = 0; i < 20; ++i) { app.processEvents(); usleep(5000); }
+        regChange = regChange && kill(child, 0) == 0 && !(win.debugStopped() && win.currentStopRip() == storeAddr);
+    }
+    printf("gui debugger change registers: %s (signals=%d off=%d)\n", regChange && signalsAll && signalsOff ? "OK" : "FAILED",
+           signalsAll, signalsOff);
+
     // Detach before reaping: a ptrace tracee can only be waited on by its tracer
     // thread, so waitpid() from main would block until the session detaches.
     QMetaObject::invokeMethod(&win, "onDetach");
@@ -273,7 +309,7 @@ int main(int argc, char** argv) {
     }
     if (!blockedReason) printf("blocked target status: %s\n", qPrintable(blockedText));
 
-    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && memHl && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno && disasmSym && disasmData && disasmHl && disasmComment && disasmUnmasked && bpToggle && memViewStep && memViewRtc && blockedReason && stepRemoveGuard;
+    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && memHl && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno && disasmSym && disasmData && disasmHl && disasmComment && disasmUnmasked && bpToggle && memViewStep && memViewRtc && blockedReason && stepRemoveGuard && regChange && signalsAll && signalsOff;
     printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d memhl=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d stackanno=%d disasmsym=%d disasmdata=%d disasmhl=%d disasmcomment=%d unmasked=%d bptoggle=%d memviewstep=%d memviewrtc=%d blocked=%d stepremove=%d)\n",
            ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, memHl, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk, stackAnno, disasmSym, disasmData, disasmHl, disasmComment, disasmUnmasked, bpToggle, memViewStep, memViewRtc, blockedReason, stepRemoveGuard);
     return ok ? 0 : 1;

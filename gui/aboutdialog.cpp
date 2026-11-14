@@ -32,7 +32,7 @@ AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent) {
 
     credits_ = QString(tr(
         "<p>Modelled on <a href='https://github.com/cheat-engine/cheat-engine'>Cheat Engine</a> "
-        "by Eric Heijnen (Dark Byte) and its contributors: its windows, its Lua API "
+        "by Dark Byte and its contributors: its windows, its Lua API "
         "and its cheat table format are the reference. No Cheat Engine code is used.</p>"
         "<p>Built with:</p>"
         "<ul>"
@@ -41,13 +41,13 @@ AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent) {
         "<li><a href='https://www.keystone-engine.org'>Keystone</a> (GPL-2.0): the assembler</li>"
         "<li><a href='https://www.lua.org'>Lua</a> 5.3 (MIT): the scripting engine</li>"
         "<li><a href='https://github.com/leethomason/tinyxml2'>TinyXML-2</a> (zlib): cheat table files</li>"
-        "<li><a href='https://sourceware.org/elfutils/'>elfutils libdw</a> (LGPL-3.0-or-later): "
+        "<li><a href='https://sourceware.org/elfutils/'>elfutils libdw</a> (LGPL-3.0-or-later or GPL-2.0-or-later): "
         "debug information</li>"
         "<li><a href='https://zlib.net'>zlib</a> (zlib): compressed transfers</li>"
         "<li><a href='https://www.surina.net/soundtouch/'>SoundTouch</a> (LGPL-2.1), when present: "
         "pitch-corrected audio under the speedhack</li>"
         "</ul>"
-        "<p>The license texts are installed under "
+        "<p>The license texts of this program, Lua and TinyXML-2 are installed under "
         "<code>share/licenses/cheat-engine-linux</code>.</p>")).arg(qVersion());
     auto* credits = new QTextBrowser(this);
     credits->setOpenExternalLinks(true);

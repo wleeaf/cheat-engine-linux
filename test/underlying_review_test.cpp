@@ -453,6 +453,42 @@ void debuggerLifecycleTests() {
                         planted ? *planted : size_t(0), executed.size());
         return ok;
     }), "the code filter finds the CALLs in a range and tells executed from not executed ones");
+    check(isolated([] {
+        // Four threads run the same CALL without pause, so several reach its
+        // one-shot trap together; the ones still stopped on it when it is
+        // removed must go on as if it never was, not die of a stray SIGTRAP.
+        alarm(10);
+        pid_t child = fork();
+        if (!child) {
+            prctl(PR_SET_PDEATHSIG, SIGKILL);
+            for (int i = 0; i < 3; ++i) std::thread([] { for (;;) codeFilterTarget(0); }).detach();
+            for (;;) codeFilterTarget(0);
+        }
+        if (child < 0) return false;
+        usleep(50000);
+        os::LinuxProcessHandle proc(child);
+        const auto begin = reinterpret_cast<uintptr_t>(&codeFilterTarget);
+        const auto end = reinterpret_cast<uintptr_t>(codeFilterEnd);
+        const auto calls = CodeFilter::codeAddresses(proc, begin, end - begin, true);
+        bool ok = calls.size() == 2;
+        for (int round = 0; ok && round < 5; ++round) {
+            CodeFilter filter;
+            filter.setAddresses(calls);
+            auto planted = filter.start(proc);
+            usleep(100000);
+            filter.stop();
+            const auto executed = filter.executed();
+            ok = planted && executed.size() == 1 && executed[0] == calls[0];
+        }
+        usleep(100000);
+        int status = 0;
+        const bool alive = waitpid(child, &status, WNOHANG) == 0 && kill(child, 0) == 0;
+        kill(child, SIGKILL);
+        waitpid(child, nullptr, 0);
+        alarm(0);
+        if (!(ok && alive)) std::printf("code filter threads: ok=%d alive=%d status=0x%x\n", ok, alive, status);
+        return ok && alive;
+    }), "the code filter's one-shot traps are safe when several threads hit them at once");
 #endif
     ModelProcess proc; os::LinuxDebugger debugger; Tracer tracer;
     check(tracer.trace(proc, debugger, TraceConfig{.maxSteps=-1}).empty(), "negative trace lengths return without allocating or attaching");

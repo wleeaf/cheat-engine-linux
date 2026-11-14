@@ -20,6 +20,8 @@
 
 #include <QMainWindow>
 #include <QPointer>
+#include "gui/changedaddresses.hpp"
+#include "gui/codefilter.hpp"
 #include <QTableView>
 #include <QLineEdit>
 #include <QComboBox>
@@ -174,6 +176,9 @@ private:
     // Stop active code finders so their ptrace attachment is released (a target
     // can have only one tracer; code injection needs to attach).
     void stopCodeFindersForInjection();
+    /// Stop every tool that holds the target traced (find what accesses/writes,
+    /// Changed Addresses, Code Filter): a process takes one tracer at a time.
+    void releaseTraceHolders();
     /// Construct a Debugger appropriate for the currently attached process —
     /// LinuxDebugger for local pids, RemoteDebugger for ceserver-backed.
     std::unique_ptr<ce::Debugger> createDebuggerForCurrentProcess();
@@ -264,6 +269,8 @@ private:
     ce::SymbolResolver luaResolver_;   // symbols for Lua name/expression resolution
     BreakpointManager bpManager_;
     std::vector<std::unique_ptr<CodeFinder>> codeFinders_;
+    std::vector<QPointer<ChangedAddressesWindow>> accessMonitors_;
+    std::vector<QPointer<CodeFilterWindow>> codeFilters_;
     std::vector<std::unique_ptr<ce::Debugger>> codeFinderDebuggers_;
     bool codeFinderNoPrompt_ = false;   // test hook: skip the Wine confirm dialog
     std::unique_ptr<ScanResult> lastResult_;

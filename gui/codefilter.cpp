@@ -170,6 +170,7 @@ void CodeFilterWindow::loadFromFile() {
 
 void CodeFilterWindow::startFiltering() {
     if (!process_) return;
+    if (beforeStart_) beforeStart_();
     auto planted = filter_.start(*process_);
     if (!planted) {
         QMessageBox::warning(this, tr("Code Filter"), QString::fromStdString(planted.error()));

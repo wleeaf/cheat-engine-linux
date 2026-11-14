@@ -8,6 +8,8 @@
 
 #include <QMainWindow>
 
+#include <functional>
+
 class QLabel;
 class QListWidget;
 class QPushButton;
@@ -24,6 +26,10 @@ public:
     /// For tests and scripts: load addresses directly.
     void setAddresses(const std::vector<uintptr_t>& addresses);
     std::vector<uintptr_t> addressesForTest() const { return filter_.addresses(); }
+    /// Remove the breakpoints and release the target (another tool needs it).
+    void stop() { stopFiltering(); }
+    /// Called before Start attaches (MainWindow stops the other tracers).
+    void setBeforeStart(std::function<void()> fn) { beforeStart_ = std::move(fn); }
 
 signals:
     void showInDisassembler(quint64 address);
@@ -47,6 +53,7 @@ private:
     QPushButton* executedButton_ = nullptr;
     QPushButton* notExecutedButton_ = nullptr;
     QTimer* timer_ = nullptr;
+    std::function<void()> beforeStart_;
 };
 
 } // namespace ce::gui

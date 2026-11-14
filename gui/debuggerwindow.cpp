@@ -464,6 +464,17 @@ void DebuggerWindow::setConditionalBreakpointAtCursor() {
     addBreakpointAt(addr, cond.trimmed());
 }
 
+void DebuggerWindow::addRegisterChangesForTest(uintptr_t addr, const RegisterChanges& changes) {
+    addBreakpointAt(addr, QString());
+    for (size_t i = 0; i < bps_.size(); ++i)
+        if (!bps_[i].hardware && bps_[i].addr == addr) {
+            bps_[i].registerChanges = changes;
+            refreshBpRow(static_cast<int>(i));
+        }
+}
+
+bool DebuggerWindow::breaksOnSignalForTest(int signal) const { return session_->hasExceptionBreakpoint(signal); }
+
 void DebuggerWindow::changeRegistersAtCursor() {
     if (const uintptr_t addr = currentCursorAddress()) changeRegistersAt(addr);
 }

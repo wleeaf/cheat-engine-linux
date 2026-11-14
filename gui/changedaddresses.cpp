@@ -11,7 +11,9 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
+#include <QHash>
 #include <QHeaderView>
+#include <QSet>
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
@@ -190,28 +192,43 @@ void ChangedAddressesWindow::refresh() {
     if (finished && stopButton_->text() != tr("Close")) stopButton_->setText(tr("Close"));
     if (!error.isEmpty()) info_->setText(QString(tr("Monitoring failed: %1")).arg(error));
 
-    // Keep the selection across the refresh (rows are matched by address).
-    const QList<uintptr_t> selected = selectedAddresses();
-    table_->setUpdatesEnabled(false);
-    table_->setRowCount(0);
+    // Update the rows in place, matched by address, so the selection and the
+    // scroll position survive; a new address gets a new row.
+    QHash<uintptr_t, int> rowOf;
+    for (int row = 0; row < table_->rowCount(); ++row)
+        if (auto* item = table_->item(row, 0)) rowOf.insert(item->data(kAddressRole).toULongLong(), row);
+    QSet<uintptr_t> present;
     for (const auto& [address, hits] : rows) {
+        present.insert(address);
+        int row = rowOf.value(address, -1);
+        if (row < 0) {
+            row = table_->rowCount();
+            table_->insertRow(row);
+            auto* item = new QTableWidgetItem;
+            item->setData(kAddressRole, static_cast<qulonglong>(address));
+            table_->setItem(row, 0, item);
+            table_->setItem(row, 1, new QTableWidgetItem);
+            table_->setItem(row, 2, new QTableWidgetItem);
+            rowOf.insert(address, row);
+        }
         const QString value = valueText(address);
-        const QString label = hexAddress(address);
-        if (!filter_.isEmpty() && !label.contains(filter_, Qt::CaseInsensitive) &&
-            !value.contains(filter_, Qt::CaseInsensitive))
-            continue;
-        const int row = table_->rowCount();
-        table_->insertRow(row);
-        auto* item = new QTableWidgetItem(label);
-        item->setData(kAddressRole, static_cast<qulonglong>(address));
-        if (group1_.contains(address)) item->setText(label + "  [1]");
-        else if (group2_.contains(address)) item->setText(label + "  [2]");
-        table_->setItem(row, 0, item);
-        table_->setItem(row, 1, new QTableWidgetItem(value));
-        table_->setItem(row, 2, new QTableWidgetItem(QString::number(hits)));
-        if (selected.contains(address)) table_->selectRow(row);
+        QString label = hexAddress(address);
+        const bool shown = filter_.isEmpty() || label.contains(filter_, Qt::CaseInsensitive) ||
+                           value.contains(filter_, Qt::CaseInsensitive);
+        if (group1_.contains(address)) label += "  [1]";
+        else if (group2_.contains(address)) label += "  [2]";
+        auto set = [&](int column, const QString& text) {
+            if (table_->item(row, column)->text() != text) table_->item(row, column)->setText(text);
+        };
+        set(0, label);
+        set(1, value);
+        set(2, QString::number(hits));
+        table_->setRowHidden(row, !shown);
     }
-    table_->setUpdatesEnabled(true);
+    // Rows whose address was deleted go (from the bottom, so indexes hold).
+    for (int row = table_->rowCount() - 1; row >= 0; --row)
+        if (auto* item = table_->item(row, 0); !item || !present.contains(item->data(kAddressRole).toULongLong()))
+            table_->removeRow(row);
 }
 
 QList<uintptr_t> ChangedAddressesWindow::selectedAddresses() const {
@@ -380,7 +397,14 @@ bool ChangedAddressesWindow::waitForAddressesForTest(int count, int timeoutMs) {
     return static_cast<int>(records_.size()) >= count;
 }
 
-int ChangedAddressesWindow::rowCountForTest() const { return table_->rowCount(); }
+int ChangedAddressesWindow::rowCountForTest() const {
+    int shown = 0;
+    for (int row = 0; row < table_->rowCount(); ++row) shown += !table_->isRowHidden(row);
+    return shown;
+}
+
+void ChangedAddressesWindow::selectAllForTest() { table_->selectAll(); }
+int ChangedAddressesWindow::selectedCountForTest() const { return static_cast<int>(selectedAddresses().size()); }
 
 QString ChangedAddressesWindow::valueTextForTest(int row) const {
     auto* item = table_->item(row, 1);

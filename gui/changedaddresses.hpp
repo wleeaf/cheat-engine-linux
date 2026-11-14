@@ -42,6 +42,9 @@ public:
     /// For tests: wait until `count` addresses are listed (or the timeout).
     bool waitForAddressesForTest(int count, int timeoutMs);
     int rowCountForTest() const;
+    void selectAllForTest();
+    int selectedCountForTest() const;
+    void refreshForTest() { refresh(); }
     QString valueTextForTest(int row) const;
     /// Registers equal within group 1 and different in group 2 (the scanner's rows).
     QStringList commonalitiesForTest(const QList<uintptr_t>& group1, const QList<uintptr_t>& group2) const;

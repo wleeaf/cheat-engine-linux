@@ -179,8 +179,14 @@ private:
     bool hexUpper_ = false;      // uppercase hex bytes/addresses (display/hexUpper)
     int  addrDigits_ = 16;       // hex digits in the address column (8 or 16)
 
-    /// Write a single byte to the target, making the page writable if needed.
+    /// Write a single byte to the target, making a read-only page writable if
+    /// needed. Outside a write batch the page gets its protection back at once;
+    /// inside one, when the batch ends (one unprotect per page, not per byte).
     bool pokeByte(uintptr_t addr, uint8_t value);
+    void beginWriteBatch() { ++writeBatch_; }
+    void endWriteBatch();
+    int writeBatch_ = 0;
+    std::vector<std::pair<uintptr_t, ce::MemProt>> unprotected_;   // page, protection to restore
     /// Run the write check over [addr, addr + len); emits writeRefused on a refusal.
     bool writeAllowed(uintptr_t addr, size_t len);
     std::function<QString(uintptr_t, size_t)> writeCheck_;

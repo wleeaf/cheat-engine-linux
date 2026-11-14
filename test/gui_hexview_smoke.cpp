@@ -16,6 +16,11 @@
 #include <cstdint>
 #include <cstring>
 #include <unistd.h>
+#include <csignal>
+#include <fstream>
+#include <string>
+#include <sys/mman.h>
+#include <sys/wait.h>
 
 alignas(16) static uint8_t g_buf[512];
 
@@ -164,7 +169,50 @@ int main(int argc, char** argv) {
         std::printf("GUI hex write over a breakpoint refused: %s\n", bpGuard ? "OK" : "FAILED");
     }
 
-    bool ok = bpGuard && horizontal && baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC && fillOk && typeMap && selBytes && ptrOk && shiftSel && shiftCollapse && homeEndOk && selectAllHex && stickyScroll;
+    // A fill over a read-only data page of another process writes the bytes
+    // and gives the page its read-only protection back (not left writable or
+    // executable).
+    bool readOnlyRestored = false;
+    {
+        const long pageSize = sysconf(_SC_PAGESIZE);
+        void* mapped = mmap(nullptr, static_cast<size_t>(pageSize), PROT_READ | PROT_WRITE,
+                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (mapped != MAP_FAILED) {
+            std::memset(mapped, 0, static_cast<size_t>(pageSize));
+            mprotect(mapped, static_cast<size_t>(pageSize), PROT_READ);
+            const pid_t child = fork();
+            if (child == 0) { for (;;) pause(); }
+            if (child > 0) {
+                const uintptr_t page = reinterpret_cast<uintptr_t>(mapped);
+                ce::os::LinuxProcessHandle target(child);
+                ce::gui::HexView rv;
+                rv.setProcess(&target);
+                rv.setAddress(page);
+                rv.setSelectionForTest(4, 7);
+                const int written = rv.fillSelection(0x77);
+                uint8_t back[8] = {};
+                const auto got = target.read(page, back, sizeof back);
+                const bool bytes = got && *got == sizeof back && back[3] == 0 && back[4] == 0x77 &&
+                                   back[7] == 0x77;
+                std::string perms;
+                std::ifstream maps("/proc/" + std::to_string(child) + "/maps");
+                for (std::string line; std::getline(maps, line);) {
+                    unsigned long start = 0, end = 0;
+                    char mode[5] = {};
+                    if (std::sscanf(line.c_str(), "%lx-%lx %4s", &start, &end, mode) == 3 &&
+                        start <= page && page < end) { perms = mode; break; }
+                }
+                readOnlyRestored = written == 4 && bytes && perms == "r--p";
+                std::printf("GUI hex fill over a read-only page restores its protection: %s (written=%d perms=%s)\n",
+                            readOnlyRestored ? "OK" : "FAILED", written, perms.c_str());
+                kill(child, SIGKILL);
+                waitpid(child, nullptr, 0);
+            }
+            munmap(mapped, static_cast<size_t>(pageSize));
+        }
+    }
+
+    bool ok = readOnlyRestored && bpGuard && horizontal && baseline == 0 && afterOne == 1 && afterNav == 0 && pasteOk && ctrlV && ctrlC && fillOk && typeMap && selBytes && ptrOk && shiftSel && shiftCollapse && homeEndOk && selectAllHex && stickyScroll;
     printf("gui hexview smoke: %s (baseline=%d afterOneFlip=%d afterNav=%d pasteWrote=%d pasteOk=%d "
            "ctrlV=%d ctrlC=%d filled=%d fillOk=%d typeMap=%d selBytes=%d ptrOk=%d shiftSel=%d shiftCollapse=%d homeEnd=%d selAll=%d stickyScroll=%d)\n",
            ok ? "OK" : "FAILED", baseline, afterOne, afterNav, wrote, pasteOk, ctrlV, ctrlC, filled, fillOk, typeMap, selBytes, ptrOk, shiftSel, shiftCollapse, homeEndOk, selectAllHex, stickyScroll);

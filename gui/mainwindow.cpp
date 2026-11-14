@@ -832,7 +832,11 @@ void MainWindow::setupMenus() {
         QStringList parts;
         for (auto a : addrs) {
             int32_t v = 0;
-            process_->read(a, &v, sizeof(v));
+            if (auto got = process_->read(a, &v, sizeof(v)); !got || *got != sizeof(v)) {
+                QMessageBox::warning(this, tr("Group Scan Generator"),
+                                     tr("Could not read the value at %1.").arg(a, 0, 16));
+                return;
+            }
             parts << QString("%1:%2").arg(a - base).arg(v);   // offset:value (4 bytes)
         }
         QString pattern = parts.join(' ');

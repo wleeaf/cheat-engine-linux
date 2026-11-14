@@ -246,6 +246,9 @@ int gettimeofday(struct timeval* tv, void* tz) {
     if (!real_fn) real_fn = (gettimeofday_t)dlsym(RTLD_NEXT, "gettimeofday");
     if (!real_fn) { errno = ENOSYS; return -1; }
     int ret = real_fn(tv, tz);
+    // glibc declares tv nonnull, yet callers pass NULL for the time zone
+    // alone. Hide the pointer from the optimizer so the check stays.
+    __asm__("" : "+r"(tv));
     if (ret == 0 && tv) {   // tv may be NULL (only the time zone wanted)
         struct timespec ts = { tv->tv_sec, tv->tv_usec * 1000 };
         adjust_time(&sh_realtime, &ts);

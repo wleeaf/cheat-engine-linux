@@ -1545,8 +1545,10 @@ template<class T> static std::optional<T> jsonInteger(const JsonValue& value) {
         digits.erase(0,first);
         size_t exponent=0;bool negativeExponent=false;
         if (pos<token.size()) {
-            ++pos;negativeExponent=token[pos]=='-';
-            if (token[pos]=='-' || token[pos]=='+') ++pos;
+            ++pos;
+            negativeExponent=pos<token.size() && token[pos]=='-';
+            if (pos<token.size() && (token[pos]=='-' || token[pos]=='+')) ++pos;
+            if (pos==token.size()) return {};
             // Beyond this magnitude a nonzero coefficient either overflows
             // every supported integer or has a nonzero fractional part.
             if (token.size()>SIZE_MAX-20) return {};
@@ -1563,6 +1565,7 @@ template<class T> static std::optional<T> jsonInteger(const JsonValue& value) {
             remove=fractional+exponent;
         } else if (exponent>=fractional) append=exponent-fractional;
         else remove=fractional-exponent;
+                if (token[pos]<'0' || token[pos]>'9') return {};
         if (remove>digits.size() || append>20) return {};
         const size_t end=digits.size()-remove;
         for (size_t i=end;i<digits.size();++i) if (digits[i]!='0') return {};

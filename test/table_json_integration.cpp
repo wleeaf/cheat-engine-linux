@@ -44,6 +44,13 @@ int main(int argc,char** argv) {
     const auto exponentFixture=sizeof(uintptr_t)==8 ? R"({"entries":[{"addr":1.234567890123456789e19}]})" : R"({"entries":[{"addr":1.23456789e8}]})";
     check(load(table,exponentFixture) && table.entries[0].address==(sizeof(uintptr_t)==8 ? static_cast<uintptr_t>(12345678901234567890ULL):uintptr_t{123456789}),
         "decimal/exponent integers are converted without floating-point rounding");
+    bool incompleteExponentsRejected=true;
+    for (const char* malformed : {R"({"entries":[{"addr":1e}]})", R"({"entries":[{"addr":1e+}]})", R"({"entries":[{"addr":1ex}]})"}) {
+        ce::CheatTable rejected;
+        incompleteExponentsRejected=incompleteExponentsRejected &&
+            (!load(rejected,malformed) || rejected.entries.empty() || rejected.entries[0].address==0);
+    }
+    check(incompleteExponentsRejected,"a number with an incomplete exponent is not read as an address");
     check(load(table,R"({"entries":[{"id":"0x2a","addr":"0x1234","offsets":["-0x8000000000000000","+0x10"]}],"structures":[{"size":"020"}]})") &&
         table.entries[0].id==42 && table.entries[0].address==0x1234 && table.entries[0].offsets==std::vector<int64_t>{INT64_MIN,16} &&
         table.structures[0].size==16,"legacy integer strings retain hex/octal bases and signed offsets");

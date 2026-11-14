@@ -661,12 +661,30 @@ bool HexView::pokeByte(uintptr_t addr, uint8_t value) {
     if (!proc_ || !writeAllowed(addr, 1)) return false;
     auto r = proc_->write(addr, &value, 1);
     if (!r || *r < 1) {
-        // r-x / read-only page — make it writable and retry (same as the disasm).
-        proc_->protect(addr, 1, ce::MemProt::All);
+        // A read-only data page (write() already handles code pages): make it
+        // writable, write, and give it its old protection back afterwards,
+        // instead of leaving the page writable and executable.
+        const uintptr_t page = addr & ~uintptr_t{0xfff};
+        const bool already = std::any_of(unprotected_.begin(), unprotected_.end(),
+                                         [page](const auto& entry) { return entry.first == page; });
+        if (!already) {
+            const auto region = proc_->queryRegion(addr);
+            if (!region || (region->protection & ce::MemProt::Write)) return false;
+            if (!proc_->protect(page, 1, region->protection | ce::MemProt::Write)) return false;
+            unprotected_.emplace_back(page, region->protection);
+        }
         r = proc_->write(addr, &value, 1);
+        if (!writeBatch_) endWriteBatch();
         if (!r || *r < 1) return false;
     }
     return true;
+}
+
+void HexView::endWriteBatch() {
+    if (writeBatch_ > 0) --writeBatch_;
+    if (writeBatch_ || !proc_) return;
+    for (const auto& [page, protection] : unprotected_) (void)proc_->protect(page, 1, protection);
+    unprotected_.clear();
 }
 
 // Parse an "array of bytes" string ("90 90 c3", "9090c3", "?? c3") into byte values,
@@ -705,10 +723,12 @@ int HexView::pasteBytes(const QString& aob) {
     const uintptr_t start = address_ + static_cast<uintptr_t>(first >= 0 ? first : 0);
     if (!writeAllowed(start, bytes.size())) return 0;   // all or nothing, not up to the breakpoint
     int n = 0;
+    beginWriteBatch();
     for (size_t i = 0; i < bytes.size(); ++i) {
         if (bytes[i] < 0) continue;   // wildcard: leave the existing byte in place
         if (pokeByte(start + i, static_cast<uint8_t>(bytes[i]))) ++n;
     }
+    endWriteBatch();
     refresh();
     return n;
 }
@@ -718,8 +738,10 @@ int HexView::fillSelection(uint8_t value) {
     if (!proc_ || !selRange(lo, hi) || hi <= lo) return 0;   // needs a real multi-byte range
     if (!writeAllowed(address_ + static_cast<uintptr_t>(lo), static_cast<size_t>(hi - lo + 1))) return 0;
     int n = 0;
+    beginWriteBatch();
     for (int i = lo; i <= hi; ++i)
         if (pokeByte(address_ + static_cast<uintptr_t>(i), value)) ++n;
+    endWriteBatch();
     refresh();
     return n;
 }

@@ -938,8 +938,13 @@ void DebuggerWindow::updateDisassembly(const ce::CpuContext& c) {
         disasmView_->setExtraSelections({});
         return;
     }
-    if (proc_ && !symbolsLoaded_) { resolver_.loadProcess(*proc_); symbolsLoaded_ = true; }
-    if (modules_.empty() && proc_) modules_ = proc_->modules();   // for data-operand annotations
+    if (!proc_) {
+        disasmView_->setPlainText("  " + tr("<no process>"));
+        disasmView_->setExtraSelections({});
+        return;
+    }
+    if (!symbolsLoaded_) { resolver_.loadProcess(*proc_); symbolsLoaded_ = true; }
+    if (modules_.empty()) modules_ = proc_->modules();   // for data-operand annotations
     uint8_t buf[128];
     auto rr = proc_->read(ip, buf, sizeof(buf));
     QString out;

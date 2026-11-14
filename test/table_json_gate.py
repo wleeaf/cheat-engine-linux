@@ -34,7 +34,7 @@ def main():
     try:
         if not binary.is_file():raise RuntimeError("Required table_json_integration executable is missing")
         text=run([binary])
-        if not re.search(r"^TABLE_JSON_RESULT=PASSED checks=33 failures=0$",text,re.M):raise RuntimeError("Missing or incomplete required table JSON assertions")
+        if not re.search(r"^TABLE_JSON_RESULT=PASSED checks=34 failures=0$",text,re.M):raise RuntimeError("Missing or incomplete required table JSON assertions")
         limits=json.loads(run([binary,"--integer-limits"]))
         if any(type(limits[key]) is not int for key in ("pointerBits","sizeBits","offsetBits")) or limits["pointerBits"] not in (32,64) or limits["sizeBits"] not in (32,64) or limits["offsetBits"]!=64:raise RuntimeError("Unexpected executable integer profile")
         report["integerLimits"]=limits

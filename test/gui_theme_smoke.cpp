@@ -22,6 +22,15 @@ int main(int argc, char** argv) {
     app.setApplicationName("Cheat Engine");
     app.setOrganizationName("cecore");
 
+    // Palette subscribers run on every theme switch, keep their own state, and
+    // stop with the object they belong to.
+    int notified = 0, ownCount = 0;
+    auto* subscriber = new QObject(&app);
+    ce::gui::onApplicationPaletteChange(subscriber, [&notified, &ownCount, mine = 0]() mutable {
+        ++notified;
+        ownCount = ++mine;
+    });
+
     QSettings().setValue(ce::gui::kDarkThemeKey, false);
     ce::gui::applyTheme(false);
     const QString light = app.styleSheet();
@@ -41,8 +50,18 @@ int main(int argc, char** argv) {
     ce::gui::applyStoredTheme();
     const bool defaultLight = (ce::gui::isDarkTheme() == false);
 
-    const bool ok = lightApplied && darkApplied && differ && defaultLight && lightPalette && darkPalette;
-    std::printf("gui theme smoke: %s (lightApplied=%d darkApplied=%d differ=%d defaultLight=%d)\n",
-                ok ? "OK" : "FAILED", lightApplied, darkApplied, differ, defaultLight);
+    const int notifiedWhileAlive = notified;
+    delete subscriber;
+    ce::gui::applyTheme(true);
+    ce::gui::applyTheme(false);
+    const bool paletteNotified = notifiedWhileAlive >= 2 && ownCount == notifiedWhileAlive &&
+                                 notified == notifiedWhileAlive;
+
+    const bool ok = lightApplied && darkApplied && differ && defaultLight && lightPalette && darkPalette &&
+                    paletteNotified;
+    std::printf("gui theme smoke: %s (lightApplied=%d darkApplied=%d differ=%d defaultLight=%d "
+                "paletteNotified=%d [%d/%d])\n",
+                ok ? "OK" : "FAILED", lightApplied, darkApplied, differ, defaultLight, paletteNotified,
+                notifiedWhileAlive, notified);
     return ok ? 0 : 1;
 }

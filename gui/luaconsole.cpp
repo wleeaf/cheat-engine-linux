@@ -61,7 +61,7 @@ LuaConsole::LuaConsole(LuaEngine* engine, QWidget* parent)
     layout->addLayout(inputRow);
 
     setCentralWidget(central);
-    connect(qApp, &QApplication::paletteChanged, this, [this, previous = editorPalette()]() mutable {
+    onApplicationPaletteChange(this, [this, previous = editorPalette()]() mutable {
         auto current = editorPalette();
         recolorConsole(output_->document(), previous, current);
         previous = current;

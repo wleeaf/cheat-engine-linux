@@ -20,6 +20,7 @@
 #include <QLineEdit>
 #include <QLabel>
 #include <QEvent>
+#include <memory>
 #include <QPointer>
 #include <QTableWidget>
 #include <vector>
@@ -70,6 +71,58 @@ static QString checkFile(const QColor& color, bool partial) {
 }
 
 namespace ce::gui {
+
+namespace {
+// QEvent::ApplicationPaletteChange is sent to the application object right
+// where Qt emits the deprecated paletteChanged signal. A filter on qApp sees
+// every event in the application, so one hub fans out to all subscribers.
+class PaletteChangeHub final : public QObject {
+public:
+    static PaletteChangeHub& instance() {
+        static QPointer<PaletteChangeHub> hub;
+        if (!hub) {
+            hub = new PaletteChangeHub(qApp);
+            qApp->installEventFilter(hub);
+        }
+        return *hub;
+    }
+
+    void add(QObject* context, std::function<void()> onChange) {
+        const quint64 id = ++nextId_;
+        entries_.push_back({id, context, std::make_shared<std::function<void()>>(std::move(onChange))});
+        connect(context, &QObject::destroyed, this, [this, id]() {
+            std::erase_if(entries_, [id](const Entry& entry) { return entry.id == id; });
+        });
+    }
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override {
+        if (watched == qApp && event->type() == QEvent::ApplicationPaletteChange) {
+            // A callback may subscribe or destroy a subscriber; the copies
+            // share each callback, so state kept in a mutable lambda persists.
+            const auto entries = entries_;
+            for (const auto& entry : entries)
+                if (entry.context) (*entry.onChange)();
+        }
+        return false;
+    }
+
+private:
+    using QObject::QObject;
+    struct Entry {
+        quint64 id;
+        QPointer<QObject> context;
+        std::shared_ptr<std::function<void()>> onChange;
+    };
+    std::vector<Entry> entries_;
+    quint64 nextId_ = 0;
+};
+} // namespace
+
+void onApplicationPaletteChange(QObject* context, std::function<void()> onChange) {
+    PaletteChangeHub::instance().add(context, std::move(onChange));
+}
+
 
 static const char* kDarkStyleSheet = R"(
     QWidget { background-color: #1e1e2e; color: #cdd6f4; }

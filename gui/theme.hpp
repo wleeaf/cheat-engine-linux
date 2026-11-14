@@ -6,6 +6,8 @@
 #include <QColor>
 #include <QFont>
 #include <QString>
+#include <functional>
+class QObject;
 class QTextDocument;
 class QTableView;
 class QAbstractItemView;
@@ -41,6 +43,10 @@ struct EditorPalette {
     QColor canvas, canvasBorder;
 };
 EditorPalette editorPalette();
+/// Calls `onChange` after every change of the application palette (a theme
+/// switch or a new desktop color scheme) for as long as `context` lives.
+/// Replaces the deprecated QGuiApplication::paletteChanged signal.
+void onApplicationPaletteChange(QObject* context, std::function<void()> onChange);
 /// Update existing console text when switching themes without losing its roles.
 void recolorConsole(QTextDocument* document, const EditorPalette& previous, const EditorPalette& current);
 

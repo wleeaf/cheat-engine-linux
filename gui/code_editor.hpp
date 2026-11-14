@@ -23,7 +23,7 @@ public:
             else gutter_->update(0, rect.y(), gutter_->width(), rect.height());
         });
         connect(this, &QPlainTextEdit::cursorPositionChanged, this, [this]() { highlightCurrentLine(); });
-        connect(qApp, &QApplication::paletteChanged, this, [this]() { highlightCurrentLine(); gutter_->update(); });
+        ce::gui::onApplicationPaletteChange(this, [this]() { highlightCurrentLine(); gutter_->update(); });
         updateGutterWidth();
         highlightCurrentLine();
     }

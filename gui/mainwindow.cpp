@@ -375,17 +375,16 @@ void MainWindow::setupMenus() {
     file->addAction(tr("Clear scan results"), this, [this]() {
         resultsModel_->clear(); lastResult_.reset(); undoResult_.reset(); updateScanButtons();
     });
-    file->addAction(tr("Open Process..."), this, &MainWindow::onOpenProcess, QKeySequence("Ctrl+O"));
+    file->addAction(tr("Open Process..."), QKeySequence("Ctrl+O"), this, &MainWindow::onOpenProcess);
     file->addSeparator();
-    file->addAction(tr("Save"), this, &MainWindow::onSaveTable, QKeySequence("Ctrl+S"));
-    file->addAction(tr("Save As..."), this, &MainWindow::onSaveTableAs, QKeySequence("Ctrl+Shift+S"));
-    file->addAction(tr("Load..."), this, &MainWindow::onLoadTable, QKeySequence("Ctrl+L"));
+    file->addAction(tr("Save"), QKeySequence("Ctrl+S"), this, &MainWindow::onSaveTable);
+    file->addAction(tr("Save As..."), QKeySequence("Ctrl+Shift+S"), this, &MainWindow::onSaveTableAs);
+    file->addAction(tr("Load..."), QKeySequence("Ctrl+L"), this, &MainWindow::onLoadTable);
     recentMenu_ = file->addMenu(tr("Load Recent")); // populated from QSettings below
     recentMenu_->setToolTipsVisible(true);      // show the full path on hover
     rebuildRecentMenu();
     file->addSeparator();
-    file->addAction(tr("Save scan results..."), this, &MainWindow::onSaveScanResults,
-                    QKeySequence("Alt+Shift+S"));
+    file->addAction(tr("Save scan results..."), QKeySequence("Alt+Shift+S"), this, &MainWindow::onSaveScanResults);
     file->addSeparator();
     file->addAction(tr("Generate Trainer Lua Script..."), this, &MainWindow::onCreateTrainer);
     file->addSeparator();
@@ -393,7 +392,7 @@ void MainWindow::setupMenus() {
     file->addAction(tr("Connect to GDB / QEMU..."), this, &MainWindow::onConnectGdb);
     file->addAction(tr("Disconnect target"), this, &MainWindow::onDisconnectProcess);
     file->addSeparator();
-    file->addAction(tr("Quit"), this, &QWidget::close, QKeySequence("Ctrl+Q"));
+    file->addAction(tr("Quit"), QKeySequence("Ctrl+Q"), this, &QWidget::close);
 
     // ── Top-level menus in CE's order (D3D dropped — Windows-only, see below) ──
     // File · Edit · Process · Table · Tools · .Net · Network · Plugins ·
@@ -413,8 +412,7 @@ void MainWindow::setupMenus() {
     // left out rather than shown full of disabled items (same call as D3D above).
 
     // ── Table (CE: Lua script + forms) ──
-    table->addAction(tr("Show Cheat Table Lua Script"), this, &MainWindow::showTableLuaScript,
-                     QKeySequence("Ctrl+Alt+L"));
+    table->addAction(tr("Show Cheat Table Lua Script"), QKeySequence("Ctrl+Alt+L"), this, &MainWindow::showTableLuaScript);
     table->addSeparator();
     table->addAction(tr("Create Form..."), this, [this]() {
         auto* fd = new FormDesigner(this); fd->setAttribute(Qt::WA_DeleteOnClose); fd->show();
@@ -427,8 +425,8 @@ void MainWindow::setupMenus() {
     // Regions, Heap list, Module list, Referenced strings, Thread list, Stacktrace,
     // Registers, Breakpoint list, Debugger, Branch mapper, Break-and-trace, …) live
     // in ITS View/Debug menus — matching CE — populated by populateBrowserMenus().
-    tools->addAction(tr("Memory Viewer..."), this, &MainWindow::onMemoryView, QKeySequence("Ctrl+M"));
-    tools->addAction(tr("AI Assistant"), this, [this]() { showAgentPanel(); }, QKeySequence("Ctrl+Shift+I"));
+    tools->addAction(tr("Memory Viewer..."), QKeySequence("Ctrl+M"), this, &MainWindow::onMemoryView);
+    tools->addAction(tr("AI Assistant"), QKeySequence("Ctrl+Shift+I"), this, [this]() { showAgentPanel(); });
     tools->addSeparator();
     // Analysis panels (also in the Memory Viewer's Tools menu) — surfaced here so
     // they're findable from the main window without opening the viewer first.
@@ -555,7 +553,7 @@ void MainWindow::setupMenus() {
                              "memory is a consistent snapshot, then resume it."));
     connect(pauseScanAct, &QAction::toggled, this, [this](bool on) { pauseWhileScanning_ = on; });
     // ── Table menu ──
-    table->addAction(tr("Auto Assemble..."), this, [this]() {
+    table->addAction(tr("Auto Assemble..."), QKeySequence("Ctrl+A"), this, [this]() {
         auto* editor = new ScriptEditor(process_.get(), &autoAsm_, this);
         for (auto it = memoryViewers_.rbegin(); it != memoryViewers_.rend(); ++it) {
             if (*it && (*it)->isVisible()) {
@@ -574,7 +572,7 @@ void MainWindow::setupMenus() {
         });
         editor->setBeforeExecute([this]() { stopCodeFindersForInjection(); });
         editor->show();
-    }, QKeySequence("Ctrl+A"));
+    });
     tools->addAction(tr("File Patcher..."), this, [this]() {
         auto* dlg = new FilePatcher(this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
@@ -2166,10 +2164,10 @@ void MainWindow::setupUi() {
             }
 
             // CE PopupMenu2: Cut / Copy / Paste (PasteTableentryFRM).
-            menu.addAction(tr("Cut"), this, [this]() { onCopyAddresses(); onDeleteAddresses(); }, QKeySequence::Cut);
-            menu.addAction(tr("Copy"), this, &MainWindow::onCopyAddresses, QKeySequence::Copy);
+            menu.addAction(tr("Cut"), QKeySequence::Cut, this, [this]() { onCopyAddresses(); onDeleteAddresses(); });
+            menu.addAction(tr("Copy"), QKeySequence::Copy, this, &MainWindow::onCopyAddresses);
             // The same paste as Ctrl+V: every field, groups, scripts and CE XML.
-            menu.addAction(tr("Paste"), this, &MainWindow::onPasteAddresses, QKeySequence::Paste);
+            menu.addAction(tr("Paste"), QKeySequence::Paste, this, &MainWindow::onPasteAddresses);
             // Copy an individual field of the first selected entry to the clipboard.
             if (firstRow >= 0 && firstRow < (int)ents0.size()) {
                 const auto& fe = ents0[firstRow];
@@ -2192,7 +2190,7 @@ void MainWindow::setupUi() {
                         QApplication::clipboard()->setText(fe.autoAsmScript);
                     });
             }
-            menu.addAction(tr("Delete"), this, &MainWindow::onDeleteAddresses, QKeySequence::Delete);
+            menu.addAction(tr("Delete"), QKeySequence::Delete, this, &MainWindow::onDeleteAddresses);
 
             menu.addSeparator();
             // Rarely used items sit in submenus so the menu stays one column at
@@ -2608,7 +2606,7 @@ void MainWindow::setupUi() {
             addressListModel_->addGroup();
         });
         // With entries selected, Paste is already in the edit group above.
-        if (selected.isEmpty()) menu.addAction(tr("Paste"), this, &MainWindow::onPasteAddresses, QKeySequence::Paste);
+        if (selected.isEmpty()) menu.addAction(tr("Paste"), QKeySequence::Paste, this, &MainWindow::onPasteAddresses);
 
         menu.addSeparator();
         // Whole-table actions only on empty space: with an entry under the cursor the

@@ -100,7 +100,7 @@ FormDesigner::FormDesigner(QWidget* parent) : QMainWindow(parent) {
             .arg(pal.canvas.name(), pal.canvasBorder.name()));
     };
     updateCanvasTheme();
-    connect(qApp, &QApplication::paletteChanged, this, [this, updateCanvasTheme]() {
+    onApplicationPaletteChange(this, [this, updateCanvasTheme]() {
         updateCanvasTheme();
         redrawCanvas();
     });

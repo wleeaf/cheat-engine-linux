@@ -362,7 +362,9 @@ set_target_properties(ce_vulkan_overlay_layer PROPERTIES
 # ── Qt6 GUI ──
 # Network and DBus (both part of qtbase) carry the AI Assistant's API calls
 # and its keyring access.
-find_package(Qt6 COMPONENTS Widgets Network DBus)
+# The code needs Qt 6.3 (QMenu::addAction with the shortcut first); 6.4 is the
+# oldest Qt CI builds with (Ubuntu 24.04).
+find_package(Qt6 6.4 COMPONENTS Widgets Network DBus)
 if(Qt6_FOUND)
     set(CMAKE_AUTOMOC ON)
     qt_add_executable(cheatengine
@@ -658,7 +660,7 @@ if(Qt6_FOUND)
         message(STATUS "Translations: disabled (Qt6 LinguistTools not found)")
     endif()
 else()
-    message(STATUS "Qt6 not found — skipping GUI build")
+    message(STATUS "Qt6 6.4 or newer not found: skipping the GUI build")
 endif()
 
 # ── Test programs ──

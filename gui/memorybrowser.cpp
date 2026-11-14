@@ -892,7 +892,7 @@ DisasmView::DisasmView(QWidget* parent) : QAbstractScrollArea(parent) {
     hexUpper_ = QSettings().value("display/hexUpper", false).toBool();
     addrDigits_ = QSettings().value("display/addressWidth", 1).toInt() == 0 ? 8 : 16;
     reloadPreferences();
-    connect(qApp, &QApplication::paletteChanged, this, [this]() { reloadPreferences(); });
+    onApplicationPaletteChange(this, [this]() { reloadPreferences(); });
     setMinimumHeight(charH_ * 8);
     setFocusPolicy(Qt::StrongFocus);
     viewport()->setMouseTracking(true);

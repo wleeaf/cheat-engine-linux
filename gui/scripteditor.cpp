@@ -36,7 +36,7 @@ class AaHighlighter : public QSyntaxHighlighter {
 public:
     explicit AaHighlighter(QTextDocument* doc) : QSyntaxHighlighter(doc) {
         updateColors();
-        connect(qApp, &QApplication::paletteChanged, this, [this]() { updateColors(); rehighlight(); });
+        ce::gui::onApplicationPaletteChange(this, [this]() { updateColors(); rehighlight(); });
     }
 
     void updateColors() {
@@ -275,7 +275,7 @@ ScriptEditor::ScriptEditor(ProcessHandle* proc, AutoAssembler* autoAsm, QWidget*
     // The console paints its own line colors, so it can't inherit the app
     // stylesheet; give it the theme's editor background/text (was hardcoded dark,
     // which stayed dark in light mode).
-    connect(qApp, &QApplication::paletteChanged, this, [this, previous = editorPalette()]() mutable {
+    ce::gui::onApplicationPaletteChange(this, [this, previous = editorPalette()]() mutable {
         auto current = editorPalette();
         recolorConsole(output_->document(), previous, current);
         previous = current;

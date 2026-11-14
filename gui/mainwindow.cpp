@@ -7,6 +7,7 @@
 #include "core/local_target.hpp"
 #include "gui/gdbconnectiondialog.hpp"
 #include "gui/theme.hpp"
+#include "gui/i18n.hpp"
 #include "core/expression.hpp"
 #include "core/value_io.hpp"
 #include "core/memview_nav.hpp"
@@ -3937,6 +3938,18 @@ void MainWindow::markTableSaved() { savedTableFingerprint_ = tableFingerprint();
 // Before the table is replaced or the window closes: Save, Discard or Cancel
 // when it has changes no file holds. Nothing tracked this, so edits were
 // dropped without a word.
+void MainWindow::restartAfterLanguageChange() {
+    // closeEvent() offers to save the table and releases the target users
+    // (breakpoints, injected code) before the process goes away. Start the new
+    // instance only after that close was accepted, so a cancelled save prompt
+    // does not leave two instances behind and the release is never skipped.
+    if (!close()) return;
+    if (!ce::gui::launchRestart())
+        QMessageBox::warning(nullptr, tr("Language"),
+            tr("Cheat Engine could not restart itself. Start it again to apply the language."));
+    QCoreApplication::quit();
+}
+
 bool MainWindow::maybeSaveTable() {
     // Headless (the offscreen test platform): nobody can answer a prompt.
     const auto platform = QGuiApplication::platformName();
@@ -5188,6 +5201,7 @@ QDialog* MainWindow::openSettingsDialog(const QString& page) {
     auto* dlg = new SettingsDialog(this);
     settingsDialog_ = dlg;
     dlg->setAttribute(Qt::WA_DeleteOnClose);
+    connect(dlg, &SettingsDialog::restartRequested, this, &MainWindow::restartAfterLanguageChange);
     connect(dlg, &SettingsDialog::settingsApplied, this, [this]() {
         if (agentPanel_) agentPanel_->reloadSettings();
         // A scan blocks user input, so Apply can't land mid-scan; the scanner is idle.

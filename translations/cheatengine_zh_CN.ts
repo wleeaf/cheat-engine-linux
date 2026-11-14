@@ -288,71 +288,91 @@
 <context>
     <name>MainWindow</name>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="153"/>
+        <location filename="../gui/mainwindow.cpp" line="154"/>
         <source>Found: %1</source>
         <translation>已找到：%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="503"/>
+        <location filename="../gui/mainwindow.cpp" line="163"/>
+        <source>A scan-result file could not be fully written or read.</source>
+        <translation>扫描结果文件未能完整写入或读取。</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.cpp" line="164"/>
+        <source>A scan-result file could not be fully written or read: %1.</source>
+        <translation>扫描结果文件未能完整写入或读取：%1。</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.cpp" line="167"/>
+        <source> The disk holding %1 is full; free space there or set CE_SCAN_DIR to a larger disk.</source>
+        <translation> 存放 %1 的磁盘已满；请清理空间，或将 CE_SCAN_DIR 指向更大的磁盘。</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.cpp" line="170"/>
+        <source> Some results are unreliable; scan again.</source>
+        <translation> 部分结果不可靠；请重新扫描。</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.cpp" line="520"/>
         <source>any process of the same user</source>
         <translation>同一用户的任意进程</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="504"/>
+        <location filename="../gui/mainwindow.cpp" line="521"/>
         <source>only child processes</source>
         <translation>仅子进程</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="505"/>
+        <location filename="../gui/mainwindow.cpp" line="522"/>
         <source>administrators only</source>
         <translation>仅管理员</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="506"/>
+        <location filename="../gui/mainwindow.cpp" line="523"/>
         <source>no attaching</source>
         <translation>禁止附加</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2852"/>
+        <location filename="../gui/mainwindow.cpp" line="2869"/>
         <source>Access granted for this session; re-open the process.
 (This resets on reboot. Install the .deb, or re-run the command, to make it permanent.)</source>
         <translation>本次会话已授予访问权限；请重新打开进程。
 （重启后失效。安装 .deb，或重新运行该命令，使其永久生效。）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2855"/>
+        <location filename="../gui/mainwindow.cpp" line="2872"/>
         <source>Access granted for this session; re-open the process.
 (This resets on reboot. A capability on this install would stop it from finding its libraries, because it is outside the system library directories.)</source>
         <translation>本次会话已授予访问权限；请重新打开进程。
 （重启后失效。此安装上的能力会导致它无法找到自己的库，因为库位于系统库目录之外。）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2867"/>
+        <location filename="../gui/mainwindow.cpp" line="2884"/>
         <source>Access granted. Restart Cheat Engine for it to take effect.</source>
         <translation>已授予访问权限。请重启 Cheat Engine 使其生效。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2872"/>
+        <location filename="../gui/mainwindow.cpp" line="2889"/>
         <source>Access granted</source>
         <translation>已授予访问权限</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2874"/>
+        <location filename="../gui/mainwindow.cpp" line="2891"/>
         <source>Could not grant access</source>
         <translation>无法授予访问权限</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2875"/>
+        <location filename="../gui/mainwindow.cpp" line="2892"/>
         <source>The privileged command was cancelled or failed (pkexec exit %1). You can still grant access manually from a terminal.</source>
         <translation>特权命令已取消或失败（pkexec 退出码 %1）。你仍可以在终端中手动授予访问权限。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2905"/>
+        <location filename="../gui/mainwindow.cpp" line="2922"/>
         <source>Process memory not readable</source>
         <translation>无法读取进程内存</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2906"/>
+        <location filename="../gui/mainwindow.cpp" line="2923"/>
         <source>Cannot read the memory of PID %1 (%2).
 
 Linux only lets a program read another process&apos;s memory if it is allowed to ptrace it. With kernel.yama.ptrace_scope = %3, that means the target must be a child of Cheat Engine, or Cheat Engine must run with elevated rights. Scanning, memory browsing and debugging this process will not work until that is granted.</source>
@@ -361,7 +381,7 @@ Linux only lets a program read another process&apos;s memory if it is allowed to
 Linux 只允许程序在获准 ptrace 另一个进程时读取其内存。当 kernel.yama.ptrace_scope = %3 时，目标必须是 Cheat Engine 的子进程，或者 Cheat Engine 必须以提升的权限运行。在获得该权限之前，扫描、内存浏览和调试此进程都将无法工作。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2913"/>
+        <location filename="../gui/mainwindow.cpp" line="2930"/>
         <source>&quot;Grant access&quot; will ask for your password (via pkexec) and set it up for you. Or do it manually:
   • Persistent, per-binary:  sudo setcap cap_sys_ptrace+ep %1
   • Whole system, until reboot:  sudo sysctl kernel.yama.ptrace_scope=0</source>
@@ -370,27 +390,27 @@ Linux 只允许程序在获准 ptrace 另一个进程时读取其内存。当 ke
   • 整个系统，直至重启：  sudo sysctl kernel.yama.ptrace_scope=0</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2924"/>
+        <location filename="../gui/mainwindow.cpp" line="2941"/>
         <source>Grant access…</source>
         <translation>授予访问权限…</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4434"/>
+        <location filename="../gui/mainwindow.cpp" line="4459"/>
         <source>Cheat Tables (*.ct *.CT);;JSON Tables (*.json *.JSON);;All Files (*)</source>
         <translation>作弊表格 (*.ct *.CT);;JSON 表格 (*.json *.JSON);;所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5889"/>
+        <location filename="../gui/mainwindow.cpp" line="5915"/>
         <source>Scan value</source>
         <translation>扫描数值</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5890"/>
+        <location filename="../gui/mainwindow.cpp" line="5916"/>
         <source>Enter a value for this scan.</source>
         <translation>请输入用于此扫描的数值。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5891"/>
+        <location filename="../gui/mainwindow.cpp" line="5917"/>
         <source>&quot;%1&quot; is not a number (or does not fit in 64 bits).</source>
         <translation>“%1”不是数字（或超出 64 位范围）。</translation>
     </message>
@@ -434,52 +454,42 @@ Linux 只允许程序在获准 ptrace 另一个进程时读取其内存。当 ke
 <context>
     <name>SettingsDialog</name>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="108"/>
+        <location filename="../gui/settingsdialog.cpp" line="107"/>
         <source>byte</source>
         <translation>字节</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="109"/>
+        <location filename="../gui/settingsdialog.cpp" line="108"/>
         <source>bytes</source>
         <translation>字节</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="110"/>
+        <location filename="../gui/settingsdialog.cpp" line="109"/>
         <source>%1 %2</source>
         <translation>%1 %2</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="131"/>
-        <source>Language</source>
-        <translation>语言</translation>
-    </message>
-    <message>
-        <location filename="../gui/settingsdialog.cpp" line="132"/>
-        <source>Cheat Engine could not restart itself. Start it again to apply the language.</source>
-        <translation>Cheat Engine 无法自行重启，请手动启动以应用新的语言。</translation>
-    </message>
-    <message>
-        <location filename="../gui/settingsdialog.cpp" line="405"/>
+        <location filename="../gui/settingsdialog.cpp" line="387"/>
         <source>Using %1 from the environment.</source>
         <translation>使用环境变量中的 %1。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="415"/>
+        <location filename="../gui/settingsdialog.cpp" line="397"/>
         <source>A key is saved in the system keyring.</source>
         <translation>密钥已保存在系统密钥环中。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="417"/>
+        <location filename="../gui/settingsdialog.cpp" line="399"/>
         <source>A key is set until Cheat Engine closes (no keyring was available).</source>
         <translation>密钥仅在 Cheat Engine 关闭前有效（没有可用的密钥环）。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="420"/>
+        <location filename="../gui/settingsdialog.cpp" line="402"/>
         <source>No key yet. Create one at console.anthropic.com.</source>
         <translation>尚无密钥。请在 console.anthropic.com 创建。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="422"/>
+        <location filename="../gui/settingsdialog.cpp" line="404"/>
         <source>No key set; local servers usually need none.</source>
         <translation>未设置密钥；本地服务器通常不需要。</translation>
     </message>
@@ -564,94 +574,94 @@ Linux 只允许程序在获准 ptrace 另一个进程时读取其内存。当 ke
 <context>
     <name>ce::gui::AddressListModel</name>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5700"/>
+        <location filename="../gui/mainwindow.cpp" line="5726"/>
         <source>Auto Assembler script</source>
         <translation>自动汇编脚本</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5703"/>
+        <location filename="../gui/mainwindow.cpp" line="5729"/>
         <source>(Auto Assembler script)</source>
         <translation>（自动汇编脚本）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="6094"/>
+        <location filename="../gui/mainwindow.cpp" line="6120"/>
         <source>Table format</source>
         <translation>表格格式</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="6094"/>
+        <location filename="../gui/mainwindow.cpp" line="6120"/>
         <source>Invalid record data order or pointer size.</source>
         <translation>记录数据字节序或指针大小无效。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="6368"/>
-        <location filename="../gui/mainwindow.cpp" line="6413"/>
-        <location filename="../gui/mainwindow.cpp" line="7065"/>
-        <location filename="../gui/mainwindow.cpp" line="7069"/>
-        <location filename="../gui/mainwindow.cpp" line="7073"/>
-        <location filename="../gui/mainwindow.cpp" line="7086"/>
-        <location filename="../gui/mainwindow.cpp" line="7090"/>
+        <location filename="../gui/mainwindow.cpp" line="6394"/>
+        <location filename="../gui/mainwindow.cpp" line="6439"/>
+        <location filename="../gui/mainwindow.cpp" line="7091"/>
+        <location filename="../gui/mainwindow.cpp" line="7095"/>
+        <location filename="../gui/mainwindow.cpp" line="7099"/>
+        <location filename="../gui/mainwindow.cpp" line="7112"/>
+        <location filename="../gui/mainwindow.cpp" line="7116"/>
         <source>Value edit failed</source>
         <translation>数值编辑失败</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="6504"/>
+        <location filename="../gui/mainwindow.cpp" line="6530"/>
         <source>Process required</source>
         <translation>需要进程</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="6505"/>
+        <location filename="../gui/mainwindow.cpp" line="6531"/>
         <source>Open a process before activating this auto-assembler record.</source>
         <translation>请先打开进程再激活此自动汇编记录。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="6530"/>
+        <location filename="../gui/mainwindow.cpp" line="6556"/>
         <source>Auto-assembler activation failed</source>
         <translation>自动汇编激活失败</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="6530"/>
+        <location filename="../gui/mainwindow.cpp" line="6556"/>
         <source>Auto-assembler deactivation failed</source>
         <translation>自动汇编停用失败</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="6552"/>
+        <location filename="../gui/mainwindow.cpp" line="6578"/>
         <source>Freeze failed</source>
         <translation>冻结失败</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="6552"/>
+        <location filename="../gui/mainwindow.cpp" line="6578"/>
         <source>The value cannot be read right now, so there is nothing to freeze.</source>
         <translation>当前无法读取数值，因此没有可冻结的内容。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="6716"/>
+        <location filename="../gui/mainwindow.cpp" line="6742"/>
         <source>Active</source>
         <translation>启用</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="6717"/>
+        <location filename="../gui/mainwindow.cpp" line="6743"/>
         <source>Description</source>
         <translation>描述</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="6718"/>
+        <location filename="../gui/mainwindow.cpp" line="6744"/>
         <source>Address</source>
         <translation>地址</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="6719"/>
+        <location filename="../gui/mainwindow.cpp" line="6745"/>
         <source>Type</source>
         <translation>类型</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="6720"/>
+        <location filename="../gui/mainwindow.cpp" line="6746"/>
         <source>Value</source>
         <translation>数值</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="7065"/>
-        <location filename="../gui/mainwindow.cpp" line="7086"/>
+        <location filename="../gui/mainwindow.cpp" line="7091"/>
+        <location filename="../gui/mainwindow.cpp" line="7112"/>
         <source>The pointer path does not resolve right now.</source>
         <translation>指针路径当前无法解析。</translation>
     </message>
@@ -3212,758 +3222,758 @@ Applying it will grow the file (zero-filling the gap). Continue?</source>
 <context>
     <name>ce::gui::MainWindow</name>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="229"/>
+        <location filename="../gui/mainwindow.cpp" line="246"/>
         <source>Select file</source>
         <translation>选择文件</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="230"/>
+        <location filename="../gui/mainwindow.cpp" line="247"/>
         <source>Select file for %1</source>
         <translation>选择 %1 的文件</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="253"/>
-        <location filename="../gui/mainwindow.cpp" line="255"/>
+        <location filename="../gui/mainwindow.cpp" line="270"/>
+        <location filename="../gui/mainwindow.cpp" line="272"/>
         <source>GDB target disconnected or exited</source>
         <translation>GDB 目标已断开或已退出</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="265"/>
-        <location filename="../gui/mainwindow.cpp" line="267"/>
+        <location filename="../gui/mainwindow.cpp" line="282"/>
+        <location filename="../gui/mainwindow.cpp" line="284"/>
         <source>ceserver connection lost</source>
         <translation>ceserver 连接已丢失</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="266"/>
+        <location filename="../gui/mainwindow.cpp" line="283"/>
         <source>Connect again with File &gt; Connect to ceserver.</source>
         <translation>请使用“文件 &gt; 连接到 ceserver”重新连接。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="281"/>
+        <location filename="../gui/mainwindow.cpp" line="298"/>
         <source>Process %1 has exited</source>
         <translation>进程 %1 已退出</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="282"/>
+        <location filename="../gui/mainwindow.cpp" line="299"/>
         <source>Open another process with Ctrl+O.</source>
         <translation>使用 Ctrl+O 打开另一个进程。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="283"/>
+        <location filename="../gui/mainwindow.cpp" line="300"/>
         <source>Target process exited</source>
         <translation>目标进程已退出</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="357"/>
+        <location filename="../gui/mainwindow.cpp" line="374"/>
         <source>&amp;File</source>
         <translation>文件(&amp;F)</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="358"/>
+        <location filename="../gui/mainwindow.cpp" line="375"/>
         <source>Clear scan results</source>
         <translation>清除扫描结果</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="361"/>
-        <location filename="../gui/mainwindow.cpp" line="436"/>
+        <location filename="../gui/mainwindow.cpp" line="378"/>
+        <location filename="../gui/mainwindow.cpp" line="453"/>
         <source>Open Process...</source>
         <translation>打开进程...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="363"/>
-        <location filename="../gui/mainwindow.cpp" line="596"/>
-        <location filename="../gui/mainwindow.cpp" line="601"/>
-        <location filename="../gui/mainwindow.cpp" line="607"/>
-        <location filename="../gui/mainwindow.cpp" line="610"/>
+        <location filename="../gui/mainwindow.cpp" line="380"/>
         <location filename="../gui/mainwindow.cpp" line="613"/>
+        <location filename="../gui/mainwindow.cpp" line="618"/>
+        <location filename="../gui/mainwindow.cpp" line="624"/>
+        <location filename="../gui/mainwindow.cpp" line="627"/>
+        <location filename="../gui/mainwindow.cpp" line="630"/>
         <source>Save</source>
         <translation>保存</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="364"/>
+        <location filename="../gui/mainwindow.cpp" line="381"/>
         <source>Save As...</source>
         <translation>另存为...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="365"/>
+        <location filename="../gui/mainwindow.cpp" line="382"/>
         <source>Load...</source>
         <translation>加载...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="366"/>
+        <location filename="../gui/mainwindow.cpp" line="383"/>
         <source>Load Recent</source>
         <translation>最近加载</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="370"/>
+        <location filename="../gui/mainwindow.cpp" line="387"/>
         <source>Save scan results...</source>
         <translation>保存扫描结果...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="373"/>
+        <location filename="../gui/mainwindow.cpp" line="390"/>
         <source>Generate Trainer Lua Script...</source>
         <translation>生成修改器 Lua 脚本...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="375"/>
+        <location filename="../gui/mainwindow.cpp" line="392"/>
         <source>Connect to ceserver...</source>
         <translation>连接到 ceserver...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="376"/>
+        <location filename="../gui/mainwindow.cpp" line="393"/>
         <source>Connect to GDB / QEMU...</source>
         <translation>连接到 GDB / QEMU...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="377"/>
+        <location filename="../gui/mainwindow.cpp" line="394"/>
         <source>Disconnect target</source>
         <translation>断开目标连接</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="379"/>
+        <location filename="../gui/mainwindow.cpp" line="396"/>
         <source>Quit</source>
         <translation>退出</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="384"/>
+        <location filename="../gui/mainwindow.cpp" line="401"/>
         <source>&amp;Edit</source>
         <translation>编辑(&amp;E)</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="385"/>
+        <location filename="../gui/mainwindow.cpp" line="402"/>
         <source>&amp;Process</source>
         <translation>进程(&amp;P)</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="386"/>
+        <location filename="../gui/mainwindow.cpp" line="403"/>
         <source>Table</source>
         <translation>表格</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="390"/>
+        <location filename="../gui/mainwindow.cpp" line="407"/>
         <source>&amp;Tools</source>
         <translation>工具(&amp;T)</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="391"/>
+        <location filename="../gui/mainwindow.cpp" line="408"/>
         <source>.Net</source>
         <translation>.Net</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="393"/>
-        <location filename="../gui/mainwindow.cpp" line="5431"/>
+        <location filename="../gui/mainwindow.cpp" line="410"/>
+        <location filename="../gui/mainwindow.cpp" line="5457"/>
         <source>Mono dissector...</source>
         <translation>Mono 反汇编器...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="399"/>
+        <location filename="../gui/mainwindow.cpp" line="416"/>
         <source>Show Cheat Table Lua Script</source>
         <translation>显示表格 Lua 脚本</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="402"/>
+        <location filename="../gui/mainwindow.cpp" line="419"/>
         <source>Create Form...</source>
         <translation>创建窗体...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="413"/>
+        <location filename="../gui/mainwindow.cpp" line="430"/>
         <source>Memory Viewer...</source>
         <translation>内存查看器...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="414"/>
-        <location filename="../gui/mainwindow.cpp" line="5126"/>
+        <location filename="../gui/mainwindow.cpp" line="431"/>
+        <location filename="../gui/mainwindow.cpp" line="5151"/>
         <source>AI Assistant</source>
         <translation>AI 助手</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="422"/>
-        <location filename="../gui/mainwindow.cpp" line="541"/>
-        <location filename="../gui/mainwindow.cpp" line="5381"/>
-        <location filename="../gui/mainwindow.cpp" line="5387"/>
+        <location filename="../gui/mainwindow.cpp" line="439"/>
+        <location filename="../gui/mainwindow.cpp" line="558"/>
+        <location filename="../gui/mainwindow.cpp" line="5407"/>
+        <location filename="../gui/mainwindow.cpp" line="5413"/>
         <source>Auto Assemble...</source>
         <translation>自动汇编...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="426"/>
-        <location filename="../gui/mainwindow.cpp" line="1602"/>
-        <location filename="../gui/mainwindow.cpp" line="1630"/>
+        <location filename="../gui/mainwindow.cpp" line="443"/>
+        <location filename="../gui/mainwindow.cpp" line="1619"/>
+        <location filename="../gui/mainwindow.cpp" line="1647"/>
         <source>Add Address</source>
         <translation>添加地址</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="427"/>
+        <location filename="../gui/mainwindow.cpp" line="444"/>
         <source>Add Address...</source>
         <translation>添加地址...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="428"/>
-        <location filename="../gui/mainwindow.cpp" line="2586"/>
+        <location filename="../gui/mainwindow.cpp" line="445"/>
+        <location filename="../gui/mainwindow.cpp" line="2603"/>
         <source>Add Group</source>
         <translation>添加分组</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="430"/>
+        <location filename="../gui/mainwindow.cpp" line="447"/>
         <source>Enable all entries</source>
         <translation>启用所有条目</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="431"/>
+        <location filename="../gui/mainwindow.cpp" line="448"/>
         <source>Disable all entries</source>
         <translation>禁用所有条目</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="433"/>
+        <location filename="../gui/mainwindow.cpp" line="450"/>
         <source>Settings...</source>
         <translation>设置...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="440"/>
+        <location filename="../gui/mainwindow.cpp" line="457"/>
         <source>Create Process...</source>
         <translation>创建进程...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="441"/>
+        <location filename="../gui/mainwindow.cpp" line="458"/>
         <source>Open file as process</source>
         <translation>作为进程打开文件</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="441"/>
+        <location filename="../gui/mainwindow.cpp" line="458"/>
         <source>Executables (*)</source>
         <translation>可执行文件 (*)</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="450"/>
+        <location filename="../gui/mainwindow.cpp" line="467"/>
         <source>Create Process</source>
         <translation>创建进程</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="450"/>
+        <location filename="../gui/mainwindow.cpp" line="467"/>
         <source>fork() failed.</source>
         <translation>fork() 失败。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="456"/>
+        <location filename="../gui/mainwindow.cpp" line="473"/>
         <source>Process/System Info</source>
         <translation>进程/系统信息</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="458"/>
+        <location filename="../gui/mainwindow.cpp" line="475"/>
         <source>Process and System Info</source>
         <translation>进程与系统信息</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="478"/>
+        <location filename="../gui/mainwindow.cpp" line="495"/>
         <source>Process</source>
         <translation>进程</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="480"/>
+        <location filename="../gui/mainwindow.cpp" line="497"/>
         <source>No process is open. Use File &gt; Open Process.</source>
         <translation>当前没有打开的进程。请使用“文件 &gt; 打开进程”。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="484"/>
+        <location filename="../gui/mainwindow.cpp" line="501"/>
         <source>Name:</source>
         <translation>名称：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="485"/>
-        <location filename="../gui/mainwindow.cpp" line="3194"/>
+        <location filename="../gui/mainwindow.cpp" line="502"/>
+        <location filename="../gui/mainwindow.cpp" line="3211"/>
         <source>PID:</source>
         <translation>PID：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="486"/>
+        <location filename="../gui/mainwindow.cpp" line="503"/>
         <source>Executable:</source>
         <translation>可执行文件：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="486"/>
+        <location filename="../gui/mainwindow.cpp" line="503"/>
         <source>(unknown)</source>
         <translation>（未知）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="488"/>
+        <location filename="../gui/mainwindow.cpp" line="505"/>
         <source>Kind:</source>
         <translation>类型：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="489"/>
+        <location filename="../gui/mainwindow.cpp" line="506"/>
         <source>Program:</source>
         <translation>程序：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="489"/>
+        <location filename="../gui/mainwindow.cpp" line="506"/>
         <source>%1, %2-byte pointers, %3</source>
         <translation>%1，%2 字节指针，%3</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="492"/>
+        <location filename="../gui/mainwindow.cpp" line="509"/>
         <source>Modules:</source>
         <translation>模块：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="493"/>
+        <location filename="../gui/mainwindow.cpp" line="510"/>
         <source>Threads:</source>
         <translation>线程：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="495"/>
+        <location filename="../gui/mainwindow.cpp" line="512"/>
         <source>System</source>
         <translation>系统</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="497"/>
+        <location filename="../gui/mainwindow.cpp" line="514"/>
         <source>Kernel:</source>
         <translation>内核：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="498"/>
+        <location filename="../gui/mainwindow.cpp" line="515"/>
         <source>CPUs:</source>
         <translation>CPU：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="499"/>
+        <location filename="../gui/mainwindow.cpp" line="516"/>
         <source>not present (Yama disabled)</source>
         <translation>不存在（Yama 已禁用）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="511"/>
+        <location filename="../gui/mainwindow.cpp" line="528"/>
         <source>ptrace scope:</source>
         <translation>ptrace 范围：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="512"/>
+        <location filename="../gui/mainwindow.cpp" line="529"/>
         <source>Qt:</source>
         <translation>Qt：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="521"/>
+        <location filename="../gui/mainwindow.cpp" line="538"/>
         <source>Pause the process</source>
         <translation>暂停进程</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="528"/>
+        <location filename="../gui/mainwindow.cpp" line="545"/>
         <source>Pause requires a live local process target</source>
         <translation>暂停需要活动的本地进程目标</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="535"/>
+        <location filename="../gui/mainwindow.cpp" line="552"/>
         <source>Pause target while scanning</source>
         <translation>扫描时暂停目标</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="537"/>
+        <location filename="../gui/mainwindow.cpp" line="554"/>
         <source>Suspend the target during each First/Next Scan so its memory is a consistent snapshot, then resume it.</source>
         <translation>在每次首次/再次扫描期间挂起目标，使其内存保持一致快照，然后恢复。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="561"/>
+        <location filename="../gui/mainwindow.cpp" line="578"/>
         <source>File Patcher...</source>
         <translation>文件修补器...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="567"/>
+        <location filename="../gui/mainwindow.cpp" line="584"/>
         <source>Save Memory Region...</source>
         <translation>保存内存区域...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="568"/>
-        <location filename="../gui/mainwindow.cpp" line="570"/>
+        <location filename="../gui/mainwindow.cpp" line="585"/>
+        <location filename="../gui/mainwindow.cpp" line="587"/>
         <source>Save Memory Region</source>
         <translation>保存内存区域</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="568"/>
-        <location filename="../gui/mainwindow.cpp" line="622"/>
-        <location filename="../gui/mainwindow.cpp" line="703"/>
-        <location filename="../gui/mainwindow.cpp" line="840"/>
-        <location filename="../gui/mainwindow.cpp" line="1053"/>
-        <location filename="../gui/mainwindow.cpp" line="4994"/>
-        <location filename="../gui/mainwindow.cpp" line="5028"/>
-        <location filename="../gui/mainwindow.cpp" line="5407"/>
-        <location filename="../gui/mainwindow.cpp" line="5426"/>
+        <location filename="../gui/mainwindow.cpp" line="585"/>
+        <location filename="../gui/mainwindow.cpp" line="639"/>
+        <location filename="../gui/mainwindow.cpp" line="720"/>
+        <location filename="../gui/mainwindow.cpp" line="857"/>
+        <location filename="../gui/mainwindow.cpp" line="1070"/>
+        <location filename="../gui/mainwindow.cpp" line="5019"/>
+        <location filename="../gui/mainwindow.cpp" line="5053"/>
+        <location filename="../gui/mainwindow.cpp" line="5433"/>
+        <location filename="../gui/mainwindow.cpp" line="5452"/>
         <source>Open a process first.</source>
         <translation>请先打开一个进程。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="573"/>
+        <location filename="../gui/mainwindow.cpp" line="590"/>
         <source>Save a range of the target&apos;s memory to a file (up to 64 MiB). Addresses are hexadecimal; To is exclusive.</source>
         <translation>将目标内存的一段保存到文件（最多 64 MiB）。地址为十六进制，结束地址不包含在内。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="585"/>
+        <location filename="../gui/mainwindow.cpp" line="602"/>
         <source>e.g. 7f3a00000000</source>
         <translation>例如 7f3a00000000</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="586"/>
+        <location filename="../gui/mainwindow.cpp" line="603"/>
         <source>e.g. 7f3a00001000</source>
         <translation>例如 7f3a00001000</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="587"/>
-        <location filename="../gui/mainwindow.cpp" line="1780"/>
+        <location filename="../gui/mainwindow.cpp" line="604"/>
+        <location filename="../gui/mainwindow.cpp" line="1797"/>
         <source>From:</source>
         <translation>起始地址：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="588"/>
-        <location filename="../gui/mainwindow.cpp" line="1785"/>
+        <location filename="../gui/mainwindow.cpp" line="605"/>
+        <location filename="../gui/mainwindow.cpp" line="1802"/>
         <source>To:</source>
         <translation>结束地址：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="596"/>
+        <location filename="../gui/mainwindow.cpp" line="613"/>
         <source>&quot;To&quot; must be greater than &quot;From&quot;.</source>
         <translation>“To”必须大于“From”。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="601"/>
+        <location filename="../gui/mainwindow.cpp" line="618"/>
         <source>Region too large (max 64 MiB).</source>
         <translation>区域过大（最大 64 MiB）。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="604"/>
+        <location filename="../gui/mainwindow.cpp" line="621"/>
         <source>Save memory region</source>
         <translation>保存内存区域</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="607"/>
-        <location filename="../gui/mainwindow.cpp" line="722"/>
-        <location filename="../gui/mainwindow.cpp" line="852"/>
-        <location filename="../gui/mainwindow.cpp" line="979"/>
+        <location filename="../gui/mainwindow.cpp" line="624"/>
+        <location filename="../gui/mainwindow.cpp" line="739"/>
+        <location filename="../gui/mainwindow.cpp" line="869"/>
+        <location filename="../gui/mainwindow.cpp" line="996"/>
         <source>The process is no longer open.</source>
         <translation>该进程已不再处于打开状态。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="610"/>
+        <location filename="../gui/mainwindow.cpp" line="627"/>
         <source>Could not read that region.</source>
         <translation>无法读取该区域。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="613"/>
+        <location filename="../gui/mainwindow.cpp" line="630"/>
         <source>Could not write %1.</source>
         <translation>无法写入 %1。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="614"/>
-        <location filename="../gui/mainwindow.cpp" line="869"/>
+        <location filename="../gui/mainwindow.cpp" line="631"/>
+        <location filename="../gui/mainwindow.cpp" line="886"/>
         <source>Saved</source>
         <translation>已保存</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="614"/>
+        <location filename="../gui/mainwindow.cpp" line="631"/>
         <source>Wrote %1 to %2.</source>
         <translation>已将 %1 写入 %2。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="621"/>
+        <location filename="../gui/mainwindow.cpp" line="638"/>
         <source>Memory Allocations...</source>
         <translation>内存分配...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="622"/>
-        <location filename="../gui/mainwindow.cpp" line="624"/>
+        <location filename="../gui/mainwindow.cpp" line="639"/>
+        <location filename="../gui/mainwindow.cpp" line="641"/>
         <source>Memory Allocations</source>
         <translation>内存分配</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="628"/>
+        <location filename="../gui/mainwindow.cpp" line="645"/>
         <source>Memory reserved in the target from here (readable, writable and executable). Double-click a block to browse it.</source>
         <translation>从这里开始在目标中保留的内存（可读、可写、可执行）。双击某个块即可浏览它。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="635"/>
+        <location filename="../gui/mainwindow.cpp" line="652"/>
         <source>No blocks allocated yet.
 Click Allocate to reserve memory in the target.</source>
         <translation>尚未分配任何块。
 点击“分配”以在目标中保留内存。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="644"/>
-        <location filename="../gui/mainwindow.cpp" line="655"/>
-        <location filename="../gui/mainwindow.cpp" line="659"/>
+        <location filename="../gui/mainwindow.cpp" line="661"/>
+        <location filename="../gui/mainwindow.cpp" line="672"/>
+        <location filename="../gui/mainwindow.cpp" line="676"/>
         <source>Allocate</source>
         <translation>分配</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="645"/>
-        <location filename="../gui/mainwindow.cpp" line="670"/>
+        <location filename="../gui/mainwindow.cpp" line="662"/>
+        <location filename="../gui/mainwindow.cpp" line="687"/>
         <source>Free</source>
         <translation>释放</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="646"/>
+        <location filename="../gui/mainwindow.cpp" line="663"/>
         <source>Free the selected block</source>
         <translation>释放选中的块</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="649"/>
-        <location filename="../gui/mainwindow.cpp" line="790"/>
-        <location filename="../gui/mainwindow.cpp" line="831"/>
-        <location filename="../gui/mainwindow.cpp" line="1204"/>
-        <location filename="../gui/mainwindow.cpp" line="1227"/>
-        <location filename="../gui/mainwindow.cpp" line="1258"/>
-        <location filename="../gui/mainwindow.cpp" line="1311"/>
-        <location filename="../gui/mainwindow.cpp" line="4874"/>
+        <location filename="../gui/mainwindow.cpp" line="666"/>
+        <location filename="../gui/mainwindow.cpp" line="807"/>
+        <location filename="../gui/mainwindow.cpp" line="848"/>
+        <location filename="../gui/mainwindow.cpp" line="1221"/>
+        <location filename="../gui/mainwindow.cpp" line="1244"/>
+        <location filename="../gui/mainwindow.cpp" line="1275"/>
+        <location filename="../gui/mainwindow.cpp" line="1328"/>
+        <location filename="../gui/mainwindow.cpp" line="4899"/>
         <source>Close</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="655"/>
+        <location filename="../gui/mainwindow.cpp" line="672"/>
         <source>Size (bytes):</source>
         <translation>大小（字节）：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="659"/>
+        <location filename="../gui/mainwindow.cpp" line="676"/>
         <source>Could not allocate %1 in the target: %2</source>
         <translation>无法在目标中分配 %1：%2</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="670"/>
+        <location filename="../gui/mainwindow.cpp" line="687"/>
         <source>Could not free the block: %1</source>
         <translation>无法释放该块：%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="685"/>
+        <location filename="../gui/mainwindow.cpp" line="702"/>
         <source>Generate Trainer (executable)...</source>
         <translation>生成修改器（可执行文件）...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="686"/>
+        <location filename="../gui/mainwindow.cpp" line="703"/>
         <source>Generate Trainer executable</source>
         <translation>生成修改器可执行文件</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="693"/>
+        <location filename="../gui/mainwindow.cpp" line="710"/>
         <source>Trainer executable written to %1</source>
         <translation>修改器可执行文件已写入 %1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="695"/>
-        <location filename="../gui/mainwindow.cpp" line="697"/>
+        <location filename="../gui/mainwindow.cpp" line="712"/>
+        <location filename="../gui/mainwindow.cpp" line="714"/>
         <source>Generate Trainer</source>
         <translation>生成修改器</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="702"/>
+        <location filename="../gui/mainwindow.cpp" line="719"/>
         <source>Structure Spider...</source>
         <translation>结构搜索器...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="703"/>
-        <location filename="../gui/mainwindow.cpp" line="712"/>
-        <location filename="../gui/mainwindow.cpp" line="719"/>
-        <location filename="../gui/mainwindow.cpp" line="722"/>
+        <location filename="../gui/mainwindow.cpp" line="720"/>
+        <location filename="../gui/mainwindow.cpp" line="729"/>
+        <location filename="../gui/mainwindow.cpp" line="736"/>
+        <location filename="../gui/mainwindow.cpp" line="739"/>
         <source>Structure Spider</source>
         <translation>结构搜索器</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="713"/>
+        <location filename="../gui/mainwindow.cpp" line="730"/>
         <source>Address of the value to find pointer paths to (hex):</source>
         <translation>要查找指针路径的数值地址（十六进制）：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="719"/>
+        <location filename="../gui/mainwindow.cpp" line="736"/>
         <source>&quot;%1&quot; is not a hexadecimal address.</source>
         <translation>“%1”不是十六进制地址。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="736"/>
+        <location filename="../gui/mainwindow.cpp" line="753"/>
         <source>Structure spider</source>
         <translation>结构搜索器</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="742"/>
+        <location filename="../gui/mainwindow.cpp" line="759"/>
         <source>Searching for pointer paths to %1...</source>
         <translation>正在搜索指向 %1 的指针路径...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="755"/>
+        <location filename="../gui/mainwindow.cpp" line="772"/>
         <source>unexpected error</source>
         <translation>意外错误</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="760"/>
+        <location filename="../gui/mainwindow.cpp" line="777"/>
         <source>Dissect structure at target</source>
         <translation>在目标处解析结构</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="772"/>
-        <location filename="../gui/mainwindow.cpp" line="3204"/>
-        <location filename="../gui/mainwindow.cpp" line="4370"/>
+        <location filename="../gui/mainwindow.cpp" line="789"/>
+        <location filename="../gui/mainwindow.cpp" line="3221"/>
+        <location filename="../gui/mainwindow.cpp" line="4395"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="776"/>
+        <location filename="../gui/mainwindow.cpp" line="793"/>
         <source>Cancelling...</source>
         <translation>正在取消...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="784"/>
+        <location filename="../gui/mainwindow.cpp" line="801"/>
         <source>Searching for pointer paths to %1... %2%</source>
         <translation>正在搜索指向 %1 的指针路径... %2%</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="792"/>
+        <location filename="../gui/mainwindow.cpp" line="809"/>
         <source>The pointer scan failed: %1</source>
         <translation>指针扫描失败：%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="795"/>
+        <location filename="../gui/mainwindow.cpp" line="812"/>
         <source>Cancelled.</source>
         <translation>已取消。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="796"/>
+        <location filename="../gui/mainwindow.cpp" line="813"/>
         <source>%1 pointer path(s) to %2:</source>
         <translation>%1 条指向 %2 的指针路径：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="797"/>
+        <location filename="../gui/mainwindow.cpp" line="814"/>
         <source>(the scan stopped at a limit, so some paths may be missing)</source>
         <translation>（扫描因达到上限而停止，因此可能缺少部分路径）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="807"/>
+        <location filename="../gui/mainwindow.cpp" line="824"/>
         <source>Group Scan Generator...</source>
         <translation>分组扫描生成器...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="808"/>
-        <location filename="../gui/mainwindow.cpp" line="810"/>
-        <location filename="../gui/mainwindow.cpp" line="823"/>
+        <location filename="../gui/mainwindow.cpp" line="825"/>
+        <location filename="../gui/mainwindow.cpp" line="827"/>
+        <location filename="../gui/mainwindow.cpp" line="840"/>
         <source>Group Scan Generator</source>
         <translation>分组扫描生成器</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="808"/>
+        <location filename="../gui/mainwindow.cpp" line="825"/>
         <source>Run a scan and select results first.</source>
         <translation>请先运行扫描并选择结果。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="810"/>
+        <location filename="../gui/mainwindow.cpp" line="827"/>
         <source>Select two or more addresses in the scan results first (Ctrl+click or Shift+click). The generator builds a pattern from their offsets and values.</source>
         <translation>请先在扫描结果中选择两个或更多地址（Ctrl+单击或 Shift+单击）。生成器会根据它们的偏移和数值构建模式。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="825"/>
+        <location filename="../gui/mainwindow.cpp" line="842"/>
         <source>Grouped-scan pattern (offset:value, 4-byte):</source>
         <translation>分组扫描模式（偏移:数值，4 字节）：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="829"/>
-        <location filename="../gui/mainwindow.cpp" line="2149"/>
+        <location filename="../gui/mainwindow.cpp" line="846"/>
+        <location filename="../gui/mainwindow.cpp" line="2166"/>
         <source>Copy</source>
         <translation>复制</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="839"/>
+        <location filename="../gui/mainwindow.cpp" line="856"/>
         <source>Save Disassembly...</source>
         <translation>保存反汇编...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="840"/>
-        <location filename="../gui/mainwindow.cpp" line="842"/>
-        <location filename="../gui/mainwindow.cpp" line="845"/>
-        <location filename="../gui/mainwindow.cpp" line="850"/>
-        <location filename="../gui/mainwindow.cpp" line="852"/>
-        <location filename="../gui/mainwindow.cpp" line="855"/>
-        <location filename="../gui/mainwindow.cpp" line="858"/>
+        <location filename="../gui/mainwindow.cpp" line="857"/>
+        <location filename="../gui/mainwindow.cpp" line="859"/>
+        <location filename="../gui/mainwindow.cpp" line="862"/>
+        <location filename="../gui/mainwindow.cpp" line="867"/>
+        <location filename="../gui/mainwindow.cpp" line="869"/>
+        <location filename="../gui/mainwindow.cpp" line="872"/>
+        <location filename="../gui/mainwindow.cpp" line="875"/>
         <source>Save Disassembly</source>
         <translation>保存反汇编</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="842"/>
+        <location filename="../gui/mainwindow.cpp" line="859"/>
         <source>From (hex):</source>
         <translation>起始地址（十六进制）：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="845"/>
+        <location filename="../gui/mainwindow.cpp" line="862"/>
         <source>To (hex):</source>
         <translation>结束地址（十六进制）：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="850"/>
+        <location filename="../gui/mainwindow.cpp" line="867"/>
         <source>Invalid or too-large range.</source>
         <translation>范围无效或过大。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="855"/>
+        <location filename="../gui/mainwindow.cpp" line="872"/>
         <source>Could not read that range.</source>
         <translation>无法读取该范围。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="863"/>
+        <location filename="../gui/mainwindow.cpp" line="880"/>
         <source>Save disassembly</source>
         <translation>保存反汇编</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="869"/>
+        <location filename="../gui/mainwindow.cpp" line="886"/>
         <source>Wrote %1 instructions to %2.</source>
         <translation>已将 %1 条指令写入 %2。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="873"/>
+        <location filename="../gui/mainwindow.cpp" line="890"/>
         <source>Wait for process...</source>
         <translation>等待进程...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="875"/>
+        <location filename="../gui/mainwindow.cpp" line="892"/>
         <source>Wait for process</source>
         <translation>等待进程</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="876"/>
+        <location filename="../gui/mainwindow.cpp" line="893"/>
         <source>Name (or part of the name) of the program to wait for.
 Cheat Engine opens it as soon as it starts:</source>
         <translation>要等待的程序名称（或名称的一部分）。
 Cheat Engine 会在它启动时立即打开它：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="882"/>
+        <location filename="../gui/mainwindow.cpp" line="899"/>
         <source>Watching for &apos;%1&apos;…</source>
         <translation>正在监视“%1”…</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="891"/>
+        <location filename="../gui/mainwindow.cpp" line="908"/>
         <source>Snapshot</source>
         <translation>快照</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="895"/>
+        <location filename="../gui/mainwindow.cpp" line="912"/>
         <source>Capture writable regions</source>
         <translation>捕获可写区域</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="897"/>
-        <location filename="../gui/mainwindow.cpp" line="4994"/>
-        <location filename="../gui/mainwindow.cpp" line="5028"/>
-        <location filename="../gui/mainwindow.cpp" line="5407"/>
-        <location filename="../gui/mainwindow.cpp" line="5426"/>
+        <location filename="../gui/mainwindow.cpp" line="914"/>
+        <location filename="../gui/mainwindow.cpp" line="5019"/>
+        <location filename="../gui/mainwindow.cpp" line="5053"/>
+        <location filename="../gui/mainwindow.cpp" line="5433"/>
+        <location filename="../gui/mainwindow.cpp" line="5452"/>
         <source>No process</source>
         <translation>没有进程</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="897"/>
+        <location filename="../gui/mainwindow.cpp" line="914"/>
         <source>Open a process before capturing a snapshot.</source>
         <translation>请先打开进程再捕获快照。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="907"/>
+        <location filename="../gui/mainwindow.cpp" line="924"/>
         <source>Snapshot failed</source>
         <translation>快照失败</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="911"/>
+        <location filename="../gui/mainwindow.cpp" line="928"/>
         <source>Captured %1 region(s), %2 total.</source>
         <translation>已捕获 %1 个区域，共 %2。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="914"/>
+        <location filename="../gui/mainwindow.cpp" line="931"/>
         <source>
 
 The snapshot stopped at its %1 limit: writable memory after that point is not included.</source>
@@ -3972,43 +3982,43 @@ The snapshot stopped at its %1 limit: writable memory after that point is not in
 快照在达到 %1 上限时停止：该点之后的可写内存不包含在内。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="916"/>
+        <location filename="../gui/mainwindow.cpp" line="933"/>
         <source>Snapshot captured</source>
         <translation>已捕获快照</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="918"/>
+        <location filename="../gui/mainwindow.cpp" line="935"/>
         <source>Diff against current</source>
         <translation>与当前比较</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="920"/>
-        <location filename="../gui/mainwindow.cpp" line="970"/>
+        <location filename="../gui/mainwindow.cpp" line="937"/>
+        <location filename="../gui/mainwindow.cpp" line="987"/>
         <source>Need both</source>
         <translation>需要两者</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="920"/>
+        <location filename="../gui/mainwindow.cpp" line="937"/>
         <source>Capture a baseline snapshot first, then open a process.</source>
         <translation>请先捕获基线快照，然后打开进程。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="934"/>
+        <location filename="../gui/mainwindow.cpp" line="951"/>
         <source>Diff failed</source>
         <translation>比较失败</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="938"/>
+        <location filename="../gui/mainwindow.cpp" line="955"/>
         <source>Diff</source>
         <translation>比较</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="938"/>
+        <location filename="../gui/mainwindow.cpp" line="955"/>
         <source>No byte-level differences detected.</source>
         <translation>未检测到字节级差异。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="943"/>
+        <location filename="../gui/mainwindow.cpp" line="960"/>
         <source>1 byte changed since the baseline.
 
 </source>
@@ -4017,7 +4027,7 @@ The snapshot stopped at its %1 limit: writable memory after that point is not in
 </translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="944"/>
+        <location filename="../gui/mainwindow.cpp" line="961"/>
         <source>%1 bytes changed since the baseline.
 
 </source>
@@ -4026,54 +4036,54 @@ The snapshot stopped at its %1 limit: writable memory after that point is not in
 </translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="952"/>
+        <location filename="../gui/mainwindow.cpp" line="969"/>
         <source>
 (%1 more not shown.)</source>
         <translation>
 （另有 %1 条未显示。）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="955"/>
+        <location filename="../gui/mainwindow.cpp" line="972"/>
         <source>Snapshot Diff</source>
         <translation>快照比较</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="968"/>
+        <location filename="../gui/mainwindow.cpp" line="985"/>
         <source>Restore baseline</source>
         <translation>恢复基线</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="970"/>
+        <location filename="../gui/mainwindow.cpp" line="987"/>
         <source>Capture a baseline snapshot first.</source>
         <translation>请先捕获基线快照。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="973"/>
+        <location filename="../gui/mainwindow.cpp" line="990"/>
         <source>Restore?</source>
         <translation>恢复？</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="974"/>
+        <location filename="../gui/mainwindow.cpp" line="991"/>
         <source>Write the baseline back into the process? This overwrites the captured memory that is still mapped writable (%1 regions, %2).</source>
         <translation>要将基线写回进程吗？这会覆盖仍映射为可写的已捕获内存（%1 个区域，%2）。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="979"/>
+        <location filename="../gui/mainwindow.cpp" line="996"/>
         <source>Restore</source>
         <translation>恢复</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="986"/>
+        <location filename="../gui/mainwindow.cpp" line="1003"/>
         <source>Restore failed</source>
         <translation>恢复失败</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="989"/>
+        <location filename="../gui/mainwindow.cpp" line="1006"/>
         <source>Wrote %1 bytes back into the process.</source>
         <translation>已将 %1 字节写回进程。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="991"/>
+        <location filename="../gui/mainwindow.cpp" line="1008"/>
         <source>
 
 %1 bytes were skipped: that memory is no longer mapped, or is now read-only or executable.</source>
@@ -4082,280 +4092,280 @@ The snapshot stopped at its %1 limit: writable memory after that point is not in
 跳过了 %1 字节：该内存已不再映射，或现在为只读或可执行。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="993"/>
+        <location filename="../gui/mainwindow.cpp" line="1010"/>
         <source>Restored</source>
         <translation>已恢复</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="995"/>
+        <location filename="../gui/mainwindow.cpp" line="1012"/>
         <source>Save to file...</source>
         <translation>保存到文件...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="997"/>
+        <location filename="../gui/mainwindow.cpp" line="1014"/>
         <source>No snapshot</source>
         <translation>没有快照</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="997"/>
+        <location filename="../gui/mainwindow.cpp" line="1014"/>
         <source>Capture a snapshot first.</source>
         <translation>请先捕获快照。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1000"/>
+        <location filename="../gui/mainwindow.cpp" line="1017"/>
         <source>Save snapshot</source>
         <translation>保存快照</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1001"/>
-        <location filename="../gui/mainwindow.cpp" line="1009"/>
+        <location filename="../gui/mainwindow.cpp" line="1018"/>
+        <location filename="../gui/mainwindow.cpp" line="1026"/>
         <source>Snapshot (*.cesnap);;All (*)</source>
         <translation>快照 (*.cesnap);;所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1004"/>
+        <location filename="../gui/mainwindow.cpp" line="1021"/>
         <source>Save failed</source>
         <translation>保存失败</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1004"/>
+        <location filename="../gui/mainwindow.cpp" line="1021"/>
         <source>Could not write %1</source>
         <translation>无法写入 %1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1007"/>
+        <location filename="../gui/mainwindow.cpp" line="1024"/>
         <source>Load from file...</source>
         <translation>从文件加载...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1008"/>
+        <location filename="../gui/mainwindow.cpp" line="1025"/>
         <source>Load snapshot</source>
         <translation>加载快照</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1014"/>
+        <location filename="../gui/mainwindow.cpp" line="1031"/>
         <source>Load failed</source>
         <translation>加载失败</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1018"/>
+        <location filename="../gui/mainwindow.cpp" line="1035"/>
         <source>Snapshot loaded</source>
         <translation>快照已加载</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1019"/>
+        <location filename="../gui/mainwindow.cpp" line="1036"/>
         <source>Loaded %1 region(s), %2 bytes.</source>
         <translation>已加载 %1 个区域，%2 字节。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1023"/>
+        <location filename="../gui/mainwindow.cpp" line="1040"/>
         <source>Overlay...</source>
         <translation>覆盖层...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1024"/>
+        <location filename="../gui/mainwindow.cpp" line="1041"/>
         <source>Speedhack...</source>
         <translation>变速器...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1026"/>
+        <location filename="../gui/mainwindow.cpp" line="1043"/>
         <source>Speedhack</source>
         <translation>变速器</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1029"/>
+        <location filename="../gui/mainwindow.cpp" line="1046"/>
         <source>Scales the time the game sees. Apply loads the speedhack library into the process the first time.</source>
         <translation>缩放游戏所感受到的时间。首次应用时会把变速库加载到进程中。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1034"/>
+        <location filename="../gui/mainwindow.cpp" line="1051"/>
         <source>Speed</source>
         <translation>速度</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1053"/>
+        <location filename="../gui/mainwindow.cpp" line="1070"/>
         <source>Not applied yet.</source>
         <translation>尚未应用。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1056"/>
+        <location filename="../gui/mainwindow.cpp" line="1073"/>
         <source>Apply</source>
         <translation>应用</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1067"/>
+        <location filename="../gui/mainwindow.cpp" line="1084"/>
         <source>The speedhack works on local processes only.</source>
         <translation>变速器仅适用于本地进程。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1082"/>
+        <location filename="../gui/mainwindow.cpp" line="1099"/>
         <source>Inject failed: libspeedhack.so is not installed next to Cheat Engine.</source>
         <translation>注入失败：libspeedhack.so 未安装在 Cheat Engine 旁边。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1091"/>
+        <location filename="../gui/mainwindow.cpp" line="1108"/>
         <source>Inject failed: %1</source>
         <translation>注入失败：%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1096"/>
+        <location filename="../gui/mainwindow.cpp" line="1113"/>
         <source>Active: the game runs at %1×.</source>
         <translation>已激活：游戏以 %1× 速度运行。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1130"/>
+        <location filename="../gui/mainwindow.cpp" line="1147"/>
         <source>&amp;Help</source>
         <translation>帮助(&amp;H)</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1131"/>
+        <location filename="../gui/mainwindow.cpp" line="1148"/>
         <source>Cheat Engine Help</source>
         <translation>Cheat Engine 帮助</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1132"/>
+        <location filename="../gui/mainwindow.cpp" line="1149"/>
         <source>Cheat Engine for Linux: Help</source>
         <translation>Cheat Engine for Linux：帮助</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1135"/>
+        <location filename="../gui/mainwindow.cpp" line="1152"/>
         <source>Lua documentation</source>
         <translation>Lua 文档</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1136"/>
+        <location filename="../gui/mainwindow.cpp" line="1153"/>
         <source>Lua / Scripting documentation</source>
         <translation>Lua / 脚本文档</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1144"/>
+        <location filename="../gui/mainwindow.cpp" line="1161"/>
         <source>Tutorial not found</source>
         <translation>未找到教程</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1145"/>
+        <location filename="../gui/mainwindow.cpp" line="1162"/>
         <source>Could not start %1. It is installed next to cheatengine.</source>
         <translation>无法启动 %1。它安装在 cheatengine 旁边。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1147"/>
+        <location filename="../gui/mainwindow.cpp" line="1164"/>
         <source>Cheat Engine Tutorial...</source>
         <translation>Cheat Engine 教程...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1148"/>
+        <location filename="../gui/mainwindow.cpp" line="1165"/>
         <source>Graphical Tutorial...</source>
         <translation>图形教程...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1150"/>
+        <location filename="../gui/mainwindow.cpp" line="1167"/>
         <source>About</source>
         <translation>关于</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1151"/>
+        <location filename="../gui/mainwindow.cpp" line="1168"/>
         <source>About Cheat Engine for Linux</source>
         <translation>关于 Cheat Engine for Linux</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1152"/>
+        <location filename="../gui/mainwindow.cpp" line="1169"/>
         <source>&lt;h2 style=&apos;margin-bottom:2px&apos;&gt;Cheat Engine for Linux&lt;/h2&gt;&lt;p style=&apos;margin-top:0&apos;&gt;Version %1&lt;/p&gt;&lt;p&gt;A memory scanner, debugger and code injection tool for native Linux, Wine and Proton programs.&lt;/p&gt;&lt;p&gt;Built with Qt %2, Capstone, Keystone and Lua 5.3.&lt;br&gt;Free and open source under the MIT license.&lt;/p&gt;&lt;p&gt;&lt;a href=&apos;https://github.com/wleeaf/cheat-engine-linux&apos;&gt;github.com/wleeaf/cheat-engine-linux&lt;/a&gt;&lt;/p&gt;</source>
         <translation>&lt;h2 style=&apos;margin-bottom:2px&apos;&gt;Cheat Engine for Linux&lt;/h2&gt;&lt;p style=&apos;margin-top:0&apos;&gt;版本 %1&lt;/p&gt;&lt;p&gt;适用于原生 Linux、Wine 和 Proton 程序的内存扫描、调试与代码注入工具。&lt;/p&gt;&lt;p&gt;基于 Qt %2、Capstone、Keystone 和 Lua 5.3 构建。&lt;br&gt;以 MIT 许可证免费开源。&lt;/p&gt;&lt;p&gt;&lt;a href=&apos;https://github.com/wleeaf/cheat-engine-linux&apos;&gt;github.com/wleeaf/cheat-engine-linux&lt;/a&gt;&lt;/p&gt;</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1200"/>
+        <location filename="../gui/mainwindow.cpp" line="1217"/>
         <source>Open on GitHub</source>
         <translation>在 GitHub 上打开</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1216"/>
+        <location filename="../gui/mainwindow.cpp" line="1233"/>
         <source>Table Comments</source>
         <translation>表格注释</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1221"/>
+        <location filename="../gui/mainwindow.cpp" line="1238"/>
         <source>Notes about this cheat table: how to use it, what each entry does, which game version it was made for. They are saved with the table.</source>
         <translation>关于此作弊表格的备注：如何使用它、每个条目的作用，以及它是为哪个游戏版本制作的。这些备注会随表格一起保存。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1243"/>
+        <location filename="../gui/mainwindow.cpp" line="1260"/>
         <source>Cheat Table Lua Script</source>
         <translation>表格 Lua 脚本</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1248"/>
+        <location filename="../gui/mainwindow.cpp" line="1265"/>
         <source>-- Lua that runs when this table is opened; saved with the table.</source>
         <translation>-- 打开此表格时运行的 Lua；随表格一起保存。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1252"/>
+        <location filename="../gui/mainwindow.cpp" line="1269"/>
         <source>Execute script</source>
         <translation>执行脚本</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1273"/>
+        <location filename="../gui/mainwindow.cpp" line="1290"/>
         <source>Script executed.</source>
         <translation>脚本已执行。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1274"/>
+        <location filename="../gui/mainwindow.cpp" line="1291"/>
         <source>Error: %1</source>
         <translation>错误：%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1298"/>
+        <location filename="../gui/mainwindow.cpp" line="1315"/>
         <source>Overlay</source>
         <translation>覆盖层</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1301"/>
+        <location filename="../gui/mainwindow.cpp" line="1318"/>
         <source>A transparent, click-through layer drawn over the whole screen, for use with a game in borderless or windowed mode.</source>
         <translation>绘制在整个屏幕上的透明、可穿透点击的图层，用于无边框或窗口模式下的游戏。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1306"/>
+        <location filename="../gui/mainwindow.cpp" line="1323"/>
         <source>Status text (process, active cheats, frame rate)</source>
         <translation>状态文字（进程、已启用的作弊、帧率）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1307"/>
+        <location filename="../gui/mainwindow.cpp" line="1324"/>
         <source>Crosshair in the centre of the screen</source>
         <translation>屏幕中央的准星</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1308"/>
+        <location filename="../gui/mainwindow.cpp" line="1325"/>
         <source>Show Overlay</source>
         <translation>显示覆盖层</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1310"/>
+        <location filename="../gui/mainwindow.cpp" line="1327"/>
         <source>Hide Overlay</source>
         <translation>隐藏覆盖层</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1380"/>
+        <location filename="../gui/mainwindow.cpp" line="1397"/>
         <source>%1 | Records %2/%3 active</source>
         <translation>%1 | 记录 %2/%3 已启用</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1404"/>
+        <location filename="../gui/mainwindow.cpp" line="1421"/>
         <source>Open process</source>
         <translation>打开进程</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1430"/>
-        <location filename="../gui/mainwindow.cpp" line="3108"/>
+        <location filename="../gui/mainwindow.cpp" line="1447"/>
+        <location filename="../gui/mainwindow.cpp" line="3125"/>
         <source>No process selected</source>
         <translation>未选择进程</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1434"/>
-        <location filename="../gui/mainwindow.cpp" line="3108"/>
+        <location filename="../gui/mainwindow.cpp" line="1451"/>
+        <location filename="../gui/mainwindow.cpp" line="3125"/>
         <source>Press Ctrl+O or click the magnifier to choose a process.</source>
         <translation>按 Ctrl+O 或点击放大镜选择进程。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1471"/>
+        <location filename="../gui/mainwindow.cpp" line="1488"/>
         <source>No results yet.
 
 Enter a value and press First Scan,
@@ -4366,7 +4376,7 @@ or open a process with Ctrl+O.</source>
 或用 Ctrl+O 打开进程。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1484"/>
+        <location filename="../gui/mainwindow.cpp" line="1501"/>
         <source>No results yet.
 
 Enter a value and press First Scan.</source>
@@ -4375,7 +4385,7 @@ Enter a value and press First Scan.</source>
 输入数值后按“首次扫描”。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1485"/>
+        <location filename="../gui/mainwindow.cpp" line="1502"/>
         <source>No results yet.
 
 Open a process with Ctrl+O,
@@ -4386,645 +4396,645 @@ then enter a value and press First Scan.</source>
 然后输入数值并按“首次扫描”。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1513"/>
+        <location filename="../gui/mainwindow.cpp" line="1530"/>
         <source>Add %1 selected addresses to the address list</source>
         <translation>将选中的 %1 个地址添加到地址列表</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1514"/>
+        <location filename="../gui/mainwindow.cpp" line="1531"/>
         <source>Add selected address to the address list</source>
         <translation>将选中的地址添加到地址列表</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1515"/>
-        <location filename="../gui/mainwindow.cpp" line="2391"/>
+        <location filename="../gui/mainwindow.cpp" line="1532"/>
+        <location filename="../gui/mainwindow.cpp" line="2408"/>
         <source>Browse this memory region</source>
         <translation>浏览此内存区域</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1516"/>
+        <location filename="../gui/mainwindow.cpp" line="1533"/>
         <source>Disassemble this memory region</source>
         <translation>反汇编此内存区域</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1517"/>
+        <location filename="../gui/mainwindow.cpp" line="1534"/>
         <source>Copy %1 addresses</source>
         <translation>复制 %1 个地址</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1518"/>
+        <location filename="../gui/mainwindow.cpp" line="1535"/>
         <source>Copy address</source>
         <translation>复制地址</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1521"/>
+        <location filename="../gui/mainwindow.cpp" line="1538"/>
         <source>Remove %1 selected addresses from the results</source>
         <translation>从结果中移除选中的 %1 个地址</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1522"/>
+        <location filename="../gui/mainwindow.cpp" line="1539"/>
         <source>Remove selected address from the results</source>
         <translation>从结果中移除选中的地址</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1524"/>
+        <location filename="../gui/mainwindow.cpp" line="1541"/>
         <source>Find out what accesses this address</source>
         <translation>查找访问此地址的内容</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1525"/>
+        <location filename="../gui/mainwindow.cpp" line="1542"/>
         <source>Find out what writes to this address</source>
         <translation>查找写入此地址的内容</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1555"/>
+        <location filename="../gui/mainwindow.cpp" line="1572"/>
         <source>Remove from results</source>
         <translation>从结果中移除</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1588"/>
-        <location filename="../gui/mainwindow.cpp" line="3056"/>
-        <location filename="../gui/mainwindow.cpp" line="3089"/>
-        <location filename="../gui/mainwindow.cpp" line="3107"/>
-        <location filename="../gui/mainwindow.cpp" line="3495"/>
+        <location filename="../gui/mainwindow.cpp" line="1605"/>
+        <location filename="../gui/mainwindow.cpp" line="3073"/>
+        <location filename="../gui/mainwindow.cpp" line="3106"/>
+        <location filename="../gui/mainwindow.cpp" line="3124"/>
+        <location filename="../gui/mainwindow.cpp" line="3512"/>
         <source>Found: 0</source>
         <translation>已找到：0</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1591"/>
-        <location filename="../gui/mainwindow.cpp" line="1656"/>
+        <location filename="../gui/mainwindow.cpp" line="1608"/>
+        <location filename="../gui/mainwindow.cpp" line="1673"/>
         <source>Hex</source>
         <translation>十六进制</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1592"/>
+        <location filename="../gui/mainwindow.cpp" line="1609"/>
         <source>Show result values in hexadecimal</source>
         <translation>以十六进制显示结果数值</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1598"/>
+        <location filename="../gui/mainwindow.cpp" line="1615"/>
         <source>Memory View</source>
         <translation>内存视图</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1600"/>
+        <location filename="../gui/mainwindow.cpp" line="1617"/>
         <source>Browse the selected process&apos;s memory</source>
         <translation>浏览所选进程的内存</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1608"/>
+        <location filename="../gui/mainwindow.cpp" line="1625"/>
         <source>Add address</source>
         <translation>添加地址</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1626"/>
+        <location filename="../gui/mainwindow.cpp" line="1643"/>
         <source>Manual entry</source>
         <translation>手动输入</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1630"/>
+        <location filename="../gui/mainwindow.cpp" line="1647"/>
         <source>Could not resolve &quot;%1&quot;.</source>
         <translation>无法解析“%1”。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1644"/>
+        <location filename="../gui/mainwindow.cpp" line="1661"/>
         <source>Value:</source>
         <translation>数值：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1649"/>
+        <location filename="../gui/mainwindow.cpp" line="1666"/>
         <source>and</source>
         <translation>和</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1657"/>
+        <location filename="../gui/mainwindow.cpp" line="1674"/>
         <source>Interpret integer scan values as hexadecimal</source>
         <translation>将整数扫描数值按十六进制解释</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1664"/>
+        <location filename="../gui/mainwindow.cpp" line="1681"/>
         <source>Exact Value</source>
         <translation>精确数值</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1664"/>
+        <location filename="../gui/mainwindow.cpp" line="1681"/>
         <source>Bigger than...</source>
         <translation>大于...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1664"/>
+        <location filename="../gui/mainwindow.cpp" line="1681"/>
         <source>Smaller than...</source>
         <translation>小于...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1665"/>
+        <location filename="../gui/mainwindow.cpp" line="1682"/>
         <source>Value between...</source>
         <translation>数值介于...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1665"/>
+        <location filename="../gui/mainwindow.cpp" line="1682"/>
         <source>Unknown initial value</source>
         <translation>未知初始值</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1665"/>
+        <location filename="../gui/mainwindow.cpp" line="1682"/>
         <source>Increased value</source>
         <translation>增加的数值</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1666"/>
+        <location filename="../gui/mainwindow.cpp" line="1683"/>
         <source>Decreased value</source>
         <translation>减少的数值</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1666"/>
+        <location filename="../gui/mainwindow.cpp" line="1683"/>
         <source>Changed value</source>
         <translation>变化的数值</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1666"/>
+        <location filename="../gui/mainwindow.cpp" line="1683"/>
         <source>Unchanged value</source>
         <translation>未变化的数值</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1666"/>
+        <location filename="../gui/mainwindow.cpp" line="1683"/>
         <source>Same as first scan</source>
         <translation>与首次扫描相同</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1667"/>
+        <location filename="../gui/mainwindow.cpp" line="1684"/>
         <source>Increased value by...</source>
         <translation>数值增加了...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1667"/>
+        <location filename="../gui/mainwindow.cpp" line="1684"/>
         <source>Decreased value by...</source>
         <translation>数值减少了...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1703"/>
-        <location filename="../gui/mainwindow.cpp" line="2333"/>
+        <location filename="../gui/mainwindow.cpp" line="1720"/>
+        <location filename="../gui/mainwindow.cpp" line="2350"/>
         <source>Byte</source>
         <translation>字节</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1703"/>
-        <location filename="../gui/mainwindow.cpp" line="2333"/>
+        <location filename="../gui/mainwindow.cpp" line="1720"/>
+        <location filename="../gui/mainwindow.cpp" line="2350"/>
         <source>2 Bytes</source>
         <translation>2 字节</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1703"/>
-        <location filename="../gui/mainwindow.cpp" line="2334"/>
+        <location filename="../gui/mainwindow.cpp" line="1720"/>
+        <location filename="../gui/mainwindow.cpp" line="2351"/>
         <source>4 Bytes</source>
         <translation>4 字节</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1703"/>
-        <location filename="../gui/mainwindow.cpp" line="2334"/>
+        <location filename="../gui/mainwindow.cpp" line="1720"/>
+        <location filename="../gui/mainwindow.cpp" line="2351"/>
         <source>8 Bytes</source>
         <translation>8 字节</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1703"/>
-        <location filename="../gui/mainwindow.cpp" line="2335"/>
+        <location filename="../gui/mainwindow.cpp" line="1720"/>
+        <location filename="../gui/mainwindow.cpp" line="2352"/>
         <source>Float</source>
         <translation>浮点数</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1703"/>
-        <location filename="../gui/mainwindow.cpp" line="2335"/>
+        <location filename="../gui/mainwindow.cpp" line="1720"/>
+        <location filename="../gui/mainwindow.cpp" line="2352"/>
         <source>Double</source>
         <translation>双精度浮点数</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1703"/>
+        <location filename="../gui/mainwindow.cpp" line="1720"/>
         <source>String</source>
         <translation>字符串</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1703"/>
+        <location filename="../gui/mainwindow.cpp" line="1720"/>
         <source>Unicode String</source>
         <translation>Unicode 字符串</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1703"/>
+        <location filename="../gui/mainwindow.cpp" line="1720"/>
         <source>Array of byte</source>
         <translation>字节数组</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1703"/>
+        <location filename="../gui/mainwindow.cpp" line="1720"/>
         <source>Binary</source>
         <translation>二进制</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1703"/>
+        <location filename="../gui/mainwindow.cpp" line="1720"/>
         <source>All</source>
         <translation>全部</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1703"/>
-        <location filename="../gui/mainwindow.cpp" line="2336"/>
+        <location filename="../gui/mainwindow.cpp" line="1720"/>
+        <location filename="../gui/mainwindow.cpp" line="2353"/>
         <source>Pointer</source>
         <translation>指针</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1703"/>
+        <location filename="../gui/mainwindow.cpp" line="1720"/>
         <source>Grouped</source>
         <translation>分组</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1703"/>
+        <location filename="../gui/mainwindow.cpp" line="1720"/>
         <source>Custom</source>
         <translation>自定义</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1710"/>
+        <location filename="../gui/mainwindow.cpp" line="1727"/>
         <source>Exact uses stored precision. Rounded uses the precision of your input. Truncated compares integer parts. Extreme uses a tolerance.</source>
         <translation>精确使用存储的精度。取整使用输入值的精度。截断比较整数部分。极值使用容差。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1711"/>
+        <location filename="../gui/mainwindow.cpp" line="1728"/>
         <source>Exact</source>
         <translation>精确</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1711"/>
+        <location filename="../gui/mainwindow.cpp" line="1728"/>
         <source>Rounded</source>
         <translation>取整</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1711"/>
+        <location filename="../gui/mainwindow.cpp" line="1728"/>
         <source>Truncated</source>
         <translation>截断</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1711"/>
+        <location filename="../gui/mainwindow.cpp" line="1728"/>
         <source>Extreme</source>
         <translation>极值</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1715"/>
+        <location filename="../gui/mainwindow.cpp" line="1732"/>
         <source>Absolute difference allowed in Extreme mode. Leave blank or use 0 for automatic tolerance.</source>
         <translation>极值模式下允许的绝对差值。留空或使用 0 表示自动容差。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1716"/>
+        <location filename="../gui/mainwindow.cpp" line="1733"/>
         <source>Tolerance</source>
         <translation>容差</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1732"/>
-        <location filename="../gui/mainwindow.cpp" line="1741"/>
+        <location filename="../gui/mainwindow.cpp" line="1749"/>
+        <location filename="../gui/mainwindow.cpp" line="1758"/>
         <source>e.g. 100</source>
         <translation>例如 100</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1735"/>
+        <location filename="../gui/mainwindow.cpp" line="1752"/>
         <source>e.g. 3.14</source>
         <translation>例如 3.14</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1737"/>
+        <location filename="../gui/mainwindow.cpp" line="1754"/>
         <source>text to find</source>
         <translation>要查找的文本</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1738"/>
+        <location filename="../gui/mainwindow.cpp" line="1755"/>
         <source>e.g. 48 8B ?? 05</source>
         <translation>例如 48 8B ?? 05</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1739"/>
+        <location filename="../gui/mainwindow.cpp" line="1756"/>
         <source>e.g. 0110??01</source>
         <translation>例如 0110??01</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1740"/>
+        <location filename="../gui/mainwindow.cpp" line="1757"/>
         <source>e.g. 0x7fabc000</source>
         <translation>例如 0x7fabc000</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1753"/>
-        <location filename="../gui/mainwindow.cpp" line="5470"/>
+        <location filename="../gui/mainwindow.cpp" line="1770"/>
+        <location filename="../gui/mainwindow.cpp" line="5496"/>
         <source>First Scan</source>
         <translation>首次扫描</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1756"/>
+        <location filename="../gui/mainwindow.cpp" line="1773"/>
         <source>Next Scan</source>
         <translation>再次扫描</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1759"/>
+        <location filename="../gui/mainwindow.cpp" line="1776"/>
         <source>Undo Scan</source>
         <translation>撤销扫描</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1778"/>
+        <location filename="../gui/mainwindow.cpp" line="1795"/>
         <source>Memory Scan Options</source>
         <translation>内存扫描选项</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1793"/>
+        <location filename="../gui/mainwindow.cpp" line="1810"/>
         <source>Writable</source>
         <translation>可写</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1796"/>
+        <location filename="../gui/mainwindow.cpp" line="1813"/>
         <source>Checked: only writable regions. Unchecked: only non-writable. Grey: any (don&apos;t care).</source>
         <translation>选中：仅可写区域。未选中：仅不可写区域。灰色：任意（不关心）。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1799"/>
+        <location filename="../gui/mainwindow.cpp" line="1816"/>
         <source>Executable</source>
         <translation>可执行</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1802"/>
+        <location filename="../gui/mainwindow.cpp" line="1819"/>
         <source>Checked: only executable regions. Unchecked: only non-executable. Grey: any (don&apos;t care).</source>
         <translation>选中：仅可执行区域。未选中：仅不可执行区域。灰色：任意（不关心）。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1805"/>
+        <location filename="../gui/mainwindow.cpp" line="1822"/>
         <source>Fast Scan</source>
         <translation>快速扫描</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1838"/>
+        <location filename="../gui/mainwindow.cpp" line="1855"/>
         <source>Compare by %</source>
         <translation>按百分比比较</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1846"/>
+        <location filename="../gui/mainwindow.cpp" line="1863"/>
         <source>Percent max:</source>
         <translation>最大百分比：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1854"/>
+        <location filename="../gui/mainwindow.cpp" line="1871"/>
         <source>Case sensitive (text)</source>
         <translation>区分大小写（文本）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1867"/>
+        <location filename="../gui/mainwindow.cpp" line="1884"/>
         <source>Private</source>
         <translation>私有</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1868"/>
+        <location filename="../gui/mainwindow.cpp" line="1885"/>
         <source>Scan MEM_PRIVATE regions (anonymous heap, stack, private maps)</source>
         <translation>扫描 MEM_PRIVATE 区域（匿名堆、栈、私有映射）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1870"/>
+        <location filename="../gui/mainwindow.cpp" line="1887"/>
         <source>Image</source>
         <translation>映像</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1871"/>
+        <location filename="../gui/mainwindow.cpp" line="1888"/>
         <source>Scan MEM_IMAGE regions (loaded executable modules)</source>
         <translation>扫描 MEM_IMAGE 区域（已加载的可执行模块）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1873"/>
+        <location filename="../gui/mainwindow.cpp" line="1890"/>
         <source>Mapped</source>
         <translation>映射</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1874"/>
+        <location filename="../gui/mainwindow.cpp" line="1891"/>
         <source>Scan MEM_MAPPED regions (other file-backed maps)</source>
         <translation>扫描 MEM_MAPPED 区域（其他文件映射）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1892"/>
+        <location filename="../gui/mainwindow.cpp" line="1909"/>
         <source>Text encoding:</source>
         <translation>文本编码：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1898"/>
+        <location filename="../gui/mainwindow.cpp" line="1915"/>
         <source>Data order:</source>
         <translation>数据字节序：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1901"/>
-        <location filename="../gui/mainwindow.cpp" line="1911"/>
-        <location filename="../gui/mainwindow.cpp" line="2302"/>
-        <location filename="../gui/mainwindow.cpp" line="2318"/>
+        <location filename="../gui/mainwindow.cpp" line="1918"/>
+        <location filename="../gui/mainwindow.cpp" line="1928"/>
+        <location filename="../gui/mainwindow.cpp" line="2319"/>
+        <location filename="../gui/mainwindow.cpp" line="2335"/>
         <source>Auto (target)</source>
         <translation>自动（目标）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1902"/>
-        <location filename="../gui/mainwindow.cpp" line="2303"/>
+        <location filename="../gui/mainwindow.cpp" line="1919"/>
+        <location filename="../gui/mainwindow.cpp" line="2320"/>
         <source>Little-endian</source>
         <translation>小端序</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1903"/>
-        <location filename="../gui/mainwindow.cpp" line="2304"/>
+        <location filename="../gui/mainwindow.cpp" line="1920"/>
+        <location filename="../gui/mainwindow.cpp" line="2321"/>
         <source>Big-endian</source>
         <translation>大端序</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1904"/>
+        <location filename="../gui/mainwindow.cpp" line="1921"/>
         <source>Choose the encoding of the data being scanned. Auto uses the selected target&apos;s data order.</source>
         <translation>选择被扫描数据的字节序。自动使用所选目标的数据字节序。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1908"/>
+        <location filename="../gui/mainwindow.cpp" line="1925"/>
         <source>Pointer size:</source>
         <translation>指针大小：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1912"/>
-        <location filename="../gui/mainwindow.cpp" line="2318"/>
+        <location filename="../gui/mainwindow.cpp" line="1929"/>
+        <location filename="../gui/mainwindow.cpp" line="2335"/>
         <source>4 bytes</source>
         <translation>4 字节</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1913"/>
-        <location filename="../gui/mainwindow.cpp" line="2318"/>
+        <location filename="../gui/mainwindow.cpp" line="1930"/>
+        <location filename="../gui/mainwindow.cpp" line="2335"/>
         <source>8 bytes</source>
         <translation>8 字节</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1914"/>
+        <location filename="../gui/mainwindow.cpp" line="1931"/>
         <source>Size of encoded pointers for Pointer, Grouped and Custom scans. A different saved record size requires a New Scan.</source>
         <translation>指针、分组和自定义扫描所用的指针大小。不同的已保存记录大小需要新扫描。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="1984"/>
+        <location filename="../gui/mainwindow.cpp" line="2001"/>
         <source>No saved addresses.
 Double-click a result or use Add Address.</source>
         <translation>没有已保存的地址。
 双击结果或使用“添加地址”。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2009"/>
+        <location filename="../gui/mainwindow.cpp" line="2026"/>
         <source>Value at 0x%1 was reverted (wrote %2, now %3). It looks protected: right-click the entry and choose &quot;Find what writes&quot; to locate the code that overwrites it.</source>
         <translation>0x%1 处的数值已被回退（写入 %2，现在为 %3）。它似乎受到了保护：右键单击该条目并选择“查找什么写入”来定位覆盖它的代码。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2108"/>
+        <location filename="../gui/mainwindow.cpp" line="2125"/>
         <source>Edit script...</source>
         <translation>编辑脚本...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2113"/>
+        <location filename="../gui/mainwindow.cpp" line="2130"/>
         <source>Change address...</source>
         <translation>更改地址...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2148"/>
+        <location filename="../gui/mainwindow.cpp" line="2165"/>
         <source>Cut</source>
         <translation>剪切</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2151"/>
-        <location filename="../gui/mainwindow.cpp" line="2590"/>
+        <location filename="../gui/mainwindow.cpp" line="2168"/>
+        <location filename="../gui/mainwindow.cpp" line="2607"/>
         <source>Paste</source>
         <translation>粘贴</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2155"/>
+        <location filename="../gui/mainwindow.cpp" line="2172"/>
         <source>Copy field</source>
         <translation>复制字段</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2156"/>
+        <location filename="../gui/mainwindow.cpp" line="2173"/>
         <source>Description</source>
         <translation>描述</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2160"/>
-        <location filename="../gui/mainwindow.cpp" line="4855"/>
+        <location filename="../gui/mainwindow.cpp" line="2177"/>
+        <location filename="../gui/mainwindow.cpp" line="4880"/>
         <source>Address</source>
         <translation>地址</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2165"/>
+        <location filename="../gui/mainwindow.cpp" line="2182"/>
         <source>Value</source>
         <translation>数值</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2170"/>
+        <location filename="../gui/mainwindow.cpp" line="2187"/>
         <source>Script</source>
         <translation>脚本</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2174"/>
+        <location filename="../gui/mainwindow.cpp" line="2191"/>
         <source>Delete</source>
         <translation>删除</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2179"/>
+        <location filename="../gui/mainwindow.cpp" line="2196"/>
         <source>Arrange</source>
         <translation>排列</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2180"/>
+        <location filename="../gui/mainwindow.cpp" line="2197"/>
         <source>Indent</source>
         <translation>增加缩进</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2185"/>
+        <location filename="../gui/mainwindow.cpp" line="2202"/>
         <source>Outdent</source>
         <translation>减少缩进</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2192"/>
+        <location filename="../gui/mainwindow.cpp" line="2209"/>
         <source>Add to new group...</source>
         <translation>添加到新分组...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2197"/>
-        <location filename="../gui/mainwindow.cpp" line="2198"/>
-        <location filename="../gui/mainwindow.cpp" line="2200"/>
+        <location filename="../gui/mainwindow.cpp" line="2214"/>
+        <location filename="../gui/mainwindow.cpp" line="2215"/>
+        <location filename="../gui/mainwindow.cpp" line="2217"/>
         <source>New group</source>
         <translation>新建分组</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2198"/>
+        <location filename="../gui/mainwindow.cpp" line="2215"/>
         <source>Group name:</source>
         <translation>分组名称：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2204"/>
+        <location filename="../gui/mainwindow.cpp" line="2221"/>
         <source>Move Up</source>
         <translation>上移</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2206"/>
+        <location filename="../gui/mainwindow.cpp" line="2223"/>
         <source>Move Down</source>
         <translation>下移</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2212"/>
+        <location filename="../gui/mainwindow.cpp" line="2229"/>
         <source>Set value...</source>
         <translation>设置数值...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2227"/>
+        <location filename="../gui/mainwindow.cpp" line="2244"/>
         <source>New value for 1 selected entry:</source>
         <translation>为 1 个选中条目设置新数值：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2228"/>
+        <location filename="../gui/mainwindow.cpp" line="2245"/>
         <source>New value for %1 selected entries:</source>
         <translation>为 %1 个选中条目设置新数值：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2229"/>
+        <location filename="../gui/mainwindow.cpp" line="2246"/>
         <source>Set value</source>
         <translation>设置数值</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2255"/>
+        <location filename="../gui/mainwindow.cpp" line="2272"/>
         <source>Freeze Mode</source>
         <translation>冻结模式</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2256"/>
+        <location filename="../gui/mainwindow.cpp" line="2273"/>
         <source>Normal</source>
         <translation>常规</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2259"/>
+        <location filename="../gui/mainwindow.cpp" line="2276"/>
         <source>Increase Only</source>
         <translation>仅增加</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2262"/>
+        <location filename="../gui/mainwindow.cpp" line="2279"/>
         <source>Decrease Only</source>
         <translation>仅减少</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2265"/>
+        <location filename="../gui/mainwindow.cpp" line="2282"/>
         <source>Never Increase</source>
         <translation>不增加</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2268"/>
+        <location filename="../gui/mainwindow.cpp" line="2285"/>
         <source>Never Decrease</source>
         <translation>不减少</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2275"/>
+        <location filename="../gui/mainwindow.cpp" line="2292"/>
         <source>Display</source>
         <translation>显示</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2276"/>
+        <location filename="../gui/mainwindow.cpp" line="2293"/>
         <source>Set value codec...</source>
         <translation>设置数值编解码器...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2281"/>
+        <location filename="../gui/mainwindow.cpp" line="2298"/>
         <source>Value codec</source>
         <translation>数值编解码器</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2282"/>
+        <location filename="../gui/mainwindow.cpp" line="2299"/>
         <source>How the game obfuscates this value in memory:
 none, xor:0xKEY, add:N, rol:N or ror:N (e.g. xor:0x5A).
 
@@ -5035,92 +5045,92 @@ The list shows the decoded value; edits and freezes are encoded back.</source>
 列表显示解码后的数值；编辑和冻结会重新编码。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2292"/>
+        <location filename="../gui/mainwindow.cpp" line="2309"/>
         <source>Invalid codec</source>
         <translation>编解码器无效</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2293"/>
+        <location filename="../gui/mainwindow.cpp" line="2310"/>
         <source>Use none, xor:0xKEY, add:N, rol:N, or ror:N.</source>
         <translation>请使用 none、xor:0xKEY、add:N、rol:N 或 ror:N。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2301"/>
+        <location filename="../gui/mainwindow.cpp" line="2318"/>
         <source>Data order</source>
         <translation>数据字节序</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2317"/>
+        <location filename="../gui/mainwindow.cpp" line="2334"/>
         <source>Pointer size</source>
         <translation>指针大小</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2331"/>
+        <location filename="../gui/mainwindow.cpp" line="2348"/>
         <source>Change type</source>
         <translation>更改类型</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2350"/>
+        <location filename="../gui/mainwindow.cpp" line="2367"/>
         <source>Show as hexadecimal</source>
         <translation>以十六进制显示</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2362"/>
+        <location filename="../gui/mainwindow.cpp" line="2379"/>
         <source>Convert to module+offset</source>
         <translation>转换为模块+偏移</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2378"/>
+        <location filename="../gui/mainwindow.cpp" line="2395"/>
         <source>(%1 skipped)</source>
         <translation>（跳过 %1 个）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2380"/>
+        <location filename="../gui/mainwindow.cpp" line="2397"/>
         <source>Converted 1 address to module+offset%1</source>
         <translation>已将 1 个地址转换为模块+偏移%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2381"/>
+        <location filename="../gui/mainwindow.cpp" line="2398"/>
         <source>Converted %1 addresses to module+offset%2</source>
         <translation>已将 %1 个地址转换为模块+偏移%2</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2399"/>
+        <location filename="../gui/mainwindow.cpp" line="2416"/>
         <source>Find what accesses this address</source>
         <translation>查找访问此地址的内容</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2403"/>
+        <location filename="../gui/mainwindow.cpp" line="2420"/>
         <source>Find what writes to this address</source>
         <translation>查找写入此地址的内容</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2410"/>
+        <location filename="../gui/mainwindow.cpp" line="2427"/>
         <source>Pointer scan for this address</source>
         <translation>对此地址进行指针扫描</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2432"/>
+        <location filename="../gui/mainwindow.cpp" line="2449"/>
         <source>Change Color...</source>
         <translation>更改颜色...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2445"/>
+        <location filename="../gui/mainwindow.cpp" line="2462"/>
         <source>Change record color</source>
         <translation>更改记录颜色</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2451"/>
+        <location filename="../gui/mainwindow.cpp" line="2468"/>
         <source>Dropdown options...</source>
         <translation>下拉选项...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2456"/>
+        <location filename="../gui/mainwindow.cpp" line="2473"/>
         <source>Dropdown options</source>
         <translation>下拉选项</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2457"/>
+        <location filename="../gui/mainwindow.cpp" line="2474"/>
         <source>The values this entry can be set to from a dropdown, one per line,
 as value:label or just value. For example:
 0:Off
@@ -5131,139 +5141,139 @@ as value:label or just value. For example:
 1:开</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2466"/>
+        <location filename="../gui/mainwindow.cpp" line="2483"/>
         <source>Hotkeys</source>
         <translation>快捷键</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2467"/>
+        <location filename="../gui/mainwindow.cpp" line="2484"/>
         <source>Toggle hotkey...</source>
         <translation>切换快捷键...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2473"/>
+        <location filename="../gui/mainwindow.cpp" line="2490"/>
         <source>Configure Hotkey</source>
         <translation>配置快捷键</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2479"/>
+        <location filename="../gui/mainwindow.cpp" line="2496"/>
         <source>Clear</source>
         <translation>清除</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2481"/>
+        <location filename="../gui/mainwindow.cpp" line="2498"/>
         <source>Press the key combination that turns this entry on and off. It works while the game has focus.</source>
         <translation>按下可开启和关闭此条目的按键组合。它在游戏获得焦点时也有效。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2503"/>
+        <location filename="../gui/mainwindow.cpp" line="2520"/>
         <source>Value hotkeys...</source>
         <translation>数值快捷键...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2509"/>
+        <location filename="../gui/mainwindow.cpp" line="2526"/>
         <source>Configure Value Hotkeys</source>
         <translation>配置数值快捷键</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2522"/>
+        <location filename="../gui/mainwindow.cpp" line="2539"/>
         <source>value to set</source>
         <translation>要设置的数值</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2528"/>
+        <location filename="../gui/mainwindow.cpp" line="2545"/>
         <source>Increase</source>
         <translation>增加</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2530"/>
+        <location filename="../gui/mainwindow.cpp" line="2547"/>
         <source>Decrease</source>
         <translation>减少</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2532"/>
+        <location filename="../gui/mainwindow.cpp" line="2549"/>
         <source>Step</source>
         <translation>步长</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2534"/>
+        <location filename="../gui/mainwindow.cpp" line="2551"/>
         <source>Set value hotkey</source>
         <translation>设置数值快捷键</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2536"/>
+        <location filename="../gui/mainwindow.cpp" line="2553"/>
         <source>Set to value</source>
         <translation>设置为数值</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2559"/>
+        <location filename="../gui/mainwindow.cpp" line="2576"/>
         <source>Add Address Manually...</source>
         <translation>手动添加地址...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2574"/>
-        <location filename="../gui/mainwindow.cpp" line="2581"/>
-        <location filename="../gui/mainwindow.cpp" line="3818"/>
+        <location filename="../gui/mainwindow.cpp" line="2591"/>
+        <location filename="../gui/mainwindow.cpp" line="2598"/>
+        <location filename="../gui/mainwindow.cpp" line="3831"/>
         <source>No description</source>
         <translation>无描述</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2596"/>
+        <location filename="../gui/mainwindow.cpp" line="2613"/>
         <source>Enable all</source>
         <translation>全部启用</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2597"/>
+        <location filename="../gui/mainwindow.cpp" line="2614"/>
         <source>Disable all</source>
         <translation>全部禁用</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2717"/>
+        <location filename="../gui/mainwindow.cpp" line="2734"/>
         <source>Scan Value</source>
         <translation>扫描数值</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2725"/>
+        <location filename="../gui/mainwindow.cpp" line="2742"/>
         <source>Scan Type</source>
         <translation>扫描类型</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2727"/>
+        <location filename="../gui/mainwindow.cpp" line="2744"/>
         <source>Value Type</source>
         <translation>数值类型</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2734"/>
+        <location filename="../gui/mainwindow.cpp" line="2751"/>
         <source>Rounding</source>
         <translation>取整方式</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2797"/>
+        <location filename="../gui/mainwindow.cpp" line="2814"/>
         <source>Advanced Options</source>
         <translation>高级选项</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2801"/>
+        <location filename="../gui/mainwindow.cpp" line="2818"/>
         <source>Table Extras</source>
         <translation>表格附加项</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2950"/>
+        <location filename="../gui/mainwindow.cpp" line="2967"/>
         <source>Auto-attached to %1 (pid %2)</source>
         <translation>已自动附加到 %1（PID %2）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="2953"/>
+        <location filename="../gui/mainwindow.cpp" line="2970"/>
         <source>Found %1 (pid %2) but could not open it</source>
         <translation>找到 %1（PID %2），但无法打开</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3015"/>
+        <location filename="../gui/mainwindow.cpp" line="3032"/>
         <source>Attached to %1: %2</source>
         <translation>已附加到 %1：%2</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3021"/>
+        <location filename="../gui/mainwindow.cpp" line="3038"/>
         <source>
 
 Program: %1, %2-byte pointers, %3
@@ -5274,37 +5284,37 @@ Host ABI: %4</source>
 主机 ABI：%4</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3032"/>
+        <location filename="../gui/mainwindow.cpp" line="3049"/>
         <source>Target already being traced</source>
         <translation>目标已被跟踪</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3058"/>
+        <location filename="../gui/mainwindow.cpp" line="3075"/>
         <source>data order unknown</source>
         <translation>数据字节序未知</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3058"/>
+        <location filename="../gui/mainwindow.cpp" line="3075"/>
         <source>%1 data</source>
         <translation>%1 数据</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3060"/>
+        <location filename="../gui/mainwindow.cpp" line="3077"/>
         <source>%1-bit pointers</source>
         <translation>%1 位指针</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3060"/>
+        <location filename="../gui/mainwindow.cpp" line="3077"/>
         <source>pointer width unknown</source>
         <translation>指针宽度未知</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3061"/>
+        <location filename="../gui/mainwindow.cpp" line="3078"/>
         <source>GDB: %1</source>
         <translation>GDB：%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3063"/>
+        <location filename="../gui/mainwindow.cpp" line="3080"/>
         <source>Guest CPU: %1
 Data order: %2
 Program pointers: %3
@@ -5315,188 +5325,188 @@ Transport: GDB</source>
 传输方式：GDB</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3078"/>
+        <location filename="../gui/mainwindow.cpp" line="3095"/>
         <source>Connected to GDB; no memory map. Reconnect with a known scan range.</source>
         <translation>已连接到 GDB；没有内存映射。请使用已知的扫描范围重新连接。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3078"/>
+        <location filename="../gui/mainwindow.cpp" line="3095"/>
         <source>Connected to GDB target</source>
         <translation>已连接到 GDB 目标</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3119"/>
+        <location filename="../gui/mainwindow.cpp" line="3136"/>
         <source>Connect failed: %1</source>
         <translation>连接失败：%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3124"/>
+        <location filename="../gui/mainwindow.cpp" line="3141"/>
         <source>Handshake failed: %1</source>
         <translation>握手失败：%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3129"/>
+        <location filename="../gui/mainwindow.cpp" line="3146"/>
         <source>Server refused PID %1</source>
         <translation>服务器拒绝了 PID %1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3144"/>
+        <location filename="../gui/mainwindow.cpp" line="3161"/>
         <source>The current target is still in use: wait for the scan to finish or disable its scripts, then connect again.</source>
         <translation>当前目标仍在使用中：请等待扫描结束或禁用其脚本，然后再次连接。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3151"/>
+        <location filename="../gui/mainwindow.cpp" line="3168"/>
         <source>Remote process %1</source>
         <translation>远程进程 %1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3173"/>
+        <location filename="../gui/mainwindow.cpp" line="3190"/>
         <source>Connect to ceserver</source>
         <translation>连接到 ceserver</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3175"/>
+        <location filename="../gui/mainwindow.cpp" line="3192"/>
         <source>Attach to a process on another machine (or in a container) through a running ceserver.</source>
         <translation>通过运行中的 ceserver 附加到另一台机器（或容器）上的进程。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3182"/>
+        <location filename="../gui/mainwindow.cpp" line="3199"/>
         <source>Host:</source>
         <translation>主机：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3187"/>
+        <location filename="../gui/mainwindow.cpp" line="3204"/>
         <source>Port:</source>
         <translation>端口：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3190"/>
+        <location filename="../gui/mainwindow.cpp" line="3207"/>
         <source>process ID on the remote machine</source>
         <translation>远程机器上的进程 ID</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3201"/>
+        <location filename="../gui/mainwindow.cpp" line="3218"/>
         <source>Connect</source>
         <translation>连接</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3216"/>
+        <location filename="../gui/mainwindow.cpp" line="3233"/>
         <source>Enter a valid remote PID.</source>
         <translation>请输入有效的远程 PID。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3221"/>
+        <location filename="../gui/mainwindow.cpp" line="3238"/>
         <source>Connecting to %1:%2...</source>
         <translation>正在连接到 %1:%2...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3500"/>
+        <location filename="../gui/mainwindow.cpp" line="3517"/>
         <source>New scan: pick a value type and value, then First Scan.</source>
         <translation>新扫描：选择数值类型和数值，然后执行首次扫描。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3505"/>
-        <location filename="../gui/mainwindow.cpp" line="3663"/>
+        <location filename="../gui/mainwindow.cpp" line="3522"/>
+        <location filename="../gui/mainwindow.cpp" line="3678"/>
         <source>No process attached; open one first (Ctrl+O) to scan.</source>
         <translation>未附加进程；请先打开一个进程（Ctrl+O）再扫描。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3509"/>
+        <location filename="../gui/mainwindow.cpp" line="3526"/>
         <source>Cannot read the process</source>
         <translation>无法读取进程</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3525"/>
-        <location filename="../gui/mainwindow.cpp" line="3532"/>
+        <location filename="../gui/mainwindow.cpp" line="3542"/>
+        <location filename="../gui/mainwindow.cpp" line="3549"/>
         <source>Scan range</source>
         <translation>扫描范围</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3526"/>
+        <location filename="../gui/mainwindow.cpp" line="3543"/>
         <source>From/To must be a hex address, symbol, or module+offset (e.g. target2, target2+0x5000).</source>
         <translation>起始/结束地址必须是十六进制地址、符号或模块+偏移（例如 target2、target2+0x5000）。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3533"/>
+        <location filename="../gui/mainwindow.cpp" line="3550"/>
         <source>The From address must not be greater than the To address.</source>
         <translation>起始地址不得大于结束地址。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3561"/>
-        <location filename="../gui/mainwindow.cpp" line="3692"/>
+        <location filename="../gui/mainwindow.cpp" line="3578"/>
+        <location filename="../gui/mainwindow.cpp" line="3707"/>
         <source>Array of byte scan</source>
         <translation>字节数组扫描</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3561"/>
-        <location filename="../gui/mainwindow.cpp" line="3692"/>
+        <location filename="../gui/mainwindow.cpp" line="3578"/>
+        <location filename="../gui/mainwindow.cpp" line="3707"/>
         <source>Enter a valid AOB pattern (e.g. &quot;7F 45 ?? 46&quot;).</source>
         <translation>请输入有效的 AOB 模式（例如“7F 45 ?? 46”）。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3569"/>
-        <location filename="../gui/mainwindow.cpp" line="3700"/>
+        <location filename="../gui/mainwindow.cpp" line="3586"/>
+        <location filename="../gui/mainwindow.cpp" line="3715"/>
         <source>Binary scan</source>
         <translation>二进制扫描</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3569"/>
-        <location filename="../gui/mainwindow.cpp" line="3700"/>
+        <location filename="../gui/mainwindow.cpp" line="3586"/>
+        <location filename="../gui/mainwindow.cpp" line="3715"/>
         <source>Enter a valid binary pattern (e.g. &quot;0110??01&quot;).</source>
         <translation>请输入有效的二进制模式（例如“0110??01”）。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3576"/>
-        <location filename="../gui/mainwindow.cpp" line="3707"/>
+        <location filename="../gui/mainwindow.cpp" line="3593"/>
+        <location filename="../gui/mainwindow.cpp" line="3722"/>
         <source>Grouped scan</source>
         <translation>分组扫描</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3586"/>
-        <location filename="../gui/mainwindow.cpp" line="3718"/>
+        <location filename="../gui/mainwindow.cpp" line="3603"/>
+        <location filename="../gui/mainwindow.cpp" line="3733"/>
         <source>Floating scan</source>
         <translation>浮点扫描</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3586"/>
-        <location filename="../gui/mainwindow.cpp" line="3594"/>
-        <location filename="../gui/mainwindow.cpp" line="3718"/>
-        <location filename="../gui/mainwindow.cpp" line="3726"/>
+        <location filename="../gui/mainwindow.cpp" line="3603"/>
+        <location filename="../gui/mainwindow.cpp" line="3611"/>
+        <location filename="../gui/mainwindow.cpp" line="3733"/>
+        <location filename="../gui/mainwindow.cpp" line="3741"/>
         <source>Enter valid numeric values for the selected comparison.</source>
         <translation>请为所选比较输入有效的数值。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3594"/>
-        <location filename="../gui/mainwindow.cpp" line="3726"/>
+        <location filename="../gui/mainwindow.cpp" line="3611"/>
+        <location filename="../gui/mainwindow.cpp" line="3741"/>
         <source>All scan</source>
         <translation>全部扫描</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3614"/>
-        <location filename="../gui/mainwindow.cpp" line="3745"/>
+        <location filename="../gui/mainwindow.cpp" line="3631"/>
+        <location filename="../gui/mainwindow.cpp" line="3760"/>
         <source>Floating tolerance</source>
         <translation>浮点容差</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3614"/>
-        <location filename="../gui/mainwindow.cpp" line="3745"/>
+        <location filename="../gui/mainwindow.cpp" line="3631"/>
+        <location filename="../gui/mainwindow.cpp" line="3760"/>
         <source>Enter a finite nonnegative tolerance.</source>
         <translation>请输入有限的非负容差。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3627"/>
-        <location filename="../gui/mainwindow.cpp" line="3634"/>
-        <location filename="../gui/mainwindow.cpp" line="3774"/>
+        <location filename="../gui/mainwindow.cpp" line="3644"/>
+        <location filename="../gui/mainwindow.cpp" line="3651"/>
+        <location filename="../gui/mainwindow.cpp" line="3789"/>
         <source>Scan failed</source>
         <translation>扫描失败</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3627"/>
+        <location filename="../gui/mainwindow.cpp" line="3644"/>
         <source>The scan could not start: %1</source>
         <translation>扫描无法开始：%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3635"/>
+        <location filename="../gui/mainwindow.cpp" line="3652"/>
         <source>The scan could not complete: %1
 
 Try narrowing the From/To range, enabling Fast Scan, or choosing a more specific value type.</source>
@@ -5505,191 +5515,195 @@ Try narrowing the From/To range, enabling Fast Scan, or choosing a more specific
 请尝试缩小起始/结束范围、启用快速扫描，或选择更具体的数值类型。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3644"/>
-        <location filename="../gui/mainwindow.cpp" line="3782"/>
+        <location filename="../gui/mainwindow.cpp" line="3661"/>
+        <location filename="../gui/mainwindow.cpp" line="3797"/>
         <source>Scan results truncated</source>
         <translation>扫描结果被截断</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3645"/>
-        <location filename="../gui/mainwindow.cpp" line="3783"/>
-        <source>A scan-result file could not be fully written (the disk may be full). Some results are unreliable; free space and scan again.</source>
-        <translation>扫描结果文件无法完整写入（磁盘可能已满）。部分结果不可靠；请释放空间后重新扫描。</translation>
-    </message>
-    <message>
-        <location filename="../gui/mainwindow.cpp" line="3657"/>
-        <location filename="../gui/mainwindow.cpp" line="3795"/>
+        <location filename="../gui/mainwindow.cpp" line="3672"/>
+        <location filename="../gui/mainwindow.cpp" line="3808"/>
         <source>Scan results are incomplete.</source>
         <translation>扫描结果不完整。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3658"/>
+        <location filename="../gui/mainwindow.cpp" line="3673"/>
         <source>First scan complete. %1</source>
         <translation>首次扫描完成。%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3667"/>
+        <location filename="../gui/mainwindow.cpp" line="3682"/>
         <source>Run a First Scan before a Next Scan.</source>
         <translation>请先运行首次扫描，再运行再次扫描。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3775"/>
+        <location filename="../gui/mainwindow.cpp" line="3790"/>
         <source>The next scan could not complete: %1</source>
         <translation>再次扫描无法完成：%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3796"/>
+        <location filename="../gui/mainwindow.cpp" line="3809"/>
         <source>Next scan complete. %1</source>
         <translation>再次扫描完成。%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3937"/>
+        <location filename="../gui/mainwindow.cpp" line="3948"/>
+        <source>Language</source>
+        <translation>语言</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.cpp" line="3949"/>
+        <source>Cheat Engine could not restart itself. Start it again to apply the language.</source>
+        <translation>Cheat Engine 无法自行重启，请手动启动以应用语言。</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.cpp" line="3962"/>
         <source>Unsaved changes</source>
         <translation>未保存的更改</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="3938"/>
+        <location filename="../gui/mainwindow.cpp" line="3963"/>
         <source>The cheat table has changes that are not saved. Save them?</source>
         <translation>作弊表格有尚未保存的更改。要保存吗？</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4145"/>
+        <location filename="../gui/mainwindow.cpp" line="4170"/>
         <source>Auto Assembler: %1</source>
         <translation>自动汇编：%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4147"/>
+        <location filename="../gui/mainwindow.cpp" line="4172"/>
         <source>Save to Table</source>
         <translation>保存到表格</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4246"/>
+        <location filename="../gui/mainwindow.cpp" line="4271"/>
         <source>Create Trainer (C source)</source>
         <translation>创建修改器（C 源码）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4247"/>
+        <location filename="../gui/mainwindow.cpp" line="4272"/>
         <source>C source (*.c);;All Files (*)</source>
         <translation>C 源码 (*.c);;所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4255"/>
-        <location filename="../gui/mainwindow.cpp" line="4262"/>
+        <location filename="../gui/mainwindow.cpp" line="4280"/>
+        <location filename="../gui/mainwindow.cpp" line="4287"/>
         <source>Create Trainer</source>
         <translation>创建修改器</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4255"/>
+        <location filename="../gui/mainwindow.cpp" line="4280"/>
         <source>Could not write the trainer source file.</source>
         <translation>无法写入修改器源码文件。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4260"/>
+        <location filename="../gui/mainwindow.cpp" line="4285"/>
         <source>Trainer C source written to %1 (compile with gcc)</source>
         <translation>修改器 C 源码已写入 %1（使用 gcc 编译）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4263"/>
+        <location filename="../gui/mainwindow.cpp" line="4288"/>
         <source>Trainer generation failed:
 %1</source>
         <translation>修改器生成失败：
 %1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4354"/>
-        <location filename="../gui/mainwindow.cpp" line="4359"/>
+        <location filename="../gui/mainwindow.cpp" line="4379"/>
+        <location filename="../gui/mainwindow.cpp" line="4384"/>
         <source>No scan results to save.</source>
         <translation>没有可保存的扫描结果。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4355"/>
+        <location filename="../gui/mainwindow.cpp" line="4380"/>
         <source>Save all current scan results</source>
         <translation>保存所有当前扫描结果</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4356"/>
+        <location filename="../gui/mainwindow.cpp" line="4381"/>
         <source>Text (*.txt);;CSV (*.csv);;All files (*)</source>
         <translation>文本 (*.txt);;CSV (*.csv);;所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4370"/>
+        <location filename="../gui/mainwindow.cpp" line="4395"/>
         <source>Saving all scan results...</source>
         <translation>正在保存所有扫描结果...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4382"/>
+        <location filename="../gui/mainwindow.cpp" line="4407"/>
         <source>Scan results changed; export canceled.</source>
         <translation>扫描结果已变化；导出已取消。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4382"/>
+        <location filename="../gui/mainwindow.cpp" line="4407"/>
         <source>Export canceled.</source>
         <translation>导出已取消。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4391"/>
+        <location filename="../gui/mainwindow.cpp" line="4416"/>
         <source>Could not save scan results: %1</source>
         <translation>无法保存扫描结果：%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4393"/>
+        <location filename="../gui/mainwindow.cpp" line="4418"/>
         <source>Saved %1 results to %2</source>
         <translation>已将 %1 条结果保存到 %2</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4440"/>
-        <location filename="../gui/mainwindow.cpp" line="4451"/>
+        <location filename="../gui/mainwindow.cpp" line="4465"/>
+        <location filename="../gui/mainwindow.cpp" line="4476"/>
         <source>Save Cheat Table</source>
         <translation>保存作弊表格</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4451"/>
+        <location filename="../gui/mainwindow.cpp" line="4476"/>
         <source>Could not save %1:
 %2</source>
         <translation>无法保存 %1：
 %2</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4462"/>
+        <location filename="../gui/mainwindow.cpp" line="4487"/>
         <source>Invalid table data or incomplete write.</source>
         <translation>表格数据无效或写入不完整。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4471"/>
+        <location filename="../gui/mainwindow.cpp" line="4496"/>
         <source>Invalid table metadata.</source>
         <translation>表格元数据无效。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4482"/>
+        <location filename="../gui/mainwindow.cpp" line="4507"/>
         <source>Saved table to %1</source>
         <translation>已将表格保存到 %1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4485"/>
+        <location filename="../gui/mainwindow.cpp" line="4510"/>
         <source>Unknown save error.</source>
         <translation>未知的保存错误。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4490"/>
-        <location filename="../gui/mainwindow.cpp" line="4712"/>
-        <location filename="../gui/mainwindow.cpp" line="4723"/>
-        <location filename="../gui/mainwindow.cpp" line="4728"/>
-        <location filename="../gui/mainwindow.cpp" line="4730"/>
-        <location filename="../gui/mainwindow.cpp" line="4733"/>
-        <location filename="../gui/mainwindow.cpp" line="4736"/>
-        <location filename="../gui/mainwindow.cpp" line="4739"/>
-        <location filename="../gui/mainwindow.cpp" line="4749"/>
-        <location filename="../gui/mainwindow.cpp" line="4752"/>
+        <location filename="../gui/mainwindow.cpp" line="4515"/>
+        <location filename="../gui/mainwindow.cpp" line="4737"/>
+        <location filename="../gui/mainwindow.cpp" line="4748"/>
+        <location filename="../gui/mainwindow.cpp" line="4753"/>
+        <location filename="../gui/mainwindow.cpp" line="4755"/>
+        <location filename="../gui/mainwindow.cpp" line="4758"/>
+        <location filename="../gui/mainwindow.cpp" line="4761"/>
+        <location filename="../gui/mainwindow.cpp" line="4764"/>
+        <location filename="../gui/mainwindow.cpp" line="4774"/>
+        <location filename="../gui/mainwindow.cpp" line="4777"/>
         <source>Load Cheat Table</source>
         <translation>加载作弊表格</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4610"/>
+        <location filename="../gui/mainwindow.cpp" line="4635"/>
         <source>Execute this lua script?</source>
         <translation>执行此 Lua 脚本？</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4611"/>
+        <location filename="../gui/mainwindow.cpp" line="4636"/>
         <source>This cheat table contains a Lua script.
 
 Only execute scripts from tables you trust, a table&apos;s Lua can hook and manipulate the target. Execute it?</source>
@@ -5698,86 +5712,86 @@ Only execute scripts from tables you trust, a table&apos;s Lua can hook and mani
 仅执行来自你信任的表格的脚本，表格中的 Lua 可以挂钩和操控目标。要执行吗？</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4621"/>
+        <location filename="../gui/mainwindow.cpp" line="4646"/>
         <source>Table Lua error: %1</source>
         <translation>表格 Lua 错误：%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4679"/>
+        <location filename="../gui/mainwindow.cpp" line="4704"/>
         <source>(no recent tables)</source>
         <translation>（无最近表格）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4687"/>
+        <location filename="../gui/mainwindow.cpp" line="4712"/>
         <source>(missing)</source>
         <translation>（缺失）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4692"/>
+        <location filename="../gui/mainwindow.cpp" line="4717"/>
         <source>Clear list</source>
         <translation>清除列表</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4706"/>
+        <location filename="../gui/mainwindow.cpp" line="4731"/>
         <source>Protected Cheat Table</source>
         <translation>受保护的作弊表格</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4707"/>
+        <location filename="../gui/mainwindow.cpp" line="4732"/>
         <source>This table is password-protected (.CETRAINER).
 Enter its password:</source>
         <translation>此表格受密码保护（.CETRAINER）。
 请输入密码：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4713"/>
+        <location filename="../gui/mainwindow.cpp" line="4738"/>
         <source>Could not decrypt the table (wrong password or corrupt file).</source>
         <translation>无法解密表格（密码错误或文件损坏）。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4723"/>
+        <location filename="../gui/mainwindow.cpp" line="4748"/>
         <source>Could not read a valid cheat table.</source>
         <translation>无法读取有效的作弊表格。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4733"/>
+        <location filename="../gui/mainwindow.cpp" line="4758"/>
         <source>Invalid JSON cheat table.</source>
         <translation>无效的 JSON 作弊表格。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4736"/>
+        <location filename="../gui/mainwindow.cpp" line="4761"/>
         <source>Invalid JSON record.</source>
         <translation>无效的 JSON 记录。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4739"/>
+        <location filename="../gui/mainwindow.cpp" line="4764"/>
         <source>Invalid JSON record data.</source>
         <translation>无效的 JSON 记录数据。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4750"/>
+        <location filename="../gui/mainwindow.cpp" line="4775"/>
         <source>Failed to load table:
 %1</source>
         <translation>加载表格失败：
 %1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4752"/>
+        <location filename="../gui/mainwindow.cpp" line="4777"/>
         <source>Failed to load table (unknown error).</source>
         <translation>加载表格失败（未知错误）。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4833"/>
+        <location filename="../gui/mainwindow.cpp" line="4858"/>
         <source>Monitoring the instruction at 0x%1…</source>
         <translation>正在监视 0x%1 处的指令…</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4841"/>
+        <location filename="../gui/mainwindow.cpp" line="4866"/>
         <source>What this instruction accesses</source>
         <translation>此指令访问的内容</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4842"/>
+        <location filename="../gui/mainwindow.cpp" line="4867"/>
         <source>No data accesses were recorded for the instruction at 0x%1.
 
 It may not have run during the sample window, or it has no memory operand.</source>
@@ -5786,47 +5800,47 @@ It may not have run during the sample window, or it has no memory operand.</sour
 它可能在采样窗口期间未运行，或者没有内存操作数。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4849"/>
+        <location filename="../gui/mainwindow.cpp" line="4874"/>
         <source>Addresses accessed by 0x%1</source>
         <translation>被 0x%1 访问的地址</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4852"/>
+        <location filename="../gui/mainwindow.cpp" line="4877"/>
         <source>%1 distinct address(es) accessed (double-click to add to the list):</source>
         <translation>访问了 %1 个不同地址（双击可添加到列表）：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4855"/>
+        <location filename="../gui/mainwindow.cpp" line="4880"/>
         <source>Hits</source>
         <translation>命中次数</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4871"/>
+        <location filename="../gui/mainwindow.cpp" line="4896"/>
         <source>Accessed address</source>
         <translation>访问的地址</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4878"/>
+        <location filename="../gui/mainwindow.cpp" line="4903"/>
         <source>%1 address(es) accessed by 0x%2</source>
         <translation>%1 个地址被 0x%2 访问</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4900"/>
+        <location filename="../gui/mainwindow.cpp" line="4925"/>
         <source>autorun %1: %2</source>
         <translation>自动运行 %1：%2</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4904"/>
+        <location filename="../gui/mainwindow.cpp" line="4929"/>
         <source>Ran %1 autorun script(s).</source>
         <translation>已运行 %1 个自动运行脚本。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4935"/>
+        <location filename="../gui/mainwindow.cpp" line="4960"/>
         <source>Wine / Proton game</source>
         <translation>Wine / Proton 游戏</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4936"/>
+        <location filename="../gui/mainwindow.cpp" line="4961"/>
         <source>This is a Wine/Proton (Windows) game. Cheat Engine will watch the game&apos;s main thread for writes, which is where gameplay values (money, HP, …) are usually changed.
 
 If nothing shows up, the value may be written by a background thread; tell me and it can be widened. Start monitoring?</source>
@@ -5835,168 +5849,168 @@ If nothing shows up, the value may be written by a background thread; tell me an
 如果没有出现任何结果，该数值可能是由后台线程写入的；告诉我即可扩大监视范围。要开始监视吗？</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4954"/>
+        <location filename="../gui/mainwindow.cpp" line="4979"/>
         <source>Code finder unavailable</source>
         <translation>代码查找器不可用</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4963"/>
+        <location filename="../gui/mainwindow.cpp" line="4988"/>
         <source>Find what writes</source>
         <translation>查找写入</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4963"/>
+        <location filename="../gui/mainwindow.cpp" line="4988"/>
         <source>Find what accesses</source>
         <translation>查找访问</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4976"/>
+        <location filename="../gui/mainwindow.cpp" line="5001"/>
         <source>code 0x%1</source>
         <translation>代码 0x%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="4986"/>
+        <location filename="../gui/mainwindow.cpp" line="5011"/>
         <source>No process attached; open one first (Ctrl+O) to view memory.</source>
         <translation>未附加进程；请先打开一个进程（Ctrl+O）再查看内存。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5038"/>
+        <location filename="../gui/mainwindow.cpp" line="5063"/>
         <source>Add Mono field</source>
         <translation>添加 Mono 字段</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5039"/>
+        <location filename="../gui/mainwindow.cpp" line="5064"/>
         <source>%1 for &apos;%2&apos; (field at +0x%3):</source>
         <translation>%1：%2（字段位于 +0x%3）：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5040"/>
+        <location filename="../gui/mainwindow.cpp" line="5065"/>
         <source>Static data address of the class</source>
         <translation>类的静态数据地址</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5040"/>
+        <location filename="../gui/mainwindow.cpp" line="5065"/>
         <source>Object base address</source>
         <translation>对象基地址</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5215"/>
+        <location filename="../gui/mainwindow.cpp" line="5241"/>
         <source>The debugger could not attach; no breakpoint was set.</source>
         <translation>调试器无法附加；未设置断点。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5219"/>
+        <location filename="../gui/mainwindow.cpp" line="5245"/>
         <source>Pause the target in the debugger to set a breakpoint.</source>
         <translation>在调试器中暂停目标以设置断点。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5224"/>
+        <location filename="../gui/mainwindow.cpp" line="5250"/>
         <source>Execute breakpoints are software breakpoints in this debugger.</source>
         <translation>在此调试器中，执行断点是软件断点。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5228"/>
+        <location filename="../gui/mainwindow.cpp" line="5254"/>
         <source>Could not remove the breakpoint; see the debugger window.</source>
         <translation>无法移除断点；请查看调试器窗口。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5241"/>
+        <location filename="../gui/mainwindow.cpp" line="5267"/>
         <source>Added 0x%1 to the cheat table</source>
         <translation>已将 0x%1 添加到作弊表格</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5294"/>
+        <location filename="../gui/mainwindow.cpp" line="5320"/>
         <source>Memory Regions</source>
         <translation>内存区域</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5302"/>
+        <location filename="../gui/mainwindow.cpp" line="5328"/>
         <source>Heap list</source>
         <translation>堆列表</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5310"/>
+        <location filename="../gui/mainwindow.cpp" line="5336"/>
         <source>Module list</source>
         <translation>模块列表</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5318"/>
+        <location filename="../gui/mainwindow.cpp" line="5344"/>
         <source>Referenced strings / functions</source>
         <translation>引用的字符串 / 函数</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5326"/>
+        <location filename="../gui/mainwindow.cpp" line="5352"/>
         <source>Thread list</source>
         <translation>线程列表</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5332"/>
+        <location filename="../gui/mainwindow.cpp" line="5358"/>
         <source>Stacktrace</source>
         <translation>调用栈</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5338"/>
+        <location filename="../gui/mainwindow.cpp" line="5364"/>
         <source>Graphical memory view</source>
         <translation>图形内存视图</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5349"/>
+        <location filename="../gui/mainwindow.cpp" line="5375"/>
         <source>Registers</source>
         <translation>寄存器</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5357"/>
+        <location filename="../gui/mainwindow.cpp" line="5383"/>
         <source>Breakpoint list</source>
         <translation>断点列表</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5358"/>
+        <location filename="../gui/mainwindow.cpp" line="5384"/>
         <source>Full debugger</source>
         <translation>完整调试器</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5359"/>
+        <location filename="../gui/mainwindow.cpp" line="5385"/>
         <source>Break and trace</source>
         <translation>中断并跟踪</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5366"/>
+        <location filename="../gui/mainwindow.cpp" line="5392"/>
         <source>Branch mapper (LBR)</source>
         <translation>分支映射器（LBR）</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5381"/>
-        <location filename="../gui/mainwindow.cpp" line="5417"/>
+        <location filename="../gui/mainwindow.cpp" line="5407"/>
+        <location filename="../gui/mainwindow.cpp" line="5443"/>
         <source>Dissect data/structures...</source>
         <translation>剖析数据/结构...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5395"/>
+        <location filename="../gui/mainwindow.cpp" line="5421"/>
         <source>Pointer scan...</source>
         <translation>指针扫描...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5406"/>
+        <location filename="../gui/mainwindow.cpp" line="5432"/>
         <source>Emulator guest scan...</source>
         <translation>模拟器客户机扫描...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5425"/>
+        <location filename="../gui/mainwindow.cpp" line="5451"/>
         <source>Find static addresses...</source>
         <translation>查找静态地址...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5432"/>
+        <location filename="../gui/mainwindow.cpp" line="5458"/>
         <source>Lua Engine...</source>
         <translation>Lua 引擎...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5443"/>
+        <location filename="../gui/mainwindow.cpp" line="5469"/>
         <source>ELF Inspector...</source>
         <translation>ELF 检查器...</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5470"/>
+        <location filename="../gui/mainwindow.cpp" line="5496"/>
         <source>New Scan</source>
         <translation>新扫描</translation>
     </message>
@@ -7452,17 +7466,17 @@ to 0x%3?</source>
 <context>
     <name>ce::gui::ScanResultsModel</name>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5586"/>
+        <location filename="../gui/mainwindow.cpp" line="5612"/>
         <source>Address</source>
         <translation>地址</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5587"/>
+        <location filename="../gui/mainwindow.cpp" line="5613"/>
         <source>Value</source>
         <translation>数值</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="5588"/>
+        <location filename="../gui/mainwindow.cpp" line="5614"/>
         <source>Previous</source>
         <translation>先前值</translation>
     </message>
@@ -7722,452 +7736,452 @@ or write an Auto Assembler script here.</source>
 <context>
     <name>ce::gui::SettingsDialog</name>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="138"/>
+        <location filename="../gui/settingsdialog.cpp" line="120"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="148"/>
-        <location filename="../gui/settingsdialog.cpp" line="208"/>
+        <location filename="../gui/settingsdialog.cpp" line="130"/>
+        <location filename="../gui/settingsdialog.cpp" line="190"/>
         <source>Scan</source>
         <translation>扫描</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="148"/>
-        <location filename="../gui/settingsdialog.cpp" line="253"/>
+        <location filename="../gui/settingsdialog.cpp" line="130"/>
+        <location filename="../gui/settingsdialog.cpp" line="235"/>
         <source>Display</source>
         <translation>显示</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="148"/>
-        <location filename="../gui/settingsdialog.cpp" line="288"/>
-        <location filename="../gui/settingsdialog.cpp" line="566"/>
+        <location filename="../gui/settingsdialog.cpp" line="130"/>
+        <location filename="../gui/settingsdialog.cpp" line="270"/>
+        <location filename="../gui/settingsdialog.cpp" line="548"/>
         <source>Language</source>
         <translation>语言</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="148"/>
-        <location filename="../gui/settingsdialog.cpp" line="305"/>
+        <location filename="../gui/settingsdialog.cpp" line="130"/>
+        <location filename="../gui/settingsdialog.cpp" line="287"/>
         <source>Memory View</source>
         <translation>内存查看</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="148"/>
-        <location filename="../gui/settingsdialog.cpp" line="333"/>
+        <location filename="../gui/settingsdialog.cpp" line="130"/>
+        <location filename="../gui/settingsdialog.cpp" line="315"/>
         <source>Debugger</source>
         <translation>调试器</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="149"/>
-        <location filename="../gui/settingsdialog.cpp" line="347"/>
+        <location filename="../gui/settingsdialog.cpp" line="131"/>
+        <location filename="../gui/settingsdialog.cpp" line="329"/>
         <source>Hotkeys</source>
         <translation>快捷键</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="149"/>
-        <location filename="../gui/settingsdialog.cpp" line="360"/>
+        <location filename="../gui/settingsdialog.cpp" line="131"/>
+        <location filename="../gui/settingsdialog.cpp" line="342"/>
         <source>Network</source>
         <translation>网络</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="149"/>
-        <location filename="../gui/settingsdialog.cpp" line="376"/>
+        <location filename="../gui/settingsdialog.cpp" line="131"/>
+        <location filename="../gui/settingsdialog.cpp" line="358"/>
         <source>Lua</source>
         <translation>Lua</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="149"/>
-        <location filename="../gui/settingsdialog.cpp" line="429"/>
+        <location filename="../gui/settingsdialog.cpp" line="131"/>
+        <location filename="../gui/settingsdialog.cpp" line="411"/>
         <source>AI Assistant</source>
         <translation>AI 助手</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="191"/>
+        <location filename="../gui/settingsdialog.cpp" line="173"/>
         <source>OK</source>
         <translation>确定</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="195"/>
+        <location filename="../gui/settingsdialog.cpp" line="177"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="197"/>
+        <location filename="../gui/settingsdialog.cpp" line="179"/>
         <source>Apply</source>
         <translation>应用</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="209"/>
+        <location filename="../gui/settingsdialog.cpp" line="191"/>
         <source>Defaults for a new scan. The main window&apos;s scan options start from these.</source>
         <translation>新扫描的默认设置。主窗口的扫描选项初始值来自这里。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="213"/>
+        <location filename="../gui/settingsdialog.cpp" line="195"/>
         <source>Byte</source>
         <translation>字节</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="213"/>
+        <location filename="../gui/settingsdialog.cpp" line="195"/>
         <source>2 Bytes</source>
         <translation>2 字节</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="213"/>
+        <location filename="../gui/settingsdialog.cpp" line="195"/>
         <source>4 Bytes</source>
         <translation>4 字节</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="213"/>
+        <location filename="../gui/settingsdialog.cpp" line="195"/>
         <source>8 Bytes</source>
         <translation>8 字节</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="214"/>
+        <location filename="../gui/settingsdialog.cpp" line="196"/>
         <source>Float</source>
         <translation>浮点数</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="214"/>
+        <location filename="../gui/settingsdialog.cpp" line="196"/>
         <source>Double</source>
         <translation>双精度浮点数</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="214"/>
+        <location filename="../gui/settingsdialog.cpp" line="196"/>
         <source>String</source>
         <translation>字符串</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="215"/>
+        <location filename="../gui/settingsdialog.cpp" line="197"/>
         <source>Array of byte</source>
         <translation>字节数组</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="215"/>
+        <location filename="../gui/settingsdialog.cpp" line="197"/>
         <source>Pointer</source>
         <translation>指针</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="217"/>
+        <location filename="../gui/settingsdialog.cpp" line="199"/>
         <source>Value type:</source>
         <translation>数值类型：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="221"/>
+        <location filename="../gui/settingsdialog.cpp" line="203"/>
         <source> bytes</source>
         <translation> 字节</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="223"/>
+        <location filename="../gui/settingsdialog.cpp" line="205"/>
         <source>Fast scan alignment:</source>
         <translation>快速扫描对齐：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="225"/>
+        <location filename="../gui/settingsdialog.cpp" line="207"/>
         <source>Fast scan (only aligned addresses)</source>
         <translation>快速扫描（仅对齐地址）</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="228"/>
+        <location filename="../gui/settingsdialog.cpp" line="210"/>
         <source>Only writable memory</source>
         <translation>仅可写内存</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="231"/>
+        <location filename="../gui/settingsdialog.cpp" line="213"/>
         <source>Only executable memory</source>
         <translation>仅可执行内存</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="237"/>
+        <location filename="../gui/settingsdialog.cpp" line="219"/>
         <source>Automatic (one per CPU)</source>
         <translation>自动（每个 CPU 一个）</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="239"/>
+        <location filename="../gui/settingsdialog.cpp" line="221"/>
         <source>Worker threads:</source>
         <translation>工作线程：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="244"/>
+        <location filename="../gui/settingsdialog.cpp" line="226"/>
         <source>Automatic</source>
         <translation>自动</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="246"/>
+        <location filename="../gui/settingsdialog.cpp" line="228"/>
         <source>Float tolerance:</source>
         <translation>浮点数容差：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="247"/>
+        <location filename="../gui/settingsdialog.cpp" line="229"/>
         <source>Used by the &quot;Extreme&quot; float rounding mode.</source>
         <translation>用于“极限”浮点舍入模式。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="254"/>
+        <location filename="../gui/settingsdialog.cpp" line="236"/>
         <source>Theme and the font used by tables, the disassembler and hex views.</source>
         <translation>主题，以及表格、反汇编器和十六进制视图使用的字体。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="259"/>
+        <location filename="../gui/settingsdialog.cpp" line="241"/>
         <source>Light</source>
         <translation>浅色</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="259"/>
+        <location filename="../gui/settingsdialog.cpp" line="241"/>
         <source>Dark</source>
         <translation>深色</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="261"/>
+        <location filename="../gui/settingsdialog.cpp" line="243"/>
         <source>Theme:</source>
         <translation>主题：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="266"/>
+        <location filename="../gui/settingsdialog.cpp" line="248"/>
         <source>Monospace font:</source>
         <translation>等宽字体：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="271"/>
+        <location filename="../gui/settingsdialog.cpp" line="253"/>
         <source> pt</source>
         <translation> pt</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="273"/>
+        <location filename="../gui/settingsdialog.cpp" line="255"/>
         <source>Font size:</source>
         <translation>字号：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="276"/>
+        <location filename="../gui/settingsdialog.cpp" line="258"/>
         <source>32-bit (8 hex digits)</source>
         <translation>32 位（8 位十六进制）</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="276"/>
+        <location filename="../gui/settingsdialog.cpp" line="258"/>
         <source>64-bit (16 hex digits)</source>
         <translation>64 位（16 位十六进制）</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="278"/>
+        <location filename="../gui/settingsdialog.cpp" line="260"/>
         <source>Address width:</source>
         <translation>地址宽度：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="280"/>
+        <location filename="../gui/settingsdialog.cpp" line="262"/>
         <source>Uppercase hexadecimal (0x7F3A, not 0x7f3a)</source>
         <translation>大写十六进制（0x7F3A，而非 0x7f3a）</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="289"/>
+        <location filename="../gui/settingsdialog.cpp" line="271"/>
         <source>Language of the interface. A restart is offered when it changes.</source>
         <translation>界面语言。更改时会提示重启。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="292"/>
+        <location filename="../gui/settingsdialog.cpp" line="274"/>
         <source>Follow system</source>
         <translation>跟随系统</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="298"/>
+        <location filename="../gui/settingsdialog.cpp" line="280"/>
         <source>Interface language:</source>
         <translation>界面语言：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="299"/>
+        <location filename="../gui/settingsdialog.cpp" line="281"/>
         <source>English and Simplified Chinese are available for now.</source>
         <translation>目前提供英文和简体中文。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="306"/>
+        <location filename="../gui/settingsdialog.cpp" line="288"/>
         <source>Layout and refresh of the hex dump in the Memory Viewer.</source>
         <translation>内存查看器中十六进制转储的布局与刷新。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="313"/>
+        <location filename="../gui/settingsdialog.cpp" line="295"/>
         <source>Bytes per row:</source>
         <translation>每行字节数：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="315"/>
+        <location filename="../gui/settingsdialog.cpp" line="297"/>
         <source>Refresh values while the view is open</source>
         <translation>视图打开时刷新数值</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="322"/>
+        <location filename="../gui/settingsdialog.cpp" line="304"/>
         <source> ms</source>
         <translation> ms</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="326"/>
+        <location filename="../gui/settingsdialog.cpp" line="308"/>
         <source>Refresh interval:</source>
         <translation>刷新间隔：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="327"/>
+        <location filename="../gui/settingsdialog.cpp" line="309"/>
         <source>Applies to Memory Viewer windows opened from now on.</source>
         <translation>对之后打开的内存查看器窗口生效。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="333"/>
+        <location filename="../gui/settingsdialog.cpp" line="315"/>
         <source>Defaults for hardware watchpoints.</source>
         <translation>硬件监视点的默认设置。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="337"/>
+        <location filename="../gui/settingsdialog.cpp" line="319"/>
         <source>Data breakpoint size:</source>
         <translation>数据断点大小：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="339"/>
+        <location filename="../gui/settingsdialog.cpp" line="321"/>
         <source>Find-what-writes size:</source>
         <translation>“查找写入”大小：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="340"/>
+        <location filename="../gui/settingsdialog.cpp" line="322"/>
         <source>How many bytes from the address a watchpoint covers. x86 watchpoints must be aligned to their size.</source>
         <translation>监视点覆盖地址起的多少字节。x86 监视点必须按其大小对齐。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="347"/>
+        <location filename="../gui/settingsdialog.cpp" line="329"/>
         <source>Hotkeys belong to cheat table entries: right-click an entry and choose Hotkeys.</source>
         <translation>快捷键属于表格条目：右键单击条目并选择“快捷键”。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="352"/>
+        <location filename="../gui/settingsdialog.cpp" line="334"/>
         <source>Default value step:</source>
         <translation>默认数值步长：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="353"/>
+        <location filename="../gui/settingsdialog.cpp" line="335"/>
         <source>How much an increase or decrease hotkey changes a value, until the entry sets its own step.</source>
         <translation>增加或减少快捷键每次改变多少数值，直到条目设置自己的步长。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="361"/>
+        <location filename="../gui/settingsdialog.cpp" line="343"/>
         <source>The ceserver that File &gt; Connect to ceserver offers by default.</source>
         <translation>“文件 &gt; 连接到 ceserver”默认提供的 ceserver。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="364"/>
+        <location filename="../gui/settingsdialog.cpp" line="346"/>
         <source>host name or IP address</source>
         <translation>主机名或 IP 地址</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="365"/>
+        <location filename="../gui/settingsdialog.cpp" line="347"/>
         <source>ceserver host:</source>
         <translation>ceserver 主机：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="370"/>
+        <location filename="../gui/settingsdialog.cpp" line="352"/>
         <source>ceserver port:</source>
         <translation>ceserver 端口：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="377"/>
+        <location filename="../gui/settingsdialog.cpp" line="359"/>
         <source>Scripts in the autorun folder run once at startup, like Cheat Engine&apos;s autorun.</source>
         <translation>autorun 文件夹中的脚本在启动时运行一次，与 Cheat Engine 的 autorun 相同。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="383"/>
+        <location filename="../gui/settingsdialog.cpp" line="365"/>
         <source>Open folder</source>
         <translation>打开文件夹</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="391"/>
+        <location filename="../gui/settingsdialog.cpp" line="373"/>
         <source>Autorun folder:</source>
         <translation>autorun 文件夹：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="392"/>
+        <location filename="../gui/settingsdialog.cpp" line="374"/>
         <source>Lua cannot run shell commands or write local files unless Cheat Engine was started with CECORE_LUA_ALLOW_UNSAFE=1 in its environment. A cheat table cannot turn this on by itself.</source>
         <translation>除非启动 Cheat Engine 时在环境中设置了 CECORE_LUA_ALLOW_UNSAFE=1，否则 Lua 无法执行 shell 命令或写入本地文件。作弊表本身无法开启此功能。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="430"/>
+        <location filename="../gui/settingsdialog.cpp" line="412"/>
         <source>The model behind Tools &gt; AI Assistant. You bring the API key, or run a model on your own computer.</source>
         <translation>“工具 &gt; AI 助手”使用的模型。你可以自带 API 密钥，也可以在本机运行模型。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="434"/>
+        <location filename="../gui/settingsdialog.cpp" line="416"/>
         <source>Anthropic (Claude)</source>
         <translation>Anthropic (Claude)</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="435"/>
+        <location filename="../gui/settingsdialog.cpp" line="417"/>
         <source>OpenAI-compatible (OpenAI, Ollama, LM Studio)</source>
         <translation>兼容 OpenAI（OpenAI、Ollama、LM Studio）</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="440"/>
+        <location filename="../gui/settingsdialog.cpp" line="422"/>
         <source>Provider:</source>
         <translation>提供商：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="442"/>
+        <location filename="../gui/settingsdialog.cpp" line="424"/>
         <source>Model:</source>
         <translation>模型：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="444"/>
+        <location filename="../gui/settingsdialog.cpp" line="426"/>
         <source>API address:</source>
         <translation>API 地址：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="447"/>
+        <location filename="../gui/settingsdialog.cpp" line="429"/>
         <source>Paste a new key to save it</source>
         <translation>粘贴新密钥以保存</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="448"/>
+        <location filename="../gui/settingsdialog.cpp" line="430"/>
         <source>Forget key</source>
         <translation>忘记密钥</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="453"/>
+        <location filename="../gui/settingsdialog.cpp" line="435"/>
         <source>API key:</source>
         <translation>API 密钥：</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="456"/>
+        <location filename="../gui/settingsdialog.cpp" line="438"/>
         <source>Keys are kept in the system keyring, never in Cheat Engine&apos;s settings file; ANTHROPIC_API_KEY or OPENAI_API_KEY in the environment take precedence. A saved key is only sent to the API address it was entered with. Your messages and what the tools find in the game are sent to this provider, and every change to the game waits for your Allow.</source>
         <translation>密钥保存在系统密钥环中，而不是 Cheat Engine 的设置文件里；环境变量 ANTHROPIC_API_KEY 或 OPENAI_API_KEY 优先。已保存的密钥只会发送到输入它时使用的 API 地址。你的消息以及工具在游戏中发现的内容会发送给该提供商，而对游戏的每次更改都会等待你的允许。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="470"/>
+        <location filename="../gui/settingsdialog.cpp" line="452"/>
         <source>Could not remove the key: %1</source>
         <translation>无法删除密钥：%1</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="486"/>
+        <location filename="../gui/settingsdialog.cpp" line="468"/>
         <source>for example gpt-5 or qwen3</source>
         <translation>例如 gpt-5 或 qwen3</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="490"/>
+        <location filename="../gui/settingsdialog.cpp" line="472"/>
         <source>https://api.openai.com/v1 or http://localhost:11434/v1</source>
         <translation>https://api.openai.com/v1 或 http://localhost:11434/v1</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="557"/>
+        <location filename="../gui/settingsdialog.cpp" line="539"/>
         <source>Kept until Cheat Engine closes: %1</source>
         <translation>仅在 Cheat Engine 关闭前有效：%1</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="567"/>
+        <location filename="../gui/settingsdialog.cpp" line="549"/>
         <source>Restart Cheat Engine to apply the new interface language.</source>
         <translation>重启 Cheat Engine 以应用新的界面语言。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="568"/>
+        <location filename="../gui/settingsdialog.cpp" line="550"/>
         <source>Save the table first if you need the current addresses and scan results.</source>
         <translation>如需保留当前的地址列表和扫描结果，请先保存表格。</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="569"/>
+        <location filename="../gui/settingsdialog.cpp" line="551"/>
         <source>Restart now</source>
         <translation>立即重启</translation>
     </message>
     <message>
-        <location filename="../gui/settingsdialog.cpp" line="570"/>
+        <location filename="../gui/settingsdialog.cpp" line="552"/>
         <source>Later</source>
         <translation>稍后</translation>
     </message>

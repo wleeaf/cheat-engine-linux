@@ -27,10 +27,10 @@ D3D/.Net are hidden on a Linux build.)
   Load Recent
   Sign table
   ——
-  Save scan results...
+  Save current scanresults
   Delete scanresult
   ——
-  Generate Trainer Lua Script...
+  Generate generic trainer lua script from table
   ——
   Quit
 &Edit
@@ -97,13 +97,13 @@ Languages
 |---|---|---:|---:|---:|---|---|
 | formsettingsunit | Cheat Engine settings | 243 | 71 | 2 | `settingsdialog` | ✅ |
 | MainUnit | Cheat Engine | 90 | 204 | 167 | `mainwindow` | ✅ |
-| PointerscannerSettingsFrm | Pointerscanner scanoptions | 70 | 29 | 0 | `pointerscan_dialog` | ⚠️ scan options |
+| PointerscannerSettingsFrm | Pointerscanner scanoptions | 70 | 29 | 0 | `pointerscan_dialog` | ✅ depth, offset, static/aligned/negative, path count, base range, end offsets; no saved pointermaps or distributed scanning |
 | trainergenerator | Trainer generator | 60 | 32 | 3 | `mainwindow` | ✅ |
 | frmMemviewPreferencesUnit | Disassembler Preferences | 58 | 33 | 1 | `memviewpreferences` | ✅ |
-| MemoryBrowserFormUnit | Memory Viewer | 57 | 261 | 251 | `memorybrowser` | ⚠️ CE layout: disasm+registers / hex+stacktrace, debug toolbar, own File/Search/View/Debug/Tools menu bar; in-window single-stepping pending (use Debugger window) |
+| MemoryBrowserFormUnit | Memory Viewer | 57 | 261 | 251 | `memorybrowser` | ✅ CE layout: disasm+registers / hex+stacktrace, debug toolbar, own menu bar; stepping drives the Debugger window's session |
 | frmUltimap2Unit | Ultimap 2 | 56 | 47 | 10 | — | 🚫 Intel PT / Windows only |
 | frmStringPointerScanUnit | Structure spider | 55 | 37 | 10 | `mainwindow` | ✅ |
-| frmModifyRegistersUnit | Modify register(s) at xxxxxxxx | 52 | 7 | 0 | `registereditor` | ⚠️ edit register value |
+| frmModifyRegistersUnit | Modify register(s) at xxxxxxxx | 52 | 7 | 0 | `changeregisters` | ✅ no DBVM cloaked breakpoints or FPU/XMM state |
 | frmTracerUnit | Tracer | 47 | 45 | 15 | `tracerwindow` | ✅ |
 | formdesignerunit | Form Designer | 38 | 55 | 18 | `formdesigner` | ✅ |
 | pointerscannerfrm | Pointer scan | 38 | 35 | 19 | `pointerscan_dialog` | ✅ |
@@ -115,20 +115,20 @@ Languages
 | TypePopup | Type | 34 | 7 | 0 | `mainwindow` | ✅ |
 | frmRescanPointerUnit | Rescan pointerlist | 34 | 16 | 0 | `pointerscan_dialog` | ✅ |
 | frmanchoreditor | AnchorEditor | 34 | 27 | 0 | `formdesigner` | ✅ |
-| frmstructurecompareunit | Structure Compare | 33 | 31 | 18 | `structuredissector` | ⚠️ compare instances |
-| HotKeys | Set/Change hotkey | 32 | 25 | 2 | `globalhotkeys` | ⚠️ set/change hotkey |
-| aboutunit | About Cheat Engine | 31 | 9 | 0 | `mainwindow` | ⚠️ inline About box only |
+| frmstructurecompareunit | Structure Compare | 33 | 31 | 18 | `structurecompare` | ✅ compares live structures; no pointer files or rescans |
+| HotKeys | Set/Change hotkey | 32 | 25 | 2 | `hotkeysdialog` | ✅ no activation sounds or speech |
+| aboutunit | About Cheat Engine | 31 | 9 | 0 | `aboutdialog` | ✅ |
 | frmExeTrainerGeneratorUnit | Exe Trainer Generator | 31 | 16 | 1 | `mainwindow` | ✅ |
-| frmstructuresconfigunit | Dissect Data Config | 30 | 15 | 0 | `structuredissector` | ⚠️ dissect config |
+| frmstructuresconfigunit | Dissect Data Config | 30 | 15 | 0 | `structuredissectorconfig` | ✅ colours and new-structure defaults; the dissector has no auto-created pointer structures to configure |
 | DissectCodeunit | Dissect Code | 27 | 9 | 3 | `codereferences` | ✅ |
 | frmMemoryViewExUnit | Graphical Memory View  | 27 | 25 | 0 | `graphicalmemoryview` | ✅ |
-| frmcodefilterunit | Code Filter | 27 | 24 | 4 | `codereferences` | ⚠️ code categorized by type (calls/jumps/strings tabs) |
-| frmfoundlistpreferencesunit | Foundlist Customizer | 27 | 11 | 0 | `mainwindow` | ⚠️ basic result display only |
+| frmcodefilterunit | Code Filter | 27 | 24 | 4 | `codefilter` | ✅ addresses from the disassembler or a file; not from a trace or unwind info |
+| frmfoundlistpreferencesunit | Foundlist Customizer | 27 | 11 | 0 | `foundlistprefs` | ✅ no live example list in the dialog |
 | frmRegistersunit | Registers | 25 | 40 | 5 | `registereditor` | ✅ |
 | frmluaengineunit | Lua Engine | 25 | 38 | 25 | `luaconsole` | ✅ |
-| frmTracerConfigUnit | Break and Trace config | 24 | 5 | 0 | `tracerwindow` | ⚠️ break-and-trace config |
+| frmTracerConfigUnit | Break and Trace config | 24 | 5 | 0 | `tracerwindow` | ✅ hardware execute breakpoint only (no breakpoint method or DBVM choice) |
 | frameHotkeyConfigUnit |  | 22 | 10 | 1 | `globalhotkeys` | ✅ |
-| PEInfounit | Portable Executable (PE) Info | 21 | 9 | 2 | `elfinspector` | ⚠️ ELF inspector vs CE's PE info |
+| PEInfounit | Portable Executable (PE) Info | 21 | 9 | 2 | `peinfo` | ✅ |
 | formProcessInfo | Process/System Info | 21 | 10 | 0 | `mainwindow` | ✅ |
 | frmAdConfigUnit | Support Cheat Engine | 21 | 13 | 0 | — | 🚫 Support-CE donation dialog |
 | frmStructures2ElementInfoUnit | Structure Info | 21 | 13 | 0 | `structuredissector` | ✅ |
@@ -141,9 +141,9 @@ Languages
 | frmAAEditPrefsUnit | Editor preferences | 16 | 11 | 0 | `scripteditor` | ✅ |
 | frmFindstaticsUnit | Find static addresses | 16 | 7 | 0 | `findstaticswindow` | ✅ |
 | frmresumepointerscanunit | Resume pointerscan | 16 | 9 | 1 | `pointerscan_dialog` | ✅ |
-| FoundCodeUnit | The following opcodes changed the  | 15 | 24 | 12 | `codefinder` | ⚠️ what-writes/accesses result list |
+| FoundCodeUnit | The following opcodes changed the  | 15 | 24 | 12 | `codefinder` | ✅ |
 | ProcessWindowUnit | Process List | 15 | 27 | 17 | `processlistdialog` | ✅ |
-| frmExcludeHideUnit | Show/Hide settings | 15 | 7 | 0 | `settingsdialog` | ⚠️ scan region filtering |
+| frmExcludeHideUnit | Show/Hide settings | 15 | 7 | 0 | — | 🚫 hides and shows other programs' windows (a Windows desktop feature; Wayland lets no program hide another's windows) |
 | frmSaveMemoryRegionUnit | Save memoryregion | 15 | 7 | 1 | `mainwindow` | ✅ |
 | frmStringMapUnit | String map | 15 | 12 | 2 | `codereferences` | ✅ |
 | FindWindowUnit | Find | 14 | 3 | 0 | — | 🚫 find target GUI window (niche) |
@@ -158,7 +158,7 @@ Languages
 | symbolconfigunit | Symbol config | 13 | 13 | 4 | `settingsdialog` | ✅ |
 | APIhooktemplatesettingsfrm | Api hook template | 12 | 2 | 0 | — | 🚫 Windows API hook |
 | celistviewitemeditor | Item editor | 12 | 8 | 0 | `mainwindow` | ✅ |
-| frmexceptionregionlistunit | Exception region list | 12 | 9 | 4 | `debuggerwindow` | ⚠️ break-on-signals; no per-region list |
+| frmexceptionregionlistunit | Exception region list | 12 | 9 | 4 | `exceptionlists` | ✅ for signals; no automatic adding of user allocations |
 | frmmemoryrecorddropdownsettingsunit | Dropdown options | 12 | 12 | 4 | `mainwindow` | ✅ |
 | networkConfig | Connect to server | 12 | 9 | 2 | `settingsdialog` | ✅ |
 | frmBreakpointConditionUnit | Breakpoint condition | 11 | 7 | 0 | `breakpointlist` | ✅ |
@@ -167,7 +167,7 @@ Languages
 | frmFillMemoryUnit | Fill memory | 10 | 4 | 0 | `memoryfill` | ✅ |
 | frmStructureLinkerUnit | Structure linker | 10 | 4 | 0 | `structuredissector` | ✅ |
 | AdvancedOptionsUnit | Code list/Pause | 9 | 27 | 15 | `advancedoptions` | ✅ |
-| formChangedAddresses | Changed Addresses | 9 | 31 | 25 | `mainwindow` | ⚠️ changed/unchanged scan covers this |
+| formChangedAddresses | Changed Addresses | 9 | 31 | 25 | `changedaddresses` | ✅ no Intel PT log |
 | frmassemblyscanunit | Assembly scan | 9 | 2 | 0 | `mainwindow` | ✅ |
 | frmfinddialogunit | Find | 9 | 0 | 0 | `memorybrowser` | ✅ |
 | frmsnapshothandlerUnit | Snapshot handler | 9 | 9 | 5 | `mainwindow` | ✅ |
@@ -183,7 +183,7 @@ Languages
 | frmstructuresnewstructure | New Structure | 8 | 2 | 0 | `structuredissector` | ✅ |
 | ModuleSafetyUnit | Module safety | 7 | 4 | 1 | — | 🚫 Windows module-safety |
 | frmLoadMemoryunit | Load Memory Region | 7 | 4 | 0 | `mainwindow` | ✅ |
-| frmexceptionignorelistunit | Exception ignore list | 7 | 7 | 1 | `debuggerwindow` | ⚠️ break-on-signals; no ignore list |
+| frmexceptionignorelistunit | Exception ignore list | 7 | 7 | 1 | `exceptionlists` | ✅ for signals: passed on under Break on all signals |
 | frmmergepointerscanresultsettingsunit | Merge pointerscan results | 7 | 2 | 0 | — | 🚫 distributed pointerscan (network) |
 | frmopenfileasprocessdialogunit | Open binary file | 7 | 1 | 0 | `mainwindow` | ✅ |
 | frmpointerrescanconnectdialogunit | Join rescan | 7 | 2 | 0 | — | 🚫 distributed pointerscan (network) |
@@ -200,7 +200,7 @@ Languages
 | multilineinputqueryunit |  | 6 | 2 | 0 | `mainwindow` | ✅ |
 | Changeoffsetunit | Recalculate addres | 5 | 6 | 0 | `changeaddressdialog` | ✅ |
 | CommentsUnit | Comments | 5 | 6 | 0 | `mainwindow` | ✅ |
-| codefiltercalloralldialog | Code Filter | 5 | 0 | 0 | `codereferences` | ⚠️ call/all filter subset |
+| codefiltercalloralldialog | Code Filter | 5 | 0 | 0 | `codefilter` | ✅ |
 | formDifferentBitSizeUnit | Different sized row of bits | 5 | 6 | 1 | — | 🚫 internal bit-size warning |
 | formhotkeyunit | Change hotkey | 5 | 2 | 0 | `globalhotkeys` | ✅ |
 | frmBreakThreadUnit | Break Thread | 5 | 4 | 0 | `threadlist` | ✅ |
@@ -236,7 +236,7 @@ Languages
 | frmIDTunit | IDT | 1 | 2 | 0 | — | 🚫 Windows IDT (kernel) |
 | frmProcesswatcherExtraUnit | Processwatcher Extra | 1 | 0 | 0 | `mainwindow` | ✅ |
 | frmWatchlistUnit | Watch list | 1 | 13 | 11 | `mainwindow` | ✅ |
-| frmchangedaddressescommonalityscannerunit | Commonality scanner | 1 | 4 | 0 | `structuredissector` | ⚠️ N-instance field compare = commonality |
+| frmchangedaddressescommonalityscannerunit | Commonality scanner | 1 | 4 | 0 | `changedaddresses` | ✅ |
 | frmdotnetobjectlistunit | .Net Object List | 1 | 0 | 0 | — | 🚫 .NET (Windows) only |
 | frmstacktraceunit | Stacktrace | 1 | 5 | 2 | `stackview` | ✅ |
 | Structuresfrm | Memory dissect | 0 | 0 | 0 | `structuredissector` | ✅ |

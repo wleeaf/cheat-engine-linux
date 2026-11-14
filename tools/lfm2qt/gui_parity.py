@@ -18,14 +18,13 @@ MAP = {
     "MainUnit": ("mainwindow", ""),
     "frmStringPointerScanUnit": ("mainwindow", ""),
     "frmgroupscanalgoritmgeneratorunit": ("mainwindow", ""),
-    "frmchangedaddressescommonalityscannerunit": ("structuredissector", "N-instance field compare = commonality"),
-    "codefiltercalloralldialog": ("codereferences", "call/all filter subset"),
-    "frmcodefilterunit": ("codereferences", "code categorized by type (calls/jumps/strings tabs)"),
-    "frmexceptionignorelistunit": ("debuggerwindow", "break-on-signals; no ignore list"),
-    "frmexceptionregionlistunit": ("debuggerwindow", "break-on-signals; no per-region list"),
-    "formChangedAddresses": ("mainwindow", "changed/unchanged scan covers this"),
-    "frmExcludeHideUnit": ("settingsdialog", "scan region filtering"),
-    "frmfoundlistpreferencesunit": ("mainwindow", "basic result display only"),
+    "frmchangedaddressescommonalityscannerunit": ("changedaddresses", ""),
+    "codefiltercalloralldialog": ("codefilter", ""),
+    "frmcodefilterunit": ("codefilter", "✅ addresses from the disassembler or a file; not from a trace or unwind info"),
+    "frmexceptionignorelistunit": ("exceptionlists", "✅ for signals: passed on under Break on all signals"),
+    "frmexceptionregionlistunit": ("exceptionlists", "✅ for signals; no automatic adding of user allocations"),
+    "formChangedAddresses": ("changedaddresses", "✅ no Intel PT log"),
+    "frmfoundlistpreferencesunit": ("foundlistprefs", "✅ no live example list in the dialog"),
     "frmStringMapUnit": ("codereferences", ""),
     "celistviewitemeditor": ("mainwindow", ""),
     "frmopenfileasprocessdialogunit": ("mainwindow", ""),
@@ -99,26 +98,26 @@ MAP = {
     "frmSaveMemoryRegionUnit": ("mainwindow", ""),
     "formProcessInfo": ("mainwindow", ""),
     "AdvancedOptionsUnit": ("advancedoptions", ""),  # Code list
-    "MemoryBrowserFormUnit": ("memorybrowser", "CE layout: disasm+registers / hex+stacktrace, debug toolbar, own File/Search/View/Debug/Tools menu bar; in-window single-stepping pending (use Debugger window)"),
+    "MemoryBrowserFormUnit": ("memorybrowser", "✅ CE layout: disasm+registers / hex+stacktrace, debug toolbar, own menu bar; stepping drives the Debugger window's session"),
     "formsettingsunit": ("settingsdialog", ""),  # all CE tabs present
     "pointerscannerfrm": ("pointerscan_dialog", ""),
-    "PointerscannerSettingsFrm": ("pointerscan_dialog", "scan options"),
-    "FoundCodeUnit": ("codefinder", "what-writes/accesses result list"),
+    "PointerscannerSettingsFrm": ("pointerscan_dialog", "✅ depth, offset, static/aligned/negative, path count, base range, end offsets; no saved pointermaps or distributed scanning"),
+    "FoundCodeUnit": ("codefinder", ""),
     "formFoundcodeListExtraUnit": ("codefinder", ""),
     "formmemoryregionsunit": ("memoryregions", ""),
     "frmThreadlistunit": ("threadlist", ""),
     "frmRegistersunit": ("registereditor", ""),
-    "frmModifyRegistersUnit": ("registereditor", "edit register value"),
+    "frmModifyRegistersUnit": ("changeregisters", "✅ no DBVM cloaked breakpoints or FPU/XMM state"),
     "formdesignerunit": ("formdesigner", ""),
     "Structuresfrm": ("structuredissector", ""),
-    "frmstructuresconfigunit": ("structuredissector", "dissect config"),
-    "frmstructurecompareunit": ("structuredissector", "compare instances"),
+    "frmstructuresconfigunit": ("structuredissectorconfig", "✅ colours and new-structure defaults; the dissector has no auto-created pointer structures to configure"),
+    "frmstructurecompareunit": ("structurecompare", "✅ compares live structures; no pointer files or rescans"),
     "frmTracerUnit": ("tracerwindow", ""),
-    "frmTracerConfigUnit": ("tracerwindow", "break-and-trace config"),
+    "frmTracerConfigUnit": ("tracerwindow", "✅ hardware execute breakpoint only (no breakpoint method or DBVM choice)"),
     "CommentsUnit": ("mainwindow", ""),  # Table Extras -> Comments memo
-    "aboutunit": ("mainwindow", "inline About box only"),
-    "PEInfounit": ("elfinspector", "ELF inspector vs CE's PE info"),
-    "HotKeys": ("globalhotkeys", "set/change hotkey"),
+    "aboutunit": ("aboutdialog", ""),
+    "PEInfounit": ("peinfo", ""),
+    "HotKeys": ("hotkeysdialog", "✅ no activation sounds or speech"),
     "frameHotkeyConfigUnit": ("globalhotkeys", ""),
     "trainergenerator": ("mainwindow", ""),
     "frmExeTrainerGeneratorUnit": ("mainwindow", ""),
@@ -131,6 +130,7 @@ MAP = {
 }
 # platform-gated form-name substrings a Linux build hides
 NA = {
+    "ExcludeHide": "hides and shows other programs' windows (a Windows desktop feature; Wayland lets no program hide another's windows)",
     "dbvm": "DBVM (hypervisor) only", "D3D": "Direct3D (Windows) only",
     "d3d": "Direct3D (Windows) only", "Kernel": "Windows kernel driver",
     "psn": "distributed pointerscan node",
@@ -224,6 +224,8 @@ def main():
             status, our = "🚫 " + na, "—"
         elif not ours:
             status, our = "❌ missing", "—"
+        elif note.startswith("✅"):
+            status, our = note, f"`{ours}`"   # done; the note says what differs on purpose
         elif note and ("MISSING" in note or "missing" in note):
             status, our = "⚠️ " + note, f"`{ours}`"
         elif note:

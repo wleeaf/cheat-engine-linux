@@ -496,12 +496,12 @@ namespace {
 // Keeps the hint label covering the viewport and visible only while empty.
 class EmptyHintFilter : public QObject {
 public:
-    EmptyHintFilter(QAbstractItemView* view, QLabel* label) : QObject(view), view_(view), label_(label) {}
+    EmptyHintFilter(QAbstractItemView* view, QLabel* label)
+        : QObject(view), viewport_(view->viewport()), model_(view->model()), label_(label) {}
     void update() {
-        if (!view_ || !label_) return;
-        auto* model = view_->model();
-        label_->setGeometry(view_->viewport()->rect().adjusted(16, 16, -16, -16));
-        label_->setVisible(!model || model->rowCount() == 0);
+        if (!viewport_ || !label_) return;
+        label_->setGeometry(viewport_->rect().adjusted(16, 16, -16, -16));
+        label_->setVisible(!model_ || model_->rowCount() == 0);
     }
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override {
@@ -509,7 +509,12 @@ protected:
         return QObject::eventFilter(watched, event);
     }
 private:
-    QPointer<QAbstractItemView> view_;
+    // The viewport and the model, never the view: a QListWidget's own model
+    // is deleted after the view part of it, and its rowsRemoved then arrives
+    // when the object is no longer an item view (reading it as one is
+    // undefined behaviour, which UBSan reports).
+    QPointer<QWidget> viewport_;
+    QPointer<QAbstractItemModel> model_;
     QPointer<QLabel> label_;
 };
 } // namespace

@@ -14,6 +14,8 @@ extern "C" {
 }
 
 #include <QWidget>
+#include <array>
+#include <vector>
 #include <QMainWindow>
 #include <QMenu>
 #include <QMenuBar>
@@ -57,18 +59,6 @@ struct CallbackBinding {
     QMetaObject::Connection connection;
 };
 
-// Store Lua callback references per Qt object.
-// INVARIANT: these maps are only touched from the GUI thread (the single Lua
-// state lives there). Keys are raw QObject* but each entry is erased
-// synchronously by QObject::destroyed (see trackDestroyed / the OnClose lambda)
-// before the object's address can be recycled, so stale-key collisions cannot
-// occur as long as that single-thread invariant holds.
-// TODO(security): move the callback ref into the widget userdata (now that it
-// has __gc) to eliminate the global raw-pointer-keyed maps entirely.
-static std::unordered_map<QObject*, CallbackBinding> clickCallbacks;
-static std::unordered_map<QObject*, CallbackBinding> changeCallbacks;
-static std::unordered_map<QObject*, CallbackBinding> closeCallbacks;
-static std::unordered_map<QObject*, CallbackBinding> timerCallbacks;
 static lua_State* guiLuaState = nullptr;
 static QPointer<QMainWindow> guiMainForm;
 
@@ -157,14 +147,55 @@ static void unrefCallback(int ref) {
         luaL_unref(guiLuaState, LUA_REGISTRYINDEX, ref);
 }
 
-static void clearCallback(QObject* object, std::unordered_map<QObject*, CallbackBinding>& callbacks) {
-    auto it = callbacks.find(object);
-    if (it == callbacks.end())
-        return;
-    QObject::disconnect(it->second.connection);
-    unrefCallback(it->second.ref);
-    callbacks.erase(it);
-}
+// The Lua callbacks of one widget or timer, held by a child object of it, so
+// they go with it and no table keyed by raw object pointers can outlive one.
+// Everything here runs on the GUI thread, where the single Lua state lives.
+// A widget deletes its children before it emits destroyed(), so the OnClose
+// binding is not released here on destruction: its own handler, connected to
+// destroyed(), runs the callback and releases it.
+class CallbackSlots : public QObject {
+public:
+    enum Kind { Click, Change, Close, Timer, KindCount };
+
+    static CallbackSlots& of(QObject* owner) {
+        for (QObject* child : owner->children())
+            if (auto* holder = dynamic_cast<CallbackSlots*>(child)) return *holder;
+        return *new CallbackSlots(owner);
+    }
+    void set(Kind kind, CallbackBinding binding) {
+        release(bindings_[kind]);
+        bindings_[kind] = binding;
+    }
+    void clear(Kind kind) { release(bindings_[kind]); }
+
+    // A closing Lua state: cut every connection. lua_close frees the refs.
+    static void disconnectAll() {
+        for (auto* holder : live())
+            for (auto& binding : holder->bindings_) {
+                QObject::disconnect(binding.connection);
+                binding = {};
+            }
+    }
+
+    ~CallbackSlots() override {
+        for (int kind = 0; kind < KindCount; ++kind)
+            if (kind != Close) release(bindings_[kind]);
+        std::erase(live(), this);
+    }
+
+private:
+    explicit CallbackSlots(QObject* owner) : QObject(owner) { live().push_back(this); }
+    static void release(CallbackBinding& binding) {
+        QObject::disconnect(binding.connection);
+        unrefCallback(binding.ref);
+        binding = {};
+    }
+    static std::vector<CallbackSlots*>& live() {
+        static std::vector<CallbackSlots*> registry;
+        return registry;
+    }
+    std::array<CallbackBinding, KindCount> bindings_;
+};
 
 static int storeCallback(lua_State* L, int index) {
     lua_pushvalue(L, index);
@@ -187,13 +218,6 @@ static void invokeLuaCallback(int ref, QWidget* widget, QTimer* timer = nullptr)
     }
 }
 
-static void trackDestroyed(QObject* object) {
-    QObject::connect(object, &QObject::destroyed, [object]() {
-        clearCallback(object, clickCallbacks);
-        clearCallback(object, changeCallbacks);
-        clearCallback(object, timerCallbacks);
-    });
-}
 
 // ── Font sub-object ──
 static int widgetfont_index(lua_State* L) {
@@ -481,7 +505,7 @@ static int widget_newindex(lua_State* L) {
 
     // Event handlers
     if (!strcmp(key, "OnClick")) {
-        clearCallback(w, clickCallbacks);
+        CallbackSlots::of(w).clear(CallbackSlots::Click);
         if (lua_isnil(L, 3))
             return 0;
         luaL_checktype(L, 3, LUA_TFUNCTION);
@@ -492,20 +516,20 @@ static int widget_newindex(lua_State* L) {
             binding.connection = QObject::connect(btn, &QPushButton::clicked, [ref, w]() {
                 invokeLuaCallback(ref, w);
             });
-            clickCallbacks[w] = binding;
+            CallbackSlots::of(w).set(CallbackSlots::Click, binding);
             return 0;
         } else if (auto* cb = qobject_cast<QCheckBox*>(w)) {
             binding.connection = QObject::connect(cb, &QCheckBox::toggled, [ref, w]() {
                 invokeLuaCallback(ref, w);
             });
-            clickCallbacks[w] = binding;
+            CallbackSlots::of(w).set(CallbackSlots::Click, binding);
             return 0;
         }
         unrefCallback(ref);
         return 0;
     }
     if (!strcmp(key, "OnChange")) {
-        clearCallback(w, changeCallbacks);
+        CallbackSlots::of(w).clear(CallbackSlots::Change);
         if (lua_isnil(L, 3))
             return 0;
         luaL_checktype(L, 3, LUA_TFUNCTION);
@@ -516,43 +540,43 @@ static int widget_newindex(lua_State* L) {
             binding.connection = QObject::connect(ed, &QLineEdit::textChanged, [ref, w]() {
                 invokeLuaCallback(ref, w);
             });
-            changeCallbacks[w] = binding;
+            CallbackSlots::of(w).set(CallbackSlots::Change, binding);
             return 0;
         } else if (auto* cb = qobject_cast<QCheckBox*>(w)) {
             binding.connection = QObject::connect(cb, &QCheckBox::toggled, [ref, w]() {
                 invokeLuaCallback(ref, w);
             });
-            changeCallbacks[w] = binding;
+            CallbackSlots::of(w).set(CallbackSlots::Change, binding);
             return 0;
         } else if (auto* list = qobject_cast<QListWidget*>(w)) {
             binding.connection = QObject::connect(list, &QListWidget::currentRowChanged, [ref, w]() {
                 invokeLuaCallback(ref, w);
             });
-            changeCallbacks[w] = binding;
+            CallbackSlots::of(w).set(CallbackSlots::Change, binding);
             return 0;
         }
         unrefCallback(ref);
         return 0;
     }
     if (!strcmp(key, "OnClose")) {
-        clearCallback(w, closeCallbacks);
+        CallbackSlots::of(w).clear(CallbackSlots::Close);
         if (lua_isnil(L, 3))
             return 0;
         luaL_checktype(L, 3, LUA_TFUNCTION);
         int ref = storeCallback(L, 3);
         CallbackBinding binding;
         binding.ref = ref;
-        binding.connection = QObject::connect(w, &QObject::destroyed, [ref, w]() {
+        // The holder is gone by now (see CallbackSlots): run and release here.
+        binding.connection = QObject::connect(w, &QObject::destroyed, [ref]() {
             invokeLuaCallback(ref, nullptr);
             unrefCallback(ref);
-            closeCallbacks.erase(w);
         });
-        closeCallbacks[w] = binding;
+        CallbackSlots::of(w).set(CallbackSlots::Close, binding);
         return 0;
     }
     if (!strcmp(key, "OnTimer") && lw->timer) {
         QTimer* tmr = lw->timer.data();
-        clearCallback(tmr, timerCallbacks);
+        CallbackSlots::of(tmr).clear(CallbackSlots::Timer);
         if (lua_isnil(L, 3))
             return 0;
         luaL_checktype(L, 3, LUA_TFUNCTION);
@@ -562,7 +586,7 @@ static int widget_newindex(lua_State* L) {
         binding.connection = QObject::connect(tmr, &QTimer::timeout, [ref, w, timer = tmr]() {
             invokeLuaCallback(ref, w, timer);
         });
-        timerCallbacks[tmr] = binding;
+        CallbackSlots::of(tmr).set(CallbackSlots::Timer, binding);
         return 0;
     }
 
@@ -586,7 +610,6 @@ static int l_createForm(lua_State* L) {
     w->resize(400, 300);
     w->setAttribute(Qt::WA_DeleteOnClose);
     w->setLayout(new QVBoxLayout);
-    trackDestroyed(w);
     pushWidget(L, w);
     return 1;
 }
@@ -595,7 +618,6 @@ static int l_createButton(lua_State* L) {
     auto* parent = getParentWidget(L, 1);
     auto* btn = new QPushButton("Button", parent);
     if (parent && parent->layout()) parent->layout()->addWidget(btn);
-    trackDestroyed(btn);
     pushWidget(L, btn);
     return 1;
 }
@@ -604,7 +626,6 @@ static int l_createLabel(lua_State* L) {
     auto* parent = getParentWidget(L, 1);
     auto* lbl = new QLabel("Label", parent);
     if (parent && parent->layout()) parent->layout()->addWidget(lbl);
-    trackDestroyed(lbl);
     pushWidget(L, lbl);
     return 1;
 }
@@ -613,7 +634,6 @@ static int l_createEdit(lua_State* L) {
     auto* parent = getParentWidget(L, 1);
     auto* ed = new QLineEdit(parent);
     if (parent && parent->layout()) parent->layout()->addWidget(ed);
-    trackDestroyed(ed);
     pushWidget(L, ed);
     return 1;
 }
@@ -622,7 +642,6 @@ static int l_createCheckBox(lua_State* L) {
     auto* parent = getParentWidget(L, 1);
     auto* cb = new QCheckBox("CheckBox", parent);
     if (parent && parent->layout()) parent->layout()->addWidget(cb);
-    trackDestroyed(cb);
     pushWidget(L, cb);
     return 1;
 }
@@ -631,7 +650,6 @@ static int l_createListView(lua_State* L) {
     auto* parent = getParentWidget(L, 1);
     auto* list = new QListWidget(parent);
     if (parent && parent->layout()) parent->layout()->addWidget(list);
-    trackDestroyed(list);
     pushWidget(L, list);
     return 1;
 }
@@ -640,7 +658,6 @@ static int l_createMemo(lua_State* L) {
     auto* parent = getParentWidget(L, 1);
     auto* memo = new QPlainTextEdit(parent);
     if (parent && parent->layout()) parent->layout()->addWidget(memo);
-    trackDestroyed(memo);
     pushWidget(L, memo);
     return 1;
 }
@@ -651,7 +668,6 @@ static int l_createPanel(lua_State* L) {
     panel->setFrameShape(QFrame::StyledPanel);
     panel->setLayout(new QVBoxLayout);
     if (parent && parent->layout()) parent->layout()->addWidget(panel);
-    trackDestroyed(panel);
     pushWidget(L, panel);
     return 1;
 }
@@ -662,7 +678,6 @@ static int l_createGroupBox(lua_State* L) {
     gb->setTitle("Group");
     gb->setLayout(new QVBoxLayout);
     if (parent && parent->layout()) parent->layout()->addWidget(gb);
-    trackDestroyed(gb);
     pushWidget(L, gb);
     return 1;
 }
@@ -828,7 +843,6 @@ static int l_createCanvas(lua_State* L) {
         canvas->show();
         canvas->raise();
     }
-    trackDestroyed(canvas);
     auto* ref = (LuaCanvasRef*)lua_newuserdata(L, sizeof(LuaCanvasRef));
     ref->data = nullptr;
     luaL_setmetatable(L, CANVAS_MT);
@@ -850,8 +864,6 @@ static int l_createTimer(lua_State* L) {
     // Timer doesn't have a visual widget, but we wrap it as one for property access
     auto* dummy = new QWidget(parent); // Hidden
     dummy->hide();
-    trackDestroyed(dummy);
-    trackDestroyed(timer);
     if (enabled)
         timer->start();
     pushWidget(L, dummy, timer);
@@ -876,10 +888,7 @@ void shutdownLuaGuiBindings() {
     guiLuaState = nullptr;
     // Widgets made by scripts can outlive the state; cut their connections so a
     // later state never sees registry refs that belonged to this one.
-    for (auto* callbacks : {&clickCallbacks, &changeCallbacks, &closeCallbacks, &timerCallbacks}) {
-        for (auto& [object, binding] : *callbacks) QObject::disconnect(binding.connection);
-        callbacks->clear();
-    }
+    CallbackSlots::disconnectAll();
 }
 
 void registerLuaGuiBindings(lua_State* L) {

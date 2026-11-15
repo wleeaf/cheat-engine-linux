@@ -2448,6 +2448,15 @@ void test_breakpoint_condition() {
     printf("  uppercase register names + logic: %s\n", upper ? "OK" : "FAILED");
     printf("  empty condition always breaks: %s\n", empty ? "OK" : "FAILED");
     printf("  malformed condition fails safe (breaks): %s\n", malformed ? "OK" : "FAILED");
+    // A condition sees only its own environment: the hit's values and the
+    // safe functions, not the state's globals (_G, print, setmetatable, ...).
+    bool isolated = ce::evaluateBreakpointCondition(
+        "_G == nil and print == nil and setmetatable == nil and getmetatable == nil and load == nil "
+        "and math.max(rax, 1) == 5 and tostring(rbx) == '10' and string.format('%x', rip) == '1234'",
+        ctx, ctx.rip);
+    // A condition that reaches for a removed global errors, and errors break.
+    bool reaching = ce::evaluateBreakpointCondition("_G.os.exit()", ctx, ctx.rip);
+    printf("  condition runs in its own environment: %s\n", isolated && reaching ? "OK" : "FAILED");
 }
 
 // createSimpleHook / removeSimpleHook against a live forked child. noipa keeps the

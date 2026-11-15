@@ -208,8 +208,20 @@ bool conditionMatches(const Breakpoint& bp, const BreakpointHit& hit, std::strin
     // pcall, setmetatable, the pattern functions and an unbounded string.rep
     // would let a condition escape the limits below.
     lua_sandbox::restrictLibraries(L.get());
-    // TODO(security): for full isolation, run the chunk in a dedicated _ENV
-    // sandbox rather than relying on global stripping.
+    // The condition runs in an environment of its own: a fresh table becomes
+    // the globals (so it is the _ENV of every chunk loaded below) holding the
+    // safe functions by name and then the hit's values. Whatever else the
+    // state has, its own _G included, is out of the condition's reach.
+    static const char* const kConditionNames[] = {
+        "assert", "error", "ipairs", "next", "pairs", "select", "tonumber", "tostring", "type",
+        LUA_MATHLIBNAME, LUA_STRLIBNAME, LUA_TABLIBNAME,
+    };
+    lua_newtable(L.get());
+    for (const char* name : kConditionNames) {
+        lua_getglobal(L.get(), name);
+        lua_setfield(L.get(), -2, name);
+    }
+    lua_rawseti(L.get(), LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
     exposeConditionGlobals(L.get(), bp, hit);
 
     // Bound execution: a condition from an untrusted CT file could otherwise loop

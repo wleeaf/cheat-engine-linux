@@ -357,15 +357,32 @@ static void hotkeyListTests(const fs::path& root) {
     other.address = 0x2000;
     setRecordHotkeys(other, described);
     table.entries.push_back(other);
+    // Increase and decrease by different amounts: the record has one step, so
+    // the loader keeps the decrease as written, and it must act by its own.
+    const std::vector<CheatHotkey> steps = {{6, "F4", "5", ""}, {7, "F5", "2", ""}};
+    CheatEntry stepped;
+    stepped.id = 3;
+    stepped.description = "ammo";
+    stepped.address = 0x3000;
+    setRecordHotkeys(stepped, steps);
+    table.entries.push_back(stepped);
     const auto ct = root / "hotkeys.CT";
     const auto json = root / "hotkeys.json";
     CheatTable fromCt, fromJson;
     const bool saved = table.save(ct.string()) && fromCt.load(ct.string()) && table.saveJson(json.string()) &&
-                       fromJson.loadJson(json.string()) && fromCt.entries.size() == 2 && fromJson.entries.size() == 2;
+                       fromJson.loadJson(json.string()) && fromCt.entries.size() == 3 && fromJson.entries.size() == 3;
+    // The loaded .CT's marks survive a JSON save and load as well.
+    const auto ctJson = root / "hotkeys-from-ct.json";
+    CheatTable fromCtJson;
+    const bool resaved = saved && fromCt.saveJson(ctJson.string()) && fromCtJson.loadJson(ctJson.string()) &&
+                         fromCtJson.entries.size() == 3;
     check(slots && sorted(recordHotkeys(entry)) == sorted(hotkeys) && saved &&
           sorted(recordHotkeys(fromCt.entries[0])) == sorted(hotkeys) &&
           sorted(recordHotkeys(fromJson.entries[0])) == sorted(hotkeys) &&
-          recordHotkeys(fromCt.entries[1]) == described && recordHotkeys(fromJson.entries[1]) == described,
+          recordHotkeys(fromCt.entries[1]) == described && recordHotkeys(fromJson.entries[1]) == described &&
+          resaved && sorted(recordHotkeys(fromCt.entries[2])) == sorted(steps) &&
+          sorted(recordHotkeys(fromJson.entries[2])) == sorted(steps) &&
+          sorted(recordHotkeys(fromCtJson.entries[2])) == sorted(steps),
           "a record's hotkeys keep every action, value and description through the slots and both table formats");
 }
 

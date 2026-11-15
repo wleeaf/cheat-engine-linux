@@ -323,6 +323,7 @@ static bool allTypeGuiScanChecks(const QString& screenshot = {}) {
 
 #include "gui_scan_format_checks.inc"
 #include "gui_table_save_checks.inc"
+#include "gui_hotkey_runtime_checks.inc"
 
 static bool injectionTemplateChecks() {
     // This data has a valid x86 prologue and a distinct suffix for AOB uniqueness.
@@ -776,7 +777,7 @@ int main(int argc, char** argv) {
         waitpid(first, nullptr, 0); waitpid(second, nullptr, 0);
         return result;
     }
-    bool usability = usabilityChecks() && allTypeModelChecks() && allTypeGuiScanChecks() && guiScanFormatChecks() && guiTableSaveChecks() && injectionTemplateChecks() && visualInteractionChecks() &&
+    bool usability = usabilityChecks() && allTypeModelChecks() && allTypeGuiScanChecks() && guiScanFormatChecks() && guiTableSaveChecks() && guiHotkeyRuntimeChecks() && injectionTemplateChecks() && visualInteractionChecks() &&
         mainWindowRuntimeChecks(first, second);
     bool windowsReleased = false, traceReleased = false, debuggerReleased = false;
     {

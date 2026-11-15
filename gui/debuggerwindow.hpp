@@ -73,6 +73,8 @@ public:
     // Break on all signals (except the ignore list), and what the session breaks on.
     void setBreakOnAllSignalsForTest(bool on) { breakOnAllSignals_ = on; applySignalBreaks(); }
     bool breaksOnSignalForTest(int signal) const;
+    // The exception region list, without the dialog.
+    void setExceptionRegionsForTest(QList<AddressRange> regions) { exceptionRegions_ = std::move(regions); }
     // Thread switcher automation: number of threads in the dropdown, and a helper
     // that picks a different one via the combo (as the user would) and reports
     // whether the session's active thread followed.

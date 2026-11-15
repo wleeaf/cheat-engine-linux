@@ -2239,9 +2239,13 @@ std::vector<CheatHotkey> recordHotkeys(const CheatEntry& e) {
         if (slot.keys->empty()) continue;
         CheatHotkey hotkey{slot.action, *slot.keys, slot.value ? *slot.value : std::string(), {}};
         for (const auto& h : kept)
-            if (h.slotBound && h.usable && hotkeySlot(h.action) == hotkeySlot(slot.action) && h.keys == *slot.keys) {
+            if (h.slotBound && h.usable && hotkeySlot(h.action) == hotkeySlot(slot.action) && h.keys == *slot.keys &&
+                (slot.action < 6 || h.slotStep == e.hotkeyStep)) {
                 hotkey.action = h.action;
                 hotkey.description = description(h);
+                // An increase or decrease kept for its own step (the record has
+                // one step for both) acts by that step, not the record's.
+                if (slot.action >= 6) hotkey.value = h.value;
                 break;
             }
         out.push_back(std::move(hotkey));

@@ -88,7 +88,9 @@ reimplementation of Cheat Engine).
   - **Set/Change hotkeys**: any number of hotkeys per record with every Cheat
     Engine action (toggle, freeze allowing an increase or a decrease, freeze,
     unfreeze, set, increase, decrease) and a description. Activate and
-    Deactivate hotkeys from Cheat Engine tables now work.
+    Deactivate hotkeys from Cheat Engine tables now work. A table whose
+    increase and decrease hotkeys use different amounts now decreases by its
+    own amount; it used the increase amount for both.
   - **Change register at this location**: a breakpoint that sets registers and
     flags each time execution gets there, then runs on.
   - The debugger can **break on every signal** except an **ignore list**, and

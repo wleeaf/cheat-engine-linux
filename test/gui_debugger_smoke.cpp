@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <unistd.h>
 #include <signal.h>
+#include <ucontext.h>
 #include <sys/wait.h>
 #include <sys/ptrace.h>
 
@@ -38,6 +39,16 @@ static void smoke_counter() { for (;;) { g_smoke_counter = g_smoke_counter + 1; 
 static volatile long g_smoke_store = 0;
 __attribute__((noinline)) void smoke_store(long value) { g_smoke_store = value; }
 static void smoke_storer() { for (;;) { smoke_store(1); usleep(200); } }
+// The exception region list: while g_smoke_raise is set, smoke_raise executes
+// a ud2 (SIGILL); the program's own handler steps over it and counts it.
+static volatile long g_smoke_raise = 0;
+static volatile long g_smoke_handled = 0;
+__attribute__((noinline)) void smoke_raise() { asm volatile("ud2"); }
+static void smoke_sigill(int, siginfo_t*, void* context) {
+    static_cast<ucontext_t*>(context)->uc_mcontext.gregs[REG_RIP] += 2;   // past the ud2
+    g_smoke_handled = g_smoke_handled + 1;
+}
+static void smoke_raiser() { for (;;) { if (g_smoke_raise) smoke_raise(); usleep(2000); } }
 
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -50,6 +61,11 @@ int main(int argc, char** argv) {
         std::thread(smoke_worker).detach();
         std::thread(smoke_counter).detach();
         std::thread(smoke_storer).detach();
+        struct sigaction action{};
+        action.sa_sigaction = smoke_sigill;
+        action.sa_flags = SA_SIGINFO;
+        sigaction(SIGILL, &action, nullptr);
+        std::thread(smoke_raiser).detach();
         ssize_t wr = write(fds[1], "x", 1); (void)wr;
         for (;;) usleep(100000);
         _exit(0);
@@ -266,6 +282,64 @@ int main(int argc, char** argv) {
         for (int i = 0; i < 20; ++i) { app.processEvents(); usleep(5000); }
         regChange = regChange && kill(child, 0) == 0 && !(win.debugStopped() && win.currentStopRip() == storeAddr);
     }
+    // Exception region list: with a break on SIGILL, one raised outside every
+    // listed region goes to the program's handler without a stop, and one
+    // raised inside a region stops there.
+    bool regionPass = false, regionStop = false;
+    if (regChange) {
+        for (uintptr_t address : win.breakpointAddresses()) win.removeBreakpointAt(address);
+        // A hit that was already queued when the breakpoint went shows as a
+        // stop; run on from it.
+        for (int i = 0; i < 20; ++i) { app.processEvents(); usleep(2000); }
+        if (win.debugStopped()) QMetaObject::invokeMethod(&win, "onContinue");
+        for (int i = 0; i < 100 && win.debugStopped(); ++i) { app.processEvents(); usleep(2000); }
+        const auto raiseAddr = reinterpret_cast<uintptr_t>(&smoke_raise);
+        auto readLong = [&](volatile long* where) {
+            long out = -1;
+            proc.read(reinterpret_cast<uintptr_t>(where), &out, sizeof(out));
+            return out;
+        };
+        auto writeLong = [&](volatile long* where, long v) {
+            return proc.write(reinterpret_cast<uintptr_t>(where), &v, sizeof(v));
+        };
+        win.setExceptionRegionsForTest({{raiseAddr + 0x100000, raiseAddr + 0x100100}});
+        win.setBreakOnAllSignalsForTest(true);
+        const long before = readLong(&g_smoke_handled);
+        const bool raised = writeLong(&g_smoke_raise, 1).has_value() && readLong(&g_smoke_raise) == 1;
+        bool stoppedOutside = false;
+        for (int i = 0; i < 200 && readLong(&g_smoke_handled) < before + 20; ++i) {
+            app.processEvents();
+            usleep(5000);
+            stoppedOutside = stoppedOutside || (win.debugStopped() && win.currentStopRip() >= raiseAddr &&
+                                                win.currentStopRip() < raiseAddr + 16);
+        }
+        for (int i = 0; i < 20; ++i) { app.processEvents(); usleep(2000); }
+        // The stop RIP only changes on a stop the window shows.
+        regionPass = readLong(&g_smoke_handled) >= before + 20 && !stoppedOutside &&
+                     !(win.currentStopRip() >= raiseAddr && win.currentStopRip() < raiseAddr + 16);
+        // Now the region holds smoke_raise: the next SIGILL stops at the ud2.
+        win.setExceptionRegionsForTest({{raiseAddr, raiseAddr + 16}});
+        for (int i = 0; i < 400 && !regionStop; ++i) {
+            app.processEvents();
+            usleep(5000);
+            regionStop = win.debugStopped() && win.currentStopRip() >= raiseAddr && win.currentStopRip() < raiseAddr + 16;
+        }
+        // Stop raising, then run on: the pending SIGILL reaches the handler.
+        writeLong(&g_smoke_raise, 0);
+        win.setExceptionRegionsForTest({});
+        win.setBreakOnAllSignalsForTest(false);
+        const long atStop = readLong(&g_smoke_handled);
+        QMetaObject::invokeMethod(&win, "onContinue");
+        for (int i = 0; i < 200 && readLong(&g_smoke_handled) == atStop; ++i) { app.processEvents(); usleep(5000); }
+        regionStop = regionStop && readLong(&g_smoke_handled) > atStop && kill(child, 0) == 0;
+        if (!regionPass || !regionStop) {
+            printf("exception regions: raised=%d handled %ld -> %ld, stopped=%d rip=%llx raise=%llx status=%s\n", raised,
+                   before, readLong(&g_smoke_handled), win.debugStopped(), (unsigned long long)win.currentStopRip(),
+                   (unsigned long long)raiseAddr, qPrintable(win.statusTextForTest()));
+        }
+    }
+    printf("gui debugger exception regions: %s (pass=%d stop=%d)\n", regionPass && regionStop ? "OK" : "FAILED",
+           regionPass, regionStop);
     printf("gui debugger change registers: %s (signals=%d off=%d)\n", regChange && signalsAll && signalsOff ? "OK" : "FAILED",
            signalsAll, signalsOff);
 
@@ -309,7 +383,7 @@ int main(int argc, char** argv) {
     }
     if (!blockedReason) printf("blocked target status: %s\n", qPrintable(blockedText));
 
-    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && memHl && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno && disasmSym && disasmData && disasmHl && disasmComment && disasmUnmasked && bpToggle && memViewStep && memViewRtc && blockedReason && stepRemoveGuard && regChange && signalsAll && signalsOff;
+    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && memHl && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno && disasmSym && disasmData && disasmHl && disasmComment && disasmUnmasked && bpToggle && memViewStep && memViewRtc && blockedReason && stepRemoveGuard && regChange && signalsAll && signalsOff && regionPass && regionStop;
     printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d memhl=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d stackanno=%d disasmsym=%d disasmdata=%d disasmhl=%d disasmcomment=%d unmasked=%d bptoggle=%d memviewstep=%d memviewrtc=%d blocked=%d stepremove=%d)\n",
            ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, memHl, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk, stackAnno, disasmSym, disasmData, disasmHl, disasmComment, disasmUnmasked, bpToggle, memViewStep, memViewRtc, blockedReason, stepRemoveGuard);
     return ok ? 0 : 1;

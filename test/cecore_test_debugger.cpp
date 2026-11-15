@@ -1023,11 +1023,6 @@ static void free_counter_worker() {
 }
 
 // One run of the multithread-software-breakpoint scenario. Returns the ok flag.
-// Wrapped in a bounded retry below: the final all-stop resume after a single-step
-// has a rare race (resumed=no) that ASan's timing perturbation surfaces on CI; it
-// passes on virtually every run, so a couple of retries keep CI green without
-// masking a real regression (all attempts must fail to fail the test).
-// TODO(debugger): root-cause the occasional post-step all-stop resume miss.
 static bool run_mt_soft_bp_once() {
     int fds[2];
     if (pipe(fds) != 0) { printf("  mt soft bp: pipe FAILED\n"); return false; }
@@ -1091,12 +1086,18 @@ static bool run_mt_soft_bp_once() {
     // this returns in a few ms, but a heavily-loaded instrumented ASan CI runner
     // can starve the counter thread far past 2s, so give it a generous ceiling
     // to keep the test from flaking without slowing the passing path.
+    // The other worker can have trapped at the breakpoint while the target was
+    // stopping: continueExecution then reports that hit and the target stays
+    // stopped, as it should (see DebugSession::continueExecution). Remove the
+    // breakpoint, and continue from such a reported stop too.
+    if (bpId > 0) session.removeSoftwareBreakpoint(bpId);
     long c3 = 0;
     proc.read(counterAddr, &c3, sizeof(c3));
     session.continueExecution();
     bool resumed = false;
     for (int i = 0; i < 1000 && !resumed; ++i) {
         usleep(10000);
+        if (session.isStopped()) session.continueExecution();
         long c4 = 0;
         proc.read(counterAddr, &c4, sizeof(c4));
         if (c4 > c3) resumed = true;
@@ -1117,12 +1118,8 @@ static bool run_mt_soft_bp_once() {
 
 void test_multithread_software_breakpoint() {
     printf("\n── Test: Multithread software breakpoint (all-stop) ──\n");
-    // Retry the rare all-stop-resume flake; pass if any attempt succeeds.
-    bool ok = false;
-    int attempts = 0;
-    for (; attempts < 4 && !ok; ++attempts) ok = run_mt_soft_bp_once();
-    printf("  mt soft bp: %s (%d attempt%s)\n",
-           ok ? "OK" : "FAILED", attempts, attempts == 1 ? "" : "s");
+    const bool ok = run_mt_soft_bp_once();
+    printf("  mt soft bp: %s\n", ok ? "OK" : "FAILED");
 }
 
 // Replacing an instruction with length-preserving NOPs and reverting it.

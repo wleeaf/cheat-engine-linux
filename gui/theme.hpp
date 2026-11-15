@@ -7,7 +7,6 @@
 #include <QFont>
 #include <QString>
 #include <functional>
-namespace ce { struct TargetProfile; }
 class QObject;
 class QTextDocument;
 class QTableView;
@@ -83,10 +82,5 @@ void setEmptyHint(QAbstractItemView* view, const QString& text);
 
 /// A byte count for people: "512 B", "4 KiB", "2.4 MiB".
 QString formatByteSize(unsigned long long bytes);
-
-/// Localized one-line description of a target ("x86-64 native process",
-/// "Wine/Proton x86-64 game", ...), for the process header, the status bar and
-/// the system info dialog. ce::TargetProfile::summary() is Qt-free and English.
-QString targetSummaryText(const ce::TargetProfile& profile);
 
 } // namespace ce::gui

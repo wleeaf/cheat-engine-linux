@@ -324,6 +324,20 @@ void MainWindow::attachToPid(pid_t pid, const QString& name) {
     }
 }
 
+QString targetSummaryText(const ce::TargetProfile& profile) {
+    if (!profile.valid) return QCoreApplication::translate("ce::gui::MainWindow", "unknown target");
+    const QString arch = QString::fromStdString(profile.archName());
+    if (!profile.emulator.empty())
+        return QCoreApplication::translate("ce::gui::MainWindow", "%1 emulator (%2)")
+            .arg(QString::fromStdString(profile.emulator), arch);
+    if (profile.wine)
+        return QCoreApplication::translate("ce::gui::MainWindow", "Wine/Proton %1 game").arg(arch);
+    if (!profile.runtimes.empty())
+        return QCoreApplication::translate("ce::gui::MainWindow", "%1 app (%2)")
+            .arg(QString::fromStdString(profile.runtimes.front()), arch);
+    return QCoreApplication::translate("ce::gui::MainWindow", "%1 native process").arg(arch);
+}
+
 void MainWindow::onOpenProcess() {
     ProcessListDialog dlg(this);
     if (dlg.exec() == QDialog::Accepted)

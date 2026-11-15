@@ -589,12 +589,12 @@ Linux 只允许程序在获准 ptrace 另一个进程时读取其内存。当 ke
 <context>
     <name>Theme</name>
     <message>
-        <location filename="../gui/theme.cpp" line="570"/>
+        <location filename="../gui/theme.cpp" line="568"/>
         <source>%1  (main)</source>
         <translation>%1  (主线程)</translation>
     </message>
     <message>
-        <location filename="../gui/theme.cpp" line="571"/>
+        <location filename="../gui/theme.cpp" line="569"/>
         <source>%1  %2 (main)</source>
         <translation>%1  %2 (主线程)</translation>
     </message>
@@ -4389,7 +4389,7 @@ Applying it will grow the file (zero-filling the gap). Continue?</source>
     </message>
     <message>
         <location filename="../gui/mainwindow_menus.cpp" line="249"/>
-        <location filename="../gui/mainwindow_process.cpp" line="484"/>
+        <location filename="../gui/mainwindow_process.cpp" line="498"/>
         <source>PID:</source>
         <translation>PID：</translation>
     </message>
@@ -4713,7 +4713,7 @@ Click Allocate to reserve memory in the target.</source>
     </message>
     <message>
         <location filename="../gui/mainwindow_menus.cpp" line="536"/>
-        <location filename="../gui/mainwindow_process.cpp" line="494"/>
+        <location filename="../gui/mainwindow_process.cpp" line="508"/>
         <location filename="../gui/mainwindow_scan.cpp" line="711"/>
         <source>Cancel</source>
         <translation>取消</translation>
@@ -5271,13 +5271,13 @@ The snapshot stopped at its %1 limit: writable memory after that point is not in
     </message>
     <message>
         <location filename="../gui/mainwindow.cpp" line="366"/>
-        <location filename="../gui/mainwindow_process.cpp" line="398"/>
+        <location filename="../gui/mainwindow_process.cpp" line="412"/>
         <source>No process selected</source>
         <translation>未选择进程</translation>
     </message>
     <message>
         <location filename="../gui/mainwindow.cpp" line="370"/>
-        <location filename="../gui/mainwindow_process.cpp" line="398"/>
+        <location filename="../gui/mainwindow_process.cpp" line="412"/>
         <source>Press Ctrl+O or click the magnifier to choose a process.</source>
         <translation>按 Ctrl+O 或点击放大镜选择进程。</translation>
     </message>
@@ -5375,9 +5375,9 @@ then enter a value and press First Scan.</source>
     </message>
     <message>
         <location filename="../gui/mainwindow.cpp" line="531"/>
-        <location filename="../gui/mainwindow_process.cpp" line="346"/>
-        <location filename="../gui/mainwindow_process.cpp" line="379"/>
-        <location filename="../gui/mainwindow_process.cpp" line="397"/>
+        <location filename="../gui/mainwindow_process.cpp" line="360"/>
+        <location filename="../gui/mainwindow_process.cpp" line="393"/>
+        <location filename="../gui/mainwindow_process.cpp" line="411"/>
         <location filename="../gui/mainwindow_scan.cpp" line="370"/>
         <source>Found: 0</source>
         <translation>已找到：0</translation>
@@ -6202,32 +6202,32 @@ Host ABI: %4</source>
         <translation>目标已被跟踪</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="348"/>
+        <location filename="../gui/mainwindow_process.cpp" line="362"/>
         <source>data order unknown</source>
         <translation>数据字节序未知</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="348"/>
+        <location filename="../gui/mainwindow_process.cpp" line="362"/>
         <source>%1 data</source>
         <translation>%1 数据</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="350"/>
+        <location filename="../gui/mainwindow_process.cpp" line="364"/>
         <source>%1-bit pointers</source>
         <translation>%1 位指针</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="350"/>
+        <location filename="../gui/mainwindow_process.cpp" line="364"/>
         <source>pointer width unknown</source>
         <translation>指针宽度未知</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="351"/>
+        <location filename="../gui/mainwindow_process.cpp" line="365"/>
         <source>GDB: %1</source>
         <translation>GDB：%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="353"/>
+        <location filename="../gui/mainwindow_process.cpp" line="367"/>
         <source>Guest CPU: %1
 Data order: %2
 Program pointers: %3
@@ -6238,77 +6238,77 @@ Transport: GDB</source>
 传输方式：GDB</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="368"/>
+        <location filename="../gui/mainwindow_process.cpp" line="382"/>
         <source>Connected to GDB; no memory map. Reconnect with a known scan range.</source>
         <translation>已连接到 GDB；没有内存映射。请使用已知的扫描范围重新连接。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="368"/>
+        <location filename="../gui/mainwindow_process.cpp" line="382"/>
         <source>Connected to GDB target</source>
         <translation>已连接到 GDB 目标</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="409"/>
+        <location filename="../gui/mainwindow_process.cpp" line="423"/>
         <source>Connect failed: %1</source>
         <translation>连接失败：%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="414"/>
+        <location filename="../gui/mainwindow_process.cpp" line="428"/>
         <source>Handshake failed: %1</source>
         <translation>握手失败：%1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="419"/>
+        <location filename="../gui/mainwindow_process.cpp" line="433"/>
         <source>Server refused PID %1</source>
         <translation>服务器拒绝了 PID %1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="434"/>
+        <location filename="../gui/mainwindow_process.cpp" line="448"/>
         <source>The current target is still in use: wait for the scan to finish or disable its scripts, then connect again.</source>
         <translation>当前目标仍在使用中：请等待扫描结束或禁用其脚本，然后再次连接。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="441"/>
+        <location filename="../gui/mainwindow_process.cpp" line="455"/>
         <source>Remote process %1</source>
         <translation>远程进程 %1</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="463"/>
+        <location filename="../gui/mainwindow_process.cpp" line="477"/>
         <source>Connect to ceserver</source>
         <translation>连接到 ceserver</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="465"/>
+        <location filename="../gui/mainwindow_process.cpp" line="479"/>
         <source>Attach to a process on another machine (or in a container) through a running ceserver.</source>
         <translation>通过运行中的 ceserver 附加到另一台机器（或容器）上的进程。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="472"/>
+        <location filename="../gui/mainwindow_process.cpp" line="486"/>
         <source>Host:</source>
         <translation>主机：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="477"/>
+        <location filename="../gui/mainwindow_process.cpp" line="491"/>
         <source>Port:</source>
         <translation>端口：</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="480"/>
+        <location filename="../gui/mainwindow_process.cpp" line="494"/>
         <source>process ID on the remote machine</source>
         <translation>远程机器上的进程 ID</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="491"/>
+        <location filename="../gui/mainwindow_process.cpp" line="505"/>
         <source>Connect</source>
         <translation>连接</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="506"/>
+        <location filename="../gui/mainwindow_process.cpp" line="520"/>
         <source>Enter a valid remote PID.</source>
         <translation>请输入有效的远程 PID。</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow_process.cpp" line="511"/>
+        <location filename="../gui/mainwindow_process.cpp" line="525"/>
         <source>Connecting to %1:%2...</source>
         <translation>正在连接到 %1:%2...</translation>
     </message>
@@ -6937,27 +6937,27 @@ If nothing shows up, the value may be written by a background thread; tell me an
         <translation>新扫描</translation>
     </message>
     <message>
-        <location filename="../gui/theme.cpp" line="588"/>
+        <location filename="../gui/mainwindow_process.cpp" line="328"/>
         <source>unknown target</source>
         <translation>未知目标</translation>
     </message>
     <message>
-        <location filename="../gui/theme.cpp" line="591"/>
+        <location filename="../gui/mainwindow_process.cpp" line="331"/>
         <source>%1 emulator (%2)</source>
         <translation>%1 模拟器（%2）</translation>
     </message>
     <message>
-        <location filename="../gui/theme.cpp" line="594"/>
+        <location filename="../gui/mainwindow_process.cpp" line="334"/>
         <source>Wine/Proton %1 game</source>
         <translation>Wine/Proton %1 游戏</translation>
     </message>
     <message>
-        <location filename="../gui/theme.cpp" line="596"/>
+        <location filename="../gui/mainwindow_process.cpp" line="336"/>
         <source>%1 app (%2)</source>
         <translation>%1 应用（%2）</translation>
     </message>
     <message>
-        <location filename="../gui/theme.cpp" line="598"/>
+        <location filename="../gui/mainwindow_process.cpp" line="338"/>
         <source>%1 native process</source>
         <translation>%1 本机进程</translation>
     </message>

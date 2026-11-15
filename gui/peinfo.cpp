@@ -1,4 +1,5 @@
 #include "gui/peinfo.hpp"
+#include "gui/hexformat.hpp"
 
 #include "analysis/pe_exports.hpp"
 #include "platform/process_api.hpp"
@@ -28,9 +29,6 @@ namespace {
 constexpr int kBaseRole = Qt::UserRole + 1;
 constexpr int kPathRole = Qt::UserRole + 2;
 
-QString hex(uint64_t value, int width = 0) {
-    return QString("%1").arg(static_cast<qulonglong>(value), width, 16, QChar('0')).toUpper();
-}
 
 // IMAGE_DIRECTORY_ENTRY_* names, in order.
 const char* const kDirectoryNames[] = {
@@ -44,7 +42,7 @@ QString machineName(uint16_t machine) {
         case 0xaa64: return "ARM64";
         case 0xa641: return "ARM64EC";
         case 0x1c0: case 0x1c4: return "ARM";
-        default: return hex(machine, 4);
+        default: return upperHex(machine, 4);
     }
 }
 
@@ -124,7 +122,7 @@ PEInfoWindow::PEInfoWindow(ProcessHandle* process, QWidget* parent) : QMainWindo
     resize(900, 560);
 
     connect(modules_, &QListWidget::currentItemChanged, this, [this](QListWidgetItem* item) {
-        if (item) address_->setText(hex(item->data(kBaseRole).toULongLong()));
+        if (item) address_->setText(upperHex(item->data(kBaseRole).toULongLong()));
     });
     connect(modules_, &QListWidget::itemDoubleClicked, infoButton, &QPushButton::click);
     connect(infoButton, &QPushButton::clicked, this, [this]() {
@@ -153,7 +151,7 @@ void PEInfoWindow::loadModules() {
         const QString path = QString::fromStdString(module.path);
         const QString lower = path.toLower();
         if (!lower.endsWith(".dll") && !lower.endsWith(".exe") && !lower.endsWith(".sys")) continue;
-        auto* item = new QListWidgetItem(QString("%1  %2").arg(hex(module.base), QString::fromStdString(module.name)),
+        auto* item = new QListWidgetItem(QString("%1  %2").arg(upperHex(module.base), QString::fromStdString(module.name)),
                                          modules_);
         item->setData(kBaseRole, static_cast<qulonglong>(module.base));
         item->setData(kPathRole, path);
@@ -175,11 +173,11 @@ bool PEInfoWindow::showMemory(uintptr_t base, const QString& path) {
     QByteArray header(4096, '\0');
     auto read = process_->read(base, header.data(), static_cast<size_t>(header.size()));
     if (!read || *read < 0x40) {
-        status_->setText(tr("Could not read the memory at %1").arg(hex(base)));
+        status_->setText(tr("Could not read the memory at %1").arg(upperHex(base)));
         return false;
     }
     header.resize(static_cast<qsizetype>(*read));
-    showInfo(header, path, tr("%1 (memory)").arg(hex(base)));
+    showInfo(header, path, tr("%1 (memory)").arg(upperHex(base)));
     return all_->topLevelItemCount() > 0;
 }
 
@@ -200,27 +198,27 @@ void PEInfoWindow::showInfo(const QByteArray& header, const QString& path, const
     auto* coff = add(root, tr("File header"));
     add(coff, tr("Machine: %1").arg(machineName(info->machine)));
     add(coff, tr("Sections: %1").arg(info->sections.size()));
-    add(coff, tr("Time stamp: %1").arg(hex(info->timestamp, 8)));
-    add(coff, tr("Characteristics: %1").arg(hex(info->characteristics, 4)));
+    add(coff, tr("Time stamp: %1").arg(upperHex(info->timestamp, 8)));
+    add(coff, tr("Characteristics: %1").arg(upperHex(info->characteristics, 4)));
     auto* optional = add(root, tr("Optional header"));
-    add(optional, tr("Entry point: %1").arg(hex(info->entryPoint)));
-    add(optional, tr("Image base: %1").arg(hex(info->imageBase)));
-    add(optional, tr("Size of image: %1").arg(hex(info->sizeOfImage)));
-    add(optional, tr("Size of headers: %1").arg(hex(info->sizeOfHeaders)));
-    add(optional, tr("Checksum: %1").arg(hex(info->checksum, 8)));
+    add(optional, tr("Entry point: %1").arg(upperHex(info->entryPoint)));
+    add(optional, tr("Image base: %1").arg(upperHex(info->imageBase)));
+    add(optional, tr("Size of image: %1").arg(upperHex(info->sizeOfImage)));
+    add(optional, tr("Size of headers: %1").arg(upperHex(info->sizeOfHeaders)));
+    add(optional, tr("Checksum: %1").arg(upperHex(info->checksum, 8)));
     add(optional, tr("Subsystem: %1").arg(info->subsystem));
-    add(optional, tr("DLL characteristics: %1").arg(hex(info->dllCharacteristics, 4)));
+    add(optional, tr("DLL characteristics: %1").arg(upperHex(info->dllCharacteristics, 4)));
     auto* directories = add(root, tr("Data directories"));
     for (size_t i = 0; i < info->directories.size(); ++i) {
         const auto [rva, size] = info->directories[i];
         if (!rva && !size) continue;
-        add(directories, QString("%1: %2 (%3 bytes)").arg(QLatin1String(kDirectoryNames[i]), hex(rva)).arg(size));
+        add(directories, QString("%1: %2 (%3 bytes)").arg(QLatin1String(kDirectoryNames[i]), upperHex(rva)).arg(size));
     }
     auto* sections = add(root, tr("Sections"));
     for (const auto& section : info->sections)
         add(sections, QString("%1  rva %2  size %3  raw %4+%5  %6")
                           .arg(QString::fromStdString(section.name), -8)
-                          .arg(hex(section.rva), hex(section.virtualSize), hex(section.rawOffset), hex(section.rawSize),
+                          .arg(upperHex(section.rva), upperHex(section.virtualSize), upperHex(section.rawOffset), upperHex(section.rawSize),
                                sectionFlags(section.characteristics)));
     all_->expandAll();
 
@@ -231,14 +229,14 @@ void PEInfoWindow::showInfo(const QByteArray& header, const QString& path, const
         imports_->addItem(QString("%1  %2  (IAT %3)")
                               .arg(QString::fromStdString(import.dll),
                                    import.name.empty() ? QString("#%1").arg(import.ordinal) : QString::fromStdString(import.name),
-                                   hex(import.iatRva)));
+                                   upperHex(import.iatRva)));
     for (const auto& exported : parsePEExports(file))
         exports_->addItem(QString("%1  %2%3")
-                              .arg(hex(exported.rva, 8),
+                              .arg(upperHex(exported.rva, 8),
                                    exported.name.empty() ? QString("#%1").arg(exported.ordinal) : QString::fromStdString(exported.name),
                                    exported.forward.empty() ? QString() : " -> " + QString::fromStdString(exported.forward)));
     for (const auto& relocation : parsePERelocations(file))
-        relocations_->addItem(QString("%1  type %2").arg(hex(relocation.rva, 8)).arg(relocation.type));
+        relocations_->addItem(QString("%1  type %2").arg(upperHex(relocation.rva, 8)).arg(relocation.type));
 }
 
 QString PEInfoWindow::tabText(int tab) const {

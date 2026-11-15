@@ -1,4 +1,5 @@
 #include "gui/codefilter.hpp"
+#include "gui/hexformat.hpp"
 
 #include <QApplication>
 #include <QFile>
@@ -95,7 +96,7 @@ CodeFilterWindow::CodeFilterWindow(ProcessHandle* process, QWidget* parent) : QM
                 return;
             }
             QTextStream out(&file);
-            for (uintptr_t address : filter_.addresses()) out << QString::number(address, 16).toUpper() << '\n';
+            for (uintptr_t address : filter_.addresses()) out << upperHex(address) << '\n';
         });
         menu.addSeparator();
         menu.addAction(tr("Clear list"), [this]() { setAddresses({}); });
@@ -196,7 +197,7 @@ void CodeFilterWindow::refreshList() {
     list_->clear();
     const auto addresses = filter_.addresses();
     for (size_t i = 0; i < addresses.size() && i < static_cast<size_t>(kShownRows); ++i) {
-        QString label = QString::number(addresses[i], 16).toUpper();
+        QString label = upperHex(addresses[i]);
         if (process_) {
             const std::string module = moduleOffsetString(process_->modules(), addresses[i]);
             if (!module.empty()) label += "  (" + QString::fromStdString(module) + ")";

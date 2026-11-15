@@ -1,4 +1,5 @@
 #include "gui/changeregisters.hpp"
+#include "gui/hexformat.hpp"
 
 #include "core/cpu_registers.hpp"
 
@@ -69,7 +70,7 @@ ChangeRegistersDialog::ChangeRegistersDialog(uintptr_t address, const CpuContext
         auto* edit = new QLineEdit(this);
         edit->setPlaceholderText(tr("unchanged"));
         for (const auto& [name, value] : current.registers)
-            if (name == reg.name) edit->setText(QString::number(static_cast<qulonglong>(value), 16).toUpper());
+            if (name == reg.name) edit->setText(upperHex(value));
         const QString name = QString::fromStdString(reg.name);
         registers->addWidget(new QLabel(name, this), index / 3, (index % 3) * 2);
         registers->addWidget(edit, index / 3, (index % 3) * 2 + 1);

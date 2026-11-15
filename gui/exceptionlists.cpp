@@ -1,4 +1,5 @@
 #include "gui/exceptionlists.hpp"
+#include "gui/hexformat.hpp"
 
 #include <QDialogButtonBox>
 #include <QFile>
@@ -31,7 +32,6 @@ const NamedSignal kSignals[] = {
     {"SIGXFSZ", SIGXFSZ}, {"SIGVTALRM", SIGVTALRM}, {"SIGPROF", SIGPROF}, {"SIGWINCH", SIGWINCH},
     {"SIGIO", SIGIO}, {"SIGPWR", SIGPWR}, {"SIGSYS", SIGSYS},
 };
-QString hex(quint64 value) { return QString::number(value, 16).toUpper(); }
 bool parseHex(QString text, quint64& value) {
     text = text.trimmed();
     if (text.startsWith("0x", Qt::CaseInsensitive)) text.remove(0, 2);
@@ -120,7 +120,7 @@ ExceptionRegionListDialog::ExceptionRegionListDialog(QList<AddressRange> regions
         QFile f(path);
         if (path.isEmpty() || !f.open(QIODevice::WriteOnly | QIODevice::Text)) return;
         QTextStream out(&f);
-        for (const auto& [from, to] : regions_) out << hex(from) << '-' << hex(to) << '\n';
+        for (const auto& [from, to] : regions_) out << upperHex(from) << '-' << upperHex(to) << '\n';
     });
     connect(add, &QPushButton::clicked, this, [this]() {
         quint64 from = 0, to = 0;
@@ -142,8 +142,8 @@ ExceptionRegionListDialog::ExceptionRegionListDialog(QList<AddressRange> regions
     });
     connect(list_, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem* item) {
         const auto& [from, to] = regions_[list_->row(item)];
-        start_->setText(hex(from));
-        stop_->setText(hex(to));
+        start_->setText(upperHex(from));
+        stop_->setText(upperHex(to));
     });
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -153,7 +153,7 @@ ExceptionRegionListDialog::ExceptionRegionListDialog(QList<AddressRange> regions
 
 void ExceptionRegionListDialog::refresh() {
     list_->clear();
-    for (const auto& [from, to] : regions_) list_->addItem(QString("%1 - %2").arg(hex(from), hex(to)));
+    for (const auto& [from, to] : regions_) list_->addItem(QString("%1 - %2").arg(upperHex(from), upperHex(to)));
 }
 
 ExceptionIgnoreListDialog::ExceptionIgnoreListDialog(QSet<int> ignored, QWidget* parent)

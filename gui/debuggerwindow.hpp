@@ -137,7 +137,9 @@ private slots:
     void onThreadSelected(int index);               // switch the active thread
     void onMemAddrEntered();                         // point the hex pane at an address
     void onDisasmContextMenu(const QPoint& pos);     // right-click the disassembly
-    void onDebugEvent(int type);   // marshalled from the tracer thread
+    // Marshalled from the tracer thread with the event's address (the stop
+    // PC, or a data breakpoint's watched address).
+    void onDebugEvent(int type, quintptr address);
 
 private:
     void refreshStopped();
@@ -209,10 +211,6 @@ private:
     ce::CpuContext lastStopContext_{};   // full registers at the stop (for operand EA hints)
     std::map<uintptr_t, std::string> comments_;   // address -> user comment (from MainWindow)
 
-    // Latest event, published by the tracer-thread callback and read on the UI
-    // thread after a queued invocation.
-    std::atomic<uintptr_t> lastEvtAddr_{0};
-    std::atomic<pid_t> lastEvtTid_{0};
     // Run-to-cursor is a GUI-level temp breakpoint + continue (non-blocking),
     // auto-removed when its address is hit.
     uintptr_t pendingRtcAddr_ = 0;

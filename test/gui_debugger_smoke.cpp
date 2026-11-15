@@ -285,14 +285,13 @@ int main(int argc, char** argv) {
     // Exception region list: with a break on SIGILL, one raised outside every
     // listed region goes to the program's handler without a stop, and one
     // raised inside a region stops there.
-    bool regionPass = false, regionStop = false;
+    bool regionPass = false, regionStop = false, staleRunOn = false;
     if (regChange) {
         for (uintptr_t address : win.breakpointAddresses()) win.removeBreakpointAt(address);
-        // A hit that was already queued when the breakpoint went shows as a
-        // stop; run on from it.
-        for (int i = 0; i < 20; ++i) { app.processEvents(); usleep(2000); }
-        if (win.debugStopped()) QMetaObject::invokeMethod(&win, "onContinue");
-        for (int i = 0; i < 100 && win.debugStopped(); ++i) { app.processEvents(); usleep(2000); }
+        // A hit already queued when the breakpoint went does not stop the
+        // target: the window runs on from it.
+        for (int i = 0; i < 40; ++i) { app.processEvents(); usleep(2000); }
+        staleRunOn = !win.debugStopped();
         const auto raiseAddr = reinterpret_cast<uintptr_t>(&smoke_raise);
         auto readLong = [&](volatile long* where) {
             long out = -1;
@@ -338,8 +337,8 @@ int main(int argc, char** argv) {
                    (unsigned long long)raiseAddr, qPrintable(win.statusTextForTest()));
         }
     }
-    printf("gui debugger exception regions: %s (pass=%d stop=%d)\n", regionPass && regionStop ? "OK" : "FAILED",
-           regionPass, regionStop);
+    printf("gui debugger exception regions: %s (stale=%d pass=%d stop=%d)\n",
+           staleRunOn && regionPass && regionStop ? "OK" : "FAILED", staleRunOn, regionPass, regionStop);
     printf("gui debugger change registers: %s (signals=%d off=%d)\n", regChange && signalsAll && signalsOff ? "OK" : "FAILED",
            signalsAll, signalsOff);
 
@@ -383,7 +382,7 @@ int main(int argc, char** argv) {
     }
     if (!blockedReason) printf("blocked target status: %s\n", qPrintable(blockedText));
 
-    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && memHl && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno && disasmSym && disasmData && disasmHl && disasmComment && disasmUnmasked && bpToggle && memViewStep && memViewRtc && blockedReason && stepRemoveGuard && regChange && signalsAll && signalsOff && regionPass && regionStop;
+    bool ok = attached && stoppedInitially && hit && allStop && alive && regEdit && threadSwitch && memView && memHl && xmmView && disasmBp && regHighlight && stopSignal && ipHighlight && flagsOk && stackAnno && disasmSym && disasmData && disasmHl && disasmComment && disasmUnmasked && bpToggle && memViewStep && memViewRtc && blockedReason && stepRemoveGuard && regChange && signalsAll && signalsOff && staleRunOn && regionPass && regionStop;
     printf("gui debugger smoke: %s (attached=%d stopped0=%d hit=%d allstop=%d alive=%d regedit=%d threadsw=%d memview=%d memhl=%d xmm=%d disasmbp=%d reghl=%d stopsig=%d iphl=%d[%d] flags=%d stackanno=%d disasmsym=%d disasmdata=%d disasmhl=%d disasmcomment=%d unmasked=%d bptoggle=%d memviewstep=%d memviewrtc=%d blocked=%d stepremove=%d)\n",
            ok ? "OK" : "FAILED", attached, stoppedInitially, hit, allStop, alive, regEdit, threadSwitch, memView, memHl, xmmView, disasmBp, regHighlight, stopSignal, ipHighlight, ipPixels, flagsOk, stackAnno, disasmSym, disasmData, disasmHl, disasmComment, disasmUnmasked, bpToggle, memViewStep, memViewRtc, blockedReason, stepRemoveGuard);
     return ok ? 0 : 1;

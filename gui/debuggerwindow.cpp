@@ -285,10 +285,9 @@ DebuggerWindow::DebuggerWindow(ce::ProcessHandle* proc, QWidget* parent)
     // Debug events fire on the tracer thread; publish the event and marshal a
     // refresh onto the UI thread.
     session_->setEventCallback([this](const ce::DebugEvent& e) {
-        lastEvtAddr_.store(e.address);
-        lastEvtTid_.store(e.tid);
-        int t = static_cast<int>(e.type);
-        QMetaObject::invokeMethod(this, [this, t] { onDebugEvent(t); }, Qt::QueuedConnection);
+        const int t = static_cast<int>(e.type);
+        const quintptr address = e.address;   // travels with its own event
+        QMetaObject::invokeMethod(this, [this, t, address] { onDebugEvent(t, address); }, Qt::QueuedConnection);
     });
 
     if (proc_ && session_->attach(proc_->pid(), proc_)) {
@@ -622,7 +621,7 @@ void DebuggerWindow::applySignalBreaks() {
     }
 }
 
-void DebuggerWindow::onDebugEvent(int type) {
+void DebuggerWindow::onDebugEvent(int type, quintptr address) {
     if (type == static_cast<int>(ce::DebugEventType::ThreadExiting)) {
         refreshStopped();
         statusLabel_->setText(tr("Thread is exiting; stopped on tid %1")
@@ -646,7 +645,7 @@ void DebuggerWindow::onDebugEvent(int type) {
     // Exception region list: a signal raised outside every listed region is
     // passed on without stopping.
     if (type == static_cast<int>(ce::DebugEventType::ExceptionBreakpointHit) && !exceptionRegions_.isEmpty()) {
-        const quint64 pc = lastEvtAddr_.load();
+        const quint64 pc = address;
         const bool inside = std::any_of(exceptionRegions_.begin(), exceptionRegions_.end(),
                                         [pc](const AddressRange& r) { return pc >= r.first && pc <= r.second; });
         if (!inside) {
@@ -662,7 +661,23 @@ void DebuggerWindow::onDebugEvent(int type) {
         auto ctx = session_->getStopContext();
         // A code breakpoint stops at its address; a data breakpoint's event
         // carries the watched address, while RIP is wherever the access was.
-        const uintptr_t eventAddr = lastEvtAddr_.load();
+        const uintptr_t eventAddr = address;
+        // A hit that was already on its way when its breakpoint was removed
+        // or disabled names no armed breakpoint: run on, as if it had not
+        // fired. A step reports through finishStep, not here.
+        const bool armed = std::any_of(bps_.begin(), bps_.end(), [&](const Bp& b) {
+            return b.enabled && b.addr == (b.hardware ? eventAddr : ctx.instructionPointer());
+        });
+        const bool runToCursor = pendingRtcId_ > 0 && ctx.instructionPointer() == pendingRtcAddr_;
+        if (!armed && !runToCursor && !stepping_) {
+            setRunningUi(true);
+            if (!session_->continueExecution() && session_->isAttached() && session_->isStopped()) {
+                refreshStopped();
+                statusLabel_->setText(tr("Continue failed, still stopped: %1")
+                    .arg(QString::fromStdString(session_->lastError().message())));
+            }
+            return;
+        }
         for (size_t i = 0; i < bps_.size(); ++i) {
             if (bps_[i].addr != (bps_[i].hardware ? eventAddr : ctx.instructionPointer())) continue;
             // False condition => resume silently, don't count it as a hit.

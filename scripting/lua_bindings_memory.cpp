@@ -87,6 +87,7 @@ extern "C" {
 #define lua_pushcfunction(L, f) ce::pushSafeLuaFunction((L), (f))
 
 #include "scripting/lua_bindings_internal.hpp"
+#include "scripting/lua_files.hpp"
 namespace ce::lua_detail {
 
 // ── Memory read functions (all widths) ──
@@ -811,8 +812,8 @@ int l_readRegionToFile(lua_State* L) {
     auto r = p->read(addr, buf.data(), size);
     size_t n = (r && *r > 0) ? *r : 0;
     if (n == 0) { lua_pushnil(L); return 1; }
-    std::ofstream f(path, std::ios::binary);
-    if (!f) { lua_pushnil(L); return 1; }
+    std::ofstream f;
+    if (!openNoFollow(f, path, std::ios::out | std::ios::binary | std::ios::trunc)) { lua_pushnil(L); return 1; }
     f.write(reinterpret_cast<const char*>(buf.data()), (std::streamsize)n);
     lua_pushinteger(L, (lua_Integer)n);
     return 1;
@@ -932,8 +933,9 @@ int l_byteTableToQword(lua_State* L) {
 // equals granting native code execution as the cecore user; treat scripts as
 // trusted. Element values are range-checked where applicable, but the raw
 // destination address cannot be validated without changing the documented API.
-// TODO(security): gate the *Local family behind an explicit opt-in/sandbox flag
-// if cecore is ever exposed to untrusted scripts.
+// The write*Local functions are registered behind guardLocalWrite (see
+// lua_bindings.cpp): they need the same out-of-band opt-in as shellExecute.
+// The reads only disclose memory and stay available.
 
 // Copies cecore's own memory through the kernel, so a bad address is an error
 // (EFAULT) instead of a crash of the whole program.

@@ -313,6 +313,40 @@ void test_lua_streams() {
     )");
     std::filesystem::remove(tmpw);
     std::filesystem::remove(tmpn);
+
+    // A write never follows a symbolic link at the target: every Lua writer
+    // refuses it, the linked-to file keeps its bytes, and an ordinary path
+    // still works.
+    auto dir = std::filesystem::temp_directory_path() / ("cecore_nofollow_" + std::to_string(getpid()));
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    { std::ofstream o(dir / "victim"); o << "KEEP"; }
+    std::filesystem::create_symlink(dir / "victim", dir / "link");
+    eng.execute("_LINK = '" + (dir / "link").string() + "'\n_PLAIN = '" + (dir / "plain").string() + "'\n");
+    run("Lua writes refuse a symbolic link", R"(
+        assert(createFileStream(_LINK, "w") == nil)
+        assert(createFileStream(_LINK, "a") == nil)
+        assert(createFileStream(_LINK, "rw") == nil)
+        assert(createFileStream(_LINK, "r"):getSize() == 4)   -- reading follows links
+        assert(not writeToFile(_LINK, "X"))
+        local m = createMemoryStream()
+        m:write("X")
+        assert(not m:saveToFile(_LINK))
+        local sl = createStringList()
+        sl:add("X")
+        assert(not sl:saveToFile(_LINK))
+        assert(writeToFile(_PLAIN, "ok"))
+        assert(createFileStream(_PLAIN, "r"):getSize() == 2)
+        local rw = createFileStream(_PLAIN, "rw")
+        assert(rw ~= nil)
+        rw:close()
+    )");
+    std::string victim;
+    { std::ifstream i(dir / "victim"); std::getline(i, victim); }
+    const bool kept = victim == "KEEP" && std::filesystem::is_symlink(dir / "link");
+    printf("  the file behind a symbolic link is left as it was: %s\n", kept ? "OK" : "FAILED");
+    if (!kept) std::abort();
+    std::filesystem::remove_all(dir);
 }
 
 void test_snapshot_engine() {

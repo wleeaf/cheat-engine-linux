@@ -958,6 +958,123 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
         return true;
     }
 
+    if (auto handled = parseAobScanLine(line, upper, allocs, labels, defines, log, proc, error)) return *handled;
+
+    // CREATETHREAD(address) — create remote thread at address after injection
+    if (startsWith(upper, "CREATETHREAD(") && line.back() == ')') {
+        auto addr = trim(line.substr(13, line.size() - 14));
+        log.push_back("CREATETHREAD: " + addr + " (deferred to post-injection)");
+        // Store for execution after all writes complete
+        asmLines.push_back("__CREATETHREAD__:" + addr);
+        return true;
+    }
+
+    // CREATETHREADANDWAIT(address[, timeout])
+    if (startsWith(upper, "CREATETHREADANDWAIT(") && line.back() == ')') {
+        auto args = trim(line.substr(20, line.size() - 21));
+        log.push_back("CREATETHREADANDWAIT: " + args);
+        asmLines.push_back("__CREATETHREADANDWAIT__:" + args);
+        return true;
+    }
+
+    if (auto handled = parseIncludeLine(line, upper, allocs, labels, defines, registeredSymbols, asmLines, log, proc,
+                                        error, includeDepth))
+        return *handled;
+
+    // REASSEMBLE(address) — disassemble instruction at address and re-emit it
+    if (startsWith(upper, "REASSEMBLE(") && line.back() == ')' && proc) {
+        auto addrExpr = trim(line.substr(11, line.size() - 12));
+        asmLines.push_back("__REASSEMBLE__:" + addrExpr);
+        return true;
+    }
+
+    // READMEM(address, size) — read bytes from process memory, emit as db
+    if (startsWith(upper, "READMEM(") && line.back() == ')') {
+        auto args = trim(line.substr(8, line.size() - 9));
+        asmLines.push_back("__READMEM__:" + args);
+        return true;
+    }
+
+    // LOADBINARY(address, filename)
+    if (startsWith(upper, "LOADBINARY(") && line.back() == ')') {
+        auto args = trim(line.substr(11, line.size() - 12));
+        asmLines.push_back("__LOADBINARY__:" + args);
+        return true;
+    }
+
+    // LOADLIBRARY(path) — dlopen a shared object inside the target process.
+    if (startsWith(upper, "LOADLIBRARY(") && line.back() == ')') {
+        auto args = trim(line.substr(12, line.size() - 13));
+        asmLines.push_back("__LOADLIBRARY__:" + args);
+        return true;
+    }
+
+    // FILLMEM(address, size, value)
+    if (startsWith(upper, "FILLMEM(") && line.back() == ')') {
+        auto args = trim(line.substr(8, line.size() - 9));
+        asmLines.push_back("__FILLMEM__:" + args);
+        return true;
+    }
+
+    // NOP [count] emits this many target instructions at the active address. A
+    // NOP with an operand ("nop dword ptr [rax+rax]", the multi-byte form
+    // compilers pad with, as relocated by injection templates) is an
+    // ordinary instruction.
+    const auto nopOperand = upper.size() > 3 ? trim(upper.substr(3)) : std::string();
+    // "nop eax" (0f 1f c0) is a register, though it reads like a hex count.
+    static const std::set<std::string> nopRegisters = {"AX", "BX", "CX", "DX", "EAX", "EBX", "ECX", "EDX"};
+    const bool nopCount = nopOperand.empty() ||
+        (!nopRegisters.contains(nopOperand) &&
+         std::all_of(nopOperand.begin(), nopOperand.end(), [](unsigned char c) { return std::isxdigit(c) || c == 'X'; }));
+    if ((upper == "NOP" || startsWith(upper, "NOP ")) && nopCount) {
+        auto count = trim(line.size() > 3 ? line.substr(3) : "1");
+        asmLines.push_back("__NOP__:" + count);
+        return true;
+    }
+
+    // DS "text" — emit string bytes at the active address.
+    if (startsWith(upper, "DS ")) {
+        asmLines.push_back("__DS__:" + trim(line.substr(3)));
+        return true;
+    }
+
+    std::string customName;
+    std::string customArgs;
+    auto openParen = line.find('(');
+    if (openParen != std::string::npos && line.back() == ')') {
+        customName = trim(line.substr(0, openParen));
+        customArgs = line.substr(openParen + 1, line.size() - openParen - 2);
+    } else {
+        auto firstSpace = line.find_first_of(" \t");
+        customName = firstSpace == std::string::npos ? line : trim(line.substr(0, firstSpace));
+        customArgs = firstSpace == std::string::npos ? "" : trim(line.substr(firstSpace + 1));
+    }
+
+    auto customIt = customCommands_.find(normalizeCommandName(customName));
+    if (customIt != customCommands_.end()) {
+        std::vector<std::string> expandedLines;
+        if (!customIt->second(customArgs, expandedLines, log, error)) {
+            if (error.empty())
+                error = "Custom command failed: " + customName;
+            return false;
+        }
+
+        for (const auto& expandedLine : expandedLines) {
+            if (!parseLine(expandedLine, allocs, labels, defines, registeredSymbols, asmLines, log, proc, error, includeDepth))
+                return false;
+        }
+        return true;
+    }
+
+    // Everything else is an assembly line or label definition
+    asmLines.push_back(line);
+    return true;
+}
+
+// The AOBSCAN family: AOBSCANREGION, AOBSCANALL, AOBSCANMODULE and AOBSCAN.
+std::optional<bool> AutoAssembler::parseAobScanLine(const std::string& line, const std::string& upper,
+    std::vector<Alloc>& allocs, std::vector<Label>& labels, std::vector<Define>& defines,
+    std::vector<std::string>& log, ProcessHandle* proc, std::string& error) {
     // AOBSCANREGION(name, start, stop, pattern) — find pattern in an address range
     if (startsWith(upper, "AOBSCANREGION(") && line.back() == ')' && proc) {
         auto args = line.substr(14, line.size() - 15);
@@ -1104,24 +1221,14 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
         }
         return true;
     }
+    return std::nullopt;
+}
 
-    // CREATETHREAD(address) — create remote thread at address after injection
-    if (startsWith(upper, "CREATETHREAD(") && line.back() == ')') {
-        auto addr = trim(line.substr(13, line.size() - 14));
-        log.push_back("CREATETHREAD: " + addr + " (deferred to post-injection)");
-        // Store for execution after all writes complete
-        asmLines.push_back("__CREATETHREAD__:" + addr);
-        return true;
-    }
-
-    // CREATETHREADANDWAIT(address[, timeout])
-    if (startsWith(upper, "CREATETHREADANDWAIT(") && line.back() == ')') {
-        auto args = trim(line.substr(20, line.size() - 21));
-        log.push_back("CREATETHREADANDWAIT: " + args);
-        asmLines.push_back("__CREATETHREADANDWAIT__:" + args);
-        return true;
-    }
-
+// INCLUDE(filename): parse another script's lines here.
+std::optional<bool> AutoAssembler::parseIncludeLine(const std::string& line, const std::string& upper,
+    std::vector<Alloc>& allocs, std::vector<Label>& labels, std::vector<Define>& defines,
+    std::vector<std::string>& registeredSymbols, std::vector<std::string>& asmLines, std::vector<std::string>& log,
+    ProcessHandle* proc, std::string& error, int includeDepth) {
     // INCLUDE(filename) — include another .cea script
     if (startsWith(upper, "INCLUDE(") && line.back() == ')') {
         auto filename = trim(line.substr(8, line.size() - 9));
@@ -1129,16 +1236,30 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
         if (!filename.empty() && filename.front() == '"') filename = filename.substr(1);
         if (!filename.empty() && filename.back() == '"') filename.pop_back();
 
-        // Bound recursion: a cap on include depth prevents stack exhaustion
-        // from a self-including .cea or an A→B→A cycle.
-        // TODO(security): also track a visited-set of std::filesystem::weakly_canonical
-        // paths to detect and report true cycles rather than only capping depth.
+        // A file that includes itself, directly or through others, is a
+        // cycle; name it. The depth cap still bounds a long chain of
+        // distinct files.
+        std::error_code canonicalError;
+        auto canonical = std::filesystem::weakly_canonical(filename, canonicalError);
+        const std::string key = canonicalError ? filename : canonical.string();
+        if (std::find(includeStack_.begin(), includeStack_.end(), key) != includeStack_.end()) {
+            error = "INCLUDE cycle:";
+            for (auto it = std::find(includeStack_.begin(), includeStack_.end(), key); it != includeStack_.end(); ++it)
+                error += " " + *it + " ->";
+            error += " " + key;
+            return false;
+        }
         constexpr int kMaxIncludeDepth = 16;
         if (includeDepth >= kMaxIncludeDepth) {
             error = "INCLUDE nesting too deep (limit " +
                 std::to_string(kMaxIncludeDepth) + "): " + filename;
             return false;
         }
+        includeStack_.push_back(key);
+        struct PopInclude {
+            std::vector<std::string>& stack;
+            ~PopInclude() { stack.pop_back(); }
+        } popInclude{includeStack_};
 
         // Read the file and parse each line
         // A regular file of reasonable size only: a device such as /dev/zero
@@ -1163,95 +1284,7 @@ bool AutoAssembler::parseLine(const std::string& rawLine,
         }
         return true;
     }
-
-    // REASSEMBLE(address) — disassemble instruction at address and re-emit it
-    if (startsWith(upper, "REASSEMBLE(") && line.back() == ')' && proc) {
-        auto addrExpr = trim(line.substr(11, line.size() - 12));
-        asmLines.push_back("__REASSEMBLE__:" + addrExpr);
-        return true;
-    }
-
-    // READMEM(address, size) — read bytes from process memory, emit as db
-    if (startsWith(upper, "READMEM(") && line.back() == ')') {
-        auto args = trim(line.substr(8, line.size() - 9));
-        asmLines.push_back("__READMEM__:" + args);
-        return true;
-    }
-
-    // LOADBINARY(address, filename)
-    if (startsWith(upper, "LOADBINARY(") && line.back() == ')') {
-        auto args = trim(line.substr(11, line.size() - 12));
-        asmLines.push_back("__LOADBINARY__:" + args);
-        return true;
-    }
-
-    // LOADLIBRARY(path) — dlopen a shared object inside the target process.
-    if (startsWith(upper, "LOADLIBRARY(") && line.back() == ')') {
-        auto args = trim(line.substr(12, line.size() - 13));
-        asmLines.push_back("__LOADLIBRARY__:" + args);
-        return true;
-    }
-
-    // FILLMEM(address, size, value)
-    if (startsWith(upper, "FILLMEM(") && line.back() == ')') {
-        auto args = trim(line.substr(8, line.size() - 9));
-        asmLines.push_back("__FILLMEM__:" + args);
-        return true;
-    }
-
-    // NOP [count] emits this many target instructions at the active address. A
-    // NOP with an operand ("nop dword ptr [rax+rax]", the multi-byte form
-    // compilers pad with, as relocated by injection templates) is an
-    // ordinary instruction.
-    const auto nopOperand = upper.size() > 3 ? trim(upper.substr(3)) : std::string();
-    // "nop eax" (0f 1f c0) is a register, though it reads like a hex count.
-    static const std::set<std::string> nopRegisters = {"AX", "BX", "CX", "DX", "EAX", "EBX", "ECX", "EDX"};
-    const bool nopCount = nopOperand.empty() ||
-        (!nopRegisters.contains(nopOperand) &&
-         std::all_of(nopOperand.begin(), nopOperand.end(), [](unsigned char c) { return std::isxdigit(c) || c == 'X'; }));
-    if ((upper == "NOP" || startsWith(upper, "NOP ")) && nopCount) {
-        auto count = trim(line.size() > 3 ? line.substr(3) : "1");
-        asmLines.push_back("__NOP__:" + count);
-        return true;
-    }
-
-    // DS "text" — emit string bytes at the active address.
-    if (startsWith(upper, "DS ")) {
-        asmLines.push_back("__DS__:" + trim(line.substr(3)));
-        return true;
-    }
-
-    std::string customName;
-    std::string customArgs;
-    auto openParen = line.find('(');
-    if (openParen != std::string::npos && line.back() == ')') {
-        customName = trim(line.substr(0, openParen));
-        customArgs = line.substr(openParen + 1, line.size() - openParen - 2);
-    } else {
-        auto firstSpace = line.find_first_of(" \t");
-        customName = firstSpace == std::string::npos ? line : trim(line.substr(0, firstSpace));
-        customArgs = firstSpace == std::string::npos ? "" : trim(line.substr(firstSpace + 1));
-    }
-
-    auto customIt = customCommands_.find(normalizeCommandName(customName));
-    if (customIt != customCommands_.end()) {
-        std::vector<std::string> expandedLines;
-        if (!customIt->second(customArgs, expandedLines, log, error)) {
-            if (error.empty())
-                error = "Custom command failed: " + customName;
-            return false;
-        }
-
-        for (const auto& expandedLine : expandedLines) {
-            if (!parseLine(expandedLine, allocs, labels, defines, registeredSymbols, asmLines, log, proc, error, includeDepth))
-                return false;
-        }
-        return true;
-    }
-
-    // Everything else is an assembly line or label definition
-    asmLines.push_back(line);
-    return true;
+    return std::nullopt;
 }
 
 // ── Symbol resolution ──
@@ -2306,6 +2339,30 @@ AutoAsmResult AutoAssembler::execute(ProcessHandle& proc, const std::string& scr
     return run(proc, std::move(enableCode), nullptr);
 }
 
+// What run()'s line handlers share with it: the target, the script's
+// allocations, labels and defines, the current address, the work deferred to
+// the end, and the helpers that read and patch the target with undo.
+struct AutoAssembler::RunContext {
+    ProcessHandle& proc;
+    const DisableInfo* undo;
+    AutoAsmResult& result;
+    std::vector<Alloc>& allocs;
+    std::vector<Label>& labels;
+    std::vector<Define>& defines;
+    std::vector<NewGlobalBlock>& newGlobalBlocks;
+    uintptr_t& currentAddr;
+    std::vector<DeferredThread>& deferredThreads;
+    std::vector<std::string>& deferredDeallocs;
+    std::vector<std::string>& deferredUnregisters;
+    std::vector<size_t>& reassemblySizes;
+    // Set by run() where it defines them.
+    std::function<bool(const DisableInfo::AllocEntry&)> liveBlock;
+    std::function<void(uintptr_t)> noteUnreachedNear;
+    std::function<std::shared_ptr<std::atomic<bool>>(uintptr_t, size_t)> allocationRelease;
+    std::function<bool(uintptr_t, uint8_t*, size_t)> readBeforeScript;
+    std::function<bool(uintptr_t, const std::vector<uint8_t>&, bool)> patchMemory;
+};
+
 AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, const DisableInfo* undo) {
     AutoAsmResult result;
     result.success = false;
@@ -2343,7 +2400,6 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
 
     // globalalloc blocks this run maps. A rollback frees them (with the rest
     // of its allocations) and forgets the name; a success keeps them.
-    struct NewGlobalBlock { std::string name; uintptr_t address; std::optional<DisableInfo::AllocEntry> previous; bool wasGlobal; };
     std::vector<NewGlobalBlock> newGlobalBlocks;
     // Set when an alloc(name,size,near) could not be placed within jump reach
     // of `near`: the failure that follows (an out-of-range operand, or no
@@ -2437,6 +2493,287 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
     }
 
     // ── Phase 2: Allocate memory ──
+    uintptr_t currentAddr = 0;
+    std::vector<DeferredThread> deferredThreads;
+    std::vector<std::string> deferredDeallocs, deferredUnregisters;
+    std::vector<size_t> reassemblySizes;
+    RunContext rc{proc, undo, result, allocs, labels, defines, newGlobalBlocks, currentAddr, deferredThreads,
+                  deferredDeallocs, deferredUnregisters, reassemblySizes};
+    rc.liveBlock = liveBlock;
+    rc.noteUnreachedNear = noteUnreachedNear;
+    if (!allocateScriptMemory(rc)) return rollback();
+
+    std::vector<std::string> selectedAsmLines;
+    if (!selectTryExceptBranches(asmLines, selectedAsmLines, allocs, labels, defines, &proc, result.log, result.error))
+        return rollback();
+    asmLines = std::move(selectedAsmLines);
+
+    if (!resolveForwardLabels(asmLines, allocs, labels, defines, proc, reassemblySizes, result.error))
+        return rollback();
+
+    // ── Phase 3: Assemble and inject ──
+
+    auto allocationRelease = [&](uintptr_t address, size_t size) { return releaseFlagFor(rc, address, size); };
+    auto readBeforeScript = [&](uintptr_t addr, uint8_t* out, size_t size) { return readBeforeRun(rc, addr, out, size); };
+    auto patchMemory = [&](uintptr_t addr, const std::vector<uint8_t>& bytes, bool mutableData = false) {
+        return patchTarget(rc, addr, bytes, mutableData);
+    };
+
+    rc.allocationRelease = allocationRelease;
+    rc.readBeforeScript = readBeforeScript;
+    rc.patchMemory = patchMemory;
+    for (size_t lineIndex=0;lineIndex<asmLines.size();++lineIndex) {
+        const auto& rawLine=asmLines[lineIndex];
+        auto trimmedLine = trim(rawLine);
+
+        // Check for label definition (name:)
+        switch (runLabelLine(rc, trimmedLine)) {
+            case LineResult::Next: continue;
+            case LineResult::Fail: return rollback();
+            case LineResult::NotMine: break;
+        }
+        switch (runDirectiveLine(rc, trimmedLine)) {
+            case LineResult::Next: continue;
+            case LineResult::Fail: return rollback();
+            case LineResult::NotMine: break;
+        }
+        if (currentAddr == 0 && !startsWith(trimmedLine, "__FILLMEM__:")) {   // fillmem names its own address
+            result.error = "No active assembly address for line: " + trimmedLine;
+            return rollback();
+        }
+        switch (runDataLine(rc, trimmedLine, lineIndex)) {
+            case LineResult::Next: continue;
+            case LineResult::Fail: return rollback();
+            case LineResult::NotMine: break;
+        }
+        auto upper = toUpper(trimmedLine);
+        if (startsWith(upper, "DB ") || startsWith(upper, "DW ") ||
+            startsWith(upper, "DD ") || startsWith(upper, "DQ ")) {
+
+            auto op = upper.substr(0, 2);
+            // Resolve symbol/label references in data values (e.g. "dq tgt").
+            auto dataStr = substituteSymbols(trim(trimmedLine.substr(3)), allocs, labels, defines);
+            std::vector<uint8_t> dataBytes;
+            std::string parseError;
+            if (!parseDataDirective(op, dataStr, dataBytes, parseError, machineForCode(currentAddr).byteOrder)) {
+                result.error = parseError;
+                return rollback();
+            }
+
+            if (!dataBytes.empty()) {
+                // Typed storage and byte buffers inside owned caves can change
+                // at runtime (for example, a pointer-capture slot). Raw DB at
+                // an external executable site also serves as machine code.
+                const bool mutableData = op != "DB" || bool(allocationRelease(currentAddr,dataBytes.size()));
+                if (!patchMemory(currentAddr, dataBytes,mutableData))
+                    return rollback();
+                currentAddr += dataBytes.size();
+            }
+            continue;
+        }
+
+        // Substitute symbols in assembly line
+        auto substituted = substituteSymbols(trimmedLine, allocs, labels, defines);
+
+        // Assemble
+        auto asmResult = assembleTarget(substituted, currentAddr);
+        if (!asmResult) {
+            result.error = "Assembly error at 0x" +
+                ([&]{ char b[32]; snprintf(b, 32, "%lx", currentAddr); return std::string(b); })() +
+                ": " + asmResult.error() + "\n  Line: " + trimmedLine;
+            // A failed line can't be skipped: continuing would write the next
+            // instruction over the failed slot and shift every later label. Abort
+            // and roll back the partial activation (hooks may already be live).
+            result.log.push_back("ERROR: " + result.error);
+            return rollback();
+        }
+
+        auto& bytes = *asmResult;
+        if (!bytes.empty()) {
+            if (!patchMemory(currentAddr, bytes))
+                return rollback();
+            currentAddr += bytes.size();
+        }
+    }
+
+    if (!runDeferredWork(rc)) return rollback();
+
+    // ── Phase 4: Register symbols ──
+    // globalalloc names are shared and outlive any one script: no owner, and
+    // not part of this script's undo.
+    for (const auto& a : allocs)
+        if (a.global && a.address) { globalSymbols_[a.name] = a.address; symbolOwners_.erase(a.name); }
+    for (auto& sym : registeredSymbols) {
+        uintptr_t addr = resolveAddress(sym, allocs, labels, defines);
+        if (!addr) continue;
+        globalSymbols_[sym] = addr;
+        if (undo) { symbolOwners_.erase(sym); continue; }   // registered by a [DISABLE] section: no undo removes it
+        symbolOwners_[sym]=result.disableInfo.ownership;
+        result.disableInfo.symbols[sym] = addr;
+    }
+
+    // New globalalloc blocks stay mapped when this script is disabled.
+    std::erase_if(result.disableInfo.allocs, [&](const auto& allocation) {
+        return std::any_of(newGlobalBlocks.begin(), newGlobalBlocks.end(),
+                           [&](const NewGlobalBlock& block) { return block.address == allocation.address; });
+    });
+    if (!undo) {
+        result.disableInfo.runDisableSection = true;
+        for (const auto& a : allocs) if (a.address) result.disableInfo.scriptSymbols[a.name] = a.address;
+        for (const auto& l : labels)
+            if (l.address && !startsWith(l.name, "__anon_")) result.disableInfo.scriptSymbols[l.name] = l.address;
+        // [DISABLE] restores the function [ENABLE] hooked, by the same address.
+        for (const auto& [name, address] : hookSites_) result.disableInfo.scriptSymbols.emplace(name, address);
+        if (!result.disableInfo.originals.empty()) {
+            LivePatch live{result.disableInfo.ownership, result.disableInfo.image, proc.pid(), {}};
+            for (const auto& patch : result.disableInfo.originals)
+                if (!patch.bytes.empty()) live.ranges.push_back({patch.address, patch.bytes.size()});
+            std::erase_if(livePatches_, [](const LivePatch& entry) { auto owner = entry.owner.lock(); return !owner || owner->complete; });
+            livePatches_.push_back(std::move(live));
+        }
+    }
+
+    result.success = result.error.empty();
+    return rollback();
+    } catch (const std::exception& error) {
+        result.success = false;
+        result.error = std::string("AutoAssembler failed: ")+error.what();
+        return rollback();
+    }
+}
+
+// The release flag of the allocation (this run's or a known one) that holds
+// [address, address+size): a write there is undone only while it is mapped.
+std::shared_ptr<std::atomic<bool>> AutoAssembler::releaseFlagFor(RunContext& rc, uintptr_t address, size_t size) {
+    AutoAsmResult& result = rc.result;
+    ProcessHandle& proc = rc.proc;
+    auto contains = [&](const auto& allocation) {
+        return allocation.released && !allocation.released->load() && address >= allocation.address &&
+            address - allocation.address <= allocation.size && size <= allocation.size - (address - allocation.address);
+    };
+    for (const auto& allocation : result.disableInfo.allocs)
+        if (contains(allocation)) return allocation.released;
+    for (const auto& [name, allocation] : knownAllocations_)
+        if (contains(allocation) && (!allocation.image ||
+            (allocation.image->pid()==proc.pid() && allocation.image->check()))) return allocation.released;
+    return {};
+}
+
+
+// Apply one patch: fully read+save the original bytes, then write the
+// new bytes, verifying every step. Saving an original buffer from a
+// failed/partial read would let disable() write a zero-filled buffer
+// back and corrupt the target, and a silently-dropped write would leave
+// execute() reporting success against a patch that never landed.
+// Undo a partial activation: restore patched bytes (reverse order) then free
+// the caves — same as disable(). Called on ANY hard failure during execute so
+// a failed script leaves the target unchanged instead of a half-written cave
+// with an already-live hook (and doesn't leak the allocated RWX pages).
+// What the script saw before it ran: live bytes with the originals of this
+// run's earlier writes laid back over them (the earliest write's original
+// wins). readmem and assert are about the unpatched code: read live after
+// "INJECT: jmp newmem", readmem(INJECT,5) copied the hook itself into the
+// cave and the game jumped to garbage.
+bool AutoAssembler::readBeforeRun(RunContext& rc, uintptr_t addr, uint8_t* out, size_t size) {
+    AutoAsmResult& result = rc.result;
+    ProcessHandle& proc = rc.proc;
+    if (size && size - 1 > UINTPTR_MAX - addr) return false;
+    auto rr = result.disableInfo.image ? result.disableInfo.image->read(addr, out, size) : proc.read(addr, out, size);
+    if (!rr || *rr < size) return false;
+    const auto& written = result.disableInfo.originals;
+    for (auto it = written.rbegin(); it != written.rend(); ++it) {
+        const uintptr_t lo = std::max(addr, it->address);
+        const uintptr_t hi = std::min(addr + size, it->address + it->bytes.size());
+        for (uintptr_t a = lo; a < hi; ++a) out[a - addr] = it->bytes[a - it->address];
+    }
+    return true;
+}
+
+// A globalalloc block is shared code and data that other enabled scripts
+// may use: writes into it are never undone (and a new block that a
+// rollback frees needs no restoring either).
+bool AutoAssembler::inGlobalAllocation(RunContext& rc, uintptr_t address, size_t size) {
+    auto& liveBlock = rc.liveBlock;
+    for (const auto& name : globalAllocations_) {
+        auto known = knownAllocations_.find(name);
+        if (known != knownAllocations_.end() && liveBlock(known->second) && address >= known->second.address &&
+            address - known->second.address < known->second.size &&
+            size <= known->second.size - (address - known->second.address)) return true;
+    }
+    return false;
+}
+
+// Write one patch with its undo record (see readBeforeRun's notes above).
+bool AutoAssembler::patchTarget(RunContext& rc, uintptr_t addr, const std::vector<uint8_t>& bytes, bool mutableData) {
+    AutoAsmResult& result = rc.result;
+    ProcessHandle& proc = rc.proc;
+    auto inGlobalBlock = [&](uintptr_t address, size_t size) { return inGlobalAllocation(rc, address, size); };
+    auto allocationRelease = [&](uintptr_t address, size_t size) { return releaseFlagFor(rc, address, size); };
+    if (!bytes.empty() && bytes.size() - 1 > UINTPTR_MAX - addr) {
+        result.error = "Patch range overflows the address space"; return false;
+    }
+    auto region = proc.queryRegion(addr);
+    const bool executable=region && (region->protection & MemProt::Exec);
+    if (!inGlobalBlock(addr, bytes.size())) {
+        std::vector<uint8_t> orig(bytes.size());
+        auto rr = result.disableInfo.image ? result.disableInfo.image->read(addr,orig.data(),orig.size()) : proc.read(addr, orig.data(), orig.size());
+        if (!rr || *rr < orig.size()) {
+            result.error = "original-byte read failed at " + formatHexLiteral(addr);
+            return false;
+        }
+        result.disableInfo.originals.push_back({addr, std::move(orig),bytes,executable,allocationRelease(addr,bytes.size()),executable && !mutableData});
+    }
+    auto writeBytes=[&] {return result.disableInfo.image ? result.disableInfo.image->write(addr,bytes,executable) : executable ? proc.writeCode(addr,bytes.data(),bytes.size()) : proc.write(addr,bytes.data(),bytes.size());};
+    auto wr = writeBytes();
+    // A running injected thread owns its cave, so the pinned image refuses
+    // writes there. A data value such as the stop flag it polls is written
+    // directly, while that image is still the live address space.
+    if (!wr && wr.error() == std::errc::device_or_resource_busy && mutableData && result.disableInfo.image &&
+        result.disableInfo.image->check())
+        wr = proc.write(addr, bytes.data(), bytes.size());
+    if (!wr || *wr < bytes.size()) {
+        if (executable && !machineForCode(addr).isX86()) {
+            result.error="Code write failed: "+(wr ? std::string("short transfer") : wr.error().message());
+            return false;
+        }
+        // The target page may be non-writable (e.g. r-x code). Code
+        // injection has to patch executable pages, so make the range
+        // writable and retry — mirrors CE making the region writable
+        // before applying a hook.
+        uintptr_t at = addr;
+        size_t remaining = bytes.size();
+        while (remaining) {
+            auto region = proc.queryRegion(at);
+            if (!region || at < region->base || at - region->base >= region->size) {
+                result.error = "Cannot inspect original page protection"; return false;
+            }
+            size_t count = std::min(remaining, region->size - (at - region->base));
+            result.disableInfo.protections.push_back({at, count, region->protection,allocationRelease(at,count)});
+            auto protectedRange = result.disableInfo.image ? result.disableInfo.image->protect(at,count,region->protection|MemProt::Write) : proc.protect(at, count, region->protection | MemProt::Write);
+            if (!protectedRange) { result.error = protectedRange.error().message(); return false; }
+            at += count; remaining -= count;
+        }
+        wr = writeBytes();
+        if (!wr || *wr < bytes.size()) {
+            result.error = "memory write failed at " + formatHexLiteral(addr);
+            return false;
+        }
+    }
+    return true;
+}
+
+
+// Phase 2: map each alloc and globalalloc of the script, near its hook when one is named. False on a failure, which rolls the run back.
+bool AutoAssembler::allocateScriptMemory(RunContext& rc) {
+    ProcessHandle& proc = rc.proc;
+    const DisableInfo* undo = rc.undo;
+    AutoAsmResult& result = rc.result;
+    std::vector<Alloc>& allocs = rc.allocs;
+    std::vector<Label>& labels = rc.labels;
+    std::vector<Define>& defines = rc.defines;
+    std::vector<NewGlobalBlock>& newGlobalBlocks = rc.newGlobalBlocks;
+    auto& liveBlock = rc.liveBlock;
+    auto& noteUnreachedNear = rc.noteUnreachedNear;
     for (auto& a : allocs) {
         // alloc() in a [DISABLE] section names the activation's memory, which
         // its undo frees: nothing new is mapped while disabling.
@@ -2447,7 +2784,7 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
             a.address = prior != undo->allocs.end() ? prior->address : named != undo->scriptSymbols.end() ? named->second : 0;
             if (!a.address) {
                 result.error = "[DISABLE] can only name memory that [ENABLE] allocated: " + a.name;
-                return rollback();
+                return false;
             }
             continue;
         }
@@ -2477,7 +2814,7 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
             // hook, which then fails to assemble or branches wrong.
             if (!a.preferred) {
                 result.error = "ALLOC(" + a.name + "): cannot resolve the near address " + a.preferredExpr;
-                return rollback();
+                return false;
             }
         }
         // Allocate ownership metadata before asking the target to map memory.
@@ -2543,589 +2880,26 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
                               ? ". (Code injection allocates a cave via ptrace; this can fail if the "
                                 "process denies ptrace or a cave can't be placed near the hook.)"
                               : "." + hint);
-            return rollback();
+            return false;
         }
     }
+    return true;
+}
 
-    std::vector<std::string> selectedAsmLines;
-    if (!selectTryExceptBranches(asmLines, selectedAsmLines, allocs, labels, defines, &proc, result.log, result.error))
-        return rollback();
-    asmLines = std::move(selectedAsmLines);
-
-    std::vector<size_t> reassemblySizes;
-    if (!resolveForwardLabels(asmLines, allocs, labels, defines, proc, reassemblySizes, result.error))
-        return rollback();
-
-    // ── Phase 3: Assemble and inject ──
-    uintptr_t currentAddr = 0;
-    struct DeferredThread {
-        std::string addressExpr;
-        bool wait = false;
-        int timeoutMs = 5000;
-    };
-    std::vector<DeferredThread> deferredThreads;
-    std::vector<std::string> deferredDeallocs, deferredUnregisters;
-
-    auto allocationRelease = [&](uintptr_t address, size_t size) -> std::shared_ptr<std::atomic<bool>> {
-        auto contains = [&](const auto& allocation) {
-            return allocation.released && !allocation.released->load() && address >= allocation.address &&
-                address - allocation.address <= allocation.size && size <= allocation.size - (address - allocation.address);
-        };
-        for (const auto& allocation : result.disableInfo.allocs)
-            if (contains(allocation)) return allocation.released;
-        for (const auto& [name, allocation] : knownAllocations_)
-            if (contains(allocation) && (!allocation.image ||
-                (allocation.image->pid()==proc.pid() && allocation.image->check()))) return allocation.released;
-        return {};
-    };
-
-    // Apply one patch: fully read+save the original bytes, then write the
-    // new bytes, verifying every step. Saving an original buffer from a
-    // failed/partial read would let disable() write a zero-filled buffer
-    // back and corrupt the target, and a silently-dropped write would leave
-    // execute() reporting success against a patch that never landed.
-    // Undo a partial activation: restore patched bytes (reverse order) then free
-    // the caves — same as disable(). Called on ANY hard failure during execute so
-    // a failed script leaves the target unchanged instead of a half-written cave
-    // with an already-live hook (and doesn't leak the allocated RWX pages).
-    // What the script saw before it ran: live bytes with the originals of this
-    // run's earlier writes laid back over them (the earliest write's original
-    // wins). readmem and assert are about the unpatched code: read live after
-    // "INJECT: jmp newmem", readmem(INJECT,5) copied the hook itself into the
-    // cave and the game jumped to garbage.
-    auto readBeforeScript = [&](uintptr_t addr, uint8_t* out, size_t size) -> bool {
-        if (size && size - 1 > UINTPTR_MAX - addr) return false;
-        auto rr = result.disableInfo.image ? result.disableInfo.image->read(addr, out, size) : proc.read(addr, out, size);
-        if (!rr || *rr < size) return false;
-        const auto& written = result.disableInfo.originals;
-        for (auto it = written.rbegin(); it != written.rend(); ++it) {
-            const uintptr_t lo = std::max(addr, it->address);
-            const uintptr_t hi = std::min(addr + size, it->address + it->bytes.size());
-            for (uintptr_t a = lo; a < hi; ++a) out[a - addr] = it->bytes[a - it->address];
-        }
-        return true;
-    };
-    // A globalalloc block is shared code and data that other enabled scripts
-    // may use: writes into it are never undone (and a new block that a
-    // rollback frees needs no restoring either).
-    auto inGlobalBlock = [&](uintptr_t address, size_t size) {
-        for (const auto& name : globalAllocations_) {
-            auto known = knownAllocations_.find(name);
-            if (known != knownAllocations_.end() && liveBlock(known->second) && address >= known->second.address &&
-                address - known->second.address < known->second.size &&
-                size <= known->second.size - (address - known->second.address)) return true;
-        }
-        return false;
-    };
-    auto patchMemory = [&](uintptr_t addr, const std::vector<uint8_t>& bytes, bool mutableData = false) -> bool {
-        if (!bytes.empty() && bytes.size() - 1 > UINTPTR_MAX - addr) {
-            result.error = "Patch range overflows the address space"; return false;
-        }
-        auto region = proc.queryRegion(addr);
-        const bool executable=region && (region->protection & MemProt::Exec);
-        if (!inGlobalBlock(addr, bytes.size())) {
-            std::vector<uint8_t> orig(bytes.size());
-            auto rr = result.disableInfo.image ? result.disableInfo.image->read(addr,orig.data(),orig.size()) : proc.read(addr, orig.data(), orig.size());
-            if (!rr || *rr < orig.size()) {
-                result.error = "original-byte read failed at " + formatHexLiteral(addr);
-                return false;
-            }
-            result.disableInfo.originals.push_back({addr, std::move(orig),bytes,executable,allocationRelease(addr,bytes.size()),executable && !mutableData});
-        }
-        auto writeBytes=[&] {return result.disableInfo.image ? result.disableInfo.image->write(addr,bytes,executable) : executable ? proc.writeCode(addr,bytes.data(),bytes.size()) : proc.write(addr,bytes.data(),bytes.size());};
-        auto wr = writeBytes();
-        // A running injected thread owns its cave, so the pinned image refuses
-        // writes there. A data value such as the stop flag it polls is written
-        // directly, while that image is still the live address space.
-        if (!wr && wr.error() == std::errc::device_or_resource_busy && mutableData && result.disableInfo.image &&
-            result.disableInfo.image->check())
-            wr = proc.write(addr, bytes.data(), bytes.size());
-        if (!wr || *wr < bytes.size()) {
-            if (executable && !machineForCode(addr).isX86()) {
-                result.error="Code write failed: "+(wr ? std::string("short transfer") : wr.error().message());
-                return false;
-            }
-            // The target page may be non-writable (e.g. r-x code). Code
-            // injection has to patch executable pages, so make the range
-            // writable and retry — mirrors CE making the region writable
-            // before applying a hook.
-            uintptr_t at = addr;
-            size_t remaining = bytes.size();
-            while (remaining) {
-                auto region = proc.queryRegion(at);
-                if (!region || at < region->base || at - region->base >= region->size) {
-                    result.error = "Cannot inspect original page protection"; return false;
-                }
-                size_t count = std::min(remaining, region->size - (at - region->base));
-                result.disableInfo.protections.push_back({at, count, region->protection,allocationRelease(at,count)});
-                auto protectedRange = result.disableInfo.image ? result.disableInfo.image->protect(at,count,region->protection|MemProt::Write) : proc.protect(at, count, region->protection | MemProt::Write);
-                if (!protectedRange) { result.error = protectedRange.error().message(); return false; }
-                at += count; remaining -= count;
-            }
-            wr = writeBytes();
-            if (!wr || *wr < bytes.size()) {
-                result.error = "memory write failed at " + formatHexLiteral(addr);
-                return false;
-            }
-        }
-        return true;
-    };
-
-    for (size_t lineIndex=0;lineIndex<asmLines.size();++lineIndex) {
-        const auto& rawLine=asmLines[lineIndex];
-        auto trimmedLine = trim(rawLine);
-
-        // Check for label definition (name:)
-        if (isSimpleLabelDefinition(trimmedLine)) {
-            auto labelName = trimmedLine.substr(0, trimmedLine.size() - 1);
-
-            bool handledLabel = false;
-
-            // Is this an alloc name? Set currentAddr to that block.
-            for (auto& a : allocs) {
-                if (a.name == labelName) {
-                    currentAddr = a.address;
-                    handledLabel = true;
-                    break;
-                }
-            }
-            if (handledLabel) continue;
-
-            // Is this a declared internal label? Bind it to the active block address.
-            for (auto& l : labels) {
-                if (l.name == labelName) {
-                    if (currentAddr == 0) {
-                        result.error = "Label has no active assembly address: " + labelName;
-                        return rollback();
-                    }
-                    l.address = currentAddr;
-                    handledLabel = true;
-                    break;
-                }
-            }
-            if (handledLabel) continue;
-
-            // Otherwise this must be a target address expression (game.exe+1234:).
-            auto targetAddr = resolveAddress(labelName, allocs, labels, defines);
-            if (targetAddr == 0) {
-                result.error = "Unresolved auto-assembler target: " + labelName;
-                return rollback();
-            }
-            currentAddr = targetAddr;
-            continue;
-        }
-
-        // Handle special deferred directives
-        if (startsWith(trimmedLine, "__FULLACCESS__:")) {
-            auto args = trimmedLine.substr(15);
-            auto comma = args.find(',');
-            if (comma == std::string::npos) {
-                result.error = "FULLACCESS requires address and size";
-                return rollback();
-            }
-
-            auto addrExpr = trim(args.substr(0, comma));
-            auto sizeStr = trim(args.substr(comma + 1));
-            auto addr = resolveAddress(addrExpr, allocs, labels, defines);
-            size_t size = 0;
-            try {
-                size = std::stoull(sizeStr, nullptr, 0);
-            } catch (...) {
-                result.error = "Invalid FULLACCESS size: " + sizeStr;
-                return rollback();
-            }
-
-            if (!addr || size == 0) {
-                result.error = "Invalid FULLACCESS target: " + addrExpr;
-                return rollback();
-            }
-
-            if (size - 1 > UINTPTR_MAX - addr) {
-                result.error = "FULLACCESS range overflows the address space";
-                return rollback();
-            }
-            uintptr_t at = addr;
-            size_t remaining = size;
-            while (remaining) {
-                auto region = proc.queryRegion(at);
-                if (!region || at < region->base || at - region->base >= region->size) {
-                    result.error = "Cannot inspect FULLACCESS page protection";
-                    return rollback();
-                }
-                size_t count = std::min(remaining, region->size - (at - region->base));
-                result.disableInfo.protections.push_back({at, count, region->protection,allocationRelease(at,count)});
-                auto protectResult = result.disableInfo.image ? result.disableInfo.image->protect(at,count,MemProt::All) : proc.protect(at, count, MemProt::All);
-                if (!protectResult) {
-                    result.error = "FULLACCESS failed at " + addrExpr + ": " + protectResult.error().message();
-                    return rollback();
-                }
-                remaining -= count;
-                if (remaining) at += count;
-            }
-            result.log.push_back("FULLACCESS: " + addrExpr + " size=" + std::to_string(size));
-            continue;
-        }
-        if (startsWith(trimmedLine, "__ASSERT__:")) {
-            auto args = trimmedLine.substr(11);
-            auto comma = args.find(',');
-            if (comma == std::string::npos) {
-                result.error = "ASSERT requires address and bytes";
-                return rollback();
-            }
-
-            auto addrExpr = trim(args.substr(0, comma));
-            auto bytesStr = trim(args.substr(comma + 1));
-            auto addr = resolveAddress(addrExpr, allocs, labels, defines);
-            if (!addr) {
-                result.error = "Invalid ASSERT target: " + addrExpr;
-                return rollback();
-            }
-
-            // CE's templates write assert(address,bytes) after define(bytes,...).
-            for (int depth = 0; depth < 8; ++depth) {
-                auto named = std::find_if(defines.begin(), defines.end(), [&](const Define& d) { return d.name == bytesStr; });
-                if (named == defines.end()) break;
-                bytesStr = trim(named->value);
-            }
-            if (!bytesStr.empty() && bytesStr.front() == '"') bytesStr = bytesStr.substr(1);
-            if (!bytesStr.empty() && bytesStr.back() == '"') bytesStr.pop_back();
-
-            ScanConfig pattern;
-            if (!pattern.parseAOB(bytesStr) || pattern.byteArray.empty()) {
-                result.error = "ASSERT has no valid bytes: " + bytesStr;
-                return rollback();
-            }
-
-            std::vector<uint8_t> current(pattern.byteArray.size());
-            if (!readBeforeScript(addr, current.data(), current.size())) {   // the code before this script's writes
-                result.error = "ASSERT read failed at " + addrExpr;
-                return rollback();
-            }
-
-            for (size_t i = 0; i < pattern.byteArray.size(); ++i) {
-                // Wildcards and half wildcards ("4?") compare only their mask.
-                const uint8_t mask = i < pattern.byteArrayMask.size() ? pattern.byteArrayMask[i] : 0xFF;
-                if ((current[i] & mask) != (pattern.byteArray[i] & mask)) {
-                    char expected[8];
-                    char actual[8];
-                    snprintf(expected, sizeof(expected), "%02x", pattern.byteArray[i]);
-                    snprintf(actual, sizeof(actual), "%02x", current[i]);
-                    result.error = "ASSERT failed at " + addrExpr + "+" + std::to_string(i) +
-                        ": expected " + expected + ", got " + actual;
-                    return rollback();
-                }
-            }
-
-            result.log.push_back("ASSERT OK: " + addrExpr);
-            continue;
-        }
-        // unregistersymbol and dealloc take effect once every other line has
-        // succeeded, as in Cheat Engine: a script that fails later rolls back
-        // with its memory and symbols still in place.
-        if (startsWith(trimmedLine, "__UNREGISTERSYMBOL__:")) {
-            std::istringstream symbolStream(trimmedLine.substr(21));
-            for (std::string name; std::getline(symbolStream, name, ',');)
-                if (!trim(name).empty()) deferredUnregisters.push_back(trim(name));
-            continue;
-        }
-        if (startsWith(trimmedLine, "__DEALLOC__:")) {
-            std::istringstream allocStream(trimmedLine.substr(12));
-            for (std::string name; std::getline(allocStream, name, ',');) {
-                name = trim(name);
-                if (name.empty()) continue;
-                // While disabling, dealloc names only the activation's own
-                // memory (Cheat Engine looks it up in the undo), which the
-                // undo frees after restoring: another script's block of the
-                // same name ("newmem" in every template) is left alone.
-                if (!undo) deferredDeallocs.push_back(name);
-                else if (std::any_of(undo->allocs.begin(), undo->allocs.end(), [&](const auto& a) { return a.name == name; }))
-                    result.log.push_back("DEALLOC: " + name + " (freed with the script's undo)");
-                else result.log.push_back("DEALLOC: " + name + " not tracked");
-            }
-            continue;
-        }
-
-        if (startsWith(trimmedLine, "__CREATETHREAD__:")) {
-            deferredThreads.push_back({trim(trimmedLine.substr(17)), false, 0});
-            result.log.push_back("Deferred: " + trimmedLine);
-            continue;
-        }
-        if (startsWith(trimmedLine, "__CREATETHREADANDWAIT__:")) {
-            auto args = trimmedLine.substr(24);
-            auto parts = splitArgs(args, 2);
-            if (parts.empty() || parts[0].empty()) {
-                result.error = "CREATETHREADANDWAIT requires an address";
-                return rollback();
-            }
-
-            int timeoutMs = 5000;
-            if (parts.size() > 1 && !parts[1].empty()) {
-                try {
-                    timeoutMs = std::stoi(parts[1], nullptr, 0);
-                } catch (...) {
-                    result.error = "Invalid CREATETHREADANDWAIT timeout: " + parts[1];
-                    return rollback();
-                }
-            }
-            deferredThreads.push_back({trim(parts[0]), true, timeoutMs});
-            result.log.push_back("Deferred: " + trimmedLine);
-            continue;
-        }
-
-        if (startsWith(trimmedLine, "__LOADBINARY__:")) {
-            // parseLine refuses it already; this keeps the step itself safe.
-            if (restricted_) { result.error = restrictedError("LOADBINARY"); return rollback(); }
-            auto args = trimmedLine.substr(15);
-            auto parts = splitArgs(args, 2);
-            if (parts.size() != 2) {
-                result.error = "LOADBINARY requires address and filename";
-                return rollback();
-            }
-
-            auto addrExpr = trim(parts[0]);
-            auto filename = stripOptionalQuotes(parts[1]);
-            auto addr = resolveAddress(addrExpr, allocs, labels, defines);
-            if (!addr) {
-                result.error = "Invalid LOADBINARY target: " + addrExpr;
-                return rollback();
-            }
-
-            std::error_code sizeError;
-            if (!std::filesystem::is_regular_file(filename, sizeError) ||
-                std::filesystem::file_size(filename, sizeError) > kMaxAaBufferBytes || sizeError) {
-                result.error = "LOADBINARY needs a regular file of at most 256 MB: " + filename;
-                return rollback();
-            }
-            std::ifstream binFile(filename, std::ios::binary);
-            if (!binFile) {
-                result.error = "LOADBINARY file not found: " + filename;
-                return rollback();
-            }
-
-            std::vector<uint8_t> data((std::istreambuf_iterator<char>(binFile)), {});
-            if (data.empty()) {
-                result.error = "LOADBINARY file is empty: " + filename;
-                return rollback();
-            }
-
-            if (!patchMemory(addr,data)) return rollback();
-
-            result.log.push_back("LOADBINARY: " + filename + " -> " + addrExpr);
-            continue;
-        }
-
-        if (startsWith(trimmedLine, "__LOADLIBRARY__:")) {
-            if (restricted_) { result.error = restrictedError("LOADLIBRARY"); return rollback(); }
-            auto path = stripOptionalQuotes(trimmedLine.substr(16));
-            if (path.empty()) {
-                result.error = "LOADLIBRARY requires a shared library path";
-                return rollback();
-            }
-            if (!std::filesystem::exists(path)) {
-                result.error = "LOADLIBRARY file not found: " + path;
-                return rollback();
-            }
-            // dlopen runs in the target, with its own working directory and
-            // possibly another mount namespace: pass the name it sees this file by.
-            std::error_code absoluteError;
-            auto targetPath = std::filesystem::absolute(path, absoluteError).lexically_normal().string();
-            if (absoluteError) targetPath = path;
-            if (proc.targetDescription().transport == TargetTransport::Local)
-                if (auto task = os::processMemoryTask(proc.pid())) targetPath = os::targetVisiblePath(*task, targetPath);
-
-            SymbolResolver resolver;
-            resolver.loadProcess(proc);
-            auto injectResult = os::injectLibrary(proc, resolver, targetPath,result.disableInfo.image);
-            if (!injectResult) {
-                result.error = "LOADLIBRARY failed for " + path + ": " + injectResult.error();
-                return rollback();
-            }
-
-            result.log.push_back("LOADLIBRARY: " + path + " handle=0x" + formatHex(*injectResult));
-            continue;
-        }
-
-        if (currentAddr == 0 && !startsWith(trimmedLine, "__FILLMEM__:")) {   // fillmem names its own address
-            result.error = "No active assembly address for line: " + trimmedLine;
-            return rollback();
-        }
-        if (startsWith(trimmedLine, "__REASSEMBLE__:")) {
-            auto addrExpr = trimmedLine.substr(15);
-            auto addr = resolveAddress(addrExpr, allocs, labels, defines);
-            if (!addr) {result.error="Invalid REASSEMBLE target: "+addrExpr;return rollback();}
-            auto relocated=reassembleTarget(proc,addr,currentAddr,&result.disableInfo.originals);
-            if (!relocated || relocated->empty()) {
-                result.error="REASSEMBLE failed at "+addrExpr+": "+(relocated ? "empty instruction" : relocated.error());
-                return rollback();
-            }
-            // A source instruction may change after sizing, including through
-            // an earlier write in this script. Already emitted forward label
-            // references would point at the wrong instruction if the size changes.
-            if (relocated->size()!=reassemblySizes[lineIndex]) {
-                result.error="REASSEMBLE output size changed after label sizing at "+addrExpr;
-                return rollback();
-            }
-            if (!patchMemory(currentAddr,*relocated)) return rollback();
-            currentAddr+=relocated->size();
-            continue;
-        }
-        if (startsWith(trimmedLine, "__READMEM__:")) {
-            auto args = trimmedLine.substr(12);
-            auto comma = args.find(',');
-            if (comma != std::string::npos) {
-                auto addrExpr = trim(args.substr(0, comma));
-                auto sizeStr = trim(args.substr(comma + 1));
-                auto addr = resolveAddress(addrExpr, allocs, labels, defines);
-                // The sizing pass always advances by the READMEM size, so an
-                // unresolved source here would place every later instruction at
-                // the wrong address. Fail loudly instead of silently skipping.
-                if (!addr) {
-                    result.error = "READMEM source address unresolved: " + addrExpr;
-                    return rollback();
-                }
-                // Parse the size identically to the forward-label sizing pass
-                // (base-0, so CE-style 0x.. hex sizes are honored); otherwise
-                // the two passes disagree and later code lands at a wrong
-                // address.
-                uint64_t sz = 0;
-                if (!parseWholeUnsigned(sizeStr, 0, sz)) {
-                    result.error = "Invalid READMEM size: " + sizeStr;
-                    return rollback();
-                }
-                if (sz > kMaxAaBufferBytes) {
-                    result.error = "READMEM size too large: " + sizeStr;
-                    return rollback();
-                }
-                if (sz > 0) {
-                    std::vector<uint8_t> mem(sz);
-                    if (!readBeforeScript(addr, mem.data(), sz)) {
-                        result.error = "READMEM source read failed at " + addrExpr;
-                        return rollback();
-                    }
-                    if (!patchMemory(currentAddr, mem))
-                        return rollback();
-                    currentAddr += mem.size();
-                }
-            }
-            continue;
-        }
-        if (startsWith(trimmedLine, "__FILLMEM__:")) {
-            auto args = trimmedLine.substr(12);
-            auto parts = splitArgs(args, 3);
-            if (parts.size() != 3) {
-                result.error = "FILLMEM requires address, size, and value";
-                return rollback();
-            }
-
-            auto addr = resolveAddress(parts[0], allocs, labels, defines);
-            size_t size = 0;
-            uint64_t value = 0;
-            try {
-                size = std::stoull(trim(parts[1]), nullptr, 0);
-                value = std::stoull(trim(parts[2]), nullptr, 16);
-            } catch (...) {
-                result.error = "Invalid FILLMEM argument";
-                return rollback();
-            }
-            if (!addr || size == 0 || value > 0xff) {
-                result.error = "Invalid FILLMEM target or value";
-                return rollback();
-            }
-            if (size > kMaxAaBufferBytes) {
-                result.error = "FILLMEM size too large";
-                return rollback();
-            }
-
-            std::vector<uint8_t> data(size, static_cast<uint8_t>(value));
-            if (!patchMemory(addr, data))
-                return rollback();
-            result.log.push_back("FILLMEM: " + parts[0] + " size=" + std::to_string(size));
-            continue;
-        }
-        if (startsWith(trimmedLine, "__NOP__:")) {
-            auto countExpr = trim(trimmedLine.substr(8));
-            size_t count = 1;
-            if (!parseNopCount(countExpr, count, result.error))
-                return rollback();
-
-            auto plan=planNops(currentAddr,count);
-            if (!plan) {result.error=plan.error();return rollback();}
-            std::vector<uint8_t> data(plan->size);
-            for (size_t at=0;at<data.size();at+=plan->encoding.size())
-                std::copy(plan->encoding.begin(),plan->encoding.end(),data.begin()+at);
-            if (!patchMemory(currentAddr, data))
-                return rollback();
-            currentAddr += data.size();
-            continue;
-        }
-        if (startsWith(trimmedLine, "__DS__:")) {
-            auto text = stripOptionalQuotes(trimmedLine.substr(7));
-            if (text.empty()) {
-                result.error = "DS requires a string";
-                return rollback();
-            }
-
-            std::vector<uint8_t> data(text.begin(), text.end());
-            if (!patchMemory(currentAddr, data,true))
-                return rollback();
-            currentAddr += data.size();
-            continue;
-        }
-
-        // Handle db/dw/dd/dq directives
-        auto upper = toUpper(trimmedLine);
-        if (startsWith(upper, "DB ") || startsWith(upper, "DW ") ||
-            startsWith(upper, "DD ") || startsWith(upper, "DQ ")) {
-
-            auto op = upper.substr(0, 2);
-            // Resolve symbol/label references in data values (e.g. "dq tgt").
-            auto dataStr = substituteSymbols(trim(trimmedLine.substr(3)), allocs, labels, defines);
-            std::vector<uint8_t> dataBytes;
-            std::string parseError;
-            if (!parseDataDirective(op, dataStr, dataBytes, parseError, machineForCode(currentAddr).byteOrder)) {
-                result.error = parseError;
-                return rollback();
-            }
-
-            if (!dataBytes.empty()) {
-                // Typed storage and byte buffers inside owned caves can change
-                // at runtime (for example, a pointer-capture slot). Raw DB at
-                // an external executable site also serves as machine code.
-                const bool mutableData = op != "DB" || bool(allocationRelease(currentAddr,dataBytes.size()));
-                if (!patchMemory(currentAddr, dataBytes,mutableData))
-                    return rollback();
-                currentAddr += dataBytes.size();
-            }
-            continue;
-        }
-
-        // Substitute symbols in assembly line
-        auto substituted = substituteSymbols(trimmedLine, allocs, labels, defines);
-
-        // Assemble
-        auto asmResult = assembleTarget(substituted, currentAddr);
-        if (!asmResult) {
-            result.error = "Assembly error at 0x" +
-                ([&]{ char b[32]; snprintf(b, 32, "%lx", currentAddr); return std::string(b); })() +
-                ": " + asmResult.error() + "\n  Line: " + trimmedLine;
-            // A failed line can't be skipped: continuing would write the next
-            // instruction over the failed slot and shift every later label. Abort
-            // and roll back the partial activation (hooks may already be live).
-            result.log.push_back("ERROR: " + result.error);
-            return rollback();
-        }
-
-        auto& bytes = *asmResult;
-        if (!bytes.empty()) {
-            if (!patchMemory(currentAddr, bytes))
-                return rollback();
-            currentAddr += bytes.size();
-        }
-    }
-
+// After every write: the createthread calls, then the deallocs and unregistersymbols. False on a failure, which rolls the run back.
+bool AutoAssembler::runDeferredWork(RunContext& rc) {
+    ProcessHandle& proc = rc.proc;
+    const DisableInfo* undo = rc.undo;
+    AutoAsmResult& result = rc.result;
+    std::vector<Alloc>& allocs = rc.allocs;
+    std::vector<Label>& labels = rc.labels;
+    std::vector<Define>& defines = rc.defines;
+    std::vector<DeferredThread>& deferredThreads = rc.deferredThreads;
+    std::vector<std::string>& deferredDeallocs = rc.deferredDeallocs;
+    std::vector<std::string>& deferredUnregisters = rc.deferredUnregisters;
     if (!deferredThreads.empty() && restricted_) {
         result.error = restrictedError("CREATETHREAD");
-        return rollback();
+        return false;
     }
     if (!deferredThreads.empty()) {
         SymbolResolver resolver;
@@ -3135,7 +2909,7 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
             auto addr = resolveAddress(thread.addressExpr, allocs, labels, defines);
             if (!addr) {
                 result.error = "Invalid CREATETHREAD target: " + thread.addressExpr;
-                return rollback();
+                return false;
             }
 
             std::vector<os::NativeThreadRange> storage;
@@ -3149,7 +2923,7 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
             auto threadResult = os::createRemoteThread(proc, resolver, addr, thread.wait, thread.timeoutMs,storage,result.disableInfo.image);
             if (!threadResult) {
                 result.error = "CREATETHREAD failed for " + thread.addressExpr + ": " + threadResult.error();
-                return rollback();
+                return false;
             }
 
             auto info = *threadResult;
@@ -3163,7 +2937,7 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
 
             if (thread.wait && !info.completed) {
                 result.error = "CREATETHREADANDWAIT timed out for " + thread.addressExpr;
-                return rollback();
+                return false;
             }
         }
     }
@@ -3176,13 +2950,13 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
         }
         if (it->second.image && it->second.image->pid()!=proc.pid()) {
             result.error="DEALLOC belongs to another process: "+name;
-            return rollback();
+            return false;
         }
 
         std::unique_lock<std::mutex> allocationOwner;
         if(it->second.owner) {
             allocationOwner=std::unique_lock(it->second.owner->mutex,std::try_to_lock);
-            if(!allocationOwner.owns_lock()) {result.error="Allocation cleanup is already in progress";return rollback();}
+            if(!allocationOwner.owns_lock()) {result.error="Allocation cleanup is already in progress";return false;}
         }
         auto live = it->second.image ? it->second.image->check() : Result<void>{};
         auto freeResult = !live && live.error()==std::errc::operation_canceled ? Result<void>{}
@@ -3190,7 +2964,7 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
         if (!freeResult) {
             result.error = "DEALLOC failed for " + name + ": " + freeResult.error().message();
             if (allocationOwner.owns_lock()) allocationOwner.unlock();
-            return rollback();
+            return false;
         }
 
         // Keep the released lease in saved undo records. Its byte and
@@ -3208,49 +2982,441 @@ AutoAsmResult AutoAssembler::run(ProcessHandle& proc, std::string enableCode, co
         symbolOwners_.erase(name);
         result.log.push_back("UNREGISTERSYMBOL: " + name);
     }
+    return true;
+}
 
-    // ── Phase 4: Register symbols ──
-    // globalalloc names are shared and outlive any one script: no owner, and
-    // not part of this script's undo.
-    for (const auto& a : allocs)
-        if (a.global && a.address) { globalSymbols_[a.name] = a.address; symbolOwners_.erase(a.name); }
-    for (auto& sym : registeredSymbols) {
-        uintptr_t addr = resolveAddress(sym, allocs, labels, defines);
-        if (!addr) continue;
-        globalSymbols_[sym] = addr;
-        if (undo) { symbolOwners_.erase(sym); continue; }   // registered by a [DISABLE] section: no undo removes it
-        symbolOwners_[sym]=result.disableInfo.ownership;
-        result.disableInfo.symbols[sym] = addr;
-    }
+// A label definition ("name:"): the label takes the current address, or an alloc or label of that name starts the assembly there.
+AutoAssembler::LineResult AutoAssembler::runLabelLine(RunContext& rc, const std::string& trimmedLine) {
+    AutoAsmResult& result = rc.result;
+    std::vector<Alloc>& allocs = rc.allocs;
+    std::vector<Label>& labels = rc.labels;
+    std::vector<Define>& defines = rc.defines;
+    uintptr_t& currentAddr = rc.currentAddr;
+    if (isSimpleLabelDefinition(trimmedLine)) {
+        auto labelName = trimmedLine.substr(0, trimmedLine.size() - 1);
 
-    // New globalalloc blocks stay mapped when this script is disabled.
-    std::erase_if(result.disableInfo.allocs, [&](const auto& allocation) {
-        return std::any_of(newGlobalBlocks.begin(), newGlobalBlocks.end(),
-                           [&](const NewGlobalBlock& block) { return block.address == allocation.address; });
-    });
-    if (!undo) {
-        result.disableInfo.runDisableSection = true;
-        for (const auto& a : allocs) if (a.address) result.disableInfo.scriptSymbols[a.name] = a.address;
-        for (const auto& l : labels)
-            if (l.address && !startsWith(l.name, "__anon_")) result.disableInfo.scriptSymbols[l.name] = l.address;
-        // [DISABLE] restores the function [ENABLE] hooked, by the same address.
-        for (const auto& [name, address] : hookSites_) result.disableInfo.scriptSymbols.emplace(name, address);
-        if (!result.disableInfo.originals.empty()) {
-            LivePatch live{result.disableInfo.ownership, result.disableInfo.image, proc.pid(), {}};
-            for (const auto& patch : result.disableInfo.originals)
-                if (!patch.bytes.empty()) live.ranges.push_back({patch.address, patch.bytes.size()});
-            std::erase_if(livePatches_, [](const LivePatch& entry) { auto owner = entry.owner.lock(); return !owner || owner->complete; });
-            livePatches_.push_back(std::move(live));
+        bool handledLabel = false;
+
+        // Is this an alloc name? Set currentAddr to that block.
+        for (auto& a : allocs) {
+            if (a.name == labelName) {
+                currentAddr = a.address;
+                handledLabel = true;
+                break;
+            }
         }
+        if (handledLabel) return LineResult::Next;
+
+        // Is this a declared internal label? Bind it to the active block address.
+        for (auto& l : labels) {
+            if (l.name == labelName) {
+                if (currentAddr == 0) {
+                    result.error = "Label has no active assembly address: " + labelName;
+                    return LineResult::Fail;
+                }
+                l.address = currentAddr;
+                handledLabel = true;
+                break;
+            }
+        }
+        if (handledLabel) return LineResult::Next;
+
+        // Otherwise this must be a target address expression (game.exe+1234:).
+        auto targetAddr = resolveAddress(labelName, allocs, labels, defines);
+        if (targetAddr == 0) {
+            result.error = "Unresolved auto-assembler target: " + labelName;
+            return LineResult::Fail;
+        }
+        currentAddr = targetAddr;
+        return LineResult::Next;
     }
 
-    result.success = result.error.empty();
-    return rollback();
-    } catch (const std::exception& error) {
-        result.success = false;
-        result.error = std::string("AutoAssembler failed: ")+error.what();
-        return rollback();
+    // Handle special deferred directives
+    return LineResult::NotMine;
+}
+
+// The directives that act once rather than emit code at the current address: fullaccess, assert, unregistersymbol, dealloc, createthread, loadbinary and loadlibrary.
+AutoAssembler::LineResult AutoAssembler::runDirectiveLine(RunContext& rc, const std::string& trimmedLine) {
+    ProcessHandle& proc = rc.proc;
+    const DisableInfo* undo = rc.undo;
+    AutoAsmResult& result = rc.result;
+    std::vector<Alloc>& allocs = rc.allocs;
+    std::vector<Label>& labels = rc.labels;
+    std::vector<Define>& defines = rc.defines;
+    std::vector<DeferredThread>& deferredThreads = rc.deferredThreads;
+    std::vector<std::string>& deferredDeallocs = rc.deferredDeallocs;
+    std::vector<std::string>& deferredUnregisters = rc.deferredUnregisters;
+    auto& allocationRelease = rc.allocationRelease;
+    auto& readBeforeScript = rc.readBeforeScript;
+    auto patchMemory = [&rc](uintptr_t addr, const std::vector<uint8_t>& bytes, bool mutableData = false) { return rc.patchMemory(addr, bytes, mutableData); };
+    if (startsWith(trimmedLine, "__FULLACCESS__:")) {
+        auto args = trimmedLine.substr(15);
+        auto comma = args.find(',');
+        if (comma == std::string::npos) {
+            result.error = "FULLACCESS requires address and size";
+            return LineResult::Fail;
+        }
+
+        auto addrExpr = trim(args.substr(0, comma));
+        auto sizeStr = trim(args.substr(comma + 1));
+        auto addr = resolveAddress(addrExpr, allocs, labels, defines);
+        size_t size = 0;
+        try {
+            size = std::stoull(sizeStr, nullptr, 0);
+        } catch (...) {
+            result.error = "Invalid FULLACCESS size: " + sizeStr;
+            return LineResult::Fail;
+        }
+
+        if (!addr || size == 0) {
+            result.error = "Invalid FULLACCESS target: " + addrExpr;
+            return LineResult::Fail;
+        }
+
+        if (size - 1 > UINTPTR_MAX - addr) {
+            result.error = "FULLACCESS range overflows the address space";
+            return LineResult::Fail;
+        }
+        uintptr_t at = addr;
+        size_t remaining = size;
+        while (remaining) {
+            auto region = proc.queryRegion(at);
+            if (!region || at < region->base || at - region->base >= region->size) {
+                result.error = "Cannot inspect FULLACCESS page protection";
+                return LineResult::Fail;
+            }
+            size_t count = std::min(remaining, region->size - (at - region->base));
+            result.disableInfo.protections.push_back({at, count, region->protection,allocationRelease(at,count)});
+            auto protectResult = result.disableInfo.image ? result.disableInfo.image->protect(at,count,MemProt::All) : proc.protect(at, count, MemProt::All);
+            if (!protectResult) {
+                result.error = "FULLACCESS failed at " + addrExpr + ": " + protectResult.error().message();
+                return LineResult::Fail;
+            }
+            remaining -= count;
+            if (remaining) at += count;
+        }
+        result.log.push_back("FULLACCESS: " + addrExpr + " size=" + std::to_string(size));
+        return LineResult::Next;
     }
+    if (startsWith(trimmedLine, "__ASSERT__:")) {
+        auto args = trimmedLine.substr(11);
+        auto comma = args.find(',');
+        if (comma == std::string::npos) {
+            result.error = "ASSERT requires address and bytes";
+            return LineResult::Fail;
+        }
+
+        auto addrExpr = trim(args.substr(0, comma));
+        auto bytesStr = trim(args.substr(comma + 1));
+        auto addr = resolveAddress(addrExpr, allocs, labels, defines);
+        if (!addr) {
+            result.error = "Invalid ASSERT target: " + addrExpr;
+            return LineResult::Fail;
+        }
+
+        // CE's templates write assert(address,bytes) after define(bytes,...).
+        for (int depth = 0; depth < 8; ++depth) {
+            auto named = std::find_if(defines.begin(), defines.end(), [&](const Define& d) { return d.name == bytesStr; });
+            if (named == defines.end()) break;
+            bytesStr = trim(named->value);
+        }
+        if (!bytesStr.empty() && bytesStr.front() == '"') bytesStr = bytesStr.substr(1);
+        if (!bytesStr.empty() && bytesStr.back() == '"') bytesStr.pop_back();
+
+        ScanConfig pattern;
+        if (!pattern.parseAOB(bytesStr) || pattern.byteArray.empty()) {
+            result.error = "ASSERT has no valid bytes: " + bytesStr;
+            return LineResult::Fail;
+        }
+
+        std::vector<uint8_t> current(pattern.byteArray.size());
+        if (!readBeforeScript(addr, current.data(), current.size())) {   // the code before this script's writes
+            result.error = "ASSERT read failed at " + addrExpr;
+            return LineResult::Fail;
+        }
+
+        for (size_t i = 0; i < pattern.byteArray.size(); ++i) {
+            // Wildcards and half wildcards ("4?") compare only their mask.
+            const uint8_t mask = i < pattern.byteArrayMask.size() ? pattern.byteArrayMask[i] : 0xFF;
+            if ((current[i] & mask) != (pattern.byteArray[i] & mask)) {
+                char expected[8];
+                char actual[8];
+                snprintf(expected, sizeof(expected), "%02x", pattern.byteArray[i]);
+                snprintf(actual, sizeof(actual), "%02x", current[i]);
+                result.error = "ASSERT failed at " + addrExpr + "+" + std::to_string(i) +
+                    ": expected " + expected + ", got " + actual;
+                return LineResult::Fail;
+            }
+        }
+
+        result.log.push_back("ASSERT OK: " + addrExpr);
+        return LineResult::Next;
+    }
+    // unregistersymbol and dealloc take effect once every other line has
+    // succeeded, as in Cheat Engine: a script that fails later rolls back
+    // with its memory and symbols still in place.
+    if (startsWith(trimmedLine, "__UNREGISTERSYMBOL__:")) {
+        std::istringstream symbolStream(trimmedLine.substr(21));
+        for (std::string name; std::getline(symbolStream, name, ',');)
+            if (!trim(name).empty()) deferredUnregisters.push_back(trim(name));
+        return LineResult::Next;
+    }
+    if (startsWith(trimmedLine, "__DEALLOC__:")) {
+        std::istringstream allocStream(trimmedLine.substr(12));
+        for (std::string name; std::getline(allocStream, name, ',');) {
+            name = trim(name);
+            if (name.empty()) continue;
+            // While disabling, dealloc names only the activation's own
+            // memory (Cheat Engine looks it up in the undo), which the
+            // undo frees after restoring: another script's block of the
+            // same name ("newmem" in every template) is left alone.
+            if (!undo) deferredDeallocs.push_back(name);
+            else if (std::any_of(undo->allocs.begin(), undo->allocs.end(), [&](const auto& a) { return a.name == name; }))
+                result.log.push_back("DEALLOC: " + name + " (freed with the script's undo)");
+            else result.log.push_back("DEALLOC: " + name + " not tracked");
+        }
+        return LineResult::Next;
+    }
+
+    if (startsWith(trimmedLine, "__CREATETHREAD__:")) {
+        deferredThreads.push_back({trim(trimmedLine.substr(17)), false, 0});
+        result.log.push_back("Deferred: " + trimmedLine);
+        return LineResult::Next;
+    }
+    if (startsWith(trimmedLine, "__CREATETHREADANDWAIT__:")) {
+        auto args = trimmedLine.substr(24);
+        auto parts = splitArgs(args, 2);
+        if (parts.empty() || parts[0].empty()) {
+            result.error = "CREATETHREADANDWAIT requires an address";
+            return LineResult::Fail;
+        }
+
+        int timeoutMs = 5000;
+        if (parts.size() > 1 && !parts[1].empty()) {
+            try {
+                timeoutMs = std::stoi(parts[1], nullptr, 0);
+            } catch (...) {
+                result.error = "Invalid CREATETHREADANDWAIT timeout: " + parts[1];
+                return LineResult::Fail;
+            }
+        }
+        deferredThreads.push_back({trim(parts[0]), true, timeoutMs});
+        result.log.push_back("Deferred: " + trimmedLine);
+        return LineResult::Next;
+    }
+
+    if (startsWith(trimmedLine, "__LOADBINARY__:")) {
+        // parseLine refuses it already; this keeps the step itself safe.
+        if (restricted_) { result.error = restrictedError("LOADBINARY"); return LineResult::Fail; }
+        auto args = trimmedLine.substr(15);
+        auto parts = splitArgs(args, 2);
+        if (parts.size() != 2) {
+            result.error = "LOADBINARY requires address and filename";
+            return LineResult::Fail;
+        }
+
+        auto addrExpr = trim(parts[0]);
+        auto filename = stripOptionalQuotes(parts[1]);
+        auto addr = resolveAddress(addrExpr, allocs, labels, defines);
+        if (!addr) {
+            result.error = "Invalid LOADBINARY target: " + addrExpr;
+            return LineResult::Fail;
+        }
+
+        std::error_code sizeError;
+        if (!std::filesystem::is_regular_file(filename, sizeError) ||
+            std::filesystem::file_size(filename, sizeError) > kMaxAaBufferBytes || sizeError) {
+            result.error = "LOADBINARY needs a regular file of at most 256 MB: " + filename;
+            return LineResult::Fail;
+        }
+        std::ifstream binFile(filename, std::ios::binary);
+        if (!binFile) {
+            result.error = "LOADBINARY file not found: " + filename;
+            return LineResult::Fail;
+        }
+
+        std::vector<uint8_t> data((std::istreambuf_iterator<char>(binFile)), {});
+        if (data.empty()) {
+            result.error = "LOADBINARY file is empty: " + filename;
+            return LineResult::Fail;
+        }
+
+        if (!patchMemory(addr,data)) return LineResult::Fail;
+
+        result.log.push_back("LOADBINARY: " + filename + " -> " + addrExpr);
+        return LineResult::Next;
+    }
+
+    if (startsWith(trimmedLine, "__LOADLIBRARY__:")) {
+        if (restricted_) { result.error = restrictedError("LOADLIBRARY"); return LineResult::Fail; }
+        auto path = stripOptionalQuotes(trimmedLine.substr(16));
+        if (path.empty()) {
+            result.error = "LOADLIBRARY requires a shared library path";
+            return LineResult::Fail;
+        }
+        if (!std::filesystem::exists(path)) {
+            result.error = "LOADLIBRARY file not found: " + path;
+            return LineResult::Fail;
+        }
+        // dlopen runs in the target, with its own working directory and
+        // possibly another mount namespace: pass the name it sees this file by.
+        std::error_code absoluteError;
+        auto targetPath = std::filesystem::absolute(path, absoluteError).lexically_normal().string();
+        if (absoluteError) targetPath = path;
+        if (proc.targetDescription().transport == TargetTransport::Local)
+            if (auto task = os::processMemoryTask(proc.pid())) targetPath = os::targetVisiblePath(*task, targetPath);
+
+        SymbolResolver resolver;
+        resolver.loadProcess(proc);
+        auto injectResult = os::injectLibrary(proc, resolver, targetPath,result.disableInfo.image);
+        if (!injectResult) {
+            result.error = "LOADLIBRARY failed for " + path + ": " + injectResult.error();
+            return LineResult::Fail;
+        }
+
+        result.log.push_back("LOADLIBRARY: " + path + " handle=0x" + formatHex(*injectResult));
+        return LineResult::Next;
+    }
+
+    return LineResult::NotMine;
+}
+
+// The directives that emit bytes at the current address: reassemble, readmem, fillmem, nop and ds.
+AutoAssembler::LineResult AutoAssembler::runDataLine(RunContext& rc, const std::string& trimmedLine, size_t lineIndex) {
+    ProcessHandle& proc = rc.proc;
+    AutoAsmResult& result = rc.result;
+    std::vector<Alloc>& allocs = rc.allocs;
+    std::vector<Label>& labels = rc.labels;
+    std::vector<Define>& defines = rc.defines;
+    uintptr_t& currentAddr = rc.currentAddr;
+    std::vector<size_t>& reassemblySizes = rc.reassemblySizes;
+    auto& readBeforeScript = rc.readBeforeScript;
+    auto patchMemory = [&rc](uintptr_t addr, const std::vector<uint8_t>& bytes, bool mutableData = false) { return rc.patchMemory(addr, bytes, mutableData); };
+    if (startsWith(trimmedLine, "__REASSEMBLE__:")) {
+        auto addrExpr = trimmedLine.substr(15);
+        auto addr = resolveAddress(addrExpr, allocs, labels, defines);
+        if (!addr) {result.error="Invalid REASSEMBLE target: "+addrExpr;return LineResult::Fail;}
+        auto relocated=reassembleTarget(proc,addr,currentAddr,&result.disableInfo.originals);
+        if (!relocated || relocated->empty()) {
+            result.error="REASSEMBLE failed at "+addrExpr+": "+(relocated ? "empty instruction" : relocated.error());
+            return LineResult::Fail;
+        }
+        // A source instruction may change after sizing, including through
+        // an earlier write in this script. Already emitted forward label
+        // references would point at the wrong instruction if the size changes.
+        if (relocated->size()!=reassemblySizes[lineIndex]) {
+            result.error="REASSEMBLE output size changed after label sizing at "+addrExpr;
+            return LineResult::Fail;
+        }
+        if (!patchMemory(currentAddr,*relocated)) return LineResult::Fail;
+        currentAddr+=relocated->size();
+        return LineResult::Next;
+    }
+    if (startsWith(trimmedLine, "__READMEM__:")) {
+        auto args = trimmedLine.substr(12);
+        auto comma = args.find(',');
+        if (comma != std::string::npos) {
+            auto addrExpr = trim(args.substr(0, comma));
+            auto sizeStr = trim(args.substr(comma + 1));
+            auto addr = resolveAddress(addrExpr, allocs, labels, defines);
+            // The sizing pass always advances by the READMEM size, so an
+            // unresolved source here would place every later instruction at
+            // the wrong address. Fail loudly instead of silently skipping.
+            if (!addr) {
+                result.error = "READMEM source address unresolved: " + addrExpr;
+                return LineResult::Fail;
+            }
+            // Parse the size identically to the forward-label sizing pass
+            // (base-0, so CE-style 0x.. hex sizes are honored); otherwise
+            // the two passes disagree and later code lands at a wrong
+            // address.
+            uint64_t sz = 0;
+            if (!parseWholeUnsigned(sizeStr, 0, sz)) {
+                result.error = "Invalid READMEM size: " + sizeStr;
+                return LineResult::Fail;
+            }
+            if (sz > kMaxAaBufferBytes) {
+                result.error = "READMEM size too large: " + sizeStr;
+                return LineResult::Fail;
+            }
+            if (sz > 0) {
+                std::vector<uint8_t> mem(sz);
+                if (!readBeforeScript(addr, mem.data(), sz)) {
+                    result.error = "READMEM source read failed at " + addrExpr;
+                    return LineResult::Fail;
+                }
+                if (!patchMemory(currentAddr, mem))
+                    return LineResult::Fail;
+                currentAddr += mem.size();
+            }
+        }
+        return LineResult::Next;
+    }
+    if (startsWith(trimmedLine, "__FILLMEM__:")) {
+        auto args = trimmedLine.substr(12);
+        auto parts = splitArgs(args, 3);
+        if (parts.size() != 3) {
+            result.error = "FILLMEM requires address, size, and value";
+            return LineResult::Fail;
+        }
+
+        auto addr = resolveAddress(parts[0], allocs, labels, defines);
+        size_t size = 0;
+        uint64_t value = 0;
+        try {
+            size = std::stoull(trim(parts[1]), nullptr, 0);
+            value = std::stoull(trim(parts[2]), nullptr, 16);
+        } catch (...) {
+            result.error = "Invalid FILLMEM argument";
+            return LineResult::Fail;
+        }
+        if (!addr || size == 0 || value > 0xff) {
+            result.error = "Invalid FILLMEM target or value";
+            return LineResult::Fail;
+        }
+        if (size > kMaxAaBufferBytes) {
+            result.error = "FILLMEM size too large";
+            return LineResult::Fail;
+        }
+
+        std::vector<uint8_t> data(size, static_cast<uint8_t>(value));
+        if (!patchMemory(addr, data))
+            return LineResult::Fail;
+        result.log.push_back("FILLMEM: " + parts[0] + " size=" + std::to_string(size));
+        return LineResult::Next;
+    }
+    if (startsWith(trimmedLine, "__NOP__:")) {
+        auto countExpr = trim(trimmedLine.substr(8));
+        size_t count = 1;
+        if (!parseNopCount(countExpr, count, result.error))
+            return LineResult::Fail;
+
+        auto plan=planNops(currentAddr,count);
+        if (!plan) {result.error=plan.error();return LineResult::Fail;}
+        std::vector<uint8_t> data(plan->size);
+        for (size_t at=0;at<data.size();at+=plan->encoding.size())
+            std::copy(plan->encoding.begin(),plan->encoding.end(),data.begin()+at);
+        if (!patchMemory(currentAddr, data))
+            return LineResult::Fail;
+        currentAddr += data.size();
+        return LineResult::Next;
+    }
+    if (startsWith(trimmedLine, "__DS__:")) {
+        auto text = stripOptionalQuotes(trimmedLine.substr(7));
+        if (text.empty()) {
+            result.error = "DS requires a string";
+            return LineResult::Fail;
+        }
+
+        std::vector<uint8_t> data(text.begin(), text.end());
+        if (!patchMemory(currentAddr, data,true))
+            return LineResult::Fail;
+        currentAddr += data.size();
+        return LineResult::Next;
+    }
+
+    // Handle db/dw/dd/dq directives
+    return LineResult::NotMine;
 }
 
 // Whether the script has a [name] section header.

@@ -45,16 +45,19 @@ newer, which Ubuntu 24.04, Debian 13 and Fedora 39 or later provide:
 
 ```bash
 sudo apt install build-essential cmake ninja-build qt6-base-dev qt6-tools-dev \
-                 qt6-l10n-tools zlib1g-dev libdw-dev libasound2-dev libsoundtouch-dev
+                 qt6-l10n-tools zlib1g-dev libdw-dev libasound2-dev libsoundtouch-dev \
+                 libssl-dev
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 cmake --install build --prefix ~/.local    # adds Cheat Engine to your app menu
 ```
 
 Capstone and Keystone are downloaded and built automatically if your system
-doesn't provide them. Without `qt6-tools-dev` and `qt6-l10n-tools` the build
-still works, but the interface translations are left out. Reading another process needs ptrace permission; if a
-target can't be read, the app explains why and offers to grant access.
+doesn't provide them. The build also works without some of the packages
+above: without `qt6-tools-dev` and `qt6-l10n-tools` the interface translations
+are left out, and without `libssl-dev` password-protected tables cannot be
+saved. Reading another process needs ptrace permission; if a target can't be
+read, the app explains why and offers to grant access.
 
 ## Usage
 

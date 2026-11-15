@@ -18,6 +18,15 @@ if(CECORE_SANITIZE)
     add_link_options(-fsanitize=address,undefined)
     message(STATUS "Sanitizers: ASan + UBSan enabled")
 endif()
+option(CECORE_TSAN "Build with ThreadSanitizer (data races)" OFF)
+if(CECORE_TSAN)
+    if(CECORE_SANITIZE)
+        message(FATAL_ERROR "CECORE_TSAN cannot be combined with CECORE_SANITIZE")
+    endif()
+    add_compile_options(-fsanitize=thread -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=thread)
+    message(STATUS "Sanitizers: ThreadSanitizer enabled")
+endif()
 
 include(FetchContent)
 
@@ -211,6 +220,7 @@ add_library(cecore SHARED
     core/injection_gen.cpp
     core/expression.cpp
     core/ct_file.cpp
+    core/table_crypto.cpp
     core/json.cpp
     core/agent_tools.cpp
     core/mcp_server.cpp
@@ -306,6 +316,18 @@ target_link_libraries(cecore PRIVATE
 target_link_options(cecore PRIVATE "LINKER:--exclude-libs,libcecore_tinyxml2.a")
 target_link_options(cecore PRIVATE "LINKER:--version-script,${CMAKE_SOURCE_DIR}/cmake/private_xml_symbols.map")
 set_property(TARGET cecore APPEND PROPERTY LINK_DEPENDS "${CMAKE_SOURCE_DIR}/cmake/private_xml_symbols.map")
+
+# Password-protected tables are encrypted with OpenSSL's libcrypto (scrypt and
+# AES-256-GCM). Without it the build works, but protected tables can only be
+# read in the older obfuscated format and not saved.
+find_package(OpenSSL COMPONENTS Crypto QUIET)
+if(OpenSSL_FOUND)
+    target_link_libraries(cecore PRIVATE OpenSSL::Crypto)
+    target_compile_definitions(cecore PRIVATE CECORE_HAVE_OPENSSL)
+    message(STATUS "Protected tables: encrypted with OpenSSL ${OPENSSL_VERSION}")
+else()
+    message(STATUS "Protected tables: no OpenSSL libcrypto found, saving them is disabled")
+endif()
 
 if(CECORE_HAVE_DWARF)
     target_compile_definitions(cecore PUBLIC CECORE_HAVE_DWARF)
@@ -713,7 +735,9 @@ if(CECORE_BUILD_TESTS)
         test/cecore_test_stub.cpp)
     target_link_libraries(cecore_test PRIVATE cecore)
     add_executable(cecore_deep_test test/deep_review_test.cpp test/underlying_review_test.cpp)
-    target_link_libraries(cecore_deep_test PRIVATE cecore)
+    target_link_libraries(cecore_deep_test PRIVATE cecore ${CMAKE_DL_LIBS})
+    # The exception logger tests load it from next to the binary.
+    add_dependencies(cecore_deep_test cecore_inprocess_veh)
     add_executable(elf_symbol_integration test/elf_symbol_integration.cpp)
     target_link_libraries(elf_symbol_integration PRIVATE cecore)
     add_executable(gdb_transport_integration test/gdb_transport_integration.cpp)

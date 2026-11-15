@@ -28,10 +28,29 @@
 static double speed_factor = 1.0;
 static int initialized = 0;
 
-// Real clock_gettime, resolved once before init so init never re-enters the
-// interposer (see clock_gettime override below).
+// The real functions behind the wrappers below, looked up with
+// dlsym(RTLD_NEXT) once, in the constructor. A wrapper called earlier (from
+// another library's constructor) looks its function up itself. The slots are
+// read and written atomically, so threads racing on that first lookup only
+// store the same pointer and never read a torn one.
 typedef int (*clock_gettime_t)(clockid_t, struct timespec*);
-static clock_gettime_t real_clock_gettime = NULL;
+enum {
+    SH_CLOCK_GETTIME, SH_GETTIMEOFDAY, SH_NANOSLEEP, SH_CLOCK_NANOSLEEP,
+    SH_USLEEP, SH_SLEEP, SH_SELECT, SH_POLL, SH_REAL_COUNT
+};
+static const char* const sh_real_names[SH_REAL_COUNT] = {
+    "clock_gettime", "gettimeofday", "nanosleep", "clock_nanosleep", "usleep", "sleep", "select", "poll"};
+static void* sh_real_fns[SH_REAL_COUNT];
+
+static void* sh_real(int which) {
+    void* fn = __atomic_load_n(&sh_real_fns[which], __ATOMIC_ACQUIRE);
+    if (!fn) {
+        fn = dlsym(RTLD_NEXT, sh_real_names[which]);
+        __atomic_store_n(&sh_real_fns[which], fn, __ATOMIC_RELEASE);
+    }
+    return fn;
+}
+#define real_clock_gettime ((clock_gettime_t)sh_real(SH_CLOCK_GETTIME))
 
 // Shared memory for runtime speed control
 static double* shared_speed = NULL;
@@ -65,10 +84,9 @@ static void init_speedhack() {
     if (initialized) return;
     initialized = 1;
 
-    // Resolve the real clock_gettime first; never call the interposed name
-    // from here or adjust_time would corrupt the (not yet set) baseline.
-    if (!real_clock_gettime)
-        real_clock_gettime = (clock_gettime_t)dlsym(RTLD_NEXT, "clock_gettime");
+    // Resolve the real functions first; never call the interposed names from
+    // here or adjust_time would corrupt the (not yet set) baseline.
+    for (int which = 0; which < SH_REAL_COUNT; ++which) sh_real(which);
 
     // Get speed from environment
     const char* env = getenv("CE_SPEED");
@@ -225,25 +243,21 @@ static void adjust_time(sh_clock_t* c, struct timespec* ts) {
 }
 
 // ── Intercepted functions ──
-// TODO(security): the per-wrapper lazy dlsym(RTLD_NEXT) statics below are not
-// resolved under call_once; the race is benign (idempotent pointer write) but
-// should eventually move to a single constructor-time resolution.
 
 typedef int (*gettimeofday_t)(struct timeval*, void*);
 typedef int (*nanosleep_t)(const struct timespec*, struct timespec*);
 
 int clock_gettime(clockid_t clk_id, struct timespec* tp) {
-    if (!real_clock_gettime) real_clock_gettime = (clock_gettime_t)dlsym(RTLD_NEXT, "clock_gettime");
-    if (!real_clock_gettime) { errno = ENOSYS; return -1; }
-    int ret = real_clock_gettime(clk_id, tp);
+    const clock_gettime_t real_fn = real_clock_gettime;
+    if (!real_fn) { errno = ENOSYS; return -1; }
+    int ret = real_fn(clk_id, tp);
     if (ret == 0 && clk_id == CLOCK_MONOTONIC) adjust_time(&sh_monotonic, tp);
     else if (ret == 0 && clk_id == CLOCK_MONOTONIC_RAW) adjust_time(&sh_monotonic_raw, tp);
     return ret;
 }
 
 int gettimeofday(struct timeval* tv, void* tz) {
-    static gettimeofday_t real_fn = NULL;
-    if (!real_fn) real_fn = (gettimeofday_t)dlsym(RTLD_NEXT, "gettimeofday");
+    const gettimeofday_t real_fn = (gettimeofday_t)sh_real(SH_GETTIMEOFDAY);
     if (!real_fn) { errno = ENOSYS; return -1; }
     int ret = real_fn(tv, tz);
     // glibc declares tv nonnull, yet callers pass NULL for the time zone
@@ -292,8 +306,7 @@ static int sh_real_span(const struct timespec* req, double spd, struct timespec*
 }
 
 int nanosleep(const struct timespec* req, struct timespec* rem) {
-    static nanosleep_t real_fn = NULL;
-    if (!real_fn) real_fn = (nanosleep_t)dlsym(RTLD_NEXT, "nanosleep");
+    const nanosleep_t real_fn = (nanosleep_t)sh_real(SH_NANOSLEEP);
     if (!real_fn) { errno = ENOSYS; return -1; }
     if (!initialized) init_speedhack();
 
@@ -310,8 +323,7 @@ int nanosleep(const struct timespec* req, struct timespec* rem) {
 // the OS clock; rescaling it would break alarm-style waits).
 int clock_nanosleep(clockid_t clk, int flags, const struct timespec* req, struct timespec* rem) {
     typedef int (*fn_t)(clockid_t, int, const struct timespec*, struct timespec*);
-    static fn_t real_fn = NULL;
-    if (!real_fn) real_fn = (fn_t)dlsym(RTLD_NEXT, "clock_nanosleep");
+    const fn_t real_fn = (fn_t)sh_real(SH_CLOCK_NANOSLEEP);
     if (!real_fn) { errno = ENOSYS; return ENOSYS; }
     if (!initialized) init_speedhack();
     double spd = get_speed();
@@ -325,8 +337,7 @@ int clock_nanosleep(clockid_t clk, int flags, const struct timespec* req, struct
 // usleep — legacy POSIX microsecond sleep, still used by many games.
 int usleep(useconds_t usec) {
     typedef int (*fn_t)(useconds_t);
-    static fn_t real_fn = NULL;
-    if (!real_fn) real_fn = (fn_t)dlsym(RTLD_NEXT, "usleep");
+    const fn_t real_fn = (fn_t)sh_real(SH_USLEEP);
     if (!real_fn) { errno = ENOSYS; return -1; }
     if (!initialized) init_speedhack();
     double spd = get_speed();
@@ -338,8 +349,7 @@ int usleep(useconds_t usec) {
     struct timespec req = { .tv_sec = (time_t)usec / 1000000, .tv_nsec = (long)(usec % 1000000) * 1000 };
     struct timespec adjusted;
     sh_real_span(&req, spd, &adjusted);
-    static nanosleep_t real_nanosleep = NULL;
-    if (!real_nanosleep) real_nanosleep = (nanosleep_t)dlsym(RTLD_NEXT, "nanosleep");
+    const nanosleep_t real_nanosleep = (nanosleep_t)sh_real(SH_NANOSLEEP);
     if (!real_nanosleep) { errno = ENOSYS; return -1; }
     return real_nanosleep(&adjusted, NULL);
 }
@@ -347,16 +357,14 @@ int usleep(useconds_t usec) {
 // sleep — coarse second-granularity. CE-style: integer divide by speed.
 unsigned int sleep(unsigned int seconds) {
     typedef unsigned int (*fn_t)(unsigned int);
-    static fn_t real_fn = NULL;
-    if (!real_fn) real_fn = (fn_t)dlsym(RTLD_NEXT, "sleep");
+    const fn_t real_fn = (fn_t)sh_real(SH_SLEEP);
     if (!real_fn) return seconds;
     if (!initialized) init_speedhack();
     double spd = get_speed();
     if (spd == 1.0 || seconds == 0) return real_fn(seconds);
     // Sleep the exact scaled span (sleep(1) at 2x is half a second, not one
     // or none), and report an interruption's remainder in game seconds.
-    static nanosleep_t real_nanosleep = NULL;
-    if (!real_nanosleep) real_nanosleep = (nanosleep_t)dlsym(RTLD_NEXT, "nanosleep");
+    const nanosleep_t real_nanosleep = (nanosleep_t)sh_real(SH_NANOSLEEP);
     if (!real_nanosleep) return real_fn(seconds);
     struct timespec req = { .tv_sec = (time_t)seconds, .tv_nsec = 0 }, adjusted, rem = {0, 0};
     sh_real_span(&req, spd, &adjusted);
@@ -373,8 +381,7 @@ unsigned int sleep(unsigned int seconds) {
 // scaling the timeout so a 100ms select at speed=2.0 becomes a 50ms select.
 int select(int nfds, fd_set* r, fd_set* w, fd_set* e, struct timeval* timeout) {
     typedef int (*fn_t)(int, fd_set*, fd_set*, fd_set*, struct timeval*);
-    static fn_t real_fn = NULL;
-    if (!real_fn) real_fn = (fn_t)dlsym(RTLD_NEXT, "select");
+    const fn_t real_fn = (fn_t)sh_real(SH_SELECT);
     if (!real_fn) { errno = ENOSYS; return -1; }
     if (!initialized) init_speedhack();
     double spd = get_speed();
@@ -396,8 +403,7 @@ int select(int nfds, fd_set* r, fd_set* w, fd_set* e, struct timeval* timeout) {
 
 int poll(struct pollfd* fds, nfds_t nfds, int timeout) {
     typedef int (*fn_t)(struct pollfd*, nfds_t, int);
-    static fn_t real_fn = NULL;
-    if (!real_fn) real_fn = (fn_t)dlsym(RTLD_NEXT, "poll");
+    const fn_t real_fn = (fn_t)sh_real(SH_POLL);
     if (!real_fn) { errno = ENOSYS; return -1; }
     if (!initialized) init_speedhack();
     double spd = get_speed();

@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <functional>
+#include <optional>
 #include <expected>
 #include <map>
 #include <set>
@@ -134,6 +135,8 @@ public:
 
 private:
     bool restricted_ = false;
+    // The INCLUDE files being read, outermost first, to report a cycle.
+    std::vector<std::string> includeStack_;
 
     // ── Internal types ──
     struct Alloc { std::string name; size_t size = 0; uintptr_t preferred = 0; uintptr_t address = 0;
@@ -141,6 +144,36 @@ private:
                    bool global = false; };      // globalalloc: shared by name, never freed
     struct Label { std::string name; uintptr_t address; };
     struct Define { std::string name; std::string value; };
+    struct DeferredThread {   // a createthread run after every write is in
+        std::string addressExpr;
+        bool wait = false;
+        int timeoutMs = 5000;
+    };
+    // A globalalloc block a run maps: a rollback frees it and gives the name
+    // back its previous block.
+    struct NewGlobalBlock { std::string name; uintptr_t address; std::optional<DisableInfo::AllocEntry> previous; bool wasGlobal; };
+    // parseLine's larger directives.
+    std::optional<bool> parseAobScanLine(const std::string& line, const std::string& upper,
+        std::vector<Alloc>& allocs, std::vector<Label>& labels, std::vector<Define>& defines,
+        std::vector<std::string>& log, ProcessHandle* proc, std::string& error);
+    std::optional<bool> parseIncludeLine(const std::string& line, const std::string& upper,
+        std::vector<Alloc>& allocs, std::vector<Label>& labels, std::vector<Define>& defines,
+        std::vector<std::string>& registeredSymbols, std::vector<std::string>& asmLines, std::vector<std::string>& log,
+        ProcessHandle* proc, std::string& error, int includeDepth);
+    // run()'s parts (see RunContext in autoasm.cpp): allocation, the patch
+    // helpers with their undo, the deferred work, and the per-line handlers,
+    // which say whether a line was theirs and, if so, whether assembly goes on.
+    struct RunContext;
+    bool allocateScriptMemory(RunContext& rc);
+    std::shared_ptr<std::atomic<bool>> releaseFlagFor(RunContext& rc, uintptr_t address, size_t size);
+    bool readBeforeRun(RunContext& rc, uintptr_t addr, uint8_t* out, size_t size);
+    bool inGlobalAllocation(RunContext& rc, uintptr_t address, size_t size);
+    bool patchTarget(RunContext& rc, uintptr_t addr, const std::vector<uint8_t>& bytes, bool mutableData);
+    bool runDeferredWork(RunContext& rc);
+    enum class LineResult : uint8_t { NotMine, Next, Fail };
+    LineResult runLabelLine(RunContext& rc, const std::string& trimmedLine);
+    LineResult runDirectiveLine(RunContext& rc, const std::string& trimmedLine);
+    LineResult runDataLine(RunContext& rc, const std::string& trimmedLine, size_t lineIndex);
     struct AsmLine { std::string label; std::string code; uintptr_t targetAddr; };
     struct WriteBlock { uintptr_t address; std::vector<uint8_t> bytes; };
 

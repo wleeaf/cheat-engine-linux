@@ -956,7 +956,9 @@ void test_dwarf_symbols() {
     const char* src =
         "struct CeProbe { int a; float b; char c; long d; int* p; };\n"
         "struct CeProbe ceProbeGlobal;\n"
-        "int ceDwarfProbe(int x){\n  ceProbeGlobal.a = x;\n  int y = x + 1;\n  return y;\n}\n";
+        "int ceDwarfProbe(int x){\n  ceProbeGlobal.a = x;\n  int y = x + 1;\n  return y;\n}\n"
+        "static inline __attribute__((always_inline)) int ceDwarfInner(int v){ return v * 3; }\n"
+        "int ceDwarfOuter(int x){\n  { int z = x + 2;\n    return ceDwarfInner(z); }\n}\n";
     auto dir = std::filesystem::temp_directory_path();
     auto c  = dir / "ce_dwarf_test.c";
     auto so = dir / "libce_dwarf_test.so";
@@ -974,6 +976,17 @@ void test_dwarf_symbols() {
                   loc->file.find("ce_dwarf_test") != std::string::npos;
         }
         printf("  DWARF address->source line lookup: %s\n", lok ? "OK" : "FAILED");
+
+        // Function names: a plain function, and one whose code sits in a
+        // nested block with an inlined call (the walk descends into both).
+        const uintptr_t outer = res.lookup("ceDwarfOuter");
+        bool named = addr && outer && di.isLoaded() && di.functionName(addr) == std::optional<std::string>("ceDwarfProbe") &&
+                     di.functionName(outer) == std::optional<std::string>("ceDwarfOuter");
+        // Somewhere inside ceDwarfOuter, the inlined ceDwarfInner is named.
+        bool inlined = false;
+        for (uintptr_t at = outer; outer && at < outer + 96 && !inlined; ++at)
+            inlined = di.functionName(at) == std::optional<std::string>("ceDwarfInner");
+        printf("  DWARF address->function name, nested and inlined: %s\n", named && inlined ? "OK" : "FAILED");
 
         // DWARF struct type extraction + typed structure build (#20).
         DwarfInfo dt;

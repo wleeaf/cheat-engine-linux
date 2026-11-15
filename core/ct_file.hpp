@@ -162,9 +162,15 @@ struct CheatTable {
     /// Parse one captured JSON payload, committing only after full validation.
     bool loadJsonFromString(const std::string& json);
 
-    /// Save/load a password-protected .CETRAINER payload.
+    /// Save/load a password-protected .CETRAINER payload. Saving encrypts
+    /// with a key derived from the password (CETRAINER2, see
+    /// core/table_crypto.hpp); loading also reads the older obfuscated
+    /// CETRAINER1 files.
     bool saveProtected(const std::string& path, const std::string& password) const;
     bool loadProtected(const std::string& path, const std::string& password);
+    /// False in a build without the cipher (OpenSSL's libcrypto): then
+    /// saveProtected fails and only CETRAINER1 files load.
+    static bool protectedTablesAvailable();
 };
 
 /// Build a CE-style address expression from a (possibly symbolic) base and a

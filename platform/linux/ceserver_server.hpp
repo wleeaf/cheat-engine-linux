@@ -35,6 +35,15 @@ private:
     struct ClientState;
     void acceptLoop(int listener, int wakeFd);
     void serveClient(ClientState& client);
+    // serveClient's command handlers, by area: each serves the commands it
+    // has, or says the command is not its own.
+    struct Connection;
+    enum class Served : uint8_t;
+    Served serveConnectionCommand(Connection& c, uint8_t cmd);
+    Served serveSnapshotCommand(Connection& c, uint8_t cmd);
+    Served serveMemoryCommand(Connection& c, uint8_t cmd);
+    Served serveThreadCommand(Connection& c, uint8_t cmd);
+    Served serveDebugCommand(Connection& c, uint8_t cmd);
     void interruptClients();
 
     int listenFd_ = -1;

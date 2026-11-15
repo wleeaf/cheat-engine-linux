@@ -66,6 +66,7 @@ jobs:
             libdw-dev \
             libasound2-dev \
             libsoundtouch-dev \
+            libssl-dev \
             libfuse2t64 \
             ca-certificates \
             file \

@@ -1,3 +1,4 @@
+#include "debug/tracer.hpp"
 #include "platform/linux/ceserver_client.hpp"
 #include "platform/linux/ceserver_server.hpp"
 #include "platform/linux/ceserver_process.hpp"
@@ -297,6 +298,64 @@ static void live(const char* executable,unsigned width) {
         "a subsequent target write completes without the removed hardware watchpoint");
     check(bool(debugger.detach()) && !local.targetDescription().tracerPid,
         "explicit remote detach releases the real target without retaining traps");
+    if (width==8) {
+        // A single step and the thread's registers over the connection.
+        os::RemoteDebugger stepper(client,debugProcess->serverHandle());
+        bool stepped=false,contextSet=false;
+        uint32_t before=0,after=0;
+        if (stepper.attach(target.pid) && stepper.setBreakpoint(target.pid,0,target.code,0,1) && target.command('b')) {
+            if (auto hit=trap(stepper,target.code)) {
+                const auto tid=static_cast<pid_t>(hit->threadId);
+                auto at=stepper.getContext(tid);
+                (void)local.read(target.value,&before,sizeof(before));
+                (void)stepper.removeBreakpoint(tid,0);
+                // Step until the increment has run: each step moves forward
+                // through the function (it may begin with endbr64 or a load).
+                bool forward=at && at->rip==target.code;
+                uintptr_t previous=target.code;
+                Result<CpuContext> next=std::unexpected(std::make_error_code(std::errc::io_error));
+                after=before;
+                for (int count=0; forward && count<8 && after==before; ++count) {
+                    forward=bool(stepper.singleStep(tid));
+                    next=stepper.getContext(tid);
+                    forward=forward && next && next->rip>previous && next->rip<target.code+64;
+                    if (next) previous=next->rip;
+                    (void)local.read(target.value,&after,sizeof(after));
+                }
+                stepped=forward && after==before+1;
+                if (next) {
+                    auto changed=*next;
+                    changed.rcx=0x1234abcd;   // caller-saved: the fixture's caller does not keep it across the call
+                    auto written=stepper.setContext(tid,changed);
+                    auto reread=stepper.getContext(tid);
+                    contextSet=written && reread && reread->rcx==0x1234abcd && reread->rip==next->rip;
+                }
+                (void)stepper.continueAfterEvent(tid);
+            }
+        }
+        const auto printed=target.line();
+        check(stepped && printed==std::to_string(after),
+            "a remote single step runs one instruction of the stopped thread and reports its new registers");
+        check(contextSet,"a remote thread's registers are written and read back over the connection");
+        (void)stepper.detach();
+
+        // Break and Trace from the start address, through the server.
+        os::RemoteDebugger tracing(client,debugProcess->serverHandle());
+        Tracer tracer;
+        TraceConfig config;
+        config.startAddress=target.code;
+        config.maxSteps=2;
+        std::vector<TraceEntry> traced;
+        std::thread run([&] { traced=tracer.trace(*debugProcess,tracing,config); });
+        for (int i=0;i<300 && !tracer.ready();++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        const bool started=tracer.ready() && target.command('b');
+        run.join();
+        const auto tracedLine=started ? target.line() : std::string();
+        if (traced.size()!=2) printf("remote trace: %zu entries, error %s\n",traced.size(),tracer.lastError().message().c_str());
+        check(started && traced.size()==2 && traced[0].address==target.code && traced[1].address>target.code &&
+              traced[1].context.rip==traced[1].address && !tracedLine.empty(),
+            "Break and Trace over ceserver records the instructions from the start address and lets the target run on");
+    }
     check(bool(writeTypedValue(*debugProcess,target.value,ValueType::Int32,"123456789")),
         "the original target field is restored after remote software and hardware debugging");
     debugProcess.reset();client.close();server.stop();

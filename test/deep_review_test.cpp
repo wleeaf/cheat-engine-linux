@@ -18,6 +18,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <limits>
 #include <atomic>
 #include <chrono>
@@ -26,6 +27,10 @@
 #include "scanner/pointer_scanner.hpp"
 #include "analysis/structure_tools.hpp"
 #include "platform/linux/wine_memory.hpp"
+#include "platform/linux/proc_maps.hpp"
+#include "platform/linux/ptrace_wrapper.hpp"
+#include <poll.h>
+#include <sys/ptrace.h>
 #include <optional>
 #include <set>
 #include <sys/mman.h>
@@ -33,6 +38,7 @@
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <sys/prctl.h>
+#include <dlfcn.h>
 #include <signal.h>
 #include <unistd.h>
 
@@ -306,6 +312,191 @@ static void injectionTemplateTests() {
     check(visibleModule.success && moduleLifecycle.bytes[0x200] == 0x55 &&
         moduleAssembler.disable(moduleLifecycle, "", visibleModule.disableInfo).success,
         "unregistering a shadowing symbol restores bare module-name injection");
+}
+
+static void includeTests(const fs::path& root) {
+    // INCLUDE reads another script; a file that includes itself, directly or
+    // through another, is reported as a cycle naming the files.
+    auto write = [&](const char* name, const std::string& text) {
+        std::ofstream(root / name) << text;
+        return (root / name).string();
+    };
+    const auto leaf = write("leaf.cea", "define(LEAF_VALUE,1)\n");
+    const auto self = write("self.cea", "include(" + (root / "self.cea").string() + ")\n");
+    write("a.cea", "include(" + (root / "b.cea").string() + ")\n");
+    write("b.cea", "include(" + (root / "a.cea").string() + ")\n");
+    const auto twice = write("twice.cea", "include(" + leaf + ")\ninclude(" + leaf + ")\n");
+    AutoAssembler assembler;
+    const auto selfResult = assembler.check("include(" + self + ")\n");
+    const auto loopResult = assembler.check("include(" + (root / "a.cea").string() + ")\n");
+    const auto twiceResult = assembler.check("include(" + twice + ")\n");
+    if (!twiceResult.success) std::printf("include twice: %s\n", twiceResult.error.c_str());
+    check(!selfResult.success && selfResult.error.find("INCLUDE cycle") != std::string::npos &&
+          !loopResult.success && loopResult.error.find("a.cea -> ") != std::string::npos &&
+          loopResult.error.find("b.cea -> ") != std::string::npos && twiceResult.success,
+          "INCLUDE names a cycle of files and still allows including one file twice in a row");
+}
+
+// The in-process exception logger (libcecore_inprocess_veh.so) in a child:
+// a fault whose handler resumes it without a fix repeats at once, and the
+// log must stay small; a stack overflow must still be logged.
+static int (*volatile g_vehRecurse)(int);
+static int vehRecurse(int depth) {
+    volatile char frame[512];
+    frame[0] = static_cast<char>(depth);
+    return g_vehRecurse(depth + 1) + frame[0];
+}
+static void vehTests() {
+#if defined(__SANITIZE_ADDRESS__)
+    std::printf("SKIP: the exception logger tests (ASan owns the fault handlers)\n");
+#else
+    const auto library = fs::read_symlink("/proc/self/exe").parent_path() / "libcecore_inprocess_veh.so";
+    if (!fs::exists(library)) {
+        check(false, "the exception logger library is built next to the tests");
+        return;
+    }
+    auto runChild = [&](bool overflow, int& status) {
+        const pid_t child = fork();
+        if (child == 0) {
+            // The program's own handler: one that returns without fixing the
+            // fault, or none (whatever this test process installed goes).
+            struct sigaction own{};
+            own.sa_handler = overflow ? SIG_DFL : static_cast<void (*)(int)>([](int) {});
+            sigaction(SIGSEGV, &own, nullptr);
+            if (!dlopen(library.c_str(), RTLD_NOW)) _exit(2);
+            // No core dump: a core handler can hold a dying process for seconds.
+            prctl(PR_SET_DUMPABLE, 0);
+            if (overflow) {
+                g_vehRecurse = vehRecurse;
+                _exit(vehRecurse(0) == 0 ? 3 : 4);
+            }
+            *static_cast<volatile int*>(nullptr) = 1;
+            _exit(5);
+        }
+        // The looping child never ends; the overflowing one dies of its fault.
+        for (int waited = 0; waited < (overflow ? 500 : 30); ++waited) {
+            if (waitpid(child, &status, WNOHANG) == child) break;
+            usleep(10000);
+        }
+        if (kill(child, 0) == 0) {
+            if (overflow) {   // say where it is stuck
+                for (const char* item : {"wchan", "stack", "status"}) {
+                    std::ifstream in("/proc/" + std::to_string(child) + "/" + item);
+                    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                    if (std::string(item) == "status") {
+                        std::string kept;
+                        std::istringstream lines(text);
+                        for (std::string line; std::getline(lines, line);)
+                            if (line.starts_with("State") || line.starts_with("Sig") || line.starts_with("ShdPnd")) kept += line + "\n";
+                        text = kept;
+                    }
+                    std::printf("overflow child %s: %s\n", item, text.c_str());
+                }
+            }
+            kill(child, SIGKILL);
+            waitpid(child, &status, 0);
+        }
+        const auto log = fs::temp_directory_path() / ("cecore_veh_" + std::to_string(child) + ".log");
+        std::ifstream in(log);
+        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        fs::remove(log);
+        return text;
+    };
+    auto count = [](const std::string& text, const std::string& what) {
+        size_t n = 0;
+        for (size_t at = text.find(what); at != std::string::npos; at = text.find(what, at + 1)) ++n;
+        return n;
+    };
+    int status = 0;
+    const auto looping = runChild(false, status);
+    const size_t lines = count(looping, "SIGSEGV signo=");
+    check(lines >= 1 && lines <= 8 && looping.find("repeats") != std::string::npos,
+          "the exception logger logs a fault that repeats in a loop only a few times");
+    const auto overflow = runChild(true, status);
+    const bool overflowLogged = count(overflow, "SIGSEGV signo=") >= 1 && WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV;
+    if (!overflowLogged)
+        std::printf("exception logger overflow: status 0x%x (signal %d, exit %d), log:\n%s\n", status,
+                    WIFSIGNALED(status) ? WTERMSIG(status) : 0, WIFEXITED(status) ? WEXITSTATUS(status) : -1, overflow.c_str());
+    check(overflowLogged, "the exception logger logs a stack overflow and the program still dies of it");
+#endif
+}
+
+static void procMapsTests() {
+    using os::parseProcMapsLine;
+    const auto file = parseProcMapsLine("55d0c0a00000-55d0c0a21000 r-xp 00002000 fd:01 1234567                    /usr/bin/game");
+    const auto spaced = parseProcMapsLine("7f00\t-7f10 rw-s 0 00:05 9   /tmp/my save ");
+    const auto tabs = parseProcMapsLine("1000-2000\trw-p\t00000000\t00:00\t0");
+    const auto anonymous = parseProcMapsLine("7ffd1000-7ffd2000 rw-p 00000000 00:00 0                          [stack]");
+    check(file && file->start == 0x55d0c0a00000 && file->end == 0x55d0c0a21000 && file->perms == "r-xp" &&
+          file->offset == 0x2000 && file->device == "fd:01" && file->inode == 1234567 && file->path == "/usr/bin/game" &&
+          !spaced && tabs && tabs->perms == "rw-p" && tabs->path.empty() && tabs->end == 0x2000 &&
+          anonymous && anonymous->path == "[stack]" &&
+          parseProcMapsLine("7f00-7f10 rw-s 0 00:05 9   /tmp/my save ")->path == "/tmp/my save " &&
+          !parseProcMapsLine("2000-1000 rw-p 0 00:00 0") && !parseProcMapsLine("garbage") && !parseProcMapsLine(""),
+          "a /proc maps line splits on runs of blanks and keeps the path as written");
+}
+
+// LinuxDebugger::pollChildren follows a traced process's children: it must
+// report a child, let it run and exit with its status intact for its real
+// parent, keep a job-control stop in place, and never reap a child of the
+// calling program that it does not trace.
+static void followChildTests() {
+    int go[2], report[2];
+    if (pipe(go) != 0 || pipe(report) != 0) { check(false, "pipes for the child-following test"); return; }
+    auto* counter = static_cast<volatile long*>(mmap(nullptr, 4096, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0));
+    const pid_t target = fork();
+    if (target == 0) {
+        close(go[1]);
+        close(report[0]);
+        char c = 0;
+        if (read(go[0], &c, 1) != 1) _exit(1);
+        const pid_t child = fork();
+        if (child == 0) _exit(7);
+        int status = 0;
+        waitpid(child, &status, 0);
+        const int code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+        if (write(report[1], &code, sizeof(code)) != sizeof(code)) _exit(1);
+        for (;;) { *counter = *counter + 1; usleep(1000); }
+    }
+    close(go[0]);
+    close(report[1]);
+    const pid_t unrelated = fork();
+    if (unrelated == 0) _exit(9);
+
+    os::LinuxDebugger debugger;
+    const bool attached = debugger.attach(target).has_value() && ptrace(PTRACE_CONT, target, nullptr, nullptr) == 0;
+    std::vector<pid_t> followed;
+    int code = -1;
+    if (attached && write(go[1], "x", 1) == 1) {
+        for (int round = 0; round < 300 && code < 0; ++round) {
+            if (auto kids = debugger.pollChildren()) followed.insert(followed.end(), kids->begin(), kids->end());
+            pollfd ready{report[0], POLLIN, 0};
+            if (poll(&ready, 1, 10) == 1 && read(report[0], &code, sizeof(code)) != sizeof(code)) code = -2;
+        }
+    }
+    int unrelatedStatus = 0;
+    const bool unrelatedKept = waitpid(unrelated, &unrelatedStatus, 0) == unrelated &&
+                               WIFEXITED(unrelatedStatus) && WEXITSTATUS(unrelatedStatus) == 9;
+    // A SIGSTOP keeps the process stopped; SIGCONT lets it run again.
+    auto settle = [&](int rounds) { for (int i = 0; i < rounds; ++i) { (void)debugger.pollChildren(); usleep(2000); } };
+    kill(target, SIGSTOP);
+    settle(30);
+    const long stoppedAt = *counter;
+    settle(30);
+    const bool keptStopped = *counter == stoppedAt;
+    kill(target, SIGCONT);
+    settle(30);
+    const bool resumed = *counter != stoppedAt;
+    (void)debugger.detach();
+    kill(target, SIGKILL);
+    waitpid(target, nullptr, 0);
+    close(go[1]);
+    close(report[0]);
+    munmap(const_cast<long*>(counter), 4096);
+    check(attached && followed.size() == 1 && code == 7 && unrelatedKept,
+          "pollChildren reports a traced process's child, which exits with its status intact for its parent, "
+          "and leaves the caller's other children alone");
+    check(keptStopped && resumed, "pollChildren keeps a job-control stop until SIGCONT");
 }
 
 static void structureCompareTests() {
@@ -1155,6 +1346,10 @@ int main() {
     usabilityTests();
     pointerFilterTests();
     structureCompareTests();
+    includeTests(root);
+    vehTests();
+    procMapsTests();
+    followChildTests();
     hotkeyListTests(root);
     scanTests(root);
     peTests(root);

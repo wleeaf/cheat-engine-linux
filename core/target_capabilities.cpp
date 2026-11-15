@@ -111,9 +111,11 @@ std::vector<TargetCapability> targetCapabilities(const TargetDescription& d) {
         if (!backend || !x86) {
             bool remoteDebugger = d.transport == TargetTransport::CEServer &&
                 d.program.architecture == CpuArchitecture::X86_64 &&
-                (f == F::Debugger || f == F::HardwareWatchpoint);
+                (f == F::Debugger || f == F::HardwareWatchpoint || f == F::Trace);
             add(f, remoteDebugger ? S::Partial : S::Unsupported,
-                remoteDebugger ? "Remote context/events exist; local ptrace operations are unavailable" : "No complete backend for this target/transport");
+                !remoteDebugger ? "No complete backend for this target/transport" :
+                f == F::Trace ? "Traced by single steps over the connection, one round trip per instruction" :
+                "Remote context/events exist; local ptrace operations are unavailable");
         } else if (d.runtime == TargetRuntime::Wine && (f == F::LibraryInjection || f == F::RemoteThread))
             add(f, S::Unsupported, "Wine-safe loader calls and Windows thread initialization need a dedicated backend");
         else if (d.runtime == TargetRuntime::Wine && f == F::SoftwareWatchpoint)
@@ -145,7 +147,9 @@ std::optional<std::string> unsupportedTargetOperation(ProcessHandle& process, Ta
 std::string targetOperationError(ProcessHandle& process, TargetFeature feature, std::error_code error) {
     if (auto reason = unsupportedTargetOperation(process, feature)) return *reason;
     const auto transport = process.targetDescription().transport;
-    if (transport != TargetTransport::Local && (feature == TargetFeature::Debugger || feature == TargetFeature::Trace ||
+    // A ceserver target is traced through its server, so its trace errors say what failed.
+    const bool remoteTrace = transport == TargetTransport::CEServer && feature == TargetFeature::Trace;
+    if (transport != TargetTransport::Local && !remoteTrace && (feature == TargetFeature::Debugger || feature == TargetFeature::Trace ||
             feature == TargetFeature::HardwareWatchpoint || feature == TargetFeature::SoftwareWatchpoint))
         return std::string(targetFeatureName(feature)) + ": local ptrace operations are unavailable over this transport";
     if (error && error.category() == std::system_category() && error.value() == EPERM && transport == TargetTransport::Local) {

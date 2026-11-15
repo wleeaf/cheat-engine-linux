@@ -64,6 +64,12 @@ public:
     Error lastError() const { std::lock_guard lock(errorMutex_); return error_; }
 
 private:
+    // A ceserver target: traced through the server's debug events and single
+    // steps (see trace()).
+    std::vector<TraceEntry> traceRemote(ProcessHandle& proc, Debugger& dbg, const TraceConfig& config);
+    void setError(Error value) { std::lock_guard lock(errorMutex_); error_ = value; }
+    struct LocalTrace;   // the local (ptrace) trace (see tracer.cpp)
+
     std::mutex traceMutex_;
     std::atomic<bool> cancelled_{false};
     std::atomic<bool> prepared_{false};

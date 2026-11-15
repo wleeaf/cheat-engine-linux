@@ -1,4 +1,5 @@
 #include "platform/linux/linux_process.hpp"
+#include "platform/linux/proc_maps.hpp"
 #include "platform/linux/memory_image.hpp"
 #include "platform/linux/target_debug.hpp"
 #include "platform/linux/syscall_service.hpp"
@@ -477,53 +478,16 @@ std::vector<MemoryRegion> LinuxProcessHandle::queryRegions() {
     while (std::getline(maps, line)) {
         if (line.empty()) continue;
 
-        // Parse: "startaddr-endaddr perms offset dev inode pathname"
-        auto dash = line.find('-');
-        auto space1 = line.find(' ');
-        if (dash == std::string::npos || space1 == std::string::npos) continue;
-
+        const auto fields = parseProcMapsLine(line);
+        if (!fields) continue;
         MemoryRegion r;
-        try {
-            r.base = std::stoull(line.substr(0, dash), nullptr, 16);
-            auto end = std::stoull(line.substr(dash + 1, space1 - dash - 1), nullptr, 16);
-            r.size = end - r.base;
-        } catch (...) {
-            continue;
-        }
-
-        // perms is the 4-char field after the first space ("rwxp"). substr
-        // clamps if fewer chars exist, and every indexing site below
-        // bounds-checks perms.size(), so a malformed/truncated line can't
-        // index out of range — it just yields weaker protection flags.
-        // TODO(security): replace the single-space field counting below with a
-        //   whitespace-run tokenizer (at most 6 fields, 6th = rest-of-line
-        //   path) so the parser isn't tied to a fixed single-space layout.
-        auto perms = line.substr(space1 + 1, 4);
+        r.base = fields->start;
+        r.size = fields->end - fields->start;
+        const std::string perms(fields->perms);
         r.protection = parsePerms(perms);
-        if (auto offsetStart = line.find(' ', space1 + 1); offsetStart != std::string::npos) {
-            const char* first = line.data() + offsetStart + 1;
-            const char* last = line.data() + line.size();
-            uint64_t offset = 0;
-            if (auto [end, ec] = std::from_chars(first, last, offset, 16); ec == std::errc{} && end != first)
-                r.fileOffset = offset;
-        }
+        r.fileOffset = fields->offset;
         r.state = MemState::Committed;
-
-        // Find the path (last field after inode)
-        // Format: addr perms offset dev inode [pathname]
-        size_t pos = space1 + 1; // past perms start
-        int fields = 0;
-        while (fields < 4 && pos < line.size()) {
-            pos = line.find(' ', pos);
-            if (pos == std::string::npos) break;
-            while (pos < line.size() && line[pos] == ' ') ++pos;
-            ++fields;
-        }
-        if (pos < line.size()) {
-            // Kept as is: the kernel pads before the path, never after it,
-            // so a trailing space belongs to the file name.
-            r.path = line.substr(pos);
-        }
+        r.path = std::string(fields->path);
 
         // Shared mappings (memfd guest RAM, SysV shared memory, /dev/shm) are
         // Mapped; a private file mapping is an Image; devices are not files.

@@ -33,10 +33,14 @@ int main() {
         xml.entries.size()==2 && xml.entries[1].parentId==0,"XML preserves a valid group ID zero and its child's stable parent");
     check(table.saveJson((directory/"table.json").string()) && json.loadJson((directory/"table.json").string()) &&
         json.rawFormsXml==table.rawFormsXml,"native JSON preserves imported raw form metadata");
-    check(table.saveProtected((directory/"table.cetrainer").string(),"pw") && protectedTable.loadProtected((directory/"table.cetrainer").string(),"pw") &&
-        protectedTable.rawFormsXml==table.rawFormsXml,"protected tables preserve form metadata through their JSON payload");
+    const bool sealing=CheatTable::protectedTablesAvailable();
+    if(sealing)
+        check(table.saveProtected((directory/"table.cetrainer").string(),"pw") && protectedTable.loadProtected((directory/"table.cetrainer").string(),"pw") &&
+            protectedTable.rawFormsXml==table.rawFormsXml,"protected tables preserve form metadata through their JSON payload");
+    else
+        check(!table.saveProtected((directory/"table.cetrainer").string(),"pw"),"a build without the cipher refuses to save a protected table");
     auto same=[&](const CheatTable& t){return t.entries.size()==2 && t.entries[1].id==42 && t.entries[1].address==record.address && t.entries[1].type==ValueType::Pointer && t.entries[1].dataByteOrder==ByteOrder::Big && t.entries[1].pointerWidth==4;};
-    check(same(xml)&&same(json)&&same(protectedTable),"all table formats preserve pointer addresses, types, widths, data order and stable IDs");
+    check(same(xml)&&same(json)&&(!sealing||same(protectedTable)),"all table formats preserve pointer addresses, types, widths, data order and stable IDs");
     {
         std::ofstream f(directory/"gui.json");
         f<<R"({"process":"GUI fixture","entries":[{"id":10,"description":"group","group":true},{"id":42,"description":"pointer","address":"0x12345678","type":"pointer","pointerWidth":4,"dataByteOrder":"big","parent":0,"addressExpr":"[game+10]","byteCount":12}]})";

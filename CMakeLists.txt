@@ -691,7 +691,10 @@ if(Qt6_FOUND)
         # The include path lets lupdate resolve the headers, so member tr()
         # calls get the namespaced context moc uses at runtime
         # (ce::gui::MainWindow, not MainWindow).
+        # LRELEASE_TARGET is named explicitly: left out, Qt names it after
+        # project() (cecore_lrelease), not after the executable.
         qt_add_translations(cheatengine TS_FILES translations/cheatengine_zh_CN.ts
+            LRELEASE_TARGET cheatengine_lrelease
             INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR})
         if(TARGET gui_lifecycle_smoke)
             # The screenshots run honours CE_LANG, so the .qm has to exist.

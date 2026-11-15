@@ -56,10 +56,18 @@ QString installTranslators(QApplication& app, const QString& explicitLocale) {
     if (wanted.isEmpty()) wanted = desktopLocale.name();
     const QLocale uiLocale(wanted);
 
-    auto* qtTranslator = new QTranslator(&app);
-    if (qtTranslator->load(uiLocale, QStringLiteral("qt"), QStringLiteral("_"),
-                           QLibraryInfo::path(QLibraryInfo::TranslationsPath))) {
-        app.installTranslator(qtTranslator);
+    // Qt 6 keeps its stock strings (dialog buttons, file dialogs, the Copy/Paste/
+    // Select All text menu) in qtbase_<locale>.qm; qt_<locale>.qm is only a
+    // small meta catalogue, so every module catalogue is loaded when present.
+    const QString qtTranslationsDir = QLibraryInfo::path(QLibraryInfo::TranslationsPath);
+    for (const QString& module : {QStringLiteral("qt"), QStringLiteral("qtbase"),
+                                  QStringLiteral("qtmultimedia"), QStringLiteral("qt_help")}) {
+        auto* qtTranslator = new QTranslator(&app);
+        if (qtTranslator->load(uiLocale, module, QStringLiteral("_"), qtTranslationsDir)) {
+            app.installTranslator(qtTranslator);
+        } else {
+            delete qtTranslator;
+        }
     }
 
     // A catalogue dropped next to the executable wins over the built-in one, so

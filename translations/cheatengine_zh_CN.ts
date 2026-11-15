@@ -262,12 +262,12 @@
 <context>
     <name>GlobalHotkeyManager</name>
     <message>
-        <location filename="../gui/globalhotkeys.cpp" line="361"/>
+        <location filename="../gui/globalhotkeys.cpp" line="362"/>
         <source>Cheat Engine hotkey %1</source>
         <translation>Cheat Engine 快捷键 %1</translation>
     </message>
     <message>
-        <location filename="../gui/globalhotkeys.cpp" line="361"/>
+        <location filename="../gui/globalhotkeys.cpp" line="362"/>
         <source>Cheat Engine: %1</source>
         <translation>Cheat Engine：%1</translation>
     </message>
@@ -602,94 +602,99 @@ Linux 只允许程序在获准 ptrace 另一个进程时读取其内存。当 ke
 <context>
     <name>ce::gui::AddressListModel</name>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="137"/>
+        <location filename="../gui/addresslist_model.cpp" line="307"/>
+        <source>No process attached</source>
+        <translation>未附加进程</translation>
+    </message>
+    <message>
+        <location filename="../gui/addresslist_model.cpp" line="138"/>
         <source>Auto Assembler script</source>
         <translation>自动汇编脚本</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="140"/>
+        <location filename="../gui/addresslist_model.cpp" line="141"/>
         <source>(Auto Assembler script)</source>
         <translation>（自动汇编脚本）</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="488"/>
+        <location filename="../gui/addresslist_model.cpp" line="489"/>
         <source>Table format</source>
         <translation>表格格式</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="488"/>
+        <location filename="../gui/addresslist_model.cpp" line="489"/>
         <source>Invalid record data order or pointer size.</source>
         <translation>记录数据字节序或指针大小无效。</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="793"/>
-        <location filename="../gui/addresslist_model.cpp" line="838"/>
-        <location filename="../gui/addresslist_model.cpp" line="1490"/>
-        <location filename="../gui/addresslist_model.cpp" line="1494"/>
-        <location filename="../gui/addresslist_model.cpp" line="1498"/>
-        <location filename="../gui/addresslist_model.cpp" line="1511"/>
-        <location filename="../gui/addresslist_model.cpp" line="1515"/>
+        <location filename="../gui/addresslist_model.cpp" line="794"/>
+        <location filename="../gui/addresslist_model.cpp" line="839"/>
+        <location filename="../gui/addresslist_model.cpp" line="1491"/>
+        <location filename="../gui/addresslist_model.cpp" line="1495"/>
+        <location filename="../gui/addresslist_model.cpp" line="1499"/>
+        <location filename="../gui/addresslist_model.cpp" line="1512"/>
+        <location filename="../gui/addresslist_model.cpp" line="1516"/>
         <source>Value edit failed</source>
         <translation>数值编辑失败</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="929"/>
+        <location filename="../gui/addresslist_model.cpp" line="930"/>
         <source>Process required</source>
         <translation>需要进程</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="930"/>
+        <location filename="../gui/addresslist_model.cpp" line="931"/>
         <source>Open a process before activating this auto-assembler record.</source>
         <translation>请先打开进程再激活此自动汇编记录。</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="955"/>
+        <location filename="../gui/addresslist_model.cpp" line="956"/>
         <source>Auto-assembler activation failed</source>
         <translation>自动汇编激活失败</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="955"/>
+        <location filename="../gui/addresslist_model.cpp" line="956"/>
         <source>Auto-assembler deactivation failed</source>
         <translation>自动汇编停用失败</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="977"/>
+        <location filename="../gui/addresslist_model.cpp" line="978"/>
         <source>Freeze failed</source>
         <translation>冻结失败</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="977"/>
+        <location filename="../gui/addresslist_model.cpp" line="978"/>
         <source>The value cannot be read right now, so there is nothing to freeze.</source>
         <translation>当前无法读取数值，因此没有可冻结的内容。</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="1141"/>
+        <location filename="../gui/addresslist_model.cpp" line="1142"/>
         <source>Active</source>
         <translation>启用</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="1142"/>
+        <location filename="../gui/addresslist_model.cpp" line="1143"/>
         <source>Description</source>
         <translation>描述</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="1143"/>
+        <location filename="../gui/addresslist_model.cpp" line="1144"/>
         <source>Address</source>
         <translation>地址</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="1144"/>
+        <location filename="../gui/addresslist_model.cpp" line="1145"/>
         <source>Type</source>
         <translation>类型</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="1145"/>
+        <location filename="../gui/addresslist_model.cpp" line="1146"/>
         <source>Value</source>
         <translation>数值</translation>
     </message>
     <message>
-        <location filename="../gui/addresslist_model.cpp" line="1490"/>
-        <location filename="../gui/addresslist_model.cpp" line="1511"/>
+        <location filename="../gui/addresslist_model.cpp" line="1491"/>
+        <location filename="../gui/addresslist_model.cpp" line="1512"/>
         <source>The pointer path does not resolve right now.</source>
         <translation>指针路径当前无法解析。</translation>
     </message>
@@ -1395,6 +1400,7 @@ My health shows 100. Find it and keep it at 100.</source>
     </message>
     <message>
         <location filename="../gui/changedaddresses.cpp" line="159"/>
+        <location filename="../gui/changedaddresses.cpp" line="192"/>
         <location filename="../gui/changedaddresses.cpp" line="192"/>
         <source>Close</source>
         <translation>关闭</translation>
@@ -7823,179 +7829,279 @@ to 0x%3?</source>
 <context>
     <name>ce::gui::PEInfoWindow</name>
     <message>
-        <location filename="../gui/peinfo.cpp" line="62"/>
+        <location filename="../gui/peinfo.cpp" line="76"/>
         <source>Portable Executable (PE) Info</source>
         <translation>可移植可执行文件（PE）信息</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="71"/>
+        <location filename="../gui/peinfo.cpp" line="85"/>
         <source>File</source>
         <translation>文件</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="72"/>
+        <location filename="../gui/peinfo.cpp" line="86"/>
         <source>Memory</source>
         <translation>内存</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="80"/>
+        <location filename="../gui/peinfo.cpp" line="94"/>
         <source>MZ-Start</source>
         <translation>MZ 起始</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="82"/>
+        <location filename="../gui/peinfo.cpp" line="96"/>
         <source>address</source>
         <translation>地址</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="86"/>
+        <location filename="../gui/peinfo.cpp" line="100"/>
         <source>Info</source>
         <translation>信息</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="87"/>
+        <location filename="../gui/peinfo.cpp" line="101"/>
         <source>Open file...</source>
         <translation>打开文件...</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="95"/>
+        <location filename="../gui/peinfo.cpp" line="109"/>
         <source>No file opened</source>
         <translation>未打开文件</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="103"/>
+        <location filename="../gui/peinfo.cpp" line="117"/>
         <source>All</source>
         <translation>全部</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="104"/>
+        <location filename="../gui/peinfo.cpp" line="118"/>
         <source>Imports</source>
         <translation>导入</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="105"/>
+        <location filename="../gui/peinfo.cpp" line="119"/>
         <source>Exports</source>
         <translation>导出</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="106"/>
+        <location filename="../gui/peinfo.cpp" line="120"/>
         <source>Base Relocations</source>
         <translation>基址重定位</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="111"/>
+        <location filename="../gui/peinfo.cpp" line="125"/>
         <source>Copy tab to clipboard</source>
         <translation>复制此标签页到剪贴板</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="114"/>
+        <location filename="../gui/peinfo.cpp" line="128"/>
         <source>Copy everything to clipboard</source>
         <translation>复制全部内容到剪贴板</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="142"/>
+        <location filename="../gui/peinfo.cpp" line="156"/>
         <source>Open a PE file</source>
         <translation>打开 PE 文件</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="143"/>
+        <location filename="../gui/peinfo.cpp" line="157"/>
         <source>Windows modules (*.exe *.dll *.sys);;All files (*)</source>
         <translation>Windows 模块 (*.exe *.dll *.sys);;所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="166"/>
+        <location filename="../gui/peinfo.cpp" line="180"/>
         <source>Could not open %1: %2</source>
         <translation>无法打开 %1：%2</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="178"/>
+        <location filename="../gui/peinfo.cpp" line="192"/>
         <source>Could not read the memory at %1</source>
         <translation>无法读取 %1 处的内存</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="182"/>
+        <location filename="../gui/peinfo.cpp" line="196"/>
         <source>%1 (memory)</source>
         <translation>%1（内存）</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="194"/>
+        <location filename="../gui/peinfo.cpp" line="208"/>
         <source>%1 is not a PE image</source>
         <translation>%1 不是 PE 映像</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="200"/>
+        <location filename="../gui/peinfo.cpp" line="214"/>
         <source>File header</source>
         <translation>文件头</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="201"/>
+        <location filename="../gui/peinfo.cpp" line="215"/>
         <source>Machine: %1</source>
         <translation>机器：%1</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="202"/>
+        <location filename="../gui/peinfo.cpp" line="216"/>
         <source>Sections: %1</source>
         <translation>节区数：%1</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="203"/>
+        <location filename="../gui/peinfo.cpp" line="217"/>
         <source>Time stamp: %1</source>
         <translation>时间戳：%1</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="204"/>
+        <location filename="../gui/peinfo.cpp" line="218"/>
         <source>Characteristics: %1</source>
         <translation>特征：%1</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="205"/>
+        <location filename="../gui/peinfo.cpp" line="219"/>
         <source>Optional header</source>
         <translation>可选头</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="206"/>
+        <location filename="../gui/peinfo.cpp" line="220"/>
         <source>Entry point: %1</source>
         <translation>入口点：%1</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="207"/>
+        <location filename="../gui/peinfo.cpp" line="221"/>
         <source>Image base: %1</source>
         <translation>映像基址：%1</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="208"/>
+        <location filename="../gui/peinfo.cpp" line="222"/>
         <source>Size of image: %1</source>
         <translation>映像大小：%1</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="209"/>
+        <location filename="../gui/peinfo.cpp" line="223"/>
         <source>Size of headers: %1</source>
         <translation>头大小：%1</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="210"/>
+        <location filename="../gui/peinfo.cpp" line="224"/>
         <source>Checksum: %1</source>
         <translation>校验和：%1</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="211"/>
+        <location filename="../gui/peinfo.cpp" line="225"/>
         <source>Subsystem: %1</source>
         <translation>子系统：%1</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="212"/>
+        <location filename="../gui/peinfo.cpp" line="226"/>
         <source>DLL characteristics: %1</source>
         <translation>DLL 特征：%1</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="213"/>
+        <location filename="../gui/peinfo.cpp" line="227"/>
         <source>Data directories</source>
         <translation>数据目录</translation>
     </message>
     <message>
-        <location filename="../gui/peinfo.cpp" line="219"/>
+        <location filename="../gui/peinfo.cpp" line="233"/>
         <source>Sections</source>
         <translation>节区</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="37"/>
+        <source>Export</source>
+        <translation>导出表</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="38"/>
+        <source>Import</source>
+        <translation>导入表</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="39"/>
+        <source>Resource</source>
+        <translation>资源</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="40"/>
+        <source>Exception</source>
+        <translation>异常</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="41"/>
+        <source>Security</source>
+        <translation>安全</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="42"/>
+        <source>Base relocation</source>
+        <translation>基址重定位</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="43"/>
+        <source>Debug</source>
+        <translation>调试</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="44"/>
+        <source>Architecture</source>
+        <translation>架构</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="45"/>
+        <source>Global pointer</source>
+        <translation>全局指针</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="46"/>
+        <source>TLS</source>
+        <translation>TLS（线程局部存储）</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="47"/>
+        <source>Load config</source>
+        <translation>加载配置</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="48"/>
+        <source>Bound import</source>
+        <translation>绑定导入</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="49"/>
+        <source>IAT</source>
+        <translation>IAT（导入地址表）</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="50"/>
+        <source>Delay import</source>
+        <translation>延迟导入</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="51"/>
+        <source>COM descriptor</source>
+        <translation>COM 描述符</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="52"/>
+        <source>Reserved</source>
+        <translation>保留</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="231"/>
+        <source>%1: %2 (%3 bytes)</source>
+        <translation>%1：%2（%3 字节）</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="235"/>
+        <source>%1  rva %2  size %3  raw %4+%5  %6</source>
+        <translation>%1  RVA %2  大小 %3  原始偏移 %4+%5  %6</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="245"/>
+        <source>%1  %2  (IAT %3)</source>
+        <translation>%1  %2  （IAT %3）</translation>
+    </message>
+    <message>
+        <location filename="../gui/peinfo.cpp" line="255"/>
+        <source>%1  type %2</source>
+        <translation>%1  类型 %2</translation>
     </message>
 </context>
 <context>
@@ -9425,22 +9531,22 @@ or write an Auto Assembler script here.</source>
         <translation>结构地址（十六进制）：</translation>
     </message>
     <message>
-        <location filename="../gui/structurecompare.cpp" line="131"/>
+        <location filename="../gui/structurecompare.cpp" line="132"/>
         <source>Add at least one structure to group 1.</source>
         <translation>请至少向第 1 组添加一个结构。</translation>
     </message>
     <message>
-        <location filename="../gui/structurecompare.cpp" line="135"/>
+        <location filename="../gui/structurecompare.cpp" line="136"/>
         <source>Add a group 2 structure, or a second group 1 structure.</source>
         <translation>请添加一个第 2 组结构，或第二个第 1 组结构。</translation>
     </message>
     <message>
-        <location filename="../gui/structurecompare.cpp" line="159"/>
+        <location filename="../gui/structurecompare.cpp" line="160"/>
         <source>%1 offsets found (the first %1; narrow the groups to see others)</source>
         <translation>找到 %1 个偏移（仅前 %1 个；缩小分组可查看其他）</translation>
     </message>
     <message>
-        <location filename="../gui/structurecompare.cpp" line="160"/>
+        <location filename="../gui/structurecompare.cpp" line="161"/>
         <source>%1 offsets found</source>
         <translation>找到 %1 个偏移</translation>
     </message>

@@ -71,6 +71,7 @@
 #include <sys/wait.h>
 
 #include "gui/agent_panel.hpp"
+#include <QCoreApplication>
 #include <QTimer>
 #include <cerrno>
 #include <QColor>
@@ -303,7 +304,7 @@ static std::expected<size_t, std::string> writeValueToProcess(
     options.codec = codec; options.bigEndian = bigEndian; options.hex = showHex;
     if (order != ByteOrder::Unknown) options.byteOrder = order;
     if (pointerWidth) options.pointerWidthOverride = pointerWidth;
-    if (!proc) return std::unexpected("No process attached");
+    if (!proc) return std::unexpected(QCoreApplication::translate("ce::gui::AddressListModel", "No process attached").toStdString());
     auto resolved = ce::valueOptionsForTarget(*proc, addr, type, options);
     if (!resolved) return std::unexpected(resolved.error());
     options = *resolved;

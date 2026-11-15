@@ -1,4 +1,5 @@
 #include "gui/structurecompare.hpp"
+#include "gui/hexformat.hpp"
 
 #include "analysis/structure_tools.hpp"
 #include "platform/process_api.hpp"
@@ -24,7 +25,6 @@ namespace ce::gui {
 
 namespace {
 constexpr int kAddressRole = Qt::UserRole + 1;
-QString hex(uint64_t value) { return QString::number(static_cast<qulonglong>(value), 16).toUpper(); }
 }
 
 StructureCompareWindow::StructureCompareWindow(ProcessHandle* process, QWidget* parent)
@@ -113,7 +113,7 @@ void StructureCompareWindow::addAddressPrompt(int group) {
 
 void StructureCompareWindow::addToGroup(int group, uintptr_t address) {
     if (group < 0 || group > 1) return;
-    auto* item = new QListWidgetItem(hex(address), groups_[group]);
+    auto* item = new QListWidgetItem(upperHex(address), groups_[group]);
     item->setData(kAddressRole, static_cast<qulonglong>(address));
 }
 
@@ -146,7 +146,7 @@ int StructureCompareWindow::scan() {
     QApplication::restoreOverrideCursor();
     auto values = [this](const std::vector<uint64_t>& list) {
         QStringList out;
-        for (uint64_t v : list) out << (hex_->isChecked() ? hex(v) : QString::number(static_cast<qlonglong>(v)));
+        for (uint64_t v : list) out << (hex_->isChecked() ? upperHex(v) : QString::number(static_cast<qlonglong>(v)));
         return out.join(", ");
     };
     results_->setRowCount(static_cast<int>(matches.size()));

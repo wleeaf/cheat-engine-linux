@@ -87,6 +87,7 @@ extern "C" {
 #define lua_pushcfunction(L, f) ce::pushSafeLuaFunction((L), (f))
 
 #include "scripting/lua_bindings_internal.hpp"
+#include "scripting/lua_files.hpp"
 namespace ce::lua_detail {
 
 // ── MD5 (RFC 1321) ──
@@ -461,8 +462,8 @@ int l_writeToFile(lua_State* L) {
     const char* path = luaL_checkstring(L, 1);
     size_t len;
     const char* data = luaL_checklstring(L, 2, &len);
-    std::ofstream f(path, std::ios::binary);
-    if (f) { f.write(data, len); lua_pushboolean(L, 1); }
+    std::ofstream f;
+    if (openNoFollow(f, path, std::ios::out | std::ios::binary | std::ios::trunc)) { f.write(data, len); lua_pushboolean(L, f.good()); }
     else lua_pushboolean(L, 0);
     return 1;
 }

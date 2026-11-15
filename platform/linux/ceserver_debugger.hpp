@@ -58,10 +58,20 @@ public:
     Result<void> setBreakpoint(pid_t tid, int reg, uintptr_t address, int type, int size) override;
     Result<void> removeBreakpoint(pid_t tid, int reg) override;
 
+    bool reportsStops() const override { return true; }
+    std::optional<Stop> waitForStop(int timeoutMs) override;
+    Result<void> continueStop(pid_t tid) override { return continueAfterEvent(tid); }
+
     /// Convenience wrappers around CMD_WAITFORDEBUGEVENT /
     /// CMD_CONTINUEFROMDEBUGEVENT — a debug-event loop wraps these.
+    /// `option` is upstream's continue option: kContinuePassSignal hands the
+    /// thread's signal on, kContinueDropSignal discards it, and
+    /// kContinueSingleStep runs one instruction (see singleStep).
+    static constexpr int kContinuePassSignal = 0;
+    static constexpr int kContinueDropSignal = 1;
+    static constexpr int kContinueSingleStep = 2;
     std::optional<CeDebugEvent> waitForEvent(int timeoutMs);
-    Result<void> continueAfterEvent(pid_t tid, int signalToForward = 0);
+    Result<void> continueAfterEvent(pid_t tid, int option = kContinuePassSignal);
 
     /// ARM64-specific decode of CMD_GETTHREADCONTEXT into x0..x30 + sp + pc
     /// + pstate. Returns nullopt on parse failure (wrong blob size for

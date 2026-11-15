@@ -1,6 +1,7 @@
 #include <charconv>
 #include <cmath>
 #include "core/trainer.hpp"
+#include "core/value_io.hpp"
 #include <cctype>
 #include <string_view>
 #include <sstream>
@@ -195,10 +196,31 @@ std::optional<std::string> freezeWriteBody(const CheatEntry& e) {
             ctype = "double"; width = 8; literal = buf;
             break;
         }
+        case ValueType::String:
+        case ValueType::UnicodeString:
+        case ValueType::ByteArray: {
+            // Encoded here into bytes and written from a byte list the
+            // generator prints itself, so the record's text never reaches the
+            // C source. A record's <Length> bounds the bytes, as Cheat Engine
+            // writes no further than the field; "more or less than" has no
+            // meaning for text and bytes, so a directional freeze is left out.
+            if (e.freezeMode != FreezeMode::Normal) return std::nullopt;
+            ValueIoOptions options;
+            options.bigEndian = e.dataByteOrder == ByteOrder::Big;
+            auto bytes = encodeTypedValue(e.type, e.value, options);
+            if (!bytes || bytes->empty()) return std::nullopt;
+            if (e.length > 0 && bytes->size() > static_cast<size_t>(e.length)) bytes->resize(static_cast<size_t>(e.length));
+            constexpr size_t kMaxFrozenBytes = 4096;
+            if (bytes->size() > kMaxFrozenBytes) return std::nullopt;
+            char address[32];
+            std::snprintf(address, sizeof(address), "(void*)0x%llx", static_cast<unsigned long long>(e.address));
+            body << "static unsigned char v[" << bytes->size() << "] = {";
+            for (size_t i = 0; i < bytes->size(); ++i) body << (i ? "," : "") << static_cast<unsigned>((*bytes)[i]);
+            body << "}; wpm(" << address << ", v, " << bytes->size() << ");";
+            return body.str();
+        }
         default:
-            // String/ByteArray/Binary/Custom/etc.: no safe scalar freeze. Skip.
-            // TODO(security): support freezing array/string types via a sanitized
-            // byte buffer instead of a scalar write.
+            // Binary, Custom and the scan-only types have no value to write.
             return std::nullopt;
     }
 

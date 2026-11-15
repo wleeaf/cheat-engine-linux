@@ -117,229 +117,239 @@ void CodeFinder::clearResults() {
     resultsMap_.clear();
 }
 
-void CodeFinder::monitorLoop() {
-    struct Thread {
-        bool alive=true,stopped=false,saved=false,armed=false,stepping=false,groupStop=false,guardStop=false;
-        std::optional<siginfo_t> signalInfo;
-        std::optional<siginfo_t> deferredInfo;
-        int deferredSignal=0;
-        int signal=0,event=0;
-        unsigned slot=0;
-        os::NativeHardwareBank original;
-    };
-    std::map<pid_t,Thread> threads;
-    uintptr_t scratch=0,pageStart=0,pageEnd=0,mappingStart=0,mappingEnd=0;
-    size_t pageLength=0,pageSize=0;
-    int originalProtection=0,guardProtection=0;
-    bool guardChanged=false,guardActive=false,imageRetired=false;
-    bool startupReported=false;
-    auto reportStartup=[&](bool success) { if (!startupReported) { startup_.set_value(success); startupReported=true; } };
-    auto consume=[&](pid_t tid,int status) {
-        auto& state=threads.try_emplace(tid).first->second;
-        if (WIFEXITED(status) || WIFSIGNALED(status)) { state.alive=false; return; }
-        if (!WIFSTOPPED(status)) return;
-        state.stopped=true; state.event=status>>16;
-        state.signal=state.event ? 0 : WSTOPSIG(status);
-        state.signalInfo.reset(); state.guardStop=false;
-        if (state.signal) {
-            siginfo_t info{};
-            if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)==0) {
-                state.signalInfo=info;
-                state.guardStop=software_ && guardActive && state.signal==SIGSEGV && info.si_code==SEGV_ACCERR &&
-                    reinterpret_cast<uintptr_t>(info.si_addr)>=pageStart && reinterpret_cast<uintptr_t>(info.si_addr)<pageEnd;
-            }
+// monitorLoop's steps. They run only on the monitor thread, over the state
+// declared with them in code_finder.hpp.
+
+void CodeFinder::reportStartup(bool success) { if (!startupReported) { startup_.set_value(success); startupReported=true; } }
+
+void CodeFinder::consume(pid_t tid,int status) {
+    auto& state=threads.try_emplace(tid).first->second;
+    if (WIFEXITED(status) || WIFSIGNALED(status)) { state.alive=false; return; }
+    if (!WIFSTOPPED(status)) return;
+    state.stopped=true; state.event=status>>16;
+    state.signal=state.event ? 0 : WSTOPSIG(status);
+    state.signalInfo.reset(); state.guardStop=false;
+    if (state.signal) {
+        siginfo_t info{};
+        if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)==0) {
+            state.signalInfo=info;
+            state.guardStop=software_ && guardActive && state.signal==SIGSEGV && info.si_code==SEGV_ACCERR &&
+                reinterpret_cast<uintptr_t>(info.si_addr)>=pageStart && reinterpret_cast<uintptr_t>(info.si_addr)<pageEnd;
         }
-        state.groupStop=state.event==PTRACE_EVENT_STOP && WSTOPSIG(status)!=SIGTRAP;
-        if (state.event==PTRACE_EVENT_EXEC) {
-            for (auto& [otherTid,other] : threads) {
-                other.saved=false; other.armed=false;
-                if (otherTid!=tid) other.alive=false;
-            }
-            state.alive=true; imageRetired=true;
-            setError(std::make_error_code(std::errc::operation_canceled)); stopRequested_=true;
+    }
+    state.groupStop=state.event==PTRACE_EVENT_STOP && WSTOPSIG(status)!=SIGTRAP;
+    if (state.event==PTRACE_EVENT_EXEC) {
+        for (auto& [otherTid,other] : threads) {
+            other.saved=false; other.armed=false;
+            if (otherTid!=tid) other.alive=false;
         }
-        if (state.stepping && !state.event && state.signal==SIGTRAP) {
-            siginfo_t info{};
-            if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)==0 &&
-                (info.si_code==TRAP_TRACE || (nativeTargetMachine().architecture==CpuArchitecture::Arm64 &&
-                 info.si_code==SI_USER && !info.si_pid && !info.si_uid))) state.signal=0;
+        state.alive=true; imageRetired=true;
+        setError(std::make_error_code(std::errc::operation_canceled)); stopRequested_=true;
+    }
+    if (state.stepping && !state.event && state.signal==SIGTRAP) {
+        siginfo_t info{};
+        if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)==0 &&
+            (info.si_code==TRAP_TRACE || (nativeTargetMachine().architecture==CpuArchitecture::Arm64 &&
+             info.si_code==SI_USER && !info.si_pid && !info.si_uid))) state.signal=0;
+    }
+}
+
+bool CodeFinder::waitForStop(pid_t tid) {
+    for (;;) {
+        int status=0;
+        pid_t waited=waitpid(tid,&status,__WALL|__WNOTHREAD|WNOHANG);
+        if (waited==tid) { consume(tid,status); return threads.at(tid).alive && threads.at(tid).stopped; }
+        if (waited<0 && errno!=EINTR) {
+            if (errno==ECHILD || errno==ESRCH) threads.at(tid).alive=false;
+            else setError({errno,std::system_category()});
+            return false;
         }
-    };
-    auto waitForStop=[&](pid_t tid) {
-        for (;;) {
-            int status=0;
-            pid_t waited=waitpid(tid,&status,__WALL|__WNOTHREAD|WNOHANG);
-            if (waited==tid) { consume(tid,status); return threads.at(tid).alive && threads.at(tid).stopped; }
-            if (waited<0 && errno!=EINTR) {
-                if (errno==ECHILD || errno==ESRCH) threads.at(tid).alive=false;
-                else setError({errno,std::system_category()});
-                return false;
-            }
-            usleep(1000);
-        }
-    };
-    auto restore=[&](pid_t tid) {
-        auto& state=threads.at(tid);
-        if (!state.saved) return true;
-        auto result=os::restoreNativeHardwareBank(tid,false,state.original);
-        if (!result) { setError(result.error()); recoveryPending_=true; return false; }
-        state.armed=false; return true;
-    };
-    auto arm=[&](pid_t tid) {
-        auto& state=threads.at(tid);
-        if (software_) return true;
-        if (!state.saved) {
-            auto bank=os::readNativeHardwareBank(tid,false);
-            if (!bank) { setError(bank.error()); return false; }
-            state.original=*bank;
-            bool arm64=nativeTargetMachine().architecture==CpuArchitecture::Arm64;
-            while (state.slot<bank->count && (bank->entries[state.slot].control&(arm64 ? 1u : 3u))) ++state.slot;
-            if (state.slot==bank->count) { setError(std::make_error_code(std::errc::no_space_on_device)); return false; }
-            state.saved=true;
-        }
-        auto result=os::setNativeHardwareBreakpoint(tid,state.slot,targetAddress_,
-            writesOnly_ ? os::HardwareBreakpointAccess::Write : os::HardwareBreakpointAccess::ReadWrite,watchSize_);
-        if (!result) { setError(result.error()); recoveryPending_=true; return false; }
-        state.armed=true; return true;
-    };
-    auto resume=[&](pid_t tid,bool step=false,bool forceContinue=false) {
-        auto& state=threads.at(tid);
-        auto request=step ? PTRACE_SINGLESTEP : state.groupStop && !forceContinue ? PTRACE_LISTEN : PTRACE_CONT;
-        if (state.signal && state.signalInfo && ptrace(PTRACE_SETSIGINFO,tid,nullptr,&*state.signalInfo)<0) {
-            setError({errno,std::system_category()}); return false;
-        }
-        if (ptrace(request,tid,nullptr,reinterpret_cast<void*>(intptr_t(state.signal)))<0) {
-            setError({errno,std::system_category()}); return false;
-        }
-        state.stopped=false; state.signal=0; state.signalInfo.reset(); state.guardStop=false; state.event=0; state.stepping=step; return true;
-    };
-    // ARM64 reports the accessed address, which for a wider access covering
-    // the watched bytes (str x1,[x0] over an int at x0+4, stp, a q-register
-    // pair, dc zva) lies below them. Accept it within the widest access when
-    // no other watchpoint of the thread could explain the trap.
-    auto arm64WatchHit=[&](const Thread& state,uintptr_t address) {
-        const uintptr_t end=targetAddress_+watchSize_;
-        if (address>=targetAddress_ && address<end) return true;
-        constexpr uintptr_t widestAccess=2048;   // dc zva's largest block
-        const uintptr_t aligned=targetAddress_&~uintptr_t{7};
-        if (address>=end || address<(aligned>widestAccess ? aligned-widestAccess : 0)) return false;
-        for (unsigned i=0;i<state.original.count;++i)
-            if (i!=state.slot && (state.original.entries[i].control&1)) return false;
-        return true;
-    };
-    auto ownsHardwareTrap=[&](pid_t tid,const siginfo_t& info) -> Result<bool> {
-        auto& state=threads.at(tid);
-        if (software_ || !state.armed || info.si_signo!=SIGTRAP || info.si_code!=TRAP_HWBKPT) return false;
-        if (host_.architecture==CpuArchitecture::Arm64)
-            return arm64WatchHit(state,reinterpret_cast<uintptr_t>(info.si_addr));
+        usleep(1000);
+    }
+}
+
+bool CodeFinder::restore(pid_t tid) {
+    auto& state=threads.at(tid);
+    if (!state.saved) return true;
+    auto result=os::restoreNativeHardwareBank(tid,false,state.original);
+    if (!result) { setError(result.error()); recoveryPending_=true; return false; }
+    state.armed=false; return true;
+}
+
+bool CodeFinder::arm(pid_t tid) {
+    auto& state=threads.at(tid);
+    if (software_) return true;
+    if (!state.saved) {
         auto bank=os::readNativeHardwareBank(tid,false);
-        if (!bank) return std::unexpected(bank.error());
-        return (bank->status&(uint64_t{1}<<state.slot))!=0;
-    };
-    auto clearHardwareStop=[&](pid_t tid) {
-        auto& state=threads.at(tid);
-        if (state.event || state.signal!=SIGTRAP) return true;
-        siginfo_t info{};
-        if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)<0) {setError({errno,std::system_category()});return false;}
-        auto owned=ownsHardwareTrap(tid,info);
-        if (!owned) {setError(owned.error());return false;}
-        if (*owned) {state.signal=0;state.signalInfo.reset();}
-        return true;
-    };
-    auto queuedHardwareTrap=[&](pid_t tid) -> Result<bool> {
-        struct {uint64_t offset;uint32_t flags;int32_t count;} peek{0,0,32};
-        std::array<siginfo_t,32> pending{};
-        for (;;) {
-            auto count=ptrace(PTRACE_PEEKSIGINFO,tid,&peek,pending.data());
-            if (count<0) return std::unexpected(Error(errno,std::system_category()));
-            for (long i=0;i<count;++i) {
-                auto owned=ownsHardwareTrap(tid,pending[i]);
-                if (!owned || *owned) return owned;
+        if (!bank) { setError(bank.error()); return false; }
+        state.original=*bank;
+        bool arm64=nativeTargetMachine().architecture==CpuArchitecture::Arm64;
+        while (state.slot<bank->count && (bank->entries[state.slot].control&(arm64 ? 1u : 3u))) ++state.slot;
+        if (state.slot==bank->count) { setError(std::make_error_code(std::errc::no_space_on_device)); return false; }
+        state.saved=true;
+    }
+    auto result=os::setNativeHardwareBreakpoint(tid,state.slot,targetAddress_,
+        writesOnly_ ? os::HardwareBreakpointAccess::Write : os::HardwareBreakpointAccess::ReadWrite,watchSize_);
+    if (!result) { setError(result.error()); recoveryPending_=true; return false; }
+    state.armed=true; return true;
+}
+
+bool CodeFinder::resume(pid_t tid,bool step,bool forceContinue) {
+    auto& state=threads.at(tid);
+    auto request=step ? PTRACE_SINGLESTEP : state.groupStop && !forceContinue ? PTRACE_LISTEN : PTRACE_CONT;
+    if (state.signal && state.signalInfo && ptrace(PTRACE_SETSIGINFO,tid,nullptr,&*state.signalInfo)<0) {
+        setError({errno,std::system_category()}); return false;
+    }
+    if (ptrace(request,tid,nullptr,reinterpret_cast<void*>(intptr_t(state.signal)))<0) {
+        setError({errno,std::system_category()}); return false;
+    }
+    state.stopped=false; state.signal=0; state.signalInfo.reset(); state.guardStop=false; state.event=0; state.stepping=step; return true;
+}
+
+// ARM64 reports the accessed address, which for a wider access covering
+// the watched bytes (str x1,[x0] over an int at x0+4, stp, a q-register
+// pair, dc zva) lies below them. Accept it within the widest access when
+// no other watchpoint of the thread could explain the trap.
+bool CodeFinder::arm64WatchHit(const Thread& state,uintptr_t address) {
+    const uintptr_t end=targetAddress_+watchSize_;
+    if (address>=targetAddress_ && address<end) return true;
+    constexpr uintptr_t widestAccess=2048;   // dc zva's largest block
+    const uintptr_t aligned=targetAddress_&~uintptr_t{7};
+    if (address>=end || address<(aligned>widestAccess ? aligned-widestAccess : 0)) return false;
+    for (unsigned i=0;i<state.original.count;++i)
+        if (i!=state.slot && (state.original.entries[i].control&1)) return false;
+    return true;
+}
+
+Result<bool> CodeFinder::ownsHardwareTrap(pid_t tid,const siginfo_t& info) {
+    auto& state=threads.at(tid);
+    if (software_ || !state.armed || info.si_signo!=SIGTRAP || info.si_code!=TRAP_HWBKPT) return false;
+    if (host_.architecture==CpuArchitecture::Arm64)
+        return arm64WatchHit(state,reinterpret_cast<uintptr_t>(info.si_addr));
+    auto bank=os::readNativeHardwareBank(tid,false);
+    if (!bank) return std::unexpected(bank.error());
+    return (bank->status&(uint64_t{1}<<state.slot))!=0;
+}
+
+bool CodeFinder::clearHardwareStop(pid_t tid) {
+    auto& state=threads.at(tid);
+    if (state.event || state.signal!=SIGTRAP) return true;
+    siginfo_t info{};
+    if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)<0) {setError({errno,std::system_category()});return false;}
+    auto owned=ownsHardwareTrap(tid,info);
+    if (!owned) {setError(owned.error());return false;}
+    if (*owned) {state.signal=0;state.signalInfo.reset();}
+    return true;
+}
+
+Result<bool> CodeFinder::queuedHardwareTrap(pid_t tid) {
+    struct {uint64_t offset;uint32_t flags;int32_t count;} peek{0,0,32};
+    std::array<siginfo_t,32> pending{};
+    for (;;) {
+        auto count=ptrace(PTRACE_PEEKSIGINFO,tid,&peek,pending.data());
+        if (count<0) return std::unexpected(Error(errno,std::system_category()));
+        for (long i=0;i<count;++i) {
+            auto owned=ownsHardwareTrap(tid,pending[i]);
+            if (!owned || *owned) return owned;
+        }
+        if (!count) return false;
+        peek.offset+=static_cast<uint64_t>(count);
+    }
+}
+
+bool CodeFinder::drainHardwareTraps(pid_t tid) {
+    auto& state=threads.at(tid);
+    if (software_ || !state.armed) return true;
+    while (state.alive && state.armed) {
+        if (!clearHardwareStop(tid)) return false;
+        auto queued=queuedHardwareTrap(tid);
+        if (!queued) {setError(queued.error());return false;}
+        if (!*queued) break;
+        // INTERRUPT can win before a synchronous watchpoint signal reaches
+        // its delivery stop. Drain that signal before clearing DR6/slots.
+        // Keep an already observed application signal for final detach.
+        if (state.signal) {
+            if (state.deferredSignal) {setError(std::make_error_code(std::errc::resource_unavailable_try_again));return false;}
+            state.deferredSignal=state.signal;state.deferredInfo=state.signalInfo;
+            state.signal=0;state.signalInfo.reset();
+        }
+        // A pending synchronous trap stops before another user instruction.
+        // CONT also releases a group-stop to its delivery stop; DETACH
+        // reinstates the kernel's group-stop state without adding SIGSTOP.
+        if (!resume(tid,false,true) || !waitForStop(tid)) return !state.alive;
+    }
+    if (state.deferredSignal) {
+        state.signal=state.deferredSignal;state.signalInfo=state.deferredInfo;
+        state.deferredSignal=0;state.deferredInfo.reset();
+    }
+    return true;
+}
+
+pid_t CodeFinder::adopt(pid_t parent) {
+    unsigned long child=0;
+    if (ptrace(PTRACE_GETEVENTMSG,parent,nullptr,&child)<0 || !child) {
+        setError({errno ? errno : EIO,std::system_category()}); return pid_t{0};
+    }
+    pid_t tid=static_cast<pid_t>(child);
+    threads.try_emplace(tid);
+    // An automatic child stop may have arrived before its parent's event.
+    // A child that already exited is adopted as gone, not as a failure.
+    if (!threads.at(tid).stopped && !waitForStop(tid)) return threads.at(tid).alive ? pid_t{0} : tid;
+    threads.at(tid).signal=0;
+    return tid;
+}
+
+bool CodeFinder::stopAll() {
+    for (;;) {
+        bool pending=false;
+        for (auto& [tid,state] : threads) {
+            if (!state.alive) continue;
+            if (!state.stopped) {
+                pending=true;
+                ptrace(PTRACE_INTERRUPT,tid,nullptr,nullptr);
+                if (!waitForStop(tid)) continue;
             }
-            if (!count) return false;
-            peek.offset+=static_cast<uint64_t>(count);
+            if (state.event==PTRACE_EVENT_CLONE && !adopt(tid)) return false;
         }
-    };
-    auto drainHardwareTraps=[&](pid_t tid) {
-        auto& state=threads.at(tid);
-        if (software_ || !state.armed) return true;
-        while (state.alive && state.armed) {
-            if (!clearHardwareStop(tid)) return false;
-            auto queued=queuedHardwareTrap(tid);
-            if (!queued) {setError(queued.error());return false;}
-            if (!*queued) break;
-            // INTERRUPT can win before a synchronous watchpoint signal reaches
-            // its delivery stop. Drain that signal before clearing DR6/slots.
-            // Keep an already observed application signal for final detach.
-            if (state.signal) {
-                if (state.deferredSignal) {setError(std::make_error_code(std::errc::resource_unavailable_try_again));return false;}
-                state.deferredSignal=state.signal;state.deferredInfo=state.signalInfo;
-                state.signal=0;state.signalInfo.reset();
-            }
-            // A pending synchronous trap stops before another user instruction.
-            // CONT also releases a group-stop to its delivery stop; DETACH
-            // reinstates the kernel's group-stop state without adding SIGSTOP.
-            if (!resume(tid,false,true) || !waitForStop(tid)) return !state.alive;
-        }
-        if (state.deferredSignal) {
-            state.signal=state.deferredSignal;state.signalInfo=state.deferredInfo;
-            state.deferredSignal=0;state.deferredInfo.reset();
-        }
-        return true;
-    };
-    auto adopt=[&](pid_t parent) {
-        unsigned long child=0;
-        if (ptrace(PTRACE_GETEVENTMSG,parent,nullptr,&child)<0 || !child) {
-            setError({errno ? errno : EIO,std::system_category()}); return pid_t{0};
-        }
-        pid_t tid=static_cast<pid_t>(child);
-        threads.try_emplace(tid);
-        // An automatic child stop may have arrived before its parent's event.
-        // A child that already exited is adopted as gone, not as a failure.
-        if (!threads.at(tid).stopped && !waitForStop(tid)) return threads.at(tid).alive ? pid_t{0} : tid;
-        threads.at(tid).signal=0;
-        return tid;
-    };
-    auto stopAll=[&] {
-        for (;;) {
-            bool pending=false;
-            for (auto& [tid,state] : threads) {
-                if (!state.alive) continue;
-                if (!state.stopped) {
-                    pending=true;
-                    ptrace(PTRACE_INTERRUPT,tid,nullptr,nullptr);
-                    if (!waitForStop(tid)) continue;
-                }
-                if (state.event==PTRACE_EVENT_CLONE && !adopt(tid)) return false;
-            }
-            bool running=std::any_of(threads.begin(),threads.end(),[](const auto& entry) {
-                return entry.second.alive && !entry.second.stopped;
-            });
-            if (!running) return true;
-            if (pending) usleep(20000);
-        }
-    };
-    auto guardFault=[&](pid_t tid,siginfo_t* details=nullptr) {
-        auto& state=threads.at(tid);
-        if (state.event || state.signal!=SIGSEGV || !state.guardStop) return false;
-        siginfo_t info{};
-        if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)<0 || info.si_code!=SEGV_ACCERR) return false;
-        uintptr_t fault=reinterpret_cast<uintptr_t>(info.si_addr);
-        if (details) *details=info;
-        return fault>=pageStart && fault<pageEnd;
-    };
-    auto releaseScratch=[&] {
-        if (!scratch || imageRetired) { scratch=0; return true; }
-        auto owner=std::find_if(threads.begin(),threads.end(),[](const auto& entry) { return entry.second.alive && entry.second.stopped; });
-        if (owner!=threads.end()) {
-            if (runStoppedSyscall(owner->first,os::MemorySyscall::Unmap,{scratch,pageSize,0,0,0,0},0,owner->second.signal,&owner->second.signalInfo)!=0) return false;
-        } else {
-            if (!proc_->targetDescription().live) { scratch=0; return true; }
-            auto freed=proc_->free(scratch,pageSize);
-            if (!freed) { setError(freed.error()); recoveryPending_=true; return false; }
-        }
-        scratch=0; return true;
-    };
+        bool running=std::any_of(threads.begin(),threads.end(),[](const auto& entry) {
+            return entry.second.alive && !entry.second.stopped;
+        });
+        if (!running) return true;
+        if (pending) usleep(20000);
+    }
+}
+
+bool CodeFinder::guardFault(pid_t tid,siginfo_t* details) {
+    auto& state=threads.at(tid);
+    if (state.event || state.signal!=SIGSEGV || !state.guardStop) return false;
+    siginfo_t info{};
+    if (ptrace(PTRACE_GETSIGINFO,tid,nullptr,&info)<0 || info.si_code!=SEGV_ACCERR) return false;
+    uintptr_t fault=reinterpret_cast<uintptr_t>(info.si_addr);
+    if (details) *details=info;
+    return fault>=pageStart && fault<pageEnd;
+}
+
+bool CodeFinder::releaseScratch() {
+    if (!scratch || imageRetired) { scratch=0; return true; }
+    auto owner=std::find_if(threads.begin(),threads.end(),[](const auto& entry) { return entry.second.alive && entry.second.stopped; });
+    if (owner!=threads.end()) {
+        if (runStoppedSyscall(owner->first,os::MemorySyscall::Unmap,{scratch,pageSize,0,0,0,0},0,owner->second.signal,&owner->second.signalInfo)!=0) return false;
+    } else {
+        if (!proc_->targetDescription().live) { scratch=0; return true; }
+        auto freed=proc_->free(scratch,pageSize);
+        if (!freed) { setError(freed.error()); recoveryPending_=true; return false; }
+    }
+    scratch=0; return true;
+}
+
+void CodeFinder::monitorLoop() {
+    // A fresh run of the state the steps above share.
+    threads.clear();
+    scratch=pageStart=pageEnd=mappingStart=mappingEnd=0;
+    pageLength=pageSize=0;
+    originalProtection=guardProtection=0;
+    guardChanged=guardActive=imageRetired=false;
+    startupReported=false;
     struct Cleanup { std::function<void()> action; ~Cleanup() { action(); } } cleanup{[&] {
         reportStartup(false);
         if (software_) {

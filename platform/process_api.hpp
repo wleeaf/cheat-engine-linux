@@ -7,6 +7,7 @@
 #include <expected>
 #include <system_error>
 #include <utility>
+#include <optional>
 #include <vector>
 
 namespace ce {
@@ -154,6 +155,20 @@ public:
     // Hardware breakpoints (DR0-DR3)
     virtual Result<void> setBreakpoint(pid_t tid, int reg, uintptr_t address, int type, int size) = 0;
     virtual Result<void> removeBreakpoint(pid_t tid, int reg) = 0;
+
+    /// A debugger whose target reports its stops as events (ceserver). A
+    /// local ptrace debugger reports none: its users wait on the threads.
+    struct Stop {
+        pid_t tid = 0;
+        int signal = 0;        // SIGTRAP for a breakpoint or a finished step
+        uintptr_t address = 0; // the breakpoint's address
+    };
+    virtual bool reportsStops() const { return false; }
+    /// The next stop within timeoutMs, if any. The thread stays stopped until continueStop.
+    virtual std::optional<Stop> waitForStop(int /*timeoutMs*/) { return std::nullopt; }
+    virtual Result<void> continueStop(pid_t /*tid*/) {
+        return std::unexpected(std::make_error_code(std::errc::not_supported));
+    }
 };
 
 } // namespace ce

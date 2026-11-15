@@ -1537,8 +1537,10 @@ void test_cheat_table_json() {
     auto protectedPath = std::filesystem::temp_directory_path() /
         ("cecore-table-" + std::to_string(getpid()) + ".CETRAINER");
 
+    // A build without the cipher refuses to save a protected table at all.
+    const bool sealing = CheatTable::protectedTablesAvailable();
     if (!table.saveJson(jsonPath.string()) || !table.save(xmlPath.string()) ||
-        !table.saveProtected(protectedPath.string(), "secret")) {
+        sealing != table.saveProtected(protectedPath.string(), "secret")) {
         printf("  Save FAILED\n");
         return;
     }
@@ -1748,10 +1750,49 @@ void test_cheat_table_json() {
     std::filesystem::remove(spPath);
 
     CheatTable protectedLoaded;
-    bool protectedOk = protectedLoaded.loadProtected(protectedPath.string(), "secret") &&
-        matchesTable(protectedLoaded);
+    bool protectedOk = !sealing || (protectedLoaded.loadProtected(protectedPath.string(), "secret") &&
+        matchesTable(protectedLoaded));
     CheatTable wrongPassword;
     bool wrongPasswordOk = !wrongPassword.loadProtected(protectedPath.string(), "wrong");
+    // The file is CETRAINER2: no record text in the clear, and one changed
+    // byte makes it fail to open rather than load something else.
+    std::string sealedBytes;
+    { std::ifstream in(protectedPath, std::ios::binary); sealedBytes.assign(std::istreambuf_iterator<char>(in), {}); }
+    bool sealedOk = !sealing || (sealedBytes.rfind("CETRAINER2\n", 0) == 0 && !table.gameName.empty() &&
+                                 sealedBytes.find(table.gameName) == std::string::npos);
+    if (sealing) {
+        std::string tampered = sealedBytes;
+        tampered[tampered.size() / 2] ^= 0x01;
+        const auto changedPath = protectedPath.string() + ".changed";
+        { std::ofstream out(changedPath, std::ios::binary); out << tampered; }
+        CheatTable changed;
+        sealedOk = sealedOk && !changed.loadProtected(changedPath, "secret");
+        std::filesystem::remove(changedPath);
+    }
+    // A CETRAINER1 file from an older version still loads: built here the way
+    // that version wrote it (xorshift64 keystream seeded by fnv1a(password)).
+    bool legacyOk = false;
+    {
+        std::string json;
+        { std::ifstream in(jsonPath, std::ios::binary); json.assign(std::istreambuf_iterator<char>(in), {}); }
+        auto fnv = [](const std::string& text) {
+            uint64_t hash = 1469598103934665603ULL;
+            for (unsigned char c : text) { hash ^= c; hash *= 1099511628211ULL; }
+            return hash;
+        };
+        uint64_t state = fnv("secret");
+        std::string legacy = "CETRAINER1\n" + std::to_string(fnv("secret")) + "\n";
+        for (char c : json) {
+            state ^= state << 13; state ^= state >> 7; state ^= state << 17;
+            legacy.push_back(static_cast<char>(static_cast<unsigned char>(c) ^ static_cast<uint8_t>(state & 0xff)));
+        }
+        const auto legacyPath = protectedPath.string() + ".v1";
+        { std::ofstream out(legacyPath, std::ios::binary); out << legacy; }
+        CheatTable legacyLoaded, legacyWrong;
+        legacyOk = legacyLoaded.loadProtected(legacyPath, "secret") && matchesTable(legacyLoaded) &&
+                   !legacyWrong.loadProtected(legacyPath, "wrong");
+        std::filesystem::remove(legacyPath);
+    }
     std::filesystem::remove(jsonPath);
     std::filesystem::remove(xmlPath);
     std::filesystem::remove(protectedPath);
@@ -1767,6 +1808,8 @@ void test_cheat_table_json() {
     printf("  XML special chars (& < > \") in desc/value round-trip: %s\n", specialsOk ? "OK" : "FAILED");
     printf("  CT XML CE type names: %s\n", xmlTypeNamesOk ? "OK" : "FAILED");
     printf("  CETRAINER protected round trip: %s\n", (protectedOk && wrongPasswordOk) ? "OK" : "FAILED");
+    printf("  CETRAINER2 is encrypted and authenticated; CETRAINER1 files still load: %s\n",
+           sealedOk && legacyOk ? "OK" : "FAILED");
 }
 
 // A pointer-scan result added to the address list must go in AS its pointer
@@ -2577,7 +2620,9 @@ void test_ct_format_detection() {
     // since it needs a password, rather than silently corrupting).
     CheatTable p; p.entries = {je};
     auto ppath = fs::temp_directory_path() / "secret.CETRAINER";
-    bool protSaved = p.saveProtected(ppath.string(), "pw");
+    // Without the cipher nothing is saved; a CETRAINER1 header still detects.
+    bool protSaved = CheatTable::protectedTablesAvailable() ? p.saveProtected(ppath.string(), "pw")
+                                                            : (std::ofstream(ppath) << "CETRAINER1\n0\n").good();
     bool protDetect = ce::detectTableFormat(ppath.string()) == ce::TableFormat::Protected;
     CheatTable pr; bool protDeclined = !pr.loadAuto(ppath.string());
     fs::remove(ppath);
@@ -2687,9 +2732,21 @@ void test_trainer_generation() {
     be.dataByteOrder = ByteOrder::Big; be.value = "7"; table.entries.push_back(be);
     CheatEntry floorE; floorE.description = "Floor"; floorE.address = 0x3020; floorE.type = ValueType::Int32;
     floorE.freezeMode = ce::FreezeMode::IncreaseOnly; floorE.value = "50"; table.entries.push_back(floorE);
+    // Text and bytes freeze through a byte list the generator prints itself:
+    // a quote in the text never reaches the C source, and <Length> bounds it.
+    CheatEntry text; text.description = "Name"; text.address = 0x3030; text.type = ValueType::String;
+    text.value = "Hi\"x"; table.entries.push_back(text);
+    CheatEntry wide; wide.description = "Wide"; wide.address = 0x3040; wide.type = ValueType::UnicodeString;
+    wide.value = "A"; table.entries.push_back(wide);
+    CheatEntry aob; aob.description = "Bytes"; aob.address = 0x3050; aob.type = ValueType::ByteArray;
+    aob.value = "90 90 C3"; aob.length = 2; table.entries.push_back(aob);
 
     TrainerGenerator generator;
     auto source = generator.generateSource(table);
+    printf("  trainer freezes text and bytes from a printed byte list: %s\n",
+           source.find("v[4] = {72,105,34,120}; wpm((void*)0x3030, v, 4);") != std::string::npos &&
+           source.find("v[2] = {65,0}; wpm((void*)0x3040, v, 2);") != std::string::npos &&
+           source.find("v[2] = {144,144}; wpm((void*)0x3050, v, 2);") != std::string::npos ? "OK" : "FAILED");
     printf("  trainer honours pointer width, byte order and freeze direction: %s\n",
            source.find("uint32_t v = 4096u; wpm((void*)0x3000, &v, 4);") != std::string::npos &&
            source.find("wpm((void*)0x3010, b, 4);") != std::string::npos &&

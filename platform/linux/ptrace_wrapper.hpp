@@ -5,6 +5,7 @@
 
 #include <vector>
 #include <map>
+#include <set>
 
 namespace ce::os {
 
@@ -33,11 +34,16 @@ public:
     /// PTRACE_EVENT_FORK / VFORK / CLONE since the last call. Each returned
     /// pid is automatically re-armed with the same trace options so the
     /// follow-fork chain keeps going. Safe to call frequently; non-blocking.
+    /// Only this debugger's tracees are waited on, so the caller's own
+    /// children keep their exit statuses; every other stop is resumed as the
+    /// program would run (a signal delivered, a job-control stop kept).
     Result<std::vector<pid_t>> pollChildren();
 
 private:
     pid_t pid_ = 0;
     bool attached_ = false;
+    std::set<pid_t> tracees_;        // the attached process and the children it gained
+    std::set<pid_t> awaitingStart_;  // announced children whose first stop is still due
     std::map<std::pair<pid_t, int>, bool> breakpointExecution_;
 
     static Error errFromErrno();

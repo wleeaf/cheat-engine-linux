@@ -34,6 +34,7 @@
 #include <atomic>
 #include <cmath>
 #include <mutex>
+#include <unordered_map>
 #include <vector>
 #include <cstdint>
 #include <cstdio>
@@ -99,24 +100,26 @@ struct StreamMeta {
 #endif
 };
 
-constexpr int kMaxStreams = 16;
-StreamMeta g_streams[kMaxStreams] = {};
+// Every open stream the program has written to, by handle. A map, not a
+// fixed table, so any number of concurrent streams is pitch-corrected; a
+// stream's entry goes when it is closed (dropMetaLocked). Map values do not
+// move when others are added, so a returned pointer stays valid while the
+// caller holds the lock.
+std::unordered_map<snd_pcm_t*, StreamMeta> g_streams;
 // Serialises g_streams: ALSA clients commonly write from a dedicated audio
-// thread, so slot allocation and the SoundTouch* new/delete must be guarded.
-// TODO(security): cap is fixed at 16; revalidate hw_params on handle reuse and
-// make the table dynamic if more concurrent streams are needed.
+// thread, so entry creation and the SoundTouch* new/delete must be guarded.
 std::mutex g_streamsMutex;
 
 // Caller must hold g_streamsMutex.
 StreamMeta* getOrFillMetaLocked(snd_pcm_t* h) {
-    for (auto& s : g_streams) {
-        if (s.handle != h) continue;
+    snd_pcm_hw_params_t* p = nullptr;
+    snd_pcm_hw_params_alloca(&p);
+    if (auto found = g_streams.find(h); found != g_streams.end()) {
+        auto& s = found->second;
         // Re-query the live params: the app may have reconfigured this handle
         // (e.g. dropped channels 2->1) without closing it, which would leave a
         // stale channel count and make snd_pcm_writei over-read the caller's
         // buffer by inFrames*(cachedChannels-actualChannels) samples.
-        snd_pcm_hw_params_t* p = nullptr;
-        snd_pcm_hw_params_alloca(&p);
         if (snd_pcm_hw_params_current(h, p) == 0) {
             snd_pcm_hw_params_get_format(p, &s.fmt);
             unsigned int newCh = 0, newRate = 0;
@@ -134,41 +137,30 @@ StreamMeta* getOrFillMetaLocked(snd_pcm_t* h) {
         }
         return &s;
     }
-    // Empty slot — populate from the kernel via snd_pcm_hw_params_current.
-    for (auto& s : g_streams) {
-        if (s.handle == nullptr) {
-            snd_pcm_hw_params_t* p = nullptr;
-            snd_pcm_hw_params_alloca(&p);
-            if (snd_pcm_hw_params_current(h, p) == 0) {
-                s.handle = h;
-                snd_pcm_hw_params_get_format(p, &s.fmt);
-                snd_pcm_hw_params_get_channels(p, &s.channels);
-                snd_pcm_hw_params_get_rate(p, &s.rate, nullptr);
+    // A new stream: populate from the kernel via snd_pcm_hw_params_current.
+    if (snd_pcm_hw_params_current(h, p) != 0) return nullptr;
+    StreamMeta s{};
+    s.handle = h;
+    snd_pcm_hw_params_get_format(p, &s.fmt);
+    snd_pcm_hw_params_get_channels(p, &s.channels);
+    snd_pcm_hw_params_get_rate(p, &s.rate, nullptr);
 #ifdef CECORE_HAVE_SOUNDTOUCH
-                s.st = new soundtouch::SoundTouch();
-                s.st->setChannels(s.channels ? s.channels : 2);
-                s.st->setSampleRate(s.rate ? s.rate : 44100);
+    s.st = new soundtouch::SoundTouch();
+    s.st->setChannels(s.channels ? s.channels : 2);
+    s.st->setSampleRate(s.rate ? s.rate : 44100);
 #endif
-                return &s;
-            }
-            return nullptr;
-        }
-    }
-    return nullptr;
+    return &g_streams.emplace(h, s).first->second;
 }
 
-// Drop a stream's cache slot and free its SoundTouch object. Caller must hold
+// Drop a stream's entry and free its SoundTouch object. Caller must hold
 // g_streamsMutex.
 void dropMetaLocked(snd_pcm_t* h) {
-    for (auto& s : g_streams) {
-        if (s.handle == h) {
+    auto found = g_streams.find(h);
+    if (found == g_streams.end()) return;
 #ifdef CECORE_HAVE_SOUNDTOUCH
-            delete s.st;
+    delete found->second.st;
 #endif
-            s = StreamMeta{};
-            return;
-        }
-    }
+    g_streams.erase(found);
 }
 
 bool isSupportedFormat(snd_pcm_format_t f) {

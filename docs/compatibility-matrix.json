@@ -1164,7 +1164,7 @@
     },
     "C9": {
      "state": "B",
-     "evidence": "ceserver_integration SW breakpoint/event/removal/restore; multiclient per-connection bps"
+     "evidence": "ceserver_integration SW breakpoint/event/removal/restore, single step, thread registers and Break and Trace; multiclient per-connection bps"
     },
     "C10": {
      "state": "B",

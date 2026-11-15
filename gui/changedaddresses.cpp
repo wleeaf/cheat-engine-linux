@@ -1,4 +1,5 @@
 #include "gui/changedaddresses.hpp"
+#include "gui/hexformat.hpp"
 
 #include "core/cpu_registers.hpp"
 #include "core/value_io.hpp"
@@ -44,7 +45,6 @@ const DisplayChoice kDisplayChoices[] = {
 };
 constexpr int kAddressRole = Qt::UserRole + 1;
 
-QString hexAddress(uintptr_t address) { return QString::number(static_cast<qulonglong>(address), 16).toUpper(); }
 
 // Registers whose value is the same at every group-1 address and differs from
 // all of group 2 (or, with group 2 empty, from every other address).
@@ -73,7 +73,7 @@ QStringList commonRegisters(const std::map<uintptr_t, std::vector<CpuRegisterVal
             return value && *value != reference.value;
         });
         if (same && differs)
-            out << QString("%1 = %2").arg(QString::fromStdString(reference.name), hexAddress(reference.value));
+            out << QString("%1 = %2").arg(QString::fromStdString(reference.name), upperHex(reference.value));
     }
     return out;
 }
@@ -90,7 +90,7 @@ ChangedAddressesWindow::ChangedAddressesWindow(ProcessHandle* process, uintptr_t
     top->addWidget(new QLabel(tr("Code Address"), central));
     codeAddress_ = new QLineEdit(central);
     codeAddress_->setReadOnly(true);
-    QString where = hexAddress(instruction);
+    QString where = upperHex(instruction);
     if (process_) {
         const std::string module = moduleOffsetString(process_->modules(), instruction);
         if (!module.empty()) where = QString::fromStdString(module) + "  (" + where + ")";
@@ -212,7 +212,7 @@ void ChangedAddressesWindow::refresh() {
             rowOf.insert(address, row);
         }
         const QString value = valueText(address);
-        QString label = hexAddress(address);
+        QString label = upperHex(address);
         const bool shown = filter_.isEmpty() || label.contains(filter_, Qt::CaseInsensitive) ||
                            value.contains(filter_, Qt::CaseInsensitive);
         if (group1_.contains(address)) label += "  [1]";
@@ -249,10 +249,10 @@ void ChangedAddressesWindow::showRegisters(uintptr_t address) {
     }
     QStringList lines;
     for (const auto& reg : cpuRegisterValues(context))
-        lines << QString("%1 = %2").arg(QString::fromStdString(reg.name), -6).arg(hexAddress(reg.value));
+        lines << QString("%1 = %2").arg(QString::fromStdString(reg.name), -6).arg(upperHex(reg.value));
     const std::string flags = describeCpuStatusFlags(context);
     if (!flags.empty()) lines << QString::fromStdString(flags);
-    QMessageBox box(QMessageBox::NoIcon, QString(tr("Register states at %1")).arg(hexAddress(address)),
+    QMessageBox box(QMessageBox::NoIcon, QString(tr("Register states at %1")).arg(upperHex(address)),
                     lines.join('\n'), QMessageBox::Close, this);
     box.setTextInteractionFlags(Qt::TextSelectableByMouse);
     box.exec();
@@ -270,7 +270,7 @@ void ChangedAddressesWindow::changeValue(const QList<uintptr_t>& addresses) {
     QStringList failed;
     for (uintptr_t address : addresses)
         if (auto written = writeTypedValue(*process_, address, displayType(), value.toStdString(), options); !written)
-            failed << QString("%1: %2").arg(hexAddress(address), QString::fromStdString(written.error()));
+            failed << QString("%1: %2").arg(upperHex(address), QString::fromStdString(written.error()));
     if (!failed.isEmpty()) QMessageBox::warning(this, tr("Change value"), failed.join('\n'));
     refresh();
 }
@@ -350,7 +350,7 @@ void ChangedAddressesWindow::showContextMenu(const QPoint& pos) {
     isSigned->setChecked(signed_);
     menu.addAction(tr("Copy address to clipboard"), [selected]() {
         QStringList lines;
-        for (uintptr_t address : selected) lines << hexAddress(address);
+        for (uintptr_t address : selected) lines << upperHex(address);
         QApplication::clipboard()->setText(lines.join('\n'));
     })->setEnabled(any);
     menu.addAction(tr("Copy value to clipboard"), [this, selected]() {

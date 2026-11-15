@@ -1,5 +1,6 @@
 #include "platform/linux/ceserver_server.hpp"
 #include "platform/linux/linux_process.hpp"
+#include "platform/linux/ceserver_context.hpp"
 #include "debug/debug_session.hpp"
 #include "platform/network_compression.hpp"
 
@@ -189,6 +190,18 @@ struct CeserverServer::ClientState {
     std::deque<DebugEventRec> dbgQueue;
     std::shared_ptr<ce::ProcessHandle> dbgProc;
     std::unique_ptr<ce::DebugSession> dbg;
+    // A single step runs here, so a step over a blocking system call does not
+    // hold up the connection's other commands. Its end is queued as an event.
+    std::thread stepThread;
+    std::atomic<bool> stepping{false};
+    // Ends the debug session and its step (a detach abandons a step that does
+    // not return).
+    void endDebug() {
+        if (dbg) dbg->detach();
+        if (stepThread.joinable()) stepThread.join();
+        dbg.reset();
+        dbgProc.reset();
+    }
 };
 
 // The uid owning the client end of an accepted loopback connection, from
@@ -335,7 +348,7 @@ void CeserverServer::acceptLoop(int listener,int wakeFd) {
             try {
                 client->thread=std::thread([this,client,wakeFd] {
                     try { serveClient(*client); } catch (...) { /* close only this connection */ }
-                    client->dbg.reset();client->dbgProc.reset();
+                    client->endDebug();
                     {
                         std::lock_guard sockets(socketMutex_);
                         ::close(client->fd);client->fd=-1;client->finished=true;
@@ -349,9 +362,9 @@ void CeserverServer::acceptLoop(int listener,int wakeFd) {
     interruptClients();
 }
 
-void CeserverServer::serveClient(ClientState& client) {
-    const int fd=client.fd;
-    std::unordered_map<int32_t,std::shared_ptr<LinuxProcessHandle>> processes;
+// One client connection's state: its process and snapshot handles, and its
+// debug session's handle, breakpoint slots and the stop it was last given.
+struct CeserverServer::Connection {
     // Toolhelp snapshots for PROCESS32FIRST/NEXT and MODULE32FIRST/NEXT. They
     // share the handle space with processes, as upstream handles do.
     struct Snapshot {
@@ -360,6 +373,9 @@ void CeserverServer::serveClient(ClientState& client) {
         std::vector<Entry> entries;
         size_t next=0;
     };
+    ClientState& client;
+    const int fd;
+    std::unordered_map<int32_t,std::shared_ptr<LinuxProcessHandle>> processes;
     std::unordered_map<int32_t,Snapshot> snapshots;
     int32_t nextHandle=1, debugHandle=0;
     // The thread of the stop last handed to the client by WAITFORDEBUGEVENT
@@ -367,28 +383,30 @@ void CeserverServer::serveClient(ClientState& client) {
     std::optional<int64_t> deliveredStop;
     std::array<int,4> breakpointIds{};
     std::array<bool,4> hardwareBreakpoints{};
-    auto removeSlot=[&](unsigned slot) {
+
+    explicit Connection(ClientState& state) : client(state), fd(state.fd) {}
+    bool removeSlot(unsigned slot) {
         if (!breakpointIds[slot]) return false;
         bool removed=hardwareBreakpoints[slot]
             ? client.dbg->removeHardwareBreakpoint(breakpointIds[slot])
             : client.dbg->removeSoftwareBreakpoint(breakpointIds[slot]);
         if (removed) breakpointIds[slot]=0;
         return removed;
-    };
-    auto process=[&](int32_t handle) -> std::shared_ptr<LinuxProcessHandle> {
+    }
+    std::shared_ptr<LinuxProcessHandle> process(int32_t handle) {
         auto found=processes.find(handle);
         return found==processes.end() ? nullptr : found->second;
-    };
-    auto stopDebug=[&] {
-        client.dbg.reset();client.dbgProc.reset();debugHandle=0;breakpointIds.fill(0);deliveredStop.reset();
+    }
+    void stopDebug() {
+        client.endDebug();debugHandle=0;breakpointIds.fill(0);deliveredStop.reset();
         std::lock_guard<std::mutex> lk(client.dbgMutex);client.dbgQueue.clear();
-    };
-    auto takeHandle=[&]() -> int32_t {
+    }
+    int32_t takeHandle() {
         // Each process handle holds a pidfd: a bounded number per connection.
         if (nextHandle>kMaxHandle || processes.size()+snapshots.size()>=256) return 0;
         return nextHandle++;
-    };
-    auto snapshot=[&](uint32_t flags,uint32_t pid) -> int32_t {
+    }
+    int32_t snapshot(uint32_t flags,uint32_t pid) {
         Snapshot taken;
         if (flags & TH32CS_SNAPPROCESS) {
             for (auto& p : LinuxProcessEnumerator().list())
@@ -401,9 +419,9 @@ void CeserverServer::serveClient(ClientState& client) {
         const int32_t handle=takeHandle();
         if (handle) snapshots.emplace(handle,std::move(taken));
         return handle;
-    };
+    }
     // Upstream CeModuleEntry: result, base, part, size, file offset, name size, name.
-    auto sendModuleEntry=[&](int32_t result,uint64_t base,uint64_t size,const std::string& name) {
+    bool sendModuleEntry(int32_t result,uint64_t base,uint64_t size,const std::string& name) {
         int64_t base64=static_cast<int64_t>(base);
         int32_t part=0,moduleSize=static_cast<int32_t>(static_cast<uint32_t>(std::min<uint64_t>(size,UINT32_MAX)));
         int32_t nameSize=static_cast<int32_t>(name.size());
@@ -411,462 +429,598 @@ void CeserverServer::serveClient(ClientState& client) {
         return sendAll(fd,&result,4) && sendAll(fd,&base64,8) && sendAll(fd,&part,4) &&
                sendAll(fd,&moduleSize,4) && sendAll(fd,&fileOffset,4) && sendAll(fd,&nameSize,4) &&
                (!nameSize || sendAll(fd,name.data(),static_cast<size_t>(nameSize)));
-    };
+    }
+};
+
+enum class CeserverServer::Served : uint8_t { Done, Drop, NotMine };
+
+void CeserverServer::serveClient(ClientState& client) {
+    Connection connection(client);
     while (running_.load()) {
         uint8_t cmd = 0;
-        if (!recvAll(fd, &cmd, 1)) return;
-        switch (cmd) {
-            case CMD_GETVERSION: {
-                int32_t proto = 1;
-                const char* ver = "cecore ceserver";
-                uint8_t vlen = static_cast<uint8_t>(std::strlen(ver));
-                if (!sendAll(fd, &proto, 4) || !sendAll(fd, &vlen, 1) || !sendAll(fd, ver, vlen))
-                    return;
+        if (!recvAll(client.fd, &cmd, 1)) return;
+        Served served = Served::NotMine;
+        for (auto handler : {&CeserverServer::serveConnectionCommand, &CeserverServer::serveSnapshotCommand,
+                             &CeserverServer::serveMemoryCommand, &CeserverServer::serveThreadCommand,
+                             &CeserverServer::serveDebugCommand}) {
+            served = (this->*handler)(connection, cmd);
+            if (served != Served::NotMine) break;
+        }
+        // Unimplemented commands carry variable-length payloads this server
+        // cannot skip safely: drop the connection, as for a failed reply.
+        if (served != Served::Done) return;
+    }
+}
+
+// Version, options, opening and closing handles.
+CeserverServer::Served CeserverServer::serveConnectionCommand(Connection& c, uint8_t cmd) {
+    const int fd = c.fd;
+    auto& processes = c.processes;
+    auto& snapshots = c.snapshots;
+    int32_t& debugHandle = c.debugHandle;
+    auto stopDebug = [&c] { c.stopDebug(); };
+    auto takeHandle = [&c] { return c.takeHandle(); };
+    switch (cmd) {
+        case CMD_GETVERSION: {
+            int32_t proto = 1;
+            const char* ver = "cecore ceserver";
+            uint8_t vlen = static_cast<uint8_t>(std::strlen(ver));
+            if (!sendAll(fd, &proto, 4) || !sendAll(fd, &vlen, 1) || !sendAll(fd, ver, vlen))
+                return Served::Drop;
+            break;
+        }
+        // TERMINATESERVER ends only this connection: the server belongs to
+        // the application that started it, not to a client.
+        case CMD_CLOSECONNECTION:
+        case CMD_TERMINATESERVER:
+            return Served::Drop;
+        case CMD_GETABI: {
+            uint8_t abi = 1;   // upstream: 0 Windows, 1 everything else
+            if (!sendAll(fd, &abi, 1)) return Served::Drop;
+            break;
+        }
+        case CMD_ISANDROID: {
+            uint8_t android = 0;
+            if (!sendAll(fd, &android, 1)) return Served::Drop;
+            break;
+        }
+        case CMD_SET_CONNECTION_NAME: {
+            // A label for upstream's server log; no reply.
+            uint32_t length = 0;
+            if (!recvAll(fd, &length, 4) || length > kMaxDiscard || !discardAll(fd, length)) return Served::Drop;
+            break;
+        }
+        case CMD_GETOPTIONS: {
+            uint16_t count = 0;   // no server options
+            if (!sendAll(fd, &count, 2)) return Served::Drop;
+            break;
+        }
+        case CMD_GETOPTIONVALUE: {
+            if (!discardString16(fd) || !sendString16(fd, {})) return Served::Drop;
+            break;
+        }
+        case CMD_SETOPTIONVALUE: {
+            // Two strings in a row (the option name, then its value).
+            if (!discardString16(fd) || !discardString16(fd)) return Served::Drop;  // NOLINT(misc-redundant-expression)
+            break;
+        }
+        case CMD_GETCESERVERPATH: {
+            if (!sendString16(fd, {})) return Served::Drop;
+            break;
+        }
+        case CMD_OPENPROCESS: {
+            int32_t pid = 0;
+            if (!recvAll(fd, &pid, 4)) return Served::Drop;
+            int32_t handle=0;
+            if (pid>0) {
+                auto opened=std::make_shared<LinuxProcessHandle>(static_cast<pid_t>(pid));
+                if (opened->targetDescription().live && (handle=takeHandle()))
+                    processes.emplace(handle,std::move(opened));
+            }
+            if (!sendAll(fd, &handle, 4)) return Served::Drop;
+            break;
+        }
+        case CMD_CLOSEHANDLE: {
+            int32_t handle = 0;
+            if (!recvAll(fd, &handle, 4)) return Served::Drop;
+            if (handle==debugHandle) stopDebug();
+            int32_t result = processes.erase(handle) || snapshots.erase(handle) ? 1 : 0;
+            if (!sendAll(fd, &result, 4)) return Served::Drop;
+            break;
+        }
+        default:
+            return Served::NotMine;
+    }
+    return Served::Done;
+}
+
+// Toolhelp snapshots of the processes and of a process's modules.
+CeserverServer::Served CeserverServer::serveSnapshotCommand(Connection& c, uint8_t cmd) {
+    using Snapshot = Connection::Snapshot;
+    const int fd = c.fd;
+    auto& snapshots = c.snapshots;
+    auto snapshot = [&c](uint32_t flags, uint32_t pid) { return c.snapshot(flags, pid); };
+    auto sendModuleEntry = [&c](int32_t result, uint64_t base, uint64_t size, const std::string& name) { return c.sendModuleEntry(result, base, size, name); };
+    switch (cmd) {
+        case CMD_CREATETOOLHELP32SNAPSHOT: {
+            uint32_t flags = 0, pid = 0;
+            if (!recvAll(fd, &flags, 4) || !recvAll(fd, &pid, 4)) return Served::Drop;
+            int32_t handle = snapshot(flags, pid);
+            if (!sendAll(fd, &handle, 4)) return Served::Drop;
+            break;
+        }
+        case CMD_PROCESS32FIRST:
+        case CMD_PROCESS32NEXT: {
+            uint32_t handle = 0;
+            if (!recvAll(fd, &handle, 4)) return Served::Drop;
+            auto found = snapshots.find(static_cast<int32_t>(handle));
+            const Snapshot::Entry* entry = nullptr;
+            if (found != snapshots.end() && !found->second.modules) {
+                auto& list = found->second;
+                if (cmd == CMD_PROCESS32FIRST) list.next = 0;
+                if (list.next < list.entries.size()) entry = &list.entries[list.next++];
+            }
+            // Upstream CeProcessEntry: result, pid, name size, name.
+            int32_t header[3] = {entry ? 1 : 0, entry ? entry->pid : 0,
+                                 entry ? static_cast<int32_t>(std::min<size_t>(entry->name.size(), 4096)) : 0};
+            if (!sendAll(fd, header, sizeof header) ||
+                (header[2] && !sendAll(fd, entry->name.data(), static_cast<size_t>(header[2])))) return Served::Drop;
+            break;
+        }
+        case CMD_MODULE32FIRST:
+        case CMD_MODULE32NEXT: {
+            uint32_t handle = 0;
+            if (!recvAll(fd, &handle, 4)) return Served::Drop;
+            auto found = snapshots.find(static_cast<int32_t>(handle));
+            const Snapshot::Entry* entry = nullptr;
+            if (found != snapshots.end() && found->second.modules) {
+                auto& list = found->second;
+                if (cmd == CMD_MODULE32FIRST) list.next = 0;
+                if (list.next < list.entries.size()) entry = &list.entries[list.next++];
+            }
+            if (!(entry ? sendModuleEntry(1, entry->base, entry->size, entry->name)
+                        : sendModuleEntry(0, 0, 0, std::string()))) return Served::Drop;
+            break;
+        }
+        default:
+            return Served::NotMine;
+    }
+    return Served::Done;
+}
+
+// Reading, writing, querying, protecting, allocating and freeing memory.
+CeserverServer::Served CeserverServer::serveMemoryCommand(Connection& c, uint8_t cmd) {
+    const int fd = c.fd;
+    auto process = [&c](int32_t handle) { return c.process(handle); };
+    auto snapshot = [&c](uint32_t flags, uint32_t pid) { return c.snapshot(flags, pid); };
+    auto sendModuleEntry = [&c](int32_t result, uint64_t base, uint64_t size, const std::string& name) { return c.sendModuleEntry(result, base, size, name); };
+    switch (cmd) {
+        case CMD_READPROCESSMEMORY: {
+            uint32_t handle = 0, size = 0; uint64_t address = 0; uint8_t compress = 0;
+            if (!recvAll(fd, &handle, 4) || !recvAll(fd, &address, 8) ||
+                !recvAll(fd, &size, 4) || !recvAll(fd, &compress, 1)) return Served::Drop;
+            std::vector<uint8_t> buf;
+            int32_t got=0;
+            auto proc=process(static_cast<int32_t>(handle));
+            if (proc && size <= kMaxTransfer) {
+                buf.resize(size);
+                auto r=proc->read(static_cast<uintptr_t>(address),buf.data(),size);
+                got=r ? static_cast<int32_t>(*r) : 0;
+            }
+            buf.resize(static_cast<size_t>(got));
+            if (compress) {
+                // Upstream answers a compressed request with the read size,
+                // the zlib stream size and the stream (deflate level = compress).
+                auto packed=ce::net::compressPayload(buf, std::clamp<int>(compress, 1, 9));
+                uint32_t sizes[2] = {packed ? static_cast<uint32_t>(got) : 0u,
+                                     packed ? static_cast<uint32_t>(packed->size()) : 0u};
+                if (!sendAll(fd, sizes, sizeof sizes) || (sizes[1] && !sendAll(fd, packed->data(), sizes[1]))) return Served::Drop;
                 break;
             }
-            // TERMINATESERVER ends only this connection: the server belongs to
-            // the application that started it, not to a client.
-            case CMD_CLOSECONNECTION:
-            case CMD_TERMINATESERVER:
-                return;
-            case CMD_GETABI: {
-                uint8_t abi = 1;   // upstream: 0 Windows, 1 everything else
-                if (!sendAll(fd, &abi, 1)) return;
-                break;
+            if (!sendAll(fd, &got, 4)) return Served::Drop;
+            if (got > 0 && !sendAll(fd, buf.data(), static_cast<size_t>(got))) return Served::Drop;
+            break;
+        }
+        case CMD_WRITEPROCESSMEMORY: {
+            int32_t handle = 0, size = 0; int64_t address = 0;
+            if (!recvAll(fd, &handle, 4) || !recvAll(fd, &address, 8) ||
+                !recvAll(fd, &size, 4)) return Served::Drop;
+            // Reject a bad size by dropping the connection: the announced
+            // bytes were not read, so the stream can no longer be trusted.
+            if (size < 0 || static_cast<uint32_t>(size) > kMaxTransfer) return Served::Drop;
+            std::vector<uint8_t> buf(static_cast<size_t>(size));
+            if (size > 0 && !recvAll(fd, buf.data(), static_cast<size_t>(size))) return Served::Drop;
+            auto proc=process(handle);
+            int32_t written=0;
+            if (proc) {
+                auto r=proc->write(static_cast<uintptr_t>(address),buf.data(),static_cast<size_t>(size));
+                written=r ? static_cast<int32_t>(*r) : 0;
             }
-            case CMD_ISANDROID: {
-                uint8_t android = 0;
-                if (!sendAll(fd, &android, 1)) return;
-                break;
-            }
-            case CMD_SET_CONNECTION_NAME: {
-                // A label for upstream's server log; no reply.
-                uint32_t length = 0;
-                if (!recvAll(fd, &length, 4) || length > kMaxDiscard || !discardAll(fd, length)) return;
-                break;
-            }
-            case CMD_GETOPTIONS: {
-                uint16_t count = 0;   // no server options
-                if (!sendAll(fd, &count, 2)) return;
-                break;
-            }
-            case CMD_GETOPTIONVALUE: {
-                if (!discardString16(fd) || !sendString16(fd, {})) return;
-                break;
-            }
-            case CMD_SETOPTIONVALUE: {
-                // Two strings in a row (the option name, then its value).
-                if (!discardString16(fd) || !discardString16(fd)) return;  // NOLINT(misc-redundant-expression)
-                break;
-            }
-            case CMD_GETCESERVERPATH: {
-                if (!sendString16(fd, {})) return;
-                break;
-            }
-            case CMD_OPENPROCESS: {
-                int32_t pid = 0;
-                if (!recvAll(fd, &pid, 4)) return;
-                int32_t handle=0;
-                if (pid>0) {
-                    auto opened=std::make_shared<LinuxProcessHandle>(static_cast<pid_t>(pid));
-                    if (opened->targetDescription().live && (handle=takeHandle()))
-                        processes.emplace(handle,std::move(opened));
+            if (!sendAll(fd, &written, 4)) return Served::Drop;
+            break;
+        }
+        case CMD_GETARCHITECTURE: {
+            int32_t handle = 0;
+            if (!recvAll(fd, &handle, 4)) return Served::Drop;
+            uint8_t arch=0xff;
+            auto proc=process(handle);
+            if (proc) {
+                auto description=proc->targetDescription();
+                if (description.live) switch (description.program.architecture) {
+                    case CpuArchitecture::X86_32: arch=0;break;
+                    case CpuArchitecture::X86_64: arch=1;break;
+                    case CpuArchitecture::Arm32: arch=2;break;
+                    case CpuArchitecture::Arm64: arch=3;break;
+                    default: break;
                 }
-                if (!sendAll(fd, &handle, 4)) return;
-                break;
             }
-            case CMD_CLOSEHANDLE: {
-                int32_t handle = 0;
-                if (!recvAll(fd, &handle, 4)) return;
-                if (handle==debugHandle) stopDebug();
-                int32_t result = processes.erase(handle) || snapshots.erase(handle) ? 1 : 0;
-                if (!sendAll(fd, &result, 4)) return;
-                break;
-            }
-            case CMD_CREATETOOLHELP32SNAPSHOT: {
-                uint32_t flags = 0, pid = 0;
-                if (!recvAll(fd, &flags, 4) || !recvAll(fd, &pid, 4)) return;
-                int32_t handle = snapshot(flags, pid);
-                if (!sendAll(fd, &handle, 4)) return;
-                break;
-            }
-            case CMD_PROCESS32FIRST:
-            case CMD_PROCESS32NEXT: {
-                uint32_t handle = 0;
-                if (!recvAll(fd, &handle, 4)) return;
-                auto found = snapshots.find(static_cast<int32_t>(handle));
-                const Snapshot::Entry* entry = nullptr;
-                if (found != snapshots.end() && !found->second.modules) {
-                    auto& list = found->second;
-                    if (cmd == CMD_PROCESS32FIRST) list.next = 0;
-                    if (list.next < list.entries.size()) entry = &list.entries[list.next++];
-                }
-                // Upstream CeProcessEntry: result, pid, name size, name.
-                int32_t header[3] = {entry ? 1 : 0, entry ? entry->pid : 0,
-                                     entry ? static_cast<int32_t>(std::min<size_t>(entry->name.size(), 4096)) : 0};
-                if (!sendAll(fd, header, sizeof header) ||
-                    (header[2] && !sendAll(fd, entry->name.data(), static_cast<size_t>(header[2])))) return;
-                break;
-            }
-            case CMD_MODULE32FIRST:
-            case CMD_MODULE32NEXT: {
-                uint32_t handle = 0;
-                if (!recvAll(fd, &handle, 4)) return;
-                auto found = snapshots.find(static_cast<int32_t>(handle));
-                const Snapshot::Entry* entry = nullptr;
-                if (found != snapshots.end() && found->second.modules) {
-                    auto& list = found->second;
-                    if (cmd == CMD_MODULE32FIRST) list.next = 0;
-                    if (list.next < list.entries.size()) entry = &list.entries[list.next++];
-                }
-                if (!(entry ? sendModuleEntry(1, entry->base, entry->size, entry->name)
-                            : sendModuleEntry(0, 0, 0, std::string()))) return;
-                break;
-            }
-            case CMD_READPROCESSMEMORY: {
-                uint32_t handle = 0, size = 0; uint64_t address = 0; uint8_t compress = 0;
-                if (!recvAll(fd, &handle, 4) || !recvAll(fd, &address, 8) ||
-                    !recvAll(fd, &size, 4) || !recvAll(fd, &compress, 1)) return;
-                std::vector<uint8_t> buf;
-                int32_t got=0;
-                auto proc=process(static_cast<int32_t>(handle));
-                if (proc && size <= kMaxTransfer) {
-                    buf.resize(size);
-                    auto r=proc->read(static_cast<uintptr_t>(address),buf.data(),size);
-                    got=r ? static_cast<int32_t>(*r) : 0;
-                }
-                buf.resize(static_cast<size_t>(got));
-                if (compress) {
-                    // Upstream answers a compressed request with the read size,
-                    // the zlib stream size and the stream (deflate level = compress).
-                    auto packed=ce::net::compressPayload(buf, std::clamp<int>(compress, 1, 9));
-                    uint32_t sizes[2] = {packed ? static_cast<uint32_t>(got) : 0u,
-                                         packed ? static_cast<uint32_t>(packed->size()) : 0u};
-                    if (!sendAll(fd, sizes, sizeof sizes) || (sizes[1] && !sendAll(fd, packed->data(), sizes[1]))) return;
-                    break;
-                }
-                if (!sendAll(fd, &got, 4)) return;
-                if (got > 0 && !sendAll(fd, buf.data(), static_cast<size_t>(got))) return;
-                break;
-            }
-            case CMD_WRITEPROCESSMEMORY: {
-                int32_t handle = 0, size = 0; int64_t address = 0;
-                if (!recvAll(fd, &handle, 4) || !recvAll(fd, &address, 8) ||
-                    !recvAll(fd, &size, 4)) return;
-                // Reject a bad size by dropping the connection: the announced
-                // bytes were not read, so the stream can no longer be trusted.
-                if (size < 0 || static_cast<uint32_t>(size) > kMaxTransfer) return;
-                std::vector<uint8_t> buf(static_cast<size_t>(size));
-                if (size > 0 && !recvAll(fd, buf.data(), static_cast<size_t>(size))) return;
-                auto proc=process(handle);
-                int32_t written=0;
-                if (proc) {
-                    auto r=proc->write(static_cast<uintptr_t>(address),buf.data(),static_cast<size_t>(size));
-                    written=r ? static_cast<int32_t>(*r) : 0;
-                }
-                if (!sendAll(fd, &written, 4)) return;
-                break;
-            }
-            case CMD_GETARCHITECTURE: {
-                int32_t handle = 0;
-                if (!recvAll(fd, &handle, 4)) return;
-                uint8_t arch=0xff;
-                auto proc=process(handle);
-                if (proc) {
-                    auto description=proc->targetDescription();
-                    if (description.live) switch (description.program.architecture) {
-                        case CpuArchitecture::X86_32: arch=0;break;
-                        case CpuArchitecture::X86_64: arch=1;break;
-                        case CpuArchitecture::Arm32: arch=2;break;
-                        case CpuArchitecture::Arm64: arch=3;break;
-                        default: break;
-                    }
-                }
-                if (!sendAll(fd, &arch, 1)) return;
-                break;
-            }
-            case CMD_VIRTUALQUERYEX:
-            case CMD_GETREGIONINFO: {
-                int32_t handle=0;uint64_t address=0;
-                if (!recvAll(fd,&handle,4) || !recvAll(fd,&address,8)) return;
-                auto proc=process(handle);
-                uint8_t result=0;
-                uint32_t protection=0,type=0;
-                uint64_t base=0,size=0;
-                // An address between mappings is answered as upstream does: a
-                // PAGE_NOACCESS gap of type 0 up to the next mapping.
-                for (auto& region : proc ? proc->queryRegions() : std::vector<MemoryRegion>{}) {
-                    if (region.base+region.size<=address) continue;
-                    result=1;
-                    if (address>=region.base) {
-                        protection=wireProtection(region.protection);type=wireType(region.type);
-                        base=region.base;size=region.size;
-                    } else {
-                        protection=PAGE_NOACCESS;
-                        base=address & ~uint64_t(0xfff);size=region.base-base;
-                    }
-                    break;
-                }
-                if (!sendAll(fd,&result,1) || !sendAll(fd,&protection,4) ||
-                    !sendAll(fd,&type,4) || !sendAll(fd,&base,8) || !sendAll(fd,&size,8)) return;
-                // GETREGIONINFO appends the maps line (string8); none is sent.
-                uint8_t lineSize=0;
-                if (cmd==CMD_GETREGIONINFO && !sendAll(fd,&lineSize,1)) return;
-                break;
-            }
-            case CMD_CHANGEMEMORYPROTECTION: {
-                int32_t handle=0;uint64_t address=0;uint32_t size=0,prot=0;
-                if (!recvAll(fd,&handle,4) || !recvAll(fd,&address,8) ||
-                    !recvAll(fd,&size,4) || !recvAll(fd,&prot,4)) return;
-                auto proc=process(handle);auto protection=nativeProtection(prot);
-                uint32_t result=0,oldProtection=0;
-                if (proc && protection) {
-                    auto old=proc->queryRegion(static_cast<uintptr_t>(address));
-                    if (old && proc->protect(static_cast<uintptr_t>(address),size,*protection)) {
-                        result=1;oldProtection=wireProtection(old->protection);
-                    }
-                }
-                if (!sendAll(fd,&result,4) || !sendAll(fd,&oldProtection,4)) return;
-                break;
-            }
-            case CMD_VIRTUALQUERYEXFULL: {
-                int32_t handle = 0; uint8_t flags = 0;
-                if (!recvAll(fd, &handle, 4) || !recvAll(fd, &flags, 1)) return;
-                auto proc=process(handle);
-                auto regions=proc ? proc->queryRegions() : std::vector<MemoryRegion>{};
-                int32_t count = static_cast<int32_t>(regions.size());
-                if (!sendAll(fd, &count, 4)) return;
-                // Upstream RegionInfo, sent raw: base, size, protection, type.
-                for (auto& reg : regions) {
-                    uint64_t base = reg.base, size = reg.size;
-                    uint32_t protection = wireProtection(reg.protection);
-                    uint32_t type = wireType(reg.type);
-                    if (!sendAll(fd, &base, 8) || !sendAll(fd, &size, 8) ||
-                        !sendAll(fd, &protection, 4) || !sendAll(fd, &type, 4)) return;
-                }
-                break;
-            }
-            case CMD_CREATETOOLHELP32SNAPSHOTEX: {
-                uint32_t flags = 0, pid = 0;
-                if (!recvAll(fd, &flags, 4) || !recvAll(fd, &pid, 4)) return;
-                if (flags & TH32CS_SNAPTHREAD) {
-                    auto threads = LinuxProcessHandle(static_cast<pid_t>(pid)).threads();
-                    int32_t count = static_cast<int32_t>(threads.size());
-                    if (!sendAll(fd, &count, 4)) return;
-                    for (auto& t : threads) {
-                        int32_t tid = t.tid;
-                        if (!sendAll(fd, &tid, 4)) return;
-                    }
-                } else if (flags & TH32CS_SNAPMODULE) {
-                    // Streamed CeModuleEntry list, terminated by a result==0 entry.
-                    // The name is the full path, as upstream sends it.
-                    for (auto& m : LinuxProcessHandle(static_cast<pid_t>(pid)).modules())
-                        if (!sendModuleEntry(1, m.base, m.size, m.path.empty() ? m.name : m.path)) return;
-                    if (!sendModuleEntry(0, 0, 0, std::string())) return;   // terminator
+            if (!sendAll(fd, &arch, 1)) return Served::Drop;
+            break;
+        }
+        case CMD_VIRTUALQUERYEX:
+        case CMD_GETREGIONINFO: {
+            int32_t handle=0;uint64_t address=0;
+            if (!recvAll(fd,&handle,4) || !recvAll(fd,&address,8)) return Served::Drop;
+            auto proc=process(handle);
+            uint8_t result=0;
+            uint32_t protection=0,type=0;
+            uint64_t base=0,size=0;
+            // An address between mappings is answered as upstream does: a
+            // PAGE_NOACCESS gap of type 0 up to the next mapping.
+            for (auto& region : proc ? proc->queryRegions() : std::vector<MemoryRegion>{}) {
+                if (region.base+region.size<=address) continue;
+                result=1;
+                if (address>=region.base) {
+                    protection=wireProtection(region.protection);type=wireType(region.type);
+                    base=region.base;size=region.size;
                 } else {
-                    // Anything else returns a snapshot handle (0 on failure),
-                    // read with PROCESS32FIRST/NEXT.
-                    int32_t handle = snapshot(flags, pid);
-                    if (!sendAll(fd, &handle, 4)) return;
+                    protection=PAGE_NOACCESS;
+                    base=address & ~uint64_t(0xfff);size=region.base-base;
                 }
                 break;
             }
-            case CMD_ALLOC: {
-                int32_t handle = 0; uint64_t preferredBase = 0; uint32_t size = 0, prot = 0;
-                if (!recvAll(fd, &handle, 4) || !recvAll(fd, &preferredBase, 8) ||
-                    !recvAll(fd, &size, 4) || !recvAll(fd, &prot, 4)) return;
-                auto proc=process(handle);
-                auto protection=nativeProtection(prot);
-                uint64_t address=0;
-                if (proc && protection) {
-                    auto r=proc->allocate(size,*protection,static_cast<uintptr_t>(preferredBase));
-                    if (r) address=*r;
+            if (!sendAll(fd,&result,1) || !sendAll(fd,&protection,4) ||
+                !sendAll(fd,&type,4) || !sendAll(fd,&base,8) || !sendAll(fd,&size,8)) return Served::Drop;
+            // GETREGIONINFO appends the maps line (string8); none is sent.
+            uint8_t lineSize=0;
+            if (cmd==CMD_GETREGIONINFO && !sendAll(fd,&lineSize,1)) return Served::Drop;
+            break;
+        }
+        case CMD_CHANGEMEMORYPROTECTION: {
+            int32_t handle=0;uint64_t address=0;uint32_t size=0,prot=0;
+            if (!recvAll(fd,&handle,4) || !recvAll(fd,&address,8) ||
+                !recvAll(fd,&size,4) || !recvAll(fd,&prot,4)) return Served::Drop;
+            auto proc=process(handle);auto protection=nativeProtection(prot);
+            uint32_t result=0,oldProtection=0;
+            if (proc && protection) {
+                auto old=proc->queryRegion(static_cast<uintptr_t>(address));
+                if (old && proc->protect(static_cast<uintptr_t>(address),size,*protection)) {
+                    result=1;oldProtection=wireProtection(old->protection);
                 }
-                if (!sendAll(fd, &address, 8)) return;
+            }
+            if (!sendAll(fd,&result,4) || !sendAll(fd,&oldProtection,4)) return Served::Drop;
+            break;
+        }
+        case CMD_VIRTUALQUERYEXFULL: {
+            int32_t handle = 0; uint8_t flags = 0;
+            if (!recvAll(fd, &handle, 4) || !recvAll(fd, &flags, 1)) return Served::Drop;
+            auto proc=process(handle);
+            auto regions=proc ? proc->queryRegions() : std::vector<MemoryRegion>{};
+            int32_t count = static_cast<int32_t>(regions.size());
+            if (!sendAll(fd, &count, 4)) return Served::Drop;
+            // Upstream RegionInfo, sent raw: base, size, protection, type.
+            for (auto& reg : regions) {
+                uint64_t base = reg.base, size = reg.size;
+                uint32_t protection = wireProtection(reg.protection);
+                uint32_t type = wireType(reg.type);
+                if (!sendAll(fd, &base, 8) || !sendAll(fd, &size, 8) ||
+                    !sendAll(fd, &protection, 4) || !sendAll(fd, &type, 4)) return Served::Drop;
+            }
+            break;
+        }
+        case CMD_CREATETOOLHELP32SNAPSHOTEX: {
+            uint32_t flags = 0, pid = 0;
+            if (!recvAll(fd, &flags, 4) || !recvAll(fd, &pid, 4)) return Served::Drop;
+            if (flags & TH32CS_SNAPTHREAD) {
+                auto threads = LinuxProcessHandle(static_cast<pid_t>(pid)).threads();
+                int32_t count = static_cast<int32_t>(threads.size());
+                if (!sendAll(fd, &count, 4)) return Served::Drop;
+                for (auto& t : threads) {
+                    int32_t tid = t.tid;
+                    if (!sendAll(fd, &tid, 4)) return Served::Drop;
+                }
+            } else if (flags & TH32CS_SNAPMODULE) {
+                // Streamed CeModuleEntry list, terminated by a result==0 entry.
+                // The name is the full path, as upstream sends it.
+                for (auto& m : LinuxProcessHandle(static_cast<pid_t>(pid)).modules())
+                    if (!sendModuleEntry(1, m.base, m.size, m.path.empty() ? m.name : m.path)) return Served::Drop;
+                if (!sendModuleEntry(0, 0, 0, std::string())) return Served::Drop;   // terminator
+            } else {
+                // Anything else returns a snapshot handle (0 on failure),
+                // read with PROCESS32FIRST/NEXT.
+                int32_t handle = snapshot(flags, pid);
+                if (!sendAll(fd, &handle, 4)) return Served::Drop;
+            }
+            break;
+        }
+        case CMD_ALLOC: {
+            int32_t handle = 0; uint64_t preferredBase = 0; uint32_t size = 0, prot = 0;
+            if (!recvAll(fd, &handle, 4) || !recvAll(fd, &preferredBase, 8) ||
+                !recvAll(fd, &size, 4) || !recvAll(fd, &prot, 4)) return Served::Drop;
+            auto proc=process(handle);
+            auto protection=nativeProtection(prot);
+            uint64_t address=0;
+            if (proc && protection) {
+                auto r=proc->allocate(size,*protection,static_cast<uintptr_t>(preferredBase));
+                if (r) address=*r;
+            }
+            if (!sendAll(fd, &address, 8)) return Served::Drop;
+            break;
+        }
+        case CMD_FREE: {
+            int32_t handle = 0; uint64_t address = 0; uint32_t size = 0;
+            if (!recvAll(fd, &handle, 4) || !recvAll(fd, &address, 8) ||
+                !recvAll(fd, &size, 4)) return Served::Drop;
+            auto proc=process(handle);
+            uint32_t result=proc && proc->free(static_cast<uintptr_t>(address),size) ? 1 : 0;
+            if (!sendAll(fd, &result, 4)) return Served::Drop;
+            break;
+        }
+        default:
+            return Served::NotMine;
+    }
+    return Served::Done;
+}
+
+// Thread contexts, and the requests this server answers with a failure.
+CeserverServer::Served CeserverServer::serveThreadCommand(Connection& c, uint8_t cmd) {
+    const int fd = c.fd;
+    ClientState& client = c.client;
+    int32_t& debugHandle = c.debugHandle;
+    switch (cmd) {
+        // Recognized but not provided here: read the whole request and
+        // answer with upstream's failure value, so the client keeps its
+        // connection and falls back.
+        case CMD_SUSPENDTHREAD:
+        case CMD_RESUMETHREAD: {
+            int32_t request[2] = {};   // handle, tid
+            int32_t result = 0;
+            if (!recvAll(fd, request, sizeof request) || !sendAll(fd, &result, 4)) return Served::Drop;
+            break;
+        }
+        // A thread's registers while the debugged process is stopped at a
+        // debug event (x86-64). Upstream also reads a running thread by
+        // suspending it; this server answers that with its failure value.
+        case CMD_GETTHREADCONTEXT: {
+            int32_t request[2] = {};   // handle, tid
+            if (!recvAll(fd, request, sizeof request)) return Served::Drop;
+            std::vector<uint8_t> blob;
+            if (client.dbg && request[0]==debugHandle && !client.stepping && client.dbg->isStopped()) {
+                const pid_t previous=client.dbg->activeThread();
+                if (client.dbg->selectThread(request[1])) {
+                    const auto context=client.dbg->getStopContext();
+                    if (context.architecture==ce::CpuArchitecture::X86_64) blob=encodeCeserverX86_64Context(context);
+                    if (previous!=request[1]) client.dbg->selectThread(previous);
+                }
+            }
+            const int32_t result = blob.empty() ? 0 : 1;
+            const uint32_t size = static_cast<uint32_t>(blob.size());
+            if (!sendAll(fd, &result, 4) || (result && (!sendAll(fd, &size, 4) || !sendAll(fd, blob.data(), size)))) return Served::Drop;
+            break;
+        }
+        case CMD_SETTHREADCONTEXT: {
+            uint32_t request[3] = {};   // handle, tid, context size
+            if (!recvAll(fd, request, sizeof request) || request[2] > kMaxDiscard) return Served::Drop;
+            std::vector<uint8_t> blob(request[2]);
+            if (!blob.empty() && !recvAll(fd, blob.data(), blob.size())) return Served::Drop;
+            uint32_t result = 0;
+            const auto handle=static_cast<int32_t>(request[0]);
+            const auto tid=static_cast<pid_t>(request[1]);
+            if (client.dbg && handle==debugHandle && !client.stepping && client.dbg->isStopped()) {
+                const pid_t previous=client.dbg->activeThread();
+                if (client.dbg->selectThread(tid)) {
+                    // Start from the thread's own context: the blob does not
+                    // carry everything (fs_base, the vector registers).
+                    auto context=client.dbg->getStopContext();
+                    if (context.architecture==ce::CpuArchitecture::X86_64 && decodeCeserverX86_64Context(blob, context))
+                        result=client.dbg->setStopContext(context) ? 1 : 0;
+                    if (previous!=tid) client.dbg->selectThread(previous);
+                }
+            }
+            if (!sendAll(fd, &result, 4)) return Served::Drop;
+            break;
+        }
+        case CMD_SPEEDHACK_SETSPEED:
+        case CMD_LOADEXTENSION: {
+            uint32_t request[2] = {};   // handle, then the speed (float) for SETSPEED
+            uint32_t result = 0;
+            if (!recvAll(fd, request, cmd == CMD_LOADEXTENSION ? 4 : 8) || !sendAll(fd, &result, 4)) return Served::Drop;
+            break;
+        }
+        case CMD_CREATETHREAD: {
+            uint8_t request[20] = {};   // handle, start address, parameter
+            int32_t threadHandle = 0;
+            if (!recvAll(fd, request, sizeof request) || !sendAll(fd, &threadHandle, 4)) return Served::Drop;
+            break;
+        }
+        case CMD_GETSYMBOLLISTFROMFILE: {
+            uint32_t request[2] = {};   // file offset, path size
+            uint64_t none = 0;          // upstream's "no symbols" reply
+            if (!recvAll(fd, request, sizeof request) || request[1] > kMaxDiscard ||
+                !discardAll(fd, request[1]) || !sendAll(fd, &none, 8)) return Served::Drop;
+            break;
+        }
+        default:
+            return Served::NotMine;
+    }
+    return Served::Done;
+}
+
+// The debug session: starting and stopping it, breakpoints, events, continuing and stepping.
+CeserverServer::Served CeserverServer::serveDebugCommand(Connection& c, uint8_t cmd) {
+    const int fd = c.fd;
+    ClientState& client = c.client;
+    int32_t& debugHandle = c.debugHandle;
+    std::optional<int64_t>& deliveredStop = c.deliveredStop;
+    auto& breakpointIds = c.breakpointIds;
+    auto& hardwareBreakpoints = c.hardwareBreakpoints;
+    auto removeSlot = [&c](unsigned slot) { return c.removeSlot(slot); };
+    auto process = [&c](int32_t handle) { return c.process(handle); };
+    auto stopDebug = [&c] { c.stopDebug(); };
+    switch (cmd) {
+        case CMD_STARTDEBUG: {
+            int32_t handle = 0;
+            if (!recvAll(fd, &handle, 4)) return Served::Drop;
+            stopDebug();
+            auto proc=process(handle);
+            if (!proc || !proc->targetDescription().live) {
+                int32_t result=0;
+                if (!sendAll(fd,&result,4)) return Served::Drop;
                 break;
             }
-            case CMD_FREE: {
-                int32_t handle = 0; uint64_t address = 0; uint32_t size = 0;
-                if (!recvAll(fd, &handle, 4) || !recvAll(fd, &address, 8) ||
-                    !recvAll(fd, &size, 4)) return;
-                auto proc=process(handle);
-                uint32_t result=proc && proc->free(static_cast<uintptr_t>(address),size) ? 1 : 0;
-                if (!sendAll(fd, &result, 4)) return;
-                break;
-            }
-            // Recognized but not provided here: read the whole request and
-            // answer with upstream's failure value, so the client keeps its
-            // connection and falls back.
-            case CMD_SUSPENDTHREAD:
-            case CMD_RESUMETHREAD:
-            case CMD_GETTHREADCONTEXT: {
-                int32_t request[2] = {};   // handle, tid
-                int32_t result = 0;
-                if (!recvAll(fd, request, sizeof request) || !sendAll(fd, &result, 4)) return;
-                break;
-            }
-            case CMD_SETTHREADCONTEXT: {
-                uint32_t request[3] = {};   // handle, tid, context size
-                uint32_t result = 0;
-                if (!recvAll(fd, request, sizeof request) || request[2] > kMaxDiscard ||
-                    !discardAll(fd, request[2]) || !sendAll(fd, &result, 4)) return;
-                break;
-            }
-            case CMD_SPEEDHACK_SETSPEED:
-            case CMD_LOADEXTENSION: {
-                uint32_t request[2] = {};   // handle, then the speed (float) for SETSPEED
-                uint32_t result = 0;
-                if (!recvAll(fd, request, cmd == CMD_LOADEXTENSION ? 4 : 8) || !sendAll(fd, &result, 4)) return;
-                break;
-            }
-            case CMD_CREATETHREAD: {
-                uint8_t request[20] = {};   // handle, start address, parameter
-                int32_t threadHandle = 0;
-                if (!recvAll(fd, request, sizeof request) || !sendAll(fd, &threadHandle, 4)) return;
-                break;
-            }
-            case CMD_GETSYMBOLLISTFROMFILE: {
-                uint32_t request[2] = {};   // file offset, path size
-                uint64_t none = 0;          // upstream's "no symbols" reply
-                if (!recvAll(fd, request, sizeof request) || request[1] > kMaxDiscard ||
-                    !discardAll(fd, request[1]) || !sendAll(fd, &none, 8)) return;
-                break;
-            }
-            case CMD_STARTDEBUG: {
-                int32_t handle = 0;
-                if (!recvAll(fd, &handle, 4)) return;
-                stopDebug();
-                auto proc=process(handle);
-                if (!proc || !proc->targetDescription().live) {
-                    int32_t result=0;
-                    if (!sendAll(fd,&result,4)) return;
+            client.dbgProc=proc;
+            debugHandle=handle;
+            client.dbg = std::make_unique<ce::DebugSession>();
+            client.dbg->setEventCallback([&client](const ce::DebugEvent& e) {
+                // Tracer thread: enqueue only, never block on the socket.
+                // Only stops are forwarded: each one leaves the target
+                // stopped until the client continues it. Thread exits are
+                // reported inside a stop already delivered, and a process
+                // exit has nothing to continue.
+                if (e.type == ce::DebugEventType::ThreadExiting ||
+                    e.type == ce::DebugEventType::ProcessExited) return;
+                int32_t ev = (e.type == ce::DebugEventType::BreakpointHit ||
+                              e.type == ce::DebugEventType::ExceptionBreakpointHit) ? 5 : 1;
+                uint64_t address = static_cast<uint64_t>(e.address);
+                // A finished single step is a SIGTRAP at "address" 1, as
+                // upstream reports one (its DR6.BS case).
+                if (e.type == ce::DebugEventType::SingleStep) { ev = 5; address = 1; }
+                { std::lock_guard<std::mutex> lk(client.dbgMutex);
+                  client.dbgQueue.push_back({ev, static_cast<int64_t>(e.tid), address}); }
+                client.dbgCv.notify_all();
+            });
+            int32_t result = client.dbg->attach(proc->pid(), client.dbgProc.get()) ? 1 : 0;
+            // The seize leaves every thread stopped, and no attach event is
+            // queued for the client to continue from: let the target run.
+            // Setting a breakpoint must not resume it later (that would
+            // release a thread the client is still inspecting at a hit).
+            if (result) client.dbg->continueExecution();
+            else stopDebug();
+            if (!sendAll(fd, &result, 4)) return Served::Drop;
+            break;
+        }
+        case CMD_STOPDEBUG: {
+            int32_t handle = 0;
+            if (!recvAll(fd, &handle, 4)) return Served::Drop;
+            int32_t result=client.dbg && handle==debugHandle ? 1 : 0;
+            if (result) stopDebug();
+            if (!sendAll(fd, &result, 4)) return Served::Drop;
+            break;
+        }
+        case CMD_SETBREAKPOINT: {
+            int32_t handle = 0, tid = 0, debugReg = 0, bpType = 0, bpSize = 0;
+            uint64_t address = 0;
+            if (!recvAll(fd, &handle, 4) || !recvAll(fd, &tid, 4) ||
+                !recvAll(fd, &debugReg, 4) || !recvAll(fd, &address, 8) ||
+                !recvAll(fd, &bpType, 4) || !recvAll(fd, &bpSize, 4)) return Served::Drop;
+            int32_t result = 0;
+            if (client.dbg && handle==debugHandle && debugReg>=0 && debugReg<4) {
+                if (breakpointIds[debugReg] && !removeSlot(debugReg)) {
+                    if (!sendAll(fd,&result,4)) return Served::Drop;
                     break;
                 }
-                client.dbgProc=proc;
-                debugHandle=handle;
-                client.dbg = std::make_unique<ce::DebugSession>();
-                client.dbg->setEventCallback([&client](const ce::DebugEvent& e) {
-                    // Tracer thread: enqueue only, never block on the socket.
-                    // Only stops are forwarded: each one leaves the target
-                    // stopped until the client continues it. Thread exits are
-                    // reported inside a stop already delivered, and a process
-                    // exit has nothing to continue.
-                    if (e.type == ce::DebugEventType::ThreadExiting ||
-                        e.type == ce::DebugEventType::ProcessExited) return;
-                    int32_t ev = (e.type == ce::DebugEventType::BreakpointHit ||
-                                  e.type == ce::DebugEventType::ExceptionBreakpointHit) ? 5 : 1;
-                    { std::lock_guard<std::mutex> lk(client.dbgMutex);
-                      client.dbgQueue.push_back({ev, static_cast<int64_t>(e.tid),
-                                           static_cast<uint64_t>(e.address)}); }
-                    client.dbgCv.notify_all();
-                });
-                int32_t result = client.dbg->attach(proc->pid(), client.dbgProc.get()) ? 1 : 0;
-                // The seize leaves every thread stopped, and no attach event is
-                // queued for the client to continue from: let the target run.
-                // Setting a breakpoint must not resume it later (that would
-                // release a thread the client is still inspecting at a hit).
-                if (result) client.dbg->continueExecution();
-                else stopDebug();
-                if (!sendAll(fd, &result, 4)) return;
-                break;
+                int id = (bpType == 0)
+                    ? client.dbg->setSoftwareBreakpoint(static_cast<uintptr_t>(address))
+                    : client.dbg->setHardwareBreakpoint(static_cast<uintptr_t>(address), bpType, bpSize);
+                result = (id > 0) ? 1 : 0;
+                breakpointIds[debugReg]=id>0 ? id : 0;
+                hardwareBreakpoints[debugReg]=bpType!=0;
             }
-            case CMD_STOPDEBUG: {
-                int32_t handle = 0;
-                if (!recvAll(fd, &handle, 4)) return;
-                int32_t result=client.dbg && handle==debugHandle ? 1 : 0;
-                if (result) stopDebug();
-                if (!sendAll(fd, &result, 4)) return;
-                break;
+            if (!sendAll(fd, &result, 4)) return Served::Drop;
+            break;
+        }
+        case CMD_REMOVEBREAKPOINT: {
+            int32_t handle = 0, tid = 0, debugReg = 0, wasWatchpoint = 0;
+            if (!recvAll(fd, &handle, 4) || !recvAll(fd, &tid, 4) ||
+                !recvAll(fd, &debugReg, 4) || !recvAll(fd, &wasWatchpoint, 4)) return Served::Drop;
+            int32_t result=0;
+            if (client.dbg && handle==debugHandle && debugReg>=0 && debugReg<4 && breakpointIds[debugReg]) {
+                result=removeSlot(debugReg) ? 1 : 0;
             }
-            case CMD_SETBREAKPOINT: {
-                int32_t handle = 0, tid = 0, debugReg = 0, bpType = 0, bpSize = 0;
-                uint64_t address = 0;
-                if (!recvAll(fd, &handle, 4) || !recvAll(fd, &tid, 4) ||
-                    !recvAll(fd, &debugReg, 4) || !recvAll(fd, &address, 8) ||
-                    !recvAll(fd, &bpType, 4) || !recvAll(fd, &bpSize, 4)) return;
-                int32_t result = 0;
-                if (client.dbg && handle==debugHandle && debugReg>=0 && debugReg<4) {
-                    if (breakpointIds[debugReg] && !removeSlot(debugReg)) {
-                        if (!sendAll(fd,&result,4)) return;
-                        break;
+            if (!sendAll(fd, &result, 4)) return Served::Drop;
+            break;
+        }
+        case CMD_WAITFORDEBUGEVENT: {
+            int32_t handle = 0, timeoutMs = 0;
+            if (!recvAll(fd, &handle, 4) || !recvAll(fd, &timeoutMs, 4)) return Served::Drop;
+            ClientState::DebugEventRec rec{};
+            bool have = false;
+            {
+                // Wait in short slices and look at the socket between them:
+                // a client that dies during a long wait must not leave its
+                // target traced until the timeout. Returning tears the
+                // session down as any disconnect does.
+                constexpr auto kSlice = std::chrono::milliseconds(100);
+                const auto deadline = std::chrono::steady_clock::now() +
+                                      std::chrono::milliseconds(timeoutMs < 0 ? 0 : timeoutMs);
+                auto ready = [this,&client] { return !client.dbgQueue.empty() || !running_.load(); };
+                std::unique_lock<std::mutex> lk(client.dbgMutex);
+                while (client.dbg && handle==debugHandle && !ready()) {
+                    const auto now = std::chrono::steady_clock::now();
+                    if (now >= deadline) break;
+                    client.dbgCv.wait_for(lk, std::min<std::chrono::steady_clock::duration>(deadline - now, kSlice), ready);
+                    if (ready()) break;
+                    lk.unlock();
+                    const bool gone = peerGone(fd);
+                    lk.lock();
+                    if (gone) return Served::Drop;
+                }
+                have = client.dbg && handle==debugHandle && !client.dbgQueue.empty();
+                if (have) { rec = client.dbgQueue.front(); client.dbgQueue.pop_front(); }
+            }
+            if (have) deliveredStop = rec.tid;
+            int32_t result = have ? 1 : 0;
+            if (!sendAll(fd, &result, 4)) return Served::Drop;
+            if (have && (!sendAll(fd, &rec.debugevent, 4) || !sendAll(fd, &rec.tid, 8) ||
+                         !sendAll(fd, &rec.address, 8))) return Served::Drop;
+            break;
+        }
+        case CMD_CONTINUEFROMDEBUGEVENT: {
+            int32_t handle = 0, tid = 0, sig = 0;
+            if (!recvAll(fd, &handle, 4) || !recvAll(fd, &tid, 4) || !recvAll(fd, &sig, 4)) return Served::Drop;
+            // Only the delivered, not yet continued stop can be continued:
+            // a repeated or stale continue must not resume a newer stop
+            // the client has not seen.
+            // The third value is upstream's continue option: 0 passes the
+            // thread's signal on and 1 drops it (this server delivers a
+            // pending signal either way), and 2 single-steps the thread,
+            // whose end comes back as a SIGTRAP event.
+            int32_t result=0;
+            if (client.dbg && handle==debugHandle && deliveredStop && *deliveredStop==tid && !client.stepping) {
+                deliveredStop.reset();
+                if (sig==2) {
+                    if (client.stepThread.joinable()) client.stepThread.join();
+                    if (client.dbg->selectThread(tid)) {
+                        client.stepping=true;
+                        client.stepThread=std::thread([&client,session=client.dbg.get()] {
+                            try { session->step(ce::StepMode::Into); } catch (...) {}
+                            client.stepping=false;
+                        });
+                        result=1;
                     }
-                    int id = (bpType == 0)
-                        ? client.dbg->setSoftwareBreakpoint(static_cast<uintptr_t>(address))
-                        : client.dbg->setHardwareBreakpoint(static_cast<uintptr_t>(address), bpType, bpSize);
-                    result = (id > 0) ? 1 : 0;
-                    breakpointIds[debugReg]=id>0 ? id : 0;
-                    hardwareBreakpoints[debugReg]=bpType!=0;
-                }
-                if (!sendAll(fd, &result, 4)) return;
-                break;
-            }
-            case CMD_REMOVEBREAKPOINT: {
-                int32_t handle = 0, tid = 0, debugReg = 0, wasWatchpoint = 0;
-                if (!recvAll(fd, &handle, 4) || !recvAll(fd, &tid, 4) ||
-                    !recvAll(fd, &debugReg, 4) || !recvAll(fd, &wasWatchpoint, 4)) return;
-                int32_t result=0;
-                if (client.dbg && handle==debugHandle && debugReg>=0 && debugReg<4 && breakpointIds[debugReg]) {
-                    result=removeSlot(debugReg) ? 1 : 0;
-                }
-                if (!sendAll(fd, &result, 4)) return;
-                break;
-            }
-            case CMD_WAITFORDEBUGEVENT: {
-                int32_t handle = 0, timeoutMs = 0;
-                if (!recvAll(fd, &handle, 4) || !recvAll(fd, &timeoutMs, 4)) return;
-                ClientState::DebugEventRec rec{};
-                bool have = false;
-                {
-                    // Wait in short slices and look at the socket between them:
-                    // a client that dies during a long wait must not leave its
-                    // target traced until the timeout. Returning tears the
-                    // session down as any disconnect does.
-                    constexpr auto kSlice = std::chrono::milliseconds(100);
-                    const auto deadline = std::chrono::steady_clock::now() +
-                                          std::chrono::milliseconds(timeoutMs < 0 ? 0 : timeoutMs);
-                    auto ready = [this,&client] { return !client.dbgQueue.empty() || !running_.load(); };
-                    std::unique_lock<std::mutex> lk(client.dbgMutex);
-                    while (client.dbg && handle==debugHandle && !ready()) {
-                        const auto now = std::chrono::steady_clock::now();
-                        if (now >= deadline) break;
-                        client.dbgCv.wait_for(lk, std::min<std::chrono::steady_clock::duration>(deadline - now, kSlice), ready);
-                        if (ready()) break;
-                        lk.unlock();
-                        const bool gone = peerGone(fd);
-                        lk.lock();
-                        if (gone) return;
-                    }
-                    have = client.dbg && handle==debugHandle && !client.dbgQueue.empty();
-                    if (have) { rec = client.dbgQueue.front(); client.dbgQueue.pop_front(); }
-                }
-                if (have) deliveredStop = rec.tid;
-                int32_t result = have ? 1 : 0;
-                if (!sendAll(fd, &result, 4)) return;
-                if (have && (!sendAll(fd, &rec.debugevent, 4) || !sendAll(fd, &rec.tid, 8) ||
-                             !sendAll(fd, &rec.address, 8))) return;
-                break;
-            }
-            case CMD_CONTINUEFROMDEBUGEVENT: {
-                int32_t handle = 0, tid = 0, sig = 0;
-                if (!recvAll(fd, &handle, 4) || !recvAll(fd, &tid, 4) || !recvAll(fd, &sig, 4)) return;
-                // Only the delivered, not yet continued stop can be continued:
-                // a repeated or stale continue must not resume a newer stop
-                // the client has not seen.
-                int32_t result=0;
-                if (client.dbg && handle==debugHandle && deliveredStop && *deliveredStop==tid) {
-                    deliveredStop.reset();
+                } else {
                     client.dbg->continueExecution();
                     result=1;
                 }
-                if (!sendAll(fd, &result, 4)) return;
-                break;
             }
-            default:
-                // Unimplemented commands carry variable-length payloads this
-                // server cannot skip safely: drop the connection.
-                return;
+            if (!sendAll(fd, &result, 4)) return Served::Drop;
+            break;
         }
+        default:
+            return Served::NotMine;
     }
+    return Served::Done;
 }
+
 
 } // namespace ce::os

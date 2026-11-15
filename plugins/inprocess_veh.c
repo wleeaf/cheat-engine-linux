@@ -84,6 +84,28 @@ static const char* cecore_signal_name(int sig) {
     }
 }
 
+// A handler that resumes the faulting instruction without fixing it gets the
+// same fault again at once, in a tight loop. Log the first kRepeatLogged of a
+// run of identical events and then one note, so the log cannot fill the disk.
+// Lock-free and async-signal-safe; two threads racing may log a line extra.
+enum { kRepeatLogged = 8 };
+static volatile unsigned long g_last_key[3];   // signo, rip, addr of the latest event
+static volatile unsigned long g_repeats;
+
+static int cecore_should_log(int signo, unsigned long rip, unsigned long addr, int* note) {
+    *note = 0;
+    if (g_last_key[0] == (unsigned long)signo && g_last_key[1] == rip && g_last_key[2] == addr) {
+        unsigned long n = __atomic_add_fetch(&g_repeats, 1, __ATOMIC_RELAXED);
+        if (n == kRepeatLogged) *note = 1;
+        return n < kRepeatLogged;
+    }
+    g_last_key[0] = (unsigned long)signo;
+    g_last_key[1] = rip;
+    g_last_key[2] = addr;
+    __atomic_store_n(&g_repeats, 0, __ATOMIC_RELAXED);
+    return 1;
+}
+
 static void cecore_log_event(int signo, siginfo_t* info, void* ucontext) {
     if (g_log_fd < 0) return;
     ucontext_t* uc = (ucontext_t*)ucontext;
@@ -98,6 +120,15 @@ static void cecore_log_event(int signo, siginfo_t* info, void* ucontext) {
     (void)uc;
 #endif
     unsigned long addr = info ? (unsigned long)info->si_addr : 0;
+    int note = 0;
+    if (!cecore_should_log(signo, rip, addr, &note)) {
+        if (note) {
+            static const char repeated[] = "(the same event repeats; not logged again until another one)\n";
+            ssize_t w = write(g_log_fd, repeated, sizeof(repeated) - 1);
+            (void)w;
+        }
+        return;
+    }
 
     // Build the line into a stack buffer and emit it with a single
     // async-signal-safe write(2) — no stdio, no locks.
@@ -124,12 +155,6 @@ static void cecore_log_event(int signo, siginfo_t* info, void* ucontext) {
 static void cecore_handler(int signo, siginfo_t* info, void* ucontext) {
     if (signo < 0 || signo >= NSIG) return;  // defensive: never index OOB
     cecore_log_event(signo, info, ucontext);
-
-    // TODO(security): a genuine SIGSEGV chained to a handler that resumes the
-    // faulting instruction re-enters this handler in a tight loop; restore
-    // SIG_DFL for fatal CPU traps and install a sigaltstack so a stack-overflow
-    // fault can still be handled. Left as a follow-up to avoid changing the
-    // best-effort chaining semantics here.
 
     // Chain to the previous handler so the target's behaviour is preserved.
     struct sigaction* prev = &g_prev[signo];
@@ -183,6 +208,20 @@ static void cecore_veh_init(void) {
     // Raw append-only fd for the signal handler's async-signal-safe write(2).
     // O_CLOEXEC keeps it out of any child the target execs.
     g_log_fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+
+    // A stack overflow faults with no stack left to run a handler on. Give
+    // the loading thread an alternate signal stack when it has none, so that
+    // fault is logged too (the handlers run with SA_ONSTACK). Other threads
+    // keep whatever the program gives them.
+    stack_t current;
+    if (sigaltstack(NULL, &current) == 0 && (current.ss_flags & SS_DISABLE)) {
+        static char alt_stack[64 * 1024];
+        stack_t alt;
+        memset(&alt, 0, sizeof(alt));
+        alt.ss_sp = alt_stack;
+        alt.ss_size = sizeof(alt_stack);
+        sigaltstack(&alt, NULL);
+    }
 
     int sigs[] = { SIGSEGV, SIGTRAP, SIGILL, SIGFPE, SIGBUS };
     for (size_t i = 0; i < sizeof(sigs)/sizeof(sigs[0]); ++i)

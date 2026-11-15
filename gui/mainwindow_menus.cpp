@@ -114,6 +114,16 @@
 namespace ce::gui {
 using namespace mainwindow_detail;
 
+// The menu bar's menus, for setupMenus's parts.
+struct MainWindow::MenuBarMenus {
+    QMenu* file;
+    QMenu* edit;
+    QMenu* process;
+    QMenu* table;
+    QMenu* tools;
+    QMenu* dotnet;
+};
+
 void MainWindow::setupMenus() {
     // Menu bar follows Cheat Engine's MainUnit.MainMenu1 (captions, item order,
     // separators, shortcuts). CE items with no Linux backend are left out instead of
@@ -161,6 +171,21 @@ void MainWindow::setupMenus() {
     // options, plugin loader and translations don't exist here, so the menus are
     // left out rather than shown full of disabled items (same call as D3D above).
 
+
+    const MenuBarMenus menus{file, edit, process, table, tools, dotnet};
+    buildTableMenus(menus);
+    buildProcessMenu(menus);
+    buildMemoryToolMenus(menus);
+    buildAnalysisToolMenus(menus);
+    buildSnapshotMenu(menus);
+    buildHelpMenu();
+}
+
+// Edit and Table items, and the Tools entries for the analysis panels.
+void MainWindow::buildTableMenus(const MenuBarMenus& menus) {
+    QMenu* edit = menus.edit;
+    QMenu* table = menus.table;
+    QMenu* tools = menus.tools;
     // ── Table (CE: Lua script + forms) ──
     table->addAction(tr("Show Cheat Table Lua Script"), QKeySequence("Ctrl+Alt+L"), this, &MainWindow::showTableLuaScript);
     table->addSeparator();
@@ -196,6 +221,11 @@ void MainWindow::setupMenus() {
     edit->addSeparator();
     edit->addAction(tr("Settings..."), this, [this]() { openSettingsDialog(); });
 
+}
+
+// The Process menu: process information, creating, pausing and other process actions.
+void MainWindow::buildProcessMenu(const MenuBarMenus& menus) {
+    QMenu* process = menus.process;
     // ── Process menu ──
     process->addAction(tr("Open Process..."), this, &MainWindow::onOpenProcess);
     // CE formProcessInfo (Process/System Info) — Linux equivalents.
@@ -301,6 +331,12 @@ void MainWindow::setupMenus() {
     pauseScanAct->setToolTip(tr("Suspend the target during each First/Next Scan so its "
                              "memory is a consistent snapshot, then resume it."));
     connect(pauseScanAct, &QAction::toggled, this, [this](bool on) { pauseWhileScanning_ = on; });
+}
+
+// Table and Tools items for memory: Lua and forms, saving a region, memory allocations, trainers.
+void MainWindow::buildMemoryToolMenus(const MenuBarMenus& menus) {
+    QMenu* table = menus.table;
+    QMenu* tools = menus.tools;
     // ── Table menu ──
     table->addAction(tr("Auto Assemble..."), QKeySequence("Ctrl+A"), this, [this]() {
         auto* editor = new ScriptEditor(process_.get(), &autoAsm_, this);
@@ -461,6 +497,12 @@ void MainWindow::setupMenus() {
             QMessageBox::critical(this, tr("Generate Trainer"), ex.what());
         }
     });
+}
+
+// Tools for analysis: structure spider, group scan generator, saving disassembly, graphical memory view.
+void MainWindow::buildAnalysisToolMenus(const MenuBarMenus& menus) {
+    QMenu* process = menus.process;
+    QMenu* tools = menus.tools;
     // CE frmStringPointerScanUnit (Structure spider): find pointer paths to a target
     // and dissect the structure there.
     tools->addAction(tr("Structure Spider..."), this, [this]() {
@@ -656,6 +698,11 @@ void MainWindow::setupMenus() {
                 }, Qt::QueuedConnection);
             });
     });
+}
+
+// The Tools > Snapshot submenu.
+void MainWindow::buildSnapshotMenu(const MenuBarMenus& menus) {
+    QMenu* tools = menus.tools;
     auto* snapshotMenu = tools->addMenu(tr("Snapshot"));
     // Bounded so a large game cannot exhaust memory; a diff reads at most as
     // much again.
@@ -894,6 +941,10 @@ void MainWindow::setupMenus() {
         dlg->show();
     });
 
+}
+
+// The Help menu.
+void MainWindow::buildHelpMenu() {
     // ── Help (CE verbatim) ──
     auto* help = menuBar()->addMenu(tr("&Help"));
     help->addAction(tr("Cheat Engine Help"), this, [this]() {
@@ -921,6 +972,7 @@ void MainWindow::setupMenus() {
         dialog->show();
     });
 }
+
 
 // Locate a shipped doc next to the binary (dev build or installed layout).
 // Returns an empty string when not found (caller falls back to the online copy).

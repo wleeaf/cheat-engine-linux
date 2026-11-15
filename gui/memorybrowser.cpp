@@ -1334,40 +1334,12 @@ static QString ripRefAnnotation(const ce::Instruction& inst,
     return " ;" + a;
 }
 
-void DisasmView::paintEvent(QPaintEvent*) {
-    QPainter p(viewport());
-    p.setFont(monoFont_);
-    const MvColors mv = mvColors();
-    p.fillRect(viewport()->rect(), mv.bg);
-    int horizontalOffset = horizontalScrollBar()->value();
-    p.translate(-horizontalOffset, 0);
-    int contentWidth = 0;
-
-    // Nothing decoded: explain why rather than showing a blank pane.
-    if (instructions_.empty()) {
-        p.resetTransform();
-        if (horizontalScrollBar()->maximum() != 0)
-            QMetaObject::invokeMethod(this, [this]() { horizontalScrollBar()->setRange(0, 0); }, Qt::QueuedConnection);
-        p.setPen(mv.ascii);
-        p.drawText(viewport()->rect().adjusted(24, 24, -24, -24),
-                   Qt::AlignCenter | Qt::TextWordWrap,
-                   emptyReason_.isEmpty() ? tr("No data at this address.")
-                                          : emptyReason_);
-        return;
-    }
-
-    int arrowW = charW_ * 6;              // strip for jump/branch arrows
-    int contentX = gutterW_ + arrowW;     // address/bytes/mnemonic start here
-    int addrColW = addrColumnWidth();
-    int bytesColW = charW_ * 25;
-    int mnemonicX = contentX + addrColW + bytesColW;
-
-    // ── Jump/branch arrows ──
-    // For each visible direct jmp/jcc whose target is also on screen, draw a
-    // line in the arrow strip from the source row to the target row (with an
-    // arrowhead at the target). Lanes are assigned greedily so nested/adjacent
-    // arrows don't overlap. Unconditional jmp = blue, conditional = peach.
-    {
+// ── Jump/branch arrows ──
+// For each visible direct jmp/jcc whose target is also on screen, draw a
+// line in the arrow strip from the source row to the target row (with an
+// arrowhead at the target). Lanes are assigned greedily so nested/adjacent
+// arrows don't overlap. Unconditional jmp = blue, conditional = peach.
+void DisasmView::paintBranchArrows(QPainter& p, int arrowW, int contentX) {
         struct Arrow { int src, dst; bool cond, call; };
         std::vector<Arrow> arrows;
         int nvis = std::min((int)instructions_.size(), visibleRows());
@@ -1439,7 +1411,37 @@ void DisasmView::paintEvent(QPaintEvent*) {
             }
         }
         p.setRenderHint(QPainter::Antialiasing, false);
+}
+
+void DisasmView::paintEvent(QPaintEvent*) {
+    QPainter p(viewport());
+    p.setFont(monoFont_);
+    const MvColors mv = mvColors();
+    p.fillRect(viewport()->rect(), mv.bg);
+    int horizontalOffset = horizontalScrollBar()->value();
+    p.translate(-horizontalOffset, 0);
+    int contentWidth = 0;
+
+    // Nothing decoded: explain why rather than showing a blank pane.
+    if (instructions_.empty()) {
+        p.resetTransform();
+        if (horizontalScrollBar()->maximum() != 0)
+            QMetaObject::invokeMethod(this, [this]() { horizontalScrollBar()->setRange(0, 0); }, Qt::QueuedConnection);
+        p.setPen(mv.ascii);
+        p.drawText(viewport()->rect().adjusted(24, 24, -24, -24),
+                   Qt::AlignCenter | Qt::TextWordWrap,
+                   emptyReason_.isEmpty() ? tr("No data at this address.")
+                                          : emptyReason_);
+        return;
     }
+
+    int arrowW = charW_ * 6;              // strip for jump/branch arrows
+    int contentX = gutterW_ + arrowW;     // address/bytes/mnemonic start here
+    int addrColW = addrColumnWidth();
+    int bytesColW = charW_ * 25;
+    int mnemonicX = contentX + addrColW + bytesColW;
+
+    paintBranchArrows(p, arrowW, contentX);   // jump/branch arrows in their strip
 
     // If the selected instruction is a direct branch, find its on-screen target
     // row so we can tint it — shows where the selected jump/call lands (like CE).
@@ -1884,6 +1886,15 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     resize(900, 600);
     buildMenuBar();   // CE keeps the memory/debug tools in this window's menu bar
 
+    buildToolbars();
+    loadTargetInfo();
+    buildPanels();
+    wireViews();
+    finishSetup();
+}
+
+// The navigation and debug toolbars and the preferences action.
+void MemoryBrowser::buildToolbars() {
     // Toolbar
     auto* toolbar = new QToolBar;
     toolbar->setMovable(false);
@@ -2001,6 +2012,10 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     });
     addToolBar(dbgBar);
 
+}
+
+// Symbols, DWARF, the code bitness and the persisted view settings.
+void MemoryBrowser::loadTargetInfo() {
     // Load symbols + DWARF (if libdw is compiled in and modules have debug info).
     if (proc_) {
         resolver_.loadProcess(*proc_);
@@ -2008,14 +2023,14 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     }
 
     disasmView_ = new DisasmView;
-    disasmView_->setProcess(proc);
+    disasmView_->setProcess(proc_);
     disasmView_->setResolver(&resolver_);
     disasmView_->setDwarf(&dwarf_);
     disasmView_->setModuleCache(modules_);  // reuse the browser's already-loaded map
     // Disassemble in the target's code bitness (32-bit for a native-32 or WoW64
     // target, so registers read eax/ecx rather than rax/rcx).
-    if (proc) {
-        auto architecture = ce::disassemblerArchFor(*proc);
+    if (proc_) {
+        auto architecture = ce::disassemblerArchFor(*proc_);
         if (architecture) disasmView_->setArch(*architecture);
     }
 
@@ -2028,11 +2043,15 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     int dtSaved = QSettings().value("memview/displayType", 0).toInt();
     if (dtSaved < 0 || dtSaved > static_cast<int>(HexView::DisplayType::Double)) dtSaved = 0;
     hexView_->setDisplayType(static_cast<HexView::DisplayType>(dtSaved));
-    hexView_->setProcess(proc);
+    hexView_->setProcess(proc_);
     hexView_->setWriteCheck([this](uintptr_t addr, size_t len) { return breakpointConflict(addr, len); });
     connect(hexView_, &HexView::writeRefused, this,
             [this](const QString& reason) { statusBar()->showMessage(reason, 5000); });
 
+}
+
+// Cheat Engine's layout: disassembly and registers above, hex view and stack below.
+void MemoryBrowser::buildPanels() {
     // Cheat-Engine layout: the disassembler with a register panel on its right,
     // and the hex view below (CE's memory viewer). The register panel lists the
     // target's registers; values populate from an active debug stop (updateRegisters).
@@ -2043,7 +2062,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
     registerPanel_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     registerPanel_->setSelectionMode(QAbstractItemView::NoSelection);
     registerPanel_->setProperty("monospace", true);   // font from the theme sheet
-    const bool is32 = proc && proc->runs32BitCode();
+    const bool is32 = proc_ && proc_->runs32BitCode();
     const QStringList regs = is32
         ? QStringList{"EAX","EBX","ECX","EDX","ESI","EDI","EBP","ESP","EIP","EFLAGS"}
         : QStringList{"RAX","RBX","RCX","RDX","RSI","RDI","RBP","RSP","RIP",
@@ -2126,6 +2145,10 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         viewMenu_->addSeparator();
     }
 
+}
+
+// The hex view, data inspector and disassembly signals.
+void MemoryBrowser::wireViews() {
     // Wire HexView signals.
     connect(hexView_, &HexView::requestFindWhatAccesses, this, [this](uintptr_t addr, bool writesOnly) {
         if (!proc_) return;   // detached: the launcher is gone with the target
@@ -2250,6 +2273,10 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
         navigateTo(addr);
     });
 
+}
+
+// Shortcuts, auto-refresh, the first address shown and the saved sizes.
+void MemoryBrowser::finishSetup() {
     // Keyboard shortcuts
     auto* backSc = new QShortcut(QKeySequence("Alt+Left"), this);
     connect(backSc, &QShortcut::activated, this, &MemoryBrowser::goBack);
@@ -2302,6 +2329,7 @@ MemoryBrowser::MemoryBrowser(ProcessHandle* proc, QWidget* parent)
                     sp->restoreState(st);
     }
 }
+
 
 void MemoryBrowser::closeEvent(QCloseEvent* ev) {
     QSettings s;

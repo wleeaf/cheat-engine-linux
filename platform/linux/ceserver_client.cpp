@@ -528,7 +528,7 @@ CEServerClient::waitForDebugEvent(int32_t handle, int32_t timeoutMs) {
 }
 
 std::expected<int32_t, std::string>
-CEServerClient::continueFromDebugEvent(int32_t handle, int32_t tid, int32_t signalToForward) {
+CEServerClient::continueFromDebugEvent(int32_t handle, int32_t tid, int32_t option) {
     auto operation=lockConnection();
     beginRequest();
     if (fd_ < 0) return std::unexpected("not connected");
@@ -536,7 +536,7 @@ CEServerClient::continueFromDebugEvent(int32_t handle, int32_t tid, int32_t sign
     if (!sendCmd(CMD_CONTINUEFROMDEBUGEVENT, error) ||
         !sendAll(&handle, sizeof(handle), error) ||
         !sendAll(&tid, sizeof(tid), error) ||
-        !sendAll(&signalToForward, sizeof(signalToForward), error))
+        !sendAll(&option, sizeof(option), error))
         return std::unexpected(error);
     int32_t result = 0;
     if (!recvAll(&result, sizeof(result), error)) return std::unexpected(error);

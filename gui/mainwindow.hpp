@@ -35,6 +35,8 @@
 #include <QShortcut>
 #include <QHash>
 #include <QJsonObject>
+#include <QList>
+#include <QPersistentModelIndex>
 #include <functional>
 #include "gui/globalhotkeys.hpp"
 #include "gui/foundlistprefs.hpp"
@@ -44,6 +46,7 @@
 #include <optional>
 
 class QDockWidget;
+class QMenu;
 namespace ce { class ExpressionParser; }
 namespace ce { struct TargetProfile; }
 
@@ -160,6 +163,14 @@ private:
     /// Move the cheat-table entry at `row` up (-1) or down (+1) and keep it selected.
     void moveSelectedEntry(int row, int delta);
     void setupMenus();
+    // setupMenus's parts (see MenuBarMenus in mainwindow_menus.cpp).
+    struct MenuBarMenus;
+    void buildTableMenus(const MenuBarMenus& menus);
+    void buildProcessMenu(const MenuBarMenus& menus);
+    void buildMemoryToolMenus(const MenuBarMenus& menus);
+    void buildAnalysisToolMenus(const MenuBarMenus& menus);
+    void buildSnapshotMenu(const MenuBarMenus& menus);
+    void buildHelpMenu();
     bool loadAddressEntries(const QJsonArray& entries);
     // Build the address list + table comment/annotations/Lua from a parsed table
     // (shared by the CE XML .CT and protected .CETRAINER load paths).
@@ -195,6 +206,22 @@ private:
     /// Resolve a scan-range field: hex, symbol, or module+offset expression.
     std::optional<uintptr_t> parseAddressExpr(const QString& text);
     void rebuildValueHotkeys();
+    // setupUi's parts, in order (see UiParts in mainwindow.cpp).
+    struct UiParts;
+    void buildProcessBar(UiParts& parts);
+    void buildResultsPane(UiParts& parts);
+    void buildScanControls(UiParts& parts);
+    void buildScanOptions(UiParts& parts);
+    void buildAddressList();
+    void arrangeScanPanel(UiParts& parts);
+    void showResultsMenu(const QPoint& pos);      // right-click in the scan results
+    void showAddressListMenu(const QPoint& pos);  // right-click in the cheat table
+    // The cheat-table menu's parts for the selected records: edit and arrange;
+    // value, freeze, display and type (returns the Display submenu, which the
+    // tools part adds to); and the tools (browse, find what accesses, ...).
+    void addRecordEditActions(QMenu& menu, const QList<QPersistentModelIndex>& selected);
+    QMenu* addRecordValueActions(QMenu& menu, const QList<QPersistentModelIndex>& selected);
+    void addRecordToolActions(QMenu& menu, const QList<QPersistentModelIndex>& selected, QMenu* encodingMenu);
     // Row inserts and removals come in bursts (adding many results, deleting a
     // selection): rebuild the hotkeys and the collapsed rows once afterwards.
     void scheduleAddressListRefresh();

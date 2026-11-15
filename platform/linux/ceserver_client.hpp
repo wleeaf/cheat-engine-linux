@@ -162,9 +162,10 @@ public:
     std::expected<std::optional<CeDebugEvent>, std::string>
     waitForDebugEvent(int32_t handle, int32_t timeoutMs);
 
-    /// CMD_CONTINUEFROMDEBUGEVENT.
+    /// CMD_CONTINUEFROMDEBUGEVENT. `option` is upstream's continue option:
+    /// 0 passes the thread's signal on, 1 drops it, 2 single-steps the thread.
     std::expected<int32_t, std::string>
-    continueFromDebugEvent(int32_t handle, int32_t tid, int32_t signalToForward);
+    continueFromDebugEvent(int32_t handle, int32_t tid, int32_t option);
 
     /// CMD_SETBREAKPOINT — bptype mirrors the upstream encoding: 0=execute,
     /// 1=write, 2=reserved, 3=read/write. bpsize=0 is treated as 1.

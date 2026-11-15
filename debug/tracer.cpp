@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <functional>
 #include <map>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <array>
@@ -54,44 +55,9 @@ uintptr_t callTarget(ProcessHandle& proc, const Instruction& call, const CpuCont
 }
 } // namespace
 
-std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const TraceConfig& config) {
-    std::unique_lock traceLock(traceMutex_,std::try_to_lock);
-    if (!traceLock.owns_lock()) {
-        std::lock_guard lock(errorMutex_);
-        error_=std::make_error_code(std::errc::device_or_resource_busy);
-        return {};
-    }
-    if (!prepared_.exchange(false)) cancelled_.store(false);   // prepare() already cleared it
-    progress_.store(0);
-    ready_=false;
-    auto error=[&](Error value) { std::lock_guard lock(errorMutex_); error_=value; };
-    error({});
-    std::vector<TraceEntry> entries;
-    std::optional<Disassembler> disassembler;
-    // A remote PID is meaningful only on its server. Local ptrace must never
-    // attach an unrelated local task that happens to have the same PID.
-    if (proc.targetDescription().transport!=TargetTransport::Local || unsupportedTargetOperation(proc, TargetFeature::Trace)) {
-        error(std::make_error_code(std::errc::not_supported)); progress_.store(1); return entries;
-    }
-    if (config.maxSteps<=0 || (config.stayInModule && config.moduleEnd<=config.moduleBase)) {
-        error(std::make_error_code(std::errc::invalid_argument)); progress_.store(1); return entries;
-    }
-    if (config.startCondition) {
-        auto architecture = disassemblerArchFor(proc, config.startAddress);
-        if (!config.startAddress || !architecture || (*architecture != Arch::X86_32 && *architecture != Arch::X86_64)) {
-            error(std::make_error_code(std::errc::not_supported)); progress_.store(1); return entries;
-        }
-    }
-    entries.reserve(std::min(config.maxSteps, 10000));
-    std::vector<std::pair<uintptr_t, uintptr_t>> systemRanges;
-    if (config.skipSystemModules)
-        for (const auto& module : proc.modules())
-            if (isSystemModulePath(module.path)) systemRanges.emplace_back(module.base, module.base + module.size);
-    auto inSystemModule = [&](uintptr_t address) {
-        return std::any_of(systemRanges.begin(), systemRanges.end(),
-                           [&](const auto& range) { return address >= range.first && address < range.second; });
-    };
-
+// The local (ptrace) trace: its threads, and the steps trace() takes on
+// them. The tracer's flags are held by reference under their own names.
+struct Tracer::LocalTrace {
     struct ThreadState {
         bool stopped = false;
         bool alive = true;
@@ -104,8 +70,16 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
         os::NativeHardwareBank originalDebug;
         unsigned slot=0;
     };
+    Tracer& tracer;
+    ProcessHandle& proc;
+    Debugger& dbg;
+    std::atomic<bool>& cancelled_;
+    std::atomic<float>& progress_;
+    std::atomic<bool>& ready_;
     std::map<pid_t, ThreadState> threads;
-    auto consume = [&](pid_t tid, int status) {
+
+    void error(Error value) { tracer.setError(value); }
+    void consume(pid_t tid, int status) {
         auto& state = threads.at(tid);
         if (WIFEXITED(status) || WIFSIGNALED(status)) state.alive = false;
         else if (WIFSTOPPED(status)) {
@@ -135,8 +109,8 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
                 }
             }
         }
-    };
-    auto waitThread = [&](pid_t tid, int& status, bool cancellable = true) {
+    }
+    bool waitThread(pid_t tid, int& status, bool cancellable = true) {
         for (;;) {
             if (cancellable && cancelled_.load()) return false;
             pid_t result = waitpid(tid, &status, __WALL | __WNOTHREAD | WNOHANG);
@@ -151,8 +125,8 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
             }
             usleep(1000);
         }
-    };
-    auto resume = [&](pid_t tid, enum __ptrace_request request) {
+    }
+    bool resume(pid_t tid, enum __ptrace_request request) {
         auto& state = threads.at(tid);
         if (ptrace(request, tid, nullptr,
                    reinterpret_cast<void*>(static_cast<intptr_t>(state.signal))) < 0) {
@@ -163,16 +137,16 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
         state.event = 0;
         state.stepping=request==PTRACE_SINGLESTEP;
         return true;
-    };
-    auto restoreDebug = [&](pid_t tid) {
+    }
+    bool restoreDebug(pid_t tid) {
         auto& state = threads.at(tid);
         if (!state.savedDebug) return true;
         auto restored=os::restoreNativeHardwareBank(tid,true,state.originalDebug);
         if (!restored) error(restored.error());
         else state.armedAddress=0;
         return restored.has_value();
-    };
-    auto arm = [&](pid_t tid, uintptr_t address) {
+    }
+    bool arm(pid_t tid, uintptr_t address) {
         auto& state = threads.at(tid);
         if (!state.savedDebug) {
             auto bank=os::readNativeHardwareBank(tid,true);
@@ -188,8 +162,8 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
         if (!armed) error(armed.error());
         else state.armedAddress=address;
         return armed.has_value();
-    };
-    auto addClone = [&](pid_t parent) {
+    }
+    pid_t addClone(pid_t parent) {
         unsigned long child = 0;
         if (ptrace(PTRACE_GETEVENTMSG, parent, nullptr, &child) < 0 || !child) {
             error({errno ? errno : EIO,std::system_category()}); return pid_t{0};
@@ -200,22 +174,22 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
         if (!threads.at(tid).stopped && !waitThread(tid, status)) return pid_t{0};
         threads.at(tid).signal = 0; // The initial auto-attach stop belongs to ptrace.
         return tid;
-    };
+    }
     // A hardware breakpoint trap queued for this thread but not yet delivered.
-    auto queuedHardwareTrap = [&](pid_t tid) {
+    bool queuedHardwareTrap(pid_t tid) {
         struct { uint64_t offset; uint32_t flags; int32_t count; } peek{0, 0, 32};
         std::array<siginfo_t, 32> pending{};
         const long count = ptrace(PTRACE_PEEKSIGINFO, tid, &peek, pending.data());
         for (long i = 0; i < count; ++i)
             if (pending[i].si_signo == SIGTRAP && pending[i].si_code == TRAP_HWBKPT) return true;
         return false;
-    };
+    }
     // INTERRUPT can win against the start-address breakpoint: its SIGTRAP is
     // then still queued, and once the debug registers are restored and the
     // thread detached it would kill the target. Let it reach its delivery
     // stop, where consume() recognises it as ours (as the code finder's
     // drainHardwareTraps does). Call while the start breakpoint is armed.
-    auto drainStartTraps = [&](pid_t tid) {
+    void drainStartTraps(pid_t tid) {
         auto& state = threads.at(tid);
         int status = 0;
         for (int tries = 0; state.alive && state.armedAddress && tries < 4 && queuedHardwareTrap(tid); ++tries) {
@@ -224,7 +198,60 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
             if (!resume(tid, PTRACE_CONT) || !waitThread(tid, status, false)) break;
             if (!state.signal) state.signal = observed;
         }
+    }
+};
+
+std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const TraceConfig& config) {
+    std::unique_lock traceLock(traceMutex_,std::try_to_lock);
+    if (!traceLock.owns_lock()) {
+        std::lock_guard lock(errorMutex_);
+        error_=std::make_error_code(std::errc::device_or_resource_busy);
+        return {};
+    }
+    if (!prepared_.exchange(false)) cancelled_.store(false);   // prepare() already cleared it
+    progress_.store(0);
+    ready_=false;
+    auto error=[&](Error value) { std::lock_guard lock(errorMutex_); error_=value; };
+    error({});
+    std::vector<TraceEntry> entries;
+    std::optional<Disassembler> disassembler;
+    // A ceserver target is traced through its server; local ptrace must never
+    // attach an unrelated local task that happens to have the same PID.
+    if (proc.targetDescription().transport==TargetTransport::CEServer && dbg.reportsStops() &&
+        !unsupportedTargetOperation(proc, TargetFeature::Trace))
+        return traceRemote(proc, dbg, config);
+    if (proc.targetDescription().transport!=TargetTransport::Local || unsupportedTargetOperation(proc, TargetFeature::Trace)) {
+        error(std::make_error_code(std::errc::not_supported)); progress_.store(1); return entries;
+    }
+    if (config.maxSteps<=0 || (config.stayInModule && config.moduleEnd<=config.moduleBase)) {
+        error(std::make_error_code(std::errc::invalid_argument)); progress_.store(1); return entries;
+    }
+    if (config.startCondition) {
+        auto architecture = disassemblerArchFor(proc, config.startAddress);
+        if (!config.startAddress || !architecture || (*architecture != Arch::X86_32 && *architecture != Arch::X86_64)) {
+            error(std::make_error_code(std::errc::not_supported)); progress_.store(1); return entries;
+        }
+    }
+    entries.reserve(std::min(config.maxSteps, 10000));
+    std::vector<std::pair<uintptr_t, uintptr_t>> systemRanges;
+    if (config.skipSystemModules)
+        for (const auto& module : proc.modules())
+            if (isSystemModulePath(module.path)) systemRanges.emplace_back(module.base, module.base + module.size);
+    auto inSystemModule = [&](uintptr_t address) {
+        return std::any_of(systemRanges.begin(), systemRanges.end(),
+                           [&](const auto& range) { return address >= range.first && address < range.second; });
     };
+
+    using ThreadState = LocalTrace::ThreadState;
+    LocalTrace run{*this, proc, dbg, cancelled_, progress_, ready_};
+    auto& threads = run.threads;
+    auto consume = [&](pid_t tid, int status) { return run.consume(tid, status); };
+    auto waitThread = [&](pid_t tid, int& status, bool cancellable = true) { return run.waitThread(tid, status, cancellable); };
+    auto resume = [&](pid_t tid, enum __ptrace_request request) { return run.resume(tid, request); };
+    auto restoreDebug = [&](pid_t tid) { return run.restoreDebug(tid); };
+    auto arm = [&](pid_t tid, uintptr_t address) { return run.arm(tid, address); };
+    auto addClone = [&](pid_t parent) { return run.addClone(parent); };
+    auto drainStartTraps = [&](pid_t tid) { return run.drainStartTraps(tid); };
     struct Cleanup {
         std::function<void()> action;
         ~Cleanup() { action(); }
@@ -462,6 +489,129 @@ std::vector<TraceEntry> Tracer::trace(ProcessHandle& proc, Debugger& dbg, const 
             if (!resume(traceTid, PTRACE_CONT)) return entries;
         }
     }
+    return entries;
+}
+
+// Break and Trace on a ceserver target. The start address gets an execute
+// breakpoint (debug register 0); a hit whose start condition holds becomes
+// the traced thread. Each step reads that thread's registers and instruction
+// over the connection and single-steps it (RemoteDebugger::singleStep). A
+// call stepped over, a rep instruction or a call into a system library runs
+// to an execute breakpoint (debug register 1) on the next instruction, in
+// this frame or one above it. The trace leaves the thread stopped; detaching
+// at the end lets it run on.
+std::vector<TraceEntry> Tracer::traceRemote(ProcessHandle& proc, Debugger& dbg, const TraceConfig& config) {
+    std::vector<TraceEntry> entries;
+    if (config.maxSteps <= 0 || !config.startAddress || (config.stayInModule && config.moduleEnd <= config.moduleBase)) {
+        setError(std::make_error_code(std::errc::invalid_argument)); progress_.store(1); return entries;
+    }
+    const pid_t pid = proc.pid();
+    if (auto attached = dbg.attach(pid); !attached) { setError(attached.error()); progress_.store(1); return entries; }
+    struct Release {
+        Debugger& dbg;
+        ~Release() { (void)dbg.detach(); }
+    } release{dbg};
+    if (auto set = dbg.setBreakpoint(pid, 0, config.startAddress, 0, 1); !set) {
+        setError(set.error()); progress_.store(1); return entries;
+    }
+    ready_ = true;
+    pid_t traceTid = 0;
+    while (!cancelled_.load() && !traceTid) {
+        auto event = dbg.waitForStop(200);
+        if (!event) continue;
+        const pid_t tid = event->tid;
+        if (event->signal == SIGTRAP && event->address == config.startAddress) {
+            auto context = dbg.getContext(tid);
+            if (!context) { setError(context.error()); progress_.store(1); return entries; }
+            if (!config.startCondition || config.startCondition(*context)) { traceTid = tid; break; }
+        }
+        (void)dbg.continueStop(tid);   // another stop, or the condition is false: run on
+    }
+    if (!traceTid) { progress_.store(1); return entries; }
+    (void)dbg.removeBreakpoint(traceTid, 0);   // the thread steps on from the start instruction
+
+    std::vector<std::pair<uintptr_t, uintptr_t>> systemRanges;
+    if (config.skipSystemModules)
+        for (const auto& module : proc.modules())
+            if (isSystemModulePath(module.path)) systemRanges.emplace_back(module.base, module.base + module.size);
+    auto inSystemModule = [&](uintptr_t address) {
+        return std::any_of(systemRanges.begin(), systemRanges.end(),
+                           [&](const auto& range) { return address >= range.first && address < range.second; });
+    };
+    std::optional<Disassembler> disassembler;
+    entries.reserve(std::min(config.maxSteps, 10000));
+    for (int step = 0; step < config.maxSteps && !cancelled_.load(); ++step) {
+        progress_.store(static_cast<float>(step) / config.maxSteps);
+        auto ctx = dbg.getContext(traceTid);
+        if (!ctx) { setError(ctx.error()); break; }
+        const uintptr_t pc = ctx->instructionPointer();
+        auto architecture = disassemblerArchFor(proc, pc);
+        if (!architecture) { setError(std::make_error_code(std::errc::not_supported)); break; }
+        try {
+            if (!disassembler) disassembler.emplace(*architecture);
+            else disassembler->setArch(*architecture);
+        } catch (const std::runtime_error&) {
+            setError(std::make_error_code(std::errc::not_supported));
+            break;
+        }
+        uint8_t bytes[16];
+        auto read = proc.read(pc, bytes, sizeof(bytes));
+        if (!read) { setError(read.error()); break; }
+        auto instructions = disassembler->disassemble(pc, {bytes, std::min(*read, sizeof(bytes))}, 1);
+        if (instructions.empty()) { setError(std::make_error_code(std::errc::illegal_byte_sequence)); break; }
+        const auto& current = instructions[0];
+        entries.push_back({pc, current.mnemonic + " " + current.operands, *ctx});
+        if (config.dereferenceAddresses && current.memory.present) {
+            if (const uintptr_t at = computeEffectiveAddress(current, *ctx)) {
+                uint64_t value = 0;
+                const size_t width = std::min<size_t>(current.memory.size ? current.memory.size : 8, 8);
+                auto got = proc.read(at, &value, width);
+                char note[64];
+                if (got && *got == width)
+                    std::snprintf(note, sizeof note, "[%llx]=%llx", static_cast<unsigned long long>(at),
+                                  static_cast<unsigned long long>(value));
+                else
+                    std::snprintf(note, sizeof note, "[%llx]=??", static_cast<unsigned long long>(at));
+                entries.back().memoryNote = note;
+            }
+        }
+        if (config.stackBytes) {
+            entries.back().stack.resize(config.stackBytes);
+            auto got = proc.read(ctx->stackPointer(), entries.back().stack.data(), config.stackBytes);
+            entries.back().stack.resize(got ? *got : 0);
+        }
+        if (config.stopCondition && config.stopCondition(*ctx)) break;
+        if ((config.stopAddress && pc == config.stopAddress) ||
+            (config.stayInModule && (pc < config.moduleBase || pc >= config.moduleEnd))) break;
+
+        const bool repeated = config.stepOverRep && current.mnemonic.starts_with("rep");
+        const bool systemCall = !systemRanges.empty() && current.isCall && inSystemModule(callTarget(proc, current, *ctx));
+        if (!((config.stepOverCalls && current.isCall) || repeated || systemCall)) {
+            if (auto stepped = dbg.singleStep(traceTid); !stepped) { setError(stepped.error()); break; }
+            continue;
+        }
+        // Run to the next instruction. The call returns with the stack pointer
+        // back at (or above) its value here; a recursive call reaching it in a
+        // deeper frame runs on.
+        const uintptr_t next = pc + current.size;
+        const uint64_t callSp = ctx->stackPointer();
+        if (auto set = dbg.setBreakpoint(traceTid, 1, next, 0, 1); !set) { setError(set.error()); break; }
+        if (auto resumed = dbg.continueStop(traceTid); !resumed) { setError(resumed.error()); break; }
+        bool back = false;
+        while (!cancelled_.load()) {
+            auto event = dbg.waitForStop(200);
+            if (!event) continue;
+            const pid_t tid = event->tid;
+            if (tid == traceTid && event->signal == SIGTRAP && event->address == next) {
+                auto now = dbg.getContext(tid);
+                if (now && now->stackPointer() >= callSp) { back = true; break; }
+            }
+            (void)dbg.continueStop(tid);
+        }
+        (void)dbg.removeBreakpoint(traceTid, 1);
+        if (!back) break;
+    }
+    progress_.store(1);
     return entries;
 }
 

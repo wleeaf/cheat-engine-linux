@@ -26,6 +26,7 @@ extern "C" {
 
 #include <sys/stat.h>
 
+#include "scripting/lua_files.hpp"
 #include "scripting/lua_safe.hpp"
 
 #undef lua_pushcfunction
@@ -40,18 +41,6 @@ namespace {
 
 constexpr const char* STREAM_MT     = "ce.Stream";
 constexpr const char* STRINGLIST_MT = "ce.StringList";
-
-// cecore commonly runs as root, so a trojaned table's saveToFile/createFileStream
-// could clobber an arbitrary file through a planted symlink (e.g. a symlink named
-// "save.dat" pointing at /etc/shadow). Refuse to open a *write* target that is an
-// existing symlink. This is a defensive subset; it does not close the broader
-// trust boundary or the TOCTOU window.
-// TODO(security): gate filesystem bindings behind a script-trust setting and open
-// write targets with O_NOFOLLOW via a fd-backed stream to also cover races.
-bool isExistingSymlink(const char* path) {
-    struct stat st;
-    return path && lstat(path, &st) == 0 && S_ISLNK(st.st_mode);
-}
 
 // ── Stream ──
 
@@ -130,16 +119,19 @@ void pushFileStream(lua_State* L, const std::string& path, const std::string& mo
     if (hasA) openMode |= std::ios::app;
     if (hasR || hasPlus) openMode |= std::ios::in;
     if (!(openMode & (std::ios::in | std::ios::out))) openMode |= std::ios::in;
-    if (!readOnly && isExistingSymlink(path.c_str())) {
-        lua_pushnil(L);
-        return;
-    }
-    auto* fs = new std::fstream(path, openMode);
+    // A write target is opened without following a symbolic link (see
+    // lua_files.hpp); reading follows links as usual.
+    auto open = [&](std::fstream& stream, std::ios::openmode how) {
+        if (readOnly) stream.open(path, how);
+        else openNoFollow(stream, path, how);
+    };
+    auto* fs = new std::fstream();
+    open(*fs, openMode);
     if (!fs->is_open() && mode == "rw") {
         std::error_code ec;
         if (!std::filesystem::exists(path, ec) && !ec) {
             fs->clear();
-            fs->open(path, openMode | std::ios::trunc);
+            open(*fs, openMode | std::ios::trunc);
         }
     }
     if (!fs->is_open()) {
@@ -273,9 +265,8 @@ int l_stream_saveToFile(lua_State* L) {
         }
         if (!(s->openMode & std::ios::in)) { lua_pushboolean(L, 0); return 1; }
     }
-    if (isExistingSymlink(path)) { lua_pushboolean(L, 0); return 1; }
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
-    if (!out.is_open()) {
+    std::ofstream out;
+    if (!openNoFollow(out, path, std::ios::out | std::ios::binary | std::ios::trunc)) {
         lua_pushboolean(L, 0);
         return 1;
     }
@@ -319,13 +310,15 @@ int l_stream_loadFromFile(lua_State* L) {
         *s->mem = std::move(buf);
         s->memPos = 0;
     } else {
-        if (isExistingSymlink(s->path->c_str())) { lua_pushboolean(L, 0); return 1; }
         s->file->close();
-        std::ofstream out(*s->path, std::ios::binary | std::ios::trunc);
-        out.write(reinterpret_cast<const char*>(buf.data()), (std::streamsize)buf.size());
+        std::ofstream out;
+        if (openNoFollow(out, *s->path, std::ios::out | std::ios::binary | std::ios::trunc))
+            out.write(reinterpret_cast<const char*>(buf.data()), (std::streamsize)buf.size());
+        else
+            out.setstate(std::ios::failbit);
         out.close();
         s->file->clear();
-        s->file->open(*s->path, s->openMode & ~std::ios::trunc);
+        openNoFollow(*s->file, *s->path, s->openMode & ~std::ios::trunc);
         if (!out || !s->file->is_open()) { lua_pushboolean(L, 0); return 1; }
         fileSeek(s, 0);
     }
@@ -528,9 +521,8 @@ int l_sl_indexOf(lua_State* L) {
 int l_sl_saveToFile(lua_State* L) {
     auto* sl = checkSL(L, 1);
     const char* path = luaL_checkstring(L, 2);
-    if (isExistingSymlink(path)) { lua_pushboolean(L, 0); return 1; }
-    std::ofstream out(path, std::ios::trunc);
-    if (!out.is_open()) { lua_pushboolean(L, 0); return 1; }
+    std::ofstream out;
+    if (!openNoFollow(out, path, std::ios::out | std::ios::trunc)) { lua_pushboolean(L, 0); return 1; }
     for (size_t i = 0; i < sl->items->size(); ++i) {
         out << (*sl->items)[i] << '\n';
     }

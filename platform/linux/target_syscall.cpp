@@ -1571,6 +1571,536 @@ std::expected<void, std::error_code> TargetSyscallRecovery::retry() {
 #endif
 }
 
+#if defined(__x86_64__) || defined(__aarch64__) || defined(__arm__)
+// The steps of executeMemorySyscallInternal that use the recovery owner's
+// private state; TargetSyscallRecovery names this struct a friend.
+struct MemorySyscallSteps {
+    static std::expected<void, TargetSyscallFailure> checkImageAffinity(pid_t tid, const TargetMachine& host,
+    const TargetSyscallRecovery* expectedImage, const NativeMemoryImage* savedImage,
+    std::shared_ptr<TargetSyscallRecovery::State>& recoveryState);
+#if defined(__x86_64__)
+    static std::expected<void, TargetSyscallFailure> prepareRestartAbi(pid_t tid, const TargetMachine& host,
+    const Registers& registers, const std::optional<X86SyscallInfo>& originalEntry, InstructionMode executionMode,
+    bool alreadyStopped, uintptr_t scratch, bool existingOnly, uintptr_t address,
+    std::shared_ptr<TargetSyscallRecovery::State>& recoveryState);
+#endif
+    static std::expected<uint64_t, TargetSyscallFailure> runMemorySyscall(
+    pid_t tid, const TargetMachine& host, MemorySyscall operation, std::array<uint64_t, 6>& arguments,
+    const TargetProcessIdentity* expectedIdentity, const TargetSyscallRecovery* expectedImage,
+    bool alreadyStopped, uintptr_t scratch, bool existingOnly, const NativeMemoryImage* savedImage, bool checkOnly,
+    const std::expected<TargetProcessIdentity, std::error_code>& initialIdentity,
+    std::shared_ptr<TargetSyscallRecovery::State>& recoveryState, std::shared_ptr<TargetSyscallRecovery>& recovery);
+};
+
+#if defined(__x86_64__)
+// The entry ABI of a system call the thread is stopped in, when the kernel
+// would restart it and it was not entered through the thread's own mode.
+static std::expected<std::optional<X86SyscallInfo>, TargetSyscallFailure> interruptedSyscallEntry(
+    pid_t tid, const Registers& registers, InstructionMode executionMode) {
+    const Registers* original = &registers;
+    std::optional<X86SyscallInfo> originalEntry;
+    if (static_cast<int32_t>(original->orig_rax)!=-1 &&
+        (x86RestartError(static_cast<int64_t>(original->rax)) || x86RestartError(static_cast<int32_t>(original->rax)))) {
+        auto info=x86SyscallInfo(tid);
+        // A user-mode i386 stop can report the native audit architecture
+        // after TS_COMPAT was cleared on return to userspace. Its CS still
+        // selects the compat restart path; only a 64-bit code segment needs
+        // the hidden entry-ABI adapter for INT 80.
+        if (info) {if (executionMode!=InstructionMode::X86_32) originalEntry=*info;}
+        else if (info.error()!=std::errc::io_error && info.error()!=std::errc::invalid_argument && info.error()!=std::errc::function_not_supported)
+            return std::unexpected(info.error());
+        else if (executionMode==InstructionMode::X86_64 && pc(*original)>=2) {
+            auto instruction=x86EntryInstruction(tid,pc(*original)-2);
+            if (!instruction) return std::unexpected(instruction.error());
+            if (*instruction==std::array<uint8_t,2>{0xcd,0x80}) return unsupported();
+        }
+    }
+    return originalEntry;
+}
+#endif
+
+// A thread that is not stopped for us, or may only use existing code, runs the
+// system call at an instruction the process already maps. A WoW64 Unix loader
+// can need the native mode for it.
+static std::expected<void, TargetSyscallFailure> useExistingSyscall(pid_t tid, [[maybe_unused]] const TargetMachine& host,
+    int memoryFd, MemorySyscall operation, const std::array<uint64_t, 6>& arguments, InstructionMode& executionMode,
+    std::expected<TargetSyscallPlan, std::error_code>& plan, uintptr_t& address) {
+    auto existing=existingSyscallInstruction(tid,memoryFd,*plan,executionMode,operation,arguments);
+#if defined(__x86_64__)
+    // New WoW64 has PE32 code but an ELF64 Unix loader. It need not map
+    // any ELF32 syscall site. Execute one native loader syscall in long
+    // mode and restore the entire saved Windows context before detach.
+    if (!existing && existing.error() == std::errc::not_supported &&
+        executionMode == InstructionMode::X86_32 && host.abi == TargetAbi::LinuxX86_64) {
+        executionMode = InstructionMode::X86_64;
+        plan = targetSyscallPlan(host, executionMode, operation, arguments);
+        if (!plan) return std::unexpected(plan.error());
+        existing = existingSyscallInstruction(tid,memoryFd,*plan,executionMode,operation,arguments);
+    }
+#endif
+    if (!existing) return std::unexpected(existing.error());
+    address=*existing;
+    return {};
+}
+
+#if defined(__x86_64__)
+// A restartable system call entered through the other ABI than the thread's
+// mode: keep what its restart needs (the entry instruction and an image proving
+// the address space), on a private site only.
+std::expected<void, TargetSyscallFailure> MemorySyscallSteps::prepareRestartAbi(pid_t tid, const TargetMachine& host,
+    const Registers& registers, const std::optional<X86SyscallInfo>& originalEntry, InstructionMode executionMode,
+    bool alreadyStopped, uintptr_t scratch, bool existingOnly, uintptr_t address,
+    std::shared_ptr<TargetSyscallRecovery::State>& recoveryState) {
+    const Registers* original = &registers;
+    if (originalEntry && originalEntry->architecture!=(executionMode==InstructionMode::X86_32 ? x86CompatSyscallArch : x86NativeSyscallArch)) {
+        if (pc(*original)<2) return std::unexpected(invalid());
+        auto instruction=x86EntryInstruction(tid,pc(*original)-2);
+        if (!instruction) return std::unexpected(instruction.error());
+        const std::array<uint8_t,2> wanted=originalEntry->architecture==x86CompatSyscallArch ?
+            std::array<uint8_t,2>{0xcd,0x80} : std::array<uint8_t,2>{0x0f,0x05};
+        if (*instruction!=wanted) return unsupported();
+        // A fresh private site proves mm affinity without touching code
+        // another CLONE_VM process could execute. Borrowed/quiesced sites
+        // need their own private proof owner before this adapter is safe.
+        if (!alreadyStopped || !scratch || existingOnly) return unsupported();
+        auto memoryIdentity=processMemoryIdentity(tid);
+        if (!memoryIdentity) return std::unexpected(memoryIdentity.error());
+        auto image=NativeMemoryImage::capture(*memoryIdentity,host);
+        if (!image) return std::unexpected(image.error());
+        recoveryState->restartImage=std::move(*image);
+        recoveryState->restartScratch=address;
+        recoveryState->restartAbi.emplace();
+        recoveryState->restartAbi->architecture=originalEntry->architecture;
+        recoveryState->restartAbi->instruction=*instruction;
+    }
+    return {};
+}
+#endif
+
+// The words that hold the syscall instruction at address, with the bytes it
+// replaces, for patching the thread's own code in place.
+static std::expected<std::vector<SavedWord>, TargetSyscallFailure> instructionWords(pid_t tid, uintptr_t address,
+                                                                                   const TargetSyscallPlan& plan) {
+    std::vector<SavedWord> words;
+    for (size_t i = 0; i < plan.instruction.size(); ++i) {
+        uintptr_t at = address + i, aligned = at & ~uintptr_t(sizeof(long) - 1);
+        if (words.empty() || words.back().address != aligned) {
+            errno = 0;
+            long value = ptrace(PTRACE_PEEKTEXT, tid, reinterpret_cast<void*>(aligned), nullptr);
+            if (value == -1 && errno) return std::unexpected(currentError());
+            words.push_back({aligned, value, value, 0});
+        }
+        auto* bytes = reinterpret_cast<uint8_t*>(&words.back().replacement);
+        bytes[at - aligned] = plan.instruction[i];
+        reinterpret_cast<uint8_t*>(&words.back().mask)[at - aligned] = 0xff;
+    }
+    return words;
+}
+
+// The address space a saved image or a recovery ticket describes must still be
+// the thread's: proven by mapping a private page and finding it in both.
+std::expected<void, TargetSyscallFailure> MemorySyscallSteps::checkImageAffinity(pid_t tid, const TargetMachine& host,
+    const TargetSyscallRecovery* expectedImage, const NativeMemoryImage* savedImage,
+    std::shared_ptr<TargetSyscallRecovery::State>& recoveryState) {
+    std::shared_ptr<NativeMemoryImage> ticketImage;
+    if (expectedImage) {
+        auto retained=expectedImage->retainImage(host);
+        if (!retained) return std::unexpected(retained.error());
+        ticketImage=std::move(*retained);
+    }
+    const std::array<const NativeMemoryImage*,2> images{savedImage,ticketImage.get()};
+    for (const auto* image:images) {
+        if (!image) continue;
+        auto checked=image->check();if (!checked) return std::unexpected(checked.error());
+        auto currentIdentity=processMemoryIdentity(tid);
+        if (!currentIdentity) return std::unexpected(currentIdentity.error());
+        auto current=NativeMemoryImage::capture(*currentIdentity,host);
+        if (!current) return std::unexpected(current.error());
+        const long page=sysconf(_SC_PAGESIZE);
+        if (page<=0) return std::unexpected(invalid());
+        recoveryState->affinityImage=std::move(*current);
+        recoveryState->affinityHost=host;
+        recoveryState->affinitySize=static_cast<size_t>(page);
+        auto mapped=executeOwnedMemorySyscall(tid,host,MemorySyscall::Map,
+            {0,static_cast<uint64_t>(page),PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,UINT64_MAX,0});
+        if (!mapped) {
+            recoveryState->rememberAffinitySignal(mapped.error());
+            recoveryState->affinityRecovery=mapped.error().recovery;
+            if (mapped.error().completedValue) recoveryState->affinityAddress=*mapped.error().completedValue;
+            return std::unexpected(mapped.error().code);
+        }
+        recoveryState->affinityAddress=*mapped;
+        auto same=image->sharesPrivateMapping(*recoveryState->affinityImage,*mapped);
+        if (!same) return std::unexpected(same.error());
+        auto released=recoveryState->cleanupAffinity();
+        if (!released) return std::unexpected(released.error());
+    }
+    return {};
+}
+
+// A system call that unmaps, makes non-executable or maps over memory must leave
+// the thread's own code alone: the instruction it returns to, a syscall the
+// kernel would restart, and the page holding the injected instruction.
+static std::expected<void, TargetSyscallFailure> checkDestructiveRange(pid_t tid, MemorySyscall operation,
+    const std::array<uint64_t, 6>& arguments, const Registers& registers, uintptr_t address, size_t instructionSize
+#if defined(__x86_64__)
+    , const std::optional<X86SyscallInfo>& originalEntry
+#endif
+    ) {
+    const Registers* original = &registers;
+    // The original return instruction must remain executable and mapped. The
+    // selected syscall instruction is checked separately below.
+    bool destructive = operation == MemorySyscall::Unmap ||
+        (operation == MemorySyscall::Protect && !(arguments[2] & PROT_EXEC)) ||
+        (operation == MemorySyscall::Map && (arguments[3] & MAP_FIXED));
+    if (destructive && arguments[1]) {
+        auto pageSize = sysconf(_SC_PAGESIZE);
+        if (pageSize <= 0 || arguments[0] > UINTPTR_MAX || arguments[1] > UINTPTR_MAX - arguments[0])
+            return std::unexpected(invalid());
+        uintptr_t start = static_cast<uintptr_t>(arguments[0]);
+        uintptr_t end = start + static_cast<uintptr_t>(arguments[1]);
+        auto page = static_cast<uintptr_t>(pageSize);
+        const uintptr_t originalPage=pc(*original)-pc(*original)%page;
+#if defined(__x86_64__)
+        // A syscall-interrupt stop exposes the PC after SYSCALL/INT 80.
+        // The kernel rewinds it by two bytes when the saved error requests
+        // restart. Protect that instruction even when it is on the previous
+        // page, while allowing completed syscalls to release unused code.
+        const int64_t savedError=(originalEntry && originalEntry->architecture==x86CompatSyscallArch) || mode(*original)==InstructionMode::X86_32 ?
+            static_cast<int32_t>(original->rax) : static_cast<int64_t>(original->rax);
+        if (static_cast<int32_t>(original->orig_rax)!=-1 &&
+            (savedError==-512 || savedError==-513 || savedError==-514 || savedError==-516)) {
+            if (pc(*original)<2) return std::unexpected(invalid());
+            const uintptr_t restartPage=(pc(*original)-2)-(pc(*original)-2)%page;
+            if ((originalPage>UINTPTR_MAX-page || start<originalPage+page) && end>restartPage)
+                return std::unexpected(std::make_error_code(std::errc::operation_not_permitted));
+        }
+#endif
+        if ((originalPage>UINTPTR_MAX-page || start<originalPage+page) && end>originalPage)
+            return std::unexpected(std::make_error_code(std::errc::operation_not_permitted));
+        const uintptr_t nextPage=originalPage+page;
+        if (nextPage>originalPage && end>nextPage && (nextPage>UINTPTR_MAX-page || start<nextPage+page)) {
+            auto originalLast=returnInstructionLastByte(tid,*original,page);
+            if (!originalLast) return std::unexpected(originalLast.error());
+            const uintptr_t originalLastPage=*originalLast-*originalLast%page;
+            if ((originalLastPage>UINTPTR_MAX-page || start<originalLastPage+page) && end>originalPage)
+                return std::unexpected(std::make_error_code(std::errc::operation_not_permitted));
+        }
+        uintptr_t pcPage = address - address % page;
+        uintptr_t lastByte = address + instructionSize - 1;
+        uintptr_t lastPage = lastByte - lastByte % page;
+        // Kernel memory syscalls round the length up to a page boundary.
+        if ((lastPage > UINTPTR_MAX - page || start < lastPage + page) && end > pcPage)
+            return std::unexpected(std::make_error_code(std::errc::operation_not_permitted));
+    }
+    return {};
+}
+
+// executeMemorySyscallInternal's work once its recovery owner exists: seize the
+// thread, check the image, save and redirect it, run the system call and
+// restore. The caller retries the recovery after a failure here.
+std::expected<uint64_t, TargetSyscallFailure> MemorySyscallSteps::runMemorySyscall(
+    pid_t tid, const TargetMachine& host, MemorySyscall operation, std::array<uint64_t, 6>& arguments,
+    const TargetProcessIdentity* expectedIdentity, const TargetSyscallRecovery* expectedImage,
+    bool alreadyStopped, uintptr_t scratch, bool existingOnly, const NativeMemoryImage* savedImage, bool checkOnly,
+    const std::expected<TargetProcessIdentity, std::error_code>& initialIdentity,
+    std::shared_ptr<TargetSyscallRecovery::State>& recoveryState, std::shared_ptr<TargetSyscallRecovery>& recovery) {
+    int status=(SIGTRAP|(PTRACE_EVENT_STOP<<8))<<8|0x7f;
+    if (!alreadyStopped) {
+        auto stopped = recoveryState->seizeStopped(*initialIdentity);
+        if (!stopped) return std::unexpected(stopped.error());
+        status = *stopped;
+    } else {
+        recoveryState->seized=true;
+        recoveryState->stopped=true;
+    }
+    if (WSTOPSIG(status) != SIGTRAP)
+        return std::unexpected(std::make_error_code(std::errc::interrupted));
+    auto identity = targetProcessIdentity(tid);
+    if (!identity) return std::unexpected(identity.error());
+    if (expectedIdentity && *identity != *expectedIdentity)
+        return std::unexpected(std::make_error_code(std::errc::operation_canceled));
+    if (!alreadyStopped) {
+        // Nothing is changed yet; the caller can retry once the section ends.
+        auto stoppedAt=getRegisters(tid);
+        if (!stoppedAt) return std::unexpected(stoppedAt.error());
+        auto outside=checkRseqSection(tid,pc(*stoppedAt));
+        if (!outside) return std::unexpected(outside.error());
+    }
+    if (auto checked = checkImageAffinity(tid, host, expectedImage, savedImage, recoveryState); !checked)
+        return std::unexpected(checked.error());
+    if (checkOnly) return uint64_t{0};
+    struct stat executable{};
+    auto executablePath = "/proc/" + std::to_string(tid) + "/exe";
+    if (stat(executablePath.c_str(), &executable) != 0) {
+        return std::unexpected(currentError());
+    }
+    auto original = getRegisters(tid);
+    if (!original) return std::unexpected(original.error());
+    auto executionMode = mode(*original);
+#if defined(__x86_64__)
+    auto entry = interruptedSyscallEntry(tid, *original, executionMode);
+    if (!entry) return std::unexpected(entry.error());
+    const std::optional<X86SyscallInfo> originalEntry = *entry;
+#endif
+    const bool arm32=executionMode==InstructionMode::Arm || executionMode==InstructionMode::Thumb;
+    if (arm32) {
+        // Full borrowed-site and parked-syscall adapters remain separate.
+        // This path executes only in caller-owned private scratch code.
+        if (!alreadyStopped || !scratch || existingOnly || host.architecture!=CpuArchitecture::Arm32 ||
+            host.abi!=TargetAbi::LinuxArmEabi || host.byteOrder!=ByteOrder::Little ||
+            host.instructionByteOrder!=ByteOrder::Little) return unsupported();
+#if defined(__aarch64__) || defined(__arm__)
+        const int32_t value=static_cast<int32_t>(original->arm[0]);
+        if (value==-512 || value==-513 || value==-514 || value==-516) return unsupported();
+#endif
+    }
+    auto plan = targetSyscallPlan(host, executionMode, operation, arguments);
+#if defined(__x86_64__)
+    // A WoW64 operation on its Unix loader can have 64-bit addresses even
+    // while Windows code runs in compat mode. Validate against the Unix ABI
+    // before rejecting arguments that do not fit an i386 syscall.
+    if (!plan && plan.error() == std::errc::invalid_argument &&
+        executionMode == InstructionMode::X86_32 && host.abi == TargetAbi::LinuxX86_64) {
+        executionMode = InstructionMode::X86_64;
+        plan = targetSyscallPlan(host, executionMode, operation, arguments);
+    }
+#endif
+    if (!plan) return std::unexpected(plan.error());
+    const auto syscallSize=plan->instruction.size();
+    if (arm32) {
+        const std::vector<uint8_t> trap=executionMode==InstructionMode::Thumb ?
+            std::vector<uint8_t>{0x01,0xde} : std::vector<uint8_t>{0xf0,0x01,0xf0,0xe7};
+        plan->instruction.insert(plan->instruction.end(),trap.begin(),trap.end());
+    }
+    uintptr_t address = pc(*original);
+    if (alreadyStopped && scratch) {
+        if (scratch>UINTPTR_MAX-16) return std::unexpected(invalid());
+        address=scratch+(mode(*original)==InstructionMode::X86_32 ? 16 : 0);
+        if (mode(*original)==InstructionMode::X86_32 && address>UINT32_MAX) return std::unexpected(invalid());
+    }
+    if (arm32 && (address>UINT32_MAX || address%(executionMode==InstructionMode::Thumb ? 2 : 4)))
+        return std::unexpected(invalid());
+    if (plan->instruction.size() > UINTPTR_MAX - address) return std::unexpected(invalid());
+    if (auto checked = checkDestructiveRange(tid, operation, arguments, *original, address, plan->instruction.size()
+#if defined(__x86_64__)
+                                             , originalEntry
+#endif
+                                             ); !checked)
+        return std::unexpected(checked.error());
+    recoveryState->original = *original;
+    recoveryState->detach=!alreadyStopped;
+    recoveryState->executableDevice = executable.st_dev;
+    recoveryState->executableInode = executable.st_ino;
+    recoveryState->startTime = identity->startTime;
+    char memoryPath[64];
+    std::snprintf(memoryPath, sizeof(memoryPath), "/proc/%ld/mem", static_cast<long>(tid));
+#if defined(__aarch64__)
+    // A pinned writable mm permits bounded bulk signal-frame restoration.
+    // Read-only proc mounts can still use the ptrace word fallback.
+    recoveryState->memoryFd = open(memoryPath, O_RDWR | O_CLOEXEC);
+    if (recoveryState->memoryFd < 0)
+#endif
+    recoveryState->memoryFd = open(memoryPath, O_RDONLY | O_CLOEXEC);
+    if (recoveryState->memoryFd < 0) return std::unexpected(currentError());
+    if (!alreadyStopped || existingOnly) {
+        if (auto found = useExistingSyscall(tid, host, recoveryState->memoryFd, operation, arguments, executionMode, plan, address); !found)
+            return std::unexpected(found.error());
+    }
+#if defined(__x86_64__)
+    if (auto prepared = prepareRestartAbi(tid, host, *original, originalEntry, executionMode, alreadyStopped, scratch,
+                                          existingOnly, address, recoveryState); !prepared)
+        return std::unexpected(prepared.error());
+#endif
+    std::vector<SavedWord> words;
+    if (alreadyStopped && !existingOnly) {
+        auto planned = instructionWords(tid, address, *plan);
+        if (!planned) return std::unexpected(planned.error());
+        words = std::move(*planned);
+    }
+    std::error_code error;
+    uint64_t rawResult = 0;
+    size_t changed = 0;
+    bool registersChanged = false;
+    bool haveResult = false;
+#if defined(__aarch64__)
+    int oldSyscall = -1;
+    iovec syscallIo{&oldSyscall, sizeof(oldSyscall)};
+    if (ptrace(PTRACE_GETREGSET, tid, reinterpret_cast<void*>(NT_ARM_SYSTEM_CALL), &syscallIo) < 0 || syscallIo.iov_len != sizeof(oldSyscall)) {
+        error = currentError(); if (!error) error=invalid();
+    }
+    bool syscallChanged = false;
+#endif
+    // Allocate recovery ownership before the first mutation. No heap allocation
+    // is needed while the thread contains injected instructions or registers.
+    recoveryState->words = words;
+    auto extended = captureNativeExtendedContext(tid);
+    if (!extended) return std::unexpected(extended.error());
+    recoveryState->extended = std::move(*extended);
+#if defined(__aarch64__)
+    if (!error && !arm32) {
+        auto returned=Arm64VectorReturn::prepare(tid,recoveryState->memoryFd,address,*original,oldSyscall,
+            recoveryState->extended,operation,plan->arguments);
+        if (!returned) return std::unexpected(returned.error());
+        if (*returned && alreadyStopped) {
+            // Private/quiesced syscall patches have already been removed by
+            // recovery before vector restoration. Borrow a permanent SVC site
+            // for rt_sigreturn instead of executing restored application code.
+            auto returnSite=existingSyscallInstruction(tid,recoveryState->memoryFd,*plan,executionMode,operation,arguments);
+            if (!returnSite) return std::unexpected(returnSite.error());
+            (*returned)->syscallAddress=*returnSite;
+        }
+        recoveryState->vectorReturn=std::move(*returned);
+    }
+#endif
+#if defined(__aarch64__)
+    recoveryState->oldSyscall=oldSyscall;
+#endif
+    recoveryState->prepared=true;
+    ce::log::debug(ce::log::Cat::Ptrace,
+        "memory syscall tid={} nr={} pc={:#x} addr={:#x} size={:#x} prot={:#x} flags={:#x}",
+        tid, plan->number, address, plan->arguments[0], plan->arguments[1], plan->arguments[2], plan->arguments[3]);
+    if (!error) for (const auto& word : words) {
+        errno = 0;
+        long current = ptrace(PTRACE_PEEKTEXT, tid, reinterpret_cast<void*>(word.address), nullptr);
+        if (current == -1 && errno) { error=currentError(); break; }
+        unsigned long replacement = (static_cast<unsigned long>(current) & ~word.mask) |
+                                    (static_cast<unsigned long>(word.replacement) & word.mask);
+        ++changed;
+        if (ptrace(PTRACE_POKETEXT, tid, reinterpret_cast<void*>(word.address), reinterpret_cast<void*>(replacement)) < 0) { error=currentError(); break; }
+        errno=0;
+        const long verified=ptrace(PTRACE_PEEKTEXT,tid,reinterpret_cast<void*>(word.address),nullptr);
+        if ((verified==-1 && errno) || (static_cast<unsigned long>(verified)&word.mask)!=(replacement&word.mask)) {
+            error=(verified==-1 && errno) ? currentError() : std::make_error_code(std::errc::io_error);
+            break;
+        }
+    }
+    Registers injected = *original;
+#if defined(__x86_64__)
+    if (executionMode != mode(*original)) injected.cs = 0x33; // Linux __USER_CS.
+#endif
+    prepare(injected, *plan);
+    setPc(injected,address);
+#if defined(__aarch64__)
+    if (!error) {
+        int noSyscall = -1; iovec io{&noSyscall, sizeof(noSyscall)};
+        syscallChanged = true;
+        recoveryState->syscallChanged=true;
+        if (ptrace(PTRACE_SETREGSET, tid, reinterpret_cast<void*>(NT_ARM_SYSTEM_CALL), &io) < 0) error=currentError();
+    }
+#endif
+    if (!error) {
+        // SETREGS can reject a later field after updating earlier ones.
+        registersChanged = true;
+        recoveryState->registersChanged=true;
+        if (!setRegisters(tid, injected)) error = currentError();
+    }
+    int pendingSignal = 0;
+    if (!error) {
+        if (ptrace(arm32 ? PTRACE_CONT : PTRACE_SINGLESTEP,tid,nullptr,nullptr)<0) error=currentError();
+        else if (waitStopped(tid, status) != tid || !WIFSTOPPED(status)) error=std::make_error_code(std::errc::no_such_process);
+        else if ((status >> 16) == 0) {
+            siginfo_t signalInfo{};
+            if (ptrace(PTRACE_GETSIGINFO, tid, nullptr, &signalInfo) < 0) error=currentError();
+            bool kernelSyscallStep = false;
+#if defined(__aarch64__)
+            // Linux user_single_step_report() uses SI_USER with zero sender
+            // for an ARM64 syscall pseudo-step. A genuine kill/tgkill sender
+            // is retained and delivered below. Completion still requires PC.
+            kernelSyscallStep = signalInfo.si_code == SI_USER && signalInfo.si_pid == 0 && signalInfo.si_uid == 0;
+#endif
+            const bool privateTrap=arm32 && signalInfo.si_signo==SIGTRAP && signalInfo.si_code==TRAP_BRKPT &&
+                reinterpret_cast<uintptr_t>(signalInfo.si_addr)==address+syscallSize;
+            if (WSTOPSIG(status)!=SIGTRAP || (arm32 ? !privateTrap : (signalInfo.si_code<=0 && !kernelSyscallStep))) {
+                pendingSignal=WSTOPSIG(status); error=std::make_error_code(std::errc::interrupted);
+                if (signalInfo.si_signo==WSTOPSIG(status)) recoveryState->pendingSignalInfo=signalInfo;
+            }
+            auto completed = getRegisters(tid);
+            if (!completed) error=completed.error();
+            else if (pc(*completed) != address + syscallSize) error=std::make_error_code(std::errc::interrupted);
+            // Seccomp and syscall-user-dispatch can raise SIGSYS after advancing
+            // PC without executing the syscall. Its unchanged number register
+            // is not a completed mmap result and must never become an orphan.
+            else if (WSTOPSIG(status)==SIGSYS && signalInfo.si_code>0 &&
+                     static_cast<uint32_t>(signalInfo.si_syscall)==plan->number) {
+                // This fault belongs to our denied operation. Preserve the
+                // target's policy and resume its original context without
+                // injecting the synthetic denial into its signal handler.
+                pendingSignal=0;
+                recoveryState->pendingSignalInfo.reset();
+                recoveryState->pendingStepTrap=!arm32;
+                recoveryState->stepEnd=address+syscallSize;
+                error=std::make_error_code(std::errc::operation_not_permitted);
+            } else {
+                rawResult = result(*completed); haveResult = true;
+            }
+        } else {
+            error=std::make_error_code(std::errc::interrupted);
+            if ((status >> 16) != PTRACE_EVENT_EXEC) {
+                auto completed = getRegisters(tid);
+                if (completed && pc(*completed) == address + syscallSize) {
+                    rawResult = result(*completed); haveResult = true;
+                }
+            }
+        }
+    }
+    if (WIFEXITED(status) || WIFSIGNALED(status)) {
+        recoveryState->done=true;
+        return std::unexpected(std::make_error_code(std::errc::no_such_process));
+    }
+    if (WIFSTOPPED(status) && (status >> 16) == PTRACE_EVENT_EXEC) {
+        recoveryState->prepared=false;
+        recoveryState->retired=true;
+        recoveryState->rememberStop(status);
+        TargetSyscallFailure failure(std::make_error_code(std::errc::operation_canceled));
+        failure.pendingEvent=PTRACE_EVENT_EXEC;
+        return std::unexpected(std::move(failure));
+    }
+    recoveryState->words.resize(changed);
+    recoveryState->registersChanged = registersChanged;
+    recoveryState->pendingSignal = pendingSignal;
+#if defined(__aarch64__)
+    recoveryState->oldSyscall = oldSyscall;
+    recoveryState->syscallChanged = syscallChanged;
+#endif
+    auto restored = recovery->retry();
+    pendingSignal=recoveryState->pendingSignal;
+    if (!restored) {
+        TargetSyscallFailure failure(restored.error());
+        failure.pendingSignal=pendingSignal;
+#if defined(__x86_64__)
+        failure.pendingEvent=recoveryState->restartEvent;
+#endif
+        if (!recoveryState->done) failure.recovery = recovery;
+        if (haveResult && rawResult < UINT64_MAX - 4094 &&
+            (plan->resultWidth != 4 || static_cast<uint32_t>(rawResult) < 0xfffff001u))
+            failure.completedValue = plan->resultWidth == 4 ? static_cast<uint32_t>(rawResult) : rawResult;
+        return std::unexpected(std::move(failure));
+    }
+    // Diagnostics cannot discard a completed mmap if formatting runs out of
+    // memory. The broker must receive its value to own or return the mapping.
+    try {
+        ce::log::debug(ce::log::Cat::Ptrace, "memory syscall tid={} nr={} raw={:#x} completed={} error={}",
+            tid, plan->number, rawResult, haveResult, error.message());
+    } catch (...) {}
+    if (error) {
+        TargetSyscallFailure failure(error);
+        failure.pendingSignal=pendingSignal;
+        if (haveResult && rawResult < UINT64_MAX - 4094 &&
+            (plan->resultWidth != 4 || static_cast<uint32_t>(rawResult) < 0xfffff001u))
+            failure.completedValue = plan->resultWidth == 4 ? static_cast<uint32_t>(rawResult) : rawResult;
+        return std::unexpected(std::move(failure));
+    }
+    if (plan->resultWidth == 4) {
+        uint32_t value=static_cast<uint32_t>(rawResult);
+        if (value >= 0xfffff001u) return std::unexpected(std::error_code(-static_cast<int32_t>(value),std::system_category()));
+        return value;
+    }
+    if (rawResult >= UINT64_MAX - 4094) return std::unexpected(std::error_code(-static_cast<int64_t>(rawResult),std::system_category()));
+    return rawResult;
+}
+#endif
+
 std::expected<uint64_t, TargetSyscallFailure> executeMemorySyscallInternal(
     pid_t tid, const TargetMachine& host, MemorySyscall operation, std::array<uint64_t, 6> arguments,
     const TargetProcessIdentity* expectedIdentity, const TargetSyscallRecovery* expectedImage,
@@ -1598,421 +2128,8 @@ std::expected<uint64_t, TargetSyscallFailure> executeMemorySyscallInternal(
     recoveryState->startTime=initialIdentity->startTime;
     recoveryState->detach=!alreadyStopped;
     auto execute=[&]() -> std::expected<uint64_t,TargetSyscallFailure> {
-        int status=(SIGTRAP|(PTRACE_EVENT_STOP<<8))<<8|0x7f;
-        if (!alreadyStopped) {
-            auto stopped = recoveryState->seizeStopped(*initialIdentity);
-            if (!stopped) return std::unexpected(stopped.error());
-            status = *stopped;
-        } else {
-            recoveryState->seized=true;
-            recoveryState->stopped=true;
-        }
-        if (WSTOPSIG(status) != SIGTRAP)
-            return std::unexpected(std::make_error_code(std::errc::interrupted));
-        auto identity = targetProcessIdentity(tid);
-        if (!identity) return std::unexpected(identity.error());
-        if (expectedIdentity && *identity != *expectedIdentity)
-            return std::unexpected(std::make_error_code(std::errc::operation_canceled));
-        if (!alreadyStopped) {
-            // Nothing is changed yet; the caller can retry once the section ends.
-            auto stoppedAt=getRegisters(tid);
-            if (!stoppedAt) return std::unexpected(stoppedAt.error());
-            auto outside=checkRseqSection(tid,pc(*stoppedAt));
-            if (!outside) return std::unexpected(outside.error());
-        }
-        std::shared_ptr<NativeMemoryImage> ticketImage;
-        if (expectedImage) {
-            auto retained=expectedImage->retainImage(host);
-            if (!retained) return std::unexpected(retained.error());
-            ticketImage=std::move(*retained);
-        }
-        const std::array<const NativeMemoryImage*,2> images{savedImage,ticketImage.get()};
-        for (const auto* image:images) {
-            if (!image) continue;
-            auto checked=image->check();if (!checked) return std::unexpected(checked.error());
-            auto currentIdentity=processMemoryIdentity(tid);
-            if (!currentIdentity) return std::unexpected(currentIdentity.error());
-            auto current=NativeMemoryImage::capture(*currentIdentity,host);
-            if (!current) return std::unexpected(current.error());
-            const long page=sysconf(_SC_PAGESIZE);
-            if (page<=0) return std::unexpected(invalid());
-            recoveryState->affinityImage=std::move(*current);
-            recoveryState->affinityHost=host;
-            recoveryState->affinitySize=static_cast<size_t>(page);
-            auto mapped=executeOwnedMemorySyscall(tid,host,MemorySyscall::Map,
-                {0,static_cast<uint64_t>(page),PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,UINT64_MAX,0});
-            if (!mapped) {
-                recoveryState->rememberAffinitySignal(mapped.error());
-                recoveryState->affinityRecovery=mapped.error().recovery;
-                if (mapped.error().completedValue) recoveryState->affinityAddress=*mapped.error().completedValue;
-                return std::unexpected(mapped.error().code);
-            }
-            recoveryState->affinityAddress=*mapped;
-            auto same=image->sharesPrivateMapping(*recoveryState->affinityImage,*mapped);
-            if (!same) return std::unexpected(same.error());
-            auto released=recoveryState->cleanupAffinity();
-            if (!released) return std::unexpected(released.error());
-        }
-        if (checkOnly) return uint64_t{0};
-        struct stat executable{};
-        auto executablePath = "/proc/" + std::to_string(tid) + "/exe";
-        if (stat(executablePath.c_str(), &executable) != 0) {
-            return std::unexpected(currentError());
-        }
-        auto original = getRegisters(tid);
-        if (!original) return std::unexpected(original.error());
-        auto executionMode = mode(*original);
-#if defined(__x86_64__)
-        std::optional<X86SyscallInfo> originalEntry;
-        if (static_cast<int32_t>(original->orig_rax)!=-1 &&
-            (x86RestartError(static_cast<int64_t>(original->rax)) || x86RestartError(static_cast<int32_t>(original->rax)))) {
-            auto info=x86SyscallInfo(tid);
-            // A user-mode i386 stop can report the native audit architecture
-            // after TS_COMPAT was cleared on return to userspace. Its CS still
-            // selects the compat restart path; only a 64-bit code segment needs
-            // the hidden entry-ABI adapter for INT 80.
-            if (info) {if (executionMode!=InstructionMode::X86_32) originalEntry=*info;}
-            else if (info.error()!=std::errc::io_error && info.error()!=std::errc::invalid_argument && info.error()!=std::errc::function_not_supported)
-                return std::unexpected(info.error());
-            else if (executionMode==InstructionMode::X86_64 && pc(*original)>=2) {
-                auto instruction=x86EntryInstruction(tid,pc(*original)-2);
-                if (!instruction) return std::unexpected(instruction.error());
-                if (*instruction==std::array<uint8_t,2>{0xcd,0x80}) return unsupported();
-            }
-        }
-#endif
-        const bool arm32=executionMode==InstructionMode::Arm || executionMode==InstructionMode::Thumb;
-        if (arm32) {
-            // Full borrowed-site and parked-syscall adapters remain separate.
-            // This path executes only in caller-owned private scratch code.
-            if (!alreadyStopped || !scratch || existingOnly || host.architecture!=CpuArchitecture::Arm32 ||
-                host.abi!=TargetAbi::LinuxArmEabi || host.byteOrder!=ByteOrder::Little ||
-                host.instructionByteOrder!=ByteOrder::Little) return unsupported();
-#if defined(__aarch64__) || defined(__arm__)
-            const int32_t value=static_cast<int32_t>(original->arm[0]);
-            if (value==-512 || value==-513 || value==-514 || value==-516) return unsupported();
-#endif
-        }
-        auto plan = targetSyscallPlan(host, executionMode, operation, arguments);
-#if defined(__x86_64__)
-        // A WoW64 operation on its Unix loader can have 64-bit addresses even
-        // while Windows code runs in compat mode. Validate against the Unix ABI
-        // before rejecting arguments that do not fit an i386 syscall.
-        if (!plan && plan.error() == std::errc::invalid_argument &&
-            executionMode == InstructionMode::X86_32 && host.abi == TargetAbi::LinuxX86_64) {
-            executionMode = InstructionMode::X86_64;
-            plan = targetSyscallPlan(host, executionMode, operation, arguments);
-        }
-#endif
-        if (!plan) return std::unexpected(plan.error());
-        const auto syscallSize=plan->instruction.size();
-        if (arm32) {
-            const std::vector<uint8_t> trap=executionMode==InstructionMode::Thumb ?
-                std::vector<uint8_t>{0x01,0xde} : std::vector<uint8_t>{0xf0,0x01,0xf0,0xe7};
-            plan->instruction.insert(plan->instruction.end(),trap.begin(),trap.end());
-        }
-        uintptr_t address = pc(*original);
-        if (alreadyStopped && scratch) {
-            if (scratch>UINTPTR_MAX-16) return std::unexpected(invalid());
-            address=scratch+(mode(*original)==InstructionMode::X86_32 ? 16 : 0);
-            if (mode(*original)==InstructionMode::X86_32 && address>UINT32_MAX) return std::unexpected(invalid());
-        }
-        if (arm32 && (address>UINT32_MAX || address%(executionMode==InstructionMode::Thumb ? 2 : 4)))
-            return std::unexpected(invalid());
-        if (plan->instruction.size() > UINTPTR_MAX - address) return std::unexpected(invalid());
-        // The original return instruction must remain executable and mapped. The
-        // selected syscall instruction is checked separately below.
-        bool destructive = operation == MemorySyscall::Unmap ||
-            (operation == MemorySyscall::Protect && !(arguments[2] & PROT_EXEC)) ||
-            (operation == MemorySyscall::Map && (arguments[3] & MAP_FIXED));
-        if (destructive && arguments[1]) {
-            auto pageSize = sysconf(_SC_PAGESIZE);
-            if (pageSize <= 0 || arguments[0] > UINTPTR_MAX || arguments[1] > UINTPTR_MAX - arguments[0])
-                return std::unexpected(invalid());
-            uintptr_t start = static_cast<uintptr_t>(arguments[0]);
-            uintptr_t end = start + static_cast<uintptr_t>(arguments[1]);
-            auto page = static_cast<uintptr_t>(pageSize);
-            const uintptr_t originalPage=pc(*original)-pc(*original)%page;
-#if defined(__x86_64__)
-            // A syscall-interrupt stop exposes the PC after SYSCALL/INT 80.
-            // The kernel rewinds it by two bytes when the saved error requests
-            // restart. Protect that instruction even when it is on the previous
-            // page, while allowing completed syscalls to release unused code.
-            const int64_t savedError=(originalEntry && originalEntry->architecture==x86CompatSyscallArch) || mode(*original)==InstructionMode::X86_32 ?
-                static_cast<int32_t>(original->rax) : static_cast<int64_t>(original->rax);
-            if (static_cast<int32_t>(original->orig_rax)!=-1 &&
-                (savedError==-512 || savedError==-513 || savedError==-514 || savedError==-516)) {
-                if (pc(*original)<2) return std::unexpected(invalid());
-                const uintptr_t restartPage=(pc(*original)-2)-(pc(*original)-2)%page;
-                if ((originalPage>UINTPTR_MAX-page || start<originalPage+page) && end>restartPage)
-                    return std::unexpected(std::make_error_code(std::errc::operation_not_permitted));
-            }
-#endif
-            if ((originalPage>UINTPTR_MAX-page || start<originalPage+page) && end>originalPage)
-                return std::unexpected(std::make_error_code(std::errc::operation_not_permitted));
-            const uintptr_t nextPage=originalPage+page;
-            if (nextPage>originalPage && end>nextPage && (nextPage>UINTPTR_MAX-page || start<nextPage+page)) {
-                auto originalLast=returnInstructionLastByte(tid,*original,page);
-                if (!originalLast) return std::unexpected(originalLast.error());
-                const uintptr_t originalLastPage=*originalLast-*originalLast%page;
-                if ((originalLastPage>UINTPTR_MAX-page || start<originalLastPage+page) && end>originalPage)
-                    return std::unexpected(std::make_error_code(std::errc::operation_not_permitted));
-            }
-            uintptr_t pcPage = address - address % page;
-            uintptr_t lastByte = address + plan->instruction.size() - 1;
-            uintptr_t lastPage = lastByte - lastByte % page;
-            // Kernel memory syscalls round the length up to a page boundary.
-            if ((lastPage > UINTPTR_MAX - page || start < lastPage + page) && end > pcPage)
-                return std::unexpected(std::make_error_code(std::errc::operation_not_permitted));
-        }
-        recoveryState->original = *original;
-        recoveryState->detach=!alreadyStopped;
-        recoveryState->executableDevice = executable.st_dev;
-        recoveryState->executableInode = executable.st_ino;
-        recoveryState->startTime = identity->startTime;
-        char memoryPath[64];
-        std::snprintf(memoryPath, sizeof(memoryPath), "/proc/%ld/mem", static_cast<long>(tid));
-#if defined(__aarch64__)
-        // A pinned writable mm permits bounded bulk signal-frame restoration.
-        // Read-only proc mounts can still use the ptrace word fallback.
-        recoveryState->memoryFd = open(memoryPath, O_RDWR | O_CLOEXEC);
-        if (recoveryState->memoryFd < 0)
-#endif
-        recoveryState->memoryFd = open(memoryPath, O_RDONLY | O_CLOEXEC);
-        if (recoveryState->memoryFd < 0) return std::unexpected(currentError());
-        if (!alreadyStopped || existingOnly) {
-            auto existing=existingSyscallInstruction(tid,recoveryState->memoryFd,*plan,executionMode,operation,arguments);
-#if defined(__x86_64__)
-            // New WoW64 has PE32 code but an ELF64 Unix loader. It need not map
-            // any ELF32 syscall site. Execute one native loader syscall in long
-            // mode and restore the entire saved Windows context before detach.
-            if (!existing && existing.error() == std::errc::not_supported &&
-                executionMode == InstructionMode::X86_32 && host.abi == TargetAbi::LinuxX86_64) {
-                executionMode = InstructionMode::X86_64;
-                plan = targetSyscallPlan(host, executionMode, operation, arguments);
-                if (!plan) return std::unexpected(plan.error());
-                existing = existingSyscallInstruction(tid,recoveryState->memoryFd,*plan,executionMode,operation,arguments);
-            }
-#endif
-            if (!existing) return std::unexpected(existing.error());
-            address=*existing;
-        }
-#if defined(__x86_64__)
-        if (originalEntry && originalEntry->architecture!=(executionMode==InstructionMode::X86_32 ? x86CompatSyscallArch : x86NativeSyscallArch)) {
-            if (pc(*original)<2) return std::unexpected(invalid());
-            auto instruction=x86EntryInstruction(tid,pc(*original)-2);
-            if (!instruction) return std::unexpected(instruction.error());
-            const std::array<uint8_t,2> wanted=originalEntry->architecture==x86CompatSyscallArch ?
-                std::array<uint8_t,2>{0xcd,0x80} : std::array<uint8_t,2>{0x0f,0x05};
-            if (*instruction!=wanted) return unsupported();
-            // A fresh private site proves mm affinity without touching code
-            // another CLONE_VM process could execute. Borrowed/quiesced sites
-            // need their own private proof owner before this adapter is safe.
-            if (!alreadyStopped || !scratch || existingOnly) return unsupported();
-            auto memoryIdentity=processMemoryIdentity(tid);
-            if (!memoryIdentity) return std::unexpected(memoryIdentity.error());
-            auto image=NativeMemoryImage::capture(*memoryIdentity,host);
-            if (!image) return std::unexpected(image.error());
-            recoveryState->restartImage=std::move(*image);
-            recoveryState->restartScratch=address;
-            recoveryState->restartAbi.emplace();
-            recoveryState->restartAbi->architecture=originalEntry->architecture;
-            recoveryState->restartAbi->instruction=*instruction;
-        }
-#endif
-        std::vector<SavedWord> words;
-        for (size_t i = 0; alreadyStopped && !existingOnly && i < plan->instruction.size(); ++i) {
-            uintptr_t at = address + i, aligned = at & ~uintptr_t(sizeof(long) - 1);
-            if (words.empty() || words.back().address != aligned) {
-                errno = 0;
-                long value = ptrace(PTRACE_PEEKTEXT, tid, reinterpret_cast<void*>(aligned), nullptr);
-                if (value == -1 && errno) return std::unexpected(currentError());
-                words.push_back({aligned, value, value, 0});
-            }
-            auto* bytes = reinterpret_cast<uint8_t*>(&words.back().replacement);
-            bytes[at - aligned] = plan->instruction[i];
-            reinterpret_cast<uint8_t*>(&words.back().mask)[at - aligned] = 0xff;
-        }
-        std::error_code error;
-        uint64_t rawResult = 0;
-        size_t changed = 0;
-        bool registersChanged = false;
-        bool haveResult = false;
-#if defined(__aarch64__)
-        int oldSyscall = -1;
-        iovec syscallIo{&oldSyscall, sizeof(oldSyscall)};
-        if (ptrace(PTRACE_GETREGSET, tid, reinterpret_cast<void*>(NT_ARM_SYSTEM_CALL), &syscallIo) < 0 || syscallIo.iov_len != sizeof(oldSyscall)) {
-            error = currentError(); if (!error) error=invalid();
-        }
-        bool syscallChanged = false;
-#endif
-        // Allocate recovery ownership before the first mutation. No heap allocation
-        // is needed while the thread contains injected instructions or registers.
-        recoveryState->words = words;
-        auto extended = captureNativeExtendedContext(tid);
-        if (!extended) return std::unexpected(extended.error());
-        recoveryState->extended = std::move(*extended);
-#if defined(__aarch64__)
-        if (!error && !arm32) {
-            auto returned=Arm64VectorReturn::prepare(tid,recoveryState->memoryFd,address,*original,oldSyscall,
-                recoveryState->extended,operation,plan->arguments);
-            if (!returned) return std::unexpected(returned.error());
-            if (*returned && alreadyStopped) {
-                // Private/quiesced syscall patches have already been removed by
-                // recovery before vector restoration. Borrow a permanent SVC site
-                // for rt_sigreturn instead of executing restored application code.
-                auto returnSite=existingSyscallInstruction(tid,recoveryState->memoryFd,*plan,executionMode,operation,arguments);
-                if (!returnSite) return std::unexpected(returnSite.error());
-                (*returned)->syscallAddress=*returnSite;
-            }
-            recoveryState->vectorReturn=std::move(*returned);
-        }
-#endif
-#if defined(__aarch64__)
-        recoveryState->oldSyscall=oldSyscall;
-#endif
-        recoveryState->prepared=true;
-        ce::log::debug(ce::log::Cat::Ptrace,
-            "memory syscall tid={} nr={} pc={:#x} addr={:#x} size={:#x} prot={:#x} flags={:#x}",
-            tid, plan->number, address, plan->arguments[0], plan->arguments[1], plan->arguments[2], plan->arguments[3]);
-        if (!error) for (const auto& word : words) {
-            errno = 0;
-            long current = ptrace(PTRACE_PEEKTEXT, tid, reinterpret_cast<void*>(word.address), nullptr);
-            if (current == -1 && errno) { error=currentError(); break; }
-            unsigned long replacement = (static_cast<unsigned long>(current) & ~word.mask) |
-                                        (static_cast<unsigned long>(word.replacement) & word.mask);
-            ++changed;
-            if (ptrace(PTRACE_POKETEXT, tid, reinterpret_cast<void*>(word.address), reinterpret_cast<void*>(replacement)) < 0) { error=currentError(); break; }
-            errno=0;
-            const long verified=ptrace(PTRACE_PEEKTEXT,tid,reinterpret_cast<void*>(word.address),nullptr);
-            if ((verified==-1 && errno) || (static_cast<unsigned long>(verified)&word.mask)!=(replacement&word.mask)) {
-                error=(verified==-1 && errno) ? currentError() : std::make_error_code(std::errc::io_error);
-                break;
-            }
-        }
-        Registers injected = *original;
-#if defined(__x86_64__)
-        if (executionMode != mode(*original)) injected.cs = 0x33; // Linux __USER_CS.
-#endif
-        prepare(injected, *plan);
-        setPc(injected,address);
-#if defined(__aarch64__)
-        if (!error) {
-            int noSyscall = -1; iovec io{&noSyscall, sizeof(noSyscall)};
-            syscallChanged = true;
-            recoveryState->syscallChanged=true;
-            if (ptrace(PTRACE_SETREGSET, tid, reinterpret_cast<void*>(NT_ARM_SYSTEM_CALL), &io) < 0) error=currentError();
-        }
-#endif
-        if (!error) {
-            // SETREGS can reject a later field after updating earlier ones.
-            registersChanged = true;
-            recoveryState->registersChanged=true;
-            if (!setRegisters(tid, injected)) error = currentError();
-        }
-        int pendingSignal = 0;
-        if (!error) {
-            if (ptrace(arm32 ? PTRACE_CONT : PTRACE_SINGLESTEP,tid,nullptr,nullptr)<0) error=currentError();
-            else if (waitStopped(tid, status) != tid || !WIFSTOPPED(status)) error=std::make_error_code(std::errc::no_such_process);
-            else if ((status >> 16) == 0) {
-                siginfo_t signalInfo{};
-                if (ptrace(PTRACE_GETSIGINFO, tid, nullptr, &signalInfo) < 0) error=currentError();
-                bool kernelSyscallStep = false;
-#if defined(__aarch64__)
-                // Linux user_single_step_report() uses SI_USER with zero sender
-                // for an ARM64 syscall pseudo-step. A genuine kill/tgkill sender
-                // is retained and delivered below. Completion still requires PC.
-                kernelSyscallStep = signalInfo.si_code == SI_USER && signalInfo.si_pid == 0 && signalInfo.si_uid == 0;
-#endif
-                const bool privateTrap=arm32 && signalInfo.si_signo==SIGTRAP && signalInfo.si_code==TRAP_BRKPT &&
-                    reinterpret_cast<uintptr_t>(signalInfo.si_addr)==address+syscallSize;
-                if (WSTOPSIG(status)!=SIGTRAP || (arm32 ? !privateTrap : (signalInfo.si_code<=0 && !kernelSyscallStep))) {
-                    pendingSignal=WSTOPSIG(status); error=std::make_error_code(std::errc::interrupted);
-                    if (signalInfo.si_signo==WSTOPSIG(status)) recoveryState->pendingSignalInfo=signalInfo;
-                }
-                auto completed = getRegisters(tid);
-                if (!completed) error=completed.error();
-                else if (pc(*completed) != address + syscallSize) error=std::make_error_code(std::errc::interrupted);
-                // Seccomp and syscall-user-dispatch can raise SIGSYS after advancing
-                // PC without executing the syscall. Its unchanged number register
-                // is not a completed mmap result and must never become an orphan.
-                else if (WSTOPSIG(status)==SIGSYS && signalInfo.si_code>0 &&
-                         static_cast<uint32_t>(signalInfo.si_syscall)==plan->number) {
-                    // This fault belongs to our denied operation. Preserve the
-                    // target's policy and resume its original context without
-                    // injecting the synthetic denial into its signal handler.
-                    pendingSignal=0;
-                    recoveryState->pendingSignalInfo.reset();
-                    recoveryState->pendingStepTrap=!arm32;
-                    recoveryState->stepEnd=address+syscallSize;
-                    error=std::make_error_code(std::errc::operation_not_permitted);
-                } else {
-                    rawResult = result(*completed); haveResult = true;
-                }
-            } else {
-                error=std::make_error_code(std::errc::interrupted);
-                if ((status >> 16) != PTRACE_EVENT_EXEC) {
-                    auto completed = getRegisters(tid);
-                    if (completed && pc(*completed) == address + syscallSize) {
-                        rawResult = result(*completed); haveResult = true;
-                    }
-                }
-            }
-        }
-        if (WIFEXITED(status) || WIFSIGNALED(status)) {
-            recoveryState->done=true;
-            return std::unexpected(std::make_error_code(std::errc::no_such_process));
-        }
-        if (WIFSTOPPED(status) && (status >> 16) == PTRACE_EVENT_EXEC) {
-            recoveryState->prepared=false;
-            recoveryState->retired=true;
-            recoveryState->rememberStop(status);
-            TargetSyscallFailure failure(std::make_error_code(std::errc::operation_canceled));
-            failure.pendingEvent=PTRACE_EVENT_EXEC;
-            return std::unexpected(std::move(failure));
-        }
-        recoveryState->words.resize(changed);
-        recoveryState->registersChanged = registersChanged;
-        recoveryState->pendingSignal = pendingSignal;
-#if defined(__aarch64__)
-        recoveryState->oldSyscall = oldSyscall;
-        recoveryState->syscallChanged = syscallChanged;
-#endif
-        auto restored = recovery->retry();
-        pendingSignal=recoveryState->pendingSignal;
-        if (!restored) {
-            TargetSyscallFailure failure(restored.error());
-            failure.pendingSignal=pendingSignal;
-#if defined(__x86_64__)
-            failure.pendingEvent=recoveryState->restartEvent;
-#endif
-            if (!recoveryState->done) failure.recovery = recovery;
-            if (haveResult && rawResult < UINT64_MAX - 4094 &&
-                (plan->resultWidth != 4 || static_cast<uint32_t>(rawResult) < 0xfffff001u))
-                failure.completedValue = plan->resultWidth == 4 ? static_cast<uint32_t>(rawResult) : rawResult;
-            return std::unexpected(std::move(failure));
-        }
-        // Diagnostics cannot discard a completed mmap if formatting runs out of
-        // memory. The broker must receive its value to own or return the mapping.
-        try {
-            ce::log::debug(ce::log::Cat::Ptrace, "memory syscall tid={} nr={} raw={:#x} completed={} error={}",
-                tid, plan->number, rawResult, haveResult, error.message());
-        } catch (...) {}
-        if (error) {
-            TargetSyscallFailure failure(error);
-            failure.pendingSignal=pendingSignal;
-            if (haveResult && rawResult < UINT64_MAX - 4094 &&
-                (plan->resultWidth != 4 || static_cast<uint32_t>(rawResult) < 0xfffff001u))
-                failure.completedValue = plan->resultWidth == 4 ? static_cast<uint32_t>(rawResult) : rawResult;
-            return std::unexpected(std::move(failure));
-        }
-        if (plan->resultWidth == 4) {
-            uint32_t value=static_cast<uint32_t>(rawResult);
-            if (value >= 0xfffff001u) return std::unexpected(std::error_code(-static_cast<int32_t>(value),std::system_category()));
-            return value;
-        }
-        if (rawResult >= UINT64_MAX - 4094) return std::unexpected(std::error_code(-static_cast<int64_t>(rawResult),std::system_category()));
-        return rawResult;
+        return MemorySyscallSteps::runMemorySyscall(tid, host, operation, arguments, expectedIdentity, expectedImage, alreadyStopped, scratch,
+                                existingOnly, savedImage, checkOnly, initialIdentity, recoveryState, recovery);
     };
     auto result=[&]() -> std::expected<uint64_t,TargetSyscallFailure> {
         try { return execute(); }

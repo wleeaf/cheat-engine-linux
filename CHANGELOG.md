@@ -88,7 +88,9 @@ reimplementation of Cheat Engine).
   - **Set/Change hotkeys**: any number of hotkeys per record with every Cheat
     Engine action (toggle, freeze allowing an increase or a decrease, freeze,
     unfreeze, set, increase, decrease) and a description. Activate and
-    Deactivate hotkeys from Cheat Engine tables now work.
+    Deactivate hotkeys from Cheat Engine tables now work. A table whose
+    increase and decrease hotkeys use different amounts now decreases by its
+    own amount; it used the increase amount for both.
   - **Change register at this location**: a breakpoint that sets registers and
     flags each time execution gets there, then runs on.
   - The debugger can **break on every signal** except an **ignore list**, and
@@ -108,6 +110,40 @@ reimplementation of Cheat Engine).
   - The Memory Viewer has Execute till return (Shift+F8).
   - Help > About credits Cheat Engine and lists each library with its license.
     Lua's license and the project's own are installed with the others.
+- **Remote targets (ceserver)** can be single-stepped and traced: Break and
+  Trace runs over the connection, and a thread's registers can be read and
+  written while it is stopped. The server built into `cescan ceserver` now
+  serves thread contexts and single steps (continue option 2, as Cheat
+  Engine's own server does), and reports a finished step as a SIGTRAP event.
+- **Password-protected tables are encrypted.** A `.CETRAINER` is now saved as
+  CETRAINER2: AES-256-GCM with a key derived from the password by scrypt, so a
+  wrong password or a changed byte is detected and nothing derived from the
+  password is stored. The older CETRAINER1 files, which were only obfuscated,
+  still load. Saving needs OpenSSL's libcrypto (`libssl-dev` when building).
+- Generated trainers freeze strings and byte arrays too; they used to leave
+  such records out.
+- The debugger no longer stops at a breakpoint hit that was already on its
+  way when the breakpoint was removed or disabled.
+- Lua scripts that write files (streams, `writeToFile`, string lists, region
+  dumps) refuse a symbolic link in the target path in the same call that opens
+  it, closing the window between a check and the open.
+- Auto Assembler names an INCLUDE cycle with the files in it, instead of only
+  stopping at the nesting limit.
+- The in-process exception logger logs a fault that repeats in a loop only a
+  few times instead of filling the disk, and logs a stack overflow as well.
+- The speedhack looks its real functions up once at load, atomically; the
+  audio speed plugin handles any number of streams (it stopped at 16).
+- `LinuxDebugger::pollChildren` (library API) waits only on its own tracees,
+  so it no longer takes the exit status of the caller's other children; it
+  keeps a job-control stop in place and `detach` releases followed children.
+- CI runs the ARM32 checks and builds the .deb and the AppImage on every
+  change instead of only at release time.
+- Internal: the longest functions (the main window and Memory Viewer setup,
+  the menus, the Auto Assembler's run and line parser, the agent tools, the
+  ceserver command loop, the code finder, the tracer, the syscall executor,
+  the scanner's first scan and the CLI) are split into named parts, all under
+  300 lines; the DWARF function lookup walks without recursion; one tokenizer
+  reads /proc maps lines.
 
 ---
 

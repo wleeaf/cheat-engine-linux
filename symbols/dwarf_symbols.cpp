@@ -15,6 +15,7 @@
 #include "core/module_files.hpp"
 #include "platform/process_api.hpp"
 
+#include <algorithm>
 #include <functional>
 #include <set>
 #include <vector>
@@ -156,40 +157,43 @@ std::optional<DwarfSourceLocation> DwarfInfo::lookup(uintptr_t runtimeAddress) c
     return loc;
 }
 
-// Walk the CU's children looking for a DW_TAG_subprogram whose PC range
-// contains `addr`. Recurses into nested scopes so inline functions get
-// matched too. Returns the innermost match.
-// TODO(security): convert this recursive walk to an explicit work-list/stack
-// to fully bound it against hostile DWARF; for now a depth cap stops runaway
-// recursion exhausting the stack on pathologically nested DIE trees.
+// The innermost DW_TAG_subprogram or inlined subroutine whose PC range holds
+// `addr`: the last match of a pre-order walk that descends into matching
+// subprograms (for inlined code) and into lexical blocks. The walk keeps its
+// own work list instead of recursing, so hostile DWARF cannot exhaust the
+// stack, and caps on depth and on the DIEs visited bound its time.
+// How deep any walk of a DIE tree goes: real DWARF nests a few dozen levels.
 static constexpr int kMaxDwarfDepth = 256;
-static bool findSubprogramName(Dwarf_Die* parent, Dwarf_Addr addr, std::string& nameOut, int depth = 0) {
-    if (depth >= kMaxDwarfDepth) return false;
-    Dwarf_Die child;
-    if (dwarf_child(parent, &child) != 0) return false;
-    bool foundAny = false;
-    do {
-        int tag = dwarf_tag(&child);
+static bool findSubprogramName(Dwarf_Die* root, Dwarf_Addr addr, std::string& nameOut) {
+    constexpr size_t kMaxDies = size_t{1} << 20;
+    struct Item { Dwarf_Die die; int depth; };
+    std::vector<Item> work;
+    // Children go on in reverse, so they come off in document order.
+    auto pushChildren = [&](Dwarf_Die* parent, int depth) {
+        if (depth >= kMaxDwarfDepth) return;
+        Dwarf_Die child;
+        if (dwarf_child(parent, &child) != 0) return;
+        const size_t first = work.size();
+        do work.push_back({child, depth});
+        while (work.size() < kMaxDies && dwarf_siblingof(&child, &child) == 0);
+        std::reverse(work.begin() + static_cast<std::ptrdiff_t>(first), work.end());
+    };
+    pushChildren(root, 0);
+    bool found = false;
+    for (size_t visited = 0; !work.empty() && visited < kMaxDies; ++visited) {
+        Item item = work.back();
+        work.pop_back();
+        const int tag = dwarf_tag(&item.die);
         if (tag == DW_TAG_subprogram || tag == DW_TAG_inlined_subroutine) {
-            if (dwarf_haspc(&child, addr) > 0) {
-                const char* n = dwarf_diename(&child);
-                if (n) { nameOut = n; foundAny = true; }
-                // Recurse for an even more specific (inlined) match.
-                std::string deeper;
-                if (findSubprogramName(&child, addr, deeper, depth + 1) && !deeper.empty())
-                    nameOut = deeper;
+            if (dwarf_haspc(&item.die, addr) > 0) {
+                if (const char* name = dwarf_diename(&item.die)) { nameOut = name; found = true; }
+                pushChildren(&item.die, item.depth + 1);   // a more specific inlined match
             }
         } else if (tag == DW_TAG_lexical_block) {
-            // Mutually exclusive with the subprogram branch above so a
-            // subprogram subtree is never walked twice.
-            std::string deeper;
-            if (findSubprogramName(&child, addr, deeper, depth + 1) && !deeper.empty()) {
-                nameOut = deeper;
-                foundAny = true;
-            }
+            pushChildren(&item.die, item.depth + 1);
         }
-    } while (dwarf_siblingof(&child, &child) == 0);
-    return foundAny;
+    }
+    return found;
 }
 
 std::optional<std::string> DwarfInfo::functionName(uintptr_t runtimeAddress) const {

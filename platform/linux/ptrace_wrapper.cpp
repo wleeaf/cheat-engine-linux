@@ -9,6 +9,7 @@
 #include <signal.h>
 #include <cerrno>
 #include <cstring>
+#include <unistd.h>
 
 namespace ce::os {
 
@@ -67,47 +68,68 @@ Result<void> LinuxDebugger::attach(pid_t pid) {
 
     pid_ = pid;
     attached_ = true;
+    tracees_ = {pid};
+    awaitingStart_.clear();
     return {};
 }
 
 Result<std::vector<pid_t>> LinuxDebugger::pollChildren() {
     std::vector<pid_t> kids;
     if (!attached_) return kids;
-    // Non-blocking scan for any tracee that's ready with a fork-style event.
-    while (true) {
-        int status = 0;
-        pid_t who = waitpid(-1, &status, WNOHANG | __WALL | __WNOTHREAD);
-        if (who <= 0) break;
-        if (WIFSTOPPED(status)) {
-            int signal = WSTOPSIG(status);
-            unsigned long event = (status >> 16) & 0xffff;
-            if (event == PTRACE_EVENT_FORK || event == PTRACE_EVENT_VFORK ||
-                event == PTRACE_EVENT_CLONE) {
+    constexpr unsigned long opts =
+        PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACECLONE |
+        PTRACE_O_TRACEEXEC | PTRACE_O_TRACEEXIT;
+    // Wait on each tracee by pid, never on -1: that would also reap the
+    // calling program's own children and take their exit statuses.
+    for (bool progress = true; progress;) {
+        progress = false;
+        for (pid_t who : std::vector<pid_t>(tracees_.begin(), tracees_.end())) {
+            int status = 0;
+            const pid_t waited = waitpid(who, &status, WNOHANG | __WALL);
+            if (waited < 0 && errno == ECHILD) { tracees_.erase(who); awaitingStart_.erase(who); continue; }
+            if (waited != who) continue;
+            progress = true;
+            if (WIFEXITED(status) || WIFSIGNALED(status)) {   // gone: forget it
+                tracees_.erase(who);
+                awaitingStart_.erase(who);
+                continue;
+            }
+            if (!WIFSTOPPED(status)) continue;
+            const int signal = WSTOPSIG(status);
+            const unsigned event = static_cast<unsigned>(status >> 16) & 0xffff;
+            if (event == PTRACE_EVENT_FORK || event == PTRACE_EVENT_VFORK || event == PTRACE_EVENT_CLONE) {
                 unsigned long childPid = 0;
                 if (ptrace(PTRACE_GETEVENTMSG, who, nullptr, &childPid) == 0 && childPid != 0) {
-                    kids.push_back((pid_t)childPid);
+                    const auto child = static_cast<pid_t>(childPid);
+                    kids.push_back(child);
                     // Re-arm the new child with the same options so we keep
-                    // following its fork tree.
-                    constexpr unsigned long opts =
-                        PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK |
-                        PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXEC |
-                        PTRACE_O_TRACEEXIT;
-                    ptrace(PTRACE_SETOPTIONS, childPid, nullptr, (void*)opts);
+                    // following its fork tree. It starts in a stop of its own.
+                    ptrace(PTRACE_SETOPTIONS, child, nullptr, (void*)opts);
+                    tracees_.insert(child);
+                    awaitingStart_.insert(child);
                 }
             }
-            // Re-deliver genuine application signal-delivery stops instead of
-            // swallowing them: a ptrace event stop (event != 0) and the
-            // SIGTRAP from the trace machinery itself must NOT be re-injected,
-            // but a real signal the application took (SIGSEGV, SIGINT, ...)
-            // would otherwise be silently eaten and never reach the target,
-            // changing its behavior.
-            int contSig = 0;
-            if (event == 0 && signal != SIGTRAP)
-                contSig = signal;
-            // TODO(security): also handle PTRACE_EVENT_EXEC/EXIT (re-baseline
-            //   modules on exec, reap and surface exited tracees) and detect
-            //   group-stops via PTRACE_GETSIGINFO before re-delivering.
-            ptrace(PTRACE_CONT, who, nullptr, (void*)(uintptr_t)contSig);
+            if (event == PTRACE_EVENT_STOP) {
+                const bool firstStop = awaitingStart_.erase(who) > 0;
+                const bool jobControl = signal == SIGSTOP || signal == SIGTSTP || signal == SIGTTIN || signal == SIGTTOU;
+                // A job-control stop (SIGSTOP, Ctrl+Z) keeps the process
+                // stopped until SIGCONT, as without a debugger; LISTEN does
+                // that while still reporting the SIGCONT.
+                if (!firstStop && jobControl) {
+                    ptrace(PTRACE_LISTEN, who, nullptr, nullptr);
+                    continue;
+                }
+                ptrace(PTRACE_CONT, who, nullptr, nullptr);
+                continue;
+            }
+            // Event stops (fork, clone, exec, exit) and the trace machinery's
+            // own SIGTRAP resume without a signal. A signal the program took
+            // (SIGSEGV, SIGINT, ...) is delivered, or it would never reach
+            // it. After an exec the caller re-reads the modules it needs; an
+            // exit stop resumes so the process can finish exiting and be
+            // reaped above.
+            const int deliver = event == 0 && signal != SIGTRAP ? signal : 0;
+            ptrace(PTRACE_CONT, who, nullptr, (void*)(uintptr_t)deliver);
         }
     }
     return kids;
@@ -118,9 +140,29 @@ Result<void> LinuxDebugger::detach() {
 
     if (ptrace(PTRACE_DETACH, pid_, nullptr, nullptr) < 0)
         return std::unexpected(errFromErrno());
+    // Children followed through pollChildren are tracees too: left attached
+    // they would stop with no one to resume them. A tracee can only be
+    // detached in a stop, so interrupt one that runs (briefly, by pid).
+    for (pid_t child : tracees_) {
+        if (child == pid_) continue;
+        if (ptrace(PTRACE_DETACH, child, nullptr, nullptr) == 0) continue;
+        if (ptrace(PTRACE_INTERRUPT, child, nullptr, nullptr) != 0) continue;
+        for (int wait = 0; wait < 100; ++wait) {
+            int status = 0;
+            const pid_t waited = waitpid(child, &status, WNOHANG | __WALL);
+            if (waited == child) {
+                if (WIFSTOPPED(status)) ptrace(PTRACE_DETACH, child, nullptr, nullptr);
+                break;
+            }
+            if (waited < 0) break;
+            usleep(1000);
+        }
+    }
 
     attached_ = false;
     pid_ = 0;
+    tracees_.clear();
+    awaitingStart_.clear();
     breakpointExecution_.clear();
     return {};
 }

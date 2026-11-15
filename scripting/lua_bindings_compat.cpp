@@ -86,6 +86,7 @@ extern "C" {
 #define lua_pushcfunction(L, f) ce::pushSafeLuaFunction((L), (f))
 
 #include "scripting/lua_bindings_internal.hpp"
+#include "scripting/lua_files.hpp"
 namespace ce::lua_detail {
 
 // ── Additional CE-compatible functions ──
@@ -510,8 +511,8 @@ int l_writeRegionToFile(lua_State* L) {
     std::vector<uint8_t> buf(size);
     auto r = p->read(addr, buf.data(), size);
     if (!r) { lua_pushboolean(L, 0); return 1; }
-    std::ofstream f(filename, std::ios::binary);
-    if (f) { f.write((char*)buf.data(), *r); lua_pushboolean(L, 1); }
+    std::ofstream f;
+    if (openNoFollow(f, filename, std::ios::out | std::ios::binary | std::ios::trunc)) { f.write((char*)buf.data(), *r); lua_pushboolean(L, f.good()); }
     else lua_pushboolean(L, 0);
     return 1;
 }

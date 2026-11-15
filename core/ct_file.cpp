@@ -1,4 +1,5 @@
 #include "core/ct_file.hpp"
+#include "core/table_crypto.hpp"
 #include "core/ct_file_stream.hpp"
 #include "core/json.hpp"
 #include "core/log.hpp"
@@ -52,44 +53,17 @@ static uint64_t xorshift64(uint64_t& state) {
     return state;
 }
 
-// NOTE: xorCrypt/xorDecrypt provide light OBFUSCATION only, not confidentiality.
-// The keystream is a non-cryptographic xorshift64 seeded by fnv1a(password) and is
-// trivially recoverable from known plaintext (the JSON header is fixed), and the
-// stored fnv1a(password) verifier (saveProtected) is brute-forceable offline. Do
-// NOT rely on this to protect sensitive table contents.
-// TODO(security): for real protection switch to an authenticated cipher
-// (libsodium secretbox / AES-GCM) with a memory-hard KDF (argon2/scrypt), random
-// salt+nonce, and stop storing any password-derived value in cleartext.
-static std::vector<uint8_t> xorCrypt(const std::string& input, const std::string& password) {
-    uint64_t state = fnv1a(password.empty() ? std::string("cecore") : password);
-    std::vector<uint8_t> out(input.begin(), input.end());
-    for (auto& byte : out)
-        byte ^= static_cast<uint8_t>(xorshift64(state) & 0xff);
-    return out;
-}
-
+// The first protected format (CETRAINER1), read for its existing files only:
+// an xorshift64 keystream seeded by fnv1a(password), next to fnv1a(password)
+// itself. That is obfuscation, not encryption: the keystream falls out of the
+// known JSON header and the stored hash is brute-forced offline. Tables are
+// saved as CETRAINER2 (core/table_crypto.hpp).
 static std::string xorDecrypt(const std::vector<uint8_t>& input, const std::string& password) {
     uint64_t state = fnv1a(password.empty() ? std::string("cecore") : password);
     std::string out(input.begin(), input.end());
     for (auto& byte : out)
         byte = static_cast<char>(static_cast<unsigned char>(byte) ^ static_cast<uint8_t>(xorshift64(state) & 0xff));
     return out;
-}
-
-// Create a fresh temp file (O_EXCL, mode 0600) in a trusted directory and
-// return its path. Avoids the predictable "<path>.json.tmp" symlink/TOCTOU
-// hazard when running as root. Returns "" on failure.
-static std::string makeSecureTempFile() {
-    std::error_code ec;
-    auto dir = std::filesystem::temp_directory_path(ec);
-    if (ec) dir = std::filesystem::path("/tmp");
-    auto templ = (dir / "cecore-XXXXXX").string();
-    std::vector<char> buf(templ.begin(), templ.end());
-    buf.push_back('\0');
-    int fd = mkstemp(buf.data());  // creates with O_EXCL | 0600
-    if (fd < 0) return "";
-    close(fd);
-    return std::string(buf.data());
 }
 
 static bool writeAll(int fd, std::string_view bytes) {
@@ -650,6 +624,217 @@ static bool keepsUnparsedPointer(const CheatEntry& e) {
     return !e.unparsedOffsets.empty() && e.offsets.empty() && e.addressString.rfind("(unsupported offset ", 0) == 0;
 }
 
+// <Address> and <Offsets> as CE writes them. The GUI and Lua keep a pointer
+// path as one expression ("[[game.exe+1C]+8]+10"); CE wants it as a base and
+// offsets, so one that is exactly what buildPointerExpression makes is split.
+static void writeAddressAndOffsets(std::ostream& f, const CheatEntry& e, bool numericFallback) {
+    if (keepsUnparsedPointer(e)) {
+        f << "      <Address>" << xmlEscapeText(e.unparsedAddress) << "</Address>\n";
+        f << "      <Offsets>\n";
+        for (const auto& text : e.unparsedOffsets)
+            f << "        <Offset>" << xmlEscapeText(text) << "</Offset>\n";
+        f << "      </Offsets>\n";
+        return;
+    }
+    std::string base = e.addressString;
+    std::vector<int64_t> offsets = e.offsets;
+    if (offsets.empty())
+        if (auto chain = parsePointerExpression(base); chain && buildPointerExpression(chain->base, chain->offsets) == base) {
+            base = chain->base;
+            offsets = chain->offsets;
+        }
+    // Data record. CE writes the address expression RAW (quotes and all);
+    // matching that keeps a module-relative base like "ac_client.exe"+X
+    // readable by CE and by our raw-reading loader. Escaping it (turning "
+    // into &quot;) double-encoded on the next load.
+    if (!base.empty()) {
+        f << "      <Address>" << xmlEscapeText(base) << "</Address>\n";
+    } else if (numericFallback) {
+        char addr[32];
+        snprintf(addr, sizeof(addr), "%lx", e.address);
+        f << "      <Address>" << addr << "</Address>\n";
+    }
+    if (!offsets.empty()) {
+        f << "      <Offsets>\n";
+        for (int64_t off : offsets) {
+            char ob[32];
+            // CE writes a negative offset as signed hex ("-60"). Emitting
+            // it as a 64-bit unsigned ("ffffffffffffffa0") overflowed the
+            // loader's stoll on reload and silently dropped the offset.
+            if (off < 0)
+                snprintf(ob, sizeof(ob), "-%llx", static_cast<unsigned long long>(-off));
+            else
+                snprintf(ob, sizeof(ob), "%llx", static_cast<unsigned long long>(off));
+            f << "        <Offset>" << ob << "</Offset>\n";
+        }
+        f << "      </Offsets>\n";
+    }
+}
+
+// Write the inner fields of one <CheatEntry> (everything but the enclosing
+// tags and any nested child list).
+static void writeEntryFields(std::ostream& f, const CheatEntry& e) {
+    auto writeAddressAndOffsets = [&](const CheatEntry& entry, bool numericFallback) { ce::writeAddressAndOffsets(f, entry, numericFallback); };
+    f << "      <ID>" << e.id << "</ID>\n";
+    // CE wraps the description in double quotes inside the tag; match that so
+    // Cheat Engine (and our own quote-stripping loader) read it back cleanly.
+    f << "      <Description>\"" << xmlEscape(e.description) << "\"</Description>\n";
+
+    if (e.isGroup) {
+        f << "      <GroupHeader>1</GroupHeader>\n";
+        if (e.collapsed)
+            f << "      <Collapsed>1</Collapsed>\n";
+        // CE's address group header: children whose address starts with + or -
+        // are relative to it.
+        if (!e.addressString.empty() || !e.offsets.empty() || keepsUnparsedPointer(e))
+            writeAddressAndOffsets(e, false);
+    } else if (!e.autoAsmScript.empty()) {
+        // An entry carrying an AssemblerScript IS an "Auto Assembler Script"
+        // record in CE (the two are equivalent). CE writes the type name and,
+        // for the usual enable/disable script, no numeric <Address> (only a
+        // symbolic one if the record defined an address). Writing a bogus
+        // <Address>0</Address> + <VariableType>4 Bytes</VariableType> here made
+        // re-saved AA tables diverge from the original.
+        if (!e.addressString.empty())
+            f << "      <Address>" << xmlEscapeText(e.addressString) << "</Address>\n";
+        f << "      <VariableType>Auto Assembler Script</VariableType>\n";
+    } else {
+        writeAddressAndOffsets(e, true);
+        f << "      <VariableType>" << typeToStr(e.type) << "</VariableType>\n";
+        // CE stores a string length in <Length> and marks wide strings with
+        // <Unicode> (the VariableType stays "String"); an array of byte has
+        // <ByteLength>.
+        if (e.type == ValueType::String || e.type == ValueType::UnicodeString) {
+            if (e.length > 0) f << "      <Length>" << e.length << "</Length>\n";
+            f << "      <Unicode>" << (e.type == ValueType::UnicodeString ? 1 : 0) << "</Unicode>\n";
+        } else if (e.type == ValueType::ByteArray && e.length > 0) {
+            f << "      <ByteLength>" << e.length << "</ByteLength>\n";
+        } else if (e.type == ValueType::Custom && !e.customTypeName.empty()) {
+            f << "      <CustomType>" << xmlEscapeText(e.customTypeName) << "</CustomType>\n";
+        }
+        if (!e.value.empty())
+            f << "      <Value>" << xmlEscape(e.value) << "</Value>\n";
+    }
+
+    if (e.active)
+        f << "      <Activated>1</Activated>\n";
+    if (e.showAsHex)
+        f << "      <ShowAsHex>1</ShowAsHex>\n";   // CE-standard tag
+    // Signed display defaults to on, so only the unsigned override needs writing
+    // (CE reads <ShowAsSigned> and omits it at its default too).
+    if (!e.showAsSigned)
+        f << "      <ShowAsSigned>0</ShowAsSigned>\n";
+    if (e.dataByteOrder != ByteOrder::Unknown)
+        f << "      <LinuxDataByteOrder>" << (e.dataByteOrder == ByteOrder::Big ? "big" : "little") << "</LinuxDataByteOrder>\n";
+    if (e.pointerWidth)
+        f << "      <LinuxPointerWidth>" << static_cast<unsigned>(e.pointerWidth) << "</LinuxPointerWidth>\n";
+    // Directional freeze (Allow Increase/Decrease etc.) — a custom tag CE
+    // ignores but our loader restores, so it round-trips through CE XML too.
+    if (e.freezeMode != FreezeMode::Normal)
+        f << "      <freezeMode>" << (int)e.freezeMode << "</freezeMode>\n";
+
+    if (!e.autoAsmScript.empty()) {
+        f << "      <AssemblerScript" << (e.asyncScript ? " Async=\"1\"" : "") << ">"
+          << xmlEscape(e.autoAsmScript) << "</AssemblerScript>\n";
+    }
+
+    if (!e.luaScript.empty()) {
+        f << "      <LuaScript>" << xmlEscape(e.luaScript) << "</LuaScript>\n";
+    }
+
+    if (auto color = colorToCE(e.color); !color.empty())
+        f << "      <Color>" << color << "</Color>\n";
+
+    // Preserve an imported CE record's <Options> element verbatim so flags we do
+    // not model survive a load+save; otherwise synthesize one for a group whose
+    // cascade defaults were changed away from "on".
+    if (isOptionsElement(e.optionsXml))
+        f << "      " << e.optionsXml << "\n";
+    else if (e.isGroup && (!e.activateChildren || !e.deactivateChildren))
+        f << "      <Options moActivateChildrenAsWell=\"" << (e.activateChildren ? 1 : 0)
+          << "\" moDeactivateChildrenAsWell=\"" << (e.deactivateChildren ? 1 : 0) << "\"/>\n";
+
+    if (!e.dropdownList.empty()) {
+        f << "      <DropDownList";
+        if (!e.dropdownAttributes.empty() && isAttributeText(e.dropdownAttributes))
+            f << " " << e.dropdownAttributes;
+        f << ">" << xmlEscape(e.dropdownList) << "</DropDownList>\n";
+    }
+
+    if (!e.extraXml.empty() && isElementSequence(e.extraXml))
+        f << "      " << e.extraXml << "\n";
+
+    // Hotkeys in CE's nested form so Cheat Engine can read them: one <Hotkey> per
+    // binding with its <Action> text, a <Keys> list of VK codes, and an optional
+    // <Value> (set-value target, or the step for increase/decrease).
+    struct HkOut { int action; const std::string* keys; const std::string* value; };
+    const std::string empty;
+    // A slot the loader filled from a kept hotkey (an Activate key in the
+    // toggle slot, a decrease key with its own step) is written by that
+    // hotkey's original element, not again as the slot's own action, while
+    // the slot still holds the keys (and value or step) it was loaded with.
+    // Once the slot is cleared or changed the element is dropped, so the
+    // old key does not come back on the next load. Other kept hotkeys are
+    // always written.
+    auto kept = !e.extraHotkeysXml.empty() && isElementSequence(e.extraHotkeysXml, "Hotkey")
+                    ? parseHotkeyBlocks(e.extraHotkeysXml) : std::vector<ParsedHotkey>{};
+    auto slotHolds = [&](const ParsedHotkey& h) {
+        switch (hotkeySlot(h.action)) {
+            case 0: return h.keys == e.hotkeyKeys;
+            case 1: return h.keys == e.setValueHotkeyKeys && h.value == e.setValueHotkeyValue;
+            case 2: return h.keys == e.increaseHotkeyKeys && h.slotStep == e.hotkeyStep;
+            default: return h.keys == e.decreaseHotkeyKeys && h.slotStep == e.hotkeyStep;
+        }
+    };
+    std::erase_if(kept, [&](const ParsedHotkey& h) { return h.slotBound && !(h.usable && slotHolds(h)); });
+    std::string keptXml;
+    for (const auto& h : kept) {
+        if (!keptXml.empty()) keptXml += "\n        ";
+        keptXml += h.slotBound ? withoutSlotMarks(h.block) : h.block;
+    }
+    const bool extraHotkeys = !keptXml.empty();
+    auto keptBinds = [&](int action, const std::string& keys) {
+        return std::any_of(kept.begin(), kept.end(), [&](const ParsedHotkey& h) {
+            return h.usable && hotkeySlot(h.action) == hotkeySlot(action) && h.keys == keys;
+        });
+    };
+    std::vector<HkOut> hks;
+    auto add = [&](int action, const std::string& keys, const std::string& value) {
+        if (!keys.empty() && !keptBinds(action, keys)) hks.push_back({action, &keys, &value});
+    };
+    add(0, e.hotkeyKeys, empty);   // Toggle
+    add(5, e.setValueHotkeyKeys, e.setValueHotkeyValue);
+    add(6, e.increaseHotkeyKeys, e.hotkeyStep);
+    add(7, e.decreaseHotkeyKeys, e.hotkeyStep);
+    if (!hks.empty() || extraHotkeys) {
+        f << "      <Hotkeys>\n";
+        // Hotkey IDs are unique in a record: number ours after the kept ones.
+        int hkId = 0;
+        if (extraHotkeys)
+            for (const auto& block : getTagBlocks(keptXml, "ID")) {
+                const std::string text = getTag(block, "ID");
+                int id = -1;
+                std::from_chars(text.data(), text.data() + text.size(), id);
+                if (id >= hkId && id < std::numeric_limits<int>::max()) hkId = id + 1;
+            }
+        for (const auto& hk : hks) {
+            f << "        <Hotkey>\n";
+            f << "          <Action>" << kHotkeyActions[hk.action] << "</Action>\n";
+            f << "          <Keys>\n";
+            for (int vk : keyStringToVKs(*hk.keys))
+                f << "            <Key>" << vk << "</Key>\n";
+            f << "          </Keys>\n";
+            if (!hk.value->empty())
+                f << "          <Value>" << xmlEscape(*hk.value) << "</Value>\n";
+            f << "          <ID>" << hkId++ << "</ID>\n";
+            f << "        </Hotkey>\n";
+        }
+        if (extraHotkeys)
+            f << "        " << keptXml << "\n";
+        f << "      </Hotkeys>\n";
+    }
+}
+
 bool writeTableXml(const CheatTable& table,std::ostream& f) {
     const auto& entries=table.entries;
     const auto& gameName=table.gameName;
@@ -718,215 +903,7 @@ bool writeTableXml(const CheatTable& table,std::ostream& f) {
         f << "  </DisassemblerComments>\n";
     }
 
-    // <Address> and <Offsets> as CE writes them. The GUI and Lua keep a pointer
-    // path as one expression ("[[game.exe+1C]+8]+10"); CE wants it as a base and
-    // offsets, so one that is exactly what buildPointerExpression makes is split.
-    auto writeAddressAndOffsets = [&](const CheatEntry& e, bool numericFallback) {
-        if (keepsUnparsedPointer(e)) {
-            f << "      <Address>" << xmlEscapeText(e.unparsedAddress) << "</Address>\n";
-            f << "      <Offsets>\n";
-            for (const auto& text : e.unparsedOffsets)
-                f << "        <Offset>" << xmlEscapeText(text) << "</Offset>\n";
-            f << "      </Offsets>\n";
-            return;
-        }
-        std::string base = e.addressString;
-        std::vector<int64_t> offsets = e.offsets;
-        if (offsets.empty())
-            if (auto chain = parsePointerExpression(base); chain && buildPointerExpression(chain->base, chain->offsets) == base) {
-                base = chain->base;
-                offsets = chain->offsets;
-            }
-        // Data record. CE writes the address expression RAW (quotes and all);
-        // matching that keeps a module-relative base like "ac_client.exe"+X
-        // readable by CE and by our raw-reading loader. Escaping it (turning "
-        // into &quot;) double-encoded on the next load.
-        if (!base.empty()) {
-            f << "      <Address>" << xmlEscapeText(base) << "</Address>\n";
-        } else if (numericFallback) {
-            char addr[32];
-            snprintf(addr, sizeof(addr), "%lx", e.address);
-            f << "      <Address>" << addr << "</Address>\n";
-        }
-        if (!offsets.empty()) {
-            f << "      <Offsets>\n";
-            for (int64_t off : offsets) {
-                char ob[32];
-                // CE writes a negative offset as signed hex ("-60"). Emitting
-                // it as a 64-bit unsigned ("ffffffffffffffa0") overflowed the
-                // loader's stoll on reload and silently dropped the offset.
-                if (off < 0)
-                    snprintf(ob, sizeof(ob), "-%llx", static_cast<unsigned long long>(-off));
-                else
-                    snprintf(ob, sizeof(ob), "%llx", static_cast<unsigned long long>(off));
-                f << "        <Offset>" << ob << "</Offset>\n";
-            }
-            f << "      </Offsets>\n";
-        }
-    };
-
-    // Write the inner fields of one <CheatEntry> (everything but the enclosing
-    // tags and any nested child list).
-    auto writeEntryFields = [&](const CheatEntry& e) {
-        f << "      <ID>" << e.id << "</ID>\n";
-        // CE wraps the description in double quotes inside the tag; match that so
-        // Cheat Engine (and our own quote-stripping loader) read it back cleanly.
-        f << "      <Description>\"" << xmlEscape(e.description) << "\"</Description>\n";
-
-        if (e.isGroup) {
-            f << "      <GroupHeader>1</GroupHeader>\n";
-            if (e.collapsed)
-                f << "      <Collapsed>1</Collapsed>\n";
-            // CE's address group header: children whose address starts with + or -
-            // are relative to it.
-            if (!e.addressString.empty() || !e.offsets.empty() || keepsUnparsedPointer(e))
-                writeAddressAndOffsets(e, false);
-        } else if (!e.autoAsmScript.empty()) {
-            // An entry carrying an AssemblerScript IS an "Auto Assembler Script"
-            // record in CE (the two are equivalent). CE writes the type name and,
-            // for the usual enable/disable script, no numeric <Address> (only a
-            // symbolic one if the record defined an address). Writing a bogus
-            // <Address>0</Address> + <VariableType>4 Bytes</VariableType> here made
-            // re-saved AA tables diverge from the original.
-            if (!e.addressString.empty())
-                f << "      <Address>" << xmlEscapeText(e.addressString) << "</Address>\n";
-            f << "      <VariableType>Auto Assembler Script</VariableType>\n";
-        } else {
-            writeAddressAndOffsets(e, true);
-            f << "      <VariableType>" << typeToStr(e.type) << "</VariableType>\n";
-            // CE stores a string length in <Length> and marks wide strings with
-            // <Unicode> (the VariableType stays "String"); an array of byte has
-            // <ByteLength>.
-            if (e.type == ValueType::String || e.type == ValueType::UnicodeString) {
-                if (e.length > 0) f << "      <Length>" << e.length << "</Length>\n";
-                f << "      <Unicode>" << (e.type == ValueType::UnicodeString ? 1 : 0) << "</Unicode>\n";
-            } else if (e.type == ValueType::ByteArray && e.length > 0) {
-                f << "      <ByteLength>" << e.length << "</ByteLength>\n";
-            } else if (e.type == ValueType::Custom && !e.customTypeName.empty()) {
-                f << "      <CustomType>" << xmlEscapeText(e.customTypeName) << "</CustomType>\n";
-            }
-            if (!e.value.empty())
-                f << "      <Value>" << xmlEscape(e.value) << "</Value>\n";
-        }
-
-        if (e.active)
-            f << "      <Activated>1</Activated>\n";
-        if (e.showAsHex)
-            f << "      <ShowAsHex>1</ShowAsHex>\n";   // CE-standard tag
-        // Signed display defaults to on, so only the unsigned override needs writing
-        // (CE reads <ShowAsSigned> and omits it at its default too).
-        if (!e.showAsSigned)
-            f << "      <ShowAsSigned>0</ShowAsSigned>\n";
-        if (e.dataByteOrder != ByteOrder::Unknown)
-            f << "      <LinuxDataByteOrder>" << (e.dataByteOrder == ByteOrder::Big ? "big" : "little") << "</LinuxDataByteOrder>\n";
-        if (e.pointerWidth)
-            f << "      <LinuxPointerWidth>" << static_cast<unsigned>(e.pointerWidth) << "</LinuxPointerWidth>\n";
-        // Directional freeze (Allow Increase/Decrease etc.) — a custom tag CE
-        // ignores but our loader restores, so it round-trips through CE XML too.
-        if (e.freezeMode != FreezeMode::Normal)
-            f << "      <freezeMode>" << (int)e.freezeMode << "</freezeMode>\n";
-
-        if (!e.autoAsmScript.empty()) {
-            f << "      <AssemblerScript" << (e.asyncScript ? " Async=\"1\"" : "") << ">"
-              << xmlEscape(e.autoAsmScript) << "</AssemblerScript>\n";
-        }
-
-        if (!e.luaScript.empty()) {
-            f << "      <LuaScript>" << xmlEscape(e.luaScript) << "</LuaScript>\n";
-        }
-
-        if (auto color = colorToCE(e.color); !color.empty())
-            f << "      <Color>" << color << "</Color>\n";
-
-        // Preserve an imported CE record's <Options> element verbatim so flags we do
-        // not model survive a load+save; otherwise synthesize one for a group whose
-        // cascade defaults were changed away from "on".
-        if (isOptionsElement(e.optionsXml))
-            f << "      " << e.optionsXml << "\n";
-        else if (e.isGroup && (!e.activateChildren || !e.deactivateChildren))
-            f << "      <Options moActivateChildrenAsWell=\"" << (e.activateChildren ? 1 : 0)
-              << "\" moDeactivateChildrenAsWell=\"" << (e.deactivateChildren ? 1 : 0) << "\"/>\n";
-
-        if (!e.dropdownList.empty()) {
-            f << "      <DropDownList";
-            if (!e.dropdownAttributes.empty() && isAttributeText(e.dropdownAttributes))
-                f << " " << e.dropdownAttributes;
-            f << ">" << xmlEscape(e.dropdownList) << "</DropDownList>\n";
-        }
-
-        if (!e.extraXml.empty() && isElementSequence(e.extraXml))
-            f << "      " << e.extraXml << "\n";
-
-        // Hotkeys in CE's nested form so Cheat Engine can read them: one <Hotkey> per
-        // binding with its <Action> text, a <Keys> list of VK codes, and an optional
-        // <Value> (set-value target, or the step for increase/decrease).
-        struct HkOut { int action; const std::string* keys; const std::string* value; };
-        const std::string empty;
-        // A slot the loader filled from a kept hotkey (an Activate key in the
-        // toggle slot, a decrease key with its own step) is written by that
-        // hotkey's original element, not again as the slot's own action, while
-        // the slot still holds the keys (and value or step) it was loaded with.
-        // Once the slot is cleared or changed the element is dropped, so the
-        // old key does not come back on the next load. Other kept hotkeys are
-        // always written.
-        auto kept = !e.extraHotkeysXml.empty() && isElementSequence(e.extraHotkeysXml, "Hotkey")
-                        ? parseHotkeyBlocks(e.extraHotkeysXml) : std::vector<ParsedHotkey>{};
-        auto slotHolds = [&](const ParsedHotkey& h) {
-            switch (hotkeySlot(h.action)) {
-                case 0: return h.keys == e.hotkeyKeys;
-                case 1: return h.keys == e.setValueHotkeyKeys && h.value == e.setValueHotkeyValue;
-                case 2: return h.keys == e.increaseHotkeyKeys && h.slotStep == e.hotkeyStep;
-                default: return h.keys == e.decreaseHotkeyKeys && h.slotStep == e.hotkeyStep;
-            }
-        };
-        std::erase_if(kept, [&](const ParsedHotkey& h) { return h.slotBound && !(h.usable && slotHolds(h)); });
-        std::string keptXml;
-        for (const auto& h : kept) {
-            if (!keptXml.empty()) keptXml += "\n        ";
-            keptXml += h.slotBound ? withoutSlotMarks(h.block) : h.block;
-        }
-        const bool extraHotkeys = !keptXml.empty();
-        auto keptBinds = [&](int action, const std::string& keys) {
-            return std::any_of(kept.begin(), kept.end(), [&](const ParsedHotkey& h) {
-                return h.usable && hotkeySlot(h.action) == hotkeySlot(action) && h.keys == keys;
-            });
-        };
-        std::vector<HkOut> hks;
-        auto add = [&](int action, const std::string& keys, const std::string& value) {
-            if (!keys.empty() && !keptBinds(action, keys)) hks.push_back({action, &keys, &value});
-        };
-        add(0, e.hotkeyKeys, empty);   // Toggle
-        add(5, e.setValueHotkeyKeys, e.setValueHotkeyValue);
-        add(6, e.increaseHotkeyKeys, e.hotkeyStep);
-        add(7, e.decreaseHotkeyKeys, e.hotkeyStep);
-        if (!hks.empty() || extraHotkeys) {
-            f << "      <Hotkeys>\n";
-            // Hotkey IDs are unique in a record: number ours after the kept ones.
-            int hkId = 0;
-            if (extraHotkeys)
-                for (const auto& block : getTagBlocks(keptXml, "ID")) {
-                    const std::string text = getTag(block, "ID");
-                    int id = -1;
-                    std::from_chars(text.data(), text.data() + text.size(), id);
-                    if (id >= hkId && id < std::numeric_limits<int>::max()) hkId = id + 1;
-                }
-            for (const auto& hk : hks) {
-                f << "        <Hotkey>\n";
-                f << "          <Action>" << kHotkeyActions[hk.action] << "</Action>\n";
-                f << "          <Keys>\n";
-                for (int vk : keyStringToVKs(*hk.keys))
-                    f << "            <Key>" << vk << "</Key>\n";
-                f << "          </Keys>\n";
-                if (!hk.value->empty())
-                    f << "          <Value>" << xmlEscape(*hk.value) << "</Value>\n";
-                f << "          <ID>" << hkId++ << "</ID>\n";
-                f << "        </Hotkey>\n";
-            }
-            if (extraHotkeys)
-                f << "        " << keptXml << "\n";
-            f << "      </Hotkeys>\n";
-        }
-    };
+    auto writeEntryFields = [&](const CheatEntry& e) { ce::writeEntryFields(f, e); };
 
     // Nest children inside their parent group's <CheatEntries> (CE's format), so
     // Cheat Engine reads the hierarchy and our own load restores parentId. Build
@@ -1649,7 +1626,7 @@ TableFormat detectTableFormat(const std::string& path) {
     std::string head(buf, static_cast<size_t>(f.gcount()));
 
     // Password-protected .CETRAINER payloads lead with this magic line.
-    if (head.rfind("CETRAINER1", 0) == 0) return TableFormat::Protected;
+    if (head.rfind("CETRAINER1", 0) == 0 || head.rfind("CETRAINER2", 0) == 0) return TableFormat::Protected;
 
     // First meaningful byte after any BOM / leading whitespace decides XML vs JSON.
     size_t i = 0;
@@ -2165,13 +2142,18 @@ bool CheatTable::loadJsonFromString(const std::string& json) {
     return true;
 }
 
+bool CheatTable::protectedTablesAvailable() { return table_crypto::available(); }
+
 bool CheatTable::saveProtected(const std::string& path, const std::string& password) const {
     std::ostringstream json;
     if (!writeTableJson(*this, json))
         return false;
-    const auto encrypted = xorCrypt(json.str(), password);
-    std::string bytes = "CETRAINER1\n" + std::to_string(fnv1a(password)) + "\n";
-    bytes.append(encrypted.begin(), encrypted.end());
+    // Never the old obfuscation: a build without the cipher saves nothing.
+    auto sealed = table_crypto::seal(json.str(), password, "CETRAINER2");
+    if (!sealed)
+        return false;
+    std::string bytes = "CETRAINER2\n";
+    bytes.append(sealed->begin(), sealed->end());
     return writeFileAtomically(path, bytes);
 }
 
@@ -2189,41 +2171,34 @@ bool CheatTable::loadProtected(const std::string& path, const std::string& passw
         return false;
 
     std::string magic;
-    std::string hashLine;
-    if (!std::getline(in, magic) || !std::getline(in, hashLine))
+    if (!std::getline(in, magic))
         return false;
-    if (magic != "CETRAINER1")
-        return false;
-
-    uint64_t expectedHash = 0;
-    try {
-        expectedHash = std::stoull(hashLine);
-    } catch (...) {
-        return false;
-    }
-    if (expectedHash != fnv1a(password))
-        return false;
-
-    std::vector<uint8_t> encrypted((std::istreambuf_iterator<char>(in)), {});
-    auto json = xorDecrypt(encrypted, password);
-
-    auto tempPath = makeSecureTempFile();
-    if (tempPath.empty())
-        return false;
-    {
-        std::ofstream out(tempPath, std::ios::binary);
-        if (!out) {
-            std::error_code ec;
-            std::filesystem::remove(tempPath, ec);
+    std::string json;
+    if (magic == "CETRAINER2") {
+        std::vector<uint8_t> sealed((std::istreambuf_iterator<char>(in)), {});
+        auto opened = table_crypto::open(sealed, password, "CETRAINER2");
+        if (!opened)
+            return false;   // wrong password, a changed file, or no cipher in this build
+        json = std::move(*opened);
+    } else if (magic == "CETRAINER1") {
+        std::string hashLine;
+        if (!std::getline(in, hashLine))
+            return false;
+        uint64_t expectedHash = 0;
+        try {
+            expectedHash = std::stoull(hashLine);
+        } catch (...) {
             return false;
         }
-        out.write(json.data(), static_cast<std::streamsize>(json.size()));
+        if (expectedHash != fnv1a(password))
+            return false;
+        std::vector<uint8_t> encrypted((std::istreambuf_iterator<char>(in)), {});
+        json = xorDecrypt(encrypted, password);
+    } else {
+        return false;
     }
-
-    bool loaded = loadJson(tempPath);
-    std::error_code ec;
-    std::filesystem::remove(tempPath, ec);
-    return loaded;
+    // Parsed from memory: the decrypted table is never written to disk.
+    return loadJsonFromString(json);
 }
 
 std::vector<CheatHotkey> recordHotkeys(const CheatEntry& e) {
@@ -2239,9 +2214,13 @@ std::vector<CheatHotkey> recordHotkeys(const CheatEntry& e) {
         if (slot.keys->empty()) continue;
         CheatHotkey hotkey{slot.action, *slot.keys, slot.value ? *slot.value : std::string(), {}};
         for (const auto& h : kept)
-            if (h.slotBound && h.usable && hotkeySlot(h.action) == hotkeySlot(slot.action) && h.keys == *slot.keys) {
+            if (h.slotBound && h.usable && hotkeySlot(h.action) == hotkeySlot(slot.action) && h.keys == *slot.keys &&
+                (slot.action < 6 || h.slotStep == e.hotkeyStep)) {
                 hotkey.action = h.action;
                 hotkey.description = description(h);
+                // An increase or decrease kept for its own step (the record has
+                // one step for both) acts by that step, not the record's.
+                if (slot.action >= 6) hotkey.value = h.value;
                 break;
             }
         out.push_back(std::move(hotkey));

@@ -6,7 +6,10 @@
 #include "arch/disassembler.hpp"
 #include "symbols/elf_symbols.hpp"
 #include "platform/linux/target_syscall.hpp"
+#include "platform/linux/target_debug.hpp"
 #include <string>
+#include <optional>
+#include <map>
 #include <vector>
 #include <unordered_map>
 #include <mutex>
@@ -109,6 +112,37 @@ public:
 
 private:
     void monitorLoop();          // native hardware and page-guard event loop
+    // monitorLoop's state and steps, used only on the monitor thread.
+    struct Thread {
+        bool alive=true,stopped=false,saved=false,armed=false,stepping=false,groupStop=false,guardStop=false;
+        std::optional<siginfo_t> signalInfo;
+        std::optional<siginfo_t> deferredInfo;
+        int deferredSignal=0;
+        int signal=0,event=0;
+        unsigned slot=0;
+        os::NativeHardwareBank original;
+    };
+    std::map<pid_t,Thread> threads;
+    uintptr_t scratch=0,pageStart=0,pageEnd=0,mappingStart=0,mappingEnd=0;
+    size_t pageLength=0,pageSize=0;
+    int originalProtection=0,guardProtection=0;
+    bool guardChanged=false,guardActive=false,imageRetired=false;
+    bool startupReported=false;
+    void reportStartup(bool success);
+    void consume(pid_t tid,int status);
+    bool waitForStop(pid_t tid);
+    bool restore(pid_t tid);
+    bool arm(pid_t tid);
+    bool resume(pid_t tid,bool step=false,bool forceContinue=false);
+    bool arm64WatchHit(const Thread& state,uintptr_t address);
+    Result<bool> ownsHardwareTrap(pid_t tid,const siginfo_t& info);
+    bool clearHardwareStop(pid_t tid);
+    Result<bool> queuedHardwareTrap(pid_t tid);
+    bool drainHardwareTraps(pid_t tid);
+    pid_t adopt(pid_t parent);
+    bool stopAll();
+    bool guardFault(pid_t tid,siginfo_t* details=nullptr);
+    bool releaseScratch();
     // x86 hardware stops after the instruction. ARM64 hardware and software page
     // faults stop before it. Decode using the instruction address's native ISA.
     bool recordHit(pid_t tid, bool afterInstruction);

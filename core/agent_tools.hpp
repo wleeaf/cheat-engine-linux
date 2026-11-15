@@ -10,6 +10,7 @@
 #include "core/json.hpp"
 
 #include <memory>
+#include <optional>
 #include <sys/types.h>
 #include <string>
 #include <vector>
@@ -70,6 +71,15 @@ public:
 private:
     struct State;
     std::unique_ptr<State> state_;
+    // call()'s tool groups: each returns a result for the tools it has, and
+    // nothing for any other name.
+    struct Call;
+    std::optional<AgentToolResult> callProcessTool(Call& call);
+    std::optional<AgentToolResult> callMemoryTool(Call& call);
+    std::optional<AgentToolResult> callDebugTool(Call& call);
+    std::optional<AgentToolResult> callPointerTool(Call& call);
+    std::optional<AgentToolResult> callScriptTool(Call& call);
+    std::optional<AgentToolResult> callRecordTool(Call& call);
 };
 
 } // namespace ce

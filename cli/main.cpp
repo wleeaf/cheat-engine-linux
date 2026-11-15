@@ -2056,6 +2056,171 @@ static int cmd_gdb(int argc,char** argv) {
     return *read==size ? 0 : 1;
 }
 
+// mcp: the Model Context Protocol server on stdin and stdout.
+static int mcpCommand(int argc, char** argv) {
+    // Model Context Protocol server on stdin/stdout for AI agents (Claude Code,
+    // Claude Desktop, ...). Writes to the game stay off unless asked for.
+    ce::AgentSessionOptions options;
+    for (int i = 2; i < argc; ++i) {
+        if (!strcmp(argv[i], "--allow-writes")) options.allowWrites = true;
+        else { fprintf(stderr, "Unknown option: %s\n", argv[i]); return 1; }
+    }
+    options.stopRequested = [] { return g_freezeStop != 0; };   // a running watch ends on SIGTERM
+    // stdout carries the protocol. Keep a private copy of it for responses and
+    // point the ordinary stdout at stderr, so stray library output can never
+    // corrupt the message stream.
+    // The copy is written directly: reopening it by path fails when the
+    // client's stdio is a socket, as Node-based clients use.
+    fflush(stdout);
+    const int protocolFd = dup(STDOUT_FILENO);
+    if (protocolFd < 0 || dup2(STDERR_FILENO, STDOUT_FILENO) < 0) { perror("mcp"); return 1; }
+    FdOutputBuffer protocolBuffer(protocolFd);
+    std::ostream protocol(&protocolBuffer);
+    fprintf(stderr, "cescan mcp: serving Cheat Engine tools on stdin/stdout (writes %s)\n",
+            options.allowWrites ? "enabled" : "disabled");
+    // End cleanly on SIGINT/SIGTERM or when the client goes away, so the
+    // session's destructor undoes the scripts it enabled. Without
+    // SA_RESTART a signal also ends a read waiting for the next request.
+    signal(SIGPIPE, SIG_IGN);
+    g_freezeStop = 0;
+    struct sigaction stopAction {};
+    stopAction.sa_handler = onFreezeSignal;
+    sigemptyset(&stopAction.sa_mask);
+    for (int sig : kStopSignals) sigaction(sig, &stopAction, nullptr);
+    ce::AgentSession session(options);
+    return ce::runMcpServer(std::cin, protocol, session, CECORE_VERSION, [] { return g_freezeStop != 0; });
+}
+
+// read: read typed values or bytes at an address.
+static int readCommand(int argc, char** argv) {
+    // Cap the requested size so an adversarial/typo'd argument can't trigger
+    // an uncaught std::bad_alloc that terminates the process. 256 MB ceiling.
+    constexpr unsigned long long kMaxReadSize = 256ull * 1024 * 1024;
+    size_t size = 64;
+    const char* typeStr = nullptr;
+    ce::ValueCodec codec;
+    bool bigEndian = false;
+    std::string encoding = "UTF-8";
+    std::optional<ByteOrder> byteOrder;
+    int i = 4;
+    // Optional positional [size] (only if it isn't the --type flag), then --type.
+    if (argc >= 5 && argv[4][0] != '-') {
+        size = static_cast<size_t>(parseUInt(argv[4], "read size", kMaxReadSize));
+        i = 5;
+    }
+    for (; i < argc; ++i) {
+        if (!strcmp(argv[i], "--type") && i + 1 < argc) typeStr = argv[++i];
+        else if (!strcmp(argv[i], "--be")) { bigEndian = true; byteOrder = ByteOrder::Big; }
+        else if (!strcmp(argv[i], "--le")) { bigEndian = false; byteOrder = ByteOrder::Little; }
+        else if (!strcmp(argv[i], "--encoding") && i + 1 < argc) encoding = argv[++i];
+        else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
+            auto c = ce::ValueCodec::parse(argv[++i]);
+            if (!c) { fprintf(stderr, "Invalid --codec (use xor:0xKEY, add:N, rol:N, ror:N)\n"); return 1; }
+            codec = *c;
+        }
+        else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
+    }
+    return cmd_read(parsePid(argv[2]), parseAddress(argv[2], argv[3]), size, typeStr, codec, bigEndian, encoding, byteOrder);
+}
+
+// write: write a typed value, optionally checking it stays.
+static int writeCommand(int argc, char** argv) {
+    ValueType vt = ValueType::Int32;
+    ce::ValueCodec codec;
+    bool bigEndian = false, terminate = false;
+    std::string encoding = "UTF-8";
+    std::optional<ByteOrder> byteOrder;
+    int verifyMs = 0, findWriterSecs = 0;
+    for (int i = 5; i < argc; ++i) {
+        if (!strcmp(argv[i], "--type") && i + 1 < argc) vt = parseType(argv[++i]);
+        else if (!strcmp(argv[i], "--be")) { bigEndian = true; byteOrder = ByteOrder::Big; }
+        else if (!strcmp(argv[i], "--le")) { bigEndian = false; byteOrder = ByteOrder::Little; }
+        else if (!strcmp(argv[i], "--terminate")) terminate = true;
+        else if (!strcmp(argv[i], "--encoding") && i + 1 < argc) encoding = argv[++i];
+        else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
+            auto c = ce::ValueCodec::parse(argv[++i]);
+            if (!c) { fprintf(stderr, "Invalid --codec (use xor:0xKEY, add:N, rol:N, ror:N)\n"); return 1; }
+            codec = *c;
+        }
+        else if (!strcmp(argv[i], "--verify")) verifyMs = 200;
+        else if (!strcmp(argv[i], "--verify-ms") && i + 1 < argc)
+            verifyMs = static_cast<int>(parseUInt(argv[++i], "duration", INT_MAX));
+        else if (!strcmp(argv[i], "--find-writer")) findWriterSecs = 5;
+        else if (!strcmp(argv[i], "--find-writer-secs") && i + 1 < argc)
+            findWriterSecs = static_cast<int>(parseUInt(argv[++i], "duration", 86400));
+        else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
+    }
+    return cmd_write(parsePid(argv[2]), parseAddress(argv[2], argv[3]), argv[4], vt,
+                     codec, verifyMs, findWriterSecs, bigEndian, terminate, encoding, byteOrder);
+}
+
+// freeze: hold a value at an address for a while.
+static int freezeCommand(int argc, char** argv) {
+    ValueType vt = ValueType::Int32;
+    ce::ValueCodec codec;
+    bool bigEndian = false, terminate = false, isSigned = true;
+    std::string encoding = "UTF-8";
+    std::optional<ByteOrder> byteOrder;
+    unsigned interval = 100; size_t maxCycles = 0;
+    ce::FreezeMode mode = ce::FreezeMode::Normal;
+    for (int i = 5; i < argc; ++i) {
+        if (!strcmp(argv[i], "--type") && i + 1 < argc) {
+            const char* type = argv[++i]; vt = parseType(type);
+            isSigned = !(std::tolower(static_cast<unsigned char>(type[0])) == 'u' && std::isdigit(static_cast<unsigned char>(type[1])));
+        }
+        else if (!strcmp(argv[i], "--be")) { bigEndian = true; byteOrder = ByteOrder::Big; }
+        else if (!strcmp(argv[i], "--le")) { bigEndian = false; byteOrder = ByteOrder::Little; }
+        else if (!strcmp(argv[i], "--terminate")) terminate = true;
+        else if (!strcmp(argv[i], "--encoding") && i + 1 < argc) encoding = argv[++i];
+        else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
+            auto c = ce::ValueCodec::parse(argv[++i]);
+            if (!c) { fprintf(stderr, "Invalid --codec (use xor:0xKEY, add:N, rol:N, ror:N)\n"); return 1; }
+            codec = *c;
+        }
+        else if (!strcmp(argv[i], "--count") && i + 1 < argc)
+            maxCycles = parseUInt(argv[++i], "freeze count", SIZE_MAX);
+        else if (!strcmp(argv[i], "--interval") && i + 1 < argc)
+            interval = static_cast<unsigned>(parseUInt(argv[++i], "interval", UINT_MAX));
+        else if (!strcmp(argv[i], "--mode") && i + 1 < argc) {
+            const char* m = argv[++i];
+            if (!strcmp(m, "normal")) mode = ce::FreezeMode::Normal;
+            else if (!strcmp(m, "floor")) mode = ce::FreezeMode::NeverDecrease;
+            else if (!strcmp(m, "ceil"))  mode = ce::FreezeMode::NeverIncrease;
+            else { fprintf(stderr, "freeze: --mode must be normal|floor|ceil\n"); return 1; }
+        }
+        else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
+    }
+    if (interval < 1) interval = 1;
+    return cmd_freeze(parsePid(argv[2]), parseAddress(argv[2], argv[3]), argv[4], vt, codec, interval, mode, bigEndian, maxCycles, terminate, encoding, isSigned, byteOrder, argv[3]);
+}
+
+// watch: report the code that writes (or accesses) an address.
+static int watchCommand(int argc, char** argv) {
+    bool writesOnly = true, showRegs = false; int watchSize = 4, duration = 10, mode = 0;
+    for (int i = 4; i < argc; ++i) {
+        if (!strcmp(argv[i], "--access")) writesOnly = false;
+        else if (!strcmp(argv[i], "--writes")) writesOnly = true;
+        else if (!strcmp(argv[i], "--regs")) showRegs = true;
+        else if (!strcmp(argv[i], "--size") && i + 1 < argc) watchSize = (int)parseUInt(argv[++i], "size", 8);
+        else if (!strcmp(argv[i], "--duration") && i + 1 < argc) duration = (int)parseUInt(argv[++i], "duration", 86400);
+        else if (!strcmp(argv[i], "--mode") && i + 1 < argc) {
+            const char* m = argv[++i];
+            if (!strcmp(m, "hw")) mode = 1;
+            else if (!strcmp(m, "sw")) mode = 2;
+            else if (!strcmp(m, "st")) mode = 3;
+            else { fprintf(stderr, "watch: --mode must be hw|sw|st\n"); return 1; }
+        }
+        else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
+    }
+    if (watchSize != 1 && watchSize != 2 && watchSize != 4 && watchSize != 8) {
+        fprintf(stderr, "watch: --size must be 1, 2, 4 or 8\n");
+        return 1;
+    }
+    if (duration < 1) duration = 1;
+    return cmd_watch(parsePid(argv[2]), parseAddress(argv[2], argv[3]),
+                     writesOnly, watchSize, duration, mode, showRegs);
+}
+
 int main(int argc, char** argv) {
     ce::scrubSecureEnvironment();   // before anything loads plugins (core/secure_exec.hpp)
     // Force the C locale so atof()/strtod() on scan values always use a '.'
@@ -2080,39 +2245,7 @@ int main(int argc, char** argv) {
     }
 
     if (!strcmp(cmd, "gdb")) return cmd_gdb(argc,argv);
-    if (!strcmp(cmd, "mcp")) {
-        // Model Context Protocol server on stdin/stdout for AI agents (Claude Code,
-        // Claude Desktop, ...). Writes to the game stay off unless asked for.
-        ce::AgentSessionOptions options;
-        for (int i = 2; i < argc; ++i) {
-            if (!strcmp(argv[i], "--allow-writes")) options.allowWrites = true;
-            else { fprintf(stderr, "Unknown option: %s\n", argv[i]); return 1; }
-        }
-        options.stopRequested = [] { return g_freezeStop != 0; };   // a running watch ends on SIGTERM
-        // stdout carries the protocol. Keep a private copy of it for responses and
-        // point the ordinary stdout at stderr, so stray library output can never
-        // corrupt the message stream.
-        // The copy is written directly: reopening it by path fails when the
-        // client's stdio is a socket, as Node-based clients use.
-        fflush(stdout);
-        const int protocolFd = dup(STDOUT_FILENO);
-        if (protocolFd < 0 || dup2(STDERR_FILENO, STDOUT_FILENO) < 0) { perror("mcp"); return 1; }
-        FdOutputBuffer protocolBuffer(protocolFd);
-        std::ostream protocol(&protocolBuffer);
-        fprintf(stderr, "cescan mcp: serving Cheat Engine tools on stdin/stdout (writes %s)\n",
-                options.allowWrites ? "enabled" : "disabled");
-        // End cleanly on SIGINT/SIGTERM or when the client goes away, so the
-        // session's destructor undoes the scripts it enabled. Without
-        // SA_RESTART a signal also ends a read waiting for the next request.
-        signal(SIGPIPE, SIG_IGN);
-        g_freezeStop = 0;
-        struct sigaction stopAction {};
-        stopAction.sa_handler = onFreezeSignal;
-        sigemptyset(&stopAction.sa_mask);
-        for (int sig : kStopSignals) sigaction(sig, &stopAction, nullptr);
-        ce::AgentSession session(options);
-        return ce::runMcpServer(std::cin, protocol, session, CECORE_VERSION, [] { return g_freezeStop != 0; });
-    }
+    if (!strcmp(cmd, "mcp")) return mcpCommand(argc, argv);
     if (!strcmp(cmd, "ceserver")) {
         // Serve local processes to Cheat Engine (or another cecore) over the
         // ceserver protocol. Loopback only: the protocol grants full memory
@@ -2195,103 +2328,9 @@ int main(int argc, char** argv) {
         return cmd_guest_write(parsePid(argv[2]), parseUInt(argv[3], "guest address", UINT64_MAX), argv[4],
                                vt, be, typeSet, beSet);
     }
-    else if (!strcmp(cmd, "read") && argc >= 4) {
-        // Cap the requested size so an adversarial/typo'd argument can't trigger
-        // an uncaught std::bad_alloc that terminates the process. 256 MB ceiling.
-        constexpr unsigned long long kMaxReadSize = 256ull * 1024 * 1024;
-        size_t size = 64;
-        const char* typeStr = nullptr;
-        ce::ValueCodec codec;
-        bool bigEndian = false;
-        std::string encoding = "UTF-8";
-        std::optional<ByteOrder> byteOrder;
-        int i = 4;
-        // Optional positional [size] (only if it isn't the --type flag), then --type.
-        if (argc >= 5 && argv[4][0] != '-') {
-            size = static_cast<size_t>(parseUInt(argv[4], "read size", kMaxReadSize));
-            i = 5;
-        }
-        for (; i < argc; ++i) {
-            if (!strcmp(argv[i], "--type") && i + 1 < argc) typeStr = argv[++i];
-            else if (!strcmp(argv[i], "--be")) { bigEndian = true; byteOrder = ByteOrder::Big; }
-            else if (!strcmp(argv[i], "--le")) { bigEndian = false; byteOrder = ByteOrder::Little; }
-            else if (!strcmp(argv[i], "--encoding") && i + 1 < argc) encoding = argv[++i];
-            else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
-                auto c = ce::ValueCodec::parse(argv[++i]);
-                if (!c) { fprintf(stderr, "Invalid --codec (use xor:0xKEY, add:N, rol:N, ror:N)\n"); return 1; }
-                codec = *c;
-            }
-            else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
-        }
-        return cmd_read(parsePid(argv[2]), parseAddress(argv[2], argv[3]), size, typeStr, codec, bigEndian, encoding, byteOrder);
-    }
-    else if (!strcmp(cmd, "write") && argc >= 5) {
-        ValueType vt = ValueType::Int32;
-        ce::ValueCodec codec;
-        bool bigEndian = false, terminate = false;
-        std::string encoding = "UTF-8";
-        std::optional<ByteOrder> byteOrder;
-        int verifyMs = 0, findWriterSecs = 0;
-        for (int i = 5; i < argc; ++i) {
-            if (!strcmp(argv[i], "--type") && i + 1 < argc) vt = parseType(argv[++i]);
-            else if (!strcmp(argv[i], "--be")) { bigEndian = true; byteOrder = ByteOrder::Big; }
-            else if (!strcmp(argv[i], "--le")) { bigEndian = false; byteOrder = ByteOrder::Little; }
-            else if (!strcmp(argv[i], "--terminate")) terminate = true;
-            else if (!strcmp(argv[i], "--encoding") && i + 1 < argc) encoding = argv[++i];
-            else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
-                auto c = ce::ValueCodec::parse(argv[++i]);
-                if (!c) { fprintf(stderr, "Invalid --codec (use xor:0xKEY, add:N, rol:N, ror:N)\n"); return 1; }
-                codec = *c;
-            }
-            else if (!strcmp(argv[i], "--verify")) verifyMs = 200;
-            else if (!strcmp(argv[i], "--verify-ms") && i + 1 < argc)
-                verifyMs = static_cast<int>(parseUInt(argv[++i], "duration", INT_MAX));
-            else if (!strcmp(argv[i], "--find-writer")) findWriterSecs = 5;
-            else if (!strcmp(argv[i], "--find-writer-secs") && i + 1 < argc)
-                findWriterSecs = static_cast<int>(parseUInt(argv[++i], "duration", 86400));
-            else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
-        }
-        return cmd_write(parsePid(argv[2]), parseAddress(argv[2], argv[3]), argv[4], vt,
-                         codec, verifyMs, findWriterSecs, bigEndian, terminate, encoding, byteOrder);
-    }
-    else if (!strcmp(cmd, "freeze") && argc >= 5) {
-        ValueType vt = ValueType::Int32;
-        ce::ValueCodec codec;
-        bool bigEndian = false, terminate = false, isSigned = true;
-        std::string encoding = "UTF-8";
-        std::optional<ByteOrder> byteOrder;
-        unsigned interval = 100; size_t maxCycles = 0;
-        ce::FreezeMode mode = ce::FreezeMode::Normal;
-        for (int i = 5; i < argc; ++i) {
-            if (!strcmp(argv[i], "--type") && i + 1 < argc) {
-                const char* type = argv[++i]; vt = parseType(type);
-                isSigned = !(std::tolower(static_cast<unsigned char>(type[0])) == 'u' && std::isdigit(static_cast<unsigned char>(type[1])));
-            }
-            else if (!strcmp(argv[i], "--be")) { bigEndian = true; byteOrder = ByteOrder::Big; }
-            else if (!strcmp(argv[i], "--le")) { bigEndian = false; byteOrder = ByteOrder::Little; }
-            else if (!strcmp(argv[i], "--terminate")) terminate = true;
-            else if (!strcmp(argv[i], "--encoding") && i + 1 < argc) encoding = argv[++i];
-            else if (!strcmp(argv[i], "--codec") && i + 1 < argc) {
-                auto c = ce::ValueCodec::parse(argv[++i]);
-                if (!c) { fprintf(stderr, "Invalid --codec (use xor:0xKEY, add:N, rol:N, ror:N)\n"); return 1; }
-                codec = *c;
-            }
-            else if (!strcmp(argv[i], "--count") && i + 1 < argc)
-                maxCycles = parseUInt(argv[++i], "freeze count", SIZE_MAX);
-            else if (!strcmp(argv[i], "--interval") && i + 1 < argc)
-                interval = static_cast<unsigned>(parseUInt(argv[++i], "interval", UINT_MAX));
-            else if (!strcmp(argv[i], "--mode") && i + 1 < argc) {
-                const char* m = argv[++i];
-                if (!strcmp(m, "normal")) mode = ce::FreezeMode::Normal;
-                else if (!strcmp(m, "floor")) mode = ce::FreezeMode::NeverDecrease;
-                else if (!strcmp(m, "ceil"))  mode = ce::FreezeMode::NeverIncrease;
-                else { fprintf(stderr, "freeze: --mode must be normal|floor|ceil\n"); return 1; }
-            }
-            else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
-        }
-        if (interval < 1) interval = 1;
-        return cmd_freeze(parsePid(argv[2]), parseAddress(argv[2], argv[3]), argv[4], vt, codec, interval, mode, bigEndian, maxCycles, terminate, encoding, isSigned, byteOrder, argv[3]);
-    }
+    else if (!strcmp(cmd, "read") && argc >= 4) return readCommand(argc, argv);
+    else if (!strcmp(cmd, "write") && argc >= 5) return writeCommand(argc, argv);
+    else if (!strcmp(cmd, "freeze") && argc >= 5) return freezeCommand(argc, argv);
     else if (!strcmp(cmd, "accessed") && argc >= 4) {
         int duration = 4;
         for (int i = 4; i < argc; ++i) {
@@ -2300,31 +2339,7 @@ int main(int argc, char** argv) {
         }
         return cmd_accessed(parsePid(argv[2]), parseAddress(argv[2], argv[3]), std::max(duration, 1));
     }
-    else if (!strcmp(cmd, "watch") && argc >= 4) {
-        bool writesOnly = true, showRegs = false; int watchSize = 4, duration = 10, mode = 0;
-        for (int i = 4; i < argc; ++i) {
-            if (!strcmp(argv[i], "--access")) writesOnly = false;
-            else if (!strcmp(argv[i], "--writes")) writesOnly = true;
-            else if (!strcmp(argv[i], "--regs")) showRegs = true;
-            else if (!strcmp(argv[i], "--size") && i + 1 < argc) watchSize = (int)parseUInt(argv[++i], "size", 8);
-            else if (!strcmp(argv[i], "--duration") && i + 1 < argc) duration = (int)parseUInt(argv[++i], "duration", 86400);
-            else if (!strcmp(argv[i], "--mode") && i + 1 < argc) {
-                const char* m = argv[++i];
-                if (!strcmp(m, "hw")) mode = 1;
-                else if (!strcmp(m, "sw")) mode = 2;
-                else if (!strcmp(m, "st")) mode = 3;
-                else { fprintf(stderr, "watch: --mode must be hw|sw|st\n"); return 1; }
-            }
-            else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); return 1; }
-        }
-        if (watchSize != 1 && watchSize != 2 && watchSize != 4 && watchSize != 8) {
-            fprintf(stderr, "watch: --size must be 1, 2, 4 or 8\n");
-            return 1;
-        }
-        if (duration < 1) duration = 1;
-        return cmd_watch(parsePid(argv[2]), parseAddress(argv[2], argv[3]),
-                         writesOnly, watchSize, duration, mode, showRegs);
-    }
+    else if (!strcmp(cmd, "watch") && argc >= 4) return watchCommand(argc, argv);
     else if (!strcmp(cmd, "disasm") && argc >= 4) {
         // Bound count before the buffer's count*15 multiply (which would otherwise
         // overflow/throw on huge or negative input).

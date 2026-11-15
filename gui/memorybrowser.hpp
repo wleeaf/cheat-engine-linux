@@ -21,6 +21,7 @@
 #include <map>
 #include <cstdio>
 
+class QPainter;
 namespace ce::gui {
 
 // Flattened readable-memory model used to drive the memory-view scrollbar: the
@@ -258,6 +259,7 @@ signals:
 
 protected:
     void paintEvent(QPaintEvent* event) override;
+    void paintBranchArrows(QPainter& p, int arrowW, int contentX);   // part of paintEvent
     void resizeEvent(QResizeEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
@@ -548,6 +550,12 @@ private:
     QMenu* debugMenu_ = nullptr;
     QAction* toggleBreakpointMenu_ = nullptr;   // runs the toolbar's Toggle BP (F5)   // CE Memory Viewer "Debug" menu
     void buildMenuBar();
+    // The constructor's parts, in order.
+    void buildToolbars();
+    void loadTargetInfo();
+    void buildPanels();
+    void wireViews();
+    void finishSetup();
     void toggleBookmark();
     void rebuildBookmarksMenu();
 

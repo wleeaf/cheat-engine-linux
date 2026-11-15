@@ -436,7 +436,8 @@ static inline void ce_register_guarded(lua_State* L, const char* name, lua_CFunc
 #undef lua_register
 #define lua_register(L, n, f) ce_register_guarded((L), (n), (f))
 
-void registerExtendedBindings(lua_State* L) {
+// Target information, typed values and memory reads and writes, here and local.
+static void registerMemoryAccessBindings(lua_State* L) {
     lua_register(L, "getTargetInfo", l_getTargetInfo);
     lua_register(L, "getTargetCapabilities", l_getTargetCapabilities);
     lua_register(L, "retryPendingOperations", l_retryPendingOperations);
@@ -524,6 +525,10 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "writeBytesLocal", guardLocalWrite<l_writeBytesLocal>);
     lua_register(L, "writeStringLocal", guardLocalWrite<l_writeStringLocal>);
 
+}
+
+// Process information, symbols, disassembly, utilities, files, scans and the debugger.
+static void registerProcessCodeBindings(lua_State* L) {
     // Process info
     lua_register(L, "getProcessList", l_getProcessList);
     lua_register(L, "getProcessIDFromProcessName", l_getProcessIDFromProcessName);
@@ -603,6 +608,10 @@ void registerExtendedBindings(lua_State* L) {
     lua_register(L, "debug_setRegister", l_debug_setRegister);
     lua_register(L, "debug_getStack", l_debug_getStack);
 
+}
+
+// The address list, processes, AOB scans, hotkeys, threads, custom types, UI and the userdata types.
+static void registerTableToolBindings(lua_State* L) {
     // Address list
     lua_register(L, "addressList_getCount", l_addressList_getCount);
     lua_register(L, "addressList_addEntry", l_addressList_addEntry);
@@ -754,6 +763,12 @@ void registerExtendedBindings(lua_State* L) {
     // captureSnapshot / loadSnapshot + Snapshot userdata methods.
     extern void registerSnapshotBindings(lua_State* L);
     registerSnapshotBindings(L);
+}
+
+void registerExtendedBindings(lua_State* L) {
+    registerMemoryAccessBindings(L);
+    registerProcessCodeBindings(L);
+    registerTableToolBindings(L);
 }
 
 } // namespace ce

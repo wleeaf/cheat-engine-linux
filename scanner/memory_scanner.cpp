@@ -2933,6 +2933,68 @@ static ScanConfig targetScanConfig(ProcessHandle& proc,const ScanConfig& request
     }
     return config;
 }
+// The readable, committed regions a first scan covers: filtered by protection
+// and memory type, and clipped to the From..To range on the value's alignment grid.
+static std::vector<MemoryRegion> firstScanRegions(const std::vector<MemoryRegion>& regions, const ScanConfig& config) {
+    std::vector<MemoryRegion> scanRegions;
+    auto protAllowed = [](ProtMatch m, bool has) {
+        return m == ProtMatch::Any || (m == ProtMatch::Yes) == has;
+    };
+    for (auto& r : regions) {
+        if (r.state != MemState::Committed) continue;
+        if (!(r.protection & MemProt::Read)) continue;
+        if (!protAllowed(config.writableMatch,   (r.protection & MemProt::Write) != 0)) continue;
+        if (!protAllowed(config.executableMatch, (r.protection & MemProt::Exec) != 0)) continue;
+        if (!memoryTypeAllowed(config, r.type)) continue;
+
+        if (!r.size) continue;
+        if (r.size-1>UINTPTR_MAX-r.base) throw std::invalid_argument("Target memory region overflows the address space");
+        uintptr_t scanStart=std::max(r.base,config.startAddress);
+        // Scanners step from the start of each span, so a From address off the
+        // alignment grid would shift every candidate in the region off it too.
+        size_t grid=1;
+        switch (config.valueType) {
+            case ValueType::Byte: case ValueType::Int16: case ValueType::Int32: case ValueType::Int64:
+            case ValueType::Float: case ValueType::Double: case ValueType::Pointer: case ValueType::All:
+                grid=std::max<size_t>(config.alignment,1); break;
+            case ValueType::UnicodeString: grid=2; break;
+            default: break;
+        }
+        if (grid>1 && scanStart%grid) {
+            const uintptr_t add=grid-scanStart%grid;
+            if (scanStart>UINTPTR_MAX-add) continue;
+            scanStart+=add;
+        }
+        if (scanStart>config.stopAddress || scanStart-r.base>=r.size) continue;
+        const size_t remaining=r.size-(scanStart-r.base);
+        const uintptr_t distance=config.stopAddress-scanStart;
+        MemoryRegion clipped=r;
+        clipped.base=scanStart;
+        // Keep spans as base/length so an inclusive last byte at UINTPTR_MAX
+        // never requires constructing an unrepresentable exclusive end.
+        clipped.size=distance<remaining-1 ? distance+1 : remaining;
+        scanRegions.push_back(clipped);
+    }
+    return scanRegions;
+}
+
+// A first scan's chunk size (see firstScan): about half the L2 cache, or
+// CE_SCAN_CHUNK_KB.
+static size_t firstScanChunkBytes() {
+    size_t kChunkBytes = 128u * 1024;
+#ifdef _SC_LEVEL2_CACHE_SIZE
+    if (long l2 = sysconf(_SC_LEVEL2_CACHE_SIZE); l2 > 0)
+        kChunkBytes = std::clamp<size_t>(static_cast<size_t>(l2) / 2, 64u * 1024, 1024u * 1024);
+#endif
+    if (const char* e = std::getenv("CE_SCAN_CHUNK_KB")) {
+        char* end = nullptr;
+        errno=0;const unsigned long kb=std::strtoul(e,&end,10);
+        if (!errno && end!=e && !*end && kb>0 && kb<=SIZE_MAX/1024)
+            kChunkBytes=static_cast<size_t>(kb)*1024;
+    }
+    return kChunkBytes;
+}
+
 ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& requested) {
     bool gdbTarget=false;const ScanConfig config=targetScanConfig(proc,requested,gdbTarget);
     cancelled_.store(false);
@@ -2973,46 +3035,7 @@ ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& reque
         throw std::invalid_argument("The target reported no memory map; for a GDB stub supply explicit guest ranges before scanning");
     }
 
-    // Filter regions
-    auto protAllowed = [](ProtMatch m, bool has) {
-        return m == ProtMatch::Any || (m == ProtMatch::Yes) == has;
-    };
-    std::vector<MemoryRegion> scanRegions;
-    for (auto& r : regions) {
-        if (r.state != MemState::Committed) continue;
-        if (!(r.protection & MemProt::Read)) continue;
-        if (!protAllowed(config.writableMatch,   (r.protection & MemProt::Write) != 0)) continue;
-        if (!protAllowed(config.executableMatch, (r.protection & MemProt::Exec) != 0)) continue;
-        if (!memoryTypeAllowed(config, r.type)) continue;
-
-        if (!r.size) continue;
-        if (r.size-1>UINTPTR_MAX-r.base) throw std::invalid_argument("Target memory region overflows the address space");
-        uintptr_t scanStart=std::max(r.base,config.startAddress);
-        // Scanners step from the start of each span, so a From address off the
-        // alignment grid would shift every candidate in the region off it too.
-        size_t grid=1;
-        switch (config.valueType) {
-            case ValueType::Byte: case ValueType::Int16: case ValueType::Int32: case ValueType::Int64:
-            case ValueType::Float: case ValueType::Double: case ValueType::Pointer: case ValueType::All:
-                grid=std::max<size_t>(config.alignment,1); break;
-            case ValueType::UnicodeString: grid=2; break;
-            default: break;
-        }
-        if (grid>1 && scanStart%grid) {
-            const uintptr_t add=grid-scanStart%grid;
-            if (scanStart>UINTPTR_MAX-add) continue;
-            scanStart+=add;
-        }
-        if (scanStart>config.stopAddress || scanStart-r.base>=r.size) continue;
-        const size_t remaining=r.size-(scanStart-r.base);
-        const uintptr_t distance=config.stopAddress-scanStart;
-        MemoryRegion clipped=r;
-        clipped.base=scanStart;
-        // Keep spans as base/length so an inclusive last byte at UINTPTR_MAX
-        // never requires constructing an unrepresentable exclusive end.
-        clipped.size=distance<remaining-1 ? distance+1 : remaining;
-        scanRegions.push_back(clipped);
-    }
+    std::vector<MemoryRegion> scanRegions = firstScanRegions(regions, config);
 
     auto resultDir = makeScanDir();
     ScanFailureCleanup cleanup{resultDir};
@@ -3118,17 +3141,7 @@ ScanResult MemoryScanner::firstScan(ProcessHandle& proc, const ScanConfig& reque
     // re-fetched from RAM — worth ~3x on a first scan. The measured optimum is
     // about half the L2, so size it from the detected L2 (clamped), falling back
     // to 128 KiB. CE_SCAN_CHUNK_KB overrides for tuning.
-    size_t kChunkBytes = 128u * 1024;
-#ifdef _SC_LEVEL2_CACHE_SIZE
-    if (long l2 = sysconf(_SC_LEVEL2_CACHE_SIZE); l2 > 0)
-        kChunkBytes = std::clamp<size_t>(static_cast<size_t>(l2) / 2, 64u * 1024, 1024u * 1024);
-#endif
-    if (const char* e = std::getenv("CE_SCAN_CHUNK_KB")) {
-        char* end = nullptr;
-        errno=0;const unsigned long kb=std::strtoul(e,&end,10);
-        if (!errno && end!=e && !*end && kb>0 && kb<=SIZE_MAX/1024)
-            kChunkBytes=static_cast<size_t>(kb)*1024;
-    }
+    const size_t kChunkBytes = firstScanChunkBytes();
     size_t alignment = std::max<size_t>(1, config.alignment);
     size_t maxMatchSize = std::max<size_t>(1, valueSizeForConfig(config));
     size_t overlap = maxMatchSize - 1;

@@ -686,659 +686,735 @@ std::vector<AgentToolInfo> AgentSession::tools() {
     };
 }
 
+// One tool call: the session, its lock, the tool's name and arguments, and
+// what several tools need from those arguments.
+struct AgentSession::Call {
+    State& s;
+    const std::string& name;
+    const json::Value& args;
+    std::unique_lock<std::mutex>& lock;
+
+    // Long scans run unlocked so frozen records stay frozen meanwhile. Calls
+    // come one at a time (MCP, the panel's worker) and the freezer only reads
+    // the process and writes records, so what a scan uses stays valid.
+    template <typename Work>
+    auto unlocked(Work&& work) {
+        lock.unlock();
+        struct Relock { std::unique_lock<std::mutex>& lock; ~Relock() { lock.lock(); } } relock{lock};
+        return work();
+    }
+    std::optional<uintptr_t> needAddress() const {
+        const Value* given = args.get("address");
+        return s.address(given ? addressText(*given) : std::string());
+    }
+    std::optional<ValueType> needType() const {
+        const std::string t = argString(args, "type");
+        if (std::find(kTypes.begin(), kTypes.end(), t) == kTypes.end()) return std::nullopt;
+        return parseValueType(t);
+    }
+    std::optional<std::string> needScript() const {
+        std::string script = argString(args, "script");
+        if (script.empty() || script.size() > kMaxScriptBytes) return std::nullopt;
+        return script;
+    }
+};
+
 AgentToolResult AgentSession::call(const std::string& name, const json::Value& args) {
     State& s = *state_;
     std::unique_lock lock(s.mutex);
     if (!args.isObject() && !args.isNull()) return fail("arguments must be an object");
-    // Long scans run unlocked so frozen records stay frozen meanwhile. Calls
-    // come one at a time (MCP, the panel's worker) and the freezer only reads
-    // the process and writes records, so what a scan uses stays valid.
-    auto unlocked = [&](auto&& work) {
-        lock.unlock();
-        struct Relock { std::unique_lock<std::mutex>& lock; ~Relock() { lock.lock(); } } relock{lock};
-        return work();
-    };
     try {
-        if (name == "list_processes") {
-            std::string filter = argString(args, "filter");
-            std::transform(filter.begin(), filter.end(), filter.begin(), [](unsigned char c) { return std::tolower(c); });
-            struct Row { pid_t pid; std::string name; uint64_t rss; };
-            std::vector<Row> rows;
-            const uid_t me = geteuid();
-            for (const auto& p : os::LinuxProcessEnumerator().list()) {
-                struct stat st{};
-                if (::stat(("/proc/" + std::to_string(p.pid)).c_str(), &st) != 0 || st.st_uid != me) continue;
-                if (p.pid == getpid()) continue;
-                std::string lower = p.name;
-                std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
-                if (!filter.empty() && lower.find(filter) == std::string::npos) continue;
-                const uint64_t rss = residentBytes(p.pid);
-                if (rss == 0) continue;
-                rows.push_back({p.pid, p.name, rss});
-            }
-            std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.rss > b.rss; });
-            Value list = Value::array();
-            for (size_t i = 0; i < rows.size() && i < 30; ++i)
-                list.push(Value::object().set("pid", Value::number(static_cast<int64_t>(rows[i].pid)))
-                              .set("name", Value::string(rows[i].name))
-                              .set("memory_mb", Value::number(static_cast<uint64_t>(rows[i].rss >> 20))));
-            return ok(Value::object().set("processes", list).set("shown", Value::number(static_cast<uint64_t>(list.arrayValue.size())))
-                                     .set("total", Value::number(static_cast<uint64_t>(rows.size()))));
-        }
-
-        if (name == "attach") {
-            const std::string target = argString(args, "target");
-            if (target.empty()) return fail("target is required");
-            pid_t pid = 0;
-            if (std::all_of(target.begin(), target.end(), [](unsigned char c) { return std::isdigit(c); })) {
-                if (target.size() > 10 || std::stoll(target) > std::numeric_limits<pid_t>::max())
-                    return fail("process " + target + " is not running");
-                pid = static_cast<pid_t>(std::stoll(target));
-            } else {
-                std::vector<ProcessInfo> matches;
-                for (const auto& p : os::LinuxProcessEnumerator().list())
-                    if (p.name == target || std::filesystem::path(p.path).filename() == target) matches.push_back(p);
-                if (matches.empty()) return fail("no process named '" + target + "'; use list_processes");
-                if (matches.size() > 1) {
-                    std::string pids;
-                    for (const auto& p : matches) pids += (pids.empty() ? "" : ", ") + std::to_string(p.pid);
-                    return fail("several processes are named '" + target + "' (PIDs " + pids + "); attach by PID");
-                }
-                pid = matches.front().pid;
-            }
-            if (pid <= 0 || ::kill(pid, 0) != 0) return fail("process " + std::to_string(pid) + " is not running");
-            auto process = std::make_unique<os::LinuxProcessHandle>(pid);
-            if (auto problem = memoryAccessProblem(*process)) return fail("cannot read this process: " + *problem);
-            const bool sameProcess = s.pid == pid;
-            std::vector<std::string> stuck;   // scripts left in the previous target
-            if (s.process) stuck = s.disableAll();   // never leave a previous target patched
-            s.process = std::move(process);
-            s.pid = pid;
-            s.modules = s.process->modules();
-            s.symbols.reset();
-            s.result.reset();
-            s.undo.reset();
-            if (!sameProcess) { s.records.clear(); s.paths.clear(); }
-            std::string procName;
-            for (const auto& p : os::LinuxProcessEnumerator().list()) if (p.pid == pid) procName = p.name;
-            s.processName = procName.empty() ? std::to_string(pid) : procName;
-            Value attached = Value::object().set("attached", Value::string(s.processName))
-                                            .set("pid", Value::number(static_cast<int64_t>(pid)))
-                                            .set("kind", Value::string(probeTarget(pid).summary()));
-            if (!stuck.empty()) {
-                std::string list;
-                for (const auto& failure : stuck) list += (list.empty() ? "" : "; ") + failure;
-                attached.set("warning", Value::string("scripts still enabled in the previous process: " + list));
-            }
-            return ok(attached);
-        }
-
+        Call call{s, name, args, lock};
+        if (auto result = callProcessTool(call)) return *result;
         if (!s.process) return fail("no process attached; call attach first");
-
-        if (name == "target_info") {
-            const auto description = s.process->targetDescription();
-            Value out = Value::object().set("name", Value::string(s.processName))
-                .set("pid", Value::number(static_cast<int64_t>(s.pid)))
-                .set("kind", Value::string(probeTarget(s.pid).summary()))
-                .set("architecture", Value::string(cpuArchitectureName(description.program.architecture)))
-                .set("pointer_bytes", Value::number(static_cast<int64_t>(description.program.pointerWidth)))
-                .set("modules", Value::number(static_cast<uint64_t>(s.modules.size())));
-            if (!s.modules.empty())
-                out.set("main_module", Value::string(s.modules.front().name + " at " + hex(s.modules.front().base)));
-            return ok(out);
-        }
-
-        if (name == "first_scan" || name == "next_scan") {
-            const bool first = name == "first_scan";
-            if (!first && !s.result) return fail("no scan yet; call first_scan");
-            ValueType type = s.scanType;
-            if (first) {
-                auto parsed = parseValueType(argString(args, "type"));
-                if (!parsed || std::find(kTypes.begin(), kTypes.end(), argString(args, "type")) == kTypes.end())
-                    return fail("type must be one of byte, i16, i32, i64, float, double, string, aob");
-                type = *parsed;
-            }
-            const std::string compareText = argString(args, "compare").empty() ? "exact" : argString(args, "compare");
-            auto compare = parseCompare(compareText);
-            if (!compare) return fail("unknown compare '" + compareText + "'");
-            const bool firstOnly = *compare == ScanCompare::Unknown;
-            const bool nextOnly = comparisonNeedsPrevious(*compare);
-            if (first && nextOnly) return fail("compare " + compareText + " needs an earlier scan; use next_scan");
-            if (!first && firstOnly) return fail("compare unknown starts a scan; use first_scan");
-            // The scanner compares text and byte patterns only for equality: other
-            // compares would be ignored (first scan) or drop every result.
-            if (type == ValueType::String || type == ValueType::ByteArray) {
-                const bool supported = *compare == ScanCompare::Exact ||
-                    (!first && (*compare == ScanCompare::Changed || *compare == ScanCompare::Unchanged ||
-                                *compare == ScanCompare::SameAsFirst));
-                if (!supported)
-                    return fail(first ? "string and aob scans start with compare exact"
-                                      : "string and aob scans support exact, changed, unchanged and same_as_first");
-            }
-            ScanConfig config;
-            config.valueType = type;
-            config.compareType = *compare;
-            config.alignment = alignmentFor(type);
-            config.writableMatch = ProtMatch::Yes;
-            const std::string value = argString(args, "value");
-            if (comparisonTakesValue(*compare)) {
-                if (value.empty()) return fail("compare " + compareText + " needs a value");
-                if (auto error = setScanValue(config, value, argString(args, "value2"))) return fail(*error);
-            }
-            if ((type == ValueType::String || type == ValueType::ByteArray) && !comparisonTakesValue(*compare))
-                return fail("string and aob scans need an exact value");
-            if (first) {
-                if (auto problem = memoryAccessProblem(*s.process)) return fail("cannot read this process: " + *problem);
-                auto scanned = std::make_unique<ScanResult>(unlocked([&] { return s.scanner.firstScan(*s.process, config); }));
-                if (scanned->hasWriteError()) return fail("the scan results could not be stored: " + scanned->writeErrorReason());
-                s.undo.reset();
-                s.result = std::move(scanned);
-                s.scanType = type;
-                s.scanValueSize = type == ValueType::String ? value.size() : std::max<size_t>(1, s.result->valueSize());
-            } else {
-                auto narrowed = std::make_unique<ScanResult>(
-                    unlocked([&] { return s.scanner.nextScan(*s.process, config, *s.result); }));
-                if (narrowed->hasWriteError()) return fail("the scan results could not be stored: " + narrowed->writeErrorReason());
-                s.undo = std::move(s.result);
-                s.result = std::move(narrowed);
-            }
-            const size_t count = s.result->count();
-            const char* hint = count == 0 ? "Nothing matched. Check the type (float vs i32) or undo_scan."
-                             : count == 1 ? "One candidate: confirm it with read or a test write, then add_record."
-                             : count <= 10 ? "Few candidates: confirm one by changing the value in the game and reading them."
-                                           : "Ask the user to change the value in the game, then call next_scan.";
-            return ok(s.scanSummary(hint));
-        }
-
-        if (name == "undo_scan") {
-            if (!s.undo) return fail("nothing to undo");
-            s.result = std::move(s.undo);
-            return ok(s.scanSummary(nullptr));
-        }
-
-        if (name == "scan_results") {
-            if (!s.result) return fail("no scan yet; call first_scan");
-            const int64_t offset = std::max<int64_t>(0, args.getInt("offset").value_or(0));
-            const int64_t limit = std::clamp<int64_t>(args.getInt("limit").value_or(20), 1, kMaxCandidates);
-            return ok(Value::object().set("count", Value::number(static_cast<uint64_t>(s.result->count())))
-                                     .set("offset", Value::number(offset))
-                                     .set("candidates", s.candidates(static_cast<size_t>(offset), static_cast<size_t>(limit))));
-        }
-
-        auto needAddress = [&]() -> std::optional<uintptr_t> {
-            const Value* given = args.get("address");
-            return s.address(given ? addressText(*given) : std::string());
-        };
-        auto needType = [&]() -> std::optional<ValueType> {
-            const std::string t = argString(args, "type");
-            if (std::find(kTypes.begin(), kTypes.end(), t) == kTypes.end()) return std::nullopt;
-            return parseValueType(t);
-        };
-
-        if (name == "read") {
-            auto address = needAddress();
-            if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
-            auto type = needType();
-            if (!type) return fail("type must be one of byte, i16, i32, i64, float, double, string, aob");
-            const size_t size = static_cast<size_t>(std::clamp<int64_t>(args.getInt("size").value_or(32), 1, kMaxReadBytes));
-            auto value = readTypedValue(*s.process, *address, *type, s.ioOptions(*address, *type, size));
-            if (!value) return fail("read failed: " + value.error());
-            Value out = Value::object().set("address", Value::string(hex(*address)));
-            if (auto where = s.location(*address); !where.empty()) out.set("location", Value::string(where));
-            return ok(out.set("value", Value::string(*value)));
-        }
-
-        if (name == "write") {
-            if (!s.options.allowWrites)
-                return fail("writes are disabled; the user must start the server with --allow-writes");
-            auto address = needAddress();
-            if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
-            auto type = needType();
-            if (!type) return fail("type must be one of byte, i16, i32, i64, float, double, string, aob");
-            const std::string value = argString(args, "value");
-            if (value.empty()) return fail("value is required");
-            auto written = writeTypedValue(*s.process, *address, *type, value, s.ioOptions(*address, *type, value.size()));
-            if (!written) return fail("write failed: " + written.error());
-            return ok(Value::object().set("address", Value::string(hex(*address)))
-                                     .set("bytes", Value::number(static_cast<uint64_t>(*written)))
-                                     .set("value_now", Value::string(s.readValue(*address, *type, value.size()))));
-        }
-
-        if (name == "disassemble") {
-            auto address = needAddress();
-            if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
-            const size_t count = static_cast<size_t>(std::clamp<int64_t>(args.getInt("count").value_or(12), 1, kMaxInstructions));
-            auto arch = disassemblerArchFor(*s.process, *address);
-            if (!arch) return fail(arch.error());
-            std::vector<uint8_t> code(count * 15);
-            auto got = s.process->read(*address, code.data(), code.size());
-            if (!got || *got == 0) return fail("cannot read code at " + hex(*address));
-            Disassembler disassembler(*arch);
-            Value lines = Value::array();
-            for (const auto& instruction : disassembler.disassemble(*address, {code.data(), *got}, count)) {
-                Value line = Value::object().set("address", Value::string(hex(instruction.address)));
-                std::string where = s.resolver().resolve(instruction.address);
-                if (where.empty()) where = s.location(instruction.address);
-                if (!where.empty()) line.set("location", Value::string(where));
-                lines.push(line.set("text", Value::string(instruction.toString())));
-            }
-            return ok(Value::object().set("instructions", lines));
-        }
-
-
-        if (name == "find_what_writes") {
-            auto address = needAddress();
-            if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
-            const int seconds = static_cast<int>(std::clamp<int64_t>(args.getInt("seconds").value_or(8), 1, kMaxWatchSeconds));
-            const int size = static_cast<int>(args.getInt("size").value_or(4));
-            if (size != 1 && size != 2 && size != 4 && size != 8) return fail("size must be 1, 2, 4 or 8");
-            const bool writesOnly = !args.getBool("accesses").value_or(false);
-            // Wine/Proton: watch the main thread only with a hardware register; stopping
-            // the whole thread group or the software page guard would freeze the game.
-            const bool wine = probeTarget(s.pid).wine;
-            os::LinuxDebugger debugger;
-            CodeFinder finder;
-            if (!finder.start(*s.process, debugger, *address, writesOnly, size, /*software=*/false, /*singleThread=*/wine))
-                return fail("could not watch the address: " +
-                            targetOperationError(*s.process, TargetFeature::HardwareWatchpoint, finder.lastError()));
-            // Let the freezer keep writing while the watch runs. Calls come one at
-            // a time (MCP, the panel's worker), so nothing else uses the session.
-            lock.unlock();
-            // In short steps: a shutdown or a monitor that ended (an error, the
-            // target exited) must not wait out the full time.
-            const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
-            while (std::chrono::steady_clock::now() < until && finder.running() &&
-                   !(s.options.stopRequested && s.options.stopRequested()))
-                std::this_thread::sleep_for(std::chrono::milliseconds(200));
-            lock.lock();
-            finder.stop();
-            if (auto error = finder.lastError(); error && finder.results().empty())
-                return fail("watching ended early: " + error.message());
-            Value list = Value::array();
-            bool pointerHint = false;
-            for (const auto& hit : finder.results()) {
-                // CodeFinder already recovered the store a hardware trap stopped
-                // after, decoding with the hit's own architecture.
-                const uintptr_t at = hit.instructionAddress;
-                const std::string& text = hit.instructionText;
-                Value item = Value::object().set("address", Value::string(hex(at)));
-                std::string where = s.resolver().resolve(at);
-                if (where.empty()) where = s.location(at);
-                if (!where.empty()) item.set("location", Value::string(where));
-                item.set("instruction", Value::string(text)).set("hits", Value::number(static_cast<uint64_t>(hit.hitCount)));
-                // [reg+offset]: the pointer the game followed is the address minus the
-                // offset, whatever the register holds after the instruction ran.
-                if (auto memory = s.memoryOperand(at); memory && !memory->ripRelative && memory->indexReg.empty() && !memory->baseReg.empty()) {
-                    item.set("pointer", Value::string(hex(*address - static_cast<uintptr_t>(memory->disp))));
-                    item.set("offset", Value::string(memory->disp < 0 ? "-" + hex(static_cast<uint64_t>(-memory->disp)) : hex(static_cast<uint64_t>(memory->disp))));
-                    pointerHint = true;
-                }
-                list.push(std::move(item));
-                if (list.arrayValue.size() >= 10) break;
-            }
-            Value out = Value::object().set("watched_seconds", Value::number(seconds)).set("instructions", list);
-            if (list.arrayValue.empty())
-                out.set("next", Value::string(std::string("Nothing ") + (writesOnly ? "wrote" : "touched") +
-                    " the address. Ask the user to make the value change, then watch again." +
-                    (wine ? " (Wine: only the main thread is watched.)" : "")));
-            else
-                out.set("next", Value::string(std::string("Pass the instruction address to aa_template to build an injection.") +
-                    (pointerHint ? " The value sits at pointer+offset: if the game moves it, pointer_scan it, or first_scan "
-                                   "type i64 for the pointer value to find where that pointer is kept." : "")));
-            return ok(out);
-        }
-
-        if (name == "find_accessed_addresses") {
-            if (!s.options.allowWrites)
-                return fail("watching an instruction puts a breakpoint into the game's code; the user must start the "
-                            "server with --allow-writes");
-            auto address = needAddress();
-            if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
-            const int seconds = static_cast<int>(std::clamp<int64_t>(args.getInt("seconds").value_or(4), 1, kMaxWatchSeconds));
-            if (!s.memoryOperand(*address)) return fail("the instruction at " + hex(*address) + " does not access memory");
-            lock.unlock();   // as in find_what_writes: frozen values stay frozen meanwhile
-            auto stop = s.options.stopRequested;
-            std::string watchError;
-            auto accesses = findInstructionAccesses(*s.process, *address, 4096, seconds * 1000,
-                                                    [stop] { return stop && stop(); }, &watchError);
-            lock.lock();
-            if (!watchError.empty()) return fail("could not watch the instruction: " + watchError);
-            Value list = Value::array();
-            for (const auto& access : accesses) {
-                Value item = Value::object().set("address", Value::string(hex(access.address)))
-                                            .set("hits", Value::number(static_cast<int64_t>(access.hitCount)));
-                if (auto where = s.location(access.address); !where.empty()) item.set("location", Value::string(where));
-                list.push(std::move(item));
-                if (list.arrayValue.size() >= 32) break;
-            }
-            Value out = Value::object().set("watched_seconds", Value::number(seconds)).set("addresses", list);
-            out.set("next", Value::string(list.arrayValue.empty()
-                ? "The instruction did not run. Ask the user to play so it runs, then watch again."
-                : "Several addresses mean shared code. The structure starts at address minus the instruction's offset; "
-                  "compare_structures with the player's and the enemies' structures to find what tells them apart."));
-            return ok(out);
-        }
-
-        if (name == "compare_structures") {
-            auto collect = [&](const char* key, std::vector<uintptr_t>& out) -> std::optional<std::string> {
-                const Value* list = args.get(key);
-                if (!list) return std::nullopt;
-                if (!list->isArray()) return std::string(key) + " must be a list of addresses";
-                for (const auto& item : list->arrayValue) {
-                    std::string text = addressText(item);
-                    auto resolved = text.empty() ? std::nullopt : s.address(text);
-                    if (!resolved) return "cannot resolve address '" + text + "' in " + key;
-                    out.push_back(*resolved);
-                }
-                return std::nullopt;
-            };
-            std::vector<uintptr_t> group1, group2;
-            if (auto error = collect("group1", group1)) return fail(*error);
-            if (auto error = collect("group2", group2)) return fail(*error);
-            if (group1.empty()) return fail("group1 needs at least one address");
-            if (group1.size() + group2.size() > 8) return fail("compare at most 8 structures at a time");
-            const size_t size = static_cast<size_t>(std::clamp<int64_t>(args.getInt("size").value_or(64), 4, kMaxStructureBytes)) & ~size_t{3};
-            std::vector<uintptr_t> all = group1;
-            all.insert(all.end(), group2.begin(), group2.end());
-            std::vector<std::vector<uint8_t>> snapshots;
-            for (uintptr_t base : all) {
-                std::vector<uint8_t> bytes(size + 8, 0);
-                auto got = s.process->read(base, bytes.data(), bytes.size());
-                if (!got || *got < size) return fail("cannot read " + std::to_string(size) + " bytes at " + hex(base));
-                snapshots.push_back(std::move(bytes));
-            }
-            Value fields = Value::array();
-            Value discriminators = Value::array();
-            const size_t pointerWidth = s.process->pointerWidth() == 4 ? 4 : 8;
-            const bool bigEndian = s.process->byteOrder() == ByteOrder::Big;
-            for (size_t offset = 0; offset < size; offset += 4) {
-                // The first structure decides the type; an 8-byte pointer covers two fields.
-                const std::string type = guessFieldType(snapshots[0].data() + offset, size + 8 - offset,
-                                                        offset % pointerWidth == 0, *s.process, pointerWidth, bigEndian);
-                const size_t width = type == "pointer" ? pointerWidth : 4;
-                Value values = Value::array();
-                std::vector<std::vector<uint8_t>> raw;
-                for (const auto& snapshot : snapshots) {
-                    values.push(Value::string(formatField(type, snapshot.data() + offset, size + 8 - offset, pointerWidth, bigEndian)));
-                    raw.emplace_back(snapshot.begin() + offset, snapshot.begin() + offset + width);
-                }
-                Value field = Value::object().set("offset", Value::string(hex(offset))).set("type", Value::string(type))
-                                             .set("values", values);
-                bool differs = false;
-                if (!group2.empty()) {
-                    auto same = [&](size_t from, size_t to) {
-                        for (size_t i = from + 1; i < to; ++i) if (raw[i] != raw[from]) return false;
-                        return true;
-                    };
-                    differs = same(0, group1.size()) && same(group1.size(), raw.size()) && raw[0] != raw[group1.size()];
-                    if (differs) {
-                        field.set("differs_between_groups", Value::boolean(true));
-                        discriminators.push(Value::string(hex(offset)));
-                    }
-                }
-                fields.push(std::move(field));
-                if (width == 8) offset += 4;
-            }
-            Value out = Value::object().set("structures", Value::number(static_cast<uint64_t>(all.size())))
-                                       .set("fields", fields);
-            if (!group2.empty()) out.set("differs_between_groups", discriminators);
-            return ok(out);
-        }
-
-        if (name == "pointer_scan") {
-            auto address = needAddress();
-            if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
-            PointerScanConfig config;
-            config.targetAddress = *address;
-            config.maxDepth = static_cast<int>(std::clamp<int64_t>(args.getInt("max_depth").value_or(4), 1, 6));
-            config.maxOffset = static_cast<int>(std::clamp<int64_t>(args.getInt("max_offset").value_or(1024), 8, 1 << 20));
-            PointerScanner scanner;
-            s.paths = unlocked([&] { return scanner.scan(*s.process, config); });
-            sortPointerPaths(s.paths, PointerSortKey::Depth);
-            Value out = Value::object().set("count", Value::number(static_cast<uint64_t>(s.paths.size())))
-                                       .set("paths", s.pathList(kMaxPaths));
-            switch (scanner.limitReached()) {
-                case PointerScanLimit::Results:
-                    out.set("truncated", Value::string("stopped at " + std::to_string(config.maxResults) +
-                                                       " paths, so longer ones may be missing; a smaller max_offset finds them"));
-                    break;
-                case PointerScanLimit::Work:
-                    out.set("truncated", Value::string("stopped at the work limit, so longer paths may be missing; "
-                                                       "a smaller max_offset or max_depth finds them"));
-                    break;
-                case PointerScanLimit::MapEntries:
-                    out.set("truncated", Value::string("memory held more pointer-like values than the scan keeps, "
-                                                       "so some paths may be missing"));
-                    break;
-                case PointerScanLimit::None:
-                    break;
-            }
-            if (scanner.mapTruncated() && scanner.limitReached() != PointerScanLimit::MapEntries)
-                out.set("map_truncated", Value::string("memory also held more pointer-like values than the scan keeps"));
-            out.set("next", Value::string(s.paths.empty()
-                ? "No path found. Try a larger max_depth or max_offset."
-                : "Ask the user to make the value move (restart the level, or whatever reallocates it), find it again, "
-                  "then pointer_rescan with its new address. add_record accepts a path directly."));
-            return ok(out);
-        }
-
-        if (name == "pointer_rescan") {
-            if (s.paths.empty()) return fail("no pointer paths; call pointer_scan first");
-            auto address = needAddress();
-            if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
-            const size_t before = s.paths.size();
-            s.paths = unlocked([&] { return rescanPointerPaths(*s.process, s.paths, *address); });
-            return ok(Value::object().set("before", Value::number(static_cast<uint64_t>(before)))
-                                     .set("count", Value::number(static_cast<uint64_t>(s.paths.size())))
-                                     .set("paths", s.pathList(kMaxPaths)));
-        }
-
-        if (name == "aa_template") {
-            auto address = needAddress();
-            if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
-            const std::string kind = argString(args, "kind").empty() ? "code" : argString(args, "kind");
-            if (kind != "code" && kind != "aob") return fail("kind must be code or aob");
-            std::string error;
-            std::string script = generateInjectionScript(*s.process, *address,
-                kind == "aob" ? InjectionKind::Aob : InjectionKind::Code, error);
-            if (script.empty()) return fail("cannot build an injection here: " + error);
-            return ok(Value::object().set("script", Value::string(script))
-                .set("next", Value::string("Edit the code under newmem (keep the relocated original instructions unless "
-                                           "you mean to skip them), then aa_check and aa_enable.")));
-        }
-
-        auto needScript = [&]() -> std::optional<std::string> {
-            std::string script = argString(args, "script");
-            if (script.empty() || script.size() > kMaxScriptBytes) return std::nullopt;
-            return script;
-        };
-
-        if (name == "aa_check") {
-            auto script = needScript();
-            if (!script) return fail("script is required (at most 64 KiB)");
-            if (auto checked = s.dryRun(*script); !checked.ok) return fail(checked.error);
-            else return ok(Value::object().set("ok", Value::boolean(true))
-                                          .set("would_patch_bytes", Value::number(static_cast<uint64_t>(checked.patchedBytes)))
-                                          .set("would_allocate", Value::number(static_cast<uint64_t>(checked.allocations))));
-        }
-
-        if (name == "aa_enable") {
-            if (!s.options.allowWrites)
-                return fail("enabling a script patches the game; the user must start the server with --allow-writes");
-            auto script = needScript();
-            if (!script) return fail("script is required (at most 64 KiB)");
-            const std::string description = argString(args, "description");
-            if (description.empty()) return fail("description is required");
-            if (auto checked = s.dryRun(*script); !checked.ok) return fail(checked.error);
-            auto result = s.assembler.execute(*s.process, *script);
-            if (!result.success) return fail("enable failed: " + result.error);
-            Value patches = Value::array();
-            for (const auto& original : result.disableInfo.originals) {
-                Value patch = Value::object().set("address", Value::string(hex(original.address)))
-                                             .set("bytes", Value::number(static_cast<uint64_t>(original.bytes.size())));
-                if (auto where = s.location(original.address); !where.empty()) patch.set("location", Value::string(where));
-                patches.push(std::move(patch));
-            }
-            Value allocations = Value::array();
-            for (const auto& allocation : result.disableInfo.allocs)
-                allocations.push(Value::object().set("name", Value::string(allocation.name))
-                                                .set("address", Value::string(hex(allocation.address)))
-                                                .set("size", Value::number(static_cast<uint64_t>(allocation.size))));
-            State::ActiveScript active{s.nextScriptId++, description, *script, std::move(result.disableInfo)};
-            const int id = active.id;
-            s.scripts.push_back(std::move(active));
-            return ok(Value::object().set("id", Value::number(id)).set("patched", patches).set("allocated", allocations)
-                .set("next", Value::string("Ask the user whether it works in the game. aa_disable undoes it; add_record "
-                                           "with the script saves it to the table.")));
-        }
-
-        if (name == "aa_disable") {
-            // Restoring the code and freeing the cave is a write to the game too.
-            if (!s.options.allowWrites)
-                return fail("disabling a script patches the game; the user must start the server with --allow-writes");
-            auto id = args.getInt("id");
-            auto it = std::find_if(s.scripts.begin(), s.scripts.end(), [&](const auto& a) { return id && a.id == *id; });
-            if (it == s.scripts.end()) return fail("no enabled script with that id; see aa_list");
-            auto result = s.assembler.disable(*s.process, it->script, it->disable);
-            if (!result.success) return fail("disable failed: " + result.error);
-            s.scripts.erase(it);
-            return ok(Value::object().set("disabled", Value::number(*id)));
-        }
-
-        if (name == "aa_list") {
-            Value list = Value::array();
-            for (const auto& a : s.scripts)
-                list.push(Value::object().set("id", Value::number(a.id)).set("description", Value::string(a.description)));
-            return ok(Value::object().set("enabled", list));
-        }
-
-        if (name == "add_record" && !argString(args, "script").empty()) {
-            auto script = needScript();
-            if (!script) return fail("script must be at most 64 KiB");
-            const std::string description = argString(args, "description");
-            if (description.empty()) return fail("description is required");
-            // An enabled script already passed its dry run, and its assert() would
-            // now see the patched code; check only its structure.
-            const bool enabled = std::any_of(s.scripts.begin(), s.scripts.end(), [&](const auto& a) { return a.script == *script; });
-            if (enabled) {
-                if (auto checked = s.assembler.check(*script); !checked.success) return fail("script error: " + checked.error);
-            } else if (auto checked = s.dryRun(*script); !checked.ok) {
-                return fail(checked.error);
-            }
-            State::Record record;
-            record.entry.id = static_cast<int>(s.records.size()) + 1;
-            record.entry.description = description;
-            record.entry.autoAsmScript = *script;
-            s.records.push_back(record);
-            return ok(Value::object().set("index", Value::number(static_cast<uint64_t>(s.records.size() - 1)))
-                                     .set("kind", Value::string("script")));
-        }
-
-        if (name == "add_record") {
-            auto address = needAddress();
-            if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
-            auto type = needType();
-            if (!type) return fail("type must be one of byte, i16, i32, i64, float, double, string, aob");
-            const std::string description = argString(args, "description");
-            if (description.empty()) return fail("description is required");
-            State::Record record;
-            record.entry.id = static_cast<int>(s.records.size()) + 1;
-            record.entry.description = description;
-            record.entry.address = *address;
-            record.entry.type = *type;
-            const std::string text = argString(args, "address");
-            if (text.find('[') != std::string::npos) {
-                record.expression = text;   // a pointer path: follow it on every use
-                record.entry.addressString = text;
-            } else {
-                // Module-relative addresses keep working after the game restarts (ASLR).
-                const std::string where = s.location(*address);
-                record.entry.addressString = where.empty() ? hex(*address) : where;
-            }
-            if (*type == ValueType::String || *type == ValueType::ByteArray) record.entry.length = 32;
-            s.records.push_back(record);
-            Value out = Value::object().set("index", Value::number(static_cast<uint64_t>(s.records.size() - 1)))
-                                       .set("address", Value::string(record.entry.addressString))
-                                       .set("value", Value::string(s.readValue(*address, *type)));
-            if (!record.expression.empty()) out.set("follows_pointer", Value::boolean(true));
-            return ok(out);
-        }
-
-        if (name == "list_records") {
-            Value list = Value::array();
-            for (size_t i = 0; i < s.records.size(); ++i) {
-                auto& r = s.records[i];
-                if (!r.entry.autoAsmScript.empty()) {
-                    list.push(Value::object().set("index", Value::number(static_cast<uint64_t>(i)))
-                                             .set("description", Value::string(r.entry.description))
-                                             .set("kind", Value::string("script")));
-                    continue;
-                }
-                const bool resolved = s.refresh(r);
-                Value item = Value::object().set("index", Value::number(static_cast<uint64_t>(i)))
-                    .set("description", Value::string(r.entry.description))
-                    .set("address", Value::string(r.entry.addressString))
-                    .set("type", Value::string(valueTypeName(r.entry.type)))
-                    .set("value", Value::string(resolved ? s.readValue(r.entry.address, r.entry.type) : "?"))
-                    .set("frozen", Value::boolean(r.frozen));
-                if (!r.expression.empty()) item.set("points_to", Value::string(resolved ? hex(r.entry.address) : "unresolved"));
-                if (r.frozen) item.set("frozen_value", Value::string(r.frozenValue));
-                list.push(std::move(item));
-            }
-            return ok(Value::object().set("records", list));
-        }
-
-        if (name == "set_frozen") {
-            auto index = args.getInt("index");
-            auto frozen = args.getBool("frozen");
-            if (!index || *index < 0 || static_cast<size_t>(*index) >= s.records.size())
-                return fail("index must be a record index from list_records");
-            if (!frozen) return fail("frozen must be true or false");
-            auto& r = s.records[static_cast<size_t>(*index)];
-            if (!r.entry.autoAsmScript.empty()) return fail("that record is a script; use aa_enable and aa_disable");
-            // Unfreezing writes nothing, so it works even when the path leads nowhere.
-            const bool resolved = s.refresh(r);
-            if (*frozen && !resolved) return fail("the record's pointer path does not lead anywhere right now");
-            if (*frozen) {
-                if (!s.options.allowWrites)
-                    return fail("freezing writes to the game; the user must start the server with --allow-writes");
-                std::string value = argString(args, "value");
-                if (value.empty()) value = s.readValue(r.entry.address, r.entry.type);
-                if (value == "?") return fail("cannot read the current value to freeze");
-                auto written = writeTypedValue(*s.process, r.entry.address, r.entry.type, value,
-                                               s.ioOptions(r.entry.address, r.entry.type, value.size()));
-                if (!written) return fail("write failed: " + written.error());
-                r.frozenValue = value;
-            }
-            r.frozen = *frozen;
-            return ok(Value::object().set("index", Value::number(*index)).set("frozen", Value::boolean(r.frozen))
-                                     .set("value", Value::string(resolved ? s.readValue(r.entry.address, r.entry.type) : "?")));
-        }
-
-        if (name == "save_table") {
-            const std::string path = argString(args, "path");
-            // The file opened stops at a NUL, so "x.bashrc\u0000.json" would pass
-            // the extension check and replace another file.
-            if (path.find('\0') != std::string::npos) return fail("path must not contain a NUL character");
-            std::string extension = std::filesystem::path(path).extension().string();
-            std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) { return std::tolower(c); });
-            if (extension != ".ct" && extension != ".json") return fail("path must end in .CT or .json");
-            if (s.records.empty()) return fail("the table is empty; add_record first");
-            if (std::filesystem::exists(path) && !args.getBool("overwrite").value_or(false))
-                return fail("file exists; pass overwrite true to replace it");
-            CheatTable table;
-            table.gameName = s.processName;
-            table.comment = "Created with Cheat Engine for Linux by an AI agent.";
-            table.entries = s.entries();
-            const bool saved = extension == ".ct" ? table.save(path) : table.saveJson(path);
-            if (!saved) return fail("could not write " + path);
-            return ok(Value::object().set("saved", Value::string(std::filesystem::absolute(path).string()))
-                                     .set("records", Value::number(static_cast<uint64_t>(s.records.size()))));
-        }
+        for (auto group : {&AgentSession::callMemoryTool, &AgentSession::callDebugTool, &AgentSession::callPointerTool,
+                           &AgentSession::callScriptTool, &AgentSession::callRecordTool})
+            if (auto result = (this->*group)(call)) return *result;
     } catch (const std::exception& error) {
         return fail(std::string(name) + " failed: " + error.what());
     }
     return fail("unknown tool '" + name + "'");
 }
+
+// list_processes and attach: no process needed.
+std::optional<AgentToolResult> AgentSession::callProcessTool(Call& call) {
+    State& s = call.s;
+    const std::string& name = call.name;
+    const json::Value& args = call.args;
+    if (name == "list_processes") {
+        std::string filter = argString(args, "filter");
+        std::transform(filter.begin(), filter.end(), filter.begin(), [](unsigned char c) { return std::tolower(c); });
+        struct Row { pid_t pid; std::string name; uint64_t rss; };
+        std::vector<Row> rows;
+        const uid_t me = geteuid();
+        for (const auto& p : os::LinuxProcessEnumerator().list()) {
+            struct stat st{};
+            if (::stat(("/proc/" + std::to_string(p.pid)).c_str(), &st) != 0 || st.st_uid != me) continue;
+            if (p.pid == getpid()) continue;
+            std::string lower = p.name;
+            std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
+            if (!filter.empty() && lower.find(filter) == std::string::npos) continue;
+            const uint64_t rss = residentBytes(p.pid);
+            if (rss == 0) continue;
+            rows.push_back({p.pid, p.name, rss});
+        }
+        std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.rss > b.rss; });
+        Value list = Value::array();
+        for (size_t i = 0; i < rows.size() && i < 30; ++i)
+            list.push(Value::object().set("pid", Value::number(static_cast<int64_t>(rows[i].pid)))
+                          .set("name", Value::string(rows[i].name))
+                          .set("memory_mb", Value::number(static_cast<uint64_t>(rows[i].rss >> 20))));
+        return ok(Value::object().set("processes", list).set("shown", Value::number(static_cast<uint64_t>(list.arrayValue.size())))
+                                 .set("total", Value::number(static_cast<uint64_t>(rows.size()))));
+    }
+
+    if (name == "attach") {
+        const std::string target = argString(args, "target");
+        if (target.empty()) return fail("target is required");
+        pid_t pid = 0;
+        if (std::all_of(target.begin(), target.end(), [](unsigned char c) { return std::isdigit(c); })) {
+            if (target.size() > 10 || std::stoll(target) > std::numeric_limits<pid_t>::max())
+                return fail("process " + target + " is not running");
+            pid = static_cast<pid_t>(std::stoll(target));
+        } else {
+            std::vector<ProcessInfo> matches;
+            for (const auto& p : os::LinuxProcessEnumerator().list())
+                if (p.name == target || std::filesystem::path(p.path).filename() == target) matches.push_back(p);
+            if (matches.empty()) return fail("no process named '" + target + "'; use list_processes");
+            if (matches.size() > 1) {
+                std::string pids;
+                for (const auto& p : matches) pids += (pids.empty() ? "" : ", ") + std::to_string(p.pid);
+                return fail("several processes are named '" + target + "' (PIDs " + pids + "); attach by PID");
+            }
+            pid = matches.front().pid;
+        }
+        if (pid <= 0 || ::kill(pid, 0) != 0) return fail("process " + std::to_string(pid) + " is not running");
+        auto process = std::make_unique<os::LinuxProcessHandle>(pid);
+        if (auto problem = memoryAccessProblem(*process)) return fail("cannot read this process: " + *problem);
+        const bool sameProcess = s.pid == pid;
+        std::vector<std::string> stuck;   // scripts left in the previous target
+        if (s.process) stuck = s.disableAll();   // never leave a previous target patched
+        s.process = std::move(process);
+        s.pid = pid;
+        s.modules = s.process->modules();
+        s.symbols.reset();
+        s.result.reset();
+        s.undo.reset();
+        if (!sameProcess) { s.records.clear(); s.paths.clear(); }
+        std::string procName;
+        for (const auto& p : os::LinuxProcessEnumerator().list()) if (p.pid == pid) procName = p.name;
+        s.processName = procName.empty() ? std::to_string(pid) : procName;
+        Value attached = Value::object().set("attached", Value::string(s.processName))
+                                        .set("pid", Value::number(static_cast<int64_t>(pid)))
+                                        .set("kind", Value::string(probeTarget(pid).summary()));
+        if (!stuck.empty()) {
+            std::string list;
+            for (const auto& failure : stuck) list += (list.empty() ? "" : "; ") + failure;
+            attached.set("warning", Value::string("scripts still enabled in the previous process: " + list));
+        }
+        return ok(attached);
+    }
+
+    return std::nullopt;
+}
+
+// Target information, scans, their results, reading, writing and disassembly.
+std::optional<AgentToolResult> AgentSession::callMemoryTool(Call& call) {
+    State& s = call.s;
+    const std::string& name = call.name;
+    const json::Value& args = call.args;
+    auto needAddress = [&] { return call.needAddress(); };
+    auto needType = [&] { return call.needType(); };
+    auto unlocked = [&](auto&& work) { return call.unlocked(std::forward<decltype(work)>(work)); };
+    if (name == "target_info") {
+        const auto description = s.process->targetDescription();
+        Value out = Value::object().set("name", Value::string(s.processName))
+            .set("pid", Value::number(static_cast<int64_t>(s.pid)))
+            .set("kind", Value::string(probeTarget(s.pid).summary()))
+            .set("architecture", Value::string(cpuArchitectureName(description.program.architecture)))
+            .set("pointer_bytes", Value::number(static_cast<int64_t>(description.program.pointerWidth)))
+            .set("modules", Value::number(static_cast<uint64_t>(s.modules.size())));
+        if (!s.modules.empty())
+            out.set("main_module", Value::string(s.modules.front().name + " at " + hex(s.modules.front().base)));
+        return ok(out);
+    }
+
+    if (name == "first_scan" || name == "next_scan") {
+        const bool first = name == "first_scan";
+        if (!first && !s.result) return fail("no scan yet; call first_scan");
+        ValueType type = s.scanType;
+        if (first) {
+            auto parsed = parseValueType(argString(args, "type"));
+            if (!parsed || std::find(kTypes.begin(), kTypes.end(), argString(args, "type")) == kTypes.end())
+                return fail("type must be one of byte, i16, i32, i64, float, double, string, aob");
+            type = *parsed;
+        }
+        const std::string compareText = argString(args, "compare").empty() ? "exact" : argString(args, "compare");
+        auto compare = parseCompare(compareText);
+        if (!compare) return fail("unknown compare '" + compareText + "'");
+        const bool firstOnly = *compare == ScanCompare::Unknown;
+        const bool nextOnly = comparisonNeedsPrevious(*compare);
+        if (first && nextOnly) return fail("compare " + compareText + " needs an earlier scan; use next_scan");
+        if (!first && firstOnly) return fail("compare unknown starts a scan; use first_scan");
+        // The scanner compares text and byte patterns only for equality: other
+        // compares would be ignored (first scan) or drop every result.
+        if (type == ValueType::String || type == ValueType::ByteArray) {
+            const bool supported = *compare == ScanCompare::Exact ||
+                (!first && (*compare == ScanCompare::Changed || *compare == ScanCompare::Unchanged ||
+                            *compare == ScanCompare::SameAsFirst));
+            if (!supported)
+                return fail(first ? "string and aob scans start with compare exact"
+                                  : "string and aob scans support exact, changed, unchanged and same_as_first");
+        }
+        ScanConfig config;
+        config.valueType = type;
+        config.compareType = *compare;
+        config.alignment = alignmentFor(type);
+        config.writableMatch = ProtMatch::Yes;
+        const std::string value = argString(args, "value");
+        if (comparisonTakesValue(*compare)) {
+            if (value.empty()) return fail("compare " + compareText + " needs a value");
+            if (auto error = setScanValue(config, value, argString(args, "value2"))) return fail(*error);
+        }
+        if ((type == ValueType::String || type == ValueType::ByteArray) && !comparisonTakesValue(*compare))
+            return fail("string and aob scans need an exact value");
+        if (first) {
+            if (auto problem = memoryAccessProblem(*s.process)) return fail("cannot read this process: " + *problem);
+            auto scanned = std::make_unique<ScanResult>(unlocked([&] { return s.scanner.firstScan(*s.process, config); }));
+            if (scanned->hasWriteError()) return fail("the scan results could not be stored: " + scanned->writeErrorReason());
+            s.undo.reset();
+            s.result = std::move(scanned);
+            s.scanType = type;
+            s.scanValueSize = type == ValueType::String ? value.size() : std::max<size_t>(1, s.result->valueSize());
+        } else {
+            auto narrowed = std::make_unique<ScanResult>(
+                unlocked([&] { return s.scanner.nextScan(*s.process, config, *s.result); }));
+            if (narrowed->hasWriteError()) return fail("the scan results could not be stored: " + narrowed->writeErrorReason());
+            s.undo = std::move(s.result);
+            s.result = std::move(narrowed);
+        }
+        const size_t count = s.result->count();
+        const char* hint = count == 0 ? "Nothing matched. Check the type (float vs i32) or undo_scan."
+                         : count == 1 ? "One candidate: confirm it with read or a test write, then add_record."
+                         : count <= 10 ? "Few candidates: confirm one by changing the value in the game and reading them."
+                                       : "Ask the user to change the value in the game, then call next_scan.";
+        return ok(s.scanSummary(hint));
+    }
+
+    if (name == "undo_scan") {
+        if (!s.undo) return fail("nothing to undo");
+        s.result = std::move(s.undo);
+        return ok(s.scanSummary(nullptr));
+    }
+
+    if (name == "scan_results") {
+        if (!s.result) return fail("no scan yet; call first_scan");
+        const int64_t offset = std::max<int64_t>(0, args.getInt("offset").value_or(0));
+        const int64_t limit = std::clamp<int64_t>(args.getInt("limit").value_or(20), 1, kMaxCandidates);
+        return ok(Value::object().set("count", Value::number(static_cast<uint64_t>(s.result->count())))
+                                 .set("offset", Value::number(offset))
+                                 .set("candidates", s.candidates(static_cast<size_t>(offset), static_cast<size_t>(limit))));
+    }
+
+
+    if (name == "read") {
+        auto address = needAddress();
+        if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
+        auto type = needType();
+        if (!type) return fail("type must be one of byte, i16, i32, i64, float, double, string, aob");
+        const size_t size = static_cast<size_t>(std::clamp<int64_t>(args.getInt("size").value_or(32), 1, kMaxReadBytes));
+        auto value = readTypedValue(*s.process, *address, *type, s.ioOptions(*address, *type, size));
+        if (!value) return fail("read failed: " + value.error());
+        Value out = Value::object().set("address", Value::string(hex(*address)));
+        if (auto where = s.location(*address); !where.empty()) out.set("location", Value::string(where));
+        return ok(out.set("value", Value::string(*value)));
+    }
+
+    if (name == "write") {
+        if (!s.options.allowWrites)
+            return fail("writes are disabled; the user must start the server with --allow-writes");
+        auto address = needAddress();
+        if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
+        auto type = needType();
+        if (!type) return fail("type must be one of byte, i16, i32, i64, float, double, string, aob");
+        const std::string value = argString(args, "value");
+        if (value.empty()) return fail("value is required");
+        auto written = writeTypedValue(*s.process, *address, *type, value, s.ioOptions(*address, *type, value.size()));
+        if (!written) return fail("write failed: " + written.error());
+        return ok(Value::object().set("address", Value::string(hex(*address)))
+                                 .set("bytes", Value::number(static_cast<uint64_t>(*written)))
+                                 .set("value_now", Value::string(s.readValue(*address, *type, value.size()))));
+    }
+
+    if (name == "disassemble") {
+        auto address = needAddress();
+        if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
+        const size_t count = static_cast<size_t>(std::clamp<int64_t>(args.getInt("count").value_or(12), 1, kMaxInstructions));
+        auto arch = disassemblerArchFor(*s.process, *address);
+        if (!arch) return fail(arch.error());
+        std::vector<uint8_t> code(count * 15);
+        auto got = s.process->read(*address, code.data(), code.size());
+        if (!got || *got == 0) return fail("cannot read code at " + hex(*address));
+        Disassembler disassembler(*arch);
+        Value lines = Value::array();
+        for (const auto& instruction : disassembler.disassemble(*address, {code.data(), *got}, count)) {
+            Value line = Value::object().set("address", Value::string(hex(instruction.address)));
+            std::string where = s.resolver().resolve(instruction.address);
+            if (where.empty()) where = s.location(instruction.address);
+            if (!where.empty()) line.set("location", Value::string(where));
+            lines.push(line.set("text", Value::string(instruction.toString())));
+        }
+        return ok(Value::object().set("instructions", lines));
+    }
+
+
+    return std::nullopt;
+}
+
+// Find what writes or accesses an address, and comparing structures.
+std::optional<AgentToolResult> AgentSession::callDebugTool(Call& call) {
+    std::unique_lock<std::mutex>& lock = call.lock;
+    State& s = call.s;
+    const std::string& name = call.name;
+    const json::Value& args = call.args;
+    auto needAddress = [&] { return call.needAddress(); };
+    if (name == "find_what_writes") {
+        auto address = needAddress();
+        if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
+        const int seconds = static_cast<int>(std::clamp<int64_t>(args.getInt("seconds").value_or(8), 1, kMaxWatchSeconds));
+        const int size = static_cast<int>(args.getInt("size").value_or(4));
+        if (size != 1 && size != 2 && size != 4 && size != 8) return fail("size must be 1, 2, 4 or 8");
+        const bool writesOnly = !args.getBool("accesses").value_or(false);
+        // Wine/Proton: watch the main thread only with a hardware register; stopping
+        // the whole thread group or the software page guard would freeze the game.
+        const bool wine = probeTarget(s.pid).wine;
+        os::LinuxDebugger debugger;
+        CodeFinder finder;
+        if (!finder.start(*s.process, debugger, *address, writesOnly, size, /*software=*/false, /*singleThread=*/wine))
+            return fail("could not watch the address: " +
+                        targetOperationError(*s.process, TargetFeature::HardwareWatchpoint, finder.lastError()));
+        // Let the freezer keep writing while the watch runs. Calls come one at
+        // a time (MCP, the panel's worker), so nothing else uses the session.
+        lock.unlock();
+        // In short steps: a shutdown or a monitor that ended (an error, the
+        // target exited) must not wait out the full time.
+        const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+        while (std::chrono::steady_clock::now() < until && finder.running() &&
+               !(s.options.stopRequested && s.options.stopRequested()))
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        lock.lock();
+        finder.stop();
+        if (auto error = finder.lastError(); error && finder.results().empty())
+            return fail("watching ended early: " + error.message());
+        Value list = Value::array();
+        bool pointerHint = false;
+        for (const auto& hit : finder.results()) {
+            // CodeFinder already recovered the store a hardware trap stopped
+            // after, decoding with the hit's own architecture.
+            const uintptr_t at = hit.instructionAddress;
+            const std::string& text = hit.instructionText;
+            Value item = Value::object().set("address", Value::string(hex(at)));
+            std::string where = s.resolver().resolve(at);
+            if (where.empty()) where = s.location(at);
+            if (!where.empty()) item.set("location", Value::string(where));
+            item.set("instruction", Value::string(text)).set("hits", Value::number(static_cast<uint64_t>(hit.hitCount)));
+            // [reg+offset]: the pointer the game followed is the address minus the
+            // offset, whatever the register holds after the instruction ran.
+            if (auto memory = s.memoryOperand(at); memory && !memory->ripRelative && memory->indexReg.empty() && !memory->baseReg.empty()) {
+                item.set("pointer", Value::string(hex(*address - static_cast<uintptr_t>(memory->disp))));
+                item.set("offset", Value::string(memory->disp < 0 ? "-" + hex(static_cast<uint64_t>(-memory->disp)) : hex(static_cast<uint64_t>(memory->disp))));
+                pointerHint = true;
+            }
+            list.push(std::move(item));
+            if (list.arrayValue.size() >= 10) break;
+        }
+        Value out = Value::object().set("watched_seconds", Value::number(seconds)).set("instructions", list);
+        if (list.arrayValue.empty())
+            out.set("next", Value::string(std::string("Nothing ") + (writesOnly ? "wrote" : "touched") +
+                " the address. Ask the user to make the value change, then watch again." +
+                (wine ? " (Wine: only the main thread is watched.)" : "")));
+        else
+            out.set("next", Value::string(std::string("Pass the instruction address to aa_template to build an injection.") +
+                (pointerHint ? " The value sits at pointer+offset: if the game moves it, pointer_scan it, or first_scan "
+                               "type i64 for the pointer value to find where that pointer is kept." : "")));
+        return ok(out);
+    }
+
+    if (name == "find_accessed_addresses") {
+        if (!s.options.allowWrites)
+            return fail("watching an instruction puts a breakpoint into the game's code; the user must start the "
+                        "server with --allow-writes");
+        auto address = needAddress();
+        if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
+        const int seconds = static_cast<int>(std::clamp<int64_t>(args.getInt("seconds").value_or(4), 1, kMaxWatchSeconds));
+        if (!s.memoryOperand(*address)) return fail("the instruction at " + hex(*address) + " does not access memory");
+        lock.unlock();   // as in find_what_writes: frozen values stay frozen meanwhile
+        auto stop = s.options.stopRequested;
+        std::string watchError;
+        auto accesses = findInstructionAccesses(*s.process, *address, 4096, seconds * 1000,
+                                                [stop] { return stop && stop(); }, &watchError);
+        lock.lock();
+        if (!watchError.empty()) return fail("could not watch the instruction: " + watchError);
+        Value list = Value::array();
+        for (const auto& access : accesses) {
+            Value item = Value::object().set("address", Value::string(hex(access.address)))
+                                        .set("hits", Value::number(static_cast<int64_t>(access.hitCount)));
+            if (auto where = s.location(access.address); !where.empty()) item.set("location", Value::string(where));
+            list.push(std::move(item));
+            if (list.arrayValue.size() >= 32) break;
+        }
+        Value out = Value::object().set("watched_seconds", Value::number(seconds)).set("addresses", list);
+        out.set("next", Value::string(list.arrayValue.empty()
+            ? "The instruction did not run. Ask the user to play so it runs, then watch again."
+            : "Several addresses mean shared code. The structure starts at address minus the instruction's offset; "
+              "compare_structures with the player's and the enemies' structures to find what tells them apart."));
+        return ok(out);
+    }
+
+    if (name == "compare_structures") {
+        auto collect = [&](const char* key, std::vector<uintptr_t>& out) -> std::optional<std::string> {
+            const Value* list = args.get(key);
+            if (!list) return std::nullopt;
+            if (!list->isArray()) return std::string(key) + " must be a list of addresses";
+            for (const auto& item : list->arrayValue) {
+                std::string text = addressText(item);
+                auto resolved = text.empty() ? std::nullopt : s.address(text);
+                if (!resolved) return "cannot resolve address '" + text + "' in " + key;
+                out.push_back(*resolved);
+            }
+            return std::nullopt;
+        };
+        std::vector<uintptr_t> group1, group2;
+        if (auto error = collect("group1", group1)) return fail(*error);
+        if (auto error = collect("group2", group2)) return fail(*error);
+        if (group1.empty()) return fail("group1 needs at least one address");
+        if (group1.size() + group2.size() > 8) return fail("compare at most 8 structures at a time");
+        const size_t size = static_cast<size_t>(std::clamp<int64_t>(args.getInt("size").value_or(64), 4, kMaxStructureBytes)) & ~size_t{3};
+        std::vector<uintptr_t> all = group1;
+        all.insert(all.end(), group2.begin(), group2.end());
+        std::vector<std::vector<uint8_t>> snapshots;
+        for (uintptr_t base : all) {
+            std::vector<uint8_t> bytes(size + 8, 0);
+            auto got = s.process->read(base, bytes.data(), bytes.size());
+            if (!got || *got < size) return fail("cannot read " + std::to_string(size) + " bytes at " + hex(base));
+            snapshots.push_back(std::move(bytes));
+        }
+        Value fields = Value::array();
+        Value discriminators = Value::array();
+        const size_t pointerWidth = s.process->pointerWidth() == 4 ? 4 : 8;
+        const bool bigEndian = s.process->byteOrder() == ByteOrder::Big;
+        for (size_t offset = 0; offset < size; offset += 4) {
+            // The first structure decides the type; an 8-byte pointer covers two fields.
+            const std::string type = guessFieldType(snapshots[0].data() + offset, size + 8 - offset,
+                                                    offset % pointerWidth == 0, *s.process, pointerWidth, bigEndian);
+            const size_t width = type == "pointer" ? pointerWidth : 4;
+            Value values = Value::array();
+            std::vector<std::vector<uint8_t>> raw;
+            for (const auto& snapshot : snapshots) {
+                values.push(Value::string(formatField(type, snapshot.data() + offset, size + 8 - offset, pointerWidth, bigEndian)));
+                raw.emplace_back(snapshot.begin() + offset, snapshot.begin() + offset + width);
+            }
+            Value field = Value::object().set("offset", Value::string(hex(offset))).set("type", Value::string(type))
+                                         .set("values", values);
+            bool differs = false;
+            if (!group2.empty()) {
+                auto same = [&](size_t from, size_t to) {
+                    for (size_t i = from + 1; i < to; ++i) if (raw[i] != raw[from]) return false;
+                    return true;
+                };
+                differs = same(0, group1.size()) && same(group1.size(), raw.size()) && raw[0] != raw[group1.size()];
+                if (differs) {
+                    field.set("differs_between_groups", Value::boolean(true));
+                    discriminators.push(Value::string(hex(offset)));
+                }
+            }
+            fields.push(std::move(field));
+            if (width == 8) offset += 4;
+        }
+        Value out = Value::object().set("structures", Value::number(static_cast<uint64_t>(all.size())))
+                                   .set("fields", fields);
+        if (!group2.empty()) out.set("differs_between_groups", discriminators);
+        return ok(out);
+    }
+
+    return std::nullopt;
+}
+
+// Pointer scans and rescans.
+std::optional<AgentToolResult> AgentSession::callPointerTool(Call& call) {
+    State& s = call.s;
+    const std::string& name = call.name;
+    const json::Value& args = call.args;
+    auto needAddress = [&] { return call.needAddress(); };
+    auto unlocked = [&](auto&& work) { return call.unlocked(std::forward<decltype(work)>(work)); };
+    if (name == "pointer_scan") {
+        auto address = needAddress();
+        if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
+        PointerScanConfig config;
+        config.targetAddress = *address;
+        config.maxDepth = static_cast<int>(std::clamp<int64_t>(args.getInt("max_depth").value_or(4), 1, 6));
+        config.maxOffset = static_cast<int>(std::clamp<int64_t>(args.getInt("max_offset").value_or(1024), 8, 1 << 20));
+        PointerScanner scanner;
+        s.paths = unlocked([&] { return scanner.scan(*s.process, config); });
+        sortPointerPaths(s.paths, PointerSortKey::Depth);
+        Value out = Value::object().set("count", Value::number(static_cast<uint64_t>(s.paths.size())))
+                                   .set("paths", s.pathList(kMaxPaths));
+        switch (scanner.limitReached()) {
+            case PointerScanLimit::Results:
+                out.set("truncated", Value::string("stopped at " + std::to_string(config.maxResults) +
+                                                   " paths, so longer ones may be missing; a smaller max_offset finds them"));
+                break;
+            case PointerScanLimit::Work:
+                out.set("truncated", Value::string("stopped at the work limit, so longer paths may be missing; "
+                                                   "a smaller max_offset or max_depth finds them"));
+                break;
+            case PointerScanLimit::MapEntries:
+                out.set("truncated", Value::string("memory held more pointer-like values than the scan keeps, "
+                                                   "so some paths may be missing"));
+                break;
+            case PointerScanLimit::None:
+                break;
+        }
+        if (scanner.mapTruncated() && scanner.limitReached() != PointerScanLimit::MapEntries)
+            out.set("map_truncated", Value::string("memory also held more pointer-like values than the scan keeps"));
+        out.set("next", Value::string(s.paths.empty()
+            ? "No path found. Try a larger max_depth or max_offset."
+            : "Ask the user to make the value move (restart the level, or whatever reallocates it), find it again, "
+              "then pointer_rescan with its new address. add_record accepts a path directly."));
+        return ok(out);
+    }
+
+    if (name == "pointer_rescan") {
+        if (s.paths.empty()) return fail("no pointer paths; call pointer_scan first");
+        auto address = needAddress();
+        if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
+        const size_t before = s.paths.size();
+        s.paths = unlocked([&] { return rescanPointerPaths(*s.process, s.paths, *address); });
+        return ok(Value::object().set("before", Value::number(static_cast<uint64_t>(before)))
+                                 .set("count", Value::number(static_cast<uint64_t>(s.paths.size())))
+                                 .set("paths", s.pathList(kMaxPaths)));
+    }
+
+    return std::nullopt;
+}
+
+// Auto Assembler templates and scripts.
+std::optional<AgentToolResult> AgentSession::callScriptTool(Call& call) {
+    State& s = call.s;
+    const std::string& name = call.name;
+    const json::Value& args = call.args;
+    auto needAddress = [&] { return call.needAddress(); };
+    auto needScript = [&] { return call.needScript(); };
+    if (name == "aa_template") {
+        auto address = needAddress();
+        if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
+        const std::string kind = argString(args, "kind").empty() ? "code" : argString(args, "kind");
+        if (kind != "code" && kind != "aob") return fail("kind must be code or aob");
+        std::string error;
+        std::string script = generateInjectionScript(*s.process, *address,
+            kind == "aob" ? InjectionKind::Aob : InjectionKind::Code, error);
+        if (script.empty()) return fail("cannot build an injection here: " + error);
+        return ok(Value::object().set("script", Value::string(script))
+            .set("next", Value::string("Edit the code under newmem (keep the relocated original instructions unless "
+                                       "you mean to skip them), then aa_check and aa_enable.")));
+    }
+
+
+    if (name == "aa_check") {
+        auto script = needScript();
+        if (!script) return fail("script is required (at most 64 KiB)");
+        if (auto checked = s.dryRun(*script); !checked.ok) return fail(checked.error);
+        else return ok(Value::object().set("ok", Value::boolean(true))
+                                      .set("would_patch_bytes", Value::number(static_cast<uint64_t>(checked.patchedBytes)))
+                                      .set("would_allocate", Value::number(static_cast<uint64_t>(checked.allocations))));
+    }
+
+    if (name == "aa_enable") {
+        if (!s.options.allowWrites)
+            return fail("enabling a script patches the game; the user must start the server with --allow-writes");
+        auto script = needScript();
+        if (!script) return fail("script is required (at most 64 KiB)");
+        const std::string description = argString(args, "description");
+        if (description.empty()) return fail("description is required");
+        if (auto checked = s.dryRun(*script); !checked.ok) return fail(checked.error);
+        auto result = s.assembler.execute(*s.process, *script);
+        if (!result.success) return fail("enable failed: " + result.error);
+        Value patches = Value::array();
+        for (const auto& original : result.disableInfo.originals) {
+            Value patch = Value::object().set("address", Value::string(hex(original.address)))
+                                         .set("bytes", Value::number(static_cast<uint64_t>(original.bytes.size())));
+            if (auto where = s.location(original.address); !where.empty()) patch.set("location", Value::string(where));
+            patches.push(std::move(patch));
+        }
+        Value allocations = Value::array();
+        for (const auto& allocation : result.disableInfo.allocs)
+            allocations.push(Value::object().set("name", Value::string(allocation.name))
+                                            .set("address", Value::string(hex(allocation.address)))
+                                            .set("size", Value::number(static_cast<uint64_t>(allocation.size))));
+        State::ActiveScript active{s.nextScriptId++, description, *script, std::move(result.disableInfo)};
+        const int id = active.id;
+        s.scripts.push_back(std::move(active));
+        return ok(Value::object().set("id", Value::number(id)).set("patched", patches).set("allocated", allocations)
+            .set("next", Value::string("Ask the user whether it works in the game. aa_disable undoes it; add_record "
+                                       "with the script saves it to the table.")));
+    }
+
+    if (name == "aa_disable") {
+        // Restoring the code and freeing the cave is a write to the game too.
+        if (!s.options.allowWrites)
+            return fail("disabling a script patches the game; the user must start the server with --allow-writes");
+        auto id = args.getInt("id");
+        auto it = std::find_if(s.scripts.begin(), s.scripts.end(), [&](const auto& a) { return id && a.id == *id; });
+        if (it == s.scripts.end()) return fail("no enabled script with that id; see aa_list");
+        auto result = s.assembler.disable(*s.process, it->script, it->disable);
+        if (!result.success) return fail("disable failed: " + result.error);
+        s.scripts.erase(it);
+        return ok(Value::object().set("disabled", Value::number(*id)));
+    }
+
+    if (name == "aa_list") {
+        Value list = Value::array();
+        for (const auto& a : s.scripts)
+            list.push(Value::object().set("id", Value::number(a.id)).set("description", Value::string(a.description)));
+        return ok(Value::object().set("enabled", list));
+    }
+
+    return std::nullopt;
+}
+
+// The records of the cheat table, freezing, and saving the table.
+std::optional<AgentToolResult> AgentSession::callRecordTool(Call& call) {
+    State& s = call.s;
+    const std::string& name = call.name;
+    const json::Value& args = call.args;
+    auto needAddress = [&] { return call.needAddress(); };
+    auto needType = [&] { return call.needType(); };
+    auto needScript = [&] { return call.needScript(); };
+    if (name == "add_record" && !argString(args, "script").empty()) {
+        auto script = needScript();
+        if (!script) return fail("script must be at most 64 KiB");
+        const std::string description = argString(args, "description");
+        if (description.empty()) return fail("description is required");
+        // An enabled script already passed its dry run, and its assert() would
+        // now see the patched code; check only its structure.
+        const bool enabled = std::any_of(s.scripts.begin(), s.scripts.end(), [&](const auto& a) { return a.script == *script; });
+        if (enabled) {
+            if (auto checked = s.assembler.check(*script); !checked.success) return fail("script error: " + checked.error);
+        } else if (auto checked = s.dryRun(*script); !checked.ok) {
+            return fail(checked.error);
+        }
+        State::Record record;
+        record.entry.id = static_cast<int>(s.records.size()) + 1;
+        record.entry.description = description;
+        record.entry.autoAsmScript = *script;
+        s.records.push_back(record);
+        return ok(Value::object().set("index", Value::number(static_cast<uint64_t>(s.records.size() - 1)))
+                                 .set("kind", Value::string("script")));
+    }
+
+    if (name == "add_record") {
+        auto address = needAddress();
+        if (!address) return fail("cannot resolve address '" + argString(args, "address") + "'");
+        auto type = needType();
+        if (!type) return fail("type must be one of byte, i16, i32, i64, float, double, string, aob");
+        const std::string description = argString(args, "description");
+        if (description.empty()) return fail("description is required");
+        State::Record record;
+        record.entry.id = static_cast<int>(s.records.size()) + 1;
+        record.entry.description = description;
+        record.entry.address = *address;
+        record.entry.type = *type;
+        const std::string text = argString(args, "address");
+        if (text.find('[') != std::string::npos) {
+            record.expression = text;   // a pointer path: follow it on every use
+            record.entry.addressString = text;
+        } else {
+            // Module-relative addresses keep working after the game restarts (ASLR).
+            const std::string where = s.location(*address);
+            record.entry.addressString = where.empty() ? hex(*address) : where;
+        }
+        if (*type == ValueType::String || *type == ValueType::ByteArray) record.entry.length = 32;
+        s.records.push_back(record);
+        Value out = Value::object().set("index", Value::number(static_cast<uint64_t>(s.records.size() - 1)))
+                                   .set("address", Value::string(record.entry.addressString))
+                                   .set("value", Value::string(s.readValue(*address, *type)));
+        if (!record.expression.empty()) out.set("follows_pointer", Value::boolean(true));
+        return ok(out);
+    }
+
+    if (name == "list_records") {
+        Value list = Value::array();
+        for (size_t i = 0; i < s.records.size(); ++i) {
+            auto& r = s.records[i];
+            if (!r.entry.autoAsmScript.empty()) {
+                list.push(Value::object().set("index", Value::number(static_cast<uint64_t>(i)))
+                                         .set("description", Value::string(r.entry.description))
+                                         .set("kind", Value::string("script")));
+                continue;
+            }
+            const bool resolved = s.refresh(r);
+            Value item = Value::object().set("index", Value::number(static_cast<uint64_t>(i)))
+                .set("description", Value::string(r.entry.description))
+                .set("address", Value::string(r.entry.addressString))
+                .set("type", Value::string(valueTypeName(r.entry.type)))
+                .set("value", Value::string(resolved ? s.readValue(r.entry.address, r.entry.type) : "?"))
+                .set("frozen", Value::boolean(r.frozen));
+            if (!r.expression.empty()) item.set("points_to", Value::string(resolved ? hex(r.entry.address) : "unresolved"));
+            if (r.frozen) item.set("frozen_value", Value::string(r.frozenValue));
+            list.push(std::move(item));
+        }
+        return ok(Value::object().set("records", list));
+    }
+
+    if (name == "set_frozen") {
+        auto index = args.getInt("index");
+        auto frozen = args.getBool("frozen");
+        if (!index || *index < 0 || static_cast<size_t>(*index) >= s.records.size())
+            return fail("index must be a record index from list_records");
+        if (!frozen) return fail("frozen must be true or false");
+        auto& r = s.records[static_cast<size_t>(*index)];
+        if (!r.entry.autoAsmScript.empty()) return fail("that record is a script; use aa_enable and aa_disable");
+        // Unfreezing writes nothing, so it works even when the path leads nowhere.
+        const bool resolved = s.refresh(r);
+        if (*frozen && !resolved) return fail("the record's pointer path does not lead anywhere right now");
+        if (*frozen) {
+            if (!s.options.allowWrites)
+                return fail("freezing writes to the game; the user must start the server with --allow-writes");
+            std::string value = argString(args, "value");
+            if (value.empty()) value = s.readValue(r.entry.address, r.entry.type);
+            if (value == "?") return fail("cannot read the current value to freeze");
+            auto written = writeTypedValue(*s.process, r.entry.address, r.entry.type, value,
+                                           s.ioOptions(r.entry.address, r.entry.type, value.size()));
+            if (!written) return fail("write failed: " + written.error());
+            r.frozenValue = value;
+        }
+        r.frozen = *frozen;
+        return ok(Value::object().set("index", Value::number(*index)).set("frozen", Value::boolean(r.frozen))
+                                 .set("value", Value::string(resolved ? s.readValue(r.entry.address, r.entry.type) : "?")));
+    }
+
+    if (name == "save_table") {
+        const std::string path = argString(args, "path");
+        // The file opened stops at a NUL, so "x.bashrc\u0000.json" would pass
+        // the extension check and replace another file.
+        if (path.find('\0') != std::string::npos) return fail("path must not contain a NUL character");
+        std::string extension = std::filesystem::path(path).extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) { return std::tolower(c); });
+        if (extension != ".ct" && extension != ".json") return fail("path must end in .CT or .json");
+        if (s.records.empty()) return fail("the table is empty; add_record first");
+        if (std::filesystem::exists(path) && !args.getBool("overwrite").value_or(false))
+            return fail("file exists; pass overwrite true to replace it");
+        CheatTable table;
+        table.gameName = s.processName;
+        table.comment = "Created with Cheat Engine for Linux by an AI agent.";
+        table.entries = s.entries();
+        const bool saved = extension == ".ct" ? table.save(path) : table.saveJson(path);
+        if (!saved) return fail("could not write " + path);
+        return ok(Value::object().set("saved", Value::string(std::filesystem::absolute(path).string()))
+                                 .set("records", Value::number(static_cast<uint64_t>(s.records.size()))));
+    }
+    return std::nullopt;
+}
+
 
 } // namespace ce

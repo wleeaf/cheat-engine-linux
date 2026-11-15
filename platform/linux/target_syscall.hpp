@@ -40,6 +40,8 @@ std::expected<TargetSyscallPlan, std::error_code> targetSyscallPlan(
     const TargetMachine& machine, InstructionMode mode, MemorySyscall operation,
     std::array<uint64_t, 6> arguments);
 
+struct MemorySyscallSteps;
+
 class TargetSyscallRecovery;
 struct TargetTaskIdentity {
     pid_t tid=0;
@@ -84,6 +86,7 @@ private:
     struct State;
     explicit TargetSyscallRecovery(std::shared_ptr<State> state) : state_(std::move(state)) {}
     std::shared_ptr<State> state_;
+    friend struct MemorySyscallSteps;   // executeMemorySyscallInternal's parts (target_syscall.cpp)
     friend std::expected<uint64_t, TargetSyscallFailure> executeMemorySyscallInternal(
         pid_t, const TargetMachine&, MemorySyscall, std::array<uint64_t, 6>, const TargetProcessIdentity*,
         const TargetSyscallRecovery*, bool, uintptr_t, bool,const NativeMemoryImage*,bool);

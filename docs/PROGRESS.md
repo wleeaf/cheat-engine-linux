@@ -1,7 +1,10 @@
 # Compatibility work: progress and remaining work
 
-Checkpoint: 7 October 2026. This records the work accumulated since release
-0.9.5 and accompanies the current source checkpoint. The full six-area
+A log of the compatibility work since release 0.9.5, newest entry first; the
+latest is from 14 November 2026. The six-area backlog, with what is done and
+what remains in each area, is at the end, from
+[1. Feature-by-target compatibility matrix](#1-feature-by-target-compatibility-matrix)
+on. The checkpoint of 7 October 2026 below set that backlog out. The full six-area
 compatibility objective is **not complete**. A target being recognized, a build
 succeeding, or a generic byte read working does not prove that debugging,
 injection, runtime objects and every frontend work on that target.

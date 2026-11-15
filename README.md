@@ -40,18 +40,20 @@ of running the Windows build under Wine, and it opens your existing `.CT` tables
 Download the `.deb` or AppImage from the [latest release](../../releases/latest).
 The `.deb` grants the permission to read other processes during installation.
 
-To build from source:
+To build from source you need a C++23 compiler (GCC 13 or newer) and Qt 6.4 or
+newer, which Ubuntu 24.04, Debian 13 and Fedora 39 or later provide:
 
 ```bash
-sudo apt install build-essential cmake ninja-build qt6-base-dev zlib1g-dev \
-                 libdw-dev libasound2-dev libsoundtouch-dev
+sudo apt install build-essential cmake ninja-build qt6-base-dev qt6-tools-dev \
+                 qt6-l10n-tools zlib1g-dev libdw-dev libasound2-dev libsoundtouch-dev
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 cmake --install build --prefix ~/.local    # adds Cheat Engine to your app menu
 ```
 
 Capstone and Keystone are downloaded and built automatically if your system
-doesn't provide them. Reading another process needs ptrace permission; if a
+doesn't provide them. Without `qt6-tools-dev` and `qt6-l10n-tools` the build
+still works, but the interface translations are left out. Reading another process needs ptrace permission; if a
 target can't be read, the app explains why and offers to grant access.
 
 ## Usage

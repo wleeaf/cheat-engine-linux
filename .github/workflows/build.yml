@@ -16,6 +16,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  arm32-compatibility:
+    uses: ./.github/workflows/arm32-compatibility.yml
+
   arm64-compatibility:
     uses: ./.github/workflows/arm64-compatibility.yml
 
@@ -71,6 +74,8 @@ jobs:
             libasound2-dev \
             libsoundtouch-dev \
             linux-headers-generic \
+            file \
+            wget \
             ca-certificates
 
       - name: Cache FetchContent + build directory
@@ -296,6 +301,22 @@ jobs:
             sudo python3 test/runtime_target_gate.py build --only coreclr \
               --dotnet-dll build/jit-fixture-dotnet/out/jit-fixture-dotnet.dll 2>&1 | sed "s/^/round $round: /"
           done
+
+      # The release builds these from the same tree; building them here
+      # makes a packaging break show up on the change that caused it.
+      - name: Build the .deb and the AppImage
+        run: |
+          set -e
+          # The AppImage script configures the /usr prefix the .deb needs too.
+          CECORE_BUILD_JOBS="$(nproc)" bash packaging/build-appimage.sh
+          (cd build && cpack -G DEB)
+          appimage=$(ls build/CheatEngine-*-x86_64.AppImage)
+          file "$appimage"
+          dpkg-deb --info build/cheat-engine-linux_*_amd64.deb | grep -E "Package|Version|Depends"
+          # The bundled program starts and reports the project version.
+          version=$(sed -nE 's/^project\(cecore VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
+          APPIMAGE_EXTRACT_AND_RUN=1 QT_QPA_PLATFORM=offscreen timeout 60 "$appimage" --version | tee build/appimage-version.txt
+          grep -q "$version" build/appimage-version.txt
 
       - name: Build kernel module (out-of-tree)
         run: |
